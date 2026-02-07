@@ -1,0 +1,6 @@
+{
+  "$schema": "https://unpkg.com/partykit/schema.json",
+  "name": "civup-party",
+  "main": "src/draft-room.ts",
+  "compatibilityDate": "2025-01-01"
+}
