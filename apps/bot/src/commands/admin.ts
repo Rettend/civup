@@ -56,8 +56,7 @@ export const command_admin = factory.command<Var>(
       // ── match cancel ──────────────────────────────────
       case 'match cancel': {
         const matchId = c.var.match_id
-        if (!matchId)
-          return c.res('Please provide a match ID.')
+        if (!matchId) return c.res('Please provide a match ID.')
 
         return c.resDefer(async (c) => {
           const _db = createDb(c.env.DB)
@@ -70,8 +69,7 @@ export const command_admin = factory.command<Var>(
       case 'match resolve': {
         const matchId = c.var.match_id
         const result = c.var.result
-        if (!matchId || !result)
-          return c.res('Please provide match ID and result.')
+        if (!matchId || !result) return c.res('Please provide match ID and result.')
 
         return c.resDefer(async (c) => {
           const _db = createDb(c.env.DB)
@@ -83,8 +81,7 @@ export const command_admin = factory.command<Var>(
       // ── season start ──────────────────────────────────
       case 'season start': {
         const name = c.var.name
-        if (!name)
-          return c.res('Please provide a season name.')
+        if (!name) return c.res('Please provide a season name.')
 
         return c.resDefer(async (c) => {
           const _db = createDb(c.env.DB)
@@ -137,8 +134,7 @@ export const command_admin = factory.command<Var>(
       case 'reset': {
         const playerId = c.var.player
         const mode = c.var.mode
-        if (!playerId || !mode)
-          return c.res('Please provide player and mode.')
+        if (!playerId || !mode) return c.res('Please provide player and mode.')
 
         return c.resDefer(async (c) => {
           const _db = createDb(c.env.DB)

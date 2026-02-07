@@ -6,7 +6,7 @@
     "test": "bun test",
     "test:ui": "bun-test-ui -p 51299",
     "lint": "eslint . --fix",
-    "check": "tsgo --noEmit",
+    "check": "bun run --filter '*' check",
 
     "bot:dev": "bun --filter civup-bot run dev",
     "bot:register": "bun --filter civup-bot run register",

@@ -16,8 +16,7 @@ export const command_stats = factory.command<Var>(
       ?? c.interaction.member?.user?.id
       ?? c.interaction.user?.id
 
-    if (!targetId)
-      return c.res('Could not identify the player.')
+    if (!targetId) return c.res('Could not identify the player.')
 
     return c.resDefer(async (c) => {
       const db = createDb(c.env.DB)

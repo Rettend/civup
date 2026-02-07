@@ -112,8 +112,7 @@ function processBan(
   }
 
   const step = state.steps[state.currentStepIndex]
-  if (!step)
-    return { error: 'No current step' }
+  if (!step) return { error: 'No current step' }
 
   if (step.action !== 'ban') {
     return { error: 'Current step is not a ban phase' }
@@ -198,8 +197,7 @@ function processPick(
   }
 
   const step = state.steps[state.currentStepIndex]
-  if (!step)
-    return { error: 'No current step' }
+  if (!step) return { error: 'No current step' }
 
   if (step.action !== 'pick') {
     return { error: 'Current step is not a pick phase' }
@@ -282,8 +280,7 @@ function processTimeout(
   }
 
   const step = state.steps[state.currentStepIndex]
-  if (!step)
-    return { error: 'No current step' }
+  if (!step) return { error: 'No current step' }
 
   const events: DraftEvent[] = []
   const newSubmissions = { ...state.submissions }
@@ -294,14 +291,12 @@ function processTimeout(
   for (const seat of activeSeats) {
     const existing = newSubmissions[seat]
     const needed = step.count - (existing?.length ?? 0)
-    if (needed <= 0)
-      continue
+    if (needed <= 0) continue
 
     // Pick random civs from available pool
     const randomPicks: string[] = []
     for (let i = 0; i < needed; i++) {
-      if (available.length === 0)
-        break
+      if (available.length === 0) break
       const idx = Math.floor(Math.random() * available.length)
       randomPicks.push(available[idx]!)
       if (step.action === 'pick') {
@@ -326,20 +321,17 @@ function processTimeout(
 // ── Internal Helpers ────────────────────────────────────────
 
 function isSeatActive(step: DraftStep, seatIndex: number, totalSeats: number): boolean {
-  if (step.seats === 'all')
-    return seatIndex >= 0 && seatIndex < totalSeats
+  if (step.seats === 'all') return seatIndex >= 0 && seatIndex < totalSeats
   return step.seats.includes(seatIndex)
 }
 
 function getActiveSeatCount(step: DraftStep, totalSeats: number): number {
-  if (step.seats === 'all')
-    return totalSeats
+  if (step.seats === 'all') return totalSeats
   return step.seats.length
 }
 
 function getActiveSeats(step: DraftStep, totalSeats: number): number[] {
-  if (step.seats === 'all')
-    return Array.from({ length: totalSeats }, (_, i) => i)
+  if (step.seats === 'all') return Array.from({ length: totalSeats }, (_, i) => i)
   return step.seats
 }
 
@@ -448,22 +440,19 @@ function advanceStep(
 
 /** Get the current step, or null if draft is not active */
 export function getCurrentStep(state: DraftState): DraftStep | null {
-  if (state.status !== 'active')
-    return null
+  if (state.status !== 'active') return null
   return state.steps[state.currentStepIndex] ?? null
 }
 
 /** Get which seats need to submit in the current step */
 export function getPendingSeats(state: DraftState): number[] {
   const step = getCurrentStep(state)
-  if (!step)
-    return []
+  if (!step) return []
 
   const activeSeats = getActiveSeats(step, state.seats.length)
   return activeSeats.filter((seat) => {
     const submissions = state.submissions[seat]
-    if (!submissions)
-      return true
+    if (!submissions) return true
     return submissions.length < step.count
   })
 }
