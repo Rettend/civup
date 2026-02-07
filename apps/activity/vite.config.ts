@@ -1,3 +1,4 @@
+import type { Plugin } from 'vite'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { cloudflare } from '@cloudflare/vite-plugin'
@@ -24,6 +25,60 @@ function loadDevVars(): Record<string, string> {
   }
 }
 
+/** Extracts raw CSS from Vite's JS wrapper for a CSS virtual module. */
+function extractCssFromJsModule(js: string): string | null {
+  // Vite wraps CSS in: __vite__css = "...actual css..."
+  const match = js.match(/__vite__css\s*=\s*"([\s\S]*?)"/)
+  if (match?.[1]) {
+    return match[1]
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\')
+  }
+  return null
+}
+
+/**
+ * Serves UnoCSS as a real CSS file in dev mode via a middleware endpoint,
+ * bypassing Vite's JS-based style injection that fails in Discord Desktop's Electron iframe.
+ */
+function devUnoCssLink(): Plugin {
+  return {
+    name: 'dev-unocss-link',
+    apply: 'serve',
+
+    configureServer(server) {
+      server.middlewares.use('/__dev/uno.css', async (_req, res) => {
+        try {
+          const result = await server.transformRequest('virtual:uno.css')
+          const css = result?.code ? extractCssFromJsModule(result.code) : null
+
+          res.setHeader('Content-Type', 'text/css')
+          res.setHeader('Cache-Control', 'no-store')
+          res.end(css ?? '/* UnoCSS: no styles extracted */')
+        }
+        catch (error) {
+          console.error('[dev-unocss-link] Failed to serve UnoCSS:', error)
+          res.statusCode = 500
+          res.setHeader('Content-Type', 'text/css')
+          res.end(`/* UnoCSS extraction error: ${error} */`)
+        }
+      })
+    },
+
+    transformIndexHtml() {
+      return [
+        {
+          tag: 'link',
+          attrs: { rel: 'stylesheet', href: '/__dev/uno.css' },
+          injectTo: 'head',
+        },
+      ]
+    },
+  }
+}
+
 const devVars = loadDevVars()
 
 export default defineConfig({
@@ -37,7 +92,10 @@ export default defineConfig({
       'activity-dev.rettend.me',
     ],
     headers: {
-      'Cache-Control': 'no-store',
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Surrogate-Control': 'no-store',
     },
   },
   define: {
@@ -47,6 +105,7 @@ export default defineConfig({
   },
   plugins: [
     UnoCSS(),
+    devUnoCssLink(),
     solid(),
     cloudflare(),
   ],
