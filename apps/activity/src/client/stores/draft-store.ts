@@ -10,6 +10,8 @@ export interface DraftStore {
   seatIndex: number | null
   /** Server-provided timer end timestamp (ms) */
   timerEndsAt: number | null
+  /** When draft completed (ms timestamp) */
+  completedAt: number | null
   /** Recent events for animation triggers */
   lastEvents: DraftEvent[]
 }
@@ -20,6 +22,7 @@ const [draftStore, setDraftStore] = createStore<DraftStore>({
   state: null,
   seatIndex: null,
   timerEndsAt: null,
+  completedAt: null,
   lastEvents: [],
 })
 
@@ -27,19 +30,31 @@ export { draftStore }
 
 // ── Actions ────────────────────────────────────────────────
 
-export function initDraft(state: DraftState, seatIndex: number | null, timerEndsAt: number | null) {
+export function initDraft(
+  state: DraftState,
+  seatIndex: number | null,
+  timerEndsAt: number | null,
+  completedAt: number | null,
+) {
   setDraftStore({
     state,
     seatIndex,
     timerEndsAt,
+    completedAt,
     lastEvents: [],
   })
 }
 
-export function updateDraft(state: DraftState, events: DraftEvent[], timerEndsAt: number | null) {
+export function updateDraft(
+  state: DraftState,
+  events: DraftEvent[],
+  timerEndsAt: number | null,
+  completedAt: number | null,
+) {
   setDraftStore(produce((s) => {
     s.state = state
     s.timerEndsAt = timerEndsAt
+    s.completedAt = completedAt
     s.lastEvents = events
   }))
 }

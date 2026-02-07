@@ -1,4 +1,11 @@
-import type { ClientMessage, DraftEvent, DraftState, RoomConfig, ServerMessage } from '@civup/game'
+import type {
+  ClientMessage,
+  DraftCompleteWebhookPayload,
+  DraftEvent,
+  DraftState,
+  RoomConfig,
+  ServerMessage,
+} from '@civup/game'
 import type * as Party from 'partykit/server'
 import {
   createDraft,
@@ -60,6 +67,7 @@ export default class DraftRoom implements Party.Server {
     await this.room.storage.put('state', state)
     await this.room.storage.put('timerEndsAt', null)
     await this.room.storage.put('alarmStepIndex', -1)
+    await this.room.storage.put('completedAt', null)
 
     return json({ ok: true, matchId: config.matchId }, 201)
   }
@@ -70,7 +78,8 @@ export default class DraftRoom implements Party.Server {
       return json({ error: 'Room not initialized' }, 404)
     }
     const timerEndsAt = await this.room.storage.get<number | null>('timerEndsAt')
-    return json({ state, timerEndsAt })
+    const completedAt = await this.room.storage.get<number | null>('completedAt')
+    return json({ state, timerEndsAt, completedAt })
   }
 
   // ── WebSocket: Connection ──────────────────────────────────
@@ -89,6 +98,7 @@ export default class DraftRoom implements Party.Server {
     }
 
     const timerEndsAt = await this.room.storage.get<number | null>('timerEndsAt')
+    const completedAt = await this.room.storage.get<number | null>('completedAt')
     const seatIndex = playerId
       ? state.seats.findIndex(s => s.playerId === playerId)
       : -1
@@ -98,6 +108,7 @@ export default class DraftRoom implements Party.Server {
       state: this.censorState(state, seatIndex),
       seatIndex: seatIndex >= 0 ? seatIndex : null,
       timerEndsAt: timerEndsAt ?? null,
+      completedAt: completedAt ?? null,
     })
   }
 
@@ -243,6 +254,7 @@ export default class DraftRoom implements Party.Server {
 
   private async applyResult(newState: DraftState, events: DraftEvent[]) {
     await this.room.storage.put('state', newState)
+    const config = await this.room.storage.get<RoomConfig>('config')
 
     // Set timer when a new step starts
     const stepAdvanced = events.some(
@@ -250,6 +262,7 @@ export default class DraftRoom implements Party.Server {
     )
 
     let timerEndsAt = await this.room.storage.get<number | null>('timerEndsAt')
+    let completedAt = await this.room.storage.get<number | null>('completedAt')
 
     if (stepAdvanced && newState.status === 'active') {
       const step = getCurrentStep(newState)
@@ -269,16 +282,23 @@ export default class DraftRoom implements Party.Server {
       timerEndsAt = null
       await this.room.storage.deleteAlarm()
       await this.room.storage.put('timerEndsAt', null)
-      // TODO: notify bot via webhook when draft completes
+      if (completedAt == null) {
+        completedAt = Date.now()
+        await this.room.storage.put('completedAt', completedAt)
+      }
+      if (config) {
+        await this.notifyDraftComplete(newState, config, completedAt)
+      }
     }
 
-    this.broadcastUpdate(newState, events, timerEndsAt ?? null)
+    this.broadcastUpdate(newState, events, timerEndsAt ?? null, completedAt ?? null)
   }
 
   private broadcastUpdate(
     state: DraftState,
     events: DraftEvent[],
     timerEndsAt: number | null,
+    completedAt: number | null,
   ) {
     // During blind ban phases, each player sees only their own pending bans
     if (state.pendingBlindBans.length > 0) {
@@ -294,6 +314,7 @@ export default class DraftRoom implements Party.Server {
           state: this.censorState(state, seatIndex),
           events: this.censorEvents(events, seatIndex),
           timerEndsAt,
+          completedAt,
         })
       }
     }
@@ -304,6 +325,7 @@ export default class DraftRoom implements Party.Server {
         state,
         events,
         timerEndsAt,
+        completedAt,
       } satisfies ServerMessage))
     }
   }
@@ -335,6 +357,47 @@ export default class DraftRoom implements Party.Server {
 
   private send(connection: Party.Connection, message: ServerMessage) {
     connection.send(JSON.stringify(message))
+  }
+
+  private async notifyDraftComplete(state: DraftState, config: RoomConfig, completedAt: number) {
+    if (!config.webhookUrl) {
+      console.warn(`No draft webhook URL configured for match ${state.matchId}`)
+      return
+    }
+
+    console.log(`Sending draft-complete webhook for match ${state.matchId} -> ${config.webhookUrl}`)
+
+    const payload: DraftCompleteWebhookPayload = {
+      matchId: state.matchId,
+      completedAt,
+      state,
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+    if (config.webhookSecret) {
+      headers['X-CivUp-Webhook-Secret'] = config.webhookSecret
+    }
+
+    try {
+      const res = await fetch(config.webhookUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      })
+
+      if (!res.ok) {
+        const detail = await res.text()
+        console.error(`Draft webhook failed for match ${state.matchId}: ${res.status} ${detail}`)
+        return
+      }
+
+      console.log(`Draft-complete webhook delivered for match ${state.matchId}`)
+    }
+    catch (error) {
+      console.error(`Draft webhook request failed for match ${state.matchId}:`, error)
+    }
   }
 }
 

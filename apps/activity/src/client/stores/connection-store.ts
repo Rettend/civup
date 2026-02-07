@@ -7,6 +7,23 @@ import { initDraft, updateDraft } from './draft-store'
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
 
+export interface MatchStateSnapshot {
+  match: {
+    id: string
+    gameMode: string
+    status: string
+    createdAt: number
+    completedAt: number | null
+  }
+  participants: {
+    matchId: string
+    playerId: string
+    team: number | null
+    civId: string | null
+    placement: number | null
+  }[]
+}
+
 // ── State ──────────────────────────────────────────────────
 
 const [connectionStatus, setConnectionStatus] = createSignal<ConnectionStatus>('disconnected')
@@ -137,15 +154,71 @@ export async function fetchMatchForUser(
   }
 }
 
+/** Fetch full match state snapshot from bot API */
+export async function fetchMatchState(matchId: string): Promise<MatchStateSnapshot | null> {
+  try {
+    const res = await fetch(`/api/match/state/${matchId}`)
+    if (!res.ok) return null
+    return await res.json() as MatchStateSnapshot
+  }
+  catch (err) {
+    console.error('Failed to fetch match state:', err)
+    return null
+  }
+}
+
+/** Report result from the activity (team games use "A" or "B") */
+export async function reportMatchResult(
+  matchId: string,
+  reporterId: string,
+  placements: string,
+): Promise<{ ok: true } | { ok: false, error: string }> {
+  try {
+    const res = await fetch(`/api/match/${matchId}/report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reporterId, placements }),
+    })
+    const data = await res.json() as { error?: string }
+    if (!res.ok) return { ok: false, error: data.error ?? 'Failed to report result' }
+    return { ok: true }
+  }
+  catch (err) {
+    console.error('Failed to report match result:', err)
+    return { ok: false, error: 'Network error while reporting result' }
+  }
+}
+
+/** Confirm a previously reported result */
+export async function confirmMatchResult(
+  matchId: string,
+  confirmerId: string,
+): Promise<{ ok: true } | { ok: false, error: string }> {
+  try {
+    const res = await fetch(`/api/match/${matchId}/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirmerId }),
+    })
+    const data = await res.json() as { error?: string }
+    if (!res.ok) return { ok: false, error: data.error ?? 'Failed to confirm result' }
+    return { ok: true }
+  }
+  catch (err) {
+    console.error('Failed to confirm match result:', err)
+    return { ok: false, error: 'Network error while confirming result' }
+  }
+}
+
 // ── Handle Messages ────────────────────────────────────────
 
 function handleServerMessage(msg: ServerMessage) {
   switch (msg.type) {
     case 'init':
-      initDraft(msg.state, msg.seatIndex, msg.timerEndsAt)
+      initDraft(msg.state, msg.seatIndex, msg.timerEndsAt, msg.completedAt)
       break
     case 'update':
-      updateDraft(msg.state, msg.events, msg.timerEndsAt)
+      updateDraft(msg.state, msg.events, msg.timerEndsAt, msg.completedAt)
       break
     case 'error':
       console.error('Server error:', msg.message)
