@@ -10,7 +10,6 @@
     "register": "bun --env-file=.dev.vars src/register.ts",
     "check": "tsgo --noEmit",
     "generate": "wrangler types",
-    "tunnel": "ngrok http 8787",
     "l:migrate": "wrangler d1 migrations apply civup --local",
     "r:migrate": "wrangler d1 migrations apply civup --remote"
   },

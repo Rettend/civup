@@ -40,10 +40,6 @@ type ReportResult
   = | { match: MatchRow, participants: ParticipantRow[] }
     | { error: string }
 
-type ConfirmResult
-  = | { match: MatchRow, participants: ParticipantRow[] }
-    | { error: string }
-
 interface CreateDraftMatchInput {
   matchId: string
   mode: GameMode
@@ -58,6 +54,22 @@ interface ActivateDraftInput {
 type ActivateDraftResult
   = | { match: MatchRow, participants: ParticipantRow[] }
     | { error: string }
+
+function getHostIdFromDraftData(draftData: string | null): string | null {
+  if (!draftData) return null
+  try {
+    const parsed = JSON.parse(draftData) as {
+      state?: {
+        seats?: Array<{ playerId?: string }>
+      }
+    }
+    const hostId = parsed.state?.seats?.[0]?.playerId
+    return typeof hostId === 'string' && hostId.length > 0 ? hostId : null
+  }
+  catch {
+    return null
+  }
+}
 
 // ── Draft lifecycle: create DB rows when queue pops ───────────
 
@@ -264,6 +276,7 @@ export async function activateDraftMatch(
 
 export async function reportMatch(
   db: Database,
+  kv: KVNamespace,
   input: ReportInput,
 ): Promise<ReportResult> {
   // Fetch the match
@@ -290,6 +303,11 @@ export async function reportMatch(
   const isParticipant = participantRows.some(p => p.playerId === input.reporterId)
   if (!isParticipant) {
     return { error: 'Only match participants can report results.' }
+  }
+
+  const hostId = getHostIdFromDraftData(match.draftData)
+  if (hostId && input.reporterId !== hostId) {
+    return { error: 'Only the match host can report the result.' }
   }
 
   const gameMode = match.gameMode as GameMode
@@ -358,56 +376,32 @@ export async function reportMatch(
     }
   }
 
-  // Update match status to pending confirmation
-  // (we don't complete it yet — needs a second person to confirm)
-
-  // Fetch updated participants
   const updatedParticipants = await db
     .select()
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, input.matchId))
 
-  return { match, participants: updatedParticipants }
+  if (updatedParticipants.some(p => p.placement === null)) {
+    return { error: 'Could not resolve placements for all participants.' }
+  }
+
+  const finalized = await finalizeReportedMatch(db, kv, match, updatedParticipants)
+  if ('error' in finalized) {
+    return finalized
+  }
+
+  return finalized
 }
 
-// ── Confirm a match result and apply ratings ────────────────
+// ── Finalize a reported match and apply ratings ──────────────
 
-export async function confirmMatch(
+async function finalizeReportedMatch(
   db: Database,
   kv: KVNamespace,
-  matchId: string,
-  confirmerId: string,
-): Promise<ConfirmResult> {
-  const [match] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, matchId))
-    .limit(1)
-
-  if (!match) {
-    return { error: `Match **${matchId}** not found.` }
-  }
-
-  if (match.status !== 'active') {
-    return { error: `Match **${matchId}** is not active.` }
-  }
-
-  const participantRows = await db
-    .select()
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, matchId))
-
-  // Verify confirmer is a participant (and not the same as reporter)
-  const isParticipant = participantRows.some(p => p.playerId === confirmerId)
-  if (!isParticipant) {
-    return { error: 'Only match participants can confirm results.' }
-  }
-
-  // Check all placements are set
-  if (participantRows.some(p => p.placement === null)) {
-    return { error: 'Result has not been reported yet.' }
-  }
-
+  match: { id: string, gameMode: string },
+  participantRows: ParticipantRow[],
+): Promise<ReportResult> {
+  const matchId = match.id
   const gameMode = match.gameMode as GameMode
   const leaderboardMode = toLeaderboardMode(gameMode)
 
