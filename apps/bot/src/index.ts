@@ -22,7 +22,6 @@ app.use('/api/*', cors())
 app.get('/api/match/:channelId', async (c) => {
   const channelId = c.req.param('channelId')
   const matchId = await getMatchForChannel(c.env.KV, channelId)
-  console.log(`[activity] match lookup channel=${channelId} match=${matchId ?? 'null'}`)
 
   if (!matchId) {
     return c.json({ error: 'No active match for this channel' }, 404)
@@ -35,7 +34,6 @@ app.get('/api/match/:channelId', async (c) => {
 app.get('/api/match/user/:userId', async (c) => {
   const userId = c.req.param('userId')
   const matchId = await getMatchForUser(c.env.KV, userId)
-  console.log(`[activity] match lookup user=${userId} match=${matchId ?? 'null'}`)
 
   if (!matchId) {
     return c.json({ error: 'No active match for this user' }, 404)

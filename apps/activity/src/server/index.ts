@@ -2,6 +2,7 @@ interface Env {
   DISCORD_CLIENT_ID: string
   DISCORD_CLIENT_SECRET: string
   BOT_HOST?: string
+  PARTY_HOST?: string
 }
 
 export default {
@@ -11,6 +12,11 @@ export default {
     // POST /api/token — Discord OAuth code → access_token exchange
     if (url.pathname === '/api/token' && request.method === 'POST') {
       return handleTokenExchange(request, env)
+    }
+
+    // /api/parties/* — proxy HTTP + WebSocket to PartyKit
+    if (url.pathname.startsWith('/api/parties/')) {
+      return handlePartyProxy(request, url, env)
     }
 
     // GET /api/match/:channelId and /api/match/user/:userId — proxy to bot API
@@ -27,7 +33,7 @@ export default {
 
 async function handleMatchProxy(url: URL, env: Env): Promise<Response> {
   try {
-    const botHost = normalizeHost(env.BOT_HOST)
+    const botHost = normalizeHost(env.BOT_HOST, 'http://localhost:8787')
     const targetUrl = `${botHost}${url.pathname}${url.search}`
     const response = await fetch(targetUrl, {
       method: 'GET',
@@ -46,6 +52,19 @@ async function handleMatchProxy(url: URL, env: Env): Promise<Response> {
   catch (err) {
     console.error('Match lookup proxy error:', err)
     return json({ error: 'Match lookup proxy failed' }, 502)
+  }
+}
+
+async function handlePartyProxy(request: Request, url: URL, env: Env): Promise<Response> {
+  try {
+    const partyHost = normalizeHost(env.PARTY_HOST, 'http://localhost:1999')
+    const targetPath = url.pathname.replace(/^\/api\/parties/, '/parties')
+    const targetUrl = `${partyHost}${targetPath}${url.search}`
+    return fetch(new Request(targetUrl, request))
+  }
+  catch (err) {
+    console.error('Party proxy error:', err)
+    return json({ error: 'Party proxy failed' }, 502)
   }
 }
 
@@ -90,8 +109,8 @@ function json(data: unknown, status = 200): Response {
   })
 }
 
-function normalizeHost(host?: string): string {
-  const raw = (host && host.trim()) || 'http://localhost:8787'
+function normalizeHost(host: string | undefined, fallback: string): string {
+  const raw = (host && host.trim()) || fallback
   const withProtocol = raw.startsWith('http://') || raw.startsWith('https://')
     ? raw
     : `https://${raw}`
