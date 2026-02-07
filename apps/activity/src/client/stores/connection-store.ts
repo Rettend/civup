@@ -189,27 +189,6 @@ export async function reportMatchResult(
   }
 }
 
-/** Confirm a previously reported result */
-export async function confirmMatchResult(
-  matchId: string,
-  confirmerId: string,
-): Promise<{ ok: true } | { ok: false, error: string }> {
-  try {
-    const res = await fetch(`/api/match/${matchId}/confirm`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ confirmerId }),
-    })
-    const data = await res.json() as { error?: string }
-    if (!res.ok) return { ok: false, error: data.error ?? 'Failed to confirm result' }
-    return { ok: true }
-  }
-  catch (err) {
-    console.error('Failed to confirm match result:', err)
-    return { ok: false, error: 'Network error while confirming result' }
-  }
-}
-
 // ── Handle Messages ────────────────────────────────────────
 
 function handleServerMessage(msg: ServerMessage) {

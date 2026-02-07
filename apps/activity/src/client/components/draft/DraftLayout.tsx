@@ -1,6 +1,5 @@
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import {
-  confirmMatchResult,
   draftStore,
   fetchMatchState,
   reportMatchResult,
@@ -80,8 +79,9 @@ export function DraftLayout(props: DraftLayoutProps) {
 function PostDraftScreen(props: { matchId: string }) {
   const state = () => draftStore.state
   const [elapsedMs, setElapsedMs] = createSignal(0)
-  const [status, setStatus] = createSignal<'idle' | 'loading' | 'reported' | 'confirming' | 'confirmed' | 'error'>('idle')
-  const [message, setMessage] = createSignal('Share winner here, then confirm once all agree.')
+  const [ffaPlacements, setFfaPlacements] = createSignal('')
+  const [status, setStatus] = createSignal<'idle' | 'submitting' | 'completed' | 'error'>('idle')
+  const [message, setMessage] = createSignal('Host can report the winner when the game ends.')
 
   createEffect(() => {
     const completedAt = draftStore.completedAt
@@ -101,18 +101,17 @@ function PostDraftScreen(props: { matchId: string }) {
     if (!snapshot) return
 
     if (snapshot.match.status === 'completed') {
-      setStatus('confirmed')
+      setStatus('completed')
       setMessage('Result already confirmed. Ratings are updated.')
-      return
-    }
-
-    const allPlaced = snapshot.participants.length > 0
-      && snapshot.participants.every(p => p.placement !== null)
-    if (allPlaced) {
-      setStatus('reported')
-      setMessage('Result already reported. Confirm to apply ratings.')
     }
   })
+
+  const hostId = () => state()?.seats[0]?.playerId ?? null
+  const amHost = () => {
+    const currentUserId = userId()
+    if (!currentUserId) return false
+    return currentUserId === hostId()
+  }
 
   const isTeamMode = () => {
     const s = state()
@@ -142,7 +141,7 @@ function PostDraftScreen(props: { matchId: string }) {
     }))
   }
 
-  const canInteract = () => status() !== 'loading' && status() !== 'confirming' && status() !== 'confirmed'
+  const canInteract = () => amHost() && status() !== 'submitting' && status() !== 'completed'
 
   const reportWinner = async (team: 'A' | 'B') => {
     const currentUserId = userId()
@@ -152,7 +151,7 @@ function PostDraftScreen(props: { matchId: string }) {
       return
     }
 
-    setStatus('loading')
+    setStatus('submitting')
     const result = await reportMatchResult(props.matchId, currentUserId, team)
     if (!result.ok) {
       setStatus('error')
@@ -160,11 +159,11 @@ function PostDraftScreen(props: { matchId: string }) {
       return
     }
 
-    setStatus('reported')
-    setMessage(`Team ${team} reported as winner. Any participant can confirm now.`)
+    setStatus('completed')
+    setMessage(`Team ${team} reported by host. Ratings updated.`)
   }
 
-  const confirmResult = async () => {
+  const reportFfa = async () => {
     const currentUserId = userId()
     if (!currentUserId) {
       setStatus('error')
@@ -172,16 +171,23 @@ function PostDraftScreen(props: { matchId: string }) {
       return
     }
 
-    setStatus('confirming')
-    const result = await confirmMatchResult(props.matchId, currentUserId)
+    const placements = ffaPlacements().trim()
+    if (!placements) {
+      setStatus('error')
+      setMessage('Enter placement order first (one player mention/id per line).')
+      return
+    }
+
+    setStatus('submitting')
+    const result = await reportMatchResult(props.matchId, currentUserId, placements)
     if (!result.ok) {
       setStatus('error')
       setMessage(result.error)
       return
     }
 
-    setStatus('confirmed')
-    setMessage('Result confirmed. Leaderboard ratings updated.')
+    setStatus('completed')
+    setMessage('FFA result reported by host. Ratings updated.')
   }
 
   return (
@@ -227,12 +233,25 @@ function PostDraftScreen(props: { matchId: string }) {
           <Show
             when={isTeamMode()}
             fallback={(
-              <div class="text-sm text-text-secondary">
-                FFA reporting from activity is not wired yet. Use
-                {' '}
-                <code class="text-accent-gold">/report {props.matchId}</code>
-                {' '}
-                in Discord for now.
+              <div class="flex w-full flex-col gap-3">
+                <div class="text-sm text-text-secondary">
+                  Enter final standings (winner first), one player mention or ID per line.
+                </div>
+                <textarea
+                  value={ffaPlacements()}
+                  onInput={e => setFfaPlacements(e.currentTarget.value)}
+                  placeholder={state()?.seats.map(seat => `<@${seat.playerId}>`).join('\n')}
+                  class="h-32 w-full rounded-md border border-border-subtle bg-bg-secondary/70 px-3 py-2 text-sm text-text-primary outline-none focus:border-accent-gold/60"
+                />
+                <div>
+                  <Button
+                    size="lg"
+                    disabled={!canInteract() || ffaPlacements().trim().length === 0}
+                    onClick={reportFfa}
+                  >
+                    Submit FFA Result
+                  </Button>
+                </div>
               </div>
             )}
           >
@@ -252,14 +271,12 @@ function PostDraftScreen(props: { matchId: string }) {
               >
                 Team B Won
               </Button>
-              <Button
-                variant="ghost"
-                size="lg"
-                disabled={status() === 'loading' || status() === 'confirming' || status() === 'confirmed'}
-                onClick={confirmResult}
-              >
-                {status() === 'confirming' ? 'Confirming...' : 'Confirm Result'}
-              </Button>
+            </div>
+          </Show>
+
+          <Show when={!amHost() && status() !== 'completed'}>
+            <div class="mt-3 text-sm text-text-muted">
+              Waiting for host to report the winner.
             </div>
           </Show>
 

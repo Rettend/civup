@@ -36,6 +36,9 @@ export default defineConfig({
     allowedHosts: [
       'activity-dev.rettend.me',
     ],
+    headers: {
+      'Cache-Control': 'no-store',
+    },
   },
   define: {
     'import.meta.env.VITE_BOT_HOST': JSON.stringify(devVars.BOT_HOST ?? ''),

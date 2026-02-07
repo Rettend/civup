@@ -1,5 +1,4 @@
 export {
-  confirmMatchResult,
   connectionError,
   connectionStatus,
   connectToRoom,
