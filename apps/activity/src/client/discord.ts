@@ -5,24 +5,10 @@ export type Auth = CommandResponse<'authenticate'>
 
 const CLIENT_ID = import.meta.env.VITE_DISCORD_CLIENT_ID as string
 
-/**
- * The Discord SDK instance. Created once at module level.
- *
- * The constructor just establishes the RPC transport to the Discord client —
- * no network calls happen until `.ready()` is awaited.
- */
+/** Discord SDK instance — constructor establishes RPC transport, nothing travels network until ready() */
 export const discordSdk = new DiscordSDK(CLIENT_ID)
 
-/**
- * Full Discord Activity auth flow:
- *
- * 1. `ready()`       — wait for the READY payload from the Discord client
- * 2. `authorize()`   — pop the OAuth permission modal, get an auth code
- * 3. `POST /api/token` — exchange the code for an access_token on our Worker
- * 4. `authenticate()` — authenticate the SDK session with the access_token
- *
- * Returns the authenticated user info.
- */
+/** Full Discord Activity auth flow: ready() -> authorize() -> POST /api/token -> authenticate() */
 export async function setupDiscordSdk(): Promise<Auth> {
   // Step 1: Wait for READY from Discord client
   await discordSdk.ready()

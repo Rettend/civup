@@ -12,14 +12,14 @@ export interface RoomConfig {
 
 // ── Client → Server Messages ────────────────────────────────
 
-export type ClientMessage =
-  | { type: 'start' }
-  | { type: 'ban'; civIds: string[] }
-  | { type: 'pick'; civId: string }
+export type ClientMessage
+  = | { type: 'start' }
+    | { type: 'ban', civIds: string[] }
+    | { type: 'pick', civId: string }
 
 // ── Server → Client Messages ────────────────────────────────
 
-export type ServerMessage =
-  | { type: 'init'; state: DraftState; seatIndex: number | null; timerEndsAt: number | null }
-  | { type: 'update'; state: DraftState; events: DraftEvent[]; timerEndsAt: number | null }
-  | { type: 'error'; message: string }
+export type ServerMessage
+  = | { type: 'init', state: DraftState, seatIndex: number | null, timerEndsAt: number | null }
+    | { type: 'update', state: DraftState, events: DraftEvent[], timerEndsAt: number | null }
+    | { type: 'error', message: string }

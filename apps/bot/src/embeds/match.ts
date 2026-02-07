@@ -44,8 +44,7 @@ export function matchEmbed(match: MatchData, participants: ParticipantData[]): E
     const teams: Record<number, ParticipantData[]> = {}
     for (const p of participants) {
       const team = p.team ?? 0
-      if (!teams[team])
-        teams[team] = []
+      if (!teams[team]) teams[team] = []
       teams[team]!.push(p)
     }
 

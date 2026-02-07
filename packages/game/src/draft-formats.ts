@@ -110,7 +110,6 @@ export const draftFormatMap = new Map<string, DraftFormat>(
 /** Get default format for a game mode */
 export function getDefaultFormat(gameMode: string): DraftFormat {
   const format = draftFormats.find(f => f.gameMode === gameMode)
-  if (!format)
-    throw new Error(`No format found for game mode: ${gameMode}`)
+  if (!format) throw new Error(`No format found for game mode: ${gameMode}`)
   return format
 }

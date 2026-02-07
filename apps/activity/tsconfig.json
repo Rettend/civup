@@ -4,6 +4,9 @@
     "jsx": "preserve",
     "jsxImportSource": "solid-js",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "paths": {
+      "~/*": ["./src/*"]
+    },
     "types": ["vite/client", "@cloudflare/workers-types/2023-07-01"]
   },
   "include": ["src"]

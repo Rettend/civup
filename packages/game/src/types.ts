@@ -12,8 +12,7 @@ export const LEADERBOARD_MODES = ['ffa', 'duel', 'teamers'] as const satisfies r
 
 /** Map game mode to its leaderboard track */
 export function toLeaderboardMode(mode: GameMode): LeaderboardMode {
-  if (mode === '2v2' || mode === '3v3')
-    return 'teamers'
+  if (mode === '2v2' || mode === '3v3') return 'teamers'
   return mode
 }
 
@@ -24,36 +23,26 @@ export function isTeamMode(mode: GameMode): mode is '2v2' | '3v3' {
 
 /** Number of teams for team modes */
 export function teamCount(mode: GameMode): number {
-  if (mode === 'duel')
-    return 2
-  if (mode === '2v2')
-    return 2
-  if (mode === '3v3')
-    return 2
+  if (mode === 'duel') return 2
+  if (mode === '2v2') return 2
+  if (mode === '3v3') return 2
   return 0 // FFA has no teams
 }
 
 /** Players per team */
 export function playersPerTeam(mode: GameMode): number {
-  if (mode === 'duel')
-    return 1
-  if (mode === '2v2')
-    return 2
-  if (mode === '3v3')
-    return 3
+  if (mode === 'duel') return 1
+  if (mode === '2v2') return 2
+  if (mode === '3v3') return 3
   return 1 // FFA: each player is their own "team" for draft purposes
 }
 
 /** Default player count for a mode */
 export function defaultPlayerCount(mode: GameMode): number {
-  if (mode === 'ffa')
-    return 8
-  if (mode === 'duel')
-    return 2
-  if (mode === '2v2')
-    return 4
-  if (mode === '3v3')
-    return 6
+  if (mode === 'ffa') return 8
+  if (mode === 'duel') return 2
+  if (mode === '2v2') return 4
+  if (mode === '3v3') return 6
   return 8
 }
 

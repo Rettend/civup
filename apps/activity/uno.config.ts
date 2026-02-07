@@ -18,11 +18,11 @@ export default defineConfig({
         hover: 'rgba(255, 255, 255, 0.08)',
       },
       accent: {
-        gold: '#c8aa6e',
+        'gold': '#c8aa6e',
         'gold-dim': '#7c6a3e',
-        red: '#e84057',
+        'red': '#e84057',
         'red-dim': '#8b2636',
-        blue: '#0ac8b9',
+        'blue': '#0ac8b9',
       },
       text: {
         primary: '#ffffff',

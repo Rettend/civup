@@ -42,8 +42,7 @@ function createFfaSeats(count = 8): DraftSeat[] {
 // Helper to start a draft and return the started state
 function startDraft(state: DraftState): DraftState {
   const result = processDraftInput(state, { type: 'START' })
-  if (isDraftError(result))
-    throw new Error(result.error)
+  if (isDraftError(result)) throw new Error(result.error)
   return result.state
 }
 
@@ -101,8 +100,7 @@ describe('processDraftInput — START', () => {
     const result = processDraftInput(draft, { type: 'START' })
 
     expect(isDraftError(result)).toBe(false)
-    if (isDraftError(result))
-      return
+    if (isDraftError(result)) return
 
     expect(result.state.status).toBe('active')
     expect(result.state.currentStepIndex).toBe(0)
@@ -117,8 +115,7 @@ describe('processDraftInput — START', () => {
     const result = processDraftInput(started, { type: 'START' })
 
     expect(isDraftError(result)).toBe(true)
-    if (!isDraftError(result))
-      return
+    if (!isDraftError(result)) return
     expect(result.error).toBe('Draft already started')
   })
 })
@@ -131,8 +128,7 @@ describe('processDraftInput — BAN (blind bans)', () => {
     const result = processDraftInput(draft, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
 
     expect(isDraftError(result)).toBe(false)
-    if (isDraftError(result))
-      return
+    if (isDraftError(result)) return
 
     expect(result.state.submissions[0]).toEqual(['civ-1', 'civ-2', 'civ-3'])
     expect(result.events).toContainEqual({
@@ -148,8 +144,7 @@ describe('processDraftInput — BAN (blind bans)', () => {
     const result = processDraftInput(draft, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
 
     expect(isDraftError(result)).toBe(false)
-    if (isDraftError(result))
-      return
+    if (isDraftError(result)) return
 
     // Civs should still be available (blind bans are pending)
     expect(result.state.availableCivIds).toContain('civ-1')
@@ -163,15 +158,13 @@ describe('processDraftInput — BAN (blind bans)', () => {
     // Seat 0 bans
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
     expect(isDraftError(result)).toBe(false)
-    if (isDraftError(result))
-      return
+    if (isDraftError(result)) return
     state = result.state
 
     // Seat 1 bans
     result = processDraftInput(state, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true)
     expect(isDraftError(result)).toBe(false)
-    if (isDraftError(result))
-      return
+    if (isDraftError(result)) return
 
     // Step should advance
     expect(result.state.currentStepIndex).toBe(1)
@@ -192,23 +185,20 @@ describe('processDraftInput — BAN (blind bans)', () => {
     const result = processDraftInput(draft, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-1', 'civ-3'] }, true)
 
     expect(isDraftError(result)).toBe(true)
-    if (!isDraftError(result))
-      return
+    if (!isDraftError(result)) return
     expect(result.error).toBe('Duplicate civs in ban submission')
   })
 
   test('rejects if seat already submitted', () => {
     let state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
     const result1 = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
-    if (isDraftError(result1))
-      throw new Error(result1.error)
+    if (isDraftError(result1)) throw new Error(result1.error)
     state = result1.state
 
     const result2 = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true)
 
     expect(isDraftError(result2)).toBe(true)
-    if (!isDraftError(result2))
-      return
+    if (!isDraftError(result2)) return
     expect(result2.error).toBe('Seat 0 has already submitted for this step')
   })
 
@@ -217,8 +207,7 @@ describe('processDraftInput — BAN (blind bans)', () => {
     const result = processDraftInput(draft, { type: 'BAN', seatIndex: 0, civIds: ['invalid-civ', 'civ-1', 'civ-2'] }, true)
 
     expect(isDraftError(result)).toBe(true)
-    if (!isDraftError(result))
-      return
+    if (!isDraftError(result)) return
     expect(result.error).toBe('Civ invalid-civ is not available')
   })
 
@@ -227,8 +216,7 @@ describe('processDraftInput — BAN (blind bans)', () => {
     const result = processDraftInput(draft, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2'] }, true)
 
     expect(isDraftError(result)).toBe(true)
-    if (!isDraftError(result))
-      return
+    if (!isDraftError(result)) return
     expect(result.error).toBe('Expected 3 bans, got 2')
   })
 })
@@ -239,11 +227,9 @@ describe('processDraftInput — PICK (sequential)', () => {
   // Helper to complete ban phase for 2v2
   function completeBanPhase(state: DraftState): DraftState {
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     result = processDraftInput(result.state, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     return result.state
   }
 
@@ -258,8 +244,7 @@ describe('processDraftInput — PICK (sequential)', () => {
     const result = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' })
 
     expect(isDraftError(result)).toBe(false)
-    if (isDraftError(result))
-      return
+    if (isDraftError(result)) return
 
     // Pick recorded
     expect(result.state.picks).toContainEqual({ civId: 'civ-10', seatIndex: 0, stepIndex: 1 })
@@ -276,8 +261,7 @@ describe('processDraftInput — PICK (sequential)', () => {
 
     // Team A picks 1
     let result = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' })
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
     // Now at pick step [1] count=2 (Team B picks 2)
@@ -287,8 +271,7 @@ describe('processDraftInput — PICK (sequential)', () => {
     // First pick by Team B
     result = processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-20' })
     expect(isDraftError(result)).toBe(false)
-    if (isDraftError(result))
-      return
+    if (isDraftError(result)) return
 
     // Step should NOT advance yet (need 2 picks)
     expect(result.state.currentStepIndex).toBe(2)
@@ -297,8 +280,7 @@ describe('processDraftInput — PICK (sequential)', () => {
     // Second pick by Team B
     result = processDraftInput(result.state, { type: 'PICK', seatIndex: 1, civId: 'civ-21' })
     expect(isDraftError(result)).toBe(false)
-    if (isDraftError(result))
-      return
+    if (isDraftError(result)) return
 
     // Now step should advance
     expect(result.state.currentStepIndex).toBe(3)
@@ -314,8 +296,7 @@ describe('processDraftInput — PICK (sequential)', () => {
     const result = processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-10' })
 
     expect(isDraftError(result)).toBe(true)
-    if (!isDraftError(result))
-      return
+    if (!isDraftError(result)) return
     expect(result.error).toBe('Seat 1 is not active in this step')
   })
 
@@ -327,8 +308,7 @@ describe('processDraftInput — PICK (sequential)', () => {
     const result = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-1' })
 
     expect(isDraftError(result)).toBe(true)
-    if (!isDraftError(result))
-      return
+    if (!isDraftError(result)) return
     expect(result.error).toBe('Civ civ-1 is not available')
   })
 
@@ -338,8 +318,7 @@ describe('processDraftInput — PICK (sequential)', () => {
     const result = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-1' })
 
     expect(isDraftError(result)).toBe(true)
-    if (!isDraftError(result))
-      return
+    if (!isDraftError(result)) return
     expect(result.error).toBe('Current step is not a pick phase')
   })
 })
@@ -352,32 +331,26 @@ describe('full 2v2 draft flow', () => {
 
     // Step 0: Blind bans (3 each)
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     result = processDraftInput(result.state, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
     // Step 1: Team A picks 1
     result = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' })
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
     // Step 2: Team B picks 2
     result = processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-20' })
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     result = processDraftInput(result.state, { type: 'PICK', seatIndex: 1, civId: 'civ-21' })
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
     // Step 3: Team A picks 1
     result = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-11' })
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
     // Draft should be complete
@@ -401,8 +374,7 @@ describe('full FFA draft flow', () => {
         seatIndex: i,
         civIds: [`civ-${i * 2 + 1}`, `civ-${i * 2 + 2}`],
       }, true)
-      if (isDraftError(result))
-        throw new Error(result.error)
+      if (isDraftError(result)) throw new Error(result.error)
       state = result.state
     }
 
@@ -417,8 +389,7 @@ describe('full FFA draft flow', () => {
         seatIndex: i,
         civId: `civ-${20 + i}`,
       })
-      if (isDraftError(result))
-        throw new Error(result.error)
+      if (isDraftError(result)) throw new Error(result.error)
       state = result.state
     }
 
@@ -436,15 +407,13 @@ describe('processDraftInput — TIMEOUT', () => {
 
     // Only seat 0 submits
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
     // Trigger timeout
     result = processDraftInput(state, { type: 'TIMEOUT' }, true)
     expect(isDraftError(result)).toBe(false)
-    if (isDraftError(result))
-      return
+    if (isDraftError(result)) return
 
     // Should have applied timeout for seat 1
     expect(result.events).toContainEqual(expect.objectContaining({
@@ -462,18 +431,15 @@ describe('processDraftInput — TIMEOUT', () => {
 
     // Complete ban phase
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     result = processDraftInput(result.state, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
     // Now at pick phase for seat 0, trigger timeout without pick
     result = processDraftInput(state, { type: 'TIMEOUT' }, false)
     expect(isDraftError(result)).toBe(false)
-    if (isDraftError(result))
-      return
+    if (isDraftError(result)) return
 
     expect(result.events).toContainEqual(expect.objectContaining({
       type: 'TIMEOUT_APPLIED',
@@ -488,23 +454,19 @@ describe('processDraftInput — TIMEOUT', () => {
 
     // Complete ban phase
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     result = processDraftInput(result.state, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
     // Timeout seat 0's pick
     result = processDraftInput(state, { type: 'TIMEOUT' }, false)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
     // Timeout seat 1's pick
     result = processDraftInput(state, { type: 'TIMEOUT' }, false)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
 
     expect(result.state.status).toBe('complete')
     expect(result.state.picks).toHaveLength(2)
@@ -519,8 +481,7 @@ describe('error cases', () => {
     const result = processDraftInput(draft, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
 
     expect(isDraftError(result)).toBe(true)
-    if (!isDraftError(result))
-      return
+    if (!isDraftError(result)) return
     expect(result.error).toBe('Draft is not active')
   })
 
@@ -529,8 +490,7 @@ describe('error cases', () => {
     const result = processDraftInput(draft, { type: 'PICK', seatIndex: 0, civId: 'civ-1' })
 
     expect(isDraftError(result)).toBe(true)
-    if (!isDraftError(result))
-      return
+    if (!isDraftError(result)) return
     expect(result.error).toBe('Draft is not active')
   })
 
@@ -539,8 +499,7 @@ describe('error cases', () => {
     const result = processDraftInput(draft, { type: 'TIMEOUT' }, false)
 
     expect(isDraftError(result)).toBe(true)
-    if (!isDraftError(result))
-      return
+    if (!isDraftError(result)) return
     expect(result.error).toBe('Draft is not active')
   })
 
@@ -549,8 +508,7 @@ describe('error cases', () => {
     const result = processDraftInput(state, { type: 'BAN', seatIndex: 99, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
 
     expect(isDraftError(result)).toBe(true)
-    if (!isDraftError(result))
-      return
+    if (!isDraftError(result)) return
     expect(result.error).toBe('Seat 99 is not active in this step')
   })
 
@@ -559,30 +517,25 @@ describe('error cases', () => {
 
     // Complete ban phase
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     result = processDraftInput(result.state, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
     // Team A picks 1
     result = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' })
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
     // Team B picks first civ
     result = processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-20' })
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
     // Team B tries to pick same civ again
     result = processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-20' })
     expect(isDraftError(result)).toBe(true)
-    if (!isDraftError(result))
-      return
+    if (!isDraftError(result)) return
     expect(result.error).toBe('Civ civ-20 is not available')
   })
 
@@ -591,18 +544,15 @@ describe('error cases', () => {
 
     // Complete ban phase (civ-1 gets banned)
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     result = processDraftInput(result.state, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
     // Try to pick banned civ
     result = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-1' })
     expect(isDraftError(result)).toBe(true)
-    if (!isDraftError(result))
-      return
+    if (!isDraftError(result)) return
     expect(result.error).toBe('Civ civ-1 is not available')
   })
 
@@ -611,18 +561,15 @@ describe('error cases', () => {
 
     // Complete ban phase
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     result = processDraftInput(result.state, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
     // Try to ban during pick phase
     result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-10', 'civ-11', 'civ-12'] }, true)
     expect(isDraftError(result)).toBe(true)
-    if (!isDraftError(result))
-      return
+    if (!isDraftError(result)) return
     expect(result.error).toBe('Current step is not a ban phase')
   })
 })
@@ -650,8 +597,7 @@ describe('query helpers', () => {
   test('getPendingSeats returns remaining seats after partial submission', () => {
     let state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
     const result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
     expect(getPendingSeats(state)).toEqual([1])
@@ -662,16 +608,13 @@ describe('query helpers', () => {
 
     // Complete ban phase
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     result = processDraftInput(result.state, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
 
     // Team A picks
     result = processDraftInput(result.state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' })
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
 
     const picks = getPicksForSeat(result.state, 0)
     expect(picks).toHaveLength(1)
@@ -683,11 +626,9 @@ describe('query helpers', () => {
 
     // Complete ban phase
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
     result = processDraftInput(result.state, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true)
-    if (isDraftError(result))
-      throw new Error(result.error)
+    if (isDraftError(result)) throw new Error(result.error)
 
     const bans0 = getBansForSeat(result.state, 0)
     expect(bans0).toHaveLength(3)

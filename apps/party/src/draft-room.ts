@@ -104,8 +104,7 @@ export default class DraftRoom implements Party.Server {
   // ── WebSocket: Messages ────────────────────────────────────
 
   async onMessage(message: string | ArrayBuffer, sender: Party.Connection) {
-    if (typeof message !== 'string')
-      return
+    if (typeof message !== 'string') return
 
     let msg: ClientMessage
     try {
@@ -222,25 +221,20 @@ export default class DraftRoom implements Party.Server {
 
   async onAlarm() {
     const state = await this.room.storage.get<DraftState>('state')
-    if (!state || state.status !== 'active')
-      return
+    if (!state || state.status !== 'active') return
 
     // Guard against stale alarms (step already advanced)
     const alarmStepIndex = await this.room.storage.get<number>('alarmStepIndex')
-    if (alarmStepIndex !== state.currentStepIndex)
-      return
+    if (alarmStepIndex !== state.currentStepIndex) return
 
     const config = await this.room.storage.get<RoomConfig>('config')
-    if (!config)
-      return
+    if (!config) return
 
     const format = draftFormatMap.get(config.formatId)
-    if (!format)
-      return
+    if (!format) return
 
     const result = processDraftInput(state, { type: 'TIMEOUT' }, format.blindBans)
-    if (isDraftError(result))
-      return
+    if (isDraftError(result)) return
 
     await this.applyResult(result.state, result.events)
   }
@@ -316,13 +310,9 @@ export default class DraftRoom implements Party.Server {
 
   // ── Internal: Censoring for blind bans ─────────────────────
 
-  /**
-   * During blind ban phases, a player sees only their own pending
-   * blind bans — not what other players banned.
-   */
+  /** Filters state for blind bans: players only see their own pending bans */
   private censorState(state: DraftState, seatIndex: number): DraftState {
-    if (state.pendingBlindBans.length === 0)
-      return state
+    if (state.pendingBlindBans.length === 0) return state
     return {
       ...state,
       pendingBlindBans: state.pendingBlindBans.filter(
@@ -331,10 +321,7 @@ export default class DraftRoom implements Party.Server {
     }
   }
 
-  /**
-   * During blind ban phases, hide other players' ban selections.
-   * They see that a ban was submitted, but not which civs.
-   */
+  /** Censors events for blind bans: hides other players' selections */
   private censorEvents(events: DraftEvent[], seatIndex: number): DraftEvent[] {
     return events.map((e) => {
       if (e.type === 'BAN_SUBMITTED' && e.blind && e.seatIndex !== seatIndex) {

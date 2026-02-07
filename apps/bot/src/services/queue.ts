@@ -59,8 +59,7 @@ export async function removeFromQueue(
   playerId: string,
 ): Promise<GameMode | null> {
   const mode = await kv.get(playerQueueKey(playerId)) as GameMode | null
-  if (!mode)
-    return null
+  if (!mode) return null
 
   // Remove from queue
   const state = await getQueueState(kv, mode)

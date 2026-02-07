@@ -13,6 +13,7 @@
 
   // Silent the stylistic rules in your IDE, but still auto fix them
   "eslint.rules.customizations": [
+    { "rule": "nonblock-statement-body-position", "severity": "off", "fixable": true },
     { "rule": "style/*", "severity": "off", "fixable": true },
     { "rule": "format/*", "severity": "off", "fixable": true },
     { "rule": "*-indent", "severity": "off", "fixable": true },
