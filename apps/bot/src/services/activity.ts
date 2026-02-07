@@ -40,7 +40,6 @@ export async function createDraftRoom(
   // Room name = matchId so activity can connect to the same room
   const normalizedHost = normalizePartyHost(partyHost)
   const url = `${normalizedHost}/parties/main/${matchId}`
-  console.log(`[activity] creating room match=${matchId} mode=${mode} host=${normalizedHost}`)
 
   const res = await fetch(url, {
     method: 'POST',
@@ -50,11 +49,8 @@ export async function createDraftRoom(
 
   if (!res.ok) {
     const text = await res.text()
-    console.error(`[activity] create room failed status=${res.status} body=${text}`)
     throw new Error(`Failed to create draft room: ${res.status} ${text}`)
   }
-
-  console.log(`[activity] room created match=${matchId}`)
 
   return { matchId, formatId: format.id, seats }
 }

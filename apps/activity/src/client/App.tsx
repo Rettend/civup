@@ -4,7 +4,6 @@ import { DraftLayout } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
 import {
   connectionError,
-  connectionLogs,
   connectionStatus,
   connectToRoom,
   fetchMatchForChannel,
@@ -18,8 +17,9 @@ type AppState
     | { status: 'no-match' }
     | { status: 'authenticated', auth: Auth }
 
-/** PartyKit host — uses local dev server in dev, deployed URL in prod */
-const PARTY_HOST = (import.meta.env.VITE_PARTY_HOST as string | undefined) || 'localhost:1999'
+/** Activity host — websocket goes through same-origin /api/parties proxy */
+const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
+  || (typeof window !== 'undefined' ? window.location.host : 'localhost:5173')
 
 export default function App() {
   const [state, setState] = createSignal<AppState>({ status: 'loading' })
@@ -52,7 +52,7 @@ export default function App() {
         if (import.meta.env.DEV) {
           console.warn('No match found for channel, using channelId as fallback')
           setState({ status: 'authenticated', auth })
-          connectToRoom(PARTY_HOST, channelId, auth.user.id)
+          connectToRoom(ACTIVITY_HOST, channelId, auth.user.id)
           return
         }
 
@@ -62,7 +62,7 @@ export default function App() {
 
       // Connect to the PartyKit room using the match ID
       setState({ status: 'authenticated', auth })
-      connectToRoom(PARTY_HOST, matchId, auth.user.id)
+      connectToRoom(ACTIVITY_HOST, matchId, auth.user.id)
     }
     catch (err) {
       console.error('Discord SDK setup failed:', err)
@@ -141,9 +141,6 @@ function DraftWithConnection() {
             <div class="text-sm text-text-secondary">
               {connectionError() ?? 'Failed to connect to draft room'}
             </div>
-            <pre class="mt-4 max-h-56 overflow-auto rounded border border-white/10 bg-black/30 p-3 text-left text-xs leading-5 text-text-secondary">
-              {connectionLogs().slice(-10).join('\n')}
-            </pre>
           </div>
         </main>
       </Match>

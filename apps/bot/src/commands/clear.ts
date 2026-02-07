@@ -5,6 +5,8 @@ interface Var {
   count?: string
 }
 
+const CLEAR_CONFIRM_AUTO_DELETE_MS = 5000
+
 export const command_clear = factory.command<Var>(
   new Command('clear', 'Delete messages in the current channel').options(
     new Option('count', 'Number of messages to delete (1-100)')
@@ -24,7 +26,7 @@ export const command_clear = factory.command<Var>(
       return c.flags('EPHEMERAL').res('Please provide a number between 1 and 100.')
     }
 
-    return c.resDefer(async (c) => {
+    return c.flags('EPHEMERAL').resDefer(async (c) => {
       const channelId = c.interaction.channel?.id
       if (!channelId) {
         await c.followup('Could not identify the channel.')
@@ -54,6 +56,16 @@ export const command_clear = factory.command<Var>(
         })
 
         await c.followup(`Successfully deleted ${messages.length} message${messages.length === 1 ? '' : 's'}.`)
+
+        c.executionCtx.waitUntil((async () => {
+          try {
+            await new Promise(resolve => setTimeout(resolve, CLEAR_CONFIRM_AUTO_DELETE_MS))
+            await c.followup()
+          }
+          catch (error) {
+            console.error('Failed to auto-delete clear confirmation message:', error)
+          }
+        })())
       }
       catch (error) {
         console.error('Error clearing messages:', error)

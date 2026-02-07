@@ -76,10 +76,8 @@ export const command_lfg = factory.command<Var>(
               const channelId = c.interaction.channel?.id ?? c.interaction.channel_id
               if (channelId) {
                 await storeMatchMapping(kv, channelId, matchId)
-                console.log(`[activity] stored channel mapping channel=${channelId} match=${matchId}`)
               }
               await storeUserMatchMappings(kv, matchedEntries.map(e => e.playerId), matchId)
-              console.log(`[activity] stored user mappings users=${matchedEntries.map(e => e.playerId).join(',')} match=${matchId}`)
 
               // Mention all matched players
               const mentions = matchedEntries.map(e => `<@${e.playerId}>`).join(' ')
@@ -228,10 +226,8 @@ export const component_lfg_join = factory.component(
           const channelId = c.interaction.channel?.id ?? c.interaction.channel_id
           if (channelId) {
             await storeMatchMapping(kv, channelId, matchId)
-            console.log(`[activity] stored channel mapping channel=${channelId} match=${matchId}`)
           }
           await storeUserMatchMappings(kv, matchedEntries.map(e => e.playerId), matchId)
-          console.log(`[activity] stored user mappings users=${matchedEntries.map(e => e.playerId).join(',')} match=${matchId}`)
 
           // Mention all matched players
           const mentions = matchedEntries.map(e => `<@${e.playerId}>`).join(' ')
