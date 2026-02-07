@@ -33,6 +33,7 @@ export {
 // Protocol (client ↔ server messages for draft WebSocket)
 export type {
   ClientMessage,
+  DraftCompleteWebhookPayload,
   RoomConfig,
   ServerMessage,
 } from './protocol.ts'

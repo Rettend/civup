@@ -1,9 +1,11 @@
 import type { GameMode } from '@civup/game'
 import type { Embed } from 'discord-hono'
+import { createDb } from '@civup/db'
 import { Button, Command, Option, SubCommand } from 'discord-hono'
 import { draftReadyComponents, draftReadyEmbed } from '../embeds/draft-ready.ts'
 import { lfgComponents, lfgEmbed } from '../embeds/lfg.ts'
 import { createDraftRoom, storeMatchMapping, storeUserMatchMappings } from '../services/activity.ts'
+import { createDraftMatch } from '../services/match.ts'
 import { addToQueue, checkQueueFull, clearQueue, getQueueState, removeFromQueue } from '../services/queue.ts'
 import { factory } from '../setup.ts'
 
@@ -67,7 +69,13 @@ export const command_lfg = factory.command<Var>(
           if (matchedEntries) {
             // Queue is full — create match and draft room
             try {
-              const { matchId, formatId: _formatId, seats } = await createDraftRoom(mode, matchedEntries, c.env.PARTY_HOST)
+              const { matchId, formatId: _formatId, seats } = await createDraftRoom(mode, matchedEntries, {
+                partyHost: c.env.PARTY_HOST,
+                botHost: c.env.BOT_HOST,
+                webhookSecret: c.env.DRAFT_WEBHOOK_SECRET,
+              })
+              const db = createDb(c.env.DB)
+              await createDraftMatch(db, { matchId, mode, seats })
 
               // Clear matched players from queue
               await clearQueue(kv, mode, matchedEntries.map(e => e.playerId))
@@ -217,7 +225,13 @@ export const component_lfg_join = factory.component(
 
       if (matchedEntries) {
         try {
-          const { matchId, formatId: _formatId, seats } = await createDraftRoom(mode, matchedEntries, c.env.PARTY_HOST)
+          const { matchId, formatId: _formatId, seats } = await createDraftRoom(mode, matchedEntries, {
+            partyHost: c.env.PARTY_HOST,
+            botHost: c.env.BOT_HOST,
+            webhookSecret: c.env.DRAFT_WEBHOOK_SECRET,
+          })
+          const db = createDb(c.env.DB)
+          await createDraftMatch(db, { matchId, mode, seats })
 
           // Clear matched players from queue
           await clearQueue(kv, mode, matchedEntries.map(e => e.playerId))
