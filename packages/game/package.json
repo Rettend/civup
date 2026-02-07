@@ -1,0 +1,9 @@
+{
+  "name": "@civup/game",
+  "type": "module",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

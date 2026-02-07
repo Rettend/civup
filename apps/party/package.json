@@ -1,0 +1,14 @@
+{
+  "name": "civup-party",
+  "type": "module",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "partykit dev",
+    "deploy": "partykit deploy"
+  },
+  "dependencies": {
+    "@civup/game": "workspace:*",
+    "partykit": "^0.0.111"
+  }
+}
