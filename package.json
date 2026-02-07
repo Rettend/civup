@@ -11,13 +11,13 @@
 
     "a:dev": "bun run --filter civup-activity dev",
     "a:build": "bun run --filter civup-activity build",
-    
+
     "bot:dev": "bun run --filter civup-bot dev",
-    "bot:tunnel": "bun run --filter civup-bot tunnel",
     "bot:register": "bun run --filter civup-bot register",
     "bot:migrate": "bun run --filter civup-bot l:migrate",
     "bot:migrate:remote": "bun run --filter civup-bot r:migrate",
 
+    "tunnel": "cloudflared --config cloudflared.dev.yml tunnel run civup-dev",
     "party:dev": "bun run --filter civup-party dev",
 
     "db:generate": "bun run --filter @civup/db generate",

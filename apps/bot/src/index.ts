@@ -12,7 +12,7 @@ import {
   getMatchForChannel,
   getMatchForUser,
 } from './services/activity.ts'
-import { activateDraftMatch, confirmMatch, reportMatch } from './services/match.ts'
+import { activateDraftMatch, reportMatch } from './services/match.ts'
 import { factory } from './setup.ts'
 
 // Discord interaction handler
@@ -94,40 +94,11 @@ app.post('/api/match/:matchId/report', async (c) => {
   }
 
   const db = createDb(c.env.DB)
-  const result = await reportMatch(db, {
+  const result = await reportMatch(db, c.env.KV, {
     matchId: c.req.param('matchId'),
     reporterId,
     placements,
   })
-
-  if ('error' in result) {
-    return c.json({ error: result.error }, 400)
-  }
-
-  return c.json({ ok: true, match: result.match, participants: result.participants })
-})
-
-// Confirm previously reported result from activity
-app.post('/api/match/:matchId/confirm', async (c) => {
-  let body: unknown
-  try {
-    body = await c.req.json()
-  }
-  catch {
-    return c.json({ error: 'Invalid JSON payload' }, 400)
-  }
-
-  if (!body || typeof body !== 'object') {
-    return c.json({ error: 'Invalid request body' }, 400)
-  }
-
-  const { confirmerId } = body as { confirmerId?: string }
-  if (typeof confirmerId !== 'string') {
-    return c.json({ error: 'confirmerId is required' }, 400)
-  }
-
-  const db = createDb(c.env.DB)
-  const result = await confirmMatch(db, c.env.KV, c.req.param('matchId'), confirmerId)
 
   if ('error' in result) {
     return c.json({ error: result.error }, 400)
@@ -228,7 +199,7 @@ async function postDraftCompleteEmbed(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      content: `🎯 Draft complete for match **${matchId}**. Use \`/report ${matchId}\` after the game.`,
+      content: `🎯 Draft complete for match **${matchId}**. Keep the activity open and report the winner there when the game ends.`,
       embeds: [{
         title: `Draft Complete — Match ${matchId}`,
         description: 'Match status changed to **active**. Civ assignments are locked in.',
