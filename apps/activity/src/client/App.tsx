@@ -15,7 +15,7 @@ type AppState
   = | { status: 'loading' }
     | { status: 'error', message: string }
     | { status: 'no-match' }
-    | { status: 'authenticated', auth: Auth }
+    | { status: 'authenticated', auth: Auth, matchId: string }
 
 /** Activity host — websocket goes through same-origin /api/parties proxy */
 const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
@@ -51,7 +51,7 @@ export default function App() {
         // In dev, fall back to using channelId as room ID for testing
         if (import.meta.env.DEV) {
           console.warn('No match found for channel, using channelId as fallback')
-          setState({ status: 'authenticated', auth })
+          setState({ status: 'authenticated', auth, matchId: channelId })
           connectToRoom(ACTIVITY_HOST, channelId, auth.user.id)
           return
         }
@@ -61,7 +61,7 @@ export default function App() {
       }
 
       // Connect to the PartyKit room using the match ID
-      setState({ status: 'authenticated', auth })
+      setState({ status: 'authenticated', auth, matchId })
       connectToRoom(ACTIVITY_HOST, matchId, auth.user.id)
     }
     catch (err) {
@@ -115,14 +115,14 @@ export default function App() {
 
       {/* Authenticated — show draft */}
       <Match when={state().status === 'authenticated'}>
-        <DraftWithConnection />
+        <DraftWithConnection matchId={(state() as Extract<AppState, { status: 'authenticated' }>).matchId} />
       </Match>
     </Switch>
   )
 }
 
 /** Intermediate component: shows connection status or Draft UI */
-function DraftWithConnection() {
+function DraftWithConnection(props: { matchId: string }) {
   return (
     <Switch>
       <Match when={connectionStatus() === 'connecting'}>
@@ -146,7 +146,7 @@ function DraftWithConnection() {
       </Match>
 
       <Match when={connectionStatus() === 'connected'}>
-        <DraftLayout />
+        <DraftLayout matchId={props.matchId} />
       </Match>
 
       {/* Disconnected fallback */}

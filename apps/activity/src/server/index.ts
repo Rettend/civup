@@ -19,9 +19,9 @@ export default {
       return handlePartyProxy(request, url, env)
     }
 
-    // GET /api/match/:channelId and /api/match/user/:userId — proxy to bot API
-    if (request.method === 'GET' && (url.pathname.startsWith('/api/match/') || url.pathname.startsWith('/api/match/user/'))) {
-      return handleMatchProxy(url, env)
+    // /api/match/* — proxy match lookup/reporting calls to bot API
+    if (url.pathname.startsWith('/api/match/')) {
+      return handleMatchProxy(request, url, env)
     }
 
     // All other routes fall through to static assets (SPA).
@@ -31,14 +31,11 @@ export default {
   },
 } satisfies ExportedHandler<Env>
 
-async function handleMatchProxy(url: URL, env: Env): Promise<Response> {
+async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<Response> {
   try {
     const botHost = normalizeHost(env.BOT_HOST, 'http://localhost:8787')
     const targetUrl = `${botHost}${url.pathname}${url.search}`
-    const response = await fetch(targetUrl, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-    })
+    const response = await fetch(new Request(targetUrl, request))
 
     const body = await response.text()
     return new Response(body, {
@@ -113,6 +110,11 @@ function normalizeHost(host: string | undefined, fallback: string): string {
   const raw = (host && host.trim()) || fallback
   const withProtocol = raw.startsWith('http://') || raw.startsWith('https://')
     ? raw
-    : `https://${raw}`
+    : `${isLocalHost(raw) ? 'http' : 'https'}://${raw}`
   return withProtocol.replace(/\/$/, '')
+}
+
+function isLocalHost(host: string): boolean {
+  const raw = host.trim().toLowerCase()
+  return raw.includes('localhost') || raw.includes('127.0.0.1')
 }

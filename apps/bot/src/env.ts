@@ -6,5 +6,7 @@ export interface Env {
     DISCORD_PUBLIC_KEY: string
     DISCORD_TOKEN: string
     PARTY_HOST?: string
+    BOT_HOST?: string
+    DRAFT_WEBHOOK_SECRET?: string
   }
 }
