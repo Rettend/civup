@@ -16,8 +16,7 @@ export const command_report = factory.command<Var>(
   ),
   (c) => {
     const matchId = c.var.match_id
-    if (!matchId)
-      return c.res('Please provide a match ID.')
+    if (!matchId) return c.res('Please provide a match ID.')
 
     // Open a modal for entering the result
     return c.resModal(

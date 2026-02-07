@@ -226,8 +226,7 @@ export async function confirmMatch(
     const teams: Map<number, { playerId: string, mu: number, sigma: number }[]> = new Map()
     for (const p of participantRows) {
       const team = p.team ?? 0
-      if (!teams.has(team))
-        teams.set(team, [])
+      if (!teams.has(team)) teams.set(team, [])
       const rating = playerRatingMap.get(p.playerId)!
       teams.get(team)!.push({ playerId: p.playerId, mu: rating.mu, sigma: rating.sigma })
     }

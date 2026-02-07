@@ -163,8 +163,7 @@ export const allLeaderIds = leaders.map(l => l.id)
 /** Get a leader by ID, throws if not found */
 export function getLeader(id: string): Leader {
   const leader = leaderMap.get(id)
-  if (!leader)
-    throw new Error(`Leader not found: ${id}`)
+  if (!leader) throw new Error(`Leader not found: ${id}`)
   return leader
 }
 

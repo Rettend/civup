@@ -6,6 +6,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "check": "tsgo --noEmit"
+  },
   "dependencies": {
     "openskill": "^4.1.0"
   }

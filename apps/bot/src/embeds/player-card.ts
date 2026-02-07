@@ -37,8 +37,7 @@ export async function playerCardEmbed(db: Database, playerId: string): Promise<E
   // Rating fields per mode
   for (const mode of LEADERBOARD_MODES) {
     const r = ratings.find(r => r.mode === mode)
-    if (!r)
-      continue
+    if (!r) continue
 
     const dr = displayRating(r.mu, r.sigma)
     const winRate = r.gamesPlayed > 0
@@ -78,10 +77,8 @@ export async function playerCardEmbed(db: Database, playerId: string): Promise<E
   if (recentParticipations.length > 0) {
     const lines = recentParticipations.map((m) => {
       let line = `**${m.gameMode.toUpperCase()}**`
-      if (m.civId)
-        line += ` ${m.civId}`
-      if (m.placement !== null)
-        line += ` — #${m.placement}`
+      if (m.civId) line += ` ${m.civId}`
+      if (m.placement !== null) line += ` — #${m.placement}`
 
       if (m.ratingAfterMu !== null && m.ratingAfterSigma !== null
         && m.ratingBeforeMu !== null && m.ratingBeforeSigma !== null) {

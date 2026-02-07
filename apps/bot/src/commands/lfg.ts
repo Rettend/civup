@@ -44,8 +44,7 @@ export const command_lfg = factory.command<Var>(
           ?? c.interaction.user?.username
           ?? 'Unknown'
 
-        if (!userId)
-          return c.res('Could not identify you.')
+        if (!userId) return c.res('Could not identify you.')
 
         return c.resDefer(async (c) => {
           const kv = c.env.KV
@@ -72,8 +71,7 @@ export const command_lfg = factory.command<Var>(
       // ── leave ───────────────────────────────────────────
       case 'leave': {
         const userId = c.interaction.member?.user?.id ?? c.interaction.user?.id
-        if (!userId)
-          return c.res('Could not identify you.')
+        if (!userId) return c.res('Could not identify you.')
 
         return c.resDefer(async (c) => {
           const kv = c.env.KV
@@ -114,8 +112,7 @@ export const command_lfg = factory.command<Var>(
       // ── kick ────────────────────────────────────────────
       case 'kick': {
         const targetId = c.var.player
-        if (!targetId)
-          return c.res('Please specify a player.')
+        if (!targetId) return c.res('Please specify a player.')
 
         // Basic admin check — guild-level manage_guild permission
         const permissions = BigInt(c.interaction.member?.permissions ?? '0')
@@ -156,8 +153,7 @@ export const component_lfg_join = factory.component(
       ?? c.interaction.user?.username
       ?? 'Unknown'
 
-    if (!userId || !mode)
-      return c.flags('EPHEMERAL').res('Something went wrong.')
+    if (!userId || !mode) return c.flags('EPHEMERAL').res('Something went wrong.')
 
     return c.resDefer(async (c) => {
       const kv = c.env.KV
@@ -182,8 +178,7 @@ export const component_lfg_leave = factory.component(
   new Button('lfg-leave', 'Leave Queue', 'Danger'),
   (c) => {
     const userId = c.interaction.member?.user?.id ?? c.interaction.user?.id
-    if (!userId)
-      return c.flags('EPHEMERAL').res('Something went wrong.')
+    if (!userId) return c.flags('EPHEMERAL').res('Something went wrong.')
 
     return c.resDefer(async (c) => {
       const kv = c.env.KV
