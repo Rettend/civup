@@ -1,6 +1,7 @@
 interface Env {
   DISCORD_CLIENT_ID: string
   DISCORD_CLIENT_SECRET: string
+  BOT_HOST?: string
 }
 
 export default {
@@ -12,12 +13,41 @@ export default {
       return handleTokenExchange(request, env)
     }
 
+    // GET /api/match/:channelId and /api/match/user/:userId — proxy to bot API
+    if (request.method === 'GET' && (url.pathname.startsWith('/api/match/') || url.pathname.startsWith('/api/match/user/'))) {
+      return handleMatchProxy(url, env)
+    }
+
     // All other routes fall through to static assets (SPA).
     // The `not_found_handling: "single-page-application"` in wrangler.jsonc
     // ensures non-asset routes serve index.html.
     return new Response(null, { status: 404 })
   },
 } satisfies ExportedHandler<Env>
+
+async function handleMatchProxy(url: URL, env: Env): Promise<Response> {
+  try {
+    const botHost = normalizeHost(env.BOT_HOST)
+    const targetUrl = `${botHost}${url.pathname}${url.search}`
+    const response = await fetch(targetUrl, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    })
+
+    const body = await response.text()
+    return new Response(body, {
+      status: response.status,
+      headers: {
+        'Content-Type': response.headers.get('Content-Type') ?? 'application/json',
+        'Cache-Control': 'no-store',
+      },
+    })
+  }
+  catch (err) {
+    console.error('Match lookup proxy error:', err)
+    return json({ error: 'Match lookup proxy failed' }, 502)
+  }
+}
 
 async function handleTokenExchange(request: Request, env: Env): Promise<Response> {
   try {
@@ -58,4 +88,12 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   })
+}
+
+function normalizeHost(host?: string): string {
+  const raw = (host && host.trim()) || 'http://localhost:8787'
+  const withProtocol = raw.startsWith('http://') || raw.startsWith('https://')
+    ? raw
+    : `https://${raw}`
+  return withProtocol.replace(/\/$/, '')
 }

@@ -2,21 +2,26 @@
   "name": "civup",
   "type": "module",
   "private": true,
+  "packageManager": "bun@1.3.7",
   "scripts": {
     "test": "bun test",
     "test:ui": "bun-test-ui -p 51299",
     "lint": "eslint . --fix",
     "check": "bun run --filter '*' check",
 
-    "bot:dev": "bun --filter civup-bot run dev",
-    "bot:register": "bun --filter civup-bot run register",
-    "bot:migrate": "bun --filter civup-bot run l:migrate",
-    "bot:migrate:remote": "bun --filter civup-bot run r:migrate",
+    "a:dev": "bun run --filter civup-activity dev",
+    "a:build": "bun run --filter civup-activity build",
+    
+    "bot:dev": "bun run --filter civup-bot dev",
+    "bot:tunnel": "bun run --filter civup-bot tunnel",
+    "bot:register": "bun run --filter civup-bot register",
+    "bot:migrate": "bun run --filter civup-bot l:migrate",
+    "bot:migrate:remote": "bun run --filter civup-bot r:migrate",
 
-    "party:dev": "bun --filter civup-party run dev",
+    "party:dev": "bun run --filter civup-party dev",
 
-    "db:generate": "bun --filter @civup/db run generate",
-    "db:studio": "bun --filter @civup/db run studio",
+    "db:generate": "bun run --filter @civup/db generate",
+    "db:studio": "bun run --filter @civup/db studio",
 
     "update": "taze latest -wr"
   },
