@@ -1,8 +1,10 @@
 import type { GameMode } from '@civup/game'
 import type { Embed } from 'discord-hono'
 import { Button, Command, Option, SubCommand } from 'discord-hono'
+import { draftReadyComponents, draftReadyEmbed } from '../embeds/draft-ready.ts'
 import { lfgComponents, lfgEmbed } from '../embeds/lfg.ts'
-import { addToQueue, getQueueState, removeFromQueue } from '../services/queue.ts'
+import { createDraftRoom, storeMatchMapping, storeUserMatchMappings } from '../services/activity.ts'
+import { addToQueue, checkQueueFull, clearQueue, getQueueState, removeFromQueue } from '../services/queue.ts'
 import { factory } from '../setup.ts'
 
 const GAME_MODE_CHOICES = [
@@ -59,6 +61,50 @@ export const command_lfg = factory.command<Var>(
             return
           }
 
+          // Check if queue is now full
+          const matchedEntries = await checkQueueFull(kv, mode)
+
+          if (matchedEntries) {
+            // Queue is full — create match and draft room
+            try {
+              const { matchId, formatId: _formatId, seats } = await createDraftRoom(mode, matchedEntries, c.env.PARTY_HOST)
+
+              // Clear matched players from queue
+              await clearQueue(kv, mode, matchedEntries.map(e => e.playerId))
+
+              // Store channel→match mapping for activity lookup
+              const channelId = c.interaction.channel?.id ?? c.interaction.channel_id
+              if (channelId) {
+                await storeMatchMapping(kv, channelId, matchId)
+                console.log(`[activity] stored channel mapping channel=${channelId} match=${matchId}`)
+              }
+              await storeUserMatchMappings(kv, matchedEntries.map(e => e.playerId), matchId)
+              console.log(`[activity] stored user mappings users=${matchedEntries.map(e => e.playerId).join(',')} match=${matchId}`)
+
+              // Mention all matched players
+              const mentions = matchedEntries.map(e => `<@${e.playerId}>`).join(' ')
+
+              const embedParams = {
+                mode,
+                matchId,
+                seats,
+                applicationId: c.env.DISCORD_APPLICATION_ID,
+              }
+
+              await c.followup({
+                content: `🎉 **Match found!** ${mentions}\n\nJoin a voice channel and click the button below to enter the draft.`,
+                embeds: [draftReadyEmbed(embedParams)],
+                components: draftReadyComponents(embedParams),
+              })
+            }
+            catch (err) {
+              console.error('Failed to create draft room:', err)
+              await c.followup(`<@${userId}> joined! Queue is full, but failed to create match. Try again.`)
+            }
+            return
+          }
+
+          // Queue not full yet — show regular status
           const queue = await getQueueState(kv, mode)
           await c.followup({
             content: `<@${userId}> joined the **${mode.toUpperCase()}** queue! (${queue.entries.length}/${queue.targetSize})`,
@@ -168,10 +214,61 @@ export const component_lfg_join = factory.component(
         return
       }
 
+      // Check if queue is now full
+      const matchedEntries = await checkQueueFull(kv, mode)
+
+      if (matchedEntries) {
+        try {
+          const { matchId, formatId: _formatId, seats } = await createDraftRoom(mode, matchedEntries, c.env.PARTY_HOST)
+
+          // Clear matched players from queue
+          await clearQueue(kv, mode, matchedEntries.map(e => e.playerId))
+
+          // Store channel→match mapping for activity lookup
+          const channelId = c.interaction.channel?.id ?? c.interaction.channel_id
+          if (channelId) {
+            await storeMatchMapping(kv, channelId, matchId)
+            console.log(`[activity] stored channel mapping channel=${channelId} match=${matchId}`)
+          }
+          await storeUserMatchMappings(kv, matchedEntries.map(e => e.playerId), matchId)
+          console.log(`[activity] stored user mappings users=${matchedEntries.map(e => e.playerId).join(',')} match=${matchId}`)
+
+          // Mention all matched players
+          const mentions = matchedEntries.map(e => `<@${e.playerId}>`).join(' ')
+
+          const embedParams = {
+            mode,
+            matchId,
+            seats,
+            applicationId: c.env.DISCORD_APPLICATION_ID,
+          }
+
+          await c.followup({
+            content: `🎉 **Match found!** ${mentions}\n\nJoin a voice channel and click the button below to enter the draft.`,
+            embeds: [draftReadyEmbed(embedParams)],
+            components: draftReadyComponents(embedParams),
+          })
+        }
+        catch (err) {
+          console.error('Failed to create draft room:', err)
+          await c.followup(`<@${userId}> joined! Queue is full, but failed to create match. Try again.`)
+        }
+        return
+      }
+
       const queue = await getQueueState(kv, mode)
-      await c.followup(`<@${userId}> joined! (${queue.entries.length}/${queue.targetSize})`)
+      await c.followup({
+        content: `<@${userId}> joined the **${mode.toUpperCase()}** queue! (${queue.entries.length}/${queue.targetSize})`,
+        embeds: [lfgEmbed(queue)],
+        components: lfgComponents(mode),
+      })
     })
   },
+)
+
+export const component_draft_activity = factory.component(
+  new Button('draft-activity', 'Open Draft Activity', 'Primary'),
+  c => c.resActivity(),
 )
 
 export const component_lfg_leave = factory.component(

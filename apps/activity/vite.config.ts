@@ -32,7 +32,14 @@ export default defineConfig({
       '~': resolve(import.meta.dirname, 'src'),
     },
   },
+  server: {
+    allowedHosts: [
+      'activity-dev.rettend.me',
+    ],
+  },
   define: {
+    'import.meta.env.VITE_BOT_HOST': JSON.stringify(devVars.BOT_HOST ?? ''),
+    'import.meta.env.VITE_PARTY_HOST': JSON.stringify(devVars.PARTY_HOST ?? ''),
     'import.meta.env.VITE_DISCORD_CLIENT_ID': JSON.stringify(devVars.DISCORD_CLIENT_ID ?? ''),
   },
   plugins: [

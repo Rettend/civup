@@ -4,18 +4,22 @@ import { DraftLayout } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
 import {
   connectionError,
+  connectionLogs,
   connectionStatus,
   connectToRoom,
+  fetchMatchForChannel,
+  fetchMatchForUser,
   setAuthenticatedUser,
 } from './stores'
 
 type AppState
   = | { status: 'loading' }
     | { status: 'error', message: string }
+    | { status: 'no-match' }
     | { status: 'authenticated', auth: Auth }
 
 /** PartyKit host — uses local dev server in dev, deployed URL in prod */
-const PARTY_HOST = import.meta.env.VITE_PARTY_HOST as string | undefined ?? 'localhost:1999'
+const PARTY_HOST = (import.meta.env.VITE_PARTY_HOST as string | undefined) || 'localhost:1999'
 
 export default function App() {
   const [state, setState] = createSignal<AppState>({ status: 'loading' })
@@ -24,13 +28,41 @@ export default function App() {
     try {
       const auth = await setupDiscordSdk()
       setAuthenticatedUser(auth)
-      setState({ status: 'authenticated', auth })
 
-      // Auto-connect to draft room using the Activity instance ID as room ID
-      // The bot will have created a PartyKit room with the match ID
-      // For now, use channelId as fallback room identifier
-      const roomId = discordSdk.channelId ?? discordSdk.instanceId
-      connectToRoom(PARTY_HOST, roomId, auth.user.id)
+      // Get the channel ID to look up the match
+      const channelId = discordSdk.channelId
+
+      if (!channelId) {
+        setState({ status: 'error', message: 'No channel ID found — start from Discord' })
+        return
+      }
+
+      // Fetch the match ID from the bot API
+      let matchId = await fetchMatchForChannel(channelId)
+
+      // Voice-channel launches may use a different channel than where queue filled.
+      // Fall back to participant-based lookup.
+      if (!matchId) {
+        matchId = await fetchMatchForUser(auth.user.id)
+      }
+
+      if (!matchId) {
+        // No match found — could be dev mode or no queue filled yet
+        // In dev, fall back to using channelId as room ID for testing
+        if (import.meta.env.DEV) {
+          console.warn('No match found for channel, using channelId as fallback')
+          setState({ status: 'authenticated', auth })
+          connectToRoom(PARTY_HOST, channelId, auth.user.id)
+          return
+        }
+
+        setState({ status: 'no-match' })
+        return
+      }
+
+      // Connect to the PartyKit room using the match ID
+      setState({ status: 'authenticated', auth })
+      connectToRoom(PARTY_HOST, matchId, auth.user.id)
     }
     catch (err) {
       console.error('Discord SDK setup failed:', err)
@@ -65,6 +97,22 @@ export default function App() {
         </main>
       </Match>
 
+      {/* No match available */}
+      <Match when={state().status === 'no-match'}>
+        <main class="min-h-screen flex items-center justify-center bg-bg-primary text-text-primary font-sans">
+          <div class="max-w-md panel p-6 text-center">
+            <div class="mb-2 text-lg text-text-muted font-bold">No Draft Available</div>
+            <div class="text-sm text-text-secondary">
+              No active draft in this channel. Use
+              {' '}
+              <code class="text-accent-gold">/lfg join</code>
+              {' '}
+              to queue up first!
+            </div>
+          </div>
+        </main>
+      </Match>
+
       {/* Authenticated — show draft */}
       <Match when={state().status === 'authenticated'}>
         <DraftWithConnection />
@@ -93,6 +141,9 @@ function DraftWithConnection() {
             <div class="text-sm text-text-secondary">
               {connectionError() ?? 'Failed to connect to draft room'}
             </div>
+            <pre class="mt-4 max-h-56 overflow-auto rounded border border-white/10 bg-black/30 p-3 text-left text-xs leading-5 text-text-secondary">
+              {connectionLogs().slice(-10).join('\n')}
+            </pre>
           </div>
         </main>
       </Match>

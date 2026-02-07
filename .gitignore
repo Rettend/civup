@@ -26,6 +26,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Cloudflare Workers local secrets
 .dev.vars
 .wrangler
+cloudflared.dev.yml
 
 # caches
 .eslintcache
