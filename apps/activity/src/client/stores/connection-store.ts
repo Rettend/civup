@@ -1,6 +1,7 @@
 import type { ClientMessage, ServerMessage } from '@civup/game'
 import PartySocket from 'partysocket'
 import { createSignal } from 'solid-js'
+import { relayDevLog } from '../lib/dev-log'
 import { initDraft, updateDraft } from './draft-store'
 
 // ── Types ──────────────────────────────────────────────────
@@ -41,6 +42,8 @@ export function connectToRoom(host: string, roomId: string, playerId: string) {
     socket.close()
   }
 
+  relayDevLog('info', 'Connecting to draft room', { host, roomId, playerId })
+
   setConnectionStatus('connecting')
   setConnectionError(null)
 
@@ -55,6 +58,7 @@ export function connectToRoom(host: string, roomId: string, playerId: string) {
   })
 
   socket.addEventListener('open', () => {
+    relayDevLog('info', 'Draft socket connected', { roomId, playerId })
     setConnectionStatus('connected')
     setConnectionError(null)
   })
@@ -65,6 +69,7 @@ export function connectToRoom(host: string, roomId: string, playerId: string) {
       handleServerMessage(msg)
     }
     catch (err) {
+      relayDevLog('error', 'Failed to parse server message', err)
       console.error('Failed to parse server message:', err)
     }
   })
@@ -77,20 +82,25 @@ export function connectToRoom(host: string, roomId: string, playerId: string) {
         ? event.type
         : '-'
     if (code !== 1000) {
+      relayDevLog('warn', 'Draft socket closed unexpectedly', { code, reason, roomId })
       setConnectionStatus('error')
       setConnectionError(`WebSocket closed (${code}${reason ? `: ${reason}` : ''})`)
       return
     }
+
+    relayDevLog('info', 'Draft socket closed normally', { code, reason, roomId })
     setConnectionStatus('disconnected')
   })
 
   socket.addEventListener('error', () => {
+    relayDevLog('error', 'Draft socket connection failed', { roomId, playerId })
     setConnectionStatus('error')
     setConnectionError('WebSocket connection failed')
   })
 }
 
 export function disconnect() {
+  relayDevLog('info', 'Draft socket disconnect requested')
   socket?.close()
   socket = null
   setConnectionStatus('disconnected')
