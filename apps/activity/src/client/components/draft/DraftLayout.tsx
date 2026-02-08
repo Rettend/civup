@@ -5,12 +5,12 @@ import {
   reportMatchResult,
   userId,
 } from '~/client/stores'
+import { Button } from '../ui'
 import { ActionBar } from './ActionBar'
 import { LeaderDetail } from './LeaderDetail'
 import { LeaderGrid } from './LeaderGrid'
 import { TeamPanel } from './TeamPanel'
 import { TopBar } from './TopBar'
-import { Button } from '../ui'
 
 interface DraftLayoutProps {
   matchId: string
@@ -193,10 +193,10 @@ function PostDraftScreen(props: { matchId: string }) {
   return (
     <main class="h-screen overflow-y-auto bg-bg-primary text-text-primary font-sans">
       <div class="mx-auto max-w-5xl flex flex-col gap-6 px-4 py-8 md:px-8">
-        <section class="panel p-6 md:p-8 text-center">
+        <section class="panel p-6 text-center md:p-8">
           <div class="mb-2 text-sm text-accent-gold text-heading">Game In Progress</div>
           <h1 class="mb-3 text-3xl text-heading md:text-4xl">Draft Complete</h1>
-          <div class="text-4xl font-mono text-accent-gold md:text-5xl">
+          <div class="text-4xl text-accent-gold font-mono md:text-5xl">
             {formatElapsed(elapsedMs())}
           </div>
           <div class="mt-2 text-sm text-text-secondary">Elapsed since draft lock-in</div>
@@ -233,7 +233,7 @@ function PostDraftScreen(props: { matchId: string }) {
           <Show
             when={isTeamMode()}
             fallback={(
-              <div class="flex w-full flex-col gap-3">
+              <div class="w-full flex flex-col gap-3">
                 <div class="text-sm text-text-secondary">
                   Enter final standings (winner first), one player mention or ID per line.
                 </div>
@@ -241,7 +241,7 @@ function PostDraftScreen(props: { matchId: string }) {
                   value={ffaPlacements()}
                   onInput={e => setFfaPlacements(e.currentTarget.value)}
                   placeholder={state()?.seats.map(seat => `<@${seat.playerId}>`).join('\n')}
-                  class="h-32 w-full rounded-md border border-border-subtle bg-bg-secondary/70 px-3 py-2 text-sm text-text-primary outline-none focus:border-accent-gold/60"
+                  class="h-32 w-full border border-border-subtle rounded-md bg-bg-secondary/70 px-3 py-2 text-sm text-text-primary outline-none focus:border-accent-gold/60"
                 />
                 <div>
                   <Button
@@ -294,7 +294,7 @@ function TeamResultCard(
   },
 ) {
   return (
-    <div class="rounded-lg border border-border-subtle bg-bg-secondary/40 p-3">
+    <div class="border border-border-subtle rounded-lg bg-bg-secondary/40 p-3">
       <div class="mb-2 text-sm text-accent-gold text-heading">{props.label}</div>
       <div class="flex flex-col gap-2">
         <For each={props.rows}>

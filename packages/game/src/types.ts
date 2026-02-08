@@ -57,6 +57,7 @@ export interface LeaderUnique {
   name: string
   description: string
   replaces?: string
+  iconUrl?: string
 }
 
 export interface Leader {

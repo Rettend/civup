@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview --port 5173",
     "check": "tsgo --noEmit",
+    "portraits:webp": "bun ./scripts/convert-leaders-full-to-webp.ts --delete",
     "deploy": "vite build && wrangler deploy"
   },
   "dependencies": {

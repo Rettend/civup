@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 type DevLogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 interface DevLogPayload {

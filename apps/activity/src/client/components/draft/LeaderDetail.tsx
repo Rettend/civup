@@ -4,6 +4,7 @@ import { For, Show } from 'solid-js'
 import { cn } from '~/client/lib/cn'
 import { hoveredLeader, selectedLeader } from '~/client/stores'
 import { Badge } from '../ui'
+import { RichLeaderText } from './RichLeaderText'
 
 /** Detail panel showing full info for the hovered/selected leader */
 export function LeaderDetail() {
@@ -28,20 +29,6 @@ export function LeaderDetail() {
       <Show when={leader()}>
         {l => (
           <>
-            {/* Portrait */}
-            <div class="aspect-square w-full flex items-center justify-center overflow-hidden rounded-lg bg-bg-panel">
-              <Show
-                when={l().portraitUrl}
-                fallback={(
-                  <span class="text-4xl text-accent-gold font-bold">
-                    {l().name.slice(0, 1)}
-                  </span>
-                )}
-              >
-                {url => <img src={url()} alt={l().name} class="h-full w-full object-cover" />}
-              </Show>
-            </div>
-
             {/* Name */}
             <div>
               <h3 class="text-lg text-text-primary font-bold">{l().name}</h3>
@@ -63,7 +50,7 @@ export function LeaderDetail() {
                 Ability
               </h4>
               <p class="text-sm text-text-primary font-medium">{l().ability.name}</p>
-              <p class="mt-0.5 text-xs text-text-secondary leading-relaxed">{l().ability.description}</p>
+              <RichLeaderText text={l().ability.description} class="mt-0.5 block text-xs text-text-secondary leading-relaxed" />
             </div>
 
             {/* Unique Units */}
@@ -75,17 +62,28 @@ export function LeaderDetail() {
                 <For each={l().uniqueUnits}>
                   {unit => (
                     <div class="mb-1.5">
-                      <p class="text-sm text-text-primary font-medium">
-                        {unit.name}
+                      <p class="flex items-center gap-1.5 text-sm text-text-primary font-medium">
+                        <Show when={unit.iconUrl}>
+                          {icon => (
+                            <img
+                              src={icon()}
+                              alt={unit.name}
+                              class="h-4 w-4 shrink-0"
+                              onError={(event) => { event.currentTarget.style.display = 'none' }}
+                            />
+                          )}
+                        </Show>
+                        <span>{unit.name}</span>
                         <Show when={unit.replaces}>
                           <span class="ml-1 text-xs text-text-muted">
                             (replaces
+                            {' '}
                             {unit.replaces}
                             )
                           </span>
                         </Show>
                       </p>
-                      <p class="text-xs text-text-secondary leading-relaxed">{unit.description}</p>
+                      <RichLeaderText text={unit.description} class="block text-xs text-text-secondary leading-relaxed" />
                     </div>
                   )}
                 </For>
@@ -99,17 +97,28 @@ export function LeaderDetail() {
                   <h4 class="mb-1 text-xs text-accent-gold font-semibold tracking-wider uppercase">
                     Unique Building
                   </h4>
-                  <p class="text-sm text-text-primary font-medium">
-                    {ub().name}
+                  <p class="flex items-center gap-1.5 text-sm text-text-primary font-medium">
+                    <Show when={ub().iconUrl}>
+                      {icon => (
+                        <img
+                          src={icon()}
+                          alt={ub().name}
+                          class="h-4 w-4 shrink-0"
+                          onError={(event) => { event.currentTarget.style.display = 'none' }}
+                        />
+                      )}
+                    </Show>
+                    <span>{ub().name}</span>
                     <Show when={ub().replaces}>
                       <span class="ml-1 text-xs text-text-muted">
                         (replaces
+                        {' '}
                         {ub().replaces}
                         )
                       </span>
                     </Show>
                   </p>
-                  <p class="text-xs text-text-secondary leading-relaxed">{ub().description}</p>
+                  <RichLeaderText text={ub().description} class="block text-xs text-text-secondary leading-relaxed" />
                 </div>
               )}
             </Show>
@@ -121,8 +130,20 @@ export function LeaderDetail() {
                   <h4 class="mb-1 text-xs text-accent-gold font-semibold tracking-wider uppercase">
                     Unique Improvement
                   </h4>
-                  <p class="text-sm text-text-primary font-medium">{ui().name}</p>
-                  <p class="text-xs text-text-secondary leading-relaxed">{ui().description}</p>
+                  <p class="flex items-center gap-1.5 text-sm text-text-primary font-medium">
+                    <Show when={ui().iconUrl}>
+                      {icon => (
+                        <img
+                          src={icon()}
+                          alt={ui().name}
+                          class="h-4 w-4 shrink-0"
+                          onError={(event) => { event.currentTarget.style.display = 'none' }}
+                        />
+                      )}
+                    </Show>
+                    <span>{ui().name}</span>
+                  </p>
+                  <RichLeaderText text={ui().description} class="block text-xs text-text-secondary leading-relaxed" />
                 </div>
               )}
             </Show>

@@ -8,6 +8,9 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "check": "tsgo --noEmit"
+    "check": "tsgo --noEmit",
+    "sync:bbg-icons": "bun ./scripts/sync-bbg-icons.ts",
+    "sync:bbg-leaders": "bun ./scripts/sync-bbg-leaders.ts",
+    "sync:bbg": "bun run sync:bbg-icons && bun run sync:bbg-leaders"
   }
 }
