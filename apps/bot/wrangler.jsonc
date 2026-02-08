@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "civup-bot",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-02-19",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "civup",
+      "database_id": "c8a78a06-ac43-467a-8056-3df1da6fd729",
+      "migrations_dir": "../../packages/db/migrations"
+    }
+  ],
+
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "12f56ed27c7944c8b997fadf1d63530c"
+    }
+  ],
+
+  "triggers": {
+    "crons": ["*/10 * * * *"]
+  }
+}

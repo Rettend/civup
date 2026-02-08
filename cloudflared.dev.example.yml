@@ -1,0 +1,9 @@
+tunnel: <your-tunnel-id>
+credentials-file: C:\Users\<your-user>\.cloudflared\<your-tunnel-id>.json
+
+ingress:
+  - hostname: bot-dev.rettend.me
+    service: http://localhost:8787
+  - hostname: activity-dev.rettend.me
+    service: http://localhost:5173
+  - service: http_status:404

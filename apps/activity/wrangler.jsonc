@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "civup-activity",
+  "compatibility_date": "2025-01-01",
+  "main": "src/server/index.ts",
+  "assets": {
+    "not_found_handling": "single-page-application"
+  }
+  // Secrets (DISCORD_CLIENT_SECRET) set via `wrangler secret put`
+  // Local dev secrets in .dev.vars (gitignored)
+}
