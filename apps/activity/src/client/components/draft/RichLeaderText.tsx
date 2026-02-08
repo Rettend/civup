@@ -1,5 +1,5 @@
 import { For } from 'solid-js'
-import { cn } from '~/client/lib/cn'
+import { cn } from '~/client/lib/css'
 
 interface RichLeaderTextProps {
   text: string
