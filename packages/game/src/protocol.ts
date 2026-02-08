@@ -35,11 +35,11 @@ export type ServerMessage
     timerEndsAt: number | null
     completedAt: number | null
   }
-    | {
-      type: 'update'
-      state: DraftState
-      events: DraftEvent[]
-      timerEndsAt: number | null
-      completedAt: number | null
-    }
-    | { type: 'error', message: string }
+  | {
+    type: 'update'
+    state: DraftState
+    events: DraftEvent[]
+    timerEndsAt: number | null
+    completedAt: number | null
+  }
+  | { type: 'error', message: string }

@@ -1,10 +1,9 @@
 import type { DraftCompleteWebhookPayload } from '@civup/game'
 import type { Env } from './env.ts'
-import { createDb } from '@civup/db'
-import { matches, matchParticipants } from '@civup/db'
+import { createDb, matches, matchParticipants } from '@civup/db'
+import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { eq } from 'drizzle-orm'
 import * as commands from './commands/index.ts'
 import * as cron from './cron/cleanup.ts'
 import {
