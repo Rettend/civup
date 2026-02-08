@@ -1,6 +1,6 @@
 import type { Auth } from './discord'
 import { createSignal, Match, onMount, Switch } from 'solid-js'
-import { DraftLayout } from './components/draft'
+import { DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
 import {
   connectionError,
@@ -77,9 +77,9 @@ export default function App() {
     <Switch>
       {/* Loading state */}
       <Match when={state().status === 'loading'}>
-        <main class="min-h-screen flex items-center justify-center bg-bg-primary text-text-primary font-sans">
+        <main class="text-text-primary font-sans bg-bg-primary flex min-h-screen items-center justify-center">
           <div class="text-center">
-            <div class="mb-2 text-2xl text-accent-gold font-bold">CivUp</div>
+            <div class="text-2xl text-accent-gold font-bold mb-2">CivUp</div>
             <div class="text-sm text-text-secondary">Connecting to Discord...</div>
           </div>
         </main>
@@ -87,9 +87,9 @@ export default function App() {
 
       {/* Error state */}
       <Match when={state().status === 'error'}>
-        <main class="min-h-screen flex items-center justify-center bg-bg-primary text-text-primary font-sans">
-          <div class="max-w-md panel p-6 text-center">
-            <div class="mb-2 text-lg text-accent-red font-bold">Connection Failed</div>
+        <main class="text-text-primary font-sans bg-bg-primary flex min-h-screen items-center justify-center">
+          <div class="p-6 text-center max-w-md rounded-lg bg-bg-secondary">
+            <div class="text-lg text-accent-red font-bold mb-2">Connection Failed</div>
             <div class="text-sm text-text-secondary">
               {(state() as Extract<AppState, { status: 'error' }>).message}
             </div>
@@ -99,9 +99,9 @@ export default function App() {
 
       {/* No match available */}
       <Match when={state().status === 'no-match'}>
-        <main class="min-h-screen flex items-center justify-center bg-bg-primary text-text-primary font-sans">
-          <div class="max-w-md panel p-6 text-center">
-            <div class="mb-2 text-lg text-text-muted font-bold">No Draft Available</div>
+        <main class="text-text-primary font-sans bg-bg-primary flex min-h-screen items-center justify-center">
+          <div class="p-6 text-center max-w-md rounded-lg bg-bg-secondary">
+            <div class="text-lg text-text-muted font-bold mb-2">No Draft Available</div>
             <div class="text-sm text-text-secondary">
               No active draft in this channel. Use
               {' '}
@@ -126,18 +126,18 @@ function DraftWithConnection(props: { matchId: string }) {
   return (
     <Switch>
       <Match when={connectionStatus() === 'connecting'}>
-        <main class="min-h-screen flex items-center justify-center bg-bg-primary text-text-primary font-sans">
+        <main class="text-text-primary font-sans bg-bg-primary flex min-h-screen items-center justify-center">
           <div class="text-center">
-            <div class="mb-2 text-2xl text-accent-gold font-bold">CivUp</div>
+            <div class="text-2xl text-accent-gold font-bold mb-2">CivUp</div>
             <div class="text-sm text-text-secondary">Joining draft room...</div>
           </div>
         </main>
       </Match>
 
       <Match when={connectionStatus() === 'error'}>
-        <main class="min-h-screen flex items-center justify-center bg-bg-primary text-text-primary font-sans">
-          <div class="max-w-md panel p-6 text-center">
-            <div class="mb-2 text-lg text-accent-red font-bold">Connection Error</div>
+        <main class="text-text-primary font-sans bg-bg-primary flex min-h-screen items-center justify-center">
+          <div class="p-6 text-center max-w-md rounded-lg bg-bg-secondary">
+            <div class="text-lg text-accent-red font-bold mb-2">Connection Error</div>
             <div class="text-sm text-text-secondary">
               {connectionError() ?? 'Failed to connect to draft room'}
             </div>
@@ -146,14 +146,14 @@ function DraftWithConnection(props: { matchId: string }) {
       </Match>
 
       <Match when={connectionStatus() === 'connected'}>
-        <DraftLayout matchId={props.matchId} />
+        <DraftView matchId={props.matchId} />
       </Match>
 
       {/* Disconnected fallback */}
       <Match when={connectionStatus() === 'disconnected'}>
-        <main class="min-h-screen flex items-center justify-center bg-bg-primary text-text-primary font-sans">
-          <div class="max-w-md panel p-6 text-center">
-            <div class="mb-2 text-lg text-text-muted font-bold">Disconnected</div>
+        <main class="text-text-primary font-sans bg-bg-primary flex min-h-screen items-center justify-center">
+          <div class="p-6 text-center max-w-md rounded-lg bg-bg-secondary">
+            <div class="text-lg text-text-muted font-bold mb-2">Disconnected</div>
             <div class="text-sm text-text-secondary">
               Lost connection to the draft room.
             </div>

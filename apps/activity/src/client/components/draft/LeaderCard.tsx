@@ -1,46 +1,36 @@
 import type { Leader } from '@civup/game'
 import { Show } from 'solid-js'
-import { cn } from '~/client/lib/cn'
+import { cn } from '~/client/lib/css'
 import {
   banSelections,
   currentStep,
   draftStore,
   isMyTurn,
   selectedLeader,
-  setHoveredLeader,
   setSelectedLeader,
   toggleBanSelection,
+  toggleDetail,
 } from '~/client/stores'
 
 interface LeaderCardProps {
   leader: Leader
+  /** Called while hovering to position the lightweight tooltip */
+  onHoverMove?: (leader: Leader, x: number, y: number) => void
+  /** Called when hover/focus leaves this card */
+  onHoverLeave?: () => void
 }
 
-/** Leader card component: shows portrait/name, handles pick/ban clicks */
+/** Icon-only leader card for the grid overlay — no text below, just the portrait square */
 export function LeaderCard(props: LeaderCardProps) {
   const state = () => draftStore.state
   const step = currentStep
 
-  /** Is this leader banned? */
-  const isBanned = (): boolean => {
-    return state()?.bans.some(b => b.civId === props.leader.id) ?? false
-  }
-
-  /** Is this leader already picked? */
-  const isPicked = (): boolean => {
-    return state()?.picks.some(p => p.civId === props.leader.id) ?? false
-  }
-
-  /** Is this leader unavailable (banned or picked)? */
+  const isBanned = (): boolean => state()?.bans.some(b => b.civId === props.leader.id) ?? false
+  const isPicked = (): boolean => state()?.picks.some(p => p.civId === props.leader.id) ?? false
   const isUnavailable = (): boolean => isBanned() || isPicked()
-
-  /** Is this the currently selected leader (for single pick)? */
   const isSelected = (): boolean => selectedLeader() === props.leader.id
-
-  /** Is this leader in the ban selection list? */
   const isBanSelected = (): boolean => banSelections().includes(props.leader.id)
 
-  /** Can this leader be clicked? */
   const isClickable = (): boolean => {
     if (isUnavailable()) return false
     if (!isMyTurn()) return false
@@ -48,6 +38,11 @@ export function LeaderCard(props: LeaderCardProps) {
   }
 
   const handleClick = () => {
+    props.onHoverLeave?.()
+
+    // Always toggle detail on click (even for spectators)
+    toggleDetail(props.leader.id)
+
     if (!isClickable()) return
 
     const s = step()
@@ -62,66 +57,68 @@ export function LeaderCard(props: LeaderCardProps) {
     }
   }
 
+  const handleHoverMove = (event: MouseEvent) => {
+    props.onHoverMove?.(props.leader, event.clientX, event.clientY)
+  }
+
+  const handleHoverLeave = () => {
+    props.onHoverLeave?.()
+  }
+
   return (
     <button
       class={cn(
-        'relative flex flex-col items-center rounded-lg p-2 transition-all duration-200',
-        'border border-transparent',
+        'relative aspect-square overflow-hidden rounded transition-all duration-150',
+        'border-2 border-transparent',
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold/50',
 
-        // Unavailable (banned/picked)
-        isUnavailable() && 'opacity-30 pointer-events-none',
+        // Unavailable
+        isUnavailable() && 'opacity-25 pointer-events-none',
 
-        // Clickable states
-        isClickable() && 'cursor-pointer hover:bg-bg-hover hover:border-border-subtle',
-        !isClickable() && !isUnavailable() && 'cursor-default',
+        // Clickable hover
+        isClickable() && 'cursor-pointer hover:border-white/20',
+        !isClickable() && !isUnavailable() && 'cursor-pointer',
 
         // Selected for pick
-        isSelected() && 'border-accent-gold bg-accent-gold/10 gold-glow',
+        isSelected() && 'border-accent-gold',
 
         // Selected for ban
-        isBanSelected() && 'border-accent-red bg-accent-red/10 red-glow',
+        isBanSelected() && 'border-accent-red',
       )}
       onClick={handleClick}
-      onMouseEnter={() => setHoveredLeader(props.leader.id)}
-      onMouseLeave={() => setHoveredLeader(null)}
+      onMouseEnter={handleHoverMove}
+      onMouseMove={handleHoverMove}
+      onMouseLeave={handleHoverLeave}
+      onBlur={handleHoverLeave}
       disabled={isUnavailable()}
     >
-      {/* Portrait */}
-      <div class="mb-1.5 h-16 w-16 flex items-center justify-center overflow-hidden rounded-md bg-bg-secondary">
-        <Show
-          when={props.leader.portraitUrl}
-          fallback={(
-            <span class="text-xl text-accent-gold/60 font-bold">
+      {/* Portrait — icon only */}
+      <Show
+        when={props.leader.portraitUrl}
+        fallback={
+          <div class="flex h-full w-full items-center justify-center bg-bg-secondary">
+            <span class="text-lg text-accent-gold/40 font-bold">
               {props.leader.name.slice(0, 1)}
             </span>
-          )}
-        >
-          {url => (
-            <img
-              src={url()}
-              alt={props.leader.name}
-              class={cn(
-                'w-full h-full object-cover',
-                isBanned() && 'grayscale',
-              )}
-            />
-          )}
-        </Show>
-      </div>
-
-      {/* Name */}
-      <span class="w-full truncate text-center text-xs text-text-primary font-medium">
-        {props.leader.name}
-      </span>
-      <span class="w-full truncate text-center text-[10px] text-text-muted">
-        {props.leader.civilization}
-      </span>
+          </div>
+        }
+      >
+        {url => (
+          <img
+            src={url()}
+            alt={props.leader.name}
+            class={cn(
+              'h-full w-full object-cover',
+              isBanned() && 'grayscale',
+            )}
+          />
+        )}
+      </Show>
 
       {/* Banned overlay */}
       <Show when={isBanned()}>
-        <div class="absolute inset-0 flex items-center justify-center rounded-lg bg-accent-red/5">
-          <span class="text-2xl text-accent-red font-bold">✕</span>
+        <div class="absolute inset-0 flex items-center justify-center bg-accent-red/10">
+          <span class="text-xl text-accent-red font-bold">✕</span>
         </div>
       </Show>
     </button>
