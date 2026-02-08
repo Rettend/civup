@@ -1,7 +1,7 @@
 /* @refresh reload */
 import { render } from 'solid-js/web'
 import { relayDevLog } from './lib/dev-log'
-import '@unocss/reset/tailwind.css'
+import '@fontsource-variable/inter';
 import 'virtual:uno.css'
 
 function setupGlobalDevErrorRelay() {

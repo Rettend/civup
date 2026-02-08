@@ -1,5 +1,5 @@
 import { createEffect, createSignal, onCleanup } from 'solid-js'
-import { cn } from '~/client/lib/cn'
+import { cn } from '~/client/lib/css'
 
 interface TimerProps {
   /** Absolute timestamp (ms) when the timer expires */
@@ -55,7 +55,7 @@ export function Timer(props: TimerProps) {
       </div>
 
       {/* Progress bar */}
-      <div class="h-1 w-full overflow-hidden rounded-full bg-bg-secondary">
+      <div class="rounded-full bg-bg-secondary h-1 w-full overflow-hidden">
         <div
           class={cn(
             'h-full rounded-full transition-all duration-100 ease-linear',
