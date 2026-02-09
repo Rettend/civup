@@ -32,6 +32,7 @@ export interface LobbySnapshot {
   entries: {
     playerId: string
     displayName: string
+    avatarUrl?: string | null
   }[]
   targetSize: number
   draftConfig: {
@@ -156,6 +157,14 @@ export function sendPick(civId: string) {
   sendMessage({ type: 'pick', civId })
 }
 
+export function sendCancel(reason: 'cancel' | 'scrub') {
+  sendMessage({ type: 'cancel', reason })
+}
+
+export function sendScrub() {
+  sendCancel('scrub')
+}
+
 export function sendConfig(banTimerSeconds: number | null, pickTimerSeconds: number | null): Promise<void> {
   if (pendingConfigAck) {
     clearTimeout(pendingConfigAck.timeout)
@@ -262,6 +271,28 @@ export async function updateLobbyDraftConfig(
   catch (err) {
     console.error('Failed to update lobby config:', err)
     return { ok: false, error: 'Network error while updating lobby config' }
+  }
+}
+
+/** Cancel an open lobby before draft room creation */
+export async function cancelLobby(
+  mode: string,
+  userId: string,
+): Promise<{ ok: true } | { ok: false, error: string }> {
+  try {
+    const res = await fetch(`/api/lobby/${mode}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    })
+
+    const data = await res.json() as { error?: string }
+    if (!res.ok) return { ok: false, error: data.error ?? 'Failed to cancel lobby' }
+    return { ok: true }
+  }
+  catch (err) {
+    console.error('Failed to cancel lobby:', err)
+    return { ok: false, error: 'Network error while cancelling lobby' }
   }
 }
 

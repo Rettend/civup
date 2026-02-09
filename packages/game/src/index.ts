@@ -33,7 +33,9 @@ export {
 // Protocol (client ↔ server messages for draft WebSocket)
 export type {
   ClientMessage,
+  DraftCancelledWebhookPayload,
   DraftCompleteWebhookPayload,
+  DraftWebhookPayload,
   RoomConfig,
   ServerMessage,
 } from './protocol.ts'
@@ -41,6 +43,7 @@ export type {
 // Game types
 export type {
   DraftAction,
+  DraftCancelReason,
   DraftError,
   DraftEvent,
   DraftFormat,

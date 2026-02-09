@@ -43,7 +43,14 @@ export const component_lfg_join = factory.component(
       return c.resActivity()
     }
 
-    const outcome = await joinLobbyAndMaybeStartMatch(c, mode, identity.userId, identity.displayName, lobby.channelId)
+    const outcome = await joinLobbyAndMaybeStartMatch(
+      c,
+      mode,
+      identity.userId,
+      identity.displayName,
+      identity.avatarUrl,
+      lobby.channelId,
+    )
     if ('error' in outcome) {
       return c.flags('EPHEMERAL').resDefer(async (c) => {
         await sendTransientEphemeralResponse(c, outcome.error, 'error')

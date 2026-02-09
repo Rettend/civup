@@ -7,7 +7,7 @@ import {
   isMiniView,
   isSpectator,
   reportMatchResult,
-  sendStart,
+  sendScrub,
   setGridOpen,
   setIsMiniView,
   userId,
@@ -27,6 +27,12 @@ interface DraftViewProps {
 /** Main draft layout — replaces DraftLayout. Header + slots + grid overlay */
 export function DraftView(props: DraftViewProps) {
   const state = () => draftStore.state
+  const hostId = () => state()?.seats[0]?.playerId ?? null
+  const amHost = () => {
+    const currentUserId = userId()
+    if (!currentUserId) return false
+    return currentUserId === hostId()
+  }
 
   // Viewport detection for minimized mode
   createEffect(() => {
@@ -38,65 +44,112 @@ export function DraftView(props: DraftViewProps) {
 
   return (
     <Show
-      when={state()?.status === 'complete'}
-      fallback={
+      when={state()?.status === 'cancelled'}
+      fallback={(
         <Show
-          when={!isMiniView()}
-          fallback={<MiniView />}
-        >
-          <Show
-            when={state()?.status !== 'waiting'}
-            fallback={<ConfigScreen />}
-          >
-            {/* Active draft view */}
-            <div class="h-screen flex flex-col overflow-hidden bg-bg-primary text-text-primary font-sans">
-              {/* Header with bans, phase, timer */}
-              <DraftHeader />
+          when={state()?.status === 'complete'}
+          fallback={
+            <Show
+              when={!isMiniView()}
+              fallback={<MiniView />}
+            >
+              <Show
+                when={state()?.status !== 'waiting'}
+                fallback={<ConfigScreen />}
+              >
+                {/* Active draft view */}
+                <div class="relative h-screen flex flex-col overflow-hidden bg-bg-primary text-text-primary font-sans">
+                  {/* Header with bans, phase, timer */}
+                  <DraftHeader />
 
-              {/* Timeline indicator */}
-              <DraftTimeline />
+                  {/* Timeline indicator */}
+                  <DraftTimeline />
 
-              {/* Main area: slots + grid overlay */}
-              <div class="relative min-h-0 flex flex-1">
-                {/* Slot strip (always visible behind overlay) */}
-                <SlotStrip />
+                  <Show when={state()?.status === 'active' && amHost()}>
+                    <div class="absolute right-24 top-4 z-20">
+                      <button
+                        class="text-xs text-[#cdd5df] px-3 py-1.5 rounded-full border border-[#aeb6c2]/25 bg-[#8f99a8]/8 cursor-pointer transition-colors hover:border-[#aeb6c2]/40 hover:bg-[#8f99a8]/15"
+                        onClick={sendScrub}
+                      >
+                        Scrub Draft
+                      </button>
+                    </div>
+                  </Show>
 
-                {/* Grid overlay (z-indexed above) */}
-                <LeaderGridOverlay />
+                  {/* Main area: slots + grid overlay */}
+                  <div class="relative min-h-0 flex flex-1">
+                    {/* Slot strip (always visible behind overlay) */}
+                    <SlotStrip />
 
-                {/* Grid toggle button (when grid is closed) */}
-                <Show when={!gridOpen()}>
-                  <div class="absolute inset-x-0 bottom-3 z-5 flex justify-center">
-                    <button
-                      class={cn(
-                        'flex items-center gap-1 rounded-full px-4 py-1.5 text-xs font-medium cursor-pointer',
-                        'bg-bg-secondary border border-white/10 text-text-secondary',
-                        'hover:bg-bg-hover hover:text-text-primary transition-colors',
-                      )}
-                      onClick={() => setGridOpen(true)}
-                    >
-                      <div class="i-ph-caret-up-bold text-xs" />
-                      Browse Leaders
-                    </button>
-                  </div>
-                </Show>
+                    {/* Grid overlay (z-indexed above) */}
+                    <LeaderGridOverlay />
 
-                {/* Status indicator when grid is closed and not your turn */}
-                <Show when={!gridOpen() && state()?.status === 'active'}>
-                  <div class="absolute inset-x-0 bottom-12 z-5 flex justify-center">
-                    <Show when={isSpectator()}>
-                      <span class="rounded-full bg-bg-secondary/80 px-3 py-1 text-xs text-text-muted">Spectating</span>
+                    {/* Grid toggle button (when grid is closed) */}
+                    <Show when={!gridOpen()}>
+                      <div class="absolute inset-x-0 bottom-3 z-5 flex justify-center">
+                        <button
+                          class={cn(
+                            'flex items-center gap-1 rounded-full px-4 py-1.5 text-xs font-medium cursor-pointer',
+                            'bg-bg-secondary border border-white/10 text-text-secondary',
+                            'hover:bg-bg-hover hover:text-text-primary transition-colors',
+                          )}
+                          onClick={() => setGridOpen(true)}
+                        >
+                          <div class="i-ph-caret-up-bold text-xs" />
+                          Browse Leaders
+                        </button>
+                      </div>
+                    </Show>
+
+                    {/* Status indicator when grid is closed and not your turn */}
+                    <Show when={!gridOpen() && state()?.status === 'active'}>
+                      <div class="absolute inset-x-0 bottom-12 z-5 flex justify-center">
+                        <Show when={isSpectator()}>
+                          <span class="rounded-full bg-bg-secondary/80 px-3 py-1 text-xs text-text-muted">Spectating</span>
+                        </Show>
+                      </div>
                     </Show>
                   </div>
-                </Show>
-              </div>
-            </div>
-          </Show>
+                </div>
+              </Show>
+            </Show>
+          }
+        >
+          <PostDraftScreen matchId={props.matchId} />
         </Show>
-      }
+      )}
     >
-      <PostDraftScreen matchId={props.matchId} />
+      <CancelledDraftScreen />
     </Show>
+  )
+}
+
+function CancelledDraftScreen() {
+  const state = () => draftStore.state
+  const reason = () => state()?.cancelReason ?? 'scrub'
+
+  const title = () => {
+    if (reason() === 'cancel') return 'Draft Cancelled'
+    if (reason() === 'timeout') return 'Draft Auto-Scrubbed'
+    return 'Match Scrubbed'
+  }
+
+  const detail = () => {
+    if (reason() === 'cancel') return 'Host cancelled this draft before lock-in. No ratings were affected.'
+    if (reason() === 'timeout') return 'A player timed out on a pick, so the draft was auto-scrubbed instead of forcing a random leader.'
+    return 'Host scrubbed this match. No ratings were affected.'
+  }
+
+  return (
+    <main class="h-screen overflow-y-auto bg-bg-primary text-text-primary font-sans">
+      <div class="mx-auto max-w-3xl flex flex-col gap-4 px-4 py-10 md:px-8">
+        <section class="rounded-lg border border-[#aeb6c2]/20 bg-[#111827]/70 p-7 text-center">
+          <div class="mb-2 text-[11px] text-[#9aa3af] font-semibold tracking-[0.14em] uppercase">Session Closed</div>
+          <h1 class="mb-3 text-3xl text-[#d6dde6] font-semibold">{title()}</h1>
+          <p class="text-sm text-[#9ca6b3] leading-relaxed">{detail()}</p>
+        </section>
+      </div>
+    </main>
   )
 }
 
@@ -199,6 +252,13 @@ function PostDraftScreen(props: { matchId: string }) {
     setMessage('FFA result reported by host. Ratings updated.')
   }
 
+  const scrubMatch = () => {
+    if (!amHost()) return
+    setStatus('submitting')
+    setMessage('Scrub request sent. Closing this match...')
+    sendScrub()
+  }
+
   return (
     <main class="h-screen overflow-y-auto bg-bg-primary text-text-primary font-sans">
       <div class="mx-auto max-w-5xl flex flex-col gap-6 px-4 py-8 md:px-8">
@@ -252,9 +312,20 @@ function PostDraftScreen(props: { matchId: string }) {
                   class="h-32 w-full rounded-md border border-white/10 bg-bg-primary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent-gold/60"
                 />
                 <div>
-                  <Button size="lg" disabled={!canInteract() || ffaPlacements().trim().length === 0} onClick={reportFfa}>
-                    Submit FFA Result
-                  </Button>
+                  <div class="flex flex-wrap items-center gap-3">
+                    <Button size="lg" disabled={!canInteract() || ffaPlacements().trim().length === 0} onClick={reportFfa}>
+                      Submit FFA Result
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      class="border-[#aeb6c2]/25 text-[#cdd5df] hover:border-[#aeb6c2]/40 hover:bg-[#8f99a8]/12"
+                      disabled={!canInteract()}
+                      onClick={scrubMatch}
+                    >
+                      Scrub Match
+                    </Button>
+                  </div>
                 </div>
               </div>
             }
@@ -266,11 +337,20 @@ function PostDraftScreen(props: { matchId: string }) {
               <Button variant="outline" size="lg" disabled={!canInteract()} onClick={() => reportWinner('B')}>
                 Team B Won
               </Button>
+              <Button
+                variant="outline"
+                size="lg"
+                class="border-[#aeb6c2]/25 text-[#cdd5df] hover:border-[#aeb6c2]/40 hover:bg-[#8f99a8]/12"
+                disabled={!canInteract()}
+                onClick={scrubMatch}
+              >
+                Scrub Match
+              </Button>
             </div>
           </Show>
 
           <Show when={!amHost() && status() !== 'completed'}>
-            <div class="mt-3 text-sm text-text-muted">Waiting for host to report the winner.</div>
+            <div class="mt-3 text-sm text-text-muted">Waiting for host to report winner or scrub the match.</div>
           </Show>
           <div class="mt-3 text-sm text-text-secondary">{message()}</div>
         </section>

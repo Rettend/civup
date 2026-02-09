@@ -1,4 +1,5 @@
 export {
+  cancelLobby,
   connectionError,
   connectionStatus,
   connectToRoom,
@@ -11,9 +12,11 @@ export {
   type LobbySnapshot,
   reportMatchResult,
   sendBan,
+  sendCancel,
   sendConfig,
   sendMessage,
   sendPick,
+  sendScrub,
   sendStart,
   updateLobbyDraftConfig,
 } from './connection-store'

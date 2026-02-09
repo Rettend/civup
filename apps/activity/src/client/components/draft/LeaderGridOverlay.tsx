@@ -24,8 +24,10 @@ import {
   phaseAccent,
   searchQuery,
   selectedLeader,
+  setSelectedLeader,
   sendBan,
   sendPick,
+  setDetailLeaderId,
   setGridOpen,
   setSearchQuery,
   tagFilters,
@@ -76,6 +78,7 @@ export function LeaderGridOverlay() {
   const accent = () => phaseAccent()
   const [hoverTooltip, setHoverTooltip] = createSignal<HoverTooltip | null>(null)
   const [filtersOpen, setFiltersOpen] = createSignal(false)
+  const [randomPickArmed, setRandomPickArmed] = createSignal(false)
   const [tooltipSize, setTooltipSize] = createSignal({ width: 224, height: 96 })
   let tooltipRef: HTMLDivElement | undefined
 
@@ -103,10 +106,54 @@ export function LeaderGridOverlay() {
     return tagFilters()[category].includes(tag)
   }
 
+  const randomLeaderPool = createMemo(() => {
+    const available = new Set(state()?.availableCivIds ?? [])
+    return filteredLeaders().filter(leader => available.has(leader.id))
+  })
+
+  const canPickRandom = () => {
+    if (state()?.status !== 'active') return false
+    if (step()?.action !== 'pick') return false
+    if (!isMyTurn() || hasSubmitted()) return false
+    return randomLeaderPool().length > 0
+  }
+
+  const canConfirmPick = () => {
+    if (step()?.action !== 'pick') return false
+    if (selectedLeader()) return true
+    return randomPickArmed()
+  }
+
+  createEffect(() => {
+    if (selectedLeader()) setRandomPickArmed(false)
+  })
+
+  createEffect(() => {
+    if (step()?.action !== 'pick') setRandomPickArmed(false)
+  })
+
+  createEffect(() => {
+    if (randomPickArmed() && randomLeaderPool().length === 0) setRandomPickArmed(false)
+  })
+
+  const handleRandomLeader = () => {
+    if (!canPickRandom()) return
+    setSelectedLeader(null)
+    setDetailLeaderId(null)
+    setRandomPickArmed(true)
+    setHoverTooltip(null)
+  }
+
   const handleConfirmPick = () => {
-    const civId = selectedLeader()
+    let civId = selectedLeader()
+    if (!civId && randomPickArmed()) {
+      const pool = randomLeaderPool()
+      if (pool.length === 0) return
+      civId = pool[Math.floor(Math.random() * pool.length)]!.id
+    }
     if (!civId) return
     sendPick(civId)
+    setRandomPickArmed(false)
     clearSelections()
     setHoverTooltip(null)
     setFiltersOpen(false)
@@ -117,6 +164,7 @@ export function LeaderGridOverlay() {
     const civIds = banSelections()
     if (civIds.length === 0) return
     sendBan(civIds)
+    setRandomPickArmed(false)
     clearSelections()
     setHoverTooltip(null)
     setFiltersOpen(false)
@@ -127,6 +175,7 @@ export function LeaderGridOverlay() {
   const handleBackdropClick = () => {
     if (isMyTurn() && !hasSubmitted()) return
     setHoverTooltip(null)
+    setRandomPickArmed(false)
     setFiltersOpen(false)
     setGridOpen(false)
   }
@@ -274,6 +323,11 @@ export function LeaderGridOverlay() {
           {/* Leader icon grid */}
           <div class="p-3 flex-1 overflow-y-auto">
             <div class="gap-1.5 grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
+              <RandomLeaderCard
+                disabled={!canPickRandom()}
+                armed={randomPickArmed()}
+                onClick={handleRandomLeader}
+              />
               <For each={filteredLeaders()}>
                 {leader => (
                   <LeaderCard
@@ -325,14 +379,14 @@ export function LeaderGridOverlay() {
                   <button
                     class={cn(
                       'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
-                      selectedLeader()
+                      canConfirmPick()
                         ? 'bg-accent-gold text-black cursor-pointer hover:bg-accent-gold/80'
                         : 'bg-accent-gold/20 text-accent-gold/50 cursor-not-allowed',
                     )}
-                    disabled={!selectedLeader()}
+                    disabled={!canConfirmPick()}
                     onClick={handleConfirmPick}
                   >
-                    Confirm Pick
+                    {randomPickArmed() ? 'Confirm Random Pick' : 'Confirm Pick'}
                   </button>
                 </div>
               </Show>
@@ -370,6 +424,26 @@ export function LeaderGridOverlay() {
         )}
       </Show>
     </Show>
+  )
+}
+
+function RandomLeaderCard(props: { disabled: boolean, armed: boolean, onClick: () => void }) {
+  return (
+    <button
+      class={cn(
+        'aspect-square rounded border transition-colors flex flex-col items-center justify-center gap-1',
+        props.disabled
+          ? 'border-white/8 bg-bg-primary/35 text-text-muted/45 cursor-not-allowed'
+          : props.armed
+              ? 'border-accent-gold/60 bg-accent-gold/20 text-accent-gold cursor-pointer'
+              : 'border-accent-gold/35 bg-accent-gold/10 text-accent-gold cursor-pointer hover:border-accent-gold/55 hover:bg-accent-gold/15',
+      )}
+      disabled={props.disabled}
+      onClick={props.onClick}
+    >
+      <span class="i-ph-dice-five-bold text-base" />
+      <span class="text-[10px] tracking-wide font-semibold uppercase">Random</span>
+    </button>
   )
 }
 

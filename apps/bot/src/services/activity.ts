@@ -105,6 +105,7 @@ function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
         seats.push({
           playerId: teamAEntry.playerId,
           displayName: teamAEntry.displayName,
+          avatarUrl: teamAEntry.avatarUrl ?? null,
           team: 0,
         })
       }
@@ -117,6 +118,7 @@ function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
         seats.push({
           playerId: teamBEntry.playerId,
           displayName: teamBEntry.displayName,
+          avatarUrl: teamBEntry.avatarUrl ?? null,
           team: 1,
         })
       }
@@ -129,6 +131,7 @@ function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
     return entries.map((e, i) => ({
       playerId: e.playerId,
       displayName: e.displayName,
+      avatarUrl: e.avatarUrl ?? null,
       team: i,
     }))
   }
@@ -137,6 +140,7 @@ function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
   return entries.map(e => ({
     playerId: e.playerId,
     displayName: e.displayName,
+    avatarUrl: e.avatarUrl ?? null,
   }))
 }
 
