@@ -95,13 +95,13 @@ export function LeaderCard(props: LeaderCardProps) {
       {/* Portrait — icon only */}
       <Show
         when={props.leader.portraitUrl}
-        fallback={
-          <div class="flex h-full w-full items-center justify-center bg-bg-secondary">
+        fallback={(
+          <div class="h-full w-full flex items-center justify-center bg-bg-secondary">
             <span class="text-lg text-accent-gold/40 font-bold">
               {props.leader.name.slice(0, 1)}
             </span>
           </div>
-        }
+        )}
       >
         {url => (
           <img
