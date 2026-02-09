@@ -3,9 +3,10 @@ import type { DraftSeat, DraftState, GameMode } from '@civup/game'
 import type { FfaEntry, TeamInput } from '@civup/rating'
 import { matchBans, matches, matchParticipants, playerRatings, players } from '@civup/db'
 import { isTeamMode, toLeaderboardMode } from '@civup/game'
-import { calculateRatings, createRating } from '@civup/rating'
-import { and, eq } from 'drizzle-orm'
+import { calculateRatings, createRating, displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'
+import { and, eq, isNull, lt, or } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from './activity.ts'
+import { clearLobbyByMatch } from './lobby.ts'
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -27,12 +28,14 @@ interface ParticipantRow {
   ratingBeforeSigma: number | null
   ratingAfterMu: number | null
   ratingAfterSigma: number | null
+  leaderboardBeforeRank?: number | null
+  leaderboardAfterRank?: number | null
 }
 
 interface ReportInput {
   matchId: string
   reporterId: string
-  /** For team games: "A" or "B". For FFA: player IDs in placement order, newline-separated. */
+  /** For team and duel games: "A" or "B". For FFA: player IDs in placement order, newline-separated. */
   placements: string
 }
 
@@ -54,6 +57,16 @@ interface ActivateDraftInput {
 type ActivateDraftResult
   = | { match: MatchRow, participants: ParticipantRow[] }
     | { error: string }
+
+interface PruneMatchesOptions {
+  staleDraftingMs?: number
+  staleActiveMs?: number
+  staleCancelledMs?: number
+}
+
+interface PruneMatchesResult {
+  removedMatchIds: string[]
+}
 
 function getHostIdFromDraftData(draftData: string | null): string | null {
   if (!draftData) return null
@@ -312,11 +325,11 @@ export async function reportMatch(
 
   const gameMode = match.gameMode as GameMode
 
-  if (isTeamMode(gameMode)) {
-    // Team game: placements is "A" or "B"
+  if (isTeamMode(gameMode) || gameMode === 'duel') {
+    // Team and duel games: placements is "A" or "B"
     const winningTeam = input.placements.trim().toUpperCase()
     if (winningTeam !== 'A' && winningTeam !== 'B') {
-      return { error: 'For team games, enter "A" or "B" for the winning team.' }
+      return { error: 'For team and duel games, enter "A" or "B" for the winning side.' }
     }
 
     const winTeamIdx = winningTeam === 'A' ? 0 : 1
@@ -393,6 +406,87 @@ export async function reportMatch(
   return finalized
 }
 
+export async function pruneAbandonedMatches(
+  db: Database,
+  kv: KVNamespace,
+  options: PruneMatchesOptions = {},
+): Promise<PruneMatchesResult> {
+  const now = Date.now()
+  const staleDraftingMs = options.staleDraftingMs ?? 12 * 60 * 60 * 1000
+  const staleActiveMs = options.staleActiveMs ?? 36 * 60 * 60 * 1000
+  const staleCancelledMs = options.staleCancelledMs ?? 6 * 60 * 60 * 1000
+
+  const staleMatches = await db
+    .select({ id: matches.id })
+    .from(matches)
+    .where(or(
+      and(eq(matches.status, 'drafting'), lt(matches.createdAt, now - staleDraftingMs)),
+      and(eq(matches.status, 'active'), lt(matches.createdAt, now - staleActiveMs)),
+      and(eq(matches.status, 'cancelled'), lt(matches.createdAt, now - staleCancelledMs)),
+    ))
+
+  const removedMatchIds: string[] = []
+
+  for (const match of staleMatches) {
+    const participants = await db
+      .select({ playerId: matchParticipants.playerId })
+      .from(matchParticipants)
+      .where(eq(matchParticipants.matchId, match.id))
+
+    const channelId = await getChannelForMatch(kv, match.id)
+    await clearActivityMappings(
+      kv,
+      match.id,
+      participants.map(p => p.playerId),
+      channelId ?? undefined,
+    )
+
+    await clearLobbyByMatch(kv, match.id)
+    await db.delete(matchBans).where(eq(matchBans.matchId, match.id))
+    await db.delete(matchParticipants).where(eq(matchParticipants.matchId, match.id))
+    await db.delete(matches).where(eq(matches.id, match.id))
+
+    removedMatchIds.push(match.id)
+  }
+
+  // Backfill cleanup: completed matches no longer keep draft bans.
+  const completedBanRows = await db
+    .select({ matchId: matchBans.matchId })
+    .from(matchBans)
+    .innerJoin(matches, eq(matchBans.matchId, matches.id))
+    .where(eq(matches.status, 'completed'))
+
+  const completedBanMatchIds = [...new Set(completedBanRows.map(row => row.matchId))]
+  for (const matchId of completedBanMatchIds) {
+    await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
+  }
+
+  // Defensive cleanup for manual DB edits (or any failed partial deletes).
+  const orphanParticipantRows = await db
+    .select({ matchId: matchParticipants.matchId })
+    .from(matchParticipants)
+    .leftJoin(matches, eq(matchParticipants.matchId, matches.id))
+    .where(isNull(matches.id))
+
+  const orphanParticipantMatchIds = [...new Set(orphanParticipantRows.map(row => row.matchId))]
+  for (const matchId of orphanParticipantMatchIds) {
+    await db.delete(matchParticipants).where(eq(matchParticipants.matchId, matchId))
+  }
+
+  const orphanBanRows = await db
+    .select({ matchId: matchBans.matchId })
+    .from(matchBans)
+    .leftJoin(matches, eq(matchBans.matchId, matches.id))
+    .where(isNull(matches.id))
+
+  const orphanBanMatchIds = [...new Set(orphanBanRows.map(row => row.matchId))]
+  for (const matchId of orphanBanMatchIds) {
+    await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
+  }
+
+  return { removedMatchIds }
+}
+
 // ── Finalize a reported match and apply ratings ──────────────
 
 async function finalizeReportedMatch(
@@ -404,6 +498,17 @@ async function finalizeReportedMatch(
   const matchId = match.id
   const gameMode = match.gameMode as GameMode
   const leaderboardMode = toLeaderboardMode(gameMode)
+  const leaderboardRowsBefore = await db
+    .select({
+      playerId: playerRatings.playerId,
+      mu: playerRatings.mu,
+      sigma: playerRatings.sigma,
+      gamesPlayed: playerRatings.gamesPlayed,
+    })
+    .from(playerRatings)
+    .where(eq(playerRatings.mode, leaderboardMode))
+
+  const beforeRankByPlayer = buildRankByPlayer(leaderboardRowsBefore)
 
   // Fetch or create ratings for all participants
   const playerRatingMap = new Map<string, { mu: number, sigma: number }>()
@@ -548,6 +653,9 @@ async function finalizeReportedMatch(
     .set({ status: 'completed', completedAt: now })
     .where(eq(matches.id, matchId))
 
+  // Ban rows are only useful during the draft lifecycle.
+  await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
+
   const channelId = await getChannelForMatch(kv, matchId)
   await clearActivityMappings(
     kv,
@@ -563,10 +671,47 @@ async function finalizeReportedMatch(
     .where(eq(matches.id, matchId))
     .limit(1)
 
+  const leaderboardRowsAfter = await db
+    .select({
+      playerId: playerRatings.playerId,
+      mu: playerRatings.mu,
+      sigma: playerRatings.sigma,
+      gamesPlayed: playerRatings.gamesPlayed,
+    })
+    .from(playerRatings)
+    .where(eq(playerRatings.mode, leaderboardMode))
+
+  const afterRankByPlayer = buildRankByPlayer(leaderboardRowsAfter)
+
   const updatedParticipants = await db
     .select()
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, matchId))
 
-  return { match: updatedMatch!, participants: updatedParticipants }
+  const participantsWithLeaderboardRanks: ParticipantRow[] = updatedParticipants.map(participant => ({
+    ...participant,
+    leaderboardBeforeRank: beforeRankByPlayer.get(participant.playerId) ?? null,
+    leaderboardAfterRank: afterRankByPlayer.get(participant.playerId) ?? null,
+  }))
+
+  return { match: updatedMatch!, participants: participantsWithLeaderboardRanks }
+}
+
+interface LeaderboardSnapshotRow {
+  playerId: string
+  mu: number
+  sigma: number
+  gamesPlayed: number
+}
+
+function buildRankByPlayer(rows: LeaderboardSnapshotRow[]): Map<string, number> {
+  const ranked = rows
+    .filter(row => row.gamesPlayed >= LEADERBOARD_MIN_GAMES)
+    .map(row => ({
+      playerId: row.playerId,
+      display: displayRating(row.mu, row.sigma),
+    }))
+    .sort((a, b) => b.display - a.display)
+
+  return new Map(ranked.map((row, index) => [row.playerId, index + 1]))
 }
