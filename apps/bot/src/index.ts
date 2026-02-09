@@ -1,4 +1,4 @@
-import type { DraftCompleteWebhookPayload, GameMode } from '@civup/game'
+import type { DraftWebhookPayload, GameMode } from '@civup/game'
 import type { Env } from './env.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { GAME_MODES } from '@civup/game'
@@ -7,26 +7,28 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import * as commands from './commands/index.ts'
 import * as cron from './cron/cleanup.ts'
-import { lobbyDraftCompleteEmbed, lobbyResultEmbed } from './embeds/lfg.ts'
+import { lobbyCancelledEmbed, lobbyDraftCompleteEmbed, lobbyResultEmbed } from './embeds/lfg.ts'
 import {
   getMatchForChannel,
   getMatchForUser,
   storeUserMatchMappings,
 } from './services/activity.ts'
 import { createChannelMessage } from './services/discord.ts'
+import { refreshConfiguredLeaderboards } from './services/leaderboard-message.ts'
 import { upsertLobbyMessage } from './services/lobby-message.ts'
 import {
+  clearLobby,
   clearLobbyByMatch,
   getLobby,
   getLobbyByMatch,
   setLobbyDraftConfig,
   setLobbyStatus,
 } from './services/lobby.ts'
-import { activateDraftMatch, reportMatch } from './services/match.ts'
-import { getPlayerQueueMode, getQueueState } from './services/queue.ts'
+import { activateDraftMatch, cancelDraftMatch, reportMatch } from './services/match.ts'
+import { clearQueue, getPlayerQueueMode, getQueueState } from './services/queue.ts'
+import { getSystemChannel } from './services/system-channels.ts'
 import { factory } from './setup.ts'
 
-const DEFAULT_ARCHIVE_CHANNEL_ID = '1470095104332267560'
 const MAX_DRAFT_TIMER_SECONDS = 30 * 60
 
 const discordApp = factory.discord().loader([
@@ -169,6 +171,67 @@ app.post('/api/lobby/:mode/config', async (c) => {
   return c.json(await buildOpenLobbySnapshot(c.env.KV, mode, updated))
 })
 
+// Host-only open lobby cancellation (before draft room exists)
+app.post('/api/lobby/:mode/cancel', async (c) => {
+  const modeParam = c.req.param('mode')
+  if (!GAME_MODES.includes(modeParam as GameMode)) {
+    return c.json({ error: 'Invalid game mode' }, 400)
+  }
+  const mode = modeParam as GameMode
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  }
+  catch {
+    return c.json({ error: 'Invalid JSON payload' }, 400)
+  }
+
+  if (!body || typeof body !== 'object') {
+    return c.json({ error: 'Invalid request body' }, 400)
+  }
+
+  const { userId } = body as { userId?: string }
+  if (typeof userId !== 'string' || userId.length === 0) {
+    return c.json({ error: 'userId is required' }, 400)
+  }
+
+  const lobby = await getLobby(c.env.KV, mode)
+  if (!lobby) {
+    return c.json({ error: 'No lobby for this mode' }, 404)
+  }
+
+  if (lobby.status !== 'open') {
+    return c.json({ error: 'Lobby can only be cancelled before draft start' }, 400)
+  }
+
+  if (lobby.hostId !== userId) {
+    return c.json({ error: 'Only the lobby host can cancel this lobby' }, 403)
+  }
+
+  const queue = await getQueueState(c.env.KV, mode)
+  if (queue.entries.length > 0) {
+    await clearQueue(c.env.KV, mode, queue.entries.map(entry => entry.playerId))
+  }
+
+  try {
+    await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
+      embeds: [{
+        title: `LOBBY CANCELLED  -  ${mode.toUpperCase()}`,
+        description: 'Host cancelled this lobby before draft start.',
+        color: 0x6B7280,
+      }],
+      components: [],
+    })
+  }
+  catch (error) {
+    console.error(`Failed to update cancelled lobby embed for mode ${mode}:`, error)
+  }
+
+  await clearLobby(c.env.KV, mode)
+  return c.json({ ok: true })
+})
+
 // Full match state (used by activity post-draft screen)
 app.get('/api/match/state/:matchId', async (c) => {
   const matchId = c.req.param('matchId')
@@ -239,20 +302,29 @@ app.post('/api/match/:matchId/report', async (c) => {
     await clearLobbyByMatch(c.env.KV, result.match.id)
   }
 
-  const archiveChannelId = c.env.ARCHIVE_CHANNEL_ID ?? DEFAULT_ARCHIVE_CHANNEL_ID
+  const archiveChannelId = await getSystemChannel(c.env.KV, 'archive')
+  if (archiveChannelId) {
+    try {
+      await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
+        embeds: [lobbyResultEmbed(reportedMode, result.participants)],
+      })
+    }
+    catch (error) {
+      console.error(`Failed to post archive result for match ${result.match.id}:`, error)
+    }
+  }
+
   try {
-    await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-      embeds: [lobbyResultEmbed(reportedMode, result.participants)],
-    })
+    await refreshConfiguredLeaderboards(db, c.env.KV, c.env.DISCORD_TOKEN)
   }
   catch (error) {
-    console.error(`Failed to post archive result for match ${result.match.id}:`, error)
+    console.error(`Failed to refresh leaderboard embeds after match ${result.match.id}:`, error)
   }
 
   return c.json({ ok: true, match: result.match, participants: result.participants })
 })
 
-// Webhook from PartyKit when draft reaches COMPLETE
+// Webhook from PartyKit when draft lifecycle changes
 app.post('/api/webhooks/draft-complete', async (c) => {
   const expectedSecret = c.env.DRAFT_WEBHOOK_SECRET
   if (expectedSecret) {
@@ -270,39 +342,72 @@ app.post('/api/webhooks/draft-complete', async (c) => {
     return c.json({ error: 'Invalid JSON payload' }, 400)
   }
 
-  if (!isDraftCompletePayload(payload)) {
-    return c.json({ error: 'Invalid draft completion payload' }, 400)
+  if (!isDraftWebhookPayload(payload)) {
+    return c.json({ error: 'Invalid draft webhook payload' }, 400)
   }
 
-  console.log(`Received draft-complete webhook for match ${payload.matchId}`)
+  console.log(`Received draft webhook (${payload.outcome}) for match ${payload.matchId}`)
 
   const db = createDb(c.env.DB)
-  const result = await activateDraftMatch(db, {
+
+  if (payload.outcome === 'complete') {
+    const result = await activateDraftMatch(db, {
+      state: payload.state,
+      completedAt: payload.completedAt,
+    })
+
+    if ('error' in result) {
+      return c.json({ error: result.error }, 400)
+    }
+
+    const lobby = await getLobbyByMatch(c.env.KV, payload.matchId)
+    if (!lobby) {
+      console.warn(`No lobby mapping found for draft-complete match ${payload.matchId}`)
+      return c.json({ ok: true })
+    }
+
+    await setLobbyStatus(c.env.KV, lobby.mode, 'active')
+    try {
+      await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
+        embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants)],
+        components: [],
+      })
+    }
+    catch (error) {
+      console.error(`Failed to update draft-complete embed for match ${payload.matchId}:`, error)
+    }
+
+    return c.json({ ok: true })
+  }
+
+  const cancelled = await cancelDraftMatch(db, c.env.KV, {
     state: payload.state,
-    completedAt: payload.completedAt,
+    cancelledAt: payload.cancelledAt,
+    reason: payload.reason,
   })
 
-  if ('error' in result) {
-    return c.json({ error: result.error }, 400)
+  if ('error' in cancelled) {
+    return c.json({ error: cancelled.error }, 400)
   }
 
   const lobby = await getLobbyByMatch(c.env.KV, payload.matchId)
   if (!lobby) {
-    console.warn(`No lobby mapping found for draft-complete match ${payload.matchId}`)
+    console.warn(`No lobby mapping found for cancelled match ${payload.matchId}`)
     return c.json({ ok: true })
   }
 
-  await setLobbyStatus(c.env.KV, lobby.mode, 'active')
+  await setLobbyStatus(c.env.KV, lobby.mode, payload.reason === 'cancel' ? 'cancelled' : 'scrubbed')
   try {
     await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
-      embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants)],
+      embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason)],
       components: [],
     })
   }
   catch (error) {
-    console.error(`Failed to update draft-complete embed for match ${payload.matchId}:`, error)
+    console.error(`Failed to update cancelled embed for match ${payload.matchId}:`, error)
   }
 
+  await clearLobbyByMatch(c.env.KV, payload.matchId)
   return c.json({ ok: true })
 })
 
@@ -311,12 +416,28 @@ app.mount('/', discordApp.fetch)
 
 export default app
 
-function isDraftCompletePayload(value: unknown): value is DraftCompleteWebhookPayload {
+function isDraftWebhookPayload(value: unknown): value is DraftWebhookPayload {
   if (!value || typeof value !== 'object') return false
-  const payload = value as Partial<DraftCompleteWebhookPayload>
-  if (typeof payload.matchId !== 'string' || typeof payload.completedAt !== 'number') return false
+  const payload = value as Partial<DraftWebhookPayload> & {
+    outcome?: unknown
+    cancelledAt?: unknown
+    reason?: unknown
+  }
+
+  if (typeof payload.matchId !== 'string') return false
   if (!payload.state || typeof payload.state !== 'object') return false
-  return payload.state.status === 'complete'
+
+  if (payload.outcome === 'complete') {
+    return typeof payload.completedAt === 'number' && payload.state.status === 'complete'
+  }
+
+  if (payload.outcome === 'cancelled') {
+    if (typeof payload.cancelledAt !== 'number') return false
+    if (payload.reason !== 'cancel' && payload.reason !== 'scrub' && payload.reason !== 'timeout') return false
+    return payload.state.status === 'cancelled'
+  }
+
+  return false
 }
 
 async function buildOpenLobbySnapshot(
@@ -339,6 +460,7 @@ async function buildOpenLobbySnapshot(
     entries: queue.entries.map(entry => ({
       playerId: entry.playerId,
       displayName: entry.displayName,
+      avatarUrl: entry.avatarUrl ?? null,
     })),
     targetSize: queue.targetSize,
     draftConfig: lobby.draftConfig,

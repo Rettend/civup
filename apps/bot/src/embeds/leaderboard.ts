@@ -1,20 +1,20 @@
 import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import { playerRatings } from '@civup/db'
-import { buildLeaderboard, LEADERBOARD_MIN_GAMES } from '@civup/rating'
+import { buildLeaderboard } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { eq } from 'drizzle-orm'
 
 const MODE_LABELS: Record<LeaderboardMode, string> = {
-  ffa: 'FFA',
   duel: 'Duel',
   teamers: 'Teamers',
+  ffa: 'FFA',
 }
 
 const MODE_COLORS: Record<LeaderboardMode, number> = {
-  ffa: 0xF59E0B,
   duel: 0xEF4444,
   teamers: 0x8B5CF6,
+  ffa: 0xF59E0B,
 }
 
 export async function leaderboardEmbed(db: Database, mode: LeaderboardMode): Promise<Embed> {
@@ -35,16 +35,18 @@ export async function leaderboardEmbed(db: Database, mode: LeaderboardMode): Pro
 
   const lines = top25.map((entry, i) => {
     const rank = i + 1
-    const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `**${rank}.**`
+    const medal = rank === 1 ? '🥇 ' : rank === 2 ? '🥈 ' : rank === 3 ? '🥉 ' : ''
     const rating = Math.round(entry.displayRating)
     const winPct = Math.round(entry.winRate * 100)
-    return `${medal} <@${entry.playerId}> — **${rating}** (${entry.gamesPlayed}G, ${winPct}% WR)`
+    return `${formatPlacementCode(rank)} ${medal}<@${entry.playerId}> — **${rating}** (${entry.wins}/${entry.gamesPlayed}, ${winPct}%)`
   })
 
   return new Embed()
     .title(`${MODE_LABELS[mode]} Leaderboard`)
     .description(lines.join('\n'))
     .color(MODE_COLORS[mode])
-    .footer({ text: `Top ${top25.length} players with ${LEADERBOARD_MIN_GAMES}+ games` })
-    .timestamp(new Date().toISOString())
+}
+
+function formatPlacementCode(placement: number): string {
+  return `\`${`#${placement}`.padEnd(4, ' ')}\``
 }

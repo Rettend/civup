@@ -15,10 +15,9 @@ import { clearDeferredEphemeralResponse, sendTransientEphemeralResponse } from '
 import { upsertLobbyMessage } from '../../services/lobby-message.ts'
 import { clearLobby, createLobby, getLobby } from '../../services/lobby.ts'
 import { addToQueue, clearQueue, getQueueState, removeFromQueue } from '../../services/queue.ts'
+import { getSystemChannel } from '../../services/system-channels.ts'
 import { factory } from '../../setup.ts'
 import { GAME_MODE_CHOICES, getIdentity, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
-
-const DEFAULT_DRAFT_CHANNEL_ID = '1469620817024385056'
 
 export const command_lfg = factory.command<LfgVar>(
   new Command('lfg', 'Looking for game — queue management').options(
@@ -48,7 +47,6 @@ export const command_lfg = factory.command<LfgVar>(
       // ── create ──────────────────────────────────────────
       case 'create': {
         const mode = c.var.mode as GameMode
-        const draftChannelId = c.env.DRAFT_CHANNEL_ID ?? DEFAULT_DRAFT_CHANNEL_ID
         const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id
         const identity = getIdentity(c)
         if (!identity) {
@@ -59,6 +57,16 @@ export const command_lfg = factory.command<LfgVar>(
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           const kv = c.env.KV
+          const draftChannelId = await getSystemChannel(kv, 'draft')
+          if (!draftChannelId) {
+            await sendTransientEphemeralResponse(
+              c,
+              'Draft channel is not configured. Run `/admin setup target:Draft` in the desired channel.',
+              'error',
+            )
+            return
+          }
+
           const existingLobby = await getLobby(kv, mode)
           if (existingLobby) {
             if (existingLobby.status === 'open') {
@@ -106,6 +114,7 @@ export const command_lfg = factory.command<LfgVar>(
           const result = await addToQueue(kv, mode, {
             playerId: identity.userId,
             displayName: identity.displayName,
+            avatarUrl: identity.avatarUrl,
             joinedAt: Date.now(),
           })
 
@@ -178,7 +187,14 @@ export const command_lfg = factory.command<LfgVar>(
         }
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const outcome = await joinLobbyAndMaybeStartMatch(c, mode, identity.userId, identity.displayName, lobby.channelId)
+          const outcome = await joinLobbyAndMaybeStartMatch(
+            c,
+            mode,
+            identity.userId,
+            identity.displayName,
+            identity.avatarUrl,
+            lobby.channelId,
+          )
           if ('error' in outcome) {
             await sendTransientEphemeralResponse(c, outcome.error, 'error')
             return

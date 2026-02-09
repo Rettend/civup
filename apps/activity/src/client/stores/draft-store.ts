@@ -107,6 +107,11 @@ export function phaseLabel(): string {
   if (!s) return ''
   if (s.status === 'waiting') return 'WAITING'
   if (s.status === 'complete') return 'DRAFT COMPLETE'
+  if (s.status === 'cancelled') {
+    if (s.cancelReason === 'cancel') return 'DRAFT CANCELLED'
+    if (s.cancelReason === 'timeout') return 'AUTO-SCRUBBED'
+    return 'MATCH SCRUBBED'
+  }
 
   const step = s.steps[s.currentStepIndex]
   if (!step) return ''

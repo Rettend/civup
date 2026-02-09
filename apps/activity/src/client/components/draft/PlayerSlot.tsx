@@ -40,6 +40,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
   const accent = () => phaseAccent()
   const filled = () => !!pick()
+  const seatAvatarUrl = () => seat()?.avatarUrl ?? null
 
   return (
     <div
@@ -70,13 +71,26 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
       {/* Empty state icon */}
       <Show when={!filled()}>
-        <div class="flex flex-1 items-center justify-center">
-          <div class={cn(
-            'i-ph-user-bold text-3xl',
-            isActive() ? (accent() === 'red' ? 'text-accent-red/40' : 'text-accent-gold/40') : 'text-text-muted/20',
+        <Show
+          when={seatAvatarUrl()}
+          fallback={(
+            <div class="flex flex-1 items-center justify-center">
+              <div class={cn(
+                'i-ph-user-bold text-3xl',
+                isActive() ? (accent() === 'red' ? 'text-accent-red/40' : 'text-accent-gold/40') : 'text-text-muted/20',
+              )}
+              />
+            </div>
           )}
-          />
-        </div>
+        >
+          {avatarUrl => (
+            <img
+              src={avatarUrl()}
+              alt={seat()?.displayName ?? 'Player avatar'}
+              class="absolute inset-0 h-full w-full object-cover opacity-45"
+            />
+          )}
+        </Show>
       </Show>
 
       {/* Bottom gradient overlay for name readability */}

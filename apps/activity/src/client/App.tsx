@@ -244,6 +244,7 @@ function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
   for (let i = 0; i < a.entries.length; i++) {
     if (a.entries[i]?.playerId !== b.entries[i]?.playerId) return false
     if (a.entries[i]?.displayName !== b.entries[i]?.displayName) return false
+    if ((a.entries[i]?.avatarUrl ?? null) !== (b.entries[i]?.avatarUrl ?? null)) return false
   }
 
   return true

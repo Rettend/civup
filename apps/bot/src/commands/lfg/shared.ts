@@ -5,13 +5,14 @@ import { lobbyComponents, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embed
 import { createDraftRoom, storeMatchMapping, storeUserMatchMappings } from '../../services/activity.ts'
 import { attachLobbyMatch, getLobby } from '../../services/lobby.ts'
 import { createDraftMatch } from '../../services/match.ts'
+import { buildDiscordAvatarUrl } from '../../services/player-profile.ts'
 import { addToQueue, checkQueueFull, clearQueue, getPlayerQueueMode, getQueueState, removeFromQueue } from '../../services/queue.ts'
 
 export const GAME_MODE_CHOICES = [
-  { name: 'FFA', value: 'ffa' },
   { name: 'Duel', value: 'duel' },
   { name: '2v2', value: '2v2' },
   { name: '3v3', value: '3v3' },
+  { name: 'FFA', value: 'ffa' },
 ] as const
 
 export const LOBBY_STATUS_LABELS = {
@@ -19,6 +20,8 @@ export const LOBBY_STATUS_LABELS = {
   drafting: 'Draft Ready',
   active: 'Draft Complete',
   completed: 'Result Reported',
+  cancelled: 'Draft Cancelled',
+  scrubbed: 'Match Scrubbed',
 } as const
 
 export interface LfgVar {
@@ -28,10 +31,10 @@ export interface LfgVar {
 
 export function getIdentity(c: {
   interaction: {
-    member?: { user?: { id?: string, global_name?: string | null, username?: string } }
-    user?: { id?: string, global_name?: string | null, username?: string }
+    member?: { user?: { id?: string, global_name?: string | null, username?: string, avatar?: string | null } }
+    user?: { id?: string, global_name?: string | null, username?: string, avatar?: string | null }
   }
-}): { userId: string, displayName: string } | null {
+}): { userId: string, displayName: string, avatarUrl: string } | null {
   const userId = c.interaction.member?.user?.id ?? c.interaction.user?.id
   if (!userId) return null
 
@@ -41,7 +44,12 @@ export function getIdentity(c: {
     ?? c.interaction.user?.username
     ?? 'Unknown'
 
-  return { userId, displayName }
+  const avatarHash = c.interaction.member?.user?.avatar
+    ?? c.interaction.user?.avatar
+    ?? null
+  const avatarUrl = buildDiscordAvatarUrl(userId, avatarHash)
+
+  return { userId, displayName, avatarUrl }
 }
 
 export async function joinLobbyAndMaybeStartMatch(
@@ -57,6 +65,7 @@ export async function joinLobbyAndMaybeStartMatch(
   mode: GameMode,
   userId: string,
   displayName: string,
+  avatarUrl: string,
   channelId: string,
 ): Promise<
   | {
@@ -88,6 +97,7 @@ export async function joinLobbyAndMaybeStartMatch(
     const joined = await addToQueue(kv, mode, {
       playerId: userId,
       displayName,
+      avatarUrl,
       joinedAt: Date.now(),
     })
     if (joined.error) return { error: joined.error }
