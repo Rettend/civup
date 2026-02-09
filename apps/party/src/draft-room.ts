@@ -15,6 +15,8 @@ import {
   processDraftInput,
 } from '@civup/game'
 
+const MAX_TIMER_SECONDS = 30 * 60
+
 // ── Connection State ─────────────────────────────────────────
 
 interface ConnectionState {
@@ -61,7 +63,8 @@ export default class DraftRoom implements Party.Server {
       return json({ error: 'Empty civ pool' }, 400)
     }
 
-    const state = createDraft(config.matchId, format, config.seats, config.civPool)
+    const baseState = createDraft(config.matchId, format, config.seats, config.civPool)
+    const state = withWaitingTimerConfig(format, baseState, config.timerConfig)
 
     await this.room.storage.put('config', config)
     await this.room.storage.put('state', state)
@@ -209,6 +212,37 @@ export default class DraftRoom implements Party.Server {
           return
         }
         await this.applyResult(result.state, result.events)
+        break
+      }
+
+      case 'config': {
+        if (seatIndex !== 0) {
+          this.send(sender, { type: 'error', message: 'Only the host can update draft config' })
+          return
+        }
+        if (state.status !== 'waiting') {
+          this.send(sender, { type: 'error', message: 'Draft config can only be changed before start' })
+          return
+        }
+
+        const banTimerSeconds = parseConfigTimer(msg.banTimerSeconds)
+        const pickTimerSeconds = parseConfigTimer(msg.pickTimerSeconds)
+        if (banTimerSeconds === undefined || pickTimerSeconds === undefined) {
+          this.send(sender, { type: 'error', message: `Timers must be numbers between 0 and ${MAX_TIMER_SECONDS}` })
+          return
+        }
+
+        const timerConfig = { banTimerSeconds, pickTimerSeconds }
+        const nextState = withWaitingTimerConfig(format, state, timerConfig)
+        await this.room.storage.put('state', nextState)
+        await this.room.storage.put('config', {
+          ...config,
+          timerConfig,
+        } satisfies RoomConfig)
+
+        const timerEndsAt = await this.room.storage.get<number | null>('timerEndsAt')
+        const completedAt = await this.room.storage.get<number | null>('completedAt')
+        this.broadcastUpdate(nextState, [], timerEndsAt ?? null, completedAt ?? null)
         break
       }
 
@@ -408,4 +442,49 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   })
+}
+
+function withWaitingTimerConfig(
+  format: { getSteps: (seatCount: number) => DraftState['steps'] },
+  state: DraftState,
+  timerConfig: RoomConfig['timerConfig'] | undefined,
+): DraftState {
+  const baseSteps = format.getSteps(state.seats.length)
+  const configuredSteps = applyTimerConfigToSteps(baseSteps, timerConfig)
+  return {
+    ...state,
+    steps: configuredSteps,
+  }
+}
+
+function applyTimerConfigToSteps(
+  steps: DraftState['steps'],
+  timerConfig: RoomConfig['timerConfig'] | undefined,
+): DraftState['steps'] {
+  if (!timerConfig) return steps
+
+  const banTimer = normalizeTimerSeconds(timerConfig.banTimerSeconds)
+  const pickTimer = normalizeTimerSeconds(timerConfig.pickTimerSeconds)
+  if (banTimer == null && pickTimer == null) return steps
+
+  return steps.map((step) => {
+    if (step.action === 'ban' && banTimer != null) return { ...step, timer: banTimer }
+    if (step.action === 'pick' && pickTimer != null) return { ...step, timer: pickTimer }
+    return step
+  })
+}
+
+function normalizeTimerSeconds(value: number | null | undefined): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  const rounded = Math.round(value)
+  if (rounded < 0) return null
+  return Math.min(rounded, MAX_TIMER_SECONDS)
+}
+
+function parseConfigTimer(value: unknown): number | null | undefined {
+  if (value == null) return null
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  const rounded = Math.round(value)
+  if (rounded < 0 || rounded > MAX_TIMER_SECONDS) return undefined
+  return rounded
 }

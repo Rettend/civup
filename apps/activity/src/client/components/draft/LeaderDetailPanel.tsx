@@ -27,53 +27,40 @@ export function LeaderDetailPanel() {
   return (
     <Show when={leader()}>
       {l => (
-        <div class="relative w-80 shrink-0 overflow-y-auto border-l border-white/5 bg-bg-primary/80 p-4 anim-detail-in">
+        <div class="anim-detail-in p-4 border-l border-white/5 bg-bg-primary/80 shrink-0 w-80 relative overflow-y-auto">
           {/* Close button */}
           <button
-            class="absolute right-2 top-2 cursor-pointer text-text-muted hover:text-text-secondary"
+            class="text-text-muted cursor-pointer right-2 top-2 absolute hover:text-text-secondary"
             onClick={() => setDetailLeaderId(null)}
           >
             <div class="i-ph-x-bold text-base" />
           </button>
 
           {/* Header: portrait + name */}
-          <div class="mb-3 flex items-center gap-3">
+          <div class="mb-3 flex gap-3 items-center">
             <Show when={l().portraitUrl}>
               {url => (
-                <img src={url()} alt={l().name} class="h-12 w-12 shrink-0 rounded object-cover" />
+                <img src={url()} alt={l().name} class="rounded shrink-0 h-12 w-12 object-cover" />
               )}
             </Show>
             <div class="min-w-0">
-              <h3 class="truncate text-base text-text-primary font-bold">{l().name}</h3>
+              <h3 class="text-base text-text-primary font-bold truncate">{l().name}</h3>
               <span class="text-sm text-text-secondary">{l().civilization}</span>
             </div>
           </div>
 
-          {/* Tags */}
-          <Show when={l().tags.length > 0}>
-            <div class="mb-3 flex flex-wrap gap-1">
-              <For each={l().tags}>
-                {tag => (
-                  <span class="rounded bg-accent-gold/10 px-1.5 py-0.5 text-[10px] text-accent-gold font-medium capitalize">
-                    {tag}
-                  </span>
-                )}
-              </For>
-            </div>
-          </Show>
-
           {/* Ability */}
           <div class="mb-3">
-            <div class="mb-1 text-[10px] text-accent-gold font-bold tracking-widest uppercase">Ability</div>
+            <div class="text-[10px] text-accent-gold tracking-widest font-bold mb-1 uppercase">Ability</div>
             <p class="text-sm text-text-primary font-medium">{l().ability.name}</p>
-            <RichLeaderText text={l().ability.description} class="mt-0.5 block text-xs text-text-secondary leading-relaxed" />
+            <RichLeaderText text={l().ability.description} class="text-xs text-text-secondary leading-relaxed mt-0.5 block" />
           </div>
 
           {/* Uniques */}
           <For each={allUniques()}>
             {section => (
               <div class="mb-3">
-                <div class="mb-1.5 text-[10px] text-accent-gold font-bold tracking-widest uppercase">{section.label}</div>
+                <div class="text-[10px] text-accent-gold tracking-widest font-bold mb-1.5 uppercase">{section.label}</div>
                 <For each={section.items}>
                   {item => <UniqueRow item={item} />}
                 </For>
@@ -91,27 +78,31 @@ function UniqueRow(props: { item: LeaderUnique }) {
   return (
     <div class="mb-2">
       {/* Name row: icon + name + replaces */}
-      <div class="flex items-center gap-2">
+      <div class="flex gap-2 items-center">
         <Show when={props.item.iconUrl}>
           {icon => (
             <img
               src={icon()}
               alt={props.item.name}
-              class="h-8 w-8 shrink-0"
+              class="shrink-0 h-8 w-8 object-contain"
               onError={(event) => { event.currentTarget.style.display = 'none' }}
             />
           )}
         </Show>
         <div class={cn('flex items-baseline gap-1.5 min-w-0', !props.item.iconUrl && 'ml-0')}>
-          <span class="shrink-0 text-sm text-text-primary font-medium whitespace-nowrap">{props.item.name}</span>
+          <span class="text-sm text-text-primary font-medium shrink-0 whitespace-nowrap">{props.item.name}</span>
           <Show when={props.item.replaces}>
-            <span class="shrink-0 text-xs text-text-muted whitespace-nowrap">({props.item.replaces})</span>
+            <span class="text-xs text-text-muted shrink-0 whitespace-nowrap">
+              (
+              {props.item.replaces}
+              )
+            </span>
           </Show>
         </div>
       </div>
 
       {/* Description */}
-      <RichLeaderText text={props.item.description} class="mt-0.5 block text-xs text-text-secondary leading-relaxed" />
+      <RichLeaderText text={props.item.description} class="text-xs text-text-secondary leading-relaxed mt-0.5 block" />
     </div>
   )
 }

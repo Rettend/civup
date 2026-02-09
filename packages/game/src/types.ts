@@ -115,6 +115,11 @@ export interface DraftFormat {
   getSteps: (seatCount: number) => DraftStep[]
 }
 
+export interface DraftTimerConfig {
+  banTimerSeconds: number | null
+  pickTimerSeconds: number | null
+}
+
 // ── Draft State Machine Types ───────────────────────────────
 
 export interface DraftSeat {

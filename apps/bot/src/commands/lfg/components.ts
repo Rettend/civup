@@ -1,0 +1,110 @@
+import type { GameMode } from '@civup/game'
+import { Button } from 'discord-hono'
+import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/lfg.ts'
+import { getMatchForUser, storeUserMatchMappings } from '../../services/activity.ts'
+import { clearDeferredEphemeralResponse, sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
+import { upsertLobbyMessage } from '../../services/lobby-message.ts'
+import { clearLobby, getLobby } from '../../services/lobby.ts'
+import { getQueueState, removeFromQueue } from '../../services/queue.ts'
+import { factory } from '../../setup.ts'
+import { getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
+
+export const component_lfg_join = factory.component(
+  new Button('lfg-join', 'Join', 'Primary'),
+  async (c) => {
+    const mode = c.var.custom_id as GameMode | undefined
+    const identity = getIdentity(c)
+    if (!identity || !mode) {
+      return c.flags('EPHEMERAL').resDefer(async (c) => {
+        await sendTransientEphemeralResponse(c, 'Something went wrong.', 'error')
+      })
+    }
+
+    const lobby = await getLobby(c.env.KV, mode)
+    if (!lobby) {
+      const userMatchId = await getMatchForUser(c.env.KV, identity.userId)
+      if (userMatchId) {
+        c.executionCtx.waitUntil(storeUserMatchMappings(c.env.KV, [identity.userId], userMatchId))
+        return c.resActivity()
+      }
+      return c.flags('EPHEMERAL').resDefer(async (c) => {
+        await sendTransientEphemeralResponse(c, `No active ${mode.toUpperCase()} lobby. Use \`/lfg create\` first.`, 'error')
+      })
+    }
+
+    if (lobby.status !== 'open') {
+      if (!lobby.matchId) {
+        await clearLobby(c.env.KV, mode)
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          await sendTransientEphemeralResponse(c, 'This lobby was stale and has been cleared. Use `/lfg create` to start a fresh lobby.', 'error')
+        })
+      }
+      c.executionCtx.waitUntil(storeUserMatchMappings(c.env.KV, [identity.userId], lobby.matchId))
+      return c.resActivity()
+    }
+
+    const outcome = await joinLobbyAndMaybeStartMatch(c, mode, identity.userId, identity.displayName, lobby.channelId)
+    if ('error' in outcome) {
+      return c.flags('EPHEMERAL').resDefer(async (c) => {
+        await sendTransientEphemeralResponse(c, outcome.error, 'error')
+      })
+    }
+
+    c.executionCtx.waitUntil((async () => {
+      try {
+        await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
+          embeds: outcome.embeds,
+          components: outcome.components,
+        })
+      }
+      catch (error) {
+        console.error('Failed to update lobby message after button join:', error)
+      }
+    })())
+
+    return c.resActivity()
+  },
+)
+
+export const component_draft_activity = factory.component(
+  new Button('draft-activity', 'Open Draft Activity', 'Primary'),
+  c => c.resActivity(),
+)
+
+export const component_lfg_leave = factory.component(
+  new Button('lfg-leave', 'Leave Queue', 'Secondary'),
+  (c) => {
+    const identity = getIdentity(c)
+    if (!identity) {
+      return c.flags('EPHEMERAL').resDefer(async (c) => {
+        await sendTransientEphemeralResponse(c, 'Something went wrong.', 'error')
+      })
+    }
+
+    return c.flags('EPHEMERAL').resDefer(async (c) => {
+      const kv = c.env.KV
+      const removed = await removeFromQueue(kv, identity.userId)
+
+      if (!removed) {
+        await sendTransientEphemeralResponse(c, 'You are not in any queue.', 'error')
+        return
+      }
+
+      const lobby = await getLobby(kv, removed)
+      if (lobby?.status === 'open') {
+        const queue = await getQueueState(kv, removed)
+        try {
+          await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
+            embeds: [lobbyOpenEmbed(removed, queue.entries, queue.targetSize)],
+            components: lobbyComponents(removed, 'open'),
+          })
+        }
+        catch (error) {
+          console.error('Failed to update lobby message after leave button:', error)
+        }
+      }
+
+      await clearDeferredEphemeralResponse(c)
+    })
+  },
+)
