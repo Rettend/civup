@@ -94,6 +94,16 @@ export function MiniView() {
         <Show when={state()?.status === 'complete'}>
           <div class="text-sm text-accent-gold font-bold">Draft Complete</div>
         </Show>
+
+        <Show when={state()?.status === 'cancelled'}>
+          <div class="text-sm text-[#b8c0cb] font-semibold">
+            {state()?.cancelReason === 'cancel'
+              ? 'Draft Cancelled'
+              : state()?.cancelReason === 'timeout'
+                ? 'Auto-Scrubbed'
+                : 'Match Scrubbed'}
+          </div>
+        </Show>
       </div>
 
       {/* Last pick */}

@@ -1,5 +1,5 @@
 import type { Database } from '@civup/db'
-import type { DraftSeat, DraftState, GameMode } from '@civup/game'
+import type { DraftCancelReason, DraftSeat, DraftState, GameMode } from '@civup/game'
 import type { FfaEntry, TeamInput } from '@civup/rating'
 import { matchBans, matches, matchParticipants, playerRatings, players } from '@civup/db'
 import { isTeamMode, toLeaderboardMode } from '@civup/game'
@@ -55,6 +55,16 @@ interface ActivateDraftInput {
 }
 
 type ActivateDraftResult
+  = | { match: MatchRow, participants: ParticipantRow[] }
+    | { error: string }
+
+interface CancelDraftInput {
+  state: DraftState
+  cancelledAt: number
+  reason: DraftCancelReason
+}
+
+type CancelDraftResult
   = | { match: MatchRow, participants: ParticipantRow[] }
     | { error: string }
 
@@ -116,14 +126,23 @@ export async function createDraftMatch(
   }
 
   for (const seat of uniquePlayers.values()) {
+    const updateValues: { displayName: string, avatarUrl?: string } = {
+      displayName: seat.displayName,
+    }
+    if (seat.avatarUrl) updateValues.avatarUrl = seat.avatarUrl
+
     await db
       .insert(players)
       .values({
         id: seat.playerId,
         displayName: seat.displayName,
+        avatarUrl: seat.avatarUrl ?? null,
         createdAt: now,
       })
-      .onConflictDoNothing()
+      .onConflictDoUpdate({
+        target: players.id,
+        set: updateValues,
+      })
   }
 
   const [existingParticipant] = await db
@@ -283,6 +302,157 @@ export async function activateDraftMatch(
     .where(eq(matchParticipants.matchId, matchId))
 
   return { match: updatedMatch!, participants: updatedParticipants }
+}
+
+export async function cancelDraftMatch(
+  db: Database,
+  kv: KVNamespace,
+  input: CancelDraftInput,
+): Promise<CancelDraftResult> {
+  const matchId = input.state.matchId
+
+  const [match] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, matchId))
+    .limit(1)
+
+  if (!match) {
+    return { error: `Match **${matchId}** not found.` }
+  }
+
+  if (match.status === 'completed') {
+    return { error: `Match **${matchId}** cannot be cancelled (status: completed).` }
+  }
+
+  const participantRows = await db
+    .select()
+    .from(matchParticipants)
+    .where(eq(matchParticipants.matchId, matchId))
+
+  if (participantRows.length === 0) {
+    return { error: `Match **${matchId}** has no participants.` }
+  }
+
+  if (match.status === 'cancelled') {
+    const channelId = await getChannelForMatch(kv, matchId)
+    await clearActivityMappings(
+      kv,
+      matchId,
+      participantRows.map(p => p.playerId),
+      channelId ?? undefined,
+    )
+
+    return { match, participants: participantRows }
+  }
+
+  const gameMode = match.gameMode as GameMode
+  const civByPlayer = mapCivsFromDraftState(input.state, participantRows, gameMode)
+
+  for (const participant of participantRows) {
+    await db
+      .update(matchParticipants)
+      .set({ civId: civByPlayer.get(participant.playerId) ?? null })
+      .where(
+        and(
+          eq(matchParticipants.matchId, matchId),
+          eq(matchParticipants.playerId, participant.playerId),
+        ),
+      )
+  }
+
+  await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
+
+  await db
+    .update(matches)
+    .set({
+      status: 'cancelled',
+      completedAt: input.cancelledAt,
+      draftData: JSON.stringify({
+        cancelledAt: input.cancelledAt,
+        reason: input.reason,
+        state: input.state,
+      }),
+    })
+    .where(eq(matches.id, matchId))
+
+  const channelId = await getChannelForMatch(kv, matchId)
+  await clearActivityMappings(
+    kv,
+    matchId,
+    participantRows.map(p => p.playerId),
+    channelId ?? undefined,
+  )
+
+  const [updatedMatch] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, matchId))
+    .limit(1)
+
+  const updatedParticipants = await db
+    .select()
+    .from(matchParticipants)
+    .where(eq(matchParticipants.matchId, matchId))
+
+  return { match: updatedMatch!, participants: updatedParticipants }
+}
+
+function mapCivsFromDraftState(
+  state: DraftState,
+  participantRows: ParticipantRow[],
+  gameMode: GameMode,
+): Map<string, string | null> {
+  const civByPlayer = new Map<string, string | null>()
+
+  if (isTeamMode(gameMode)) {
+    const playerToSeatIndex = new Map<string, number>()
+    state.seats.forEach((seat, idx) => {
+      playerToSeatIndex.set(seat.playerId, idx)
+    })
+
+    const orderedParticipants = [...participantRows].sort((a, b) => {
+      const aSeat = playerToSeatIndex.get(a.playerId) ?? Number.MAX_SAFE_INTEGER
+      const bSeat = playerToSeatIndex.get(b.playerId) ?? Number.MAX_SAFE_INTEGER
+      return aSeat - bSeat
+    })
+
+    const picksByTeam = new Map<number, string[]>()
+    for (const pick of state.picks) {
+      const teamPicks = picksByTeam.get(pick.seatIndex) ?? []
+      teamPicks.push(pick.civId)
+      picksByTeam.set(pick.seatIndex, teamPicks)
+    }
+
+    const teamPickOffsets = new Map<number, number>()
+    for (const participant of orderedParticipants) {
+      const team = participant.team
+      if (team == null) {
+        civByPlayer.set(participant.playerId, null)
+        continue
+      }
+
+      const offset = teamPickOffsets.get(team) ?? 0
+      const civId = picksByTeam.get(team)?.[offset] ?? null
+      civByPlayer.set(participant.playerId, civId)
+      teamPickOffsets.set(team, offset + 1)
+    }
+
+    return civByPlayer
+  }
+
+  const pickBySeat = new Map<number, string>()
+  for (const pick of state.picks) {
+    if (!pickBySeat.has(pick.seatIndex)) {
+      pickBySeat.set(pick.seatIndex, pick.civId)
+    }
+  }
+
+  state.seats.forEach((seat, seatIndex) => {
+    civByPlayer.set(seat.playerId, pickBySeat.get(seatIndex) ?? null)
+  })
+
+  return civByPlayer
 }
 
 // ── Report a match result ───────────────────────────────────

@@ -3,8 +3,10 @@ import { createEffect, createSignal, For, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
 import {
+  cancelLobby,
   draftStore,
   isSpectator,
+  sendCancel,
   sendConfig,
   sendStart,
   updateLobbyDraftConfig,
@@ -21,6 +23,7 @@ interface PlayerRow {
   key: string
   name: string
   playerId: string | null
+  avatarUrl: string | null
   isHost: boolean
   empty: boolean
 }
@@ -37,6 +40,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const [pickMinutes, setPickMinutes] = createSignal('')
   const [editingField, setEditingField] = createSignal<'ban' | 'pick' | null>(null)
   const [configMessage, setConfigMessage] = createSignal<string | null>(null)
+  const [cancelPending, setCancelPending] = createSignal(false)
   const [lobbyTimerConfig, setLobbyTimerConfig] = createSignal<DraftTimerConfig | null>(
     props.lobby
       ? {
@@ -113,6 +117,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
           key: `lobby-${team}-${i}`,
           name: entry?.displayName ?? '[empty]',
           playerId: entry?.playerId ?? null,
+          avatarUrl: entry?.avatarUrl ?? null,
           isHost: entry?.playerId === hostId(),
           empty: !entry,
         }
@@ -124,6 +129,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       key: `room-${team}-${seat.playerId}`,
       name: seat.displayName,
       playerId: seat.playerId,
+      avatarUrl: seat.avatarUrl ?? null,
       isHost: seat.playerId === hostId(),
       empty: false,
     }))
@@ -137,6 +143,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
           key: `lobby-ffa-${i}`,
           name: entry?.displayName ?? '[empty]',
           playerId: entry?.playerId ?? null,
+          avatarUrl: entry?.avatarUrl ?? null,
           isHost: entry?.playerId === hostId(),
           empty: !entry,
         }
@@ -148,6 +155,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         key: `room-ffa-${seat.playerId}`,
         name: seat.displayName,
         playerId: seat.playerId,
+        avatarUrl: seat.avatarUrl ?? null,
         isHost: seat.playerId === hostId(),
         empty: false,
       }
@@ -231,6 +239,35 @@ export function ConfigScreen(props: ConfigScreenProps) {
     }
   }
 
+  const handleCancelAction = async () => {
+    if (cancelPending()) return
+
+    if (props.lobby) {
+      const currentUserId = userId()
+      if (!currentUserId) {
+        setConfigMessage('Could not identify your Discord user. Reopen the activity.')
+        return
+      }
+
+      setCancelPending(true)
+      setConfigMessage(null)
+      try {
+        const result = await cancelLobby(props.lobby.mode, currentUserId)
+        if (!result.ok) {
+          setConfigMessage(result.error)
+          return
+        }
+        setConfigMessage('Lobby cancelled. Closing...')
+      }
+      finally {
+        setCancelPending(false)
+      }
+      return
+    }
+
+    sendCancel('cancel')
+  }
+
   return (
     <div class="text-text-primary font-sans bg-bg-primary flex flex-col h-screen items-center justify-center">
       <div class="px-6 flex flex-col gap-6 max-w-5xl w-full">
@@ -249,12 +286,12 @@ export function ConfigScreen(props: ConfigScreenProps) {
                 <div class="gap-3 grid grid-cols-2">
                   <div class="flex flex-col gap-2">
                     <For each={ffaFirstColumn()}>
-                      {row => <PlayerChip name={row.name} isHost={row.isHost} empty={row.empty} />}
+                      {row => <PlayerChip name={row.name} avatarUrl={row.avatarUrl} isHost={row.isHost} empty={row.empty} />}
                     </For>
                   </div>
                   <div class="flex flex-col gap-2">
                     <For each={ffaSecondColumn()}>
-                      {row => <PlayerChip name={row.name} isHost={row.isHost} empty={row.empty} />}
+                      {row => <PlayerChip name={row.name} avatarUrl={row.avatarUrl} isHost={row.isHost} empty={row.empty} />}
                     </For>
                   </div>
                 </div>
@@ -265,7 +302,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   <div class="text-xs text-accent-gold tracking-wider font-bold mb-2">Team A</div>
                   <div class="flex flex-col gap-2">
                     <For each={teamRows(0)}>
-                      {row => <PlayerChip name={row.name} isHost={row.isHost} empty={row.empty} />}
+                      {row => <PlayerChip name={row.name} avatarUrl={row.avatarUrl} isHost={row.isHost} empty={row.empty} />}
                     </For>
                   </div>
                 </div>
@@ -273,7 +310,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   <div class="text-xs text-accent-gold tracking-wider font-bold mb-2">Team B</div>
                   <div class="flex flex-col gap-2">
                     <For each={teamRows(1)}>
-                      {row => <PlayerChip name={row.name} isHost={row.isHost} empty={row.empty} />}
+                      {row => <PlayerChip name={row.name} avatarUrl={row.avatarUrl} isHost={row.isHost} empty={row.empty} />}
                     </For>
                   </div>
                 </div>
@@ -363,23 +400,42 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
         <div class="flex justify-center">
           <Show
-            when={!isLobbyMode()}
-            fallback={<span class="text-sm text-text-muted">Draft room opens once all slots are filled.</span>}
+            when={amHost()}
+            fallback={(
+              <span class="text-sm text-text-muted">
+                {isSpectator() ? 'Spectating — waiting for host to start' : 'Waiting for host to start...'}
+              </span>
+            )}
           >
             <Show
-              when={amHost()}
+              when={!isLobbyMode()}
               fallback={(
-                <span class="text-sm text-text-muted">
-                  {isSpectator() ? 'Spectating — waiting for host to start' : 'Waiting for host to start...'}
-                </span>
+                <div class="flex items-center gap-3">
+                  <span class="text-sm text-text-muted">Draft room opens once all slots are filled.</span>
+                  <button
+                    class="text-sm text-text-secondary px-6 py-2.5 rounded-lg border border-white/12 bg-white/3 cursor-pointer transition-colors hover:border-white/20 hover:bg-white/6 hover:text-text-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                    disabled={cancelPending()}
+                    onClick={handleCancelAction}
+                  >
+                    {cancelPending() ? 'Cancelling...' : 'Cancel Lobby'}
+                  </button>
+                </div>
               )}
             >
-              <button
-                class="text-sm text-black font-bold px-8 py-2.5 rounded-lg bg-accent-gold cursor-pointer transition-colors hover:bg-accent-gold/80"
-                onClick={sendStart}
-              >
-                Start Draft
-              </button>
+              <div class="flex items-center gap-3">
+                <button
+                  class="text-sm text-black font-bold px-8 py-2.5 rounded-lg bg-accent-gold cursor-pointer transition-colors hover:bg-accent-gold/80"
+                  onClick={sendStart}
+                >
+                  Start Draft
+                </button>
+                <button
+                  class="text-sm text-text-secondary px-6 py-2.5 rounded-lg border border-white/12 bg-white/3 cursor-pointer transition-colors hover:border-white/20 hover:bg-white/6 hover:text-text-primary"
+                  onClick={handleCancelAction}
+                >
+                  Cancel Draft
+                </button>
+              </div>
             </Show>
           </Show>
         </div>
@@ -388,7 +444,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   )
 }
 
-function PlayerChip(props: { name: string, isHost: boolean, empty: boolean }) {
+function PlayerChip(props: { name: string, avatarUrl: string | null, isHost: boolean, empty: boolean }) {
   return (
     <div
       class={cn(
@@ -396,7 +452,18 @@ function PlayerChip(props: { name: string, isHost: boolean, empty: boolean }) {
         props.empty ? 'bg-bg-primary/20 text-text-muted' : 'bg-bg-primary/40',
       )}
     >
-      <div class="i-ph-user-bold text-sm text-text-muted" />
+      <Show
+        when={!props.empty && props.avatarUrl}
+        fallback={<div class="i-ph-user-bold text-sm text-text-muted" />}
+      >
+        {avatar => (
+          <img
+            src={avatar()}
+            alt={props.name}
+            class="h-4 w-4 rounded-full object-cover"
+          />
+        )}
+      </Show>
       <span class="text-sm flex-1 truncate">{props.name}</span>
       <Show when={props.isHost}>
         <span class="text-[10px] text-accent-gold tracking-wider font-bold uppercase">Host</span>

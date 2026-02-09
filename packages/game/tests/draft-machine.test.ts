@@ -63,6 +63,7 @@ describe('createDraft', () => {
     expect(draft.bans).toEqual([])
     expect(draft.picks).toEqual([])
     expect(draft.submissions).toEqual({})
+    expect(draft.cancelReason).toBeNull()
     expect(draft.pendingBlindBans).toEqual([])
   })
 
@@ -117,6 +118,55 @@ describe('processDraftInput — START', () => {
     expect(isDraftError(result)).toBe(true)
     if (!isDraftError(result)) return
     expect(result.error).toBe('Draft already started')
+  })
+})
+
+describe('processDraftInput — CANCEL', () => {
+  test('cancels waiting draft with cancel reason', () => {
+    const draft = createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool())
+    const result = processDraftInput(draft, { type: 'CANCEL', reason: 'cancel' })
+
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.state.status).toBe('cancelled')
+    expect(result.state.cancelReason).toBe('cancel')
+    expect(result.events).toContainEqual({ type: 'DRAFT_CANCELLED', reason: 'cancel' })
+  })
+
+  test('normalizes active cancel to scrub', () => {
+    const state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    const result = processDraftInput(state, { type: 'CANCEL', reason: 'cancel' })
+
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.state.status).toBe('cancelled')
+    expect(result.state.cancelReason).toBe('scrub')
+    expect(result.events).toContainEqual({ type: 'DRAFT_CANCELLED', reason: 'scrub' })
+  })
+
+  test('allows scrubbing after draft completion', () => {
+    let state = startDraft(createDraft('match-duel', pplDuel, createDuelSeats(), createTestCivPool()))
+
+    let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
+    if (isDraftError(result)) throw new Error(result.error)
+    result = processDraftInput(result.state, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true)
+    if (isDraftError(result)) throw new Error(result.error)
+    result = processDraftInput(result.state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' })
+    if (isDraftError(result)) throw new Error(result.error)
+    result = processDraftInput(result.state, { type: 'PICK', seatIndex: 1, civId: 'civ-11' })
+    if (isDraftError(result)) throw new Error(result.error)
+    state = result.state
+
+    expect(state.status).toBe('complete')
+
+    result = processDraftInput(state, { type: 'CANCEL', reason: 'scrub' })
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.state.status).toBe('cancelled')
+    expect(result.state.cancelReason).toBe('scrub')
   })
 })
 
@@ -426,7 +476,7 @@ describe('processDraftInput — TIMEOUT', () => {
     expect(result.state.currentStepIndex).toBe(1) // Advanced to next step
   })
 
-  test('timeout on pick phase auto-picks random civ', () => {
+  test('timeout on pick phase cancels draft instead of random picking', () => {
     let state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
 
     // Complete ban phase
@@ -445,11 +495,14 @@ describe('processDraftInput — TIMEOUT', () => {
       type: 'TIMEOUT_APPLIED',
       seatIndex: 0,
     }))
-    expect(result.state.picks.length).toBe(1)
+    expect(result.events).toContainEqual({ type: 'DRAFT_CANCELLED', reason: 'timeout' })
+    expect(result.state.status).toBe('cancelled')
+    expect(result.state.cancelReason).toBe('timeout')
+    expect(result.state.picks.length).toBe(0)
   })
 
-  test('timeout completes draft when all remaining steps are filled', () => {
-    // Create a duel, start it, complete bans, then timeout on picks
+  test('timeout on duel pick cancels immediately', () => {
+    // Create a duel, start it, complete bans, then timeout on first pick
     let state = startDraft(createDraft('match-duel', pplDuel, createDuelSeats(), createTestCivPool()))
 
     // Complete ban phase
@@ -462,20 +515,27 @@ describe('processDraftInput — TIMEOUT', () => {
     // Timeout seat 0's pick
     result = processDraftInput(state, { type: 'TIMEOUT' }, false)
     if (isDraftError(result)) throw new Error(result.error)
-    state = result.state
 
-    // Timeout seat 1's pick
-    result = processDraftInput(state, { type: 'TIMEOUT' }, false)
-    if (isDraftError(result)) throw new Error(result.error)
-
-    expect(result.state.status).toBe('complete')
-    expect(result.state.picks).toHaveLength(2)
+    expect(result.state.status).toBe('cancelled')
+    expect(result.state.cancelReason).toBe('timeout')
+    expect(result.state.picks).toHaveLength(0)
   })
 })
 
 // ── Error Cases ─────────────────────────────────────────────
 
 describe('error cases', () => {
+  test('cannot start cancelled draft', () => {
+    const draft = createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool())
+    const cancelled = processDraftInput(draft, { type: 'CANCEL', reason: 'cancel' })
+    if (isDraftError(cancelled)) throw new Error(cancelled.error)
+
+    const result = processDraftInput(cancelled.state, { type: 'START' })
+    expect(isDraftError(result)).toBe(true)
+    if (!isDraftError(result)) return
+    expect(result.error).toBe('Draft has been cancelled')
+  })
+
   test('ban when draft not active', () => {
     const draft = createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool())
     const result = processDraftInput(draft, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)

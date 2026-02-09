@@ -1,4 +1,4 @@
-import type { DraftSeat, GameMode, QueueEntry } from '@civup/game'
+import type { DraftCancelReason, DraftSeat, GameMode, QueueEntry } from '@civup/game'
 import { getLeader } from '@civup/game'
 import { displayRating } from '@civup/rating'
 import { Button, Components, Embed } from 'discord-hono'
@@ -17,13 +17,13 @@ interface LobbyParticipant {
   leaderboardAfterRank?: number | null
 }
 
-export type LobbyStage = 'open' | 'drafting' | 'draft-complete' | 'reported'
+export type LobbyStage = 'open' | 'drafting' | 'draft-complete' | 'reported' | 'cancelled' | 'scrubbed'
 
 const MODE_LABELS: Record<GameMode, string> = {
-  'ffa': 'FFA',
   'duel': '1v1',
   '2v2': '2v2',
   '3v3': '3v3',
+  'ffa': 'FFA',
 }
 
 const STAGE_LABELS: Record<LobbyStage, string> = {
@@ -31,6 +31,8 @@ const STAGE_LABELS: Record<LobbyStage, string> = {
   'drafting': 'DRAFT READY',
   'draft-complete': 'DRAFT COMPLETE',
   'reported': 'RESULT REPORTED',
+  'cancelled': 'DRAFT CANCELLED',
+  'scrubbed': 'MATCH SCRUBBED',
 }
 
 const STAGE_COLORS: Record<LobbyStage, number> = {
@@ -38,6 +40,8 @@ const STAGE_COLORS: Record<LobbyStage, number> = {
   'drafting': 0x0EA5A4,
   'draft-complete': 0xD97706,
   'reported': 0x475569,
+  'cancelled': 0x6B7280,
+  'scrubbed': 0xA8B1BD,
 }
 
 export function lobbyOpenEmbed(mode: GameMode, entries: QueueEntry[], targetSize: number): Embed {
@@ -126,6 +130,25 @@ export function lobbyDraftCompleteEmbed(
   return lobbyDraftCompleteLeaderEmbed(mode, participants)
 }
 
+export function lobbyCancelledEmbed(
+  mode: GameMode,
+  participants: LobbyParticipant[],
+  reason: DraftCancelReason,
+): Embed {
+  const stage: 'cancelled' | 'scrubbed' = reason === 'cancel' ? 'cancelled' : 'scrubbed'
+  const embed = lobbyDraftCompleteLeaderEmbed(mode, participants, stage)
+
+  if (reason === 'timeout') {
+    return embed.description('Draft auto-scrubbed because a pick timed out. No rating changes were applied.')
+  }
+
+  if (reason === 'cancel') {
+    return embed.description('Draft cancelled before lock-in. No rating changes were applied.')
+  }
+
+  return embed.description('Match scrubbed by host. No rating changes were applied.')
+}
+
 export function lobbyResultEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
@@ -144,14 +167,14 @@ function baseLobbyEmbed(mode: GameMode, stage: LobbyStage): Embed {
   return new Embed()
     .title(`${STAGE_LABELS[stage]}  -  ${MODE_LABELS[mode]}`)
     .color(STAGE_COLORS[stage])
-    .timestamp(new Date().toISOString())
 }
 
 function lobbyDraftCompleteLeaderEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
+  stage: Extract<LobbyStage, 'draft-complete' | 'cancelled' | 'scrubbed'> = 'draft-complete',
 ): Embed {
-  const embed = baseLobbyEmbed(mode, 'draft-complete')
+  const embed = baseLobbyEmbed(mode, stage)
   const hasTeams = participants.some(participant => participant.team != null)
 
   if (hasTeams) {
@@ -265,8 +288,8 @@ function formatTeamName(team: number): string {
 }
 
 function formatPlacementCode(placement: number | null | undefined): string {
-  if (placement == null) return '` ?`'
-  return `\`${String(placement).padStart(2, ' ')}\``
+  if (placement == null) return '`#? `'
+  return `\`${`#${placement}`.padEnd(3, ' ')}\``
 }
 
 function formatReportedPlayerDetails(participant: LobbyParticipant): string {

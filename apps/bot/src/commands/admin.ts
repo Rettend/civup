@@ -1,5 +1,14 @@
+import type { SystemChannelType } from '../services/system-channels.ts'
 import { createDb } from '@civup/db'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
+import { sendTransientEphemeralResponse } from '../services/ephemeral-response.ts'
+import { upsertLeaderboardMessagesForChannel } from '../services/leaderboard-message.ts'
+import {
+  clearLeaderboardMessageState,
+  clearSystemChannel,
+  getSystemChannel,
+  setSystemChannel,
+} from '../services/system-channels.ts'
 import { factory } from '../setup.ts'
 
 interface Var {
@@ -10,6 +19,7 @@ interface Var {
   value?: string
   player?: string
   mode?: string
+  target?: string
 }
 
 export const command_admin = factory.command<Var>(
@@ -29,6 +39,15 @@ export const command_admin = factory.command<Var>(
       ),
       new SubCommand('end', 'End the current season'),
     ),
+    new SubCommand('setup', 'Toggle system channel in this channel').options(
+      new Option('target', 'Channel role to configure')
+        .choices(
+          { name: 'Draft', value: 'draft' },
+          { name: 'Archive', value: 'archive' },
+          { name: 'Leaderboard', value: 'leaderboard' },
+        )
+        .required(),
+    ),
     new SubCommand('config', 'View or update configuration').options(
       new Option('key', 'Config key'),
       new Option('value', 'New value'),
@@ -37,9 +56,9 @@ export const command_admin = factory.command<Var>(
       new Option('player', 'Player to reset', 'User').required(),
       new Option('mode', 'Rating mode to reset')
         .choices(
-          { name: 'FFA', value: 'ffa' },
           { name: 'Duel', value: 'duel' },
           { name: 'Teamers', value: 'teamers' },
+          { name: 'FFA', value: 'ffa' },
         )
         .required(),
     ),
@@ -99,6 +118,50 @@ export const command_admin = factory.command<Var>(
         })
       }
 
+      // ── setup ───────────────────────────────────────────
+      case 'setup': {
+        const target = c.var.target as SystemChannelType | undefined
+        if (!target) return c.res('Please provide a setup target.')
+
+        const channelId = c.interaction.channel?.id ?? c.interaction.channel_id
+        if (!channelId) return c.res('Could not identify the current channel.')
+
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          const kv = c.env.KV
+          const previousChannelId = await getSystemChannel(kv, target)
+
+          if (previousChannelId === channelId) {
+            await clearSystemChannel(kv, target)
+            if (target === 'leaderboard') await clearLeaderboardMessageState(kv)
+            await sendTransientEphemeralResponse(c, `${setupTargetLabel(target)} channel disabled in <#${channelId}>.`, 'info')
+            return
+          }
+
+          await setSystemChannel(kv, target, channelId)
+
+          if (target === 'leaderboard') {
+            try {
+              const db = createDb(c.env.DB)
+              await upsertLeaderboardMessagesForChannel(db, kv, c.env.DISCORD_TOKEN, channelId)
+              const movedFrom = previousChannelId && previousChannelId !== channelId
+                ? ` (moved from <#${previousChannelId}>)`
+                : ''
+              await sendTransientEphemeralResponse(c, `Leaderboard channel set to <#${channelId}>${movedFrom}. Embeds are now synced.`, 'success')
+            }
+            catch (error) {
+              console.error('Failed to initialize leaderboard messages:', error)
+              await sendTransientEphemeralResponse(c, `Leaderboard channel set to <#${channelId}>, but failed to initialize leaderboard embeds.`, 'error')
+            }
+            return
+          }
+
+          const movedFrom = previousChannelId && previousChannelId !== channelId
+            ? ` (moved from <#${previousChannelId}>)`
+            : ''
+          await sendTransientEphemeralResponse(c, `${setupTargetLabel(target)} channel set to <#${channelId}>${movedFrom}.`, 'success')
+        })
+      }
+
       // ── config ────────────────────────────────────────
       case 'config': {
         const key = c.var.key
@@ -111,7 +174,8 @@ export const command_admin = factory.command<Var>(
             + '`ban_timer` — Ban phase timer in seconds\n'
             + '`pick_timer` — Pick phase timer in seconds\n'
             + '`queue_timeout` — Queue timeout in minutes\n'
-            + '`lfg_category` — Category ID for temp voice channels',
+            + '`lfg_category` — Category ID for temp voice channels\n\n'
+            + 'Use `/admin setup target:<Draft|Archive|Leaderboard>` to bind bot channels.',
           )
         }
 
@@ -148,3 +212,9 @@ export const command_admin = factory.command<Var>(
     }
   },
 )
+
+function setupTargetLabel(target: SystemChannelType): string {
+  if (target === 'draft') return 'Draft'
+  if (target === 'archive') return 'Archive'
+  return 'Leaderboard'
+}

@@ -1,4 +1,5 @@
 import type {
+  DraftCancelReason,
   DraftError,
   DraftEvent,
   DraftFormat,
@@ -38,6 +39,7 @@ export function createDraft(
     picks: [],
     availableCivIds: [...civPool],
     status: 'waiting',
+    cancelReason: null,
     pendingBlindBans: [],
   }
 }
@@ -58,6 +60,8 @@ export function processDraftInput(
   switch (input.type) {
     case 'START':
       return processStart(state)
+    case 'CANCEL':
+      return processCancel(state, input.reason)
     case 'BAN':
       return processBan(state, input.seatIndex, input.civIds, blindBans)
     case 'PICK':
@@ -75,6 +79,10 @@ export function isDraftError(result: DraftResult | DraftError): result is DraftE
 // ── Start ───────────────────────────────────────────────────
 
 function processStart(state: DraftState): DraftResult | DraftError {
+  if (state.status === 'cancelled') {
+    return { error: 'Draft has been cancelled' }
+  }
+
   if (state.status !== 'waiting') {
     return { error: 'Draft already started' }
   }
@@ -86,6 +94,7 @@ function processStart(state: DraftState): DraftResult | DraftError {
   const newState: DraftState = {
     ...state,
     status: 'active',
+    cancelReason: null,
     currentStepIndex: 0,
     submissions: {},
   }
@@ -96,6 +105,30 @@ function processStart(state: DraftState): DraftResult | DraftError {
       { type: 'DRAFT_STARTED' },
       { type: 'STEP_ADVANCED', stepIndex: 0 },
     ],
+  }
+}
+
+// ── Cancel ──────────────────────────────────────────────────
+
+function processCancel(
+  state: DraftState,
+  reason: DraftCancelReason,
+): DraftResult | DraftError {
+  if (state.status === 'cancelled') {
+    return { error: 'Draft already cancelled' }
+  }
+
+  const normalizedReason = normalizeCancelReason(state, reason)
+
+  return {
+    state: {
+      ...state,
+      status: 'cancelled',
+      cancelReason: normalizedReason,
+      submissions: {},
+      pendingBlindBans: [],
+    },
+    events: [{ type: 'DRAFT_CANCELLED', reason: normalizedReason }],
   }
 }
 
@@ -282,12 +315,39 @@ function processTimeout(
   const step = state.steps[state.currentStepIndex]
   if (!step) return { error: 'No current step' }
 
+  const activeSeats = getActiveSeats(step, state.seats.length)
+
+  if (step.action === 'pick') {
+    const timedOutSeats = activeSeats.filter((seat) => {
+      const existing = state.submissions[seat]
+      const needed = step.count - (existing?.length ?? 0)
+      return needed > 0
+    })
+
+    if (timedOutSeats.length === 0) {
+      return { error: 'No pending picks to timeout' }
+    }
+
+    const cancelResult = processCancel(state, 'timeout')
+    if (isDraftError(cancelResult)) return cancelResult
+
+    const timeoutEvents: DraftEvent[] = timedOutSeats.map(seat => ({
+      type: 'TIMEOUT_APPLIED',
+      seatIndex: seat,
+      selections: [],
+    }))
+
+    return {
+      state: cancelResult.state,
+      events: [...timeoutEvents, ...cancelResult.events],
+    }
+  }
+
   const events: DraftEvent[] = []
   const newSubmissions = { ...state.submissions }
   let available = [...state.availableCivIds]
 
-  // For each seat that hasn't submitted, auto-select random civs
-  const activeSeats = getActiveSeats(step, state.seats.length)
+  // Ban timeout: for each seat that hasn't submitted, auto-select random civs
   for (const seat of activeSeats) {
     const existing = newSubmissions[seat]
     const needed = step.count - (existing?.length ?? 0)
@@ -299,10 +359,6 @@ function processTimeout(
       if (available.length === 0) break
       const idx = Math.floor(Math.random() * available.length)
       randomPicks.push(available[idx]!)
-      if (step.action === 'pick') {
-        // Remove immediately for picks
-        available = available.filter((_, j) => j !== idx)
-      }
     }
 
     newSubmissions[seat] = [...(existing ?? []), ...randomPicks]
@@ -333,6 +389,15 @@ function getActiveSeatCount(step: DraftStep, totalSeats: number): number {
 function getActiveSeats(step: DraftStep, totalSeats: number): number[] {
   if (step.seats === 'all') return Array.from({ length: totalSeats }, (_, i) => i)
   return step.seats
+}
+
+function normalizeCancelReason(
+  state: DraftState,
+  reason: DraftCancelReason,
+): DraftCancelReason {
+  if (state.status === 'waiting' && reason === 'scrub') return 'cancel'
+  if (state.status !== 'waiting' && reason === 'cancel') return 'scrub'
+  return reason
 }
 
 /**
@@ -420,6 +485,7 @@ function advanceStep(
         ...state,
         currentStepIndex: nextStepIndex,
         status: 'complete',
+        cancelReason: null,
       },
       events: [...events, { type: 'DRAFT_COMPLETE' }],
     }

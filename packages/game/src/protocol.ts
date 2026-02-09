@@ -1,4 +1,10 @@
-import type { DraftEvent, DraftSeat, DraftState, DraftTimerConfig } from './types.ts'
+import type {
+  DraftCancelReason,
+  DraftEvent,
+  DraftSeat,
+  DraftState,
+  DraftTimerConfig,
+} from './types.ts'
 
 // ── Room Configuration (sent by bot via HTTP POST) ──────────
 
@@ -14,10 +20,21 @@ export interface RoomConfig {
 }
 
 export interface DraftCompleteWebhookPayload {
+  outcome: 'complete'
   matchId: string
   completedAt: number
   state: DraftState
 }
+
+export interface DraftCancelledWebhookPayload {
+  outcome: 'cancelled'
+  matchId: string
+  cancelledAt: number
+  reason: DraftCancelReason
+  state: DraftState
+}
+
+export type DraftWebhookPayload = DraftCompleteWebhookPayload | DraftCancelledWebhookPayload
 
 // ── Client → Server Messages ────────────────────────────────
 
@@ -25,6 +42,7 @@ export type ClientMessage
   = | { type: 'start' }
     | { type: 'ban', civIds: string[] }
     | { type: 'pick', civId: string }
+    | { type: 'cancel', reason: 'cancel' | 'scrub' }
     | {
       type: 'config'
       banTimerSeconds: number | null

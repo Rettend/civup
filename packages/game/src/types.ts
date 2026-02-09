@@ -85,6 +85,8 @@ export interface Leader {
 
 export type DraftAction = 'ban' | 'pick'
 
+export type DraftCancelReason = 'cancel' | 'scrub' | 'timeout'
+
 /**
  * A single step in a draft sequence.
  *
@@ -127,6 +129,8 @@ export interface DraftSeat {
   playerId: string
   /** Display name */
   displayName: string
+  /** Discord avatar URL */
+  avatarUrl?: string | null
   /** Team index (for team modes), undefined for FFA */
   team?: number
 }
@@ -156,7 +160,9 @@ export interface DraftState {
   picks: DraftSelection[]
   /** Civ IDs still available (not banned or picked) */
   availableCivIds: string[]
-  status: 'waiting' | 'active' | 'complete'
+  status: 'waiting' | 'active' | 'complete' | 'cancelled'
+  /** Why the draft was cancelled/scrubbed (null unless status is cancelled) */
+  cancelReason: DraftCancelReason | null
   /**
    * For blind bans: accumulated bans that haven't been revealed yet.
    * Revealed when the simultaneous ban step completes.
@@ -169,11 +175,13 @@ export type DraftInput
   = | { type: 'START' }
     | { type: 'BAN', seatIndex: number, civIds: string[] }
     | { type: 'PICK', seatIndex: number, civId: string }
+    | { type: 'CANCEL', reason: DraftCancelReason }
     | { type: 'TIMEOUT' }
 
 /** Events emitted during state transitions (for broadcasting to clients) */
 export type DraftEvent
   = | { type: 'DRAFT_STARTED' }
+    | { type: 'DRAFT_CANCELLED', reason: DraftCancelReason }
     | { type: 'BAN_SUBMITTED', seatIndex: number, civIds: string[], blind: boolean }
     | { type: 'PICK_SUBMITTED', seatIndex: number, civId: string }
     | { type: 'BLIND_BANS_REVEALED', bans: DraftSelection[] }
@@ -199,6 +207,7 @@ export type MatchStatus = 'drafting' | 'active' | 'completed' | 'cancelled'
 export interface QueueEntry {
   playerId: string
   displayName: string
+  avatarUrl?: string | null
   joinedAt: number
   /** For team modes: partner player IDs */
   partyIds?: string[]
