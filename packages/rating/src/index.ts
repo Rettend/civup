@@ -9,8 +9,14 @@ export const DEFAULT_MU = 25.0
 /** Default sigma for new players */
 export const DEFAULT_SIGMA = 25 / 3 // ~8.333
 
+/** Baseline added to conservative display rating for UX-friendly numbers */
+export const DISPLAY_RATING_BASE = 600
+
+/** Scale multiplier for display rating deltas and spread */
+export const DISPLAY_RATING_SCALE = 5
+
 /** Minimum games required to appear on leaderboard */
-export const LEADERBOARD_MIN_GAMES = 5
+export const LEADERBOARD_MIN_GAMES = 3
 
 /** Leaderboard modes */
 export type LeaderboardMode = 'ffa' | 'duel' | 'teamers'
@@ -34,11 +40,10 @@ export function createRating(playerId: string): PlayerRating {
 
 /**
  * Conservative display rating: mu - 3*sigma.
- * This is the value shown on leaderboards and player cards.
- * Will be negative for uncalibrated players — clamp to 0 for display if needed.
+ * Scaled and offset for a friendlier ladder UX.
  */
 export function displayRating(mu: number, sigma: number): number {
-  return ordinal({ mu, sigma })
+  return DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * ordinal({ mu, sigma })
 }
 
 // ── Rating Calculation ──────────────────────────────────────

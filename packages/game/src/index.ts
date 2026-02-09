@@ -50,6 +50,7 @@ export type {
   DraftSelection,
   DraftState,
   DraftStep,
+  DraftTimerConfig,
   GameMode,
   Leader,
   LeaderAbility,

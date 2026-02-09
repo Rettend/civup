@@ -17,6 +17,7 @@
     "bot:migrate:remote": "bun run --filter civup-bot r:migrate",
     "tunnel": "cloudflared --config cloudflared.dev.yml tunnel run civup-dev",
     "party:dev": "bun run --filter civup-party dev",
+    "party:deploy": "bun run --filter civup-party deploy",
     "db:generate": "bun run --filter @civup/db generate",
     "db:studio": "bun run --filter @civup/db studio",
     "clean": "bun scripts/clean.ts",

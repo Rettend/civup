@@ -1,13 +1,14 @@
 import type { Auth } from './discord'
 import type { LobbySnapshot } from './stores'
-import { createSignal, For, Match, onCleanup, onMount, Switch } from 'solid-js'
-import { DraftView } from './components/draft'
+import { createSignal, Match, onCleanup, onMount, Switch } from 'solid-js'
+import { ConfigScreen, DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
 import {
   connectionError,
   connectionStatus,
   connectToRoom,
   fetchLobbyForChannel,
+  fetchLobbyForUser,
   fetchMatchForChannel,
   fetchMatchForUser,
 
@@ -51,26 +52,19 @@ export default function App() {
         return
       }
 
-      // Fetch the match ID from the bot API
+      // Match lookup order:
+      // 1) direct channel mapping
+      // 2) open lobby by user/channel (pre-draft waiting)
+      // 3) participant fallback (for voice-channel launches)
       let matchId = await fetchMatchForChannel(channelId)
-
-      // Voice-channel launches may use a different channel than where queue filled.
-      // Fall back to participant-based lookup.
-      if (!matchId) {
-        matchId = await fetchMatchForUser(auth.user.id)
+      const resolveOpenLobby = async () => {
+        const userLobby = await fetchLobbyForUser(auth.user.id)
+        if (userLobby) return userLobby
+        return fetchLobbyForChannel(channelId)
       }
 
       if (!matchId) {
-        // No match found — could be dev mode or no queue filled yet
-        // In dev, fall back to using channelId as room ID for testing
-        if (import.meta.env.DEV) {
-          console.warn('No match found for channel, using channelId as fallback')
-          setState({ status: 'authenticated', auth, matchId: channelId })
-          connectToRoom(ACTIVITY_HOST, channelId, auth.user.id)
-          return
-        }
-
-        const lobby = await fetchLobbyForChannel(channelId)
+        const lobby = await resolveOpenLobby()
         if (lobby) {
           setState({ status: 'lobby-waiting', lobby })
 
@@ -80,6 +74,15 @@ export default function App() {
             if (pollInFlight) return
             pollInFlight = true
             try {
+              const nextLobby = await resolveOpenLobby()
+              if (nextLobby) {
+                setState((prev) => {
+                  if (prev.status === 'lobby-waiting' && isSameLobbySnapshot(prev.lobby, nextLobby)) return prev
+                  return { status: 'lobby-waiting', lobby: nextLobby }
+                })
+                return
+              }
+
               let nextMatchId = await fetchMatchForChannel(channelId)
               if (!nextMatchId) {
                 nextMatchId = await fetchMatchForUser(auth.user.id)
@@ -92,20 +95,27 @@ export default function App() {
                 return
               }
 
-              const nextLobby = await fetchLobbyForChannel(channelId)
-              if (!nextLobby) {
-                stopLobbyPoll()
-                setState({ status: 'no-match' })
-                return
-              }
-
-              setState({ status: 'lobby-waiting', lobby: nextLobby })
+              stopLobbyPoll()
+              setState({ status: 'no-match' })
             }
             finally {
               pollInFlight = false
             }
           }, LOBBY_POLL_MS)
 
+          return
+        }
+
+        matchId = await fetchMatchForUser(auth.user.id)
+      }
+
+      if (!matchId) {
+        // No match found — could be dev mode or no queue filled yet
+        // In dev, fall back to using channelId as room ID for testing
+        if (import.meta.env.DEV) {
+          console.warn('No match found for channel, using channelId as fallback')
+          setState({ status: 'authenticated', auth, matchId: channelId })
+          connectToRoom(ACTIVITY_HOST, channelId, auth.user.id)
           return
         }
 
@@ -152,7 +162,7 @@ export default function App() {
 
       {/* Waiting lobby (before match room exists) */}
       <Match when={state().status === 'lobby-waiting'}>
-        <LobbyWaitingRoom lobby={(state() as Extract<AppState, { status: 'lobby-waiting' }>).lobby} />
+        <ConfigScreen lobby={(state() as Extract<AppState, { status: 'lobby-waiting' }>).lobby} />
       </Match>
 
       {/* No match available */}
@@ -176,93 +186,6 @@ export default function App() {
         <DraftWithConnection matchId={(state() as Extract<AppState, { status: 'authenticated' }>).matchId} />
       </Match>
     </Switch>
-  )
-}
-
-function LobbyWaitingRoom(props: { lobby: LobbySnapshot }) {
-  const isTeamMode = () => props.lobby.mode === 'duel' || props.lobby.mode === '2v2' || props.lobby.mode === '3v3'
-  const teamSize = () => Math.max(1, Math.floor(props.lobby.targetSize / 2))
-
-  const teamALines = () => Array.from({ length: teamSize() }, (_, i) => {
-    const entry = props.lobby.entries[i]
-    return `${i + 1}. ${entry ? entry.displayName : '[empty]'}`
-  })
-
-  const teamBLines = () => Array.from({ length: teamSize() }, (_, i) => {
-    const entry = props.lobby.entries[teamSize() + i]
-    return `${i + 1}. ${entry ? entry.displayName : '[empty]'}`
-  })
-
-  const ffaFirstColumn = () => {
-    const half = Math.ceil(props.lobby.targetSize / 2)
-    return Array.from({ length: half }, (_, i) => {
-      const entry = props.lobby.entries[i]
-      return `${i + 1}. ${entry ? entry.displayName : '[empty]'}`
-    })
-  }
-
-  const ffaSecondColumn = () => {
-    const half = Math.ceil(props.lobby.targetSize / 2)
-    return Array.from({ length: props.lobby.targetSize - half }, (_, i) => {
-      const index = half + i
-      const entry = props.lobby.entries[index]
-      return `${index + 1}. ${entry ? entry.displayName : '[empty]'}`
-    })
-  }
-
-  return (
-    <main class="text-text-primary font-sans px-4 bg-bg-primary flex min-h-screen items-center justify-center">
-      <div class="p-6 rounded-lg bg-bg-secondary max-w-2xl w-full">
-        <div class="text-lg text-heading mb-1">Lobby Open</div>
-        <div class="text-sm text-text-secondary mb-4">
-          You are in the activity lobby. Waiting for players to fill the room.
-        </div>
-
-        <div class="text-xs text-accent-gold tracking-widest font-bold mb-4 uppercase">
-          Mode:
-          {' '}
-          {props.lobby.mode.toUpperCase()}
-        </div>
-
-        <Switch>
-          <Match when={isTeamMode()}>
-            <div class="gap-6 grid grid-cols-2">
-              <div>
-                <div class="text-xs text-text-muted tracking-wider font-bold mb-2 uppercase">Team A</div>
-                <div class="flex flex-col gap-2">
-                  <For each={teamALines()}>
-                    {line => <div class="text-sm px-3 py-2 rounded bg-bg-primary/40">{line}</div>}
-                  </For>
-                </div>
-              </div>
-              <div>
-                <div class="text-xs text-text-muted tracking-wider font-bold mb-2 uppercase">Team B</div>
-                <div class="flex flex-col gap-2">
-                  <For each={teamBLines()}>
-                    {line => <div class="text-sm px-3 py-2 rounded bg-bg-primary/40">{line}</div>}
-                  </For>
-                </div>
-              </div>
-            </div>
-          </Match>
-
-          <Match when={!isTeamMode()}>
-            <div class="gap-6 grid grid-cols-2">
-              <div class="flex flex-col gap-2">
-                <For each={ffaFirstColumn()}>
-                  {line => <div class="text-sm px-3 py-2 rounded bg-bg-primary/40">{line}</div>}
-                </For>
-              </div>
-              <div class="flex flex-col gap-2">
-                <For each={ffaSecondColumn()}>
-                  {line => <div class="text-sm px-3 py-2 rounded bg-bg-primary/40">{line}</div>}
-                </For>
-              </div>
-            </div>
-          </Match>
-        </Switch>
-      </div>
-    </main>
   )
 }
 
@@ -307,4 +230,21 @@ function DraftWithConnection(props: { matchId: string }) {
       </Match>
     </Switch>
   )
+}
+
+function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
+  if (a.mode !== b.mode) return false
+  if (a.hostId !== b.hostId) return false
+  if (a.status !== b.status) return false
+  if (a.targetSize !== b.targetSize) return false
+  if (a.draftConfig.banTimerSeconds !== b.draftConfig.banTimerSeconds) return false
+  if (a.draftConfig.pickTimerSeconds !== b.draftConfig.pickTimerSeconds) return false
+  if (a.entries.length !== b.entries.length) return false
+
+  for (let i = 0; i < a.entries.length; i++) {
+    if (a.entries[i]?.playerId !== b.entries[i]?.playerId) return false
+    if (a.entries[i]?.displayName !== b.entries[i]?.displayName) return false
+  }
+
+  return true
 }

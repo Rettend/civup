@@ -22,7 +22,7 @@ export function DraftTimeline() {
 
   return (
     <Show when={steps().length > 0}>
-      <div class="flex items-center justify-center gap-1 px-4 py-1.5">
+      <div class="px-4 py-1.5 flex gap-1 items-center justify-center">
         <For each={steps()}>
           {(step, idx) => {
             const isCurrent = () => idx() === currentIdx()
@@ -32,14 +32,14 @@ export function DraftTimeline() {
             return (
               <>
                 <Show when={idx() > 0}>
-                  <div class={cn('h-px w-3 shrink-0', isPast() ? 'bg-text-muted/30' : 'bg-text-muted/10')} />
+                  <div class={cn('h-px w-3 shrink-0', isPast() ? 'bg-text-muted/50' : 'bg-text-muted/30')} />
                 </Show>
                 <span class={cn(
                   'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide uppercase leading-none whitespace-nowrap',
                   isCurrent() && isBan() && 'bg-accent-red/20 text-accent-red',
                   isCurrent() && !isBan() && 'bg-accent-gold/20 text-accent-gold',
                   isPast() && 'text-text-muted/40',
-                  !isCurrent() && !isPast() && 'text-text-muted/20',
+                  !isCurrent() && !isPast() && 'text-text-muted/50',
                 )}
                 >
                   {stepLabel(step, idx())}

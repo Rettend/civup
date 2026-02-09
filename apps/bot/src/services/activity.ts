@@ -1,4 +1,4 @@
-import type { DraftSeat, GameMode, QueueEntry, RoomConfig } from '@civup/game'
+import type { DraftSeat, DraftTimerConfig, GameMode, QueueEntry, RoomConfig } from '@civup/game'
 import { allLeaderIds, getDefaultFormat, isTeamMode } from '@civup/game'
 import { nanoid } from 'nanoid'
 
@@ -14,6 +14,7 @@ export interface CreateDraftRoomOptions {
   partyHost?: string
   botHost?: string
   webhookSecret?: string
+  timerConfig?: DraftTimerConfig
 }
 
 // ── Configuration ───────────────────────────────────────────
@@ -42,6 +43,7 @@ export async function createDraftRoom(
     formatId: format.id,
     seats,
     civPool: allLeaderIds,
+    timerConfig: options.timerConfig,
     webhookUrl: buildDraftWebhookUrl(options.botHost, options.partyHost),
     webhookSecret: options.webhookSecret,
   }

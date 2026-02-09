@@ -1,4 +1,4 @@
-import type { DraftEvent, DraftSeat, DraftState } from './types.ts'
+import type { DraftEvent, DraftSeat, DraftState, DraftTimerConfig } from './types.ts'
 
 // ── Room Configuration (sent by bot via HTTP POST) ──────────
 
@@ -8,6 +8,7 @@ export interface RoomConfig {
   formatId: string
   seats: DraftSeat[]
   civPool: string[]
+  timerConfig?: DraftTimerConfig
   webhookUrl?: string
   webhookSecret?: string
 }
@@ -24,6 +25,11 @@ export type ClientMessage
   = | { type: 'start' }
     | { type: 'ban', civIds: string[] }
     | { type: 'pick', civId: string }
+    | {
+      type: 'config'
+      banTimerSeconds: number | null
+      pickTimerSeconds: number | null
+    }
 
 // ── Server → Client Messages ────────────────────────────────
 

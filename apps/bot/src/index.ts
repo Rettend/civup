@@ -1,8 +1,7 @@
-import type { DraftCompleteWebhookPayload } from '@civup/game'
-import type { GameMode } from '@civup/game'
-import { GAME_MODES } from '@civup/game'
+import type { DraftCompleteWebhookPayload, GameMode } from '@civup/game'
 import type { Env } from './env.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
+import { GAME_MODES } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
@@ -15,22 +14,28 @@ import {
   storeUserMatchMappings,
 } from './services/activity.ts'
 import { createChannelMessage } from './services/discord.ts'
-import { clearLobbyByMatch, getLobby, getLobbyByMatch, setLobbyStatus } from './services/lobby.ts'
 import { upsertLobbyMessage } from './services/lobby-message.ts'
+import {
+  clearLobbyByMatch,
+  getLobby,
+  getLobbyByMatch,
+  setLobbyDraftConfig,
+  setLobbyStatus,
+} from './services/lobby.ts'
 import { activateDraftMatch, reportMatch } from './services/match.ts'
-import { getQueueState } from './services/queue.ts'
+import { getPlayerQueueMode, getQueueState } from './services/queue.ts'
 import { factory } from './setup.ts'
 
-// Discord interaction handler
+const DEFAULT_ARCHIVE_CHANNEL_ID = '1470095104332267560'
+const MAX_DRAFT_TIMER_SECONDS = 30 * 60
+
 const discordApp = factory.discord().loader([
   ...Object.values(commands),
   ...Object.values(cron),
 ])
 
-// Main Hono app with API routes
 const app = new Hono<Env>()
 
-// CORS for activity to call API
 app.use('/api/*', cors())
 
 // Match lookup endpoint for activity
@@ -84,20 +89,84 @@ app.get('/api/lobby/:channelId', async (c) => {
     const lobby = await getLobby(c.env.KV, mode)
     if (!lobby || lobby.channelId !== channelId || lobby.status !== 'open') continue
 
-    const queue = await getQueueState(c.env.KV, mode)
-    return c.json({
-      mode,
-      hostId: lobby.hostId,
-      status: lobby.status,
-      entries: queue.entries.map(entry => ({
-        playerId: entry.playerId,
-        displayName: entry.displayName,
-      })),
-      targetSize: queue.targetSize,
-    })
+    return c.json(await buildOpenLobbySnapshot(c.env.KV, mode, lobby))
   }
 
   return c.json({ error: 'No open lobby for this channel' }, 404)
+})
+
+// Open lobby lookup by user (covers voice-channel launches)
+app.get('/api/lobby/user/:userId', async (c) => {
+  const userId = c.req.param('userId')
+  const mode = await getPlayerQueueMode(c.env.KV, userId)
+
+  if (!mode) {
+    return c.json({ error: 'User is not in an open lobby queue' }, 404)
+  }
+
+  const lobby = await getLobby(c.env.KV, mode)
+  if (!lobby || lobby.status !== 'open') {
+    return c.json({ error: 'No open lobby for this user' }, 404)
+  }
+
+  return c.json(await buildOpenLobbySnapshot(c.env.KV, mode, lobby))
+})
+
+// Host-only lobby config update (pre-draft)
+app.post('/api/lobby/:mode/config', async (c) => {
+  const modeParam = c.req.param('mode')
+  if (!GAME_MODES.includes(modeParam as GameMode)) {
+    return c.json({ error: 'Invalid game mode' }, 400)
+  }
+  const mode = modeParam as GameMode
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  }
+  catch {
+    return c.json({ error: 'Invalid JSON payload' }, 400)
+  }
+
+  if (!body || typeof body !== 'object') {
+    return c.json({ error: 'Invalid request body' }, 400)
+  }
+
+  const { userId, banTimerSeconds, pickTimerSeconds } = body as {
+    userId?: string
+    banTimerSeconds?: unknown
+    pickTimerSeconds?: unknown
+  }
+
+  if (typeof userId !== 'string' || userId.length === 0) {
+    return c.json({ error: 'userId is required' }, 400)
+  }
+
+  const normalizedBan = parseLobbyTimerSeconds(banTimerSeconds)
+  const normalizedPick = parseLobbyTimerSeconds(pickTimerSeconds)
+  if (normalizedBan === undefined || normalizedPick === undefined) {
+    return c.json({ error: `Timers must be numbers between 0 and ${MAX_DRAFT_TIMER_SECONDS}` }, 400)
+  }
+
+  const lobby = await getLobby(c.env.KV, mode)
+  if (!lobby || lobby.status !== 'open') {
+    return c.json({ error: 'No open lobby for this mode' }, 404)
+  }
+
+  if (lobby.hostId !== userId) {
+    return c.json({ error: 'Only the lobby host can update draft timers' }, 403)
+  }
+
+  const updated = await setLobbyDraftConfig(c.env.KV, mode, {
+    banTimerSeconds: normalizedBan,
+    pickTimerSeconds: normalizedPick,
+  })
+
+  if (!updated) {
+    return c.json({ error: 'Lobby not found' }, 404)
+  }
+
+  return c.json(await buildOpenLobbySnapshot(c.env.KV, mode, updated))
 })
 
 // Full match state (used by activity post-draft screen)
@@ -250,4 +319,40 @@ function isDraftCompletePayload(value: unknown): value is DraftCompleteWebhookPa
   return payload.state.status === 'complete'
 }
 
-const DEFAULT_ARCHIVE_CHANNEL_ID = '1470095104332267560'
+async function buildOpenLobbySnapshot(
+  kv: KVNamespace,
+  mode: GameMode,
+  lobby: {
+    hostId: string
+    status: string
+    draftConfig: {
+      banTimerSeconds: number | null
+      pickTimerSeconds: number | null
+    }
+  },
+) {
+  const queue = await getQueueState(kv, mode)
+  return {
+    mode,
+    hostId: lobby.hostId,
+    status: lobby.status,
+    entries: queue.entries.map(entry => ({
+      playerId: entry.playerId,
+      displayName: entry.displayName,
+    })),
+    targetSize: queue.targetSize,
+    draftConfig: lobby.draftConfig,
+  }
+}
+
+function parseLobbyTimerSeconds(value: unknown): number | null | undefined {
+  if (value == null) return null
+  if (typeof value === 'string' && value.trim().length === 0) return null
+
+  const numeric = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(numeric)) return undefined
+
+  const rounded = Math.round(numeric)
+  if (rounded < 0 || rounded > MAX_DRAFT_TIMER_SECONDS) return undefined
+  return rounded
+}

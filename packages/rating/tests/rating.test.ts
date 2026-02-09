@@ -6,6 +6,8 @@ import {
   calculateRatings,
   calculateTeamRatings,
   createRating,
+  DISPLAY_RATING_BASE,
+  DISPLAY_RATING_SCALE,
   DEFAULT_MU,
   DEFAULT_SIGMA,
   displayRating,
@@ -28,22 +30,22 @@ describe('createRating', () => {
 // ── displayRating ───────────────────────────────────────────
 
 describe('displayRating', () => {
-  test('returns mu - 3*sigma for default rating', () => {
+  test('returns base + scale*(mu - 3*sigma) for default rating', () => {
     const dr = displayRating(DEFAULT_MU, DEFAULT_SIGMA)
-    expect(dr).toBeCloseTo(DEFAULT_MU - 3 * DEFAULT_SIGMA, 2)
-    // ~25 - 25 = 0
-    expect(dr).toBeCloseTo(0, 0)
+    expect(dr).toBeCloseTo(DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * (DEFAULT_MU - 3 * DEFAULT_SIGMA), 2)
+    // ~600 + (25 - 25) = 600
+    expect(dr).toBeCloseTo(DISPLAY_RATING_BASE, 0)
   })
 
   test('returns positive value for skilled player', () => {
     // After many games, sigma shrinks and mu grows
     const dr = displayRating(30, 3)
-    expect(dr).toBeCloseTo(21, 0)
+    expect(dr).toBeCloseTo(DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * 21, 0)
   })
 
-  test('returns negative for very uncertain player', () => {
+  test('returns below base for very uncertain player', () => {
     const dr = displayRating(20, 10)
-    expect(dr).toBeLessThan(0)
+    expect(dr).toBeLessThan(DISPLAY_RATING_BASE)
   })
 })
 
@@ -264,7 +266,7 @@ describe('buildLeaderboard', () => {
 
     const lb = buildLeaderboard(players)
 
-    expect(lb[0]!.displayRating).toBeCloseTo(30 - 3 * 4, 0) // 18
+    expect(lb[0]!.displayRating).toBeCloseTo(DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * (30 - 3 * 4), 0) // 690
     expect(lb[0]!.winRate).toBeCloseTo(0.6, 2)
   })
 

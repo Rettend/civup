@@ -1,6 +1,6 @@
 export { command_admin } from './admin.ts'
 export { command_clear } from './clear.ts'
 export { command_leaderboard } from './leaderboard.ts'
-export { command_lfg, component_draft_activity, component_lfg_join, component_lfg_leave } from './lfg.ts'
+export { command_lfg, component_draft_activity, component_lfg_join, component_lfg_leave } from './lfg/index.ts'
 export { command_ping } from './ping.ts'
 export { command_stats } from './stats.ts'

@@ -1,14 +1,14 @@
 import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import { playerRatings } from '@civup/db'
-import { buildLeaderboard } from '@civup/rating'
+import { buildLeaderboard, LEADERBOARD_MIN_GAMES } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { eq } from 'drizzle-orm'
 
 const MODE_LABELS: Record<LeaderboardMode, string> = {
   ffa: 'FFA',
   duel: 'Duel',
-  teamers: 'Teamers (2v2 + 3v3)',
+  teamers: 'Teamers',
 }
 
 const MODE_COLORS: Record<LeaderboardMode, number> = {
@@ -45,6 +45,6 @@ export async function leaderboardEmbed(db: Database, mode: LeaderboardMode): Pro
     .title(`${MODE_LABELS[mode]} Leaderboard`)
     .description(lines.join('\n'))
     .color(MODE_COLORS[mode])
-    .footer({ text: `Top ${top25.length} players with 5+ games` })
+    .footer({ text: `Top ${top25.length} players with ${LEADERBOARD_MIN_GAMES}+ games` })
     .timestamp(new Date().toISOString())
 }
