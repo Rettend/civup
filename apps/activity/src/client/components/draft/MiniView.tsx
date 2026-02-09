@@ -1,12 +1,7 @@
-import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 import { getLeader } from '@civup/game'
+import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
-import {
-  currentStepDuration,
-  draftStore,
-  phaseAccent,
-  phaseLabel,
-} from '~/client/stores'
+import { draftStore, phaseAccent, phaseLabel } from '~/client/stores'
 
 /** Minimized PiP view (402x227) — status card with phase, timer, whose turn, last pick */
 export function MiniView() {
@@ -17,7 +12,10 @@ export function MiniView() {
   const [remaining, setRemaining] = createSignal(0)
   createEffect(() => {
     const endsAt = draftStore.timerEndsAt
-    if (endsAt == null) { setRemaining(0); return }
+    if (endsAt == null) {
+      setRemaining(0)
+      return
+    }
     const tick = () => setRemaining(Math.max(0, endsAt! - Date.now()))
     tick()
     const interval = setInterval(tick, 100)
@@ -52,7 +50,7 @@ export function MiniView() {
   }
 
   return (
-    <div class="flex h-screen flex-col bg-bg-primary p-3 text-text-primary font-sans">
+    <div class="text-text-primary font-sans p-3 bg-bg-primary flex flex-col h-screen">
       {/* Top row: format, phase, timer */}
       <div class="flex items-center justify-between">
         <span class="text-xs text-text-muted font-medium">{formatName()}</span>
@@ -64,8 +62,10 @@ export function MiniView() {
           {phaseLabel()}
         </span>
         <Show when={draftStore.timerEndsAt != null}>
-          <span class="font-mono text-sm text-text-primary font-bold tabular-nums">
-            {Math.floor(seconds() / 60)}:{(seconds() % 60).toString().padStart(2, '0')}
+          <span class="text-sm text-text-primary font-bold font-mono tabular-nums">
+            {Math.floor(seconds() / 60)}
+            :
+            {(seconds() % 60).toString().padStart(2, '0')}
           </span>
         </Show>
       </div>
@@ -99,9 +99,9 @@ export function MiniView() {
       {/* Last pick */}
       <Show when={lastPick()}>
         {pick => (
-          <div class="flex items-center gap-2">
+          <div class="flex gap-2 items-center">
             <Show when={pick().portraitUrl}>
-              {url => <img src={url()} alt={pick().name} class="h-8 w-8 rounded object-cover" />}
+              {url => <img src={url()} alt={pick().name} class="rounded h-8 w-8 object-cover" />}
             </Show>
             <div>
               <div class="text-[10px] text-text-muted uppercase">Last Pick</div>

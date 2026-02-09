@@ -1,4 +1,10 @@
 import { createMemo, createSignal } from 'solid-js'
+import {
+  countActiveTagFilters,
+  createEmptyTagFilters,
+  getTagCategory,
+  type TagFilterState,
+} from '~/client/lib/leader-tags'
 import { currentStep, draftStore } from './draft-store'
 
 // ── UI State ───────────────────────────────────────────────
@@ -9,8 +15,11 @@ const [selectedLeader, setSelectedLeader] = createSignal<string | null>(null)
 /** Search query for leader grid filter */
 const [searchQuery, setSearchQuery] = createSignal('')
 
-/** Active tag filter */
-const [tagFilter, setTagFilter] = createSignal<string | null>(null)
+/** Active leader tag filters grouped by category */
+const [tagFilters, setTagFilters] = createSignal<TagFilterState>(createEmptyTagFilters())
+
+/** Number of selected tag filters across all categories */
+const activeTagFilterCount = createMemo(() => countActiveTagFilters(tagFilters()))
 
 /** Selected civ IDs for blind ban (multi-select) */
 const [banSelections, setBanSelections] = createSignal<string[]>([])
@@ -37,8 +46,8 @@ export {
   setIsMiniView,
   setSearchQuery,
   setSelectedLeader,
-  setTagFilter,
-  tagFilter,
+  activeTagFilterCount,
+  tagFilters,
 }
 
 // ── Phase Accent ───────────────────────────────────────────
@@ -80,8 +89,28 @@ export function clearSelections() {
   setSelectedLeader(null)
   setBanSelections([])
   setSearchQuery('')
-  setTagFilter(null)
+  setTagFilters(createEmptyTagFilters())
   setDetailLeaderId(null)
+}
+
+/** Toggle a single leader tag within its category filter set */
+export function toggleTagFilter(tag: string) {
+  const category = getTagCategory(tag)
+  if (!category) return
+
+  setTagFilters((prev) => {
+    const current = prev[category]
+    const hasTag = current.includes(tag)
+    return {
+      ...prev,
+      [category]: hasTag ? current.filter(t => t !== tag) : [...current, tag],
+    }
+  })
+}
+
+/** Clear all selected tag filters */
+export function clearTagFilters() {
+  setTagFilters(createEmptyTagFilters())
 }
 
 /** Toggle the detail panel for a leader (click-to-open/close) */

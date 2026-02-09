@@ -23,6 +23,7 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.0.0",
     "@cloudflare/workers-types": "^4.20260206.0",
+    "@iconify-json/gg": "^1.2.2",
     "@iconify-json/ph": "^1.2.2",
     "@unocss/reset": "^66.6.0",
     "unocss": "^66.6.0",

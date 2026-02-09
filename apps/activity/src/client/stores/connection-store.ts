@@ -34,6 +34,10 @@ export interface LobbySnapshot {
     displayName: string
   }[]
   targetSize: number
+  draftConfig: {
+    banTimerSeconds: number | null
+    pickTimerSeconds: number | null
+  }
 }
 
 // ── State ──────────────────────────────────────────────────
@@ -46,6 +50,13 @@ export { connectionError, connectionStatus }
 // ── Socket ─────────────────────────────────────────────────
 
 let socket: PartySocket | null = null
+let pendingConfigAck:
+  | {
+    resolve: () => void
+    reject: (error: Error) => void
+    timeout: ReturnType<typeof setTimeout>
+  }
+  | null = null
 
 /** Connect to PartyKit draft room using host and match ID */
 export function connectToRoom(host: string, roomId: string, playerId: string) {
@@ -114,17 +125,23 @@ export function disconnect() {
   relayDevLog('info', 'Draft socket disconnect requested')
   socket?.close()
   socket = null
+  if (pendingConfigAck) {
+    clearTimeout(pendingConfigAck.timeout)
+    pendingConfigAck.reject(new Error('Disconnected before config update was acknowledged.'))
+    pendingConfigAck = null
+  }
   setConnectionStatus('disconnected')
 }
 
 // ── Send Messages ──────────────────────────────────────────
 
-export function sendMessage(msg: ClientMessage) {
+export function sendMessage(msg: ClientMessage): boolean {
   if (!socket || connectionStatus() !== 'connected') {
     console.warn('Cannot send message: not connected')
-    return
+    return false
   }
   socket.send(JSON.stringify(msg))
+  return true
 }
 
 export function sendStart() {
@@ -137,6 +154,34 @@ export function sendBan(civIds: string[]) {
 
 export function sendPick(civId: string) {
   sendMessage({ type: 'pick', civId })
+}
+
+export function sendConfig(banTimerSeconds: number | null, pickTimerSeconds: number | null): Promise<void> {
+  if (pendingConfigAck) {
+    clearTimeout(pendingConfigAck.timeout)
+    pendingConfigAck.reject(new Error('Previous config update still pending.'))
+    pendingConfigAck = null
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    const sent = sendMessage({ type: 'config', banTimerSeconds, pickTimerSeconds })
+    if (!sent) {
+      reject(new Error('Not connected to draft room.'))
+      return
+    }
+
+    const timeout = setTimeout(() => {
+      if (!pendingConfigAck || pendingConfigAck.timeout !== timeout) return
+      pendingConfigAck = null
+      reject(new Error('Config update was not acknowledged by the server.'))
+    }, 4000)
+
+    pendingConfigAck = {
+      resolve,
+      reject,
+      timeout,
+    }
+  })
 }
 
 // ── Bot API ────────────────────────────────────────────────
@@ -171,6 +216,52 @@ export async function fetchLobbyForChannel(
   catch (err) {
     console.error('Failed to fetch lobby for channel:', err)
     return null
+  }
+}
+
+/** Fetch open lobby state for a user from the bot API */
+export async function fetchLobbyForUser(
+  userId: string,
+): Promise<LobbySnapshot | null> {
+  try {
+    const res = await fetch(`/api/lobby/user/${userId}`)
+    if (!res.ok) return null
+
+    return await res.json() as LobbySnapshot
+  }
+  catch (err) {
+    console.error('Failed to fetch lobby for user:', err)
+    return null
+  }
+}
+
+/** Update host draft timer config for an open lobby */
+export async function updateLobbyDraftConfig(
+  mode: string,
+  userId: string,
+  draftConfig: {
+    banTimerSeconds: number | null
+    pickTimerSeconds: number | null
+  },
+): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
+  try {
+    const res = await fetch(`/api/lobby/${mode}/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId,
+        banTimerSeconds: draftConfig.banTimerSeconds,
+        pickTimerSeconds: draftConfig.pickTimerSeconds,
+      }),
+    })
+
+    const data = await res.json() as LobbySnapshot & { error?: string }
+    if (!res.ok) return { ok: false, error: data.error ?? 'Failed to update lobby config' }
+    return { ok: true, lobby: data }
+  }
+  catch (err) {
+    console.error('Failed to update lobby config:', err)
+    return { ok: false, error: 'Network error while updating lobby config' }
   }
 }
 
@@ -235,9 +326,26 @@ function handleServerMessage(msg: ServerMessage) {
       break
     case 'update':
       updateDraft(msg.state, msg.events, msg.timerEndsAt, msg.completedAt)
+      if (pendingConfigAck) {
+        clearTimeout(pendingConfigAck.timeout)
+        pendingConfigAck.resolve()
+        pendingConfigAck = null
+      }
       break
     case 'error':
+      if (pendingConfigAck) {
+        clearTimeout(pendingConfigAck.timeout)
+        pendingConfigAck.reject(formatConfigAckError(msg.message))
+        pendingConfigAck = null
+      }
       console.error('Server error:', msg.message)
       break
   }
+}
+
+function formatConfigAckError(message: string): Error {
+  if (message === 'Unknown message type') {
+    return new Error('Draft room server is outdated (missing config support). Redeploy/restart party server and create a new lobby.')
+  }
+  return new Error(message)
 }

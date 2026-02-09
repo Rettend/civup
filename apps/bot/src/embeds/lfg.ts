@@ -21,9 +21,9 @@ export type LobbyStage = 'open' | 'drafting' | 'draft-complete' | 'reported'
 
 const MODE_LABELS: Record<GameMode, string> = {
   'ffa': 'FFA',
-  'duel': '1V1',
-  '2v2': '2V2',
-  '3v3': '3V3',
+  'duel': '1v1',
+  '2v2': '2v2',
+  '3v3': '3v3',
 }
 
 const STAGE_LABELS: Record<LobbyStage, string> = {
@@ -53,11 +53,6 @@ export function lobbyOpenEmbed(mode: GameMode, entries: QueueEntry[], targetSize
         inline: true,
       },
       {
-        name: '\u200B',
-        value: '\u200B',
-        inline: true,
-      },
-      {
         name: 'Team B',
         value: `1. ${p2 ? `<@${p2}>` : '`[empty]`'}`,
         inline: true,
@@ -78,7 +73,6 @@ export function lobbyOpenEmbed(mode: GameMode, entries: QueueEntry[], targetSize
 
     return embed.fields(
       { name: 'Team A', value: teamALines, inline: true },
-      { name: '\u200B', value: '\u200B', inline: true },
       { name: 'Team B', value: teamBLines, inline: true },
     )
   }
@@ -96,7 +90,6 @@ export function lobbyOpenEmbed(mode: GameMode, entries: QueueEntry[], targetSize
 
   return embed.fields(
     { name: 'Slots', value: firstColumn, inline: true },
-    { name: '\u200B', value: '\u200B', inline: true },
     { name: 'Slots', value: secondColumn || '\u200B', inline: true },
   )
 }
@@ -112,11 +105,6 @@ export function lobbyDraftingEmbed(mode: GameMode, seats: DraftSeat[]): Embed {
       {
         name: 'Team A',
         value: teamA.map((seat, i) => `${i + 1}. <@${seat.playerId}>`).join('\n') || '`[empty]`',
-        inline: true,
-      },
-      {
-        name: '\u200B',
-        value: '\u200B',
         inline: true,
       },
       {
@@ -154,7 +142,7 @@ export function lobbyComponents(mode: GameMode, _stage: Extract<LobbyStage, 'ope
 
 function baseLobbyEmbed(mode: GameMode, stage: LobbyStage): Embed {
   return new Embed()
-    .title(`${STAGE_LABELS[stage]} | ${MODE_LABELS[mode]}`)
+    .title(`${STAGE_LABELS[stage]}  -  ${MODE_LABELS[mode]}`)
     .color(STAGE_COLORS[stage])
     .timestamp(new Date().toISOString())
 }
@@ -174,11 +162,6 @@ function lobbyDraftCompleteLeaderEmbed(
       {
         name: 'Team A',
         value: teamA.map((participant, index) => `${index + 1}. <@${participant.playerId}> - ${formatLeaderName(participant.civId)}`).join('\n') || '`[empty]`',
-        inline: true,
-      },
-      {
-        name: '\u200B',
-        value: '\u200B',
         inline: true,
       },
       {
@@ -238,8 +221,7 @@ function formatReportedTeamRows(participants: LobbyParticipant[]): string {
   const lines: string[] = []
 
   teams.forEach((teamEntry, index) => {
-    const trophy = teamEntry.placement === 1 ? ' 🏆' : ''
-    lines.push(`${formatPlacementCode(teamEntry.placement)}${trophy} **${formatTeamName(teamEntry.team)}**`)
+    lines.push(`${formatPlacementCode(teamEntry.placement)} **${formatTeamName(teamEntry.team)}**`)
 
     for (const participant of teamEntry.participants) {
       lines.push(`\u00A0\u00A0\u00A0${formatReportedPlayerDetails(participant)}`)
@@ -260,8 +242,7 @@ function formatReportedFlatRows(participants: LobbyParticipant[]): string {
 
   return ordered
     .map((participant) => {
-      const trophy = participant.placement === 1 ? ' 🏆' : ''
-      return `${formatPlacementCode(participant.placement)} ${formatReportedPlayerDetails(participant)}${trophy}`
+      return `${formatPlacementCode(participant.placement)} ${formatReportedPlayerDetails(participant)}`
     })
     .join('\n')
 }
@@ -306,7 +287,7 @@ function formatReportedRating(participant: LobbyParticipant): string {
   const before = displayRating(participant.ratingBeforeMu, participant.ratingBeforeSigma)
   const after = displayRating(participant.ratingAfterMu, participant.ratingAfterSigma)
   const delta = Math.round(after - before)
-  const deltaText = `${delta >= 0 ? '+' : ''}${delta}`.padStart(4, ' ')
+  const deltaText = `${delta >= 0 ? '+' : ''}${delta}`.padStart(3, ' ')
   const trendEmoji = delta >= 0 ? '📈' : '📉'
   const updatedElo = `(${String(Math.round(after)).padStart(4, ' ')})`
 
@@ -348,7 +329,7 @@ function formatLeaderboardUpdate(participants: LobbyParticipant[]): string | nul
     .slice(0, 3)
     .map((move) => {
       if (move.before == null) return `🆕 <@${move.playerId}> entered at #${move.after}`
-      return `⬆️ <@${move.playerId}> #${move.before} -> #${move.after} (+${move.before - move.after})`
+      return `⬆️ <@${move.playerId}> #${move.before} -> #${move.after}`
     })
     .join('\n')
 }

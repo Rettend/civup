@@ -15,10 +15,10 @@ export const cron_cleanup = factory.cron(
     if (removed.length > 0) {
       // eslint-disable-next-line no-console
       console.log(`[cron] Pruned ${removed.length} stale queue entries`)
-      // Could optionally notify a log channel here
     }
 
     if (prunedMatches.removedMatchIds.length > 0) {
+      // eslint-disable-next-line no-console
       console.log(`[cron] Pruned ${prunedMatches.removedMatchIds.length} abandoned matches`)
     }
   },
