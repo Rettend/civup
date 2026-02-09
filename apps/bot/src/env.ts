@@ -8,5 +8,6 @@ export interface Env {
     PARTY_HOST?: string
     BOT_HOST?: string
     DRAFT_WEBHOOK_SECRET?: string
+    ARCHIVE_CHANNEL_ID?: string
   }
 }

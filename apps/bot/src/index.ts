@@ -1,17 +1,24 @@
 import type { DraftCompleteWebhookPayload } from '@civup/game'
+import type { GameMode } from '@civup/game'
+import { GAME_MODES } from '@civup/game'
 import type { Env } from './env.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { eq } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import * as commands from './commands/index.ts'
 import * as cron from './cron/cleanup.ts'
+import { lobbyDraftCompleteEmbed, lobbyResultEmbed } from './embeds/lfg.ts'
 import {
-  getChannelForMatch,
   getMatchForChannel,
   getMatchForUser,
+  storeUserMatchMappings,
 } from './services/activity.ts'
+import { createChannelMessage } from './services/discord.ts'
+import { clearLobbyByMatch, getLobby, getLobbyByMatch, setLobbyStatus } from './services/lobby.ts'
+import { upsertLobbyMessage } from './services/lobby-message.ts'
 import { activateDraftMatch, reportMatch } from './services/match.ts'
+import { getQueueState } from './services/queue.ts'
 import { factory } from './setup.ts'
 
 // Discord interaction handler
@@ -43,11 +50,54 @@ app.get('/api/match/user/:userId', async (c) => {
   const userId = c.req.param('userId')
   const matchId = await getMatchForUser(c.env.KV, userId)
 
-  if (!matchId) {
+  if (matchId) {
+    return c.json({ matchId })
+  }
+
+  const db = createDb(c.env.DB)
+  const [active] = await db
+    .select({
+      matchId: matchParticipants.matchId,
+    })
+    .from(matchParticipants)
+    .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+    .where(and(
+      eq(matchParticipants.playerId, userId),
+      inArray(matches.status, ['drafting', 'active']),
+    ))
+    .orderBy(desc(matches.createdAt))
+    .limit(1)
+
+  if (!active?.matchId) {
     return c.json({ error: 'No active match for this user' }, 404)
   }
 
-  return c.json({ matchId })
+  await storeUserMatchMappings(c.env.KV, [userId], active.matchId)
+  return c.json({ matchId: active.matchId })
+})
+
+// Open lobby lookup for activity waiting room
+app.get('/api/lobby/:channelId', async (c) => {
+  const channelId = c.req.param('channelId')
+
+  for (const mode of GAME_MODES) {
+    const lobby = await getLobby(c.env.KV, mode)
+    if (!lobby || lobby.channelId !== channelId || lobby.status !== 'open') continue
+
+    const queue = await getQueueState(c.env.KV, mode)
+    return c.json({
+      mode,
+      hostId: lobby.hostId,
+      status: lobby.status,
+      entries: queue.entries.map(entry => ({
+        playerId: entry.playerId,
+        displayName: entry.displayName,
+      })),
+      targetSize: queue.targetSize,
+    })
+  }
+
+  return c.json({ error: 'No open lobby for this channel' }, 404)
 })
 
 // Full match state (used by activity post-draft screen)
@@ -103,6 +153,33 @@ app.post('/api/match/:matchId/report', async (c) => {
     return c.json({ error: result.error }, 400)
   }
 
+  const reportedMode = result.match.gameMode as GameMode
+
+  const lobby = await getLobbyByMatch(c.env.KV, result.match.id)
+  if (lobby) {
+    await setLobbyStatus(c.env.KV, lobby.mode, 'completed')
+    try {
+      await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
+        embeds: [lobbyResultEmbed(lobby.mode, result.participants)],
+        components: [],
+      })
+    }
+    catch (error) {
+      console.error(`Failed to update lobby result embed for match ${result.match.id}:`, error)
+    }
+    await clearLobbyByMatch(c.env.KV, result.match.id)
+  }
+
+  const archiveChannelId = c.env.ARCHIVE_CHANNEL_ID ?? DEFAULT_ARCHIVE_CHANNEL_ID
+  try {
+    await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
+      embeds: [lobbyResultEmbed(reportedMode, result.participants)],
+    })
+  }
+  catch (error) {
+    console.error(`Failed to post archive result for match ${result.match.id}:`, error)
+  }
+
   return c.json({ ok: true, match: result.match, participants: result.participants })
 })
 
@@ -140,9 +217,21 @@ app.post('/api/webhooks/draft-complete', async (c) => {
     return c.json({ error: result.error }, 400)
   }
 
-  const channelId = await getChannelForMatch(c.env.KV, payload.matchId)
-  if (channelId) {
-    await postDraftCompleteEmbed(c.env.DISCORD_TOKEN, channelId, payload.matchId, result.participants)
+  const lobby = await getLobbyByMatch(c.env.KV, payload.matchId)
+  if (!lobby) {
+    console.warn(`No lobby mapping found for draft-complete match ${payload.matchId}`)
+    return c.json({ ok: true })
+  }
+
+  await setLobbyStatus(c.env.KV, lobby.mode, 'active')
+  try {
+    await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
+      embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants)],
+      components: [],
+    })
+  }
+  catch (error) {
+    console.error(`Failed to update draft-complete embed for match ${payload.matchId}:`, error)
   }
 
   return c.json({ ok: true })
@@ -161,56 +250,4 @@ function isDraftCompletePayload(value: unknown): value is DraftCompleteWebhookPa
   return payload.state.status === 'complete'
 }
 
-async function postDraftCompleteEmbed(
-  token: string,
-  channelId: string,
-  matchId: string,
-  participants: {
-    playerId: string
-    team: number | null
-    civId: string | null
-  }[],
-): Promise<void> {
-  const hasTeams = participants.some(p => p.team !== null)
-
-  const fields = hasTeams
-    ? [0, 1]
-        .map((team) => {
-          const teamParticipants = participants.filter(p => p.team === team)
-          if (teamParticipants.length === 0) return null
-          return {
-            name: team === 0 ? 'Team A' : 'Team B',
-            value: teamParticipants.map(p => `<@${p.playerId}> — ${p.civId ?? 'TBD'}`).join('\n'),
-            inline: true,
-          }
-        })
-        .filter(field => field !== null)
-    : [{
-        name: 'Players',
-        value: participants.map(p => `<@${p.playerId}> — ${p.civId ?? 'TBD'}`).join('\n'),
-        inline: false,
-      }]
-
-  const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bot ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      content: `🎯 Draft complete for match **${matchId}**. Keep the activity open and report the winner there when the game ends.`,
-      embeds: [{
-        title: `Draft Complete — Match ${matchId}`,
-        description: 'Match status changed to **active**. Civ assignments are locked in.',
-        color: 0x22C55E,
-        fields,
-        timestamp: new Date().toISOString(),
-      }],
-    }),
-  })
-
-  if (!response.ok) {
-    const detail = await response.text()
-    console.error(`Failed to post draft-complete embed for match ${matchId}: ${response.status} ${detail}`)
-  }
-}
+const DEFAULT_ARCHIVE_CHANNEL_ID = '1470095104332267560'

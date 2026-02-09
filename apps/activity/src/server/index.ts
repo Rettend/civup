@@ -42,8 +42,8 @@ export default {
       return handlePartyProxy(request, url, env)
     }
 
-    // /api/match/* — proxy match lookup/reporting calls to bot API
-    if (url.pathname.startsWith('/api/match/')) {
+    // /api/match/* and /api/lobby/* — proxy bot API calls
+    if (url.pathname.startsWith('/api/match/') || url.pathname.startsWith('/api/lobby/')) {
       return handleMatchProxy(request, url, env)
     }
 

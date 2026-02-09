@@ -3,7 +3,7 @@ import { matches, matchParticipants, playerRatings, players } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
 import { displayRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 
 export async function playerCardEmbed(db: Database, playerId: string): Promise<Embed> {
   // Fetch player info
@@ -30,7 +30,7 @@ export async function playerCardEmbed(db: Database, playerId: string): Promise<E
   }
 
   if (ratings.length === 0) {
-    embed.description('No games played yet. Use `/lfg join` to start!')
+    embed.description('No games played yet. Use `/lfg create` to start!')
     return embed
   }
 
@@ -70,7 +70,10 @@ export async function playerCardEmbed(db: Database, playerId: string): Promise<E
     })
     .from(matchParticipants)
     .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-    .where(eq(matchParticipants.playerId, playerId))
+    .where(and(
+      eq(matchParticipants.playerId, playerId),
+      eq(matches.status, 'completed'),
+    ))
     .orderBy(desc(matches.completedAt))
     .limit(5)
 

@@ -77,7 +77,7 @@ export interface Leader {
   uniqueBuilding?: LeaderUnique
   /** Unique improvement */
   uniqueImprovement?: LeaderUnique
-  /** Tags for filtering: "domination", "science", "culture", "religion", "diplomatic" */
+  /** Namespaced filter tags, e.g. "econ:gold", "win:science", "role:frontline" */
   tags: string[]
 }
 

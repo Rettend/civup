@@ -25,6 +25,17 @@ export interface MatchStateSnapshot {
   }[]
 }
 
+export interface LobbySnapshot {
+  mode: string
+  hostId: string
+  status: string
+  entries: {
+    playerId: string
+    displayName: string
+  }[]
+  targetSize: number
+}
+
 // ── State ──────────────────────────────────────────────────
 
 const [connectionStatus, setConnectionStatus] = createSignal<ConnectionStatus>('disconnected')
@@ -143,6 +154,22 @@ export async function fetchMatchForChannel(
   }
   catch (err) {
     console.error('Failed to fetch match for channel:', err)
+    return null
+  }
+}
+
+/** Fetch open lobby state for a channel from the bot API */
+export async function fetchLobbyForChannel(
+  channelId: string,
+): Promise<LobbySnapshot | null> {
+  try {
+    const res = await fetch(`/api/lobby/${channelId}`)
+    if (!res.ok) return null
+
+    return await res.json() as LobbySnapshot
+  }
+  catch (err) {
+    console.error('Failed to fetch lobby for channel:', err)
     return null
   }
 }

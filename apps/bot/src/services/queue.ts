@@ -13,6 +13,13 @@ function playerQueueKey(playerId: string): string {
   return `${PLAYER_QUEUE_KEY}${playerId}`
 }
 
+export async function getPlayerQueueMode(
+  kv: KVNamespace,
+  playerId: string,
+): Promise<GameMode | null> {
+  return await kv.get(playerQueueKey(playerId)) as GameMode | null
+}
+
 /**
  * Get the current queue state for a mode.
  */
@@ -64,7 +71,12 @@ export async function removeFromQueue(
   // Remove from queue
   const state = await getQueueState(kv, mode)
   const entries = state.entries.filter(e => e.playerId !== playerId)
-  await kv.put(queueKey(mode), JSON.stringify(entries), { expirationTtl: QUEUE_TTL })
+  if (entries.length === 0) {
+    await kv.delete(queueKey(mode))
+  }
+  else {
+    await kv.put(queueKey(mode), JSON.stringify(entries), { expirationTtl: QUEUE_TTL })
+  }
 
   // Remove player mapping
   await kv.delete(playerQueueKey(playerId))
@@ -97,7 +109,12 @@ export async function clearQueue(
 ): Promise<void> {
   const state = await getQueueState(kv, mode)
   const remaining = state.entries.filter(e => !playerIds.includes(e.playerId))
-  await kv.put(queueKey(mode), JSON.stringify(remaining), { expirationTtl: QUEUE_TTL })
+  if (remaining.length === 0) {
+    await kv.delete(queueKey(mode))
+  }
+  else {
+    await kv.put(queueKey(mode), JSON.stringify(remaining), { expirationTtl: QUEUE_TTL })
+  }
 
   // Remove player mappings
   await Promise.all(
@@ -122,7 +139,12 @@ export async function pruneStaleEntries(
     const remaining = state.entries.filter(e => now - e.joinedAt <= timeoutMs)
 
     if (stale.length > 0) {
-      await kv.put(queueKey(mode), JSON.stringify(remaining), { expirationTtl: QUEUE_TTL })
+      if (remaining.length === 0) {
+        await kv.delete(queueKey(mode))
+      }
+      else {
+        await kv.put(queueKey(mode), JSON.stringify(remaining), { expirationTtl: QUEUE_TTL })
+      }
       for (const entry of stale) {
         await kv.delete(playerQueueKey(entry.playerId))
         removed.push({ mode, entry })
