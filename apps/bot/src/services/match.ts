@@ -35,7 +35,7 @@ interface ParticipantRow {
 interface ReportInput {
   matchId: string
   reporterId: string
-  /** For team and duel games: "A" or "B". For FFA: player IDs in placement order, newline-separated. */
+  /** For team and 1v1 games: "A" or "B". For FFA: player IDs in placement order, newline-separated. */
   placements: string
 }
 
@@ -495,11 +495,11 @@ export async function reportMatch(
 
   const gameMode = match.gameMode as GameMode
 
-  if (isTeamMode(gameMode) || gameMode === 'duel') {
-    // Team and duel games: placements is "A" or "B"
+  if (isTeamMode(gameMode) || gameMode === '1v1') {
+    // Team and 1v1 games: placements is "A" or "B"
     const winningTeam = input.placements.trim().toUpperCase()
     if (winningTeam !== 'A' && winningTeam !== 'B') {
-      return { error: 'For team and duel games, enter "A" or "B" for the winning side.' }
+      return { error: 'For team and 1v1 games, enter "A" or "B" for the winning side.' }
     }
 
     const winTeamIdx = winningTeam === 'A' ? 0 : 1
@@ -707,7 +707,7 @@ async function finalizeReportedMatch(
   // Calculate new ratings
   let ratingUpdates
 
-  if (isTeamMode(gameMode) || gameMode === 'duel') {
+  if (isTeamMode(gameMode) || gameMode === '1v1') {
     // Group by team
     const teams: Map<number, { playerId: string, mu: number, sigma: number }[]> = new Map()
     for (const p of participantRows) {

@@ -20,7 +20,7 @@ interface LobbyParticipant {
 export type LobbyStage = 'open' | 'drafting' | 'draft-complete' | 'reported' | 'cancelled' | 'scrubbed'
 
 const MODE_LABELS: Record<GameMode, string> = {
-  'duel': '1v1',
+  '1v1': '1v1',
   '2v2': '2v2',
   '3v3': '3v3',
   'ffa': 'FFA',
@@ -47,7 +47,7 @@ const STAGE_COLORS: Record<LobbyStage, number> = {
 export function lobbyOpenEmbed(mode: GameMode, entries: QueueEntry[], targetSize: number): Embed {
   const embed = baseLobbyEmbed(mode, 'open')
 
-  if (mode === 'duel') {
+  if (mode === '1v1') {
     const p1 = entries[0]?.playerId
     const p2 = entries[1]?.playerId
     return embed.fields(
@@ -351,8 +351,8 @@ function formatLeaderboardUpdate(participants: LobbyParticipant[]): string | nul
   return movers
     .slice(0, 3)
     .map((move) => {
-      if (move.before == null) return `🆕 <@${move.playerId}> entered at #${move.after}`
-      return `⬆️ <@${move.playerId}> #${move.before} -> #${move.after}`
+      if (move.before == null) return `🆕 <@${move.playerId}> entered at ${formatPlacementCode(move.after)}`
+      return `⬆️ <@${move.playerId}> ${formatPlacementCode(move.before)} -> ${formatPlacementCode(move.after)}`
     })
     .join('\n')
 }

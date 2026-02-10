@@ -127,7 +127,7 @@ function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
     return seats
   }
 
-  if (mode === 'duel') {
+  if (mode === '1v1') {
     return entries.map((e, i) => ({
       playerId: e.playerId,
       displayName: e.displayName,

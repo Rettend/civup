@@ -1,5 +1,4 @@
 import type { Database } from '@civup/db'
-import type { LeaderboardMode } from '@civup/game'
 import { LEADERBOARD_MODES } from '@civup/game'
 import { leaderboardEmbed } from '../embeds/leaderboard.ts'
 import { createChannelMessage, editChannelMessage, isDiscordApiError } from './discord.ts'
@@ -29,41 +28,36 @@ export async function upsertLeaderboardMessagesForChannel(
   channelId: string,
 ): Promise<LeaderboardMessageState> {
   const existing = await getLeaderboardMessageState(kv)
-  const existingMessageIds = existing?.channelId === channelId ? existing.messageIds : null
+  const previousMessageId = existing?.channelId === channelId ? existing.messageId : null
+  const embeds = await Promise.all(LEADERBOARD_MODES.map(mode => leaderboardEmbed(db, mode)))
 
-  const nextMessageIds: Record<LeaderboardMode, string> = {
-    ffa: '',
-    duel: '',
-    teamers: '',
-  }
+  if (previousMessageId) {
+    try {
+      await editChannelMessage(token, channelId, previousMessageId, {
+        content: null,
+        embeds,
+      })
 
-  for (const mode of LEADERBOARD_MODES) {
-    const embed = await leaderboardEmbed(db, mode)
-    const previousMessageId = existingMessageIds?.[mode]
-
-    if (previousMessageId) {
-      try {
-        await editChannelMessage(token, channelId, previousMessageId, {
-          content: null,
-          embeds: [embed],
-        })
-        nextMessageIds[mode] = previousMessageId
-        continue
+      const state: LeaderboardMessageState = {
+        channelId,
+        messageId: previousMessageId,
+        updatedAt: Date.now(),
       }
-      catch (error) {
-        if (!isDiscordApiError(error, 404)) throw error
-      }
+      await setLeaderboardMessageState(kv, state)
+      return state
     }
-
-    const created = await createChannelMessage(token, channelId, {
-      embeds: [embed],
-    })
-    nextMessageIds[mode] = created.id
+    catch (error) {
+      if (!isDiscordApiError(error, 404)) throw error
+    }
   }
+
+  const created = await createChannelMessage(token, channelId, {
+    embeds,
+  })
 
   const state: LeaderboardMessageState = {
     channelId,
-    messageIds: nextMessageIds,
+    messageId: created.id,
     updatedAt: Date.now(),
   }
   await setLeaderboardMessageState(kv, state)

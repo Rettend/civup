@@ -1,6 +1,6 @@
 import type { DraftSeat, DraftState } from '../src/types.ts'
 import { describe, expect, test } from 'bun:test'
-import { ppl2v2, pplDuel, pplFfa } from '../src/draft-formats.ts'
+import { default1v1, default2v2, defaultFfa } from '../src/draft-formats.ts'
 import {
   createDraft,
   getBansForSeat,
@@ -52,10 +52,10 @@ describe('createDraft', () => {
   test('creates a draft in waiting state', () => {
     const seats = create2v2Seats()
     const civPool = createTestCivPool()
-    const draft = createDraft('match-123', ppl2v2, seats, civPool)
+    const draft = createDraft('match-123', default2v2, seats, civPool)
 
     expect(draft.matchId).toBe('match-123')
-    expect(draft.formatId).toBe('ppl-2v2')
+    expect(draft.formatId).toBe('default-2v2')
     expect(draft.status).toBe('waiting')
     expect(draft.currentStepIndex).toBe(-1)
     expect(draft.seats).toEqual(seats)
@@ -69,9 +69,9 @@ describe('createDraft', () => {
 
   test('generates steps from format', () => {
     const seats = create2v2Seats()
-    const draft = createDraft('match-123', ppl2v2, seats, createTestCivPool())
+    const draft = createDraft('match-123', default2v2, seats, createTestCivPool())
 
-    // ppl2v2 has: ban(all), pick([0]), pick([1]), pick([0])
+    // 2v2 has: ban(all), pick([0]), pick([1]), pick([0])
     expect(draft.steps.length).toBeGreaterThan(0)
     expect(draft.steps[0]!.action).toBe('ban')
     expect(draft.steps[0]!.seats).toBe('all')
@@ -79,9 +79,9 @@ describe('createDraft', () => {
 
   test('creates draft with FFA format and correct number of steps', () => {
     const seats = createFfaSeats(8)
-    const draft = createDraft('match-ffa', pplFfa, seats, createTestCivPool())
+    const draft = createDraft('match-ffa', defaultFfa, seats, createTestCivPool())
 
-    // pplFfa: 1 ban step + 8 pick steps (one per player)
+    // Ffa: 1 ban step + 8 pick steps (one per player)
     expect(draft.steps.length).toBe(9)
     expect(draft.steps[0]!.action).toBe('ban')
     expect(draft.steps[0]!.seats).toBe('all')
@@ -97,7 +97,7 @@ describe('createDraft', () => {
 
 describe('processDraftInput — START', () => {
   test('starts draft and moves to first step', () => {
-    const draft = createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool())
+    const draft = createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool())
     const result = processDraftInput(draft, { type: 'START' })
 
     expect(isDraftError(result)).toBe(false)
@@ -110,7 +110,7 @@ describe('processDraftInput — START', () => {
   })
 
   test('fails if draft already started', () => {
-    const draft = createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool())
+    const draft = createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool())
     const started = startDraft(draft)
 
     const result = processDraftInput(started, { type: 'START' })
@@ -123,7 +123,7 @@ describe('processDraftInput — START', () => {
 
 describe('processDraftInput — CANCEL', () => {
   test('cancels waiting draft with cancel reason', () => {
-    const draft = createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool())
+    const draft = createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool())
     const result = processDraftInput(draft, { type: 'CANCEL', reason: 'cancel' })
 
     expect(isDraftError(result)).toBe(false)
@@ -135,7 +135,7 @@ describe('processDraftInput — CANCEL', () => {
   })
 
   test('normalizes active cancel to scrub', () => {
-    const state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    const state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
     const result = processDraftInput(state, { type: 'CANCEL', reason: 'cancel' })
 
     expect(isDraftError(result)).toBe(false)
@@ -147,7 +147,7 @@ describe('processDraftInput — CANCEL', () => {
   })
 
   test('allows scrubbing after draft completion', () => {
-    let state = startDraft(createDraft('match-duel', pplDuel, createDuelSeats(), createTestCivPool()))
+    let state = startDraft(createDraft('match-duel', default1v1, createDuelSeats(), createTestCivPool()))
 
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
     if (isDraftError(result)) throw new Error(result.error)
@@ -174,7 +174,7 @@ describe('processDraftInput — CANCEL', () => {
 
 describe('processDraftInput — BAN (blind bans)', () => {
   test('accepts ban from active seat', () => {
-    const draft = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    const draft = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
     const result = processDraftInput(draft, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
 
     expect(isDraftError(result)).toBe(false)
@@ -190,7 +190,7 @@ describe('processDraftInput — BAN (blind bans)', () => {
   })
 
   test('civ pool is not modified until all seats submit', () => {
-    const draft = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    const draft = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
     const result = processDraftInput(draft, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
 
     expect(isDraftError(result)).toBe(false)
@@ -203,7 +203,7 @@ describe('processDraftInput — BAN (blind bans)', () => {
   })
 
   test('completes ban step when all seats submit', () => {
-    let state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    let state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
 
     // Seat 0 bans
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
@@ -231,7 +231,7 @@ describe('processDraftInput — BAN (blind bans)', () => {
   })
 
   test('rejects duplicate bans within same submission', () => {
-    const draft = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    const draft = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
     const result = processDraftInput(draft, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-1', 'civ-3'] }, true)
 
     expect(isDraftError(result)).toBe(true)
@@ -240,7 +240,7 @@ describe('processDraftInput — BAN (blind bans)', () => {
   })
 
   test('rejects if seat already submitted', () => {
-    let state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    let state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
     const result1 = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
     if (isDraftError(result1)) throw new Error(result1.error)
     state = result1.state
@@ -253,7 +253,7 @@ describe('processDraftInput — BAN (blind bans)', () => {
   })
 
   test('rejects if civ not in available pool', () => {
-    const draft = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    const draft = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
     const result = processDraftInput(draft, { type: 'BAN', seatIndex: 0, civIds: ['invalid-civ', 'civ-1', 'civ-2'] }, true)
 
     expect(isDraftError(result)).toBe(true)
@@ -262,7 +262,7 @@ describe('processDraftInput — BAN (blind bans)', () => {
   })
 
   test('rejects wrong ban count', () => {
-    const draft = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    const draft = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
     const result = processDraftInput(draft, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2'] }, true)
 
     expect(isDraftError(result)).toBe(true)
@@ -284,7 +284,7 @@ describe('processDraftInput — PICK (sequential)', () => {
   }
 
   test('accepts pick from active seat', () => {
-    let state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    let state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
     state = completeBanPhase(state)
 
     // Now at pick step [0] (Team A picks 1)
@@ -306,7 +306,7 @@ describe('processDraftInput — PICK (sequential)', () => {
   })
 
   test('handles multi-pick step correctly', () => {
-    let state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    let state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
     state = completeBanPhase(state)
 
     // Team A picks 1
@@ -339,7 +339,7 @@ describe('processDraftInput — PICK (sequential)', () => {
   })
 
   test('rejects pick from wrong seat', () => {
-    let state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    let state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
     state = completeBanPhase(state)
 
     // Current step is for seat 0, try seat 1
@@ -351,7 +351,7 @@ describe('processDraftInput — PICK (sequential)', () => {
   })
 
   test('rejects pick of unavailable civ', () => {
-    let state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    let state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
     state = completeBanPhase(state)
 
     // civ-1 was banned
@@ -363,7 +363,7 @@ describe('processDraftInput — PICK (sequential)', () => {
   })
 
   test('rejects picking during ban phase', () => {
-    const state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    const state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
 
     const result = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-1' })
 
@@ -377,7 +377,7 @@ describe('processDraftInput — PICK (sequential)', () => {
 
 describe('full 2v2 draft flow', () => {
   test('completes entire draft successfully', () => {
-    let state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    let state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
 
     // Step 0: Blind bans (3 each)
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
@@ -415,7 +415,7 @@ describe('full 2v2 draft flow', () => {
 
 describe('full FFA draft flow', () => {
   test('completes 4-player FFA draft', () => {
-    let state = startDraft(createDraft('match-ffa', pplFfa, createFfaSeats(4), createTestCivPool()))
+    let state = startDraft(createDraft('match-ffa', defaultFfa, createFfaSeats(4), createTestCivPool()))
 
     // Step 0: Everyone bans 2 (simultaneous/blind)
     for (let i = 0; i < 4; i++) {
@@ -453,7 +453,7 @@ describe('full FFA draft flow', () => {
 
 describe('processDraftInput — TIMEOUT', () => {
   test('auto-selects random civs for missing submissions', () => {
-    let state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    let state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
 
     // Only seat 0 submits
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
@@ -477,7 +477,7 @@ describe('processDraftInput — TIMEOUT', () => {
   })
 
   test('timeout on pick phase cancels draft instead of random picking', () => {
-    let state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    let state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
 
     // Complete ban phase
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
@@ -503,7 +503,7 @@ describe('processDraftInput — TIMEOUT', () => {
 
   test('timeout on duel pick cancels immediately', () => {
     // Create a duel, start it, complete bans, then timeout on first pick
-    let state = startDraft(createDraft('match-duel', pplDuel, createDuelSeats(), createTestCivPool()))
+    let state = startDraft(createDraft('match-duel', default1v1, createDuelSeats(), createTestCivPool()))
 
     // Complete ban phase
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
@@ -526,7 +526,7 @@ describe('processDraftInput — TIMEOUT', () => {
 
 describe('error cases', () => {
   test('cannot start cancelled draft', () => {
-    const draft = createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool())
+    const draft = createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool())
     const cancelled = processDraftInput(draft, { type: 'CANCEL', reason: 'cancel' })
     if (isDraftError(cancelled)) throw new Error(cancelled.error)
 
@@ -537,7 +537,7 @@ describe('error cases', () => {
   })
 
   test('ban when draft not active', () => {
-    const draft = createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool())
+    const draft = createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool())
     const result = processDraftInput(draft, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
 
     expect(isDraftError(result)).toBe(true)
@@ -546,7 +546,7 @@ describe('error cases', () => {
   })
 
   test('pick when draft not active', () => {
-    const draft = createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool())
+    const draft = createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool())
     const result = processDraftInput(draft, { type: 'PICK', seatIndex: 0, civId: 'civ-1' })
 
     expect(isDraftError(result)).toBe(true)
@@ -555,7 +555,7 @@ describe('error cases', () => {
   })
 
   test('timeout when draft not active', () => {
-    const draft = createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool())
+    const draft = createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool())
     const result = processDraftInput(draft, { type: 'TIMEOUT' }, false)
 
     expect(isDraftError(result)).toBe(true)
@@ -564,7 +564,7 @@ describe('error cases', () => {
   })
 
   test('invalid seat index for ban', () => {
-    const state = startDraft(createDraft('match-123', pplDuel, createDuelSeats(), createTestCivPool()))
+    const state = startDraft(createDraft('match-123', default1v1, createDuelSeats(), createTestCivPool()))
     const result = processDraftInput(state, { type: 'BAN', seatIndex: 99, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
 
     expect(isDraftError(result)).toBe(true)
@@ -573,7 +573,7 @@ describe('error cases', () => {
   })
 
   test('picking same civ twice in multi-pick step fails', () => {
-    let state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    let state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
 
     // Complete ban phase
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
@@ -600,7 +600,7 @@ describe('error cases', () => {
   })
 
   test('picking civ that was banned fails', () => {
-    let state = startDraft(createDraft('match-123', pplDuel, createDuelSeats(), createTestCivPool()))
+    let state = startDraft(createDraft('match-123', default1v1, createDuelSeats(), createTestCivPool()))
 
     // Complete ban phase (civ-1 gets banned)
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
@@ -617,7 +617,7 @@ describe('error cases', () => {
   })
 
   test('banning during pick phase fails', () => {
-    let state = startDraft(createDraft('match-123', pplDuel, createDuelSeats(), createTestCivPool()))
+    let state = startDraft(createDraft('match-123', default1v1, createDuelSeats(), createTestCivPool()))
 
     // Complete ban phase
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
@@ -638,24 +638,24 @@ describe('error cases', () => {
 
 describe('query helpers', () => {
   test('getCurrentStep returns null for waiting draft', () => {
-    const draft = createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool())
+    const draft = createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool())
     expect(getCurrentStep(draft)).toBeNull()
   })
 
   test('getCurrentStep returns current step for active draft', () => {
-    const state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    const state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
     const step = getCurrentStep(state)
     expect(step).not.toBeNull()
     expect(step!.action).toBe('ban')
   })
 
   test('getPendingSeats returns all seats in ban phase', () => {
-    const state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    const state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
     expect(getPendingSeats(state)).toEqual([0, 1])
   })
 
   test('getPendingSeats returns remaining seats after partial submission', () => {
-    let state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    let state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
     const result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
     if (isDraftError(result)) throw new Error(result.error)
     state = result.state
@@ -664,7 +664,7 @@ describe('query helpers', () => {
   })
 
   test('getPicksForSeat returns picks for specific seat', () => {
-    const state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    const state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
 
     // Complete ban phase
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
@@ -682,7 +682,7 @@ describe('query helpers', () => {
   })
 
   test('getBansForSeat returns bans for specific seat', () => {
-    const state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    const state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
 
     // Complete ban phase
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
@@ -700,7 +700,7 @@ describe('query helpers', () => {
   })
 
   test('isPlayerTurn correctly identifies active player', () => {
-    const state = startDraft(createDraft('match-123', ppl2v2, create2v2Seats(), createTestCivPool()))
+    const state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
 
     // In ban phase, both teams are active
     expect(isPlayerTurn(state, 'teamA')).toBe(true)

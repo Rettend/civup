@@ -261,7 +261,7 @@ export const command_lfg = factory.command<LfgVar>(
       case 'status': {
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           const kv = c.env.KV
-          const modes: GameMode[] = ['ffa', 'duel', '2v2', '3v3']
+          const modes: GameMode[] = ['ffa', '1v1', '2v2', '3v3']
           const lines: string[] = []
 
           for (const mode of modes) {
