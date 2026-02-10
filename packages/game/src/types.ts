@@ -1,19 +1,20 @@
 // ── Game Modes ──────────────────────────────────────────────
 
 /** Individual game modes */
-export type GameMode = 'ffa' | 'duel' | '2v2' | '3v3'
+export type GameMode = 'ffa' | '1v1' | '2v2' | '3v3'
 
 /** Leaderboard tracks (teamers combines 2v2 + 3v3) */
 export type LeaderboardMode = 'ffa' | 'duel' | 'teamers'
 
-export const GAME_MODES = ['ffa', 'duel', '2v2', '3v3'] as const satisfies readonly GameMode[]
+export const GAME_MODES = ['ffa', '1v1', '2v2', '3v3'] as const satisfies readonly GameMode[]
 
 export const LEADERBOARD_MODES = ['ffa', 'duel', 'teamers'] as const satisfies readonly LeaderboardMode[]
 
 /** Map game mode to its leaderboard track */
 export function toLeaderboardMode(mode: GameMode): LeaderboardMode {
   if (mode === '2v2' || mode === '3v3') return 'teamers'
-  return mode
+  if (mode === '1v1') return 'duel'
+  return 'ffa'
 }
 
 /** Whether a game mode is team-based */
@@ -23,7 +24,7 @@ export function isTeamMode(mode: GameMode): mode is '2v2' | '3v3' {
 
 /** Number of teams for team modes */
 export function teamCount(mode: GameMode): number {
-  if (mode === 'duel') return 2
+  if (mode === '1v1') return 2
   if (mode === '2v2') return 2
   if (mode === '3v3') return 2
   return 0 // FFA has no teams
@@ -31,7 +32,7 @@ export function teamCount(mode: GameMode): number {
 
 /** Players per team */
 export function playersPerTeam(mode: GameMode): number {
-  if (mode === 'duel') return 1
+  if (mode === '1v1') return 1
   if (mode === '2v2') return 2
   if (mode === '3v3') return 3
   return 1 // FFA: each player is their own "team" for draft purposes
@@ -40,7 +41,7 @@ export function playersPerTeam(mode: GameMode): number {
 /** Default player count for a mode */
 export function defaultPlayerCount(mode: GameMode): number {
   if (mode === 'ffa') return 8
-  if (mode === 'duel') return 2
+  if (mode === '1v1') return 2
   if (mode === '2v2') return 4
   if (mode === '3v3') return 6
   return 8

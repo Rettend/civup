@@ -8,7 +8,7 @@ import { factory } from '../setup.ts'
 const MODE_CHOICES = [
   { name: 'All', value: 'all' },
   { name: 'FFA', value: 'ffa' },
-  { name: '1v1', value: 'duel' },
+  { name: '1v1', value: '1v1' },
   { name: '2v2', value: '2v2' },
   { name: '3v3', value: '3v3' },
 ] as const

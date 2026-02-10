@@ -76,7 +76,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return state()?.formatId?.replace(/-/g, ' ').toUpperCase() ?? 'DRAFT'
   }
   const isTeamMode = () => {
-    if (props.lobby) return props.lobby.mode === 'duel' || props.lobby.mode === '2v2' || props.lobby.mode === '3v3'
+    if (props.lobby) return props.lobby.mode === '1v1' || props.lobby.mode === '2v2' || props.lobby.mode === '3v3'
     return state()?.seats.some(s => s.team != null) ?? false
   }
 
@@ -361,7 +361,9 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   onInput={(event) => {
                     optimisticTimerConfig.clearError()
                     setConfigMessage(null)
-                    setBanMinutes(normalizeTimerMinutesInput(event.currentTarget.value))
+                    const normalized = normalizeTimerMinutesInput(event.currentTarget.value)
+                    event.currentTarget.value = normalized
+                    setBanMinutes(normalized)
                   }}
                   onBlur={saveConfigOnBlur}
                   class="text-sm text-text-primary px-3 py-2 outline-none border border-white/10 rounded-md bg-bg-primary focus:border-accent-gold/60"
@@ -379,7 +381,9 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   onInput={(event) => {
                     optimisticTimerConfig.clearError()
                     setConfigMessage(null)
-                    setPickMinutes(normalizeTimerMinutesInput(event.currentTarget.value))
+                    const normalized = normalizeTimerMinutesInput(event.currentTarget.value)
+                    event.currentTarget.value = normalized
+                    setPickMinutes(normalized)
                   }}
                   onBlur={saveConfigOnBlur}
                   class="text-sm text-text-primary px-3 py-2 outline-none border border-white/10 rounded-md bg-bg-primary focus:border-accent-gold/60"

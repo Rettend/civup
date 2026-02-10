@@ -9,7 +9,7 @@ import { buildDiscordAvatarUrl } from '../../services/player-profile.ts'
 import { addToQueue, checkQueueFull, clearQueue, getPlayerQueueMode, getQueueState, removeFromQueue } from '../../services/queue.ts'
 
 export const GAME_MODE_CHOICES = [
-  { name: 'Duel', value: 'duel' },
+  { name: '1v1', value: '1v1' },
   { name: '2v2', value: '2v2' },
   { name: '3v3', value: '3v3' },
   { name: 'FFA', value: 'ffa' },

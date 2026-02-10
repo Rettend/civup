@@ -1,12 +1,12 @@
 // Draft formats
 export {
+  default1v1,
+  default2v2,
+  default3v3,
+  defaultFfa,
   draftFormatMap,
   draftFormats,
   getDefaultFormat,
-  ppl2v2,
-  ppl3v3,
-  pplDuel,
-  pplFfa,
 } from './draft-formats.ts'
 
 // Draft state machine

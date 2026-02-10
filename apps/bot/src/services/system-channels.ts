@@ -1,16 +1,14 @@
-import type { LeaderboardMode } from '@civup/game'
-
 export type SystemChannelType = 'draft' | 'archive' | 'leaderboard'
 
 export interface LeaderboardMessageState {
   channelId: string
-  messageIds: Record<LeaderboardMode, string>
+  messageId: string
   updatedAt: number
 }
 
 interface StoredLeaderboardMessageState {
   channelId: string
-  messageIds: Partial<Record<LeaderboardMode, string>>
+  messageId: string
   updatedAt?: number
 }
 
@@ -36,15 +34,11 @@ export async function clearSystemChannel(kv: KVNamespace, type: SystemChannelTyp
 export async function getLeaderboardMessageState(kv: KVNamespace): Promise<LeaderboardMessageState | null> {
   const raw = await kv.get(LEADERBOARD_MESSAGE_STATE_KEY, 'json') as StoredLeaderboardMessageState | null
   if (!raw || typeof raw.channelId !== 'string') return null
-
-  const ffa = raw.messageIds?.ffa
-  const duel = raw.messageIds?.duel
-  const teamers = raw.messageIds?.teamers
-  if (typeof ffa !== 'string' || typeof duel !== 'string' || typeof teamers !== 'string') return null
+  if (typeof raw.messageId !== 'string') return null
 
   return {
     channelId: raw.channelId,
-    messageIds: { ffa, duel, teamers },
+    messageId: raw.messageId,
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : Date.now(),
   }
 }
@@ -53,7 +47,11 @@ export async function setLeaderboardMessageState(
   kv: KVNamespace,
   state: LeaderboardMessageState,
 ): Promise<void> {
-  await kv.put(LEADERBOARD_MESSAGE_STATE_KEY, JSON.stringify(state))
+  await kv.put(LEADERBOARD_MESSAGE_STATE_KEY, JSON.stringify({
+    channelId: state.channelId,
+    messageId: state.messageId,
+    updatedAt: state.updatedAt,
+  }))
 }
 
 export async function clearLeaderboardMessageState(kv: KVNamespace): Promise<void> {
