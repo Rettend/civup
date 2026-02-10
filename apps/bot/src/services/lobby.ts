@@ -1,4 +1,5 @@
-import type { GameMode } from '@civup/game'
+import type { GameMode, QueueEntry } from '@civup/game'
+import { maxPlayerCount } from '@civup/game'
 
 export type LobbyStatus = 'open' | 'drafting' | 'active' | 'completed' | 'cancelled' | 'scrubbed'
 
@@ -14,13 +15,16 @@ export interface LobbyState {
   channelId: string
   messageId: string
   matchId: string | null
+  /** Slot player IDs for open lobby ordering (null = empty slot) */
+  slots: (string | null)[]
   draftConfig: LobbyDraftConfig
   createdAt: number
   updatedAt: number
 }
 
-interface StoredLobbyState extends Omit<LobbyState, 'draftConfig'> {
+interface StoredLobbyState extends Omit<LobbyState, 'draftConfig' | 'slots'> {
   draftConfig?: Partial<LobbyDraftConfig> | null
+  slots?: unknown
 }
 
 const LOBBY_MODE_KEY_PREFIX = 'lobby:mode:'
@@ -50,6 +54,9 @@ export async function createLobby(
   },
 ): Promise<LobbyState> {
   const now = Date.now()
+  const slots = createEmptySlots(input.mode)
+  slots[0] = input.hostId
+
   const lobby: LobbyState = {
     mode: input.mode,
     status: 'open',
@@ -57,6 +64,7 @@ export async function createLobby(
     channelId: input.channelId,
     messageId: input.messageId,
     matchId: null,
+    slots,
     draftConfig: { ...DEFAULT_DRAFT_CONFIG },
     createdAt: now,
     updatedAt: now,
@@ -147,6 +155,30 @@ export async function setLobbyDraftConfig(
   return updated
 }
 
+export async function setLobbySlots(
+  kv: KVNamespace,
+  mode: GameMode,
+  slots: (string | null)[],
+): Promise<LobbyState | null> {
+  const lobby = await getLobby(kv, mode)
+  if (!lobby) return null
+  const updated: LobbyState = {
+    ...lobby,
+    slots: normalizeStoredSlots(mode, slots),
+    updatedAt: Date.now(),
+  }
+  await putLobby(kv, updated)
+  return updated
+}
+
+export async function upsertLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
+  await putLobby(kv, {
+    ...lobby,
+    slots: normalizeStoredSlots(lobby.mode, lobby.slots),
+    draftConfig: normalizeDraftConfig(lobby.draftConfig),
+  })
+}
+
 export async function clearLobby(kv: KVNamespace, mode: GameMode): Promise<void> {
   const lobby = await getLobby(kv, mode)
   await kv.delete(modeKey(mode))
@@ -164,6 +196,51 @@ export async function clearLobbyByMatch(kv: KVNamespace, matchId: string): Promi
   await kv.delete(modeKey(mode))
 }
 
+export function normalizeLobbySlots(
+  mode: GameMode,
+  slots: (string | null)[] | null | undefined,
+  queueEntries: QueueEntry[],
+): (string | null)[] {
+  const normalized = normalizeStoredSlots(mode, slots)
+  const queuedIds = new Set(queueEntries.map(entry => entry.playerId))
+  const usedIds = new Set<string>()
+
+  for (let i = 0; i < normalized.length; i++) {
+    const playerId = normalized[i]
+    if (!playerId) continue
+    if (!queuedIds.has(playerId) || usedIds.has(playerId)) {
+      normalized[i] = null
+      continue
+    }
+    usedIds.add(playerId)
+  }
+
+  return normalized
+}
+
+export function mapLobbySlotsToEntries(
+  slotPlayerIds: (string | null)[],
+  queueEntries: QueueEntry[],
+): (QueueEntry | null)[] {
+  const entryByPlayer = new Map<string, QueueEntry>(queueEntries.map(entry => [entry.playerId, entry]))
+  return slotPlayerIds.map((playerId) => {
+    if (!playerId) return null
+    return entryByPlayer.get(playerId) ?? null
+  })
+}
+
+export function sameLobbySlots(a: (string | null)[], b: (string | null)[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if ((a[i] ?? null) !== (b[i] ?? null)) return false
+  }
+  return true
+}
+
+function createEmptySlots(mode: GameMode): (string | null)[] {
+  return Array.from({ length: maxPlayerCount(mode) }, () => null)
+}
+
 async function putLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
   await kv.put(modeKey(lobby.mode), JSON.stringify(lobby), { expirationTtl: LOBBY_TTL })
   if (lobby.matchId) {
@@ -174,8 +251,28 @@ async function putLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
 function normalizeLobby(raw: StoredLobbyState): LobbyState {
   return {
     ...raw,
+    slots: normalizeStoredSlots(raw.mode, raw.slots),
     draftConfig: normalizeDraftConfig(raw.draftConfig),
   }
+}
+
+function normalizeStoredSlots(mode: GameMode, value: unknown): (string | null)[] {
+  const targetSize = maxPlayerCount(mode)
+  const normalized = Array.from({ length: targetSize }, () => null as string | null)
+
+  if (!Array.isArray(value)) return normalized
+
+  const seen = new Set<string>()
+  for (let i = 0; i < targetSize; i++) {
+    const raw = value[i]
+    if (typeof raw !== 'string') continue
+    const trimmed = raw.trim()
+    if (!trimmed || seen.has(trimmed)) continue
+    normalized[i] = trimmed
+    seen.add(trimmed)
+  }
+
+  return normalized
 }
 
 function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDraftConfig | null | undefined): LobbyDraftConfig {

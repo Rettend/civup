@@ -1,12 +1,16 @@
 import type { GameMode } from '@civup/game'
 import type { Embed } from 'discord-hono'
-import { createDb } from '@civup/db'
-import { lobbyComponents, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/lfg.ts'
-import { createDraftRoom, storeMatchMapping, storeUserMatchMappings } from '../../services/activity.ts'
-import { attachLobbyMatch, getLobby } from '../../services/lobby.ts'
-import { createDraftMatch } from '../../services/match.ts'
+import { maxPlayerCount } from '@civup/game'
+import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/lfg.ts'
+import {
+  getLobby,
+  mapLobbySlotsToEntries,
+  normalizeLobbySlots,
+  sameLobbySlots,
+  setLobbySlots,
+} from '../../services/lobby.ts'
 import { buildDiscordAvatarUrl } from '../../services/player-profile.ts'
-import { addToQueue, checkQueueFull, clearQueue, getPlayerQueueMode, getQueueState, removeFromQueue } from '../../services/queue.ts'
+import { addToQueue, getPlayerQueueMode, getQueueState } from '../../services/queue.ts'
 
 export const GAME_MODE_CHOICES = [
   { name: '1v1', value: '1v1' },
@@ -55,27 +59,17 @@ export function getIdentity(c: {
 export async function joinLobbyAndMaybeStartMatch(
   c: {
     env: {
-      DB: D1Database
       KV: KVNamespace
-      PARTY_HOST?: string
-      BOT_HOST?: string
-      DRAFT_WEBHOOK_SECRET?: string
     }
   },
   mode: GameMode,
   userId: string,
   displayName: string,
   avatarUrl: string,
-  channelId: string,
+  _channelId: string,
 ): Promise<
   | {
     stage: 'open'
-    embeds: [Embed]
-    components: ReturnType<typeof lobbyComponents>
-  }
-  | {
-    stage: 'drafting'
-    matchId: string
     embeds: [Embed]
     components: ReturnType<typeof lobbyComponents>
   }
@@ -103,43 +97,28 @@ export async function joinLobbyAndMaybeStartMatch(
     if (joined.error) return { error: joined.error }
   }
 
-  const matchedEntries = await checkQueueFull(kv, mode)
-  if (!matchedEntries) {
-    const queue = await getQueueState(kv, mode)
-    return {
-      stage: 'open',
-      embeds: [lobbyOpenEmbed(mode, queue.entries, queue.targetSize)],
-      components: lobbyComponents(mode, 'open'),
-    }
+  const lobby = await getLobby(kv, mode)
+  if (!lobby || lobby.status !== 'open') {
+    return { error: `No open ${mode.toUpperCase()} lobby. Use \`/lfg create\` first.` }
   }
 
-  try {
-    const activeLobby = await getLobby(kv, mode)
+  const queue = await getQueueState(kv, mode)
+  const slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
+  const nextSlots = [...slots]
 
-    const { matchId, formatId: _formatId, seats } = await createDraftRoom(mode, matchedEntries, {
-      partyHost: c.env.PARTY_HOST,
-      botHost: c.env.BOT_HOST,
-      webhookSecret: c.env.DRAFT_WEBHOOK_SECRET,
-      timerConfig: activeLobby?.draftConfig,
-    })
-    const db = createDb(c.env.DB)
-    await createDraftMatch(db, { matchId, mode, seats })
-
-    await clearQueue(kv, mode, matchedEntries.map(e => e.playerId))
-    await storeMatchMapping(kv, channelId, matchId)
-    await storeUserMatchMappings(kv, matchedEntries.map(e => e.playerId), matchId)
-    await attachLobbyMatch(kv, mode, matchId)
-
-    return {
-      stage: 'drafting',
-      matchId,
-      embeds: [lobbyDraftingEmbed(mode, seats)],
-      components: lobbyComponents(mode, 'drafting'),
-    }
+  if (!nextSlots.includes(userId)) {
+    const emptySlot = nextSlots.findIndex(slot => slot == null)
+    if (emptySlot >= 0) nextSlots[emptySlot] = userId
   }
-  catch (error) {
-    console.error('Failed to start draft match from lobby:', error)
-    await removeFromQueue(kv, userId)
-    return { error: 'Failed to start draft. Please try joining again.' }
+
+  if (!sameLobbySlots(nextSlots, lobby.slots)) {
+    await setLobbySlots(kv, mode, nextSlots)
+  }
+
+  const slottedEntries = mapLobbySlotsToEntries(nextSlots, queue.entries)
+  return {
+    stage: 'open',
+    embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
+    components: lobbyComponents(mode, 'open'),
   }
 }
