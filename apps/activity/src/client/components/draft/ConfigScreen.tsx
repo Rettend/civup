@@ -414,10 +414,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
             <Show
               when={!isLobbyMode()}
               fallback={(
-                <div class="flex items-center gap-3">
+                <div class="flex gap-3 items-center">
                   <span class="text-sm text-text-muted">Draft room opens once all slots are filled.</span>
                   <button
-                    class="text-sm text-text-secondary px-6 py-2.5 rounded-lg border border-white/12 bg-white/3 cursor-pointer transition-colors hover:border-white/20 hover:bg-white/6 hover:text-text-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                    class="text-sm text-text-secondary px-6 py-2.5 border border-white/12 rounded-lg bg-white/3 cursor-pointer transition-colors hover:text-text-primary hover:border-white/20 hover:bg-white/6 disabled:opacity-60 disabled:cursor-not-allowed"
                     disabled={cancelPending()}
                     onClick={handleCancelAction}
                   >
@@ -426,7 +426,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                 </div>
               )}
             >
-              <div class="flex items-center gap-3">
+              <div class="flex gap-3 items-center">
                 <button
                   class="text-sm text-black font-bold px-8 py-2.5 rounded-lg bg-accent-gold cursor-pointer transition-colors hover:bg-accent-gold/80"
                   onClick={sendStart}
@@ -434,7 +434,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   Start Draft
                 </button>
                 <button
-                  class="text-sm text-text-secondary px-6 py-2.5 rounded-lg border border-white/12 bg-white/3 cursor-pointer transition-colors hover:border-white/20 hover:bg-white/6 hover:text-text-primary"
+                  class="text-sm text-text-secondary px-6 py-2.5 border border-white/12 rounded-lg bg-white/3 cursor-pointer transition-colors hover:text-text-primary hover:border-white/20 hover:bg-white/6"
                   onClick={handleCancelAction}
                 >
                   Cancel Draft
@@ -464,7 +464,7 @@ function PlayerChip(props: { name: string, avatarUrl: string | null, isHost: boo
           <img
             src={avatar()}
             alt={props.name}
-            class="h-4 w-4 rounded-full object-cover"
+            class="rounded-full h-5 w-5 object-cover"
           />
         )}
       </Show>

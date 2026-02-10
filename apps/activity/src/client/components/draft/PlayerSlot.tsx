@@ -87,7 +87,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
             <img
               src={avatarUrl()}
               alt={seat()?.displayName ?? 'Player avatar'}
-              class="absolute inset-0 h-full w-full object-cover opacity-45"
+              class="opacity-45 h-full w-full inset-0 absolute object-cover"
             />
           )}
         </Show>
@@ -103,8 +103,8 @@ export function PlayerSlot(props: PlayerSlotProps) {
         <Show when={leader()}>
           {l => (
             <div class="mb-0.5">
-              <div class="truncate text-sm text-text-primary font-semibold leading-tight">{l().name}</div>
-              <div class="truncate text-xs text-text-secondary/80 leading-tight">{l().civilization}</div>
+              <div class="text-sm text-text-primary leading-tight font-semibold truncate">{l().name}</div>
+              <div class="text-xs text-text-secondary/80 leading-tight truncate">{l().civilization}</div>
             </div>
           )}
         </Show>
@@ -125,7 +125,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
       </div>
 
       {/* Pick order label at top-left */}
-      <div class="absolute left-1.5 top-1.5">
+      <div class="left-1.5 top-1.5 absolute">
         <span class={cn(
           'text-[10px] font-bold tracking-wide uppercase',
           isActive() ? (accent() === 'red' ? 'text-accent-red' : 'text-accent-gold') : 'text-text-muted/40',
