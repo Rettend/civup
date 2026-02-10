@@ -16,8 +16,8 @@ const LEADERBOARD_MODE_LABELS: Record<LeaderboardMode, string> = {
 }
 
 const GAME_MODE_LABELS: Record<GameMode, string> = {
-  ffa: 'FFA',
-  duel: '1v1',
+  'ffa': 'FFA',
+  '1v1': '1v1',
   '2v2': '2v2',
   '3v3': '3v3',
 }
@@ -127,6 +127,7 @@ export async function playerCardEmbed(
     })
   }
 
+  embed.footer({ text: displayName, icon_url: player?.avatarUrl ?? undefined })
   embed.fields(...fields)
 
   return embed
@@ -135,7 +136,7 @@ export async function playerCardEmbed(
 function getRatingModes(modeFilter: StatsModeFilter): readonly LeaderboardMode[] {
   if (modeFilter === 'all') return LEADERBOARD_MODES
   if (modeFilter === 'ffa') return ['ffa']
-  if (modeFilter === 'duel') return ['duel']
+  if (modeFilter === '1v1') return ['duel']
   return ['teamers']
 }
 

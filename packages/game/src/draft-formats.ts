@@ -1,15 +1,15 @@
 import type { DraftFormat, DraftStep } from './types.ts'
 
 /**
- * ALTERNATE 2v2 Format:
+ * 2v2 Format:
  * - 3 blind bans per team (simultaneous)
  * - Team A picks 1
  * - Team B picks 2
  * - Team A picks 1
  */
-export const alternate2v2: DraftFormat = {
-  id: 'alternate-2v2',
-  name: 'ALTERNATE 2v2',
+export const default2v2: DraftFormat = {
+  id: 'default-2v2',
+  name: '2v2',
   gameMode: '2v2',
   blindBans: true,
   getSteps(_seatCount: number): DraftStep[] {
@@ -28,13 +28,13 @@ export const alternate2v2: DraftFormat = {
 }
 
 /**
- * ALTERNATE 3v3 Format:
+ * 3v3 Format:
  * - 3 blind bans per team (simultaneous)
  * - Snake pick: T1-T2-T2-T1-T1-T2
  */
-export const alternate3v3: DraftFormat = {
-  id: 'alternate-3v3',
-  name: 'ALTERNATE 3v3',
+export const default3v3: DraftFormat = {
+  id: 'default-3v3',
+  name: '3v3',
   gameMode: '3v3',
   blindBans: true,
   getSteps(_seatCount: number): DraftStep[] {
@@ -49,15 +49,15 @@ export const alternate3v3: DraftFormat = {
 }
 
 /**
- * ALTERNATE Duel Format:
+ * 1v1 Format:
  * - 3 blind bans each (simultaneous)
  * - Player 1 picks 1
  * - Player 2 picks 1
  */
-export const alternateDuel: DraftFormat = {
-  id: 'alternate-duel',
-  name: 'ALTERNATE Duel',
-  gameMode: 'duel',
+export const default1v1: DraftFormat = {
+  id: 'default-1v1',
+  name: '1v1',
+  gameMode: '1v1',
   blindBans: true,
   getSteps(_seatCount: number): DraftStep[] {
     return [
@@ -69,14 +69,14 @@ export const alternateDuel: DraftFormat = {
 }
 
 /**
- * ALTERNATE FFA Format:
+ * FFA Format:
  * - 2 blind bans per player (simultaneous)
  * - Snake pick order (by rating, handled externally):
  *   P1, P2, ..., Pn (one pick each — each player picks 1 civ)
  */
-export const alternateFfa: DraftFormat = {
-  id: 'alternate-ffa',
-  name: 'ALTERNATE FFA',
+export const defaultFfa: DraftFormat = {
+  id: 'default-ffa',
+  name: 'FFA',
   gameMode: 'ffa',
   blindBans: true,
   getSteps(seatCount: number): DraftStep[] {
@@ -96,10 +96,10 @@ export const alternateFfa: DraftFormat = {
 
 /** All available draft formats */
 export const draftFormats: DraftFormat[] = [
-  alternateFfa,
-  alternateDuel,
-  alternate2v2,
-  alternate3v3,
+  defaultFfa,
+  default1v1,
+  default2v2,
+  default3v3,
 ]
 
 /** Map of format ID to format */
