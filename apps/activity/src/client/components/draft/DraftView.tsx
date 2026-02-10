@@ -48,7 +48,7 @@ export function DraftView(props: DraftViewProps) {
       fallback={(
         <Show
           when={state()?.status === 'complete'}
-          fallback={
+          fallback={(
             <Show
               when={!isMiniView()}
               fallback={<MiniView />}
@@ -58,7 +58,7 @@ export function DraftView(props: DraftViewProps) {
                 fallback={<ConfigScreen />}
               >
                 {/* Active draft view */}
-                <div class="relative h-screen flex flex-col overflow-hidden bg-bg-primary text-text-primary font-sans">
+                <div class="text-text-primary font-sans bg-bg-primary flex flex-col h-screen relative overflow-hidden">
                   {/* Header with bans, phase, timer */}
                   <DraftHeader />
 
@@ -66,9 +66,9 @@ export function DraftView(props: DraftViewProps) {
                   <DraftTimeline />
 
                   <Show when={state()?.status === 'active' && amHost()}>
-                    <div class="absolute right-24 top-4 z-20">
+                    <div class="right-24 top-4 absolute z-20">
                       <button
-                        class="text-xs text-[#cdd5df] px-3 py-1.5 rounded-full border border-[#aeb6c2]/25 bg-[#8f99a8]/8 cursor-pointer transition-colors hover:border-[#aeb6c2]/40 hover:bg-[#8f99a8]/15"
+                        class="text-xs text-[#cdd5df] px-3 py-1.5 border border-[#aeb6c2]/25 rounded-full bg-[#8f99a8]/8 cursor-pointer transition-colors hover:border-[#aeb6c2]/40 hover:bg-[#8f99a8]/15"
                         onClick={sendScrub}
                       >
                         Scrub Draft
@@ -77,7 +77,7 @@ export function DraftView(props: DraftViewProps) {
                   </Show>
 
                   {/* Main area: slots + grid overlay */}
-                  <div class="relative min-h-0 flex flex-1">
+                  <div class="flex flex-1 min-h-0 relative">
                     {/* Slot strip (always visible behind overlay) */}
                     <SlotStrip />
 
@@ -86,7 +86,7 @@ export function DraftView(props: DraftViewProps) {
 
                     {/* Grid toggle button (when grid is closed) */}
                     <Show when={!gridOpen()}>
-                      <div class="absolute inset-x-0 bottom-3 z-5 flex justify-center">
+                      <div class="flex inset-x-0 bottom-3 justify-center absolute z-5">
                         <button
                           class={cn(
                             'flex items-center gap-1 rounded-full px-4 py-1.5 text-xs font-medium cursor-pointer',
@@ -103,9 +103,9 @@ export function DraftView(props: DraftViewProps) {
 
                     {/* Status indicator when grid is closed and not your turn */}
                     <Show when={!gridOpen() && state()?.status === 'active'}>
-                      <div class="absolute inset-x-0 bottom-12 z-5 flex justify-center">
+                      <div class="flex inset-x-0 bottom-12 justify-center absolute z-5">
                         <Show when={isSpectator()}>
-                          <span class="rounded-full bg-bg-secondary/80 px-3 py-1 text-xs text-text-muted">Spectating</span>
+                          <span class="text-xs text-text-muted px-3 py-1 rounded-full bg-bg-secondary/80">Spectating</span>
                         </Show>
                       </div>
                     </Show>
@@ -113,7 +113,7 @@ export function DraftView(props: DraftViewProps) {
                 </div>
               </Show>
             </Show>
-          }
+          )}
         >
           <PostDraftScreen matchId={props.matchId} />
         </Show>
@@ -141,11 +141,11 @@ function CancelledDraftScreen() {
   }
 
   return (
-    <main class="h-screen overflow-y-auto bg-bg-primary text-text-primary font-sans">
-      <div class="mx-auto max-w-3xl flex flex-col gap-4 px-4 py-10 md:px-8">
-        <section class="rounded-lg border border-[#aeb6c2]/20 bg-[#111827]/70 p-7 text-center">
-          <div class="mb-2 text-[11px] text-[#9aa3af] font-semibold tracking-[0.14em] uppercase">Session Closed</div>
-          <h1 class="mb-3 text-3xl text-[#d6dde6] font-semibold">{title()}</h1>
+    <main class="text-text-primary font-sans bg-bg-primary h-screen overflow-y-auto">
+      <div class="mx-auto px-4 py-10 flex flex-col gap-4 max-w-3xl md:px-8">
+        <section class="p-7 text-center border border-[#aeb6c2]/20 rounded-lg bg-[#111827]/70">
+          <div class="text-[11px] text-[#9aa3af] tracking-[0.14em] font-semibold mb-2 uppercase">Session Closed</div>
+          <h1 class="text-3xl text-[#d6dde6] font-semibold mb-3">{title()}</h1>
           <p class="text-sm text-[#9ca6b3] leading-relaxed">{detail()}</p>
         </section>
       </div>
@@ -260,35 +260,35 @@ function PostDraftScreen(props: { matchId: string }) {
   }
 
   return (
-    <main class="h-screen overflow-y-auto bg-bg-primary text-text-primary font-sans">
-      <div class="mx-auto max-w-5xl flex flex-col gap-6 px-4 py-8 md:px-8">
+    <main class="text-text-primary font-sans bg-bg-primary h-screen overflow-y-auto">
+      <div class="mx-auto px-4 py-8 flex flex-col gap-6 max-w-5xl md:px-8">
         {/* Elapsed timer */}
-        <section class="rounded-lg bg-bg-secondary p-6 text-center md:p-8">
-          <div class="mb-2 text-sm text-accent-gold text-heading">Game In Progress</div>
-          <h1 class="mb-3 text-3xl text-heading md:text-4xl">Draft Complete</h1>
+        <section class="p-6 text-center rounded-lg bg-bg-secondary md:p-8">
+          <div class="text-sm text-accent-gold text-heading mb-2">Game In Progress</div>
+          <h1 class="text-3xl text-heading mb-3 md:text-4xl">Draft Complete</h1>
           <div class="text-4xl text-accent-gold font-mono md:text-5xl">{formatElapsed(elapsedMs())}</div>
-          <div class="mt-2 text-sm text-text-secondary">Elapsed since draft lock-in</div>
+          <div class="text-sm text-text-secondary mt-2">Elapsed since draft lock-in</div>
         </section>
 
         {/* Locked civs */}
-        <section class="rounded-lg bg-bg-secondary p-5 md:p-6">
-          <div class="mb-4 text-sm text-text-muted text-heading">Locked Civs</div>
+        <section class="p-5 rounded-lg bg-bg-secondary md:p-6">
+          <div class="text-sm text-text-muted text-heading mb-4">Locked Civs</div>
           <Show
             when={isTeamMode()}
-            fallback={
-              <div class="grid grid-cols-1 gap-2">
+            fallback={(
+              <div class="gap-2 grid grid-cols-1">
                 <For each={ffaRows()}>
                   {row => (
-                    <div class="flex items-center justify-between rounded-md bg-bg-primary/40 px-3 py-2">
+                    <div class="px-3 py-2 rounded-md bg-bg-primary/40 flex items-center justify-between">
                       <span class="text-sm text-text-secondary">{row.displayName}</span>
                       <span class="text-sm text-accent-gold">{row.civId ?? 'TBD'}</span>
                     </div>
                   )}
                 </For>
               </div>
-            }
+            )}
           >
-            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div class="gap-4 grid grid-cols-1 md:grid-cols-2">
               <TeamResultCard label="Team A" rows={teamRows(0)} />
               <TeamResultCard label="Team B" rows={teamRows(1)} />
             </div>
@@ -296,12 +296,12 @@ function PostDraftScreen(props: { matchId: string }) {
         </section>
 
         {/* Post-game result */}
-        <section class="rounded-lg bg-bg-secondary p-5 md:p-6">
-          <div class="mb-3 text-sm text-text-muted text-heading">Post-Game Result</div>
+        <section class="p-5 rounded-lg bg-bg-secondary md:p-6">
+          <div class="text-sm text-text-muted text-heading mb-3">Post-Game Result</div>
           <Show
             when={isTeamMode()}
-            fallback={
-              <div class="w-full flex flex-col gap-3">
+            fallback={(
+              <div class="flex flex-col gap-3 w-full">
                 <div class="text-sm text-text-secondary">
                   Enter final standings (winner first), one player mention or ID per line.
                 </div>
@@ -309,17 +309,17 @@ function PostDraftScreen(props: { matchId: string }) {
                   value={ffaPlacements()}
                   onInput={e => setFfaPlacements(e.currentTarget.value)}
                   placeholder={state()?.seats.map(seat => `<@${seat.playerId}>`).join('\n')}
-                  class="h-32 w-full rounded-md border border-white/10 bg-bg-primary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent-gold/60"
+                  class="text-sm text-text-primary px-3 py-2 outline-none border border-white/10 rounded-md bg-bg-primary h-32 w-full focus:border-accent-gold/60"
                 />
                 <div>
-                  <div class="flex flex-wrap items-center gap-3">
+                  <div class="flex flex-wrap gap-3 items-center">
                     <Button size="lg" disabled={!canInteract() || ffaPlacements().trim().length === 0} onClick={reportFfa}>
                       Submit FFA Result
                     </Button>
                     <Button
                       variant="outline"
                       size="lg"
-                      class="border-[#aeb6c2]/25 text-[#cdd5df] hover:border-[#aeb6c2]/40 hover:bg-[#8f99a8]/12"
+                      class="text-[#cdd5df] border-[#aeb6c2]/25 hover:border-[#aeb6c2]/40 hover:bg-[#8f99a8]/12"
                       disabled={!canInteract()}
                       onClick={scrubMatch}
                     >
@@ -328,9 +328,9 @@ function PostDraftScreen(props: { matchId: string }) {
                   </div>
                 </div>
               </div>
-            }
+            )}
           >
-            <div class="flex flex-wrap items-center gap-3">
+            <div class="flex flex-wrap gap-3 items-center">
               <Button size="lg" disabled={!canInteract()} onClick={() => reportWinner('A')}>
                 Team A Won
               </Button>
@@ -340,7 +340,7 @@ function PostDraftScreen(props: { matchId: string }) {
               <Button
                 variant="outline"
                 size="lg"
-                class="border-[#aeb6c2]/25 text-[#cdd5df] hover:border-[#aeb6c2]/40 hover:bg-[#8f99a8]/12"
+                class="text-[#cdd5df] border-[#aeb6c2]/25 hover:border-[#aeb6c2]/40 hover:bg-[#8f99a8]/12"
                 disabled={!canInteract()}
                 onClick={scrubMatch}
               >
@@ -350,9 +350,9 @@ function PostDraftScreen(props: { matchId: string }) {
           </Show>
 
           <Show when={!amHost() && status() !== 'completed'}>
-            <div class="mt-3 text-sm text-text-muted">Waiting for host to report winner or scrub the match.</div>
+            <div class="text-sm text-text-muted mt-3">Waiting for host to report winner or scrub the match.</div>
           </Show>
-          <div class="mt-3 text-sm text-text-secondary">{message()}</div>
+          <div class="text-sm text-text-secondary mt-3">{message()}</div>
         </section>
       </div>
     </main>
@@ -361,12 +361,12 @@ function PostDraftScreen(props: { matchId: string }) {
 
 function TeamResultCard(props: { label: string, rows: { playerId: string, displayName: string, civId: string | null }[] }) {
   return (
-    <div class="rounded-lg border border-white/5 bg-bg-primary/40 p-3">
-      <div class="mb-2 text-sm text-accent-gold text-heading">{props.label}</div>
+    <div class="p-3 border border-white/5 rounded-lg bg-bg-primary/40">
+      <div class="text-sm text-accent-gold text-heading mb-2">{props.label}</div>
       <div class="flex flex-col gap-2">
         <For each={props.rows}>
           {row => (
-            <div class="flex items-center justify-between rounded-md bg-bg-secondary/40 px-3 py-2">
+            <div class="px-3 py-2 rounded-md bg-bg-secondary/40 flex items-center justify-between">
               <span class="text-sm text-text-secondary">{row.displayName}</span>
               <span class="text-sm text-accent-gold">{row.civId ?? 'TBD'}</span>
             </div>

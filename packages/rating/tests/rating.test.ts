@@ -6,10 +6,10 @@ import {
   calculateRatings,
   calculateTeamRatings,
   createRating,
-  DISPLAY_RATING_BASE,
-  DISPLAY_RATING_SCALE,
   DEFAULT_MU,
   DEFAULT_SIGMA,
+  DISPLAY_RATING_BASE,
+  DISPLAY_RATING_SCALE,
   displayRating,
 
   predictWinProbabilities,

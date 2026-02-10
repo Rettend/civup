@@ -44,7 +44,8 @@ switch (command) {
 
     for (const row of rows) {
       const expiration = row.expiration ? new Date(row.expiration).toISOString() : 'no-expiry'
-      console.log(`${row.key}\t${expiration}`)
+      const summary = summarizeRow(row, blobsDir)
+      console.log(`${row.key}\t${expiration}${summary ? `\t${summary}` : ''}`)
     }
     break
   }
@@ -122,6 +123,36 @@ function readBlobValue(blobRoot: string, blobId: string): string {
   const blobPath = resolve(blobRoot, blobId)
   const bytes = readFileSync(blobPath)
   return new TextDecoder().decode(bytes)
+}
+
+function summarizeRow(row: KvEntryRow, blobRoot: string): string | null {
+  if (
+    !row.key.startsWith('lobby:mode:')
+    && !row.key.startsWith('activity:')
+    && !row.key.startsWith('activity-match:')
+    && !row.key.startsWith('activity-user:')
+  ) {
+    return null
+  }
+
+  const value = readBlobValue(blobRoot, row.blob_id)
+
+  if (row.key.startsWith('activity-match:')) return `channelId=${value}`
+  if (row.key.startsWith('activity:') || row.key.startsWith('activity-user:')) return `matchId=${value}`
+
+  if (!row.key.startsWith('lobby:mode:')) return null
+
+  try {
+    const parsed = JSON.parse(value) as { matchId?: unknown, status?: unknown }
+    const matchId = typeof parsed.matchId === 'string' ? parsed.matchId : null
+    const status = typeof parsed.status === 'string' ? parsed.status : null
+    const parts = [matchId ? `matchId=${matchId}` : null, status ? `status=${status}` : null]
+      .filter((part): part is string => part !== null)
+    return parts.length > 0 ? parts.join(' ') : null
+  }
+  catch {
+    return null
+  }
 }
 
 function resolveLatestKvSqlite(sqliteDir: string): string {
