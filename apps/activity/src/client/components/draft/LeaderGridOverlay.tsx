@@ -24,12 +24,12 @@ import {
   phaseAccent,
   searchQuery,
   selectedLeader,
-  setSelectedLeader,
   sendBan,
   sendPick,
   setDetailLeaderId,
   setGridOpen,
   setSearchQuery,
+  setSelectedLeader,
   tagFilters,
   toggleTagFilter,
 } from '~/client/stores'
@@ -435,8 +435,8 @@ function RandomLeaderCard(props: { disabled: boolean, armed: boolean, onClick: (
         props.disabled
           ? 'border-white/8 bg-bg-primary/35 text-text-muted/45 cursor-not-allowed'
           : props.armed
-              ? 'border-accent-gold/60 bg-accent-gold/20 text-accent-gold cursor-pointer'
-              : 'border-accent-gold/35 bg-accent-gold/10 text-accent-gold cursor-pointer hover:border-accent-gold/55 hover:bg-accent-gold/15',
+            ? 'border-accent-gold/60 bg-accent-gold/20 text-accent-gold cursor-pointer'
+            : 'border-accent-gold/35 bg-accent-gold/10 text-accent-gold cursor-pointer hover:border-accent-gold/55 hover:bg-accent-gold/15',
       )}
       disabled={props.disabled}
       onClick={props.onClick}

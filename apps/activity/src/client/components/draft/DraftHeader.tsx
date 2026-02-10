@@ -92,9 +92,9 @@ export function DraftHeader() {
       </Show>
 
       {/* Main row */}
-      <div class="relative z-10 flex items-center justify-between px-4 py-2.5">
+      <div class="px-4 py-2.5 flex items-center justify-between relative z-10">
         {/* Left bans */}
-        <div class="flex items-center gap-1.5">
+        <div class="flex gap-1.5 items-center">
           <For each={leftBans()}>
             {civId => <BanSquare civId={civId} />}
           </For>
@@ -104,7 +104,7 @@ export function DraftHeader() {
         </div>
 
         {/* Center: phase + timer */}
-        <div class="flex flex-col items-center gap-0.5">
+        <div class="flex flex-col gap-0.5 items-center">
           <span class={cn(
             'text-xs font-bold tracking-widest uppercase',
             accent() === 'red' ? 'text-accent-red' : 'text-accent-gold',
@@ -122,13 +122,14 @@ export function DraftHeader() {
               !isUrgent() && !isCritical() && !isExpired() && 'text-text-primary',
             )}
             >
-              {seconds()}s
+              {seconds()}
+              s
             </span>
           </Show>
         </div>
 
         {/* Right bans (team mode) or empty */}
-        <div class="flex items-center gap-1.5">
+        <div class="flex gap-1.5 items-center">
           <Show when={isTeamMode()}>
             <For each={rightBans()}>
               {civId => <BanSquare civId={civId} />}
@@ -142,7 +143,7 @@ export function DraftHeader() {
 
       {/* Shrinking timer line — full width, shrinks from edges to center */}
       <Show when={draftStore.timerEndsAt != null && !isExpired()}>
-        <div class="relative z-10 flex h-0.5 w-full items-center justify-center">
+        <div class="flex h-0.5 w-full items-center justify-center relative z-10">
           <div
             class={cn(
               'h-full transition-[width] duration-100 ease-linear rounded-full',

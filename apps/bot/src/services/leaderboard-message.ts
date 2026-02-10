@@ -1,12 +1,13 @@
 import type { Database } from '@civup/db'
+import type { LeaderboardMessageState } from './system-channels.ts'
 import { LEADERBOARD_MODES } from '@civup/game'
 import { leaderboardEmbed } from '../embeds/leaderboard.ts'
 import { createChannelMessage, editChannelMessage, isDiscordApiError } from './discord.ts'
 import {
   getLeaderboardMessageState,
   getSystemChannel,
+
   setLeaderboardMessageState,
-  type LeaderboardMessageState,
 } from './system-channels.ts'
 
 export async function refreshConfiguredLeaderboards(

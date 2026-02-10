@@ -96,7 +96,7 @@ export function LeaderCard(props: LeaderCardProps) {
       <Show
         when={props.leader.portraitUrl}
         fallback={(
-          <div class="h-full w-full flex items-center justify-center bg-bg-secondary">
+          <div class="bg-bg-secondary flex h-full w-full items-center justify-center">
             <span class="text-lg text-accent-gold/40 font-bold">
               {props.leader.name.slice(0, 1)}
             </span>
@@ -117,7 +117,7 @@ export function LeaderCard(props: LeaderCardProps) {
 
       {/* Banned overlay */}
       <Show when={isBanned()}>
-        <div class="absolute inset-0 flex items-center justify-center bg-accent-red/10">
+        <div class="bg-accent-red/10 flex items-center inset-0 justify-center absolute">
           <span class="text-xl text-accent-red font-bold">✕</span>
         </div>
       </Show>

@@ -22,13 +22,13 @@ export {
 } from './connection-store'
 export { currentStep, currentStepDuration, draftStore, hasSubmitted, isMyTurn, isSpectator, phaseLabel } from './draft-store'
 export {
+  activeTagFilterCount,
   banSelections,
   clearSelections,
   clearTagFilters,
   detailLeaderId,
   gridOpen,
   isMiniView,
-  activeTagFilterCount,
   phaseAccent,
   phaseAccentColor,
   phaseHeaderBg,
@@ -41,8 +41,8 @@ export {
   setSearchQuery,
   setSelectedLeader,
   tagFilters,
-  toggleTagFilter,
   toggleBanSelection,
   toggleDetail,
+  toggleTagFilter,
 } from './ui-store'
 export { avatarUrl, displayName, setAuthenticatedUser, user, userId } from './user-store'

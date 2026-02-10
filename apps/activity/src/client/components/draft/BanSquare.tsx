@@ -16,18 +16,18 @@ export function BanSquare(props: BanSquareProps) {
 
   return (
     <div
-      class="relative h-8 w-8 shrink-0 overflow-hidden rounded bg-bg-secondary"
+      class="rounded bg-bg-secondary shrink-0 h-8 w-8 relative overflow-hidden"
       title={leader()?.name ?? props.civId}
     >
       <Show
         when={leader()?.portraitUrl}
-        fallback={
+        fallback={(
           <div class="flex h-full w-full items-center justify-center">
             <span class="text-[10px] text-accent-red font-bold">
               {(leader()?.name ?? props.civId).slice(0, 2).toUpperCase()}
             </span>
           </div>
-        }
+        )}
       >
         {url => (
           <img
@@ -39,7 +39,7 @@ export function BanSquare(props: BanSquareProps) {
       </Show>
 
       {/* Red X overlay */}
-      <div class="absolute inset-0 flex items-center justify-center bg-accent-red/10">
+      <div class="bg-accent-red/10 flex items-center inset-0 justify-center absolute">
         <span class="text-sm text-accent-red font-bold">✕</span>
       </div>
     </div>

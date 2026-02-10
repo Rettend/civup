@@ -1,11 +1,12 @@
+import type { TagFilterState } from '~/client/lib/leader-tags'
 import { createMemo, createSignal } from 'solid-js'
 import {
   countActiveTagFilters,
   createEmptyTagFilters,
   getTagCategory,
-  type TagFilterState,
+
 } from '~/client/lib/leader-tags'
-import { currentStep, draftStore } from './draft-store'
+import { currentStep } from './draft-store'
 
 // ── UI State ───────────────────────────────────────────────
 
@@ -34,6 +35,7 @@ const [detailLeaderId, setDetailLeaderId] = createSignal<string | null>(null)
 const [isMiniView, setIsMiniView] = createSignal(false)
 
 export {
+  activeTagFilterCount,
   banSelections,
   detailLeaderId,
   gridOpen,
@@ -46,7 +48,6 @@ export {
   setIsMiniView,
   setSearchQuery,
   setSelectedLeader,
-  activeTagFilterCount,
   tagFilters,
 }
 

@@ -45,7 +45,7 @@ export function SlotStrip() {
           <div class="flex flex-1 items-stretch">
             <For each={leftSeats()}>
               {seatIdx => (
-                <div class="flex-1 border-r border-white/5">
+                <div class="border-r border-white/5 flex-1">
                   <PlayerSlot seatIndex={seatIdx} />
                 </div>
               )}
@@ -53,15 +53,15 @@ export function SlotStrip() {
           </div>
 
           {/* Center gap */}
-          <div class="flex w-16 shrink-0 flex-col items-center justify-center">
-            <span class="text-lg text-text-muted/30 font-bold tracking-widest">VS</span>
+          <div class="flex shrink-0 flex-col w-16 items-center justify-center">
+            <span class="text-lg text-text-muted/30 tracking-widest font-bold">VS</span>
           </div>
 
           {/* Right team */}
           <div class="flex flex-1 items-stretch">
             <For each={rightSeats()}>
               {seatIdx => (
-                <div class="flex-1 border-l border-white/5">
+                <div class="border-l border-white/5 flex-1">
                   <PlayerSlot seatIndex={seatIdx} />
                 </div>
               )}

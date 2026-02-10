@@ -345,7 +345,7 @@ function processTimeout(
 
   const events: DraftEvent[] = []
   const newSubmissions = { ...state.submissions }
-  let available = [...state.availableCivIds]
+  const available = [...state.availableCivIds]
 
   // Ban timeout: for each seat that hasn't submitted, auto-select random civs
   for (const seat of activeSeats) {
