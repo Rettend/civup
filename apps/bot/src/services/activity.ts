@@ -11,6 +11,7 @@ export interface MatchCreationResult {
 }
 
 export interface CreateDraftRoomOptions {
+  hostId: string
   partyHost?: string
   botHost?: string
   webhookSecret?: string
@@ -30,7 +31,7 @@ const ACTIVITY_MAPPING_TTL = 12 * 60 * 60
 export async function createDraftRoom(
   mode: GameMode,
   entries: QueueEntry[],
-  options: CreateDraftRoomOptions = {},
+  options: CreateDraftRoomOptions,
 ): Promise<MatchCreationResult> {
   const matchId = nanoid(12)
   const format = getDefaultFormat(mode)
@@ -40,6 +41,7 @@ export async function createDraftRoom(
 
   const config: RoomConfig = {
     matchId,
+    hostId: options.hostId,
     formatId: format.id,
     seats,
     civPool: allLeaderIds,

@@ -1,26 +1,37 @@
 import type { LobbySnapshot } from '~/client/stores'
 import { createEffect, createSignal, For, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
+import { formatModeLabel } from '~/client/lib/mode'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
 import {
+  avatarUrl as currentAvatarUrl,
   cancelLobby,
+  displayName as currentDisplayName,
   draftStore,
   isSpectator,
+  placeLobbySlot,
+  removeLobbySlot,
   sendCancel,
   sendConfig,
   sendStart,
+  startLobbyDraft,
   updateLobbyDraftConfig,
+  updateLobbyMode,
   userId,
 } from '~/client/stores'
 
 const MAX_TIMER_MINUTES = 30
+const LOBBY_MODES = ['1v1', '2v2', '3v3', 'ffa'] as const
+type LobbyModeValue = typeof LOBBY_MODES[number]
 
 interface ConfigScreenProps {
   lobby?: LobbySnapshot
+  onLobbyStarted?: (matchId: string) => void
 }
 
 interface PlayerRow {
   key: string
+  slot: number
   name: string
   playerId: string | null
   avatarUrl: string | null
@@ -36,11 +47,16 @@ interface DraftTimerConfig {
 /** Pre-draft setup screen (lobby waiting + room waiting). */
 export function ConfigScreen(props: ConfigScreenProps) {
   const state = () => draftStore.state
+  const [lobbyState, setLobbyState] = createSignal<LobbySnapshot | null>(props.lobby ?? null)
   const [banMinutes, setBanMinutes] = createSignal('')
   const [pickMinutes, setPickMinutes] = createSignal('')
   const [editingField, setEditingField] = createSignal<'ban' | 'pick' | null>(null)
   const [configMessage, setConfigMessage] = createSignal<string | null>(null)
   const [cancelPending, setCancelPending] = createSignal(false)
+  const [startPending, setStartPending] = createSignal(false)
+  const [lobbyActionPending, setLobbyActionPending] = createSignal(false)
+  const [draggingPlayerId, setDraggingPlayerId] = createSignal<string | null>(null)
+  const [dragOverSlot, setDragOverSlot] = createSignal<number | null>(null)
   const [lobbyTimerConfig, setLobbyTimerConfig] = createSignal<DraftTimerConfig | null>(
     props.lobby
       ? {
@@ -51,40 +67,50 @@ export function ConfigScreen(props: ConfigScreenProps) {
   )
 
   createEffect(() => {
-    if (!props.lobby) {
+    setLobbyState(props.lobby ?? null)
+  })
+
+  createEffect(() => {
+    const lobby = lobbyState()
+    if (!lobby) {
       setLobbyTimerConfig(null)
       return
     }
 
     setLobbyTimerConfig({
-      banTimerSeconds: props.lobby.draftConfig.banTimerSeconds,
-      pickTimerSeconds: props.lobby.draftConfig.pickTimerSeconds,
+      banTimerSeconds: lobby.draftConfig.banTimerSeconds,
+      pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
     })
   })
 
-  const isLobbyMode = () => props.lobby != null
-  const hostId = () => props.lobby?.hostId ?? state()?.seats[0]?.playerId ?? null
+  const currentLobby = () => lobbyState()
+  const isLobbyMode = () => currentLobby() != null
+  const hostId = () => currentLobby()?.hostId ?? draftStore.hostId ?? state()?.seats[0]?.playerId ?? null
   const amHost = () => {
     const id = userId()
     if (!id) return false
     return id === hostId()
   }
 
-  const seatCount = () => props.lobby?.targetSize ?? state()?.seats.length ?? 0
+  const seatCount = () => currentLobby()?.targetSize ?? state()?.seats.length ?? 0
+  const minStartPlayers = () => currentLobby()?.minPlayers ?? seatCount()
   const formatId = () => {
-    if (props.lobby) return props.lobby.mode.toUpperCase()
-    return state()?.formatId?.replace(/-/g, ' ').toUpperCase() ?? 'DRAFT'
+    const lobby = currentLobby()
+    if (lobby) return formatModeLabel(lobby.mode, 'DRAFT')
+    return formatModeLabel(state()?.formatId, 'DRAFT')
   }
   const isTeamMode = () => {
-    if (props.lobby) return props.lobby.mode === '1v1' || props.lobby.mode === '2v2' || props.lobby.mode === '3v3'
+    const lobby = currentLobby()
+    if (lobby) return lobby.mode === '1v1' || lobby.mode === '2v2' || lobby.mode === '3v3'
     return state()?.seats.some(s => s.team != null) ?? false
   }
 
   const timerConfig = (): DraftTimerConfig => {
-    if (props.lobby) {
+    const lobby = currentLobby()
+    if (lobby) {
       return lobbyTimerConfig() ?? {
-        banTimerSeconds: props.lobby.draftConfig.banTimerSeconds,
-        pickTimerSeconds: props.lobby.draftConfig.pickTimerSeconds,
+        banTimerSeconds: lobby.draftConfig.banTimerSeconds,
+        pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
       }
     }
     return getTimerConfigFromDraft(state())
@@ -107,26 +133,38 @@ export function ConfigScreen(props: ConfigScreenProps) {
     }
   })
 
+  const applyLobbySnapshot = (lobby: LobbySnapshot) => {
+    setLobbyState(lobby)
+    setLobbyTimerConfig({
+      banTimerSeconds: lobby.draftConfig.banTimerSeconds,
+      pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
+    })
+  }
+
   const teamRows = (team: 0 | 1): PlayerRow[] => {
-    if (props.lobby) {
-      const size = Math.max(1, Math.floor(props.lobby.targetSize / 2))
+    const lobby = currentLobby()
+    if (lobby) {
+      const size = Math.max(1, Math.floor(lobby.targetSize / 2))
       const start = team === 0 ? 0 : size
       return Array.from({ length: size }, (_, i) => {
-        const entry = props.lobby?.entries[start + i]
+        const slot = start + i
+        const entry = lobby.entries[slot] ?? null
         return {
-          key: `lobby-${team}-${i}`,
+          key: `lobby-${slot}`,
+          slot,
           name: entry?.displayName ?? '[empty]',
           playerId: entry?.playerId ?? null,
           avatarUrl: entry?.avatarUrl ?? null,
           isHost: entry?.playerId === hostId(),
-          empty: !entry,
+          empty: entry == null,
         }
       })
     }
 
     const seats = state()?.seats.filter(seat => seat.team === team) ?? []
-    return seats.map(seat => ({
+    return seats.map((seat, index) => ({
       key: `room-${team}-${seat.playerId}`,
+      slot: index,
       name: seat.displayName,
       playerId: seat.playerId,
       avatarUrl: seat.avatarUrl ?? null,
@@ -136,30 +174,31 @@ export function ConfigScreen(props: ConfigScreenProps) {
   }
 
   const ffaRows = (): PlayerRow[] => {
-    if (props.lobby) {
-      return Array.from({ length: props.lobby.targetSize }, (_, i) => {
-        const entry = props.lobby?.entries[i]
+    const lobby = currentLobby()
+    if (lobby) {
+      return Array.from({ length: lobby.targetSize }, (_, i) => {
+        const entry = lobby.entries[i] ?? null
         return {
           key: `lobby-ffa-${i}`,
+          slot: i,
           name: entry?.displayName ?? '[empty]',
           playerId: entry?.playerId ?? null,
           avatarUrl: entry?.avatarUrl ?? null,
           isHost: entry?.playerId === hostId(),
-          empty: !entry,
+          empty: entry == null,
         }
       })
     }
 
-    return (state()?.seats ?? []).map((seat) => {
-      return {
-        key: `room-ffa-${seat.playerId}`,
-        name: seat.displayName,
-        playerId: seat.playerId,
-        avatarUrl: seat.avatarUrl ?? null,
-        isHost: seat.playerId === hostId(),
-        empty: false,
-      }
-    })
+    return (state()?.seats ?? []).map((seat, i) => ({
+      key: `room-ffa-${seat.playerId}`,
+      slot: i,
+      name: seat.displayName,
+      playerId: seat.playerId,
+      avatarUrl: seat.avatarUrl ?? null,
+      isHost: seat.playerId === hostId(),
+      empty: false,
+    }))
   }
 
   const ffaFirstColumn = () => {
@@ -172,6 +211,88 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const rows = ffaRows()
     const half = Math.ceil(rows.length / 2)
     return rows.slice(half)
+  }
+
+  const lobbyMode = (): LobbyModeValue => {
+    const raw = currentLobby()?.mode
+    if (raw) return normalizeLobbyMode(raw)
+    return inferModeFromFormatId(state()?.formatId)
+  }
+
+  const filledSlots = () => {
+    const lobby = currentLobby()
+    if (!lobby) return 0
+    return lobby.entries.filter(entry => entry != null).length
+  }
+
+  const canStartLobby = () => {
+    const lobby = currentLobby()
+    if (!lobby) return false
+    const filled = filledSlots()
+    if (lobby.mode === 'ffa') {
+      return filled >= lobby.minPlayers && filled <= lobby.targetSize
+    }
+    return filled === lobby.targetSize
+  }
+
+  const lobbyStatusHint = () => {
+    const lobby = currentLobby()
+    if (!lobby) return null
+    const filled = filledSlots()
+
+    if (lobby.mode === 'ffa') {
+      if (filled < lobby.minPlayers) return `Need ${lobby.minPlayers - filled} more slotted player${lobby.minPlayers - filled === 1 ? '' : 's'} to start FFA.`
+      return `FFA can start now (${filled}/${lobby.targetSize} slotted).`
+    }
+
+    if (filled < lobby.targetSize) {
+      return `Need ${lobby.targetSize - filled} more slotted player${lobby.targetSize - filled === 1 ? '' : 's'} to start.`
+    }
+
+    return 'All slots filled. Ready to start.'
+  }
+
+  const isCurrentUserSlotted = () => {
+    const id = userId()
+    if (!id) return false
+    return currentLobby()?.entries.some(entry => entry?.playerId === id) ?? false
+  }
+
+  const canJoinSlot = (row: PlayerRow) => {
+    if (!isLobbyMode()) return false
+    if (!row.empty) return false
+    if (!userId()) return false
+    return true
+  }
+
+  const canRemoveSlot = (row: PlayerRow) => {
+    if (!isLobbyMode()) return false
+    if (row.empty || !row.playerId) return false
+    if (row.isHost) return false
+    const id = userId()
+    if (!id) return false
+    if (amHost()) return true
+    return row.playerId === id
+  }
+
+  const canDragRow = (row: PlayerRow) => {
+    if (!isLobbyMode()) return false
+    if (lobbyActionPending()) return false
+    if (row.empty || !row.playerId) return false
+    const id = userId()
+    if (!id) return false
+    if (amHost()) return true
+    return row.playerId === id
+  }
+
+  const canDropOnRow = (row: PlayerRow) => {
+    if (!isLobbyMode()) return false
+    if (lobbyActionPending()) return false
+    const dragged = draggingPlayerId()
+    const id = userId()
+    if (!dragged || !id) return false
+    if (amHost()) return true
+    return dragged === id && row.empty
   }
 
   const saveConfigOnBlur = async () => {
@@ -210,27 +331,21 @@ export function ConfigScreen(props: ConfigScreenProps) {
       }
 
       setConfigMessage(null)
-      await optimisticTimerConfig.commit({
-        banTimerSeconds,
-        pickTimerSeconds,
-      }, async () => {
-        if (props.lobby) {
-          const result = await updateLobbyDraftConfig(props.lobby.mode, currentUserId, {
+      await optimisticTimerConfig.commit({ banTimerSeconds, pickTimerSeconds }, async () => {
+        const lobby = currentLobby()
+        if (lobby) {
+          const result = await updateLobbyDraftConfig(lobby.mode, currentUserId, {
             banTimerSeconds,
             pickTimerSeconds,
           })
           if (!result.ok) throw new Error(result.error)
-
-          setLobbyTimerConfig({
-            banTimerSeconds: result.lobby.draftConfig.banTimerSeconds,
-            pickTimerSeconds: result.lobby.draftConfig.pickTimerSeconds,
-          })
+          applyLobbySnapshot(result.lobby)
           return
         }
 
         await sendConfig(banTimerSeconds, pickTimerSeconds)
       }, {
-        syncTimeoutMs: props.lobby ? 9000 : 5000,
+        syncTimeoutMs: currentLobby() ? 9000 : 5000,
         syncTimeoutMessage: 'Save not confirmed. Please try again.',
       })
     }
@@ -239,10 +354,148 @@ export function ConfigScreen(props: ConfigScreenProps) {
     }
   }
 
+  const handleLobbyModeChange = async (nextMode: LobbyModeValue) => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || !amHost()) return
+    if (lobby.mode === nextMode) return
+    if (lobbyActionPending()) return
+
+    setLobbyActionPending(true)
+    setConfigMessage(null)
+    try {
+      const result = await updateLobbyMode(lobby.mode, currentUserId, nextMode)
+      if (!result.ok) {
+        setConfigMessage(result.error)
+        return
+      }
+      applyLobbySnapshot(result.lobby)
+      setConfigMessage(`Lobby mode changed to ${formatModeLabel(result.lobby.mode, result.lobby.mode)}.`)
+    }
+    finally {
+      setLobbyActionPending(false)
+    }
+  }
+
+  const handlePlaceSelf = async (slot: number) => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId) return
+    if (lobbyActionPending()) return
+
+    setLobbyActionPending(true)
+    setConfigMessage(null)
+    try {
+      const result = await placeLobbySlot(lobby.mode, {
+        userId: currentUserId,
+        targetSlot: slot,
+        displayName: currentDisplayName(),
+        avatarUrl: currentAvatarUrl(),
+      })
+      if (!result.ok) {
+        setConfigMessage(result.error)
+        return
+      }
+      applyLobbySnapshot(result.lobby)
+    }
+    finally {
+      setLobbyActionPending(false)
+    }
+  }
+
+  const handleDropOnSlot = async (slot: number) => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    const draggedPlayerId = draggingPlayerId()
+    if (!lobby || !currentUserId || !draggedPlayerId) return
+    if (lobbyActionPending()) return
+
+    const payload: {
+      userId: string
+      targetSlot: number
+      playerId?: string
+      displayName?: string
+      avatarUrl?: string | null
+    } = {
+      userId: currentUserId,
+      targetSlot: slot,
+      displayName: currentDisplayName(),
+      avatarUrl: currentAvatarUrl(),
+    }
+
+    if (amHost() && draggedPlayerId !== currentUserId) {
+      payload.playerId = draggedPlayerId
+    }
+
+    setLobbyActionPending(true)
+    setConfigMessage(null)
+    try {
+      const result = await placeLobbySlot(lobby.mode, payload)
+      if (!result.ok) {
+        setConfigMessage(result.error)
+        return
+      }
+      applyLobbySnapshot(result.lobby)
+    }
+    finally {
+      setLobbyActionPending(false)
+      setDraggingPlayerId(null)
+      setDragOverSlot(null)
+    }
+  }
+
+  const handleRemoveFromSlot = async (slot: number) => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId) return
+    if (lobbyActionPending()) return
+
+    setLobbyActionPending(true)
+    setConfigMessage(null)
+    try {
+      const result = await removeLobbySlot(lobby.mode, {
+        userId: currentUserId,
+        slot,
+      })
+      if (!result.ok) {
+        setConfigMessage(result.error)
+        return
+      }
+      applyLobbySnapshot(result.lobby)
+    }
+    finally {
+      setLobbyActionPending(false)
+    }
+  }
+
+  const handleStartLobbyDraftAction = async () => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || !amHost()) return
+    if (!canStartLobby() || startPending() || lobbyActionPending()) return
+
+    setStartPending(true)
+    setConfigMessage(null)
+    try {
+      const result = await startLobbyDraft(lobby.mode, currentUserId)
+      if (!result.ok) {
+        setConfigMessage(result.error)
+        return
+      }
+
+      props.onLobbyStarted?.(result.matchId)
+      setConfigMessage('Draft room created. Opening draft...')
+    }
+    finally {
+      setStartPending(false)
+    }
+  }
+
   const handleCancelAction = async () => {
     if (cancelPending()) return
 
-    if (props.lobby) {
+    const lobby = currentLobby()
+    if (lobby) {
       const currentUserId = userId()
       if (!currentUserId) {
         setConfigMessage('Could not identify your Discord user. Reopen the activity.')
@@ -252,7 +505,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       setCancelPending(true)
       setConfigMessage(null)
       try {
-        const result = await cancelLobby(props.lobby.mode, currentUserId)
+        const result = await cancelLobby(lobby.mode, currentUserId)
         if (!result.ok) {
           setConfigMessage(result.error)
           return
@@ -269,8 +522,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
   }
 
   return (
-    <div class="text-text-primary font-sans bg-bg-primary flex flex-col h-screen items-center justify-center">
-      <div class="px-6 flex flex-col gap-6 max-w-5xl w-full">
+    <div class="text-text-primary font-sans bg-bg-primary min-h-dvh overflow-y-auto">
+      <div class="px-6 py-4 flex flex-col gap-6 max-w-5xl w-full mx-auto">
         <div class="text-center">
           <h1 class="text-2xl text-heading mb-1">Draft Setup</h1>
           <span class="text-sm text-accent-gold font-medium">{formatId()}</span>
@@ -286,12 +539,58 @@ export function ConfigScreen(props: ConfigScreenProps) {
                 <div class="gap-3 grid grid-cols-2">
                   <div class="flex flex-col gap-2">
                     <For each={ffaFirstColumn()}>
-                      {row => <PlayerChip name={row.name} avatarUrl={row.avatarUrl} isHost={row.isHost} empty={row.empty} />}
+                      {row => (
+                        <PlayerChip
+                          row={row}
+                          pending={lobbyActionPending()}
+                          draggable={canDragRow(row)}
+                          allowDrop={canDropOnRow(row)}
+                          dropActive={canDropOnRow(row) && dragOverSlot() === row.slot}
+                          showJoin={canJoinSlot(row)}
+                          showRemove={canRemoveSlot(row)}
+                          onJoin={() => void handlePlaceSelf(row.slot)}
+                          onRemove={() => void handleRemoveFromSlot(row.slot)}
+                          onDragStart={() => {
+                            if (!row.playerId) return
+                            setDraggingPlayerId(row.playerId)
+                          }}
+                          onDragEnd={() => {
+                            setDraggingPlayerId(null)
+                            setDragOverSlot(null)
+                          }}
+                          onDragEnter={() => setDragOverSlot(row.slot)}
+                          onDragLeave={() => { if (dragOverSlot() === row.slot) setDragOverSlot(null) }}
+                          onDrop={() => void handleDropOnSlot(row.slot)}
+                        />
+                      )}
                     </For>
                   </div>
                   <div class="flex flex-col gap-2">
                     <For each={ffaSecondColumn()}>
-                      {row => <PlayerChip name={row.name} avatarUrl={row.avatarUrl} isHost={row.isHost} empty={row.empty} />}
+                      {row => (
+                        <PlayerChip
+                          row={row}
+                          pending={lobbyActionPending()}
+                          draggable={canDragRow(row)}
+                          allowDrop={canDropOnRow(row)}
+                          dropActive={canDropOnRow(row) && dragOverSlot() === row.slot}
+                          showJoin={canJoinSlot(row)}
+                          showRemove={canRemoveSlot(row)}
+                          onJoin={() => void handlePlaceSelf(row.slot)}
+                          onRemove={() => void handleRemoveFromSlot(row.slot)}
+                          onDragStart={() => {
+                            if (!row.playerId) return
+                            setDraggingPlayerId(row.playerId)
+                          }}
+                          onDragEnd={() => {
+                            setDraggingPlayerId(null)
+                            setDragOverSlot(null)
+                          }}
+                          onDragEnter={() => setDragOverSlot(row.slot)}
+                          onDragLeave={() => { if (dragOverSlot() === row.slot) setDragOverSlot(null) }}
+                          onDrop={() => void handleDropOnSlot(row.slot)}
+                        />
+                      )}
                     </For>
                   </div>
                 </div>
@@ -302,7 +601,30 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   <div class="text-xs text-accent-gold tracking-wider font-bold mb-2">Team A</div>
                   <div class="flex flex-col gap-2">
                     <For each={teamRows(0)}>
-                      {row => <PlayerChip name={row.name} avatarUrl={row.avatarUrl} isHost={row.isHost} empty={row.empty} />}
+                      {row => (
+                        <PlayerChip
+                          row={row}
+                          pending={lobbyActionPending()}
+                          draggable={canDragRow(row)}
+                          allowDrop={canDropOnRow(row)}
+                          dropActive={canDropOnRow(row) && dragOverSlot() === row.slot}
+                          showJoin={canJoinSlot(row)}
+                          showRemove={canRemoveSlot(row)}
+                          onJoin={() => void handlePlaceSelf(row.slot)}
+                          onRemove={() => void handleRemoveFromSlot(row.slot)}
+                          onDragStart={() => {
+                            if (!row.playerId) return
+                            setDraggingPlayerId(row.playerId)
+                          }}
+                          onDragEnd={() => {
+                            setDraggingPlayerId(null)
+                            setDragOverSlot(null)
+                          }}
+                          onDragEnter={() => setDragOverSlot(row.slot)}
+                          onDragLeave={() => { if (dragOverSlot() === row.slot) setDragOverSlot(null) }}
+                          onDrop={() => void handleDropOnSlot(row.slot)}
+                        />
+                      )}
                     </For>
                   </div>
                 </div>
@@ -310,7 +632,30 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   <div class="text-xs text-accent-gold tracking-wider font-bold mb-2">Team B</div>
                   <div class="flex flex-col gap-2">
                     <For each={teamRows(1)}>
-                      {row => <PlayerChip name={row.name} avatarUrl={row.avatarUrl} isHost={row.isHost} empty={row.empty} />}
+                      {row => (
+                        <PlayerChip
+                          row={row}
+                          pending={lobbyActionPending()}
+                          draggable={canDragRow(row)}
+                          allowDrop={canDropOnRow(row)}
+                          dropActive={canDropOnRow(row) && dragOverSlot() === row.slot}
+                          showJoin={canJoinSlot(row)}
+                          showRemove={canRemoveSlot(row)}
+                          onJoin={() => void handlePlaceSelf(row.slot)}
+                          onRemove={() => void handleRemoveFromSlot(row.slot)}
+                          onDragStart={() => {
+                            if (!row.playerId) return
+                            setDraggingPlayerId(row.playerId)
+                          }}
+                          onDragEnd={() => {
+                            setDraggingPlayerId(null)
+                            setDragOverSlot(null)
+                          }}
+                          onDragEnter={() => setDragOverSlot(row.slot)}
+                          onDragLeave={() => { if (dragOverSlot() === row.slot) setDragOverSlot(null) }}
+                          onDrop={() => void handleDropOnSlot(row.slot)}
+                        />
+                      )}
                     </For>
                   </div>
                 </div>
@@ -322,7 +667,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
             <div class="text-xs text-text-muted tracking-widest font-bold flex uppercase items-center justify-between">
               <span>Config</span>
               <span class="flex h-4 w-4 items-center justify-center">
-                <Show when={optimisticTimerConfig.status() === 'pending'}>
+                <Show when={optimisticTimerConfig.status() === 'pending' || lobbyActionPending() || startPending()}>
                   <span class="i-gg:spinner text-sm text-accent-gold animate-spin" />
                 </Show>
               </span>
@@ -330,14 +675,44 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
             <div class="text-sm gap-2 grid grid-cols-2">
               <div class="text-text-secondary">Players</div>
-              <div class="text-text-primary font-medium text-right">{seatCount()}</div>
+              <div class="text-text-primary font-medium text-right">
+                <Show when={isLobbyMode()} fallback={seatCount()}>
+                  {`${filledSlots()}/${seatCount()}`}
+                </Show>
+              </div>
               <div class="text-text-secondary">Mode</div>
-              <div class="text-text-primary font-medium text-right">{isTeamMode() ? 'Teams' : 'FFA'}</div>
-              <Show when={!props.lobby}>
+              <div class="text-text-primary font-medium text-right">{formatModeLabel(lobbyMode(), 'DRAFT')}</div>
+              <Show when={isLobbyMode()}>
+                <div class="text-text-secondary">Start</div>
+                <div class="text-text-primary font-medium text-right">
+                  <Show when={lobbyMode() === 'ffa'} fallback={`${seatCount()} slots`}>
+                    {`${minStartPlayers()}-${seatCount()} slots`}
+                  </Show>
+                </div>
+              </Show>
+              <Show when={!isLobbyMode()}>
                 <div class="text-text-secondary">Steps</div>
                 <div class="text-text-primary font-medium text-right">{state()?.steps.length ?? 0}</div>
               </Show>
             </div>
+
+            <Show when={isLobbyMode() && amHost()}>
+              <div class="flex flex-col gap-2">
+                <label class="text-xs text-text-muted tracking-wider font-bold uppercase">Game Mode</label>
+                <select
+                  value={lobbyMode()}
+                  disabled={lobbyActionPending()}
+                  onChange={event => void handleLobbyModeChange(normalizeLobbyMode(event.currentTarget.value))}
+                  class="text-sm text-text-primary px-3 py-2 outline-none border border-white/10 rounded-md bg-bg-primary focus:border-accent-gold/60 disabled:opacity-70"
+                >
+                  <For each={LOBBY_MODES}>
+                    {mode => (
+                      <option value={mode}>{formatModeLabel(mode, mode)}</option>
+                    )}
+                  </For>
+                </select>
+              </div>
+            </Show>
 
             <Show
               when={amHost()}
@@ -365,7 +740,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                     event.currentTarget.value = normalized
                     setBanMinutes(normalized)
                   }}
-                  onBlur={saveConfigOnBlur}
+                  onBlur={() => void saveConfigOnBlur()}
                   class="text-sm text-text-primary px-3 py-2 outline-none border border-white/10 rounded-md bg-bg-primary focus:border-accent-gold/60"
                 />
 
@@ -385,16 +760,26 @@ export function ConfigScreen(props: ConfigScreenProps) {
                     event.currentTarget.value = normalized
                     setPickMinutes(normalized)
                   }}
-                  onBlur={saveConfigOnBlur}
+                  onBlur={() => void saveConfigOnBlur()}
                   class="text-sm text-text-primary px-3 py-2 outline-none border border-white/10 rounded-md bg-bg-primary focus:border-accent-gold/60"
                 />
               </div>
             </Show>
 
+            <Show when={isLobbyMode() && !!lobbyStatusHint()}>
+              <div class="text-xs text-text-secondary px-2 py-1 rounded bg-bg-primary/35">{lobbyStatusHint()}</div>
+            </Show>
+
             <div class="min-h-5">
               <Show when={configMessage()}>
                 <div class="text-xs text-text-primary flex gap-1.5 items-center">
-                  <span class="i-ph-x-bold text-sm text-accent-red" />
+                  <span class={cn(
+                    'text-sm',
+                    configMessage()?.toLowerCase().includes('failed') || configMessage()?.toLowerCase().includes('error')
+                      ? 'i-ph-x-bold text-accent-red'
+                      : 'i-ph-check-bold text-accent-gold',
+                  )}
+                  />
                   <span>{configMessage()}</span>
                 </div>
               </Show>
@@ -407,7 +792,9 @@ export function ConfigScreen(props: ConfigScreenProps) {
             when={amHost()}
             fallback={(
               <span class="text-sm text-text-muted">
-                {isSpectator() ? 'Spectating — waiting for host to start' : 'Waiting for host to start...'}
+                {isLobbyMode()
+                  ? isCurrentUserSlotted() ? 'Waiting for host to start...' : 'Spectating - waiting for host to start'
+                  : isSpectator() ? 'Spectating - waiting for host to start' : 'Waiting for host to start...'}
               </span>
             )}
           >
@@ -415,11 +802,17 @@ export function ConfigScreen(props: ConfigScreenProps) {
               when={!isLobbyMode()}
               fallback={(
                 <div class="flex gap-3 items-center">
-                  <span class="text-sm text-text-muted">Draft room opens once all slots are filled.</span>
+                  <button
+                    class="text-sm text-black font-bold px-8 py-2.5 rounded-lg bg-accent-gold cursor-pointer transition-colors hover:bg-accent-gold/80 disabled:opacity-60 disabled:cursor-not-allowed"
+                    disabled={!canStartLobby() || startPending() || lobbyActionPending()}
+                    onClick={() => void handleStartLobbyDraftAction()}
+                  >
+                    {startPending() ? 'Starting...' : 'Start Draft'}
+                  </button>
                   <button
                     class="text-sm text-text-secondary px-6 py-2.5 border border-white/12 rounded-lg bg-white/3 cursor-pointer transition-colors hover:text-text-primary hover:border-white/20 hover:bg-white/6 disabled:opacity-60 disabled:cursor-not-allowed"
-                    disabled={cancelPending()}
-                    onClick={handleCancelAction}
+                    disabled={cancelPending() || startPending() || lobbyActionPending()}
+                    onClick={() => void handleCancelAction()}
                   >
                     {cancelPending() ? 'Cancelling...' : 'Cancel Lobby'}
                   </button>
@@ -435,7 +828,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                 </button>
                 <button
                   class="text-sm text-text-secondary px-6 py-2.5 border border-white/12 rounded-lg bg-white/3 cursor-pointer transition-colors hover:text-text-primary hover:border-white/20 hover:bg-white/6"
-                  onClick={handleCancelAction}
+                  onClick={() => void handleCancelAction()}
                 >
                   Cancel Draft
                 </button>
@@ -448,28 +841,99 @@ export function ConfigScreen(props: ConfigScreenProps) {
   )
 }
 
-function PlayerChip(props: { name: string, avatarUrl: string | null, isHost: boolean, empty: boolean }) {
+interface PlayerChipProps {
+  row: PlayerRow
+  pending: boolean
+  draggable: boolean
+  allowDrop: boolean
+  dropActive: boolean
+  showJoin: boolean
+  showRemove: boolean
+  onJoin?: () => void
+  onRemove?: () => void
+  onDragStart?: () => void
+  onDragEnd?: () => void
+  onDragEnter?: () => void
+  onDragLeave?: () => void
+  onDrop?: () => void
+}
+
+function PlayerChip(props: PlayerChipProps) {
   return (
     <div
       class={cn(
-        'flex items-center gap-2 rounded-md px-3 py-2',
-        props.empty ? 'bg-bg-primary/20 text-text-muted' : 'bg-bg-primary/40',
+        'group flex items-center gap-2 rounded-md px-3 py-2 border transition-colors',
+        props.row.empty ? 'bg-bg-primary/20 text-text-muted border-transparent' : 'bg-bg-primary/40 border-transparent',
+        props.row.empty && props.showJoin && !props.pending && 'hover:bg-bg-primary/30 cursor-pointer',
+        props.draggable && !props.pending && 'cursor-grab active:cursor-grabbing',
+        props.dropActive && 'border-accent-gold/65 border-dashed bg-accent-gold/8',
       )}
+      onClick={() => { if (props.showJoin && !props.pending) props.onJoin?.() }}
+      draggable={props.draggable && !props.pending}
+      onDragStart={(event) => {
+        if (!event.dataTransfer) return
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('text/plain', props.row.playerId ?? '')
+        props.onDragStart?.()
+      }}
+      onDragEnd={() => props.onDragEnd?.()}
+      onDragOver={(event) => {
+        if (!props.allowDrop) return
+        event.preventDefault()
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+        props.onDragEnter?.()
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node)) return
+        props.onDragLeave?.()
+      }}
+      onDrop={(event) => {
+        if (!props.allowDrop) return
+        event.preventDefault()
+        props.onDrop?.()
+      }}
     >
       <Show
-        when={!props.empty && props.avatarUrl}
+        when={!props.row.empty && props.row.avatarUrl}
         fallback={<div class="i-ph-user-bold text-sm text-text-muted" />}
       >
         {avatar => (
           <img
             src={avatar()}
-            alt={props.name}
-            class="rounded-full h-5 w-5 object-cover"
+            alt={props.row.name}
+            draggable={false}
+            class="rounded-full h-5 w-5 object-cover pointer-events-none"
           />
         )}
       </Show>
-      <span class="text-sm flex-1 truncate">{props.name}</span>
-      <Show when={props.isHost}>
+
+      <span class="text-sm flex-1 truncate">{props.row.name}</span>
+
+      <Show when={props.showJoin && !props.pending}>
+        <button
+          class="h-5 w-5 rounded-sm flex items-center justify-center text-text-secondary opacity-0 transition-opacity group-hover:opacity-100 hover:text-text-primary hover:bg-white/8"
+          onClick={(event) => {
+            event.stopPropagation()
+            props.onJoin?.()
+          }}
+        >
+          <span class="i-ph-plus-bold text-xs" />
+        </button>
+      </Show>
+
+      <Show when={props.showRemove && !props.pending}>
+        <button
+          class="h-5 w-5 rounded-sm flex items-center justify-center text-text-secondary opacity-0 transition-opacity group-hover:opacity-100 hover:text-accent-red hover:bg-white/8"
+          onClick={(event) => {
+            event.stopPropagation()
+            props.onRemove?.()
+          }}
+        >
+          <span class="i-ph-x-bold text-xs" />
+        </button>
+      </Show>
+
+      <Show when={!props.showJoin && !props.showRemove && props.row.isHost}>
         <span class="text-[10px] text-accent-gold tracking-wider font-bold uppercase">Host</span>
       </Show>
     </div>
@@ -528,4 +992,20 @@ function formatTimerValue(timerSeconds: number | null): string {
   const minutes = Math.round(timerSeconds / 60)
   if (minutes === 1) return '1 minute'
   return `${minutes} minutes`
+}
+
+function normalizeLobbyMode(value: string | undefined): LobbyModeValue {
+  if (value === '1v1' || value === '2v2' || value === '3v3' || value === 'ffa') return value
+  return 'ffa'
+}
+
+function inferModeFromFormatId(value: string | undefined): LobbyModeValue {
+  if (!value) return 'ffa'
+
+  const normalized = value.trim().toLowerCase()
+  if (normalized === '1v1' || normalized.endsWith('-1v1')) return '1v1'
+  if (normalized === '2v2' || normalized.endsWith('-2v2')) return '2v2'
+  if (normalized === '3v3' || normalized.endsWith('-3v3')) return '3v3'
+  if (normalized === 'ffa' || normalized.endsWith('-ffa')) return 'ffa'
+  return 'ffa'
 }

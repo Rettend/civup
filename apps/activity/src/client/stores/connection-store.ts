@@ -29,11 +29,12 @@ export interface LobbySnapshot {
   mode: string
   hostId: string
   status: string
-  entries: {
+  entries: ({
     playerId: string
     displayName: string
     avatarUrl?: string | null
-  }[]
+  } | null)[]
+  minPlayers: number
   targetSize: number
   draftConfig: {
     banTimerSeconds: number | null
@@ -146,7 +147,7 @@ export function sendMessage(msg: ClientMessage): boolean {
 }
 
 export function sendStart() {
-  sendMessage({ type: 'start' })
+  return sendMessage({ type: 'start' })
 }
 
 export function sendBan(civIds: string[]) {
@@ -274,6 +275,105 @@ export async function updateLobbyDraftConfig(
   }
 }
 
+/** Update open lobby game mode (host-only). */
+export async function updateLobbyMode(
+  mode: string,
+  userId: string,
+  nextMode: string,
+): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
+  try {
+    const res = await fetch(`/api/lobby/${mode}/mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, nextMode }),
+    })
+
+    const data = await res.json() as LobbySnapshot & { error?: string }
+    if (!res.ok) return { ok: false, error: data.error ?? 'Failed to update lobby mode' }
+    return { ok: true, lobby: data }
+  }
+  catch (err) {
+    console.error('Failed to update lobby mode:', err)
+    return { ok: false, error: 'Network error while updating lobby mode' }
+  }
+}
+
+/** Place a player into a target lobby slot (join/move/swap). */
+export async function placeLobbySlot(
+  mode: string,
+  payload: {
+    userId: string
+    targetSlot: number
+    playerId?: string
+    displayName?: string
+    avatarUrl?: string | null
+  },
+): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
+  try {
+    const res = await fetch(`/api/lobby/${mode}/place`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    const data = await res.json() as LobbySnapshot & { error?: string }
+    if (!res.ok) return { ok: false, error: data.error ?? 'Failed to place lobby slot' }
+    return { ok: true, lobby: data }
+  }
+  catch (err) {
+    console.error('Failed to place lobby slot:', err)
+    return { ok: false, error: 'Network error while updating lobby slot' }
+  }
+}
+
+/** Remove a player from a lobby slot (self-leave or host kick). */
+export async function removeLobbySlot(
+  mode: string,
+  payload: {
+    userId: string
+    slot: number
+  },
+): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
+  try {
+    const res = await fetch(`/api/lobby/${mode}/remove`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    const data = await res.json() as LobbySnapshot & { error?: string }
+    if (!res.ok) return { ok: false, error: data.error ?? 'Failed to remove lobby slot' }
+    return { ok: true, lobby: data }
+  }
+  catch (err) {
+    console.error('Failed to remove lobby slot:', err)
+    return { ok: false, error: 'Network error while removing lobby slot' }
+  }
+}
+
+/** Start a draft from an open lobby (host-only). */
+export async function startLobbyDraft(
+  mode: string,
+  userId: string,
+): Promise<{ ok: true, matchId: string } | { ok: false, error: string }> {
+  try {
+    const res = await fetch(`/api/lobby/${mode}/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    })
+
+    const data = await res.json() as { matchId?: string, error?: string }
+    if (!res.ok) return { ok: false, error: data.error ?? 'Failed to start lobby draft' }
+    if (!data.matchId) return { ok: false, error: 'Draft started but no match ID was returned' }
+    return { ok: true, matchId: data.matchId }
+  }
+  catch (err) {
+    console.error('Failed to start lobby draft:', err)
+    return { ok: false, error: 'Network error while starting lobby draft' }
+  }
+}
+
 /** Cancel an open lobby before draft room creation */
 export async function cancelLobby(
   mode: string,
@@ -353,10 +453,10 @@ export async function reportMatchResult(
 function handleServerMessage(msg: ServerMessage) {
   switch (msg.type) {
     case 'init':
-      initDraft(msg.state, msg.seatIndex, msg.timerEndsAt, msg.completedAt)
+      initDraft(msg.state, msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt)
       break
     case 'update':
-      updateDraft(msg.state, msg.events, msg.timerEndsAt, msg.completedAt)
+      updateDraft(msg.state, msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt)
       if (pendingConfigAck) {
         clearTimeout(pendingConfigAck.timeout)
         pendingConfigAck.resolve()

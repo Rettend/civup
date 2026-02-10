@@ -47,6 +47,26 @@ export function defaultPlayerCount(mode: GameMode): number {
   return 8
 }
 
+/** Maximum player count allowed for a lobby mode */
+export function maxPlayerCount(mode: GameMode): number {
+  if (mode === 'ffa') return 10
+  return defaultPlayerCount(mode)
+}
+
+/** Minimum players required before a lobby can start */
+export function minPlayerCount(mode: GameMode): number {
+  if (mode === 'ffa') return 6
+  return defaultPlayerCount(mode)
+}
+
+/** Whether a lobby can start with the current player count */
+export function canStartWithPlayerCount(mode: GameMode, playerCount: number): boolean {
+  if (mode === 'ffa') {
+    return playerCount >= minPlayerCount(mode) && playerCount <= maxPlayerCount(mode)
+  }
+  return playerCount === defaultPlayerCount(mode)
+}
+
 // ── Leaders ─────────────────────────────────────────────────
 
 export interface LeaderAbility {

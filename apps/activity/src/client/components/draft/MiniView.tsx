@@ -1,6 +1,7 @@
 import { getLeader } from '@civup/game'
 import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
+import { formatModeLabel } from '~/client/lib/mode'
 import { draftStore, phaseAccent, phaseLabel } from '~/client/stores'
 
 /** Minimized PiP view (402x227) — status card with phase, timer, whose turn, last pick */
@@ -24,7 +25,7 @@ export function MiniView() {
   const seconds = () => Math.ceil(remaining() / 1000)
 
   /** Format name */
-  const formatName = () => state()?.formatId?.replace(/-/g, ' ').toUpperCase() ?? ''
+  const formatName = () => formatModeLabel(state()?.formatId)
 
   /** Active seat's display name */
   const activeSeatName = () => {
