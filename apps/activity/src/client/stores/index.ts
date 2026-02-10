@@ -10,7 +10,9 @@ export {
   fetchMatchForUser,
   fetchMatchState,
   type LobbySnapshot,
+  placeLobbySlot,
   reportMatchResult,
+  removeLobbySlot,
   sendBan,
   sendCancel,
   sendConfig,
@@ -18,7 +20,9 @@ export {
   sendPick,
   sendScrub,
   sendStart,
+  startLobbyDraft,
   updateLobbyDraftConfig,
+  updateLobbyMode,
 } from './connection-store'
 export { currentStep, currentStepDuration, draftStore, hasSubmitted, isMyTurn, isSpectator, phaseLabel } from './draft-store'
 export {

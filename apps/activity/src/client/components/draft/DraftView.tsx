@@ -8,6 +8,7 @@ import {
   isSpectator,
   reportMatchResult,
   sendScrub,
+  sendStart,
   setGridOpen,
   setIsMiniView,
   userId,
@@ -22,17 +23,52 @@ import { SlotStrip } from './SlotStrip'
 
 interface DraftViewProps {
   matchId: string
+  autoStart?: boolean
 }
 
 /** Main draft layout — replaces DraftLayout. Header + slots + grid overlay */
 export function DraftView(props: DraftViewProps) {
   const state = () => draftStore.state
-  const hostId = () => state()?.seats[0]?.playerId ?? null
+  const [autoStartSent, setAutoStartSent] = createSignal(false)
+  const [showAutoStartSplash, setShowAutoStartSplash] = createSignal(Boolean(props.autoStart))
+  let autoStartSplashTimeout: ReturnType<typeof setTimeout> | null = null
+  const hostId = () => draftStore.hostId
   const amHost = () => {
     const currentUserId = userId()
     if (!currentUserId) return false
     return currentUserId === hostId()
   }
+
+  createEffect(() => {
+    if (state()?.status === 'waiting') return
+    setShowAutoStartSplash(false)
+    if (!autoStartSplashTimeout) return
+    clearTimeout(autoStartSplashTimeout)
+    autoStartSplashTimeout = null
+  })
+
+  createEffect(() => {
+    if (!props.autoStart || autoStartSent()) return
+    if (state()?.status !== 'waiting') return
+    if (!amHost()) return
+
+    const sent = sendStart()
+    if (!sent) return
+
+    setShowAutoStartSplash(true)
+    if (autoStartSplashTimeout) clearTimeout(autoStartSplashTimeout)
+    autoStartSplashTimeout = setTimeout(() => {
+      setShowAutoStartSplash(false)
+      autoStartSplashTimeout = null
+    }, 5000)
+    setAutoStartSent(true)
+  })
+
+  onCleanup(() => {
+    if (!autoStartSplashTimeout) return
+    clearTimeout(autoStartSplashTimeout)
+    autoStartSplashTimeout = null
+  })
 
   // Viewport detection for minimized mode
   createEffect(() => {
@@ -55,7 +91,7 @@ export function DraftView(props: DraftViewProps) {
             >
               <Show
                 when={state()?.status !== 'waiting'}
-                fallback={<ConfigScreen />}
+                fallback={showAutoStartSplash() ? <AutoStartingDraftScreen /> : <ConfigScreen />}
               >
                 {/* Active draft view */}
                 <div class="text-text-primary font-sans bg-bg-primary flex flex-col h-screen relative overflow-hidden">
@@ -124,6 +160,17 @@ export function DraftView(props: DraftViewProps) {
   )
 }
 
+function AutoStartingDraftScreen() {
+  return (
+    <main class="text-text-primary font-sans bg-bg-primary flex min-h-screen items-center justify-center">
+      <div class="text-center">
+        <div class="text-2xl text-accent-gold font-bold mb-2">CivUp</div>
+        <div class="text-sm text-text-secondary">Starting draft...</div>
+      </div>
+    </main>
+  )
+}
+
 function CancelledDraftScreen() {
   const state = () => draftStore.state
   const reason = () => state()?.cancelReason ?? 'scrub'
@@ -181,7 +228,7 @@ function PostDraftScreen(props: { matchId: string }) {
     }
   })
 
-  const hostId = () => state()?.seats[0]?.playerId ?? null
+  const hostId = () => draftStore.hostId
   const amHost = () => {
     const currentUserId = userId()
     if (!currentUserId) return false

@@ -1,4 +1,3 @@
-import type { Auth } from './discord'
 import type { LobbySnapshot } from './stores'
 import { createSignal, Match, onCleanup, onMount, Switch } from 'solid-js'
 import { ConfigScreen, DraftView } from './components/draft'
@@ -13,6 +12,7 @@ import {
   fetchMatchForUser,
 
   setAuthenticatedUser,
+  userId,
 } from './stores'
 
 type AppState
@@ -20,7 +20,7 @@ type AppState
     | { status: 'error', message: string }
     | { status: 'lobby-waiting', lobby: LobbySnapshot }
     | { status: 'no-match' }
-    | { status: 'authenticated', auth: Auth, matchId: string }
+    | { status: 'authenticated', matchId: string, autoStart: boolean }
 
 /** Activity host — websocket goes through same-origin /api/parties proxy */
 const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
@@ -54,13 +54,13 @@ export default function App() {
 
       // Match lookup order:
       // 1) direct channel mapping
-      // 2) open lobby by user/channel (pre-draft waiting)
+      // 2) open lobby by channel/user (pre-draft waiting)
       // 3) participant fallback (for voice-channel launches)
       let matchId = await fetchMatchForChannel(channelId)
       const resolveOpenLobby = async () => {
-        const userLobby = await fetchLobbyForUser(auth.user.id)
-        if (userLobby) return userLobby
-        return fetchLobbyForChannel(channelId)
+        const channelLobby = await fetchLobbyForChannel(channelId)
+        if (channelLobby) return channelLobby
+        return fetchLobbyForUser(auth.user.id)
       }
 
       if (!matchId) {
@@ -77,7 +77,8 @@ export default function App() {
               const nextLobby = await resolveOpenLobby()
               if (nextLobby) {
                 setState((prev) => {
-                  if (prev.status === 'lobby-waiting' && isSameLobbySnapshot(prev.lobby, nextLobby)) return prev
+                  if (prev.status !== 'lobby-waiting') return prev
+                  if (isSameLobbySnapshot(prev.lobby, nextLobby)) return prev
                   return { status: 'lobby-waiting', lobby: nextLobby }
                 })
                 return
@@ -89,12 +90,14 @@ export default function App() {
               }
 
               if (nextMatchId) {
+                if (state().status !== 'lobby-waiting') return
                 stopLobbyPoll()
-                setState({ status: 'authenticated', auth, matchId: nextMatchId })
+                setState({ status: 'authenticated', matchId: nextMatchId, autoStart: false })
                 connectToRoom(ACTIVITY_HOST, nextMatchId, auth.user.id)
                 return
               }
 
+              if (state().status !== 'lobby-waiting') return
               stopLobbyPoll()
               setState({ status: 'no-match' })
             }
@@ -114,7 +117,7 @@ export default function App() {
         // In dev, fall back to using channelId as room ID for testing
         if (import.meta.env.DEV) {
           console.warn('No match found for channel, using channelId as fallback')
-          setState({ status: 'authenticated', auth, matchId: channelId })
+          setState({ status: 'authenticated', matchId: channelId, autoStart: false })
           connectToRoom(ACTIVITY_HOST, channelId, auth.user.id)
           return
         }
@@ -124,7 +127,7 @@ export default function App() {
       }
 
       // Connect to the PartyKit room using the match ID
-      setState({ status: 'authenticated', auth, matchId })
+      setState({ status: 'authenticated', matchId, autoStart: false })
       connectToRoom(ACTIVITY_HOST, matchId, auth.user.id)
     }
     catch (err) {
@@ -162,7 +165,19 @@ export default function App() {
 
       {/* Waiting lobby (before match room exists) */}
       <Match when={state().status === 'lobby-waiting'}>
-        <ConfigScreen lobby={(state() as Extract<AppState, { status: 'lobby-waiting' }>).lobby} />
+        <ConfigScreen
+          lobby={(state() as Extract<AppState, { status: 'lobby-waiting' }>).lobby}
+          onLobbyStarted={(matchId) => {
+            const currentUserId = userId()
+            if (!currentUserId) {
+              setState({ status: 'error', message: 'Could not identify your Discord user. Reopen the activity.' })
+              return
+            }
+            stopLobbyPoll()
+            setState({ status: 'authenticated', matchId, autoStart: true })
+            connectToRoom(ACTIVITY_HOST, matchId, currentUserId)
+          }}
+        />
       </Match>
 
       {/* No match available */}
@@ -183,14 +198,17 @@ export default function App() {
 
       {/* Authenticated — show draft */}
       <Match when={state().status === 'authenticated'}>
-        <DraftWithConnection matchId={(state() as Extract<AppState, { status: 'authenticated' }>).matchId} />
+        <DraftWithConnection
+          matchId={(state() as Extract<AppState, { status: 'authenticated' }>).matchId}
+          autoStart={(state() as Extract<AppState, { status: 'authenticated' }>).autoStart}
+        />
       </Match>
     </Switch>
   )
 }
 
 /** Intermediate component: shows connection status or Draft UI */
-function DraftWithConnection(props: { matchId: string }) {
+function DraftWithConnection(props: { matchId: string, autoStart: boolean }) {
   return (
     <Switch>
       <Match when={connectionStatus() === 'connecting'}>
@@ -214,7 +232,7 @@ function DraftWithConnection(props: { matchId: string }) {
       </Match>
 
       <Match when={connectionStatus() === 'connected'}>
-        <DraftView matchId={props.matchId} />
+        <DraftView matchId={props.matchId} autoStart={props.autoStart} />
       </Match>
 
       {/* Disconnected fallback */}
@@ -236,15 +254,20 @@ function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
   if (a.mode !== b.mode) return false
   if (a.hostId !== b.hostId) return false
   if (a.status !== b.status) return false
+  if (a.minPlayers !== b.minPlayers) return false
   if (a.targetSize !== b.targetSize) return false
   if (a.draftConfig.banTimerSeconds !== b.draftConfig.banTimerSeconds) return false
   if (a.draftConfig.pickTimerSeconds !== b.draftConfig.pickTimerSeconds) return false
   if (a.entries.length !== b.entries.length) return false
 
   for (let i = 0; i < a.entries.length; i++) {
-    if (a.entries[i]?.playerId !== b.entries[i]?.playerId) return false
-    if (a.entries[i]?.displayName !== b.entries[i]?.displayName) return false
-    if ((a.entries[i]?.avatarUrl ?? null) !== (b.entries[i]?.avatarUrl ?? null)) return false
+    const aEntry = a.entries[i]
+    const bEntry = b.entries[i]
+    if ((aEntry == null) !== (bEntry == null)) return false
+    if (!aEntry || !bEntry) continue
+    if (aEntry.playerId !== bEntry.playerId) return false
+    if (aEntry.displayName !== bEntry.displayName) return false
+    if ((aEntry.avatarUrl ?? null) !== (bEntry.avatarUrl ?? null)) return false
   }
 
   return true

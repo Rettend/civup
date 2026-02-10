@@ -1,10 +1,11 @@
 import type { GameMode } from '@civup/game'
+import { maxPlayerCount } from '@civup/game'
 import { Button } from 'discord-hono'
 import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/lfg.ts'
 import { getMatchForUser, storeUserMatchMappings } from '../../services/activity.ts'
 import { clearDeferredEphemeralResponse, sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
 import { upsertLobbyMessage } from '../../services/lobby-message.ts'
-import { clearLobby, getLobby } from '../../services/lobby.ts'
+import { clearLobby, getLobby, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby.ts'
 import { getQueueState, removeFromQueue } from '../../services/queue.ts'
 import { factory } from '../../setup.ts'
 import { getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
@@ -100,9 +101,14 @@ export const component_lfg_leave = factory.component(
       const lobby = await getLobby(kv, removed)
       if (lobby?.status === 'open') {
         const queue = await getQueueState(kv, removed)
+        const slots = normalizeLobbySlots(removed, lobby.slots, queue.entries)
+        const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
+        if (!sameLobbySlots(slots, lobby.slots)) {
+          await setLobbySlots(kv, removed, slots)
+        }
         try {
           await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-            embeds: [lobbyOpenEmbed(removed, queue.entries, queue.targetSize)],
+            embeds: [lobbyOpenEmbed(removed, slottedEntries, maxPlayerCount(removed))],
             components: lobbyComponents(removed, 'open'),
           })
         }

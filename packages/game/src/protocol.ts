@@ -11,6 +11,7 @@ import type {
 /** Payload the bot sends to initialize a draft room */
 export interface RoomConfig {
   matchId: string
+  hostId: string
   formatId: string
   seats: DraftSeat[]
   civPool: string[]
@@ -22,6 +23,7 @@ export interface RoomConfig {
 export interface DraftCompleteWebhookPayload {
   outcome: 'complete'
   matchId: string
+  hostId?: string
   completedAt: number
   state: DraftState
 }
@@ -29,6 +31,7 @@ export interface DraftCompleteWebhookPayload {
 export interface DraftCancelledWebhookPayload {
   outcome: 'cancelled'
   matchId: string
+  hostId?: string
   cancelledAt: number
   reason: DraftCancelReason
   state: DraftState
@@ -55,6 +58,7 @@ export type ServerMessage
   = | {
     type: 'init'
     state: DraftState
+    hostId?: string
     seatIndex: number | null
     timerEndsAt: number | null
     completedAt: number | null
@@ -62,6 +66,7 @@ export type ServerMessage
   | {
     type: 'update'
     state: DraftState
+    hostId?: string
     events: DraftEvent[]
     timerEndsAt: number | null
     completedAt: number | null

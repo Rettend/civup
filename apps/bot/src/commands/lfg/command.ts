@@ -1,6 +1,7 @@
 import type { GameMode } from '@civup/game'
 import type { LfgVar } from './shared.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
+import { maxPlayerCount, minPlayerCount } from '@civup/game'
 import { Command, Option, SubCommand } from 'discord-hono'
 import { eq } from 'drizzle-orm'
 import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/lfg.ts'
@@ -13,7 +14,7 @@ import {
 import { createChannelMessage } from '../../services/discord.ts'
 import { clearDeferredEphemeralResponse, sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
 import { upsertLobbyMessage } from '../../services/lobby-message.ts'
-import { clearLobby, createLobby, getLobby } from '../../services/lobby.ts'
+import { clearLobby, createLobby, getLobby, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby.ts'
 import { addToQueue, clearQueue, getQueueState, removeFromQueue } from '../../services/queue.ts'
 import { getSystemChannel } from '../../services/system-channels.ts'
 import { factory } from '../../setup.ts'
@@ -71,7 +72,12 @@ export const command_lfg = factory.command<LfgVar>(
           if (existingLobby) {
             if (existingLobby.status === 'open') {
               const queue = await getQueueState(kv, mode)
-              const embed = lobbyOpenEmbed(mode, queue.entries, queue.targetSize)
+              const slots = normalizeLobbySlots(mode, existingLobby.slots, queue.entries)
+              const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
+              const embed = lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))
+              if (!sameLobbySlots(slots, existingLobby.slots)) {
+                await setLobbySlots(kv, mode, slots)
+              }
               try {
                 await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
                   embeds: [embed],
@@ -124,7 +130,7 @@ export const command_lfg = factory.command<LfgVar>(
           }
 
           const queue = await getQueueState(kv, mode)
-          const embed = lobbyOpenEmbed(mode, queue.entries, queue.targetSize)
+          const embed = lobbyOpenEmbed(mode, queue.entries, maxPlayerCount(mode))
 
           try {
             const message = await createChannelMessage(c.env.DISCORD_TOKEN, draftChannelId, {
@@ -242,9 +248,14 @@ export const command_lfg = factory.command<LfgVar>(
           const lobby = await getLobby(kv, removed)
           if (lobby?.status === 'open') {
             const queue = await getQueueState(kv, removed)
+            const slots = normalizeLobbySlots(removed, lobby.slots, queue.entries)
+            const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
+            if (!sameLobbySlots(slots, lobby.slots)) {
+              await setLobbySlots(kv, removed, slots)
+            }
             try {
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-                embeds: [lobbyOpenEmbed(removed, queue.entries, queue.targetSize)],
+                embeds: [lobbyOpenEmbed(removed, slottedEntries, maxPlayerCount(removed))],
                 components: lobbyComponents(removed, 'open'),
               })
             }
@@ -271,7 +282,12 @@ export const command_lfg = factory.command<LfgVar>(
             const label = LOBBY_STATUS_LABELS[lobby.status]
             if (lobby.status === 'open') {
               const queue = await getQueueState(kv, mode)
-              lines.push(`- ${mode.toUpperCase()} - ${label} in <#${lobby.channelId}> (${queue.entries.length}/${queue.targetSize})`)
+              const slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
+              const filled = slots.filter(slot => slot != null).length
+              const target = mode === 'ffa'
+                ? `${minPlayerCount(mode)}-${maxPlayerCount(mode)}`
+                : String(maxPlayerCount(mode))
+              lines.push(`- ${mode.toUpperCase()} - ${label} in <#${lobby.channelId}> (${filled}/${target} slotted, ${queue.entries.length} joined)`)
             }
             else {
               lines.push(`- ${mode.toUpperCase()} - ${label} in <#${lobby.channelId}>`)
@@ -316,9 +332,14 @@ export const command_lfg = factory.command<LfgVar>(
           const lobby = await getLobby(kv, removed)
           if (lobby?.status === 'open') {
             const queue = await getQueueState(kv, removed)
+            const slots = normalizeLobbySlots(removed, lobby.slots, queue.entries)
+            const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
+            if (!sameLobbySlots(slots, lobby.slots)) {
+              await setLobbySlots(kv, removed, slots)
+            }
             try {
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-                embeds: [lobbyOpenEmbed(removed, queue.entries, queue.targetSize)],
+                embeds: [lobbyOpenEmbed(removed, slottedEntries, maxPlayerCount(removed))],
                 components: lobbyComponents(removed, 'open'),
               })
             }

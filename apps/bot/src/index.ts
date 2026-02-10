@@ -1,16 +1,25 @@
 import type { DraftWebhookPayload, GameMode } from '@civup/game'
 import type { Env } from './env.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { GAME_MODES } from '@civup/game'
+import { canStartWithPlayerCount, GAME_MODES, maxPlayerCount, minPlayerCount } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import * as commands from './commands/index.ts'
 import * as cron from './cron/cleanup.ts'
-import { lobbyCancelledEmbed, lobbyDraftCompleteEmbed, lobbyResultEmbed } from './embeds/lfg.ts'
 import {
+  lobbyCancelledEmbed,
+  lobbyComponents,
+  lobbyDraftCompleteEmbed,
+  lobbyDraftingEmbed,
+  lobbyOpenEmbed,
+  lobbyResultEmbed,
+} from './embeds/lfg.ts'
+import {
+  createDraftRoom,
   getMatchForChannel,
   getMatchForUser,
+  storeMatchMapping,
   storeUserMatchMappings,
 } from './services/activity.ts'
 import { createChannelMessage } from './services/discord.ts'
@@ -21,11 +30,16 @@ import {
   clearLobbyByMatch,
   getLobby,
   getLobbyByMatch,
+  mapLobbySlotsToEntries,
+  normalizeLobbySlots,
+  sameLobbySlots,
   setLobbyDraftConfig,
+  setLobbySlots,
   setLobbyStatus,
+  upsertLobby,
 } from './services/lobby.ts'
-import { activateDraftMatch, cancelDraftMatch, reportMatch } from './services/match.ts'
-import { clearQueue, getPlayerQueueMode, getQueueState } from './services/queue.ts'
+import { activateDraftMatch, cancelDraftMatch, createDraftMatch, reportMatch } from './services/match.ts'
+import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, moveQueueMode } from './services/queue.ts'
 import { getSystemChannel } from './services/system-channels.ts'
 import { factory } from './setup.ts'
 
@@ -116,11 +130,10 @@ app.get('/api/lobby/user/:userId', async (c) => {
 
 // Host-only lobby config update (pre-draft)
 app.post('/api/lobby/:mode/config', async (c) => {
-  const modeParam = c.req.param('mode')
-  if (!GAME_MODES.includes(modeParam as GameMode)) {
+  const mode = parseGameMode(c.req.param('mode'))
+  if (!mode) {
     return c.json({ error: 'Invalid game mode' }, 400)
   }
-  const mode = modeParam as GameMode
 
   let body: unknown
   try {
@@ -171,13 +184,412 @@ app.post('/api/lobby/:mode/config', async (c) => {
   return c.json(await buildOpenLobbySnapshot(c.env.KV, mode, updated))
 })
 
+// Host-only open lobby mode change
+app.post('/api/lobby/:mode/mode', async (c) => {
+  const mode = parseGameMode(c.req.param('mode'))
+  if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  }
+  catch {
+    return c.json({ error: 'Invalid JSON payload' }, 400)
+  }
+
+  if (!body || typeof body !== 'object') {
+    return c.json({ error: 'Invalid request body' }, 400)
+  }
+
+  const { userId, nextMode: nextModeRaw } = body as {
+    userId?: string
+    nextMode?: string
+  }
+
+  if (typeof userId !== 'string' || userId.length === 0) {
+    return c.json({ error: 'userId is required' }, 400)
+  }
+
+  const nextMode = typeof nextModeRaw === 'string' ? parseGameMode(nextModeRaw) : null
+  if (!nextMode) {
+    return c.json({ error: 'nextMode must be one of ffa, 1v1, 2v2, 3v3' }, 400)
+  }
+
+  const lobby = await getLobby(c.env.KV, mode)
+  if (!lobby || lobby.status !== 'open') {
+    return c.json({ error: 'No open lobby for this mode' }, 404)
+  }
+
+  if (lobby.hostId !== userId) {
+    return c.json({ error: 'Only the lobby host can change game mode' }, 403)
+  }
+
+  if (nextMode === mode) {
+    return c.json(await buildOpenLobbySnapshot(c.env.KV, mode, lobby))
+  }
+
+  const modeCollision = await getLobby(c.env.KV, nextMode)
+  if (modeCollision) {
+    return c.json({ error: `A ${nextMode.toUpperCase()} lobby already exists.` }, 409)
+  }
+
+  const queue = await getQueueState(c.env.KV, mode)
+  if (!queue.entries.some(entry => entry.playerId === lobby.hostId)) {
+    return c.json({ error: 'Host is not in the queue anymore. Rejoin first.' }, 400)
+  }
+
+  const normalizedSlots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
+  const orderedPlayers: string[] = []
+
+  orderedPlayers.push(lobby.hostId)
+  for (const playerId of normalizedSlots) {
+    if (!playerId || orderedPlayers.includes(playerId)) continue
+    orderedPlayers.push(playerId)
+  }
+
+  const nextSlots = Array.from({ length: maxPlayerCount(nextMode) }, () => null as string | null)
+  for (let i = 0; i < nextSlots.length; i++) {
+    nextSlots[i] = orderedPlayers[i] ?? null
+  }
+
+  const nextLobby = {
+    ...lobby,
+    mode: nextMode,
+    slots: nextSlots,
+    updatedAt: Date.now(),
+  }
+
+  await clearLobby(c.env.KV, mode)
+  await upsertLobby(c.env.KV, nextLobby)
+
+  const movedQueue = await moveQueueMode(c.env.KV, mode, nextMode)
+  const normalizedNextSlots = normalizeLobbySlots(nextMode, nextSlots, movedQueue.entries)
+  const slottedEntries = mapLobbySlotsToEntries(normalizedNextSlots, movedQueue.entries)
+
+  if (!sameLobbySlots(normalizedNextSlots, nextSlots)) {
+    await setLobbySlots(c.env.KV, nextMode, normalizedNextSlots)
+  }
+
+  try {
+    await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, nextLobby, {
+      embeds: [lobbyOpenEmbed(nextMode, slottedEntries, maxPlayerCount(nextMode))],
+      components: lobbyComponents(nextMode, 'open'),
+    })
+  }
+  catch (error) {
+    console.error(`Failed to update lobby embed after mode change ${mode} -> ${nextMode}:`, error)
+  }
+
+  return c.json(buildOpenLobbySnapshotFromParts(
+    nextMode,
+    nextLobby,
+    movedQueue.entries,
+    normalizedNextSlots,
+  ))
+})
+
+// Place a player into a lobby slot (join/move/swap)
+app.post('/api/lobby/:mode/place', async (c) => {
+  const mode = parseGameMode(c.req.param('mode'))
+  if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  }
+  catch {
+    return c.json({ error: 'Invalid JSON payload' }, 400)
+  }
+
+  if (!body || typeof body !== 'object') {
+    return c.json({ error: 'Invalid request body' }, 400)
+  }
+
+  const {
+    userId,
+    targetSlot: targetSlotRaw,
+    playerId: requestedPlayerId,
+    displayName,
+    avatarUrl,
+  } = body as {
+    userId?: string
+    targetSlot?: unknown
+    playerId?: unknown
+    displayName?: unknown
+    avatarUrl?: unknown
+  }
+
+  if (typeof userId !== 'string' || userId.length === 0) {
+    return c.json({ error: 'userId is required' }, 400)
+  }
+
+  const targetSlot = parseSlotIndex(targetSlotRaw)
+  if (targetSlot == null || targetSlot >= maxPlayerCount(mode)) {
+    return c.json({ error: 'Invalid target slot index' }, 400)
+  }
+
+  const lobby = await getLobby(c.env.KV, mode)
+  if (!lobby || lobby.status !== 'open') {
+    return c.json({ error: 'No open lobby for this mode' }, 404)
+  }
+
+  const isHost = lobby.hostId === userId
+  const movingPlayerId = typeof requestedPlayerId === 'string' && requestedPlayerId.length > 0
+    ? requestedPlayerId
+    : userId
+
+  if (!isHost && movingPlayerId !== userId) {
+    return c.json({ error: 'You can only move yourself' }, 403)
+  }
+
+  let queue = await getQueueState(c.env.KV, mode)
+  let slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
+
+  const movingEntry = queue.entries.find(entry => entry.playerId === movingPlayerId)
+  if (!movingEntry) {
+    if (movingPlayerId !== userId) {
+      return c.json({ error: 'Target player is not available as a spectator.' }, 400)
+    }
+
+    if (typeof displayName !== 'string' || displayName.trim().length === 0) {
+      return c.json({ error: 'displayName is required when joining as spectator.' }, 400)
+    }
+
+    const joinResult = await addToQueue(c.env.KV, mode, {
+      playerId: movingPlayerId,
+      displayName,
+      avatarUrl: typeof avatarUrl === 'string' ? avatarUrl : null,
+      joinedAt: Date.now(),
+    })
+
+    if (joinResult.error) {
+      return c.json({ error: joinResult.error }, 400)
+    }
+
+    queue = await getQueueState(c.env.KV, mode)
+    slots = normalizeLobbySlots(mode, slots, queue.entries)
+  }
+
+  const sourceSlot = slots.findIndex(playerId => playerId === movingPlayerId)
+  const targetPlayerId = slots[targetSlot]
+
+  if (targetPlayerId === movingPlayerId) {
+    return c.json(buildOpenLobbySnapshotFromParts(mode, lobby, queue.entries, slots))
+  }
+
+  if (!isHost) {
+    if (targetPlayerId != null) {
+      return c.json({ error: 'You can only move to empty slots.' }, 403)
+    }
+    if (sourceSlot >= 0) slots[sourceSlot] = null
+    slots[targetSlot] = movingPlayerId
+  }
+  else {
+    if (sourceSlot < 0) {
+      if (targetPlayerId != null) {
+        return c.json({ error: 'Choose an empty slot for this spectator.' }, 400)
+      }
+      slots[targetSlot] = movingPlayerId
+    }
+    else {
+      slots[sourceSlot] = targetPlayerId ?? null
+      slots[targetSlot] = movingPlayerId
+    }
+  }
+
+  const updatedLobby = await setLobbySlots(c.env.KV, mode, slots)
+  const nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
+
+  const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
+  try {
+    await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, nextLobby, {
+      embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
+      components: lobbyComponents(mode, 'open'),
+    })
+  }
+  catch (error) {
+    console.error(`Failed to update lobby embed after slot placement in ${mode}:`, error)
+  }
+
+  return c.json(buildOpenLobbySnapshotFromParts(mode, nextLobby, queue.entries, slots))
+})
+
+// Remove a player from a lobby slot (self leave or host kick)
+app.post('/api/lobby/:mode/remove', async (c) => {
+  const mode = parseGameMode(c.req.param('mode'))
+  if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  }
+  catch {
+    return c.json({ error: 'Invalid JSON payload' }, 400)
+  }
+
+  if (!body || typeof body !== 'object') {
+    return c.json({ error: 'Invalid request body' }, 400)
+  }
+
+  const { userId, slot: slotRaw } = body as { userId?: string, slot?: unknown }
+
+  if (typeof userId !== 'string' || userId.length === 0) {
+    return c.json({ error: 'userId is required' }, 400)
+  }
+
+  const slot = parseSlotIndex(slotRaw)
+  if (slot == null || slot >= maxPlayerCount(mode)) {
+    return c.json({ error: 'Invalid slot index' }, 400)
+  }
+
+  const lobby = await getLobby(c.env.KV, mode)
+  if (!lobby || lobby.status !== 'open') {
+    return c.json({ error: 'No open lobby for this mode' }, 404)
+  }
+
+  const queue = await getQueueState(c.env.KV, mode)
+  const slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
+  const targetPlayerId = slots[slot]
+
+  if (targetPlayerId == null) {
+    return c.json(buildOpenLobbySnapshotFromParts(mode, lobby, queue.entries, slots))
+  }
+
+  if (targetPlayerId === lobby.hostId) {
+    return c.json({ error: 'Host cannot leave the lobby.' }, 400)
+  }
+
+  const isHost = userId === lobby.hostId
+  if (!isHost && userId !== targetPlayerId) {
+    return c.json({ error: 'You can only remove yourself from a slot.' }, 403)
+  }
+
+  slots[slot] = null
+  const updatedLobby = await setLobbySlots(c.env.KV, mode, slots)
+  const nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
+  const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
+
+  try {
+    await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, nextLobby, {
+      embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
+      components: lobbyComponents(mode, 'open'),
+    })
+  }
+  catch (error) {
+    console.error(`Failed to update lobby embed after slot removal in ${mode}:`, error)
+  }
+
+  return c.json(buildOpenLobbySnapshotFromParts(mode, nextLobby, queue.entries, slots))
+})
+
+// Host-only lobby start (manual start from config screen)
+app.post('/api/lobby/:mode/start', async (c) => {
+  const mode = parseGameMode(c.req.param('mode'))
+  if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  }
+  catch {
+    return c.json({ error: 'Invalid JSON payload' }, 400)
+  }
+
+  if (!body || typeof body !== 'object') {
+    return c.json({ error: 'Invalid request body' }, 400)
+  }
+
+  const { userId } = body as { userId?: string }
+  if (typeof userId !== 'string' || userId.length === 0) {
+    return c.json({ error: 'userId is required' }, 400)
+  }
+
+  const lobby = await getLobby(c.env.KV, mode)
+  if (!lobby || lobby.status !== 'open') {
+    return c.json({ error: 'No open lobby for this mode' }, 404)
+  }
+
+  if (lobby.hostId !== userId) {
+    return c.json({ error: 'Only the lobby host can start the draft' }, 403)
+  }
+
+  const queue = await getQueueState(c.env.KV, mode)
+  const slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
+  const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
+  const selectedEntries = slottedEntries.filter(
+    (entry): entry is Exclude<(typeof slottedEntries)[number], null> => entry !== null,
+  )
+
+  if (!selectedEntries.some(entry => entry.playerId === lobby.hostId)) {
+    return c.json({ error: 'Host must be in a lobby slot before starting.' }, 400)
+  }
+
+  if (!canStartWithPlayerCount(mode, selectedEntries.length)) {
+    if (mode === 'ffa') {
+      return c.json({ error: `FFA can start with ${minPlayerCount(mode)}-${maxPlayerCount(mode)} slotted players.` }, 400)
+    }
+    return c.json({ error: `${mode.toUpperCase()} requires exactly ${maxPlayerCount(mode)} slotted players.` }, 400)
+  }
+
+  try {
+    const { matchId, seats } = await createDraftRoom(mode, selectedEntries, {
+      hostId: lobby.hostId,
+      partyHost: c.env.PARTY_HOST,
+      botHost: c.env.BOT_HOST,
+      webhookSecret: c.env.DRAFT_WEBHOOK_SECRET,
+      timerConfig: lobby.draftConfig,
+    })
+
+    const db = createDb(c.env.DB)
+    await createDraftMatch(db, { matchId, mode, seats })
+
+    if (queue.entries.length > 0) {
+      await clearQueue(c.env.KV, mode, queue.entries.map(entry => entry.playerId))
+    }
+
+    await storeMatchMapping(c.env.KV, lobby.channelId, matchId)
+    await storeUserMatchMappings(c.env.KV, queue.entries.map(entry => entry.playerId), matchId)
+
+    const attachedLobby = await setLobbySlots(c.env.KV, mode, slots)
+    const nextLobbyBase = attachedLobby ?? { ...lobby, slots }
+    await upsertLobby(c.env.KV, {
+      ...nextLobbyBase,
+      status: 'drafting',
+      matchId,
+      updatedAt: Date.now(),
+    })
+
+    const lobbyForMessage = await getLobby(c.env.KV, mode) ?? {
+      ...nextLobbyBase,
+      status: 'drafting',
+      matchId,
+      updatedAt: Date.now(),
+    }
+
+    try {
+      await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobbyForMessage, {
+        embeds: [lobbyDraftingEmbed(mode, seats)],
+        components: lobbyComponents(mode, 'drafting'),
+      })
+    }
+    catch (error) {
+      console.error(`Failed to update drafting lobby embed for mode ${mode}:`, error)
+    }
+
+    return c.json({ ok: true, matchId })
+  }
+  catch (error) {
+    console.error(`Failed to start lobby draft for mode ${mode}:`, error)
+    return c.json({ error: 'Failed to start draft. Please try again.' }, 500)
+  }
+})
+
 // Host-only open lobby cancellation (before draft room exists)
 app.post('/api/lobby/:mode/cancel', async (c) => {
-  const modeParam = c.req.param('mode')
-  if (!GAME_MODES.includes(modeParam as GameMode)) {
+  const mode = parseGameMode(c.req.param('mode'))
+  if (!mode) {
     return c.json({ error: 'Invalid game mode' }, 400)
   }
-  const mode = modeParam as GameMode
 
   let body: unknown
   try {
@@ -351,9 +763,13 @@ app.post('/api/webhooks/draft-complete', async (c) => {
   const db = createDb(c.env.DB)
 
   if (payload.outcome === 'complete') {
+    const hostId = payload.hostId ?? payload.state.seats[0]?.playerId
+    if (!hostId) return c.json({ error: 'Draft webhook missing host identity' }, 400)
+
     const result = await activateDraftMatch(db, {
       state: payload.state,
       completedAt: payload.completedAt,
+      hostId,
     })
 
     if ('error' in result) {
@@ -380,10 +796,14 @@ app.post('/api/webhooks/draft-complete', async (c) => {
     return c.json({ ok: true })
   }
 
+  const hostId = payload.hostId ?? payload.state.seats[0]?.playerId
+  if (!hostId) return c.json({ error: 'Draft webhook missing host identity' }, 400)
+
   const cancelled = await cancelDraftMatch(db, c.env.KV, {
     state: payload.state,
     cancelledAt: payload.cancelledAt,
     reason: payload.reason,
+    hostId,
   })
 
   if ('error' in cancelled) {
@@ -446,6 +866,7 @@ async function buildOpenLobbySnapshot(
   lobby: {
     hostId: string
     status: string
+    slots: (string | null)[]
     draftConfig: {
       banTimerSeconds: number | null
       pickTimerSeconds: number | null
@@ -453,18 +874,63 @@ async function buildOpenLobbySnapshot(
   },
 ) {
   const queue = await getQueueState(kv, mode)
+  const normalizedSlots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
+
+  if (sameLobbySlots(normalizedSlots, lobby.slots)) {
+    return buildOpenLobbySnapshotFromParts(mode, lobby, queue.entries, normalizedSlots)
+  }
+
+  const updatedLobby = await setLobbySlots(kv, mode, normalizedSlots)
+  const resolvedLobby = updatedLobby ?? {
+    ...lobby,
+    slots: normalizedSlots,
+  }
+  return buildOpenLobbySnapshotFromParts(mode, resolvedLobby, queue.entries, normalizedSlots)
+}
+
+function buildOpenLobbySnapshotFromParts(
+  mode: GameMode,
+  lobby: {
+    hostId: string
+    status: string
+    draftConfig: {
+      banTimerSeconds: number | null
+      pickTimerSeconds: number | null
+    }
+  },
+  queueEntries: Awaited<ReturnType<typeof getQueueState>>['entries'],
+  slots: (string | null)[],
+) {
+  const slotEntries = mapLobbySlotsToEntries(slots, queueEntries)
+
   return {
     mode,
     hostId: lobby.hostId,
     status: lobby.status,
-    entries: queue.entries.map(entry => ({
-      playerId: entry.playerId,
-      displayName: entry.displayName,
-      avatarUrl: entry.avatarUrl ?? null,
-    })),
-    targetSize: queue.targetSize,
+    entries: slotEntries.map((entry) => {
+      if (!entry) return null
+      return {
+        playerId: entry.playerId,
+        displayName: entry.displayName,
+        avatarUrl: entry.avatarUrl ?? null,
+      }
+    }),
+    minPlayers: minPlayerCount(mode),
+    targetSize: maxPlayerCount(mode),
     draftConfig: lobby.draftConfig,
   }
+}
+
+function parseGameMode(modeParam: string): GameMode | null {
+  if (!GAME_MODES.includes(modeParam as GameMode)) return null
+  return modeParam as GameMode
+}
+
+function parseSlotIndex(value: unknown): number | null {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  if (!Number.isInteger(numeric)) return null
+  if (numeric < 0) return null
+  return numeric
 }
 
 function parseLobbyTimerSeconds(value: unknown): number | null | undefined {

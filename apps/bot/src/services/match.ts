@@ -52,6 +52,7 @@ interface CreateDraftMatchInput {
 interface ActivateDraftInput {
   state: DraftState
   completedAt: number
+  hostId: string
 }
 
 type ActivateDraftResult
@@ -62,6 +63,7 @@ interface CancelDraftInput {
   state: DraftState
   cancelledAt: number
   reason: DraftCancelReason
+  hostId: string
 }
 
 type CancelDraftResult
@@ -82,9 +84,13 @@ function getHostIdFromDraftData(draftData: string | null): string | null {
   if (!draftData) return null
   try {
     const parsed = JSON.parse(draftData) as {
+      hostId?: string
       state?: {
         seats?: Array<{ playerId?: string }>
       }
+    }
+    if (typeof parsed.hostId === 'string' && parsed.hostId.length > 0) {
+      return parsed.hostId
     }
     const hostId = parsed.state?.seats?.[0]?.playerId
     return typeof hostId === 'string' && hostId.length > 0 ? hostId : null
@@ -285,6 +291,7 @@ export async function activateDraftMatch(
       status: 'active',
       draftData: JSON.stringify({
         completedAt: input.completedAt,
+        hostId: input.hostId,
         state: input.state,
       }),
     })
@@ -371,6 +378,7 @@ export async function cancelDraftMatch(
       draftData: JSON.stringify({
         cancelledAt: input.cancelledAt,
         reason: input.reason,
+        hostId: input.hostId,
         state: input.state,
       }),
     })

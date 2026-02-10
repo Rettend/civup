@@ -44,7 +44,7 @@ const STAGE_COLORS: Record<LobbyStage, number> = {
   'scrubbed': 0xA8B1BD,
 }
 
-export function lobbyOpenEmbed(mode: GameMode, entries: QueueEntry[], targetSize: number): Embed {
+export function lobbyOpenEmbed(mode: GameMode, entries: (QueueEntry | null)[], targetSize: number): Embed {
   const embed = baseLobbyEmbed(mode, 'open')
 
   if (mode === '1v1') {

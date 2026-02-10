@@ -52,6 +52,10 @@ export default class DraftRoom implements Party.Server {
 
     const config: RoomConfig = await req.json()
 
+    if (typeof config.hostId !== 'string' || config.hostId.length === 0) {
+      return json({ error: 'Missing hostId' }, 400)
+    }
+
     const format = draftFormatMap.get(config.formatId)
     if (!format) {
       return json({ error: `Unknown format: ${config.formatId}` }, 400)
@@ -102,6 +106,9 @@ export default class DraftRoom implements Party.Server {
       return
     }
 
+    const config = await this.room.storage.get<RoomConfig>('config')
+    const hostId = config?.hostId ?? state.seats[0]?.playerId ?? ''
+
     const timerEndsAt = await this.room.storage.get<number | null>('timerEndsAt')
     const completedAt = await this.room.storage.get<number | null>('completedAt')
     const seatIndex = playerId
@@ -111,6 +118,7 @@ export default class DraftRoom implements Party.Server {
     this.send(connection, {
       type: 'init',
       state: this.censorState(state, seatIndex),
+      hostId,
       seatIndex: seatIndex >= 0 ? seatIndex : null,
       timerEndsAt: timerEndsAt ?? null,
       completedAt: completedAt ?? null,
@@ -160,8 +168,8 @@ export default class DraftRoom implements Party.Server {
 
     switch (msg.type) {
       case 'start': {
-        if (seatIndex < 0) {
-          this.send(sender, { type: 'error', message: 'Only participants can start the draft' })
+        if (playerId !== config.hostId) {
+          this.send(sender, { type: 'error', message: 'Only the host can start the draft' })
           return
         }
         const result = processDraftInput(state, { type: 'START' }, format.blindBans)
@@ -218,7 +226,7 @@ export default class DraftRoom implements Party.Server {
       }
 
       case 'cancel': {
-        if (seatIndex !== 0) {
+        if (playerId !== config.hostId) {
           this.send(sender, { type: 'error', message: 'Only the host can cancel or scrub the draft' })
           return
         }
@@ -242,7 +250,7 @@ export default class DraftRoom implements Party.Server {
       }
 
       case 'config': {
-        if (seatIndex !== 0) {
+        if (playerId !== config.hostId) {
           this.send(sender, { type: 'error', message: 'Only the host can update draft config' })
           return
         }
@@ -268,7 +276,7 @@ export default class DraftRoom implements Party.Server {
 
         const timerEndsAt = await this.room.storage.get<number | null>('timerEndsAt')
         const completedAt = await this.room.storage.get<number | null>('completedAt')
-        this.broadcastUpdate(nextState, [], timerEndsAt ?? null, completedAt ?? null)
+        this.broadcastUpdate(nextState, config.hostId, [], timerEndsAt ?? null, completedAt ?? null)
         break
       }
 
@@ -367,11 +375,13 @@ export default class DraftRoom implements Party.Server {
       }
     }
 
-    this.broadcastUpdate(newState, events, timerEndsAt ?? null, completedAt ?? null)
+    const hostId = config?.hostId ?? newState.seats[0]?.playerId ?? ''
+    this.broadcastUpdate(newState, hostId, events, timerEndsAt ?? null, completedAt ?? null)
   }
 
   private broadcastUpdate(
     state: DraftState,
+    hostId: string,
     events: DraftEvent[],
     timerEndsAt: number | null,
     completedAt: number | null,
@@ -388,6 +398,7 @@ export default class DraftRoom implements Party.Server {
         this.send(conn, {
           type: 'update',
           state: this.censorState(state, seatIndex),
+          hostId,
           events: this.censorEvents(events, seatIndex),
           timerEndsAt,
           completedAt,
@@ -399,6 +410,7 @@ export default class DraftRoom implements Party.Server {
       this.room.broadcast(JSON.stringify({
         type: 'update',
         state,
+        hostId,
         events,
         timerEndsAt,
         completedAt,
@@ -436,9 +448,11 @@ export default class DraftRoom implements Party.Server {
   }
 
   private async notifyDraftComplete(state: DraftState, config: RoomConfig, completedAt: number) {
+    const hostId = config.hostId || state.seats[0]?.playerId || undefined
     const payload: DraftWebhookPayload = {
       outcome: 'complete',
       matchId: state.matchId,
+      hostId,
       completedAt,
       state,
     }
@@ -446,9 +460,11 @@ export default class DraftRoom implements Party.Server {
   }
 
   private async notifyDraftCancelled(state: DraftState, config: RoomConfig, cancelledAt: number) {
+    const hostId = config.hostId || state.seats[0]?.playerId || undefined
     const payload: DraftWebhookPayload = {
       outcome: 'cancelled',
       matchId: state.matchId,
+      hostId,
       cancelledAt,
       reason: state.cancelReason ?? 'scrub',
       state,
