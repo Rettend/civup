@@ -1,0 +1,10 @@
+bun test v1.3.8 (b64edcb4)
+
+tests\inspect_command.test.ts:
+Keys: [ "command", "handler" ]
+Handler: [AsyncFunction]
+(pass) inspect command structure
+
+ 1 pass
+ 0 fail
+Ran 1 test across 1 file. [199.00ms]

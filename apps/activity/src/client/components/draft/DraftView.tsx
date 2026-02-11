@@ -182,9 +182,9 @@ function CancelledDraftScreen() {
   }
 
   const detail = () => {
-    if (reason() === 'cancel') return 'Host cancelled this draft before lock-in. No ratings were affected.'
-    if (reason() === 'timeout') return 'A player timed out on a pick, so the draft was auto-scrubbed instead of forcing a random leader.'
-    return 'Host scrubbed this match. No ratings were affected.'
+    if (reason() === 'cancel') return 'Host cancelled this draft before lock-in.'
+    if (reason() === 'timeout') return 'A player timed out picking a leader.'
+    return 'Host scrubbed this match.'
   }
 
   return (
@@ -211,7 +211,10 @@ function PostDraftScreen(props: { matchId: string }) {
 
   createEffect(() => {
     const completedAt = draftStore.completedAt
-    if (completedAt == null) { setElapsedMs(0); return }
+    if (completedAt == null) {
+      setElapsedMs(0)
+      return
+    }
 
     const tick = () => setElapsedMs(Math.max(0, Date.now() - completedAt))
     tick()
@@ -274,9 +277,12 @@ function PostDraftScreen(props: { matchId: string }) {
     }
     setStatus('submitting')
     const result = await reportMatchResult(props.matchId, currentUserId, team)
-    if (!result.ok) { setStatus('error'); setMessage(result.error); return }
+    if (!result.ok) {
+      setStatus('error')
+      setMessage(result.error); return
+    }
     setStatus('completed')
-    setMessage(`Team ${team} reported by host. Ratings updated.`)
+    setMessage(`Team ${team} reported by host`)
   }
 
   const reportFfa = async () => {
@@ -294,9 +300,12 @@ function PostDraftScreen(props: { matchId: string }) {
     }
     setStatus('submitting')
     const result = await reportMatchResult(props.matchId, currentUserId, placements)
-    if (!result.ok) { setStatus('error'); setMessage(result.error); return }
+    if (!result.ok) {
+      setStatus('error')
+      setMessage(result.error); return
+    }
     setStatus('completed')
-    setMessage('FFA result reported by host. Ratings updated.')
+    setMessage('FFA result reported by host')
   }
 
   const scrubMatch = () => {
@@ -397,7 +406,7 @@ function PostDraftScreen(props: { matchId: string }) {
           </Show>
 
           <Show when={!amHost() && status() !== 'completed'}>
-            <div class="text-sm text-text-muted mt-3">Waiting for host to report winner or scrub the match.</div>
+            <div class="text-sm text-text-muted mt-3">Waiting for host to report winner.</div>
           </Show>
           <div class="text-sm text-text-secondary mt-3">{message()}</div>
         </section>

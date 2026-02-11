@@ -1,16 +1,11 @@
 import type { GameMode } from '@civup/game'
 import type { LfgVar } from './shared.ts'
-import { createDb, matches, matchParticipants } from '@civup/db'
+import { createDb, matches } from '@civup/db'
 import { maxPlayerCount, minPlayerCount } from '@civup/game'
 import { Command, Option, SubCommand } from 'discord-hono'
 import { eq } from 'drizzle-orm'
 import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/lfg.ts'
-import {
-  clearActivityMappings,
-  getChannelForMatch,
-  getMatchForUser,
-  storeUserMatchMappings,
-} from '../../services/activity.ts'
+import { getMatchForUser, storeUserMatchMappings } from '../../services/activity.ts'
 import { createChannelMessage } from '../../services/discord.ts'
 import { clearDeferredEphemeralResponse, sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
 import { upsertLobbyMessage } from '../../services/lobby-message.ts'
@@ -34,14 +29,6 @@ export const command_lfg = factory.command<LfgVar>(
     ),
     new SubCommand('leave', 'Leave the current queue'),
     new SubCommand('status', 'Show all active lobbies'),
-    new SubCommand('kick', 'Remove a player from the queue (admin)').options(
-      new Option('player', 'Player to remove', 'User').required(),
-    ),
-    new SubCommand('recover', 'Force-clear stuck lobby state (admin)').options(
-      new Option('mode', 'Lobby mode to recover')
-        .required()
-        .choices(...GAME_MODE_CHOICES),
-    ),
   ),
   async (c) => {
     switch (c.sub.string) {
@@ -62,7 +49,7 @@ export const command_lfg = factory.command<LfgVar>(
           if (!draftChannelId) {
             await sendTransientEphemeralResponse(
               c,
-              'Draft channel is not configured. Run `/admin setup target:Draft` in the desired channel.',
+              'Draft channel is not configured. Run `/admin setup target:Draft` to set up this channel.',
               'error',
             )
             return
@@ -300,114 +287,6 @@ export const command_lfg = factory.command<LfgVar>(
           }
 
           await sendTransientEphemeralResponse(c, lines.join('\n'), 'info')
-        })
-      }
-
-      // ── kick ────────────────────────────────────────────
-      case 'kick': {
-        const targetId = c.var.player
-        if (!targetId) {
-          return c.flags('EPHEMERAL').resDefer(async (c) => {
-            await sendTransientEphemeralResponse(c, 'Please specify a player.', 'error')
-          })
-        }
-
-        const permissions = BigInt(c.interaction.member?.permissions ?? '0')
-        const MANAGE_GUILD = 1n << 5n
-        if ((permissions & MANAGE_GUILD) === 0n) {
-          return c.flags('EPHEMERAL').resDefer(async (c) => {
-            await sendTransientEphemeralResponse(c, 'You need Manage Server permission to kick from queue.', 'error')
-          })
-        }
-
-        return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const kv = c.env.KV
-          const removed = await removeFromQueue(kv, targetId)
-
-          if (!removed) {
-            await sendTransientEphemeralResponse(c, `<@${targetId}> is not in any queue.`, 'error')
-            return
-          }
-
-          const lobby = await getLobby(kv, removed)
-          if (lobby?.status === 'open') {
-            const queue = await getQueueState(kv, removed)
-            const slots = normalizeLobbySlots(removed, lobby.slots, queue.entries)
-            const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
-            if (!sameLobbySlots(slots, lobby.slots)) {
-              await setLobbySlots(kv, removed, slots)
-            }
-            try {
-              await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-                embeds: [lobbyOpenEmbed(removed, slottedEntries, maxPlayerCount(removed))],
-                components: lobbyComponents(removed, 'open'),
-              })
-            }
-            catch (error) {
-              console.error('Failed to update lobby message after kick:', error)
-            }
-          }
-
-          await sendTransientEphemeralResponse(c, `<@${targetId}> was removed from the ${removed.toUpperCase()} lobby.`, 'success')
-        })
-      }
-
-      // ── recover ─────────────────────────────────────────
-      case 'recover': {
-        const mode = c.var.mode as GameMode
-
-        const permissions = BigInt(c.interaction.member?.permissions ?? '0')
-        const MANAGE_GUILD = 1n << 5n
-        if ((permissions & MANAGE_GUILD) === 0n) {
-          return c.flags('EPHEMERAL').resDefer(async (c) => {
-            await sendTransientEphemeralResponse(c, 'You need Manage Server permission to recover lobby state.', 'error')
-          })
-        }
-
-        return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const kv = c.env.KV
-          const queue = await getQueueState(kv, mode)
-          if (queue.entries.length > 0) {
-            await clearQueue(kv, mode, queue.entries.map(entry => entry.playerId))
-          }
-
-          const lobby = await getLobby(kv, mode)
-          let cancelledMatchId: string | null = null
-
-          if (lobby?.matchId) {
-            const db = createDb(c.env.DB)
-            const [match] = await db
-              .select({ id: matches.id, status: matches.status })
-              .from(matches)
-              .where(eq(matches.id, lobby.matchId))
-              .limit(1)
-
-            if (match && (match.status === 'drafting' || match.status === 'active')) {
-              await db
-                .update(matches)
-                .set({ status: 'cancelled', completedAt: Date.now() })
-                .where(eq(matches.id, match.id))
-              cancelledMatchId = match.id
-            }
-
-            const participants = await db
-              .select({ playerId: matchParticipants.playerId })
-              .from(matchParticipants)
-              .where(eq(matchParticipants.matchId, lobby.matchId))
-
-            const channelId = await getChannelForMatch(kv, lobby.matchId)
-            await clearActivityMappings(
-              kv,
-              lobby.matchId,
-              participants.map(p => p.playerId),
-              channelId ?? undefined,
-            )
-          }
-
-          await clearLobby(kv, mode)
-
-          const suffix = cancelledMatchId ? ` Cancelled match \`${cancelledMatchId}\`.` : ''
-          await sendTransientEphemeralResponse(c, `Recovered ${mode.toUpperCase()} lobby state.${suffix}`, 'success')
         })
       }
 

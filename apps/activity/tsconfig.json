@@ -7,7 +7,7 @@
     "paths": {
       "~/*": ["./src/*"]
     },
-    "types": ["vite/client", "@cloudflare/workers-types/2023-07-01"]
+    "types": ["vite/client", "@cloudflare/workers-types/2023-07-01", "bun"]
   },
-  "include": ["src"]
+  "include": ["src", "tests"]
 }

@@ -122,7 +122,7 @@ export async function playerCardEmbed(
   if (fields.length === 0) {
     fields.push({
       name: 'Overview',
-      value: 'No games played yet. Use `/lfg create` to start!',
+      value: 'No games played yet.',
       inline: false,
     })
   }
