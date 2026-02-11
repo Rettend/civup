@@ -9,6 +9,7 @@ import {
   avatarUrl as currentAvatarUrl,
   displayName as currentDisplayName,
   draftStore,
+  fillLobbyWithTestPlayers,
   isSpectator,
   placeLobbySlot,
   removeLobbySlot,
@@ -114,6 +115,18 @@ export function ConfigScreen(props: ConfigScreenProps) {
     }
     return getTimerConfigFromDraft(state())
   }
+
+  const serverDefaultTimerConfig = (): DraftTimerConfig => {
+    const lobby = currentLobby()
+    if (!lobby) return { banTimerSeconds: null, pickTimerSeconds: null }
+    return {
+      banTimerSeconds: lobby.serverDefaults.banTimerSeconds,
+      pickTimerSeconds: lobby.serverDefaults.pickTimerSeconds,
+    }
+  }
+
+  const banTimerPlaceholder = () => timerSecondsToMinutesPlaceholder(serverDefaultTimerConfig().banTimerSeconds)
+  const pickTimerPlaceholder = () => timerSecondsToMinutesPlaceholder(serverDefaultTimerConfig().pickTimerSeconds)
 
   const optimisticTimerConfig = createOptimisticState(timerConfig, {
     equals: (a, b) => a.banTimerSeconds === b.banTimerSeconds && a.pickTimerSeconds === b.pickTimerSeconds,
@@ -473,6 +486,34 @@ export function ConfigScreen(props: ConfigScreenProps) {
     }
   }
 
+  const handleFillTestPlayers = async () => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || !amHost()) return
+    if (lobbyActionPending() || startPending() || cancelPending()) return
+
+    setLobbyActionPending(true)
+    setConfigMessage(null)
+    try {
+      const result = await fillLobbyWithTestPlayers(lobby.mode, currentUserId)
+      if (!result.ok) {
+        setConfigMessage(result.error)
+        return
+      }
+
+      applyLobbySnapshot(result.lobby)
+      if (result.addedCount > 0) {
+        setConfigMessage(`Added ${result.addedCount} test player${result.addedCount === 1 ? '' : 's'} to empty slots.`)
+      }
+      else {
+        setConfigMessage('Lobby is already full.')
+      }
+    }
+    finally {
+      setLobbyActionPending(false)
+    }
+  }
+
   const handleCancelAction = async () => {
     if (cancelPending()) return
 
@@ -669,8 +710,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
               when={amHost()}
               fallback={(
                 <div class="flex flex-col gap-2">
-                  <ReadonlyTimerRow label="Ban timer" value={formatTimerValue(timerConfig().banTimerSeconds)} />
-                  <ReadonlyTimerRow label="Pick timer" value={formatTimerValue(timerConfig().pickTimerSeconds)} />
+                  <ReadonlyTimerRow
+                    label="Ban timer"
+                    value={formatTimerValue(timerConfig().banTimerSeconds, serverDefaultTimerConfig().banTimerSeconds)}
+                  />
+                  <ReadonlyTimerRow
+                    label="Pick timer"
+                    value={formatTimerValue(timerConfig().pickTimerSeconds, serverDefaultTimerConfig().pickTimerSeconds)}
+                  />
                 </div>
               )}
             >
@@ -682,7 +729,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   max={String(MAX_TIMER_MINUTES)}
                   step="1"
                   value={banMinutes()}
-                  placeholder="Unlimited"
+                  placeholder={banTimerPlaceholder()}
                   onFocus={() => setEditingField('ban')}
                   onInput={(event) => {
                     optimisticTimerConfig.clearError()
@@ -701,7 +748,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   max={String(MAX_TIMER_MINUTES)}
                   step="1"
                   value={pickMinutes()}
-                  placeholder="Unlimited"
+                  placeholder={pickTimerPlaceholder()}
                   onFocus={() => setEditingField('pick')}
                   onInput={(event) => {
                     optimisticTimerConfig.clearError()
@@ -760,6 +807,13 @@ export function ConfigScreen(props: ConfigScreenProps) {
                     onClick={() => void handleCancelAction()}
                   >
                     {cancelPending() ? 'Cancelling...' : 'Cancel Lobby'}
+                  </button>
+                  <button
+                    class="text-sm text-text-secondary px-6 py-2.5 border border-white/12 rounded-lg bg-white/3 cursor-pointer transition-colors hover:text-text-primary hover:border-white/20 hover:bg-white/6 disabled:opacity-60 disabled:cursor-not-allowed"
+                    disabled={cancelPending() || startPending() || lobbyActionPending()}
+                    onClick={() => void handleFillTestPlayers()}
+                  >
+                    Fill Test Players
                   </button>
                 </div>
               )}
@@ -910,6 +964,11 @@ function timerSecondsToMinutesInput(timerSeconds: number | null): string {
   return String(Math.round(timerSeconds / 60))
 }
 
+function timerSecondsToMinutesPlaceholder(timerSeconds: number | null): string {
+  if (timerSeconds == null) return ''
+  return String(Math.round(timerSeconds / 60))
+}
+
 function parseTimerMinutesInput(value: string): number | null | undefined {
   const trimmed = value.trim()
   if (!trimmed) return null
@@ -931,8 +990,16 @@ function normalizeTimerMinutesInput(value: string): string {
   return String(bounded)
 }
 
-function formatTimerValue(timerSeconds: number | null): string {
-  if (timerSeconds == null || timerSeconds === 0) return 'Unlimited'
+function formatTimerValue(timerSeconds: number | null, defaultTimerSeconds: number | null = null): string {
+  if (timerSeconds == null && defaultTimerSeconds != null) {
+    if (defaultTimerSeconds === 0) return 'Unlimited'
+    const defaultMinutes = Math.round(defaultTimerSeconds / 60)
+    if (defaultMinutes === 1) return '1 minute'
+    return `${defaultMinutes} minutes`
+  }
+
+  if (timerSeconds == null) return 'Server default'
+  if (timerSeconds === 0) return 'Unlimited'
   const minutes = Math.round(timerSeconds / 60)
   if (minutes === 1) return '1 minute'
   return `${minutes} minutes`

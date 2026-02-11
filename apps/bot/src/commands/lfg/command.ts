@@ -7,7 +7,7 @@ import { eq } from 'drizzle-orm'
 import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/lfg.ts'
 import { getMatchForUser, storeUserMatchMappings } from '../../services/activity.ts'
 import { createChannelMessage } from '../../services/discord.ts'
-import { clearDeferredEphemeralResponse, sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
+import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
 import { upsertLobbyMessage } from '../../services/lobby-message.ts'
 import { clearLobby, createLobby, getLobby, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby.ts'
 import { addToQueue, clearQueue, getQueueState, removeFromQueue } from '../../services/queue.ts'
@@ -286,7 +286,7 @@ export const command_lfg = factory.command<LfgVar>(
             return
           }
 
-          await sendTransientEphemeralResponse(c, lines.join('\n'), 'info')
+          await sendEphemeralResponse(c, lines.join('\n'), 'info')
         })
       }
 

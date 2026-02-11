@@ -51,6 +51,15 @@ export default defineConfig({
             font-family: 'Inter Variable', sans-serif;
             background: #0a0e14;
             color: #ffffff;
+            user-select: none;
+            -webkit-user-select: none;
+          }
+
+          img {
+            -webkit-user-drag: none;
+            user-drag: none;
+            user-select: none;
+            -webkit-user-select: none;
           }
 
           ::-webkit-scrollbar { width: 4px; }
@@ -88,6 +97,34 @@ export default defineConfig({
           .anim-detail-in { animation: civup-slide-right-fade 200ms ease-out both; }
           .anim-portrait-in { animation: civup-portrait-in 300ms ease-out both; }
           .anim-phase-flash { animation: civup-phase-flash 200ms ease-out both; }
+
+          @keyframes civup-slot-breathe {
+            0%, 100% { box-shadow: inset 4px 0 14px var(--slot-glow), inset -4px 0 14px var(--slot-glow); }
+            50% { box-shadow: inset 2px 0 6px var(--slot-glow-dim), inset -2px 0 6px var(--slot-glow-dim); }
+          }
+          .anim-slot-breathe { animation: civup-slot-breathe 2s ease-in-out infinite; }
+          .slot-accent-gold { --slot-glow: rgba(200, 170, 110, 0.4); --slot-glow-dim: rgba(200, 170, 110, 0.15); }
+          .slot-accent-red  { --slot-glow: rgba(232, 64, 87, 0.4);  --slot-glow-dim: rgba(232, 64, 87, 0.15); }
+
+          .slot-cell {
+            flex: 1 1 0;
+            max-width: 400px;
+            min-width: 0;
+          }
+
+          .slot-cell-ffa {
+            flex: 1 1 0;
+            max-width: 240px;
+            min-width: 0;
+          }
+
+          .slot-strip-team {
+            max-height: 100%;
+          }
+
+          .slot-strip-ffa {
+            max-height: 100%;
+          }
         `
       },
     },

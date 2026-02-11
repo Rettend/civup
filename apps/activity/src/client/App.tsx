@@ -258,6 +258,8 @@ function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
   if (a.targetSize !== b.targetSize) return false
   if (a.draftConfig.banTimerSeconds !== b.draftConfig.banTimerSeconds) return false
   if (a.draftConfig.pickTimerSeconds !== b.draftConfig.pickTimerSeconds) return false
+  if (a.serverDefaults.banTimerSeconds !== b.serverDefaults.banTimerSeconds) return false
+  if (a.serverDefaults.pickTimerSeconds !== b.serverDefaults.pickTimerSeconds) return false
   if (a.entries.length !== b.entries.length) return false
 
   for (let i = 0; i < a.entries.length; i++) {
