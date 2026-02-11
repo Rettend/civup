@@ -17,7 +17,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
   const seat = () => state()?.seats[props.seatIndex]
 
-  /** The pick assigned to this seat (if any) */
+  /** The pick assigned to this seat */
   const pick = () => state()?.picks.find(p => p.seatIndex === props.seatIndex)
 
   /** Resolved leader from pick */
@@ -45,16 +45,16 @@ export function PlayerSlot(props: PlayerSlotProps) {
   return (
     <div
       class={cn(
-        'relative flex flex-col overflow-hidden bg-bg-secondary',
-        props.compact ? 'h-full' : 'h-full',
-        // Active state: inner shadow on sides in phase accent
-        isActive() && accent() === 'gold' && 'shadow-[inset_3px_0_12px_rgba(200,170,110,0.35),inset_-3px_0_12px_rgba(200,170,110,0.35)]',
-        isActive() && accent() === 'red' && 'shadow-[inset_3px_0_12px_rgba(232,64,87,0.35),inset_-3px_0_12px_rgba(232,64,87,0.35)]',
-        // Subtle breathing animation when active
-        isActive() && 'animate-pulse',
+        'relative flex flex-col overflow-hidden bg-bg-secondary h-full',
+        // Custom breathing inner shadow (left/right only) when active
+        isActive() && 'anim-slot-breathe',
       )}
+      classList={{
+        'slot-accent-gold': isActive() && accent() === 'gold',
+        'slot-accent-red': isActive() && accent() === 'red',
+      }}
     >
-      {/* Portrait (filled state) */}
+      {/* Portrait */}
       <Show when={leader()}>
         {l => (
           <img
@@ -62,7 +62,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
             alt={l().name}
             class={cn(
               'absolute inset-0 h-full w-full object-cover',
-              props.compact ? 'object-[center_20%]' : 'object-top',
+              props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
               'anim-portrait-in',
             )}
           />
@@ -71,26 +71,13 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
       {/* Empty state icon */}
       <Show when={!filled()}>
-        <Show
-          when={seatAvatarUrl()}
-          fallback={(
-            <div class="flex flex-1 items-center justify-center">
-              <div class={cn(
-                'i-ph-user-bold text-3xl',
-                isActive() ? (accent() === 'red' ? 'text-accent-red/40' : 'text-accent-gold/40') : 'text-text-muted/20',
-              )}
-              />
-            </div>
+        <div class="flex flex-1 items-center justify-center">
+          <div class={cn(
+            'i-ph-user-bold text-3xl',
+            isActive() ? (accent() === 'red' ? 'text-accent-red/40' : 'text-accent-gold/40') : 'text-text-muted/20',
           )}
-        >
-          {avatarUrl => (
-            <img
-              src={avatarUrl()}
-              alt={seat()?.displayName ?? 'Player avatar'}
-              class="opacity-45 h-full w-full inset-0 absolute object-cover"
-            />
-          )}
-        </Show>
+          />
+        </div>
       </Show>
 
       {/* Bottom gradient overlay for name readability */}
@@ -102,23 +89,32 @@ export function PlayerSlot(props: PlayerSlotProps) {
         {/* Leader name (when picked) */}
         <Show when={leader()}>
           {l => (
-            <div class="mb-0.5">
-              <div class="text-sm text-text-primary leading-tight font-semibold truncate">{l().name}</div>
-              <div class="text-xs text-text-secondary/80 leading-tight truncate">{l().civilization}</div>
+            <div class="mb-1">
+              <div class="text-base text-text-primary leading-tight font-semibold truncate">{l().name}</div>
+              <div class="text-sm text-text-secondary/80 leading-tight truncate">{l().civilization}</div>
             </div>
           )}
         </Show>
 
-        {/* Player name */}
+        {/* Discord name and avatar */}
         <Show when={seat()}>
           {s => (
             <div class={cn(
-              'truncate text-xs leading-tight',
+              'flex items-center gap-2',
               isActive() ? (accent() === 'red' ? 'text-accent-red' : 'text-accent-gold') : 'text-text-secondary',
               filled() && !isActive() && 'text-text-secondary/60',
             )}
             >
-              {s().displayName}
+              <Show when={seatAvatarUrl()}>
+                {url => (
+                  <img
+                    src={url()}
+                    alt=""
+                    class="rounded-full shrink-0 h-5 w-5 object-cover"
+                  />
+                )}
+              </Show>
+              <span class="text-sm leading-tight truncate">{s().displayName}</span>
             </div>
           )}
         </Show>

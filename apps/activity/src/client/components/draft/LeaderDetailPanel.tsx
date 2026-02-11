@@ -27,7 +27,7 @@ export function LeaderDetailPanel() {
   return (
     <Show when={leader()}>
       {l => (
-        <div class="anim-detail-in p-4 border-l border-white/5 bg-bg-primary/80 shrink-0 w-80 relative overflow-y-auto">
+        <div class="anim-detail-in select-text p-4 border-l border-white/5 bg-bg-primary/80 shrink-0 w-80 relative overflow-y-auto">
           {/* Close button */}
           <button
             class="text-text-muted cursor-pointer right-2 top-2 absolute hover:text-text-secondary"
