@@ -26,7 +26,7 @@ interface DraftViewProps {
   autoStart?: boolean
 }
 
-/** Main draft layout — replaces DraftLayout. Header + slots + grid overlay */
+/** Main draft layout */
 export function DraftView(props: DraftViewProps) {
   const state = () => draftStore.state
   const [autoStartSent, setAutoStartSent] = createSignal(false)
@@ -70,7 +70,6 @@ export function DraftView(props: DraftViewProps) {
     autoStartSplashTimeout = null
   })
 
-  // Viewport detection for minimized mode
   createEffect(() => {
     const check = () => setIsMiniView(window.innerWidth < 500)
     check()
@@ -95,10 +94,7 @@ export function DraftView(props: DraftViewProps) {
               >
                 {/* Active draft view */}
                 <div class="text-text-primary font-sans bg-bg-primary flex flex-col h-screen relative overflow-hidden">
-                  {/* Header with bans, phase, timer */}
                   <DraftHeader />
-
-                  {/* Timeline indicator */}
                   <DraftTimeline />
 
                   <Show when={state()?.status === 'active' && amHost()}>
@@ -112,32 +108,28 @@ export function DraftView(props: DraftViewProps) {
                     </div>
                   </Show>
 
-                  {/* Main area: slots + grid overlay */}
+                  {/* Main area */}
                   <div class="flex flex-1 min-h-0 relative">
-                    {/* Slot strip (always visible behind overlay) */}
                     <SlotStrip />
-
-                    {/* Grid overlay (z-indexed above) */}
                     <LeaderGridOverlay />
 
-                    {/* Grid toggle button (when grid is closed) */}
-                    <Show when={!gridOpen()}>
-                      <div class="flex inset-x-0 bottom-3 justify-center absolute z-5">
-                        <button
-                          class={cn(
-                            'flex items-center gap-1 rounded-full px-4 py-1.5 text-xs font-medium cursor-pointer',
-                            'bg-bg-secondary border border-white/10 text-text-secondary',
-                            'hover:bg-bg-hover hover:text-text-primary transition-colors',
-                          )}
-                          onClick={() => setGridOpen(true)}
-                        >
-                          <div class="i-ph-caret-up-bold text-xs" />
-                          Browse Leaders
-                        </button>
-                      </div>
-                    </Show>
+                    {/* Grid toggle button */}
+                    <div class="flex inset-x-0 bottom-3 justify-center absolute z-50">
+                      <button
+                        class={cn(
+                          'flex items-center gap-1 rounded-full px-5 py-1.5 text-xs font-medium cursor-pointer',
+                          'bg-bg-secondary border border-white/10 text-text-secondary',
+                          'hover:bg-bg-hover hover:text-text-primary transition-colors',
+                        )}
+                        onClick={() => setGridOpen(!gridOpen())}
+                      >
+                        <Show when={gridOpen()} fallback={<div class="i-ph-caret-up-bold anim-fade-in text-sm" />}>
+                          <div class="i-ph-caret-down-bold anim-fade-in text-sm" />
+                        </Show>
+                      </button>
+                    </div>
 
-                    {/* Status indicator when grid is closed and not your turn */}
+                    {/* Status indicator */}
                     <Show when={!gridOpen() && state()?.status === 'active'}>
                       <div class="flex inset-x-0 bottom-12 justify-center absolute z-5">
                         <Show when={isSpectator()}>
