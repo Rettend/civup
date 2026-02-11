@@ -1,6 +1,13 @@
 import type { SystemChannelType } from '../services/system-channels'
 import { createDb } from '@civup/db'
 import { Button, Command, Components, Option, SubCommand, SubGroup } from 'discord-hono'
+import {
+  getServerConfigDisplayValue,
+  getServerConfigRows,
+  parseServerConfigKey,
+  SERVER_CONFIG_KEYS,
+  setServerConfigValue,
+} from '../services/config'
 import { clearSeasonConfirmation, createSeasonConfirmation, getSeasonConfirmation } from '../services/confirmations'
 import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/ephemeral-response'
 import { upsertLeaderboardMessagesForChannel } from '../services/leaderboard-message'
@@ -40,17 +47,21 @@ export const command_admin = factory.command<Var>(
       ),
       new SubCommand('end', 'End the current season'),
     ),
-    new SubCommand('setup', 'Toggle system channel in this channel').options(
+    new SubCommand('setup', 'View or toggle system channels').options(
       new Option('target', 'Channel role to configure')
         .choices(
           { name: 'Draft', value: 'draft' },
           { name: 'Archive', value: 'archive' },
           { name: 'Leaderboard', value: 'leaderboard' },
-        )
-        .required(),
+        ),
     ),
     new SubCommand('config', 'View or update configuration').options(
-      new Option('key', 'Config key'),
+      new Option('key', 'Config key').choices(
+        { name: 'ban_timer', value: 'ban_timer' },
+        { name: 'pick_timer', value: 'pick_timer' },
+        { name: 'queue_timeout', value: 'queue_timeout' },
+        { name: 'lfg_category', value: 'lfg_category' },
+      ),
       new Option('value', 'New value'),
     ),
     new SubCommand('reset', 'Reset a player\'s rating').options(
@@ -223,10 +234,30 @@ export const command_admin = factory.command<Var>(
 
       // ── setup ───────────────────────────────────────────
       case 'setup': {
-        const target = c.var.target as SystemChannelType | undefined
+        const rawTarget = c.var.target
+        if (!rawTarget) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            const [draftChannelId, archiveChannelId, leaderboardChannelId] = await Promise.all([
+              getSystemChannel(c.env.KV, 'draft'),
+              getSystemChannel(c.env.KV, 'archive'),
+              getSystemChannel(c.env.KV, 'leaderboard'),
+            ])
+
+            await sendEphemeralResponse(
+              c,
+              '**Configured channels:**\n'
+              + `Draft — ${formatChannelMention(draftChannelId)}\n`
+              + `Archive — ${formatChannelMention(archiveChannelId)}\n`
+              + `Leaderboard — ${formatChannelMention(leaderboardChannelId)}`,
+              'info',
+            )
+          })
+        }
+
+        const target = parseSetupTarget(rawTarget)
         if (!target) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
-            await sendTransientEphemeralResponse(c, 'Please provide a setup target.', 'error')
+            await sendTransientEphemeralResponse(c, 'Invalid setup target. Use Draft, Archive, or Leaderboard.', 'error')
           })
         }
 
@@ -275,21 +306,23 @@ export const command_admin = factory.command<Var>(
 
       // ── config ──────────────────────────────────────────
       case 'config': {
-        const key = c.var.key
+        const rawKey = c.var.key
+        const key = parseServerConfigKey(rawKey)
         const value = c.var.value
+
+        if (rawKey && !key) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, `Unknown config key. Supported keys: ${SERVER_CONFIG_KEYS.map(item => `\`${item}\``).join(', ')}.`, 'error')
+          })
+        }
 
         if (!key) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
+            const rows = await getServerConfigRows(c.env.KV)
             await sendTransientEphemeralResponse(
               c,
-              '**Available config keys:**\n'
-              + '`ffa_size` — Default FFA player count (6-12)\n'
-              + '`ban_timer` — Ban phase timer in seconds\n'
-              + '`pick_timer` — Pick phase timer in seconds\n'
-              + '`queue_timeout` — Queue timeout in minutes\n'
-              + '`lfg_category` — Category ID for temp voice channels\n\n'
-              + 'Use `/admin setup target:<Draft|Archive|Leaderboard>` to bind bot channels.\n'
-              + 'Use `/admin permission add/remove role:@Role` to manage /mod access.',
+              `**Available config keys:**\n${
+                rows.map(row => `\`${row.key}\` = \`${row.value}\` — ${row.description}`).join('\n')}`,
               'info',
             )
           })
@@ -297,14 +330,18 @@ export const command_admin = factory.command<Var>(
 
         if (!value) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
-            const current = await c.env.KV.get(`config:${key}`)
-            await sendTransientEphemeralResponse(c, `\`${key}\` = \`${current ?? 'not set'}\``, 'info')
+            const current = await getServerConfigDisplayValue(c.env.KV, key)
+            await sendTransientEphemeralResponse(c, `\`${key}\` = \`${current}\``, 'info')
           })
         }
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          await c.env.KV.put(`config:${key}`, value)
-          await sendTransientEphemeralResponse(c, `\`${key}\` set to \`${value}\`.`, 'success')
+          const result = await setServerConfigValue(c.env.KV, key, value)
+          if (!result.ok) {
+            await sendTransientEphemeralResponse(c, result.error ?? 'Invalid config value.', 'error')
+            return
+          }
+          await sendTransientEphemeralResponse(c, `\`${key}\` set to \`${result.value}\`.`, 'success')
         })
       }
 
@@ -424,6 +461,16 @@ function setupTargetLabel(target: SystemChannelType): string {
   if (target === 'draft') return 'Draft'
   if (target === 'archive') return 'Archive'
   return 'Leaderboard'
+}
+
+function parseSetupTarget(value: string): SystemChannelType | null {
+  if (value === 'draft' || value === 'archive' || value === 'leaderboard') return value
+  return null
+}
+
+function formatChannelMention(channelId: string | null): string {
+  if (!channelId) return '`not set`'
+  return `<#${channelId}>`
 }
 
 function getInteractionUserId(c: {

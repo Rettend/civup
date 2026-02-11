@@ -4,6 +4,7 @@ export {
   connectionStatus,
   connectToRoom,
   disconnect,
+  fillLobbyWithTestPlayers,
   fetchLobbyForChannel,
   fetchLobbyForUser,
   fetchMatchForChannel,

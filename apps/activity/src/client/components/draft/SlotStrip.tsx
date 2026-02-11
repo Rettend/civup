@@ -37,15 +37,15 @@ export function SlotStrip() {
   }
 
   return (
-    <div class="flex flex-1 items-stretch">
+    <div class="flex flex-1 min-h-0 items-end justify-center">
       {/* Team mode layout */}
       {isTeamMode() && (
-        <div class="flex flex-1 items-stretch">
+        <div class="slot-strip-team flex h-full w-full items-end justify-center">
           {/* Left team */}
-          <div class="flex flex-1 items-stretch">
+          <div class="flex flex-1 h-full items-stretch justify-end">
             <For each={leftSeats()}>
               {seatIdx => (
-                <div class="border-r border-white/5 flex-1">
+                <div class="slot-cell border-r border-white/5">
                   <PlayerSlot seatIndex={seatIdx} />
                 </div>
               )}
@@ -53,15 +53,15 @@ export function SlotStrip() {
           </div>
 
           {/* Center gap */}
-          <div class="flex shrink-0 flex-col w-16 items-center justify-center">
+          <div class="flex shrink-0 flex-col w-12 items-center self-center justify-center">
             <span class="text-lg text-text-muted/30 tracking-widest font-bold">VS</span>
           </div>
 
           {/* Right team */}
-          <div class="flex flex-1 items-stretch">
+          <div class="flex flex-1 h-full items-stretch justify-start">
             <For each={rightSeats()}>
               {seatIdx => (
-                <div class="border-l border-white/5 flex-1">
+                <div class="slot-cell border-l border-white/5">
                   <PlayerSlot seatIndex={seatIdx} />
                 </div>
               )}
@@ -72,12 +72,12 @@ export function SlotStrip() {
 
       {/* FFA layout: two-row grid */}
       {!isTeamMode() && seatCount() > 0 && (
-        <div class="flex flex-1 flex-col">
+        <div class="slot-strip-ffa flex flex-col h-full w-full items-center justify-end">
           {/* Top row */}
-          <div class="flex flex-1 items-stretch justify-center">
+          <div class="flex flex-1 min-h-0 w-full items-stretch justify-center">
             <For each={ffaTopRow()}>
               {seatIdx => (
-                <div class={cn('flex-1 max-w-48 border-r border-b border-white/5 last:border-r-0')}>
+                <div class={cn('slot-cell-ffa border-r border-b border-white/5 last:border-r-0')}>
                   <PlayerSlot seatIndex={seatIdx} compact />
                 </div>
               )}
@@ -85,10 +85,10 @@ export function SlotStrip() {
           </div>
 
           {/* Bottom row */}
-          <div class="flex flex-1 items-stretch justify-center">
+          <div class="flex flex-1 min-h-0 w-full items-stretch justify-center">
             <For each={ffaBottomRow()}>
               {seatIdx => (
-                <div class={cn('flex-1 max-w-48 border-r border-white/5 last:border-r-0')}>
+                <div class={cn('slot-cell-ffa border-r border-white/5 last:border-r-0')}>
                   <PlayerSlot seatIndex={seatIdx} compact />
                 </div>
               )}

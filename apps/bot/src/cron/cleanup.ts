@@ -1,4 +1,5 @@
 import { createDb } from '@civup/db'
+import { getQueueTimeoutMs } from '../services/config.ts'
 import { pruneAbandonedMatches } from '../services/match.ts'
 import { pruneStaleEntries } from '../services/queue.ts'
 import { factory } from '../setup.ts'
@@ -9,7 +10,8 @@ export const cron_cleanup = factory.cron(
     const kv = c.env.KV
     const db = createDb(c.env.DB)
 
-    const removed = await pruneStaleEntries(kv)
+    const queueTimeoutMs = await getQueueTimeoutMs(kv)
+    const removed = await pruneStaleEntries(kv, queueTimeoutMs)
     const prunedMatches = await pruneAbandonedMatches(db, kv)
 
     if (removed.length > 0) {

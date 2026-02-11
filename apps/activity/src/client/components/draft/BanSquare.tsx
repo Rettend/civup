@@ -39,7 +39,7 @@ export function BanSquare(props: BanSquareProps) {
       </Show>
 
       {/* Red X overlay */}
-      <div class="bg-accent-red/10 flex items-center inset-0 justify-center absolute">
+      <div class="rounded-full bg-accent-red/10 flex items-center inset-0 justify-center absolute">
         <span class="text-sm text-accent-red font-bold">✕</span>
       </div>
     </div>

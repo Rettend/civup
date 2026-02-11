@@ -1,12 +1,13 @@
 import type { DraftWebhookPayload, GameMode } from '@civup/game'
 import type { Env } from './env.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { canStartWithPlayerCount, GAME_MODES, maxPlayerCount, minPlayerCount } from '@civup/game'
+import { GAME_MODES, maxPlayerCount, minPlayerCount } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import * as commands from './commands/index.ts'
 import * as cron from './cron/cleanup.ts'
+import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from './services/config.ts'
 import {
   lobbyCancelledEmbed,
   lobbyComponents,
@@ -40,11 +41,12 @@ import {
 } from './services/lobby.ts'
 import { storeMatchMessageMapping } from './services/match-message.ts'
 import { activateDraftMatch, cancelDraftMatch, createDraftMatch, reportMatch } from './services/match.ts'
-import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, moveQueueMode } from './services/queue.ts'
+import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, moveQueueMode, setQueueEntries } from './services/queue.ts'
 import { getSystemChannel } from './services/system-channels.ts'
 import { factory } from './setup.ts'
 
-const MAX_DRAFT_TIMER_SECONDS = 30 * 60
+const TEMP_LOBBY_START_MIN_PLAYERS_FFA = 1
+const DEBUG_FILL_PLAYER_ID_PREFIX = 'debug-lobby-bot:'
 
 const discordApp = factory.discord().loader([
   ...Object.values(commands),
@@ -161,7 +163,7 @@ app.post('/api/lobby/:mode/config', async (c) => {
   const normalizedBan = parseLobbyTimerSeconds(banTimerSeconds)
   const normalizedPick = parseLobbyTimerSeconds(pickTimerSeconds)
   if (normalizedBan === undefined || normalizedPick === undefined) {
-    return c.json({ error: `Timers must be numbers between 0 and ${MAX_DRAFT_TIMER_SECONDS}` }, 400)
+    return c.json({ error: `Timers must be numbers between 0 and ${MAX_CONFIG_TIMER_SECONDS}` }, 400)
   }
 
   const lobby = await getLobby(c.env.KV, mode)
@@ -281,7 +283,8 @@ app.post('/api/lobby/:mode/mode', async (c) => {
     console.error(`Failed to update lobby embed after mode change ${mode} -> ${nextMode}:`, error)
   }
 
-  return c.json(buildOpenLobbySnapshotFromParts(
+  return c.json(await buildOpenLobbySnapshotFromParts(
+    c.env.KV,
     nextMode,
     nextLobby,
     movedQueue.entries,
@@ -375,7 +378,7 @@ app.post('/api/lobby/:mode/place', async (c) => {
   const targetPlayerId = slots[targetSlot]
 
   if (targetPlayerId === movingPlayerId) {
-    return c.json(buildOpenLobbySnapshotFromParts(mode, lobby, queue.entries, slots))
+    return c.json(await buildOpenLobbySnapshotFromParts(c.env.KV, mode, lobby, queue.entries, slots))
   }
 
   if (!isHost) {
@@ -412,7 +415,7 @@ app.post('/api/lobby/:mode/place', async (c) => {
     console.error(`Failed to update lobby embed after slot placement in ${mode}:`, error)
   }
 
-  return c.json(buildOpenLobbySnapshotFromParts(mode, nextLobby, queue.entries, slots))
+  return c.json(await buildOpenLobbySnapshotFromParts(c.env.KV, mode, nextLobby, queue.entries, slots))
 })
 
 // Remove a player from a lobby slot (self leave or host kick)
@@ -453,7 +456,7 @@ app.post('/api/lobby/:mode/remove', async (c) => {
   const targetPlayerId = slots[slot]
 
   if (targetPlayerId == null) {
-    return c.json(buildOpenLobbySnapshotFromParts(mode, lobby, queue.entries, slots))
+    return c.json(await buildOpenLobbySnapshotFromParts(c.env.KV, mode, lobby, queue.entries, slots))
   }
 
   if (targetPlayerId === lobby.hostId) {
@@ -480,7 +483,83 @@ app.post('/api/lobby/:mode/remove', async (c) => {
     console.error(`Failed to update lobby embed after slot removal in ${mode}:`, error)
   }
 
-  return c.json(buildOpenLobbySnapshotFromParts(mode, nextLobby, queue.entries, slots))
+  return c.json(await buildOpenLobbySnapshotFromParts(c.env.KV, mode, nextLobby, queue.entries, slots))
+})
+
+// Host-only helper: fill empty lobby slots with test players
+app.post('/api/lobby/:mode/fill-test', async (c) => {
+  const mode = parseGameMode(c.req.param('mode'))
+  if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  }
+  catch {
+    return c.json({ error: 'Invalid JSON payload' }, 400)
+  }
+
+  if (!body || typeof body !== 'object') {
+    return c.json({ error: 'Invalid request body' }, 400)
+  }
+
+  const { userId } = body as { userId?: string }
+  if (typeof userId !== 'string' || userId.length === 0) {
+    return c.json({ error: 'userId is required' }, 400)
+  }
+
+  const lobby = await getLobby(c.env.KV, mode)
+  if (!lobby || lobby.status !== 'open') {
+    return c.json({ error: 'No open lobby for this mode' }, 404)
+  }
+
+  if (lobby.hostId !== userId) {
+    return c.json({ error: 'Only the lobby host can fill test players' }, 403)
+  }
+
+  const queue = await getQueueState(c.env.KV, mode)
+  const slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
+  const nextEntries = [...queue.entries]
+  const existingIds = new Set(nextEntries.map(entry => entry.playerId))
+
+  let addedCount = 0
+  const now = Date.now()
+
+  for (let slot = 0; slot < slots.length; slot++) {
+    if (slots[slot] != null) continue
+
+    const playerId = buildDebugFillPlayerId(mode, slot, existingIds)
+    slots[slot] = playerId
+    nextEntries.push({
+      playerId,
+      displayName: `Test Player ${slot + 1}`,
+      avatarUrl: null,
+      joinedAt: now + slot,
+    })
+    existingIds.add(playerId)
+    addedCount += 1
+  }
+
+  if (addedCount > 0) {
+    await setQueueEntries(c.env.KV, mode, nextEntries)
+  }
+
+  const updatedLobby = await setLobbySlots(c.env.KV, mode, slots)
+  const nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
+  const slottedEntries = mapLobbySlotsToEntries(slots, nextEntries)
+
+  try {
+    await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, nextLobby, {
+      embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
+      components: lobbyComponents(mode, 'open'),
+    })
+  }
+  catch (error) {
+    console.error(`Failed to update lobby embed after test fill in ${mode}:`, error)
+  }
+
+  const snapshot = await buildOpenLobbySnapshotFromParts(c.env.KV, mode, nextLobby, nextEntries, slots)
+  return c.json({ ...snapshot, addedCount })
 })
 
 // Host-only lobby start (manual start from config screen)
@@ -525,20 +604,21 @@ app.post('/api/lobby/:mode/start', async (c) => {
     return c.json({ error: 'Host must be in a lobby slot before starting.' }, 400)
   }
 
-  if (!canStartWithPlayerCount(mode, selectedEntries.length)) {
+  if (!canStartLobbyWithPlayerCount(mode, selectedEntries.length)) {
     if (mode === 'ffa') {
-      return c.json({ error: `FFA can start with ${minPlayerCount(mode)}-${maxPlayerCount(mode)} slotted players.` }, 400)
+      return c.json({ error: `FFA can start with ${lobbyMinPlayerCount(mode)}-${maxPlayerCount(mode)} slotted players.` }, 400)
     }
     return c.json({ error: `${mode.toUpperCase()} requires exactly ${maxPlayerCount(mode)} slotted players.` }, 400)
   }
 
   try {
+    const timerConfig = await resolveDraftTimerConfig(c.env.KV, lobby.draftConfig)
     const { matchId, seats } = await createDraftRoom(mode, selectedEntries, {
       hostId: lobby.hostId,
       partyHost: c.env.PARTY_HOST,
       botHost: c.env.BOT_HOST,
       webhookSecret: c.env.DRAFT_WEBHOOK_SECRET,
-      timerConfig: lobby.draftConfig,
+      timerConfig,
     })
 
     const db = createDb(c.env.DB)
@@ -883,7 +963,7 @@ async function buildOpenLobbySnapshot(
   const normalizedSlots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
 
   if (sameLobbySlots(normalizedSlots, lobby.slots)) {
-    return buildOpenLobbySnapshotFromParts(mode, lobby, queue.entries, normalizedSlots)
+    return buildOpenLobbySnapshotFromParts(kv, mode, lobby, queue.entries, normalizedSlots)
   }
 
   const updatedLobby = await setLobbySlots(kv, mode, normalizedSlots)
@@ -891,10 +971,11 @@ async function buildOpenLobbySnapshot(
     ...lobby,
     slots: normalizedSlots,
   }
-  return buildOpenLobbySnapshotFromParts(mode, resolvedLobby, queue.entries, normalizedSlots)
+  return buildOpenLobbySnapshotFromParts(kv, mode, resolvedLobby, queue.entries, normalizedSlots)
 }
 
-function buildOpenLobbySnapshotFromParts(
+async function buildOpenLobbySnapshotFromParts(
+  kv: KVNamespace,
   mode: GameMode,
   lobby: {
     hostId: string
@@ -908,6 +989,7 @@ function buildOpenLobbySnapshotFromParts(
   slots: (string | null)[],
 ) {
   const slotEntries = mapLobbySlotsToEntries(slots, queueEntries)
+  const serverDefaults = await getServerDraftTimerDefaults(kv)
 
   return {
     mode,
@@ -921,10 +1003,34 @@ function buildOpenLobbySnapshotFromParts(
         avatarUrl: entry.avatarUrl ?? null,
       }
     }),
-    minPlayers: minPlayerCount(mode),
+    minPlayers: lobbyMinPlayerCount(mode),
     targetSize: maxPlayerCount(mode),
     draftConfig: lobby.draftConfig,
+    serverDefaults,
   }
+}
+
+function lobbyMinPlayerCount(mode: GameMode): number {
+  if (mode === 'ffa') return TEMP_LOBBY_START_MIN_PLAYERS_FFA
+  return minPlayerCount(mode)
+}
+
+function canStartLobbyWithPlayerCount(mode: GameMode, playerCount: number): boolean {
+  if (mode === 'ffa') {
+    return playerCount >= lobbyMinPlayerCount(mode) && playerCount <= maxPlayerCount(mode)
+  }
+  return playerCount === maxPlayerCount(mode)
+}
+
+function buildDebugFillPlayerId(mode: GameMode, slot: number, existingIds: Set<string>): string {
+  const base = `${DEBUG_FILL_PLAYER_ID_PREFIX}${mode}:${slot}`
+  if (!existingIds.has(base)) return base
+
+  let suffix = 1
+  while (existingIds.has(`${base}:${suffix}`)) {
+    suffix += 1
+  }
+  return `${base}:${suffix}`
 }
 
 function parseGameMode(modeParam: string): GameMode | null {
@@ -947,6 +1053,6 @@ function parseLobbyTimerSeconds(value: unknown): number | null | undefined {
   if (!Number.isFinite(numeric)) return undefined
 
   const rounded = Math.round(numeric)
-  if (rounded < 0 || rounded > MAX_DRAFT_TIMER_SECONDS) return undefined
+  if (rounded < 0 || rounded > MAX_CONFIG_TIMER_SECONDS) return undefined
   return rounded
 }

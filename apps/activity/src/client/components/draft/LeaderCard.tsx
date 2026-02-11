@@ -20,7 +20,7 @@ interface LeaderCardProps {
   onHoverLeave?: () => void
 }
 
-/** Icon-only leader card for the grid overlay — no text below, just the portrait square */
+/** Icon-only leader card for the grid overlay */
 export function LeaderCard(props: LeaderCardProps) {
   const state = () => draftStore.state
   const step = currentStep
@@ -40,7 +40,7 @@ export function LeaderCard(props: LeaderCardProps) {
   const handleClick = () => {
     props.onHoverLeave?.()
 
-    // Always toggle detail on click (even for spectators)
+    // Always toggle detail on click
     toggleDetail(props.leader.id)
 
     if (!isClickable()) return
@@ -73,7 +73,7 @@ export function LeaderCard(props: LeaderCardProps) {
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold/50',
 
         // Unavailable
-        isUnavailable() && 'opacity-25 pointer-events-none',
+        isUnavailable() && 'pointer-events-none',
 
         // Clickable hover
         isClickable() && 'cursor-pointer hover:border-white/20',
@@ -96,7 +96,11 @@ export function LeaderCard(props: LeaderCardProps) {
       <Show
         when={props.leader.portraitUrl}
         fallback={(
-          <div class="bg-bg-secondary flex h-full w-full items-center justify-center">
+          <div class={cn(
+            'bg-bg-secondary flex h-full w-full items-center justify-center',
+            isUnavailable() && 'opacity-25',
+          )}
+          >
             <span class="text-lg text-accent-gold/40 font-bold">
               {props.leader.name.slice(0, 1)}
             </span>
@@ -110,6 +114,7 @@ export function LeaderCard(props: LeaderCardProps) {
             class={cn(
               'h-full w-full object-cover',
               isBanned() && 'grayscale',
+              isUnavailable() && 'opacity-25',
             )}
           />
         )}
@@ -117,8 +122,8 @@ export function LeaderCard(props: LeaderCardProps) {
 
       {/* Banned overlay */}
       <Show when={isBanned()}>
-        <div class="bg-accent-red/10 flex items-center inset-0 justify-center absolute">
-          <span class="text-xl text-accent-red font-bold">✕</span>
+        <div class="rounded-full bg-accent-red/10 flex items-center inset-0 justify-center absolute">
+          <span class="text-2xl text-accent-red font-bold">✕</span>
         </div>
       </Show>
     </button>

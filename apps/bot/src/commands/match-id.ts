@@ -1,5 +1,5 @@
 import { Command } from 'discord-hono'
-import { sendTransientEphemeralResponse } from '../services/ephemeral-response.ts'
+import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/ephemeral-response.ts'
 import { getMatchIdForMessage } from '../services/match-message.ts'
 import { factory } from '../setup.ts'
 
@@ -23,7 +23,7 @@ export const command_match_id = factory.command(
         return
       }
 
-      await sendTransientEphemeralResponse(c, `Match ID: \`${matchId}\``, 'info')
+      await sendEphemeralResponse(c, `Match ID: \`${matchId}\``, 'info')
     })
   },
 )

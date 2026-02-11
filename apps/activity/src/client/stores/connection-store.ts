@@ -40,6 +40,10 @@ export interface LobbySnapshot {
     banTimerSeconds: number | null
     pickTimerSeconds: number | null
   }
+  serverDefaults: {
+    banTimerSeconds: number | null
+    pickTimerSeconds: number | null
+  }
 }
 
 // ── State ──────────────────────────────────────────────────
@@ -371,6 +375,32 @@ export async function startLobbyDraft(
   catch (err) {
     console.error('Failed to start lobby draft:', err)
     return { ok: false, error: 'Network error while starting lobby draft' }
+  }
+}
+
+/** Fill empty lobby slots with test players (host-only). */
+export async function fillLobbyWithTestPlayers(
+  mode: string,
+  userId: string,
+): Promise<{ ok: true, lobby: LobbySnapshot, addedCount: number } | { ok: false, error: string }> {
+  try {
+    const res = await fetch(`/api/lobby/${mode}/fill-test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    })
+
+    const data = await res.json() as LobbySnapshot & { error?: string, addedCount?: unknown }
+    if (!res.ok) return { ok: false, error: data.error ?? 'Failed to fill lobby slots' }
+    return {
+      ok: true,
+      lobby: data,
+      addedCount: typeof data.addedCount === 'number' ? data.addedCount : 0,
+    }
+  }
+  catch (err) {
+    console.error('Failed to fill lobby slots with test players:', err)
+    return { ok: false, error: 'Network error while filling lobby slots' }
   }
 }
 
