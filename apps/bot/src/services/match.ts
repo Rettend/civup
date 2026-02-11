@@ -1,10 +1,10 @@
 import type { Database } from '@civup/db'
-import type { DraftCancelReason, DraftSeat, DraftState, GameMode } from '@civup/game'
+import type { DraftCancelReason, DraftSeat, DraftState, GameMode, LeaderboardMode } from '@civup/game'
 import type { FfaEntry, TeamInput } from '@civup/rating'
 import { matchBans, matches, matchParticipants, playerRatings, players } from '@civup/db'
 import { isTeamMode, toLeaderboardMode } from '@civup/game'
 import { calculateRatings, createRating, displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'
-import { and, eq, isNull, lt, or } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, lt, or } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from './activity.ts'
 import { clearLobbyByMatch } from './lobby.ts'
 
@@ -42,6 +42,27 @@ interface ReportInput {
 type ReportResult
   = | { match: MatchRow, participants: ParticipantRow[] }
     | { error: string }
+
+interface ResolveMatchInput {
+  matchId: string
+  placements: string
+  resolvedAt: number
+}
+
+interface CancelMatchInput {
+  matchId: string
+  cancelledAt: number
+}
+
+interface ModeratedMatchResult {
+  match: MatchRow
+  participants: ParticipantRow[]
+  previousStatus: string
+  recalculatedMatchIds: string[]
+}
+
+type ResolveMatchResult = ModeratedMatchResult | { error: string }
+type CancelMatchResult = ModeratedMatchResult | { error: string }
 
 interface CreateDraftMatchInput {
   matchId: string
@@ -582,6 +603,386 @@ export async function reportMatch(
   }
 
   return finalized
+}
+
+export async function resolveMatchByModerator(
+  db: Database,
+  kv: KVNamespace,
+  input: ResolveMatchInput,
+): Promise<ResolveMatchResult> {
+  const [match] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, input.matchId))
+    .limit(1)
+
+  if (!match) return { error: `Match **${input.matchId}** not found.` }
+  if (match.status === 'drafting') {
+    return { error: `Match **${input.matchId}** is still drafting and cannot be resolved yet.` }
+  }
+
+  const participants = await db
+    .select()
+    .from(matchParticipants)
+    .where(eq(matchParticipants.matchId, input.matchId))
+
+  if (participants.length === 0) return { error: `Match **${input.matchId}** has no participants.` }
+
+  const gameMode = toSupportedGameMode(match.gameMode)
+  if (!gameMode) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
+  const parsedPlacements = parseModerationPlacements(gameMode, input.placements, participants)
+  if ('error' in parsedPlacements) return parsedPlacements
+
+  for (const participant of participants) {
+    const placement = parsedPlacements.placementsByPlayer.get(participant.playerId)
+    if (placement == null) return { error: `Failed to resolve placement for <@${participant.playerId}>.` }
+
+    await db
+      .update(matchParticipants)
+      .set({ placement })
+      .where(
+        and(
+          eq(matchParticipants.matchId, input.matchId),
+          eq(matchParticipants.playerId, participant.playerId),
+        ),
+      )
+  }
+
+  const previousStatus = match.status
+  await db
+    .update(matches)
+    .set({ status: 'completed', completedAt: match.completedAt ?? input.resolvedAt })
+    .where(eq(matches.id, input.matchId))
+
+  await db.delete(matchBans).where(eq(matchBans.matchId, input.matchId))
+
+  const channelId = await getChannelForMatch(kv, input.matchId)
+  await clearActivityMappings(
+    kv,
+    input.matchId,
+    participants.map(p => p.playerId),
+    channelId ?? undefined,
+  )
+  await clearLobbyByMatch(kv, input.matchId)
+
+  const leaderboardMode = toLeaderboardMode(gameMode)
+  const recalculated = await recalculateLeaderboardMode(db, leaderboardMode)
+  if ('error' in recalculated) return recalculated
+
+  const [updatedMatch] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, input.matchId))
+    .limit(1)
+
+  const updatedParticipants = await db
+    .select()
+    .from(matchParticipants)
+    .where(eq(matchParticipants.matchId, input.matchId))
+
+  return {
+    match: updatedMatch!,
+    participants: updatedParticipants,
+    previousStatus,
+    recalculatedMatchIds: recalculated.matchIds,
+  }
+}
+
+export async function cancelMatchByModerator(
+  db: Database,
+  kv: KVNamespace,
+  input: CancelMatchInput,
+): Promise<CancelMatchResult> {
+  const [match] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, input.matchId))
+    .limit(1)
+
+  if (!match) return { error: `Match **${input.matchId}** not found.` }
+
+  const participants = await db
+    .select()
+    .from(matchParticipants)
+    .where(eq(matchParticipants.matchId, input.matchId))
+
+  if (participants.length === 0) return { error: `Match **${input.matchId}** has no participants.` }
+
+  const previousStatus = match.status
+
+  await db
+    .update(matchParticipants)
+    .set({
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    })
+    .where(eq(matchParticipants.matchId, input.matchId))
+
+  await db
+    .update(matches)
+    .set({
+      status: 'cancelled',
+      completedAt: match.completedAt ?? input.cancelledAt,
+    })
+    .where(eq(matches.id, input.matchId))
+
+  await db.delete(matchBans).where(eq(matchBans.matchId, input.matchId))
+
+  const channelId = await getChannelForMatch(kv, input.matchId)
+  await clearActivityMappings(
+    kv,
+    input.matchId,
+    participants.map(p => p.playerId),
+    channelId ?? undefined,
+  )
+  await clearLobbyByMatch(kv, input.matchId)
+
+  let recalculatedMatchIds: string[] = []
+  if (previousStatus === 'completed') {
+    const gameMode = toSupportedGameMode(match.gameMode)
+    if (!gameMode) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
+    const leaderboardMode = toLeaderboardMode(gameMode)
+    const recalculated = await recalculateLeaderboardMode(db, leaderboardMode)
+    if ('error' in recalculated) return recalculated
+    recalculatedMatchIds = recalculated.matchIds
+  }
+
+  const [updatedMatch] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, input.matchId))
+    .limit(1)
+
+  const updatedParticipants = await db
+    .select()
+    .from(matchParticipants)
+    .where(eq(matchParticipants.matchId, input.matchId))
+
+  return {
+    match: updatedMatch!,
+    participants: updatedParticipants,
+    previousStatus,
+    recalculatedMatchIds,
+  }
+}
+
+function parseModerationPlacements(
+  gameMode: GameMode,
+  placements: string,
+  participants: ParticipantRow[],
+):
+  | { placementsByPlayer: Map<string, number> }
+  | { error: string } {
+  if (isTeamMode(gameMode) || gameMode === '1v1') {
+    const winningTeam = placements.trim().toUpperCase()
+    if (winningTeam !== 'A' && winningTeam !== 'B') {
+      return { error: 'For team and 1v1 games, enter "A" or "B" for the winning side.' }
+    }
+
+    const winningTeamIndex = winningTeam === 'A' ? 0 : 1
+    const placementsByPlayer = new Map<string, number>()
+
+    for (const participant of participants) {
+      const placement = participant.team === winningTeamIndex ? 1 : 2
+      placementsByPlayer.set(participant.playerId, placement)
+    }
+
+    const hasWinner = [...placementsByPlayer.values()].some(value => value === 1)
+    if (!hasWinner) return { error: 'Could not map Team A/Team B for this match. Participant team data is missing.' }
+
+    return { placementsByPlayer }
+  }
+
+  const tokens = placements
+    .split(/\r?\n|,/)
+    .map(token => token.trim())
+    .filter(token => token.length > 0)
+
+  if (tokens.length === 0) {
+    return { error: 'For FFA resolves, provide at least one player in placement order.' }
+  }
+
+  const participantIds = new Set(participants.map(participant => participant.playerId))
+  const orderedIds: string[] = []
+
+  for (const token of tokens) {
+    const playerId = token.replace(/[<@!>]/g, '')
+    if (!participantIds.has(playerId)) {
+      return { error: `<@${playerId}> is not part of match **${participants[0]?.matchId ?? 'unknown'}**.` }
+    }
+    if (orderedIds.includes(playerId)) {
+      return { error: `<@${playerId}> appears multiple times in the resolve input.` }
+    }
+    orderedIds.push(playerId)
+  }
+
+  const placementsByPlayer = new Map<string, number>()
+  orderedIds.forEach((playerId, index) => {
+    placementsByPlayer.set(playerId, index + 1)
+  })
+
+  const lastPlace = orderedIds.length + 1
+  for (const participant of participants) {
+    if (placementsByPlayer.has(participant.playerId)) continue
+    placementsByPlayer.set(participant.playerId, lastPlace)
+  }
+
+  return { placementsByPlayer }
+}
+
+function toSupportedGameMode(mode: string): GameMode | null {
+  if (mode === 'ffa' || mode === '1v1' || mode === '2v2' || mode === '3v3') return mode
+  return null
+}
+
+function leaderboardModesToGameModes(mode: LeaderboardMode): string[] {
+  if (mode === 'duel') return ['1v1']
+  if (mode === 'teamers') return ['2v2', '3v3']
+  return ['ffa']
+}
+
+async function recalculateLeaderboardMode(
+  db: Database,
+  leaderboardMode: LeaderboardMode,
+): Promise<{ matchIds: string[] } | { error: string }> {
+  const gameModes = leaderboardModesToGameModes(leaderboardMode)
+  const completedMatches = await db
+    .select({
+      id: matches.id,
+      gameMode: matches.gameMode,
+      createdAt: matches.createdAt,
+      completedAt: matches.completedAt,
+    })
+    .from(matches)
+    .where(and(
+      eq(matches.status, 'completed'),
+      inArray(matches.gameMode, gameModes),
+    ))
+    .orderBy(asc(matches.createdAt), asc(matches.id))
+
+  const ratingStateByPlayer = new Map<string, {
+    mu: number
+    sigma: number
+    gamesPlayed: number
+    wins: number
+    lastPlayedAt: number | null
+  }>()
+
+  for (const match of completedMatches) {
+    const participantRows = await db
+      .select()
+      .from(matchParticipants)
+      .where(eq(matchParticipants.matchId, match.id))
+
+    if (participantRows.length === 0) return { error: `Completed match **${match.id}** has no participants.` }
+    if (participantRows.some(participant => participant.placement == null)) {
+      return { error: `Completed match **${match.id}** has missing placements.` }
+    }
+
+    const gameMode = toSupportedGameMode(match.gameMode)
+    if (!gameMode) return { error: `Completed match **${match.id}** has unsupported game mode: ${match.gameMode}.` }
+    let ratingUpdates
+
+    if (isTeamMode(gameMode) || gameMode === '1v1') {
+      const teams = new Map<number, { playerId: string, mu: number, sigma: number }[]>()
+
+      for (const participant of participantRows) {
+        const team = participant.team ?? 0
+        const existingRating = ratingStateByPlayer.get(participant.playerId)
+        const rating = existingRating
+          ? { mu: existingRating.mu, sigma: existingRating.sigma }
+          : createRating(participant.playerId)
+
+        const teamPlayers = teams.get(team) ?? []
+        teamPlayers.push({ playerId: participant.playerId, mu: rating.mu, sigma: rating.sigma })
+        teams.set(team, teamPlayers)
+      }
+
+      const teamEntries = [...teams.entries()].sort((a, b) => {
+        const aPlacement = participantRows.find(participant => participant.team === a[0])?.placement ?? Number.MAX_SAFE_INTEGER
+        const bPlacement = participantRows.find(participant => participant.team === b[0])?.placement ?? Number.MAX_SAFE_INTEGER
+        return aPlacement - bPlacement
+      })
+
+      const teamInputs: TeamInput[] = teamEntries.map(([, players]) => ({
+        players: players.map(player => ({ playerId: player.playerId, mu: player.mu, sigma: player.sigma })),
+      }))
+
+      ratingUpdates = calculateRatings({ type: 'team', teams: teamInputs })
+    }
+    else {
+      const ffaEntries: FfaEntry[] = participantRows.map((participant) => {
+        const existingRating = ratingStateByPlayer.get(participant.playerId)
+        const rating = existingRating
+          ? { mu: existingRating.mu, sigma: existingRating.sigma }
+          : createRating(participant.playerId)
+
+        return {
+          player: {
+            playerId: participant.playerId,
+            mu: rating.mu,
+            sigma: rating.sigma,
+          },
+          placement: participant.placement!,
+        }
+      })
+
+      ratingUpdates = calculateRatings({ type: 'ffa', entries: ffaEntries })
+    }
+
+    const updateByPlayer = new Map(ratingUpdates.map(update => [update.playerId, update]))
+
+    for (const participant of participantRows) {
+      const update = updateByPlayer.get(participant.playerId)
+      if (!update) return { error: `Failed to recalculate ratings for match **${match.id}**.` }
+
+      await db
+        .update(matchParticipants)
+        .set({
+          ratingBeforeMu: update.before.mu,
+          ratingBeforeSigma: update.before.sigma,
+          ratingAfterMu: update.after.mu,
+          ratingAfterSigma: update.after.sigma,
+        })
+        .where(
+          and(
+            eq(matchParticipants.matchId, match.id),
+            eq(matchParticipants.playerId, participant.playerId),
+          ),
+        )
+
+      const currentState = ratingStateByPlayer.get(participant.playerId)
+      const nextGamesPlayed = (currentState?.gamesPlayed ?? 0) + 1
+      const nextWins = (currentState?.wins ?? 0) + (participant.placement === 1 ? 1 : 0)
+
+      ratingStateByPlayer.set(participant.playerId, {
+        mu: update.after.mu,
+        sigma: update.after.sigma,
+        gamesPlayed: nextGamesPlayed,
+        wins: nextWins,
+        lastPlayedAt: match.completedAt ?? match.createdAt,
+      })
+    }
+  }
+
+  await db.delete(playerRatings).where(eq(playerRatings.mode, leaderboardMode))
+
+  for (const [playerId, state] of ratingStateByPlayer.entries()) {
+    await db.insert(playerRatings).values({
+      playerId,
+      mode: leaderboardMode,
+      mu: state.mu,
+      sigma: state.sigma,
+      gamesPlayed: state.gamesPlayed,
+      wins: state.wins,
+      lastPlayedAt: state.lastPlayedAt,
+    })
+  }
+
+  return { matchIds: completedMatches.map(match => match.id) }
 }
 
 export async function pruneAbandonedMatches(

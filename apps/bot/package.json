@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "test": "bun test",
     "register": "bun --env-file=.dev.vars src/register.ts",
     "secret:draft-webhook": "bun scripts/generate-draft-webhook-secret.ts --write",
     "secret:draft-webhook:print": "bun scripts/generate-draft-webhook-secret.ts",

@@ -1,36 +1,37 @@
-import type { SystemChannelType } from '../services/system-channels.ts'
+import type { SystemChannelType } from '../services/system-channels'
 import { createDb } from '@civup/db'
-import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
-import { sendTransientEphemeralResponse } from '../services/ephemeral-response.ts'
-import { upsertLeaderboardMessagesForChannel } from '../services/leaderboard-message.ts'
+import { Button, Command, Components, Option, SubCommand, SubGroup } from 'discord-hono'
+import { clearSeasonConfirmation, createSeasonConfirmation, getSeasonConfirmation } from '../services/confirmations'
+import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/ephemeral-response'
+import { upsertLeaderboardMessagesForChannel } from '../services/leaderboard-message'
+import { addModRole, getModRoleIds, hasAdminPermission, removeModRole } from '../services/permissions'
 import {
   clearLeaderboardMessageState,
   clearSystemChannel,
   getSystemChannel,
   setSystemChannel,
-} from '../services/system-channels.ts'
-import { factory } from '../setup.ts'
+} from '../services/system-channels'
+import { factory } from '../setup'
 
 interface Var {
-  match_id?: string
-  result?: string
   name?: string
   key?: string
   value?: string
   player?: string
   mode?: string
   target?: string
+  role?: string
 }
 
 export const command_admin = factory.command<Var>(
   new Command('admin', 'Admin commands for CivUp').options(
-    new SubGroup('match', 'Match management').options(
-      new SubCommand('cancel', 'Cancel an active match').options(
-        new Option('match_id', 'Match ID').required(),
+    new SubGroup('permission', 'Configure Mod command access').options(
+      new SubCommand('list', 'Show roles allowed to use /mod commands'),
+      new SubCommand('add', 'Grant /mod command access to a role').options(
+        new Option('role', 'Role to grant', 'Role').required(),
       ),
-      new SubCommand('resolve', 'Resolve a disputed match').options(
-        new Option('match_id', 'Match ID').required(),
-        new Option('result', 'Result (e.g. "A" for Team A wins, or placement order)').required(),
+      new SubCommand('remove', 'Revoke /mod command access from a role').options(
+        new Option('role', 'Role to revoke', 'Role').required(),
       ),
     ),
     new SubGroup('season', 'Season management').options(
@@ -64,67 +65,177 @@ export const command_admin = factory.command<Var>(
     ),
   ),
   (c) => {
-    // Admin permission check
-    const permissions = BigInt(c.interaction.member?.permissions ?? '0')
-    const MANAGE_GUILD = 1n << 5n
-    if ((permissions & MANAGE_GUILD) === 0n) {
-      return c.flags('EPHEMERAL').res('You need Manage Server permission for admin commands.')
+    if (!hasAdminPermission({ permissions: c.interaction.member?.permissions })) {
+      return c.flags('EPHEMERAL').resDefer(async (c) => {
+        await sendTransientEphemeralResponse(c, 'You need Administrator or Manage Server permission for /admin commands.', 'error')
+      })
     }
 
     switch (c.sub.string) {
-      // ── match cancel ──────────────────────────────────
-      case 'match cancel': {
-        const matchId = c.var.match_id
-        if (!matchId) return c.res('Please provide a match ID.')
+      // ── permission ───────────────────────────────────────
+      case 'permission list': {
+        const guildId = c.interaction.guild_id
+        if (!guildId) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'This command can only be used in a server.', 'error')
+          })
+        }
 
-        return c.resDefer(async (c) => {
-          const _db = createDb(c.env.DB)
-          // TODO: implement cancelMatch service
-          await c.followup(`Match **${matchId}** has been cancelled. No rating changes applied.`)
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          const modRoles = await getModRoleIds(c.env.KV, guildId)
+          const message = modRoles.length > 0
+            ? `Roles with /mod access: ${modRoles.map(roleId => `<@&${roleId}>`).join(', ')}`
+            : 'No Mod roles configured yet. Use `/admin permission add role:@Role` to grant /mod access.'
+          await sendTransientEphemeralResponse(c, message, 'info')
         })
       }
 
-      // ── match resolve ─────────────────────────────────
-      case 'match resolve': {
-        const matchId = c.var.match_id
-        const result = c.var.result
-        if (!matchId || !result) return c.res('Please provide match ID and result.')
+      case 'permission add': {
+        const guildId = c.interaction.guild_id
+        const roleId = c.var.role
+        if (!guildId) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'This command can only be used in a server.', 'error')
+          })
+        }
 
-        return c.resDefer(async (c) => {
-          const _db = createDb(c.env.DB)
-          // TODO: implement resolveMatch service
-          await c.followup(`Match **${matchId}** resolved with result: ${result}. Ratings updated.`)
+        if (!roleId) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'Please select a role to grant Mod access.', 'error')
+          })
+        }
+
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          const result = await addModRole(c.env.KV, guildId, roleId)
+          const roleList = result.roles.map(id => `<@&${id}>`).join(', ')
+
+          if (!result.added) {
+            await sendTransientEphemeralResponse(c, `<@&${roleId}> already has /mod access. Current roles: ${roleList}.`, 'info')
+            return
+          }
+
+          await sendTransientEphemeralResponse(c, `Granted /mod access to <@&${roleId}>. Current roles: ${roleList}.`, 'success')
         })
       }
 
-      // ── season start ──────────────────────────────────
+      case 'permission remove': {
+        const guildId = c.interaction.guild_id
+        const roleId = c.var.role
+        if (!guildId) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'This command can only be used in a server.', 'error')
+          })
+        }
+
+        if (!roleId) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'Please select a role to revoke.', 'error')
+          })
+        }
+
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          const result = await removeModRole(c.env.KV, guildId, roleId)
+          const roleList = result.roles.length > 0
+            ? result.roles.map(id => `<@&${id}>`).join(', ')
+            : '`none`'
+
+          if (!result.removed) {
+            await sendTransientEphemeralResponse(c, `<@&${roleId}> did not have /mod access. Current roles: ${roleList}.`, 'info')
+            return
+          }
+
+          await sendTransientEphemeralResponse(c, `Revoked /mod access from <@&${roleId}>. Current roles: ${roleList}.`, 'success')
+        })
+      }
+
+      // ── season start ────────────────────────────────────
       case 'season start': {
-        const name = c.var.name
-        if (!name) return c.res('Please provide a season name.')
+        const seasonName = c.var.name?.trim()
+        const guildId = c.interaction.guild_id
+        const actorId = getInteractionUserId(c)
 
-        return c.resDefer(async (c) => {
-          const _db = createDb(c.env.DB)
-          // TODO: implement startSeason service
-          await c.followup(`Season **${name}** started! All ratings have been soft-reset.`)
+        if (!seasonName) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'Please provide a season name.', 'error')
+          })
+        }
+
+        if (!guildId || !actorId) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'This command can only be used in a server.', 'error')
+          })
+        }
+
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          const token = await createSeasonConfirmation(c.env.KV, {
+            guildId,
+            actorId,
+            action: 'start',
+            seasonName,
+          })
+
+          const components = new Components().row(
+            new Button('admin-season-confirm', 'Confirm', 'Primary').custom_id(token),
+            new Button('admin-season-cancel', 'Cancel', 'Secondary').custom_id(token),
+          )
+
+          await sendEphemeralResponse(
+            c,
+            `Confirm season start for **${seasonName}**? This action is not recoverable.`,
+            'info',
+            { components, autoDeleteMs: null },
+          )
         })
       }
 
-      // ── season end ────────────────────────────────────
+      // ── season end ──────────────────────────────────────
       case 'season end': {
-        return c.resDefer(async (c) => {
-          const _db = createDb(c.env.DB)
-          // TODO: implement endSeason service
-          await c.followup('Current season ended. Final standings have been archived.')
+        const guildId = c.interaction.guild_id
+        const actorId = getInteractionUserId(c)
+
+        if (!guildId || !actorId) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'This command can only be used in a server.', 'error')
+          })
+        }
+
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          const token = await createSeasonConfirmation(c.env.KV, {
+            guildId,
+            actorId,
+            action: 'end',
+            seasonName: null,
+          })
+
+          const components = new Components().row(
+            new Button('admin-season-confirm', 'Confirm', 'Danger').custom_id(token),
+            new Button('admin-season-cancel', 'Cancel', 'Secondary').custom_id(token),
+          )
+
+          await sendEphemeralResponse(
+            c,
+            'Confirm season end? This action is not recoverable.',
+            'info',
+            { components, autoDeleteMs: null },
+          )
         })
       }
 
       // ── setup ───────────────────────────────────────────
       case 'setup': {
         const target = c.var.target as SystemChannelType | undefined
-        if (!target) return c.res('Please provide a setup target.')
+        if (!target) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'Please provide a setup target.', 'error')
+          })
+        }
 
         const channelId = c.interaction.channel?.id ?? c.interaction.channel_id
-        if (!channelId) return c.res('Could not identify the current channel.')
+        if (!channelId) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'Could not identify the current channel.', 'error')
+          })
+        }
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           const kv = c.env.KV
@@ -146,7 +257,7 @@ export const command_admin = factory.command<Var>(
               const movedFrom = previousChannelId && previousChannelId !== channelId
                 ? ` (moved from <#${previousChannelId}>)`
                 : ''
-              await sendTransientEphemeralResponse(c, `Leaderboard channel set to <#${channelId}>${movedFrom}. Embeds are now synced.`, 'success')
+              await sendTransientEphemeralResponse(c, `Leaderboard channel set to <#${channelId}>${movedFrom}.`, 'success')
             }
             catch (error) {
               console.error('Failed to initialize leaderboard messages:', error)
@@ -162,54 +273,150 @@ export const command_admin = factory.command<Var>(
         })
       }
 
-      // ── config ────────────────────────────────────────
+      // ── config ──────────────────────────────────────────
       case 'config': {
         const key = c.var.key
         const value = c.var.value
 
         if (!key) {
-          return c.flags('EPHEMERAL').res(
-            '**Available config keys:**\n'
-            + '`ffa_size` — Default FFA player count (6-12)\n'
-            + '`ban_timer` — Ban phase timer in seconds\n'
-            + '`pick_timer` — Pick phase timer in seconds\n'
-            + '`queue_timeout` — Queue timeout in minutes\n'
-            + '`lfg_category` — Category ID for temp voice channels\n\n'
-            + 'Use `/admin setup target:<Draft|Archive|Leaderboard>` to bind bot channels.',
-          )
-        }
-
-        if (!value) {
-          return c.resDefer(async (c) => {
-            const kv = c.env.KV
-            const current = await kv.get(`config:${key}`)
-            await c.followup(`\`${key}\` = \`${current ?? 'not set'}\``)
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(
+              c,
+              '**Available config keys:**\n'
+              + '`ffa_size` — Default FFA player count (6-12)\n'
+              + '`ban_timer` — Ban phase timer in seconds\n'
+              + '`pick_timer` — Pick phase timer in seconds\n'
+              + '`queue_timeout` — Queue timeout in minutes\n'
+              + '`lfg_category` — Category ID for temp voice channels\n\n'
+              + 'Use `/admin setup target:<Draft|Archive|Leaderboard>` to bind bot channels.\n'
+              + 'Use `/admin permission add/remove role:@Role` to manage /mod access.',
+              'info',
+            )
           })
         }
 
-        return c.resDefer(async (c) => {
-          const kv = c.env.KV
-          await kv.put(`config:${key}`, value)
-          await c.followup(`\`${key}\` set to \`${value}\`.`)
+        if (!value) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            const current = await c.env.KV.get(`config:${key}`)
+            await sendTransientEphemeralResponse(c, `\`${key}\` = \`${current ?? 'not set'}\``, 'info')
+          })
+        }
+
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          await c.env.KV.put(`config:${key}`, value)
+          await sendTransientEphemeralResponse(c, `\`${key}\` set to \`${value}\`.`, 'success')
         })
       }
 
-      // ── reset ─────────────────────────────────────────
+      // ── reset ───────────────────────────────────────────
       case 'reset': {
         const playerId = c.var.player
         const mode = c.var.mode
-        if (!playerId || !mode) return c.res('Please provide player and mode.')
+        if (!playerId || !mode) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'Please provide player and mode.', 'error')
+          })
+        }
 
-        return c.resDefer(async (c) => {
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
           const _db = createDb(c.env.DB)
           // TODO: implement resetRating service
-          await c.followup(`<@${playerId}>'s **${mode}** rating has been reset.`)
+          await sendTransientEphemeralResponse(c, `<@${playerId}>\'s **${mode}** rating has been reset.`, 'success')
         })
       }
 
       default:
-        return c.res('Unknown admin subcommand.')
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          await sendTransientEphemeralResponse(c, 'Unknown admin subcommand.', 'error')
+        })
     }
+  },
+)
+
+export const component_admin_season_confirm = factory.component(
+  new Button('admin-season-confirm', 'Confirm', 'Primary'),
+  (c) => {
+    const token = c.var.custom_id
+    if (!token) {
+      return c.flags('EPHEMERAL').resDefer(async (c) => {
+        await sendTransientEphemeralResponse(c, 'Season confirmation token was missing.', 'error')
+      })
+    }
+
+    return c.flags('EPHEMERAL').resDefer(async (c) => {
+      if (!hasAdminPermission({ permissions: c.interaction.member?.permissions })) {
+        await sendTransientEphemeralResponse(c, 'You need Administrator or Manage Server permission for this action.', 'error')
+        return
+      }
+
+      const actorId = getInteractionUserId(c)
+      const guildId = c.interaction.guild_id
+      if (!actorId || !guildId) {
+        await sendTransientEphemeralResponse(c, 'This action can only be used in a server.', 'error')
+        return
+      }
+
+      const pending = await getSeasonConfirmation(c.env.KV, token)
+      if (!pending) {
+        await sendTransientEphemeralResponse(c, 'This confirmation expired. Run the command again.', 'error')
+        return
+      }
+
+      if (pending.actorId !== actorId || pending.guildId !== guildId) {
+        await sendTransientEphemeralResponse(c, 'Only the original command author can confirm this action.', 'error')
+        return
+      }
+
+      await clearSeasonConfirmation(c.env.KV, token)
+
+      if (pending.action === 'start') {
+        const seasonName = pending.seasonName ?? 'Season'
+        const _db = createDb(c.env.DB)
+        // TODO: implement startSeason service
+        await sendTransientEphemeralResponse(c, `**${seasonName}** has started! Season lifecycle service is not implemented yet.`, 'info')
+        return
+      }
+
+      const _db = createDb(c.env.DB)
+      // TODO: implement endSeason service
+      await sendTransientEphemeralResponse(c, 'Season has ended! Season lifecycle service is not implemented yet.', 'info')
+    })
+  },
+)
+
+export const component_admin_season_cancel = factory.component(
+  new Button('admin-season-cancel', 'Cancel', 'Secondary'),
+  (c) => {
+    const token = c.var.custom_id
+    if (!token) {
+      return c.flags('EPHEMERAL').resDefer(async (c) => {
+        await sendTransientEphemeralResponse(c, 'Season confirmation token was missing.', 'error')
+      })
+    }
+
+    return c.flags('EPHEMERAL').resDefer(async (c) => {
+      const actorId = getInteractionUserId(c)
+      const guildId = c.interaction.guild_id
+      if (!actorId || !guildId) {
+        await sendTransientEphemeralResponse(c, 'This action can only be used in a server.', 'error')
+        return
+      }
+
+      const pending = await getSeasonConfirmation(c.env.KV, token)
+      if (!pending) {
+        await sendTransientEphemeralResponse(c, 'This confirmation already expired or was already handled.', 'info')
+        return
+      }
+
+      if (pending.actorId !== actorId || pending.guildId !== guildId) {
+        await sendTransientEphemeralResponse(c, 'Only the original command author can cancel this confirmation.', 'error')
+        return
+      }
+
+      await clearSeasonConfirmation(c.env.KV, token)
+
+      await sendTransientEphemeralResponse(c, 'Cancelled season action.', 'info')
+    })
   },
 )
 
@@ -217,4 +424,13 @@ function setupTargetLabel(target: SystemChannelType): string {
   if (target === 'draft') return 'Draft'
   if (target === 'archive') return 'Archive'
   return 'Leaderboard'
+}
+
+function getInteractionUserId(c: {
+  interaction: {
+    member?: { user?: { id?: string } }
+    user?: { id?: string }
+  }
+}): string | null {
+  return c.interaction.member?.user?.id ?? c.interaction.user?.id ?? null
 }
