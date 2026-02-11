@@ -439,7 +439,7 @@ function RandomLeaderCard(props: { disabled: boolean, armed: boolean, onClick: (
             : 'border-accent-gold/35 bg-accent-gold/10 text-accent-gold cursor-pointer hover:border-accent-gold/55 hover:bg-accent-gold/15',
       )}
       disabled={props.disabled}
-      onClick={props.onClick}
+      onClick={() => props.onClick()}
     >
       <span class="i-ph-dice-five-bold text-base" />
       <span class="text-[10px] tracking-wide font-semibold uppercase">Random</span>

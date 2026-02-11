@@ -17,6 +17,11 @@ interface LobbyParticipant {
   leaderboardAfterRank?: number | null
 }
 
+interface ModerationContext {
+  actorId: string
+  reason?: string | null
+}
+
 export type LobbyStage = 'open' | 'drafting' | 'draft-complete' | 'reported' | 'cancelled' | 'scrubbed'
 
 const MODE_LABELS: Record<GameMode, string> = {
@@ -134,26 +139,18 @@ export function lobbyCancelledEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
   reason: DraftCancelReason,
+  moderation?: ModerationContext,
 ): Embed {
   const stage: 'cancelled' | 'scrubbed' = reason === 'cancel' ? 'cancelled' : 'scrubbed'
-  const embed = lobbyDraftCompleteLeaderEmbed(mode, participants, stage)
-
-  if (reason === 'timeout') {
-    return embed.description('Draft auto-scrubbed because a pick timed out. No rating changes were applied.')
-  }
-
-  if (reason === 'cancel') {
-    return embed.description('Draft cancelled before lock-in. No rating changes were applied.')
-  }
-
-  return embed.description('Match scrubbed by host. No rating changes were applied.')
+  return lobbyDraftCompleteLeaderEmbed(mode, participants, stage, moderation)
 }
 
 export function lobbyResultEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
+  moderation?: ModerationContext,
 ): Embed {
-  return lobbyReportedEmbed(mode, participants)
+  return lobbyReportedEmbed(mode, participants, moderation)
 }
 
 export function lobbyComponents(mode: GameMode, _stage: Extract<LobbyStage, 'open' | 'drafting'>): Components {
@@ -173,15 +170,17 @@ function lobbyDraftCompleteLeaderEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
   stage: Extract<LobbyStage, 'draft-complete' | 'cancelled' | 'scrubbed'> = 'draft-complete',
+  moderation?: ModerationContext,
 ): Embed {
   const embed = baseLobbyEmbed(mode, stage)
   const hasTeams = participants.some(participant => participant.team != null)
+  const moderationField = buildModerationField(moderation)
 
   if (hasTeams) {
     const teamA = participants.filter(participant => participant.team === 0)
     const teamB = participants.filter(participant => participant.team === 1)
 
-    return embed.fields(
+    const teamFields = [
       {
         name: 'Team A',
         value: teamA.map((participant, index) => `${index + 1}. <@${participant.playerId}> - ${formatLeaderName(participant.civId)}`).join('\n') || '`[empty]`',
@@ -192,29 +191,36 @@ function lobbyDraftCompleteLeaderEmbed(
         value: teamB.map((participant, index) => `${index + 1}. <@${participant.playerId}> - ${formatLeaderName(participant.civId)}`).join('\n') || '`[empty]`',
         inline: true,
       },
-    )
+    ]
+    return moderationField ? embed.fields(moderationField, ...teamFields) : embed.fields(...teamFields)
   }
 
   const lines = participants
     .map((participant, index) => `${index + 1}. <@${participant.playerId}> - ${formatLeaderName(participant.civId)}`)
     .join('\n')
 
-  return embed.fields({ name: 'Players', value: lines || '`[empty]`', inline: false })
+  const playerField = { name: 'Players', value: lines || '`[empty]`', inline: false }
+  return moderationField ? embed.fields(moderationField, playerField) : embed.fields(playerField)
 }
 
-function lobbyReportedEmbed(mode: GameMode, participants: LobbyParticipant[]): Embed {
+function lobbyReportedEmbed(mode: GameMode, participants: LobbyParticipant[], moderation?: ModerationContext): Embed {
   const embed = baseLobbyEmbed(mode, 'reported')
   const usesTeamRows = mode === '2v2' || mode === '3v3'
   const description = usesTeamRows
     ? formatReportedTeamRows(participants)
     : formatReportedFlatRows(participants)
   const leaderboardUpdate = formatLeaderboardUpdate(participants)
+  const moderationField = buildModerationField(moderation)
 
   embed.description(description || '`[empty]`')
 
-  if (!leaderboardUpdate) return embed
+  if (!leaderboardUpdate) {
+    if (!moderationField) return embed
+    return embed.fields(moderationField)
+  }
 
-  return embed.fields({ name: 'Leaderboard', value: leaderboardUpdate, inline: false })
+  const leaderboardField = { name: 'Leaderboard', value: leaderboardUpdate, inline: false }
+  return moderationField ? embed.fields(moderationField, leaderboardField) : embed.fields(leaderboardField)
 }
 
 function formatReportedTeamRows(participants: LobbyParticipant[]): string {
@@ -366,5 +372,15 @@ function formatLeaderName(civId: string | null): string {
   }
   catch {
     return civId
+  }
+}
+
+function buildModerationField(moderation?: ModerationContext): { name: string, value: string, inline: false } | null {
+  if (!moderation) return null
+  const reason = moderation.reason?.trim() || 'No reason.'
+  return {
+    name: 'Note',
+    value: `<@${moderation.actorId}> - ${reason}`,
+    inline: false,
   }
 }

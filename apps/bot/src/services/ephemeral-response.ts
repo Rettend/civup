@@ -7,7 +7,7 @@ interface TransientEphemeralContext {
   executionCtx: {
     waitUntil: (promise: Promise<unknown>) => void
   }
-  followup: (data?: string | { embeds?: unknown[] }) => Promise<unknown>
+  followup: (data?: any) => Promise<unknown>
 }
 
 interface DeferredEphemeralContext {
@@ -23,11 +23,29 @@ export async function sendTransientEphemeralResponse(
   message: string,
   tone: EphemeralResponseTone,
 ): Promise<void> {
-  await c.followup({ embeds: [ephemeralResponseEmbed(message, tone)] })
+  await sendEphemeralResponse(c, message, tone, { autoDeleteMs: TRANSIENT_EPHEMERAL_DELETE_MS })
+}
+
+export async function sendEphemeralResponse(
+  c: TransientEphemeralContext,
+  message: string,
+  tone: EphemeralResponseTone,
+  options?: {
+    components?: unknown
+    autoDeleteMs?: number | null
+  },
+): Promise<void> {
+  await c.followup({
+    embeds: [ephemeralResponseEmbed(message, tone)],
+    components: options?.components,
+  })
+
+  const autoDeleteMs = options?.autoDeleteMs
+  if (autoDeleteMs == null || autoDeleteMs <= 0) return
 
   c.executionCtx.waitUntil((async () => {
     try {
-      await new Promise(resolve => setTimeout(resolve, TRANSIENT_EPHEMERAL_DELETE_MS))
+      await new Promise(resolve => setTimeout(resolve, autoDeleteMs))
       await c.followup()
     }
     catch (error) {

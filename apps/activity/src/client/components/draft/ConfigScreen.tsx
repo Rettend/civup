@@ -1,11 +1,12 @@
 import type { LobbySnapshot } from '~/client/stores'
 import { createEffect, createSignal, For, Show } from 'solid-js'
+import { Dropdown, TextInput } from '~/client/components/ui'
 import { cn } from '~/client/lib/css'
 import { formatModeLabel } from '~/client/lib/mode'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
 import {
-  avatarUrl as currentAvatarUrl,
   cancelLobby,
+  avatarUrl as currentAvatarUrl,
   displayName as currentDisplayName,
   draftStore,
   isSpectator,
@@ -92,8 +93,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return id === hostId()
   }
 
-  const seatCount = () => currentLobby()?.targetSize ?? state()?.seats.length ?? 0
-  const minStartPlayers = () => currentLobby()?.minPlayers ?? seatCount()
   const formatId = () => {
     const lobby = currentLobby()
     if (lobby) return formatModeLabel(lobby.mode, 'DRAFT')
@@ -233,23 +232,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
       return filled >= lobby.minPlayers && filled <= lobby.targetSize
     }
     return filled === lobby.targetSize
-  }
-
-  const lobbyStatusHint = () => {
-    const lobby = currentLobby()
-    if (!lobby) return null
-    const filled = filledSlots()
-
-    if (lobby.mode === 'ffa') {
-      if (filled < lobby.minPlayers) return `Need ${lobby.minPlayers - filled} more slotted player${lobby.minPlayers - filled === 1 ? '' : 's'} to start FFA.`
-      return `FFA can start now (${filled}/${lobby.targetSize} slotted).`
-    }
-
-    if (filled < lobby.targetSize) {
-      return `Need ${lobby.targetSize - filled} more slotted player${lobby.targetSize - filled === 1 ? '' : 's'} to start.`
-    }
-
-    return 'All slots filled. Ready to start.'
   }
 
   const isCurrentUserSlotted = () => {
@@ -522,8 +504,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
   }
 
   return (
-    <div class="text-text-primary font-sans bg-bg-primary min-h-dvh overflow-y-auto">
-      <div class="px-6 py-4 flex flex-col gap-6 max-w-5xl w-full mx-auto">
+    <div class="text-text-primary font-sans bg-bg-primary overflow-y-auto min-h-dvh">
+      <div class="mx-auto px-6 py-4 flex flex-col gap-6 max-w-5xl w-full">
         <div class="text-center">
           <h1 class="text-2xl text-heading mb-1">Draft Setup</h1>
           <span class="text-sm text-accent-gold font-medium">{formatId()}</span>
@@ -673,45 +655,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
               </span>
             </div>
 
-            <div class="text-sm gap-2 grid grid-cols-2">
-              <div class="text-text-secondary">Players</div>
-              <div class="text-text-primary font-medium text-right">
-                <Show when={isLobbyMode()} fallback={seatCount()}>
-                  {`${filledSlots()}/${seatCount()}`}
-                </Show>
-              </div>
-              <div class="text-text-secondary">Mode</div>
-              <div class="text-text-primary font-medium text-right">{formatModeLabel(lobbyMode(), 'DRAFT')}</div>
-              <Show when={isLobbyMode()}>
-                <div class="text-text-secondary">Start</div>
-                <div class="text-text-primary font-medium text-right">
-                  <Show when={lobbyMode() === 'ffa'} fallback={`${seatCount()} slots`}>
-                    {`${minStartPlayers()}-${seatCount()} slots`}
-                  </Show>
-                </div>
-              </Show>
-              <Show when={!isLobbyMode()}>
-                <div class="text-text-secondary">Steps</div>
-                <div class="text-text-primary font-medium text-right">{state()?.steps.length ?? 0}</div>
-              </Show>
-            </div>
-
             <Show when={isLobbyMode() && amHost()}>
-              <div class="flex flex-col gap-2">
-                <label class="text-xs text-text-muted tracking-wider font-bold uppercase">Game Mode</label>
-                <select
-                  value={lobbyMode()}
-                  disabled={lobbyActionPending()}
-                  onChange={event => void handleLobbyModeChange(normalizeLobbyMode(event.currentTarget.value))}
-                  class="text-sm text-text-primary px-3 py-2 outline-none border border-white/10 rounded-md bg-bg-primary focus:border-accent-gold/60 disabled:opacity-70"
-                >
-                  <For each={LOBBY_MODES}>
-                    {mode => (
-                      <option value={mode}>{formatModeLabel(mode, mode)}</option>
-                    )}
-                  </For>
-                </select>
-              </div>
+              <Dropdown
+                label="Game Mode"
+                value={lobbyMode()}
+                disabled={lobbyActionPending()}
+                options={LOBBY_MODES.map(mode => ({ value: mode, label: formatModeLabel(mode, mode) }))}
+                onChange={value => void handleLobbyModeChange(normalizeLobbyMode(value))}
+              />
             </Show>
 
             <Show
@@ -724,14 +675,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
               )}
             >
               <div class="flex flex-col gap-2">
-                <label class="text-xs text-text-muted tracking-wider font-bold uppercase">Ban Timer (minutes)</label>
-                <input
+                <TextInput
                   type="number"
+                  label="Ban Timer (minutes)"
                   min="0"
                   max={String(MAX_TIMER_MINUTES)}
                   step="1"
                   value={banMinutes()}
-                  placeholder="default"
+                  placeholder="Unlimited"
                   onFocus={() => setEditingField('ban')}
                   onInput={(event) => {
                     optimisticTimerConfig.clearError()
@@ -741,17 +692,16 @@ export function ConfigScreen(props: ConfigScreenProps) {
                     setBanMinutes(normalized)
                   }}
                   onBlur={() => void saveConfigOnBlur()}
-                  class="text-sm text-text-primary px-3 py-2 outline-none border border-white/10 rounded-md bg-bg-primary focus:border-accent-gold/60"
                 />
 
-                <label class="text-xs text-text-muted tracking-wider font-bold uppercase">Pick Timer (minutes)</label>
-                <input
+                <TextInput
                   type="number"
+                  label="Pick Timer (minutes)"
                   min="0"
                   max={String(MAX_TIMER_MINUTES)}
                   step="1"
                   value={pickMinutes()}
-                  placeholder="default"
+                  placeholder="Unlimited"
                   onFocus={() => setEditingField('pick')}
                   onInput={(event) => {
                     optimisticTimerConfig.clearError()
@@ -761,13 +711,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
                     setPickMinutes(normalized)
                   }}
                   onBlur={() => void saveConfigOnBlur()}
-                  class="text-sm text-text-primary px-3 py-2 outline-none border border-white/10 rounded-md bg-bg-primary focus:border-accent-gold/60"
                 />
               </div>
-            </Show>
-
-            <Show when={isLobbyMode() && !!lobbyStatusHint()}>
-              <div class="text-xs text-text-secondary px-2 py-1 rounded bg-bg-primary/35">{lobbyStatusHint()}</div>
             </Show>
 
             <div class="min-h-5">
@@ -902,7 +847,7 @@ function PlayerChip(props: PlayerChipProps) {
             src={avatar()}
             alt={props.row.name}
             draggable={false}
-            class="rounded-full h-5 w-5 object-cover pointer-events-none"
+            class="rounded-full h-5 w-5 pointer-events-none object-cover"
           />
         )}
       </Show>
@@ -911,7 +856,7 @@ function PlayerChip(props: PlayerChipProps) {
 
       <Show when={props.showJoin && !props.pending}>
         <button
-          class="h-5 w-5 rounded-sm flex items-center justify-center text-text-secondary opacity-0 transition-opacity group-hover:opacity-100 hover:text-text-primary hover:bg-white/8"
+          class="text-text-secondary rounded-sm opacity-0 flex h-5 w-5 transition-opacity items-center justify-center hover:text-text-primary hover:bg-white/8 group-hover:opacity-100"
           onClick={(event) => {
             event.stopPropagation()
             props.onJoin?.()
@@ -923,7 +868,7 @@ function PlayerChip(props: PlayerChipProps) {
 
       <Show when={props.showRemove && !props.pending}>
         <button
-          class="h-5 w-5 rounded-sm flex items-center justify-center text-text-secondary opacity-0 transition-opacity group-hover:opacity-100 hover:text-accent-red hover:bg-white/8"
+          class="text-text-secondary rounded-sm opacity-0 flex h-5 w-5 transition-opacity items-center justify-center hover:text-accent-red hover:bg-white/8 group-hover:opacity-100"
           onClick={(event) => {
             event.stopPropagation()
             props.onRemove?.()
@@ -987,8 +932,7 @@ function normalizeTimerMinutesInput(value: string): string {
 }
 
 function formatTimerValue(timerSeconds: number | null): string {
-  if (timerSeconds == null) return 'Default'
-  if (timerSeconds === 0) return 'Unlimited'
+  if (timerSeconds == null || timerSeconds === 0) return 'Unlimited'
   const minutes = Math.round(timerSeconds / 60)
   if (minutes === 1) return '1 minute'
   return `${minutes} minutes`

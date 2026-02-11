@@ -8,6 +8,12 @@ interface DiscordMessageResponse {
   id: string
 }
 
+interface DiscordErrorPayload {
+  retry_after?: number
+}
+
+const MAX_DISCORD_RETRIES = 2
+
 export class DiscordApiError extends Error {
   status: number
   detail: string
@@ -31,19 +37,18 @@ export async function createChannelMessage(
   channelId: string,
   payload: DiscordMessagePayload,
 ): Promise<DiscordMessageResponse> {
-  const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bot ${token}`,
-      'Content-Type': 'application/json',
+  const response = await requestDiscord(
+    'create message',
+    `https://discord.com/api/v10/channels/${channelId}/messages`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bot ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
     },
-    body: JSON.stringify(payload),
-  })
-
-  if (!response.ok) {
-    const detail = await response.text()
-    throw new DiscordApiError('create message', response.status, detail)
-  }
+  )
 
   return await response.json() as DiscordMessageResponse
 }
@@ -54,17 +59,67 @@ export async function editChannelMessage(
   messageId: string,
   payload: DiscordMessagePayload,
 ): Promise<void> {
-  const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`, {
-    method: 'PATCH',
-    headers: {
-      'Authorization': `Bot ${token}`,
-      'Content-Type': 'application/json',
+  await requestDiscord(
+    'edit message',
+    `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bot ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
     },
-    body: JSON.stringify(payload),
-  })
+  )
+}
 
-  if (!response.ok) {
+async function requestDiscord(
+  action: string,
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  for (let attempt = 0; attempt <= MAX_DISCORD_RETRIES; attempt++) {
+    const response = await fetch(url, init)
+    if (response.ok) return response
+
     const detail = await response.text()
-    throw new DiscordApiError('edit message', response.status, detail)
+    const isRetriable = response.status === 429 || response.status >= 500
+    if (!isRetriable || attempt === MAX_DISCORD_RETRIES) {
+      throw new DiscordApiError(action, response.status, detail)
+    }
+
+    const retryMs = calculateRetryDelayMs(response, detail, attempt)
+    await new Promise(resolve => setTimeout(resolve, retryMs))
+  }
+
+  throw new DiscordApiError(action, 500, 'Retry loop exited unexpectedly')
+}
+
+function calculateRetryDelayMs(response: Response, detail: string, attempt: number): number {
+  const headerRetryAfter = response.headers.get('retry-after')
+  if (headerRetryAfter) {
+    const parsed = Number.parseFloat(headerRetryAfter)
+    if (Number.isFinite(parsed) && parsed >= 0) return Math.ceil(parsed * 1000)
+  }
+
+  if (response.status === 429) {
+    const parsedPayload = parseDiscordErrorPayload(detail)
+    const retryAfter = parsedPayload?.retry_after
+    if (typeof retryAfter === 'number' && Number.isFinite(retryAfter) && retryAfter >= 0) {
+      return Math.ceil(retryAfter * 1000)
+    }
+  }
+
+  return 250 * (attempt + 1)
+}
+
+function parseDiscordErrorPayload(detail: string): DiscordErrorPayload | null {
+  try {
+    const parsed = JSON.parse(detail) as unknown
+    if (!parsed || typeof parsed !== 'object') return null
+    return parsed as DiscordErrorPayload
+  }
+  catch {
+    return null
   }
 }

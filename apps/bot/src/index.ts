@@ -38,6 +38,7 @@ import {
   setLobbyStatus,
   upsertLobby,
 } from './services/lobby.ts'
+import { storeMatchMessageMapping } from './services/match-message.ts'
 import { activateDraftMatch, cancelDraftMatch, createDraftMatch, reportMatch } from './services/match.ts'
 import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, moveQueueMode } from './services/queue.ts'
 import { getSystemChannel } from './services/system-channels.ts'
@@ -567,10 +568,11 @@ app.post('/api/lobby/:mode/start', async (c) => {
     }
 
     try {
-      await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobbyForMessage, {
+      const updatedLobby = await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobbyForMessage, {
         embeds: [lobbyDraftingEmbed(mode, seats)],
         components: lobbyComponents(mode, 'drafting'),
       })
+      await storeMatchMessageMapping(c.env.KV, updatedLobby.messageId, matchId)
     }
     catch (error) {
       console.error(`Failed to update drafting lobby embed for mode ${mode}:`, error)
@@ -703,10 +705,11 @@ app.post('/api/match/:matchId/report', async (c) => {
   if (lobby) {
     await setLobbyStatus(c.env.KV, lobby.mode, 'completed')
     try {
-      await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
+      const updatedLobby = await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
         embeds: [lobbyResultEmbed(lobby.mode, result.participants)],
         components: [],
       })
+      await storeMatchMessageMapping(c.env.KV, updatedLobby.messageId, result.match.id)
     }
     catch (error) {
       console.error(`Failed to update lobby result embed for match ${result.match.id}:`, error)
@@ -717,9 +720,10 @@ app.post('/api/match/:matchId/report', async (c) => {
   const archiveChannelId = await getSystemChannel(c.env.KV, 'archive')
   if (archiveChannelId) {
     try {
-      await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
+      const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
         embeds: [lobbyResultEmbed(reportedMode, result.participants)],
       })
+      await storeMatchMessageMapping(c.env.KV, archiveMessage.id, result.match.id)
     }
     catch (error) {
       console.error(`Failed to post archive result for match ${result.match.id}:`, error)
@@ -784,10 +788,11 @@ app.post('/api/webhooks/draft-complete', async (c) => {
 
     await setLobbyStatus(c.env.KV, lobby.mode, 'active')
     try {
-      await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
+      const updatedLobby = await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
         embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants)],
         components: [],
       })
+      await storeMatchMessageMapping(c.env.KV, updatedLobby.messageId, payload.matchId)
     }
     catch (error) {
       console.error(`Failed to update draft-complete embed for match ${payload.matchId}:`, error)
@@ -818,10 +823,11 @@ app.post('/api/webhooks/draft-complete', async (c) => {
 
   await setLobbyStatus(c.env.KV, lobby.mode, payload.reason === 'cancel' ? 'cancelled' : 'scrubbed')
   try {
-    await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
+    const updatedLobby = await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
       embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason)],
       components: [],
     })
+    await storeMatchMessageMapping(c.env.KV, updatedLobby.messageId, payload.matchId)
   }
   catch (error) {
     console.error(`Failed to update cancelled embed for match ${payload.matchId}:`, error)
