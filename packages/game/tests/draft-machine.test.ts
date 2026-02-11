@@ -25,6 +25,15 @@ function create2v2Seats(): DraftSeat[] {
   ]
 }
 
+function create2v2PlayerSeats(): DraftSeat[] {
+  return [
+    { playerId: 'a1', displayName: 'A1', team: 0 },
+    { playerId: 'b1', displayName: 'B1', team: 1 },
+    { playerId: 'a2', displayName: 'A2', team: 0 },
+    { playerId: 'b2', displayName: 'B2', team: 1 },
+  ]
+}
+
 function createDuelSeats(): DraftSeat[] {
   return [
     { playerId: 'player1', displayName: 'Player 1' },
@@ -71,10 +80,10 @@ describe('createDraft', () => {
     const seats = create2v2Seats()
     const draft = createDraft('match-123', default2v2, seats, createTestCivPool())
 
-    // 2v2 has: ban(all), pick([0]), pick([1]), pick([0])
+    // 2v2 has: ban([0,1]), pick([0]), pick([1]), pick([0])
     expect(draft.steps.length).toBeGreaterThan(0)
     expect(draft.steps[0]!.action).toBe('ban')
-    expect(draft.steps[0]!.seats).toBe('all')
+    expect(draft.steps[0]!.seats).toEqual([0, 1])
   })
 
   test('creates draft with FFA format and correct number of steps', () => {
@@ -173,6 +182,17 @@ describe('processDraftInput — CANCEL', () => {
 // ── BAN Flow (Blind Bans, Simultaneous) ─────────────────────
 
 describe('processDraftInput — BAN (blind bans)', () => {
+  test('team ban step is captain-only when full team rosters are present', () => {
+    const draft = startDraft(createDraft('match-captains', default2v2, create2v2PlayerSeats(), createTestCivPool()))
+
+    expect(getPendingSeats(draft)).toEqual([0, 1])
+
+    const nonCaptainResult = processDraftInput(draft, { type: 'BAN', seatIndex: 2, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
+    expect(isDraftError(nonCaptainResult)).toBe(true)
+    if (!isDraftError(nonCaptainResult)) return
+    expect(nonCaptainResult.error).toBe('Seat 2 is not active in this step')
+  })
+
   test('accepts ban from active seat', () => {
     const draft = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
     const result = processDraftInput(draft, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)

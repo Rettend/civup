@@ -111,8 +111,8 @@ export type DraftCancelReason = 'cancel' | 'scrub' | 'timeout'
 /**
  * A single step in a draft sequence.
  *
- * For team modes: seats are team indices (0 = Team A, 1 = Team B).
- * For FFA: seats are player indices (0 through N-1).
+ * Seats are always player slot indices (0 through N-1).
+ * Team formats can target captain slots only (default: Team A captain = 0, Team B captain = 1).
  */
 export interface DraftStep {
   action: DraftAction

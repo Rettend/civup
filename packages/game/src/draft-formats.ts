@@ -3,6 +3,7 @@ import type { DraftFormat, DraftStep } from './types.ts'
 /**
  * 2v2 Format:
  * - 3 blind bans per team (simultaneous)
+ * - Captains submit bans/picks (seat 0 = Team A captain, seat 1 = Team B captain)
  * - Team A picks 1
  * - Team B picks 2
  * - Team A picks 1
@@ -13,10 +14,10 @@ export const default2v2: DraftFormat = {
   gameMode: '2v2',
   blindBans: true,
   getSteps(_seatCount: number): DraftStep[] {
-    // Seats: 0 = Team A, 1 = Team B
+    // Seats: 0 = Team A captain, 1 = Team B captain
     return [
-      // Phase 1: Both teams ban 3 simultaneously (blind)
-      { action: 'ban', seats: 'all', count: 3, timer: 120 },
+      // Phase 1: Both captains ban 3 simultaneously (blind)
+      { action: 'ban', seats: [0, 1], count: 3, timer: 120 },
       // Phase 2: Team A picks 1
       { action: 'pick', seats: [0], count: 1, timer: 60 },
       // Phase 3: Team B picks 2
@@ -30,6 +31,7 @@ export const default2v2: DraftFormat = {
 /**
  * 3v3 Format:
  * - 3 blind bans per team (simultaneous)
+ * - Captains submit bans/picks (seat 0 = Team A captain, seat 1 = Team B captain)
  * - Snake pick: T1-T2-T2-T1-T1-T2
  */
 export const default3v3: DraftFormat = {
@@ -39,7 +41,7 @@ export const default3v3: DraftFormat = {
   blindBans: true,
   getSteps(_seatCount: number): DraftStep[] {
     return [
-      { action: 'ban', seats: 'all', count: 3, timer: 120 },
+      { action: 'ban', seats: [0, 1], count: 3, timer: 120 },
       { action: 'pick', seats: [0], count: 1, timer: 60 },
       { action: 'pick', seats: [1], count: 2, timer: 90 },
       { action: 'pick', seats: [0], count: 2, timer: 90 },

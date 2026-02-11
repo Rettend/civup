@@ -16,8 +16,8 @@ import type {
 /**
  * Create a new draft state.
  *
- * For team modes: seats represent teams (seat 0 = Team A, seat 1 = Team B).
- * For FFA: seats represent individual players.
+ * Seats always represent player slots.
+ * Team formats can choose to activate only captain seats (for default team formats: 0 and 1).
  */
 export function createDraft(
   matchId: string,
@@ -190,7 +190,7 @@ function processBan(
   const events: DraftEvent[] = []
 
   // For blind bans, add to pending but don't broadcast the civ IDs
-  const isBlind = blindBans && step.seats === 'all'
+  const isBlind = isBlindBanStep(step, blindBans)
   events.push({ type: 'BAN_SUBMITTED', seatIndex, civIds, blind: isBlind })
 
   // Check if step is complete
@@ -391,6 +391,12 @@ function getActiveSeats(step: DraftStep, totalSeats: number): number[] {
   return step.seats
 }
 
+function isBlindBanStep(step: DraftStep, blindBans: boolean): boolean {
+  if (!blindBans || step.action !== 'ban') return false
+  if (step.seats === 'all') return true
+  return step.seats.length > 1
+}
+
 function normalizeCancelReason(
   state: DraftState,
   reason: DraftCancelReason,
@@ -410,7 +416,7 @@ function completeStep(
   blindBans: boolean,
 ): DraftResult {
   const step = state.steps[state.currentStepIndex]!
-  const isBlindBanStep = blindBans && step.action === 'ban' && step.seats === 'all'
+  const shouldRevealBlindBans = isBlindBanStep(step, blindBans)
 
   if (step.action === 'ban') {
     // Collect all bans from submissions
@@ -428,7 +434,7 @@ function completeStep(
     const newAvailable = state.availableCivIds.filter(id => !allBannedCivIds.includes(id))
 
     // If blind bans, emit reveal event
-    if (isBlindBanStep) {
+    if (shouldRevealBlindBans) {
       const revealedBans = newBans.filter(b => b.stepIndex === state.currentStepIndex)
       events.push({ type: 'BLIND_BANS_REVEALED', bans: revealedBans })
     }

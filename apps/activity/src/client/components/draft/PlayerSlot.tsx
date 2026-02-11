@@ -28,14 +28,19 @@ export function PlayerSlot(props: PlayerSlotProps) {
     catch { return null }
   }
 
-  /** Whether this seat is active in the current step */
+  /** Whether this seat is currently expected to submit in the active step */
   const isActive = (): boolean => {
     const s = state()
     if (!s || s.status !== 'active') return false
     const step = s.steps[s.currentStepIndex]
     if (!step) return false
-    if (step.seats === 'all') return true
-    return step.seats.includes(props.seatIndex)
+    const seatIsInStep = step.seats === 'all'
+      ? props.seatIndex >= 0 && props.seatIndex < s.seats.length
+      : step.seats.includes(props.seatIndex)
+    if (!seatIsInStep) return false
+
+    const submittedCount = s.submissions[props.seatIndex]?.length ?? 0
+    return submittedCount < step.count
   }
 
   const accent = () => phaseAccent()

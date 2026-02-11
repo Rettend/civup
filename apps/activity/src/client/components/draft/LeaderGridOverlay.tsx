@@ -26,6 +26,7 @@ import {
   selectedLeader,
   sendBan,
   sendPick,
+  setBanSelections,
   setDetailLeaderId,
   setGridOpen,
   setSearchQuery,
@@ -78,7 +79,6 @@ export function LeaderGridOverlay() {
   const accent = () => phaseAccent()
   const [hoverTooltip, setHoverTooltip] = createSignal<HoverTooltip | null>(null)
   const [filtersOpen, setFiltersOpen] = createSignal(false)
-  const [randomPickArmed, setRandomPickArmed] = createSignal(false)
   const [tooltipSize, setTooltipSize] = createSignal({ width: 224, height: 96 })
   let tooltipRef: HTMLDivElement | undefined
 
@@ -111,49 +111,47 @@ export function LeaderGridOverlay() {
     return filteredLeaders().filter(leader => available.has(leader.id))
   })
 
-  const canPickRandom = () => {
+  const canUseRandom = () => {
     if (state()?.status !== 'active') return false
-    if (step()?.action !== 'pick') return false
     if (!isMyTurn() || hasSubmitted()) return false
-    return randomLeaderPool().length > 0
+    const s = step()
+    if (!s) return false
+    const needed = s.action === 'ban' ? s.count : 1
+    return randomLeaderPool().length >= needed
   }
 
   const canConfirmPick = () => {
     if (step()?.action !== 'pick') return false
-    if (selectedLeader()) return true
-    return randomPickArmed()
+    return selectedLeader() != null
   }
 
-  createEffect(() => {
-    if (selectedLeader()) setRandomPickArmed(false)
-  })
-
-  createEffect(() => {
-    if (step()?.action !== 'pick') setRandomPickArmed(false)
-  })
-
-  createEffect(() => {
-    if (randomPickArmed() && randomLeaderPool().length === 0) setRandomPickArmed(false)
-  })
-
   const handleRandomLeader = () => {
-    if (!canPickRandom()) return
-    setSelectedLeader(null)
+    if (!canUseRandom()) return
+    const s = step()
+    if (!s) return
+
+    const pool = randomLeaderPool()
     setDetailLeaderId(null)
-    setRandomPickArmed(true)
     setHoverTooltip(null)
+
+    if (s.action === 'ban') {
+      if (pool.length < s.count) return
+      setSelectedLeader(null)
+      setBanSelections(pickRandomLeaderIds(pool, s.count))
+      return
+    }
+
+    if (pool.length === 0) return
+    const randomLeader = pool[Math.floor(Math.random() * pool.length)]
+    if (!randomLeader) return
+    setBanSelections([])
+    setSelectedLeader(randomLeader.id)
   }
 
   const handleConfirmPick = () => {
-    let civId = selectedLeader()
-    if (!civId && randomPickArmed()) {
-      const pool = randomLeaderPool()
-      if (pool.length === 0) return
-      civId = pool[Math.floor(Math.random() * pool.length)]!.id
-    }
+    const civId = selectedLeader()
     if (!civId) return
     sendPick(civId)
-    setRandomPickArmed(false)
     clearSelections()
     setHoverTooltip(null)
     setFiltersOpen(false)
@@ -164,7 +162,6 @@ export function LeaderGridOverlay() {
     const civIds = banSelections()
     if (civIds.length === 0) return
     sendBan(civIds)
-    setRandomPickArmed(false)
     clearSelections()
     setHoverTooltip(null)
     setFiltersOpen(false)
@@ -175,7 +172,6 @@ export function LeaderGridOverlay() {
   const handleBackdropClick = () => {
     if (isMyTurn() && !hasSubmitted()) return
     setHoverTooltip(null)
-    setRandomPickArmed(false)
     setFiltersOpen(false)
     setGridOpen(false)
   }
@@ -214,188 +210,195 @@ export function LeaderGridOverlay() {
       {/* Backdrop */}
       <div class="bg-black/40 inset-0 absolute z-10" onClick={handleBackdropClick} />
 
-      {/* Grid panel */}
-      <div class={cn(
-        'absolute inset-x-4 top-2 bottom-4 z-20 flex overflow-hidden rounded-lg',
-        'bg-bg-secondary border-t-2',
-        accent() === 'red' ? 'border-accent-red' : 'border-accent-gold',
-        'anim-overlay-in',
-      )}
-      >
-        {/* Main grid area */}
-        <div class="flex flex-1 flex-col min-w-0" onClick={() => setFiltersOpen(false)}>
-          {/* Toolbar: search + filters */}
-          <div class="px-3 py-2 border-b border-white/5 flex gap-2 items-center relative">
-            {/* Search */}
-            <div class="shrink-0 min-w-52 w-64 relative xl:w-80">
-              <div class="i-ph-magnifying-glass-bold text-sm text-text-muted left-2 top-1/2 absolute -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search..."
-                value={searchQuery()}
-                onInput={e => setSearchQuery(e.currentTarget.value)}
-                class="text-sm text-text-primary py-1.5 pl-7 pr-3 outline-none rounded bg-bg-primary w-full focus:ring-1 focus:ring-accent-gold/30 placeholder-text-muted"
-              />
-            </div>
+      {/* Centered grid container */}
+      <div class="flex pointer-events-none items-end inset-x-0 bottom-14 top-6 justify-center absolute z-20">
+        <div class={cn(
+          'pointer-events-auto flex overflow-hidden rounded-lg shadow-2xl',
+          'bg-bg-secondary border-t-2',
+          accent() === 'red' ? 'border-accent-red' : 'border-accent-gold',
+          'anim-overlay-in',
+          'w-[calc(100%-2rem)] max-w-[70rem] max-h-full',
+        )}
+        >
+          {/* Main grid area */}
+          <div class="flex flex-1 flex-col min-w-0">
+            {/* Toolbar: search + filter toggle + close */}
+            <div class="px-3 py-2 border-b border-white/5 flex gap-2 items-center">
+              {/* Search */}
+              <div class="shrink-0 min-w-40 w-52 relative xl:w-64">
+                <div class="i-ph-magnifying-glass-bold text-sm text-text-muted left-2 top-1/2 absolute -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={searchQuery()}
+                  onInput={e => setSearchQuery(e.currentTarget.value)}
+                  class="text-sm text-text-primary py-1.5 pl-7 pr-3 outline-none rounded bg-bg-primary w-full focus:ring-1 focus:ring-accent-gold/30 placeholder-text-muted"
+                />
+              </div>
 
-            {/* Filter trigger */}
-            <button
-              class={cn(
-                'inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs font-medium transition-colors cursor-pointer',
-                filtersOpen()
-                  ? 'border-accent-gold/40 bg-accent-gold/15 text-accent-gold'
-                  : 'border-white/10 bg-bg-primary text-text-secondary hover:bg-bg-hover',
-              )}
-              onClick={(event) => {
-                event.stopPropagation()
-                setFiltersOpen(prev => !prev)
-              }}
-            >
-              <div class="i-ph-funnel-bold text-sm" />
-              <span>Filters</span>
-              <Show when={activeTagFilterCount() > 0}>
-                <span class="text-[10px] text-accent-gold font-semibold px-1.5 py-0.5 rounded-full bg-accent-gold/15">
-                  {activeTagFilterCount()}
-                </span>
-              </Show>
-            </button>
-
-            <Show when={activeTagFilterCount() > 0}>
+              {/* Filter trigger */}
               <button
-                class="text-[11px] text-text-muted px-2 py-1 border border-white/10 rounded cursor-pointer transition-colors hover:text-text-secondary hover:bg-bg-hover"
-                onClick={clearTagFilters}
+                class={cn(
+                  'inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs font-medium transition-colors cursor-pointer',
+                  filtersOpen()
+                    ? 'border-accent-gold/40 bg-accent-gold/15 text-accent-gold'
+                    : 'border-white/10 bg-bg-primary text-text-secondary hover:bg-bg-hover',
+                )}
+                onClick={() => setFiltersOpen(prev => !prev)}
               >
-                Clear
+                <div class="i-ph-funnel-bold text-sm" />
+                <span>Filters</span>
+                <Show when={activeTagFilterCount() > 0}>
+                  <span class="text-[10px] text-accent-gold font-semibold px-1.5 py-0.5 rounded-full bg-accent-gold/15">
+                    {activeTagFilterCount()}
+                  </span>
+                </Show>
               </button>
-            </Show>
 
-            <div class="text-[11px] text-text-muted ml-auto">
-              {filteredLeaders().length}
-              /
-              {leaders.length}
-              {' '}
-              shown
+              <Show when={activeTagFilterCount() > 0}>
+                <button
+                  class="text-[11px] text-text-muted px-2 py-1 border border-white/10 rounded cursor-pointer transition-colors hover:text-text-secondary hover:bg-bg-hover"
+                  onClick={clearTagFilters}
+                >
+                  Clear
+                </button>
+              </Show>
+
+              <div class="text-[11px] text-text-muted ml-auto">
+                {filteredLeaders().length}
+                /
+                {leaders.length}
+                {' '}
+                shown
+              </div>
+
+              {/* Close grid button */}
+              <button
+                class="text-text-muted ml-1 cursor-pointer hover:text-text-secondary"
+                onClick={() => { setGridOpen(false); setFiltersOpen(false) }}
+              >
+                <div class="i-ph-x-bold text-sm" />
+              </button>
             </div>
 
-            {/* Filter dropdown */}
-            <Show when={filtersOpen()}>
-              <div class="p-3 border border-white/10 rounded bg-bg-primary/95 flex flex-col max-h-[min(20rem,calc(100dvh-11rem))] max-w-[calc(100%-1.5rem)] w-[34rem] shadow-black/40 shadow-lg right-3 top-[calc(100%+0.35rem)] absolute z-30" onClick={event => event.stopPropagation()}>
-                <div class="mb-2 flex shrink-0 items-center justify-between">
-                  <span class="text-xs text-text-secondary font-semibold">Leader Filters</span>
-                  <button
-                    class="text-[10px] text-text-muted px-2 py-0.5 border border-white/10 rounded transition-colors hover:text-text-secondary hover:bg-bg-hover disabled:opacity-40 disabled:cursor-not-allowed"
-                    disabled={activeTagFilterCount() === 0}
-                    onClick={clearTagFilters}
-                  >
-                    Clear all
-                  </button>
-                </div>
+            {/* Leader icon grid */}
+            <div class="p-3 flex-1 overflow-y-auto">
+              <div class="gap-1.5 grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
+                <RandomLeaderCard
+                  disabled={!canUseRandom()}
+                  accent={accent()}
+                  onClick={handleRandomLeader}
+                />
+                <For each={filteredLeaders()}>
+                  {leader => (
+                    <LeaderCard
+                      leader={leader}
+                      onHoverMove={handleLeaderHoverMove}
+                      onHoverLeave={handleLeaderHoverLeave}
+                    />
+                  )}
+                </For>
+              </div>
+            </div>
 
-                <div class="pb-1 pr-1 min-h-0 overflow-y-auto space-y-2">
-                  <For each={TAG_CATEGORY_ORDER}>
-                    {category => (
-                      <Show when={FILTER_TAG_OPTIONS[category].length > 0}>
-                        <div>
-                          <div class="text-[10px] text-text-muted tracking-widest font-semibold mb-1 uppercase">{TAG_CATEGORY_LABELS[category]}</div>
-                          <div class="flex flex-wrap gap-1.5">
-                            <For each={FILTER_TAG_OPTIONS[category]}>
-                              {(option) => {
-                                const active = () => isTagActive(category, option.id)
-                                return (
-                                  <FilterTagButton
-                                    tag={option.id}
-                                    active={active()}
-                                    onClick={() => toggleTagFilter(option.id)}
-                                  />
-                                )
-                              }}
-                            </For>
-                          </div>
-                        </div>
-                      </Show>
-                    )}
-                  </For>
-                </div>
+            {/* Bottom action bar */}
+            <Show when={state()?.status === 'active' && isMyTurn() && !hasSubmitted()}>
+              <div class="px-4 py-3 border-t border-white/5 flex items-center justify-center">
+                {/* Ban action */}
+                <Show when={step()?.action === 'ban'}>
+                  <div class="flex gap-3 items-center">
+                    <span class="text-xs text-text-secondary">
+                      Select
+                      {' '}
+                      {step()!.count}
+                      {' '}
+                      to ban
+                    </span>
+                    <button
+                      class={cn(
+                        'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
+                        banSelections().length === step()!.count
+                          ? 'bg-accent-red text-white cursor-pointer hover:bg-accent-red/80'
+                          : 'bg-accent-red/20 text-accent-red/50 cursor-not-allowed',
+                      )}
+                      disabled={banSelections().length !== step()!.count}
+                      onClick={handleConfirmBan}
+                    >
+                      Confirm Bans (
+                      {banSelections().length}
+                      /
+                      {step()!.count}
+                      )
+                    </button>
+                  </div>
+                </Show>
+
+                {/* Pick action */}
+                <Show when={step()?.action === 'pick'}>
+                  <div class="flex gap-3 items-center">
+                    <span class="text-xs text-text-secondary">Pick your leader</span>
+                    <button
+                      class={cn(
+                        'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
+                        canConfirmPick()
+                          ? 'bg-accent-gold text-black cursor-pointer hover:bg-accent-gold/80'
+                          : 'bg-accent-gold/20 text-accent-gold/50 cursor-not-allowed',
+                      )}
+                      disabled={!canConfirmPick()}
+                      onClick={handleConfirmPick}
+                    >
+                      Confirm Pick
+                    </button>
+                  </div>
+                </Show>
               </div>
             </Show>
           </div>
 
-          {/* Leader icon grid */}
-          <div class="p-3 flex-1 overflow-y-auto">
-            <div class="gap-1.5 grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
-              <RandomLeaderCard
-                disabled={!canPickRandom()}
-                armed={randomPickArmed()}
-                onClick={handleRandomLeader}
-              />
-              <For each={filteredLeaders()}>
-                {leader => (
-                  <LeaderCard
-                    leader={leader}
-                    onHoverMove={handleLeaderHoverMove}
-                    onHoverLeave={handleLeaderHoverLeave}
-                  />
-                )}
-              </For>
-            </div>
-          </div>
+          {/* Filter side panel (right of grid) */}
+          <Show when={filtersOpen()}>
+            <div class="anim-detail-in p-3 border-l border-white/5 bg-bg-primary/80 shrink-0 w-56 overflow-y-auto">
+              <div class="mb-2 flex shrink-0 items-center justify-between">
+                <span class="text-xs text-text-secondary font-semibold">Filters</span>
+                <button
+                  class="text-[10px] text-text-muted px-2 py-0.5 border border-white/10 rounded transition-colors hover:text-text-secondary hover:bg-bg-hover disabled:opacity-40 disabled:cursor-not-allowed"
+                  disabled={activeTagFilterCount() === 0}
+                  onClick={clearTagFilters}
+                >
+                  Clear all
+                </button>
+              </div>
 
-          {/* Bottom action bar */}
-          <Show when={state()?.status === 'active' && isMyTurn() && !hasSubmitted()}>
-            <div class="px-4 py-3 border-t border-white/5 flex items-center justify-center">
-              {/* Ban action */}
-              <Show when={step()?.action === 'ban'}>
-                <div class="flex gap-3 items-center">
-                  <span class="text-xs text-text-secondary">
-                    Select
-                    {' '}
-                    {step()!.count}
-                    {' '}
-                    to ban
-                  </span>
-                  <button
-                    class={cn(
-                      'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
-                      banSelections().length === step()!.count
-                        ? 'bg-accent-red text-white cursor-pointer hover:bg-accent-red/80'
-                        : 'bg-accent-red/20 text-accent-red/50 cursor-not-allowed',
-                    )}
-                    disabled={banSelections().length !== step()!.count}
-                    onClick={handleConfirmBan}
-                  >
-                    Confirm Bans (
-                    {banSelections().length}
-                    /
-                    {step()!.count}
-                    )
-                  </button>
-                </div>
-              </Show>
-
-              {/* Pick action */}
-              <Show when={step()?.action === 'pick'}>
-                <div class="flex gap-3 items-center">
-                  <span class="text-xs text-text-secondary">Pick your leader</span>
-                  <button
-                    class={cn(
-                      'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
-                      canConfirmPick()
-                        ? 'bg-accent-gold text-black cursor-pointer hover:bg-accent-gold/80'
-                        : 'bg-accent-gold/20 text-accent-gold/50 cursor-not-allowed',
-                    )}
-                    disabled={!canConfirmPick()}
-                    onClick={handleConfirmPick}
-                  >
-                    {randomPickArmed() ? 'Confirm Random Pick' : 'Confirm Pick'}
-                  </button>
-                </div>
-              </Show>
+              <div class="space-y-2">
+                <For each={TAG_CATEGORY_ORDER}>
+                  {category => (
+                    <Show when={FILTER_TAG_OPTIONS[category].length > 0}>
+                      <div>
+                        <div class="text-[10px] text-text-muted tracking-widest font-semibold mb-1 uppercase">{TAG_CATEGORY_LABELS[category]}</div>
+                        <div class="flex flex-wrap gap-1.5">
+                          <For each={FILTER_TAG_OPTIONS[category]}>
+                            {(option) => {
+                              const active = () => isTagActive(category, option.id)
+                              return (
+                                <FilterTagButton
+                                  tag={option.id}
+                                  active={active()}
+                                  onClick={() => toggleTagFilter(option.id)}
+                                />
+                              )
+                            }}
+                          </For>
+                        </div>
+                      </div>
+                    </Show>
+                  )}
+                </For>
+              </div>
             </div>
           </Show>
-        </div>
 
-        {/* Detail panel (right side, click-to-open) */}
-        <LeaderDetailPanel />
+          <LeaderDetailPanel />
+        </div>
       </div>
 
       {/* Hover tooltip */}
@@ -427,15 +430,15 @@ export function LeaderGridOverlay() {
   )
 }
 
-function RandomLeaderCard(props: { disabled: boolean, armed: boolean, onClick: () => void }) {
+function RandomLeaderCard(props: { disabled: boolean, accent: 'gold' | 'red', onClick: () => void }) {
   return (
     <button
       class={cn(
         'aspect-square rounded border transition-colors flex flex-col items-center justify-center gap-1',
         props.disabled
           ? 'border-white/8 bg-bg-primary/35 text-text-muted/45 cursor-not-allowed'
-          : props.armed
-            ? 'border-accent-gold/60 bg-accent-gold/20 text-accent-gold cursor-pointer'
+          : props.accent === 'red'
+            ? 'border-accent-red/35 bg-accent-red/10 text-accent-red cursor-pointer hover:border-accent-red/55 hover:bg-accent-red/15'
             : 'border-accent-gold/35 bg-accent-gold/10 text-accent-gold cursor-pointer hover:border-accent-gold/55 hover:bg-accent-gold/15',
       )}
       disabled={props.disabled}
@@ -445,6 +448,21 @@ function RandomLeaderCard(props: { disabled: boolean, armed: boolean, onClick: (
       <span class="text-[10px] tracking-wide font-semibold uppercase">Random</span>
     </button>
   )
+}
+
+function pickRandomLeaderIds(pool: Leader[], count: number): string[] {
+  const mutablePool = [...pool]
+  const selectedIds: string[] = []
+
+  while (selectedIds.length < count && mutablePool.length > 0) {
+    const index = Math.floor(Math.random() * mutablePool.length)
+    const leader = mutablePool[index]
+    if (!leader) break
+    selectedIds.push(leader.id)
+    mutablePool.splice(index, 1)
+  }
+
+  return selectedIds
 }
 
 function TagPill(props: { tag: string, compact?: boolean, active?: boolean }) {
