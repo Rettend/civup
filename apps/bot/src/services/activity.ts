@@ -96,12 +96,11 @@ function isLocalHost(host: string): boolean {
 
 function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
   if (isTeamMode(mode)) {
-    // Team modes: first half is Team A, second half is Team B
+    // Team modes: first slot of each team is the captain (A1, B1, A2, B2...)
     const teamSize = mode === '2v2' ? 2 : 3
     const seats: DraftSeat[] = []
 
     for (let i = 0; i < teamSize; i++) {
-      // Team A player
       const teamAEntry = entries[i]
       if (teamAEntry) {
         seats.push({
@@ -111,10 +110,7 @@ function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
           team: 0,
         })
       }
-    }
 
-    for (let i = 0; i < teamSize; i++) {
-      // Team B player
       const teamBEntry = entries[teamSize + i]
       if (teamBEntry) {
         seats.push({
