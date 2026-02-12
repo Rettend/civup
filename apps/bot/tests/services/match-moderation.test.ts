@@ -2,7 +2,7 @@ import { matches, matchParticipants, playerRatings, players } from '@civup/db'
 import { buildLeaderboard } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
-import { cancelMatchByModerator, resolveMatchByModerator } from '../../src/services/match.ts'
+import { cancelMatchByModerator, reportMatch, resolveMatchByModerator } from '../../src/services/match.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('match moderation recalculation', () => {
@@ -130,6 +130,59 @@ describe('match moderation recalculation', () => {
       sqlite.close()
     }
   })
+
+  test('resolve accepts winner mention for 1v1 moderation', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedThreeCompletedDuels(db)
+
+      const result = await resolveMatchByModerator(db, kv, {
+        matchId: 'm1',
+        placements: '<@p2>',
+        resolvedAt: 10_000,
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+
+      const resolvedM1 = await db
+        .select({ playerId: matchParticipants.playerId, placement: matchParticipants.placement })
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, 'm1'))
+
+      const m1P1 = resolvedM1.find(row => row.playerId === 'p1')
+      const m1P2 = resolvedM1.find(row => row.playerId === 'p2')
+      expect(m1P1?.placement).toBe(2)
+      expect(m1P2?.placement).toBe(1)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('report rejects FFA users not in the match', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedActiveFfaMatch(db)
+
+      const result = await reportMatch(db, kv, {
+        matchId: 'ffa1',
+        reporterId: 'p1',
+        placements: '<@p1>\n<@p2>\n<@p3>\n<@p4>\n<@p5>\n<@p6>\n<@outsider>',
+      })
+
+      expect('error' in result).toBe(true)
+      if (!('error' in result)) return
+      expect(result.error).toContain('is not part of match')
+    }
+    finally {
+      sqlite.close()
+    }
+  })
 })
 
 async function seedThreeCompletedDuels(db: any): Promise<void> {
@@ -161,5 +214,35 @@ async function seedThreeCompletedDuels(db: any): Promise<void> {
   await db.insert(playerRatings).values([
     { playerId: 'p1', mode: 'duel', mu: 26, sigma: 7.2, gamesPlayed: 3, wins: 2, lastPlayedAt: 6000 },
     { playerId: 'p2', mode: 'duel', mu: 24, sigma: 7.2, gamesPlayed: 3, wins: 1, lastPlayedAt: 6000 },
+  ])
+}
+
+async function seedActiveFfaMatch(db: any): Promise<void> {
+  await db.insert(players).values([
+    { id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 },
+    { id: 'p2', displayName: 'P2', avatarUrl: null, createdAt: 1 },
+    { id: 'p3', displayName: 'P3', avatarUrl: null, createdAt: 1 },
+    { id: 'p4', displayName: 'P4', avatarUrl: null, createdAt: 1 },
+    { id: 'p5', displayName: 'P5', avatarUrl: null, createdAt: 1 },
+    { id: 'p6', displayName: 'P6', avatarUrl: null, createdAt: 1 },
+  ])
+
+  await db.insert(matches).values({
+    id: 'ffa1',
+    gameMode: 'ffa',
+    status: 'active',
+    createdAt: 1000,
+    completedAt: null,
+    seasonId: null,
+    draftData: null,
+  })
+
+  await db.insert(matchParticipants).values([
+    { matchId: 'ffa1', playerId: 'p1', team: null, civId: 'rome', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'ffa1', playerId: 'p2', team: null, civId: 'greece', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'ffa1', playerId: 'p3', team: null, civId: 'india', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'ffa1', playerId: 'p4', team: null, civId: 'china', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'ffa1', playerId: 'p5', team: null, civId: 'japan', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'ffa1', playerId: 'p6', team: null, civId: 'france', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
   ])
 }

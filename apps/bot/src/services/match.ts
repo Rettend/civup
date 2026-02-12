@@ -525,13 +525,10 @@ export async function reportMatch(
   const gameMode = match.gameMode as GameMode
 
   if (isTeamMode(gameMode) || gameMode === '1v1') {
-    // Team and 1v1 games: placements is "A" or "B"
-    const winningTeam = input.placements.trim().toUpperCase()
-    if (winningTeam !== 'A' && winningTeam !== 'B') {
-      return { error: 'For team and 1v1 games, enter "A" or "B" for the winning side.' }
-    }
+    const resolvedTeam = resolveWinningTeamIndex(input.placements, participantRows)
+    if ('error' in resolvedTeam) return resolvedTeam
 
-    const winTeamIdx = winningTeam === 'A' ? 0 : 1
+    const winTeamIdx = resolvedTeam.winningTeamIndex
 
     // Set placements: winning team = 1, losing team = 2
     for (const p of participantRows) {
@@ -548,15 +545,9 @@ export async function reportMatch(
     }
   }
   else {
-    // FFA: parse placement order from newline-separated player IDs/mentions
-    const lines = input.placements
-      .trim()
-      .split('\n')
-      .map(l => l.trim())
-      .filter(l => l.length > 0)
-
-    // Extract player IDs (handle mentions like <@123456>)
-    const placementIds = lines.map(l => l.replace(/[<@!>]/g, ''))
+    const parsedOrder = parseOrderedParticipantIds(input.placements, participantRows)
+    if ('error' in parsedOrder) return parsedOrder
+    const placementIds = parsedOrder.orderedIds
 
     for (let i = 0; i < placementIds.length; i++) {
       const playerId = placementIds[i]!
@@ -777,12 +768,10 @@ function parseModerationPlacements(
   | { placementsByPlayer: Map<string, number> }
   | { error: string } {
   if (isTeamMode(gameMode) || gameMode === '1v1') {
-    const winningTeam = placements.trim().toUpperCase()
-    if (winningTeam !== 'A' && winningTeam !== 'B') {
-      return { error: 'For team and 1v1 games, enter "A" or "B" for the winning side.' }
-    }
+    const resolvedTeam = resolveWinningTeamIndex(placements, participants)
+    if ('error' in resolvedTeam) return resolvedTeam
 
-    const winningTeamIndex = winningTeam === 'A' ? 0 : 1
+    const winningTeamIndex = resolvedTeam.winningTeamIndex
     const placementsByPlayer = new Map<string, number>()
 
     for (const participant of participants) {
@@ -790,34 +779,15 @@ function parseModerationPlacements(
       placementsByPlayer.set(participant.playerId, placement)
     }
 
-    const hasWinner = [...placementsByPlayer.values()].some(value => value === 1)
+    const hasWinner = [...placementsByPlayer.values()].includes(1)
     if (!hasWinner) return { error: 'Could not map Team A/Team B for this match. Participant team data is missing.' }
 
     return { placementsByPlayer }
   }
 
-  const tokens = placements
-    .split(/\r?\n|,/)
-    .map(token => token.trim())
-    .filter(token => token.length > 0)
-
-  if (tokens.length === 0) {
-    return { error: 'For FFA resolves, provide at least one player in placement order.' }
-  }
-
-  const participantIds = new Set(participants.map(participant => participant.playerId))
-  const orderedIds: string[] = []
-
-  for (const token of tokens) {
-    const playerId = token.replace(/[<@!>]/g, '')
-    if (!participantIds.has(playerId)) {
-      return { error: `<@${playerId}> is not part of match **${participants[0]?.matchId ?? 'unknown'}**.` }
-    }
-    if (orderedIds.includes(playerId)) {
-      return { error: `<@${playerId}> appears multiple times in the resolve input.` }
-    }
-    orderedIds.push(playerId)
-  }
+  const parsedOrder = parseOrderedParticipantIds(placements, participants)
+  if ('error' in parsedOrder) return parsedOrder
+  const orderedIds = parsedOrder.orderedIds
 
   const placementsByPlayer = new Map<string, number>()
   orderedIds.forEach((playerId, index) => {
@@ -831,6 +801,66 @@ function parseModerationPlacements(
   }
 
   return { placementsByPlayer }
+}
+
+function resolveWinningTeamIndex(
+  placements: string,
+  participants: ParticipantRow[],
+): { winningTeamIndex: 0 | 1 } | { error: string } {
+  const token = placements.trim()
+  if (!token) {
+    return { error: 'For team and 1v1 games, provide a winner (`A`, `B`, or a winning player mention).' }
+  }
+
+  const upper = token.toUpperCase()
+  if (upper === 'A') return { winningTeamIndex: 0 }
+  if (upper === 'B') return { winningTeamIndex: 1 }
+
+  const playerId = token.replace(/[<@!>]/g, '')
+  if (!playerId) {
+    return { error: 'For team and 1v1 games, provide a winner (`A`, `B`, or a winning player mention).' }
+  }
+
+  const winner = participants.find(participant => participant.playerId === playerId)
+  if (!winner) {
+    return { error: `<@${playerId}> is not part of match **${participants[0]?.matchId ?? 'unknown'}**.` }
+  }
+
+  if (winner.team === null || (winner.team !== 0 && winner.team !== 1)) {
+    return { error: 'Could not map winner to Team A or Team B for this match.' }
+  }
+
+  return { winningTeamIndex: winner.team }
+}
+
+function parseOrderedParticipantIds(
+  placements: string,
+  participants: ParticipantRow[],
+): { orderedIds: string[] } | { error: string } {
+  const tokens = placements
+    .split(/\r?\n|,/)
+    .map(token => token.trim())
+    .filter(token => token.length > 0)
+
+  if (tokens.length === 0) {
+    return { error: 'For FFA results, provide at least one player in placement order.' }
+  }
+
+  const participantIds = new Set(participants.map(participant => participant.playerId))
+  const orderedIds: string[] = []
+
+  for (const token of tokens) {
+    const playerId = token.replace(/[<@!>]/g, '')
+    if (!participantIds.has(playerId)) {
+      return { error: `<@${playerId}> is not part of match **${participants[0]?.matchId ?? 'unknown'}**.` }
+    }
+    if (orderedIds.includes(playerId)) {
+      return { error: `<@${playerId}> appears multiple times in the result input.` }
+    }
+    orderedIds.push(playerId)
+  }
+
+  return { orderedIds }
 }
 
 function toSupportedGameMode(mode: string): GameMode | null {

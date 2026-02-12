@@ -1,22 +1,25 @@
 import type { GameMode } from '@civup/game'
 import type { LfgVar } from './shared.ts'
-import { createDb, matches } from '@civup/db'
-import { maxPlayerCount, minPlayerCount } from '@civup/game'
+import { createDb, matches, matchParticipants } from '@civup/db'
+import { isTeamMode, maxPlayerCount, minPlayerCount } from '@civup/game'
 import { Command, Option, SubCommand } from 'discord-hono'
-import { eq } from 'drizzle-orm'
-import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/lfg.ts'
+import { and, desc, eq, inArray } from 'drizzle-orm'
+import { lobbyComponents, lobbyOpenEmbed, lobbyResultEmbed } from '../../embeds/lfg.ts'
 import { getMatchForUser, storeUserMatchMappings } from '../../services/activity.ts'
 import { createChannelMessage } from '../../services/discord.ts'
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
+import { refreshConfiguredLeaderboards } from '../../services/leaderboard-message.ts'
 import { upsertLobbyMessage } from '../../services/lobby-message.ts'
-import { clearLobby, createLobby, getLobby, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby.ts'
+import { clearLobby, clearLobbyByMatch, createLobby, getLobby, getLobbyByMatch, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots, setLobbyStatus } from '../../services/lobby.ts'
+import { storeMatchMessageMapping } from '../../services/match-message.ts'
+import { reportMatch } from '../../services/match.ts'
 import { addToQueue, clearQueue, getQueueState, removeFromQueue } from '../../services/queue.ts'
 import { getSystemChannel } from '../../services/system-channels.ts'
 import { factory } from '../../setup.ts'
-import { GAME_MODE_CHOICES, getIdentity, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
+import { collectFfaPlacementUserIds, GAME_MODE_CHOICES, getIdentity, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
 
 export const command_lfg = factory.command<LfgVar>(
-  new Command('lfg', 'Looking for game — queue management').options(
+  new Command('lfg', 'Looking for game, queue management').options(
     new SubCommand('create', 'Create a lobby and auto-join as host').options(
       new Option('mode', 'Game mode for the lobby')
         .required()
@@ -29,6 +32,19 @@ export const command_lfg = factory.command<LfgVar>(
     ),
     new SubCommand('leave', 'Leave the current queue'),
     new SubCommand('status', 'Show all active lobbies'),
+    new SubCommand('report', 'Report your active match result (host only)').options(
+      new Option('match_id', 'Optional match ID override'),
+      new Option('winner', 'Winner (1v1/team) or 1st place (FFA)', 'User'),
+      new Option('second', 'FFA 2nd place', 'User'),
+      new Option('third', 'FFA 3rd place', 'User'),
+      new Option('fourth', 'FFA 4th place', 'User'),
+      new Option('fifth', 'FFA 5th place', 'User'),
+      new Option('sixth', 'FFA 6th place', 'User'),
+      new Option('seventh', 'FFA 7th place', 'User'),
+      new Option('eighth', 'FFA 8th place', 'User'),
+      new Option('ninth', 'FFA 9th place', 'User'),
+      new Option('tenth', 'FFA 10th place', 'User'),
+    ),
   ),
   async (c) => {
     switch (c.sub.string) {
@@ -290,8 +306,151 @@ export const command_lfg = factory.command<LfgVar>(
         })
       }
 
+      // ── report ──────────────────────────────────────────
+      case 'report': {
+        const identity = getIdentity(c)
+        if (!identity) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'Could not identify you.', 'error')
+          })
+        }
+
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          const db = createDb(c.env.DB)
+          const kv = c.env.KV
+
+          let matchId = c.var.match_id?.trim() ?? null
+          if (!matchId) {
+            matchId = await getMatchForUser(kv, identity.userId)
+          }
+
+          if (!matchId) {
+            const [active] = await db
+              .select({ matchId: matchParticipants.matchId })
+              .from(matchParticipants)
+              .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+              .where(and(
+                eq(matchParticipants.playerId, identity.userId),
+                inArray(matches.status, ['active']),
+              ))
+              .orderBy(desc(matches.createdAt))
+              .limit(1)
+
+            matchId = active?.matchId ?? null
+            if (matchId) {
+              c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], matchId))
+            }
+          }
+
+          if (!matchId) {
+            await sendTransientEphemeralResponse(c, 'Could not find an active match for you. You can pass `match_id` explicitly.', 'error')
+            return
+          }
+
+          const [match] = await db
+            .select({ id: matches.id, gameMode: matches.gameMode, status: matches.status })
+            .from(matches)
+            .where(eq(matches.id, matchId))
+            .limit(1)
+
+          if (!match) {
+            await sendTransientEphemeralResponse(c, `Match **${matchId}** was not found.`, 'error')
+            return
+          }
+
+          if (match.status !== 'active') {
+            await sendTransientEphemeralResponse(c, `Match **${match.id}** is not active (status: ${match.status}).`, 'error')
+            return
+          }
+
+          const orderedFfaIds = collectFfaPlacementUserIds(c.var)
+          const winnerId = c.var.winner ?? null
+          const mode = normalizeMatchMode(match.gameMode)
+
+          let placements: string
+          if (mode === 'ffa') {
+            if (!winnerId) {
+              await sendTransientEphemeralResponse(c, 'For FFA reporting, you must provide a `winner` (1st place) user.', 'error')
+              return
+            }
+            if (orderedFfaIds.length < 6) {
+              await sendTransientEphemeralResponse(c, 'FFA reporting needs at least 6 ordered users (`winner` + `second` to `sixth`).', 'error')
+              return
+            }
+            placements = orderedFfaIds.map(playerId => `<@${playerId}>`).join('\n')
+          }
+          else {
+            if (orderedFfaIds.length > 1) {
+              await sendTransientEphemeralResponse(c, 'For 1v1/team reporting, use the `winner` user option only (no partial placements).', 'error')
+              return
+            }
+            if (!winnerId) {
+              await sendTransientEphemeralResponse(c, 'Please provide `winner` for 1v1/team reporting.', 'error')
+              return
+            }
+            placements = `<@${winnerId}>`
+          }
+
+          const result = await reportMatch(db, kv, {
+            matchId: match.id,
+            reporterId: identity.userId,
+            placements,
+          })
+
+          if ('error' in result) {
+            await sendTransientEphemeralResponse(c, result.error, 'error')
+            return
+          }
+
+          const reportedMode = normalizeMatchMode(result.match.gameMode)
+
+          const lobby = await getLobbyByMatch(kv, result.match.id)
+          if (lobby) {
+            await setLobbyStatus(kv, lobby.mode, 'completed')
+            try {
+              const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
+                embeds: [lobbyResultEmbed(lobby.mode, result.participants)],
+                components: [],
+              })
+              await storeMatchMessageMapping(kv, updatedLobby.messageId, result.match.id)
+            }
+            catch (error) {
+              console.error(`Failed to update lobby result embed for match ${result.match.id}:`, error)
+            }
+            await clearLobbyByMatch(kv, result.match.id)
+          }
+
+          const archiveChannelId = await getSystemChannel(kv, 'archive')
+          if (archiveChannelId) {
+            try {
+              const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
+                embeds: [lobbyResultEmbed(reportedMode, result.participants)],
+              })
+              await storeMatchMessageMapping(kv, archiveMessage.id, result.match.id)
+            }
+            catch (error) {
+              console.error(`Failed to post archive result for match ${result.match.id}:`, error)
+            }
+          }
+
+          try {
+            await refreshConfiguredLeaderboards(db, kv, c.env.DISCORD_TOKEN)
+          }
+          catch (error) {
+            console.error(`Failed to refresh leaderboard embeds after match ${result.match.id}:`, error)
+          }
+
+          await sendTransientEphemeralResponse(c, `Reported result for match **${result.match.id}**.`, 'success')
+        })
+      }
+
       default:
         return c.res('Unknown subcommand.')
     }
   },
 )
+
+function normalizeMatchMode(mode: string): GameMode {
+  if (mode === '1v1' || mode === '2v2' || mode === '3v3' || mode === 'ffa') return mode
+  return isTeamMode(mode as GameMode) ? mode as GameMode : '1v1'
+}

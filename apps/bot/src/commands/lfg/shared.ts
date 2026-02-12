@@ -19,6 +19,9 @@ export const GAME_MODE_CHOICES = [
   { name: 'FFA', value: 'ffa' },
 ] as const
 
+export const FFA_PLACEMENT_KEYS = ['second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'] as const
+export type FfaPlacementKey = (typeof FFA_PLACEMENT_KEYS)[number]
+
 export const LOBBY_STATUS_LABELS = {
   open: 'Lobby Open',
   drafting: 'Draft Ready',
@@ -31,6 +34,17 @@ export const LOBBY_STATUS_LABELS = {
 export interface LfgVar {
   mode?: string
   player?: string
+  match_id?: string
+  winner?: string
+  second?: string
+  third?: string
+  fourth?: string
+  fifth?: string
+  sixth?: string
+  seventh?: string
+  eighth?: string
+  ninth?: string
+  tenth?: string
 }
 
 export function getIdentity(c: {
@@ -121,4 +135,15 @@ export async function joinLobbyAndMaybeStartMatch(
     embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
     components: lobbyComponents(mode),
   }
+}
+
+export function collectFfaPlacementUserIds(vars: Record<string, any>): string[] {
+  const ordered: string[] = []
+  if (vars.winner) ordered.push(vars.winner)
+  for (const key of FFA_PLACEMENT_KEYS) {
+    const userId = vars[key as FfaPlacementKey]
+    if (!userId) continue
+    ordered.push(userId)
+  }
+  return ordered
 }

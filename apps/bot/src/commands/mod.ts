@@ -1,4 +1,5 @@
 import type { GameMode } from '@civup/game'
+import type { LfgVar } from './lfg/shared'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
@@ -16,12 +17,10 @@ import { canUseModCommands, parseRoleIds } from '../services/permissions'
 import { clearQueue, getQueueState } from '../services/queue'
 import { getSystemChannel } from '../services/system-channels'
 import { factory } from '../setup'
+import { collectFfaPlacementUserIds } from './lfg/shared'
 
-interface Var {
-  match_id?: string
-  result?: string
+interface ModVar extends LfgVar {
   reason?: string
-  mode?: string
 }
 
 const MODE_CHOICES = [
@@ -31,7 +30,7 @@ const MODE_CHOICES = [
   { name: 'FFA', value: 'ffa' },
 ] as const
 
-export const command_mod = factory.command<Var>(
+export const command_mod = factory.command<ModVar>(
   new Command('mod', 'Moderation commands for match and lobby operations').options(
     new SubGroup('match', 'Match moderation').options(
       new SubCommand('cancel', 'Cancel a match, including completed history').options(
@@ -40,7 +39,16 @@ export const command_mod = factory.command<Var>(
       ),
       new SubCommand('resolve', 'Resolve or correct a match result').options(
         new Option('match_id', 'Match ID').required(),
-        new Option('result', 'Result (A/B for team modes; FFA placement order)').required(),
+        new Option('winner', 'Winner (1v1/team) or 1st place (FFA)', 'User'),
+        new Option('second', 'FFA 2nd place', 'User'),
+        new Option('third', 'FFA 3rd place', 'User'),
+        new Option('fourth', 'FFA 4th place', 'User'),
+        new Option('fifth', 'FFA 5th place', 'User'),
+        new Option('sixth', 'FFA 6th place', 'User'),
+        new Option('seventh', 'FFA 7th place', 'User'),
+        new Option('eighth', 'FFA 8th place', 'User'),
+        new Option('ninth', 'FFA 9th place', 'User'),
+        new Option('tenth', 'FFA 10th place', 'User'),
         new Option('reason', 'Optional short reason for correction').max_length(140),
       ),
     ),
@@ -157,14 +165,28 @@ export const command_mod = factory.command<Var>(
       // ── match resolve ───────────────────────────────────
       case 'match resolve': {
         const matchId = c.var.match_id
-        const placements = c.var.result
+        const winnerId = c.var.winner ?? null
+        const orderedFfaIds = collectFfaPlacementUserIds(c.var)
         const reason = c.var.reason?.trim() ?? null
 
-        if (!matchId || !placements) {
+        if (!matchId) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
-            await sendTransientEphemeralResponse(c, 'Please provide match ID and result.', 'error')
+            await sendTransientEphemeralResponse(c, 'Please provide a match ID.', 'error')
           })
         }
+
+        const hasWinner = Boolean(winnerId)
+        // collectFfaPlacementUserIds now includes winner as the first element
+        // So strict FFA implies we have more than just the winner (at least winner + second)
+        // But for flexible moderation, we might just look at what's provided.
+
+        if (!hasWinner && orderedFfaIds.length === 0) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'Provide at least a `winner` (or FFA 1st place).', 'error')
+          })
+        }
+
+        const placements = orderedFfaIds.map(playerId => `<@${playerId}>`).join('\n')
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           const db = createDb(c.env.DB)
