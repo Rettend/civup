@@ -25,10 +25,6 @@ function setupGlobalDevErrorRelay() {
 async function bootstrap() {
   setupGlobalDevErrorRelay()
 
-  relayDevLog('info', 'Activity bootstrap started', {
-    search: typeof window !== 'undefined' ? window.location.search : '',
-  })
-
   const { default: App } = await import('./App')
 
   const root = document.getElementById('root')

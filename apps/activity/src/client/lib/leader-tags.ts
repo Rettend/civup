@@ -301,7 +301,6 @@ export function getFilterTagOptions(leaders: Leader[]): Record<LeaderTagCategory
   return options
 }
 
-/** Fresh empty filter state object */
 export function createEmptyTagFilters(): TagFilterState {
   return {
     econ: [],

@@ -1,6 +1,7 @@
 import type { ClientMessage, ServerMessage } from '@civup/game'
 import PartySocket from 'partysocket'
 import { createSignal } from 'solid-js'
+import { api, ApiError } from '~/client/lib/api'
 import { relayDevLog } from '../lib/dev-log'
 import { initDraft, updateDraft } from './draft-store'
 
@@ -48,10 +49,8 @@ export interface LobbySnapshot {
 
 // ── State ──────────────────────────────────────────────────
 
-const [connectionStatus, setConnectionStatus] = createSignal<ConnectionStatus>('disconnected')
-const [connectionError, setConnectionError] = createSignal<string | null>(null)
-
-export { connectionError, connectionStatus }
+export const [connectionStatus, setConnectionStatus] = createSignal<ConnectionStatus>('disconnected')
+export const [connectionError, setConnectionError] = createSignal<string | null>(null)
 
 // ── Socket ─────────────────────────────────────────────────
 
@@ -70,23 +69,20 @@ export function connectToRoom(host: string, roomId: string, playerId: string) {
     socket.close()
   }
 
-  relayDevLog('info', 'Connecting to draft room', { host, roomId, playerId })
-
   setConnectionStatus('connecting')
   setConnectionError(null)
 
   socket = new PartySocket({
     host,
-    party: 'main', // default party name when not specified in partykit.json
+    party: 'main',
     prefix: 'api/parties',
     room: roomId,
     id: playerId,
-    query: { playerId }, // the draft-room reads this from the connection URL
+    query: { playerId },
     maxRetries: 2,
   })
 
   socket.addEventListener('open', () => {
-    relayDevLog('info', 'Draft socket connected', { roomId, playerId })
     setConnectionStatus('connected')
     setConnectionError(null)
   })
@@ -116,7 +112,6 @@ export function connectToRoom(host: string, roomId: string, playerId: string) {
       return
     }
 
-    relayDevLog('info', 'Draft socket closed normally', { code, reason, roomId })
     setConnectionStatus('disconnected')
   })
 
@@ -128,7 +123,6 @@ export function connectToRoom(host: string, roomId: string, playerId: string) {
 }
 
 export function disconnect() {
-  relayDevLog('info', 'Draft socket disconnect requested')
   socket?.close()
   socket = null
   if (pendingConfigAck) {
@@ -205,14 +199,12 @@ export async function fetchMatchForChannel(
   channelId: string,
 ): Promise<string | null> {
   try {
-    const res = await fetch(`/api/match/${channelId}`)
-    if (!res.ok) return null
-
-    const data = await res.json() as { matchId?: string }
+    const data = await api.get<{ matchId?: string }>(`/api/match/${channelId}`)
     return data.matchId ?? null
   }
   catch (err) {
     console.error('Failed to fetch match for channel:', err)
+    if (err instanceof ApiError && err.status === 404) return null // TODO: remove?
     return null
   }
 }
@@ -222,10 +214,7 @@ export async function fetchLobbyForChannel(
   channelId: string,
 ): Promise<LobbySnapshot | null> {
   try {
-    const res = await fetch(`/api/lobby/${channelId}`)
-    if (!res.ok) return null
-
-    return await res.json() as LobbySnapshot
+    return await api.get<LobbySnapshot>(`/api/lobby/${channelId}`)
   }
   catch (err) {
     console.error('Failed to fetch lobby for channel:', err)
@@ -238,10 +227,7 @@ export async function fetchLobbyForUser(
   userId: string,
 ): Promise<LobbySnapshot | null> {
   try {
-    const res = await fetch(`/api/lobby/user/${userId}`)
-    if (!res.ok) return null
-
-    return await res.json() as LobbySnapshot
+    return await api.get<LobbySnapshot>(`/api/lobby/user/${userId}`)
   }
   catch (err) {
     console.error('Failed to fetch lobby for user:', err)
@@ -259,22 +245,16 @@ export async function updateLobbyDraftConfig(
   },
 ): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
-    const res = await fetch(`/api/lobby/${mode}/config`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userId,
-        banTimerSeconds: draftConfig.banTimerSeconds,
-        pickTimerSeconds: draftConfig.pickTimerSeconds,
-      }),
+    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/config`, {
+      userId,
+      banTimerSeconds: draftConfig.banTimerSeconds,
+      pickTimerSeconds: draftConfig.pickTimerSeconds,
     })
-
-    const data = await res.json() as LobbySnapshot & { error?: string }
-    if (!res.ok) return { ok: false, error: data.error ?? 'Failed to update lobby config' }
-    return { ok: true, lobby: data }
+    return { ok: true, lobby }
   }
   catch (err) {
     console.error('Failed to update lobby config:', err)
+    if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while updating lobby config' }
   }
 }
@@ -286,18 +266,12 @@ export async function updateLobbyMode(
   nextMode: string,
 ): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
-    const res = await fetch(`/api/lobby/${mode}/mode`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, nextMode }),
-    })
-
-    const data = await res.json() as LobbySnapshot & { error?: string }
-    if (!res.ok) return { ok: false, error: data.error ?? 'Failed to update lobby mode' }
-    return { ok: true, lobby: data }
+    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/mode`, { userId, nextMode })
+    return { ok: true, lobby }
   }
   catch (err) {
     console.error('Failed to update lobby mode:', err)
+    if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while updating lobby mode' }
   }
 }
@@ -314,18 +288,12 @@ export async function placeLobbySlot(
   },
 ): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
-    const res = await fetch(`/api/lobby/${mode}/place`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-
-    const data = await res.json() as LobbySnapshot & { error?: string }
-    if (!res.ok) return { ok: false, error: data.error ?? 'Failed to place lobby slot' }
-    return { ok: true, lobby: data }
+    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/place`, payload)
+    return { ok: true, lobby }
   }
   catch (err) {
     console.error('Failed to place lobby slot:', err)
+    if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while updating lobby slot' }
   }
 }
@@ -339,18 +307,12 @@ export async function removeLobbySlot(
   },
 ): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
-    const res = await fetch(`/api/lobby/${mode}/remove`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-
-    const data = await res.json() as LobbySnapshot & { error?: string }
-    if (!res.ok) return { ok: false, error: data.error ?? 'Failed to remove lobby slot' }
-    return { ok: true, lobby: data }
+    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/remove`, payload)
+    return { ok: true, lobby }
   }
   catch (err) {
     console.error('Failed to remove lobby slot:', err)
+    if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while removing lobby slot' }
   }
 }
@@ -361,19 +323,13 @@ export async function startLobbyDraft(
   userId: string,
 ): Promise<{ ok: true, matchId: string } | { ok: false, error: string }> {
   try {
-    const res = await fetch(`/api/lobby/${mode}/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId }),
-    })
-
-    const data = await res.json() as { matchId?: string, error?: string }
-    if (!res.ok) return { ok: false, error: data.error ?? 'Failed to start lobby draft' }
+    const data = await api.post<{ matchId?: string }>(`/api/lobby/${mode}/start`, { userId })
     if (!data.matchId) return { ok: false, error: 'Draft started but no match ID was returned' }
     return { ok: true, matchId: data.matchId }
   }
   catch (err) {
     console.error('Failed to start lobby draft:', err)
+    if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while starting lobby draft' }
   }
 }
@@ -384,18 +340,12 @@ export async function cancelLobby(
   userId: string,
 ): Promise<{ ok: true } | { ok: false, error: string }> {
   try {
-    const res = await fetch(`/api/lobby/${mode}/cancel`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId }),
-    })
-
-    const data = await res.json() as { error?: string }
-    if (!res.ok) return { ok: false, error: data.error ?? 'Failed to cancel lobby' }
+    await api.post(`/api/lobby/${mode}/cancel`, { userId })
     return { ok: true }
   }
   catch (err) {
     console.error('Failed to cancel lobby:', err)
+    if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while cancelling lobby' }
   }
 }
@@ -405,10 +355,7 @@ export async function fetchMatchForUser(
   userId: string,
 ): Promise<string | null> {
   try {
-    const res = await fetch(`/api/match/user/${userId}`)
-    if (!res.ok) return null
-
-    const data = await res.json() as { matchId?: string }
+    const data = await api.get<{ matchId?: string }>(`/api/match/user/${userId}`)
     return data.matchId ?? null
   }
   catch (err) {
@@ -420,9 +367,7 @@ export async function fetchMatchForUser(
 /** Fetch full match state snapshot from bot API */
 export async function fetchMatchState(matchId: string): Promise<MatchStateSnapshot | null> {
   try {
-    const res = await fetch(`/api/match/state/${matchId}`)
-    if (!res.ok) return null
-    return await res.json() as MatchStateSnapshot
+    return await api.get<MatchStateSnapshot>(`/api/match/state/${matchId}`)
   }
   catch (err) {
     console.error('Failed to fetch match state:', err)
@@ -437,17 +382,12 @@ export async function reportMatchResult(
   placements: string,
 ): Promise<{ ok: true } | { ok: false, error: string }> {
   try {
-    const res = await fetch(`/api/match/${matchId}/report`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reporterId, placements }),
-    })
-    const data = await res.json() as { error?: string }
-    if (!res.ok) return { ok: false, error: data.error ?? 'Failed to report result' }
+    await api.post(`/api/match/${matchId}/report`, { reporterId, placements })
     return { ok: true }
   }
   catch (err) {
     console.error('Failed to report match result:', err)
+    if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while reporting result' }
   }
 }

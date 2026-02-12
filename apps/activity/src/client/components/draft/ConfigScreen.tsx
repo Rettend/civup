@@ -1,8 +1,8 @@
 import type { LobbySnapshot } from '~/client/stores'
+import { formatModeLabel } from '@civup/game'
 import { createEffect, createSignal, For, Show } from 'solid-js'
 import { Dropdown, TextInput } from '~/client/components/ui'
 import { cn } from '~/client/lib/css'
-import { formatModeLabel } from '~/client/lib/mode'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
 import {
   cancelLobby,

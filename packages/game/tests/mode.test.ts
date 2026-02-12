@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { formatModeLabel } from '../src/client/lib/mode'
+import { formatModeLabel } from '../src/mode'
 
 describe('formatModeLabel', () => {
   test('uses fallback for nullish or blank values', () => {

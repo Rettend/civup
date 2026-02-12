@@ -10,51 +10,15 @@ import { currentStep } from './draft-store'
 
 // ── UI State ───────────────────────────────────────────────
 
-/** Currently selected leader ID (clicked in grid, pending confirm) */
-const [selectedLeader, setSelectedLeader] = createSignal<string | null>(null)
-
-/** Search query for leader grid filter */
-const [searchQuery, setSearchQuery] = createSignal('')
-
-/** Active leader tag filters grouped by category */
-const [tagFilters, setTagFilters] = createSignal<TagFilterState>(createEmptyTagFilters())
-
-/** Number of selected tag filters across all categories */
-const activeTagFilterCount = createMemo(() => countActiveTagFilters(tagFilters()))
-
-/** Selected civ IDs for blind ban (multi-select) */
-const [banSelections, setBanSelections] = createSignal<string[]>([])
-
-/** Whether the user chose "random" (actual leader is a surprise until confirm) */
-const [isRandomSelected, setIsRandomSelected] = createSignal(false)
-
-/** Whether the leader grid overlay is open */
-const [gridOpen, setGridOpen] = createSignal(false)
-
-/** Leader ID shown in the detail panel (click-to-open) */
-const [detailLeaderId, setDetailLeaderId] = createSignal<string | null>(null)
-
-/** Whether we're in minimized (PiP) mode */
-const [isMiniView, setIsMiniView] = createSignal(false)
-
-export {
-  activeTagFilterCount,
-  banSelections,
-  detailLeaderId,
-  gridOpen,
-  isMiniView,
-  isRandomSelected,
-  searchQuery,
-  selectedLeader,
-  setBanSelections,
-  setDetailLeaderId,
-  setGridOpen,
-  setIsMiniView,
-  setIsRandomSelected,
-  setSearchQuery,
-  setSelectedLeader,
-  tagFilters,
-}
+export const [selectedLeader, setSelectedLeader] = createSignal<string | null>(null)
+export const [searchQuery, setSearchQuery] = createSignal('')
+export const [tagFilters, setTagFilters] = createSignal<TagFilterState>(createEmptyTagFilters())
+export const activeTagFilterCount = createMemo(() => countActiveTagFilters(tagFilters()))
+export const [banSelections, setBanSelections] = createSignal<string[]>([])
+export const [isRandomSelected, setIsRandomSelected] = createSignal(false)
+export const [gridOpen, setGridOpen] = createSignal(false)
+export const [detailLeaderId, setDetailLeaderId] = createSignal<string | null>(null)
+export const [isMiniView, setIsMiniView] = createSignal(false)
 
 // ── Phase Accent ───────────────────────────────────────────
 
@@ -120,7 +84,7 @@ export function clearTagFilters() {
   setTagFilters(createEmptyTagFilters())
 }
 
-/** Toggle the detail panel for a leader (click-to-open/close) */
+/** Toggle the detail panel for a leader */
 export function toggleDetail(leaderId: string) {
   setDetailLeaderId(prev => prev === leaderId ? null : leaderId)
 }

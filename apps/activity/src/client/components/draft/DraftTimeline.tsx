@@ -9,10 +9,8 @@ export function DraftTimeline() {
   const currentIdx = () => state()?.currentStepIndex ?? -1
   const isTeamMode = () => state()?.seats.some(s => s.team != null) ?? false
 
-  /** Label for a step */
   const stepLabel = (step: { action: 'pick' | 'ban', seats: number[] | 'all' }): string => {
     if (step.action === 'ban') return 'BAN'
-
     if (step.seats === 'all') return 'PICK'
 
     // FFA: P1, P2...

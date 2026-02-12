@@ -1,15 +1,13 @@
-import { getLeader } from '@civup/game'
+import { formatModeLabel, getLeader } from '@civup/game'
 import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
-import { formatModeLabel } from '~/client/lib/mode'
 import { draftStore, phaseAccent, phaseLabel } from '~/client/stores'
 
-/** Minimized PiP view (402x227) — status card with phase, timer, whose turn, last pick */
+/** Minimized PiP view */
 export function MiniView() {
   const state = () => draftStore.state
   const accent = () => phaseAccent()
 
-  // Timer
   const [remaining, setRemaining] = createSignal(0)
   createEffect(() => {
     const endsAt = draftStore.timerEndsAt
@@ -24,10 +22,8 @@ export function MiniView() {
   })
   const seconds = () => Math.ceil(remaining() / 1000)
 
-  /** Format name */
   const formatName = () => formatModeLabel(state()?.formatId)
 
-  /** Active seat's display name */
   const activeSeatName = () => {
     const s = state()
     if (!s || s.status !== 'active') return null
@@ -38,7 +34,6 @@ export function MiniView() {
     return seat?.displayName ?? null
   }
 
-  /** Last pick info */
   const lastPick = () => {
     const s = state()
     if (!s || s.picks.length === 0) return null
@@ -52,7 +47,7 @@ export function MiniView() {
 
   return (
     <div class="text-text-primary font-sans p-3 bg-bg-primary flex flex-col h-screen">
-      {/* Top row: format, phase, timer */}
+      {/* Top row */}
       <div class="flex items-center justify-between">
         <span class="text-xs text-text-muted font-medium">{formatName()}</span>
         <span class={cn(

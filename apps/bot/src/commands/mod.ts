@@ -1,5 +1,6 @@
 import type { GameMode } from '@civup/game'
 import { createDb, matches, matchParticipants } from '@civup/db'
+import { formatModeLabel } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/lfg'
@@ -147,7 +148,7 @@ export const command_mod = factory.command<Var>(
           const recalculated = result.recalculatedMatchIds.length
           await sendTransientEphemeralResponse(
             c,
-            `Cancelled match **${result.match.id}** (was ${result.previousStatus}). Recalculated ${recalculated} completed ${mode.toUpperCase()}-track matches.`,
+            `Cancelled match **${result.match.id}** (was ${result.previousStatus}). Recalculated ${recalculated} completed ${formatModeLabel(mode)} matches.`,
             'success',
           )
         })
@@ -224,7 +225,7 @@ export const command_mod = factory.command<Var>(
           const recalculated = result.recalculatedMatchIds.length
           await sendTransientEphemeralResponse(
             c,
-            `Resolved match **${result.match.id}** (was ${result.previousStatus}). Recalculated ${recalculated} completed ${mode.toUpperCase()}-track matches.`,
+            `Resolved match **${result.match.id}** (was ${result.previousStatus}). Recalculated ${recalculated} completed ${formatModeLabel(mode)} matches.`,
             'success',
           )
         })
