@@ -6,11 +6,26 @@ import {
   currentStep,
   draftStore,
   isMyTurn,
+  isRandomSelected,
   selectedLeader,
+  setIsRandomSelected,
   setSelectedLeader,
   toggleBanSelection,
   toggleDetail,
 } from '~/client/stores'
+
+const ZOOMED_LEADERS = [
+  'Ahiram',
+  'Al-Hasan ibn Sulaiman',
+  'Kiviuq',
+  'Spearthrower Owl',
+  'Trisong Detsen',
+  'Vercingetorix',
+]
+
+const SLIGHTLY_ZOOMED_LEADERS = [
+  'Te\' K\'inich II',
+]
 
 interface LeaderCardProps {
   leader: Leader
@@ -30,6 +45,7 @@ export function LeaderCard(props: LeaderCardProps) {
   const isUnavailable = (): boolean => isBanned() || isPicked()
   const isSelected = (): boolean => selectedLeader() === props.leader.id
   const isBanSelected = (): boolean => banSelections().includes(props.leader.id)
+  const isActive = (): boolean => isSelected() || isBanSelected()
 
   const isClickable = (): boolean => {
     if (isUnavailable()) return false
@@ -40,10 +56,11 @@ export function LeaderCard(props: LeaderCardProps) {
   const handleClick = () => {
     props.onHoverLeave?.()
 
-    // Always toggle detail on click
     toggleDetail(props.leader.id)
 
     if (!isClickable()) return
+
+    if (isRandomSelected()) setIsRandomSelected(false)
 
     const s = step()
     if (!s) return
@@ -68,22 +85,11 @@ export function LeaderCard(props: LeaderCardProps) {
   return (
     <button
       class={cn(
-        'relative aspect-square overflow-hidden rounded transition-all duration-150',
-        'border-2 border-transparent',
-        'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-gold/50',
-
-        // Unavailable
+        'relative aspect-square p-0.5 group',
+        'focus:outline-none',
         isUnavailable() && 'pointer-events-none',
-
-        // Clickable hover
-        isClickable() && 'cursor-pointer hover:border-white/20',
+        isClickable() && 'cursor-pointer',
         !isClickable() && !isUnavailable() && 'cursor-pointer',
-
-        // Selected for pick
-        isSelected() && 'border-accent-gold',
-
-        // Selected for ban
-        isBanSelected() && 'border-accent-red',
       )}
       onClick={handleClick}
       onMouseEnter={handleHoverMove}
@@ -92,40 +98,64 @@ export function LeaderCard(props: LeaderCardProps) {
       onBlur={handleHoverLeave}
       disabled={isUnavailable()}
     >
-      {/* Portrait — icon only */}
-      <Show
-        when={props.leader.portraitUrl}
-        fallback={(
-          <div class={cn(
-            'bg-bg-secondary flex h-full w-full items-center justify-center',
-            isUnavailable() && 'opacity-25',
-          )}
-          >
-            <span class="text-lg text-accent-gold/40 font-bold">
-              {props.leader.name.slice(0, 1)}
-            </span>
-          </div>
+      {/* Circular visual container */}
+      <div
+        class={cn(
+          'relative w-full h-full rounded-full overflow-hidden transition-all duration-150',
+          'ring-2 ring-inset',
+
+          !isActive() && 'ring-transparent',
+
+          // Hover
+          !isActive() && isClickable() && 'group-hover:ring-white/30 group-hover:brightness-115',
+          !isActive() && !isClickable() && !isUnavailable() && 'group-hover:ring-white/15',
+
+          // Selected pick
+          isSelected() && 'ring-accent-gold shadow-[0_0_10px_rgba(200,170,110,0.3)]',
+          isSelected() && 'group-hover:ring-accent-gold group-hover:brightness-115 group-hover:shadow-[0_0_14px_rgba(200,170,110,0.45)]',
+
+          // Selected ban
+          isBanSelected() && 'ring-accent-red shadow-[0_0_10px_rgba(232,64,87,0.3)]',
+          isBanSelected() && 'group-hover:ring-accent-red group-hover:brightness-115 group-hover:shadow-[0_0_14px_rgba(232,64,87,0.45)]',
         )}
       >
-        {url => (
-          <img
-            src={url()}
-            alt={props.leader.name}
-            class={cn(
-              'h-full w-full object-cover',
-              isBanned() && 'grayscale',
+        {/* Portrait */}
+        <Show
+          when={props.leader.portraitUrl}
+          fallback={(
+            <div class={cn(
+              'bg-bg-secondary flex h-full w-full items-center justify-center rounded-full',
               isUnavailable() && 'opacity-25',
             )}
-          />
-        )}
-      </Show>
+            >
+              <span class="text-lg text-accent-gold/40 font-bold">
+                {props.leader.name.slice(0, 1)}
+              </span>
+            </div>
+          )}
+        >
+          {url => (
+            <img
+              src={url()}
+              alt={props.leader.name}
+              class={cn(
+                'h-full w-full object-cover',
+                isBanned() && 'grayscale',
+                isUnavailable() && 'opacity-25',
+                ZOOMED_LEADERS.includes(props.leader.name) && 'scale-90',
+                SLIGHTLY_ZOOMED_LEADERS.includes(props.leader.name) && 'scale-95',
+              )}
+            />
+          )}
+        </Show>
 
-      {/* Banned overlay */}
-      <Show when={isBanned()}>
-        <div class="rounded-full bg-accent-red/10 flex items-center inset-0 justify-center absolute">
-          <span class="text-2xl text-accent-red font-bold">✕</span>
-        </div>
-      </Show>
+        {/* Banned overlay */}
+        <Show when={isBanned()}>
+          <div class="rounded-full bg-accent-red/10 flex items-center inset-0 justify-center absolute">
+            <span class="text-2xl text-accent-red font-bold">✕</span>
+          </div>
+        </Show>
+      </div>
     </button>
   )
 }
