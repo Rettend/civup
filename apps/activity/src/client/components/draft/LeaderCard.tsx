@@ -48,7 +48,7 @@ export function LeaderCard(props: LeaderCardProps) {
   const isActive = (): boolean => isSelected() || isBanSelected()
 
   const isClickable = (): boolean => {
-    if (isUnavailable()) return false
+    if (isBanned()) return false
     if (!isMyTurn()) return false
     return state()?.status === 'active'
   }
@@ -87,7 +87,7 @@ export function LeaderCard(props: LeaderCardProps) {
       class={cn(
         'relative aspect-square p-0.5 group',
         'focus:outline-none',
-        isUnavailable() && 'pointer-events-none',
+        isBanned() && 'pointer-events-none',
         isClickable() && 'cursor-pointer',
         !isClickable() && !isUnavailable() && 'cursor-pointer',
       )}
@@ -96,7 +96,7 @@ export function LeaderCard(props: LeaderCardProps) {
       onMouseMove={handleHoverMove}
       onMouseLeave={handleHoverLeave}
       onBlur={handleHoverLeave}
-      disabled={isUnavailable()}
+      disabled={isBanned()}
     >
       {/* Circular visual container */}
       <div

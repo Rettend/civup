@@ -7,6 +7,8 @@ import {
   phaseAccentColor,
   phaseHeaderBg,
   phaseLabel,
+  sendScrub,
+  userId,
 } from '~/client/stores'
 import { BanSquare } from './BanSquare'
 
@@ -14,6 +16,7 @@ import { BanSquare } from './BanSquare'
 export function DraftHeader() {
   const state = () => draftStore.state
   const accent = () => phaseAccent()
+  const amHost = () => userId() === draftStore.hostId
   const [phaseFlash, setPhaseFlash] = createSignal(false)
   let phaseFlashTimeout: ReturnType<typeof setTimeout> | null = null
 
@@ -104,7 +107,7 @@ export function DraftHeader() {
         </div>
 
         {/* Center: phase + timer */}
-        <div class="flex flex-col gap-0.5 items-center">
+        <div class="flex flex-col gap-0.5 items-center relative">
           <span class={cn(
             'text-xs font-bold tracking-widest uppercase',
             accent() === 'red' ? 'text-accent-red' : 'text-accent-gold',
@@ -125,6 +128,17 @@ export function DraftHeader() {
               {seconds()}
               s
             </span>
+          </Show>
+
+          <Show when={amHost() && state()?.status === 'active'}>
+            <div class="ml-6 left-full top-1/2 absolute -translate-y-1/2">
+              <button
+                class="text-xs text-[#cdd5df] px-3 py-1.5 border border-[#aeb6c2]/25 rounded-full bg-[#8f99a8]/8 cursor-pointer whitespace-nowrap transition-colors hover:border-[#aeb6c2]/40 hover:bg-[#8f99a8]/15"
+                onClick={sendScrub}
+              >
+                Scrub
+              </button>
+            </div>
           </Show>
         </div>
 
