@@ -153,7 +153,7 @@ export function lobbyResultEmbed(
   return lobbyReportedEmbed(mode, participants, moderation)
 }
 
-export function lobbyComponents(mode: GameMode, _stage: Extract<LobbyStage, 'open' | 'drafting'>): Components {
+export function lobbyComponents(mode: GameMode): Components {
   const label = 'Join'
   return new Components().row(
     new Button('lfg-join', label, 'Primary').custom_id(mode),

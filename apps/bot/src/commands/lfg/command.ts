@@ -68,7 +68,7 @@ export const command_lfg = factory.command<LfgVar>(
               try {
                 await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
                   embeds: [embed],
-                  components: lobbyComponents(mode, 'open'),
+                  components: lobbyComponents(mode),
                 })
               }
               catch (error) {
@@ -122,7 +122,7 @@ export const command_lfg = factory.command<LfgVar>(
           try {
             const message = await createChannelMessage(c.env.DISCORD_TOKEN, draftChannelId, {
               embeds: [embed],
-              components: lobbyComponents(mode, 'open'),
+              components: lobbyComponents(mode),
             })
             await createLobby(kv, {
               mode,
@@ -243,7 +243,7 @@ export const command_lfg = factory.command<LfgVar>(
             try {
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
                 embeds: [lobbyOpenEmbed(removed, slottedEntries, maxPlayerCount(removed))],
-                components: lobbyComponents(removed, 'open'),
+                components: lobbyComponents(removed),
               })
             }
             catch (error) {
