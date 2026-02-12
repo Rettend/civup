@@ -43,8 +43,6 @@ export default function App() {
     try {
       const auth = await setupDiscordSdk()
       setAuthenticatedUser(auth)
-
-      // Get the channel ID to look up the match
       const channelId = discordSdk.channelId
 
       if (!channelId) {
@@ -113,8 +111,6 @@ export default function App() {
       }
 
       if (!matchId) {
-        // No match found — could be dev mode or no queue filled yet
-        // In dev, fall back to using channelId as room ID for testing
         if (import.meta.env.DEV) {
           console.warn('No match found for channel, using channelId as fallback')
           setState({ status: 'authenticated', matchId: channelId, autoStart: false })
@@ -126,7 +122,6 @@ export default function App() {
         return
       }
 
-      // Connect to the PartyKit room using the match ID
       setState({ status: 'authenticated', matchId, autoStart: false })
       connectToRoom(ACTIVITY_HOST, matchId, auth.user.id)
     }
@@ -163,7 +158,7 @@ export default function App() {
         </main>
       </Match>
 
-      {/* Waiting lobby (before match room exists) */}
+      {/* Waiting lobby */}
       <Match when={state().status === 'lobby-waiting'}>
         <ConfigScreen
           lobby={(state() as Extract<AppState, { status: 'lobby-waiting' }>).lobby}
@@ -196,7 +191,7 @@ export default function App() {
         </main>
       </Match>
 
-      {/* Authenticated — show draft */}
+      {/* Authenticated */}
       <Match when={state().status === 'authenticated'}>
         <DraftWithConnection
           matchId={(state() as Extract<AppState, { status: 'authenticated' }>).matchId}

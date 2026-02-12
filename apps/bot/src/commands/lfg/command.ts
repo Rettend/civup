@@ -224,7 +224,7 @@ export const command_lfg = factory.command<LfgVar>(
           if (!removed) {
             const userMatchId = await getMatchForUser(kv, identity.userId)
             if (userMatchId) {
-              await sendTransientEphemeralResponse(c, 'You are not in queue right now. If you need back in, use `/lfg join` for the active mode to reopen the activity.', 'error')
+              await sendTransientEphemeralResponse(c, 'You are not in queue right now. If you need back in, use `/lfg join` for the game mode to reopen the activity.', 'error')
               return
             }
 

@@ -25,9 +25,7 @@ function loadDevVars(): Record<string, string> {
   }
 }
 
-/** Extracts raw CSS from Vite's JS wrapper for a CSS virtual module. */
 function extractCssFromJsModule(js: string): string | null {
-  // Vite wraps CSS in: __vite__css = "...actual css..."
   const match = js.match(/__vite__css\s*=\s*"([\s\S]*?)"/)
   if (match?.[1]) {
     return match[1]
@@ -39,10 +37,6 @@ function extractCssFromJsModule(js: string): string | null {
   return null
 }
 
-/**
- * Serves UnoCSS as a real CSS file in dev mode via a middleware endpoint,
- * bypassing Vite's JS-based style injection that fails in Discord Desktop's Electron iframe.
- */
 function devUnoCssLink(): Plugin {
   return {
     name: 'dev-unocss-link',

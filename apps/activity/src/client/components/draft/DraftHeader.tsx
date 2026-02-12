@@ -43,12 +43,14 @@ export function DraftHeader() {
     return s.bans.filter(b => b.seatIndex === 1).map(b => b.civId)
   }
 
-  // Timer
   const [remaining, setRemaining] = createSignal(0)
 
   createEffect(() => {
     const endsAt = draftStore.timerEndsAt
-    if (endsAt == null) { setRemaining(0); return }
+    if (endsAt == null) {
+      setRemaining(0)
+      return
+    }
 
     function tick() { setRemaining(Math.max(0, endsAt! - Date.now())) }
     tick()
@@ -155,7 +157,7 @@ export function DraftHeader() {
         </div>
       </div>
 
-      {/* Shrinking timer line — full width, shrinks from edges to center */}
+      {/* Shrinking timer line */}
       <Show when={draftStore.timerEndsAt != null && !isExpired()}>
         <div class="flex h-0.5 w-full items-center justify-center relative z-10">
           <div

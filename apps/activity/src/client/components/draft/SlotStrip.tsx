@@ -9,21 +9,18 @@ export function SlotStrip() {
   const isTeamMode = () => state()?.seats.some(s => s.team != null) ?? false
   const seatCount = () => state()?.seats.length ?? 0
 
-  /** Seat indices for left team (team 0) */
   const leftSeats = () => {
     const s = state()
     if (!s) return [] as number[]
     return s.seats.map((seat, i) => ({ seat, i })).filter(x => x.seat.team === 0).map(x => x.i)
   }
 
-  /** Seat indices for right team (team 1) */
   const rightSeats = () => {
     const s = state()
     if (!s) return [] as number[]
     return s.seats.map((seat, i) => ({ seat, i })).filter(x => x.seat.team === 1).map(x => x.i)
   }
 
-  /** FFA: split seats into two rows */
   const ffaTopRow = () => {
     const count = seatCount()
     const perRow = Math.ceil(count / 2)
@@ -70,7 +67,7 @@ export function SlotStrip() {
         </div>
       )}
 
-      {/* FFA layout: two-row grid */}
+      {/* FFA layout */}
       {!isTeamMode() && seatCount() > 0 && (
         <div class="slot-strip-ffa flex flex-col h-full w-full items-center justify-end">
           {/* Top row */}

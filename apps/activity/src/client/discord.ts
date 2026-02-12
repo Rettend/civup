@@ -22,9 +22,7 @@ interface CachedToken {
   expiresAt: number
 }
 
-/** Discord SDK instance — constructor establishes RPC transport, nothing travels network until ready() */
 export const discordSdk = new DiscordSDK(CLIENT_ID)
-
 let setupInFlight: Promise<Auth> | null = null
 
 function readCachedToken(): string | null {
@@ -114,9 +112,7 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
     try {
       payload = await response.json() as TokenExchangeResponse
     }
-    catch {
-      // no-op
-    }
+    catch {}
 
     const detail = payload?.detail ?? payload?.error
     const retryAfter = response.headers.get('Retry-After') ?? payload?.retry_after
@@ -146,7 +142,6 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
   return authenticateWithToken(payload.access_token)
 }
 
-/** Full Discord Activity auth flow with cached token + single-flight guard. */
 export async function setupDiscordSdk(): Promise<Auth> {
   if (setupInFlight) return setupInFlight
   setupInFlight = setupDiscordSdkInternal().finally(() => {

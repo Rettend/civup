@@ -3,9 +3,7 @@ import { createSignal } from 'solid-js'
 
 // ── State ──────────────────────────────────────────────────
 
-const [user, setUser] = createSignal<Auth | null>(null)
-
-export { user }
+export const [user, setUser] = createSignal<Auth | null>(null)
 
 /** Set the authenticated user (called after Discord SDK auth) */
 export function setAuthenticatedUser(auth: Auth) {

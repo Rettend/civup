@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import { readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
