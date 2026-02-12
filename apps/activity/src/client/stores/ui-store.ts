@@ -25,6 +25,9 @@ const activeTagFilterCount = createMemo(() => countActiveTagFilters(tagFilters()
 /** Selected civ IDs for blind ban (multi-select) */
 const [banSelections, setBanSelections] = createSignal<string[]>([])
 
+/** Whether the user chose "random" (actual leader is a surprise until confirm) */
+const [isRandomSelected, setIsRandomSelected] = createSignal(false)
+
 /** Whether the leader grid overlay is open */
 const [gridOpen, setGridOpen] = createSignal(false)
 
@@ -40,12 +43,14 @@ export {
   detailLeaderId,
   gridOpen,
   isMiniView,
+  isRandomSelected,
   searchQuery,
   selectedLeader,
   setBanSelections,
   setDetailLeaderId,
   setGridOpen,
   setIsMiniView,
+  setIsRandomSelected,
   setSearchQuery,
   setSelectedLeader,
   tagFilters,
@@ -89,6 +94,7 @@ export function toggleBanSelection(civId: string, maxBans: number) {
 export function clearSelections() {
   setSelectedLeader(null)
   setBanSelections([])
+  setIsRandomSelected(false)
   setSearchQuery('')
   setTagFilters(createEmptyTagFilters())
   setDetailLeaderId(null)
