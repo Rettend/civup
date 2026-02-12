@@ -125,6 +125,13 @@ export default defineConfig({
           .slot-strip-ffa {
             max-height: 100%;
           }
+
+          .grid-panel-glow {
+            box-shadow:
+              0 0 20px rgba(200, 170, 110, 0.08),
+              0 0 40px rgba(200, 170, 110, 0.04),
+              inset 0 1px 0 rgba(200, 170, 110, 0.15);
+          }
         `
       },
     },
