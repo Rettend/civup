@@ -46,7 +46,6 @@ import { getSystemChannel } from './services/system-channels.ts'
 import { factory } from './setup.ts'
 
 const TEMP_LOBBY_START_MIN_PLAYERS_FFA = 1
-const DEBUG_FILL_PLAYER_ID_PREFIX = 'debug-lobby-bot:'
 
 const discordApp = factory.discord().loader([
   ...Object.values(commands),
@@ -484,82 +483,6 @@ app.post('/api/lobby/:mode/remove', async (c) => {
   }
 
   return c.json(await buildOpenLobbySnapshotFromParts(c.env.KV, mode, nextLobby, queue.entries, slots))
-})
-
-// Host-only helper: fill empty lobby slots with test players
-app.post('/api/lobby/:mode/fill-test', async (c) => {
-  const mode = parseGameMode(c.req.param('mode'))
-  if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
-
-  let body: unknown
-  try {
-    body = await c.req.json()
-  }
-  catch {
-    return c.json({ error: 'Invalid JSON payload' }, 400)
-  }
-
-  if (!body || typeof body !== 'object') {
-    return c.json({ error: 'Invalid request body' }, 400)
-  }
-
-  const { userId } = body as { userId?: string }
-  if (typeof userId !== 'string' || userId.length === 0) {
-    return c.json({ error: 'userId is required' }, 400)
-  }
-
-  const lobby = await getLobby(c.env.KV, mode)
-  if (!lobby || lobby.status !== 'open') {
-    return c.json({ error: 'No open lobby for this mode' }, 404)
-  }
-
-  if (lobby.hostId !== userId) {
-    return c.json({ error: 'Only the lobby host can fill test players' }, 403)
-  }
-
-  const queue = await getQueueState(c.env.KV, mode)
-  const slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
-  const nextEntries = [...queue.entries]
-  const existingIds = new Set(nextEntries.map(entry => entry.playerId))
-
-  let addedCount = 0
-  const now = Date.now()
-
-  for (let slot = 0; slot < slots.length; slot++) {
-    if (slots[slot] != null) continue
-
-    const playerId = buildDebugFillPlayerId(mode, slot, existingIds)
-    slots[slot] = playerId
-    nextEntries.push({
-      playerId,
-      displayName: `Test Player ${slot + 1}`,
-      avatarUrl: null,
-      joinedAt: now + slot,
-    })
-    existingIds.add(playerId)
-    addedCount += 1
-  }
-
-  if (addedCount > 0) {
-    await setQueueEntries(c.env.KV, mode, nextEntries)
-  }
-
-  const updatedLobby = await setLobbySlots(c.env.KV, mode, slots)
-  const nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
-  const slottedEntries = mapLobbySlotsToEntries(slots, nextEntries)
-
-  try {
-    await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, nextLobby, {
-      embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
-      components: lobbyComponents(mode, 'open'),
-    })
-  }
-  catch (error) {
-    console.error(`Failed to update lobby embed after test fill in ${mode}:`, error)
-  }
-
-  const snapshot = await buildOpenLobbySnapshotFromParts(c.env.KV, mode, nextLobby, nextEntries, slots)
-  return c.json({ ...snapshot, addedCount })
 })
 
 // Host-only lobby start (manual start from config screen)
@@ -1020,17 +943,6 @@ function canStartLobbyWithPlayerCount(mode: GameMode, playerCount: number): bool
     return playerCount >= lobbyMinPlayerCount(mode) && playerCount <= maxPlayerCount(mode)
   }
   return playerCount === maxPlayerCount(mode)
-}
-
-function buildDebugFillPlayerId(mode: GameMode, slot: number, existingIds: Set<string>): string {
-  const base = `${DEBUG_FILL_PLAYER_ID_PREFIX}${mode}:${slot}`
-  if (!existingIds.has(base)) return base
-
-  let suffix = 1
-  while (existingIds.has(`${base}:${suffix}`)) {
-    suffix += 1
-  }
-  return `${base}:${suffix}`
 }
 
 function parseGameMode(modeParam: string): GameMode | null {
