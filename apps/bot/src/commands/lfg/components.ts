@@ -1,5 +1,5 @@
 import type { GameMode } from '@civup/game'
-import { maxPlayerCount } from '@civup/game'
+import { formatModeLabel, maxPlayerCount } from '@civup/game'
 import { Button } from 'discord-hono'
 import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/lfg.ts'
 import { getMatchForUser, storeUserMatchMappings } from '../../services/activity.ts'
@@ -29,7 +29,7 @@ export const component_lfg_join = factory.component(
         return c.resActivity()
       }
       return c.flags('EPHEMERAL').resDefer(async (c) => {
-        await sendTransientEphemeralResponse(c, `No active ${mode.toUpperCase()} lobby. Use \`/lfg create\` first.`, 'error')
+        await sendTransientEphemeralResponse(c, `No active ${formatModeLabel(mode)} lobby. Use \`/lfg create\` first.`, 'error')
       })
     }
 
@@ -109,7 +109,7 @@ export const component_lfg_leave = factory.component(
         try {
           await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
             embeds: [lobbyOpenEmbed(removed, slottedEntries, maxPlayerCount(removed))],
-            components: lobbyComponents(removed, 'open'),
+            components: lobbyComponents(removed),
           })
         }
         catch (error) {
