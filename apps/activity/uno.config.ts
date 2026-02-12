@@ -98,13 +98,18 @@ export default defineConfig({
           .anim-portrait-in { animation: civup-portrait-in 300ms ease-out both; }
           .anim-phase-flash { animation: civup-phase-flash 200ms ease-out both; }
 
-          @keyframes civup-slot-breathe {
-            0%, 100% { box-shadow: inset 4px 0 14px var(--slot-glow), inset -4px 0 14px var(--slot-glow); }
-            50% { box-shadow: inset 2px 0 6px var(--slot-glow-dim), inset -2px 0 6px var(--slot-glow-dim); }
+          @keyframes civup-glow-breathe {
+            0%, 100% { opacity: 0.2; }
+            50% { opacity: 0.05; }
           }
-          .anim-slot-breathe { animation: civup-slot-breathe 2s ease-in-out infinite; }
-          .slot-accent-gold { --slot-glow: rgba(200, 170, 110, 0.4); --slot-glow-dim: rgba(200, 170, 110, 0.15); }
-          .slot-accent-red  { --slot-glow: rgba(232, 64, 87, 0.4);  --slot-glow-dim: rgba(232, 64, 87, 0.15); }
+          .anim-glow-breathe { animation: civup-glow-breathe 3s ease-in-out infinite; }
+          @keyframes civup-glow-fade-out {
+            from { opacity: 0.2; }
+            to { opacity: 0; }
+          }
+          .anim-glow-fade-out { animation: civup-glow-fade-out 400ms ease-out forwards; }
+          .slot-accent-gold { --slot-glow: #c8aa6e; }
+          .slot-accent-red  { --slot-glow: #e84057; }
 
           .slot-cell {
             flex: 1 1 0;
