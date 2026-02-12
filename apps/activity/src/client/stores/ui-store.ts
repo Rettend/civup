@@ -19,6 +19,7 @@ export const [isRandomSelected, setIsRandomSelected] = createSignal(false)
 export const [gridOpen, setGridOpen] = createSignal(false)
 export const [detailLeaderId, setDetailLeaderId] = createSignal<string | null>(null)
 export const [isMiniView, setIsMiniView] = createSignal(false)
+export const [ffaPlacementOrder, setFfaPlacementOrder] = createSignal<number[]>([])
 
 // ── Phase Accent ───────────────────────────────────────────
 
@@ -87,4 +88,18 @@ export function clearTagFilters() {
 /** Toggle the detail panel for a leader */
 export function toggleDetail(leaderId: string) {
   setDetailLeaderId(prev => prev === leaderId ? null : leaderId)
+}
+
+/** Toggle a seat in the FFA placement order */
+export function toggleFfaPlacement(seatIndex: number) {
+  setFfaPlacementOrder((prev) => {
+    const idx = prev.indexOf(seatIndex)
+    if (idx >= 0) return prev.slice(0, idx)
+    return [...prev, seatIndex]
+  })
+}
+
+/** Clear FFA placement order */
+export function clearFfaPlacements() {
+  setFfaPlacementOrder([])
 }

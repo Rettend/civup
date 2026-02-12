@@ -7,7 +7,6 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import * as commands from './commands/index.ts'
 import * as cron from './cron/cleanup.ts'
-import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from './services/config.ts'
 import {
   lobbyCancelledEmbed,
   lobbyComponents,
@@ -23,6 +22,7 @@ import {
   storeMatchMapping,
   storeUserMatchMappings,
 } from './services/activity.ts'
+import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from './services/config.ts'
 import { createChannelMessage } from './services/discord.ts'
 import { refreshConfiguredLeaderboards } from './services/leaderboard-message.ts'
 import { upsertLobbyMessage } from './services/lobby-message.ts'
@@ -275,7 +275,7 @@ app.post('/api/lobby/:mode/mode', async (c) => {
   try {
     await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, nextLobby, {
       embeds: [lobbyOpenEmbed(nextMode, slottedEntries, maxPlayerCount(nextMode))],
-      components: lobbyComponents(nextMode, 'open'),
+      components: lobbyComponents(nextMode),
     })
   }
   catch (error) {
@@ -407,7 +407,7 @@ app.post('/api/lobby/:mode/place', async (c) => {
   try {
     await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, nextLobby, {
       embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
-      components: lobbyComponents(mode, 'open'),
+      components: lobbyComponents(mode),
     })
   }
   catch (error) {
@@ -475,7 +475,7 @@ app.post('/api/lobby/:mode/remove', async (c) => {
   try {
     await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, nextLobby, {
       embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
-      components: lobbyComponents(mode, 'open'),
+      components: lobbyComponents(mode),
     })
   }
   catch (error) {
@@ -573,7 +573,7 @@ app.post('/api/lobby/:mode/start', async (c) => {
     try {
       const updatedLobby = await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobbyForMessage, {
         embeds: [lobbyDraftingEmbed(mode, seats)],
-        components: lobbyComponents(mode, 'drafting'),
+        components: lobbyComponents(mode),
       })
       await storeMatchMessageMapping(c.env.KV, updatedLobby.messageId, matchId)
     }
@@ -793,7 +793,7 @@ app.post('/api/webhooks/draft-complete', async (c) => {
     try {
       const updatedLobby = await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
         embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants)],
-        components: [],
+        components: lobbyComponents(lobby.mode),
       })
       await storeMatchMessageMapping(c.env.KV, updatedLobby.messageId, payload.matchId)
     }

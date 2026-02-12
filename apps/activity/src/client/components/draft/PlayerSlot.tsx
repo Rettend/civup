@@ -2,7 +2,7 @@ import type { Leader } from '@civup/game'
 import { getLeader } from '@civup/game'
 import { createEffect, createSignal, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
-import { draftStore, phaseAccent } from '~/client/stores'
+import { draftStore, ffaPlacementOrder, phaseAccent, toggleFfaPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -46,15 +46,35 @@ export function PlayerSlot(props: PlayerSlotProps) {
   const [wasEverActive, setWasEverActive] = createSignal(false)
   createEffect(() => { if (isActive()) setWasEverActive(true) })
 
+  // ── FFA Placement ────────────────────────────────────────
+  const isComplete = () => state()?.status === 'complete'
+  const isFfa = () => !(state()?.seats.some(s => s.team != null) ?? false)
+  const amHost = () => userId() === draftStore.hostId
+  const isFfaPlacementMode = () => isComplete() && isFfa() && amHost()
+
+  const placementRank = () => {
+    if (!isFfaPlacementMode()) return -1
+    return ffaPlacementOrder().indexOf(props.seatIndex)
+  }
+
+  const isPlaced = () => placementRank() >= 0
+
+  const handleSlotClick = () => {
+    if (!isFfaPlacementMode()) return
+    toggleFfaPlacement(props.seatIndex)
+  }
+
   return (
     <div
       class={cn(
         'relative flex flex-col overflow-hidden bg-bg-secondary h-full isolate',
+        isFfaPlacementMode() && 'cursor-pointer',
       )}
       classList={{
         'slot-accent-gold': isActive() && accent() === 'gold',
         'slot-accent-red': isActive() && accent() === 'red',
       }}
+      onClick={handleSlotClick}
     >
       {/* Side Glows */}
       <div
@@ -81,6 +101,39 @@ export function PlayerSlot(props: PlayerSlotProps) {
           'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
         }}
       />
+
+      {/* FFA placement overlay */}
+      <Show when={isFfaPlacementMode()}>
+        {/* Interactive border glow */}
+        <div
+          class={cn(
+            'absolute inset-0 z-30 pointer-events-none transition-all duration-300',
+            isPlaced()
+              ? 'ring-2 ring-inset ring-accent-gold/60 shadow-[inset_0_0_12px_rgba(200,170,110,0.15)]'
+              : 'ring-1 ring-inset ring-white/10 hover-parent:ring-white/25',
+          )}
+        />
+
+        {/* Placement badge */}
+        <Show when={isPlaced()}>
+          <div class="anim-fade-in left-1/2 top-1/2 absolute z-40 -translate-x-1/2 -translate-y-1/2">
+            <div class={cn(
+              'flex items-center justify-center rounded-full',
+              'bg-accent-gold text-bg-primary font-bold shadow-lg shadow-accent-gold/25',
+              props.compact ? 'w-8 h-8 text-sm' : 'w-10 h-10 text-lg',
+            )}
+            >
+              {placementRank() + 1}
+            </div>
+          </div>
+        </Show>
+
+        {/* Darken when placed */}
+        <Show when={isPlaced()}>
+          <div class="bg-black/30 pointer-events-none inset-0 absolute z-25" />
+        </Show>
+      </Show>
+
       {/* Portrait */}
       <Show when={leader()}>
         {l => (
@@ -151,7 +204,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
       <div class="left-1.5 top-1.5 absolute z-20">
         <span class={cn(
           'text-[10px] font-bold tracking-wide uppercase',
-          isActive() ? (accent() === 'red' ? 'text-accent-red' : 'text-accent-gold') : 'text-text-muted/70',
+          isActive() ? (accent() === 'red' ? 'text-accent-red' : 'text-accent-gold') : (filled() ? 'text-white/80 drop-shadow-md' : 'text-text-muted/70'),
         )}
         >
           {props.seatIndex + 1}

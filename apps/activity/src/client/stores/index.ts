@@ -28,9 +28,11 @@ export { currentStep, currentStepDuration, draftStore, hasSubmitted, isMyTurn, i
 export {
   activeTagFilterCount,
   banSelections,
+  clearFfaPlacements,
   clearSelections,
   clearTagFilters,
   detailLeaderId,
+  ffaPlacementOrder,
   gridOpen,
   isMiniView,
   isRandomSelected,
@@ -49,6 +51,7 @@ export {
   tagFilters,
   toggleBanSelection,
   toggleDetail,
+  toggleFfaPlacement,
   toggleTagFilter,
 } from './ui-store'
 export { avatarUrl, displayName, setAuthenticatedUser, user, userId } from './user-store'

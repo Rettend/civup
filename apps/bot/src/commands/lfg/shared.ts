@@ -1,6 +1,6 @@
 import type { GameMode } from '@civup/game'
 import type { Embed } from 'discord-hono'
-import { maxPlayerCount } from '@civup/game'
+import { formatModeLabel, maxPlayerCount } from '@civup/game'
 import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/lfg.ts'
 import {
   getLobby,
@@ -78,7 +78,7 @@ export async function joinLobbyAndMaybeStartMatch(
   const kv = c.env.KV
   const existingMode = await getPlayerQueueMode(kv, userId)
   if (existingMode && existingMode !== mode) {
-    return { error: `You're already in the ${existingMode.toUpperCase()} queue. Leave it first with \`/lfg leave\`.` }
+    return { error: `You're already in the ${formatModeLabel(existingMode)} queue. Leave it first with \`/lfg leave\`.` }
   }
 
   let shouldJoinQueue = !existingMode
@@ -99,7 +99,7 @@ export async function joinLobbyAndMaybeStartMatch(
 
   const lobby = await getLobby(kv, mode)
   if (!lobby || lobby.status !== 'open') {
-    return { error: `No open ${mode.toUpperCase()} lobby. Use \`/lfg create\` first.` }
+    return { error: `No open ${formatModeLabel(mode)} lobby. Use \`/lfg create\` first.` }
   }
 
   const queue = await getQueueState(kv, mode)
@@ -119,6 +119,6 @@ export async function joinLobbyAndMaybeStartMatch(
   return {
     stage: 'open',
     embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
-    components: lobbyComponents(mode, 'open'),
+    components: lobbyComponents(mode),
   }
 }

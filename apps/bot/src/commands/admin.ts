@@ -12,12 +12,7 @@ import { clearSeasonConfirmation, createSeasonConfirmation, getSeasonConfirmatio
 import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/ephemeral-response'
 import { upsertLeaderboardMessagesForChannel } from '../services/leaderboard-message'
 import { addModRole, getModRoleIds, hasAdminPermission, removeModRole } from '../services/permissions'
-import {
-  clearLeaderboardMessageState,
-  clearSystemChannel,
-  getSystemChannel,
-  setSystemChannel,
-} from '../services/system-channels'
+import { clearLeaderboardMessageState, clearSystemChannel, getSystemChannel, setSystemChannel } from '../services/system-channels'
 import { factory } from '../setup'
 
 interface Var {
