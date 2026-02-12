@@ -97,17 +97,6 @@ export function DraftView(props: DraftViewProps) {
                   <DraftHeader />
                   <DraftTimeline />
 
-                  <Show when={state()?.status === 'active' && amHost()}>
-                    <div class="right-24 top-4 absolute z-20">
-                      <button
-                        class="text-xs text-[#cdd5df] px-3 py-1.5 border border-[#aeb6c2]/25 rounded-full bg-[#8f99a8]/8 cursor-pointer transition-colors hover:border-[#aeb6c2]/40 hover:bg-[#8f99a8]/15"
-                        onClick={sendScrub}
-                      >
-                        Scrub Draft
-                      </button>
-                    </div>
-                  </Show>
-
                   {/* Main area */}
                   <div class="flex flex-1 min-h-0 relative">
                     <SlotStrip />

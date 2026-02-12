@@ -10,21 +10,25 @@ export function DraftTimeline() {
   const isTeamMode = () => state()?.seats.some(s => s.team != null) ?? false
 
   /** Label for a step */
-  const stepLabel = (step: { action: string, seats: number[] | 'all' }, _idx: number): string => {
-    const action = step.action.toUpperCase()
-    if (step.seats === 'all') return action
+  const stepLabel = (step: { action: 'pick' | 'ban', seats: number[] | 'all' }): string => {
+    if (step.action === 'ban') return 'BAN'
+
+    if (step.seats === 'all') return 'PICK'
+
+    // FFA: P1, P2...
     if (!isTeamMode()) {
-      return step.seats.length === 1 ? `${action} P${step.seats[0]! + 1}` : action
+      return step.seats.length === 1 ? `PICK P${step.seats[0]! + 1}` : 'PICK'
     }
-    // Team mode: T1/T2
-    return step.seats.map(s => `${action} T${s + 1}`).join(' ')
+
+    // Team mode: T1, T2...
+    return step.seats.map(s => `PICK T${s + 1}`).join(' & ')
   }
 
   return (
     <Show when={steps().length > 0}>
       <div class="px-4 py-1.5 flex gap-1 items-center justify-center">
         <For each={steps()}>
-          {(step, idx) => {
+          {(step: { action: 'pick' | 'ban', seats: number[] | 'all', count: number }, idx) => {
             const isCurrent = () => idx() === currentIdx()
             const isPast = () => idx() < currentIdx()
             const isBan = () => step.action === 'ban'
@@ -42,7 +46,7 @@ export function DraftTimeline() {
                   !isCurrent() && !isPast() && 'text-text-muted/50',
                 )}
                 >
-                  {stepLabel(step, idx())}
+                  {stepLabel(step)}
                 </span>
               </>
             )

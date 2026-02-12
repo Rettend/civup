@@ -128,7 +128,10 @@ export function LeaderGridOverlay() {
 
   const canConfirmPick = () => {
     if (step()?.action !== 'pick') return false
-    return selectedLeader() != null || isRandomSelected()
+    if (isRandomSelected()) return true
+    const id = selectedLeader()
+    if (!id) return false
+    return !state()?.picks.some(p => p.civId === id)
   }
 
   const canConfirmBan = () => {
@@ -399,17 +402,11 @@ export function LeaderGridOverlay() {
                     disabled={!canConfirmBan()}
                     onClick={handleConfirmBan}
                   >
-                    {isRandomSelected()
-                      ? 'Confirm Bans'
-                      : (
-                          <>
-                            Confirm Bans (
-                            {banSelections().length}
-                            /
-                            {step()!.count}
-                            )
-                          </>
-                        )}
+                    Confirm Bans (
+                    {isRandomSelected() ? step()!.count : banSelections().length}
+                    /
+                    {step()!.count}
+                    )
                   </button>
                 </Show>
 

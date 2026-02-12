@@ -1,6 +1,6 @@
 import type { Leader } from '@civup/game'
 import { getLeader } from '@civup/game'
-import { Show } from 'solid-js'
+import { createEffect, createSignal, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import { draftStore, phaseAccent } from '~/client/stores'
 
@@ -47,18 +47,44 @@ export function PlayerSlot(props: PlayerSlotProps) {
   const filled = () => !!pick()
   const seatAvatarUrl = () => seat()?.avatarUrl ?? null
 
+  const [wasEverActive, setWasEverActive] = createSignal(false)
+  createEffect(() => { if (isActive()) setWasEverActive(true) })
+
   return (
     <div
       class={cn(
-        'relative flex flex-col overflow-hidden bg-bg-secondary h-full',
-        // Custom breathing inner shadow (left/right only) when active
-        isActive() && 'anim-slot-breathe',
+        'relative flex flex-col overflow-hidden bg-bg-secondary h-full isolate',
       )}
       classList={{
         'slot-accent-gold': isActive() && accent() === 'gold',
         'slot-accent-red': isActive() && accent() === 'red',
       }}
     >
+      {/* Side Glows */}
+      <div
+        class="w-6 pointer-events-none inset-y-0 left-0 absolute z-10 from-[var(--slot-glow)] to-transparent bg-gradient-to-r"
+        classList={{
+          'anim-glow-breathe': isActive(),
+          'anim-glow-fade-out': wasEverActive() && !isActive(),
+          'opacity-0': !wasEverActive(),
+        }}
+        style={{
+          '-webkit-mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
+          'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
+        }}
+      />
+      <div
+        class="w-6 pointer-events-none inset-y-0 right-0 absolute z-10 from-[var(--slot-glow)] to-transparent bg-gradient-to-l"
+        classList={{
+          'anim-glow-breathe': isActive(),
+          'anim-glow-fade-out': wasEverActive() && !isActive(),
+          'opacity-0': !wasEverActive(),
+        }}
+        style={{
+          '-webkit-mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
+          'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
+        }}
+      />
       {/* Portrait */}
       <Show when={leader()}>
         {l => (
@@ -79,7 +105,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
         <div class="flex flex-1 items-center justify-center">
           <div class={cn(
             'i-ph-user-bold text-3xl',
-            isActive() ? (accent() === 'red' ? 'text-accent-red/40' : 'text-accent-gold/40') : 'text-text-muted/20',
+            isActive() ? (accent() === 'red' ? 'text-accent-red/80' : 'text-accent-gold/80') : 'text-text-muted/50',
           )}
           />
         </div>
@@ -87,7 +113,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
       {/* Bottom gradient overlay for name readability */}
       <div class={cn(
-        'absolute inset-x-0 bottom-0 px-2 pb-2 pt-8',
+        'absolute inset-x-0 bottom-0 px-2 pb-2 pt-8 z-20',
         filled() ? 'bg-gradient-to-t from-black/80 to-transparent' : 'bg-gradient-to-t from-bg-primary/40 to-transparent',
       )}
       >
@@ -126,10 +152,10 @@ export function PlayerSlot(props: PlayerSlotProps) {
       </div>
 
       {/* Pick order label at top-left */}
-      <div class="left-1.5 top-1.5 absolute">
+      <div class="left-1.5 top-1.5 absolute z-20">
         <span class={cn(
           'text-[10px] font-bold tracking-wide uppercase',
-          isActive() ? (accent() === 'red' ? 'text-accent-red' : 'text-accent-gold') : 'text-text-muted/40',
+          isActive() ? (accent() === 'red' ? 'text-accent-red' : 'text-accent-gold') : 'text-text-muted/70',
         )}
         >
           {props.seatIndex + 1}
