@@ -48,8 +48,6 @@ export default {
     }
 
     // All other routes fall through to static assets (SPA).
-    // The `not_found_handling: "single-page-application"` in wrangler.jsonc
-    // ensures non-asset routes serve index.html.
     return new Response(null, { status: 404 })
   },
 } satisfies ExportedHandler<Env>
@@ -69,6 +67,7 @@ async function handleDevLog(request: Request): Promise<Response> {
     const prefix = '[activity-dev-log]'
     if (level === 'error') console.error(prefix, message, context)
     else if (level === 'warn') console.warn(prefix, message, context)
+    // eslint-disable-next-line no-console
     else console.log(prefix, `[${level}]`, message, context)
 
     return new Response(null, {
@@ -144,9 +143,7 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
       try {
         detailJson = JSON.parse(detailRaw) as DiscordTokenErrorResponse
       }
-      catch {
-        // no-op
-      }
+      catch {}
 
       const detailMessage = detailJson?.error_description
         ?? detailJson?.error

@@ -4,7 +4,7 @@ import { cn } from '~/client/lib/css'
 interface TimerProps {
   /** Absolute timestamp (ms) when the timer expires */
   endsAt: number | null
-  /** Total duration in seconds (for progress bar calculation) */
+  /** Total duration in seconds */
   duration: number
   class?: string
 }

@@ -11,16 +11,13 @@ interface PlayerSlotProps {
   compact?: boolean
 }
 
-/** Individual player slot — empty, active, or filled with a leader portrait */
+/** Individual player slot */
 export function PlayerSlot(props: PlayerSlotProps) {
   const state = () => draftStore.state
-
   const seat = () => state()?.seats[props.seatIndex]
 
-  /** The pick assigned to this seat */
   const pick = () => state()?.picks.find(p => p.seatIndex === props.seatIndex)
 
-  /** Resolved leader from pick */
   const leader = (): Leader | null => {
     const p = pick()
     if (!p) return null
@@ -28,7 +25,6 @@ export function PlayerSlot(props: PlayerSlotProps) {
     catch { return null }
   }
 
-  /** Whether this seat is currently expected to submit in the active step */
   const isActive = (): boolean => {
     const s = state()
     if (!s || s.status !== 'active') return false
@@ -111,7 +107,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
         </div>
       </Show>
 
-      {/* Bottom gradient overlay for name readability */}
+      {/* Bottom gradient overlay */}
       <div class={cn(
         'absolute inset-x-0 bottom-0 px-2 pb-2 pt-8 z-20',
         filled() ? 'bg-gradient-to-t from-black/80 to-transparent' : 'bg-gradient-to-t from-bg-primary/40 to-transparent',

@@ -147,12 +147,10 @@ export function LeaderGridOverlay() {
     setHoverTooltip(null)
 
     if (isRandomSelected()) {
-      // Deselect random
       setIsRandomSelected(false)
       return
     }
 
-    // Select random — clear any manual selections
     setSelectedLeader(null)
     setBanSelections([])
     setIsRandomSelected(true)
@@ -160,7 +158,6 @@ export function LeaderGridOverlay() {
 
   const handleConfirmPick = () => {
     if (isRandomSelected()) {
-      // Resolve random at confirm time
       const pool = randomLeaderPool()
       if (pool.length === 0) return
       const randomLeader = pool[Math.floor(Math.random() * pool.length)]
@@ -180,7 +177,6 @@ export function LeaderGridOverlay() {
 
   const handleConfirmBan = () => {
     if (isRandomSelected()) {
-      // Resolve random bans at confirm time
       const s = step()
       if (!s) return
       const pool = randomLeaderPool()
@@ -199,7 +195,6 @@ export function LeaderGridOverlay() {
     setGridOpen(false)
   }
 
-  /** Close overlay when clicking backdrop (only if not your active turn) */
   const handleBackdropClick = () => {
     if (isMyTurn() && !hasSubmitted()) return
     setHoverTooltip(null)
