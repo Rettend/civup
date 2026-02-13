@@ -2,10 +2,10 @@
 import { writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import process from 'node:process'
+import { api } from '@civup/utils'
 
 const DEFAULT_SOURCE_URL = 'https://raw.githubusercontent.com/civ6bbg/civ6bbg.github.io/main/en_US/leaders_7.3.html'
 const OUTPUT_PATH = resolve(import.meta.dir, '../src/leaders.ts')
-
 interface ParsedEntry {
   locKey: string
   name: string
@@ -63,13 +63,9 @@ const civilizationKeyOverrides: Record<string, string> = {
   SUK_SWAHILI: 'Swahili',
   SUK_TIBET: 'Tibet',
 }
-
 async function main(): Promise<void> {
   const sourceUrl = process.argv[2] ?? DEFAULT_SOURCE_URL
-  const response = await fetch(sourceUrl)
-  if (!response.ok) throw new Error(`Failed to fetch leaders page: ${sourceUrl} (${response.status})`)
-
-  const html = await response.text()
+  const html = await api.get<string>(sourceUrl, { parse: 'text' })
   const leaders = parseLeaders(html)
   if (leaders.length === 0) throw new Error('Parsed 0 leaders from source HTML')
 

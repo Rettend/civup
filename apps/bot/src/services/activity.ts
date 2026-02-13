@@ -1,5 +1,6 @@
 import type { DraftSeat, DraftTimerConfig, GameMode, QueueEntry, RoomConfig } from '@civup/game'
 import { allLeaderIds, getDefaultFormat, isTeamMode } from '@civup/game'
+import { api } from '@civup/utils'
 import { nanoid } from 'nanoid'
 
 // ── Types ───────────────────────────────────────────────────
@@ -18,14 +19,13 @@ export interface CreateDraftRoomOptions {
   timerConfig?: DraftTimerConfig
 }
 
-// ── Configuration ───────────────────────────────────────────
+// ── Configuration ──────────────────────────────────────────
 
-/** PartyKit server URL (local in dev, deployed in prod) */
 const DEFAULT_PARTY_HOST = 'http://localhost:1999'
 const DEFAULT_BOT_HOST = 'http://localhost:8787'
 const ACTIVITY_MAPPING_TTL = 12 * 60 * 60
 
-// ── Create a draft room via PartyKit HTTP API ───────────────
+// ── Create a draft room via PartyKit HTTP API ───────────
 
 /** Creates a PartyKit draft room and returns the match config */
 export async function createDraftRoom(
@@ -35,10 +35,7 @@ export async function createDraftRoom(
 ): Promise<MatchCreationResult> {
   const matchId = nanoid(12)
   const format = getDefaultFormat(mode)
-
-  // Build seats from queue entries
   const seats: DraftSeat[] = buildSeats(mode, entries)
-
   const config: RoomConfig = {
     matchId,
     hostId: options.hostId,
@@ -50,21 +47,11 @@ export async function createDraftRoom(
     webhookSecret: options.webhookSecret,
   }
 
-  // POST to PartyKit to create the room
   // Room name = matchId so activity can connect to the same room
   const normalizedHost = normalizeHost(options.partyHost, DEFAULT_PARTY_HOST)
   const url = `${normalizedHost}/parties/main/${matchId}`
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(config),
-  })
-
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Failed to create draft room: ${res.status} ${text}`)
-  }
+  await api.post(url, config)
 
   return { matchId, formatId: format.id, seats }
 }

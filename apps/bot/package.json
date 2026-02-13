@@ -21,6 +21,7 @@
     "@civup/db": "workspace:*",
     "@civup/game": "workspace:*",
     "@civup/rating": "workspace:*",
+    "@civup/utils": "workspace:*",
     "discord-hono": "^0.20.0",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.11.8",

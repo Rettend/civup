@@ -1,5 +1,8 @@
 [test]
-coverageReporter = ["text", "lcov"]
+coverageReporter = [
+  "text",
+  "lcov"
+]
 coverageDir = "coverage"
 coverageSkipTestFiles = true
 coveragePathIgnorePatterns = [
