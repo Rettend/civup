@@ -2,7 +2,7 @@
 
 Champ select for Civ VI that's a Discord Activity, and a fully featured Discord Bot
 
-[**Demo video**](./civup_demo.mp4)
+<https://github.com/user-attachments/assets/e3ac25bf-27b1-4549-9a4d-3666560230d6>
 
 ## Deployment
 
