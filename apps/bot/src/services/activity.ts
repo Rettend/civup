@@ -1,6 +1,6 @@
 import type { DraftSeat, DraftTimerConfig, GameMode, QueueEntry, RoomConfig } from '@civup/game'
 import { allLeaderIds, getDefaultFormat, isTeamMode } from '@civup/game'
-import { api } from '@civup/utils'
+import { api, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
 
 // ── Types ───────────────────────────────────────────────────
@@ -56,14 +56,6 @@ export async function createDraftRoom(
   return { matchId, formatId: format.id, seats }
 }
 
-function normalizeHost(host: string | undefined, fallback: string): string {
-  const raw = (host && host.trim()) || fallback
-  const withProtocol = raw.startsWith('http://') || raw.startsWith('https://')
-    ? raw
-    : `${isLocalHost(raw) ? 'http' : 'https'}://${raw}`
-  return withProtocol.replace(/\/$/, '')
-}
-
 function buildDraftWebhookUrl(botHost: string | undefined, partyHost: string | undefined): string | undefined {
   if (!botHost && partyHost && !isLocalHost(partyHost)) {
     console.warn('BOT_HOST is not configured while PARTY_HOST is remote; draft-complete webhook is disabled for this match')
@@ -72,11 +64,6 @@ function buildDraftWebhookUrl(botHost: string | undefined, partyHost: string | u
 
   const normalizedBotHost = normalizeHost(botHost, DEFAULT_BOT_HOST)
   return `${normalizedBotHost}/api/webhooks/draft-complete`
-}
-
-function isLocalHost(host: string): boolean {
-  const raw = host.trim().toLowerCase()
-  return raw.includes('localhost') || raw.includes('127.0.0.1')
 }
 
 // ── Build seats with team assignment ────────────────────────

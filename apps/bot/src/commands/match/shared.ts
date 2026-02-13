@@ -1,6 +1,7 @@
 import type { GameMode } from '@civup/game'
 import type { Embed } from 'discord-hono'
 import { formatModeLabel, maxPlayerCount } from '@civup/game'
+import { buildDiscordAvatarUrl } from '@civup/utils'
 import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/match.ts'
 import {
   getLobby,
@@ -9,7 +10,6 @@ import {
   sameLobbySlots,
   setLobbySlots,
 } from '../../services/lobby.ts'
-import { buildDiscordAvatarUrl } from '../../services/player-profile.ts'
 import { addToQueue, getPlayerQueueMode, getQueueState } from '../../services/queue.ts'
 
 export const GAME_MODE_CHOICES = [

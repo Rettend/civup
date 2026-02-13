@@ -7,10 +7,8 @@ import type {
   ServerMessage,
 } from '@civup/game'
 import type * as Party from 'partykit/server'
-import { createDraft, draftFormatMap, getCurrentStep, isDraftError, processDraftInput } from '@civup/game'
+import { createDraft, draftFormatMap, getCurrentStep, isDraftError, MAX_TIMER_SECONDS, processDraftInput } from '@civup/game'
 import { api, ApiError } from '@civup/utils'
-
-const MAX_TIMER_SECONDS = 30 * 60
 
 // ── Connection State ─────────────────────────────────────────
 
