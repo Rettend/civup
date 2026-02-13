@@ -49,9 +49,7 @@ export function relayDevLog(level: DevLogLevel, message: string, meta?: unknown)
       if (queued) return
     }
   }
-  catch {
-    // no-op
-  }
+  catch {}
 
   void fetch('/api/dev-log', {
     method: 'POST',

@@ -1,34 +1,46 @@
-import { createSignal } from 'solid-js'
+import type { TagFilterState } from '~/client/lib/leader-tags'
+import { createMemo, createSignal } from 'solid-js'
+import {
+  countActiveTagFilters,
+  createEmptyTagFilters,
+  getTagCategory,
+
+} from '~/client/lib/leader-tags'
+import { currentStep } from './draft-store'
 
 // ── UI State ───────────────────────────────────────────────
 
-/** Currently hovered leader ID (for detail panel) */
-const [hoveredLeader, setHoveredLeader] = createSignal<string | null>(null)
+export const [selectedLeader, setSelectedLeader] = createSignal<string | null>(null)
+export const [searchQuery, setSearchQuery] = createSignal('')
+export const [tagFilters, setTagFilters] = createSignal<TagFilterState>(createEmptyTagFilters())
+export const activeTagFilterCount = createMemo(() => countActiveTagFilters(tagFilters()))
+export const [banSelections, setBanSelections] = createSignal<string[]>([])
+export const [isRandomSelected, setIsRandomSelected] = createSignal(false)
+export const [gridOpen, setGridOpen] = createSignal(false)
+export const [detailLeaderId, setDetailLeaderId] = createSignal<string | null>(null)
+export const [isMiniView, setIsMiniView] = createSignal(false)
+export const [ffaPlacementOrder, setFfaPlacementOrder] = createSignal<number[]>([])
 
-/** Currently selected leader ID (clicked, pending confirm) */
-const [selectedLeader, setSelectedLeader] = createSignal<string | null>(null)
+// ── Phase Accent ───────────────────────────────────────────
 
-/** Search query for leader grid filter */
-const [searchQuery, setSearchQuery] = createSignal('')
+/** Current phase accent color class based on draft step */
+export const phaseAccent = createMemo(() => {
+  const step = currentStep()
+  if (!step) return 'gold' as const
+  return step.action === 'ban' ? ('red' as const) : ('gold' as const)
+})
 
-/** Active tag filter */
-const [tagFilter, setTagFilter] = createSignal<string | null>(null)
+/** CSS color value for the current phase accent */
+export const phaseAccentColor = createMemo(() => {
+  return phaseAccent() === 'red' ? '#e84057' : '#c8aa6e'
+})
 
-/** Selected civ IDs for blind ban (multi-select) */
-const [banSelections, setBanSelections] = createSignal<string[]>([])
-
-export {
-  banSelections,
-  hoveredLeader,
-  searchQuery,
-  selectedLeader,
-  setBanSelections,
-  setHoveredLeader,
-  setSearchQuery,
-  setSelectedLeader,
-  setTagFilter,
-  tagFilter,
-}
+/** Header tint class for phase mood */
+export const phaseHeaderBg = createMemo(() => {
+  const step = currentStep()
+  if (!step) return 'bg-bg-secondary'
+  return step.action === 'ban' ? 'bg-[#1a0a0e]' : 'bg-bg-secondary'
+})
 
 // ── Actions ────────────────────────────────────────────────
 
@@ -46,8 +58,48 @@ export function toggleBanSelection(civId: string, maxBans: number) {
 /** Clear all UI selection state (called on step advance) */
 export function clearSelections() {
   setSelectedLeader(null)
-  setHoveredLeader(null)
   setBanSelections([])
+  setIsRandomSelected(false)
   setSearchQuery('')
-  setTagFilter(null)
+  setTagFilters(createEmptyTagFilters())
+  setDetailLeaderId(null)
+}
+
+/** Toggle a single leader tag within its category filter set */
+export function toggleTagFilter(tag: string) {
+  const category = getTagCategory(tag)
+  if (!category) return
+
+  setTagFilters((prev) => {
+    const current = prev[category]
+    const hasTag = current.includes(tag)
+    return {
+      ...prev,
+      [category]: hasTag ? current.filter(t => t !== tag) : [...current, tag],
+    }
+  })
+}
+
+/** Clear all selected tag filters */
+export function clearTagFilters() {
+  setTagFilters(createEmptyTagFilters())
+}
+
+/** Toggle the detail panel for a leader */
+export function toggleDetail(leaderId: string) {
+  setDetailLeaderId(prev => prev === leaderId ? null : leaderId)
+}
+
+/** Toggle a seat in the FFA placement order */
+export function toggleFfaPlacement(seatIndex: number) {
+  setFfaPlacementOrder((prev) => {
+    const idx = prev.indexOf(seatIndex)
+    if (idx >= 0) return prev.slice(0, idx)
+    return [...prev, seatIndex]
+  })
+}
+
+/** Clear FFA placement order */
+export function clearFfaPlacements() {
+  setFfaPlacementOrder([])
 }

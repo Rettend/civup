@@ -3,6 +3,7 @@ import { Buffer } from 'node:buffer'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import process from 'node:process'
+import { api } from '@civup/utils'
 
 const DEFAULT_SOURCE_URL = 'https://raw.githubusercontent.com/civ6bbg/civ6bbg.github.io/main/en_US/leaders_7.3.html'
 const ICONS_OUTPUT_DIR = resolve(import.meta.dir, '../../../apps/activity/public/assets/bbg/icons')
@@ -11,10 +12,7 @@ const LEADERS_OUTPUT_DIR = resolve(import.meta.dir, '../../../apps/activity/publ
 
 async function main(): Promise<void> {
   const sourceUrl = process.argv[2] ?? DEFAULT_SOURCE_URL
-  const response = await fetch(sourceUrl)
-  if (!response.ok) throw new Error(`Failed to fetch leaders page: ${sourceUrl} (${response.status})`)
-
-  const html = await response.text()
+  const html = await api.get<string>(sourceUrl, { parse: 'text' })
   const imagePaths = extractImagePaths(html)
   const iconPaths = imagePaths.filter(path => path.startsWith('/images/ICON_'))
   const itemPaths = imagePaths.filter(path => path.startsWith('/images/items/'))

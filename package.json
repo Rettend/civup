@@ -4,25 +4,24 @@
   "private": true,
   "packageManager": "bun@1.3.7",
   "scripts": {
-    "test": "bun test",
+    "test": "bun run --filter '*' test",
+    "test:cov": "bun test --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=coverage",
     "test:ui": "bun-test-ui -p 51299",
     "lint": "eslint . --fix",
     "check": "bun run --filter '*' check",
-
     "a:dev": "bun run --filter civup-activity dev",
     "a:build": "bun run --filter civup-activity build",
-
     "bot:dev": "bun run --filter civup-bot dev",
     "bot:register": "bun run --filter civup-bot register",
-    "bot:migrate": "bun run --filter civup-bot l:migrate",
-    "bot:migrate:remote": "bun run --filter civup-bot r:migrate",
-
+    "bot:kv:local": "bun run --filter civup-bot kv:local",
+    "bot:l:migrate": "bun run --filter civup-bot l:migrate",
+    "bot:r:migrate": "bun run --filter civup-bot r:migrate",
     "tunnel": "cloudflared --config cloudflared.dev.yml tunnel run civup-dev",
     "party:dev": "bun run --filter civup-party dev",
-
+    "party:deploy": "bun run --filter civup-party deploy",
     "db:generate": "bun run --filter @civup/db generate",
     "db:studio": "bun run --filter @civup/db studio",
-
+    "clean": "bun scripts/clean.ts",
     "update": "taze latest -wr"
   },
   "devDependencies": {
@@ -30,6 +29,7 @@
     "@types/bun": "latest",
     "@typescript/native-preview": "^7.0.0-dev.20260206.1",
     "@unocss/eslint-plugin": "^66.6.0",
+    "better-sqlite3": "^12.6.2",
     "bun-test-ui": "^0.2.2",
     "discord-api-types": "^0.38.38",
     "eslint": "^9.39.2",

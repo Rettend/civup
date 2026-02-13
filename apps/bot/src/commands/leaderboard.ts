@@ -5,9 +5,9 @@ import { leaderboardEmbed } from '../embeds/leaderboard.ts'
 import { factory } from '../setup.ts'
 
 const MODE_CHOICES = [
-  { name: 'FFA', value: 'ffa' },
   { name: 'Duel', value: 'duel' },
-  { name: 'Teamers (2v2 + 3v3)', value: 'teamers' },
+  { name: 'Teamers', value: 'teamers' },
+  { name: 'FFA', value: 'ffa' },
 ] as const
 
 interface Var {

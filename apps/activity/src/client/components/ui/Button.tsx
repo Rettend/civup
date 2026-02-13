@@ -1,11 +1,12 @@
 import type { JSX } from 'solid-js'
 import { splitProps } from 'solid-js'
-import { cn } from '~/client/lib/cn'
+import { cn } from '~/client/lib/css'
 
 const variants = {
-  gold: 'bg-accent-gold text-bg-primary hover:bg-accent-gold/90 gold-glow font-semibold',
-  red: 'bg-accent-red text-white hover:bg-accent-red/90 red-glow font-semibold',
+  gold: 'bg-accent-gold text-bg-primary hover:bg-accent-gold/90 font-semibold',
+  red: 'bg-accent-red text-white hover:bg-accent-red/90 font-semibold',
   ghost: 'bg-transparent text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+  redOutline: 'border border-accent-red/50 bg-accent-red/10 text-accent-red/90 hover:bg-accent-red/15 hover:border-accent-red/80 hover:text-accent-red font-medium',
   outline: 'border border-border-subtle text-text-secondary hover:bg-bg-hover hover:text-text-primary',
 } as const
 

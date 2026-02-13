@@ -6,6 +6,8 @@ import { createStore, produce } from 'solid-js/store'
 export interface DraftStore {
   /** Full draft state from the server */
   state: DraftState | null
+  /** Host Discord user ID */
+  hostId: string | null
   /** This client's seat index (null = spectator) */
   seatIndex: number | null
   /** Server-provided timer end timestamp (ms) */
@@ -20,6 +22,7 @@ export interface DraftStore {
 
 const [draftStore, setDraftStore] = createStore<DraftStore>({
   state: null,
+  hostId: null,
   seatIndex: null,
   timerEndsAt: null,
   completedAt: null,
@@ -32,12 +35,14 @@ export { draftStore }
 
 export function initDraft(
   state: DraftState,
+  hostId: string,
   seatIndex: number | null,
   timerEndsAt: number | null,
   completedAt: number | null,
 ) {
   setDraftStore({
     state,
+    hostId,
     seatIndex,
     timerEndsAt,
     completedAt,
@@ -47,12 +52,14 @@ export function initDraft(
 
 export function updateDraft(
   state: DraftState,
+  hostId: string,
   events: DraftEvent[],
   timerEndsAt: number | null,
   completedAt: number | null,
 ) {
   setDraftStore(produce((s) => {
     s.state = state
+    s.hostId = hostId
     s.timerEndsAt = timerEndsAt
     s.completedAt = completedAt
     s.lastEvents = events
@@ -107,6 +114,11 @@ export function phaseLabel(): string {
   if (!s) return ''
   if (s.status === 'waiting') return 'WAITING'
   if (s.status === 'complete') return 'DRAFT COMPLETE'
+  if (s.status === 'cancelled') {
+    if (s.cancelReason === 'cancel') return 'DRAFT CANCELLED'
+    if (s.cancelReason === 'timeout') return 'AUTO-SCRUBBED'
+    return 'MATCH SCRUBBED'
+  }
 
   const step = s.steps[s.currentStepIndex]
   if (!step) return ''

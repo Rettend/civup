@@ -1,12 +1,11 @@
 import type { JSX } from 'solid-js'
 import { splitProps } from 'solid-js'
-import { cn } from '~/client/lib/cn'
+import { cn } from '~/client/lib/css'
 
 interface AvatarProps extends JSX.HTMLAttributes<HTMLDivElement> {
   src?: string | null
   alt?: string
   size?: 'sm' | 'md' | 'lg'
-  /** Ring color for status indication */
   ring?: 'gold' | 'red' | 'blue' | 'none'
 }
 
