@@ -1,10 +1,10 @@
 import type { GameMode } from '@civup/game'
-import type { LfgVar } from './lfg/shared'
+import type { MatchVar } from './match/shared'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { eq } from 'drizzle-orm'
-import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/lfg'
+import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
 import { clearActivityMappings, getChannelForMatch } from '../services/activity'
 import { createChannelMessage } from '../services/discord'
 import { sendTransientEphemeralResponse } from '../services/ephemeral-response'
@@ -17,9 +17,9 @@ import { canUseModCommands, parseRoleIds } from '../services/permissions'
 import { clearQueue, getQueueState } from '../services/queue'
 import { getSystemChannel } from '../services/system-channels'
 import { factory } from '../setup'
-import { collectFfaPlacementUserIds } from './lfg/shared'
+import { collectFfaPlacementUserIds } from './match/shared'
 
-interface ModVar extends LfgVar {
+interface ModVar extends MatchVar {
   reason?: string
 }
 

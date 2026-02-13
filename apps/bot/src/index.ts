@@ -14,7 +14,7 @@ import {
   lobbyDraftingEmbed,
   lobbyOpenEmbed,
   lobbyResultEmbed,
-} from './embeds/lfg.ts'
+} from './embeds/match.ts'
 import {
   createDraftRoom,
   getMatchForChannel,
@@ -41,7 +41,7 @@ import {
 } from './services/lobby.ts'
 import { storeMatchMessageMapping } from './services/match-message.ts'
 import { activateDraftMatch, cancelDraftMatch, createDraftMatch, reportMatch } from './services/match.ts'
-import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, moveQueueMode, setQueueEntries } from './services/queue.ts'
+import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, moveQueueMode } from './services/queue.ts'
 import { getSystemChannel } from './services/system-channels.ts'
 import { factory } from './setup.ts'
 
