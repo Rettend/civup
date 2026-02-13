@@ -1,3 +1,5 @@
+import { normalizeHost } from '@civup/utils'
+
 interface Env {
   DISCORD_CLIENT_ID: string
   DISCORD_CLIENT_SECRET: string
@@ -196,17 +198,4 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   })
-}
-
-function normalizeHost(host: string | undefined, fallback: string): string {
-  const raw = (host && host.trim()) || fallback
-  const withProtocol = raw.startsWith('http://') || raw.startsWith('https://')
-    ? raw
-    : `${isLocalHost(raw) ? 'http' : 'https'}://${raw}`
-  return withProtocol.replace(/\/$/, '')
-}
-
-function isLocalHost(host: string): boolean {
-  const raw = host.trim().toLowerCase()
-  return raw.includes('localhost') || raw.includes('127.0.0.1')
 }
