@@ -1,10 +1,10 @@
-export type ServerConfigKey = 'ban_timer' | 'pick_timer' | 'queue_timeout' | 'lfg_category'
+export type ServerConfigKey = 'ban_timer' | 'pick_timer' | 'queue_timeout' | 'match_category'
 
 interface ServerConfigValues {
   banTimerSeconds: number
   pickTimerSeconds: number
   queueTimeoutMinutes: number
-  lfgCategoryId: string | null
+  matchCategoryId: string | null
 }
 
 interface DraftTimerConfig {
@@ -20,13 +20,13 @@ interface ConfigSetResult {
 
 const CONFIG_KEY_PREFIX = 'config:'
 
-export const SERVER_CONFIG_KEYS = ['ban_timer', 'pick_timer', 'queue_timeout', 'lfg_category'] as const satisfies readonly ServerConfigKey[]
+export const SERVER_CONFIG_KEYS = ['ban_timer', 'pick_timer', 'queue_timeout', 'match_category'] as const satisfies readonly ServerConfigKey[]
 
 export const SERVER_CONFIG_DESCRIPTIONS: Record<ServerConfigKey, string> = {
   ban_timer: 'Ban phase timer in seconds',
   pick_timer: 'Pick phase timer in seconds',
   queue_timeout: 'Queue timeout in minutes',
-  lfg_category: 'Category ID for temp voice channels',
+  match_category: 'Category ID for temp voice channels',
 }
 
 export const MAX_CONFIG_TIMER_SECONDS = 30 * 60
@@ -81,18 +81,18 @@ function formatOptionalText(value: string | null): string {
 }
 
 async function getServerConfigValues(kv: KVNamespace): Promise<ServerConfigValues> {
-  const [banTimerRaw, pickTimerRaw, queueTimeoutRaw, lfgCategoryRaw] = await Promise.all([
+  const [banTimerRaw, pickTimerRaw, queueTimeoutRaw, matchCategoryRaw] = await Promise.all([
     kv.get(configKey('ban_timer')),
     kv.get(configKey('pick_timer')),
     kv.get(configKey('queue_timeout')),
-    kv.get(configKey('lfg_category')),
+    kv.get(configKey('match_category')),
   ])
 
   return {
     banTimerSeconds: parseStoredTimerSeconds(banTimerRaw, DEFAULT_BAN_TIMER_SECONDS),
     pickTimerSeconds: parseStoredTimerSeconds(pickTimerRaw, DEFAULT_PICK_TIMER_SECONDS),
     queueTimeoutMinutes: parseStoredQueueTimeoutMinutes(queueTimeoutRaw),
-    lfgCategoryId: parseStoredCategoryId(lfgCategoryRaw),
+    matchCategoryId: parseStoredCategoryId(matchCategoryRaw),
   }
 }
 
@@ -102,7 +102,7 @@ export function parseServerConfigKey(key: string | undefined): ServerConfigKey |
   if (normalized === 'ban_timer') return 'ban_timer'
   if (normalized === 'pick_timer') return 'pick_timer'
   if (normalized === 'queue_timeout') return 'queue_timeout'
-  if (normalized === 'lfg_category') return 'lfg_category'
+  if (normalized === 'match_category') return 'match_category'
   return null
 }
 
@@ -115,7 +115,7 @@ export async function getServerConfigDisplayValue(
   if (key === 'ban_timer') return String(values.banTimerSeconds)
   if (key === 'pick_timer') return String(values.pickTimerSeconds)
   if (key === 'queue_timeout') return String(values.queueTimeoutMinutes)
-  return formatOptionalText(values.lfgCategoryId)
+  return formatOptionalText(values.matchCategoryId)
 }
 
 export async function getServerConfigRows(
@@ -139,9 +139,9 @@ export async function getServerConfigRows(
       description: SERVER_CONFIG_DESCRIPTIONS.queue_timeout,
     },
     {
-      key: 'lfg_category',
-      value: formatOptionalText(values.lfgCategoryId),
-      description: SERVER_CONFIG_DESCRIPTIONS.lfg_category,
+      key: 'match_category',
+      value: formatOptionalText(values.matchCategoryId),
+      description: SERVER_CONFIG_DESCRIPTIONS.match_category,
     },
   ]
 }

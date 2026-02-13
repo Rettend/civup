@@ -183,7 +183,7 @@ export default function App() {
             <div class="text-sm text-text-secondary">
               No active draft in this channel. Use
               {' '}
-              <code class="text-accent-gold">/lfg create</code>
+              <code class="text-accent-gold">/match create</code>
               {' '}
               to open a lobby first.
             </div>

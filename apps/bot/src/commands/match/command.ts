@@ -1,10 +1,10 @@
 import type { GameMode } from '@civup/game'
-import type { LfgVar } from './shared.ts'
+import type { MatchVar } from './shared.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { isTeamMode, maxPlayerCount, minPlayerCount } from '@civup/game'
 import { Command, Option, SubCommand } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { lobbyComponents, lobbyOpenEmbed, lobbyResultEmbed } from '../../embeds/lfg.ts'
+import { lobbyComponents, lobbyOpenEmbed, lobbyResultEmbed } from '../../embeds/match.ts'
 import { getMatchForUser, storeUserMatchMappings } from '../../services/activity.ts'
 import { createChannelMessage } from '../../services/discord.ts'
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
@@ -18,8 +18,8 @@ import { getSystemChannel } from '../../services/system-channels.ts'
 import { factory } from '../../setup.ts'
 import { collectFfaPlacementUserIds, GAME_MODE_CHOICES, getIdentity, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
 
-export const command_lfg = factory.command<LfgVar>(
-  new Command('lfg', 'Looking for game, queue management').options(
+export const command_match = factory.command<MatchVar>(
+  new Command('match', 'Looking for game, queue management').options(
     new SubCommand('create', 'Create a lobby and auto-join as host').options(
       new Option('mode', 'Game mode for the lobby')
         .required()
@@ -179,7 +179,7 @@ export const command_lfg = factory.command<LfgVar>(
             return c.resActivity()
           }
           return c.flags('EPHEMERAL').resDefer(async (c) => {
-            await sendTransientEphemeralResponse(c, `No active ${mode.toUpperCase()} lobby. Use \`/lfg create\` first.`, 'error')
+            await sendTransientEphemeralResponse(c, `No active ${mode.toUpperCase()} lobby. Use \`/match create\` first.`, 'error')
           })
         }
 
@@ -187,7 +187,7 @@ export const command_lfg = factory.command<LfgVar>(
           if (!lobby.matchId) {
             await clearLobby(c.env.KV, mode)
             return c.flags('EPHEMERAL').resDefer(async (c) => {
-              await sendTransientEphemeralResponse(c, 'This lobby was stale and has been cleared. Use `/lfg create` to start a fresh lobby.', 'error')
+              await sendTransientEphemeralResponse(c, 'This lobby was stale and has been cleared. Use `/match create` to start a fresh lobby.', 'error')
             })
           }
 
@@ -240,7 +240,7 @@ export const command_lfg = factory.command<LfgVar>(
           if (!removed) {
             const userMatchId = await getMatchForUser(kv, identity.userId)
             if (userMatchId) {
-              await sendTransientEphemeralResponse(c, 'You are not in queue right now. If you need back in, use `/lfg join` for the game mode to reopen the activity.', 'error')
+              await sendTransientEphemeralResponse(c, 'You are not in queue right now. If you need back in, use `/match join` for the game mode to reopen the activity.', 'error')
               return
             }
 
@@ -298,7 +298,7 @@ export const command_lfg = factory.command<LfgVar>(
           }
 
           if (lines.length === 0) {
-            await sendTransientEphemeralResponse(c, 'No active lobbies. Use `/lfg create` to start one.', 'error')
+            await sendTransientEphemeralResponse(c, 'No active lobbies. Use `/match create` to start one.', 'error')
             return
           }
 

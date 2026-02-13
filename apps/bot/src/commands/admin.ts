@@ -55,7 +55,7 @@ export const command_admin = factory.command<Var>(
         { name: 'ban_timer', value: 'ban_timer' },
         { name: 'pick_timer', value: 'pick_timer' },
         { name: 'queue_timeout', value: 'queue_timeout' },
-        { name: 'lfg_category', value: 'lfg_category' },
+        { name: 'match_category', value: 'match_category' },
       ),
       new Option('value', 'New value'),
     ),
