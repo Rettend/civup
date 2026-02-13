@@ -93,12 +93,12 @@ export function DraftHeader() {
   })
 
   // ── Result Reporting ────────────────────────
-  const [resultStatus, setResultStatus] = createSignal<'idle' | 'submitting' | 'done'>('idle')
+  const [resultStatus, setResultStatus] = createSignal<'idle' | 'submitting:A' | 'submitting:B' | 'submitting:ffa' | 'submitting:scrub' | 'done'>('idle')
 
   const reportWinner = async (team: 'A' | 'B') => {
     const uid = userId()
     if (!uid) return
-    setResultStatus('submitting')
+    setResultStatus(`submitting:${team}`)
     const res = await reportMatchResult(draftStore.state!.matchId, uid, team)
     setResultStatus(res.ok ? 'done' : 'idle')
   }
@@ -109,7 +109,7 @@ export function DraftHeader() {
     const order = ffaPlacementOrder()
     const s = state()
     if (!s || order.length !== seatCount()) return
-    setResultStatus('submitting')
+    setResultStatus('submitting:ffa')
     const placements = order.map(idx => `<@${s.seats[idx]!.playerId}>`).join('\n')
     const res = await reportMatchResult(s.matchId, uid, placements)
     if (res.ok) {
@@ -118,12 +118,14 @@ export function DraftHeader() {
     else { setResultStatus('idle'); clearFfaPlacements() }
   }
 
-  const scrubMatch = () => {
+  const scrubMatch = async () => {
     if (!amHost()) return
-    sendScrub()
+    setResultStatus('submitting:scrub')
+    await sendScrub()
+    setResultStatus('idle')
   }
 
-  const canInteract = () => amHost() && resultStatus() !== 'submitting' && resultStatus() !== 'done'
+  const canInteract = () => amHost() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
 
   return (
     <header class={cn('relative flex flex-col shrink-0 overflow-hidden', isComplete() ? 'bg-bg-secondary' : phaseHeaderBg(), 'transition-colors duration-200')}>
@@ -175,7 +177,7 @@ export function DraftHeader() {
                           disabled={!canInteract() || ffaPlacementOrder().length !== seatCount()}
                           onClick={reportFfa}
                         >
-                          {resultStatus() === 'submitting' ? 'Submitting...' : 'Confirm Result'}
+                          {resultStatus() === 'submitting:ffa' ? 'Submitting...' : 'Confirm Result'}
                         </Button>
                         <Button
                           size="sm"
@@ -183,7 +185,7 @@ export function DraftHeader() {
                           disabled={!canInteract()}
                           onClick={scrubMatch}
                         >
-                          Scrub
+                          {resultStatus() === 'submitting:scrub' ? 'Submitting...' : 'Scrub'}
                         </Button>
                       </div>
                     )}
@@ -194,7 +196,7 @@ export function DraftHeader() {
                         disabled={!canInteract()}
                         onClick={() => reportWinner('A')}
                       >
-                        {resultStatus() === 'submitting' ? 'Submitting...' : 'Team A Won'}
+                        {resultStatus() === 'submitting:A' ? 'Submitting...' : 'Team A Won'}
                       </Button>
                       <Button
                         size="sm"
@@ -203,7 +205,7 @@ export function DraftHeader() {
                         disabled={!canInteract()}
                         onClick={() => reportWinner('B')}
                       >
-                        {resultStatus() === 'submitting' ? 'Submitting...' : 'Team B Won'}
+                        {resultStatus() === 'submitting:B' ? 'Submitting...' : 'Team B Won'}
                       </Button>
                       <Button
                         size="sm"
@@ -211,7 +213,7 @@ export function DraftHeader() {
                         disabled={!canInteract()}
                         onClick={scrubMatch}
                       >
-                        Scrub
+                        {resultStatus() === 'submitting:scrub' ? 'Submitting...' : 'Scrub'}
                       </Button>
                     </div>
                   </Show>
