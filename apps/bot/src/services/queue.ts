@@ -152,7 +152,7 @@ export async function addToQueue(
   // Check if player is already in any queue
   const existing = await kv.get(playerQueueKey(entry.playerId))
   if (existing) {
-    return { error: `You're already in the **${existing.toUpperCase()}** queue. Leave first with \`/lfg leave\`.` }
+    return { error: `You're already in the **${existing.toUpperCase()}** queue. Leave first with \`/match leave\`.` }
   }
 
   const state = await getQueueState(kv, mode)

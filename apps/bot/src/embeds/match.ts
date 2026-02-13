@@ -156,7 +156,7 @@ export function lobbyResultEmbed(
 export function lobbyComponents(mode: GameMode): Components {
   const label = 'Join'
   return new Components().row(
-    new Button('lfg-join', label, 'Primary').custom_id(mode),
+    new Button('match-join', label, 'Primary').custom_id(mode),
   )
 }
 

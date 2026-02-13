@@ -1,7 +1,7 @@
 import type { GameMode } from '@civup/game'
 import { formatModeLabel, maxPlayerCount } from '@civup/game'
 import { Button } from 'discord-hono'
-import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/lfg.ts'
+import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/match.ts'
 import { getMatchForUser, storeUserMatchMappings } from '../../services/activity.ts'
 import { clearDeferredEphemeralResponse, sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
 import { upsertLobbyMessage } from '../../services/lobby-message.ts'
@@ -10,8 +10,8 @@ import { getQueueState, removeFromQueue } from '../../services/queue.ts'
 import { factory } from '../../setup.ts'
 import { getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
 
-export const component_lfg_join = factory.component(
-  new Button('lfg-join', 'Join', 'Primary'),
+export const component_match_join = factory.component(
+  new Button('match-join', 'Join', 'Primary'),
   async (c) => {
     const mode = c.var.custom_id as GameMode | undefined
     const identity = getIdentity(c)
@@ -29,7 +29,7 @@ export const component_lfg_join = factory.component(
         return c.resActivity()
       }
       return c.flags('EPHEMERAL').resDefer(async (c) => {
-        await sendTransientEphemeralResponse(c, `No active ${formatModeLabel(mode)} lobby. Use \`/lfg create\` first.`, 'error')
+        await sendTransientEphemeralResponse(c, `No active ${formatModeLabel(mode)} lobby. Use \`/match create\` first.`, 'error')
       })
     }
 
@@ -37,7 +37,7 @@ export const component_lfg_join = factory.component(
       if (!lobby.matchId) {
         await clearLobby(c.env.KV, mode)
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          await sendTransientEphemeralResponse(c, 'This lobby was stale and has been cleared. Use `/lfg create` to start a fresh lobby.', 'error')
+          await sendTransientEphemeralResponse(c, 'This lobby was stale and has been cleared. Use `/match create` to start a fresh lobby.', 'error')
         })
       }
       c.executionCtx.waitUntil(storeUserMatchMappings(c.env.KV, [identity.userId], lobby.matchId))
@@ -79,8 +79,8 @@ export const component_draft_activity = factory.component(
   c => c.resActivity(),
 )
 
-export const component_lfg_leave = factory.component(
-  new Button('lfg-leave', 'Leave Queue', 'Secondary'),
+export const component_match_leave = factory.component(
+  new Button('match-leave', 'Leave Queue', 'Secondary'),
   (c) => {
     const identity = getIdentity(c)
     if (!identity) {
