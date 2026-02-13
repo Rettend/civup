@@ -2,13 +2,15 @@
 
 Champ select for Civ VI that's a Discord Activity, and a fully featured Discord Bot
 
+[**Demo video**](./civup_demo.mp4)
+
 ## Deployment
 
 ### Dependencies
 
-+ **Bun**: Package manager & runtime.
-+ **Wrangler**: Cloudflare Workers CLI.
-+ **PartyKit**: WebSocket server CLI.
+- **Bun**: Package manager & runtime.
+- **Wrangler**: Cloudflare Workers CLI.
+- **PartyKit**: WebSocket server CLI.
 
 ### Environment
 
@@ -54,7 +56,7 @@ bun run tunnel     # Cloudflared tunnel for local bot dev
 
 ## Project
 
-+ `apps/bot`: Slash command handler (Cloudflare Worker).
-+ `apps/activity`: Frontend (SolidJS).
-+ `apps/party`: Realtime backend (PartyKit).
-+ `packages/db`: Drizzle ORM & Schema.
+- `apps/bot`: Slash command handler (Cloudflare Worker).
+- `apps/activity`: Frontend (SolidJS).
+- `apps/party`: Realtime backend (PartyKit).
+- `packages/db`: Drizzle ORM & Schema.
