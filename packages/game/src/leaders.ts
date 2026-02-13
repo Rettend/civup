@@ -1,4 +1,5 @@
 import type { Leader } from './types.ts'
+import { applyLeaderTags } from './leader-tags.ts'
 
 /**
  * Leader data synced from BBG website.
@@ -2147,6 +2148,8 @@ export const leaders: Leader[] = [
     tags: [],
   },
 ]
+
+applyLeaderTags(leaders)
 
 /** Map of leader ID to leader data for quick lookup */
 export const leaderMap = new Map<string, Leader>(

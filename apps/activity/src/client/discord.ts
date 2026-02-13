@@ -1,4 +1,5 @@
 import type { CommandResponse } from '@discord/embedded-app-sdk'
+import { api, ApiError } from '@civup/utils'
 import { DiscordSDK } from '@discord/embedded-app-sdk'
 
 export type Auth = CommandResponse<'authenticate'>
@@ -22,9 +23,7 @@ interface CachedToken {
   expiresAt: number
 }
 
-/** Discord SDK instance — constructor establishes RPC transport, nothing travels network until ready() */
 export const discordSdk = new DiscordSDK(CLIENT_ID)
-
 let setupInFlight: Promise<Auth> | null = null
 
 function readCachedToken(): string | null {
@@ -103,25 +102,18 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
     ],
   })
 
-  const response = await fetch('/api/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code }),
-  })
+  let payload: TokenExchangeResponse
+  try {
+    payload = await api.post<TokenExchangeResponse>('/api/token', { code })
+  }
+  catch (err: any) {
+    if (!(err instanceof ApiError)) throw err
 
-  if (!response.ok) {
-    let payload: TokenExchangeResponse | null = null
-    try {
-      payload = await response.json() as TokenExchangeResponse
-    }
-    catch {
-      // no-op
-    }
-
-    const detail = payload?.detail ?? payload?.error
-    const retryAfter = response.headers.get('Retry-After') ?? payload?.retry_after
-    const rateLimited = response.status === 429
-      || payload?.rate_limited === true
+    const errPayload = err.data as TokenExchangeResponse | undefined
+    const detail = errPayload?.detail ?? errPayload?.error
+    const retryAfter = err.headers?.get('Retry-After') ?? errPayload?.retry_after
+    const rateLimited = err.status === 429
+      || errPayload?.rate_limited === true
       || (detail ? /rate limit/i.test(detail) : false)
 
     if (rateLimited) {
@@ -132,11 +124,10 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
     }
 
     throw new Error(detail
-      ? `Token exchange failed: ${response.status} (${detail})`
-      : `Token exchange failed: ${response.status}`)
+      ? `Token exchange failed: ${err.status} (${detail})`
+      : `Token exchange failed: ${err.status}`)
   }
 
-  const payload = await response.json() as TokenExchangeResponse
   if (!payload.access_token) {
     throw new Error('Token exchange succeeded but access_token was missing')
   }
@@ -146,7 +137,6 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
   return authenticateWithToken(payload.access_token)
 }
 
-/** Full Discord Activity auth flow with cached token + single-flight guard. */
 export async function setupDiscordSdk(): Promise<Auth> {
   if (setupInFlight) return setupInFlight
   setupInFlight = setupDiscordSdkInternal().finally(() => {

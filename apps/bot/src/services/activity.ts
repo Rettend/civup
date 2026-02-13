@@ -1,5 +1,6 @@
-import type { DraftSeat, GameMode, QueueEntry, RoomConfig } from '@civup/game'
+import type { DraftSeat, DraftTimerConfig, GameMode, QueueEntry, RoomConfig } from '@civup/game'
 import { allLeaderIds, getDefaultFormat, isTeamMode } from '@civup/game'
+import { api, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
 
 // ── Types ───────────────────────────────────────────────────
@@ -11,66 +12,48 @@ export interface MatchCreationResult {
 }
 
 export interface CreateDraftRoomOptions {
+  hostId: string
   partyHost?: string
   botHost?: string
   webhookSecret?: string
+  timerConfig?: DraftTimerConfig
 }
 
-// ── Configuration ───────────────────────────────────────────
+// ── Configuration ──────────────────────────────────────────
 
-/** PartyKit server URL (local in dev, deployed in prod) */
 const DEFAULT_PARTY_HOST = 'http://localhost:1999'
 const DEFAULT_BOT_HOST = 'http://localhost:8787'
 const ACTIVITY_MAPPING_TTL = 12 * 60 * 60
 
-// ── Create a draft room via PartyKit HTTP API ───────────────
+// ── Create a draft room via PartyKit HTTP API ───────────
 
 /** Creates a PartyKit draft room and returns the match config */
 export async function createDraftRoom(
   mode: GameMode,
   entries: QueueEntry[],
-  options: CreateDraftRoomOptions = {},
+  options: CreateDraftRoomOptions,
 ): Promise<MatchCreationResult> {
   const matchId = nanoid(12)
   const format = getDefaultFormat(mode)
-
-  // Build seats from queue entries
   const seats: DraftSeat[] = buildSeats(mode, entries)
-
   const config: RoomConfig = {
     matchId,
+    hostId: options.hostId,
     formatId: format.id,
     seats,
     civPool: allLeaderIds,
+    timerConfig: options.timerConfig,
     webhookUrl: buildDraftWebhookUrl(options.botHost, options.partyHost),
     webhookSecret: options.webhookSecret,
   }
 
-  // POST to PartyKit to create the room
   // Room name = matchId so activity can connect to the same room
   const normalizedHost = normalizeHost(options.partyHost, DEFAULT_PARTY_HOST)
   const url = `${normalizedHost}/parties/main/${matchId}`
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(config),
-  })
-
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Failed to create draft room: ${res.status} ${text}`)
-  }
+  await api.post(url, config)
 
   return { matchId, formatId: format.id, seats }
-}
-
-function normalizeHost(host: string | undefined, fallback: string): string {
-  const raw = (host && host.trim()) || fallback
-  const withProtocol = raw.startsWith('http://') || raw.startsWith('https://')
-    ? raw
-    : `${isLocalHost(raw) ? 'http' : 'https'}://${raw}`
-  return withProtocol.replace(/\/$/, '')
 }
 
 function buildDraftWebhookUrl(botHost: string | undefined, partyHost: string | undefined): string | undefined {
@@ -83,38 +66,31 @@ function buildDraftWebhookUrl(botHost: string | undefined, partyHost: string | u
   return `${normalizedBotHost}/api/webhooks/draft-complete`
 }
 
-function isLocalHost(host: string): boolean {
-  const raw = host.trim().toLowerCase()
-  return raw.includes('localhost') || raw.includes('127.0.0.1')
-}
-
 // ── Build seats with team assignment ────────────────────────
 
 function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
   if (isTeamMode(mode)) {
-    // Team modes: first half is Team A, second half is Team B
+    // Team modes: first slot of each team is the captain (A1, B1, A2, B2...)
     const teamSize = mode === '2v2' ? 2 : 3
     const seats: DraftSeat[] = []
 
     for (let i = 0; i < teamSize; i++) {
-      // Team A player
       const teamAEntry = entries[i]
       if (teamAEntry) {
         seats.push({
           playerId: teamAEntry.playerId,
           displayName: teamAEntry.displayName,
+          avatarUrl: teamAEntry.avatarUrl ?? null,
           team: 0,
         })
       }
-    }
 
-    for (let i = 0; i < teamSize; i++) {
-      // Team B player
       const teamBEntry = entries[teamSize + i]
       if (teamBEntry) {
         seats.push({
           playerId: teamBEntry.playerId,
           displayName: teamBEntry.displayName,
+          avatarUrl: teamBEntry.avatarUrl ?? null,
           team: 1,
         })
       }
@@ -123,10 +99,11 @@ function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
     return seats
   }
 
-  if (mode === 'duel') {
+  if (mode === '1v1') {
     return entries.map((e, i) => ({
       playerId: e.playerId,
       displayName: e.displayName,
+      avatarUrl: e.avatarUrl ?? null,
       team: i,
     }))
   }
@@ -135,6 +112,7 @@ function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
   return entries.map(e => ({
     playerId: e.playerId,
     displayName: e.displayName,
+    avatarUrl: e.avatarUrl ?? null,
   }))
 }
 
