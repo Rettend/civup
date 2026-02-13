@@ -1,5 +1,6 @@
 import type { Database } from '@civup/db'
 import { players } from '@civup/db'
+import { api } from '@civup/utils'
 
 interface DiscordUserResponse {
   id: string
@@ -30,30 +31,28 @@ export function buildDiscordAvatarUrl(userId: string, avatarHash: string | null 
 }
 
 export async function fetchDiscordPlayerProfile(token: string, playerId: string): Promise<PlayerProfileInput | null> {
-  const response = await fetch(`https://discord.com/api/v10/users/${playerId}`, {
-    headers: {
-      Authorization: `Bot ${token}`,
-    },
-  })
+  try {
+    const data = await api.get<Partial<DiscordUserResponse>>(`https://discord.com/api/v10/users/${playerId}`, {
+      headers: { Authorization: `Bot ${token}` },
+    })
 
-  if (!response.ok) {
-    console.error(`Failed to fetch Discord user ${playerId}: ${response.status}`)
-    return null
+    if (typeof data.id !== 'string') return null
+
+    const displayName = (typeof data.global_name === 'string' && data.global_name.trim().length > 0)
+      ? data.global_name
+      : (typeof data.username === 'string' && data.username.trim().length > 0)
+          ? data.username
+          : data.id
+
+    return {
+      playerId: data.id,
+      displayName,
+      avatarUrl: buildDiscordAvatarUrl(data.id, data.avatar ?? null),
+    }
   }
-
-  const data = await response.json() as Partial<DiscordUserResponse>
-  if (typeof data.id !== 'string') return null
-
-  const displayName = (typeof data.global_name === 'string' && data.global_name.trim().length > 0)
-    ? data.global_name
-    : (typeof data.username === 'string' && data.username.trim().length > 0)
-        ? data.username
-        : data.id
-
-  return {
-    playerId: data.id,
-    displayName,
-    avatarUrl: buildDiscordAvatarUrl(data.id, data.avatar ?? null),
+  catch (err: any) {
+    console.error(`Failed to fetch Discord user ${playerId}: ${err.status ?? err}`)
+    return null
   }
 }
 

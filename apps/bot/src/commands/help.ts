@@ -1,3 +1,4 @@
+import { api } from '@civup/utils'
 import { Command, Embed } from 'discord-hono'
 import { sendTransientEphemeralResponse } from '../services/ephemeral-response'
 import { canUseModCommands, hasAdminPermission, parseRoleIds } from '../services/permissions'
@@ -193,23 +194,23 @@ async function fetchRegisteredCommands(
   let lastError: string | null = null
 
   for (const url of urls) {
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bot ${token}`,
-      },
-    })
+    try {
+      const commands = await api.get<DiscordApplicationCommand[]>(url, {
+        headers: {
+          Authorization: `Bot ${token}`,
+        },
+      })
 
-    if (!response.ok) {
-      lastError = `HTTP ${response.status}`
-      continue
+      successCount += 1
+      for (const command of commands) {
+        const key = `${command.type ?? 1}:${command.name}`
+        if (commandsByKey.has(key)) continue
+        commandsByKey.set(key, command)
+      }
     }
-
-    successCount += 1
-    const commands = await response.json() as DiscordApplicationCommand[]
-    for (const command of commands) {
-      const key = `${command.type ?? 1}:${command.name}`
-      if (commandsByKey.has(key)) continue
-      commandsByKey.set(key, command)
+    catch (err: any) {
+      lastError = `HTTP ${err.status || 'Unknown'}`
+      continue
     }
   }
 
