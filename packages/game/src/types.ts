@@ -1,19 +1,20 @@
 // ── Game Modes ──────────────────────────────────────────────
 
 /** Individual game modes */
-export type GameMode = 'ffa' | 'duel' | '2v2' | '3v3'
+export type GameMode = 'ffa' | '1v1' | '2v2' | '3v3'
 
 /** Leaderboard tracks (teamers combines 2v2 + 3v3) */
 export type LeaderboardMode = 'ffa' | 'duel' | 'teamers'
 
-export const GAME_MODES = ['ffa', 'duel', '2v2', '3v3'] as const satisfies readonly GameMode[]
+export const GAME_MODES = ['ffa', '1v1', '2v2', '3v3'] as const satisfies readonly GameMode[]
 
 export const LEADERBOARD_MODES = ['ffa', 'duel', 'teamers'] as const satisfies readonly LeaderboardMode[]
 
 /** Map game mode to its leaderboard track */
 export function toLeaderboardMode(mode: GameMode): LeaderboardMode {
   if (mode === '2v2' || mode === '3v3') return 'teamers'
-  return mode
+  if (mode === '1v1') return 'duel'
+  return 'ffa'
 }
 
 /** Whether a game mode is team-based */
@@ -23,7 +24,7 @@ export function isTeamMode(mode: GameMode): mode is '2v2' | '3v3' {
 
 /** Number of teams for team modes */
 export function teamCount(mode: GameMode): number {
-  if (mode === 'duel') return 2
+  if (mode === '1v1') return 2
   if (mode === '2v2') return 2
   if (mode === '3v3') return 2
   return 0 // FFA has no teams
@@ -31,7 +32,7 @@ export function teamCount(mode: GameMode): number {
 
 /** Players per team */
 export function playersPerTeam(mode: GameMode): number {
-  if (mode === 'duel') return 1
+  if (mode === '1v1') return 1
   if (mode === '2v2') return 2
   if (mode === '3v3') return 3
   return 1 // FFA: each player is their own "team" for draft purposes
@@ -40,10 +41,30 @@ export function playersPerTeam(mode: GameMode): number {
 /** Default player count for a mode */
 export function defaultPlayerCount(mode: GameMode): number {
   if (mode === 'ffa') return 8
-  if (mode === 'duel') return 2
+  if (mode === '1v1') return 2
   if (mode === '2v2') return 4
   if (mode === '3v3') return 6
   return 8
+}
+
+/** Maximum player count allowed for a lobby mode */
+export function maxPlayerCount(mode: GameMode): number {
+  if (mode === 'ffa') return 10
+  return defaultPlayerCount(mode)
+}
+
+/** Minimum players required before a lobby can start */
+export function minPlayerCount(mode: GameMode): number {
+  if (mode === 'ffa') return 6
+  return defaultPlayerCount(mode)
+}
+
+/** Whether a lobby can start with the current player count */
+export function canStartWithPlayerCount(mode: GameMode, playerCount: number): boolean {
+  if (mode === 'ffa') {
+    return playerCount >= minPlayerCount(mode) && playerCount <= maxPlayerCount(mode)
+  }
+  return playerCount === defaultPlayerCount(mode)
 }
 
 // ── Leaders ─────────────────────────────────────────────────
@@ -77,7 +98,7 @@ export interface Leader {
   uniqueBuilding?: LeaderUnique
   /** Unique improvement */
   uniqueImprovement?: LeaderUnique
-  /** Tags for filtering: "domination", "science", "culture", "religion", "diplomatic" */
+  /** Namespaced filter tags, e.g. "econ:gold", "win:science", "role:frontline" */
   tags: string[]
 }
 
@@ -85,11 +106,13 @@ export interface Leader {
 
 export type DraftAction = 'ban' | 'pick'
 
+export type DraftCancelReason = 'cancel' | 'scrub' | 'timeout'
+
 /**
  * A single step in a draft sequence.
  *
- * For team modes: seats are team indices (0 = Team A, 1 = Team B).
- * For FFA: seats are player indices (0 through N-1).
+ * Seats are always player slot indices (0 through N-1).
+ * Team formats can target captain slots only (default: Team A captain = 0, Team B captain = 1).
  */
 export interface DraftStep {
   action: DraftAction
@@ -115,6 +138,11 @@ export interface DraftFormat {
   getSteps: (seatCount: number) => DraftStep[]
 }
 
+export interface DraftTimerConfig {
+  banTimerSeconds: number | null
+  pickTimerSeconds: number | null
+}
+
 // ── Draft State Machine Types ───────────────────────────────
 
 export interface DraftSeat {
@@ -122,6 +150,8 @@ export interface DraftSeat {
   playerId: string
   /** Display name */
   displayName: string
+  /** Discord avatar URL */
+  avatarUrl?: string | null
   /** Team index (for team modes), undefined for FFA */
   team?: number
 }
@@ -151,7 +181,9 @@ export interface DraftState {
   picks: DraftSelection[]
   /** Civ IDs still available (not banned or picked) */
   availableCivIds: string[]
-  status: 'waiting' | 'active' | 'complete'
+  status: 'waiting' | 'active' | 'complete' | 'cancelled'
+  /** Why the draft was cancelled/scrubbed (null unless status is cancelled) */
+  cancelReason: DraftCancelReason | null
   /**
    * For blind bans: accumulated bans that haven't been revealed yet.
    * Revealed when the simultaneous ban step completes.
@@ -164,11 +196,13 @@ export type DraftInput
   = | { type: 'START' }
     | { type: 'BAN', seatIndex: number, civIds: string[] }
     | { type: 'PICK', seatIndex: number, civId: string }
+    | { type: 'CANCEL', reason: DraftCancelReason }
     | { type: 'TIMEOUT' }
 
 /** Events emitted during state transitions (for broadcasting to clients) */
 export type DraftEvent
   = | { type: 'DRAFT_STARTED' }
+    | { type: 'DRAFT_CANCELLED', reason: DraftCancelReason }
     | { type: 'BAN_SUBMITTED', seatIndex: number, civIds: string[], blind: boolean }
     | { type: 'PICK_SUBMITTED', seatIndex: number, civId: string }
     | { type: 'BLIND_BANS_REVEALED', bans: DraftSelection[] }
@@ -194,6 +228,7 @@ export type MatchStatus = 'drafting' | 'active' | 'completed' | 'cancelled'
 export interface QueueEntry {
   playerId: string
   displayName: string
+  avatarUrl?: string | null
   joinedAt: number
   /** For team modes: partner player IDs */
   partyIds?: string[]

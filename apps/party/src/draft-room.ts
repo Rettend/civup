@@ -1,19 +1,14 @@
 import type {
   ClientMessage,
-  DraftCompleteWebhookPayload,
   DraftEvent,
   DraftState,
+  DraftWebhookPayload,
   RoomConfig,
   ServerMessage,
 } from '@civup/game'
 import type * as Party from 'partykit/server'
-import {
-  createDraft,
-  draftFormatMap,
-  getCurrentStep,
-  isDraftError,
-  processDraftInput,
-} from '@civup/game'
+import { createDraft, draftFormatMap, getCurrentStep, isDraftError, MAX_TIMER_SECONDS, processDraftInput } from '@civup/game'
+import { api, ApiError } from '@civup/utils'
 
 // ── Connection State ─────────────────────────────────────────
 
@@ -50,6 +45,10 @@ export default class DraftRoom implements Party.Server {
 
     const config: RoomConfig = await req.json()
 
+    if (typeof config.hostId !== 'string' || config.hostId.length === 0) {
+      return json({ error: 'Missing hostId' }, 400)
+    }
+
     const format = draftFormatMap.get(config.formatId)
     if (!format) {
       return json({ error: `Unknown format: ${config.formatId}` }, 400)
@@ -61,13 +60,15 @@ export default class DraftRoom implements Party.Server {
       return json({ error: 'Empty civ pool' }, 400)
     }
 
-    const state = createDraft(config.matchId, format, config.seats, config.civPool)
+    const baseState = createDraft(config.matchId, format, config.seats, config.civPool)
+    const state = withWaitingTimerConfig(format, baseState, config.timerConfig)
 
     await this.room.storage.put('config', config)
     await this.room.storage.put('state', state)
     await this.room.storage.put('timerEndsAt', null)
     await this.room.storage.put('alarmStepIndex', -1)
     await this.room.storage.put('completedAt', null)
+    await this.room.storage.put('cancelledAt', null)
 
     return json({ ok: true, matchId: config.matchId }, 201)
   }
@@ -79,7 +80,8 @@ export default class DraftRoom implements Party.Server {
     }
     const timerEndsAt = await this.room.storage.get<number | null>('timerEndsAt')
     const completedAt = await this.room.storage.get<number | null>('completedAt')
-    return json({ state, timerEndsAt, completedAt })
+    const cancelledAt = await this.room.storage.get<number | null>('cancelledAt')
+    return json({ state, timerEndsAt, completedAt, cancelledAt })
   }
 
   // ── WebSocket: Connection ──────────────────────────────────
@@ -97,6 +99,9 @@ export default class DraftRoom implements Party.Server {
       return
     }
 
+    const config = await this.room.storage.get<RoomConfig>('config')
+    const hostId = config?.hostId ?? state.seats[0]?.playerId ?? ''
+
     const timerEndsAt = await this.room.storage.get<number | null>('timerEndsAt')
     const completedAt = await this.room.storage.get<number | null>('completedAt')
     const seatIndex = playerId
@@ -106,6 +111,7 @@ export default class DraftRoom implements Party.Server {
     this.send(connection, {
       type: 'init',
       state: this.censorState(state, seatIndex),
+      hostId,
       seatIndex: seatIndex >= 0 ? seatIndex : null,
       timerEndsAt: timerEndsAt ?? null,
       completedAt: completedAt ?? null,
@@ -155,8 +161,8 @@ export default class DraftRoom implements Party.Server {
 
     switch (msg.type) {
       case 'start': {
-        if (seatIndex < 0) {
-          this.send(sender, { type: 'error', message: 'Only participants can start the draft' })
+        if (playerId !== config.hostId) {
+          this.send(sender, { type: 'error', message: 'Only the host can start the draft' })
           return
         }
         const result = processDraftInput(state, { type: 'START' }, format.blindBans)
@@ -212,6 +218,61 @@ export default class DraftRoom implements Party.Server {
         break
       }
 
+      case 'cancel': {
+        if (playerId !== config.hostId) {
+          this.send(sender, { type: 'error', message: 'Only the host can cancel or scrub the draft' })
+          return
+        }
+
+        if (msg.reason !== 'cancel' && msg.reason !== 'scrub') {
+          this.send(sender, { type: 'error', message: 'Invalid cancel reason' })
+          return
+        }
+
+        const result = processDraftInput(
+          state,
+          { type: 'CANCEL', reason: msg.reason },
+          format.blindBans,
+        )
+        if (isDraftError(result)) {
+          this.send(sender, { type: 'error', message: result.error })
+          return
+        }
+        await this.applyResult(result.state, result.events)
+        break
+      }
+
+      case 'config': {
+        if (playerId !== config.hostId) {
+          this.send(sender, { type: 'error', message: 'Only the host can update draft config' })
+          return
+        }
+        if (state.status !== 'waiting') {
+          this.send(sender, { type: 'error', message: 'Draft config can only be changed before start' })
+          return
+        }
+
+        const banTimerSeconds = parseConfigTimer(msg.banTimerSeconds)
+        const pickTimerSeconds = parseConfigTimer(msg.pickTimerSeconds)
+        if (banTimerSeconds === undefined || pickTimerSeconds === undefined) {
+          this.send(sender, { type: 'error', message: `Timers must be numbers between 0 and ${MAX_TIMER_SECONDS}` })
+          return
+        }
+
+        const timerConfig = { banTimerSeconds, pickTimerSeconds }
+        const nextState = withWaitingTimerConfig(format, state, timerConfig)
+        await this.room.storage.put('state', nextState)
+        await this.room.storage.put('config', {
+          ...config,
+          timerConfig,
+        } satisfies RoomConfig)
+
+        const timerEndsAt = await this.room.storage.get<number | null>('timerEndsAt')
+        const completedAt = await this.room.storage.get<number | null>('completedAt')
+        this.broadcastUpdate(nextState, config.hostId, [], timerEndsAt ?? null, completedAt ?? null)
+        break
+      }
+
       default:
         this.send(sender, { type: 'error', message: 'Unknown message type' })
     }
@@ -221,7 +282,7 @@ export default class DraftRoom implements Party.Server {
 
   async onClose(_connection: Party.Connection) {
     // No action needed — timer continues server-side.
-    // If the disconnected player's turn expires, TIMEOUT auto-fills.
+    // If the disconnected player's turn expires during picks, TIMEOUT auto-cancels.
   }
 
   async onError(_connection: Party.Connection, _error: Error) {
@@ -263,6 +324,7 @@ export default class DraftRoom implements Party.Server {
 
     let timerEndsAt = await this.room.storage.get<number | null>('timerEndsAt')
     let completedAt = await this.room.storage.get<number | null>('completedAt')
+    let cancelledAt = await this.room.storage.get<number | null>('cancelledAt')
 
     if (stepAdvanced && newState.status === 'active') {
       const step = getCurrentStep(newState)
@@ -281,6 +343,7 @@ export default class DraftRoom implements Party.Server {
     if (newState.status === 'complete') {
       timerEndsAt = null
       await this.room.storage.deleteAlarm()
+      await this.room.storage.put('alarmStepIndex', -1)
       await this.room.storage.put('timerEndsAt', null)
       if (completedAt == null) {
         completedAt = Date.now()
@@ -291,11 +354,27 @@ export default class DraftRoom implements Party.Server {
       }
     }
 
-    this.broadcastUpdate(newState, events, timerEndsAt ?? null, completedAt ?? null)
+    if (newState.status === 'cancelled') {
+      timerEndsAt = null
+      await this.room.storage.deleteAlarm()
+      await this.room.storage.put('alarmStepIndex', -1)
+      await this.room.storage.put('timerEndsAt', null)
+      if (cancelledAt == null) {
+        cancelledAt = Date.now()
+        await this.room.storage.put('cancelledAt', cancelledAt)
+      }
+      if (config) {
+        await this.notifyDraftCancelled(newState, config, cancelledAt)
+      }
+    }
+
+    const hostId = config?.hostId ?? newState.seats[0]?.playerId ?? ''
+    this.broadcastUpdate(newState, hostId, events, timerEndsAt ?? null, completedAt ?? null)
   }
 
   private broadcastUpdate(
     state: DraftState,
+    hostId: string,
     events: DraftEvent[],
     timerEndsAt: number | null,
     completedAt: number | null,
@@ -312,6 +391,7 @@ export default class DraftRoom implements Party.Server {
         this.send(conn, {
           type: 'update',
           state: this.censorState(state, seatIndex),
+          hostId,
           events: this.censorEvents(events, seatIndex),
           timerEndsAt,
           completedAt,
@@ -323,6 +403,7 @@ export default class DraftRoom implements Party.Server {
       this.room.broadcast(JSON.stringify({
         type: 'update',
         state,
+        hostId,
         events,
         timerEndsAt,
         completedAt,
@@ -360,18 +441,41 @@ export default class DraftRoom implements Party.Server {
   }
 
   private async notifyDraftComplete(state: DraftState, config: RoomConfig, completedAt: number) {
-    if (!config.webhookUrl) {
-      console.warn(`No draft webhook URL configured for match ${state.matchId}`)
-      return
-    }
-
-    console.log(`Sending draft-complete webhook for match ${state.matchId} -> ${config.webhookUrl}`)
-
-    const payload: DraftCompleteWebhookPayload = {
+    const hostId = config.hostId || state.seats[0]?.playerId || undefined
+    const payload: DraftWebhookPayload = {
+      outcome: 'complete',
       matchId: state.matchId,
+      hostId,
       completedAt,
       state,
     }
+    await this.sendDraftWebhook(state.matchId, config, payload)
+  }
+
+  private async notifyDraftCancelled(state: DraftState, config: RoomConfig, cancelledAt: number) {
+    const hostId = config.hostId || state.seats[0]?.playerId || undefined
+    const payload: DraftWebhookPayload = {
+      outcome: 'cancelled',
+      matchId: state.matchId,
+      hostId,
+      cancelledAt,
+      reason: state.cancelReason ?? 'scrub',
+      state,
+    }
+    await this.sendDraftWebhook(state.matchId, config, payload)
+  }
+
+  private async sendDraftWebhook(
+    matchId: string,
+    config: RoomConfig,
+    payload: DraftWebhookPayload,
+  ) {
+    if (!config.webhookUrl) {
+      console.warn(`No draft webhook URL configured for match ${matchId}`)
+      return
+    }
+
+    console.log(`Sending draft webhook (${payload.outcome}) for match ${matchId} -> ${config.webhookUrl}`)
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -381,22 +485,12 @@ export default class DraftRoom implements Party.Server {
     }
 
     try {
-      const res = await fetch(config.webhookUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-      })
-
-      if (!res.ok) {
-        const detail = await res.text()
-        console.error(`Draft webhook failed for match ${state.matchId}: ${res.status} ${detail}`)
-        return
-      }
-
-      console.log(`Draft-complete webhook delivered for match ${state.matchId}`)
+      await api.post(config.webhookUrl, payload, { headers })
+      console.log(`Draft webhook delivered (${payload.outcome}) for match ${matchId}`)
     }
-    catch (error) {
-      console.error(`Draft webhook request failed for match ${state.matchId}:`, error)
+    catch (err) {
+      const status = err instanceof ApiError ? err.status : 'Unknown'
+      console.error(`Draft webhook failed for match ${matchId} (${status}):`, err)
     }
   }
 }
@@ -408,4 +502,49 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   })
+}
+
+function withWaitingTimerConfig(
+  format: { getSteps: (seatCount: number) => DraftState['steps'] },
+  state: DraftState,
+  timerConfig: RoomConfig['timerConfig'] | undefined,
+): DraftState {
+  const baseSteps = format.getSteps(state.seats.length)
+  const configuredSteps = applyTimerConfigToSteps(baseSteps, timerConfig)
+  return {
+    ...state,
+    steps: configuredSteps,
+  }
+}
+
+function applyTimerConfigToSteps(
+  steps: DraftState['steps'],
+  timerConfig: RoomConfig['timerConfig'] | undefined,
+): DraftState['steps'] {
+  if (!timerConfig) return steps
+
+  const banTimer = normalizeTimerSeconds(timerConfig.banTimerSeconds)
+  const pickTimer = normalizeTimerSeconds(timerConfig.pickTimerSeconds)
+  if (banTimer == null && pickTimer == null) return steps
+
+  return steps.map((step) => {
+    if (step.action === 'ban' && banTimer != null) return { ...step, timer: banTimer }
+    if (step.action === 'pick' && pickTimer != null) return { ...step, timer: pickTimer }
+    return step
+  })
+}
+
+function normalizeTimerSeconds(value: number | null | undefined): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  const rounded = Math.round(value)
+  if (rounded < 0) return null
+  return Math.min(rounded, MAX_TIMER_SECONDS)
+}
+
+function parseConfigTimer(value: unknown): number | null | undefined {
+  if (value == null) return null
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  const rounded = Math.round(value)
+  if (rounded < 0 || rounded > MAX_TIMER_SECONDS) return undefined
+  return rounded
 }

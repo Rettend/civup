@@ -1,11 +1,10 @@
 import type { Auth } from '~/client/discord'
+import { buildDiscordAvatarUrl } from '@civup/utils'
 import { createSignal } from 'solid-js'
 
 // ── State ──────────────────────────────────────────────────
 
-const [user, setUser] = createSignal<Auth | null>(null)
-
-export { user }
+export const [user, setUser] = createSignal<Auth | null>(null)
 
 /** Set the authenticated user (called after Discord SDK auth) */
 export function setAuthenticatedUser(auth: Auth) {
@@ -29,6 +28,6 @@ export function displayName(): string {
 /** Avatar URL */
 export function avatarUrl(): string | null {
   const u = user()
-  if (!u?.user.avatar) return null
-  return `https://cdn.discordapp.com/avatars/${u.user.id}/${u.user.avatar}.png?size=128`
+  if (!u) return null
+  return buildDiscordAvatarUrl(u.user.id, u.user.avatar)
 }

@@ -1,7 +1,7 @@
 /* @refresh reload */
 import { render } from 'solid-js/web'
 import { relayDevLog } from './lib/dev-log'
-import '@unocss/reset/tailwind.css'
+import '@fontsource-variable/inter'
 import 'virtual:uno.css'
 
 function setupGlobalDevErrorRelay() {
@@ -24,10 +24,6 @@ function setupGlobalDevErrorRelay() {
 
 async function bootstrap() {
   setupGlobalDevErrorRelay()
-
-  relayDevLog('info', 'Activity bootstrap started', {
-    search: typeof window !== 'undefined' ? window.location.search : '',
-  })
 
   const { default: App } = await import('./App')
 

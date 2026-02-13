@@ -1,3 +1,5 @@
+import { normalizeHost } from '@civup/utils'
+
 interface Env {
   DISCORD_CLIENT_ID: string
   DISCORD_CLIENT_SECRET: string
@@ -42,14 +44,12 @@ export default {
       return handlePartyProxy(request, url, env)
     }
 
-    // /api/match/* — proxy match lookup/reporting calls to bot API
-    if (url.pathname.startsWith('/api/match/')) {
+    // /api/match/* and /api/lobby/* — proxy bot API calls
+    if (url.pathname.startsWith('/api/match/') || url.pathname.startsWith('/api/lobby/')) {
       return handleMatchProxy(request, url, env)
     }
 
     // All other routes fall through to static assets (SPA).
-    // The `not_found_handling: "single-page-application"` in wrangler.jsonc
-    // ensures non-asset routes serve index.html.
     return new Response(null, { status: 404 })
   },
 } satisfies ExportedHandler<Env>
@@ -69,6 +69,7 @@ async function handleDevLog(request: Request): Promise<Response> {
     const prefix = '[activity-dev-log]'
     if (level === 'error') console.error(prefix, message, context)
     else if (level === 'warn') console.warn(prefix, message, context)
+    // eslint-disable-next-line no-console
     else console.log(prefix, `[${level}]`, message, context)
 
     return new Response(null, {
@@ -144,9 +145,7 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
       try {
         detailJson = JSON.parse(detailRaw) as DiscordTokenErrorResponse
       }
-      catch {
-        // no-op
-      }
+      catch {}
 
       const detailMessage = detailJson?.error_description
         ?? detailJson?.error
@@ -199,17 +198,4 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   })
-}
-
-function normalizeHost(host: string | undefined, fallback: string): string {
-  const raw = (host && host.trim()) || fallback
-  const withProtocol = raw.startsWith('http://') || raw.startsWith('https://')
-    ? raw
-    : `${isLocalHost(raw) ? 'http' : 'https'}://${raw}`
-  return withProtocol.replace(/\/$/, '')
-}
-
-function isLocalHost(host: string): boolean {
-  const raw = host.trim().toLowerCase()
-  return raw.includes('localhost') || raw.includes('127.0.0.1')
 }
