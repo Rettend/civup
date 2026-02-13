@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@civup/game": "workspace:*",
+    "@civup/utils": "workspace:*",
     "partykit": "0.0.115"
   }
 }

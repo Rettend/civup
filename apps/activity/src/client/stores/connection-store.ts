@@ -1,7 +1,7 @@
 import type { ClientMessage, ServerMessage } from '@civup/game'
+import { api, ApiError } from '@civup/utils'
 import PartySocket from 'partysocket'
 import { createSignal } from 'solid-js'
-import { api, ApiError } from '~/client/lib/api'
 import { relayDevLog } from '../lib/dev-log'
 import { initDraft, updateDraft } from './draft-store'
 

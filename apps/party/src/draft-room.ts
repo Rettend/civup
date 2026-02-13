@@ -7,13 +7,8 @@ import type {
   ServerMessage,
 } from '@civup/game'
 import type * as Party from 'partykit/server'
-import {
-  createDraft,
-  draftFormatMap,
-  getCurrentStep,
-  isDraftError,
-  processDraftInput,
-} from '@civup/game'
+import { createDraft, draftFormatMap, getCurrentStep, isDraftError, processDraftInput } from '@civup/game'
+import { api, ApiError } from '@civup/utils'
 
 const MAX_TIMER_SECONDS = 30 * 60
 
@@ -492,22 +487,12 @@ export default class DraftRoom implements Party.Server {
     }
 
     try {
-      const res = await fetch(config.webhookUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-      })
-
-      if (!res.ok) {
-        const detail = await res.text()
-        console.error(`Draft webhook failed for match ${matchId}: ${res.status} ${detail}`)
-        return
-      }
-
+      await api.post(config.webhookUrl, payload, { headers })
       console.log(`Draft webhook delivered (${payload.outcome}) for match ${matchId}`)
     }
-    catch (error) {
-      console.error(`Draft webhook request failed for match ${matchId}:`, error)
+    catch (err) {
+      const status = err instanceof ApiError ? err.status : 'Unknown'
+      console.error(`Draft webhook failed for match ${matchId} (${status}):`, err)
     }
   }
 }

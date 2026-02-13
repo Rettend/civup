@@ -25,14 +25,4 @@ export type {
   QueueEntry,
   QueueState,
 } from './types.ts'
-export {  canStartWithPlayerCount,
-  defaultPlayerCount,
-  GAME_MODES,
-  isTeamMode,
-  LEADERBOARD_MODES,
-  maxPlayerCount,
-  minPlayerCount,
-  playersPerTeam,
-  teamCount,
-  toLeaderboardMode,
-} from './types.ts'
+export { canStartWithPlayerCount, defaultPlayerCount, GAME_MODES, isTeamMode, LEADERBOARD_MODES, maxPlayerCount, minPlayerCount, playersPerTeam, teamCount, toLeaderboardMode } from './types.ts'
