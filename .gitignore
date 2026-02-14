@@ -22,11 +22,14 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .env.production.local
 .env.local
 .dev.vars
+.prod.vars
+.prod.secrets
 
 # Cloudflare Workers local secrets
 .dev.vars
 .wrangler
 cloudflared.dev.yml
+.partykit
 
 # caches
 .eslintcache

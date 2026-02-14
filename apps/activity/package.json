@@ -7,12 +7,15 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "build:prod": "bun --env-file=.prod.vars vite build",
     "preview": "vite preview --port 5173",
     "test": "bun test --preload ./tests/setup-dom.ts tests",
     "test:coverage": "bun test tests --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=coverage",
     "check": "tsgo --noEmit",
     "portraits:webp": "bun ./scripts/convert-leaders-full-to-webp.ts --delete",
-    "deploy": "vite build && wrangler deploy"
+    "deploy": "bun run deploy:prod",
+    "deploy:prod": "bun run build:prod && wrangler deploy",
+    "secret:bulk:prod": "wrangler secret bulk .prod.secrets"
   },
   "dependencies": {
     "@civup/game": "workspace:*",
