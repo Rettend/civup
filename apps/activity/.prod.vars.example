@@ -1,0 +1,3 @@
+DISCORD_CLIENT_ID=
+# Optional: host only, no protocol. Example: civup-activity.rettend.workers.dev
+VITE_ACTIVITY_HOST=

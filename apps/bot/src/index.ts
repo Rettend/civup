@@ -41,11 +41,24 @@ import {
 } from './services/lobby.ts'
 import { storeMatchMessageMapping } from './services/match-message.ts'
 import { activateDraftMatch, cancelDraftMatch, createDraftMatch, reportMatch } from './services/match.ts'
-import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, moveQueueMode } from './services/queue.ts'
+import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, moveQueueMode, setQueueEntries } from './services/queue.ts'
 import { getSystemChannel } from './services/system-channels.ts'
 import { factory } from './setup.ts'
 
 const TEMP_LOBBY_START_MIN_PLAYERS_FFA = 1
+
+const DEBUG_FILL_PLAYER_ID_PREFIX = 'debug-lobby-bot:'
+
+function buildDebugFillPlayerId(mode: GameMode, slot: number, existingIds: Set<string>): string {
+  const base = `${DEBUG_FILL_PLAYER_ID_PREFIX}${mode}:${slot}`
+  if (!existingIds.has(base)) return base
+
+  let suffix = 1
+  while (existingIds.has(`${base}:${suffix}`)) {
+    suffix += 1
+  }
+  return `${base}:${suffix}`
+}
 
 const discordApp = factory.discord().loader([
   ...Object.values(commands),
@@ -485,6 +498,82 @@ app.post('/api/lobby/:mode/remove', async (c) => {
   return c.json(await buildOpenLobbySnapshotFromParts(c.env.KV, mode, nextLobby, queue.entries, slots))
 })
 
+// Host-only helper: fill empty lobby slots with test players
+app.post('/api/lobby/:mode/fill-test', async (c) => {
+  const mode = parseGameMode(c.req.param('mode'))
+  if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  }
+  catch {
+    return c.json({ error: 'Invalid JSON payload' }, 400)
+  }
+
+  if (!body || typeof body !== 'object') {
+    return c.json({ error: 'Invalid request body' }, 400)
+  }
+
+  const { userId } = body as { userId?: string }
+  if (typeof userId !== 'string' || userId.length === 0) {
+    return c.json({ error: 'userId is required' }, 400)
+  }
+
+  const lobby = await getLobby(c.env.KV, mode)
+  if (!lobby || lobby.status !== 'open') {
+    return c.json({ error: 'No open lobby for this mode' }, 404)
+  }
+
+  if (lobby.hostId !== userId) {
+    return c.json({ error: 'Only the lobby host can fill test players' }, 403)
+  }
+
+  const queue = await getQueueState(c.env.KV, mode)
+  const slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
+  const nextEntries = [...queue.entries]
+  const existingIds = new Set(nextEntries.map(entry => entry.playerId))
+
+  let addedCount = 0
+  const now = Date.now()
+
+  for (let slot = 0; slot < slots.length; slot++) {
+    if (slots[slot] != null) continue
+
+    const playerId = buildDebugFillPlayerId(mode, slot, existingIds)
+    slots[slot] = playerId
+    nextEntries.push({
+      playerId,
+      displayName: `Test Player ${slot + 1}`,
+      avatarUrl: null,
+      joinedAt: now + slot,
+    })
+    existingIds.add(playerId)
+    addedCount += 1
+  }
+
+  if (addedCount > 0) {
+    await setQueueEntries(c.env.KV, mode, nextEntries)
+  }
+
+  const updatedLobby = await setLobbySlots(c.env.KV, mode, slots)
+  const nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
+  const slottedEntries = mapLobbySlotsToEntries(slots, nextEntries)
+
+  try {
+    await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, nextLobby, {
+      embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
+      components: lobbyComponents(mode),
+    })
+  }
+  catch (error) {
+    console.error(`Failed to update lobby embed after test fill in ${mode}:`, error)
+  }
+
+  const snapshot = await buildOpenLobbySnapshotFromParts(c.env.KV, mode, nextLobby, nextEntries, slots)
+  return c.json({ ...snapshot, addedCount })
+})
+
 // Host-only lobby start (manual start from config screen)
 app.post('/api/lobby/:mode/start', async (c) => {
   const mode = parseGameMode(c.req.param('mode'))
@@ -843,7 +932,20 @@ app.post('/api/webhooks/draft-complete', async (c) => {
 // Mount Discord interactions at root (default path for discord-hono)
 app.mount('/', discordApp.fetch)
 
-export default app
+const worker: ExportedHandler<Env['Bindings']> = {
+  fetch(request, env, ctx) {
+    return app.fetch(request, env, ctx)
+  },
+  scheduled(controller, env, ctx) {
+    const cronEvent = {
+      ...controller,
+      type: 'scheduled',
+    } as Parameters<typeof discordApp.scheduled>[0]
+    return discordApp.scheduled(cronEvent, env, ctx)
+  },
+}
+
+export default worker
 
 function isDraftWebhookPayload(value: unknown): value is DraftWebhookPayload {
   if (!value || typeof value !== 'object') return false

@@ -1,9 +1,15 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "civup-bot",
+  "account_id": "bee9950f4935b08fbc80f8e9ea881286",
   "main": "src/index.ts",
   "compatibility_date": "2025-02-19",
   "compatibility_flags": ["nodejs_compat"],
+
+  "vars": {
+    "BOT_HOST": "https://civup-bot.rettend.workers.dev",
+    "PARTY_HOST": "https://civup-party.rettend.partykit.dev"
+  },
 
   "d1_databases": [
     {
@@ -23,5 +29,12 @@
 
   "triggers": {
     "crons": ["*/10 * * * *"]
+  },
+
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
   }
 }
