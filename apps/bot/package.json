@@ -6,16 +6,24 @@
   "packageManager": "bun@1.3.7",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "bun run deploy:prod",
+    "deploy:prod": "wrangler deploy",
     "test": "bun test",
-    "register": "bun --env-file=.dev.vars src/register.ts",
+    "register": "bun run register:dev",
+    "register:dev": "bun --env-file=.dev.vars src/register.ts",
+    "register:prod": "bun --env-file=.prod.secrets src/register.ts",
     "secret:draft-webhook": "bun scripts/generate-draft-webhook-secret.ts --write",
     "secret:draft-webhook:print": "bun scripts/generate-draft-webhook-secret.ts",
+    "secret:bulk:prod": "wrangler secret bulk .prod.secrets",
     "kv:local": "bun scripts/kv-local.ts",
     "check": "tsgo --noEmit",
     "generate": "wrangler types",
-    "l:migrate": "wrangler d1 migrations apply civup --local",
-    "r:migrate": "wrangler d1 migrations apply civup --remote"
+    "d1:create": "wrangler d1 create civup --binding DB --update-config",
+    "kv:create": "wrangler kv namespace create civup --binding KV --update-config",
+    "d1:migrate:local": "wrangler d1 migrations apply civup --local",
+    "d1:migrate:remote": "wrangler d1 migrations apply civup --remote",
+    "l:migrate": "bun run d1:migrate:local",
+    "r:migrate": "bun run d1:migrate:remote"
   },
   "dependencies": {
     "@civup/db": "workspace:*",
