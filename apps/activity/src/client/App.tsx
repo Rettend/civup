@@ -1,4 +1,4 @@
-import type { LobbySnapshot } from './stores'
+import type { LobbySnapshot, LobbyStateWatch } from './stores'
 import { createSignal, Match, onCleanup, onMount, Switch } from 'solid-js'
 import { ConfigScreen, DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
@@ -14,6 +14,7 @@ import {
 
   setAuthenticatedUser,
   userId,
+  watchLobbyState,
 } from './stores'
 
 type AppState
@@ -26,19 +27,123 @@ type AppState
 /** Activity host — websocket goes through same-origin /api/parties proxy */
 const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
   || (typeof window !== 'undefined' ? window.location.host : 'localhost:5173')
-const LOBBY_POLL_MS = 3000
+const LOBBY_SAFETY_POLL_MS = 90_000
 
 export default function App() {
   const [state, setState] = createSignal<AppState>({ status: 'loading' })
-  let lobbyPoll: ReturnType<typeof setInterval> | null = null
+  let lobbyWatch: LobbyStateWatch | null = null
+  let lobbySafetyPoll: ReturnType<typeof setInterval> | null = null
+  let lobbyRefreshInFlight = false
+  let lobbyRefreshPending = false
 
-  const stopLobbyPoll = () => {
-    if (!lobbyPoll) return
-    clearInterval(lobbyPoll)
-    lobbyPoll = null
+  const stopLobbyWatch = () => {
+    if (!lobbyWatch) return
+    lobbyWatch.close()
+    lobbyWatch = null
   }
 
-  onCleanup(() => stopLobbyPoll())
+  const stopLobbySafetyPoll = () => {
+    if (!lobbySafetyPoll) return
+    clearInterval(lobbySafetyPoll)
+    lobbySafetyPoll = null
+  }
+
+  onCleanup(() => {
+    stopLobbyWatch()
+    stopLobbySafetyPoll()
+  })
+
+  const resolveOpenLobby = async (channelId: string, currentUserId: string) => {
+    const channelLobby = await fetchLobbyForChannel(channelId)
+    if (channelLobby) return channelLobby
+    return fetchLobbyForUser(currentUserId)
+  }
+
+  const transitionToDraft = (matchId: string, currentUserId: string, autoStart: boolean) => {
+    stopLobbyWatch()
+    stopLobbySafetyPoll()
+    setState({ status: 'authenticated', matchId, autoStart })
+    connectToRoom(ACTIVITY_HOST, matchId, currentUserId)
+  }
+
+  const refreshLobbyWaitingState = async (channelId: string, currentUserId: string) => {
+    if (lobbyRefreshInFlight) {
+      lobbyRefreshPending = true
+      return
+    }
+
+    lobbyRefreshInFlight = true
+    try {
+      if (state().status !== 'lobby-waiting') return
+
+      const nextLobby = await resolveOpenLobby(channelId, currentUserId)
+      if (nextLobby) {
+        setState((prev) => {
+          if (prev.status !== 'lobby-waiting') return prev
+          if (nextLobby.revision < prev.lobby.revision) return prev
+          if (isSameLobbySnapshot(prev.lobby, nextLobby)) return prev
+          return { status: 'lobby-waiting', lobby: nextLobby }
+        })
+        return
+      }
+
+      let nextMatchId = await fetchMatchForChannel(channelId)
+      if (!nextMatchId) {
+        nextMatchId = await fetchMatchForUser(currentUserId)
+      }
+
+      if (nextMatchId) {
+        if (state().status !== 'lobby-waiting') return
+        transitionToDraft(nextMatchId, currentUserId, false)
+        return
+      }
+
+      if (state().status !== 'lobby-waiting') return
+      stopLobbyWatch()
+      stopLobbySafetyPoll()
+      setState({ status: 'no-match' })
+    }
+    finally {
+      lobbyRefreshInFlight = false
+      if (lobbyRefreshPending) {
+        lobbyRefreshPending = false
+        void refreshLobbyWaitingState(channelId, currentUserId)
+      }
+    }
+  }
+
+  const startLobbySafetyPoll = (channelId: string, currentUserId: string) => {
+    if (lobbySafetyPoll) return
+    lobbySafetyPoll = setInterval(() => {
+      if (state().status !== 'lobby-waiting') return
+      void refreshLobbyWaitingState(channelId, currentUserId)
+    }, LOBBY_SAFETY_POLL_MS)
+  }
+
+  const startLobbyWatch = (channelId: string, currentUserId: string) => {
+    stopLobbyWatch()
+    stopLobbySafetyPoll()
+
+    lobbyWatch = watchLobbyState(ACTIVITY_HOST, {
+      channelId,
+      userId: currentUserId,
+      onConnected: () => {
+        stopLobbySafetyPoll()
+      },
+      onInvalidation: () => {
+        if (state().status !== 'lobby-waiting') return
+        void refreshLobbyWaitingState(channelId, currentUserId)
+      },
+      onDisconnected: () => {
+        if (state().status !== 'lobby-waiting') return
+        startLobbySafetyPoll(channelId, currentUserId)
+      },
+      onError: () => {
+        if (state().status !== 'lobby-waiting') return
+        startLobbySafetyPoll(channelId, currentUserId)
+      },
+    })
+  }
 
   onMount(async () => {
     try {
@@ -56,56 +161,12 @@ export default function App() {
       // 2) open lobby by channel/user (pre-draft waiting)
       // 3) participant fallback (for voice-channel launches)
       let matchId = await fetchMatchForChannel(channelId)
-      const resolveOpenLobby = async () => {
-        const channelLobby = await fetchLobbyForChannel(channelId)
-        if (channelLobby) return channelLobby
-        return fetchLobbyForUser(auth.user.id)
-      }
 
       if (!matchId) {
-        const lobby = await resolveOpenLobby()
+        const lobby = await resolveOpenLobby(channelId, auth.user.id)
         if (lobby) {
           setState({ status: 'lobby-waiting', lobby })
-
-          let pollInFlight = false
-          stopLobbyPoll()
-          lobbyPoll = setInterval(async () => {
-            if (pollInFlight) return
-            pollInFlight = true
-            try {
-              const nextLobby = await resolveOpenLobby()
-              if (nextLobby) {
-                setState((prev) => {
-                  if (prev.status !== 'lobby-waiting') return prev
-                  if (nextLobby.revision < prev.lobby.revision) return prev
-                  if (isSameLobbySnapshot(prev.lobby, nextLobby)) return prev
-                  return { status: 'lobby-waiting', lobby: nextLobby }
-                })
-                return
-              }
-
-              let nextMatchId = await fetchMatchForChannel(channelId)
-              if (!nextMatchId) {
-                nextMatchId = await fetchMatchForUser(auth.user.id)
-              }
-
-              if (nextMatchId) {
-                if (state().status !== 'lobby-waiting') return
-                stopLobbyPoll()
-                setState({ status: 'authenticated', matchId: nextMatchId, autoStart: false })
-                connectToRoom(ACTIVITY_HOST, nextMatchId, auth.user.id)
-                return
-              }
-
-              if (state().status !== 'lobby-waiting') return
-              stopLobbyPoll()
-              setState({ status: 'no-match' })
-            }
-            finally {
-              pollInFlight = false
-            }
-          }, LOBBY_POLL_MS)
-
+          startLobbyWatch(channelId, auth.user.id)
           return
         }
 
@@ -115,8 +176,7 @@ export default function App() {
       if (!matchId) {
         if (import.meta.env.DEV) {
           console.warn('No match found for channel, using channelId as fallback')
-          setState({ status: 'authenticated', matchId: channelId, autoStart: false })
-          connectToRoom(ACTIVITY_HOST, channelId, auth.user.id)
+          transitionToDraft(channelId, auth.user.id, false)
           return
         }
 
@@ -124,8 +184,7 @@ export default function App() {
         return
       }
 
-      setState({ status: 'authenticated', matchId, autoStart: false })
-      connectToRoom(ACTIVITY_HOST, matchId, auth.user.id)
+      transitionToDraft(matchId, auth.user.id, false)
     }
     catch (err) {
       console.error('Discord SDK setup failed:', err)
@@ -170,9 +229,7 @@ export default function App() {
               setState({ status: 'error', message: 'Could not identify your Discord user. Reopen the activity.' })
               return
             }
-            stopLobbyPoll()
-            setState({ status: 'authenticated', matchId, autoStart: true })
-            connectToRoom(ACTIVITY_HOST, matchId, currentUserId)
+            transitionToDraft(matchId, currentUserId, true)
           }}
         />
       </Match>
