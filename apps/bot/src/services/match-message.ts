@@ -10,7 +10,10 @@ export async function storeMatchMessageMapping(
   messageId: string,
   matchId: string,
 ): Promise<void> {
-  await kv.put(messageMatchKey(messageId), matchId, { expirationTtl: MATCH_MESSAGE_TTL_SECONDS })
+  const key = messageMatchKey(messageId)
+  const existing = await kv.get(key)
+  if (existing === matchId) return
+  await kv.put(key, matchId, { expirationTtl: MATCH_MESSAGE_TTL_SECONDS })
 }
 
 export async function getMatchIdForMessage(
