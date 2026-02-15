@@ -11,6 +11,8 @@ export {
   fetchMatchState,
   fillLobbyWithTestPlayers,
   type LobbySnapshot,
+  type LobbyStateWatch,
+  type LobbyStateWatchOptions,
   placeLobbySlot,
   removeLobbySlot,
   reportMatchResult,
@@ -24,6 +26,7 @@ export {
   startLobbyDraft,
   updateLobbyDraftConfig,
   updateLobbyMode,
+  watchLobbyState,
 } from './connection-store'
 export { currentStep, currentStepDuration, draftStore, hasSubmitted, isMyTurn, isSpectator, phaseLabel } from './draft-store'
 export {
