@@ -2,7 +2,6 @@ import type { GameMode, QueueEntry, QueueState } from '@civup/game'
 import { GAME_MODES, maxPlayerCount } from '@civup/game'
 
 const QUEUE_KEY_PREFIX = 'queue:'
-const PLAYER_QUEUE_KEY = 'player-queue:'
 const QUEUE_TTL = 60 * 60 // 1 hour KV TTL
 const MAX_QUEUE_ENTRIES = 64
 
@@ -13,10 +12,6 @@ interface StoredQueueState {
 
 function queueKey(mode: GameMode): string {
   return `${QUEUE_KEY_PREFIX}${mode}`
-}
-
-function playerQueueKey(playerId: string): string {
-  return `${PLAYER_QUEUE_KEY}${playerId}`
 }
 
 function defaultQueueTargetSize(mode: GameMode): number {
@@ -117,21 +112,9 @@ export async function getPlayerQueueMode(
   kv: KVNamespace,
   playerId: string,
 ): Promise<GameMode | null> {
-  const key = playerQueueKey(playerId)
-  const cached = await kv.get(key)
-  if (cached && GAME_MODES.includes(cached as GameMode)) {
-    return cached as GameMode
-  }
-
-  if (cached) {
-    await kv.delete(key)
-  }
-
   for (const mode of GAME_MODES) {
     const state = await getQueueState(kv, mode)
     if (!state.entries.some(entry => entry.playerId === playerId)) continue
-
-    await kv.put(key, mode, { expirationTtl: QUEUE_TTL })
     return mode
   }
 
@@ -162,7 +145,7 @@ export async function getQueueState(kv: KVNamespace, mode: GameMode): Promise<Qu
 }
 
 /**
- * Replace queue entries for a mode and sync player mappings.
+ * Replace queue entries for a mode.
  */
 export async function setQueueEntries(
   kv: KVNamespace,
@@ -174,20 +157,6 @@ export async function setQueueEntries(
   if (!sameQueueEntries(state.entries, normalized)) {
     await persistQueueState(kv, mode, normalized, state.targetSize)
   }
-
-  const prevIds = new Set(state.entries.map(entry => entry.playerId))
-  const nextIds = new Set(normalized.map(entry => entry.playerId))
-  await Promise.all(
-    state.entries
-      .filter(entry => !nextIds.has(entry.playerId))
-      .map(entry => kv.delete(playerQueueKey(entry.playerId))),
-  )
-
-  await Promise.all(
-    normalized
-      .filter(entry => !prevIds.has(entry.playerId))
-      .map(entry => kv.put(playerQueueKey(entry.playerId), mode, { expirationTtl: QUEUE_TTL })),
-  )
 }
 
 /**
@@ -214,7 +183,7 @@ export async function addToQueue(
 }
 
 /**
- * Move all queue entries and player mappings from one mode to another.
+ * Move all queue entries from one mode to another.
  */
 export async function moveQueueMode(
   kv: KVNamespace,
@@ -230,17 +199,6 @@ export async function moveQueueMode(
   if (fromMode !== toMode) {
     await kv.delete(queueKey(fromMode))
   }
-
-  const movedIds = new Set(movedEntries.map(entry => entry.playerId))
-  await Promise.all(
-    toState.entries
-      .filter(entry => !movedIds.has(entry.playerId))
-      .map(entry => kv.delete(playerQueueKey(entry.playerId))),
-  )
-
-  await Promise.all(
-    movedEntries.map(entry => kv.put(playerQueueKey(entry.playerId), toMode, { expirationTtl: QUEUE_TTL })),
-  )
 
   return {
     mode: toMode,
@@ -263,7 +221,6 @@ export async function removeFromQueue(
   const state = await getQueueState(kv, mode)
   const remaining = state.entries.filter(entry => entry.playerId !== playerId)
   if (remaining.length === state.entries.length) {
-    await kv.delete(playerQueueKey(playerId))
     return null
   }
 
