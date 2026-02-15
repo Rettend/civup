@@ -108,6 +108,14 @@ interface CapacityModel {
   lobbyPollCycles: number
 }
 
+interface MetricBreakpoint {
+  metric: keyof UsageLimits
+  playersPerDay: number
+  draftsPerDay: number
+  limit: number
+  usageAtBreakpoint: number
+}
+
 const DAILY_PLAYER_SCENARIOS = [100, 200, 1000] as const
 const PLAYERS_PER_DRAFT = 2
 const LOBBY_POLL_INTERVAL_SECONDS = 3
@@ -205,14 +213,19 @@ describe('1v1 capacity model', () => {
       periodDays: DAYS_PER_MONTH,
     })
 
-    const freeDailyUsageAtCapacity = estimateDailyUsage(model, freeCapacityPlayersPerDay)
-    const paidMonthlyUsageAtCapacity = multiplyDailyUsage(
-      estimateDailyUsage(model, paidCapacityPlayersPerDay),
-      DAYS_PER_MONTH,
-    )
+    const freeBreakpoints = findMetricBreakpoints({
+      model,
+      limits: FREE_DAILY_LIMITS,
+      periodDays: 1,
+    })
+    const paidBreakpoints = findMetricBreakpoints({
+      model,
+      limits: PAID_MONTHLY_LIMITS,
+      periodDays: DAYS_PER_MONTH,
+    })
 
-    const freeBottleneck = findBottleneck(FREE_DAILY_LIMITS, freeDailyUsageAtCapacity)
-    const paidBottleneck = findBottleneck(PAID_MONTHLY_LIMITS, paidMonthlyUsageAtCapacity)
+    const freeBottleneck = freeBreakpoints[0]!
+    const paidBottleneck = paidBreakpoints[0]!
 
     if (SHOULD_PRINT_REPORT) {
       console.log('\n[capacity] assumptions')
@@ -260,6 +273,24 @@ describe('1v1 capacity model', () => {
           draftsPerDay: paidCapacityPlayersPerDay / PLAYERS_PER_DRAFT,
           bottleneck: paidBottleneck.metric,
         },
+      ])
+
+      console.log('\n[capacity] bottleneck breakpoints by metric')
+      console.table([
+        ...freeBreakpoints.map((row, index) => ({
+          plan: 'free',
+          rank: index + 1,
+          metric: row.metric,
+          playersPerDay: row.playersPerDay,
+          draftsPerDay: row.draftsPerDay,
+        })),
+        ...paidBreakpoints.map((row, index) => ({
+          plan: '$5 included',
+          rank: index + 1,
+          metric: row.metric,
+          playersPerDay: row.playersPerDay,
+          draftsPerDay: row.draftsPerDay,
+        })),
       ])
     }
 
@@ -717,6 +748,63 @@ function findMaxPlayersPerDay(input: {
   return low
 }
 
+function findMetricBreakpoints(input: {
+  model: CapacityModel
+  limits: UsageLimits
+  periodDays: number
+}): MetricBreakpoint[] {
+  const metrics = Object.keys(input.limits) as (keyof UsageLimits)[]
+
+  return metrics
+    .map((metric) => {
+      const playersPerDay = findMaxPlayersPerDayByMetric({
+        model: input.model,
+        metric,
+        limit: input.limits[metric],
+        periodDays: input.periodDays,
+      })
+      const daily = estimateDailyUsage(input.model, playersPerDay)
+      const usage = input.periodDays === 1 ? daily : multiplyDailyUsage(daily, input.periodDays)
+
+      return {
+        metric,
+        playersPerDay,
+        draftsPerDay: playersPerDay / PLAYERS_PER_DRAFT,
+        limit: input.limits[metric],
+        usageAtBreakpoint: usage[metric],
+      }
+    })
+    .sort((a, b) => {
+      if (a.playersPerDay === b.playersPerDay) return a.metric.localeCompare(b.metric)
+      return a.playersPerDay - b.playersPerDay
+    })
+}
+
+function findMaxPlayersPerDayByMetric(input: {
+  model: CapacityModel
+  metric: keyof UsageLimits
+  limit: number
+  periodDays: number
+}): number {
+  let low = 0
+  let high = 200_000
+
+  while (low < high) {
+    const mid = Math.floor((low + high + 1) / 2)
+    const daily = estimateDailyUsage(input.model, mid)
+    const usage = input.periodDays === 1 ? daily : multiplyDailyUsage(daily, input.periodDays)
+
+    if (usage[input.metric] <= input.limit) {
+      low = mid
+    }
+    else {
+      high = mid - 1
+    }
+  }
+
+  return low
+}
+
 function fitsLimits(usage: DailyUsage, limits: UsageLimits): boolean {
   return (
     usage.workersRequests <= limits.workersRequests
@@ -729,20 +817,4 @@ function fitsLimits(usage: DailyUsage, limits: UsageLimits): boolean {
     && usage.doRequests <= limits.doRequests
     && usage.doDurationGbSeconds <= limits.doDurationGbSeconds
   )
-}
-
-function findBottleneck(limits: UsageLimits, usage: DailyUsage): { metric: keyof UsageLimits, ratio: number } {
-  const entries: Array<{ metric: keyof UsageLimits, ratio: number }> = [
-    { metric: 'workersRequests', ratio: usage.workersRequests / limits.workersRequests },
-    { metric: 'd1RowsRead', ratio: usage.d1RowsRead / limits.d1RowsRead },
-    { metric: 'd1RowsWritten', ratio: usage.d1RowsWritten / limits.d1RowsWritten },
-    { metric: 'kvReads', ratio: usage.kvReads / limits.kvReads },
-    { metric: 'kvWrites', ratio: usage.kvWrites / limits.kvWrites },
-    { metric: 'kvDeletes', ratio: usage.kvDeletes / limits.kvDeletes },
-    { metric: 'kvLists', ratio: usage.kvLists / limits.kvLists },
-    { metric: 'doRequests', ratio: usage.doRequests / limits.doRequests },
-    { metric: 'doDurationGbSeconds', ratio: usage.doDurationGbSeconds / limits.doDurationGbSeconds },
-  ]
-
-  return entries.sort((a, b) => b.ratio - a.ratio)[0]!
 }
