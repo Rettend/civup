@@ -1,6 +1,8 @@
 import type { GameMode } from '@civup/game'
+import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel, maxPlayerCount } from '@civup/game'
 import { Button } from 'discord-hono'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/match.ts'
 import { getMatchForUser, storeUserMatchMappings } from '../../services/activity.ts'
 import { clearDeferredEphemeralResponse, sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
@@ -23,7 +25,23 @@ export const component_match_join = factory.component(
 
     const lobby = await getLobby(c.env.KV, mode)
     if (!lobby) {
-      const userMatchId = await getMatchForUser(c.env.KV, identity.userId)
+      let userMatchId = await getMatchForUser(c.env.KV, identity.userId)
+      if (!userMatchId) {
+        const db = createDb(c.env.DB)
+        const [active] = await db
+          .select({ matchId: matchParticipants.matchId })
+          .from(matchParticipants)
+          .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+          .where(and(
+            eq(matchParticipants.playerId, identity.userId),
+            inArray(matches.status, ['drafting', 'active']),
+          ))
+          .orderBy(desc(matches.createdAt))
+          .limit(1)
+
+        userMatchId = active?.matchId ?? null
+      }
+
       if (userMatchId) {
         c.executionCtx.waitUntil(storeUserMatchMappings(c.env.KV, [identity.userId], userMatchId))
         return c.resActivity()

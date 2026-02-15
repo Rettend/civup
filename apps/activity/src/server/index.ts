@@ -1,8 +1,9 @@
-import { normalizeHost } from '@civup/utils'
+import { isLocalHost, normalizeHost } from '@civup/utils'
 
 interface Env {
   DISCORD_CLIENT_ID: string
   DISCORD_CLIENT_SECRET: string
+  BOT?: Fetcher
   BOT_HOST?: string
   PARTY_HOST?: string
 }
@@ -84,12 +85,31 @@ async function handleDevLog(request: Request): Promise<Response> {
 }
 
 async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<Response> {
+  let targetUrl = ''
   try {
-    const botHost = normalizeHost(env.BOT_HOST, 'http://localhost:8787')
-    const targetUrl = `${botHost}${url.pathname}${url.search}`
-    const response = await fetch(new Request(targetUrl, request))
+    const targetPath = `${url.pathname}${url.search}`
+    let response: Response
+    const botService = env.BOT
+
+    if (botService && shouldUseBotServiceBinding(request, env)) {
+      targetUrl = `service:civup-bot${targetPath}`
+      response = await botService.fetch(buildProxyRequest(`https://civup-bot.internal${targetPath}`, request))
+    }
+    else {
+      const botHost = normalizeHost(env.BOT_HOST, 'http://localhost:8787')
+      targetUrl = `${botHost}${targetPath}`
+      response = await fetch(buildProxyRequest(targetUrl, request))
+    }
 
     const body = await response.text()
+    if (!response.ok) {
+      console.warn('[activity] Match proxy upstream non-OK', {
+        targetUrl,
+        status: response.status,
+        bodyPreview: body.slice(0, 200),
+      })
+    }
+
     return new Response(body, {
       status: response.status,
       headers: {
@@ -99,22 +119,76 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
     })
   }
   catch (err) {
-    console.error('Match lookup proxy error:', err)
+    console.error('Match lookup proxy error:', { targetUrl, err })
     return json({ error: 'Match lookup proxy failed' }, 502)
   }
 }
 
+function shouldUseBotServiceBinding(request: Request, env: Env): boolean {
+  if (!env.BOT) return false
+  if (import.meta.env.DEV) return false
+
+  const requestHost = new URL(request.url).hostname.toLowerCase()
+  if (isLocalHost(requestHost) || requestHost.includes('-dev.')) {
+    return false
+  }
+
+  if (env.BOT_HOST) {
+    const botHost = normalizeHost(env.BOT_HOST, 'http://localhost:8787').toLowerCase()
+    if (isLocalHost(botHost) || botHost.includes('-dev.')) {
+      return false
+    }
+  }
+
+  return true
+}
+
 async function handlePartyProxy(request: Request, url: URL, env: Env): Promise<Response> {
+  let targetUrl = ''
   try {
     const partyHost = normalizeHost(env.PARTY_HOST, 'http://localhost:1999')
     const targetPath = url.pathname.replace(/^\/api\/parties/, '/parties')
-    const targetUrl = `${partyHost}${targetPath}${url.search}`
-    return fetch(new Request(targetUrl, request))
+    targetUrl = `${partyHost}${targetPath}${url.search}`
+    return fetch(buildProxyRequest(targetUrl, request))
   }
   catch (err) {
-    console.error('Party proxy error:', err)
+    console.error('Party proxy error:', { targetUrl, err })
     return json({ error: 'Party proxy failed' }, 502)
   }
+}
+
+function buildProxyRequest(targetUrl: string, request: Request): Request {
+  const method = request.method.toUpperCase()
+
+  const headers = new Headers()
+  for (const name of ['accept', 'accept-language', 'authorization', 'content-type', 'user-agent']) {
+    const value = request.headers.get(name)
+    if (value) headers.set(name, value)
+  }
+
+  const upgrade = request.headers.get('upgrade')
+  if (upgrade) {
+    headers.set('upgrade', upgrade)
+    const connection = request.headers.get('connection')
+    if (connection) headers.set('connection', connection)
+
+    for (const name of ['sec-websocket-key', 'sec-websocket-version', 'sec-websocket-protocol', 'sec-websocket-extensions']) {
+      const value = request.headers.get(name)
+      if (value) headers.set(name, value)
+    }
+  }
+
+  const init: RequestInit = {
+    method,
+    headers,
+    redirect: 'manual',
+  }
+
+  if (method !== 'GET' && method !== 'HEAD') {
+    init.body = request.body
+  }
+
+  return new Request(targetUrl, init)
 }
 
 async function handleTokenExchange(request: Request, env: Env): Promise<Response> {

@@ -392,12 +392,41 @@ export async function reportMatchResult(
   }
 }
 
+/** Fill empty lobby slots with test players (host-only). */
+export async function fillLobbyWithTestPlayers(
+  mode: string,
+  userId: string,
+): Promise<{ ok: true, lobby: LobbySnapshot, addedCount: number } | { ok: false, error: string }> {
+  try {
+    const res = await fetch(`/api/lobby/${mode}/fill-test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    })
+
+    const data = await res.json() as LobbySnapshot & { error?: string, addedCount?: unknown }
+    if (!res.ok) return { ok: false, error: data.error ?? 'Failed to fill lobby slots' }
+    return {
+      ok: true,
+      lobby: data,
+      addedCount: typeof data.addedCount === 'number' ? data.addedCount : 0,
+    }
+  }
+  catch (err) {
+    console.error('Failed to fill lobby slots with test players:', err)
+    return { ok: false, error: 'Network error while filling lobby slots' }
+  }
+}
+
 // ── Handle Messages ────────────────────────────────────────
 
 function handleServerMessage(msg: ServerMessage) {
   switch (msg.type) {
     case 'init':
       initDraft(msg.state, msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt)
+      if (isTerminalDraftStatus(msg.state.status)) {
+        disconnect()
+      }
       break
     case 'update':
       updateDraft(msg.state, msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt)
@@ -405,6 +434,9 @@ function handleServerMessage(msg: ServerMessage) {
         clearTimeout(pendingConfigAck.timeout)
         pendingConfigAck.resolve()
         pendingConfigAck = null
+      }
+      if (isTerminalDraftStatus(msg.state.status)) {
+        disconnect()
       }
       break
     case 'error':
@@ -416,6 +448,10 @@ function handleServerMessage(msg: ServerMessage) {
       console.error('Server error:', msg.message)
       break
   }
+}
+
+function isTerminalDraftStatus(status: string): boolean {
+  return status === 'complete' || status === 'cancelled'
 }
 
 function formatConfigAckError(message: string): Error {
