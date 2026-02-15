@@ -3,7 +3,7 @@ import { normalizeHost } from '@civup/utils'
 interface StateStoreEnv {
   KV: KVNamespace
   PARTY_HOST?: string
-  STATE_KV_SECRET?: string
+  CIVUP_SECRET?: string
 }
 
 type StateKvGetRequest = {
@@ -58,7 +58,7 @@ export function createStateStore(env: StateStoreEnv): KVNamespace {
 
   const partyHost = normalizeHost(env.PARTY_HOST, DEFAULT_PARTY_HOST)
   const endpoint = `${partyHost}/parties/state/${STATE_ROOM_NAME}`
-  const secret = env.STATE_KV_SECRET?.trim() ?? ''
+  const secret = env.CIVUP_SECRET?.trim() ?? ''
 
   const store = {
     async get(key: string, type?: string) {
@@ -122,6 +122,16 @@ export function createStateStore(env: StateStoreEnv): KVNamespace {
   return store as KVNamespace
 }
 
+class StateStoreRequestError extends Error {
+  constructor(
+    public status: number,
+    public detail: string,
+  ) {
+    super(`State store request failed (${status}): ${detail}`)
+    this.name = 'StateStoreRequestError'
+  }
+}
+
 function shouldRouteHotKey(key: string): boolean {
   return HOT_KEY_PREFIXES.some(prefix => key.startsWith(prefix))
 }
@@ -151,7 +161,7 @@ async function stateKvRequest<T = unknown>(
 
   if (!response.ok) {
     const detail = await response.text()
-    throw new Error(`State store request failed (${response.status}): ${detail}`)
+    throw new StateStoreRequestError(response.status, detail)
   }
 
   return await response.json<T>()

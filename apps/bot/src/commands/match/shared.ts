@@ -76,7 +76,7 @@ export async function joinLobbyAndMaybeStartMatch(
     env: {
       KV: KVNamespace
       PARTY_HOST?: string
-      STATE_KV_SECRET?: string
+      CIVUP_SECRET?: string
     }
   },
   mode: GameMode,

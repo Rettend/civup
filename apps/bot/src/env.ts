@@ -7,7 +7,6 @@ export interface Env {
     DISCORD_TOKEN: string
     PARTY_HOST?: string
     BOT_HOST?: string
-    DRAFT_WEBHOOK_SECRET?: string
-    STATE_KV_SECRET?: string
+    CIVUP_SECRET?: string
   }
 }

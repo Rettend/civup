@@ -3,7 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 const envFilePath = resolve(import.meta.dir, '../.dev.vars')
-const envKey = 'DRAFT_WEBHOOK_SECRET'
+const envKey = 'CIVUP_SECRET'
 const shouldWrite = Bun.argv.includes('--write')
 const secret = createSecret()
 

@@ -3,6 +3,7 @@
   "name": "civup-bot",
   "account_id": "bee9950f4935b08fbc80f8e9ea881286",
   "main": "src/index.ts",
+  "keep_vars": true,
   "compatibility_date": "2025-02-19",
   "compatibility_flags": ["nodejs_compat"],
 
