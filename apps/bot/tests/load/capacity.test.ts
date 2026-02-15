@@ -10,7 +10,6 @@ import {
 } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
-import { markLeaderboardsDirty } from '../../src/services/leaderboard-message.ts'
 import {
   getMatchForChannel,
   storeMatchMapping,
@@ -19,11 +18,12 @@ import {
   getServerDraftTimerDefaults,
   resolveDraftTimerConfig,
 } from '../../src/services/config.ts'
+import { markLeaderboardsDirty } from '../../src/services/leaderboard-message.ts'
 import {
   clearLobbyByMatch,
   createLobby,
-  getLobbyByChannel,
   getLobby,
+  getLobbyByChannel,
   getLobbyByMatch,
   mapLobbySlotsToEntries,
   normalizeLobbySlots,
@@ -111,13 +111,13 @@ interface CapacityModel {
 
 interface MetricBreakpoint {
   metric: keyof UsageLimits
-  playersPerDay: number
-  draftsPerDay: number
+  playsPerDay: number
+  draftsPerDay1v1: number
   limit: number
   usageAtBreakpoint: number
 }
 
-const DAILY_PLAYER_SCENARIOS = [100, 200, 1000] as const
+const DAILY_PLAY_SCENARIOS = [100, 200, 1000] as const
 const PLAYERS_PER_DRAFT = 2
 const LOBBY_POLL_INTERVAL_SECONDS = 90
 const AVERAGE_LOBBY_WAIT_SECONDS = 0
@@ -189,11 +189,11 @@ describe('1v1 capacity model', () => {
       },
     }
 
-    const scenarioRows = DAILY_PLAYER_SCENARIOS.map((playersPerDay) => {
-      const usage = estimateDailyUsage(model, playersPerDay)
+    const scenarioRows = DAILY_PLAY_SCENARIOS.map((playsPerDay) => {
+      const usage = estimateDailyUsage(model, playsPerDay)
       return {
-        playersPerDay,
-        draftsPerDay: playersPerDay / PLAYERS_PER_DRAFT,
+        playsPerDay,
+        draftsPerDay1v1: playsPerDay / PLAYERS_PER_DRAFT,
         workersRequests: usage.workersRequests,
         d1RowsRead: usage.d1RowsRead,
         d1RowsWritten: usage.d1RowsWritten,
@@ -206,13 +206,13 @@ describe('1v1 capacity model', () => {
       }
     })
 
-    const freeCapacityPlayersPerDay = findMaxPlayersPerDay({
+    const freeCapacityPlaysPerDay = findMaxPlaysPerDay({
       model,
       limits: FREE_DAILY_LIMITS,
       periodDays: 1,
     })
 
-    const paidCapacityPlayersPerDay = findMaxPlayersPerDay({
+    const paidCapacityPlaysPerDay = findMaxPlaysPerDay({
       model,
       limits: PAID_MONTHLY_LIMITS,
       periodDays: DAYS_PER_MONTH,
@@ -261,21 +261,21 @@ describe('1v1 capacity model', () => {
         },
       ])
 
-      console.log('\n[capacity] scenario usage by daily players')
+      console.log('\n[capacity] scenario usage by daily plays')
       console.table(scenarioRows)
 
       console.log('\n[capacity] plan ceilings')
       console.table([
         {
           plan: 'free',
-          playersPerDay: freeCapacityPlayersPerDay,
-          draftsPerDay: freeCapacityPlayersPerDay / PLAYERS_PER_DRAFT,
+          playsPerDay: freeCapacityPlaysPerDay,
+          draftsPerDay1v1: freeCapacityPlaysPerDay / PLAYERS_PER_DRAFT,
           bottleneck: freeBottleneck.metric,
         },
         {
           plan: '$5 included',
-          playersPerDay: paidCapacityPlayersPerDay,
-          draftsPerDay: paidCapacityPlayersPerDay / PLAYERS_PER_DRAFT,
+          playsPerDay: paidCapacityPlaysPerDay,
+          draftsPerDay1v1: paidCapacityPlaysPerDay / PLAYERS_PER_DRAFT,
           bottleneck: paidBottleneck.metric,
         },
       ])
@@ -286,23 +286,23 @@ describe('1v1 capacity model', () => {
           plan: 'free',
           rank: index + 1,
           metric: row.metric,
-          playersPerDay: row.playersPerDay,
-          draftsPerDay: row.draftsPerDay,
+          playsPerDay: row.playsPerDay,
+          draftsPerDay1v1: row.draftsPerDay1v1,
         })),
         ...paidBreakpoints.map((row, index) => ({
           plan: '$5 included',
           rank: index + 1,
           metric: row.metric,
-          playersPerDay: row.playersPerDay,
-          draftsPerDay: row.draftsPerDay,
+          playsPerDay: row.playsPerDay,
+          draftsPerDay1v1: row.draftsPerDay1v1,
         })),
       ])
     }
 
     expect(model.perDraft.kvWrites).toBeGreaterThan(0)
     expect(model.perDraft.d1RowsWritten).toBeGreaterThan(0)
-    expect(freeCapacityPlayersPerDay).toBeGreaterThan(0)
-    expect(paidCapacityPlayersPerDay).toBeGreaterThan(0)
+    expect(freeCapacityPlaysPerDay).toBeGreaterThan(0)
+    expect(paidCapacityPlaysPerDay).toBeGreaterThan(0)
   })
 })
 
@@ -720,7 +720,7 @@ function installStateCoordinatorHarness(): StateCoordinatorHarness {
   let requestCount = 0
 
   const originalFetch = globalThis.fetch
-  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const requestUrl = typeof input === 'string'
       ? new URL(input)
       : input instanceof URL
@@ -826,7 +826,7 @@ function installStateCoordinatorHarness(): StateCoordinatorHarness {
     }
 
     return jsonError('Unknown operation')
-  }
+  }) as unknown as typeof fetch
 
   return {
     host,
@@ -851,7 +851,8 @@ function resolveHeader(headers: HeadersInit | undefined, name: string): string |
     return entry?.[1] ?? null
   }
 
-  const value = headers[name] ?? headers[name.toLowerCase()]
+  const record = headers as Record<string, string | string[] | undefined>
+  const value = record[name] ?? record[name.toLowerCase()]
   if (Array.isArray(value)) return value[0] ?? null
   return typeof value === 'string' ? value : null
 }
@@ -894,9 +895,9 @@ function estimateDoBilledRequestUnits(stateCoordinatorRequests: number): number 
   )
 }
 
-function estimateDailyUsage(model: CapacityModel, playersPerDay: number): DailyUsage {
-  const draftsPerDay = playersPerDay / PLAYERS_PER_DRAFT
-  const d1RowsReadPerDraft = model.perDraft.d1RowsReadBase + model.perDraft.d1RowsReadPerLeaderboardPlayer * playersPerDay
+function estimateDailyUsage(model: CapacityModel, playsPerDay: number): DailyUsage {
+  const draftsPerDay = playsPerDay / PLAYERS_PER_DRAFT
+  const d1RowsReadPerDraft = model.perDraft.d1RowsReadBase + model.perDraft.d1RowsReadPerLeaderboardPlayer * playsPerDay
 
   return {
     workersRequests: Math.ceil(draftsPerDay * model.perDraft.workersRequests),
@@ -925,7 +926,7 @@ function multiplyDailyUsage(usage: DailyUsage, days: number): DailyUsage {
   }
 }
 
-function findMaxPlayersPerDay(input: {
+function findMaxPlaysPerDay(input: {
   model: CapacityModel
   limits: UsageLimits
   periodDays: number
@@ -958,30 +959,30 @@ function findMetricBreakpoints(input: {
 
   return metrics
     .map((metric) => {
-      const playersPerDay = findMaxPlayersPerDayByMetric({
+      const playsPerDay = findMaxPlaysPerDayByMetric({
         model: input.model,
         metric,
         limit: input.limits[metric],
         periodDays: input.periodDays,
       })
-      const daily = estimateDailyUsage(input.model, playersPerDay)
+      const daily = estimateDailyUsage(input.model, playsPerDay)
       const usage = input.periodDays === 1 ? daily : multiplyDailyUsage(daily, input.periodDays)
 
       return {
         metric,
-        playersPerDay,
-        draftsPerDay: playersPerDay / PLAYERS_PER_DRAFT,
+        playsPerDay,
+        draftsPerDay1v1: playsPerDay / PLAYERS_PER_DRAFT,
         limit: input.limits[metric],
         usageAtBreakpoint: usage[metric],
       }
     })
     .sort((a, b) => {
-      if (a.playersPerDay === b.playersPerDay) return a.metric.localeCompare(b.metric)
-      return a.playersPerDay - b.playersPerDay
+      if (a.playsPerDay === b.playsPerDay) return a.metric.localeCompare(b.metric)
+      return a.playsPerDay - b.playsPerDay
     })
 }
 
-function findMaxPlayersPerDayByMetric(input: {
+function findMaxPlaysPerDayByMetric(input: {
   model: CapacityModel
   metric: keyof UsageLimits
   limit: number
