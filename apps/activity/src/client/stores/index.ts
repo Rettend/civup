@@ -29,7 +29,16 @@ export {
   updateLobbyMode,
   watchLobbyState,
 } from './connection-store'
-export { currentStep, currentStepDuration, draftStore, hasSubmitted, isMyTurn, isSpectator, phaseLabel } from './draft-store'
+export {
+  currentStep,
+  currentStepDuration,
+  draftStore,
+  getOptimisticSeatPick,
+  hasSubmitted,
+  isMyTurn,
+  isSpectator,
+  phaseLabel,
+} from './draft-store'
 export {
   activeTagFilterCount,
   banSelections,

@@ -3,7 +3,7 @@ import { api, ApiError } from '@civup/utils'
 import PartySocket from 'partysocket'
 import { createSignal } from 'solid-js'
 import { relayDevLog } from '../lib/dev-log'
-import { initDraft, updateDraft } from './draft-store'
+import { initDraft, setOptimisticSeatPick, updateDraft } from './draft-store'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -234,7 +234,10 @@ export function sendBan(civIds: string[]) {
 }
 
 export function sendPick(civId: string) {
-  sendMessage({ type: 'pick', civId })
+  const sent = sendMessage({ type: 'pick', civId })
+  if (sent) {
+    setOptimisticSeatPick(civId)
+  }
 }
 
 export function sendCancel(reason: 'cancel' | 'scrub') {

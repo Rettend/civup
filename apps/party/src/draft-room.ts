@@ -322,6 +322,7 @@ export class Main extends Server {
   private async applyResult(newState: DraftState, events: DraftEvent[]) {
     await this.ctx.storage.put('state', newState)
     const config = await this.ctx.storage.get<RoomConfig>('config')
+    let webhookTask: Promise<void> | null = null
 
     // Set timer when a new step starts
     const stepAdvanced = events.some(
@@ -356,7 +357,7 @@ export class Main extends Server {
         await this.ctx.storage.put('completedAt', completedAt)
       }
       if (config) {
-        await this.notifyDraftComplete(newState, config, completedAt)
+        webhookTask = this.notifyDraftComplete(newState, config, completedAt)
       }
     }
 
@@ -370,7 +371,7 @@ export class Main extends Server {
         await this.ctx.storage.put('cancelledAt', cancelledAt)
       }
       if (config) {
-        await this.notifyDraftCancelled(newState, config, cancelledAt)
+        webhookTask = this.notifyDraftCancelled(newState, config, cancelledAt)
       }
     }
 
@@ -379,6 +380,12 @@ export class Main extends Server {
 
     if (newState.status === 'complete' || newState.status === 'cancelled') {
       this.closeAllConnections('Draft closed')
+    }
+
+    if (webhookTask) {
+      this.ctx.waitUntil(webhookTask.catch((error) => {
+        console.error(`Failed to deliver draft webhook for match ${newState.matchId}:`, error)
+      }))
     }
   }
 

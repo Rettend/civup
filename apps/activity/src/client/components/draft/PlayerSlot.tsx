@@ -2,7 +2,7 @@ import type { Leader } from '@civup/game'
 import { getLeader } from '@civup/game'
 import { createEffect, createSignal, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
-import { draftStore, ffaPlacementOrder, phaseAccent, toggleFfaPlacement, userId } from '~/client/stores'
+import { draftStore, ffaPlacementOrder, getOptimisticSeatPick, phaseAccent, toggleFfaPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -16,7 +16,18 @@ export function PlayerSlot(props: PlayerSlotProps) {
   const state = () => draftStore.state
   const seat = () => state()?.seats[props.seatIndex]
 
-  const pick = () => state()?.picks.find(p => p.seatIndex === props.seatIndex)
+  const pick = () => {
+    const serverPick = state()?.picks.find(p => p.seatIndex === props.seatIndex)
+    if (serverPick) return serverPick
+
+    const optimisticCivId = getOptimisticSeatPick(props.seatIndex)
+    if (!optimisticCivId) return null
+
+    return {
+      seatIndex: props.seatIndex,
+      civId: optimisticCivId,
+    }
+  }
 
   const leader = (): Leader | null => {
     const p = pick()
