@@ -8,7 +8,7 @@
 
   "vars": {
     "BOT_HOST": "https://civup-bot.rettend.workers.dev",
-    "PARTY_HOST": "https://civup-party.rettend.partykit.dev"
+    "PARTY_HOST": "https://party.rettend.me"
   },
 
   "d1_databases": [

@@ -6,9 +6,9 @@ import type {
   RoomConfig,
   ServerMessage,
 } from '@civup/game'
-import type * as Party from 'partykit/server'
 import { createDraft, draftFormatMap, getCurrentStep, isDraftError, MAX_TIMER_SECONDS, processDraftInput } from '@civup/game'
 import { api, ApiError } from '@civup/utils'
+import { Server, type Connection, type ConnectionContext, type WSMessage } from 'partyserver'
 
 // ── Connection State ─────────────────────────────────────────
 
@@ -22,16 +22,14 @@ const WEBHOOK_RETRY_MAX_MS = 1500
 
 // ── Draft Room Server ────────────────────────────────────────
 
-export default class DraftRoom implements Party.Server {
-  readonly options: Party.ServerOptions = {
+export class Main extends Server {
+  static override options = {
     hibernate: true,
   }
 
-  constructor(readonly room: Party.Room) {}
-
   // ── HTTP: Room initialization & status ─────────────────────
 
-  async onRequest(req: Party.Request): Promise<Response> {
+  override async onRequest(req: Request): Promise<Response> {
     if (req.method === 'POST') {
       return this.handleCreate(req)
     }
@@ -41,8 +39,8 @@ export default class DraftRoom implements Party.Server {
     return new Response('Method not allowed', { status: 405 })
   }
 
-  private async handleCreate(req: Party.Request): Promise<Response> {
-    const existing = await this.room.storage.get<DraftState>('state')
+  private async handleCreate(req: Request): Promise<Response> {
+    const existing = await this.ctx.storage.get<DraftState>('state')
     if (existing) {
       return json({ error: 'Room already initialized' }, 409)
     }
@@ -67,47 +65,47 @@ export default class DraftRoom implements Party.Server {
     const baseState = createDraft(config.matchId, format, config.seats, config.civPool)
     const state = withWaitingTimerConfig(format, baseState, config.timerConfig)
 
-    await this.room.storage.put('config', config)
-    await this.room.storage.put('state', state)
-    await this.room.storage.put('timerEndsAt', null)
-    await this.room.storage.put('alarmStepIndex', -1)
-    await this.room.storage.put('completedAt', null)
-    await this.room.storage.put('cancelledAt', null)
+    await this.ctx.storage.put('config', config)
+    await this.ctx.storage.put('state', state)
+    await this.ctx.storage.put('timerEndsAt', null)
+    await this.ctx.storage.put('alarmStepIndex', -1)
+    await this.ctx.storage.put('completedAt', null)
+    await this.ctx.storage.put('cancelledAt', null)
 
     return json({ ok: true, matchId: config.matchId }, 201)
   }
 
   private async handleStatus(): Promise<Response> {
-    const state = await this.room.storage.get<DraftState>('state')
+    const state = await this.ctx.storage.get<DraftState>('state')
     if (!state) {
       return json({ error: 'Room not initialized' }, 404)
     }
-    const timerEndsAt = await this.room.storage.get<number | null>('timerEndsAt')
-    const completedAt = await this.room.storage.get<number | null>('completedAt')
-    const cancelledAt = await this.room.storage.get<number | null>('cancelledAt')
+    const timerEndsAt = await this.ctx.storage.get<number | null>('timerEndsAt')
+    const completedAt = await this.ctx.storage.get<number | null>('completedAt')
+    const cancelledAt = await this.ctx.storage.get<number | null>('cancelledAt')
     return json({ state, timerEndsAt, completedAt, cancelledAt })
   }
 
   // ── WebSocket: Connection ──────────────────────────────────
 
-  async onConnect(connection: Party.Connection, ctx: Party.ConnectionContext) {
+  override async onConnect(connection: Connection, ctx: ConnectionContext) {
     const url = new URL(ctx.request.url)
     const playerId = url.searchParams.get('playerId')
 
     connection.setState({ playerId } satisfies ConnectionState)
 
-    const state = await this.room.storage.get<DraftState>('state')
+    const state = await this.ctx.storage.get<DraftState>('state')
     if (!state) {
       this.send(connection, { type: 'error', message: 'Room not initialized' })
       connection.close(4000, 'Room not initialized')
       return
     }
 
-    const config = await this.room.storage.get<RoomConfig>('config')
+    const config = await this.ctx.storage.get<RoomConfig>('config')
     const hostId = config?.hostId ?? state.seats[0]?.playerId ?? ''
 
-    const timerEndsAt = await this.room.storage.get<number | null>('timerEndsAt')
-    const completedAt = await this.room.storage.get<number | null>('completedAt')
+    const timerEndsAt = await this.ctx.storage.get<number | null>('timerEndsAt')
+    const completedAt = await this.ctx.storage.get<number | null>('completedAt')
     const seatIndex = playerId
       ? state.seats.findIndex(s => s.playerId === playerId)
       : -1
@@ -128,7 +126,7 @@ export default class DraftRoom implements Party.Server {
 
   // ── WebSocket: Messages ────────────────────────────────────
 
-  async onMessage(message: string | ArrayBuffer, sender: Party.Connection) {
+  override async onMessage(sender: Connection, message: WSMessage) {
     if (typeof message !== 'string') return
 
     let msg: ClientMessage
@@ -140,13 +138,13 @@ export default class DraftRoom implements Party.Server {
       return
     }
 
-    const state = await this.room.storage.get<DraftState>('state')
+    const state = await this.ctx.storage.get<DraftState>('state')
     if (!state) {
       this.send(sender, { type: 'error', message: 'Room not initialized' })
       return
     }
 
-    const config = await this.room.storage.get<RoomConfig>('config')
+    const config = await this.ctx.storage.get<RoomConfig>('config')
     if (!config) {
       this.send(sender, { type: 'error', message: 'Room config missing' })
       return
@@ -269,14 +267,14 @@ export default class DraftRoom implements Party.Server {
 
         const timerConfig = { banTimerSeconds, pickTimerSeconds }
         const nextState = withWaitingTimerConfig(format, state, timerConfig)
-        await this.room.storage.put('state', nextState)
-        await this.room.storage.put('config', {
+        await this.ctx.storage.put('state', nextState)
+        await this.ctx.storage.put('config', {
           ...config,
           timerConfig,
         } satisfies RoomConfig)
 
-        const timerEndsAt = await this.room.storage.get<number | null>('timerEndsAt')
-        const completedAt = await this.room.storage.get<number | null>('completedAt')
+        const timerEndsAt = await this.ctx.storage.get<number | null>('timerEndsAt')
+        const completedAt = await this.ctx.storage.get<number | null>('completedAt')
         this.broadcastUpdate(nextState, config.hostId, [], timerEndsAt ?? null, completedAt ?? null)
         break
       }
@@ -288,26 +286,26 @@ export default class DraftRoom implements Party.Server {
 
   // ── WebSocket: Disconnect ──────────────────────────────────
 
-  async onClose(_connection: Party.Connection) {
+  override async onClose(_connection: Connection) {
     // No action needed — timer continues server-side.
     // If the disconnected player's turn expires during picks, TIMEOUT auto-cancels.
   }
 
-  async onError(_connection: Party.Connection, _error: Error) {
+  override async onError(_connection: Connection, _error: unknown) {
     // Same as onClose — no special handling needed.
   }
 
   // ── Timer: Alarm ───────────────────────────────────────────
 
-  async onAlarm() {
-    const state = await this.room.storage.get<DraftState>('state')
+  override async onAlarm() {
+    const state = await this.ctx.storage.get<DraftState>('state')
     if (!state || state.status !== 'active') return
 
     // Guard against stale alarms (step already advanced)
-    const alarmStepIndex = await this.room.storage.get<number>('alarmStepIndex')
+    const alarmStepIndex = await this.ctx.storage.get<number>('alarmStepIndex')
     if (alarmStepIndex !== state.currentStepIndex) return
 
-    const config = await this.room.storage.get<RoomConfig>('config')
+    const config = await this.ctx.storage.get<RoomConfig>('config')
     if (!config) return
 
     const format = draftFormatMap.get(config.formatId)
@@ -322,40 +320,40 @@ export default class DraftRoom implements Party.Server {
   // ── Internal: Apply result & broadcast ─────────────────────
 
   private async applyResult(newState: DraftState, events: DraftEvent[]) {
-    await this.room.storage.put('state', newState)
-    const config = await this.room.storage.get<RoomConfig>('config')
+    await this.ctx.storage.put('state', newState)
+    const config = await this.ctx.storage.get<RoomConfig>('config')
 
     // Set timer when a new step starts
     const stepAdvanced = events.some(
       e => e.type === 'STEP_ADVANCED' || e.type === 'DRAFT_STARTED',
     )
 
-    let timerEndsAt = await this.room.storage.get<number | null>('timerEndsAt')
-    let completedAt = await this.room.storage.get<number | null>('completedAt')
-    let cancelledAt = await this.room.storage.get<number | null>('cancelledAt')
+    let timerEndsAt = await this.ctx.storage.get<number | null>('timerEndsAt')
+    let completedAt = await this.ctx.storage.get<number | null>('completedAt')
+    let cancelledAt = await this.ctx.storage.get<number | null>('cancelledAt')
 
     if (stepAdvanced && newState.status === 'active') {
       const step = getCurrentStep(newState)
       if (step && step.timer > 0) {
         timerEndsAt = Date.now() + step.timer * 1000
-        await this.room.storage.put('alarmStepIndex', newState.currentStepIndex)
-        await this.room.storage.setAlarm(timerEndsAt)
+        await this.ctx.storage.put('alarmStepIndex', newState.currentStepIndex)
+        await this.ctx.storage.setAlarm(timerEndsAt)
       }
       else {
         timerEndsAt = null
-        await this.room.storage.deleteAlarm()
+        await this.ctx.storage.deleteAlarm()
       }
-      await this.room.storage.put('timerEndsAt', timerEndsAt)
+      await this.ctx.storage.put('timerEndsAt', timerEndsAt)
     }
 
     if (newState.status === 'complete') {
       timerEndsAt = null
-      await this.room.storage.deleteAlarm()
-      await this.room.storage.put('alarmStepIndex', -1)
-      await this.room.storage.put('timerEndsAt', null)
+      await this.ctx.storage.deleteAlarm()
+      await this.ctx.storage.put('alarmStepIndex', -1)
+      await this.ctx.storage.put('timerEndsAt', null)
       if (completedAt == null) {
         completedAt = Date.now()
-        await this.room.storage.put('completedAt', completedAt)
+        await this.ctx.storage.put('completedAt', completedAt)
       }
       if (config) {
         await this.notifyDraftComplete(newState, config, completedAt)
@@ -364,12 +362,12 @@ export default class DraftRoom implements Party.Server {
 
     if (newState.status === 'cancelled') {
       timerEndsAt = null
-      await this.room.storage.deleteAlarm()
-      await this.room.storage.put('alarmStepIndex', -1)
-      await this.room.storage.put('timerEndsAt', null)
+      await this.ctx.storage.deleteAlarm()
+      await this.ctx.storage.put('alarmStepIndex', -1)
+      await this.ctx.storage.put('timerEndsAt', null)
       if (cancelledAt == null) {
         cancelledAt = Date.now()
-        await this.room.storage.put('cancelledAt', cancelledAt)
+        await this.ctx.storage.put('cancelledAt', cancelledAt)
       }
       if (config) {
         await this.notifyDraftCancelled(newState, config, cancelledAt)
@@ -393,7 +391,7 @@ export default class DraftRoom implements Party.Server {
   ) {
     // During blind ban phases, each player sees only their own pending bans
     if (state.pendingBlindBans.length > 0) {
-      for (const conn of this.room.getConnections()) {
+      for (const conn of this.getConnections()) {
         const connState = conn.state as ConnectionState | null
         const playerId = connState?.playerId
         const seatIndex = playerId
@@ -412,7 +410,7 @@ export default class DraftRoom implements Party.Server {
     }
     else {
       // No censoring needed — broadcast identical state to everyone
-      this.room.broadcast(JSON.stringify({
+      this.broadcast(JSON.stringify({
         type: 'update',
         state,
         hostId,
@@ -448,12 +446,12 @@ export default class DraftRoom implements Party.Server {
 
   // ── Internal: Send message ─────────────────────────────────
 
-  private send(connection: Party.Connection, message: ServerMessage) {
+  private send(connection: Connection, message: ServerMessage) {
     connection.send(JSON.stringify(message))
   }
 
   private closeAllConnections(reason: string) {
-    for (const conn of this.room.getConnections()) {
+    for (const conn of this.getConnections()) {
       conn.close(1000, reason)
     }
   }

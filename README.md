@@ -54,7 +54,7 @@ Production runtime URLs are configured in:
 Current defaults:
 
 - `BOT_HOST=https://civup-bot.rettend.workers.dev`
-- `PARTY_HOST=https://civup-party.rettend.partykit.dev`
+- `PARTY_HOST=https://party.rettend.me`
 
 If you switch to custom domains, update both Wrangler configs.
 
@@ -97,7 +97,7 @@ For local activity-to-bot proxying in dev, use this in `apps/activity/.dev.vars`
 
 ```bash
 BOT_HOST=https://bot-dev.rettend.me
-PARTY_HOST=https://civup-party.rettend.partykit.dev
+PARTY_HOST=https://party.rettend.me
 ```
 
 ## Project

@@ -7,7 +7,7 @@
   "vars": {
     "DISCORD_CLIENT_ID": "1469447716751933533",
     "BOT_HOST": "https://civup-bot.rettend.workers.dev",
-    "PARTY_HOST": "https://civup-party.rettend.partykit.dev"
+    "PARTY_HOST": "https://party.rettend.me"
   },
   "services": [
     {
