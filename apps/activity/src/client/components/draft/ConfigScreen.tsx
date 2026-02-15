@@ -69,7 +69,12 @@ export function ConfigScreen(props: ConfigScreenProps) {
   )
 
   createEffect(() => {
-    setLobbyState(props.lobby ?? null)
+    const incomingLobby = props.lobby ?? null
+    setLobbyState((current) => {
+      if (!incomingLobby) return null
+      if (current && incomingLobby.revision < current.revision) return current
+      return incomingLobby
+    })
   })
 
   createEffect(() => {
@@ -146,10 +151,15 @@ export function ConfigScreen(props: ConfigScreenProps) {
   })
 
   const applyLobbySnapshot = (lobby: LobbySnapshot) => {
-    setLobbyState(lobby)
+    setLobbyState((current) => {
+      if (current && lobby.revision < current.revision) return current
+      return lobby
+    })
+    const resolvedLobby = lobbyState()
+    if (!resolvedLobby) return
     setLobbyTimerConfig({
-      banTimerSeconds: lobby.draftConfig.banTimerSeconds,
-      pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
+      banTimerSeconds: resolvedLobby.draftConfig.banTimerSeconds,
+      pickTimerSeconds: resolvedLobby.draftConfig.pickTimerSeconds,
     })
   }
 
