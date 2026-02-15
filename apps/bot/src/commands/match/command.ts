@@ -14,6 +14,7 @@ import { clearLobby, clearLobbyByMatch, createLobby, getLobby, getLobbyByMatch, 
 import { storeMatchMessageMapping } from '../../services/match-message.ts'
 import { reportMatch } from '../../services/match.ts'
 import { addToQueue, clearQueue, getQueueState, removeFromQueue } from '../../services/queue.ts'
+import { createStateStore } from '../../services/state-store.ts'
 import { getSystemChannel } from '../../services/system-channels.ts'
 import { factory } from '../../setup.ts'
 import { collectFfaPlacementUserIds, GAME_MODE_CHOICES, getIdentity, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
@@ -60,7 +61,7 @@ export const command_match = factory.command<MatchVar>(
         }
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const kv = c.env.KV
+          const kv = createStateStore(c.env)
           const draftChannelId = await getSystemChannel(kv, 'draft')
           if (!draftChannelId) {
             await sendTransientEphemeralResponse(
@@ -164,6 +165,7 @@ export const command_match = factory.command<MatchVar>(
       // ── join ────────────────────────────────────────────
       case 'join': {
         const mode = c.var.mode as GameMode
+        const kv = createStateStore(c.env)
         const identity = getIdentity(c)
         if (!identity) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
@@ -171,9 +173,9 @@ export const command_match = factory.command<MatchVar>(
           })
         }
 
-        const lobby = await getLobby(c.env.KV, mode)
+        const lobby = await getLobby(kv, mode)
         if (!lobby) {
-          let userMatchId = await getMatchForUser(c.env.KV, identity.userId)
+          let userMatchId = await getMatchForUser(kv, identity.userId)
           if (!userMatchId) {
             const db = createDb(c.env.DB)
             const [active] = await db
@@ -191,7 +193,7 @@ export const command_match = factory.command<MatchVar>(
           }
 
           if (userMatchId) {
-            c.executionCtx.waitUntil(storeUserMatchMappings(c.env.KV, [identity.userId], userMatchId))
+            c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], userMatchId))
             return c.resActivity()
           }
           return c.flags('EPHEMERAL').resDefer(async (c) => {
@@ -201,13 +203,13 @@ export const command_match = factory.command<MatchVar>(
 
         if (lobby.status !== 'open') {
           if (!lobby.matchId) {
-            await clearLobby(c.env.KV, mode)
+            await clearLobby(kv, mode)
             return c.flags('EPHEMERAL').resDefer(async (c) => {
               await sendTransientEphemeralResponse(c, 'This lobby was stale and has been cleared. Use `/match create` to start a fresh lobby.', 'error')
             })
           }
 
-          c.executionCtx.waitUntil(storeUserMatchMappings(c.env.KV, [identity.userId], lobby.matchId))
+          c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], lobby.matchId))
           return c.resActivity()
         }
 
@@ -226,7 +228,7 @@ export const command_match = factory.command<MatchVar>(
           }
 
           try {
-            await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
+            await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
               embeds: outcome.embeds,
               components: outcome.components,
             })
@@ -250,7 +252,7 @@ export const command_match = factory.command<MatchVar>(
         }
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const kv = c.env.KV
+          const kv = createStateStore(c.env)
           const removed = await removeFromQueue(kv, identity.userId)
 
           if (!removed) {
@@ -290,7 +292,7 @@ export const command_match = factory.command<MatchVar>(
       // ── status ──────────────────────────────────────────
       case 'status': {
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const kv = c.env.KV
+          const kv = createStateStore(c.env)
           const modes: GameMode[] = ['ffa', '1v1', '2v2', '3v3']
           const lines: string[] = []
 
@@ -333,7 +335,7 @@ export const command_match = factory.command<MatchVar>(
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           const db = createDb(c.env.DB)
-          const kv = c.env.KV
+          const kv = createStateStore(c.env)
 
           let matchId = c.var.match_id?.trim() ?? null
           if (!matchId) {

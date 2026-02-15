@@ -3,12 +3,13 @@ import { getQueueTimeoutMs } from '../services/config.ts'
 import { refreshDirtyLeaderboards } from '../services/leaderboard-message.ts'
 import { pruneAbandonedMatches } from '../services/match.ts'
 import { pruneStaleEntries } from '../services/queue.ts'
+import { createStateStore } from '../services/state-store.ts'
 import { factory } from '../setup.ts'
 
 export const cron_cleanup = factory.cron(
   '0 * * * *',
   async (c) => {
-    const kv = c.env.KV
+    const kv = createStateStore(c.env)
     const db = createDb(c.env.DB)
 
     const queueTimeoutMs = await getQueueTimeoutMs(kv)

@@ -44,6 +44,7 @@ import {
 import { storeMatchMessageMapping } from './services/match-message.ts'
 import { activateDraftMatch, cancelDraftMatch, createDraftMatch, reportMatch } from './services/match.ts'
 import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, moveQueueMode, setQueueEntries } from './services/queue.ts'
+import { createStateStore } from './services/state-store.ts'
 import { getSystemChannel } from './services/system-channels.ts'
 import { factory } from './setup.ts'
 
@@ -74,7 +75,8 @@ app.use('/api/*', cors())
 // Match lookup endpoint for activity
 app.get('/api/match/:channelId', async (c) => {
   const channelId = c.req.param('channelId')
-  const matchId = await getMatchForChannel(c.env.KV, channelId)
+  const kv = createStateStore(c.env)
+  const matchId = await getMatchForChannel(kv, channelId)
 
   if (!matchId) {
     return c.json({ error: 'No active match for this channel' }, 404)
@@ -86,7 +88,8 @@ app.get('/api/match/:channelId', async (c) => {
 // Match lookup fallback by user (voice-channel launches use user context)
 app.get('/api/match/user/:userId', async (c) => {
   const userId = c.req.param('userId')
-  const matchId = await getMatchForUser(c.env.KV, userId)
+  const kv = createStateStore(c.env)
+  const matchId = await getMatchForUser(kv, userId)
 
   if (matchId) {
     return c.json({ matchId })
@@ -110,17 +113,18 @@ app.get('/api/match/user/:userId', async (c) => {
     return c.json({ error: 'No active match for this user' }, 404)
   }
 
-  await storeUserMatchMappings(c.env.KV, [userId], active.matchId)
+  await storeUserMatchMappings(kv, [userId], active.matchId)
   return c.json({ matchId: active.matchId })
 })
 
 // Open lobby lookup for activity waiting room
 app.get('/api/lobby/:channelId', async (c) => {
   const channelId = c.req.param('channelId')
+  const kv = createStateStore(c.env)
 
-  const lobby = await getLobbyByChannel(c.env.KV, channelId)
+  const lobby = await getLobbyByChannel(kv, channelId)
   if (lobby?.status === 'open') {
-    return c.json(await buildOpenLobbySnapshot(c.env.KV, lobby.mode, lobby))
+    return c.json(await buildOpenLobbySnapshot(kv, lobby.mode, lobby))
   }
 
   return c.json({ error: 'No open lobby for this channel' }, 404)
@@ -129,23 +133,25 @@ app.get('/api/lobby/:channelId', async (c) => {
 // Open lobby lookup by user (covers voice-channel launches)
 app.get('/api/lobby/user/:userId', async (c) => {
   const userId = c.req.param('userId')
-  const mode = await getPlayerQueueMode(c.env.KV, userId)
+  const kv = createStateStore(c.env)
+  const mode = await getPlayerQueueMode(kv, userId)
 
   if (!mode) {
     return c.json({ error: 'User is not in an open lobby queue' }, 404)
   }
 
-  const lobby = await getLobby(c.env.KV, mode)
+  const lobby = await getLobby(kv, mode)
   if (!lobby || lobby.status !== 'open') {
     return c.json({ error: 'No open lobby for this user' }, 404)
   }
 
-  return c.json(await buildOpenLobbySnapshot(c.env.KV, mode, lobby))
+  return c.json(await buildOpenLobbySnapshot(kv, mode, lobby))
 })
 
 // Host-only lobby config update (pre-draft)
 app.post('/api/lobby/:mode/config', async (c) => {
   const mode = parseGameMode(c.req.param('mode'))
+  const kv = createStateStore(c.env)
   if (!mode) {
     return c.json({ error: 'Invalid game mode' }, 400)
   }
@@ -178,7 +184,7 @@ app.post('/api/lobby/:mode/config', async (c) => {
     return c.json({ error: `Timers must be numbers between 0 and ${MAX_CONFIG_TIMER_SECONDS}` }, 400)
   }
 
-  const lobby = await getLobby(c.env.KV, mode)
+  const lobby = await getLobby(kv, mode)
   if (!lobby || lobby.status !== 'open') {
     return c.json({ error: 'No open lobby for this mode' }, 404)
   }
@@ -187,7 +193,7 @@ app.post('/api/lobby/:mode/config', async (c) => {
     return c.json({ error: 'Only the lobby host can update draft timers' }, 403)
   }
 
-  const updated = await setLobbyDraftConfig(c.env.KV, mode, {
+  const updated = await setLobbyDraftConfig(kv, mode, {
     banTimerSeconds: normalizedBan,
     pickTimerSeconds: normalizedPick,
   })
@@ -196,12 +202,13 @@ app.post('/api/lobby/:mode/config', async (c) => {
     return c.json({ error: 'Lobby not found' }, 404)
   }
 
-  return c.json(await buildOpenLobbySnapshot(c.env.KV, mode, updated))
+  return c.json(await buildOpenLobbySnapshot(kv, mode, updated))
 })
 
 // Host-only open lobby mode change
 app.post('/api/lobby/:mode/mode', async (c) => {
   const mode = parseGameMode(c.req.param('mode'))
+  const kv = createStateStore(c.env)
   if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
   let body: unknown
@@ -230,7 +237,7 @@ app.post('/api/lobby/:mode/mode', async (c) => {
     return c.json({ error: 'nextMode must be one of ffa, 1v1, 2v2, 3v3' }, 400)
   }
 
-  const lobby = await getLobby(c.env.KV, mode)
+  const lobby = await getLobby(kv, mode)
   if (!lobby || lobby.status !== 'open') {
     return c.json({ error: 'No open lobby for this mode' }, 404)
   }
@@ -240,15 +247,15 @@ app.post('/api/lobby/:mode/mode', async (c) => {
   }
 
   if (nextMode === mode) {
-    return c.json(await buildOpenLobbySnapshot(c.env.KV, mode, lobby))
+    return c.json(await buildOpenLobbySnapshot(kv, mode, lobby))
   }
 
-  const modeCollision = await getLobby(c.env.KV, nextMode)
+  const modeCollision = await getLobby(kv, nextMode)
   if (modeCollision) {
     return c.json({ error: `A ${nextMode.toUpperCase()} lobby already exists.` }, 409)
   }
 
-  const queue = await getQueueState(c.env.KV, mode)
+  const queue = await getQueueState(kv, mode)
   if (!queue.entries.some(entry => entry.playerId === lobby.hostId)) {
     return c.json({ error: 'Host is not in the queue anymore. Rejoin first.' }, 400)
   }
@@ -275,19 +282,19 @@ app.post('/api/lobby/:mode/mode', async (c) => {
     revision: lobby.revision + 1,
   }
 
-  await clearLobby(c.env.KV, mode)
-  await upsertLobby(c.env.KV, nextLobby)
+  await clearLobby(kv, mode)
+  await upsertLobby(kv, nextLobby)
 
-  const movedQueue = await moveQueueMode(c.env.KV, mode, nextMode)
+  const movedQueue = await moveQueueMode(kv, mode, nextMode)
   const normalizedNextSlots = normalizeLobbySlots(nextMode, nextSlots, movedQueue.entries)
   const slottedEntries = mapLobbySlotsToEntries(normalizedNextSlots, movedQueue.entries)
 
   if (!sameLobbySlots(normalizedNextSlots, nextSlots)) {
-    await setLobbySlots(c.env.KV, nextMode, normalizedNextSlots)
+    await setLobbySlots(kv, nextMode, normalizedNextSlots)
   }
 
   try {
-    await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, nextLobby, {
+    await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
       embeds: [lobbyOpenEmbed(nextMode, slottedEntries, maxPlayerCount(nextMode))],
       components: lobbyComponents(nextMode),
     })
@@ -297,7 +304,7 @@ app.post('/api/lobby/:mode/mode', async (c) => {
   }
 
   return c.json(await buildOpenLobbySnapshotFromParts(
-    c.env.KV,
+    kv,
     nextMode,
     nextLobby,
     movedQueue.entries,
@@ -308,6 +315,7 @@ app.post('/api/lobby/:mode/mode', async (c) => {
 // Place a player into a lobby slot (join/move/swap)
 app.post('/api/lobby/:mode/place', async (c) => {
   const mode = parseGameMode(c.req.param('mode'))
+  const kv = createStateStore(c.env)
   if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
   let body: unknown
@@ -345,7 +353,7 @@ app.post('/api/lobby/:mode/place', async (c) => {
     return c.json({ error: 'Invalid target slot index' }, 400)
   }
 
-  const lobby = await getLobby(c.env.KV, mode)
+  const lobby = await getLobby(kv, mode)
   if (!lobby || lobby.status !== 'open') {
     return c.json({ error: 'No open lobby for this mode' }, 404)
   }
@@ -359,7 +367,7 @@ app.post('/api/lobby/:mode/place', async (c) => {
     return c.json({ error: 'You can only move yourself' }, 403)
   }
 
-  let queue = await getQueueState(c.env.KV, mode)
+  let queue = await getQueueState(kv, mode)
   let slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
 
   const movingEntry = queue.entries.find(entry => entry.playerId === movingPlayerId)
@@ -372,7 +380,7 @@ app.post('/api/lobby/:mode/place', async (c) => {
       return c.json({ error: 'displayName is required when joining as spectator.' }, 400)
     }
 
-    const joinResult = await addToQueue(c.env.KV, mode, {
+    const joinResult = await addToQueue(kv, mode, {
       playerId: movingPlayerId,
       displayName,
       avatarUrl: typeof avatarUrl === 'string' ? avatarUrl : null,
@@ -383,7 +391,7 @@ app.post('/api/lobby/:mode/place', async (c) => {
       return c.json({ error: joinResult.error }, 400)
     }
 
-    queue = await getQueueState(c.env.KV, mode)
+    queue = await getQueueState(kv, mode)
     slots = normalizeLobbySlots(mode, slots, queue.entries)
   }
 
@@ -391,7 +399,7 @@ app.post('/api/lobby/:mode/place', async (c) => {
   const targetPlayerId = slots[targetSlot]
 
   if (targetPlayerId === movingPlayerId) {
-    return c.json(await buildOpenLobbySnapshotFromParts(c.env.KV, mode, lobby, queue.entries, slots))
+    return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, lobby, queue.entries, slots))
   }
 
   if (!isHost) {
@@ -414,12 +422,12 @@ app.post('/api/lobby/:mode/place', async (c) => {
     }
   }
 
-  const updatedLobby = await setLobbySlots(c.env.KV, mode, slots)
+  const updatedLobby = await setLobbySlots(kv, mode, slots)
   const nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
 
   const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
   try {
-    await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, nextLobby, {
+    await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
       embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
       components: lobbyComponents(mode),
     })
@@ -428,12 +436,13 @@ app.post('/api/lobby/:mode/place', async (c) => {
     console.error(`Failed to update lobby embed after slot placement in ${mode}:`, error)
   }
 
-  return c.json(await buildOpenLobbySnapshotFromParts(c.env.KV, mode, nextLobby, queue.entries, slots))
+  return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, queue.entries, slots))
 })
 
 // Remove a player from a lobby slot (self leave or host kick)
 app.post('/api/lobby/:mode/remove', async (c) => {
   const mode = parseGameMode(c.req.param('mode'))
+  const kv = createStateStore(c.env)
   if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
   let body: unknown
@@ -459,17 +468,17 @@ app.post('/api/lobby/:mode/remove', async (c) => {
     return c.json({ error: 'Invalid slot index' }, 400)
   }
 
-  const lobby = await getLobby(c.env.KV, mode)
+  const lobby = await getLobby(kv, mode)
   if (!lobby || lobby.status !== 'open') {
     return c.json({ error: 'No open lobby for this mode' }, 404)
   }
 
-  const queue = await getQueueState(c.env.KV, mode)
+  const queue = await getQueueState(kv, mode)
   const slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
   const targetPlayerId = slots[slot]
 
   if (targetPlayerId == null) {
-    return c.json(await buildOpenLobbySnapshotFromParts(c.env.KV, mode, lobby, queue.entries, slots))
+    return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, lobby, queue.entries, slots))
   }
 
   if (targetPlayerId === lobby.hostId) {
@@ -482,12 +491,12 @@ app.post('/api/lobby/:mode/remove', async (c) => {
   }
 
   slots[slot] = null
-  const updatedLobby = await setLobbySlots(c.env.KV, mode, slots)
+  const updatedLobby = await setLobbySlots(kv, mode, slots)
   const nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
   const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
 
   try {
-    await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, nextLobby, {
+    await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
       embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
       components: lobbyComponents(mode),
     })
@@ -496,12 +505,13 @@ app.post('/api/lobby/:mode/remove', async (c) => {
     console.error(`Failed to update lobby embed after slot removal in ${mode}:`, error)
   }
 
-  return c.json(await buildOpenLobbySnapshotFromParts(c.env.KV, mode, nextLobby, queue.entries, slots))
+  return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, queue.entries, slots))
 })
 
 // Host-only helper: fill empty lobby slots with test players
 app.post('/api/lobby/:mode/fill-test', async (c) => {
   const mode = parseGameMode(c.req.param('mode'))
+  const kv = createStateStore(c.env)
   if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
   let body: unknown
@@ -521,7 +531,7 @@ app.post('/api/lobby/:mode/fill-test', async (c) => {
     return c.json({ error: 'userId is required' }, 400)
   }
 
-  const lobby = await getLobby(c.env.KV, mode)
+  const lobby = await getLobby(kv, mode)
   if (!lobby || lobby.status !== 'open') {
     return c.json({ error: 'No open lobby for this mode' }, 404)
   }
@@ -530,7 +540,7 @@ app.post('/api/lobby/:mode/fill-test', async (c) => {
     return c.json({ error: 'Only the lobby host can fill test players' }, 403)
   }
 
-  const queue = await getQueueState(c.env.KV, mode)
+  const queue = await getQueueState(kv, mode)
   const slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
   const nextEntries = [...queue.entries]
   const existingIds = new Set(nextEntries.map(entry => entry.playerId))
@@ -554,15 +564,15 @@ app.post('/api/lobby/:mode/fill-test', async (c) => {
   }
 
   if (addedCount > 0) {
-    await setQueueEntries(c.env.KV, mode, nextEntries)
+    await setQueueEntries(kv, mode, nextEntries)
   }
 
-  const updatedLobby = await setLobbySlots(c.env.KV, mode, slots)
+  const updatedLobby = await setLobbySlots(kv, mode, slots)
   const nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
   const slottedEntries = mapLobbySlotsToEntries(slots, nextEntries)
 
   try {
-    await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, nextLobby, {
+    await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
       embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
       components: lobbyComponents(mode),
     })
@@ -571,13 +581,14 @@ app.post('/api/lobby/:mode/fill-test', async (c) => {
     console.error(`Failed to update lobby embed after test fill in ${mode}:`, error)
   }
 
-  const snapshot = await buildOpenLobbySnapshotFromParts(c.env.KV, mode, nextLobby, nextEntries, slots)
+  const snapshot = await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextEntries, slots)
   return c.json({ ...snapshot, addedCount })
 })
 
 // Host-only lobby start (manual start from config screen)
 app.post('/api/lobby/:mode/start', async (c) => {
   const mode = parseGameMode(c.req.param('mode'))
+  const kv = createStateStore(c.env)
   if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
   let body: unknown
@@ -597,7 +608,7 @@ app.post('/api/lobby/:mode/start', async (c) => {
     return c.json({ error: 'userId is required' }, 400)
   }
 
-  const lobby = await getLobby(c.env.KV, mode)
+  const lobby = await getLobby(kv, mode)
   if (!lobby) return c.json({ error: 'No lobby for this mode' }, 404)
 
   if (lobby.hostId !== userId) {
@@ -618,7 +629,7 @@ app.post('/api/lobby/:mode/start', async (c) => {
     return c.json({ error: `Lobby is not open (status: ${lobby.status}).` }, 409)
   }
 
-  const queue = await getQueueState(c.env.KV, mode)
+  const queue = await getQueueState(kv, mode)
   const slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
   const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
   const selectedEntries = slottedEntries.filter(
@@ -637,7 +648,7 @@ app.post('/api/lobby/:mode/start', async (c) => {
   }
 
   try {
-    const timerConfig = await resolveDraftTimerConfig(c.env.KV, lobby.draftConfig)
+    const timerConfig = await resolveDraftTimerConfig(kv, lobby.draftConfig)
     const { matchId, seats } = await createDraftRoom(mode, selectedEntries, {
       hostId: lobby.hostId,
       partyHost: c.env.PARTY_HOST,
@@ -650,15 +661,15 @@ app.post('/api/lobby/:mode/start', async (c) => {
     await createDraftMatch(db, { matchId, mode, seats })
 
     if (queue.entries.length > 0) {
-      await clearQueue(c.env.KV, mode, queue.entries.map(entry => entry.playerId))
+      await clearQueue(kv, mode, queue.entries.map(entry => entry.playerId))
     }
 
-    await storeMatchMapping(c.env.KV, lobby.channelId, matchId)
+    await storeMatchMapping(kv, lobby.channelId, matchId)
 
-    await setLobbySlots(c.env.KV, mode, slots)
-    const lobbyForMessage = await attachLobbyMatch(c.env.KV, mode, matchId)
+    await setLobbySlots(kv, mode, slots)
+    const lobbyForMessage = await attachLobbyMatch(kv, mode, matchId)
     if (!lobbyForMessage) {
-      const currentLobby = await getLobby(c.env.KV, mode)
+      const currentLobby = await getLobby(kv, mode)
       if (currentLobby?.status === 'drafting' && currentLobby.matchId) {
         console.warn('[idempotency] lobby start transitioned concurrently', {
           mode,
@@ -678,11 +689,11 @@ app.post('/api/lobby/:mode/start', async (c) => {
     }
 
     try {
-      const updatedLobby = await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobbyForMessage, {
+      const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobbyForMessage, {
         embeds: [lobbyDraftingEmbed(mode, seats)],
         components: lobbyComponents(mode),
       })
-      await storeMatchMessageMapping(c.env.KV, updatedLobby.messageId, matchId)
+      await storeMatchMessageMapping(kv, updatedLobby.messageId, matchId)
     }
     catch (error) {
       console.error(`Failed to update drafting lobby embed for mode ${mode}:`, error)
@@ -699,6 +710,7 @@ app.post('/api/lobby/:mode/start', async (c) => {
 // Host-only open lobby cancellation (before draft room exists)
 app.post('/api/lobby/:mode/cancel', async (c) => {
   const mode = parseGameMode(c.req.param('mode'))
+  const kv = createStateStore(c.env)
   if (!mode) {
     return c.json({ error: 'Invalid game mode' }, 400)
   }
@@ -720,7 +732,7 @@ app.post('/api/lobby/:mode/cancel', async (c) => {
     return c.json({ error: 'userId is required' }, 400)
   }
 
-  const lobby = await getLobby(c.env.KV, mode)
+  const lobby = await getLobby(kv, mode)
   if (!lobby) {
     return c.json({ error: 'No lobby for this mode' }, 404)
   }
@@ -733,13 +745,13 @@ app.post('/api/lobby/:mode/cancel', async (c) => {
     return c.json({ error: 'Only the lobby host can cancel this lobby' }, 403)
   }
 
-  const queue = await getQueueState(c.env.KV, mode)
+  const queue = await getQueueState(kv, mode)
   if (queue.entries.length > 0) {
-    await clearQueue(c.env.KV, mode, queue.entries.map(entry => entry.playerId))
+    await clearQueue(kv, mode, queue.entries.map(entry => entry.playerId))
   }
 
   try {
-    await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
+    await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
       embeds: [{
         title: `LOBBY CANCELLED  -  ${mode.toUpperCase()}`,
         description: 'Host cancelled this lobby before draft start.',
@@ -752,7 +764,7 @@ app.post('/api/lobby/:mode/cancel', async (c) => {
     console.error(`Failed to update cancelled lobby embed for mode ${mode}:`, error)
   }
 
-  await clearLobby(c.env.KV, mode)
+  await clearLobby(kv, mode)
   return c.json({ ok: true })
 })
 
@@ -781,6 +793,7 @@ app.get('/api/match/state/:matchId', async (c) => {
 
 // Report result from activity
 app.post('/api/match/:matchId/report', async (c) => {
+  const kv = createStateStore(c.env)
   let body: unknown
   try {
     body = await c.req.json()
@@ -799,7 +812,7 @@ app.post('/api/match/:matchId/report', async (c) => {
   }
 
   const db = createDb(c.env.DB)
-  const result = await reportMatch(db, c.env.KV, {
+  const result = await reportMatch(db, kv, {
     matchId: c.req.param('matchId'),
     reporterId,
     placements,
@@ -819,29 +832,29 @@ app.post('/api/match/:matchId/report', async (c) => {
 
   const reportedMode = result.match.gameMode as GameMode
 
-  const lobby = await getLobbyByMatch(c.env.KV, result.match.id)
+  const lobby = await getLobbyByMatch(kv, result.match.id)
   if (lobby) {
-    await setLobbyStatus(c.env.KV, lobby.mode, 'completed')
+    await setLobbyStatus(kv, lobby.mode, 'completed')
     try {
-      const updatedLobby = await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
+      const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
         embeds: [lobbyResultEmbed(lobby.mode, result.participants)],
         components: [],
       })
-      await storeMatchMessageMapping(c.env.KV, updatedLobby.messageId, result.match.id)
+      await storeMatchMessageMapping(kv, updatedLobby.messageId, result.match.id)
     }
     catch (error) {
       console.error(`Failed to update lobby result embed for match ${result.match.id}:`, error)
     }
-    await clearLobbyByMatch(c.env.KV, result.match.id)
+    await clearLobbyByMatch(kv, result.match.id)
   }
 
-  const archiveChannelId = await getSystemChannel(c.env.KV, 'archive')
+  const archiveChannelId = await getSystemChannel(kv, 'archive')
   if (archiveChannelId) {
     try {
       const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
         embeds: [lobbyResultEmbed(reportedMode, result.participants)],
       })
-      await storeMatchMessageMapping(c.env.KV, archiveMessage.id, result.match.id)
+      await storeMatchMessageMapping(kv, archiveMessage.id, result.match.id)
     }
     catch (error) {
       console.error(`Failed to post archive result for match ${result.match.id}:`, error)
@@ -849,7 +862,7 @@ app.post('/api/match/:matchId/report', async (c) => {
   }
 
   try {
-    await markLeaderboardsDirty(c.env.KV, `activity-report:${result.match.id}`)
+    await markLeaderboardsDirty(kv, `activity-report:${result.match.id}`)
   }
   catch (error) {
     console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
@@ -860,6 +873,7 @@ app.post('/api/match/:matchId/report', async (c) => {
 
 // Webhook from PartyKit when draft lifecycle changes
 app.post('/api/webhooks/draft-complete', async (c) => {
+  const kv = createStateStore(c.env)
   const expectedSecret = c.env.DRAFT_WEBHOOK_SECRET
   if (expectedSecret) {
     const providedSecret = c.req.header('X-CivUp-Webhook-Secret')
@@ -898,19 +912,19 @@ app.post('/api/webhooks/draft-complete', async (c) => {
       return c.json({ error: result.error }, 400)
     }
 
-    const lobby = await getLobbyByMatch(c.env.KV, payload.matchId)
+    const lobby = await getLobbyByMatch(kv, payload.matchId)
     if (!lobby) {
       console.warn(`No lobby mapping found for draft-complete match ${payload.matchId}`)
       return c.json({ ok: true })
     }
 
-    await setLobbyStatus(c.env.KV, lobby.mode, 'active')
+    await setLobbyStatus(kv, lobby.mode, 'active')
     try {
-      const updatedLobby = await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
+      const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
         embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants)],
         components: lobbyComponents(lobby.mode),
       })
-      await storeMatchMessageMapping(c.env.KV, updatedLobby.messageId, payload.matchId)
+      await storeMatchMessageMapping(kv, updatedLobby.messageId, payload.matchId)
     }
     catch (error) {
       console.error(`Failed to update draft-complete embed for match ${payload.matchId}:`, error)
@@ -922,7 +936,7 @@ app.post('/api/webhooks/draft-complete', async (c) => {
   const hostId = payload.hostId ?? payload.state.seats[0]?.playerId
   if (!hostId) return c.json({ error: 'Draft webhook missing host identity' }, 400)
 
-  const cancelled = await cancelDraftMatch(db, c.env.KV, {
+  const cancelled = await cancelDraftMatch(db, kv, {
     state: payload.state,
     cancelledAt: payload.cancelledAt,
     reason: payload.reason,
@@ -933,25 +947,25 @@ app.post('/api/webhooks/draft-complete', async (c) => {
     return c.json({ error: cancelled.error }, 400)
   }
 
-  const lobby = await getLobbyByMatch(c.env.KV, payload.matchId)
+  const lobby = await getLobbyByMatch(kv, payload.matchId)
   if (!lobby) {
     console.warn(`No lobby mapping found for cancelled match ${payload.matchId}`)
     return c.json({ ok: true })
   }
 
-  await setLobbyStatus(c.env.KV, lobby.mode, payload.reason === 'cancel' ? 'cancelled' : 'scrubbed')
+  await setLobbyStatus(kv, lobby.mode, payload.reason === 'cancel' ? 'cancelled' : 'scrubbed')
   try {
-    const updatedLobby = await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
+    const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
       embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason)],
       components: [],
     })
-    await storeMatchMessageMapping(c.env.KV, updatedLobby.messageId, payload.matchId)
+    await storeMatchMessageMapping(kv, updatedLobby.messageId, payload.matchId)
   }
   catch (error) {
     console.error(`Failed to update cancelled embed for match ${payload.matchId}:`, error)
   }
 
-  await clearLobbyByMatch(c.env.KV, payload.matchId)
+  await clearLobbyByMatch(kv, payload.matchId)
   return c.json({ ok: true })
 })
 

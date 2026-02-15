@@ -10,6 +10,10 @@
       {
         "name": "Main",
         "class_name": "Main"
+      },
+      {
+        "name": "State",
+        "class_name": "State"
       }
     ]
   },
@@ -17,6 +21,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["Main"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["State"]
     }
   ],
   "routes": [
