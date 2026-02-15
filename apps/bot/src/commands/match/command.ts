@@ -8,7 +8,7 @@ import { lobbyComponents, lobbyOpenEmbed, lobbyResultEmbed } from '../../embeds/
 import { getMatchForUser, storeUserMatchMappings } from '../../services/activity.ts'
 import { createChannelMessage } from '../../services/discord.ts'
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
-import { refreshConfiguredLeaderboards } from '../../services/leaderboard-message.ts'
+import { markLeaderboardsDirty } from '../../services/leaderboard-message.ts'
 import { upsertLobbyMessage } from '../../services/lobby-message.ts'
 import { clearLobby, clearLobbyByMatch, createLobby, getLobby, getLobbyByMatch, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots, setLobbyStatus } from '../../services/lobby.ts'
 import { storeMatchMessageMapping } from '../../services/match-message.ts'
@@ -374,6 +374,15 @@ export const command_match = factory.command<MatchVar>(
             return
           }
 
+          if (match.status === 'completed') {
+            console.log('[idempotency] duplicate slash report request', {
+              matchId: match.id,
+              reporterId: identity.userId,
+            })
+            await sendTransientEphemeralResponse(c, `Match **${match.id}** was already reported.`, 'info')
+            return
+          }
+
           if (match.status !== 'active') {
             await sendTransientEphemeralResponse(c, `Match **${match.id}** is not active (status: ${match.status}).`, 'error')
             return
@@ -418,6 +427,15 @@ export const command_match = factory.command<MatchVar>(
             return
           }
 
+          if (result.idempotent) {
+            console.log('[idempotency] slash report deduplicated after race', {
+              matchId: result.match.id,
+              reporterId: identity.userId,
+            })
+            await sendTransientEphemeralResponse(c, `Match **${result.match.id}** was already reported.`, 'info')
+            return
+          }
+
           const reportedMode = normalizeMatchMode(result.match.gameMode)
 
           const lobby = await getLobbyByMatch(kv, result.match.id)
@@ -450,10 +468,10 @@ export const command_match = factory.command<MatchVar>(
           }
 
           try {
-            await refreshConfiguredLeaderboards(db, kv, c.env.DISCORD_TOKEN)
+            await markLeaderboardsDirty(kv, `match-report:${result.match.id}`)
           }
           catch (error) {
-            console.error(`Failed to refresh leaderboard embeds after match ${result.match.id}:`, error)
+            console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
           }
 
           await sendTransientEphemeralResponse(c, `Reported result for match **${result.match.id}**.`, 'success')

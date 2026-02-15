@@ -77,6 +77,7 @@ export default function App() {
               if (nextLobby) {
                 setState((prev) => {
                   if (prev.status !== 'lobby-waiting') return prev
+                  if (nextLobby.revision < prev.lobby.revision) return prev
                   if (isSameLobbySnapshot(prev.lobby, nextLobby)) return prev
                   return { status: 'lobby-waiting', lobby: nextLobby }
                 })
@@ -256,6 +257,7 @@ function DraftWithConnection(props: { matchId: string, autoStart: boolean }) {
 }
 
 function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
+  if (a.revision !== b.revision) return false
   if (a.mode !== b.mode) return false
   if (a.hostId !== b.hostId) return false
   if (a.status !== b.status) return false

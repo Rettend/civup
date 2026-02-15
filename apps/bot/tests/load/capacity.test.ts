@@ -4,14 +4,13 @@ import { playerRatings, players } from '@civup/db'
 import {
   allLeaderIds,
   createDraft,
-  GAME_MODES,
   getDefaultFormat,
   isDraftError,
   processDraftInput,
 } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
-import { leaderboardEmbed } from '../../src/embeds/leaderboard.ts'
+import { markLeaderboardsDirty } from '../../src/services/leaderboard-message.ts'
 import {
   getMatchForChannel,
   storeMatchMapping,
@@ -23,6 +22,7 @@ import {
 import {
   clearLobbyByMatch,
   createLobby,
+  getLobbyByChannel,
   getLobby,
   getLobbyByMatch,
   mapLobbySlotsToEntries,
@@ -45,9 +45,7 @@ import {
   getQueueState,
 } from '../../src/services/queue.ts'
 import {
-  getLeaderboardMessageState,
   getSystemChannel,
-  setLeaderboardMessageState,
   setSystemChannel,
 } from '../../src/services/system-channels.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
@@ -467,6 +465,7 @@ async function startDraftFromOpenLobby(
     status: 'drafting',
     matchId,
     updatedAt: Date.now(),
+    revision: nextLobbyBase.revision + 1,
   })
 
   await storeMatchMessageMapping(kv, 'message-lobby-drafting', matchId)
@@ -522,26 +521,7 @@ async function handleMatchReport(
     await storeMatchMessageMapping(kv, 'message-archive-reported', matchId)
   }
 
-  await refreshLeaderboardsWithoutDiscord(db, kv)
-}
-
-async function refreshLeaderboardsWithoutDiscord(
-  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
-  kv: KVNamespace,
-): Promise<void> {
-  const leaderboardChannelId = await getSystemChannel(kv, 'leaderboard')
-  if (!leaderboardChannelId) return
-
-  const previous = await getLeaderboardMessageState(kv)
-  await leaderboardEmbed(db, 'duel')
-  await leaderboardEmbed(db, 'teamers')
-  await leaderboardEmbed(db, 'ffa')
-
-  await setLeaderboardMessageState(kv, {
-    channelId: leaderboardChannelId,
-    messageId: previous?.messageId ?? 'message-leaderboard',
-    updatedAt: Date.now(),
-  })
+  await markLeaderboardsDirty(kv, `match-report:${matchId}`)
 }
 
 function buildCompletedDraftState(matchId: string, seats: DraftSeat[]): DraftState {
@@ -584,11 +564,8 @@ async function lookupMatchForChannel(kv: KVNamespace, channelId: string): Promis
 }
 
 async function lookupLobbyForChannel(kv: KVNamespace, channelId: string): Promise<unknown | null> {
-  for (const mode of GAME_MODES) {
-    const lobby = await getLobby(kv, mode)
-    if (!lobby || lobby.channelId !== channelId || lobby.status !== 'open') continue
-    return buildOpenLobbySnapshot(kv, mode, lobby)
-  }
+  const lobby = await getLobbyByChannel(kv, channelId)
+  if (lobby?.status === 'open') return buildOpenLobbySnapshot(kv, lobby.mode, lobby)
   return null
 }
 

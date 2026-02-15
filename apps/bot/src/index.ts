@@ -24,10 +24,12 @@ import {
 } from './services/activity.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from './services/config.ts'
 import { createChannelMessage } from './services/discord.ts'
-import { refreshConfiguredLeaderboards } from './services/leaderboard-message.ts'
+import { markLeaderboardsDirty } from './services/leaderboard-message.ts'
 import { upsertLobbyMessage } from './services/lobby-message.ts'
 import {
+  attachLobbyMatch,
   clearLobby,
+  getLobbyByChannel,
   clearLobbyByMatch,
   getLobby,
   getLobbyByMatch,
@@ -116,11 +118,9 @@ app.get('/api/match/user/:userId', async (c) => {
 app.get('/api/lobby/:channelId', async (c) => {
   const channelId = c.req.param('channelId')
 
-  for (const mode of GAME_MODES) {
-    const lobby = await getLobby(c.env.KV, mode)
-    if (!lobby || lobby.channelId !== channelId || lobby.status !== 'open') continue
-
-    return c.json(await buildOpenLobbySnapshot(c.env.KV, mode, lobby))
+  const lobby = await getLobbyByChannel(c.env.KV, channelId)
+  if (lobby?.status === 'open') {
+    return c.json(await buildOpenLobbySnapshot(c.env.KV, lobby.mode, lobby))
   }
 
   return c.json({ error: 'No open lobby for this channel' }, 404)
@@ -272,6 +272,7 @@ app.post('/api/lobby/:mode/mode', async (c) => {
     mode: nextMode,
     slots: nextSlots,
     updatedAt: Date.now(),
+    revision: lobby.revision + 1,
   }
 
   await clearLobby(c.env.KV, mode)
@@ -597,12 +598,24 @@ app.post('/api/lobby/:mode/start', async (c) => {
   }
 
   const lobby = await getLobby(c.env.KV, mode)
-  if (!lobby || lobby.status !== 'open') {
-    return c.json({ error: 'No open lobby for this mode' }, 404)
-  }
+  if (!lobby) return c.json({ error: 'No lobby for this mode' }, 404)
 
   if (lobby.hostId !== userId) {
     return c.json({ error: 'Only the lobby host can start the draft' }, 403)
+  }
+
+  if (lobby.status === 'drafting' && lobby.matchId) {
+    console.log('[idempotency] duplicate lobby start request', {
+      mode,
+      hostId: userId,
+      matchId: lobby.matchId,
+      revision: lobby.revision,
+    })
+    return c.json({ ok: true, matchId: lobby.matchId, idempotent: true })
+  }
+
+  if (lobby.status !== 'open') {
+    return c.json({ error: `Lobby is not open (status: ${lobby.status}).` }, 409)
   }
 
   const queue = await getQueueState(c.env.KV, mode)
@@ -642,20 +655,26 @@ app.post('/api/lobby/:mode/start', async (c) => {
 
     await storeMatchMapping(c.env.KV, lobby.channelId, matchId)
 
-    const attachedLobby = await setLobbySlots(c.env.KV, mode, slots)
-    const nextLobbyBase = attachedLobby ?? { ...lobby, slots }
-    await upsertLobby(c.env.KV, {
-      ...nextLobbyBase,
-      status: 'drafting',
-      matchId,
-      updatedAt: Date.now(),
-    })
-
-    const lobbyForMessage = await getLobby(c.env.KV, mode) ?? {
-      ...nextLobbyBase,
-      status: 'drafting',
-      matchId,
-      updatedAt: Date.now(),
+    await setLobbySlots(c.env.KV, mode, slots)
+    const lobbyForMessage = await attachLobbyMatch(c.env.KV, mode, matchId)
+    if (!lobbyForMessage) {
+      const currentLobby = await getLobby(c.env.KV, mode)
+      if (currentLobby?.status === 'drafting' && currentLobby.matchId) {
+        console.warn('[idempotency] lobby start transitioned concurrently', {
+          mode,
+          hostId: userId,
+          requestedMatchId: matchId,
+          activeMatchId: currentLobby.matchId,
+          revision: currentLobby.revision,
+        })
+        return c.json({ ok: true, matchId: currentLobby.matchId, idempotent: true })
+      }
+      console.warn('[lobby-transition] failed to attach match to lobby', {
+        mode,
+        hostId: userId,
+        requestedMatchId: matchId,
+      })
+      return c.json({ error: 'Lobby state changed while starting. Please retry.' }, 409)
     }
 
     try {
@@ -790,6 +809,14 @@ app.post('/api/match/:matchId/report', async (c) => {
     return c.json({ error: result.error }, 400)
   }
 
+  if (result.idempotent) {
+    console.log('[idempotency] activity report request deduplicated', {
+      matchId: result.match.id,
+      reporterId,
+    })
+    return c.json({ ok: true, alreadyReported: true, match: result.match, participants: result.participants })
+  }
+
   const reportedMode = result.match.gameMode as GameMode
 
   const lobby = await getLobbyByMatch(c.env.KV, result.match.id)
@@ -822,10 +849,10 @@ app.post('/api/match/:matchId/report', async (c) => {
   }
 
   try {
-    await refreshConfiguredLeaderboards(db, c.env.KV, c.env.DISCORD_TOKEN)
+    await markLeaderboardsDirty(c.env.KV, `activity-report:${result.match.id}`)
   }
   catch (error) {
-    console.error(`Failed to refresh leaderboard embeds after match ${result.match.id}:`, error)
+    console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
   }
 
   return c.json({ ok: true, match: result.match, participants: result.participants })
@@ -976,6 +1003,7 @@ async function buildOpenLobbySnapshot(
   lobby: {
     hostId: string
     status: string
+    revision: number
     slots: (string | null)[]
     draftConfig: {
       banTimerSeconds: number | null
@@ -1004,6 +1032,7 @@ async function buildOpenLobbySnapshotFromParts(
   lobby: {
     hostId: string
     status: string
+    revision: number
     draftConfig: {
       banTimerSeconds: number | null
       pickTimerSeconds: number | null
@@ -1016,6 +1045,7 @@ async function buildOpenLobbySnapshotFromParts(
   const serverDefaults = await getServerDraftTimerDefaults(kv)
 
   return {
+    revision: lobby.revision,
     mode,
     hostId: lobby.hostId,
     status: lobby.status,
