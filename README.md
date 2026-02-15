@@ -100,6 +100,12 @@ BOT_HOST=https://bot-dev.rettend.me
 PARTY_HOST=https://party.rettend.me
 ```
 
+Trigger leaderboard update cron locally:
+
+```bash
+curl.exe "http://127.0.0.1:8787/cdn-cgi/handler/scheduled?cron=%2A%2F2+%2A+%2A+%2A+%2A"
+```
+
 ## Project
 
 - `apps/bot`: Slash command handler (Cloudflare Worker).

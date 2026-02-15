@@ -64,21 +64,25 @@ export const component_match_join = factory.component(
       return c.resActivity()
     }
 
-    const outcome = await joinLobbyAndMaybeStartMatch(
-      c,
-      mode,
-      identity.userId,
-      identity.displayName,
-      identity.avatarUrl,
-      lobby.channelId,
-    )
-    if ('error' in outcome) {
-      return c.flags('EPHEMERAL').resDefer(async (c) => {
-        await sendTransientEphemeralResponse(c, outcome.error, 'error')
-      })
-    }
-
+    // Keep component response fast so Discord doesn't time out launch-activity interactions.
     c.executionCtx.waitUntil((async () => {
+      const outcome = await joinLobbyAndMaybeStartMatch(
+        c,
+        mode,
+        identity.userId,
+        identity.displayName,
+        identity.avatarUrl,
+        lobby.channelId,
+      )
+      if ('error' in outcome) {
+        console.warn('[match-join] join failed after activity launch', {
+          mode,
+          userId: identity.userId,
+          error: outcome.error,
+        })
+        return
+      }
+
       try {
         await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
           embeds: outcome.embeds,
