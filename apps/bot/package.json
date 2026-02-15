@@ -9,6 +9,7 @@
     "deploy": "bun run deploy:prod",
     "deploy:prod": "wrangler deploy",
     "test": "bun test",
+    "test:capacity": "CIVUP_CAPACITY_REPORT=1 bun test tests/load/capacity.test.ts",
     "register": "bun run register:dev",
     "register:dev": "bun --env-file=.dev.vars src/register.ts",
     "register:prod": "bun --env-file=.prod.secrets src/register.ts",
