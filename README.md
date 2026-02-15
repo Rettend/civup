@@ -42,7 +42,7 @@ Dev: <https://bot-dev.rettend.me> (your cloudflared tunnel to local wrangler dev
 #### Activity URL Mapping (Embedded App)
 
 Prod: <https://civup-activity.rettend.workers.dev>
-Dev: <https://activity-dev.rettend.me> (your tunnel/dev host)
+Dev: <https://activity-dev.rettend.me> (your cloudflared tunnel to local wrangler dev)
 
 ### Production URLs and bindings
 
@@ -91,6 +91,13 @@ bun run bot:dev    # Bot (Cloudflare Worker)
 bun run a:dev      # Activity (Vite)
 bun run party:dev  # Party Server
 bun run tunnel     # Cloudflared tunnel for local bot dev
+```
+
+For local activity-to-bot proxying in dev, use this in `apps/activity/.dev.vars`:
+
+```bash
+BOT_HOST=https://bot-dev.rettend.me
+PARTY_HOST=https://civup-party.rettend.partykit.dev
 ```
 
 ## Project

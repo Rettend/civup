@@ -162,9 +162,14 @@ export async function setLobbySlots(
 ): Promise<LobbyState | null> {
   const lobby = await getLobby(kv, mode)
   if (!lobby) return null
+  const normalizedSlots = normalizeStoredSlots(mode, slots)
+  if (sameLobbySlots(lobby.slots, normalizedSlots)) {
+    return lobby
+  }
+
   const updated: LobbyState = {
     ...lobby,
-    slots: normalizeStoredSlots(mode, slots),
+    slots: normalizedSlots,
     updatedAt: Date.now(),
   }
   await putLobby(kv, updated)

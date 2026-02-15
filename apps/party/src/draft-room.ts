@@ -16,6 +16,10 @@ interface ConnectionState {
   playerId: string | null
 }
 
+const WEBHOOK_MAX_ATTEMPTS = 4
+const WEBHOOK_RETRY_BASE_MS = 250
+const WEBHOOK_RETRY_MAX_MS = 1500
+
 // ── Draft Room Server ────────────────────────────────────────
 
 export default class DraftRoom implements Party.Server {
@@ -116,6 +120,10 @@ export default class DraftRoom implements Party.Server {
       timerEndsAt: timerEndsAt ?? null,
       completedAt: completedAt ?? null,
     })
+
+    if (state.status === 'complete' || state.status === 'cancelled') {
+      connection.close(1000, 'Draft closed')
+    }
   }
 
   // ── WebSocket: Messages ────────────────────────────────────
@@ -370,6 +378,10 @@ export default class DraftRoom implements Party.Server {
 
     const hostId = config?.hostId ?? newState.seats[0]?.playerId ?? ''
     this.broadcastUpdate(newState, hostId, events, timerEndsAt ?? null, completedAt ?? null)
+
+    if (newState.status === 'complete' || newState.status === 'cancelled') {
+      this.closeAllConnections('Draft closed')
+    }
   }
 
   private broadcastUpdate(
@@ -440,6 +452,12 @@ export default class DraftRoom implements Party.Server {
     connection.send(JSON.stringify(message))
   }
 
+  private closeAllConnections(reason: string) {
+    for (const conn of this.room.getConnections()) {
+      conn.close(1000, reason)
+    }
+  }
+
   private async notifyDraftComplete(state: DraftState, config: RoomConfig, completedAt: number) {
     const hostId = config.hostId || state.seats[0]?.playerId || undefined
     const payload: DraftWebhookPayload = {
@@ -484,13 +502,23 @@ export default class DraftRoom implements Party.Server {
       headers['X-CivUp-Webhook-Secret'] = config.webhookSecret
     }
 
-    try {
-      await api.post(config.webhookUrl, payload, { headers })
-      console.log(`Draft webhook delivered (${payload.outcome}) for match ${matchId}`)
-    }
-    catch (err) {
-      const status = err instanceof ApiError ? err.status : 'Unknown'
-      console.error(`Draft webhook failed for match ${matchId} (${status}):`, err)
+    for (let attempt = 1; attempt <= WEBHOOK_MAX_ATTEMPTS; attempt++) {
+      try {
+        await api.post(config.webhookUrl, payload, { headers })
+        console.log(`Draft webhook delivered (${payload.outcome}) for match ${matchId} on attempt ${attempt}`)
+        return
+      }
+      catch (err) {
+        const status = err instanceof ApiError ? err.status : 'Unknown'
+        if (attempt >= WEBHOOK_MAX_ATTEMPTS) {
+          console.error(`Draft webhook failed for match ${matchId} after ${attempt} attempts (${status}):`, err)
+          return
+        }
+
+        const retryDelay = Math.min(WEBHOOK_RETRY_BASE_MS * 2 ** (attempt - 1), WEBHOOK_RETRY_MAX_MS)
+        console.error(`Draft webhook attempt ${attempt} failed for match ${matchId} (${status}), retrying in ${retryDelay}ms`, err)
+        await wait(retryDelay)
+      }
     }
   }
 }
@@ -547,4 +575,8 @@ function parseConfigTimer(value: unknown): number | null | undefined {
   const rounded = Math.round(value)
   if (rounded < 0 || rounded > MAX_TIMER_SECONDS) return undefined
   return rounded
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }

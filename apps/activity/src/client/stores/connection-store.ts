@@ -424,6 +424,9 @@ function handleServerMessage(msg: ServerMessage) {
   switch (msg.type) {
     case 'init':
       initDraft(msg.state, msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt)
+      if (isTerminalDraftStatus(msg.state.status)) {
+        disconnect()
+      }
       break
     case 'update':
       updateDraft(msg.state, msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt)
@@ -431,6 +434,9 @@ function handleServerMessage(msg: ServerMessage) {
         clearTimeout(pendingConfigAck.timeout)
         pendingConfigAck.resolve()
         pendingConfigAck = null
+      }
+      if (isTerminalDraftStatus(msg.state.status)) {
+        disconnect()
       }
       break
     case 'error':
@@ -442,6 +448,10 @@ function handleServerMessage(msg: ServerMessage) {
       console.error('Server error:', msg.message)
       break
   }
+}
+
+function isTerminalDraftStatus(status: string): boolean {
+  return status === 'complete' || status === 'cancelled'
 }
 
 function formatConfigAckError(message: string): Error {
