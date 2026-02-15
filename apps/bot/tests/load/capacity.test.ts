@@ -119,14 +119,18 @@ interface MetricBreakpoint {
 
 const DAILY_PLAYER_SCENARIOS = [100, 200, 1000] as const
 const PLAYERS_PER_DRAFT = 2
-const LOBBY_POLL_INTERVAL_SECONDS = 3
-const AVERAGE_LOBBY_WAIT_SECONDS = 60
+const LOBBY_POLL_INTERVAL_SECONDS = 90
+const AVERAGE_LOBBY_WAIT_SECONDS = 0
 const LOBBY_POLL_CYCLES = Math.max(0, Math.round(AVERAGE_LOBBY_WAIT_SECONDS / LOBBY_POLL_INTERVAL_SECONDS))
+
+const DO_WEBSOCKET_BILLING_RATIO = 20
 
 const DO_REQUESTS_PER_DRAFT = {
   createRoom: 1,
-  websocketConnects: 2,
-  gameplayMessages: 5,
+  draftRoomWebsocketConnects: 2,
+  draftRoomIncomingMessages: 5,
+  lobbyWatchWebsocketConnects: 2,
+  lobbyWatchIncomingMessages: 8,
 }
 const ASSUMED_DO_DURATION_GB_SECONDS_PER_DRAFT = 2
 
@@ -415,14 +419,14 @@ async function simulateOneVOneDraft(input: {
 
     return {
       usage: {
-        workersRequests: botRequests + activityRequests + coordinatorRequests,
+        workersRequests: botRequests + activityRequests,
         d1RowsRead: sqlTracker.counts.rowsRead,
         d1RowsWritten: sqlTracker.counts.rowsWritten,
         kvReads,
         kvWrites,
         kvDeletes,
         kvLists,
-        doRequests: DO_REQUESTS_PER_DRAFT.createRoom + DO_REQUESTS_PER_DRAFT.websocketConnects + DO_REQUESTS_PER_DRAFT.gameplayMessages + coordinatorRequests,
+        doRequests: estimateDoBilledRequestUnits(coordinatorRequests),
         doDurationGbSeconds: ASSUMED_DO_DURATION_GB_SECONDS_PER_DRAFT,
       },
     }
@@ -874,6 +878,20 @@ function jsonError(message: string): Response {
     status: 400,
     headers: { 'Content-Type': 'application/json' },
   })
+}
+
+function estimateDoBilledRequestUnits(stateCoordinatorRequests: number): number {
+  const billedDraftMessages = Math.ceil(DO_REQUESTS_PER_DRAFT.draftRoomIncomingMessages / DO_WEBSOCKET_BILLING_RATIO)
+  const billedLobbyWatchMessages = Math.ceil(DO_REQUESTS_PER_DRAFT.lobbyWatchIncomingMessages / DO_WEBSOCKET_BILLING_RATIO)
+
+  return (
+    DO_REQUESTS_PER_DRAFT.createRoom
+    + DO_REQUESTS_PER_DRAFT.draftRoomWebsocketConnects
+    + DO_REQUESTS_PER_DRAFT.lobbyWatchWebsocketConnects
+    + billedDraftMessages
+    + billedLobbyWatchMessages
+    + stateCoordinatorRequests
+  )
 }
 
 function estimateDailyUsage(model: CapacityModel, playersPerDay: number): DailyUsage {

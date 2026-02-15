@@ -48,6 +48,25 @@ export interface LobbySnapshot {
   }
 }
 
+interface StateWatchMessage {
+  type: 'state-changed' | 'error'
+  key?: string
+  message?: string
+}
+
+export interface LobbyStateWatch {
+  close: () => void
+}
+
+export interface LobbyStateWatchOptions {
+  channelId: string
+  userId: string
+  onConnected?: () => void
+  onInvalidation: (key: string) => void
+  onDisconnected?: () => void
+  onError?: (message: string) => void
+}
+
 // ── State ──────────────────────────────────────────────────
 
 export const [connectionStatus, setConnectionStatus] = createSignal<ConnectionStatus>('disconnected')
@@ -132,6 +151,67 @@ export function disconnect() {
     pendingConfigAck = null
   }
   setConnectionStatus('disconnected')
+}
+
+/** Subscribe to lobby/match invalidation events from state coordinator room. */
+export function watchLobbyState(host: string, options: LobbyStateWatchOptions): LobbyStateWatch {
+  let closed = false
+
+  const stateSocket = new PartySocket({
+    host,
+    party: 'state',
+    prefix: 'api/parties',
+    room: 'global',
+    id: `lobby-watch:${options.userId}:${Math.random().toString(36).slice(2, 10)}`,
+    maxRetries: 2,
+  })
+
+  stateSocket.addEventListener('open', () => {
+    if (closed) return
+    options.onConnected?.()
+    stateSocket.send(JSON.stringify({ type: 'subscribe-prefix', prefix: 'lobby:mode:' }))
+    stateSocket.send(JSON.stringify({ type: 'subscribe-key', key: `activity:${options.channelId}` }))
+    stateSocket.send(JSON.stringify({ type: 'subscribe-key', key: `activity-user:${options.userId}` }))
+  })
+
+  stateSocket.addEventListener('message', (event) => {
+    if (closed) return
+    try {
+      const msg = JSON.parse(event.data as string) as StateWatchMessage
+      if (msg.type === 'state-changed' && typeof msg.key === 'string') {
+        options.onInvalidation(msg.key)
+        return
+      }
+
+      if (msg.type === 'error') {
+        options.onError?.(msg.message ?? 'State watch error')
+      }
+    }
+    catch (err) {
+      relayDevLog('warn', 'Failed to parse state watch message', err)
+      console.error('Failed to parse state watch message:', err)
+    }
+  })
+
+  stateSocket.addEventListener('close', (event) => {
+    if (closed) return
+    if (event.code === 1000) return
+    options.onDisconnected?.()
+    options.onError?.(`State watch disconnected (${event.code})`)
+  })
+
+  stateSocket.addEventListener('error', () => {
+    if (closed) return
+    options.onError?.('State watch connection failed')
+  })
+
+  return {
+    close: () => {
+      if (closed) return
+      closed = true
+      stateSocket.close()
+    },
+  }
 }
 
 // ── Send Messages ──────────────────────────────────────────
