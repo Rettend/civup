@@ -317,7 +317,7 @@ async function simulateOneVOneDraft(input: {
   const kv = createStateStore({
     KV: rawKv,
     PARTY_HOST: stateCoordinator.host,
-    STATE_KV_SECRET: stateCoordinator.secret,
+    CIVUP_SECRET: stateCoordinator.secret,
   })
 
   let botRequests = 0

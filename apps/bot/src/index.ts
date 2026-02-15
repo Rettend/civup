@@ -653,7 +653,7 @@ app.post('/api/lobby/:mode/start', async (c) => {
       hostId: lobby.hostId,
       partyHost: c.env.PARTY_HOST,
       botHost: c.env.BOT_HOST,
-      webhookSecret: c.env.DRAFT_WEBHOOK_SECRET,
+      webhookSecret: c.env.CIVUP_SECRET,
       timerConfig,
     })
 
@@ -874,7 +874,7 @@ app.post('/api/match/:matchId/report', async (c) => {
 // Webhook from PartyKit when draft lifecycle changes
 app.post('/api/webhooks/draft-complete', async (c) => {
   const kv = createStateStore(c.env)
-  const expectedSecret = c.env.DRAFT_WEBHOOK_SECRET
+  const expectedSecret = c.env.CIVUP_SECRET
   if (expectedSecret) {
     const providedSecret = c.req.header('X-CivUp-Webhook-Secret')
     if (providedSecret !== expectedSecret) {
