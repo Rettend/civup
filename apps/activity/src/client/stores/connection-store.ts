@@ -238,11 +238,11 @@ export function sendPick(civId: string) {
 }
 
 export function sendCancel(reason: 'cancel' | 'scrub') {
-  sendMessage({ type: 'cancel', reason })
+  return sendMessage({ type: 'cancel', reason })
 }
 
 export function sendScrub() {
-  sendCancel('scrub')
+  return sendCancel('scrub')
 }
 
 export function sendConfig(banTimerSeconds: number | null, pickTimerSeconds: number | null): Promise<void> {
@@ -470,6 +470,22 @@ export async function reportMatchResult(
     console.error('Failed to report match result:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while reporting result' }
+  }
+}
+
+/** Scrub an already completed draft match (host-only). */
+export async function scrubMatchResult(
+  matchId: string,
+  reporterId: string,
+): Promise<{ ok: true } | { ok: false, error: string }> {
+  try {
+    await api.post(`/api/match/${matchId}/scrub`, { reporterId })
+    return { ok: true }
+  }
+  catch (err) {
+    console.error('Failed to scrub match result:', err)
+    if (err instanceof ApiError) return { ok: false, error: err.message }
+    return { ok: false, error: 'Network error while scrubbing match' }
   }
 }
 

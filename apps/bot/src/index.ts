@@ -42,7 +42,7 @@ import {
   upsertLobby,
 } from './services/lobby.ts'
 import { storeMatchMessageMapping } from './services/match-message.ts'
-import { activateDraftMatch, cancelDraftMatch, createDraftMatch, reportMatch } from './services/match.ts'
+import { activateDraftMatch, cancelDraftMatch, cancelMatchByModerator, createDraftMatch, reportMatch } from './services/match.ts'
 import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, moveQueueMode, setQueueEntries } from './services/queue.ts'
 import { createStateStore } from './services/state-store.ts'
 import { getSystemChannel } from './services/system-channels.ts'
@@ -282,19 +282,19 @@ app.post('/api/lobby/:mode/mode', async (c) => {
     revision: lobby.revision + 1,
   }
 
-  await clearLobby(kv, mode)
-  await upsertLobby(kv, nextLobby)
-
   const movedQueue = await moveQueueMode(kv, mode, nextMode)
   const normalizedNextSlots = normalizeLobbySlots(nextMode, nextSlots, movedQueue.entries)
-  const slottedEntries = mapLobbySlotsToEntries(normalizedNextSlots, movedQueue.entries)
-
-  if (!sameLobbySlots(normalizedNextSlots, nextSlots)) {
-    await setLobbySlots(kv, nextMode, normalizedNextSlots)
+  const finalizedLobby = {
+    ...nextLobby,
+    slots: normalizedNextSlots,
   }
 
+  await clearLobby(kv, mode)
+  await upsertLobby(kv, finalizedLobby)
+  const slottedEntries = mapLobbySlotsToEntries(normalizedNextSlots, movedQueue.entries)
+
   try {
-    await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
+    await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, finalizedLobby, {
       embeds: [lobbyOpenEmbed(nextMode, slottedEntries, maxPlayerCount(nextMode))],
       components: lobbyComponents(nextMode),
     })
@@ -306,7 +306,7 @@ app.post('/api/lobby/:mode/mode', async (c) => {
   return c.json(await buildOpenLobbySnapshotFromParts(
     kv,
     nextMode,
-    nextLobby,
+    finalizedLobby,
     movedQueue.entries,
     normalizedNextSlots,
   ))
@@ -871,6 +871,92 @@ app.post('/api/match/:matchId/report', async (c) => {
   return c.json({ ok: true, match: result.match, participants: result.participants })
 })
 
+// Scrub match result from activity (host-only, post-draft)
+app.post('/api/match/:matchId/scrub', async (c) => {
+  const kv = createStateStore(c.env)
+  let body: unknown
+  try {
+    body = await c.req.json()
+  }
+  catch {
+    return c.json({ error: 'Invalid JSON payload' }, 400)
+  }
+
+  if (!body || typeof body !== 'object') {
+    return c.json({ error: 'Invalid request body' }, 400)
+  }
+
+  const { reporterId } = body as { reporterId?: string }
+  if (typeof reporterId !== 'string' || reporterId.length === 0) {
+    return c.json({ error: 'reporterId is required' }, 400)
+  }
+
+  const matchId = c.req.param('matchId')
+  const db = createDb(c.env.DB)
+
+  const [match] = await db
+    .select({
+      id: matches.id,
+      status: matches.status,
+      draftData: matches.draftData,
+    })
+    .from(matches)
+    .where(eq(matches.id, matchId))
+    .limit(1)
+
+  if (!match) {
+    return c.json({ error: `Match **${matchId}** not found.` }, 404)
+  }
+
+  const participants = await db
+    .select({ playerId: matchParticipants.playerId })
+    .from(matchParticipants)
+    .where(eq(matchParticipants.matchId, matchId))
+
+  if (!participants.some(participant => participant.playerId === reporterId)) {
+    return c.json({ error: 'Only match participants can scrub this match.' }, 403)
+  }
+
+  const lobby = await getLobbyByMatch(kv, matchId)
+  const hostId = lobby?.hostId ?? parseHostIdFromDraftData(match.draftData)
+  if (hostId && hostId !== reporterId) {
+    return c.json({ error: 'Only the match host can scrub this match.' }, 403)
+  }
+
+  const result = await cancelMatchByModerator(db, kv, {
+    matchId,
+    cancelledAt: Date.now(),
+  })
+
+  if ('error' in result) {
+    return c.json({ error: result.error }, 400)
+  }
+
+  if (lobby) {
+    try {
+      const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
+        embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'scrub')],
+        components: [],
+      })
+      await storeMatchMessageMapping(kv, updatedLobby.messageId, result.match.id)
+    }
+    catch (error) {
+      console.error(`Failed to update scrubbed lobby embed for match ${result.match.id}:`, error)
+    }
+  }
+
+  if (result.previousStatus === 'completed') {
+    try {
+      await markLeaderboardsDirty(kv, `activity-scrub:${result.match.id}`)
+    }
+    catch (error) {
+      console.error(`Failed to mark leaderboards dirty after scrub ${result.match.id}:`, error)
+    }
+  }
+
+  return c.json({ ok: true, match: result.match, participants: result.participants })
+})
+
 // Webhook from PartyKit when draft lifecycle changes
 app.post('/api/webhooks/draft-complete', async (c) => {
   const kv = createStateStore(c.env)
@@ -1112,4 +1198,15 @@ function parseLobbyTimerSeconds(value: unknown): number | null | undefined {
   const rounded = Math.round(numeric)
   if (rounded < 0 || rounded > MAX_CONFIG_TIMER_SECONDS) return undefined
   return rounded
+}
+
+function parseHostIdFromDraftData(raw: string | null): string | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as { hostId?: unknown }
+    return typeof parsed.hostId === 'string' ? parsed.hostId : null
+  }
+  catch {
+    return null
+  }
 }
