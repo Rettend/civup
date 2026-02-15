@@ -1,4 +1,4 @@
-import { normalizeHost } from '@civup/utils'
+import { isLocalHost, normalizeHost } from '@civup/utils'
 
 interface Env {
   DISCORD_CLIENT_ID: string
@@ -89,10 +89,11 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
   try {
     const targetPath = `${url.pathname}${url.search}`
     let response: Response
+    const botService = env.BOT
 
-    if (env.BOT) {
+    if (botService && shouldUseBotServiceBinding(request, env)) {
       targetUrl = `service:civup-bot${targetPath}`
-      response = await env.BOT.fetch(buildProxyRequest(`https://civup-bot.internal${targetPath}`, request))
+      response = await botService.fetch(buildProxyRequest(`https://civup-bot.internal${targetPath}`, request))
     }
     else {
       const botHost = normalizeHost(env.BOT_HOST, 'http://localhost:8787')
@@ -121,6 +122,25 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
     console.error('Match lookup proxy error:', { targetUrl, err })
     return json({ error: 'Match lookup proxy failed' }, 502)
   }
+}
+
+function shouldUseBotServiceBinding(request: Request, env: Env): boolean {
+  if (!env.BOT) return false
+  if (import.meta.env.DEV) return false
+
+  const requestHost = new URL(request.url).hostname.toLowerCase()
+  if (isLocalHost(requestHost) || requestHost.includes('-dev.')) {
+    return false
+  }
+
+  if (env.BOT_HOST) {
+    const botHost = normalizeHost(env.BOT_HOST, 'http://localhost:8787').toLowerCase()
+    if (isLocalHost(botHost) || botHost.includes('-dev.')) {
+      return false
+    }
+  }
+
+  return true
 }
 
 async function handlePartyProxy(request: Request, url: URL, env: Env): Promise<Response> {

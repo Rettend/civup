@@ -641,7 +641,6 @@ app.post('/api/lobby/:mode/start', async (c) => {
     }
 
     await storeMatchMapping(c.env.KV, lobby.channelId, matchId)
-    await storeUserMatchMappings(c.env.KV, queue.entries.map(entry => entry.playerId), matchId)
 
     const attachedLobby = await setLobbySlots(c.env.KV, mode, slots)
     const nextLobbyBase = attachedLobby ?? { ...lobby, slots }
