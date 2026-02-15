@@ -8,6 +8,7 @@
     "check": "tsgo --noEmit",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "secret:bulk:prod": "wrangler secret bulk .prod.secrets",
     "generate": "wrangler types"
   },
   "dependencies": {

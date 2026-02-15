@@ -1,7 +1,9 @@
 import { routePartykitRequest } from 'partyserver'
 import { Main } from './draft-room'
+import { State } from './state-store'
 
 export { Main }
+export { State }
 
 export default {
   async fetch(request: Request, env: Cloudflare.Env): Promise<Response> {

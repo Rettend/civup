@@ -1,14 +1,22 @@
 import type { Database } from '@civup/db'
+import type { LeaderboardDirtyState } from './system-channels.ts'
 import type { LeaderboardMessageState } from './system-channels.ts'
 import { LEADERBOARD_MODES } from '@civup/game'
 import { leaderboardEmbed } from '../embeds/leaderboard.ts'
 import { createChannelMessage, editChannelMessage, isDiscordApiError } from './discord.ts'
 import {
+  clearLeaderboardDirtyState,
+  getLeaderboardDirtyState,
   getLeaderboardMessageState,
   getSystemChannel,
+  markLeaderboardDirty,
 
   setLeaderboardMessageState,
 } from './system-channels.ts'
+
+export async function markLeaderboardsDirty(kv: KVNamespace, reason: string): Promise<LeaderboardDirtyState> {
+  return markLeaderboardDirty(kv, reason)
+}
 
 export async function refreshConfiguredLeaderboards(
   db: Database,
@@ -19,6 +27,21 @@ export async function refreshConfiguredLeaderboards(
   if (!leaderboardChannelId) return false
 
   await upsertLeaderboardMessagesForChannel(db, kv, token, leaderboardChannelId)
+  return true
+}
+
+export async function refreshDirtyLeaderboards(
+  db: Database,
+  kv: KVNamespace,
+  token: string,
+): Promise<boolean> {
+  const dirtyState = await getLeaderboardDirtyState(kv)
+  if (!dirtyState) return false
+
+  const refreshed = await refreshConfiguredLeaderboards(db, kv, token)
+  if (!refreshed) return false
+
+  await clearLeaderboardDirtyState(kv)
   return true
 }
 

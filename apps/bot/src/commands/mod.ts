@@ -8,13 +8,14 @@ import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
 import { clearActivityMappings, getChannelForMatch } from '../services/activity'
 import { createChannelMessage } from '../services/discord'
 import { sendTransientEphemeralResponse } from '../services/ephemeral-response'
-import { refreshConfiguredLeaderboards } from '../services/leaderboard-message'
+import { markLeaderboardsDirty } from '../services/leaderboard-message'
 import { clearLobby, getLobby, getLobbyByMatch } from '../services/lobby'
 import { upsertLobbyMessage } from '../services/lobby-message'
 import { cancelMatchByModerator, resolveMatchByModerator } from '../services/match'
 import { storeMatchMessageMapping } from '../services/match-message'
 import { canUseModCommands, parseRoleIds } from '../services/permissions'
 import { clearQueue, getQueueState } from '../services/queue'
+import { createStateStore } from '../services/state-store'
 import { getSystemChannel } from '../services/system-channels'
 import { factory } from '../setup'
 import { collectFfaPlacementUserIds } from './match/shared'
@@ -62,6 +63,7 @@ export const command_mod = factory.command<ModVar>(
   ),
   async (c) => {
     const guildId = c.interaction.guild_id
+    const kv = createStateStore(c.env)
     if (!guildId) {
       return c.flags('EPHEMERAL').resDefer(async (c) => {
         await sendTransientEphemeralResponse(c, 'This command can only be used in a server.', 'error')
@@ -69,7 +71,7 @@ export const command_mod = factory.command<ModVar>(
     }
 
     const allowed = await canUseModCommands({
-      kv: c.env.KV,
+      kv,
       guildId,
       permissions: c.interaction.member?.permissions,
       roles: parseRoleIds(c.interaction.member?.roles),
@@ -105,8 +107,8 @@ export const command_mod = factory.command<ModVar>(
             return
           }
 
-          const existingLobby = await getLobbyByMatch(c.env.KV, matchId)
-          const result = await cancelMatchByModerator(db, c.env.KV, {
+          const existingLobby = await getLobbyByMatch(kv, matchId)
+          const result = await cancelMatchByModerator(db, kv, {
             matchId,
             cancelledAt: Date.now(),
           })
@@ -121,11 +123,11 @@ export const command_mod = factory.command<ModVar>(
 
           if (existingLobby) {
             try {
-              const updatedLobby = await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, existingLobby, {
+              const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
                 embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation)],
                 components: [],
               })
-              await storeMatchMessageMapping(c.env.KV, updatedLobby.messageId, result.match.id)
+              await storeMatchMessageMapping(kv, updatedLobby.messageId, result.match.id)
             }
             catch (error) {
               console.error(`Failed to update cancelled embed for match ${result.match.id}:`, error)
@@ -133,13 +135,13 @@ export const command_mod = factory.command<ModVar>(
           }
 
           const shouldArchiveCancellation = result.previousStatus === 'completed'
-          const archiveChannelId = shouldArchiveCancellation ? await getSystemChannel(c.env.KV, 'archive') : null
+          const archiveChannelId = shouldArchiveCancellation ? await getSystemChannel(kv, 'archive') : null
           if (archiveChannelId && shouldArchiveCancellation) {
             try {
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
                 embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation)],
               })
-              await storeMatchMessageMapping(c.env.KV, archiveMessage.id, result.match.id)
+              await storeMatchMessageMapping(kv, archiveMessage.id, result.match.id)
             }
             catch (error) {
               console.error(`Failed to post archive cancellation note for match ${result.match.id}:`, error)
@@ -147,10 +149,10 @@ export const command_mod = factory.command<ModVar>(
           }
 
           try {
-            await refreshConfiguredLeaderboards(db, c.env.KV, c.env.DISCORD_TOKEN)
+            await markLeaderboardsDirty(kv, `mod-cancel:${result.match.id}`)
           }
           catch (error) {
-            console.error(`Failed to refresh leaderboard embeds after cancelling match ${result.match.id}:`, error)
+            console.error(`Failed to mark leaderboards dirty after cancelling match ${result.match.id}:`, error)
           }
 
           const recalculated = result.recalculatedMatchIds.length
@@ -196,8 +198,8 @@ export const command_mod = factory.command<ModVar>(
             return
           }
 
-          const existingLobby = await getLobbyByMatch(c.env.KV, matchId)
-          const result = await resolveMatchByModerator(db, c.env.KV, {
+          const existingLobby = await getLobbyByMatch(kv, matchId)
+          const result = await resolveMatchByModerator(db, kv, {
             matchId,
             placements,
             resolvedAt: Date.now(),
@@ -213,24 +215,24 @@ export const command_mod = factory.command<ModVar>(
 
           if (existingLobby) {
             try {
-              const updatedLobby = await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, existingLobby, {
+              const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
                 embeds: [lobbyResultEmbed(mode, result.participants, moderation)],
                 components: [],
               })
-              await storeMatchMessageMapping(c.env.KV, updatedLobby.messageId, result.match.id)
+              await storeMatchMessageMapping(kv, updatedLobby.messageId, result.match.id)
             }
             catch (error) {
               console.error(`Failed to update resolved result embed for match ${result.match.id}:`, error)
             }
           }
 
-          const archiveChannelId = await getSystemChannel(c.env.KV, 'archive')
+          const archiveChannelId = await getSystemChannel(kv, 'archive')
           if (archiveChannelId) {
             try {
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
                 embeds: [lobbyResultEmbed(mode, result.participants, moderation)],
               })
-              await storeMatchMessageMapping(c.env.KV, archiveMessage.id, result.match.id)
+              await storeMatchMessageMapping(kv, archiveMessage.id, result.match.id)
             }
             catch (error) {
               console.error(`Failed to post archive resolve note for match ${result.match.id}:`, error)
@@ -238,10 +240,10 @@ export const command_mod = factory.command<ModVar>(
           }
 
           try {
-            await refreshConfiguredLeaderboards(db, c.env.KV, c.env.DISCORD_TOKEN)
+            await markLeaderboardsDirty(kv, `mod-resolve:${result.match.id}`)
           }
           catch (error) {
-            console.error(`Failed to refresh leaderboard embeds after resolving match ${result.match.id}:`, error)
+            console.error(`Failed to mark leaderboards dirty after resolving match ${result.match.id}:`, error)
           }
 
           const recalculated = result.recalculatedMatchIds.length
@@ -258,7 +260,6 @@ export const command_mod = factory.command<ModVar>(
         const mode = c.var.mode as GameMode
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const kv = c.env.KV
           const queue = await getQueueState(kv, mode)
           if (queue.entries.length > 0) {
             await clearQueue(kv, mode, queue.entries.map(entry => entry.playerId))
