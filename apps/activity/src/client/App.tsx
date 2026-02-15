@@ -6,6 +6,7 @@ import {
   connectionError,
   connectionStatus,
   connectToRoom,
+  draftStore,
   fetchLobbyForChannel,
   fetchLobbyForUser,
   fetchMatchForChannel,
@@ -204,6 +205,11 @@ export default function App() {
 
 /** Intermediate component: shows connection status or Draft UI */
 function DraftWithConnection(props: { matchId: string, autoStart: boolean }) {
+  const hasTerminalState = () => {
+    const status = draftStore.state?.status
+    return status === 'complete' || status === 'cancelled'
+  }
+
   return (
     <Switch>
       <Match when={connectionStatus() === 'connecting'}>
@@ -213,6 +219,10 @@ function DraftWithConnection(props: { matchId: string, autoStart: boolean }) {
             <div class="text-sm text-text-secondary">Joining draft room...</div>
           </div>
         </main>
+      </Match>
+
+      <Match when={hasTerminalState() && (connectionStatus() === 'error' || connectionStatus() === 'disconnected')}>
+        <DraftView matchId={props.matchId} autoStart={props.autoStart} />
       </Match>
 
       <Match when={connectionStatus() === 'error'}>

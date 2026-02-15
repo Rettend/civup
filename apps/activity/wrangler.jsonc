@@ -1,11 +1,30 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "civup-activity",
+  "account_id": "bee9950f4935b08fbc80f8e9ea881286",
   "compatibility_date": "2025-01-01",
   "main": "src/server/index.ts",
+  "vars": {
+    "DISCORD_CLIENT_ID": "1469447716751933533",
+    "BOT_HOST": "https://civup-bot.rettend.workers.dev",
+    "PARTY_HOST": "https://party.rettend.me"
+  },
+  "services": [
+    {
+      "binding": "BOT",
+      "service": "civup-bot"
+    }
+  ],
   "assets": {
     "not_found_handling": "single-page-application"
-  }
+  },
   // Secrets (DISCORD_CLIENT_SECRET) set via `wrangler secret put`
   // Local dev secrets in .dev.vars (gitignored)
+
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  }
 }

@@ -69,6 +69,33 @@ function normalizeQueueEntries(value: unknown): QueueEntry[] {
   return normalized
 }
 
+function sameStringArray(a: string[] | undefined, b: string[] | undefined): boolean {
+  if (!a && !b) return true
+  if (!a || !b) return false
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
+
+function sameQueueEntries(a: QueueEntry[], b: QueueEntry[]): boolean {
+  if (a.length !== b.length) return false
+
+  for (let i = 0; i < a.length; i++) {
+    const left = a[i]
+    const right = b[i]
+    if (!left || !right) return false
+    if (left.playerId !== right.playerId) return false
+    if (left.displayName !== right.displayName) return false
+    if ((left.avatarUrl ?? null) !== (right.avatarUrl ?? null)) return false
+    if (left.joinedAt !== right.joinedAt) return false
+    if (!sameStringArray(left.partyIds, right.partyIds)) return false
+  }
+
+  return true
+}
+
 async function persistQueueState(
   kv: KVNamespace,
   mode: GameMode,
@@ -90,7 +117,25 @@ export async function getPlayerQueueMode(
   kv: KVNamespace,
   playerId: string,
 ): Promise<GameMode | null> {
-  return await kv.get(playerQueueKey(playerId)) as GameMode | null
+  const key = playerQueueKey(playerId)
+  const cached = await kv.get(key)
+  if (cached && GAME_MODES.includes(cached as GameMode)) {
+    return cached as GameMode
+  }
+
+  if (cached) {
+    await kv.delete(key)
+  }
+
+  for (const mode of GAME_MODES) {
+    const state = await getQueueState(kv, mode)
+    if (!state.entries.some(entry => entry.playerId === playerId)) continue
+
+    await kv.put(key, mode, { expirationTtl: QUEUE_TTL })
+    return mode
+  }
+
+  return null
 }
 
 /**
@@ -126,9 +171,11 @@ export async function setQueueEntries(
 ): Promise<void> {
   const state = await getQueueState(kv, mode)
   const normalized = normalizeQueueEntries(entries)
+  if (!sameQueueEntries(state.entries, normalized)) {
+    await persistQueueState(kv, mode, normalized, state.targetSize)
+  }
 
-  await persistQueueState(kv, mode, normalized, state.targetSize)
-
+  const prevIds = new Set(state.entries.map(entry => entry.playerId))
   const nextIds = new Set(normalized.map(entry => entry.playerId))
   await Promise.all(
     state.entries
@@ -137,7 +184,9 @@ export async function setQueueEntries(
   )
 
   await Promise.all(
-    normalized.map(entry => kv.put(playerQueueKey(entry.playerId), mode, { expirationTtl: QUEUE_TTL })),
+    normalized
+      .filter(entry => !prevIds.has(entry.playerId))
+      .map(entry => kv.put(playerQueueKey(entry.playerId), mode, { expirationTtl: QUEUE_TTL })),
   )
 }
 
@@ -150,7 +199,7 @@ export async function addToQueue(
   entry: QueueEntry,
 ): Promise<{ error?: string }> {
   // Check if player is already in any queue
-  const existing = await kv.get(playerQueueKey(entry.playerId))
+  const existing = await getPlayerQueueMode(kv, entry.playerId)
   if (existing) {
     return { error: `You're already in the **${existing.toUpperCase()}** queue. Leave first with \`/match leave\`.` }
   }
@@ -208,13 +257,17 @@ export async function removeFromQueue(
   kv: KVNamespace,
   playerId: string,
 ): Promise<GameMode | null> {
-  const mode = await kv.get(playerQueueKey(playerId)) as GameMode | null
+  const mode = await getPlayerQueueMode(kv, playerId)
   if (!mode) return null
 
   const state = await getQueueState(kv, mode)
   const remaining = state.entries.filter(entry => entry.playerId !== playerId)
+  if (remaining.length === state.entries.length) {
+    await kv.delete(playerQueueKey(playerId))
+    return null
+  }
+
   await setQueueEntries(kv, mode, remaining)
-  await kv.delete(playerQueueKey(playerId))
 
   return mode
 }
@@ -246,10 +299,6 @@ export async function clearQueue(
   const playerSet = new Set(playerIds)
   const remaining = state.entries.filter(entry => !playerSet.has(entry.playerId))
   await setQueueEntries(kv, mode, remaining)
-
-  await Promise.all(
-    playerIds.map(id => kv.delete(playerQueueKey(id))),
-  )
 }
 
 /**
@@ -271,7 +320,6 @@ export async function pruneStaleEntries(
     if (stale.length > 0) {
       await setQueueEntries(kv, mode, remaining)
       for (const entry of stale) {
-        await kv.delete(playerQueueKey(entry.playerId))
         removed.push({ mode, entry })
       }
     }

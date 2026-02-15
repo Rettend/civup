@@ -6,40 +6,79 @@ Champ select for Civ VI that's a Discord Activity, and a fully featured Discord 
 
 ## Deployment
 
-### Dependencies
+### One-time setup
 
-- **Bun**: Package manager & runtime.
-- **Wrangler**: Cloudflare Workers CLI.
-- **PartyKit**: WebSocket server CLI.
-
-### Environment
-
-1. **Secrets**: Set via `wrangler secret put` (Bot/Activity) & `bunx partykit env add` (Party).
-2. **Local**: Copy `.dev.vars.example` to `.dev.vars` in `apps/bot` & `apps/activity`.
-
-### Database
+1. Install deps: `bun install`
+2. Provision infra (only if D1/KV do not already exist):
 
 ```bash
-bun run db:generate   # Generate migrations
-bun run bot:r:migrate # Apply to production D1
+bun run bot:d1:create
+bun run bot:kv:create
 ```
+
+1. Create production env files:
+
+```bash
+cp apps/bot/.prod.secrets.example apps/bot/.prod.secrets
+cp apps/activity/.prod.secrets.example apps/activity/.prod.secrets
+cp apps/activity/.prod.vars.example apps/activity/.prod.vars
+```
+
+1. Fill in secrets/vars in those files.
+2. Upload Worker secrets:
+
+```bash
+bun run bot:secrets:prod
+bun run a:secrets:prod
+```
+
+### Discord Developer Portal Setup
+
+#### Interactions Endpoint URL
+
+Prod: <https://civup-bot.rettend.workers.dev>
+Dev: <https://bot-dev.rettend.me> (your cloudflared tunnel to local wrangler dev)
+
+#### Activity URL Mapping (Embedded App)
+
+Prod: <https://civup-activity.rettend.workers.dev>
+Dev: <https://activity-dev.rettend.me> (your cloudflared tunnel to local wrangler dev)
+
+### Production URLs and bindings
+
+Production runtime URLs are configured in:
+
+- `apps/bot/wrangler.jsonc`
+- `apps/activity/wrangler.jsonc`
+
+Current defaults:
+
+- `BOT_HOST=https://civup-bot.rettend.workers.dev`
+- `PARTY_HOST=https://party.rettend.me`
+
+If you switch to custom domains, update both Wrangler configs.
 
 ### Deploy
 
-#### Discord Bot
+Deploy DB schema + Bot + Activity:
 
 ```bash
-bun run bot:deploy
-bun run bot:register  # Register slash commands
+bun run deploy:prod
 ```
 
-#### Activity UI
+Register slash commands after deploy:
 
 ```bash
-bun run a:deploy
+bun run bot:register:prod
 ```
 
-#### PartyKit Server
+Or run the full flow in one command:
+
+```bash
+bun run deploy:prod:full
+```
+
+PartyKit deploy remains:
 
 ```bash
 bun run party:deploy
@@ -52,6 +91,13 @@ bun run bot:dev    # Bot (Cloudflare Worker)
 bun run a:dev      # Activity (Vite)
 bun run party:dev  # Party Server
 bun run tunnel     # Cloudflared tunnel for local bot dev
+```
+
+For local activity-to-bot proxying in dev, use this in `apps/activity/.dev.vars`:
+
+```bash
+BOT_HOST=https://bot-dev.rettend.me
+PARTY_HOST=https://party.rettend.me
 ```
 
 ## Project

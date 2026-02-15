@@ -9,6 +9,7 @@ import {
   avatarUrl as currentAvatarUrl,
   displayName as currentDisplayName,
   draftStore,
+  fillLobbyWithTestPlayers,
   isSpectator,
   placeLobbySlot,
   removeLobbySlot,
@@ -365,6 +366,34 @@ export function ConfigScreen(props: ConfigScreenProps) {
       }
       applyLobbySnapshot(result.lobby)
       setConfigMessage(`Lobby mode changed to ${formatModeLabel(result.lobby.mode, result.lobby.mode)}.`)
+    }
+    finally {
+      setLobbyActionPending(false)
+    }
+  }
+
+  const handleFillTestPlayers = async () => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || !amHost()) return
+    if (lobbyActionPending() || startPending() || cancelPending()) return
+
+    setLobbyActionPending(true)
+    setConfigMessage(null)
+    try {
+      const result = await fillLobbyWithTestPlayers(lobby.mode, currentUserId)
+      if (!result.ok) {
+        setConfigMessage(result.error)
+        return
+      }
+
+      applyLobbySnapshot(result.lobby)
+      if (result.addedCount > 0) {
+        setConfigMessage(`Added ${result.addedCount} test player${result.addedCount === 1 ? '' : 's'} to empty slots.`)
+      }
+      else {
+        setConfigMessage('Lobby is already full.')
+      }
     }
     finally {
       setLobbyActionPending(false)
@@ -778,6 +807,13 @@ export function ConfigScreen(props: ConfigScreenProps) {
                     onClick={() => void handleCancelAction()}
                   >
                     {cancelPending() ? 'Cancelling...' : 'Cancel Lobby'}
+                  </button>
+                  <button
+                    class="text-sm text-text-secondary px-6 py-2.5 border border-white/12 rounded-lg bg-white/3 cursor-pointer transition-colors hover:text-text-primary hover:border-white/20 hover:bg-white/6 disabled:opacity-60 disabled:cursor-not-allowed"
+                    disabled={cancelPending() || startPending() || lobbyActionPending()}
+                    onClick={() => void handleFillTestPlayers()}
+                  >
+                    Fill Test Players
                   </button>
                 </div>
               )}

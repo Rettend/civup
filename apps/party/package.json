@@ -6,12 +6,17 @@
   "packageManager": "bun@1.3.7",
   "scripts": {
     "check": "tsgo --noEmit",
-    "dev": "partykit dev",
-    "deploy": "partykit deploy"
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "generate": "wrangler types"
   },
   "dependencies": {
     "@civup/game": "workspace:*",
     "@civup/utils": "workspace:*",
-    "partykit": "0.0.115"
+    "partyserver": "^0.1.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260206.0",
+    "wrangler": "^4.22.0"
   }
 }

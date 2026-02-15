@@ -5,7 +5,7 @@ import { pruneStaleEntries } from '../services/queue.ts'
 import { factory } from '../setup.ts'
 
 export const cron_cleanup = factory.cron(
-  '*/10 * * * *',
+  '0 * * * *',
   async (c) => {
     const kv = c.env.KV
     const db = createDb(c.env.DB)

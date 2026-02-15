@@ -1,6 +1,7 @@
 import type { Plugin } from 'vite'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import process from 'node:process'
 import { cloudflare } from '@cloudflare/vite-plugin'
 import UnoCSS from 'unocss/vite'
 import { defineConfig } from 'vite'
@@ -75,6 +76,18 @@ function devUnoCssLink(): Plugin {
 
 const devVars = loadDevVars()
 
+function firstNonEmpty(...values: Array<string | undefined>): string {
+  for (const value of values) {
+    if (value != null && value !== '') return value
+  }
+  return ''
+}
+
+const viteBotHost = firstNonEmpty(process.env.VITE_BOT_HOST, process.env.BOT_HOST, devVars.BOT_HOST)
+const vitePartyHost = firstNonEmpty(process.env.VITE_PARTY_HOST, process.env.PARTY_HOST, devVars.PARTY_HOST)
+const viteDiscordClientId = firstNonEmpty(process.env.VITE_DISCORD_CLIENT_ID, process.env.DISCORD_CLIENT_ID, devVars.DISCORD_CLIENT_ID)
+const viteActivityHost = firstNonEmpty(process.env.VITE_ACTIVITY_HOST, devVars.VITE_ACTIVITY_HOST)
+
 export default defineConfig({
   resolve: {
     alias: {
@@ -93,9 +106,10 @@ export default defineConfig({
     },
   },
   define: {
-    'import.meta.env.VITE_BOT_HOST': JSON.stringify(devVars.BOT_HOST ?? ''),
-    'import.meta.env.VITE_PARTY_HOST': JSON.stringify(devVars.PARTY_HOST ?? ''),
-    'import.meta.env.VITE_DISCORD_CLIENT_ID': JSON.stringify(devVars.DISCORD_CLIENT_ID ?? ''),
+    'import.meta.env.VITE_BOT_HOST': JSON.stringify(viteBotHost),
+    'import.meta.env.VITE_PARTY_HOST': JSON.stringify(vitePartyHost),
+    'import.meta.env.VITE_DISCORD_CLIENT_ID': JSON.stringify(viteDiscordClientId),
+    'import.meta.env.VITE_ACTIVITY_HOST': JSON.stringify(viteActivityHost),
   },
   plugins: [
     UnoCSS(),
