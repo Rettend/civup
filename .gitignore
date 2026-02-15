@@ -28,6 +28,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Cloudflare Workers local secrets
 .dev.vars
 .wrangler
+.tmp
 cloudflared.dev.yml
 .partykit
 
