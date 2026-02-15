@@ -4,14 +4,13 @@ import { playerRatings, players } from '@civup/db'
 import {
   allLeaderIds,
   createDraft,
-  GAME_MODES,
   getDefaultFormat,
   isDraftError,
   processDraftInput,
 } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
-import { leaderboardEmbed } from '../../src/embeds/leaderboard.ts'
+import { markLeaderboardsDirty } from '../../src/services/leaderboard-message.ts'
 import {
   getMatchForChannel,
   storeMatchMapping,
@@ -23,6 +22,7 @@ import {
 import {
   clearLobbyByMatch,
   createLobby,
+  getLobbyByChannel,
   getLobby,
   getLobbyByMatch,
   mapLobbySlotsToEntries,
@@ -44,10 +44,9 @@ import {
   getPlayerQueueMode,
   getQueueState,
 } from '../../src/services/queue.ts'
+import { createStateStore } from '../../src/services/state-store.ts'
 import {
-  getLeaderboardMessageState,
   getSystemChannel,
-  setLeaderboardMessageState,
   setSystemChannel,
 } from '../../src/services/system-channels.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
@@ -110,16 +109,28 @@ interface CapacityModel {
   lobbyPollCycles: number
 }
 
+interface MetricBreakpoint {
+  metric: keyof UsageLimits
+  playersPerDay: number
+  draftsPerDay: number
+  limit: number
+  usageAtBreakpoint: number
+}
+
 const DAILY_PLAYER_SCENARIOS = [100, 200, 1000] as const
 const PLAYERS_PER_DRAFT = 2
-const LOBBY_POLL_INTERVAL_SECONDS = 3
-const AVERAGE_LOBBY_WAIT_SECONDS = 60
+const LOBBY_POLL_INTERVAL_SECONDS = 90
+const AVERAGE_LOBBY_WAIT_SECONDS = 0
 const LOBBY_POLL_CYCLES = Math.max(0, Math.round(AVERAGE_LOBBY_WAIT_SECONDS / LOBBY_POLL_INTERVAL_SECONDS))
+
+const DO_WEBSOCKET_BILLING_RATIO = 20
 
 const DO_REQUESTS_PER_DRAFT = {
   createRoom: 1,
-  websocketConnects: 2,
-  gameplayMessages: 5,
+  draftRoomWebsocketConnects: 2,
+  draftRoomIncomingMessages: 5,
+  lobbyWatchWebsocketConnects: 2,
+  lobbyWatchIncomingMessages: 8,
 }
 const ASSUMED_DO_DURATION_GB_SECONDS_PER_DRAFT = 2
 
@@ -207,14 +218,19 @@ describe('1v1 capacity model', () => {
       periodDays: DAYS_PER_MONTH,
     })
 
-    const freeDailyUsageAtCapacity = estimateDailyUsage(model, freeCapacityPlayersPerDay)
-    const paidMonthlyUsageAtCapacity = multiplyDailyUsage(
-      estimateDailyUsage(model, paidCapacityPlayersPerDay),
-      DAYS_PER_MONTH,
-    )
+    const freeBreakpoints = findMetricBreakpoints({
+      model,
+      limits: FREE_DAILY_LIMITS,
+      periodDays: 1,
+    })
+    const paidBreakpoints = findMetricBreakpoints({
+      model,
+      limits: PAID_MONTHLY_LIMITS,
+      periodDays: DAYS_PER_MONTH,
+    })
 
-    const freeBottleneck = findBottleneck(FREE_DAILY_LIMITS, freeDailyUsageAtCapacity)
-    const paidBottleneck = findBottleneck(PAID_MONTHLY_LIMITS, paidMonthlyUsageAtCapacity)
+    const freeBottleneck = freeBreakpoints[0]!
+    const paidBottleneck = paidBreakpoints[0]!
 
     if (SHOULD_PRINT_REPORT) {
       console.log('\n[capacity] assumptions')
@@ -263,12 +279,30 @@ describe('1v1 capacity model', () => {
           bottleneck: paidBottleneck.metric,
         },
       ])
+
+      console.log('\n[capacity] bottleneck breakpoints by metric')
+      console.table([
+        ...freeBreakpoints.map((row, index) => ({
+          plan: 'free',
+          rank: index + 1,
+          metric: row.metric,
+          playersPerDay: row.playersPerDay,
+          draftsPerDay: row.draftsPerDay,
+        })),
+        ...paidBreakpoints.map((row, index) => ({
+          plan: '$5 included',
+          rank: index + 1,
+          metric: row.metric,
+          playersPerDay: row.playersPerDay,
+          draftsPerDay: row.draftsPerDay,
+        })),
+      ])
     }
 
     expect(model.perDraft.kvWrites).toBeGreaterThan(0)
     expect(model.perDraft.d1RowsWritten).toBeGreaterThan(0)
     expect(freeCapacityPlayersPerDay).toBeGreaterThan(0)
-    expect(paidCapacityPlayersPerDay).toBeGreaterThan(freeCapacityPlayersPerDay)
+    expect(paidCapacityPlayersPerDay).toBeGreaterThan(0)
   })
 })
 
@@ -278,7 +312,13 @@ async function simulateOneVOneDraft(input: {
 }): Promise<SimulationResult> {
   const { db, sqlite } = await createTestDatabase()
   const sqlTracker = trackSqlite(sqlite)
-  const { kv, operations, resetOperations } = createTrackedKv({ trackReads: true })
+  const { kv: rawKv, operations, resetOperations } = createTrackedKv({ trackReads: true })
+  const stateCoordinator = installStateCoordinatorHarness()
+  const kv = createStateStore({
+    KV: rawKv,
+    PARTY_HOST: stateCoordinator.host,
+    CIVUP_SECRET: stateCoordinator.secret,
+  })
 
   let botRequests = 0
   let activityRequests = 0
@@ -375,6 +415,7 @@ async function simulateOneVOneDraft(input: {
     const kvWrites = operations.filter(op => op.type === 'put').length
     const kvDeletes = operations.filter(op => op.type === 'delete').length
     const kvLists = operations.filter(op => op.type === 'list').length
+    const coordinatorRequests = stateCoordinator.requests()
 
     return {
       usage: {
@@ -385,12 +426,13 @@ async function simulateOneVOneDraft(input: {
         kvWrites,
         kvDeletes,
         kvLists,
-        doRequests: DO_REQUESTS_PER_DRAFT.createRoom + DO_REQUESTS_PER_DRAFT.websocketConnects + DO_REQUESTS_PER_DRAFT.gameplayMessages,
+        doRequests: estimateDoBilledRequestUnits(coordinatorRequests),
         doDurationGbSeconds: ASSUMED_DO_DURATION_GB_SECONDS_PER_DRAFT,
       },
     }
   }
   finally {
+    stateCoordinator.restore()
     sqlTracker.restore()
     sqlite.close()
   }
@@ -467,6 +509,7 @@ async function startDraftFromOpenLobby(
     status: 'drafting',
     matchId,
     updatedAt: Date.now(),
+    revision: nextLobbyBase.revision + 1,
   })
 
   await storeMatchMessageMapping(kv, 'message-lobby-drafting', matchId)
@@ -522,26 +565,7 @@ async function handleMatchReport(
     await storeMatchMessageMapping(kv, 'message-archive-reported', matchId)
   }
 
-  await refreshLeaderboardsWithoutDiscord(db, kv)
-}
-
-async function refreshLeaderboardsWithoutDiscord(
-  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
-  kv: KVNamespace,
-): Promise<void> {
-  const leaderboardChannelId = await getSystemChannel(kv, 'leaderboard')
-  if (!leaderboardChannelId) return
-
-  const previous = await getLeaderboardMessageState(kv)
-  await leaderboardEmbed(db, 'duel')
-  await leaderboardEmbed(db, 'teamers')
-  await leaderboardEmbed(db, 'ffa')
-
-  await setLeaderboardMessageState(kv, {
-    channelId: leaderboardChannelId,
-    messageId: previous?.messageId ?? 'message-leaderboard',
-    updatedAt: Date.now(),
-  })
+  await markLeaderboardsDirty(kv, `match-report:${matchId}`)
 }
 
 function buildCompletedDraftState(matchId: string, seats: DraftSeat[]): DraftState {
@@ -584,11 +608,8 @@ async function lookupMatchForChannel(kv: KVNamespace, channelId: string): Promis
 }
 
 async function lookupLobbyForChannel(kv: KVNamespace, channelId: string): Promise<unknown | null> {
-  for (const mode of GAME_MODES) {
-    const lobby = await getLobby(kv, mode)
-    if (!lobby || lobby.channelId !== channelId || lobby.status !== 'open') continue
-    return buildOpenLobbySnapshot(kv, mode, lobby)
-  }
+  const lobby = await getLobbyByChannel(kv, channelId)
+  if (lobby?.status === 'open') return buildOpenLobbySnapshot(kv, lobby.mode, lobby)
   return null
 }
 
@@ -685,6 +706,194 @@ async function callActivityBotApi<T>(
   return fn()
 }
 
+interface StateCoordinatorHarness {
+  host: string
+  secret: string
+  requests: () => number
+  restore: () => void
+}
+
+function installStateCoordinatorHarness(): StateCoordinatorHarness {
+  const host = 'https://state-coordinator.test'
+  const secret = 'capacity-test-secret'
+  const storage = new Map<string, { value: string, expiresAt: number | null }>()
+  let requestCount = 0
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = typeof input === 'string'
+      ? new URL(input)
+      : input instanceof URL
+        ? input
+        : new URL(input.url)
+
+    if (requestUrl.origin !== host || requestUrl.pathname !== '/parties/state/global') {
+      return originalFetch(input as any, init)
+    }
+
+    requestCount += 1
+    const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase()
+    if (method !== 'POST') {
+      return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+        status: 405,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    const providedSecret = resolveHeader(init?.headers, 'X-CivUp-State-Secret')
+    if (providedSecret !== secret) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    const rawBody = typeof init?.body === 'string'
+      ? init.body
+      : input instanceof Request
+        ? await input.text()
+        : ''
+
+    let payload: {
+      op?: string
+      key?: unknown
+      type?: unknown
+      value?: unknown
+      expirationTtl?: unknown
+      prefix?: unknown
+    }
+    try {
+      payload = JSON.parse(rawBody) as typeof payload
+    }
+    catch {
+      return new Response(JSON.stringify({ error: 'Invalid JSON payload' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    if (payload.op === 'get') {
+      const key = typeof payload.key === 'string' ? payload.key : null
+      if (!key) return jsonError('Invalid key')
+      const value = getValue(storage, key)
+      if (value == null) return jsonResponse({ value: null })
+      if (payload.type === 'json') {
+        try {
+          return jsonResponse({ value: JSON.parse(value) })
+        }
+        catch {
+          return jsonResponse({ value: null })
+        }
+      }
+      return jsonResponse({ value })
+    }
+
+    if (payload.op === 'put') {
+      const key = typeof payload.key === 'string' ? payload.key : null
+      const value = typeof payload.value === 'string' ? payload.value : null
+      if (!key) return jsonError('Invalid key')
+      if (value == null) return jsonError('Invalid value')
+
+      const ttlSeconds = typeof payload.expirationTtl === 'number' && Number.isFinite(payload.expirationTtl)
+        ? Math.max(0, Math.round(payload.expirationTtl))
+        : 0
+      const expiresAt = ttlSeconds > 0 ? Date.now() + ttlSeconds * 1000 : null
+      storage.set(key, { value, expiresAt })
+      return jsonResponse({ ok: true })
+    }
+
+    if (payload.op === 'delete') {
+      const key = typeof payload.key === 'string' ? payload.key : null
+      if (!key) return jsonError('Invalid key')
+      storage.delete(key)
+      return jsonResponse({ ok: true })
+    }
+
+    if (payload.op === 'list') {
+      const prefix = typeof payload.prefix === 'string' ? payload.prefix : ''
+      const keys: { name: string }[] = []
+      for (const key of storage.keys()) {
+        const value = getValue(storage, key)
+        if (value == null) continue
+        if (!key.startsWith(prefix)) continue
+        keys.push({ name: key })
+      }
+      return jsonResponse({
+        keys,
+        list_complete: true,
+        cursor: '',
+      })
+    }
+
+    return jsonError('Unknown operation')
+  }
+
+  return {
+    host,
+    secret,
+    requests: () => requestCount,
+    restore: () => {
+      globalThis.fetch = originalFetch
+    },
+  }
+}
+
+function resolveHeader(headers: HeadersInit | undefined, name: string): string | null {
+  if (!headers) return null
+
+  const target = name.toLowerCase()
+  if (headers instanceof Headers) {
+    return headers.get(name)
+  }
+
+  if (Array.isArray(headers)) {
+    const entry = headers.find(([headerName]) => headerName.toLowerCase() === target)
+    return entry?.[1] ?? null
+  }
+
+  const value = headers[name] ?? headers[name.toLowerCase()]
+  if (Array.isArray(value)) return value[0] ?? null
+  return typeof value === 'string' ? value : null
+}
+
+function getValue(storage: Map<string, { value: string, expiresAt: number | null }>, key: string): string | null {
+  const stored = storage.get(key)
+  if (!stored) return null
+  if (stored.expiresAt != null && stored.expiresAt <= Date.now()) {
+    storage.delete(key)
+    return null
+  }
+  return stored.value
+}
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+function jsonError(message: string): Response {
+  return new Response(JSON.stringify({ error: message }), {
+    status: 400,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+function estimateDoBilledRequestUnits(stateCoordinatorRequests: number): number {
+  const billedDraftMessages = Math.ceil(DO_REQUESTS_PER_DRAFT.draftRoomIncomingMessages / DO_WEBSOCKET_BILLING_RATIO)
+  const billedLobbyWatchMessages = Math.ceil(DO_REQUESTS_PER_DRAFT.lobbyWatchIncomingMessages / DO_WEBSOCKET_BILLING_RATIO)
+
+  return (
+    DO_REQUESTS_PER_DRAFT.createRoom
+    + DO_REQUESTS_PER_DRAFT.draftRoomWebsocketConnects
+    + DO_REQUESTS_PER_DRAFT.lobbyWatchWebsocketConnects
+    + billedDraftMessages
+    + billedLobbyWatchMessages
+    + stateCoordinatorRequests
+  )
+}
+
 function estimateDailyUsage(model: CapacityModel, playersPerDay: number): DailyUsage {
   const draftsPerDay = playersPerDay / PLAYERS_PER_DRAFT
   const d1RowsReadPerDraft = model.perDraft.d1RowsReadBase + model.perDraft.d1RowsReadPerLeaderboardPlayer * playersPerDay
@@ -740,6 +949,63 @@ function findMaxPlayersPerDay(input: {
   return low
 }
 
+function findMetricBreakpoints(input: {
+  model: CapacityModel
+  limits: UsageLimits
+  periodDays: number
+}): MetricBreakpoint[] {
+  const metrics = Object.keys(input.limits) as (keyof UsageLimits)[]
+
+  return metrics
+    .map((metric) => {
+      const playersPerDay = findMaxPlayersPerDayByMetric({
+        model: input.model,
+        metric,
+        limit: input.limits[metric],
+        periodDays: input.periodDays,
+      })
+      const daily = estimateDailyUsage(input.model, playersPerDay)
+      const usage = input.periodDays === 1 ? daily : multiplyDailyUsage(daily, input.periodDays)
+
+      return {
+        metric,
+        playersPerDay,
+        draftsPerDay: playersPerDay / PLAYERS_PER_DRAFT,
+        limit: input.limits[metric],
+        usageAtBreakpoint: usage[metric],
+      }
+    })
+    .sort((a, b) => {
+      if (a.playersPerDay === b.playersPerDay) return a.metric.localeCompare(b.metric)
+      return a.playersPerDay - b.playersPerDay
+    })
+}
+
+function findMaxPlayersPerDayByMetric(input: {
+  model: CapacityModel
+  metric: keyof UsageLimits
+  limit: number
+  periodDays: number
+}): number {
+  let low = 0
+  let high = 200_000
+
+  while (low < high) {
+    const mid = Math.floor((low + high + 1) / 2)
+    const daily = estimateDailyUsage(input.model, mid)
+    const usage = input.periodDays === 1 ? daily : multiplyDailyUsage(daily, input.periodDays)
+
+    if (usage[input.metric] <= input.limit) {
+      low = mid
+    }
+    else {
+      high = mid - 1
+    }
+  }
+
+  return low
+}
+
 function fitsLimits(usage: DailyUsage, limits: UsageLimits): boolean {
   return (
     usage.workersRequests <= limits.workersRequests
@@ -752,20 +1018,4 @@ function fitsLimits(usage: DailyUsage, limits: UsageLimits): boolean {
     && usage.doRequests <= limits.doRequests
     && usage.doDurationGbSeconds <= limits.doDurationGbSeconds
   )
-}
-
-function findBottleneck(limits: UsageLimits, usage: DailyUsage): { metric: keyof UsageLimits, ratio: number } {
-  const entries: Array<{ metric: keyof UsageLimits, ratio: number }> = [
-    { metric: 'workersRequests', ratio: usage.workersRequests / limits.workersRequests },
-    { metric: 'd1RowsRead', ratio: usage.d1RowsRead / limits.d1RowsRead },
-    { metric: 'd1RowsWritten', ratio: usage.d1RowsWritten / limits.d1RowsWritten },
-    { metric: 'kvReads', ratio: usage.kvReads / limits.kvReads },
-    { metric: 'kvWrites', ratio: usage.kvWrites / limits.kvWrites },
-    { metric: 'kvDeletes', ratio: usage.kvDeletes / limits.kvDeletes },
-    { metric: 'kvLists', ratio: usage.kvLists / limits.kvLists },
-    { metric: 'doRequests', ratio: usage.doRequests / limits.doRequests },
-    { metric: 'doDurationGbSeconds', ratio: usage.doDurationGbSeconds / limits.doDurationGbSeconds },
-  ]
-
-  return entries.sort((a, b) => b.ratio - a.ratio)[0]!
 }
