@@ -8,7 +8,7 @@ import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
 import { clearActivityMappings, getChannelForMatch } from '../services/activity'
 import { createChannelMessage } from '../services/discord'
 import { sendTransientEphemeralResponse } from '../services/ephemeral-response'
-import { refreshConfiguredLeaderboards } from '../services/leaderboard-message'
+import { markLeaderboardsDirty } from '../services/leaderboard-message'
 import { clearLobby, getLobby, getLobbyByMatch } from '../services/lobby'
 import { upsertLobbyMessage } from '../services/lobby-message'
 import { cancelMatchByModerator, resolveMatchByModerator } from '../services/match'
@@ -147,10 +147,10 @@ export const command_mod = factory.command<ModVar>(
           }
 
           try {
-            await refreshConfiguredLeaderboards(db, c.env.KV, c.env.DISCORD_TOKEN)
+            await markLeaderboardsDirty(c.env.KV, `mod-cancel:${result.match.id}`)
           }
           catch (error) {
-            console.error(`Failed to refresh leaderboard embeds after cancelling match ${result.match.id}:`, error)
+            console.error(`Failed to mark leaderboards dirty after cancelling match ${result.match.id}:`, error)
           }
 
           const recalculated = result.recalculatedMatchIds.length
@@ -238,10 +238,10 @@ export const command_mod = factory.command<ModVar>(
           }
 
           try {
-            await refreshConfiguredLeaderboards(db, c.env.KV, c.env.DISCORD_TOKEN)
+            await markLeaderboardsDirty(c.env.KV, `mod-resolve:${result.match.id}`)
           }
           catch (error) {
-            console.error(`Failed to refresh leaderboard embeds after resolving match ${result.match.id}:`, error)
+            console.error(`Failed to mark leaderboards dirty after resolving match ${result.match.id}:`, error)
           }
 
           const recalculated = result.recalculatedMatchIds.length

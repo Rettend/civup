@@ -99,6 +99,12 @@ export async function joinLobbyAndMaybeStartMatch(
   if (existingMode === mode) {
     const queue = await getQueueState(kv, mode)
     shouldJoinQueue = !queue.entries.some(entry => entry.playerId === userId)
+    if (!shouldJoinQueue) {
+      console.log('[idempotency] duplicate lobby join request', {
+        mode,
+        userId,
+      })
+    }
   }
 
   if (shouldJoinQueue) {

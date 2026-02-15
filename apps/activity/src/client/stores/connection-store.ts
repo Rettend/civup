@@ -27,6 +27,7 @@ export interface MatchStateSnapshot {
 }
 
 export interface LobbySnapshot {
+  revision: number
   mode: string
   hostId: string
   status: string
