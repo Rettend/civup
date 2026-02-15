@@ -9,6 +9,7 @@ export {
   fetchMatchForChannel,
   fetchMatchForUser,
   fetchMatchState,
+  fillLobbyWithTestPlayers,
   type LobbySnapshot,
   placeLobbySlot,
   removeLobbySlot,

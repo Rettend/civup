@@ -23,7 +23,7 @@ export interface CreateDraftRoomOptions {
 
 const DEFAULT_PARTY_HOST = 'http://localhost:1999'
 const DEFAULT_BOT_HOST = 'http://localhost:8787'
-const ACTIVITY_MAPPING_TTL = 12 * 60 * 60
+const ACTIVITY_MAPPING_TTL = 48 * 60 * 60
 
 // ── Create a draft room via PartyKit HTTP API ───────────
 
@@ -150,7 +150,17 @@ export async function getMatchForUser(
   kv: KVNamespace,
   userId: string,
 ): Promise<string | null> {
-  return kv.get(`activity-user:${userId}`)
+  const key = `activity-user:${userId}`
+  const matchId = await kv.get(key)
+  if (!matchId) return null
+
+  const activeChannelId = await kv.get(`activity-match:${matchId}`)
+  if (activeChannelId) {
+    return matchId
+  }
+
+  await kv.delete(key)
+  return null
 }
 
 /** Get channel ID by match ID (used by webhooks to post updates) */
@@ -165,12 +175,11 @@ export async function getChannelForMatch(
 export async function clearActivityMappings(
   kv: KVNamespace,
   matchId: string,
-  userIds: string[],
+  _userIds: string[],
   channelId?: string,
 ): Promise<void> {
   const deletions = [
     kv.delete(`activity-match:${matchId}`),
-    ...userIds.map(userId => kv.delete(`activity-user:${userId}`)),
   ]
   if (channelId) {
     deletions.push(kv.delete(`activity:${channelId}`))
