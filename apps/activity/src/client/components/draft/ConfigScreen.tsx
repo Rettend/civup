@@ -50,10 +50,25 @@ type OptimisticLobbyAction
   = | {
     kind: 'place-self'
     targetSlot: number
+    baseRevision: number
     expiresAt: number
   }
     | {
       kind: 'remove-self'
+      baseRevision: number
+      expiresAt: number
+    }
+    | {
+      kind: 'move-player'
+      playerId: string
+      targetSlot: number
+      baseRevision: number
+      expiresAt: number
+    }
+    | {
+      kind: 'remove-player'
+      playerId: string
+      baseRevision: number
       expiresAt: number
     }
 
@@ -64,6 +79,15 @@ type PendingOptimisticLobbyAction
   }
     | {
       kind: 'remove-self'
+    }
+    | {
+      kind: 'move-player'
+      playerId: string
+      targetSlot: number
+    }
+    | {
+      kind: 'remove-player'
+      playerId: string
     }
 
 /** Pre-draft setup screen (lobby waiting + room waiting). */
@@ -81,6 +105,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const [dragOverSlot, setDragOverSlot] = createSignal<number | null>(null)
   const [optimisticLobbyAction, setOptimisticLobbyAction] = createSignal<OptimisticLobbyAction | null>(null)
   let optimisticLobbyActionTimeout: ReturnType<typeof setTimeout> | null = null
+  let bootstrapJoinHintUsed = false
   const [lobbyTimerConfig, setLobbyTimerConfig] = createSignal<DraftTimerConfig | null>(
     props.lobby
       ? {
@@ -123,20 +148,58 @@ export function ConfigScreen(props: ConfigScreenProps) {
       return
     }
 
+    if (lobby.revision > action.baseRevision) {
+      clearOptimisticLobbyAction()
+      return
+    }
+
     if (Date.now() > action.expiresAt) {
       clearOptimisticLobbyAction()
       return
     }
 
-    const alreadySlotted = lobby.entries.some(entry => entry?.playerId === currentUserId)
-    if (action.kind === 'place-self' && alreadySlotted) {
-      clearOptimisticLobbyAction()
+    if (action.kind === 'place-self' || action.kind === 'remove-self') {
+      const alreadySlotted = lobby.entries.some(entry => entry?.playerId === currentUserId)
+      if (action.kind === 'place-self' && alreadySlotted) {
+        clearOptimisticLobbyAction()
+        return
+      }
+
+      if (action.kind === 'remove-self' && !alreadySlotted) {
+        clearOptimisticLobbyAction()
+      }
+    }
+  })
+
+  createEffect(() => {
+    if (bootstrapJoinHintUsed) return
+    if (optimisticLobbyAction()) return
+
+    const lobby = lobbyState()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || lobby.status !== 'open') return
+
+    if (lobby.hostId === currentUserId) {
+      bootstrapJoinHintUsed = true
       return
     }
 
-    if (action.kind === 'remove-self' && !alreadySlotted) {
-      clearOptimisticLobbyAction()
+    if (lobby.entries.some(entry => entry?.playerId === currentUserId)) {
+      bootstrapJoinHintUsed = true
+      return
     }
+
+    const firstEmptySlot = lobby.entries.findIndex(entry => entry == null)
+    if (firstEmptySlot < 0) {
+      bootstrapJoinHintUsed = true
+      return
+    }
+
+    bootstrapJoinHintUsed = true
+    startOptimisticLobbyAction({
+      kind: 'place-self',
+      targetSlot: firstEmptySlot,
+    })
   })
 
   const clearOptimisticLobbyAction = () => {
@@ -150,8 +213,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const startOptimisticLobbyAction = (action: PendingOptimisticLobbyAction) => {
     clearOptimisticLobbyAction()
     const expiresAt = Date.now() + 2500
+    const baseRevision = lobbyState()?.revision ?? 0
     const next = {
       ...action,
+      baseRevision,
       expiresAt,
     } as OptimisticLobbyAction
 
@@ -548,9 +613,16 @@ export function ConfigScreen(props: ConfigScreenProps) {
       payload.playerId = draggedPlayerId
     }
 
-    const optimisticSelfMove = draggedPlayerId === currentUserId
-    if (optimisticSelfMove) {
-      startOptimisticLobbyAction({ kind: 'place-self', targetSlot: slot })
+    let optimisticAction: PendingOptimisticLobbyAction | null = null
+    if (draggedPlayerId === currentUserId) {
+      optimisticAction = { kind: 'place-self', targetSlot: slot }
+    }
+    else if (amHost()) {
+      optimisticAction = { kind: 'move-player', playerId: draggedPlayerId, targetSlot: slot }
+    }
+
+    if (optimisticAction) {
+      startOptimisticLobbyAction(optimisticAction)
     }
 
     setLobbyActionPending(true)
@@ -558,12 +630,12 @@ export function ConfigScreen(props: ConfigScreenProps) {
     try {
       const result = await placeLobbySlot(lobby.mode, payload)
       if (!result.ok) {
-        if (optimisticSelfMove) clearOptimisticLobbyAction()
+        if (optimisticAction) clearOptimisticLobbyAction()
         setConfigMessage(result.error)
         return
       }
       applyLobbySnapshot(result.lobby)
-      if (optimisticSelfMove) clearOptimisticLobbyAction()
+      if (optimisticAction) clearOptimisticLobbyAction()
     }
     finally {
       setLobbyActionPending(false)
@@ -579,9 +651,16 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (lobbyActionPending()) return
 
     const removingPlayerId = lobby.entries[slot]?.playerId ?? null
-    const optimisticSelfRemoval = removingPlayerId === currentUserId
-    if (optimisticSelfRemoval) {
-      startOptimisticLobbyAction({ kind: 'remove-self' })
+    let optimisticAction: PendingOptimisticLobbyAction | null = null
+    if (removingPlayerId === currentUserId) {
+      optimisticAction = { kind: 'remove-self' }
+    }
+    else if (removingPlayerId && amHost()) {
+      optimisticAction = { kind: 'remove-player', playerId: removingPlayerId }
+    }
+
+    if (optimisticAction) {
+      startOptimisticLobbyAction(optimisticAction)
     }
 
     setLobbyActionPending(true)
@@ -592,12 +671,12 @@ export function ConfigScreen(props: ConfigScreenProps) {
         slot,
       })
       if (!result.ok) {
-        if (optimisticSelfRemoval) clearOptimisticLobbyAction()
+        if (optimisticAction) clearOptimisticLobbyAction()
         setConfigMessage(result.error)
         return
       }
       applyLobbySnapshot(result.lobby)
-      if (optimisticSelfRemoval) clearOptimisticLobbyAction()
+      if (optimisticAction) clearOptimisticLobbyAction()
     }
     finally {
       setLobbyActionPending(false)
@@ -1130,35 +1209,73 @@ function applyOptimisticLobbyAction(
   if (lobby.status !== 'open') return lobby
 
   const entries = [...lobby.entries]
-  const currentSlot = entries.findIndex(entry => entry?.playerId === currentUserId)
-  if (currentSlot >= 0) {
-    entries[currentSlot] = null
-  }
 
-  if (action.kind === 'place-self') {
-    if (action.targetSlot < 0 || action.targetSlot >= entries.length) return lobby
-    const target = entries[action.targetSlot]
-    if (target && target.playerId !== currentUserId) return lobby
+  const movePlayer = (playerId: string, targetSlot: number): boolean => {
+    if (targetSlot < 0 || targetSlot >= entries.length) return false
 
-    entries[action.targetSlot] = {
-      playerId: currentUserId,
-      displayName: typeof currentUserDisplayName === 'string' && currentUserDisplayName.trim().length > 0
-        ? currentUserDisplayName
-        : 'You',
-      avatarUrl: currentUserAvatarUrl || null,
+    const sourceSlot = entries.findIndex(entry => entry?.playerId === playerId)
+    if (sourceSlot === targetSlot) return false
+    const targetEntry = entries[targetSlot]
+
+    if (sourceSlot < 0) {
+      if (targetEntry && targetEntry.playerId !== playerId) return false
+
+      entries[targetSlot] = {
+        playerId,
+        displayName: typeof currentUserDisplayName === 'string' && currentUserDisplayName.trim().length > 0
+          ? currentUserDisplayName
+          : 'You',
+        avatarUrl: currentUserAvatarUrl || null,
+      }
+      return true
     }
+
+    const sourceEntry = entries[sourceSlot]
+    if (!sourceEntry) return false
+
+    if (targetEntry && action.kind === 'place-self' && targetEntry.playerId !== playerId) {
+      return false
+    }
+
+    entries[sourceSlot] = targetEntry ?? null
+    entries[targetSlot] = sourceEntry
+    return true
   }
 
-  let changed = false
+  const removePlayer = (playerId: string): boolean => {
+    const sourceSlot = entries.findIndex(entry => entry?.playerId === playerId)
+    if (sourceSlot < 0) return false
+    entries[sourceSlot] = null
+    return true
+  }
+
+  const changed = (() => {
+    switch (action.kind) {
+      case 'place-self':
+        return movePlayer(currentUserId, action.targetSlot)
+      case 'remove-self':
+        return removePlayer(currentUserId)
+      case 'move-player':
+        return movePlayer(action.playerId, action.targetSlot)
+      case 'remove-player':
+        return removePlayer(action.playerId)
+      default:
+        return false
+    }
+  })()
+
+  if (!changed) return lobby
+
+  let hasPlayerDiff = false
   for (let i = 0; i < entries.length; i++) {
     const before = lobby.entries[i]?.playerId ?? null
     const after = entries[i]?.playerId ?? null
     if (before !== after) {
-      changed = true
+      hasPlayerDiff = true
       break
     }
   }
-  if (!changed) return lobby
+  if (!hasPlayerDiff) return lobby
 
   return {
     ...lobby,
