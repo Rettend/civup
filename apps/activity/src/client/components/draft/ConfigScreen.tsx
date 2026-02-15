@@ -46,6 +46,26 @@ interface DraftTimerConfig {
   pickTimerSeconds: number | null
 }
 
+type OptimisticLobbyAction
+  = | {
+    kind: 'place-self'
+    targetSlot: number
+    expiresAt: number
+  }
+    | {
+      kind: 'remove-self'
+      expiresAt: number
+    }
+
+type PendingOptimisticLobbyAction
+  = | {
+    kind: 'place-self'
+    targetSlot: number
+  }
+    | {
+      kind: 'remove-self'
+    }
+
 /** Pre-draft setup screen (lobby waiting + room waiting). */
 export function ConfigScreen(props: ConfigScreenProps) {
   const state = () => draftStore.state
@@ -59,8 +79,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const [lobbyActionPending, setLobbyActionPending] = createSignal(false)
   const [draggingPlayerId, setDraggingPlayerId] = createSignal<string | null>(null)
   const [dragOverSlot, setDragOverSlot] = createSignal<number | null>(null)
-  const [optimisticSelfSlotUntil, setOptimisticSelfSlotUntil] = createSignal<number | null>(null)
-  let optimisticSelfSlotTimeout: ReturnType<typeof setTimeout> | null = null
+  const [optimisticLobbyAction, setOptimisticLobbyAction] = createSignal<OptimisticLobbyAction | null>(null)
+  let optimisticLobbyActionTimeout: ReturnType<typeof setTimeout> | null = null
   const [lobbyTimerConfig, setLobbyTimerConfig] = createSignal<DraftTimerConfig | null>(
     props.lobby
       ? {
@@ -93,45 +113,65 @@ export function ConfigScreen(props: ConfigScreenProps) {
   })
 
   createEffect(() => {
-    if (optimisticSelfSlotTimeout) {
-      clearTimeout(optimisticSelfSlotTimeout)
-      optimisticSelfSlotTimeout = null
-    }
+    const action = optimisticLobbyAction()
+    if (!action) return
 
     const lobby = lobbyState()
     const currentUserId = userId()
     if (!lobby || !currentUserId || lobby.status !== 'open') {
-      setOptimisticSelfSlotUntil(null)
+      clearOptimisticLobbyAction()
+      return
+    }
+
+    if (Date.now() > action.expiresAt) {
+      clearOptimisticLobbyAction()
       return
     }
 
     const alreadySlotted = lobby.entries.some(entry => entry?.playerId === currentUserId)
-    const hasEmptySlot = lobby.entries.some(entry => entry == null)
-    if (alreadySlotted || !hasEmptySlot) {
-      setOptimisticSelfSlotUntil(null)
+    if (action.kind === 'place-self' && alreadySlotted) {
+      clearOptimisticLobbyAction()
       return
     }
 
+    if (action.kind === 'remove-self' && !alreadySlotted) {
+      clearOptimisticLobbyAction()
+    }
+  })
+
+  const clearOptimisticLobbyAction = () => {
+    if (optimisticLobbyActionTimeout) {
+      clearTimeout(optimisticLobbyActionTimeout)
+      optimisticLobbyActionTimeout = null
+    }
+    setOptimisticLobbyAction(null)
+  }
+
+  const startOptimisticLobbyAction = (action: PendingOptimisticLobbyAction) => {
+    clearOptimisticLobbyAction()
     const expiresAt = Date.now() + 2500
-    setOptimisticSelfSlotUntil(expiresAt)
-    optimisticSelfSlotTimeout = setTimeout(() => {
-      setOptimisticSelfSlotUntil((current) => {
-        if (current !== expiresAt) return current
+    const next = {
+      ...action,
+      expiresAt,
+    } as OptimisticLobbyAction
+
+    setOptimisticLobbyAction(next)
+    optimisticLobbyActionTimeout = setTimeout(() => {
+      setOptimisticLobbyAction((current) => {
+        if (!current || current.expiresAt !== expiresAt) return current
         return null
       })
-      optimisticSelfSlotTimeout = null
+      optimisticLobbyActionTimeout = null
     }, 2500)
-  })
+  }
 
   onCleanup(() => {
-    if (!optimisticSelfSlotTimeout) return
-    clearTimeout(optimisticSelfSlotTimeout)
-    optimisticSelfSlotTimeout = null
+    clearOptimisticLobbyAction()
   })
 
-  const currentLobby = () => applyOptimisticSelfSlot(
+  const currentLobby = () => applyOptimisticLobbyAction(
     lobbyState(),
-    optimisticSelfSlotUntil(),
+    optimisticLobbyAction(),
     userId(),
     currentDisplayName(),
     currentAvatarUrl(),
@@ -461,6 +501,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (!lobby || !currentUserId) return
     if (lobbyActionPending()) return
 
+    startOptimisticLobbyAction({ kind: 'place-self', targetSlot: slot })
     setLobbyActionPending(true)
     setConfigMessage(null)
     try {
@@ -471,10 +512,12 @@ export function ConfigScreen(props: ConfigScreenProps) {
         avatarUrl: currentAvatarUrl(),
       })
       if (!result.ok) {
+        clearOptimisticLobbyAction()
         setConfigMessage(result.error)
         return
       }
       applyLobbySnapshot(result.lobby)
+      clearOptimisticLobbyAction()
     }
     finally {
       setLobbyActionPending(false)
@@ -505,15 +548,22 @@ export function ConfigScreen(props: ConfigScreenProps) {
       payload.playerId = draggedPlayerId
     }
 
+    const optimisticSelfMove = draggedPlayerId === currentUserId
+    if (optimisticSelfMove) {
+      startOptimisticLobbyAction({ kind: 'place-self', targetSlot: slot })
+    }
+
     setLobbyActionPending(true)
     setConfigMessage(null)
     try {
       const result = await placeLobbySlot(lobby.mode, payload)
       if (!result.ok) {
+        if (optimisticSelfMove) clearOptimisticLobbyAction()
         setConfigMessage(result.error)
         return
       }
       applyLobbySnapshot(result.lobby)
+      if (optimisticSelfMove) clearOptimisticLobbyAction()
     }
     finally {
       setLobbyActionPending(false)
@@ -528,6 +578,12 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (!lobby || !currentUserId) return
     if (lobbyActionPending()) return
 
+    const removingPlayerId = lobby.entries[slot]?.playerId ?? null
+    const optimisticSelfRemoval = removingPlayerId === currentUserId
+    if (optimisticSelfRemoval) {
+      startOptimisticLobbyAction({ kind: 'remove-self' })
+    }
+
     setLobbyActionPending(true)
     setConfigMessage(null)
     try {
@@ -536,10 +592,12 @@ export function ConfigScreen(props: ConfigScreenProps) {
         slot,
       })
       if (!result.ok) {
+        if (optimisticSelfRemoval) clearOptimisticLobbyAction()
         setConfigMessage(result.error)
         return
       }
       applyLobbySnapshot(result.lobby)
+      if (optimisticSelfRemoval) clearOptimisticLobbyAction()
     }
     finally {
       setLobbyActionPending(false)
@@ -1060,29 +1118,47 @@ function formatTimerValue(timerSeconds: number | null, defaultTimerSeconds: numb
   return `${minutes} minutes`
 }
 
-function applyOptimisticSelfSlot(
+function applyOptimisticLobbyAction(
   lobby: LobbySnapshot | null,
-  optimisticUntil: number | null,
+  action: OptimisticLobbyAction | null,
   currentUserId: string | null,
   currentUserDisplayName: string | null,
   currentUserAvatarUrl: string | null,
 ): LobbySnapshot | null {
-  if (!lobby || !optimisticUntil || !currentUserId) return lobby
-  if (Date.now() > optimisticUntil) return lobby
+  if (!lobby || !action || !currentUserId) return lobby
+  if (Date.now() > action.expiresAt) return lobby
   if (lobby.status !== 'open') return lobby
-  if (lobby.entries.some(entry => entry?.playerId === currentUserId)) return lobby
-
-  const emptySlot = lobby.entries.findIndex(entry => entry == null)
-  if (emptySlot < 0) return lobby
 
   const entries = [...lobby.entries]
-  entries[emptySlot] = {
-    playerId: currentUserId,
-    displayName: typeof currentUserDisplayName === 'string' && currentUserDisplayName.trim().length > 0
-      ? currentUserDisplayName
-      : 'You',
-    avatarUrl: currentUserAvatarUrl || null,
+  const currentSlot = entries.findIndex(entry => entry?.playerId === currentUserId)
+  if (currentSlot >= 0) {
+    entries[currentSlot] = null
   }
+
+  if (action.kind === 'place-self') {
+    if (action.targetSlot < 0 || action.targetSlot >= entries.length) return lobby
+    const target = entries[action.targetSlot]
+    if (target && target.playerId !== currentUserId) return lobby
+
+    entries[action.targetSlot] = {
+      playerId: currentUserId,
+      displayName: typeof currentUserDisplayName === 'string' && currentUserDisplayName.trim().length > 0
+        ? currentUserDisplayName
+        : 'You',
+      avatarUrl: currentUserAvatarUrl || null,
+    }
+  }
+
+  let changed = false
+  for (let i = 0; i < entries.length; i++) {
+    const before = lobby.entries[i]?.playerId ?? null
+    const after = entries[i]?.playerId ?? null
+    if (before !== after) {
+      changed = true
+      break
+    }
+  }
+  if (!changed) return lobby
 
   return {
     ...lobby,
