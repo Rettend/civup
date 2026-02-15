@@ -8,12 +8,13 @@ import { lobbyComponents, lobbyOpenEmbed, lobbyResultEmbed } from '../../embeds/
 import { getMatchForUser, storeUserMatchMappings } from '../../services/activity.ts'
 import { createChannelMessage } from '../../services/discord.ts'
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
-import { refreshConfiguredLeaderboards } from '../../services/leaderboard-message.ts'
+import { markLeaderboardsDirty } from '../../services/leaderboard-message.ts'
 import { upsertLobbyMessage } from '../../services/lobby-message.ts'
 import { clearLobby, clearLobbyByMatch, createLobby, getLobby, getLobbyByMatch, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots, setLobbyStatus } from '../../services/lobby.ts'
 import { storeMatchMessageMapping } from '../../services/match-message.ts'
 import { reportMatch } from '../../services/match.ts'
 import { addToQueue, clearQueue, getQueueState, removeFromQueue } from '../../services/queue.ts'
+import { createStateStore } from '../../services/state-store.ts'
 import { getSystemChannel } from '../../services/system-channels.ts'
 import { factory } from '../../setup.ts'
 import { collectFfaPlacementUserIds, GAME_MODE_CHOICES, getIdentity, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
@@ -60,7 +61,7 @@ export const command_match = factory.command<MatchVar>(
         }
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const kv = c.env.KV
+          const kv = createStateStore(c.env)
           const draftChannelId = await getSystemChannel(kv, 'draft')
           if (!draftChannelId) {
             await sendTransientEphemeralResponse(
@@ -164,6 +165,7 @@ export const command_match = factory.command<MatchVar>(
       // ── join ────────────────────────────────────────────
       case 'join': {
         const mode = c.var.mode as GameMode
+        const kv = createStateStore(c.env)
         const identity = getIdentity(c)
         if (!identity) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
@@ -171,9 +173,9 @@ export const command_match = factory.command<MatchVar>(
           })
         }
 
-        const lobby = await getLobby(c.env.KV, mode)
+        const lobby = await getLobby(kv, mode)
         if (!lobby) {
-          let userMatchId = await getMatchForUser(c.env.KV, identity.userId)
+          let userMatchId = await getMatchForUser(kv, identity.userId)
           if (!userMatchId) {
             const db = createDb(c.env.DB)
             const [active] = await db
@@ -191,7 +193,7 @@ export const command_match = factory.command<MatchVar>(
           }
 
           if (userMatchId) {
-            c.executionCtx.waitUntil(storeUserMatchMappings(c.env.KV, [identity.userId], userMatchId))
+            c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], userMatchId))
             return c.resActivity()
           }
           return c.flags('EPHEMERAL').resDefer(async (c) => {
@@ -201,13 +203,13 @@ export const command_match = factory.command<MatchVar>(
 
         if (lobby.status !== 'open') {
           if (!lobby.matchId) {
-            await clearLobby(c.env.KV, mode)
+            await clearLobby(kv, mode)
             return c.flags('EPHEMERAL').resDefer(async (c) => {
               await sendTransientEphemeralResponse(c, 'This lobby was stale and has been cleared. Use `/match create` to start a fresh lobby.', 'error')
             })
           }
 
-          c.executionCtx.waitUntil(storeUserMatchMappings(c.env.KV, [identity.userId], lobby.matchId))
+          c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], lobby.matchId))
           return c.resActivity()
         }
 
@@ -226,7 +228,7 @@ export const command_match = factory.command<MatchVar>(
           }
 
           try {
-            await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
+            await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
               embeds: outcome.embeds,
               components: outcome.components,
             })
@@ -250,7 +252,7 @@ export const command_match = factory.command<MatchVar>(
         }
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const kv = c.env.KV
+          const kv = createStateStore(c.env)
           const removed = await removeFromQueue(kv, identity.userId)
 
           if (!removed) {
@@ -290,7 +292,7 @@ export const command_match = factory.command<MatchVar>(
       // ── status ──────────────────────────────────────────
       case 'status': {
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const kv = c.env.KV
+          const kv = createStateStore(c.env)
           const modes: GameMode[] = ['ffa', '1v1', '2v2', '3v3']
           const lines: string[] = []
 
@@ -333,7 +335,7 @@ export const command_match = factory.command<MatchVar>(
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           const db = createDb(c.env.DB)
-          const kv = c.env.KV
+          const kv = createStateStore(c.env)
 
           let matchId = c.var.match_id?.trim() ?? null
           if (!matchId) {
@@ -371,6 +373,15 @@ export const command_match = factory.command<MatchVar>(
 
           if (!match) {
             await sendTransientEphemeralResponse(c, `Match **${matchId}** was not found.`, 'error')
+            return
+          }
+
+          if (match.status === 'completed') {
+            console.log('[idempotency] duplicate slash report request', {
+              matchId: match.id,
+              reporterId: identity.userId,
+            })
+            await sendTransientEphemeralResponse(c, `Match **${match.id}** was already reported.`, 'info')
             return
           }
 
@@ -418,6 +429,15 @@ export const command_match = factory.command<MatchVar>(
             return
           }
 
+          if (result.idempotent) {
+            console.log('[idempotency] slash report deduplicated after race', {
+              matchId: result.match.id,
+              reporterId: identity.userId,
+            })
+            await sendTransientEphemeralResponse(c, `Match **${result.match.id}** was already reported.`, 'info')
+            return
+          }
+
           const reportedMode = normalizeMatchMode(result.match.gameMode)
 
           const lobby = await getLobbyByMatch(kv, result.match.id)
@@ -450,10 +470,10 @@ export const command_match = factory.command<MatchVar>(
           }
 
           try {
-            await refreshConfiguredLeaderboards(db, kv, c.env.DISCORD_TOKEN)
+            await markLeaderboardsDirty(kv, `match-report:${result.match.id}`)
           }
           catch (error) {
-            console.error(`Failed to refresh leaderboard embeds after match ${result.match.id}:`, error)
+            console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
           }
 
           await sendTransientEphemeralResponse(c, `Reported result for match **${result.match.id}**.`, 'success')

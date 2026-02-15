@@ -12,7 +12,7 @@ import { clearSeasonConfirmation, createSeasonConfirmation, getSeasonConfirmatio
 import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/ephemeral-response'
 import { upsertLeaderboardMessagesForChannel } from '../services/leaderboard-message'
 import { addModRole, getModRoleIds, hasAdminPermission, removeModRole } from '../services/permissions'
-import { clearLeaderboardMessageState, clearSystemChannel, getSystemChannel, setSystemChannel } from '../services/system-channels'
+import { clearLeaderboardDirtyState, clearLeaderboardMessageState, clearSystemChannel, getSystemChannel, setSystemChannel } from '../services/system-channels'
 import { factory } from '../setup'
 
 interface Var {
@@ -269,7 +269,10 @@ export const command_admin = factory.command<Var>(
 
           if (previousChannelId === channelId) {
             await clearSystemChannel(kv, target)
-            if (target === 'leaderboard') await clearLeaderboardMessageState(kv)
+            if (target === 'leaderboard') {
+              await clearLeaderboardMessageState(kv)
+              await clearLeaderboardDirtyState(kv)
+            }
             await sendTransientEphemeralResponse(c, `${setupTargetLabel(target)} channel disabled in <#${channelId}>.`, 'info')
             return
           }
@@ -280,6 +283,7 @@ export const command_admin = factory.command<Var>(
             try {
               const db = createDb(c.env.DB)
               await upsertLeaderboardMessagesForChannel(db, kv, c.env.DISCORD_TOKEN, channelId)
+              await clearLeaderboardDirtyState(kv)
               const movedFrom = previousChannelId && previousChannelId !== channelId
                 ? ` (moved from <#${previousChannelId}>)`
                 : ''

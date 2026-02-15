@@ -40,7 +40,7 @@ interface ReportInput {
 }
 
 type ReportResult
-  = | { match: MatchRow, participants: ParticipantRow[] }
+  = | { match: MatchRow, participants: ParticipantRow[], idempotent?: boolean }
     | { error: string }
 
 interface ResolveMatchInput {
@@ -491,7 +491,6 @@ export async function reportMatch(
   kv: KVNamespace,
   input: ReportInput,
 ): Promise<ReportResult> {
-  // Fetch the match
   const [match] = await db
     .select()
     .from(matches)
@@ -502,11 +501,6 @@ export async function reportMatch(
     return { error: `Match **${input.matchId}** not found.` }
   }
 
-  if (match.status !== 'active') {
-    return { error: `Match **${input.matchId}** is not active (status: ${match.status}).` }
-  }
-
-  // Verify reporter is a participant
   const participantRows = await db
     .select()
     .from(matchParticipants)
@@ -520,6 +514,14 @@ export async function reportMatch(
   const hostId = getHostIdFromDraftData(match.draftData)
   if (hostId && input.reporterId !== hostId) {
     return { error: 'Only the match host can report the result.' }
+  }
+
+  if (match.status === 'completed') {
+    return { match, participants: participantRows, idempotent: true }
+  }
+
+  if (match.status !== 'active') {
+    return { error: `Match **${input.matchId}** is not active (status: ${match.status}).` }
   }
 
   const gameMode = match.gameMode as GameMode

@@ -9,6 +9,7 @@ import { clearDeferredEphemeralResponse, sendTransientEphemeralResponse } from '
 import { upsertLobbyMessage } from '../../services/lobby-message.ts'
 import { clearLobby, getLobby, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby.ts'
 import { getQueueState, removeFromQueue } from '../../services/queue.ts'
+import { createStateStore } from '../../services/state-store.ts'
 import { factory } from '../../setup.ts'
 import { getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
 
@@ -16,6 +17,7 @@ export const component_match_join = factory.component(
   new Button('match-join', 'Join', 'Primary'),
   async (c) => {
     const mode = c.var.custom_id as GameMode | undefined
+    const kv = createStateStore(c.env)
     const identity = getIdentity(c)
     if (!identity || !mode) {
       return c.flags('EPHEMERAL').resDefer(async (c) => {
@@ -23,9 +25,9 @@ export const component_match_join = factory.component(
       })
     }
 
-    const lobby = await getLobby(c.env.KV, mode)
+    const lobby = await getLobby(kv, mode)
     if (!lobby) {
-      let userMatchId = await getMatchForUser(c.env.KV, identity.userId)
+      let userMatchId = await getMatchForUser(kv, identity.userId)
       if (!userMatchId) {
         const db = createDb(c.env.DB)
         const [active] = await db
@@ -43,7 +45,7 @@ export const component_match_join = factory.component(
       }
 
       if (userMatchId) {
-        c.executionCtx.waitUntil(storeUserMatchMappings(c.env.KV, [identity.userId], userMatchId))
+        c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], userMatchId))
         return c.resActivity()
       }
       return c.flags('EPHEMERAL').resDefer(async (c) => {
@@ -53,12 +55,12 @@ export const component_match_join = factory.component(
 
     if (lobby.status !== 'open') {
       if (!lobby.matchId) {
-        await clearLobby(c.env.KV, mode)
+        await clearLobby(kv, mode)
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           await sendTransientEphemeralResponse(c, 'This lobby was stale and has been cleared. Use `/match create` to start a fresh lobby.', 'error')
         })
       }
-      c.executionCtx.waitUntil(storeUserMatchMappings(c.env.KV, [identity.userId], lobby.matchId))
+      c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], lobby.matchId))
       return c.resActivity()
     }
 
@@ -78,7 +80,7 @@ export const component_match_join = factory.component(
 
     c.executionCtx.waitUntil((async () => {
       try {
-        await upsertLobbyMessage(c.env.KV, c.env.DISCORD_TOKEN, lobby, {
+        await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
           embeds: outcome.embeds,
           components: outcome.components,
         })
@@ -108,7 +110,7 @@ export const component_match_leave = factory.component(
     }
 
     return c.flags('EPHEMERAL').resDefer(async (c) => {
-      const kv = c.env.KV
+      const kv = createStateStore(c.env)
       const removed = await removeFromQueue(kv, identity.userId)
 
       if (!removed) {

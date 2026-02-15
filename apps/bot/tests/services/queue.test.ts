@@ -8,8 +8,8 @@ import {
 } from '../../src/services/queue.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
-describe('queue service KV write behavior', () => {
-  test('setQueueEntries only writes changed player mappings', async () => {
+describe('queue service KV behavior', () => {
+  test('setQueueEntries only rewrites queue key when entries change', async () => {
     const { kv, operations, resetOperations } = createTrackedKv()
 
     await setQueueEntries(kv, 'ffa', [entry('p1'), entry('p2')])
@@ -20,10 +20,8 @@ describe('queue service KV write behavior', () => {
     const putKeys = operations.filter(op => op.type === 'put').map(op => op.key)
     const deleteKeys = operations.filter(op => op.type === 'delete').map(op => op.key)
 
-    expect(putKeys).toContain('queue:ffa')
-    expect(putKeys).toContain('player-queue:p3')
-    expect(putKeys).not.toContain('player-queue:p1')
-    expect(deleteKeys).toEqual(['player-queue:p2'])
+    expect(putKeys).toEqual(['queue:ffa'])
+    expect(deleteKeys).toEqual([])
   })
 
   test('setQueueEntries is a no-op when entries are unchanged', async () => {
@@ -38,7 +36,7 @@ describe('queue service KV write behavior', () => {
     expect(operations).toHaveLength(0)
   })
 
-  test('removeFromQueue deletes player mapping once', async () => {
+  test('removeFromQueue rewrites queue state and returns mode', async () => {
     const { kv, operations, resetOperations } = createTrackedKv()
 
     await setQueueEntries(kv, 'ffa', [entry('p1'), entry('p2')])
@@ -47,35 +45,36 @@ describe('queue service KV write behavior', () => {
     const removedMode = await removeFromQueue(kv, 'p1')
     expect(removedMode).toBe('ffa')
 
-    const p1Deletes = operations.filter(op => op.type === 'delete' && op.key === 'player-queue:p1')
-    expect(p1Deletes).toHaveLength(1)
+    const putKeys = operations.filter(op => op.type === 'put').map(op => op.key)
+    const deleteKeys = operations.filter(op => op.type === 'delete').map(op => op.key)
+    expect(putKeys).toEqual(['queue:ffa'])
+    expect(deleteKeys).toEqual([])
   })
 
-  test('clearQueue deletes removed player mappings once each', async () => {
+  test('clearQueue deletes queue key when all entries removed', async () => {
     const { kv, operations, resetOperations } = createTrackedKv()
 
-    await setQueueEntries(kv, 'ffa', [entry('p1'), entry('p2'), entry('p3')])
+    await setQueueEntries(kv, 'ffa', [entry('p1'), entry('p2')])
     resetOperations()
 
     await clearQueue(kv, 'ffa', ['p1', 'p2'])
 
-    const p1Deletes = operations.filter(op => op.type === 'delete' && op.key === 'player-queue:p1')
-    const p2Deletes = operations.filter(op => op.type === 'delete' && op.key === 'player-queue:p2')
-    expect(p1Deletes).toHaveLength(1)
-    expect(p2Deletes).toHaveLength(1)
+    const putKeys = operations.filter(op => op.type === 'put').map(op => op.key)
+    const deleteKeys = operations.filter(op => op.type === 'delete').map(op => op.key)
+    expect(putKeys).toEqual([])
+    expect(deleteKeys).toEqual(['queue:ffa'])
   })
 
-  test('getPlayerQueueMode recovers from expired player mapping', async () => {
-    const { kv, operations, resetOperations } = createTrackedKv()
+  test('getPlayerQueueMode scans queues without KV writes', async () => {
+    const { kv, operations, resetOperations } = createTrackedKv({ trackReads: true })
 
     await setQueueEntries(kv, 'ffa', [entry('p1')])
-    await kv.delete('player-queue:p1')
     resetOperations()
 
     await expect(getPlayerQueueMode(kv, 'p1')).resolves.toBe('ffa')
 
-    const recachePuts = operations.filter(op => op.type === 'put' && op.key === 'player-queue:p1')
-    expect(recachePuts).toHaveLength(1)
+    const writes = operations.filter(op => op.type === 'put' || op.type === 'delete')
+    expect(writes).toHaveLength(0)
   })
 })
 

@@ -4,12 +4,17 @@
   "account_id": "bee9950f4935b08fbc80f8e9ea881286",
   "main": "src/index.ts",
   "workers_dev": true,
+  "keep_vars": true,
   "compatibility_date": "2025-01-01",
   "durable_objects": {
     "bindings": [
       {
         "name": "Main",
         "class_name": "Main"
+      },
+      {
+        "name": "State",
+        "class_name": "State"
       }
     ]
   },
@@ -17,6 +22,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["Main"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["State"]
     }
   ],
   "routes": [
