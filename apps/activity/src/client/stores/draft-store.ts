@@ -16,6 +16,8 @@ export interface DraftStore {
   completedAt: number | null
   /** Recent events for animation triggers */
   lastEvents: DraftEvent[]
+  /** Local optimistic picks keyed by seat index */
+  optimisticSeatPicks: Record<number, string>
 }
 
 // ── Store ──────────────────────────────────────────────────
@@ -27,6 +29,7 @@ const [draftStore, setDraftStore] = createStore<DraftStore>({
   timerEndsAt: null,
   completedAt: null,
   lastEvents: [],
+  optimisticSeatPicks: {},
 })
 
 export { draftStore }
@@ -47,6 +50,7 @@ export function initDraft(
     timerEndsAt,
     completedAt,
     lastEvents: [],
+    optimisticSeatPicks: {},
   })
 }
 
@@ -63,7 +67,32 @@ export function updateDraft(
     s.timerEndsAt = timerEndsAt
     s.completedAt = completedAt
     s.lastEvents = events
+    s.optimisticSeatPicks = {}
   }))
+}
+
+/** Optimistically show a pick for this client's seat until server update arrives. */
+export function setOptimisticSeatPick(civId: string): void {
+  const s = draftStore.state
+  const seat = draftStore.seatIndex
+  if (!s || s.status !== 'active' || seat == null) return
+
+  const step = s.steps[s.currentStepIndex]
+  if (!step || step.action !== 'pick') return
+
+  const seatIsInStep = step.seats === 'all'
+    ? seat >= 0 && seat < s.seats.length
+    : step.seats.includes(seat)
+  if (!seatIsInStep) return
+
+  const submittedCount = s.submissions[seat]?.length ?? 0
+  if (submittedCount >= step.count) return
+
+  setDraftStore('optimisticSeatPicks', seat, civId)
+}
+
+export function getOptimisticSeatPick(seatIndex: number): string | null {
+  return draftStore.optimisticSeatPicks[seatIndex] ?? null
 }
 
 // ── Derived Helpers ────────────────────────────────────────

@@ -1,6 +1,6 @@
 import type { LobbySnapshot } from '~/client/stores'
 import { formatModeLabel } from '@civup/game'
-import { createEffect, createSignal, For, Show } from 'solid-js'
+import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, TextInput } from '~/client/components/ui'
 import { cn } from '~/client/lib/css'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
@@ -59,6 +59,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const [lobbyActionPending, setLobbyActionPending] = createSignal(false)
   const [draggingPlayerId, setDraggingPlayerId] = createSignal<string | null>(null)
   const [dragOverSlot, setDragOverSlot] = createSignal<number | null>(null)
+  const [optimisticSelfSlotUntil, setOptimisticSelfSlotUntil] = createSignal<number | null>(null)
+  let optimisticSelfSlotTimeout: ReturnType<typeof setTimeout> | null = null
   const [lobbyTimerConfig, setLobbyTimerConfig] = createSignal<DraftTimerConfig | null>(
     props.lobby
       ? {
@@ -90,7 +92,50 @@ export function ConfigScreen(props: ConfigScreenProps) {
     })
   })
 
-  const currentLobby = () => lobbyState()
+  createEffect(() => {
+    if (optimisticSelfSlotTimeout) {
+      clearTimeout(optimisticSelfSlotTimeout)
+      optimisticSelfSlotTimeout = null
+    }
+
+    const lobby = lobbyState()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || lobby.status !== 'open') {
+      setOptimisticSelfSlotUntil(null)
+      return
+    }
+
+    const alreadySlotted = lobby.entries.some(entry => entry?.playerId === currentUserId)
+    const hasEmptySlot = lobby.entries.some(entry => entry == null)
+    if (alreadySlotted || !hasEmptySlot) {
+      setOptimisticSelfSlotUntil(null)
+      return
+    }
+
+    const expiresAt = Date.now() + 2500
+    setOptimisticSelfSlotUntil(expiresAt)
+    optimisticSelfSlotTimeout = setTimeout(() => {
+      setOptimisticSelfSlotUntil((current) => {
+        if (current !== expiresAt) return current
+        return null
+      })
+      optimisticSelfSlotTimeout = null
+    }, 2500)
+  })
+
+  onCleanup(() => {
+    if (!optimisticSelfSlotTimeout) return
+    clearTimeout(optimisticSelfSlotTimeout)
+    optimisticSelfSlotTimeout = null
+  })
+
+  const currentLobby = () => applyOptimisticSelfSlot(
+    lobbyState(),
+    optimisticSelfSlotUntil(),
+    userId(),
+    currentDisplayName(),
+    currentAvatarUrl(),
+  )
   const isLobbyMode = () => currentLobby() != null
   const hostId = () => currentLobby()?.hostId ?? draftStore.hostId ?? state()?.seats[0]?.playerId ?? null
   const amHost = () => {
@@ -1013,6 +1058,36 @@ function formatTimerValue(timerSeconds: number | null, defaultTimerSeconds: numb
   const minutes = Math.round(timerSeconds / 60)
   if (minutes === 1) return '1 minute'
   return `${minutes} minutes`
+}
+
+function applyOptimisticSelfSlot(
+  lobby: LobbySnapshot | null,
+  optimisticUntil: number | null,
+  currentUserId: string | null,
+  currentUserDisplayName: string | null,
+  currentUserAvatarUrl: string | null,
+): LobbySnapshot | null {
+  if (!lobby || !optimisticUntil || !currentUserId) return lobby
+  if (Date.now() > optimisticUntil) return lobby
+  if (lobby.status !== 'open') return lobby
+  if (lobby.entries.some(entry => entry?.playerId === currentUserId)) return lobby
+
+  const emptySlot = lobby.entries.findIndex(entry => entry == null)
+  if (emptySlot < 0) return lobby
+
+  const entries = [...lobby.entries]
+  entries[emptySlot] = {
+    playerId: currentUserId,
+    displayName: typeof currentUserDisplayName === 'string' && currentUserDisplayName.trim().length > 0
+      ? currentUserDisplayName
+      : 'You',
+    avatarUrl: currentUserAvatarUrl || null,
+  }
+
+  return {
+    ...lobby,
+    entries,
+  }
 }
 
 function normalizeLobbyMode(value: string | undefined): LobbyModeValue {
