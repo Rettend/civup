@@ -32,6 +32,8 @@
     "deploy:prod:full": "bun run deploy:prod && bun run bot:register:prod",
     "db:generate": "bun run --filter @civup/db generate",
     "db:studio": "bun run --filter @civup/db studio",
+    "cf:usage:snapshot": "bun scripts/cloudflare-usage.ts snapshot",
+    "cf:usage:diff": "bun scripts/cloudflare-usage.ts diff",
     "clean": "bun scripts/clean.ts",
     "update": "taze latest -wr"
   },
