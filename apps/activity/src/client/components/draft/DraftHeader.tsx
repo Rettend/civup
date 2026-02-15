@@ -10,6 +10,7 @@ import {
   phaseHeaderBg,
   phaseLabel,
   reportMatchResult,
+  scrubMatchResult,
   sendScrub,
   userId,
 } from '~/client/stores'
@@ -119,9 +120,19 @@ export function DraftHeader() {
   }
 
   const scrubMatch = async () => {
-    if (!amHost()) return
+    const uid = userId()
+    const s = state()
+    if (!amHost() || !uid || !s) return
+
     setResultStatus('submitting:scrub')
-    await sendScrub()
+
+    if (s.status === 'complete') {
+      const res = await scrubMatchResult(s.matchId, uid)
+      setResultStatus(res.ok ? 'done' : 'idle')
+      return
+    }
+
+    sendScrub()
     setResultStatus('idle')
   }
 

@@ -16,6 +16,7 @@ export {
   placeLobbySlot,
   removeLobbySlot,
   reportMatchResult,
+  scrubMatchResult,
   sendBan,
   sendCancel,
   sendConfig,
