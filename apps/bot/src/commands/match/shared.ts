@@ -3,6 +3,7 @@ import type { Embed } from 'discord-hono'
 import { formatModeLabel, maxPlayerCount } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/match.ts'
+import { createStateStore } from '../../services/state-store.ts'
 import {
   getLobby,
   mapLobbySlotsToEntries,
@@ -74,6 +75,8 @@ export async function joinLobbyAndMaybeStartMatch(
   c: {
     env: {
       KV: KVNamespace
+      PARTY_HOST?: string
+      STATE_KV_SECRET?: string
     }
   },
   mode: GameMode,
@@ -89,7 +92,7 @@ export async function joinLobbyAndMaybeStartMatch(
   }
   | { error: string }
 > {
-  const kv = c.env.KV
+  const kv = createStateStore(c.env)
   const existingMode = await getPlayerQueueMode(kv, userId)
   if (existingMode && existingMode !== mode) {
     return { error: `You're already in the ${formatModeLabel(existingMode)} queue. Leave it first with \`/match leave\`.` }
