@@ -159,13 +159,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
     }
 
     if (action.kind === 'place-self' || action.kind === 'remove-self') {
-      const alreadySlotted = lobby.entries.some(entry => entry?.playerId === currentUserId)
-      if (action.kind === 'place-self' && alreadySlotted) {
+      const currentSlot = lobby.entries.findIndex(entry => entry?.playerId === currentUserId)
+
+      if (action.kind === 'place-self' && currentSlot === action.targetSlot) {
         clearOptimisticLobbyAction()
         return
       }
 
-      if (action.kind === 'remove-self' && !alreadySlotted) {
+      if (action.kind === 'remove-self' && currentSlot < 0) {
         clearOptimisticLobbyAction()
       }
     }
@@ -1232,10 +1233,6 @@ function applyOptimisticLobbyAction(
 
     const sourceEntry = entries[sourceSlot]
     if (!sourceEntry) return false
-
-    if (targetEntry && action.kind === 'place-self' && targetEntry.playerId !== playerId) {
-      return false
-    }
 
     entries[sourceSlot] = targetEntry ?? null
     entries[targetSlot] = sourceEntry
