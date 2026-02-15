@@ -2,7 +2,7 @@ import { Server } from 'partyserver'
 import type { Connection, WSMessage } from 'partyserver'
 
 interface StateStoreEnv extends Cloudflare.Env {
-  STATE_KV_SECRET?: string
+  CIVUP_SECRET?: string
 }
 
 interface StoredValue {
@@ -75,7 +75,7 @@ export class State extends Server<StateStoreEnv> {
   }
 
   override async onRequest(req: Request): Promise<Response> {
-    if (!isAuthorizedRequest(req, this.env.STATE_KV_SECRET)) {
+    if (!isAuthorizedRequest(req, this.env.CIVUP_SECRET)) {
       return json({ error: 'Unauthorized' }, 401)
     }
 
