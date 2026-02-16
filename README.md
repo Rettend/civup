@@ -1,6 +1,6 @@
 # CivUp
 
-Champ select for Civ VI that's a Discord Activity, and a fully featured Discord Bot
+Draft bot for Civ VI that uses Discord Activities
 
 <https://github.com/user-attachments/assets/e3ac25bf-27b1-4549-9a4d-3666560230d6>
 
