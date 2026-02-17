@@ -30,7 +30,6 @@ import {
   attachLobbyMatch,
   clearLobby,
   getLobbyByChannel,
-  clearLobbyByMatch,
   getLobby,
   getLobbyByMatch,
   mapLobbySlotsToEntries,
@@ -422,7 +421,7 @@ app.post('/api/lobby/:mode/place', async (c) => {
     }
   }
 
-  const updatedLobby = await setLobbySlots(kv, mode, slots)
+  const updatedLobby = await setLobbySlots(kv, mode, slots, lobby)
   const nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
 
   const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
@@ -491,7 +490,7 @@ app.post('/api/lobby/:mode/remove', async (c) => {
   }
 
   slots[slot] = null
-  const updatedLobby = await setLobbySlots(kv, mode, slots)
+  const updatedLobby = await setLobbySlots(kv, mode, slots, lobby)
   const nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
   const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
 
@@ -567,7 +566,7 @@ app.post('/api/lobby/:mode/fill-test', async (c) => {
     await setQueueEntries(kv, mode, nextEntries)
   }
 
-  const updatedLobby = await setLobbySlots(kv, mode, slots)
+  const updatedLobby = await setLobbySlots(kv, mode, slots, lobby)
   const nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
   const slottedEntries = mapLobbySlotsToEntries(slots, nextEntries)
 
@@ -666,7 +665,7 @@ app.post('/api/lobby/:mode/start', async (c) => {
 
     await storeMatchMapping(kv, lobby.channelId, matchId)
 
-    await setLobbySlots(kv, mode, slots)
+    await setLobbySlots(kv, mode, slots, lobby)
     const lobbyForMessage = await attachLobbyMatch(kv, mode, matchId)
     if (!lobbyForMessage) {
       const currentLobby = await getLobby(kv, mode)
@@ -834,7 +833,7 @@ app.post('/api/match/:matchId/report', async (c) => {
 
   const lobby = await getLobbyByMatch(kv, result.match.id)
   if (lobby) {
-    await setLobbyStatus(kv, lobby.mode, 'completed')
+    await setLobbyStatus(kv, lobby.mode, 'completed', lobby)
     try {
       const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
         embeds: [lobbyResultEmbed(lobby.mode, result.participants)],
@@ -845,7 +844,7 @@ app.post('/api/match/:matchId/report', async (c) => {
     catch (error) {
       console.error(`Failed to update lobby result embed for match ${result.match.id}:`, error)
     }
-    await clearLobbyByMatch(kv, result.match.id)
+    await clearLobby(kv, lobby.mode)
   }
 
   const archiveChannelId = await getSystemChannel(kv, 'archive')
@@ -1004,7 +1003,7 @@ app.post('/api/webhooks/draft-complete', async (c) => {
       return c.json({ ok: true })
     }
 
-    await setLobbyStatus(kv, lobby.mode, 'active')
+    await setLobbyStatus(kv, lobby.mode, 'active', lobby)
     try {
       const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
         embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants)],
@@ -1039,7 +1038,7 @@ app.post('/api/webhooks/draft-complete', async (c) => {
     return c.json({ ok: true })
   }
 
-  await setLobbyStatus(kv, lobby.mode, payload.reason === 'cancel' ? 'cancelled' : 'scrubbed')
+  await setLobbyStatus(kv, lobby.mode, payload.reason === 'cancel' ? 'cancelled' : 'scrubbed', lobby)
   try {
     const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
       embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason)],
@@ -1051,7 +1050,7 @@ app.post('/api/webhooks/draft-complete', async (c) => {
     console.error(`Failed to update cancelled embed for match ${payload.matchId}:`, error)
   }
 
-  await clearLobbyByMatch(kv, payload.matchId)
+  await clearLobby(kv, lobby.mode)
   return c.json({ ok: true })
 })
 

@@ -1,5 +1,6 @@
 import type { GameMode, QueueEntry } from '@civup/game'
 import { GAME_MODES, maxPlayerCount } from '@civup/game'
+import { stateStoreMdelete, stateStoreMget, stateStoreMput } from './state-store.ts'
 
 export type LobbyStatus = 'open' | 'drafting' | 'active' | 'completed' | 'cancelled' | 'scrubbed'
 
@@ -61,8 +62,17 @@ export function canTransitionLobbyStatus(from: LobbyStatus, to: LobbyStatus): bo
 }
 
 export async function getLobbyByChannel(kv: KVNamespace, channelId: string): Promise<LobbyState | null> {
-  for (const mode of GAME_MODES) {
-    const lobby = await getLobby(kv, mode)
+  const lobbies = await stateStoreMget(
+    kv,
+    GAME_MODES.map(mode => ({ key: modeKey(mode), type: 'json' })),
+  )
+
+  for (let index = 0; index < GAME_MODES.length; index++) {
+    const mode = GAME_MODES[index]
+    if (!mode) continue
+
+    const raw = lobbies[index] as StoredLobbyState | null | undefined
+    const lobby = raw ? normalizeLobby(raw) : null
     if (!lobby || lobby.channelId !== channelId) continue
     return lobby
   }
@@ -142,7 +152,6 @@ export async function attachLobbyMatch(
     revision: lobby.revision + 1,
   }
   await putLobby(kv, updated)
-  await kv.put(matchKey(matchId), mode, { expirationTtl: LOBBY_TTL })
   return updated
 }
 
@@ -150,8 +159,9 @@ export async function setLobbyStatus(
   kv: KVNamespace,
   mode: GameMode,
   status: LobbyStatus,
+  currentLobby?: LobbyState,
 ): Promise<LobbyState | null> {
-  const lobby = await getLobby(kv, mode)
+  const lobby = currentLobby?.mode === mode ? currentLobby : await getLobby(kv, mode)
   if (!lobby) return null
 
   if (lobby.status === status) return lobby
@@ -223,8 +233,9 @@ export async function setLobbySlots(
   kv: KVNamespace,
   mode: GameMode,
   slots: (string | null)[],
+  currentLobby?: LobbyState,
 ): Promise<LobbyState | null> {
-  const lobby = await getLobby(kv, mode)
+  const lobby = currentLobby?.mode === mode ? currentLobby : await getLobby(kv, mode)
   if (!lobby) return null
   const normalizedSlots = normalizeStoredSlots(mode, slots)
   if (sameLobbySlots(lobby.slots, normalizedSlots)) {
@@ -253,19 +264,18 @@ export async function upsertLobby(kv: KVNamespace, lobby: LobbyState): Promise<v
 
 export async function clearLobby(kv: KVNamespace, mode: GameMode): Promise<void> {
   const lobby = await getLobby(kv, mode)
-  await kv.delete(modeKey(mode))
-  if (lobby?.matchId) {
-    await kv.delete(matchKey(lobby.matchId))
-  }
+  const keys = [modeKey(mode)]
+  if (lobby?.matchId) keys.push(matchKey(lobby.matchId))
+  await stateStoreMdelete(kv, keys)
 }
 
 export async function clearLobbyByMatch(kv: KVNamespace, matchId: string): Promise<void> {
   const mode = await kv.get(matchKey(matchId)) as GameMode | null
-  await kv.delete(matchKey(matchId))
+  await stateStoreMdelete(kv, [matchKey(matchId)])
   if (!mode) return
   const lobby = await getLobby(kv, mode)
   if (!lobby || lobby.matchId !== matchId) return
-  await kv.delete(modeKey(mode))
+  await stateStoreMdelete(kv, [modeKey(mode)])
 }
 
 export function normalizeLobbySlots(
@@ -314,10 +324,21 @@ function createEmptySlots(mode: GameMode): (string | null)[] {
 }
 
 async function putLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
-  await kv.put(modeKey(lobby.mode), JSON.stringify(lobby), { expirationTtl: LOBBY_TTL })
+  const entries = [
+    {
+      key: modeKey(lobby.mode),
+      value: JSON.stringify(lobby),
+      expirationTtl: LOBBY_TTL,
+    },
+  ]
   if (lobby.matchId) {
-    await kv.put(matchKey(lobby.matchId), lobby.mode, { expirationTtl: LOBBY_TTL })
+    entries.push({
+      key: matchKey(lobby.matchId),
+      value: lobby.mode,
+      expirationTtl: LOBBY_TTL,
+    })
   }
+  await stateStoreMput(kv, entries)
 }
 
 function normalizeLobby(raw: StoredLobbyState): LobbyState {

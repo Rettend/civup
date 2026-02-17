@@ -29,7 +29,40 @@ type StateKvListRequest = {
   prefix?: string
 }
 
-type StateKvRequest = StateKvGetRequest | StateKvPutRequest | StateKvDeleteRequest | StateKvListRequest
+export interface StateStoreBatchGetEntry {
+  key: string
+  type?: 'json'
+}
+
+export interface StateStoreBatchPutEntry {
+  key: string
+  value: string
+  expirationTtl?: number
+}
+
+type StateKvMgetRequest = {
+  op: 'mget'
+  entries: StateStoreBatchGetEntry[]
+}
+
+type StateKvMputRequest = {
+  op: 'mput'
+  entries: StateStoreBatchPutEntry[]
+}
+
+type StateKvMdeleteRequest = {
+  op: 'mdelete'
+  keys: string[]
+}
+
+type StateKvRequest =
+  | StateKvGetRequest
+  | StateKvPutRequest
+  | StateKvDeleteRequest
+  | StateKvListRequest
+  | StateKvMgetRequest
+  | StateKvMputRequest
+  | StateKvMdeleteRequest
 
 interface StateKvResponseGet {
   value: unknown
@@ -39,6 +72,16 @@ interface StateKvResponseList {
   keys: { name: string }[]
   list_complete: boolean
   cursor: string
+}
+
+interface StateKvResponseMget {
+  values: unknown[]
+}
+
+interface StateStoreBatchCapableKv extends KVNamespace {
+  mget?: (entries: StateStoreBatchGetEntry[]) => Promise<unknown[]>
+  mput?: (entries: StateStoreBatchPutEntry[]) => Promise<void>
+  mdelete?: (keys: string[]) => Promise<void>
 }
 
 const DEFAULT_PARTY_HOST = 'http://localhost:1999'
@@ -117,9 +160,143 @@ export function createStateStore(env: StateStoreEnv): KVNamespace {
         cursor: response.cursor,
       } as KVNamespaceListResult<unknown, string>
     },
+
+    async mget(entries: StateStoreBatchGetEntry[]) {
+      if (entries.length === 0) return []
+
+      const values: unknown[] = Array.from({ length: entries.length }, () => null)
+      const hotEntries: Array<{ index: number, entry: StateStoreBatchGetEntry }> = []
+      const coldReads: Promise<void>[] = []
+
+      for (let index = 0; index < entries.length; index++) {
+        const entry = entries[index]
+        if (!entry) continue
+
+        if (shouldRouteHotKey(entry.key)) {
+          hotEntries.push({ index, entry })
+          continue
+        }
+
+        coldReads.push((async () => {
+          values[index] = await env.KV.get(entry.key, entry.type as any)
+        })())
+      }
+
+      if (hotEntries.length > 0) {
+        const response = await stateKvRequest<StateKvResponseMget>(endpoint, secret, {
+          op: 'mget',
+          entries: hotEntries.map(({ entry }) => ({
+            key: entry.key,
+            type: entry.type,
+          })),
+        })
+
+        for (let index = 0; index < hotEntries.length; index++) {
+          const hotEntry = hotEntries[index]
+          if (!hotEntry) continue
+          values[hotEntry.index] = response.values[index] ?? null
+        }
+      }
+
+      if (coldReads.length > 0) {
+        await Promise.all(coldReads)
+      }
+
+      return values
+    },
+
+    async mput(entries: StateStoreBatchPutEntry[]) {
+      if (entries.length === 0) return
+
+      const hotEntries: StateStoreBatchPutEntry[] = []
+      const coldWrites: Promise<void>[] = []
+
+      for (const entry of entries) {
+        if (!entry) continue
+
+        if (shouldRouteHotKey(entry.key)) {
+          hotEntries.push(entry)
+          continue
+        }
+
+        coldWrites.push(env.KV.put(entry.key, entry.value, { expirationTtl: entry.expirationTtl } as any))
+      }
+
+      if (hotEntries.length > 0) {
+        await stateKvRequest(endpoint, secret, {
+          op: 'mput',
+          entries: hotEntries,
+        })
+      }
+
+      if (coldWrites.length > 0) {
+        await Promise.all(coldWrites)
+      }
+    },
+
+    async mdelete(keys: string[]) {
+      if (keys.length === 0) return
+
+      const hotKeys: string[] = []
+      const coldDeletes: Promise<void>[] = []
+
+      for (const key of keys) {
+        if (!key) continue
+
+        if (shouldRouteHotKey(key)) {
+          hotKeys.push(key)
+          continue
+        }
+
+        coldDeletes.push(env.KV.delete(key))
+      }
+
+      if (hotKeys.length > 0) {
+        await stateKvRequest(endpoint, secret, {
+          op: 'mdelete',
+          keys: hotKeys,
+        })
+      }
+
+      if (coldDeletes.length > 0) {
+        await Promise.all(coldDeletes)
+      }
+    },
   }
 
-  return store as KVNamespace
+  return store as unknown as KVNamespace
+}
+
+export async function stateStoreMget(kv: KVNamespace, entries: StateStoreBatchGetEntry[]): Promise<unknown[]> {
+  if (entries.length === 0) return []
+  const batchKv = kv as StateStoreBatchCapableKv
+  if (typeof batchKv.mget === 'function') {
+    return batchKv.mget(entries)
+  }
+
+  return Promise.all(entries.map(entry => kv.get(entry.key, entry.type as any)))
+}
+
+export async function stateStoreMput(kv: KVNamespace, entries: StateStoreBatchPutEntry[]): Promise<void> {
+  if (entries.length === 0) return
+  const batchKv = kv as StateStoreBatchCapableKv
+  if (typeof batchKv.mput === 'function') {
+    await batchKv.mput(entries)
+    return
+  }
+
+  await Promise.all(entries.map(entry => kv.put(entry.key, entry.value, { expirationTtl: entry.expirationTtl } as any)))
+}
+
+export async function stateStoreMdelete(kv: KVNamespace, keys: string[]): Promise<void> {
+  if (keys.length === 0) return
+  const batchKv = kv as StateStoreBatchCapableKv
+  if (typeof batchKv.mdelete === 'function') {
+    await batchKv.mdelete(keys)
+    return
+  }
+
+  await Promise.all(keys.map(key => kv.delete(key)))
 }
 
 class StateStoreRequestError extends Error {

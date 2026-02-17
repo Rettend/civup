@@ -116,6 +116,8 @@ export async function joinLobbyAndMaybeStartMatch(
       displayName,
       avatarUrl,
       joinedAt: Date.now(),
+    }, {
+      existingMode,
     })
     if (joined.error) return { error: joined.error }
   }
@@ -135,7 +137,7 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   if (!sameLobbySlots(nextSlots, lobby.slots)) {
-    await setLobbySlots(kv, mode, nextSlots)
+    await setLobbySlots(kv, mode, nextSlots, lobby)
   }
 
   const slottedEntries = mapLobbySlotsToEntries(nextSlots, queue.entries)
