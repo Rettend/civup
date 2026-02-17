@@ -2,6 +2,7 @@ import type { DraftSeat, DraftTimerConfig, GameMode, QueueEntry, RoomConfig } fr
 import { allLeaderIds, getDefaultFormat, isTeamMode } from '@civup/game'
 import { api, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
+import { stateStoreMdelete, stateStoreMput } from './state-store.ts'
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -122,9 +123,17 @@ export async function storeMatchMapping(
   channelId: string,
   matchId: string,
 ): Promise<void> {
-  await Promise.all([
-    kv.put(`activity:${channelId}`, matchId, { expirationTtl: ACTIVITY_MAPPING_TTL }),
-    kv.put(`activity-match:${matchId}`, channelId, { expirationTtl: ACTIVITY_MAPPING_TTL }),
+  await stateStoreMput(kv, [
+    {
+      key: `activity:${channelId}`,
+      value: matchId,
+      expirationTtl: ACTIVITY_MAPPING_TTL,
+    },
+    {
+      key: `activity-match:${matchId}`,
+      value: channelId,
+      expirationTtl: ACTIVITY_MAPPING_TTL,
+    },
   ])
 }
 
@@ -134,7 +143,14 @@ export async function storeUserMatchMappings(
   userIds: string[],
   matchId: string,
 ): Promise<void> {
-  await Promise.all(userIds.map(userId => kv.put(`activity-user:${userId}`, matchId, { expirationTtl: ACTIVITY_MAPPING_TTL })))
+  await stateStoreMput(
+    kv,
+    userIds.map(userId => ({
+      key: `activity-user:${userId}`,
+      value: matchId,
+      expirationTtl: ACTIVITY_MAPPING_TTL,
+    })),
+  )
 }
 
 /** Get match ID for a channel (used by activity to find its room) */
@@ -178,11 +194,7 @@ export async function clearActivityMappings(
   _userIds: string[],
   channelId?: string,
 ): Promise<void> {
-  const deletions = [
-    kv.delete(`activity-match:${matchId}`),
-  ]
-  if (channelId) {
-    deletions.push(kv.delete(`activity:${channelId}`))
-  }
-  await Promise.all(deletions)
+  const keys = [`activity-match:${matchId}`]
+  if (channelId) keys.push(`activity:${channelId}`)
+  await stateStoreMdelete(kv, keys)
 }

@@ -128,7 +128,7 @@ export const component_match_leave = factory.component(
         const slots = normalizeLobbySlots(removed, lobby.slots, queue.entries)
         const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
         if (!sameLobbySlots(slots, lobby.slots)) {
-          await setLobbySlots(kv, removed, slots)
+          await setLobbySlots(kv, removed, slots, lobby)
         }
         try {
           await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {

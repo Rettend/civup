@@ -57,6 +57,8 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
       value?: unknown
       expirationTtl?: unknown
       prefix?: unknown
+      entries?: unknown
+      keys?: unknown
     }
     try {
       payload = JSON.parse(rawBody) as typeof payload
@@ -68,25 +70,51 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
       })
     }
 
-    if (payload.op === 'get') {
-      const key = typeof payload.key === 'string' ? payload.key : null
-      if (!key) return jsonError('Invalid key')
-
+    const readValue = (key: string, type?: unknown): unknown => {
       const hadStored = storage.has(key)
       if (hadStored) sqliteRowsRead += 1
       const value = getValue(storage, key)
       if (hadStored && !storage.has(key)) sqliteRowsWritten += 1
 
-      if (value == null) return jsonResponse({ value: null })
-      if (payload.type === 'json') {
+      if (value == null) return null
+      if (type === 'json') {
         try {
-          return jsonResponse({ value: JSON.parse(value) })
+          return JSON.parse(value)
         }
         catch {
-          return jsonResponse({ value: null })
+          return null
         }
       }
-      return jsonResponse({ value })
+
+      return value
+    }
+
+    const writeValue = (key: string, value: string, expirationTtl: unknown): void => {
+      const hadStored = storage.has(key)
+      if (hadStored) sqliteRowsRead += 1
+      getValue(storage, key)
+      if (hadStored && !storage.has(key)) sqliteRowsWritten += 1
+
+      const ttlSeconds = typeof expirationTtl === 'number' && Number.isFinite(expirationTtl)
+        ? Math.max(0, Math.round(expirationTtl))
+        : 0
+      const expiresAt = ttlSeconds > 0 ? Date.now() + ttlSeconds * 1000 : null
+      storage.set(key, { value, expiresAt })
+      sqliteRowsWritten += 1
+    }
+
+    const deleteValue = (key: string): void => {
+      const hadStored = storage.has(key)
+      if (hadStored) sqliteRowsRead += 1
+      getValue(storage, key)
+      if (hadStored && !storage.has(key)) sqliteRowsWritten += 1
+      if (storage.delete(key)) sqliteRowsWritten += 1
+    }
+
+    if (payload.op === 'get') {
+      const key = typeof payload.key === 'string' ? payload.key : null
+      if (!key) return jsonError('Invalid key')
+      return jsonResponse({ value: readValue(key, payload.type) })
     }
 
     if (payload.op === 'put') {
@@ -95,17 +123,7 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
       if (!key) return jsonError('Invalid key')
       if (value == null) return jsonError('Invalid value')
 
-      const hadStored = storage.has(key)
-      if (hadStored) sqliteRowsRead += 1
-      getValue(storage, key)
-      if (hadStored && !storage.has(key)) sqliteRowsWritten += 1
-
-      const ttlSeconds = typeof payload.expirationTtl === 'number' && Number.isFinite(payload.expirationTtl)
-        ? Math.max(0, Math.round(payload.expirationTtl))
-        : 0
-      const expiresAt = ttlSeconds > 0 ? Date.now() + ttlSeconds * 1000 : null
-      storage.set(key, { value, expiresAt })
-      sqliteRowsWritten += 1
+      writeValue(key, value, payload.expirationTtl)
       return jsonResponse({ ok: true })
     }
 
@@ -113,11 +131,49 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
       const key = typeof payload.key === 'string' ? payload.key : null
       if (!key) return jsonError('Invalid key')
 
-      const hadStored = storage.has(key)
-      if (hadStored) sqliteRowsRead += 1
-      getValue(storage, key)
-      if (hadStored && !storage.has(key)) sqliteRowsWritten += 1
-      if (storage.delete(key)) sqliteRowsWritten += 1
+      deleteValue(key)
+      return jsonResponse({ ok: true })
+    }
+
+    if (payload.op === 'mget') {
+      if (!Array.isArray(payload.entries)) return jsonError('Invalid entries')
+
+      const values: unknown[] = []
+      for (const rawEntry of payload.entries) {
+        if (!rawEntry || typeof rawEntry !== 'object') return jsonError('Invalid entry')
+        const entry = rawEntry as { key?: unknown, type?: unknown }
+        const key = typeof entry.key === 'string' ? entry.key : null
+        if (!key) return jsonError('Invalid key')
+        values.push(readValue(key, entry.type))
+      }
+
+      return jsonResponse({ values })
+    }
+
+    if (payload.op === 'mput') {
+      if (!Array.isArray(payload.entries)) return jsonError('Invalid entries')
+
+      for (const rawEntry of payload.entries) {
+        if (!rawEntry || typeof rawEntry !== 'object') return jsonError('Invalid entry')
+        const entry = rawEntry as { key?: unknown, value?: unknown, expirationTtl?: unknown }
+        const key = typeof entry.key === 'string' ? entry.key : null
+        const value = typeof entry.value === 'string' ? entry.value : null
+        if (!key) return jsonError('Invalid key')
+        if (value == null) return jsonError('Invalid value')
+        writeValue(key, value, entry.expirationTtl)
+      }
+
+      return jsonResponse({ ok: true })
+    }
+
+    if (payload.op === 'mdelete') {
+      if (!Array.isArray(payload.keys)) return jsonError('Invalid keys')
+
+      for (const rawKey of payload.keys) {
+        const key = typeof rawKey === 'string' ? rawKey : null
+        if (!key) return jsonError('Invalid key')
+        deleteValue(key)
+      }
 
       return jsonResponse({ ok: true })
     }
@@ -128,10 +184,7 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
       for (const key of [...storage.keys()]) {
         if (!key.startsWith(prefix)) continue
 
-        const hadStored = storage.has(key)
-        if (hadStored) sqliteRowsRead += 1
-        const value = getValue(storage, key)
-        if (hadStored && !storage.has(key)) sqliteRowsWritten += 1
+        const value = readValue(key)
         if (value == null) continue
         keys.push({ name: key })
       }

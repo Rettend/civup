@@ -20,7 +20,7 @@ import {
 } from '../../src/services/config.ts'
 import { markLeaderboardsDirty } from '../../src/services/leaderboard-message.ts'
 import {
-  clearLobbyByMatch,
+  clearLobby,
   createLobby,
   getLobby,
   getLobbyByChannel,
@@ -558,7 +558,7 @@ async function handleDraftCompleteWebhook(
   const lobby = await getLobbyByMatch(kv, matchId)
   if (!lobby) throw new Error('Expected lobby mapping during draft-complete webhook simulation')
 
-  await setLobbyStatus(kv, lobby.mode, 'active')
+  await setLobbyStatus(kv, lobby.mode, 'active', lobby)
   await storeMatchMessageMapping(db, 'message-lobby-active', matchId)
 }
 
@@ -577,9 +577,9 @@ async function handleMatchReport(
 
   const lobby = await getLobbyByMatch(kv, matchId)
   if (lobby) {
-    await setLobbyStatus(kv, lobby.mode, 'completed')
+    await setLobbyStatus(kv, lobby.mode, 'completed', lobby)
     await storeMatchMessageMapping(db, 'message-lobby-reported', matchId)
-    await clearLobbyByMatch(kv, matchId)
+    await clearLobby(kv, lobby.mode)
   }
 
   const archiveChannelId = await getSystemChannel(kv, 'archive')
