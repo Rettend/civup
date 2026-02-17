@@ -127,7 +127,7 @@ export const command_mod = factory.command<ModVar>(
                 embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation)],
                 components: [],
               })
-              await storeMatchMessageMapping(kv, updatedLobby.messageId, result.match.id)
+              await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
             }
             catch (error) {
               console.error(`Failed to update cancelled embed for match ${result.match.id}:`, error)
@@ -141,7 +141,7 @@ export const command_mod = factory.command<ModVar>(
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
                 embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation)],
               })
-              await storeMatchMessageMapping(kv, archiveMessage.id, result.match.id)
+              await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
             }
             catch (error) {
               console.error(`Failed to post archive cancellation note for match ${result.match.id}:`, error)
@@ -149,7 +149,7 @@ export const command_mod = factory.command<ModVar>(
           }
 
           try {
-            await markLeaderboardsDirty(kv, `mod-cancel:${result.match.id}`)
+            await markLeaderboardsDirty(db, `mod-cancel:${result.match.id}`)
           }
           catch (error) {
             console.error(`Failed to mark leaderboards dirty after cancelling match ${result.match.id}:`, error)
@@ -219,7 +219,7 @@ export const command_mod = factory.command<ModVar>(
                 embeds: [lobbyResultEmbed(mode, result.participants, moderation)],
                 components: [],
               })
-              await storeMatchMessageMapping(kv, updatedLobby.messageId, result.match.id)
+              await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
             }
             catch (error) {
               console.error(`Failed to update resolved result embed for match ${result.match.id}:`, error)
@@ -232,7 +232,7 @@ export const command_mod = factory.command<ModVar>(
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
                 embeds: [lobbyResultEmbed(mode, result.participants, moderation)],
               })
-              await storeMatchMessageMapping(kv, archiveMessage.id, result.match.id)
+              await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
             }
             catch (error) {
               console.error(`Failed to post archive resolve note for match ${result.match.id}:`, error)
@@ -240,7 +240,7 @@ export const command_mod = factory.command<ModVar>(
           }
 
           try {
-            await markLeaderboardsDirty(kv, `mod-resolve:${result.match.id}`)
+            await markLeaderboardsDirty(db, `mod-resolve:${result.match.id}`)
           }
           catch (error) {
             console.error(`Failed to mark leaderboards dirty after resolving match ${result.match.id}:`, error)

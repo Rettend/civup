@@ -693,7 +693,7 @@ app.post('/api/lobby/:mode/start', async (c) => {
         embeds: [lobbyDraftingEmbed(mode, seats)],
         components: lobbyComponents(mode),
       })
-      await storeMatchMessageMapping(kv, updatedLobby.messageId, matchId)
+      await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
     }
     catch (error) {
       console.error(`Failed to update drafting lobby embed for mode ${mode}:`, error)
@@ -840,7 +840,7 @@ app.post('/api/match/:matchId/report', async (c) => {
         embeds: [lobbyResultEmbed(lobby.mode, result.participants)],
         components: [],
       })
-      await storeMatchMessageMapping(kv, updatedLobby.messageId, result.match.id)
+      await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
     }
     catch (error) {
       console.error(`Failed to update lobby result embed for match ${result.match.id}:`, error)
@@ -854,7 +854,7 @@ app.post('/api/match/:matchId/report', async (c) => {
       const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
         embeds: [lobbyResultEmbed(reportedMode, result.participants)],
       })
-      await storeMatchMessageMapping(kv, archiveMessage.id, result.match.id)
+      await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
     }
     catch (error) {
       console.error(`Failed to post archive result for match ${result.match.id}:`, error)
@@ -862,7 +862,7 @@ app.post('/api/match/:matchId/report', async (c) => {
   }
 
   try {
-    await markLeaderboardsDirty(kv, `activity-report:${result.match.id}`)
+    await markLeaderboardsDirty(db, `activity-report:${result.match.id}`)
   }
   catch (error) {
     console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
@@ -938,7 +938,7 @@ app.post('/api/match/:matchId/scrub', async (c) => {
         embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'scrub')],
         components: [],
       })
-      await storeMatchMessageMapping(kv, updatedLobby.messageId, result.match.id)
+      await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
     }
     catch (error) {
       console.error(`Failed to update scrubbed lobby embed for match ${result.match.id}:`, error)
@@ -947,7 +947,7 @@ app.post('/api/match/:matchId/scrub', async (c) => {
 
   if (result.previousStatus === 'completed') {
     try {
-      await markLeaderboardsDirty(kv, `activity-scrub:${result.match.id}`)
+      await markLeaderboardsDirty(db, `activity-scrub:${result.match.id}`)
     }
     catch (error) {
       console.error(`Failed to mark leaderboards dirty after scrub ${result.match.id}:`, error)
@@ -1010,7 +1010,7 @@ app.post('/api/webhooks/draft-complete', async (c) => {
         embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants)],
         components: lobbyComponents(lobby.mode),
       })
-      await storeMatchMessageMapping(kv, updatedLobby.messageId, payload.matchId)
+      await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
     }
     catch (error) {
       console.error(`Failed to update draft-complete embed for match ${payload.matchId}:`, error)
@@ -1045,7 +1045,7 @@ app.post('/api/webhooks/draft-complete', async (c) => {
       embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason)],
       components: [],
     })
-    await storeMatchMessageMapping(kv, updatedLobby.messageId, payload.matchId)
+    await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
   }
   catch (error) {
     console.error(`Failed to update cancelled embed for match ${payload.matchId}:`, error)

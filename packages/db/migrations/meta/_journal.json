@@ -8,6 +8,13 @@
       "when": 1770416390817,
       "tag": "0000_busy_young_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1771357021229,
+      "tag": "0001_solid_sentry",
+      "breakpoints": true
     }
   ]
 }

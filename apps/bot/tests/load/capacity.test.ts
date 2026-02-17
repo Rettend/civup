@@ -71,6 +71,8 @@ interface SimulationResult {
     workersRequests: number
     d1RowsRead: number
     d1RowsWritten: number
+    doSqliteRowsRead: number
+    doSqliteRowsWritten: number
     kvReads: number
     kvWrites: number
     kvDeletes: number
@@ -108,6 +110,8 @@ const FREE_DAILY_LIMITS: UsageLimits = {
   workersRequests: 100_000,
   d1RowsRead: 5_000_000,
   d1RowsWritten: 100_000,
+  doSqliteRowsRead: 5_000_000,
+  doSqliteRowsWritten: 100_000,
   kvReads: 100_000,
   kvWrites: 1_000,
   kvDeletes: 1_000,
@@ -120,6 +124,8 @@ const PAID_MONTHLY_LIMITS: UsageLimits = {
   workersRequests: 10_000_000,
   d1RowsRead: 25_000_000_000,
   d1RowsWritten: 50_000_000,
+  doSqliteRowsRead: 25_000_000_000,
+  doSqliteRowsWritten: 50_000_000,
   kvReads: 10_000_000,
   kvWrites: 1_000_000,
   kvDeletes: 1_000_000,
@@ -132,6 +138,8 @@ const PAID_OVERAGE_RATES_PER_MILLION: OverageRatesPerMillion = {
   workersRequests: 0.30,
   d1RowsRead: 0.001,
   d1RowsWritten: 1.0,
+  doSqliteRowsRead: 0.001,
+  doSqliteRowsWritten: 1.0,
   kvReads: 0.50,
   kvWrites: 5.0,
   kvDeletes: 5.0,
@@ -163,6 +171,8 @@ describe('1v1 capacity model', () => {
         d1RowsReadBase: baseline.usage.d1RowsRead,
         d1RowsReadPerLeaderboardPlayer,
         d1RowsWritten: baseline.usage.d1RowsWritten,
+        doSqliteRowsRead: baseline.usage.doSqliteRowsRead,
+        doSqliteRowsWritten: baseline.usage.doSqliteRowsWritten,
         kvReads: baseline.usage.kvReads,
         kvWrites: baseline.usage.kvWrites,
         kvDeletes: baseline.usage.kvDeletes,
@@ -180,6 +190,8 @@ describe('1v1 capacity model', () => {
         workersRequests: usage.workersRequests,
         d1RowsRead: usage.d1RowsRead,
         d1RowsWritten: usage.d1RowsWritten,
+        doSqliteRowsRead: usage.doSqliteRowsRead,
+        doSqliteRowsWritten: usage.doSqliteRowsWritten,
         kvReads: usage.kvReads,
         kvWrites: usage.kvWrites,
         kvDeletes: usage.kvDeletes,
@@ -256,6 +268,8 @@ describe('1v1 capacity model', () => {
           d1RowsReadBase: model.perDraft.d1RowsReadBase,
           d1RowsReadPerLeaderboardPlayer: model.perDraft.d1RowsReadPerLeaderboardPlayer,
           d1RowsWritten: model.perDraft.d1RowsWritten,
+          doSqliteRowsRead: model.perDraft.doSqliteRowsRead,
+          doSqliteRowsWritten: model.perDraft.doSqliteRowsWritten,
           kvReads: model.perDraft.kvReads,
           kvWrites: model.perDraft.kvWrites,
           kvDeletes: model.perDraft.kvDeletes,
@@ -428,6 +442,8 @@ async function simulateOneVOneDraft(input: {
         workersRequests: botRequests + activityRequests,
         d1RowsRead: sqlTracker.counts.rowsRead,
         d1RowsWritten: sqlTracker.counts.rowsWritten,
+        doSqliteRowsRead: stateCoordinator.sqliteRowsRead(),
+        doSqliteRowsWritten: stateCoordinator.sqliteRowsWritten(),
         kvReads,
         kvWrites,
         kvDeletes,
@@ -518,7 +534,7 @@ async function startDraftFromOpenLobby(
     revision: nextLobbyBase.revision + 1,
   })
 
-  await storeMatchMessageMapping(kv, 'message-lobby-drafting', matchId)
+  await storeMatchMessageMapping(db, 'message-lobby-drafting', matchId)
 
   return { matchId, seats }
 }
@@ -543,7 +559,7 @@ async function handleDraftCompleteWebhook(
   if (!lobby) throw new Error('Expected lobby mapping during draft-complete webhook simulation')
 
   await setLobbyStatus(kv, lobby.mode, 'active')
-  await storeMatchMessageMapping(kv, 'message-lobby-active', matchId)
+  await storeMatchMessageMapping(db, 'message-lobby-active', matchId)
 }
 
 async function handleMatchReport(
@@ -562,16 +578,16 @@ async function handleMatchReport(
   const lobby = await getLobbyByMatch(kv, matchId)
   if (lobby) {
     await setLobbyStatus(kv, lobby.mode, 'completed')
-    await storeMatchMessageMapping(kv, 'message-lobby-reported', matchId)
+    await storeMatchMessageMapping(db, 'message-lobby-reported', matchId)
     await clearLobbyByMatch(kv, matchId)
   }
 
   const archiveChannelId = await getSystemChannel(kv, 'archive')
   if (archiveChannelId) {
-    await storeMatchMessageMapping(kv, 'message-archive-reported', matchId)
+    await storeMatchMessageMapping(db, 'message-archive-reported', matchId)
   }
 
-  await markLeaderboardsDirty(kv, `match-report:${matchId}`)
+  await markLeaderboardsDirty(db, `match-report:${matchId}`)
 }
 
 function buildCompletedDraftState(matchId: string, seats: DraftSeat[]): DraftState {

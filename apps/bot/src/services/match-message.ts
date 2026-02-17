@@ -1,24 +1,67 @@
-const MATCH_MESSAGE_KEY_PREFIX = 'match-message:'
-const MATCH_MESSAGE_TTL_SECONDS = 180 * 24 * 60 * 60
+import type { Database } from '@civup/db'
+import { matchMessageMappings } from '@civup/db'
+import { eq } from 'drizzle-orm'
 
-function messageMatchKey(messageId: string): string {
-  return `${MATCH_MESSAGE_KEY_PREFIX}${messageId}`
-}
+const MATCH_MESSAGE_TTL_MS = 180 * 24 * 60 * 60 * 1000
 
 export async function storeMatchMessageMapping(
-  kv: KVNamespace,
+  db: Database,
   messageId: string,
   matchId: string,
 ): Promise<void> {
-  const key = messageMatchKey(messageId)
-  const existing = await kv.get(key)
-  if (existing === matchId) return
-  await kv.put(key, matchId, { expirationTtl: MATCH_MESSAGE_TTL_SECONDS })
+  const now = Date.now()
+  const expiresAt = now + MATCH_MESSAGE_TTL_MS
+
+  const [existing] = await db
+    .select({
+      matchId: matchMessageMappings.matchId,
+      expiresAt: matchMessageMappings.expiresAt,
+    })
+    .from(matchMessageMappings)
+    .where(eq(matchMessageMappings.messageId, messageId))
+    .limit(1)
+
+  if (existing?.matchId === matchId && existing.expiresAt > now) return
+
+  if (existing) {
+    await db
+      .update(matchMessageMappings)
+      .set({
+        matchId,
+        createdAt: now,
+        updatedAt: now,
+        expiresAt,
+      })
+      .where(eq(matchMessageMappings.messageId, messageId))
+    return
+  }
+
+  await db.insert(matchMessageMappings).values({
+    messageId,
+    matchId,
+    createdAt: now,
+    updatedAt: now,
+    expiresAt,
+  })
 }
 
 export async function getMatchIdForMessage(
-  kv: KVNamespace,
+  db: Database,
   messageId: string,
 ): Promise<string | null> {
-  return kv.get(messageMatchKey(messageId))
+  const now = Date.now()
+  const [row] = await db
+    .select({
+      matchId: matchMessageMappings.matchId,
+      expiresAt: matchMessageMappings.expiresAt,
+    })
+    .from(matchMessageMappings)
+    .where(eq(matchMessageMappings.messageId, messageId))
+    .limit(1)
+
+  if (!row) return null
+  if (row.expiresAt > now) return row.matchId
+
+  await db.delete(matchMessageMappings).where(eq(matchMessageMappings.messageId, messageId))
+  return null
 }
