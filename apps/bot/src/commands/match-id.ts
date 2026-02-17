@@ -1,7 +1,7 @@
 import { createDb } from '@civup/db'
 import { Command } from 'discord-hono'
 import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/ephemeral-response.ts'
-import { getMatchIdForMessage, storeMatchMessageMapping } from '../services/match-message.ts'
+import { getMatchIdForMessage } from '../services/match-message.ts'
 import { factory } from '../setup.ts'
 
 export const command_match_id = factory.command(
@@ -15,14 +15,7 @@ export const command_match_id = factory.command(
       }
 
       const db = createDb(c.env.DB)
-      let matchId = await getMatchIdForMessage(db, targetMessageId)
-      if (!matchId) {
-        const legacyMatchId = await c.env.KV.get(`match-message:${targetMessageId}`)
-        if (legacyMatchId) {
-          await storeMatchMessageMapping(db, targetMessageId, legacyMatchId)
-          matchId = legacyMatchId
-        }
-      }
+      const matchId = await getMatchIdForMessage(db, targetMessageId)
 
       if (!matchId) {
         await sendTransientEphemeralResponse(

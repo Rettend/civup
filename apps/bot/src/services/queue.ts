@@ -1,5 +1,6 @@
 import type { GameMode, QueueEntry, QueueState } from '@civup/game'
 import { GAME_MODES, maxPlayerCount } from '@civup/game'
+import { stateStoreMget } from './state-store.ts'
 
 const QUEUE_KEY_PREFIX = 'queue:'
 const QUEUE_TTL = 60 * 60 // 1 hour KV TTL
@@ -112,8 +113,16 @@ export async function getPlayerQueueMode(
   kv: KVNamespace,
   playerId: string,
 ): Promise<GameMode | null> {
-  for (const mode of GAME_MODES) {
-    const state = await getQueueState(kv, mode)
+  const queueStates = await stateStoreMget(
+    kv,
+    GAME_MODES.map(mode => ({ key: queueKey(mode), type: 'json' })),
+  )
+
+  for (let index = 0; index < GAME_MODES.length; index++) {
+    const mode = GAME_MODES[index]
+    if (!mode) continue
+
+    const state = parseQueueState(mode, queueStates[index])
     if (!state.entries.some(entry => entry.playerId === playerId)) continue
     return mode
   }
@@ -121,12 +130,7 @@ export async function getPlayerQueueMode(
   return null
 }
 
-/**
- * Get the current queue state for a mode.
- */
-export async function getQueueState(kv: KVNamespace, mode: GameMode): Promise<QueueState> {
-  const raw = await kv.get(queueKey(mode), 'json') as QueueEntry[] | StoredQueueState | null
-
+function parseQueueState(mode: GameMode, raw: unknown): QueueState {
   if (Array.isArray(raw)) {
     return {
       mode,
@@ -135,7 +139,7 @@ export async function getQueueState(kv: KVNamespace, mode: GameMode): Promise<Qu
     }
   }
 
-  const parsed = raw ?? null
+  const parsed = raw as StoredQueueState | null
   const entries = normalizeQueueEntries(parsed?.entries)
   return {
     mode,
@@ -145,14 +149,25 @@ export async function getQueueState(kv: KVNamespace, mode: GameMode): Promise<Qu
 }
 
 /**
+ * Get the current queue state for a mode.
+ */
+export async function getQueueState(kv: KVNamespace, mode: GameMode): Promise<QueueState> {
+  const raw = await kv.get(queueKey(mode), 'json') as QueueEntry[] | StoredQueueState | null
+  return parseQueueState(mode, raw)
+}
+
+/**
  * Replace queue entries for a mode.
  */
 export async function setQueueEntries(
   kv: KVNamespace,
   mode: GameMode,
   entries: QueueEntry[],
+  options?: {
+    currentState?: QueueState
+  },
 ): Promise<void> {
-  const state = await getQueueState(kv, mode)
+  const state = options?.currentState ?? await getQueueState(kv, mode)
   const normalized = normalizeQueueEntries(entries)
   if (!sameQueueEntries(state.entries, normalized)) {
     await persistQueueState(kv, mode, normalized, state.targetSize)
@@ -166,9 +181,14 @@ export async function addToQueue(
   kv: KVNamespace,
   mode: GameMode,
   entry: QueueEntry,
+  options?: {
+    existingMode?: GameMode | null
+  },
 ): Promise<{ error?: string }> {
   // Check if player is already in any queue
-  const existing = await getPlayerQueueMode(kv, entry.playerId)
+  const existing = options?.existingMode !== undefined
+    ? options.existingMode
+    : await getPlayerQueueMode(kv, entry.playerId)
   if (existing) {
     return { error: `You're already in the **${existing.toUpperCase()}** queue. Leave first with \`/match leave\`.` }
   }
@@ -178,7 +198,9 @@ export async function addToQueue(
     return { error: `The **${mode.toUpperCase()}** queue is full right now.` }
   }
 
-  await setQueueEntries(kv, mode, [...state.entries, entry])
+  await setQueueEntries(kv, mode, [...state.entries, entry], {
+    currentState: state,
+  })
   return {}
 }
 
@@ -224,7 +246,9 @@ export async function removeFromQueue(
     return null
   }
 
-  await setQueueEntries(kv, mode, remaining)
+  await setQueueEntries(kv, mode, remaining, {
+    currentState: state,
+  })
 
   return mode
 }
@@ -255,7 +279,9 @@ export async function clearQueue(
   const state = await getQueueState(kv, mode)
   const playerSet = new Set(playerIds)
   const remaining = state.entries.filter(entry => !playerSet.has(entry.playerId))
-  await setQueueEntries(kv, mode, remaining)
+  await setQueueEntries(kv, mode, remaining, {
+    currentState: state,
+  })
 }
 
 /**
@@ -275,7 +301,9 @@ export async function pruneStaleEntries(
     const remaining = state.entries.filter(entry => now - entry.joinedAt <= timeoutMs)
 
     if (stale.length > 0) {
-      await setQueueEntries(kv, mode, remaining)
+      await setQueueEntries(kv, mode, remaining, {
+        currentState: state,
+      })
       for (const entry of stale) {
         removed.push({ mode, entry })
       }

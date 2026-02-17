@@ -10,7 +10,7 @@ import { createChannelMessage } from '../../services/discord.ts'
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard-message.ts'
 import { upsertLobbyMessage } from '../../services/lobby-message.ts'
-import { clearLobby, clearLobbyByMatch, createLobby, getLobby, getLobbyByMatch, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots, setLobbyStatus } from '../../services/lobby.ts'
+import { clearLobby, createLobby, getLobby, getLobbyByMatch, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots, setLobbyStatus } from '../../services/lobby.ts'
 import { storeMatchMessageMapping } from '../../services/match-message.ts'
 import { reportMatch } from '../../services/match.ts'
 import { addToQueue, clearQueue, getQueueState, removeFromQueue } from '../../services/queue.ts'
@@ -80,7 +80,7 @@ export const command_match = factory.command<MatchVar>(
               const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
               const embed = lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))
               if (!sameLobbySlots(slots, existingLobby.slots)) {
-                await setLobbySlots(kv, mode, slots)
+                await setLobbySlots(kv, mode, slots, existingLobby)
               }
               try {
                 await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
@@ -272,7 +272,7 @@ export const command_match = factory.command<MatchVar>(
             const slots = normalizeLobbySlots(removed, lobby.slots, queue.entries)
             const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
             if (!sameLobbySlots(slots, lobby.slots)) {
-              await setLobbySlots(kv, removed, slots)
+              await setLobbySlots(kv, removed, slots, lobby)
             }
             try {
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
@@ -442,7 +442,7 @@ export const command_match = factory.command<MatchVar>(
 
           const lobby = await getLobbyByMatch(kv, result.match.id)
           if (lobby) {
-            await setLobbyStatus(kv, lobby.mode, 'completed')
+            await setLobbyStatus(kv, lobby.mode, 'completed', lobby)
             try {
               const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
                 embeds: [lobbyResultEmbed(lobby.mode, result.participants)],
@@ -453,7 +453,7 @@ export const command_match = factory.command<MatchVar>(
             catch (error) {
               console.error(`Failed to update lobby result embed for match ${result.match.id}:`, error)
             }
-            await clearLobbyByMatch(kv, result.match.id)
+            await clearLobby(kv, lobby.mode)
           }
 
           const archiveChannelId = await getSystemChannel(kv, 'archive')
