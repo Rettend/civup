@@ -1,26 +1,27 @@
 import { describe, expect, test } from 'bun:test'
 import { getMatchIdForMessage, storeMatchMessageMapping } from '../../src/services/match-message.ts'
-import { createTestKv } from '../helpers/test-env.ts'
-import { createTrackedKv } from '../helpers/tracked-kv.ts'
+import { createTestDatabase } from '../helpers/test-env.ts'
+import { trackSqlite } from '../helpers/tracked-sqlite.ts'
 
 describe('match message mapping', () => {
   test('stores and retrieves match ID by message ID', async () => {
-    const kv = createTestKv()
+    const { db } = await createTestDatabase()
 
-    await storeMatchMessageMapping(kv, 'message-1', 'match-1')
+    await storeMatchMessageMapping(db, 'message-1', 'match-1')
 
-    await expect(getMatchIdForMessage(kv, 'message-1')).resolves.toBe('match-1')
-    await expect(getMatchIdForMessage(kv, 'message-unknown')).resolves.toBeNull()
+    await expect(getMatchIdForMessage(db, 'message-1')).resolves.toBe('match-1')
+    await expect(getMatchIdForMessage(db, 'message-unknown')).resolves.toBeNull()
   })
 
-  test('skips KV write when mapping already matches', async () => {
-    const { kv, operations, resetOperations } = createTrackedKv({ trackReads: true })
+  test('skips D1 write when mapping already matches', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const trackedSqlite = trackSqlite(sqlite)
 
-    await storeMatchMessageMapping(kv, 'message-1', 'match-1')
-    resetOperations()
-    await storeMatchMessageMapping(kv, 'message-1', 'match-1')
+    await storeMatchMessageMapping(db, 'message-1', 'match-1')
+    trackedSqlite.reset()
+    await storeMatchMessageMapping(db, 'message-1', 'match-1')
+    trackedSqlite.restore()
 
-    const writes = operations.filter(op => op.type === 'put')
-    expect(writes).toHaveLength(0)
+    expect(trackedSqlite.counts.rowsWritten).toBe(0)
   })
 })
