@@ -40,7 +40,7 @@ export const command_help = factory.command(
       roles: parseRoleIds(c.interaction.member?.roles),
     })
 
-    return c.flags('EPHEMERAL').resDefer(async (c) => {
+    return c.resDefer(async (c) => {
       let commandDefs: DiscordApplicationCommand[]
       try {
         commandDefs = await fetchRegisteredCommands(

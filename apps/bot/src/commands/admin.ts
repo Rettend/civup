@@ -1,15 +1,20 @@
+import type { EphemeralResponseTone } from '../embeds/response'
 import type { SystemChannelType } from '../services/system-channels'
 import { createDb } from '@civup/db'
 import { Button, Command, Components, Option, SubCommand, SubGroup } from 'discord-hono'
 import {
-  getServerConfigDisplayValue,
   getServerConfigRows,
   parseServerConfigKey,
   SERVER_CONFIG_KEYS,
   setServerConfigValue,
 } from '../services/config'
 import { clearSeasonConfirmation, createSeasonConfirmation, getSeasonConfirmation } from '../services/confirmations'
-import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/ephemeral-response'
+import { createChannelMessage } from '../services/discord'
+import {
+  SHOW_EPHEMERAL_RESPONSE_BUTTON_ID,
+  sendEphemeralResponse as sendRawEphemeralResponse,
+  sendTransientEphemeralResponse as sendRawTransientEphemeralResponse,
+} from '../services/ephemeral-response'
 import { upsertLeaderboardMessagesForChannel } from '../services/leaderboard-message'
 import { addModRole, getModRoleIds, hasAdminPermission, removeModRole } from '../services/permissions'
 import { clearLeaderboardDirtyState, clearLeaderboardMessageState, clearSystemChannel, getSystemChannel, setSystemChannel } from '../services/system-channels'
@@ -329,8 +334,11 @@ export const command_admin = factory.command<Var>(
 
         if (!value) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
-            const current = await getServerConfigDisplayValue(c.env.KV, key)
-            await sendTransientEphemeralResponse(c, `\`${key}\` = \`${current}\``, 'info')
+            await sendTransientEphemeralResponse(
+              c,
+              'Provide both `key` and `value` to update config. Use `/admin config` with no arguments to list current values.',
+              'error',
+            )
           })
         }
 
@@ -456,6 +464,47 @@ export const component_admin_season_cancel = factory.component(
   },
 )
 
+export const component_admin_show_response = factory.component(
+  new Button(SHOW_EPHEMERAL_RESPONSE_BUTTON_ID, 'Show', 'Secondary'),
+  (c) => {
+    return c.flags('EPHEMERAL').resDefer(async (c) => {
+      const channelId = c.interaction.channel?.id ?? c.interaction.channel_id
+      const sourceMessage = (c.interaction as {
+        message?: {
+          content?: unknown
+          embeds?: unknown
+        }
+      }).message
+
+      if (!channelId || !sourceMessage) {
+        await sendRawTransientEphemeralResponse(c, 'Could not read the original response to share.', 'error', { showButton: false })
+        return
+      }
+
+      const content = typeof sourceMessage.content === 'string' ? sourceMessage.content : null
+      const embeds = Array.isArray(sourceMessage.embeds) ? sourceMessage.embeds : []
+      if (!content && embeds.length === 0) {
+        await sendRawTransientEphemeralResponse(c, 'There is nothing to share for this response.', 'error', { showButton: false })
+        return
+      }
+
+      try {
+        await createChannelMessage(c.env.DISCORD_TOKEN, channelId, {
+          content,
+          embeds,
+        })
+      }
+      catch (error) {
+        console.error('Failed to share admin response publicly:', error)
+        await sendRawTransientEphemeralResponse(c, 'Failed to share this response publicly. Please try again.', 'error', { showButton: false })
+        return
+      }
+
+      await sendRawTransientEphemeralResponse(c, 'Shared in this channel.', 'success', { showButton: false })
+    })
+  },
+)
+
 function setupTargetLabel(target: SystemChannelType): string {
   if (target === 'draft') return 'Draft'
   if (target === 'archive') return 'Archive'
@@ -479,4 +528,27 @@ function getInteractionUserId(c: {
   }
 }): string | null {
   return c.interaction.member?.user?.id ?? c.interaction.user?.id ?? null
+}
+
+async function sendEphemeralResponse(
+  c: Parameters<typeof sendRawEphemeralResponse>[0],
+  message: string,
+  tone: EphemeralResponseTone,
+  options?: {
+    components?: unknown
+    autoDeleteMs?: number | null
+  },
+): Promise<void> {
+  await sendRawEphemeralResponse(c, message, tone, {
+    ...options,
+    showButton: true,
+  })
+}
+
+async function sendTransientEphemeralResponse(
+  c: Parameters<typeof sendRawTransientEphemeralResponse>[0],
+  message: string,
+  tone: EphemeralResponseTone,
+): Promise<void> {
+  await sendRawTransientEphemeralResponse(c, message, tone, { showButton: true })
 }
