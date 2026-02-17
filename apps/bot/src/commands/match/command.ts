@@ -291,7 +291,7 @@ export const command_match = factory.command<MatchVar>(
 
       // ── status ──────────────────────────────────────────
       case 'status': {
-        return c.flags('EPHEMERAL').resDefer(async (c) => {
+        return c.resDefer(async (c) => {
           const kv = createStateStore(c.env)
           const modes: GameMode[] = ['ffa', '1v1', '2v2', '3v3']
           const lines: string[] = []
