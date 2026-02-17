@@ -448,7 +448,7 @@ export const command_match = factory.command<MatchVar>(
                 embeds: [lobbyResultEmbed(lobby.mode, result.participants)],
                 components: [],
               })
-              await storeMatchMessageMapping(kv, updatedLobby.messageId, result.match.id)
+              await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
             }
             catch (error) {
               console.error(`Failed to update lobby result embed for match ${result.match.id}:`, error)
@@ -462,7 +462,7 @@ export const command_match = factory.command<MatchVar>(
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
                 embeds: [lobbyResultEmbed(reportedMode, result.participants)],
               })
-              await storeMatchMessageMapping(kv, archiveMessage.id, result.match.id)
+              await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
             }
             catch (error) {
               console.error(`Failed to post archive result for match ${result.match.id}:`, error)
@@ -470,7 +470,7 @@ export const command_match = factory.command<MatchVar>(
           }
 
           try {
-            await markLeaderboardsDirty(kv, `match-report:${result.match.id}`)
+            await markLeaderboardsDirty(db, `match-report:${result.match.id}`)
           }
           catch (error) {
             console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)

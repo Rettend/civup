@@ -2,6 +2,8 @@ export interface UsageLimits {
   workersRequests: number
   d1RowsRead: number
   d1RowsWritten: number
+  doSqliteRowsRead: number
+  doSqliteRowsWritten: number
   kvReads: number
   kvWrites: number
   kvDeletes: number
@@ -15,6 +17,8 @@ export interface PerDraftUsage {
   d1RowsReadBase: number
   d1RowsReadPerLeaderboardPlayer: number
   d1RowsWritten: number
+  doSqliteRowsRead: number
+  doSqliteRowsWritten: number
   kvReads: number
   kvWrites: number
   kvDeletes: number
@@ -27,6 +31,8 @@ export interface DailyUsage {
   workersRequests: number
   d1RowsRead: number
   d1RowsWritten: number
+  doSqliteRowsRead: number
+  doSqliteRowsWritten: number
   kvReads: number
   kvWrites: number
   kvDeletes: number
@@ -61,6 +67,8 @@ export function estimateDailyUsage(
     workersRequests: Math.ceil(draftsPerDay * model.perDraft.workersRequests),
     d1RowsRead: Math.ceil(draftsPerDay * d1RowsReadPerDraft),
     d1RowsWritten: Math.ceil(draftsPerDay * model.perDraft.d1RowsWritten),
+    doSqliteRowsRead: Math.ceil(draftsPerDay * model.perDraft.doSqliteRowsRead),
+    doSqliteRowsWritten: Math.ceil(draftsPerDay * model.perDraft.doSqliteRowsWritten),
     kvReads: Math.ceil(draftsPerDay * model.perDraft.kvReads),
     kvWrites: Math.ceil(draftsPerDay * model.perDraft.kvWrites),
     kvDeletes: Math.ceil(draftsPerDay * model.perDraft.kvDeletes),
@@ -75,6 +83,8 @@ export function multiplyUsage(usage: DailyUsage, days: number): DailyUsage {
     workersRequests: usage.workersRequests * days,
     d1RowsRead: usage.d1RowsRead * days,
     d1RowsWritten: usage.d1RowsWritten * days,
+    doSqliteRowsRead: usage.doSqliteRowsRead * days,
+    doSqliteRowsWritten: usage.doSqliteRowsWritten * days,
     kvReads: usage.kvReads * days,
     kvWrites: usage.kvWrites * days,
     kvDeletes: usage.kvDeletes * days,
@@ -221,6 +231,8 @@ function fitsLimits(usage: DailyUsage, limits: UsageLimits): boolean {
     usage.workersRequests <= limits.workersRequests
     && usage.d1RowsRead <= limits.d1RowsRead
     && usage.d1RowsWritten <= limits.d1RowsWritten
+    && usage.doSqliteRowsRead <= limits.doSqliteRowsRead
+    && usage.doSqliteRowsWritten <= limits.doSqliteRowsWritten
     && usage.kvReads <= limits.kvReads
     && usage.kvWrites <= limits.kvWrites
     && usage.kvDeletes <= limits.kvDeletes

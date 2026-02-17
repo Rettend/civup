@@ -2,6 +2,8 @@ export interface StateCoordinatorHarness {
   host: string
   secret: string
   requests: () => number
+  sqliteRowsRead: () => number
+  sqliteRowsWritten: () => number
   restore: () => void
 }
 
@@ -10,6 +12,8 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
   const secret = 'capacity-test-secret'
   const storage = new Map<string, { value: string, expiresAt: number | null }>()
   let requestCount = 0
+  let sqliteRowsRead = 0
+  let sqliteRowsWritten = 0
 
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -67,7 +71,12 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
     if (payload.op === 'get') {
       const key = typeof payload.key === 'string' ? payload.key : null
       if (!key) return jsonError('Invalid key')
+
+      const hadStored = storage.has(key)
+      if (hadStored) sqliteRowsRead += 1
       const value = getValue(storage, key)
+      if (hadStored && !storage.has(key)) sqliteRowsWritten += 1
+
       if (value == null) return jsonResponse({ value: null })
       if (payload.type === 'json') {
         try {
@@ -86,28 +95,44 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
       if (!key) return jsonError('Invalid key')
       if (value == null) return jsonError('Invalid value')
 
+      const hadStored = storage.has(key)
+      if (hadStored) sqliteRowsRead += 1
+      getValue(storage, key)
+      if (hadStored && !storage.has(key)) sqliteRowsWritten += 1
+
       const ttlSeconds = typeof payload.expirationTtl === 'number' && Number.isFinite(payload.expirationTtl)
         ? Math.max(0, Math.round(payload.expirationTtl))
         : 0
       const expiresAt = ttlSeconds > 0 ? Date.now() + ttlSeconds * 1000 : null
       storage.set(key, { value, expiresAt })
+      sqliteRowsWritten += 1
       return jsonResponse({ ok: true })
     }
 
     if (payload.op === 'delete') {
       const key = typeof payload.key === 'string' ? payload.key : null
       if (!key) return jsonError('Invalid key')
-      storage.delete(key)
+
+      const hadStored = storage.has(key)
+      if (hadStored) sqliteRowsRead += 1
+      getValue(storage, key)
+      if (hadStored && !storage.has(key)) sqliteRowsWritten += 1
+      if (storage.delete(key)) sqliteRowsWritten += 1
+
       return jsonResponse({ ok: true })
     }
 
     if (payload.op === 'list') {
       const prefix = typeof payload.prefix === 'string' ? payload.prefix : ''
       const keys: { name: string }[] = []
-      for (const key of storage.keys()) {
-        const value = getValue(storage, key)
-        if (value == null) continue
+      for (const key of [...storage.keys()]) {
         if (!key.startsWith(prefix)) continue
+
+        const hadStored = storage.has(key)
+        if (hadStored) sqliteRowsRead += 1
+        const value = getValue(storage, key)
+        if (hadStored && !storage.has(key)) sqliteRowsWritten += 1
+        if (value == null) continue
         keys.push({ name: key })
       }
       return jsonResponse({
@@ -124,6 +149,8 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
     host,
     secret,
     requests: () => requestCount,
+    sqliteRowsRead: () => sqliteRowsRead,
+    sqliteRowsWritten: () => sqliteRowsWritten,
     restore: () => {
       globalThis.fetch = originalFetch
     },
