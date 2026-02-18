@@ -11,6 +11,7 @@ import {
 import { clearSeasonConfirmation, createSeasonConfirmation, getSeasonConfirmation } from '../services/confirmations'
 import { createChannelMessage } from '../services/discord'
 import {
+  clearDeferredEphemeralResponse,
   SHOW_EPHEMERAL_RESPONSE_BUTTON_ID,
   sendEphemeralResponse as sendRawEphemeralResponse,
   sendTransientEphemeralResponse as sendRawTransientEphemeralResponse,
@@ -467,7 +468,7 @@ export const component_admin_season_cancel = factory.component(
 export const component_admin_show_response = factory.component(
   new Button(SHOW_EPHEMERAL_RESPONSE_BUTTON_ID, 'Show', 'Secondary'),
   (c) => {
-    return c.flags('EPHEMERAL').resDefer(async (c) => {
+    return c.update().resDefer(async (c) => {
       const channelId = c.interaction.channel?.id ?? c.interaction.channel_id
       const sourceMessage = (c.interaction as {
         message?: {
@@ -500,7 +501,7 @@ export const component_admin_show_response = factory.component(
         return
       }
 
-      await sendRawTransientEphemeralResponse(c, 'Shared in this channel.', 'success', { showButton: false })
+      await clearDeferredEphemeralResponse(c)
     })
   },
 )
