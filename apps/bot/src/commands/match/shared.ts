@@ -218,6 +218,19 @@ export async function joinLobbyAndMaybeStartMatch(
     queueChanged = true
   }
 
+  const lobby = lobbyAndQueue.lobby ?? await getLobby(kv, mode)
+  if (!lobby || lobby.status !== 'open') {
+    return { error: `No open ${formatModeLabel(mode)} lobby. Use \`/match create\` first.` }
+  }
+
+  const slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
+  const placement = placeRequestedEntries(mode, slots, requestedEntries)
+  if ('error' in placement) {
+    return { error: placement.error }
+  }
+
+  const nextSlots = placement.slots
+
   if (queueChanged) {
     await setQueueEntries(kv, mode, nextEntries, {
       currentState: queue,
@@ -226,20 +239,6 @@ export async function joinLobbyAndMaybeStartMatch(
       ...queue,
       entries: nextEntries,
     }
-  }
-
-  const lobby = await getLobby(kv, mode)
-  if (!lobby || lobby.status !== 'open') {
-    return { error: `No open ${formatModeLabel(mode)} lobby. Use \`/match create\` first.` }
-  }
-
-  const slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
-  const nextSlots = [...slots]
-
-  for (const entry of requestedEntries) {
-    if (nextSlots.includes(entry.playerId)) continue
-    const emptySlot = nextSlots.findIndex(slot => slot == null)
-    if (emptySlot >= 0) nextSlots[emptySlot] = entry.playerId
   }
 
   if (!sameLobbySlots(nextSlots, lobby.slots)) {
@@ -301,4 +300,99 @@ function sameQueueEntry(left: QueueEntry, right: QueueEntry): boolean {
     && (left.avatarUrl ?? null) === (right.avatarUrl ?? null)
     && left.joinedAt === right.joinedAt
     && samePartyIds(left.partyIds, right.partyIds)
+}
+
+function placeRequestedEntries(
+  mode: GameMode,
+  slots: (string | null)[],
+  requestedEntries: MatchJoinEntry[],
+): { slots: (string | null)[] } | { error: string } {
+  const nextSlots = [...slots]
+  const requestedPlayerIds = requestedEntries.map(entry => entry.playerId)
+  const unslottedPlayerIds = requestedPlayerIds.filter(playerId => !nextSlots.includes(playerId))
+
+  if (unslottedPlayerIds.length === 0) return { slots: nextSlots }
+
+  if (mode !== '2v2' && mode !== '3v3') {
+    for (const playerId of unslottedPlayerIds) {
+      const emptySlot = nextSlots.findIndex(slot => slot == null)
+      if (emptySlot < 0) break
+      nextSlots[emptySlot] = playerId
+    }
+    return { slots: nextSlots }
+  }
+
+  if (requestedPlayerIds.length === 1) {
+    const emptySlot = nextSlots.findIndex(slot => slot == null)
+    if (emptySlot >= 0) nextSlots[emptySlot] = requestedPlayerIds[0]!
+    return { slots: nextSlots }
+  }
+
+  const teamSize = mode === '2v2' ? 2 : 3
+  const slottedTeamIndexes = requestedPlayerIds
+    .map((playerId) => {
+      const slotIndex = nextSlots.findIndex(slot => slot === playerId)
+      if (slotIndex < 0) return null
+      return slotIndex < teamSize ? 0 : 1
+    })
+    .filter((teamIndex): teamIndex is 0 | 1 => teamIndex != null)
+  const uniqueTeamIndexes = [...new Set(slottedTeamIndexes)]
+
+  let targetTeamIndex: number | null = null
+  if (uniqueTeamIndexes.length > 1) {
+    return { error: 'Your premade is already split across teams in this lobby. Ask the host to fix the team layout first.' }
+  }
+  if (uniqueTeamIndexes.length === 1) {
+    targetTeamIndex = uniqueTeamIndexes[0]!
+  }
+  else {
+    targetTeamIndex = chooseBestTeamForPremade(nextSlots, teamSize, unslottedPlayerIds.length)
+  }
+
+  if (targetTeamIndex == null) {
+    return { error: 'Your premade cannot be placed on the same team in the current lobby layout.' }
+  }
+
+  const start = targetTeamIndex * teamSize
+  const end = start + teamSize
+  const teamEmptySlots = nextSlots
+    .map((playerId, index) => ({ playerId, index }))
+    .filter(({ index, playerId }) => index >= start && index < end && playerId == null)
+    .map(({ index }) => index)
+
+  if (teamEmptySlots.length < unslottedPlayerIds.length) {
+    return { error: 'Your premade cannot be placed on the same team in the current lobby layout.' }
+  }
+
+  for (let index = 0; index < unslottedPlayerIds.length; index++) {
+    const slotIndex = teamEmptySlots[index]
+    const playerId = unslottedPlayerIds[index]
+    if (slotIndex == null || !playerId) continue
+    nextSlots[slotIndex] = playerId
+  }
+
+  return { slots: nextSlots }
+}
+
+function chooseBestTeamForPremade(
+  slots: (string | null)[],
+  teamSize: number,
+  neededSlots: number,
+): number | null {
+  const candidates = [0, 1]
+    .map((teamIndex) => {
+      const start = teamIndex * teamSize
+      const end = start + teamSize
+      const teamSlots = slots.slice(start, end)
+      const emptyCount = teamSlots.filter(slot => slot == null).length
+      const occupiedCount = teamSlots.filter(slot => slot != null).length
+      return { teamIndex, emptyCount, occupiedCount }
+    })
+    .filter(team => team.emptyCount >= neededSlots)
+    .sort((left, right) => {
+      if (right.occupiedCount !== left.occupiedCount) return right.occupiedCount - left.occupiedCount
+      return left.teamIndex - right.teamIndex
+    })
+
+  return candidates[0]?.teamIndex ?? null
 }

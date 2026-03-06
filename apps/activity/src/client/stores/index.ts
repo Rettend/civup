@@ -1,4 +1,5 @@
 export {
+  arrangeLobbyTeams,
   cancelLobby,
   connectionError,
   connectionStatus,
@@ -11,6 +12,7 @@ export {
   fetchMatchState,
   fillLobbyWithTestPlayers,
   type LobbySnapshot,
+  type LobbyTeamArrangeStrategy,
   type LobbyStateWatch,
   type LobbyStateWatchOptions,
   placeLobbySlot,
