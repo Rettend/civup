@@ -153,6 +153,30 @@ export async function storeUserMatchMappings(
   )
 }
 
+/** Store open-lobby mappings for users so activity can reopen the correct lobby. */
+export async function storeUserLobbyMappings(
+  kv: KVNamespace,
+  userIds: string[],
+  lobbyId: string,
+): Promise<void> {
+  await stateStoreMput(
+    kv,
+    userIds.map(userId => ({
+      key: `activity-lobby-user:${userId}`,
+      value: lobbyId,
+      expirationTtl: ACTIVITY_MAPPING_TTL,
+    })),
+  )
+}
+
+/** Get open-lobby ID for a user if one was recently selected. */
+export async function getLobbyForUser(
+  kv: KVNamespace,
+  userId: string,
+): Promise<string | null> {
+  return kv.get(`activity-lobby-user:${userId}`)
+}
+
 /** Get match ID for a channel (used by activity to find its room) */
 export async function getMatchForChannel(
   kv: KVNamespace,
@@ -191,10 +215,22 @@ export async function getChannelForMatch(
 export async function clearActivityMappings(
   kv: KVNamespace,
   matchId: string,
-  _userIds: string[],
+  userIds: string[],
   channelId?: string,
 ): Promise<void> {
   const keys = [`activity-match:${matchId}`]
   if (channelId) keys.push(`activity:${channelId}`)
+  for (const userId of userIds) {
+    keys.push(`activity-user:${userId}`)
+  }
   await stateStoreMdelete(kv, keys)
+}
+
+/** Remove open-lobby mappings once a lobby is cancelled or started. */
+export async function clearLobbyMappings(
+  kv: KVNamespace,
+  userIds: string[],
+): Promise<void> {
+  if (userIds.length === 0) return
+  await stateStoreMdelete(kv, userIds.map(userId => `activity-lobby-user:${userId}`))
 }

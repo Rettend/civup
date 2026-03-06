@@ -1,5 +1,6 @@
 import type { GameMode, QueueEntry } from '@civup/game'
 import { GAME_MODES, maxPlayerCount } from '@civup/game'
+import { nanoid } from 'nanoid'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from './state-store.ts'
 
 export type LobbyStatus = 'open' | 'drafting' | 'active' | 'completed' | 'cancelled' | 'scrubbed'
@@ -10,12 +11,15 @@ export interface LobbyDraftConfig {
 }
 
 export interface LobbyState {
+  id: string
   mode: GameMode
   status: LobbyStatus
   hostId: string
   channelId: string
   messageId: string
   matchId: string | null
+  /** Player IDs currently attached to this lobby (slotted or spectator). */
+  memberPlayerIds: string[]
   /** Slot player IDs for open lobby ordering (null = empty slot) */
   slots: (string | null)[]
   draftConfig: LobbyDraftConfig
@@ -24,12 +28,14 @@ export interface LobbyState {
   revision: number
 }
 
-interface StoredLobbyState extends Omit<LobbyState, 'draftConfig' | 'slots' | 'revision'> {
+interface StoredLobbyState extends Omit<LobbyState, 'draftConfig' | 'slots' | 'revision' | 'memberPlayerIds'> {
   draftConfig?: Partial<LobbyDraftConfig> | null
   slots?: unknown
   revision?: unknown
+  memberPlayerIds?: unknown
 }
 
+const LOBBY_ID_KEY_PREFIX = 'lobby:id:'
 const LOBBY_MODE_KEY_PREFIX = 'lobby:mode:'
 const LOBBY_MATCH_KEY_PREFIX = 'lobby:match:'
 const LOBBY_TTL = 24 * 60 * 60
@@ -48,8 +54,16 @@ const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   pickTimerSeconds: null,
 }
 
-function modeKey(mode: GameMode): string {
-  return `${LOBBY_MODE_KEY_PREFIX}${mode}`
+function idKey(lobbyId: string): string {
+  return `${LOBBY_ID_KEY_PREFIX}${lobbyId}`
+}
+
+function modeIndexKey(mode: GameMode, lobbyId: string): string {
+  return `${LOBBY_MODE_KEY_PREFIX}${mode}:${lobbyId}`
+}
+
+function modePrefix(mode: GameMode): string {
+  return `${LOBBY_MODE_KEY_PREFIX}${mode}:`
 }
 
 function matchKey(matchId: string): string {
@@ -61,23 +75,61 @@ export function canTransitionLobbyStatus(from: LobbyStatus, to: LobbyStatus): bo
   return LOBBY_STATUS_TRANSITIONS[from].includes(to)
 }
 
-export async function getLobbyByChannel(kv: KVNamespace, channelId: string): Promise<LobbyState | null> {
-  const lobbies = await stateStoreMget(
+export async function getLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise<LobbyState[]> {
+  const listed = await kv.list({ prefix: modePrefix(mode) })
+  const lobbyIds = listed.keys
+    .map(entry => entry.name.slice(modePrefix(mode).length))
+    .filter((lobbyId): lobbyId is string => lobbyId.length > 0)
+
+  if (lobbyIds.length === 0) return []
+
+  const rawLobbies = await stateStoreMget(
     kv,
-    GAME_MODES.map(mode => ({ key: modeKey(mode), type: 'json' })),
+    lobbyIds.map(lobbyId => ({ key: idKey(lobbyId), type: 'json' })),
   )
 
-  for (let index = 0; index < GAME_MODES.length; index++) {
-    const mode = GAME_MODES[index]
-    if (!mode) continue
+  return rawLobbies
+    .map(raw => parseLobbyState(raw))
+    .filter((lobby): lobby is LobbyState => lobby != null)
+    .filter(lobby => lobby.mode === mode)
+    .sort((left, right) => left.createdAt - right.createdAt)
+}
 
-    const raw = lobbies[index] as StoredLobbyState | null | undefined
-    const lobby = raw ? normalizeLobby(raw) : null
-    if (!lobby || lobby.channelId !== channelId) continue
-    return lobby
-  }
+/** Temporary convenience lookup for the most recently updated lobby in a mode. */
+export async function getLobby(kv: KVNamespace, mode: GameMode): Promise<LobbyState | null> {
+  const lobbies = await getLobbiesByMode(kv, mode)
+  return [...lobbies].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null
+}
 
-  return null
+export async function getLobbyById(kv: KVNamespace, lobbyId: string): Promise<LobbyState | null> {
+  const raw = await kv.get(idKey(lobbyId), 'json') as StoredLobbyState | null
+  return parseLobbyState(raw)
+}
+
+export async function getLobbyByChannel(kv: KVNamespace, channelId: string): Promise<LobbyState | null> {
+  const lobbies = await getAllLobbies(kv)
+  const openLobbies = lobbies
+    .filter(lobby => lobby.channelId === channelId && lobby.status === 'open')
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+
+  return openLobbies[0] ?? null
+}
+
+export async function getOpenLobbyForPlayer(
+  kv: KVNamespace,
+  playerId: string,
+  mode?: GameMode,
+): Promise<LobbyState | null> {
+  const lobbies = mode ? await getLobbiesByMode(kv, mode) : await getAllLobbies(kv)
+  return lobbies.find(lobby => lobby.status === 'open' && lobby.memberPlayerIds.includes(playerId)) ?? null
+}
+
+export async function getLobbyByMatch(kv: KVNamespace, matchId: string): Promise<LobbyState | null> {
+  const lobbyId = await kv.get(matchKey(matchId))
+  if (!lobbyId) return null
+  const lobby = await getLobbyById(kv, lobbyId)
+  if (!lobby || lobby.matchId !== matchId) return null
+  return lobby
 }
 
 export async function createLobby(
@@ -94,12 +146,14 @@ export async function createLobby(
   slots[0] = input.hostId
 
   const lobby: LobbyState = {
+    id: nanoid(10),
     mode: input.mode,
     status: 'open',
     hostId: input.hostId,
     channelId: input.channelId,
     messageId: input.messageId,
     matchId: null,
+    memberPlayerIds: [input.hostId],
     slots,
     draftConfig: { ...DEFAULT_DRAFT_CONFIG },
     createdAt: now,
@@ -110,31 +164,20 @@ export async function createLobby(
   return lobby
 }
 
-export async function getLobby(kv: KVNamespace, mode: GameMode): Promise<LobbyState | null> {
-  const raw = await kv.get(modeKey(mode), 'json') as StoredLobbyState | null
-  return parseLobbyState(raw)
-}
-
-export async function getLobbyByMatch(kv: KVNamespace, matchId: string): Promise<LobbyState | null> {
-  const mode = await kv.get(matchKey(matchId)) as GameMode | null
-  if (!mode) return null
-  const lobby = await getLobby(kv, mode)
-  if (!lobby || lobby.matchId !== matchId) return null
-  return lobby
-}
-
 export async function attachLobbyMatch(
   kv: KVNamespace,
-  mode: GameMode,
+  lobbyId: string,
   matchId: string,
+  currentLobby?: LobbyState,
 ): Promise<LobbyState | null> {
-  const lobby = await getLobby(kv, mode)
+  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
   if (!lobby) return null
 
   if (lobby.status === 'drafting' && lobby.matchId === matchId) return lobby
   if (!canTransitionLobbyStatus(lobby.status, 'drafting')) {
     console.warn('[lobby-transition] attachLobbyMatch rejected', {
-      mode,
+      lobbyId,
+      mode: lobby.mode,
       matchId,
       from: lobby.status,
       to: 'drafting',
@@ -156,17 +199,18 @@ export async function attachLobbyMatch(
 
 export async function setLobbyStatus(
   kv: KVNamespace,
-  mode: GameMode,
+  lobbyId: string,
   status: LobbyStatus,
   currentLobby?: LobbyState,
 ): Promise<LobbyState | null> {
-  const lobby = currentLobby?.mode === mode ? currentLobby : await getLobby(kv, mode)
+  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
   if (!lobby) return null
 
   if (lobby.status === status) return lobby
   if (!canTransitionLobbyStatus(lobby.status, status)) {
     console.warn('[lobby-transition] setLobbyStatus rejected', {
-      mode,
+      lobbyId,
+      mode: lobby.mode,
       matchId: lobby.matchId,
       from: lobby.status,
       to: status,
@@ -187,11 +231,11 @@ export async function setLobbyStatus(
 
 export async function setLobbyMessage(
   kv: KVNamespace,
-  mode: GameMode,
+  lobbyId: string,
   channelId: string,
   messageId: string,
 ): Promise<LobbyState | null> {
-  const lobby = await getLobby(kv, mode)
+  const lobby = await getLobbyById(kv, lobbyId)
   if (!lobby) return null
 
   if (lobby.channelId === channelId && lobby.messageId === messageId) return lobby
@@ -209,10 +253,11 @@ export async function setLobbyMessage(
 
 export async function setLobbyDraftConfig(
   kv: KVNamespace,
-  mode: GameMode,
+  lobbyId: string,
   draftConfig: LobbyDraftConfig,
+  currentLobby?: LobbyState,
 ): Promise<LobbyState | null> {
-  const lobby = await getLobby(kv, mode)
+  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
   if (!lobby) return null
 
   const normalizedDraftConfig = normalizeDraftConfig(draftConfig)
@@ -230,16 +275,15 @@ export async function setLobbyDraftConfig(
 
 export async function setLobbySlots(
   kv: KVNamespace,
-  mode: GameMode,
+  lobbyId: string,
   slots: (string | null)[],
   currentLobby?: LobbyState,
 ): Promise<LobbyState | null> {
-  const lobby = currentLobby?.mode === mode ? currentLobby : await getLobby(kv, mode)
+  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
   if (!lobby) return null
-  const normalizedSlots = normalizeStoredSlots(mode, slots)
-  if (sameLobbySlots(lobby.slots, normalizedSlots)) {
-    return lobby
-  }
+
+  const normalizedSlots = normalizeStoredSlots(lobby.mode, slots)
+  if (sameLobbySlots(lobby.slots, normalizedSlots)) return lobby
 
   const updated: LobbyState = {
     ...lobby,
@@ -251,12 +295,34 @@ export async function setLobbySlots(
   return updated
 }
 
-export async function touchLobby(
+export async function setLobbyMemberPlayerIds(
   kv: KVNamespace,
-  mode: GameMode,
+  lobbyId: string,
+  memberPlayerIds: string[],
   currentLobby?: LobbyState,
 ): Promise<LobbyState | null> {
-  const lobby = currentLobby?.mode === mode ? currentLobby : await getLobby(kv, mode)
+  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
+  if (!lobby) return null
+
+  const normalizedMemberIds = normalizeMemberPlayerIds(memberPlayerIds)
+  if (sameStringArray(lobby.memberPlayerIds, normalizedMemberIds)) return lobby
+
+  const updated: LobbyState = {
+    ...lobby,
+    memberPlayerIds: normalizedMemberIds,
+    updatedAt: Date.now(),
+    revision: lobby.revision + 1,
+  }
+  await putLobby(kv, updated)
+  return updated
+}
+
+export async function touchLobby(
+  kv: KVNamespace,
+  lobbyId: string,
+  currentLobby?: LobbyState,
+): Promise<LobbyState | null> {
+  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
   if (!lobby) return null
 
   const updated: LobbyState = {
@@ -269,29 +335,37 @@ export async function touchLobby(
 }
 
 export async function upsertLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
-  const normalizedLobby = {
-    ...lobby,
-    slots: normalizeStoredSlots(lobby.mode, lobby.slots),
-    draftConfig: normalizeDraftConfig(lobby.draftConfig),
-    revision: normalizeLobbyRevision(lobby.revision),
-  }
+  const normalizedLobby = normalizeLobby(lobby)
   await putLobby(kv, normalizedLobby)
 }
 
-export async function clearLobby(kv: KVNamespace, mode: GameMode): Promise<void> {
-  const lobby = await getLobby(kv, mode)
-  const keys = [modeKey(mode)]
-  if (lobby?.matchId) keys.push(matchKey(lobby.matchId))
+export async function clearLobbyById(kv: KVNamespace, lobbyId: string): Promise<void> {
+  const lobby = await getLobbyById(kv, lobbyId)
+  const keys = [idKey(lobbyId)]
+  if (lobby) {
+    keys.push(modeIndexKey(lobby.mode, lobby.id))
+    if (lobby.matchId) keys.push(matchKey(lobby.matchId))
+  }
   await stateStoreMdelete(kv, keys)
 }
 
+export async function clearLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise<void> {
+  const lobbies = await getLobbiesByMode(kv, mode)
+  if (lobbies.length === 0) return
+  await stateStoreMdelete(kv, lobbies.flatMap((lobby) => {
+    const keys = [idKey(lobby.id), modeIndexKey(mode, lobby.id)]
+    if (lobby.matchId) keys.push(matchKey(lobby.matchId))
+    return keys
+  }))
+}
+
 export async function clearLobbyByMatch(kv: KVNamespace, matchId: string): Promise<void> {
-  const mode = await kv.get(matchKey(matchId)) as GameMode | null
-  await stateStoreMdelete(kv, [matchKey(matchId)])
-  if (!mode) return
-  const lobby = await getLobby(kv, mode)
-  if (!lobby || lobby.matchId !== matchId) return
-  await stateStoreMdelete(kv, [modeKey(mode)])
+  const lobbyId = await kv.get(matchKey(matchId))
+  if (!lobbyId) {
+    await stateStoreMdelete(kv, [matchKey(matchId)])
+    return
+  }
+  await clearLobbyById(kv, lobbyId)
 }
 
 export function normalizeLobbySlots(
@@ -335,6 +409,21 @@ export function sameLobbySlots(a: (string | null)[], b: (string | null)[]): bool
   return true
 }
 
+export function parseLobbyState(raw: unknown): LobbyState | null {
+  if (!raw || typeof raw !== 'object') return null
+  return normalizeLobby(raw as StoredLobbyState)
+}
+
+export function filterQueueEntriesForLobby(lobby: LobbyState, queueEntries: QueueEntry[]): QueueEntry[] {
+  const memberSet = new Set(lobby.memberPlayerIds)
+  return queueEntries.filter(entry => memberSet.has(entry.playerId))
+}
+
+async function getAllLobbies(kv: KVNamespace): Promise<LobbyState[]> {
+  const all = await Promise.all(GAME_MODES.map(mode => getLobbiesByMode(kv, mode)))
+  return all.flat().sort((left, right) => left.createdAt - right.createdAt)
+}
+
 function createEmptySlots(mode: GameMode): (string | null)[] {
   return Array.from({ length: maxPlayerCount(mode) }, () => null)
 }
@@ -342,31 +431,33 @@ function createEmptySlots(mode: GameMode): (string | null)[] {
 async function putLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
   const entries = [
     {
-      key: modeKey(lobby.mode),
+      key: idKey(lobby.id),
       value: JSON.stringify(lobby),
+      expirationTtl: LOBBY_TTL,
+    },
+    {
+      key: modeIndexKey(lobby.mode, lobby.id),
+      value: lobby.id,
       expirationTtl: LOBBY_TTL,
     },
   ]
   if (lobby.matchId) {
     entries.push({
       key: matchKey(lobby.matchId),
-      value: lobby.mode,
+      value: lobby.id,
       expirationTtl: LOBBY_TTL,
     })
   }
   await stateStoreMput(kv, entries)
 }
 
-export function parseLobbyState(raw: unknown): LobbyState | null {
-  if (!raw || typeof raw !== 'object') return null
-  return normalizeLobby(raw as StoredLobbyState)
-}
-
-function normalizeLobby(raw: StoredLobbyState): LobbyState {
+function normalizeLobby(raw: StoredLobbyState | LobbyState): LobbyState {
   return {
     ...raw,
+    id: typeof raw.id === 'string' && raw.id.length > 0 ? raw.id : nanoid(10),
     slots: normalizeStoredSlots(raw.mode, raw.slots),
     draftConfig: normalizeDraftConfig(raw.draftConfig),
+    memberPlayerIds: normalizeMemberPlayerIds(raw.memberPlayerIds),
     revision: normalizeLobbyRevision(raw.revision),
   }
 }
@@ -397,6 +488,20 @@ function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDraftConf
   }
 }
 
+function normalizeMemberPlayerIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const normalized: string[] = []
+  const seen = new Set<string>()
+  for (const candidate of value) {
+    if (typeof candidate !== 'string') continue
+    const trimmed = candidate.trim()
+    if (!trimmed || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    normalized.push(trimmed)
+  }
+  return normalized
+}
+
 function normalizeTimerSeconds(value: unknown): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value)) return null
   const rounded = Math.round(value)
@@ -412,4 +517,12 @@ function normalizeLobbyRevision(value: unknown): number {
 function sameDraftConfig(a: LobbyDraftConfig, b: LobbyDraftConfig): boolean {
   return a.banTimerSeconds === b.banTimerSeconds
     && a.pickTimerSeconds === b.pickTimerSeconds
+}
+
+function sameStringArray(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false
+  for (let index = 0; index < a.length; index++) {
+    if (a[index] !== b[index]) return false
+  }
+  return true
 }

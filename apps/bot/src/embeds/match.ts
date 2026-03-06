@@ -153,10 +153,10 @@ export function lobbyResultEmbed(
   return lobbyReportedEmbed(mode, participants, moderation)
 }
 
-export function lobbyComponents(mode: GameMode): Components {
+export function lobbyComponents(mode: GameMode, lobbyId?: string): Components {
   const label = 'Join'
   return new Components().row(
-    new Button('match-join', label, 'Primary').custom_id(mode),
+    new Button('match-join', label, 'Primary').custom_id(lobbyId ? `${mode}:${lobbyId}` : mode),
   )
 }
 

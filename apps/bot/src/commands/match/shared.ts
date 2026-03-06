@@ -3,9 +3,9 @@ import type { Embed } from 'discord-hono'
 import { formatModeLabel, maxPlayerCount } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/match.ts'
-import { getLobbyAndQueueState } from '../../services/lobby-queue.ts'
-import { getLobby, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby.ts'
-import { getPlayerQueueMode, MAX_QUEUE_ENTRIES, setQueueEntries } from '../../services/queue.ts'
+import type { LobbyState } from '../../services/lobby.ts'
+import { filterQueueEntriesForLobby, getLobbiesByMode, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby.ts'
+import { getPlayerQueueMode, getQueueState, MAX_QUEUE_ENTRIES, setQueueEntries } from '../../services/queue.ts'
 import { createStateStore } from '../../services/state-store.ts'
 
 export const GAME_MODE_CHOICES = [
@@ -135,10 +135,13 @@ export async function joinLobbyAndMaybeStartMatch(
   },
   mode: GameMode,
   requestedEntries: MatchJoinEntry[],
-  _channelId: string,
+  options?: {
+    preferredLobbyId?: string
+  },
 ): Promise<
   | {
     stage: 'open'
+    lobby: LobbyState
     embeds: [Embed]
     components: ReturnType<typeof lobbyComponents>
   }
@@ -157,9 +160,16 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   const kv = createStateStore(c.env)
-  const lobbyAndQueue = await getLobbyAndQueueState(kv, mode)
-  let queue = lobbyAndQueue.queue
+  let queue = await getQueueState(kv, mode)
+  const openLobbies = (await getLobbiesByMode(kv, mode)).filter(lobby => lobby.status === 'open')
   const queueByPlayerId = new Map<string, QueueEntry>(queue.entries.map(entry => [entry.playerId, entry]))
+  const lobbyByPlayerId = new Map<string, LobbyState>()
+
+  for (const lobby of openLobbies) {
+    for (const playerId of lobby.memberPlayerIds) {
+      if (!lobbyByPlayerId.has(playerId)) lobbyByPlayerId.set(playerId, lobby)
+    }
+  }
 
   for (const entry of requestedEntries) {
     const existingMode = queueByPlayerId.has(entry.playerId)
@@ -169,6 +179,16 @@ export async function joinLobbyAndMaybeStartMatch(
     return {
       error: `<@${entry.playerId}> is already in the ${formatModeLabel(existingMode)} queue. Leave it first with \`/match leave\`.`,
     }
+  }
+
+  const existingLobbyIds = [...new Set(
+    requestedEntries
+      .map(entry => lobbyByPlayerId.get(entry.playerId)?.id ?? null)
+      .filter((lobbyId): lobbyId is string => lobbyId != null),
+  )]
+
+  if (existingLobbyIds.length > 1) {
+    return { error: 'This premade is already split across different open lobbies.' }
   }
 
   const nextEntries = [...queue.entries]
@@ -218,18 +238,44 @@ export async function joinLobbyAndMaybeStartMatch(
     queueChanged = true
   }
 
-  const lobby = lobbyAndQueue.lobby ?? await getLobby(kv, mode)
-  if (!lobby || lobby.status !== 'open') {
+  if (openLobbies.length === 0) {
     return { error: `No open ${formatModeLabel(mode)} lobby. Use \`/match create\` first.` }
   }
 
-  const slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
-  const placement = placeRequestedEntries(mode, slots, requestedEntries)
-  if ('error' in placement) {
-    return { error: placement.error }
+  const preferredLobbyId = options?.preferredLobbyId ?? existingLobbyIds[0] ?? null
+  const candidateLobbies = preferredLobbyId
+    ? openLobbies.filter(lobby => lobby.id === preferredLobbyId)
+    : openLobbies
+
+  const scoredCandidates = candidateLobbies
+    .map((lobby) => {
+      for (const requestedEntry of requestedEntries) {
+        const existingLobby = lobbyByPlayerId.get(requestedEntry.playerId)
+        if (existingLobby && existingLobby.id !== lobby.id) return null
+      }
+
+      const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, nextEntries)
+      const currentSlots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
+      const placement = placeRequestedEntries(mode, currentSlots, requestedEntries)
+      if ('error' in placement) return null
+
+      return {
+        lobby,
+        slots: placement.slots,
+        score: scoreLobbyCandidate(lobby, currentSlots, placement.slots, requestedEntries.length),
+      }
+    })
+    .filter((candidate): candidate is { lobby: LobbyState, slots: (string | null)[], score: string } => candidate != null)
+    .sort((left, right) => left.score.localeCompare(right.score))
+
+  const chosen = scoredCandidates[0]
+  if (!chosen) {
+    return { error: 'No compatible open lobby could fit this join.' }
   }
 
-  const nextSlots = placement.slots
+  let nextLobby = chosen.lobby
+  const nextSlots = chosen.slots
+  const nextMemberPlayerIds = [...new Set([...nextLobby.memberPlayerIds, ...requestedEntries.map(entry => entry.playerId)])]
 
   if (queueChanged) {
     await setQueueEntries(kv, mode, nextEntries, {
@@ -241,15 +287,20 @@ export async function joinLobbyAndMaybeStartMatch(
     }
   }
 
-  if (!sameLobbySlots(nextSlots, lobby.slots)) {
-    await setLobbySlots(kv, mode, nextSlots, lobby)
+  if (nextMemberPlayerIds.length !== nextLobby.memberPlayerIds.length) {
+    nextLobby = await setLobbyMemberPlayerIds(kv, nextLobby.id, nextMemberPlayerIds, nextLobby) ?? nextLobby
   }
 
-  const slottedEntries = mapLobbySlotsToEntries(nextSlots, queue.entries)
+  if (!sameLobbySlots(nextSlots, nextLobby.slots)) {
+    nextLobby = await setLobbySlots(kv, nextLobby.id, nextSlots, nextLobby) ?? nextLobby
+  }
+
+  const slottedEntries = mapLobbySlotsToEntries(nextSlots, filterQueueEntriesForLobby(nextLobby, queue.entries))
   return {
     stage: 'open',
+    lobby: nextLobby,
     embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
-    components: lobbyComponents(mode),
+    components: lobbyComponents(mode, nextLobby.id),
   }
 }
 
@@ -395,4 +446,39 @@ function chooseBestTeamForPremade(
     })
 
   return candidates[0]?.teamIndex ?? null
+}
+
+function scoreLobbyCandidate(
+  lobby: LobbyState,
+  currentSlots: (string | null)[],
+  nextSlots: (string | null)[],
+  joinedCount: number,
+): string {
+  const filledBefore = currentSlots.filter(slot => slot != null).length
+  const filledAfter = nextSlots.filter(slot => slot != null).length
+  const completionAfter = maxPlayerCount(lobby.mode) - filledAfter
+  const fillGain = filledAfter - filledBefore
+  const gapPenalty = countOpenGapPenalty(nextSlots)
+
+  return [
+    padNumber(completionAfter, 2),
+    padNumber(-fillGain, 2),
+    padNumber(gapPenalty, 2),
+    padNumber(-joinedCount, 2),
+    padNumber(lobby.createdAt, 14),
+    lobby.id,
+  ].join(':')
+}
+
+function countOpenGapPenalty(slots: (string | null)[]): number {
+  let penalty = 0
+  for (let index = 0; index < slots.length - 1; index++) {
+    if (slots[index] == null && slots[index + 1] != null) penalty += 1
+  }
+  return penalty
+}
+
+function padNumber(value: number, width: number): string {
+  const offset = 10 ** Math.max(width - 1, 1)
+  return String(value + offset).padStart(width, '0')
 }

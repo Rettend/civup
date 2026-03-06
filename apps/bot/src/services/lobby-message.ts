@@ -32,7 +32,7 @@ export async function upsertLobbyMessage(
       components: payload.components,
     })
 
-    const updated = await setLobbyMessage(kv, lobby.mode, lobby.channelId, created.id)
+    const updated = await setLobbyMessage(kv, lobby.id, lobby.channelId, created.id)
     return updated ?? {
       ...lobby,
       messageId: created.id,

@@ -27,6 +27,7 @@ export interface MatchStateSnapshot {
 }
 
 export interface LobbySnapshot {
+  id: string
   revision: number
   mode: string
   hostId: string
@@ -325,6 +326,7 @@ export async function fetchLobbyForUser(
 /** Update host draft timer config for an open lobby */
 export async function updateLobbyDraftConfig(
   mode: string,
+  lobbyId: string,
   userId: string,
   draftConfig: {
     banTimerSeconds: number | null
@@ -333,6 +335,7 @@ export async function updateLobbyDraftConfig(
 ): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
     const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/config`, {
+      lobbyId,
       userId,
       banTimerSeconds: draftConfig.banTimerSeconds,
       pickTimerSeconds: draftConfig.pickTimerSeconds,
@@ -349,11 +352,12 @@ export async function updateLobbyDraftConfig(
 /** Update open lobby game mode (host-only). */
 export async function updateLobbyMode(
   mode: string,
+  lobbyId: string,
   userId: string,
   nextMode: string,
 ): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
-    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/mode`, { userId, nextMode })
+    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/mode`, { lobbyId, userId, nextMode })
     return { ok: true, lobby }
   }
   catch (err) {
@@ -367,6 +371,7 @@ export async function updateLobbyMode(
 export async function placeLobbySlot(
   mode: string,
   payload: {
+    lobbyId: string
     userId: string
     targetSlot: number
     playerId?: string
@@ -389,6 +394,7 @@ export async function placeLobbySlot(
 export async function removeLobbySlot(
   mode: string,
   payload: {
+    lobbyId: string
     userId: string
     slot: number
   },
@@ -407,11 +413,12 @@ export async function removeLobbySlot(
 /** Arrange team lobby slots while keeping premades intact (host-only). */
 export async function arrangeLobbyTeams(
   mode: string,
+  lobbyId: string,
   userId: string,
   strategy: LobbyTeamArrangeStrategy,
 ): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
-    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/arrange`, { userId, strategy })
+    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/arrange`, { lobbyId, userId, strategy })
     return { ok: true, lobby }
   }
   catch (err) {
@@ -424,11 +431,12 @@ export async function arrangeLobbyTeams(
 /** Toggle a visible premade link between neighboring team slots. */
 export async function toggleLobbyPremadeLink(
   mode: string,
+  lobbyId: string,
   userId: string,
   leftSlot: number,
 ): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
-    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/link`, { userId, leftSlot })
+    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/link`, { lobbyId, userId, leftSlot })
     return { ok: true, lobby }
   }
   catch (err) {
@@ -441,10 +449,11 @@ export async function toggleLobbyPremadeLink(
 /** Start a draft from an open lobby (host-only). */
 export async function startLobbyDraft(
   mode: string,
+  lobbyId: string,
   userId: string,
 ): Promise<{ ok: true, matchId: string } | { ok: false, error: string }> {
   try {
-    const data = await api.post<{ matchId?: string }>(`/api/lobby/${mode}/start`, { userId })
+    const data = await api.post<{ matchId?: string }>(`/api/lobby/${mode}/start`, { lobbyId, userId })
     if (!data.matchId) return { ok: false, error: 'Draft started but no match ID was returned' }
     return { ok: true, matchId: data.matchId }
   }
@@ -458,10 +467,11 @@ export async function startLobbyDraft(
 /** Cancel an open lobby before draft room creation */
 export async function cancelLobby(
   mode: string,
+  lobbyId: string,
   userId: string,
 ): Promise<{ ok: true } | { ok: false, error: string }> {
   try {
-    await api.post(`/api/lobby/${mode}/cancel`, { userId })
+    await api.post(`/api/lobby/${mode}/cancel`, { lobbyId, userId })
     return { ok: true }
   }
   catch (err) {
@@ -532,13 +542,14 @@ export async function scrubMatchResult(
 /** Fill empty lobby slots with test players (host-only). */
 export async function fillLobbyWithTestPlayers(
   mode: string,
+  lobbyId: string,
   userId: string,
 ): Promise<{ ok: true, lobby: LobbySnapshot, addedCount: number } | { ok: false, error: string }> {
   try {
     const res = await fetch(`/api/lobby/${mode}/fill-test`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify({ lobbyId, userId }),
     })
 
     const data = await res.json() as LobbySnapshot & { error?: string, addedCount?: unknown }
