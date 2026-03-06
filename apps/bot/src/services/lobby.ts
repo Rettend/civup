@@ -251,6 +251,23 @@ export async function setLobbySlots(
   return updated
 }
 
+export async function touchLobby(
+  kv: KVNamespace,
+  mode: GameMode,
+  currentLobby?: LobbyState,
+): Promise<LobbyState | null> {
+  const lobby = currentLobby?.mode === mode ? currentLobby : await getLobby(kv, mode)
+  if (!lobby) return null
+
+  const updated: LobbyState = {
+    ...lobby,
+    updatedAt: Date.now(),
+    revision: lobby.revision + 1,
+  }
+  await putLobby(kv, updated)
+  return updated
+}
+
 export async function upsertLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
   const normalizedLobby = {
     ...lobby,

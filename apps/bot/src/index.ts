@@ -7,25 +7,22 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import * as commands from './commands/index.ts'
 import * as cron from './cron/cleanup.ts'
-import {
-  lobbyCancelledEmbed,
-  lobbyComponents,
-  lobbyDraftCompleteEmbed,
-  lobbyDraftingEmbed,
-  lobbyOpenEmbed,
-  lobbyResultEmbed,
-} from './embeds/match.ts'
-import {
-  createDraftRoom,
-  getMatchForChannel,
-  getMatchForUser,
-  storeMatchMapping,
-  storeUserMatchMappings,
-} from './services/activity.ts'
+import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed, lobbyResultEmbed } from './embeds/match.ts'
+import { createDraftRoom, getMatchForChannel, getMatchForUser, storeMatchMapping, storeUserMatchMappings } from './services/activity.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from './services/config.ts'
 import { createChannelMessage } from './services/discord.ts'
 import { markLeaderboardsDirty } from './services/leaderboard-message.ts'
+import { arrangeTeamLobbySlots } from './services/lobby-arrange.ts'
 import { upsertLobbyMessage } from './services/lobby-message.ts'
+import {
+  arePremadeGroupsAdjacent,
+  buildActivePremadeEdgeSet,
+  buildSlottedPremadeGroups,
+  compactSlottedPremadesForMode,
+  moveSlottedPremadeGroup,
+  rebuildQueueEntriesFromPremadeEdgeSet,
+  slotToTeamIndex,
+} from './services/lobby-premades.ts'
 import {
   attachLobbyMatch,
   clearLobby,
@@ -38,9 +35,9 @@ import {
   setLobbyDraftConfig,
   setLobbySlots,
   setLobbyStatus,
+  touchLobby,
   upsertLobby,
 } from './services/lobby.ts'
-import { arrangeTeamLobbySlots } from './services/lobby-arrange.ts'
 import { storeMatchMessageMapping } from './services/match-message.ts'
 import { activateDraftMatch, cancelDraftMatch, cancelMatchByModerator, createDraftMatch, reportMatch } from './services/match.ts'
 import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, moveQueueMode, setQueueEntries } from './services/queue.ts'
@@ -274,10 +271,11 @@ app.post('/api/lobby/:mode/mode', async (c) => {
     orderedPlayers.push(playerId)
   }
 
-  const nextSlots = Array.from({ length: maxPlayerCount(nextMode) }, () => null as string | null)
-  for (let i = 0; i < nextSlots.length; i++) {
-    nextSlots[i] = orderedPlayers[i] ?? null
+  const nextLayout = compactSlottedPremadesForMode(nextMode, orderedPlayers, queue.entries)
+  if ('error' in nextLayout) {
+    return c.json({ error: nextLayout.error }, 400)
   }
+  const nextSlots = nextLayout.slots
 
   const nextLobby = {
     ...lobby,
@@ -402,12 +400,19 @@ app.post('/api/lobby/:mode/place', async (c) => {
 
   const sourceSlot = slots.findIndex(playerId => playerId === movingPlayerId)
   const targetPlayerId = slots[targetSlot]
+  const movingPremadeGroup = (mode === '2v2' || mode === '3v3') && sourceSlot >= 0
+    ? buildSlottedPremadeGroups(mode, slots, queue.entries).find(group => group.playerIds.includes(movingPlayerId)) ?? null
+    : null
 
   if (targetPlayerId === movingPlayerId) {
     return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, lobby, queue.entries, slots))
   }
 
   if (!isHost) {
+    if (movingPremadeGroup && movingPremadeGroup.playerIds.length > 1) {
+      return c.json({ error: 'Only the host can move linked premades.' }, 403)
+    }
+
     if (targetPlayerId != null) {
       return c.json({ error: 'You can only move to empty slots.' }, 403)
     }
@@ -415,7 +420,14 @@ app.post('/api/lobby/:mode/place', async (c) => {
     slots[targetSlot] = movingPlayerId
   }
   else {
-    if (sourceSlot < 0) {
+    if (movingPremadeGroup && movingPremadeGroup.playerIds.length > 1) {
+      const movedGroup = moveSlottedPremadeGroup(mode, slots, movingPremadeGroup, sourceSlot, targetSlot)
+      if ('error' in movedGroup) {
+        return c.json({ error: movedGroup.error }, 400)
+      }
+      slots = movedGroup.slots
+    }
+    else if (sourceSlot < 0) {
       if (targetPlayerId != null) {
         return c.json({ error: 'Choose an empty slot for this spectator.' }, 400)
       }
@@ -425,6 +437,10 @@ app.post('/api/lobby/:mode/place', async (c) => {
       slots[sourceSlot] = targetPlayerId ?? null
       slots[targetSlot] = movingPlayerId
     }
+  }
+
+  if ((mode === '2v2' || mode === '3v3') && !arePremadeGroupsAdjacent(mode, slots, queue.entries)) {
+    return c.json({ error: 'This move would split a linked premade.' }, 400)
   }
 
   const updatedLobby = await setLobbySlots(kv, mode, slots, lobby)
@@ -496,9 +512,18 @@ app.post('/api/lobby/:mode/remove', async (c) => {
   }
 
   slots[slot] = null
+  let nextEntries = queue.entries
+  if (mode === '2v2' || mode === '3v3') {
+    const nextEdges = buildActivePremadeEdgeSet(mode, slots, queue.entries)
+    nextEntries = rebuildQueueEntriesFromPremadeEdgeSet(mode, slots, queue.entries, nextEdges)
+    await setQueueEntries(kv, mode, nextEntries, {
+      currentState: queue,
+    })
+  }
+
   const updatedLobby = await setLobbySlots(kv, mode, slots, lobby)
   const nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
-  const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
+  const slottedEntries = mapLobbySlotsToEntries(slots, nextEntries)
 
   try {
     await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
@@ -510,7 +535,82 @@ app.post('/api/lobby/:mode/remove', async (c) => {
     console.error(`Failed to update lobby embed after slot removal in ${mode}:`, error)
   }
 
-  return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, queue.entries, slots))
+  return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextEntries, slots))
+})
+
+// Toggle a visible premade link between neighboring team slots
+app.post('/api/lobby/:mode/link', async (c) => {
+  const mode = parseGameMode(c.req.param('mode'))
+  const kv = createStateStore(c.env)
+  if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
+  if (mode !== '2v2' && mode !== '3v3') {
+    return c.json({ error: 'Premade links are only available in 2v2 and 3v3.' }, 400)
+  }
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  }
+  catch {
+    return c.json({ error: 'Invalid JSON payload' }, 400)
+  }
+
+  if (!body || typeof body !== 'object') {
+    return c.json({ error: 'Invalid request body' }, 400)
+  }
+
+  const { userId, leftSlot: leftSlotRaw } = body as {
+    userId?: unknown
+    leftSlot?: unknown
+  }
+
+  if (typeof userId !== 'string' || userId.length === 0) {
+    return c.json({ error: 'userId is required' }, 400)
+  }
+
+  const leftSlot = parseSlotIndex(leftSlotRaw)
+  const rightSlot = leftSlot == null ? null : leftSlot + 1
+  if (leftSlot == null || rightSlot == null || rightSlot >= maxPlayerCount(mode)) {
+    return c.json({ error: 'Invalid premade link position' }, 400)
+  }
+
+  if (slotToTeamIndex(mode, leftSlot) == null || slotToTeamIndex(mode, leftSlot) !== slotToTeamIndex(mode, rightSlot)) {
+    return c.json({ error: 'Premade links must stay on one team.' }, 400)
+  }
+
+  const lobby = await getLobby(kv, mode)
+  if (!lobby || lobby.status !== 'open') {
+    return c.json({ error: 'No open lobby for this mode' }, 404)
+  }
+
+  const queue = await getQueueState(kv, mode)
+  const slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
+  const leftPlayerId = slots[leftSlot]
+  const rightPlayerId = slots[rightSlot]
+  if (!leftPlayerId || !rightPlayerId) {
+    return c.json({ error: 'Both slots must be occupied.' }, 400)
+  }
+
+  const isHost = lobby.hostId === userId
+  if (!isHost && userId !== leftPlayerId && userId !== rightPlayerId) {
+    return c.json({ error: 'You can only link yourself with a neighbor.' }, 403)
+  }
+
+  const nextEdges = buildActivePremadeEdgeSet(mode, slots, queue.entries)
+  if (nextEdges.has(leftSlot)) {
+    nextEdges.delete(leftSlot)
+  }
+  else {
+    nextEdges.add(leftSlot)
+  }
+
+  const nextEntries = rebuildQueueEntriesFromPremadeEdgeSet(mode, slots, queue.entries, nextEdges)
+  await setQueueEntries(kv, mode, nextEntries, {
+    currentState: queue,
+  })
+  const nextLobby = await touchLobby(kv, mode, lobby) ?? lobby
+
+  return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextEntries, slots))
 })
 
 // Host-only team arrange actions (premade-aware randomize / auto-balance)
@@ -1254,6 +1354,7 @@ async function buildOpenLobbySnapshotFromParts(
         playerId: entry.playerId,
         displayName: entry.displayName,
         avatarUrl: entry.avatarUrl ?? null,
+        partyIds: entry.partyIds ?? [],
       }
     }),
     minPlayers: lobbyMinPlayerCount(mode),

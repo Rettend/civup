@@ -35,6 +35,7 @@ export interface LobbySnapshot {
     playerId: string
     displayName: string
     avatarUrl?: string | null
+    partyIds?: string[]
   } | null)[]
   minPlayers: number
   targetSize: number
@@ -417,6 +418,23 @@ export async function arrangeLobbyTeams(
     console.error('Failed to arrange lobby teams:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while arranging teams' }
+  }
+}
+
+/** Toggle a visible premade link between neighboring team slots. */
+export async function toggleLobbyPremadeLink(
+  mode: string,
+  userId: string,
+  leftSlot: number,
+): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
+  try {
+    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/link`, { userId, leftSlot })
+    return { ok: true, lobby }
+  }
+  catch (err) {
+    console.error('Failed to toggle lobby premade link:', err)
+    if (err instanceof ApiError) return { ok: false, error: err.message }
+    return { ok: false, error: 'Network error while toggling premade link' }
   }
 }
 
