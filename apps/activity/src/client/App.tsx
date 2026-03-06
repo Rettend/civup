@@ -55,9 +55,9 @@ export default function App() {
   })
 
   const resolveOpenLobby = async (channelId: string, currentUserId: string) => {
-    const channelLobby = await fetchLobbyForChannel(channelId)
-    if (channelLobby) return channelLobby
-    return fetchLobbyForUser(currentUserId)
+    const userLobby = await fetchLobbyForUser(currentUserId)
+    if (userLobby) return userLobby
+    return fetchLobbyForChannel(channelId)
   }
 
   const transitionToDraft = (matchId: string, currentUserId: string, autoStart: boolean) => {
@@ -320,6 +320,7 @@ function DraftWithConnection(props: { matchId: string, autoStart: boolean }) {
 }
 
 function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
+  if (a.id !== b.id) return false
   if (a.revision !== b.revision) return false
   if (a.mode !== b.mode) return false
   if (a.hostId !== b.hostId) return false
@@ -340,6 +341,7 @@ function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
     if (aEntry.playerId !== bEntry.playerId) return false
     if (aEntry.displayName !== bEntry.displayName) return false
     if ((aEntry.avatarUrl ?? null) !== (bEntry.avatarUrl ?? null)) return false
+    if ((aEntry.partyIds ?? []).join(',') !== (bEntry.partyIds ?? []).join(',')) return false
   }
 
   return true
