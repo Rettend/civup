@@ -11,9 +11,11 @@ import {
   DISPLAY_RATING_BASE,
   DISPLAY_RATING_SCALE,
   displayRating,
+  Z_MULTIPLIER,
 
   predictWinProbabilities,
   seasonReset,
+  applyInactivityDecay,
 } from '../src/index.ts'
 
 // ── createRating ────────────────────────────────────────────
@@ -30,21 +32,19 @@ describe('createRating', () => {
 // ── displayRating ───────────────────────────────────────────
 
 describe('displayRating', () => {
-  test('returns base + scale*(mu - 3*sigma) for default rating', () => {
+  test('returns base + scale*(mu - Z_MULTIPLIER*sigma) for default rating', () => {
     const dr = displayRating(DEFAULT_MU, DEFAULT_SIGMA)
-    expect(dr).toBeCloseTo(DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * (DEFAULT_MU - 3 * DEFAULT_SIGMA), 2)
-    // ~600 + (25 - 25) = 600
-    expect(dr).toBeCloseTo(DISPLAY_RATING_BASE, 0)
+    expect(dr).toBeCloseTo(DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * (DEFAULT_MU - Z_MULTIPLIER * DEFAULT_SIGMA), 2)
   })
 
   test('returns positive value for skilled player', () => {
     // After many games, sigma shrinks and mu grows
     const dr = displayRating(30, 3)
-    expect(dr).toBeCloseTo(DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * 21, 0)
+    expect(dr).toBeCloseTo(DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * (30 - Z_MULTIPLIER * 3), 0)
   })
 
   test('returns below base for very uncertain player', () => {
-    const dr = displayRating(20, 10)
+    const dr = displayRating(10, 10) // 10 - 20 = -10 * 5 = -50 + 600 = 550
     expect(dr).toBeLessThan(DISPLAY_RATING_BASE)
   })
 })
@@ -266,7 +266,7 @@ describe('buildLeaderboard', () => {
 
     const lb = buildLeaderboard(players)
 
-    expect(lb[0]!.displayRating).toBeCloseTo(DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * (30 - 3 * 4), 0) // 690
+    expect(lb[0]!.displayRating).toBeCloseTo(DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * (30 - Z_MULTIPLIER * 4), 0) // e.g. 710
     expect(lb[0]!.winRate).toBeCloseTo(0.6, 2)
   })
 
@@ -277,6 +277,27 @@ describe('buildLeaderboard', () => {
 
     expect(buildLeaderboard(players, 3)).toHaveLength(1)
     expect(buildLeaderboard(players, 5)).toHaveLength(0)
+  })
+})
+
+// ── applyInactivityDecay ──────────────────────────────────────
+
+describe('applyInactivityDecay', () => {
+  test('does nothing before grace period', () => {
+    const result = applyInactivityDecay(30, 2, 10, 14, 0.1)
+    expect(result.mu).toBe(30)
+    expect(result.sigma).toBe(2)
+  })
+
+  test('inflates sigma after grace period', () => {
+    const result = applyInactivityDecay(30, 2, 24, 14, 0.1) // 10 days over grace period
+    expect(result.mu).toBe(30)
+    expect(result.sigma).toBeCloseTo(3.0) // 2 + 1.0
+  })
+
+  test('caps inflated sigma at default', () => {
+    const result = applyInactivityDecay(30, 8, 100, 14, 0.1)
+    expect(result.sigma).toBeCloseTo(DEFAULT_SIGMA)
   })
 })
 

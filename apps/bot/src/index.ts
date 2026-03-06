@@ -29,8 +29,8 @@ import { upsertLobbyMessage } from './services/lobby-message.ts'
 import {
   attachLobbyMatch,
   clearLobby,
-  getLobbyByChannel,
   getLobby,
+  getLobbyByChannel,
   getLobbyByMatch,
   mapLobbySlotsToEntries,
   normalizeLobbySlots,

@@ -1,6 +1,7 @@
-import { spawn, spawnSync } from 'bun'
 import { dirname, resolve } from 'node:path'
+import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { spawn, spawnSync } from 'bun'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
