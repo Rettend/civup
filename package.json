@@ -19,6 +19,7 @@
     "bot:deploy:prod": "bun run --filter civup-bot deploy:prod",
     "bot:register": "bun run --filter civup-bot register:dev",
     "bot:register:prod": "bun run --filter civup-bot register:prod",
+    "bot:test:capacity": "bun run --filter civup-bot test:capacity",
     "bot:secrets:prod": "bun run --filter civup-bot secret:bulk:prod",
     "party:secrets:prod": "bun run --filter civup-party secret:bulk:prod",
     "a:secrets:prod": "bun run --filter civup-activity secret:bulk:prod",

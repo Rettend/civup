@@ -1,70 +1,24 @@
 /* eslint-disable no-console */
 import type { DraftSeat, DraftState, GameMode, QueueEntry } from '@civup/game'
+import type { CapacityModel, OverageRatesPerMillion, UsageLimits } from './capacity/model.ts'
 import { playerRatings, players } from '@civup/db'
-import {
-  allLeaderIds,
-  createDraft,
-  getDefaultFormat,
-  isDraftError,
-  processDraftInput,
-} from '@civup/game'
+import { allLeaderIds, createDraft, getDefaultFormat, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
-import {
-  getMatchForChannel,
-  storeMatchMapping,
-} from '../../src/services/activity.ts'
-import {
-  getServerDraftTimerDefaults,
-  resolveDraftTimerConfig,
-} from '../../src/services/config.ts'
+import { getMatchForChannel, storeMatchMapping } from '../../src/services/activity.ts'
+import { getServerDraftTimerDefaults, resolveDraftTimerConfig } from '../../src/services/config.ts'
 import { markLeaderboardsDirty } from '../../src/services/leaderboard-message.ts'
-import {
-  clearLobby,
-  createLobby,
-  getLobby,
-  getLobbyByChannel,
-  getLobbyByMatch,
-  mapLobbySlotsToEntries,
-  normalizeLobbySlots,
-  sameLobbySlots,
-  setLobbySlots,
-  setLobbyStatus,
-  upsertLobby,
-} from '../../src/services/lobby.ts'
+import { clearLobby, createLobby, getLobby, getLobbyByChannel, getLobbyByMatch, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots, setLobbyStatus, upsertLobby } from '../../src/services/lobby.ts'
 import { storeMatchMessageMapping } from '../../src/services/match-message.ts'
-import {
-  activateDraftMatch,
-  createDraftMatch,
-  reportMatch,
-} from '../../src/services/match.ts'
-import {
-  addToQueue,
-  clearQueue,
-  getPlayerQueueMode,
-  getQueueState,
-} from '../../src/services/queue.ts'
+import { activateDraftMatch, createDraftMatch, reportMatch } from '../../src/services/match.ts'
+import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState } from '../../src/services/queue.ts'
 import { createStateStore } from '../../src/services/state-store.ts'
-import {
-  getSystemChannel,
-  setSystemChannel,
-} from '../../src/services/system-channels.ts'
-import { createTestDatabase } from '../helpers/test-env.ts'
+import { getSystemChannel, setSystemChannel } from '../../src/services/system-channels.ts'
 import { installStateCoordinatorHarness } from '../helpers/state-coordinator-harness.ts'
+import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
-import type {
-  CapacityModel,
-  OverageRatesPerMillion,
-  UsageLimits,
-} from './capacity/model.ts'
-import {
-  estimateDailyUsage,
-  estimateOverageUsd,
-  findMaxPlaysPerDay,
-  findMaxPlaysPerDayForOverageBudget,
-  findMetricBreakpoints,
-} from './capacity/model.ts'
+import { estimateDailyUsage, estimateOverageUsd, findMaxPlaysPerDay, findMaxPlaysPerDayForOverageBudget, findMetricBreakpoints } from './capacity/model.ts'
 
 interface SimulationResult {
   usage: {
