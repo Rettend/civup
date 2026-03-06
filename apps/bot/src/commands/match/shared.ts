@@ -3,6 +3,7 @@ import type { Embed } from 'discord-hono'
 import { formatModeLabel, maxPlayerCount } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/match.ts'
+import { getLobbyAndQueueState } from '../../services/lobby-queue.ts'
 import { createStateStore } from '../../services/state-store.ts'
 import {
   getLobby,
@@ -94,20 +95,14 @@ export async function joinLobbyAndMaybeStartMatch(
 > {
   const kv = createStateStore(c.env)
   const existingMode = await getPlayerQueueMode(kv, userId)
+  let queue = existingMode === mode ? (await getLobbyAndQueueState(kv, mode)).queue : null
   if (existingMode && existingMode !== mode) {
     return { error: `You're already in the ${formatModeLabel(existingMode)} queue. Leave it first with \`/match leave\`.` }
   }
 
   let shouldJoinQueue = !existingMode
   if (existingMode === mode) {
-    const queue = await getQueueState(kv, mode)
-    shouldJoinQueue = !queue.entries.some(entry => entry.playerId === userId)
-    if (!shouldJoinQueue) {
-      console.log('[idempotency] duplicate lobby join request', {
-        mode,
-        userId,
-      })
-    }
+    shouldJoinQueue = !queue?.entries.some(entry => entry.playerId === userId)
   }
 
   if (shouldJoinQueue) {
@@ -118,8 +113,10 @@ export async function joinLobbyAndMaybeStartMatch(
       joinedAt: Date.now(),
     }, {
       existingMode,
+      currentState: queue ?? undefined,
     })
     if (joined.error) return { error: joined.error }
+    queue = joined.state ?? null
   }
 
   const lobby = await getLobby(kv, mode)
@@ -127,7 +124,7 @@ export async function joinLobbyAndMaybeStartMatch(
     return { error: `No open ${formatModeLabel(mode)} lobby. Use \`/match create\` first.` }
   }
 
-  const queue = await getQueueState(kv, mode)
+  queue ??= await getQueueState(kv, mode)
   const slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
   const nextSlots = [...slots]
 

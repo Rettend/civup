@@ -1,6 +1,7 @@
 import type { CommandResponse } from '@discord/embedded-app-sdk'
 import { api, ApiError } from '@civup/utils'
 import { DiscordSDK } from '@discord/embedded-app-sdk'
+import { relayDevLog } from './lib/dev-log'
 
 export type Auth = CommandResponse<'authenticate'>
 
@@ -21,6 +22,11 @@ interface TokenExchangeResponse {
 interface CachedToken {
   accessToken: string
   expiresAt: number
+}
+
+interface AuthorizeErrorPayload {
+  code?: number
+  message?: string
 }
 
 export const discordSdk = new DiscordSDK(CLIENT_ID)
@@ -71,40 +77,85 @@ function clearCachedToken() {
 }
 
 async function authenticateWithToken(accessToken: string): Promise<Auth> {
+  relayDevLog('info', 'Authenticating with Discord access token')
   const auth = await discordSdk.commands.authenticate({ access_token: accessToken })
   if (!auth) throw new Error('Discord authenticate command failed')
   return auth
 }
 
+function describeError(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) return error.message
+  if (typeof error === 'string' && error.trim().length > 0) return error
+  try {
+    const serialized = JSON.stringify(error)
+    if (serialized && serialized !== '{}') return serialized
+  }
+  catch {}
+  return 'Unknown error'
+}
+
+function getRedirectUri(): string {
+  if (typeof window === 'undefined') return ''
+  return window.location.origin
+}
+
 async function setupDiscordSdkInternal(): Promise<Auth> {
+  relayDevLog('info', 'Waiting for Discord SDK ready')
   await discordSdk.ready()
+  relayDevLog('info', 'Discord SDK ready', {
+    channelId: discordSdk.channelId,
+    guildId: discordSdk.guildId,
+    instanceId: discordSdk.instanceId,
+  })
 
   const cachedToken = readCachedToken()
   if (cachedToken) {
     try {
+      relayDevLog('info', 'Using cached Discord access token')
       return await authenticateWithToken(cachedToken)
     }
-    catch {
+    catch (error) {
+      relayDevLog('warn', 'Cached Discord access token failed, clearing it', error)
       clearCachedToken()
     }
   }
 
-  const { code } = await discordSdk.commands.authorize({
-    client_id: CLIENT_ID,
-    response_type: 'code',
-    state: '',
-    prompt: 'none',
-    scope: [
-      'identify',
-      'guilds',
-      'guilds.members.read',
-      'rpc.voice.read',
-    ],
-  })
+  relayDevLog('info', 'Requesting Discord authorization code')
+  const redirectUri = getRedirectUri()
+  let code: string
+  try {
+    const response = await discordSdk.commands.authorize({
+      client_id: CLIENT_ID,
+      response_type: 'code',
+      state: '',
+      prompt: 'none',
+      scope: [
+        'identify',
+        'guilds',
+        'guilds.members.read',
+        'rpc.voice.read',
+      ],
+    })
+    code = response.code
+  }
+  catch (error) {
+    const payload = error as AuthorizeErrorPayload
+    relayDevLog('error', 'Discord authorize command failed', {
+      redirectUri,
+      code: payload?.code ?? null,
+      message: payload?.message ?? describeError(error),
+    })
+    throw error
+  }
+  relayDevLog('info', 'Received Discord authorization code')
 
   let payload: TokenExchangeResponse
   try {
-    payload = await api.post<TokenExchangeResponse>('/api/token', { code })
+    relayDevLog('info', 'Exchanging Discord authorization code for access token')
+    payload = await api.post<TokenExchangeResponse>('/api/token', {
+      code,
+      redirectUri,
+    })
   }
   catch (err: any) {
     if (!(err instanceof ApiError)) throw err
@@ -132,6 +183,9 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
     throw new Error('Token exchange succeeded but access_token was missing')
   }
 
+  relayDevLog('info', 'Received Discord access token payload', {
+    expiresIn: payload.expires_in ?? null,
+  })
   cacheToken(payload.access_token, payload.expires_in)
 
   return authenticateWithToken(payload.access_token)
@@ -139,8 +193,13 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
 
 export async function setupDiscordSdk(): Promise<Auth> {
   if (setupInFlight) return setupInFlight
-  setupInFlight = setupDiscordSdkInternal().finally(() => {
-    setupInFlight = null
-  })
+  setupInFlight = setupDiscordSdkInternal()
+    .catch((error) => {
+      relayDevLog('error', 'Discord SDK setup failed', error)
+      throw new Error(describeError(error))
+    })
+    .finally(() => {
+      setupInFlight = null
+    })
   return setupInFlight
 }

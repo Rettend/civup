@@ -87,17 +87,21 @@ bun run party:deploy
 ## Development
 
 ```bash
+bun run dev:new    # Rebuild activity, then start full local stack
+bun run dev        # Reuse existing activity build, then start full local stack
+
 bun run bot:dev    # Bot (Cloudflare Worker)
-bun run a:dev      # Activity (Vite)
+bun run a:dev:new  # Activity rebuild + local Wrangler preview
+bun run a:dev      # Activity local Wrangler preview (no rebuild)
 bun run party:dev  # Party Server
 bun run tunnel     # Cloudflared tunnel for local bot dev
 ```
 
-For local activity-to-bot proxying in dev, use this in `apps/activity/.dev.vars`:
+For local worker-to-worker routing in dev, point the workers at the local Wrangler ports instead of the public tunnels:
 
 ```bash
-BOT_HOST=https://bot-dev.rettend.me
-PARTY_HOST=https://party.rettend.me
+BOT_HOST=http://127.0.0.1:8787
+PARTY_HOST=http://127.0.0.1:8788
 ```
 
 Trigger leaderboard update cron locally:

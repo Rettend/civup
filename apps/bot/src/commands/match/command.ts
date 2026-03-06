@@ -9,6 +9,7 @@ import { getMatchForUser, storeUserMatchMappings } from '../../services/activity
 import { createChannelMessage } from '../../services/discord.ts'
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard-message.ts'
+import { getLobbyAndQueueState } from '../../services/lobby-queue.ts'
 import { upsertLobbyMessage } from '../../services/lobby-message.ts'
 import { clearLobby, createLobby, getLobby, getLobbyByMatch, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots, setLobbyStatus } from '../../services/lobby.ts'
 import { storeMatchMessageMapping } from '../../services/match-message.ts'
@@ -61,103 +62,120 @@ export const command_match = factory.command<MatchVar>(
         }
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const kv = createStateStore(c.env)
-          const draftChannelId = await getSystemChannel(kv, 'draft')
-          if (!draftChannelId) {
-            await sendTransientEphemeralResponse(
-              c,
-              'Draft channel is not configured. Run `/admin setup target:Draft` to set up this channel.',
-              'error',
-            )
-            return
-          }
-
-          const existingLobby = await getLobby(kv, mode)
-          if (existingLobby) {
-            if (existingLobby.status === 'open') {
-              const queue = await getQueueState(kv, mode)
-              const slots = normalizeLobbySlots(mode, existingLobby.slots, queue.entries)
-              const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
-              const embed = lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))
-              if (!sameLobbySlots(slots, existingLobby.slots)) {
-                await setLobbySlots(kv, mode, slots, existingLobby)
-              }
-              try {
-                await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
-                  embeds: [embed],
-                  components: lobbyComponents(mode),
-                })
-              }
-              catch (error) {
-                console.error('Failed to refresh existing lobby embed:', error)
-              }
-              await sendTransientEphemeralResponse(c, `A ${mode.toUpperCase()} lobby is already active in <#${existingLobby.channelId}>.`, 'error')
+          try {
+            const kv = createStateStore(c.env)
+            const draftChannelId = await getSystemChannel(kv, 'draft')
+            if (!draftChannelId) {
+              await sendTransientEphemeralResponse(
+                c,
+                'Draft channel is not configured. Run `/admin setup target:Draft` to set up this channel.',
+                'error',
+              )
               return
             }
 
-            if (!existingLobby.matchId) {
-              await clearLobby(kv, mode)
-            }
-            else {
-              const db = createDb(c.env.DB)
-              const [existingMatch] = await db
-                .select({ status: matches.status })
-                .from(matches)
-                .where(eq(matches.id, existingLobby.matchId))
-                .limit(1)
-
-              if (!existingMatch || existingMatch.status === 'completed' || existingMatch.status === 'cancelled') {
-                await clearLobby(kv, mode)
-              }
-              else {
+            let { lobby: existingLobby, queue } = await getLobbyAndQueueState(kv, mode)
+            if (existingLobby) {
+              if (existingLobby.status === 'open') {
+                const slots = normalizeLobbySlots(mode, existingLobby.slots, queue.entries)
+                const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
+                const embed = lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))
+                if (!sameLobbySlots(slots, existingLobby.slots)) {
+                  await setLobbySlots(kv, mode, slots, existingLobby)
+                }
+                try {
+                  await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
+                    embeds: [embed],
+                    components: lobbyComponents(mode),
+                  })
+                }
+                catch (error) {
+                  console.error('Failed to refresh existing lobby embed:', error)
+                }
                 await sendTransientEphemeralResponse(c, `A ${mode.toUpperCase()} lobby is already active in <#${existingLobby.channelId}>.`, 'error')
                 return
               }
+
+              if (!existingLobby.matchId) {
+                await clearLobby(kv, mode)
+              }
+              else {
+                const db = createDb(c.env.DB)
+                const [existingMatch] = await db
+                  .select({ status: matches.status })
+                  .from(matches)
+                  .where(eq(matches.id, existingLobby.matchId))
+                  .limit(1)
+
+                if (!existingMatch || existingMatch.status === 'completed' || existingMatch.status === 'cancelled') {
+                  await clearLobby(kv, mode)
+                }
+                else {
+                  await sendTransientEphemeralResponse(c, `A ${mode.toUpperCase()} lobby is already active in <#${existingLobby.channelId}>.`, 'error')
+                  return
+                }
+              }
             }
-          }
 
-          const staleQueue = await getQueueState(kv, mode)
-          if (staleQueue.entries.length > 0) {
-            await clearQueue(kv, mode, staleQueue.entries.map(entry => entry.playerId))
-          }
-
-          const result = await addToQueue(kv, mode, {
-            playerId: identity.userId,
-            displayName: identity.displayName,
-            avatarUrl: identity.avatarUrl,
-            joinedAt: Date.now(),
-          })
-
-          if (result.error) {
-            await sendTransientEphemeralResponse(c, result.error, 'error')
-            return
-          }
-
-          const queue = await getQueueState(kv, mode)
-          const embed = lobbyOpenEmbed(mode, queue.entries, maxPlayerCount(mode))
-
-          try {
-            const message = await createChannelMessage(c.env.DISCORD_TOKEN, draftChannelId, {
-              embeds: [embed],
-              components: lobbyComponents(mode),
-            })
-            await createLobby(kv, {
-              mode,
-              hostId: identity.userId,
-              channelId: draftChannelId,
-              messageId: message.id,
-            })
-            if (interactionChannelId === draftChannelId) {
-              await clearDeferredEphemeralResponse(c)
+            if (queue.entries.length > 0) {
+              queue = await clearQueue(kv, mode, queue.entries.map(entry => entry.playerId), {
+                currentState: queue,
+              })
             }
-            else {
-              await sendTransientEphemeralResponse(c, `Created ${mode.toUpperCase()} lobby in <#${draftChannelId}>.`, 'info')
+
+            const result = await addToQueue(kv, mode, {
+              playerId: identity.userId,
+              displayName: identity.displayName,
+              avatarUrl: identity.avatarUrl,
+              joinedAt: Date.now(),
+            }, {
+              currentState: queue,
+            })
+
+            if (result.error) {
+              await sendTransientEphemeralResponse(c, result.error, 'error')
+              return
+            }
+
+            queue = result.state ?? queue
+            const embed = lobbyOpenEmbed(mode, queue.entries, maxPlayerCount(mode))
+
+            try {
+              const message = await createChannelMessage(c.env.DISCORD_TOKEN, draftChannelId, {
+                embeds: [embed],
+                components: lobbyComponents(mode),
+              })
+              await createLobby(kv, {
+                mode,
+                hostId: identity.userId,
+                channelId: draftChannelId,
+                messageId: message.id,
+              })
+              if (interactionChannelId === draftChannelId) {
+                await clearDeferredEphemeralResponse(c)
+              }
+              else {
+                await sendTransientEphemeralResponse(c, `Created ${mode.toUpperCase()} lobby in <#${draftChannelId}>.`, 'info')
+              }
+            }
+            catch (error) {
+              console.error('Failed to create lobby message:', error)
+              await removeFromQueue(kv, identity.userId)
+              await sendTransientEphemeralResponse(c, 'Failed to create lobby message. Please try again.', 'error')
             }
           }
           catch (error) {
-            console.error('Failed to create lobby message:', error)
-            await removeFromQueue(kv, identity.userId)
-            await sendTransientEphemeralResponse(c, 'Failed to create lobby message. Please try again.', 'error')
+            console.error('[match:create] unexpected failure', {
+              mode,
+              interactionChannelId,
+              userId: identity.userId,
+            }, error)
+            try {
+              await sendTransientEphemeralResponse(c, 'Failed to create lobby. Check bot logs for details.', 'error')
+            }
+            catch (followupError) {
+              console.error('[match:create] failed to send error followup', followupError)
+            }
           }
         })
       }

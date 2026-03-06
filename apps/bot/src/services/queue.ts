@@ -130,7 +130,7 @@ export async function getPlayerQueueMode(
   return null
 }
 
-function parseQueueState(mode: GameMode, raw: unknown): QueueState {
+export function parseQueueState(mode: GameMode, raw: unknown): QueueState {
   if (Array.isArray(raw)) {
     return {
       mode,
@@ -183,8 +183,9 @@ export async function addToQueue(
   entry: QueueEntry,
   options?: {
     existingMode?: GameMode | null
+    currentState?: QueueState
   },
-): Promise<{ error?: string }> {
+): Promise<{ error?: string, state?: QueueState }> {
   // Check if player is already in any queue
   const existing = options?.existingMode !== undefined
     ? options.existingMode
@@ -193,15 +194,20 @@ export async function addToQueue(
     return { error: `You're already in the **${existing.toUpperCase()}** queue. Leave first with \`/match leave\`.` }
   }
 
-  const state = await getQueueState(kv, mode)
+  const state = options?.currentState ?? await getQueueState(kv, mode)
   if (state.entries.length >= MAX_QUEUE_ENTRIES) {
     return { error: `The **${mode.toUpperCase()}** queue is full right now.` }
   }
 
-  await setQueueEntries(kv, mode, [...state.entries, entry], {
+  const nextState: QueueState = {
+    ...state,
+    entries: [...state.entries, entry],
+  }
+
+  await setQueueEntries(kv, mode, nextState.entries, {
     currentState: state,
   })
-  return {}
+  return { state: nextState }
 }
 
 /**
@@ -275,13 +281,21 @@ export async function clearQueue(
   kv: KVNamespace,
   mode: GameMode,
   playerIds: string[],
-): Promise<void> {
-  const state = await getQueueState(kv, mode)
+  options?: {
+    currentState?: QueueState
+  },
+): Promise<QueueState> {
+  const state = options?.currentState ?? await getQueueState(kv, mode)
   const playerSet = new Set(playerIds)
   const remaining = state.entries.filter(entry => !playerSet.has(entry.playerId))
   await setQueueEntries(kv, mode, remaining, {
     currentState: state,
   })
+
+  return {
+    ...state,
+    entries: remaining,
+  }
 }
 
 /**

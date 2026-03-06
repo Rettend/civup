@@ -112,8 +112,7 @@ export async function createLobby(
 
 export async function getLobby(kv: KVNamespace, mode: GameMode): Promise<LobbyState | null> {
   const raw = await kv.get(modeKey(mode), 'json') as StoredLobbyState | null
-  if (!raw) return null
-  return normalizeLobby(raw)
+  return parseLobbyState(raw)
 }
 
 export async function getLobbyByMatch(kv: KVNamespace, matchId: string): Promise<LobbyState | null> {
@@ -339,6 +338,11 @@ async function putLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
     })
   }
   await stateStoreMput(kv, entries)
+}
+
+export function parseLobbyState(raw: unknown): LobbyState | null {
+  if (!raw || typeof raw !== 'object') return null
+  return normalizeLobby(raw as StoredLobbyState)
 }
 
 function normalizeLobby(raw: StoredLobbyState): LobbyState {
