@@ -1,11 +1,11 @@
 /* @refresh reload */
 import { render } from 'solid-js/web'
-import { relayDevLog } from './lib/dev-log'
+import { relayDevLog, shouldRelayDevLog } from './lib/dev-log'
 import '@fontsource-variable/inter'
 import 'virtual:uno.css'
 
 function setupGlobalDevErrorRelay() {
-  if (!import.meta.env.DEV || typeof window === 'undefined') return
+  if (!shouldRelayDevLog() || typeof window === 'undefined') return
 
   window.addEventListener('error', (event) => {
     relayDevLog('error', 'Global window error', {

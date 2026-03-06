@@ -2,6 +2,7 @@ import type { LobbySnapshot, LobbyStateWatch } from './stores'
 import { createSignal, Match, onCleanup, onMount, Switch } from 'solid-js'
 import { ConfigScreen, DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
+import { relayDevLog } from './lib/dev-log'
 import {
   connectionError,
   connectionStatus,
@@ -188,9 +189,14 @@ export default function App() {
     }
     catch (err) {
       console.error('Discord SDK setup failed:', err)
+      relayDevLog('error', 'Activity app setup failed', err)
       setState({
         status: 'error',
-        message: err instanceof Error ? err.message : 'Unknown error',
+        message: err instanceof Error && err.message.trim().length > 0
+          ? err.message
+          : typeof err === 'string' && err.trim().length > 0
+            ? err
+            : 'Unknown error',
       })
     }
   })

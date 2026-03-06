@@ -69,6 +69,11 @@ const discordApp = factory.discord().loader([
 
 const app = new Hono<Env>()
 
+app.onError((error, c) => {
+  console.error('[bot:unhandled]', c.req.method, new URL(c.req.url).pathname, error)
+  return c.json({ error: 'Internal Server Error' }, 500)
+})
+
 app.use('/api/*', cors())
 
 // Match lookup endpoint for activity
