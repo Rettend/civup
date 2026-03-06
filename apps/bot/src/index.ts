@@ -1,6 +1,6 @@
 import type { DraftWebhookPayload, GameMode } from '@civup/game'
 import type { Env } from './env.ts'
-import { createDb, matches, matchParticipants } from '@civup/db'
+import { createDb, matches, matchParticipants, playerRatings } from '@civup/db'
 import { formatModeLabel, GAME_MODES, maxPlayerCount, minPlayerCount } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
@@ -40,6 +40,7 @@ import {
   setLobbyStatus,
   upsertLobby,
 } from './services/lobby.ts'
+import { arrangeTeamLobbySlots } from './services/lobby-arrange.ts'
 import { storeMatchMessageMapping } from './services/match-message.ts'
 import { activateDraftMatch, cancelDraftMatch, cancelMatchByModerator, createDraftMatch, reportMatch } from './services/match.ts'
 import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, moveQueueMode, setQueueEntries } from './services/queue.ts'
@@ -510,6 +511,100 @@ app.post('/api/lobby/:mode/remove', async (c) => {
   }
 
   return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, queue.entries, slots))
+})
+
+// Host-only team arrange actions (premade-aware randomize / auto-balance)
+app.post('/api/lobby/:mode/arrange', async (c) => {
+  const mode = parseGameMode(c.req.param('mode'))
+  const kv = createStateStore(c.env)
+  if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
+  if (mode !== '2v2' && mode !== '3v3') {
+    return c.json({ error: 'Team arrange actions are only available in 2v2 and 3v3 lobbies.' }, 400)
+  }
+
+  let body: unknown
+  try {
+    body = await c.req.json()
+  }
+  catch {
+    return c.json({ error: 'Invalid JSON payload' }, 400)
+  }
+
+  if (!body || typeof body !== 'object') {
+    return c.json({ error: 'Invalid request body' }, 400)
+  }
+
+  const { userId, strategy: strategyRaw } = body as {
+    userId?: unknown
+    strategy?: unknown
+  }
+
+  if (typeof userId !== 'string' || userId.length === 0) {
+    return c.json({ error: 'userId is required' }, 400)
+  }
+
+  if (strategyRaw !== 'randomize' && strategyRaw !== 'balance') {
+    return c.json({ error: 'strategy must be one of randomize or balance' }, 400)
+  }
+
+  const lobby = await getLobby(kv, mode)
+  if (!lobby || lobby.status !== 'open') {
+    return c.json({ error: 'No open lobby for this mode' }, 404)
+  }
+
+  if (lobby.hostId !== userId) {
+    return c.json({ error: 'Only the lobby host can arrange teams' }, 403)
+  }
+
+  const queue = await getQueueState(kv, mode)
+  const slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
+  const slottedPlayerIds = slots.filter((playerId): playerId is string => playerId != null)
+
+  let ratingsByPlayerId = new Map<string, { mu: number, sigma: number }>()
+  if (strategyRaw === 'balance' && slottedPlayerIds.length > 0) {
+    const db = createDb(c.env.DB)
+    const rows = await db
+      .select({
+        playerId: playerRatings.playerId,
+        mu: playerRatings.mu,
+        sigma: playerRatings.sigma,
+      })
+      .from(playerRatings)
+      .where(and(
+        eq(playerRatings.mode, 'teamers'),
+        inArray(playerRatings.playerId, slottedPlayerIds),
+      ))
+
+    ratingsByPlayerId = new Map(rows.map(row => [row.playerId, { mu: row.mu, sigma: row.sigma }]))
+  }
+
+  const arranged = arrangeTeamLobbySlots({
+    mode,
+    slots,
+    queueEntries: queue.entries,
+    strategy: strategyRaw,
+    ratingsByPlayerId,
+  })
+
+  if ('error' in arranged) {
+    return c.json({ error: arranged.error }, 400)
+  }
+
+  const updatedLobby = await setLobbySlots(kv, mode, arranged.slots, lobby)
+  const nextLobby = updatedLobby ?? { ...lobby, slots: arranged.slots, updatedAt: Date.now() }
+  const slottedEntries = mapLobbySlotsToEntries(arranged.slots, queue.entries)
+
+  try {
+    await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
+      embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
+      components: lobbyComponents(mode),
+    })
+  }
+  catch (error) {
+    console.error(`Failed to update lobby embed after ${strategyRaw} arrange in ${mode}:`, error)
+  }
+
+  return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, queue.entries, arranged.slots))
 })
 
 // Host-only helper: fill empty lobby slots with test players
