@@ -10,6 +10,17 @@ interface DevLogPayload {
   meta?: unknown
 }
 
+export function shouldRelayDevLog() {
+  if (typeof window === 'undefined') return false
+  if (import.meta.env.DEV) return true
+
+  const host = window.location.hostname.trim().toLowerCase()
+  return host === 'localhost'
+    || host === '127.0.0.1'
+    || host.endsWith('.localhost')
+    || host.includes('-dev.')
+}
+
 function normalizeMeta(meta: unknown): unknown {
   if (meta instanceof Error) {
     return {
@@ -23,7 +34,7 @@ function normalizeMeta(meta: unknown): unknown {
 }
 
 export function relayDevLog(level: DevLogLevel, message: string, meta?: unknown) {
-  if (!import.meta.env.DEV || typeof window === 'undefined') return
+  if (!shouldRelayDevLog() || typeof window === 'undefined') return
 
   const normalizedMeta = normalizeMeta(meta)
   const prefix = '[activity-dev]'
@@ -31,6 +42,8 @@ export function relayDevLog(level: DevLogLevel, message: string, meta?: unknown)
   else if (level === 'warn') console.warn(prefix, message, normalizedMeta)
   else if (level === 'debug') console.debug(prefix, message, normalizedMeta)
   else console.log(prefix, message, normalizedMeta)
+
+  if (level !== 'warn' && level !== 'error') return
 
   const payload: DevLogPayload = {
     timestamp: new Date().toISOString(),
