@@ -3,10 +3,10 @@ import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel } from '@civup/game'
 import { Button } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { getMatchForUser, storeUserMatchMappings } from '../../services/activity.ts'
+import { getMatchForUser, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity.ts'
 import { sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
 import { upsertLobbyMessage } from '../../services/lobby-message.ts'
-import { clearLobby, getLobby } from '../../services/lobby.ts'
+import { clearLobbyById, getLobbyById } from '../../services/lobby.ts'
 import { createStateStore } from '../../services/state-store.ts'
 import { factory } from '../../setup.ts'
 import { getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
@@ -14,16 +14,17 @@ import { getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
 export const component_match_join = factory.component(
   new Button('match-join', 'Join', 'Primary'),
   async (c) => {
-    const mode = c.var.custom_id as GameMode | undefined
+    const [modeRaw, lobbyId] = (c.var.custom_id ?? '').split(':')
+    const mode = modeRaw as GameMode | undefined
     const kv = createStateStore(c.env)
     const identity = getIdentity(c)
-    if (!identity || !mode) {
+    if (!identity || !mode || !lobbyId) {
       return c.flags('EPHEMERAL').resDefer(async (c) => {
         await sendTransientEphemeralResponse(c, 'Something went wrong.', 'error')
       })
     }
 
-    const lobby = await getLobby(kv, mode)
+    const lobby = await getLobbyById(kv, lobbyId)
     if (!lobby) {
       let userMatchId = await getMatchForUser(kv, identity.userId)
       if (!userMatchId) {
@@ -53,7 +54,7 @@ export const component_match_join = factory.component(
 
     if (lobby.status !== 'open') {
       if (!lobby.matchId) {
-        await clearLobby(kv, mode)
+        await clearLobbyById(kv, lobby.id)
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           await sendTransientEphemeralResponse(c, 'This lobby was stale and has been cleared. Use `/match create` to start a fresh lobby.', 'error')
         })
@@ -61,6 +62,8 @@ export const component_match_join = factory.component(
       c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], lobby.matchId))
       return c.resActivity()
     }
+
+    c.executionCtx.waitUntil(storeUserLobbyMappings(kv, [identity.userId], lobby.id))
 
     // Keep component response fast so Discord doesn't time out launch-activity interactions.
     c.executionCtx.waitUntil((async () => {
@@ -72,7 +75,7 @@ export const component_match_join = factory.component(
           displayName: identity.displayName,
           avatarUrl: identity.avatarUrl,
         }],
-        lobby.channelId,
+        { preferredLobbyId: lobby.id },
       )
       if ('error' in outcome) {
         console.warn('[match-join] join failed after activity launch', {
@@ -84,7 +87,7 @@ export const component_match_join = factory.component(
       }
 
       try {
-        await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
+        await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, outcome.lobby, {
           embeds: outcome.embeds,
           components: outcome.components,
         })

@@ -5,11 +5,11 @@ import { formatModeLabel } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
-import { clearActivityMappings, getChannelForMatch } from '../services/activity'
+import { clearLobbyMappings } from '../services/activity'
 import { createChannelMessage } from '../services/discord'
 import { sendTransientEphemeralResponse } from '../services/ephemeral-response'
 import { markLeaderboardsDirty } from '../services/leaderboard-message'
-import { clearLobby, getLobby, getLobbyByMatch } from '../services/lobby'
+import { clearLobbyById, filterQueueEntriesForLobby, getLobbyById, getLobbyByMatch } from '../services/lobby'
 import { upsertLobbyMessage } from '../services/lobby-message'
 import { cancelMatchByModerator, resolveMatchByModerator } from '../services/match'
 import { storeMatchMessageMapping } from '../services/match-message'
@@ -24,18 +24,11 @@ interface ModVar extends MatchVar {
   reason?: string
 }
 
-const MODE_CHOICES = [
-  { name: '1v1', value: '1v1' },
-  { name: '2v2', value: '2v2' },
-  { name: '3v3', value: '3v3' },
-  { name: 'FFA', value: 'ffa' },
-] as const
-
 export const command_mod = factory.command<ModVar>(
   new Command('mod', 'Moderation commands for match and lobby operations').options(
     new SubGroup('match', 'Match moderation').options(
       new SubCommand('cancel', 'Cancel a match, including completed history').options(
-        new Option('match_id', 'Match ID').required(),
+        new Option('match_id', 'Match or lobby ID').required(),
         new Option('reason', 'Optional short reason for cancellation').max_length(140),
       ),
       new SubCommand('resolve', 'Resolve or correct a match result').options(
@@ -51,13 +44,6 @@ export const command_mod = factory.command<ModVar>(
         new Option('ninth', 'FFA 9th place', 'User'),
         new Option('tenth', 'FFA 10th place', 'User'),
         new Option('reason', 'Optional short reason for correction').max_length(140),
-      ),
-    ),
-    new SubGroup('queue', 'Queue moderation').options(
-      new SubCommand('recover', 'Force-clear stuck lobby state').options(
-        new Option('mode', 'Lobby mode to recover')
-          .required()
-          .choices(...MODE_CHOICES),
       ),
     ),
   ),
@@ -104,6 +90,32 @@ export const command_mod = factory.command<ModVar>(
           const actorId = c.interaction.member?.user?.id ?? c.interaction.user?.id
           if (!actorId) {
             await sendTransientEphemeralResponse(c, 'Could not identify moderator user.', 'error')
+            return
+          }
+
+          const directLobby = await getLobbyById(kv, matchId)
+          if (directLobby && directLobby.status === 'open' && !directLobby.matchId) {
+            const queue = await getQueueState(kv, directLobby.mode)
+            const lobbyQueueEntries = filterQueueEntriesForLobby(directLobby, queue.entries)
+            if (lobbyQueueEntries.length > 0) {
+              await clearQueue(kv, directLobby.mode, lobbyQueueEntries.map(entry => entry.playerId), {
+                currentState: queue,
+              })
+            }
+
+            await clearLobbyMappings(kv, directLobby.memberPlayerIds)
+            try {
+              await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, directLobby, {
+                embeds: [lobbyCancelledEmbed(directLobby.mode, [], 'cancel', { actorId, reason })],
+                components: [],
+              })
+            }
+            catch (error) {
+              console.error(`Failed to update cancelled embed for lobby ${directLobby.id}:`, error)
+            }
+
+            await clearLobbyById(kv, directLobby.id)
+            await sendTransientEphemeralResponse(c, `Cancelled open lobby **${directLobby.id}**.`, 'success')
             return
           }
 
@@ -252,56 +264,6 @@ export const command_mod = factory.command<ModVar>(
             `Resolved match **${result.match.id}** (was ${result.previousStatus}). Recalculated ${recalculated} completed ${formatModeLabel(mode)} matches.`,
             'success',
           )
-        })
-      }
-
-      // ── queue recover ───────────────────────────────────
-      case 'queue recover': {
-        const mode = c.var.mode as GameMode
-
-        return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const queue = await getQueueState(kv, mode)
-          if (queue.entries.length > 0) {
-            await clearQueue(kv, mode, queue.entries.map(entry => entry.playerId))
-          }
-
-          const lobby = await getLobby(kv, mode)
-          let cancelledMatchId: string | null = null
-
-          if (lobby?.matchId) {
-            const db = createDb(c.env.DB)
-            const [match] = await db
-              .select({ id: matches.id, status: matches.status })
-              .from(matches)
-              .where(eq(matches.id, lobby.matchId))
-              .limit(1)
-
-            if (match && (match.status === 'drafting' || match.status === 'active')) {
-              await db
-                .update(matches)
-                .set({ status: 'cancelled', completedAt: Date.now() })
-                .where(eq(matches.id, match.id))
-              cancelledMatchId = match.id
-            }
-
-            const participants = await db
-              .select({ playerId: matchParticipants.playerId })
-              .from(matchParticipants)
-              .where(eq(matchParticipants.matchId, lobby.matchId))
-
-            const channelId = await getChannelForMatch(kv, lobby.matchId)
-            await clearActivityMappings(
-              kv,
-              lobby.matchId,
-              participants.map(p => p.playerId),
-              channelId ?? undefined,
-            )
-          }
-
-          await clearLobby(kv, mode)
-
-          const suffix = cancelledMatchId ? ` Cancelled match \`${cancelledMatchId}\`.` : ''
-          await sendTransientEphemeralResponse(c, `Recovered ${formatModeLabel(mode)} lobby state.${suffix}`, 'success')
         })
       }
 

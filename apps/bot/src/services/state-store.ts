@@ -89,11 +89,13 @@ const STATE_ROOM_NAME = 'global'
 const HOT_KEY_PREFIXES = [
   'queue:',
   'player-queue:',
+  'lobby:id:',
   'lobby:mode:',
   'lobby:match:',
   'activity:',
   'activity-match:',
   'activity-user:',
+  'activity-lobby-user:',
 ]
 
 export function createStateStore(env: StateStoreEnv): KVNamespace {

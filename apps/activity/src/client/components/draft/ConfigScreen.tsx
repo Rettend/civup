@@ -176,37 +176,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
     }
   })
 
-  createEffect(() => {
-    if (bootstrapJoinHintUsed) return
-    if (optimisticLobbyAction()) return
-
-    const lobby = lobbyState()
-    const currentUserId = userId()
-    if (!lobby || !currentUserId || lobby.status !== 'open') return
-
-    if (lobby.hostId === currentUserId) {
-      bootstrapJoinHintUsed = true
-      return
-    }
-
-    if (lobby.entries.some(entry => entry?.playerId === currentUserId)) {
-      bootstrapJoinHintUsed = true
-      return
-    }
-
-    const firstEmptySlot = lobby.entries.findIndex(entry => entry == null)
-    if (firstEmptySlot < 0) {
-      bootstrapJoinHintUsed = true
-      return
-    }
-
-    bootstrapJoinHintUsed = true
-    startOptimisticLobbyAction({
-      kind: 'place-self',
-      targetSlot: firstEmptySlot,
-    })
-  })
-
   const clearOptimisticLobbyAction = () => {
     if (optimisticLobbyActionTimeout) {
       clearTimeout(optimisticLobbyActionTimeout)
@@ -318,6 +287,37 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (status === 'error') {
       showErrorMessage(optimisticTimerConfig.error() ?? 'Failed to save changes.')
     }
+  })
+
+  createEffect(() => {
+    if (bootstrapJoinHintUsed) return
+    if (optimisticLobbyAction()) return
+
+    const lobby = lobbyState()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || lobby.status !== 'open') return
+
+    if (lobby.hostId === currentUserId) {
+      bootstrapJoinHintUsed = true
+      return
+    }
+
+    if (lobby.entries.some(entry => entry?.playerId === currentUserId)) {
+      bootstrapJoinHintUsed = true
+      return
+    }
+
+    const firstEmptySlot = lobby.entries.findIndex(entry => entry == null)
+    if (firstEmptySlot < 0) {
+      bootstrapJoinHintUsed = true
+      return
+    }
+
+    bootstrapJoinHintUsed = true
+    startOptimisticLobbyAction({
+      kind: 'place-self',
+      targetSlot: firstEmptySlot,
+    })
   })
 
   const applyLobbySnapshot = (lobby: LobbySnapshot) => {
@@ -523,7 +523,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       await optimisticTimerConfig.commit({ banTimerSeconds, pickTimerSeconds }, async () => {
         const lobby = currentLobby()
         if (lobby) {
-          const result = await updateLobbyDraftConfig(lobby.mode, currentUserId, {
+          const result = await updateLobbyDraftConfig(lobby.mode, lobby.id, currentUserId, {
             banTimerSeconds,
             pickTimerSeconds,
           })
@@ -553,7 +553,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     setLobbyActionPending(true)
     clearConfigMessage()
     try {
-      const result = await updateLobbyMode(lobby.mode, currentUserId, nextMode)
+      const result = await updateLobbyMode(lobby.mode, lobby.id, currentUserId, nextMode)
       if (!result.ok) {
         showErrorMessage(result.error)
         return
@@ -575,7 +575,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     setLobbyActionPending(true)
     clearConfigMessage()
     try {
-      const result = await fillLobbyWithTestPlayers(lobby.mode, currentUserId)
+      const result = await fillLobbyWithTestPlayers(lobby.mode, lobby.id, currentUserId)
       if (!result.ok) {
         showErrorMessage(result.error)
         return
@@ -605,6 +605,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     clearConfigMessage()
     try {
       const result = await placeLobbySlot(lobby.mode, {
+        lobbyId: lobby.id,
         userId: currentUserId,
         targetSlot: slot,
         displayName: currentDisplayName(),
@@ -631,12 +632,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (lobbyActionPending()) return
 
     const payload: {
+      lobbyId: string
       userId: string
       targetSlot: number
       playerId?: string
       displayName?: string
       avatarUrl?: string | null
     } = {
+      lobbyId: lobby.id,
       userId: currentUserId,
       targetSlot: slot,
       displayName: currentDisplayName(),
@@ -704,6 +707,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     clearConfigMessage()
     try {
       const result = await removeLobbySlot(lobby.mode, {
+        lobbyId: lobby.id,
         userId: currentUserId,
         slot,
       })
@@ -729,7 +733,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     setStartPending(true)
     clearConfigMessage()
     try {
-      const result = await startLobbyDraft(lobby.mode, currentUserId)
+      const result = await startLobbyDraft(lobby.mode, lobby.id, currentUserId)
       if (!result.ok) {
         showErrorMessage(result.error)
         return
@@ -753,7 +757,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     setLobbyActionPending(true)
     clearConfigMessage()
     try {
-      const result = await arrangeLobbyTeams(lobby.mode, currentUserId, strategy)
+      const result = await arrangeLobbyTeams(lobby.mode, lobby.id, currentUserId, strategy)
       if (!result.ok) {
         showErrorMessage(result.error)
         return
@@ -792,7 +796,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     setLobbyActionPending(true)
     clearConfigMessage()
     try {
-      const result = await toggleLobbyPremadeLink(lobby.mode, currentUserId, leftRow.slot)
+      const result = await toggleLobbyPremadeLink(lobby.mode, lobby.id, currentUserId, leftRow.slot)
       if (!result.ok) {
         showErrorMessage(result.error)
         return
@@ -871,7 +875,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       setCancelPending(true)
       clearConfigMessage()
       try {
-        const result = await cancelLobby(lobby.mode, currentUserId)
+        const result = await cancelLobby(lobby.mode, lobby.id, currentUserId)
         if (!result.ok) {
           showErrorMessage(result.error)
           return

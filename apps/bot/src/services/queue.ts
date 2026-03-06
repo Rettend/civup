@@ -235,6 +235,40 @@ export async function moveQueueMode(
   }
 }
 
+/** Move specific queue entries from one mode to another. */
+export async function moveQueueEntriesBetweenModes(
+  kv: KVNamespace,
+  fromMode: GameMode,
+  toMode: GameMode,
+  playerIds: string[],
+): Promise<{ from: QueueState, to: QueueState }> {
+  const playerSet = new Set(playerIds)
+  const fromState = await getQueueState(kv, fromMode)
+  const toState = await getQueueState(kv, toMode)
+
+  const movedEntries = fromState.entries.filter(entry => playerSet.has(entry.playerId))
+  const remainingEntries = fromState.entries.filter(entry => !playerSet.has(entry.playerId))
+  const destinationEntries = [...toState.entries.filter(entry => !playerSet.has(entry.playerId)), ...movedEntries]
+
+  await setQueueEntries(kv, fromMode, remainingEntries, {
+    currentState: fromState,
+  })
+  await setQueueEntries(kv, toMode, destinationEntries, {
+    currentState: toState,
+  })
+
+  return {
+    from: {
+      ...fromState,
+      entries: remainingEntries,
+    },
+    to: {
+      ...toState,
+      entries: destinationEntries,
+    },
+  }
+}
+
 /**
  * Remove a player from whatever queue they're in.
  * Returns the mode they were removed from, or null if not queued.
