@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Mod id="preset_mod" version="1">
+  <Properties>
+    <Name>Presets</Name>
+    <Teaser>PPL presets</Teaser>
+    <Description>Adds presets that work in multiplayer and single-player.</Description>
+    <Authors>Rettend</Authors>
+    <AffectsSavedGames>0</AffectsSavedGames>
+    <SupportsSinglePlayer>1</SupportsSinglePlayer>
+    <SupportsMultiplayer>1</SupportsMultiplayer>
+    <SupportsHotSeat>0</SupportsHotSeat>
+    <CompatibleVersions>1.2,2.0</CompatibleVersions>
+  </Properties>
+
+  <ActionCriteria>
+    <Criteria id="MPHInUse">
+      <ModInUse>619ac86e-d99d-4bf3-b8f0-8c5b8c402567</ModInUse>
+    </Criteria>
+  </ActionCriteria>
+
+  <FrontEndActions>
+    <UpdateDatabase id="PresetModConfig" criteria="MPHInUse">
+      <Properties>
+        <LoadOrder>25000</LoadOrder>
+      </Properties>
+      <File>configuration/preset_mod_config.xml</File>
+    </UpdateDatabase>
+
+    <UpdateText id="PresetModText" criteria="MPHInUse">
+      <Properties>
+        <LoadOrder>25000</LoadOrder>
+      </Properties>
+      <File>lang/preset_mod_text.xml</File>
+    </UpdateText>
+
+    <ImportFiles id="PresetModUIFiles" criteria="MPHInUse">
+      <Properties>
+        <LoadOrder>25000</LoadOrder>
+      </Properties>
+      <File>ui/MPHHostGameOriginal.lua</File>
+      <File>ui/preset_mod_preset_data.lua</File>
+      <File>ui/hostgame.lua</File>
+      <File>ui/PresetModAdvancedSetupOriginal.lua</File>
+      <File>ui/AdvancedSetup.lua</File>
+    </ImportFiles>
+  </FrontEndActions>
+
+  <Files>
+    <File>configuration/preset_mod_config.xml</File>
+    <File>lang/preset_mod_text.xml</File>
+    <File>ui/MPHHostGameOriginal.lua</File>
+    <File>ui/preset_mod_preset_data.lua</File>
+    <File>ui/hostgame.lua</File>
+    <File>ui/PresetModAdvancedSetupOriginal.lua</File>
+    <File>ui/AdvancedSetup.lua</File>
+  </Files>
+</Mod>

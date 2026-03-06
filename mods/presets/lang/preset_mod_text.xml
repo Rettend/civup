@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<GameInfo>
+  <LocalizedText>
+    <Row Tag="PRESET_MOD_MPH_PRESET_SP_NAME" Language="en_US" Text="Preset"/>
+    <Row Tag="PRESET_MOD_MPH_PRESET_SP_DESC" Language="en_US" Text="Apply Presets in single-player."/>
+
+    <Row Tag="PRESET_MOD_PPL_1V1_NAME" Language="en_US" Text="PPL 1v1"/>
+    <Row Tag="PRESET_MOD_PPL_1V1_DESC" Language="en_US" Text="Duel map, 3 CS, low sea level, east-vs-west, CivLAN timer, 1.75x huts."/>
+
+    <Row Tag="PRESET_MOD_PPL_2V2_NAME" Language="en_US" Text="PPL 2v2"/>
+    <Row Tag="PRESET_MOD_PPL_2V2_DESC" Language="en_US" Text="Tiny map, 6 CS, low sea level, east-vs-west, alliances except military, CivLAN timer, 1.75x huts."/>
+
+    <Row Tag="PRESET_MOD_PPL_3V3_NAME" Language="en_US" Text="PPL 3v3"/>
+    <Row Tag="PRESET_MOD_PPL_3V3_DESC" Language="en_US" Text="Small map, 9 CS, low sea level, east-vs-west, alliances except military, CivLAN timer, 1.75x huts."/>
+  </LocalizedText>
+</GameInfo>
