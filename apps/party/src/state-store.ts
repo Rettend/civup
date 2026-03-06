@@ -1,5 +1,5 @@
-import { Server } from 'partyserver'
 import type { Connection, WSMessage } from 'partyserver'
+import { Server } from 'partyserver'
 
 interface StateStoreEnv extends Cloudflare.Env {
   CIVUP_SECRET?: string
@@ -21,57 +21,57 @@ type StateKvRequest
     key: string
     type?: 'json'
   }
-    | {
-      op: 'put'
+  | {
+    op: 'put'
+    key: string
+    value: string
+    expirationTtl?: number
+  }
+  | {
+    op: 'delete'
+    key: string
+  }
+  | {
+    op: 'list'
+    prefix?: string
+  }
+  | {
+    op: 'mget'
+    entries: Array<{
+      key: string
+      type?: 'json'
+    }>
+  }
+  | {
+    op: 'mput'
+    entries: Array<{
       key: string
       value: string
       expirationTtl?: number
-    }
-    | {
-      op: 'delete'
-      key: string
-    }
-    | {
-      op: 'list'
-      prefix?: string
-    }
-    | {
-      op: 'mget'
-      entries: Array<{
-        key: string
-        type?: 'json'
-      }>
-    }
-    | {
-      op: 'mput'
-      entries: Array<{
-        key: string
-        value: string
-        expirationTtl?: number
-      }>
-    }
-    | {
-      op: 'mdelete'
-      keys: string[]
-    }
+    }>
+  }
+  | {
+    op: 'mdelete'
+    keys: string[]
+  }
 
 type StateSocketRequest
   = | {
     type: 'subscribe-key'
     key: string
   }
-    | {
-      type: 'subscribe-prefix'
-      prefix: string
-    }
-    | {
-      type: 'unsubscribe-key'
-      key: string
-    }
-    | {
-      type: 'unsubscribe-prefix'
-      prefix: string
-    }
+  | {
+    type: 'subscribe-prefix'
+    prefix: string
+  }
+  | {
+    type: 'unsubscribe-key'
+    key: string
+  }
+  | {
+    type: 'unsubscribe-prefix'
+    prefix: string
+  }
 
 type StateSocketResponse
   = | {
@@ -79,10 +79,10 @@ type StateSocketResponse
     key: string
     op: 'put' | 'delete'
   }
-    | {
-      type: 'error'
-      message: string
-    }
+  | {
+    type: 'error'
+    message: string
+  }
 
 const STORAGE_PREFIX = 'kv:'
 const ALLOWED_SUBSCRIPTION_KEY_PREFIXES = ['activity:', 'activity-user:']
@@ -359,9 +359,7 @@ export class State extends Server<StateStoreEnv> {
       if (!state) continue
 
       if (!state.keySubscriptions.includes(key)
-        && !state.prefixSubscriptions.some(prefix => key.startsWith(prefix))) {
-        continue
-      }
+        && !state.prefixSubscriptions.some(prefix => key.startsWith(prefix))) { continue }
 
       this.sendSocketMessage(connection, { type: 'state-changed', key, op })
     }

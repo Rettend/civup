@@ -1,6 +1,7 @@
 import type { PlayerRating } from '../src/index.ts'
 import { describe, expect, test } from 'bun:test'
 import {
+  applyInactivityDecay,
   buildLeaderboard,
   calculateFfaRatings,
   calculateRatings,
@@ -11,11 +12,10 @@ import {
   DISPLAY_RATING_BASE,
   DISPLAY_RATING_SCALE,
   displayRating,
-  Z_MULTIPLIER,
 
   predictWinProbabilities,
   seasonReset,
-  applyInactivityDecay,
+  Z_MULTIPLIER,
 } from '../src/index.ts'
 
 // ── createRating ────────────────────────────────────────────

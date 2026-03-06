@@ -1,6 +1,5 @@
 import type { Database } from '@civup/db'
-import type { LeaderboardDirtyState } from './system-channels.ts'
-import type { LeaderboardMessageState } from './system-channels.ts'
+import type { LeaderboardDirtyState, LeaderboardMessageState } from './system-channels.ts'
 import { leaderboardDirtyStates, leaderboardMessageStates } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
 import { eq } from 'drizzle-orm'

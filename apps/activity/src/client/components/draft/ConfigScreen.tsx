@@ -53,42 +53,42 @@ type OptimisticLobbyAction
     baseRevision: number
     expiresAt: number
   }
-    | {
-      kind: 'remove-self'
-      baseRevision: number
-      expiresAt: number
-    }
-    | {
-      kind: 'move-player'
-      playerId: string
-      targetSlot: number
-      baseRevision: number
-      expiresAt: number
-    }
-    | {
-      kind: 'remove-player'
-      playerId: string
-      baseRevision: number
-      expiresAt: number
-    }
+  | {
+    kind: 'remove-self'
+    baseRevision: number
+    expiresAt: number
+  }
+  | {
+    kind: 'move-player'
+    playerId: string
+    targetSlot: number
+    baseRevision: number
+    expiresAt: number
+  }
+  | {
+    kind: 'remove-player'
+    playerId: string
+    baseRevision: number
+    expiresAt: number
+  }
 
 type PendingOptimisticLobbyAction
   = | {
     kind: 'place-self'
     targetSlot: number
   }
-    | {
-      kind: 'remove-self'
-    }
-    | {
-      kind: 'move-player'
-      playerId: string
-      targetSlot: number
-    }
-    | {
-      kind: 'remove-player'
-      playerId: string
-    }
+  | {
+    kind: 'remove-self'
+  }
+  | {
+    kind: 'move-player'
+    playerId: string
+    targetSlot: number
+  }
+  | {
+    kind: 'remove-player'
+    playerId: string
+  }
 
 /** Pre-draft setup screen (lobby waiting + room waiting). */
 export function ConfigScreen(props: ConfigScreenProps) {

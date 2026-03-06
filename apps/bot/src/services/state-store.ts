@@ -6,25 +6,25 @@ interface StateStoreEnv {
   CIVUP_SECRET?: string
 }
 
-type StateKvGetRequest = {
+interface StateKvGetRequest {
   op: 'get'
   key: string
   type?: 'json'
 }
 
-type StateKvPutRequest = {
+interface StateKvPutRequest {
   op: 'put'
   key: string
   value: string
   expirationTtl?: number
 }
 
-type StateKvDeleteRequest = {
+interface StateKvDeleteRequest {
   op: 'delete'
   key: string
 }
 
-type StateKvListRequest = {
+interface StateKvListRequest {
   op: 'list'
   prefix?: string
 }
@@ -40,29 +40,29 @@ export interface StateStoreBatchPutEntry {
   expirationTtl?: number
 }
 
-type StateKvMgetRequest = {
+interface StateKvMgetRequest {
   op: 'mget'
   entries: StateStoreBatchGetEntry[]
 }
 
-type StateKvMputRequest = {
+interface StateKvMputRequest {
   op: 'mput'
   entries: StateStoreBatchPutEntry[]
 }
 
-type StateKvMdeleteRequest = {
+interface StateKvMdeleteRequest {
   op: 'mdelete'
   keys: string[]
 }
 
-type StateKvRequest =
-  | StateKvGetRequest
-  | StateKvPutRequest
-  | StateKvDeleteRequest
-  | StateKvListRequest
-  | StateKvMgetRequest
-  | StateKvMputRequest
-  | StateKvMdeleteRequest
+type StateKvRequest
+  = | StateKvGetRequest
+    | StateKvPutRequest
+    | StateKvDeleteRequest
+    | StateKvListRequest
+    | StateKvMgetRequest
+    | StateKvMputRequest
+    | StateKvMdeleteRequest
 
 interface StateKvResponseGet {
   value: unknown

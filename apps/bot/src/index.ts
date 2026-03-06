@@ -1,7 +1,7 @@
 import type { DraftWebhookPayload, GameMode } from '@civup/game'
 import type { Env } from './env.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { GAME_MODES, maxPlayerCount, minPlayerCount } from '@civup/game'
+import { formatModeLabel, GAME_MODES, maxPlayerCount, minPlayerCount } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
@@ -256,7 +256,7 @@ app.post('/api/lobby/:mode/mode', async (c) => {
 
   const modeCollision = await getLobby(kv, nextMode)
   if (modeCollision) {
-    return c.json({ error: `A ${nextMode.toUpperCase()} lobby already exists.` }, 409)
+    return c.json({ error: `A ${formatModeLabel(nextMode)} lobby already exists.` }, 409)
   }
 
   const queue = await getQueueState(kv, mode)
@@ -648,7 +648,7 @@ app.post('/api/lobby/:mode/start', async (c) => {
     if (mode === 'ffa') {
       return c.json({ error: `FFA can start with ${lobbyMinPlayerCount(mode)}-${maxPlayerCount(mode)} slotted players.` }, 400)
     }
-    return c.json({ error: `${mode.toUpperCase()} requires exactly ${maxPlayerCount(mode)} slotted players.` }, 400)
+    return c.json({ error: `${formatModeLabel(mode)} requires exactly ${maxPlayerCount(mode)} slotted players.` }, 400)
   }
 
   try {
@@ -757,7 +757,7 @@ app.post('/api/lobby/:mode/cancel', async (c) => {
   try {
     await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
       embeds: [{
-        title: `LOBBY CANCELLED  -  ${mode.toUpperCase()}`,
+        title: `LOBBY CANCELLED  -  ${formatModeLabel(mode)}`,
         description: 'Host cancelled this lobby before draft start.',
         color: 0x6B7280,
       }],

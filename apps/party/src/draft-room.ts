@@ -6,9 +6,10 @@ import type {
   RoomConfig,
   ServerMessage,
 } from '@civup/game'
+import type { Connection, ConnectionContext, WSMessage } from 'partyserver'
 import { createDraft, draftFormatMap, getCurrentStep, isDraftError, MAX_TIMER_SECONDS, processDraftInput } from '@civup/game'
 import { api, ApiError } from '@civup/utils'
-import { Server, type Connection, type ConnectionContext, type WSMessage } from 'partyserver'
+import { Server } from 'partyserver'
 
 // ── Connection State ─────────────────────────────────────────
 
