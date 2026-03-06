@@ -438,9 +438,11 @@ async function simulateMatchJoin(kv: KVNamespace): Promise<void> {
   const outcome = await joinLobbyAndMaybeStartMatch(
     { env: { KV: kv } },
     '1v1',
-    'p2',
-    'Guest',
-    '',
+    [{
+      playerId: 'p2',
+      displayName: 'Guest',
+      avatarUrl: '',
+    }],
     'channel-draft',
   )
   if ('error' in outcome) throw new Error(outcome.error)

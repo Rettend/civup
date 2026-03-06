@@ -1,10 +1,10 @@
 import type { GameMode, QueueEntry, QueueState } from '@civup/game'
-import { GAME_MODES, maxPlayerCount } from '@civup/game'
+import { formatModeLabel, GAME_MODES, maxPlayerCount } from '@civup/game'
 import { stateStoreMget } from './state-store.ts'
 
 const QUEUE_KEY_PREFIX = 'queue:'
 const QUEUE_TTL = 60 * 60 // 1 hour KV TTL
-const MAX_QUEUE_ENTRIES = 64
+export const MAX_QUEUE_ENTRIES = 64
 
 interface StoredQueueState {
   entries?: unknown
@@ -191,12 +191,12 @@ export async function addToQueue(
     ? options.existingMode
     : await getPlayerQueueMode(kv, entry.playerId)
   if (existing) {
-    return { error: `You're already in the **${existing.toUpperCase()}** queue. Leave first with \`/match leave\`.` }
+    return { error: `You're already in the **${formatModeLabel(existing)}** queue. Leave first with \`/match leave\`.` }
   }
 
   const state = options?.currentState ?? await getQueueState(kv, mode)
   if (state.entries.length >= MAX_QUEUE_ENTRIES) {
-    return { error: `The **${mode.toUpperCase()}** queue is full right now.` }
+    return { error: `The **${formatModeLabel(mode)}** queue is full right now.` }
   }
 
   const nextState: QueueState = {
@@ -257,6 +257,29 @@ export async function removeFromQueue(
   })
 
   return mode
+}
+
+/**
+ * Remove one player from their queue and unlink them from any premade teammates.
+ */
+export async function removeFromQueueAndUnlinkParty(
+  kv: KVNamespace,
+  playerId: string,
+): Promise<{ mode: GameMode | null, removedPlayerIds: string[] }> {
+  const mode = await getPlayerQueueMode(kv, playerId)
+  if (!mode) return { mode: null, removedPlayerIds: [] }
+
+  const state = await getQueueState(kv, mode)
+  const nextEntries = unlinkPlayerFromPremadeEntries(state.entries, playerId)
+  if (nextEntries.length === state.entries.length) {
+    return { mode: null, removedPlayerIds: [] }
+  }
+
+  await setQueueEntries(kv, mode, nextEntries, {
+    currentState: state,
+  })
+
+  return { mode, removedPlayerIds: [playerId] }
 }
 
 /**
@@ -325,4 +348,27 @@ export async function pruneStaleEntries(
   }
 
   return removed
+}
+
+function unlinkPlayerFromPremadeEntries(entries: QueueEntry[], playerId: string): QueueEntry[] {
+  const nextEntries: QueueEntry[] = []
+
+  for (const entry of entries) {
+    if (entry.playerId === playerId) {
+      continue
+    }
+
+    if (!entry.partyIds || !entry.partyIds.includes(playerId)) {
+      nextEntries.push(entry)
+      continue
+    }
+
+    const nextPartyIds = entry.partyIds.filter(teammateId => teammateId !== playerId)
+    nextEntries.push({
+      ...entry,
+      partyIds: nextPartyIds.length > 0 ? nextPartyIds : undefined,
+    })
+  }
+
+  return nextEntries
 }

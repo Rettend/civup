@@ -1,7 +1,7 @@
 import type { Database as CivupDatabase } from '@civup/db'
+import { readdir } from 'node:fs/promises'
 import { schema } from '@civup/db'
 import { Database } from 'bun:sqlite'
-import { readdir } from 'node:fs/promises'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 
 export async function createTestDatabase(): Promise<{ db: CivupDatabase, sqlite: Database }> {
