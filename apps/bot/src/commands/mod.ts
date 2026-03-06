@@ -301,7 +301,7 @@ export const command_mod = factory.command<ModVar>(
           await clearLobby(kv, mode)
 
           const suffix = cancelledMatchId ? ` Cancelled match \`${cancelledMatchId}\`.` : ''
-          await sendTransientEphemeralResponse(c, `Recovered ${mode.toUpperCase()} lobby state.${suffix}`, 'success')
+          await sendTransientEphemeralResponse(c, `Recovered ${formatModeLabel(mode)} lobby state.${suffix}`, 'success')
         })
       }
 

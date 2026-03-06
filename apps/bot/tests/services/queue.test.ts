@@ -3,7 +3,9 @@ import { describe, expect, test } from 'bun:test'
 import {
   clearQueue,
   getPlayerQueueMode,
+  getQueueState,
   removeFromQueue,
+  removeFromQueueAndUnlinkParty,
   setQueueEntries,
 } from '../../src/services/queue.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -51,6 +53,49 @@ describe('queue service KV behavior', () => {
     expect(deleteKeys).toEqual([])
   })
 
+  test('removeFromQueueAndUnlinkParty removes one player and unlinks teammate', async () => {
+    const { kv } = createTrackedKv()
+
+    await setQueueEntries(kv, '2v2', [
+      entry('p1', ['p2']),
+      entry('p2', ['p1']),
+      entry('p3'),
+    ])
+
+    const removed = await removeFromQueueAndUnlinkParty(kv, 'p1')
+    expect(removed.mode).toBe('2v2')
+    expect(removed.removedPlayerIds).toEqual(['p1'])
+
+    const mode = await getPlayerQueueMode(kv, 'p2')
+    expect(mode).toBe('2v2')
+
+    const queue = await getQueueState(kv, '2v2')
+    expect(queue.entries.map(entry => entry.playerId)).toEqual(['p2', 'p3'])
+    expect(queue.entries[0]?.partyIds).toBeUndefined()
+  })
+
+  test('removeFromQueueAndUnlinkParty shrinks a 3-stack to a 2-stack', async () => {
+    const { kv } = createTrackedKv()
+
+    await setQueueEntries(kv, '3v3', [
+      entry('p1', ['p2', 'p3']),
+      entry('p2', ['p1', 'p3']),
+      entry('p3', ['p1', 'p2']),
+      entry('p4'),
+    ])
+
+    const removed = await removeFromQueueAndUnlinkParty(kv, 'p1')
+    expect(removed.mode).toBe('3v3')
+    expect(removed.removedPlayerIds).toEqual(['p1'])
+
+    const queue = await getQueueState(kv, '3v3')
+    expect(queue.entries.map(entry => entry.playerId)).toEqual(['p2', 'p3', 'p4'])
+    expect(queue.entries[0]?.partyIds).toEqual(['p3'])
+    expect(queue.entries[1]?.partyIds).toEqual(['p2'])
+    const p4Mode = await getPlayerQueueMode(kv, 'p4')
+    expect(p4Mode).toBe('3v3')
+  })
+
   test('clearQueue deletes queue key when all entries removed', async () => {
     const { kv, operations, resetOperations } = createTrackedKv()
 
@@ -78,11 +123,12 @@ describe('queue service KV behavior', () => {
   })
 })
 
-function entry(playerId: string): QueueEntry {
+function entry(playerId: string, partyIds?: string[]): QueueEntry {
   return {
     playerId,
     displayName: playerId.toUpperCase(),
     avatarUrl: null,
     joinedAt: 100,
+    partyIds,
   }
 }
