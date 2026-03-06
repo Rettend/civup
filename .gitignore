@@ -45,3 +45,14 @@ cloudflared.dev.yml
 
 # Other
 docs
+
+# preset build artifacts
+mods/dist/
+mods/python/.venv/
+mods/python/.pyinstaller/
+mods/python/*.spec
+mods/installer/*.wixpdb
+**/__pycache__/
+
+# TEMP
+mods/preset_loader
