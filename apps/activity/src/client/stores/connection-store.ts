@@ -97,6 +97,38 @@ export interface LobbyStateWatchOptions {
   onError?: (message: string) => void
 }
 
+export interface ActivityTargetOption {
+  kind: 'lobby' | 'match'
+  id: string
+  lobbyId: string
+  matchId: string | null
+  channelId: string
+  mode: string
+  status: 'open' | 'drafting' | 'active'
+  participantCount: number
+  targetSize: number
+  isMember: boolean
+  isHost: boolean
+  updatedAt: number
+}
+
+export type ActivityLaunchSelection
+  = | {
+    kind: 'lobby'
+    option: ActivityTargetOption
+    lobby: LobbySnapshot
+  }
+    | {
+      kind: 'match'
+      option: ActivityTargetOption
+      matchId: string
+    }
+
+export interface ActivityLaunchSnapshot {
+  selection: ActivityLaunchSelection | null
+  options: ActivityTargetOption[]
+}
+
 // ── State ──────────────────────────────────────────────────
 
 export const [connectionStatus, setConnectionStatus] = createSignal<ConnectionStatus>('disconnected')
@@ -200,8 +232,7 @@ export function watchLobbyState(host: string, options: LobbyStateWatchOptions): 
     if (closed) return
     options.onConnected?.()
     stateSocket.send(JSON.stringify({ type: 'subscribe-prefix', prefix: 'lobby:mode:' }))
-    stateSocket.send(JSON.stringify({ type: 'subscribe-key', key: `activity:${options.channelId}` }))
-    stateSocket.send(JSON.stringify({ type: 'subscribe-key', key: `activity-user:${options.userId}` }))
+    stateSocket.send(JSON.stringify({ type: 'subscribe-key', key: `activity-target-user:${options.userId}:${options.channelId}` }))
   })
 
   stateSocket.addEventListener('message', (event) => {
@@ -605,6 +636,42 @@ export async function fetchMatchForUser(
   catch (err) {
     console.error('Failed to fetch match for user:', err)
     return null
+  }
+}
+
+/** Resolve the current activity target plus available options for one channel/user pair. */
+export async function fetchActivityLaunchSnapshot(
+  channelId: string,
+  userId: string,
+): Promise<ActivityLaunchSnapshot | null> {
+  try {
+    return await api.get<ActivityLaunchSnapshot>(`/api/activity/launch/${channelId}/${userId}`)
+  }
+  catch (err) {
+    console.error('Failed to fetch activity launch snapshot:', err)
+    return null
+  }
+}
+
+/** Persist a new activity target selection for this channel. */
+export async function selectActivityTarget(
+  channelId: string,
+  userId: string,
+  target: Pick<ActivityTargetOption, 'kind' | 'id'>,
+): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string }> {
+  try {
+    const snapshot = await api.post<ActivityLaunchSnapshot>('/api/activity/target', {
+      channelId,
+      userId,
+      kind: target.kind,
+      id: target.id,
+    })
+    return { ok: true, snapshot }
+  }
+  catch (err) {
+    console.error('Failed to select activity target:', err)
+    if (err instanceof ApiError) return { ok: false, error: err.message }
+    return { ok: false, error: 'Network error while switching activity target' }
   }
 }
 

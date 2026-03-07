@@ -17,7 +17,7 @@ export default defineConfig({
       collections: {
         custom: {
           'number-ten-bold': () => fs.readFile('./src/assets/number-ten-bold.svg', 'utf-8'),
-        }
+        },
       },
     }),
   ],

@@ -5,6 +5,7 @@ export {
   connectionStatus,
   connectToRoom,
   disconnect,
+  fetchActivityLaunchSnapshot,
   fetchLobbyForChannel,
   fetchLobbyRankedRoles,
   fetchLobbyForUser,
@@ -12,6 +13,9 @@ export {
   fetchMatchForUser,
   fetchMatchState,
   fillLobbyWithTestPlayers,
+  type ActivityLaunchSelection,
+  type ActivityLaunchSnapshot,
+  type ActivityTargetOption,
   type LobbySnapshot,
   type LobbyRankedRolesSnapshot,
   type RankedRoleOptionSnapshot,
@@ -22,6 +26,7 @@ export {
   removeLobbySlot,
   reportMatchResult,
   scrubMatchResult,
+  selectActivityTarget,
   sendBan,
   sendCancel,
   sendConfig,
@@ -44,6 +49,7 @@ export {
   isMyTurn,
   isSpectator,
   phaseLabel,
+  resetDraft,
 } from './draft-store'
 export {
   activeTagFilterCount,

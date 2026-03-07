@@ -11,7 +11,7 @@ import { cors } from 'hono/cors'
 import * as commands from './commands/index.ts'
 import * as cron from './cron/cleanup.ts'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyResultEmbed } from './embeds/match.ts'
-import { clearLobbyMappings, createDraftRoom, getLobbyForUser, getMatchForChannel, getMatchForUser, storeMatchMapping, storeUserLobbyMappings, storeUserMatchMappings } from './services/activity.ts'
+import { clearLobbyMappings, clearUserActivityTargets, createDraftRoom, getLobbyForUser, getMatchForChannel, getMatchForUser, getUserActivityTarget, storeMatchMapping, storeUserActivityTarget, storeUserLobbyMappings, storeUserMatchMappings } from './services/activity.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from './services/config.ts'
 import { createChannelMessage } from './services/discord.ts'
 import { markLeaderboardsDirty } from './services/leaderboard-message.ts'
@@ -68,6 +68,43 @@ import { factory } from './setup.ts'
 const TEMP_LOBBY_START_MIN_PLAYERS_FFA = 1
 
 const DEBUG_TEST_PLAYER_ID_PREFIX = 'debug-active-lobby-bot:'
+
+interface ActivityTargetOption {
+  kind: 'lobby' | 'match'
+  id: string
+  lobbyId: string
+  matchId: string | null
+  channelId: string
+  mode: GameMode
+  status: 'open' | 'drafting' | 'active'
+  participantCount: number
+  targetSize: number
+  isMember: boolean
+  isHost: boolean
+  updatedAt: number
+}
+
+type ActivityLaunchSelection
+  = | {
+    kind: 'lobby'
+    option: ActivityTargetOption
+    lobby: Awaited<ReturnType<typeof buildOpenLobbySnapshot>>
+  }
+    | {
+      kind: 'match'
+      option: ActivityTargetOption
+      matchId: string
+    }
+
+interface ActivityLaunchSnapshot {
+  selection: ActivityLaunchSelection | null
+  options: ActivityTargetOption[]
+}
+
+interface ChannelActivityTarget {
+  option: ActivityTargetOption
+  lobby: LobbyState
+}
 
 function buildDebugFillPlayerId(prefix: string, mode: GameMode, slot: number, existingIds: Set<string>): string {
   const base = `${prefix}${mode}:${slot}`
@@ -148,8 +185,8 @@ app.get('/api/lobby/:channelId', async (c) => {
   const channelId = c.req.param('channelId')
   const kv = createStateStore(c.env)
 
-  const lobby = await getLobbyByChannel(kv, channelId)
-  if (lobby?.status === 'open') {
+  const lobby = await getUniqueOpenLobbyForChannel(kv, channelId)
+  if (lobby) {
     return c.json(await buildOpenLobbySnapshot(kv, lobby.mode, lobby))
   }
 
@@ -179,6 +216,59 @@ app.get('/api/lobby/user/:userId', async (c) => {
   }
 
   return c.json(await buildOpenLobbySnapshot(kv, mode, lobby))
+})
+
+// Resolve the per-user activity target inside one channel.
+app.get('/api/activity/launch/:channelId/:userId', async (c) => {
+  const channelId = c.req.param('channelId')
+  const userId = c.req.param('userId')
+  const kv = createStateStore(c.env)
+
+  return c.json(await buildActivityLaunchSnapshot(kv, channelId, userId))
+})
+
+// Persist a per-user activity target selection and return the resolved launch snapshot.
+app.post('/api/activity/target', async (c) => {
+  let body: unknown
+  try {
+    body = await c.req.json()
+  }
+  catch {
+    return c.json({ error: 'Invalid JSON payload' }, 400)
+  }
+
+  if (!body || typeof body !== 'object') {
+    return c.json({ error: 'Invalid request body' }, 400)
+  }
+
+  const { channelId, userId, kind, id } = body as {
+    channelId?: unknown
+    userId?: unknown
+    kind?: unknown
+    id?: unknown
+  }
+
+  if (typeof channelId !== 'string' || channelId.length === 0) {
+    return c.json({ error: 'channelId is required' }, 400)
+  }
+
+  if (typeof userId !== 'string' || userId.length === 0) {
+    return c.json({ error: 'userId is required' }, 400)
+  }
+
+  if ((kind !== 'lobby' && kind !== 'match') || typeof id !== 'string' || id.length === 0) {
+    return c.json({ error: 'A valid target kind and id are required' }, 400)
+  }
+
+  const kv = createStateStore(c.env)
+  const targets = await listChannelActivityTargets(kv, channelId, userId)
+  const target = targets.find(candidate => candidate.option.kind === kind && candidate.option.id === id)
+  if (!target) {
+    return c.json({ error: 'That activity target is no longer available in this channel' }, 404)
+  }
+
+  await storeUserActivityTarget(kv, channelId, [userId], { kind, id })
+  return c.json(await buildActivityLaunchSnapshotFromTargets(kv, targets, target))
 })
 
 // Ranked-role visuals for one open lobby (used by activity min-rank UI)
@@ -523,6 +613,7 @@ app.post('/api/lobby/:mode/place', async (c) => {
     lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
     slots = normalizeLobbySlots(mode, slots, lobbyQueueEntries)
     await storeUserLobbyMappings(kv, [movingPlayerId], lobby.id)
+    await storeUserActivityTarget(kv, lobby.channelId, [movingPlayerId], { kind: 'lobby', id: lobby.id })
   }
 
   const sourceSlot = slots.findIndex(playerId => playerId === movingPlayerId)
@@ -1015,9 +1106,10 @@ app.post('/api/lobby/:mode/start', async (c) => {
       })
     }
 
-    await clearLobbyMappings(kv, lobby.memberPlayerIds)
+    await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
     await storeMatchMapping(kv, lobby.channelId, matchId)
     await storeUserMatchMappings(kv, lobby.memberPlayerIds, matchId)
+    await storeUserActivityTarget(kv, lobby.channelId, lobby.memberPlayerIds, { kind: 'match', id: matchId })
 
     await setLobbySlots(kv, lobby.id, slots, lobby)
     const lobbyForMessage = await attachLobbyMatch(kv, lobby.id, matchId, lobby)
@@ -1119,7 +1211,7 @@ app.post('/api/lobby/:mode/cancel', async (c) => {
     console.error(`Failed to update cancelled lobby embed for mode ${mode}:`, error)
   }
 
-  await clearLobbyMappings(kv, lobby.memberPlayerIds)
+  await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
   await clearLobbyById(kv, lobby.id)
   return c.json({ ok: true })
 })
@@ -1201,7 +1293,7 @@ app.post('/api/match/:matchId/report', async (c) => {
     catch (error) {
       console.error(`Failed to update lobby result embed for match ${result.match.id}:`, error)
     }
-    await clearLobbyMappings(kv, lobby.memberPlayerIds)
+    await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
     await clearLobbyById(kv, lobby.id)
   }
 
@@ -1422,7 +1514,7 @@ app.post('/api/webhooks/draft-complete', async (c) => {
     console.error(`Failed to update cancelled embed for match ${payload.matchId}:`, error)
   }
 
-  await clearLobbyMappings(kv, lobby.memberPlayerIds)
+  await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
   await clearLobbyById(kv, lobby.id)
   return c.json({ ok: true })
 })
@@ -1467,6 +1559,170 @@ function isDraftWebhookPayload(value: unknown): value is DraftWebhookPayload {
   }
 
   return false
+}
+
+async function buildActivityLaunchSnapshot(
+  kv: KVNamespace,
+  channelId: string,
+  userId: string,
+): Promise<ActivityLaunchSnapshot> {
+  const targets = await listChannelActivityTargets(kv, channelId, userId)
+  const selection = await resolveActivityLaunchSelection(kv, channelId, userId, targets)
+  return buildActivityLaunchSnapshotFromTargets(kv, targets, selection)
+}
+
+async function buildActivityLaunchSnapshotFromTargets(
+  kv: KVNamespace,
+  targets: ChannelActivityTarget[],
+  selection: ChannelActivityTarget | null,
+): Promise<ActivityLaunchSnapshot> {
+  return {
+    selection: selection ? await serializeActivityLaunchSelection(kv, selection) : null,
+    options: targets.map(target => target.option),
+  }
+}
+
+async function resolveActivityLaunchSelection(
+  kv: KVNamespace,
+  channelId: string,
+  userId: string,
+  targets: ChannelActivityTarget[],
+): Promise<ChannelActivityTarget | null> {
+  const storedTarget = await getUserActivityTarget(kv, channelId, userId)
+  if (storedTarget) {
+    const storedSelection = targets.find(target => target.option.kind === storedTarget.kind && target.option.id === storedTarget.id) ?? null
+    if (storedSelection) {
+      return storedSelection
+    }
+    await clearUserActivityTargets(kv, channelId, [userId])
+  }
+
+  return null
+}
+
+async function serializeActivityLaunchSelection(
+  kv: KVNamespace,
+  selection: ChannelActivityTarget,
+): Promise<ActivityLaunchSelection> {
+  if (selection.option.kind === 'lobby') {
+    return {
+      kind: 'lobby',
+      option: selection.option,
+      lobby: await buildOpenLobbySnapshot(kv, selection.lobby.mode, selection.lobby),
+    }
+  }
+
+  return {
+    kind: 'match',
+    option: selection.option,
+    matchId: selection.option.id,
+  }
+}
+
+async function listChannelActivityTargets(
+  kv: KVNamespace,
+  channelId: string,
+  userId: string,
+): Promise<ChannelActivityTarget[]> {
+  const queueByMode = new Map<GameMode, Awaited<ReturnType<typeof getQueueState>>>()
+  const targets: ChannelActivityTarget[] = []
+
+  const lobbiesByMode = await Promise.all(GAME_MODES.map(mode => getLobbiesByMode(kv, mode)))
+  for (let modeIndex = 0; modeIndex < GAME_MODES.length; modeIndex++) {
+    const mode = GAME_MODES[modeIndex]!
+    const lobbies = lobbiesByMode[modeIndex] ?? []
+
+    for (const lobby of lobbies) {
+      if (lobby.channelId !== channelId) continue
+
+      if (lobby.status === 'open') {
+        let queue = queueByMode.get(mode)
+        if (!queue) {
+          queue = await getQueueState(kv, mode)
+          queueByMode.set(mode, queue)
+        }
+
+        const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
+        const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
+        targets.push({
+          lobby,
+          option: {
+            kind: 'lobby',
+            id: lobby.id,
+            lobbyId: lobby.id,
+            matchId: null,
+            channelId,
+            mode,
+            status: 'open',
+            participantCount: countFilledSlots(slots),
+            targetSize: maxPlayerCount(mode),
+            isMember: lobby.memberPlayerIds.includes(userId),
+            isHost: lobby.hostId === userId,
+            updatedAt: lobby.updatedAt,
+          },
+        })
+        continue
+      }
+
+      if ((lobby.status === 'drafting' || lobby.status === 'active') && lobby.matchId) {
+        targets.push({
+          lobby,
+          option: {
+            kind: 'match',
+            id: lobby.matchId,
+            lobbyId: lobby.id,
+            matchId: lobby.matchId,
+            channelId,
+            mode,
+            status: lobby.status,
+            participantCount: countFilledSlots(lobby.slots),
+            targetSize: maxPlayerCount(mode),
+            isMember: lobby.memberPlayerIds.includes(userId),
+            isHost: lobby.hostId === userId,
+            updatedAt: lobby.updatedAt,
+          },
+        })
+      }
+    }
+  }
+
+  return targets.sort(compareActivityTargets)
+}
+
+async function getUniqueOpenLobbyForChannel(kv: KVNamespace, channelId: string): Promise<LobbyState | null> {
+  const lobbiesByMode = await Promise.all(GAME_MODES.map(mode => getLobbiesByMode(kv, mode)))
+  const openLobbies = lobbiesByMode
+    .flat()
+    .filter(lobby => lobby.channelId === channelId && lobby.status === 'open')
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+
+  if (openLobbies.length !== 1) return null
+  return openLobbies[0] ?? null
+}
+
+function countFilledSlots(slots: (string | null)[]): number {
+  let count = 0
+  for (const slot of slots) {
+    if (slot != null) count += 1
+  }
+  return count
+}
+
+function compareActivityTargets(left: ChannelActivityTarget, right: ChannelActivityTarget): number {
+  const leftPriority = activityTargetPriority(left.option)
+  const rightPriority = activityTargetPriority(right.option)
+  if (leftPriority !== rightPriority) return leftPriority - rightPriority
+
+  if (left.option.updatedAt !== right.option.updatedAt) return right.option.updatedAt - left.option.updatedAt
+  if (left.option.mode !== right.option.mode) return left.option.mode.localeCompare(right.option.mode)
+  return left.option.id.localeCompare(right.option.id)
+}
+
+function activityTargetPriority(option: ActivityTargetOption): number {
+  if (option.isHost) return 0
+  if (option.isMember) return 1
+  if (option.kind === 'lobby') return 2
+  return option.status === 'drafting' ? 3 : 4
 }
 
 async function buildOpenLobbySnapshot(

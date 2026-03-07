@@ -104,7 +104,7 @@ export const command_mod = factory.command<ModVar>(
               })
             }
 
-            await clearLobbyMappings(kv, directLobby.memberPlayerIds)
+            await clearLobbyMappings(kv, directLobby.memberPlayerIds, directLobby.channelId)
             try {
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, directLobby, {
                 embeds: [lobbyCancelledEmbed(directLobby.mode, [], 'cancel', { actorId, reason })],
