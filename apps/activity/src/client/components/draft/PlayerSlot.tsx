@@ -2,7 +2,7 @@ import type { Leader } from '@civup/game'
 import { getLeader } from '@civup/game'
 import { createEffect, createSignal, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
-import { draftStore, ffaPlacementOrder, getOptimisticSeatPick, phaseAccent, selectedWinningTeam, selectWinningTeam, toggleFfaPlacement, userId } from '~/client/stores'
+import { draftStore, ffaPlacementOrder, getOptimisticSeatPick, phaseAccent, resultSelectionsLocked, selectedWinningTeam, selectWinningTeam, toggleFfaPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -63,6 +63,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
   const amHost = () => userId() === draftStore.hostId
   const isFfaPlacementMode = () => isComplete() && isFfa() && amHost()
   const isTeamResultMode = () => isComplete() && !isFfa() && amHost()
+  const canSelectResult = () => !resultSelectionsLocked()
 
   const placementRank = () => {
     if (!isFfaPlacementMode()) return -1
@@ -71,10 +72,6 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
   const isPlaced = () => placementRank() >= 0
   const seatTeam = () => seat()?.team ?? null
-  const isWinningTeamSelected = () => {
-    const team = seatTeam()
-    return isTeamResultMode() && team != null && selectedWinningTeam() === team
-  }
   const isLosingTeamDimmed = () => {
     const team = seatTeam()
     const selectedTeam = selectedWinningTeam()
@@ -82,12 +79,12 @@ export function PlayerSlot(props: PlayerSlotProps) {
   }
 
   const handleSlotClick = () => {
-    if (!isFfaPlacementMode()) return
+    if (!isFfaPlacementMode() || !canSelectResult()) return
     toggleFfaPlacement(props.seatIndex)
   }
 
   const handleTeamResultClick = () => {
-    if (!isTeamResultMode()) return
+    if (!isTeamResultMode() || !canSelectResult()) return
     const team = seatTeam()
     if (team == null || (team !== 0 && team !== 1)) return
     selectWinningTeam(team)
@@ -97,7 +94,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
     <div
       class={cn(
         'relative flex flex-col overflow-hidden bg-bg-secondary h-full isolate',
-        (isFfaPlacementMode() || isTeamResultMode()) && 'cursor-pointer',
+        canSelectResult() && (isFfaPlacementMode() || isTeamResultMode()) && 'cursor-pointer',
       )}
       classList={{
         'slot-accent-gold': isActive() && accent() === 'gold',
@@ -141,7 +138,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
           class={cn(
             'absolute inset-0 z-30 pointer-events-none transition-all duration-300',
             isPlaced()
-              ? 'ring-2 ring-inset ring-accent-gold/60 shadow-[inset_0_0_12px_rgba(200,170,110,0.15)]'
+              ? 'ring-3 ring-inset ring-accent-gold/70 shadow-[inset_0_0_24px_rgba(200,170,110,0.22)]'
               : 'ring-1 ring-inset ring-white/10 hover-parent:ring-white/25',
           )}
         />
@@ -151,8 +148,8 @@ export function PlayerSlot(props: PlayerSlotProps) {
           <div class="anim-fade-in left-1/2 top-1/2 absolute z-40 -translate-x-1/2 -translate-y-1/2">
             <div class={cn(
               'flex items-center justify-center rounded-full',
-              'bg-accent-gold text-bg-primary font-bold shadow-lg shadow-accent-gold/25',
-              props.compact ? 'w-8 h-8 text-sm' : 'w-10 h-10 text-lg',
+              'border border-[#f4dca8]/45 bg-accent-gold text-[#17130d] font-bold shadow-lg shadow-accent-gold/30',
+              props.compact ? 'w-10 h-10 text-base' : 'w-12 h-12 text-xl',
             )}
             >
               {placementRank() + 1}
@@ -162,22 +159,15 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
         {/* Darken when placed */}
         <Show when={isPlaced()}>
-          <div class="bg-black/30 pointer-events-none inset-0 absolute z-25" />
+          <div class="bg-black/50 pointer-events-none inset-0 absolute z-25" />
         </Show>
       </Show>
 
       {/* Team result overlay */}
       <Show when={isTeamResultMode()}>
-        <div
-          class={cn(
-            'absolute inset-0 z-30 pointer-events-none transition-all duration-300',
-            isWinningTeamSelected()
-              ? 'ring-2 ring-inset ring-accent-gold/45 bg-accent-gold/6 shadow-[inset_0_0_16px_rgba(200,170,110,0.12)]'
-              : isLosingTeamDimmed()
-                ? 'bg-black/28'
-                : 'ring-1 ring-inset ring-white/10',
-          )}
-        />
+        <Show when={isLosingTeamDimmed()}>
+          <div class="absolute inset-0 z-30 pointer-events-none bg-black/40 transition-all duration-300" />
+        </Show>
       </Show>
 
       {/* Portrait */}

@@ -11,6 +11,7 @@ import {
   phaseHeaderBg,
   phaseLabel,
   reportMatchResult,
+  setResultSelectionsLocked,
   scrubMatchResult,
   selectedWinningTeam,
   sendScrub,
@@ -93,10 +94,15 @@ export function DraftHeader() {
 
   onCleanup(() => {
     clearPhaseFlashTimeout()
+    setResultSelectionsLocked(false)
   })
 
   // ── Result Reporting ────────────────────────
   const [resultStatus, setResultStatus] = createSignal<'idle' | 'submitting:result' | 'submitting:scrub' | 'done'>('idle')
+
+  createEffect(() => {
+    setResultSelectionsLocked(resultStatus() !== 'idle')
+  })
 
   createEffect(on(() => state()?.matchId, () => {
     setResultStatus('idle')
@@ -162,12 +168,6 @@ export function DraftHeader() {
 
   const canInteract = () => amHost() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
   const resultSelectionReady = () => isTeamMode() ? selectedWinningTeam() != null : ffaPlacementOrder().length === seatCount()
-  const selectionHint = () => {
-    if (isTeamMode()) {
-      return selectedWinningTeam() == null ? 'Select the winning team below' : 'Winner selected'
-    }
-    return resultSelectionReady() ? 'Placements ready' : 'Select final placements below'
-  }
 
   return (
     <header class={cn('relative flex flex-col shrink-0 overflow-hidden', isComplete() ? 'bg-bg-secondary' : phaseHeaderBg(), 'transition-colors duration-200')}>
@@ -210,9 +210,6 @@ export function DraftHeader() {
                   }
                 >
                   <div class="flex gap-2 items-center">
-                    <div class="text-xs text-text-secondary/80 mr-2 min-w-0 hidden md:block">
-                      {selectionHint()}
-                    </div>
                     <Button
                       size="sm"
                       disabled={!canInteract() || !resultSelectionReady()}
