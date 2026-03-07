@@ -1,4 +1,4 @@
-export { ActivityTargetPicker, activityTargetOptionKey } from './ActivityTargetPicker'
+export { activityTargetOptionKey, ActivityTargetPicker } from './ActivityTargetPicker'
 export { BanSquare } from './BanSquare'
 export { ConfigScreen } from './ConfigScreen'
 export { DraftHeader } from './DraftHeader'

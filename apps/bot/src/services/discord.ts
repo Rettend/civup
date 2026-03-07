@@ -90,7 +90,7 @@ export async function deleteChannelMessage(
     {
       method: 'DELETE',
       headers: {
-        'Authorization': `Bot ${token}`,
+        Authorization: `Bot ${token}`,
       },
     },
   )

@@ -118,11 +118,11 @@ export type ActivityLaunchSelection
     option: ActivityTargetOption
     lobby: LobbySnapshot
   }
-    | {
-      kind: 'match'
-      option: ActivityTargetOption
-      matchId: string
-    }
+  | {
+    kind: 'match'
+    option: ActivityTargetOption
+    matchId: string
+  }
 
 export interface ActivityLaunchSnapshot {
   selection: ActivityLaunchSelection | null

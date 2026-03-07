@@ -1,6 +1,6 @@
 import type { ActivityLaunchSelection, ActivityTargetOption, LobbySnapshot, LobbyStateWatch } from './stores'
 import { createSignal, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
-import { ActivityTargetPicker, activityTargetOptionKey, ConfigScreen, DraftView } from './components/draft'
+import { activityTargetOptionKey, ActivityTargetPicker, ConfigScreen, DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
 import { relayDevLog } from './lib/dev-log'
 import {
@@ -72,8 +72,6 @@ export default function App() {
     if (!lastSelection) return null
     return activityTargetOptionKey(lastSelection.option)
   }
-
-  const canSwitchTargets = () => availableTargets().length > 1
 
   const openOverview = () => {
     const current = state()
@@ -283,7 +281,7 @@ export default function App() {
 
         <Match when={state().status === 'overview'}>
           <main class="text-text-primary font-sans bg-bg-primary min-h-screen overflow-y-auto">
-            <div class="mx-auto px-4 py-8 max-w-6xl md:px-6">
+            <div class="mx-auto px-6 py-4 max-w-5xl">
               <TargetPickerPanel
                 options={availableTargets()}
                 busy={pickerBusy()}
@@ -297,13 +295,12 @@ export default function App() {
         </Match>
 
         <Match when={state().status === 'lobby-waiting'}>
-            <ConfigScreen
-              lobby={(state() as Extract<AppState, { status: 'lobby-waiting' }>).lobby}
-              canSwitchTarget={canSwitchTargets()}
-              onSwitchTarget={openOverview}
-              onLobbyStarted={(matchId) => {
-                const currentUserId = userId()
-                if (!currentUserId) {
+          <ConfigScreen
+            lobby={(state() as Extract<AppState, { status: 'lobby-waiting' }>).lobby}
+            onSwitchTarget={openOverview}
+            onLobbyStarted={(matchId) => {
+              const currentUserId = userId()
+              if (!currentUserId) {
                 setState({ status: 'error', message: 'Could not identify your Discord user. Reopen the activity.' })
                 return
               }
@@ -316,7 +313,6 @@ export default function App() {
           <DraftWithConnection
             matchId={(state() as Extract<AppState, { status: 'authenticated' }>).matchId}
             autoStart={(state() as Extract<AppState, { status: 'authenticated' }>).autoStart}
-            canSwitchTarget={canSwitchTargets()}
             onSwitchTarget={openOverview}
           />
         </Match>
@@ -329,7 +325,6 @@ function DraftWithConnection(props: {
   matchId: string
   autoStart: boolean
   onSwitchTarget?: () => void
-  canSwitchTarget?: boolean
 }) {
   const hasTerminalState = () => {
     const status = draftStore.state?.status
@@ -352,7 +347,6 @@ function DraftWithConnection(props: {
           matchId={props.matchId}
           autoStart={props.autoStart}
           onSwitchTarget={props.onSwitchTarget}
-          canSwitchTarget={props.canSwitchTarget}
         />
       </Match>
 
@@ -372,7 +366,6 @@ function DraftWithConnection(props: {
           matchId={props.matchId}
           autoStart={props.autoStart}
           onSwitchTarget={props.onSwitchTarget}
-          canSwitchTarget={props.canSwitchTarget}
         />
       </Match>
 
@@ -404,13 +397,10 @@ function TargetPickerPanel(props: {
         selectedKey={props.selectedKey}
         onSelect={props.onSelect}
         onClose={props.onResume}
-        closeLabel="Return"
-        title="Channel Overview"
-        subtitle="Discord reuses one activity instance per channel, so switch which lobby or live draft this shared activity should show."
       />
 
       <Show when={props.error}>
-        <div class="rounded-xl border border-accent-red/25 bg-accent-red/10 px-4 py-3 text-sm text-accent-red">
+        <div class="text-sm text-accent-red px-4 py-3 border border-accent-red/25 rounded-xl bg-accent-red/10">
           {props.error}
         </div>
       </Show>

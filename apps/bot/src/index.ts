@@ -32,8 +32,6 @@ import {
   clearLobbyById,
   filterQueueEntriesForLobby,
   getLobbiesByMode,
-  getLobby,
-  getLobbyByChannel,
   getLobbyById,
   getLobbyByMatch,
   getOpenLobbyForPlayer,
@@ -51,6 +49,7 @@ import {
 import { storeMatchMessageMapping } from './services/match-message.ts'
 import { activateDraftMatch, cancelDraftMatch, cancelMatchByModerator, createDraftMatch, reportMatch } from './services/match.ts'
 import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, moveQueueEntriesBetweenModes, setQueueEntries } from './services/queue.ts'
+import { markRankedRolesDirty } from './services/ranked-role-sync.ts'
 import {
   buildRankedRoleVisuals,
   fallbackRoleLabel,
@@ -60,7 +59,6 @@ import {
   memberMeetsRankedRoleGate,
 
 } from './services/ranked-roles.ts'
-import { markRankedRolesDirty } from './services/ranked-role-sync.ts'
 import { createStateStore } from './services/state-store.ts'
 import { getSystemChannel } from './services/system-channels.ts'
 import { factory } from './setup.ts'
@@ -90,11 +88,11 @@ type ActivityLaunchSelection
     option: ActivityTargetOption
     lobby: Awaited<ReturnType<typeof buildOpenLobbySnapshot>>
   }
-    | {
-      kind: 'match'
-      option: ActivityTargetOption
-      matchId: string
-    }
+  | {
+    kind: 'match'
+    option: ActivityTargetOption
+    matchId: string
+  }
 
 interface ActivityLaunchSnapshot {
   selection: ActivityLaunchSelection | null
@@ -439,7 +437,7 @@ app.post('/api/lobby/:mode/mode', async (c) => {
   if (!resolvedLobby) {
     return c.json({ error: 'No open lobby for this mode' }, 404)
   }
-  let lobby = resolvedLobby
+  const lobby = resolvedLobby
 
   if (lobby.hostId !== userId) {
     return c.json({ error: 'Only the lobby host can change game mode' }, 403)

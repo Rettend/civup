@@ -11,10 +11,10 @@ import {
   phaseHeaderBg,
   phaseLabel,
   reportMatchResult,
-  setResultSelectionsLocked,
   scrubMatchResult,
   selectedWinningTeam,
   sendScrub,
+  setResultSelectionsLocked,
   userId,
 } from '~/client/stores'
 import { Button } from '../ui'
@@ -22,7 +22,6 @@ import { BanSquare } from './BanSquare'
 
 interface DraftHeaderProps {
   onSwitchTarget?: () => void
-  canSwitchTarget?: boolean
 }
 
 /** Header bar: bans on left/right, phase label centered, timer with shrinking line */
@@ -274,14 +273,16 @@ export function DraftHeader(props: DraftHeaderProps) {
 
         {/* Right bans (team mode) or empty */}
         <div class="flex gap-2 items-center">
-          <Show when={props.onSwitchTarget && props.canSwitchTarget}>
-            <Button
-              variant="outline"
-              size="sm"
+          <Show when={props.onSwitchTarget}>
+            <button
+              type="button"
+              class="text-text-secondary border border-border-subtle rounded-md flex shrink-0 h-7 w-7 cursor-pointer transition-colors items-center justify-center hover:text-text-primary hover:bg-bg-hover"
+              title="Lobby Overview"
+              aria-label="Lobby Overview"
               onClick={() => props.onSwitchTarget?.()}
             >
-              Switch
-            </Button>
+              <span class="i-ph-squares-four-bold text-sm" />
+            </button>
           </Show>
           <Show when={isTeamMode()}>
             <For each={rightBans()}>

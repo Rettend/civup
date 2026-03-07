@@ -1,3 +1,4 @@
+import { formatDraftStepLabel } from '@civup/game'
 import { For, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import { draftStore } from '~/client/stores'
@@ -7,20 +8,6 @@ export function DraftTimeline() {
   const state = () => draftStore.state
   const steps = () => state()?.steps ?? []
   const currentIdx = () => state()?.currentStepIndex ?? -1
-  const isTeamMode = () => state()?.seats.some(s => s.team != null) ?? false
-
-  const stepLabel = (step: { action: 'pick' | 'ban', seats: number[] | 'all' }): string => {
-    if (step.action === 'ban') return 'BAN'
-    if (step.seats === 'all') return 'PICK'
-
-    // FFA: P1, P2...
-    if (!isTeamMode()) {
-      return step.seats.length === 1 ? `PICK P${step.seats[0]! + 1}` : 'PICK'
-    }
-
-    // Team mode: T1, T2...
-    return step.seats.map(s => `PICK T${s + 1}`).join(' & ')
-  }
 
   return (
     <Show when={steps().length > 0}>
@@ -44,7 +31,7 @@ export function DraftTimeline() {
                   !isCurrent() && !isPast() && 'text-text-muted/50',
                 )}
                 >
-                  {stepLabel(step)}
+                  {formatDraftStepLabel(step, state()?.seats ?? [])}
                 </span>
               </>
             )

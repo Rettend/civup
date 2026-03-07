@@ -2,7 +2,7 @@ import type { CompetitiveTier } from '@civup/game'
 import type { LobbySnapshot, LobbyTeamArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
 import { COMPETITIVE_TIERS, formatModeLabel } from '@civup/game'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
-import { Button, Dropdown, TextInput } from '~/client/components/ui'
+import { Dropdown, TextInput } from '~/client/components/ui'
 import { cn } from '~/client/lib/css'
 import { isDev } from '~/client/lib/is-dev'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
@@ -35,7 +35,6 @@ interface ConfigScreenProps {
   lobby?: LobbySnapshot
   onLobbyStarted?: (matchId: string) => void
   onSwitchTarget?: () => void
-  canSwitchTarget?: boolean
 }
 
 interface PlayerRow {
@@ -169,6 +168,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
     })
   })
 
+  const clearOptimisticLobbyAction = () => {
+    if (optimisticLobbyActionTimeout) {
+      clearTimeout(optimisticLobbyActionTimeout)
+      optimisticLobbyActionTimeout = null
+    }
+    setOptimisticLobbyAction(null)
+  }
+
   createEffect(() => {
     const action = optimisticLobbyAction()
     if (!action) return
@@ -203,14 +210,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
       }
     }
   })
-
-  const clearOptimisticLobbyAction = () => {
-    if (optimisticLobbyActionTimeout) {
-      clearTimeout(optimisticLobbyActionTimeout)
-      optimisticLobbyActionTimeout = null
-    }
-    setOptimisticLobbyAction(null)
-  }
 
   const startOptimisticLobbyAction = (action: PendingOptimisticLobbyAction) => {
     clearOptimisticLobbyAction()
@@ -1042,20 +1041,23 @@ export function ConfigScreen(props: ConfigScreenProps) {
   return (
     <div class="text-text-primary font-sans bg-bg-primary overflow-y-auto min-h-dvh">
       <div class="mx-auto px-6 py-4 flex flex-col gap-6 max-w-5xl w-full">
-        <div class="flex items-start justify-between gap-3">
-          <div class="flex-1 text-center md:text-left">
+        <div class="grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-center">
+          <div class="h-9 w-9" />
+          <div class="text-center">
             <h1 class="text-2xl text-heading mb-1">Draft Setup</h1>
             <span class="text-sm text-accent-gold font-medium">{formatId()}</span>
           </div>
 
-          <Show when={props.onSwitchTarget && props.canSwitchTarget}>
-            <Button
-              variant="outline"
-              size="sm"
+          <Show when={props.onSwitchTarget} fallback={<div class="h-9 w-9" />}>
+            <button
+              type="button"
+              class="text-text-secondary border border-border-subtle rounded-md flex shrink-0 h-9 w-9 cursor-pointer transition-colors items-center justify-center hover:text-text-primary hover:bg-bg-hover"
+              title="Lobby Overview"
+              aria-label="Lobby Overview"
               onClick={() => props.onSwitchTarget?.()}
             >
-              Switch Target
-            </Button>
+              <span class="i-ph-squares-four-bold text-base" />
+            </button>
           </Show>
         </div>
 

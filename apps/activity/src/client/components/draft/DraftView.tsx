@@ -21,7 +21,6 @@ interface DraftViewProps {
   matchId: string
   autoStart?: boolean
   onSwitchTarget?: () => void
-  canSwitchTarget?: boolean
 }
 
 /** Main draft layout */
@@ -89,11 +88,11 @@ export function DraftView(props: DraftViewProps) {
             when={isActiveOrComplete()}
             fallback={showAutoStartSplash()
               ? <AutoStartingDraftScreen />
-              : <ConfigScreen onSwitchTarget={props.onSwitchTarget} canSwitchTarget={props.canSwitchTarget} />}
+              : <ConfigScreen onSwitchTarget={props.onSwitchTarget} />}
           >
             {/* Active + Complete draft view */}
             <div class="text-text-primary font-sans bg-bg-primary flex flex-col h-screen relative overflow-hidden">
-              <DraftHeader onSwitchTarget={props.onSwitchTarget} canSwitchTarget={props.canSwitchTarget} />
+              <DraftHeader onSwitchTarget={props.onSwitchTarget} />
               <DraftTimeline />
 
               {/* Main area */}
