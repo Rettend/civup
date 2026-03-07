@@ -2,6 +2,7 @@ import type { LobbySnapshot, LobbyStateWatch } from './stores'
 import { createSignal, Match, onCleanup, onMount, Switch } from 'solid-js'
 import { ConfigScreen, DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
+import { isDev } from './lib/is-dev'
 import { relayDevLog } from './lib/dev-log'
 import {
   connectionError,
@@ -175,7 +176,7 @@ export default function App() {
       }
 
       if (!matchId) {
-        if (import.meta.env.DEV) {
+        if (isDev()) {
           console.warn('No match found for channel, using channelId as fallback')
           transitionToDraft(channelId, auth.user.id, false)
           return
