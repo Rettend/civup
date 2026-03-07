@@ -1,6 +1,6 @@
+import type { CompetitiveTier } from '@civup/game'
 import type { EphemeralResponseTone } from '../embeds/response'
 import type { SystemChannelType } from '../services/system-channels'
-import type { CompetitiveTier } from '@civup/game'
 import { createDb } from '@civup/db'
 import { Button, Command, Components, Option, SubCommand, SubGroup } from 'discord-hono'
 import {
@@ -19,7 +19,8 @@ import {
 } from '../services/ephemeral-response'
 import { upsertLeaderboardMessagesForChannel } from '../services/leaderboard-message'
 import { addModRole, getModRoleIds, hasAdminPermission, removeModRole } from '../services/permissions'
-import { fetchGuildRoles, getRankedRoleConfig, RANKED_TIERS_BY_PRESTIGE, setRankedRoleCurrentRoles } from '../services/ranked-roles.ts'
+import { previewRankedRoles, syncRankedRoles } from '../services/ranked-role-sync.ts'
+import { fallbackRoleLabel, fetchGuildRoles, getRankedRoleConfig, RANKED_TIERS_BY_PRESTIGE, setRankedRoleCurrentRoles } from '../services/ranked-roles.ts'
 import { clearLeaderboardDirtyState, clearLeaderboardMessageState, clearSystemChannel, getSystemChannel, setSystemChannel } from '../services/system-channels'
 import { factory } from '../setup'
 
@@ -75,6 +76,8 @@ export const command_admin = factory.command<Var>(
         new Option('role4', 'Fourth rank role', 'Role'),
         new Option('role5', 'Lowest rank role', 'Role'),
       ),
+      new SubCommand('preview', 'Preview current ranked role assignments'),
+      new SubCommand('sync', 'Compute and apply current ranked role assignments'),
     ),
     new SubCommand('setup', 'View or toggle system channels').options(
       new Option('target', 'Channel role to configure')
@@ -299,6 +302,55 @@ export const command_admin = factory.command<Var>(
             ? 'Updated current ranked roles:'
             : 'Current ranked roles:'
           await sendTransientEphemeralResponse(c, `${actionPrefix}\n${formatRankedRoleConfig(config)}`, 'success')
+        })
+      }
+
+      case 'ranked preview': {
+        const guildId = c.interaction.guild_id
+        if (!guildId) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'This command can only be used in a server.', 'error')
+          })
+        }
+
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          const db = createDb(c.env.DB)
+          const preview = await previewRankedRoles({
+            db,
+            kv: c.env.KV,
+            guildId,
+          })
+
+          await sendEphemeralResponse(c, formatRankedRolePreview(preview), 'info')
+        })
+      }
+
+      case 'ranked sync': {
+        const guildId = c.interaction.guild_id
+        if (!guildId) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'This command can only be used in a server.', 'error')
+          })
+        }
+
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          const db = createDb(c.env.DB)
+          try {
+            const result = await syncRankedRoles({
+              db,
+              kv: c.env.KV,
+              guildId,
+              token: c.env.DISCORD_TOKEN,
+              applyDiscord: true,
+            })
+
+            await sendEphemeralResponse(c, formatRankedRoleSyncResult(result), 'success')
+          }
+          catch (error) {
+            console.error('Failed to sync ranked roles:', error)
+            const message = error instanceof Error ? error.message : 'Failed to sync ranked roles.'
+            await sendTransientEphemeralResponse(c, message, 'error')
+          }
         })
       }
 
@@ -609,6 +661,64 @@ function formatRankedRoleConfig(config: Awaited<ReturnType<typeof getRankedRoleC
   return RANKED_TIERS_BY_PRESTIGE
     .map((tier, index) => `${index + 1}. ${config.currentRoles[tier] ? `<@&${config.currentRoles[tier]}>` : '`not set`'}`)
     .join('\n')
+}
+
+function formatRankedRolePreview(preview: Awaited<ReturnType<typeof previewRankedRoles>>): string {
+  const lines = [
+    '**Ranked role preview**',
+    `Champion ${preview.distribution.champion} / Legion ${preview.distribution.legion} / Gladiator ${preview.distribution.gladiator} / Squire ${preview.distribution.squire} / Pleb ${preview.distribution.pleb}`,
+    `Unranked: ${preview.unrankedCount}`,
+  ]
+
+  if (preview.missingConfigTiers.length > 0) {
+    lines.push(`Missing current role mappings: ${preview.missingConfigTiers.map(tier => fallbackRoleLabel(tier)).join(', ')}`)
+  }
+
+  const changes = preview.playerPreviews.filter(player => player.status !== 'kept')
+  if (changes.length === 0) return lines.join('\n')
+
+  lines.push('', '**Changes**')
+  for (const player of changes.slice(0, 12)) {
+    lines.push(formatRankedRoleChangeLine(player))
+  }
+  if (changes.length > 12) lines.push(`...and ${changes.length - 12} more`)
+  return lines.join('\n')
+}
+
+function formatRankedRoleSyncResult(result: Awaited<ReturnType<typeof syncRankedRoles>>): string {
+  const lines = [
+    '**Ranked roles synced**',
+    `Updated Discord members: ${result.appliedDiscordChanges}`,
+    `C ${result.distribution.champion} / L ${result.distribution.legion} / G ${result.distribution.gladiator} / S ${result.distribution.squire} / P ${result.distribution.pleb}`,
+    `Unranked: ${result.unrankedCount}`,
+  ]
+
+  if (result.missingConfigTiers.length > 0) {
+    lines.push(`Missing current role mappings: ${result.missingConfigTiers.map(tier => fallbackRoleLabel(tier)).join(', ')}`)
+  }
+
+  return lines.join('\n')
+}
+
+function formatRankedRoleChangeLine(player: Awaited<ReturnType<typeof previewRankedRoles>>['playerPreviews'][number]): string {
+  const previous = player.previousAssignment
+    ? `${capitalizeTier(player.previousAssignment.tier)}${player.previousAssignment.sourceMode ? ` (${formatLeaderboardMode(player.previousAssignment.sourceMode)})` : ''}`
+    : 'none'
+  const next = `${capitalizeTier(player.assignment.tier)}${player.assignment.sourceMode ? ` (${formatLeaderboardMode(player.assignment.sourceMode)})` : ''}`
+  const pending = player.pendingDemotion
+    ? ` - demotion hold ${player.pendingDemotion.belowKeepSyncs}/7`
+    : ''
+  return `- ${player.displayName}: ${previous} -> ${next}${pending}`
+}
+
+function formatLeaderboardMode(mode: 'ffa' | 'duel' | 'teamers'): string {
+  if (mode === 'ffa') return 'FFA'
+  if (mode === 'duel') return 'Duel'
+  return 'Teamers'
+}
+
+function capitalizeTier(tier: CompetitiveTier): string {
+  return tier.charAt(0).toUpperCase() + tier.slice(1)
 }
 
 function buildResolvedRoleDisplayById(data: unknown): Map<string, { name: string, color: string | null }> {
