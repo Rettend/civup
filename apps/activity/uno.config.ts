@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises'
 import { defineConfig, presetIcons, presetWind4 } from 'unocss'
 import { minify } from './src/client/lib/css'
 
@@ -12,6 +13,11 @@ export default defineConfig({
       extraProperties: {
         'display': 'inline-block',
         'vertical-align': 'middle',
+      },
+      collections: {
+        custom: {
+          'number-ten-bold': () => fs.readFile('./src/assets/number-ten-bold.svg', 'utf-8'),
+        }
       },
     }),
   ],

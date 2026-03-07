@@ -40,8 +40,9 @@ export const default2v2: DraftFormat = {
  * 3v3 Format:
  * - 3 blind bans per team (simultaneous)
  * - Captains submit bans (seat 0 = Team A captain, seat 1 = Team B captain)
- * - Full rosters pick individually in snake order: A1, B1, B2, A2, A3, B3
+ * - Full rosters pick individually in snake order: A1, B1, B2, A2, B3, A3
  * - Legacy 2-seat rooms keep captain-only pick ownership
+ * - Pick order: 1-2-2-1-2-1
  */
 export const default3v3: DraftFormat = {
   id: 'default-3v3',
@@ -59,8 +60,8 @@ export const default3v3: DraftFormat = {
         { action: 'pick', seats: [1], count: 1, timer: 60 },
         { action: 'pick', seats: [3], count: 1, timer: 60 },
         { action: 'pick', seats: [2], count: 1, timer: 60 },
-        { action: 'pick', seats: [4], count: 1, timer: 60 },
         { action: 'pick', seats: [5], count: 1, timer: 60 },
+        { action: 'pick', seats: [4], count: 1, timer: 60 },
       )
       return steps
     }
@@ -68,8 +69,9 @@ export const default3v3: DraftFormat = {
     steps.push(
       { action: 'pick', seats: [0], count: 1, timer: 60 },
       { action: 'pick', seats: [1], count: 2, timer: 90 },
-      { action: 'pick', seats: [0], count: 2, timer: 90 },
+      { action: 'pick', seats: [0], count: 1, timer: 60 },
       { action: 'pick', seats: [1], count: 1, timer: 60 },
+      { action: 'pick', seats: [0], count: 1, timer: 60 },
     )
     return steps
   },

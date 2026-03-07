@@ -23,19 +23,26 @@ export function SlotStrip() {
     return s.seats.map((seat, i) => ({ seat, i })).filter(x => x.seat.team === 1).map(x => x.i)
   }
 
-  const ffaTopRow = () => {
-    const count = seatCount()
-    const perRow = Math.ceil(count / 2)
-    return Array.from({ length: perRow }, (_, i) => i)
+  const ffaPerRow = () => Math.ceil(seatCount() / 2)
+  const ffaBottomCount = () => seatCount() - ffaPerRow()
+  const ffaBottomStart = () => Math.floor((ffaPerRow() - ffaBottomCount()) / 2)
+
+  const ffaGridCells = () => {
+    const perRow = ffaPerRow()
+    const bottomCount = ffaBottomCount()
+    const bottomStart = ffaBottomStart()
+    const cells: Array<number | null> = []
+
+    for (let col = 0; col < perRow; col += 1) cells.push(col)
+    for (let col = 0; col < perRow; col += 1) {
+      if (col < bottomStart || col >= bottomStart + bottomCount) cells.push(null)
+      else cells.push(perRow + (col - bottomStart))
+    }
+
+    return cells
   }
 
-  const ffaBottomRow = () => {
-    const count = seatCount()
-    const perRow = Math.ceil(count / 2)
-    return Array.from({ length: count - perRow }, (_, i) => perRow + i)
-  }
-
-  const teamWrapperClass = (team: 0 | 1) => {
+  const teamWrapperClass = (_team: 0 | 1) => {
     return ''
   }
 
@@ -87,10 +94,10 @@ export function SlotStrip() {
               </Show>
               <Show when={isTeamResultMode() && selectedWinningTeam() === 0}>
                 <div
-                  class="pointer-events-none absolute inset-y-0 right-0 z-40 flex items-center justify-center"
+                  class="flex pointer-events-none items-center inset-y-0 right-0 justify-center absolute z-40"
                   style={{ width: teamOverlayWidth(leftSeats().length) }}
                 >
-                  <div class="anim-fade-in flex h-16 w-16 items-center justify-center rounded-full border border-[#f4dca8]/45 bg-accent-gold text-[#17130d] shadow-[0_0_14px_-3px_rgba(200,170,110,0.8),0_0_44px_-8px_rgba(200,170,110,0.45),0_0_80px_-12px_rgba(200,170,110,0.2),0_4px_16px_rgba(0,0,0,0.35)]">
+                  <div class="anim-fade-in text-[#17130d] border border-[#f4dca8]/45 rounded-full bg-accent-gold flex h-16 w-16 shadow-[0_4px_12px_rgba(0,0,0,0.5),0_8px_28px_rgba(0,0,0,0.4),0_16px_48px_rgba(0,0,0,0.25)] items-center justify-center">
                     <span class="i-ph:trophy-fill text-[30px]" />
                   </div>
                 </div>
@@ -98,7 +105,7 @@ export function SlotStrip() {
               {/* Full-width dramatic bottom glow for winning team */}
               <Show when={isTeamResultMode() && selectedWinningTeam() === 0}>
                 <div
-                  class="anim-fade-in pointer-events-none absolute inset-y-0 right-0 z-20"
+                  class="anim-fade-in pointer-events-none inset-y-0 right-0 absolute z-20"
                   style={{ ...winnerGlowStyle, width: teamOverlayWidth(leftSeats().length) }}
                 />
               </Show>
@@ -132,10 +139,10 @@ export function SlotStrip() {
               </Show>
               <Show when={isTeamResultMode() && selectedWinningTeam() === 1}>
                 <div
-                  class="pointer-events-none absolute inset-y-0 left-0 z-40 flex items-center justify-center"
+                  class="flex pointer-events-none items-center inset-y-0 left-0 justify-center absolute z-40"
                   style={{ width: teamOverlayWidth(rightSeats().length) }}
                 >
-                  <div class="anim-fade-in flex h-16 w-16 items-center justify-center rounded-full border border-[#f4dca8]/45 bg-accent-gold text-[#17130d] shadow-[0_0_14px_-3px_rgba(200,170,110,0.8),0_0_44px_-8px_rgba(200,170,110,0.45),0_0_80px_-12px_rgba(200,170,110,0.2),0_4px_16px_rgba(0,0,0,0.35)]">
+                  <div class="anim-fade-in text-[#17130d] border border-[#f4dca8]/45 rounded-full bg-accent-gold flex h-16 w-16 shadow-[0_4px_12px_rgba(0,0,0,0.5),0_8px_28px_rgba(0,0,0,0.4),0_16px_48px_rgba(0,0,0,0.25)] items-center justify-center">
                     <span class="i-ph:trophy-fill text-[30px]" />
                   </div>
                 </div>
@@ -143,7 +150,7 @@ export function SlotStrip() {
               {/* Full-width dramatic bottom glow for winning team */}
               <Show when={isTeamResultMode() && selectedWinningTeam() === 1}>
                 <div
-                  class="anim-fade-in pointer-events-none absolute inset-y-0 left-0 z-20"
+                  class="anim-fade-in pointer-events-none inset-y-0 left-0 absolute z-20"
                   style={{ ...winnerGlowStyle, width: teamOverlayWidth(rightSeats().length) }}
                 />
               </Show>
@@ -161,24 +168,21 @@ export function SlotStrip() {
 
       {/* FFA layout */}
       {!isTeamMode() && seatCount() > 0 && (
-        <div class="slot-strip-ffa flex flex-col h-full w-full items-center justify-end">
-          {/* Top row */}
-          <div class="flex flex-1 min-h-0 w-full items-stretch justify-center">
-            <For each={ffaTopRow()}>
+        <div class="slot-strip-ffa flex h-full w-full items-end justify-center">
+          <div
+            class="grid h-full items-stretch justify-center"
+            style={{
+              'width': `min(100%, ${ffaPerRow() * 240}px)`,
+              'grid-template-columns': `repeat(${ffaPerRow()}, minmax(0, 1fr))`,
+              'grid-template-rows': 'minmax(0, 1fr) minmax(0, 1fr)',
+            }}
+          >
+            <For each={ffaGridCells()}>
               {seatIdx => (
-                <div class="slot-cell-ffa">
-                  <PlayerSlot seatIndex={seatIdx} compact />
-                </div>
-              )}
-            </For>
-          </div>
-
-          {/* Bottom row */}
-          <div class="flex flex-1 min-h-0 w-full items-stretch justify-center">
-            <For each={ffaBottomRow()}>
-              {seatIdx => (
-                <div class="slot-cell-ffa">
-                  <PlayerSlot seatIndex={seatIdx} compact />
+                <div class="slot-cell-ffa h-full min-h-0 w-full">
+                  <Show when={seatIdx != null}>
+                    <PlayerSlot seatIndex={seatIdx!} compact />
+                  </Show>
                 </div>
               )}
             </For>

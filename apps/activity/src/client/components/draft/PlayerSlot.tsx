@@ -82,36 +82,94 @@ export function PlayerSlot(props: PlayerSlotProps) {
     ].join(', '),
   }
 
-  /**
-   * Neighbor-aware gold border: each slot draws top+left always, and
-   * right/bottom only if the neighbor on that side is NOT also selected.
-   * Using real borders avoids doubled-looking inset-shadow corners.
-   */
-  const ffaGoldBorderStyle = () => {
-    if (!isPlaced()) return {}
-    const order = ffaPlacementOrder()
+  const ffaGoldBorderColor = 'rgba(200,170,110,0.58)'
+
+  const ffaGridMetrics = () => {
     const count = state()?.seats.length ?? 0
-    if (count === 0) return {}
     const perRow = Math.ceil(count / 2)
-    const row = props.seatIndex < perRow ? 0 : 1
-    const col = row === 0 ? props.seatIndex : props.seatIndex - perRow
+    const bottomCount = count - perRow
+    const bottomStart = Math.floor((perRow - bottomCount) / 2)
+    return { count, perRow, bottomCount, bottomStart }
+  }
 
-    const rightIdx = (row === 0 ? col < perRow - 1 : col < (count - perRow) - 1)
-      ? props.seatIndex + 1
-      : -1
-    const belowIdx = row === 0 && (perRow + col) < count
-      ? perRow + col
-      : -1
+  const ffaGridPosition = () => {
+    const { perRow, bottomStart } = ffaGridMetrics()
+    if (props.seatIndex < perRow) {
+      return { row: 0 as const, col: props.seatIndex }
+    }
+    return { row: 1 as const, col: bottomStart + (props.seatIndex - perRow) }
+  }
 
-    const c = 'rgba(200,170,110,0.58)'
-    return {
-      'border-top': `2px solid ${c}`,
-      'border-left': `2px solid ${c}`,
-      'border-right': rightIdx < 0 || !order.includes(rightIdx) ? `2px solid ${c}` : '0 solid transparent',
-      'border-bottom': belowIdx < 0 || !order.includes(belowIdx) ? `2px solid ${c}` : '0 solid transparent',
-      'box-shadow': 'inset 0 0 28px rgba(200,170,110,0.14)',
+  const ffaSeatAt = (row: number, col: number): number | null => {
+    const { perRow, bottomCount, bottomStart } = ffaGridMetrics()
+    if (row === 0) {
+      return col >= 0 && col < perRow ? col : null
+    }
+    if (row === 1) {
+      return col >= bottomStart && col < bottomStart + bottomCount ? perRow + (col - bottomStart) : null
+    }
+    return null
+  }
+
+  const ffaHasPlacedLeft = () => {
+    if (!isPlaced()) return false
+    const { row, col } = ffaGridPosition()
+    const leftSeat = ffaSeatAt(row, col - 1)
+    return leftSeat != null && ffaPlacementOrder().includes(leftSeat)
+  }
+
+  const ffaHasPlacedAbove = () => {
+    if (!isPlaced()) return false
+    const { row, col } = ffaGridPosition()
+    const aboveSeat = ffaSeatAt(row - 1, col)
+    return aboveSeat != null && ffaPlacementOrder().includes(aboveSeat)
+  }
+
+  const ffaHasPlacedRight = () => {
+    if (!isPlaced()) return false
+    const { row, col } = ffaGridPosition()
+    const rightSeat = ffaSeatAt(row, col + 1)
+    return rightSeat != null && ffaPlacementOrder().includes(rightSeat)
+  }
+
+  const ffaHasPlacedBelow = () => {
+    if (!isPlaced()) return false
+    const { row, col } = ffaGridPosition()
+    const belowSeat = ffaSeatAt(row + 1, col)
+    return belowSeat != null && ffaPlacementOrder().includes(belowSeat)
+  }
+
+  const ffaGoldBorderStyle = () => {
+    if (!isPlaced()) return ''
+    return [
+      'box-sizing:border-box',
+      `border-top:${ffaHasPlacedAbove() ? '0 solid transparent' : `2px solid ${ffaGoldBorderColor}`}`,
+      `border-left:${ffaHasPlacedLeft() ? '0 solid transparent' : `2px solid ${ffaGoldBorderColor}`}`,
+      `border-right:${ffaHasPlacedRight() ? '0 solid transparent' : `2px solid ${ffaGoldBorderColor}`}`,
+      `border-bottom:${ffaHasPlacedBelow() ? '0 solid transparent' : `2px solid ${ffaGoldBorderColor}`}`,
+      'box-shadow:inset 0 0 28px rgba(200,170,110,0.14)',
+    ].join(';')
+  }
+
+  const digitIconClass = (digit: string) => {
+    switch (digit) {
+      case '0': return 'i-ph:number-zero-bold'
+      case '1': return 'i-ph:number-one-bold'
+      case '2': return 'i-ph:number-two-bold'
+      case '3': return 'i-ph:number-three-bold'
+      case '4': return 'i-ph:number-four-bold'
+      case '5': return 'i-ph:number-five-bold'
+      case '6': return 'i-ph:number-six-bold'
+      case '7': return 'i-ph:number-seven-bold'
+      case '8': return 'i-ph:number-eight-bold'
+      case '9': return 'i-ph:number-nine-bold'
+      case '10': return 'i-custom:number-ten-bold'
+      default: return ''
     }
   }
+
+  const placementNumber = () => placementRank() + 1
+  const placementIconClass = () => digitIconClass(String(placementNumber()))
   const seatTeam = () => seat()?.team ?? null
   const isLosingTeamDimmed = () => {
     const team = seatTeam()
@@ -177,30 +235,28 @@ export function PlayerSlot(props: PlayerSlotProps) {
         {/* Bottom radial glow on selected slots */}
         <Show when={isPlaced()}>
           <div
-            class="anim-fade-in pointer-events-none absolute inset-0 z-20"
+            class="anim-fade-in pointer-events-none inset-0 absolute z-20"
             style={ffaWinnerGlowStyle}
           />
         </Show>
 
         {/* Gold border with neighbor-aware collapse */}
         <Show when={isPlaced()}>
-          <div
-            class="absolute inset-0 z-30 pointer-events-none box-border"
-            style={ffaGoldBorderStyle()}
-          />
+          <div class="pointer-events-none inset-0 absolute z-30" style={ffaGoldBorderStyle()} />
         </Show>
 
         {/* Placement badge */}
         <Show when={isPlaced()}>
           <div class="anim-fade-in left-1/2 top-1/2 absolute z-40 -translate-x-1/2 -translate-y-1/2">
-            <div class={cn(
-              'flex items-center justify-center rounded-full',
-              'border border-[#f4dca8]/45 bg-accent-gold font-bold shadow-[0_0_14px_-3px_rgba(200,170,110,0.8),0_0_44px_-8px_rgba(200,170,110,0.45),0_0_80px_-12px_rgba(200,170,110,0.2),0_4px_16px_rgba(0,0,0,0.35)]',
-              props.compact ? 'w-10 h-10 text-base' : 'w-12 h-12 text-xl',
-            )}
-            style={{ color: '#17130d' }}
+            <div
+              class={cn(
+                'flex items-center justify-center rounded-full leading-none',
+                'border border-[#f4dca8]/45 bg-accent-gold font-black shadow-[0_4px_12px_rgba(0,0,0,0.5),0_8px_28px_rgba(0,0,0,0.4),0_16px_48px_rgba(0,0,0,0.25)]',
+                props.compact ? 'h-12 w-12 text-xl' : 'h-14 w-14 text-2xl',
+              )}
+              style={{ 'color': '#17130d', 'font-weight': 900 }}
             >
-              {placementRank() + 1}
+              <span class={cn(placementIconClass(), props.compact ? 'text-[28px]' : 'text-[32px]')} />
             </div>
           </div>
         </Show>
@@ -214,7 +270,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
       {/* Team result overlay */}
       <Show when={isTeamResultMode()}>
         <Show when={isLosingTeamDimmed()}>
-          <div class="absolute inset-0 z-30 pointer-events-none bg-black/40 transition-all duration-300" />
+          <div class="bg-black/40 pointer-events-none transition-all duration-300 inset-0 absolute z-30" />
         </Show>
       </Show>
 
