@@ -440,7 +440,7 @@ describe('processDraftInput — PICK (sequential)', () => {
 
   test('full 3v3 rosters expand to individual pick steps', () => {
     const draft = startDraft(createDraft('match-123', default3v3, create3v3PlayerSeats(), createTestCivPool()))
-    expect(draft.steps.slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [4], [5]])
+    expect(draft.steps.slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4]])
   })
 })
 
