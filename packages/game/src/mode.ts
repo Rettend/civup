@@ -6,6 +6,10 @@ export function formatModeLabel(mode: string | null | undefined, fallback = ''):
   if (!trimmed) return fallback
 
   const withoutDefaultPrefix = trimmed.replace(/^default-/i, '')
-  if (withoutDefaultPrefix.toLowerCase() === 'ffa') return 'FFA'
+  const normalized = withoutDefaultPrefix.toLowerCase()
+  if (normalized === 'ffa') return 'FFA'
+  if (normalized === '1v1') return '1v1'
+  if (normalized === '2v2') return '2v2'
+  if (normalized === '3v3') return '3v3'
   return withoutDefaultPrefix.replace(/-/g, ' ')
 }

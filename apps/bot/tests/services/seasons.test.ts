@@ -1,10 +1,15 @@
-import { describe, expect, test } from 'bun:test'
 import { matches, playerRatings, players, seasonPeakRanks } from '@civup/db'
+import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { createDraftMatch } from '../../src/services/match.ts'
-import { endSeason, getActiveSeason, startSeason, syncSeasonPeakRanks } from '../../src/services/seasons.ts'
 import { syncRankedRoles } from '../../src/services/ranked-role-sync.ts'
+import { endSeason, getActiveSeason, startSeason, syncSeasonPeakRanks } from '../../src/services/seasons.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
+
+const NOW = 1_700_000_000_000
+const DAY_MS = 86_400_000
+const PLAYER_ID = '100010000000000001'
+const HERO_ID = '100010000000000099'
 
 describe('season services', () => {
   test('startSeason and endSeason manage the active season lifecycle', async () => {
@@ -124,11 +129,6 @@ describe('season services', () => {
     sqlite.close()
   })
 })
-
-const NOW = 1_700_000_000_000
-const DAY_MS = 86_400_000
-const PLAYER_ID = '100010000000000001'
-const HERO_ID = '100010000000000099'
 
 async function seedPlayers(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
