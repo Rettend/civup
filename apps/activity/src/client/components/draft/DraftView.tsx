@@ -20,6 +20,8 @@ import { SlotStrip } from './SlotStrip'
 interface DraftViewProps {
   matchId: string
   autoStart?: boolean
+  onSwitchTarget?: () => void
+  canSwitchTarget?: boolean
 }
 
 /** Main draft layout */
@@ -85,11 +87,13 @@ export function DraftView(props: DraftViewProps) {
         >
           <Show
             when={isActiveOrComplete()}
-            fallback={showAutoStartSplash() ? <AutoStartingDraftScreen /> : <ConfigScreen />}
+            fallback={showAutoStartSplash()
+              ? <AutoStartingDraftScreen />
+              : <ConfigScreen onSwitchTarget={props.onSwitchTarget} canSwitchTarget={props.canSwitchTarget} />}
           >
             {/* Active + Complete draft view */}
             <div class="text-text-primary font-sans bg-bg-primary flex flex-col h-screen relative overflow-hidden">
-              <DraftHeader />
+              <DraftHeader onSwitchTarget={props.onSwitchTarget} canSwitchTarget={props.canSwitchTarget} />
               <DraftTimeline />
 
               {/* Main area */}

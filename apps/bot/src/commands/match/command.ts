@@ -5,8 +5,8 @@ import { formatModeLabel, isTeamMode, maxPlayerCount, minPlayerCount } from '@ci
 import { Command, Option, SubCommand } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyOpenEmbed, lobbyResultEmbed } from '../../embeds/match.ts'
-import { clearLobbyMappings, getMatchForUser, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity.ts'
-import { createChannelMessage } from '../../services/discord.ts'
+import { clearLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity.ts'
+import { createChannelMessage, deleteChannelMessage } from '../../services/discord.ts'
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard-message.ts'
 import { markRankedRolesDirty } from '../../services/ranked-role-sync.ts'
@@ -80,6 +80,18 @@ export const command_match = factory.command<MatchVar>(
               return
             }
 
+            const existingHostedLobby = await findHostedOpenLobby(kv, identity.userId)
+            if (existingHostedLobby) {
+              await storeUserLobbyMappings(kv, [identity.userId], existingHostedLobby.id)
+              await storeUserActivityTarget(kv, existingHostedLobby.channelId, [identity.userId], { kind: 'lobby', id: existingHostedLobby.id })
+              await sendTransientEphemeralResponse(
+                c,
+                `You already have an open ${formatModeLabel(existingHostedLobby.mode)} lobby in <#${existingHostedLobby.channelId}>.`,
+                'info',
+              )
+              return
+            }
+
             const queue = await getQueueState(kv, mode)
 
             const result = await addToQueue(kv, mode, {
@@ -107,24 +119,36 @@ export const command_match = factory.command<MatchVar>(
                 components: lobbyComponents(mode),
                 allowed_mentions: { parse: [] },
               })
-              const lobby = await createLobby(kv, {
+              const createdLobby = await createLobby(kv, {
                 mode,
                 guildId: c.interaction.guild_id ?? null,
                 hostId: identity.userId,
                 channelId: draftChannelId,
                 messageId: message.id,
               })
-              await storeUserLobbyMappings(kv, [identity.userId], lobby.id)
-              const renderPayload = await buildOpenLobbyRenderPayload(
+              const { lobby, reusedExisting } = await reconcileHostedOpenLobbyCreation(
+                c.env.DISCORD_TOKEN,
                 kv,
-                lobby,
-                mapLobbySlotsToEntries(lobby.slots, filterQueueEntriesForLobby(lobby, nextQueue.entries)),
+                identity.userId,
+                createdLobby,
               )
-              await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-                embeds: renderPayload.embeds,
-                components: renderPayload.components,
-              })
-              if (interactionChannelId === draftChannelId) {
+              await storeUserLobbyMappings(kv, [identity.userId], lobby.id)
+              await storeUserActivityTarget(kv, lobby.channelId, [identity.userId], { kind: 'lobby', id: lobby.id })
+              if (!reusedExisting) {
+                const renderPayload = await buildOpenLobbyRenderPayload(
+                  kv,
+                  lobby,
+                  mapLobbySlotsToEntries(lobby.slots, filterQueueEntriesForLobby(lobby, nextQueue.entries)),
+                )
+                await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
+                  embeds: renderPayload.embeds,
+                  components: renderPayload.components,
+                })
+              }
+              if (reusedExisting) {
+                await sendTransientEphemeralResponse(c, `You already had an open ${formatModeLabel(lobby.mode)} lobby in <#${lobby.channelId}>.`, 'info')
+              }
+              else if (interactionChannelId === draftChannelId) {
                 await clearDeferredEphemeralResponse(c)
               }
               else {
@@ -197,6 +221,10 @@ export const command_match = factory.command<MatchVar>(
           }
 
           if (userMatchId) {
+            const interactionChannelId = c.interaction.channel_id ?? null
+            if (interactionChannelId) {
+              await storeUserActivityTarget(kv, interactionChannelId, [identity.userId], { kind: 'match', id: userMatchId })
+            }
             c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], userMatchId))
             return c.resActivity()
           }
@@ -229,6 +257,7 @@ export const command_match = factory.command<MatchVar>(
 
           try {
             await storeUserLobbyMappings(kv, joinRequest.entries.map(entry => entry.playerId), outcome.lobby.id)
+            await storeUserActivityTarget(kv, outcome.lobby.channelId, joinRequest.entries.map(entry => entry.playerId), { kind: 'lobby', id: outcome.lobby.id })
             await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, outcome.lobby, {
               embeds: outcome.embeds,
               components: outcome.components,
@@ -301,7 +330,7 @@ export const command_match = factory.command<MatchVar>(
               console.error(`Failed to update cancelled lobby embed for match ${matchId}:`, error)
             }
 
-            await clearLobbyMappings(kv, lobby.memberPlayerIds)
+            await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
             await sendTransientEphemeralResponse(c, `Cancelled hosted match **${matchId}**.`, 'success')
             return
           }
@@ -350,7 +379,7 @@ export const command_match = factory.command<MatchVar>(
           }
 
           const removedMode = removed.mode
-          await clearLobbyMappings(kv, [identity.userId])
+          await clearLobbyMappings(kv, [identity.userId], currentLobby?.channelId)
 
           const lobby = currentLobby?.mode === removedMode ? currentLobby : await getOpenLobbyForPlayer(kv, identity.userId, removedMode)
           if (lobby?.status === 'open') {
@@ -550,7 +579,7 @@ export const command_match = factory.command<MatchVar>(
               console.error(`Failed to update lobby result embed for match ${result.match.id}:`, error)
             }
             await clearLobbyById(kv, lobby.id)
-            await clearLobbyMappings(kv, lobby.memberPlayerIds)
+            await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
           }
 
           const archiveChannelId = await getSystemChannel(kv, 'archive')
@@ -709,12 +738,43 @@ async function findPlayersInLiveMatches(
 }
 
 async function findHostedOpenLobby(kv: KVNamespace, hostId: string) {
+  const lobbies = await findHostedOpenLobbies(kv, hostId)
+  return lobbies[0] ?? null
+}
+
+async function findHostedOpenLobbies(kv: KVNamespace, hostId: string) {
   const modes: GameMode[] = ['ffa', '1v1', '2v2', '3v3']
+  const lobbies = [] as Awaited<ReturnType<typeof getLobbiesByMode>>[number][]
   for (const mode of modes) {
-    const lobby = (await getLobbiesByMode(kv, mode)).find(candidate => candidate.status === 'open' && candidate.hostId === hostId)
-    if (lobby) return lobby
+    lobbies.push(...(await getLobbiesByMode(kv, mode)).filter(candidate => candidate.status === 'open' && candidate.hostId === hostId))
   }
-  return null
+  return lobbies.sort((left, right) => {
+    if (left.createdAt !== right.createdAt) return left.createdAt - right.createdAt
+    return left.id.localeCompare(right.id)
+  })
+}
+
+async function reconcileHostedOpenLobbyCreation(
+  token: string,
+  kv: KVNamespace,
+  hostId: string,
+  createdLobby: Awaited<ReturnType<typeof createLobby>>,
+): Promise<{ lobby: Awaited<ReturnType<typeof createLobby>>, reusedExisting: boolean }> {
+  const hostedLobbies = await findHostedOpenLobbies(kv, hostId)
+  const canonicalLobby = hostedLobbies[0]
+  if (!canonicalLobby || canonicalLobby.id === createdLobby.id) {
+    return { lobby: createdLobby, reusedExisting: false }
+  }
+
+  await clearLobbyById(kv, createdLobby.id)
+  try {
+    await deleteChannelMessage(token, createdLobby.channelId, createdLobby.messageId)
+  }
+  catch (error) {
+    console.error(`Failed to delete duplicate hosted lobby message ${createdLobby.messageId}:`, error)
+  }
+
+  return { lobby: canonicalLobby, reusedExisting: true }
 }
 
 async function cancelHostedOpenLobby(
@@ -730,7 +790,7 @@ async function cancelHostedOpenLobby(
     })
   }
 
-  await clearLobbyMappings(kv, lobby.memberPlayerIds)
+  await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
   try {
     await upsertLobbyMessage(kv, token, lobby, {
       embeds: [lobbyCancelledEmbed(lobby.mode, buildCancelledLobbyParticipants(lobby, lobbyQueueEntries), 'cancel')],
