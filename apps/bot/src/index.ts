@@ -59,6 +59,7 @@ import {
   memberMeetsRankedRoleGate,
 
 } from './services/ranked-roles.ts'
+import { markRankedRolesDirty } from './services/ranked-role-sync.ts'
 import { createStateStore } from './services/state-store.ts'
 import { getSystemChannel } from './services/system-channels.ts'
 import { factory } from './setup.ts'
@@ -1302,6 +1303,13 @@ app.post('/api/match/:matchId/report', async (c) => {
     console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
   }
 
+  try {
+    await markRankedRolesDirty(kv, `activity-report:${result.match.id}`)
+  }
+  catch (error) {
+    console.error(`Failed to mark ranked roles dirty after match ${result.match.id}:`, error)
+  }
+
   return c.json({ ok: true, match: result.match, participants: result.participants })
 })
 
@@ -1385,6 +1393,13 @@ app.post('/api/match/:matchId/scrub', async (c) => {
     }
     catch (error) {
       console.error(`Failed to mark leaderboards dirty after scrub ${result.match.id}:`, error)
+    }
+
+    try {
+      await markRankedRolesDirty(kv, `activity-scrub:${result.match.id}`)
+    }
+    catch (error) {
+      console.error(`Failed to mark ranked roles dirty after scrub ${result.match.id}:`, error)
     }
   }
 

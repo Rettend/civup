@@ -79,6 +79,26 @@ export async function editChannelMessage(
   )
 }
 
+export async function editGuildMemberRoles(
+  token: string,
+  guildId: string,
+  userId: string,
+  roleIds: string[],
+): Promise<void> {
+  await requestDiscord(
+    'edit guild member roles',
+    `https://discord.com/api/v10/guilds/${guildId}/members/${userId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bot ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ roles: roleIds }),
+    },
+  )
+}
+
 async function requestDiscord(
   action: string,
   url: string,

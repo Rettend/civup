@@ -2,6 +2,7 @@ import { createDb } from '@civup/db'
 import { getQueueTimeoutMs } from '../services/config.ts'
 import { refreshDirtyLeaderboards } from '../services/leaderboard-message.ts'
 import { pruneAbandonedMatches } from '../services/match.ts'
+import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, syncRankedRoles } from '../services/ranked-role-sync.ts'
 import { pruneStaleEntries } from '../services/queue.ts'
 import { createStateStore } from '../services/state-store.ts'
 import { factory } from '../setup.ts'
@@ -41,6 +42,40 @@ export const cron_leaderboards = factory.cron(
     }
     catch (error) {
       console.error('[cron] Failed to refresh dirty leaderboards:', error)
+    }
+  },
+)
+
+export const cron_ranked_roles = factory.cron(
+  '0 9 * * *',
+  async (c) => {
+    const db = createDb(c.env.DB)
+    const kv = createStateStore(c.env)
+
+    try {
+      const guildIds = await listRankedRoleConfigGuildIds(kv)
+      let syncedGuilds = 0
+      for (const guildId of guildIds) {
+        await syncRankedRoles({
+          db,
+          kv,
+          guildId,
+          token: c.env.DISCORD_TOKEN,
+          applyDiscord: true,
+          advanceDemotionWindow: true,
+        })
+        syncedGuilds += 1
+      }
+
+      if (syncedGuilds > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[cron] Synced ranked roles for ${syncedGuilds} guild(s)`)
+      }
+
+      if (await getRankedRolesDirtyState(kv)) await clearRankedRolesDirtyState(kv)
+    }
+    catch (error) {
+      console.error('[cron] Failed to sync ranked roles:', error)
     }
   },
 )

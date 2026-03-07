@@ -9,6 +9,7 @@ import { clearLobbyMappings, getMatchForUser, storeUserLobbyMappings, storeUserM
 import { createChannelMessage } from '../../services/discord.ts'
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard-message.ts'
+import { markRankedRolesDirty } from '../../services/ranked-role-sync.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby-render.ts'
 import { upsertLobbyMessage } from '../../services/lobby-message.ts'
 import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getLobbiesByMode, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyMemberPlayerIds, setLobbySlots, setLobbyStatus } from '../../services/lobby.ts'
@@ -570,6 +571,13 @@ export const command_match = factory.command<MatchVar>(
           }
           catch (error) {
             console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
+          }
+
+          try {
+            await markRankedRolesDirty(kv, `match-report:${result.match.id}`)
+          }
+          catch (error) {
+            console.error(`Failed to mark ranked roles dirty after match ${result.match.id}:`, error)
           }
 
           await sendTransientEphemeralResponse(c, `Reported result for match **${result.match.id}**.`, 'success')
