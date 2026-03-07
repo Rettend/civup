@@ -15,6 +15,13 @@
       "when": 1771357021229,
       "tag": "0001_solid_sentry",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1772887383743,
+      "tag": "0002_nasty_salo",
+      "breakpoints": true
     }
   ]
 }

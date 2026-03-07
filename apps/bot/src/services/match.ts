@@ -7,6 +7,7 @@ import { calculateRatings, createRating, displayRating, LEADERBOARD_MIN_GAMES } 
 import { and, asc, eq, inArray, isNull, lt, or } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from './activity.ts'
 import { clearLobbyByMatch } from './lobby.ts'
+import { getActiveSeason } from './seasons.ts'
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -128,6 +129,7 @@ export async function createDraftMatch(
   input: CreateDraftMatchInput,
 ): Promise<void> {
   const now = Date.now()
+  const activeSeason = await getActiveSeason(db)
 
   const [existingMatch] = await db
     .select()
@@ -140,6 +142,7 @@ export async function createDraftMatch(
       id: input.matchId,
       gameMode: input.mode,
       status: 'drafting',
+      seasonId: activeSeason?.id ?? null,
       createdAt: now,
       completedAt: null,
     })
