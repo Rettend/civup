@@ -2,10 +2,12 @@ import type { GameMode, QueueEntry } from '@civup/game'
 import type { Embed } from 'discord-hono'
 import { formatModeLabel, maxPlayerCount } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
-import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/match.ts'
+import { lobbyComponents } from '../../embeds/match.ts'
 import type { LobbyState } from '../../services/lobby.ts'
 import { filterQueueEntriesForLobby, getLobbiesByMode, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby.ts'
+import { buildOpenLobbyRenderPayload } from '../../services/lobby-render.ts'
 import { getPlayerQueueMode, getQueueState, MAX_QUEUE_ENTRIES, setQueueEntries } from '../../services/queue.ts'
+import { fallbackRoleLabel, fetchGuildMemberRoleIds, getRankedRoleConfig, memberMeetsRankedRoleGate } from '../../services/ranked-roles.ts'
 import { createStateStore } from '../../services/state-store.ts'
 
 export const GAME_MODE_CHOICES = [
@@ -129,6 +131,7 @@ export async function joinLobbyAndMaybeStartMatch(
   c: {
     env: {
       KV: KVNamespace
+      DISCORD_TOKEN?: string
       PARTY_HOST?: string
       CIVUP_SECRET?: string
     }
@@ -246,12 +249,26 @@ export async function joinLobbyAndMaybeStartMatch(
   const candidateLobbies = preferredLobbyId
     ? openLobbies.filter(lobby => lobby.id === preferredLobbyId)
     : openLobbies
+  const rankedRoleConfigByGuildId = new Map<string, Awaited<ReturnType<typeof getRankedRoleConfig>>>()
+  const memberRoleIdsByKey = new Map<string, string[]>()
 
-  const scoredCandidates = candidateLobbies
-    .map((lobby) => {
+  const candidateResults = await Promise.all(candidateLobbies
+    .map(async (lobby) => {
       for (const requestedEntry of requestedEntries) {
         const existingLobby = lobbyByPlayerId.get(requestedEntry.playerId)
         if (existingLobby && existingLobby.id !== lobby.id) return null
+      }
+
+      const gateError = await getRoleGateErrorForLobby(
+        c.env.DISCORD_TOKEN,
+        kv,
+        lobby,
+        requestedEntries,
+        rankedRoleConfigByGuildId,
+        memberRoleIdsByKey,
+      )
+      if (gateError) {
+        return { gateError }
       }
 
       const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, nextEntries)
@@ -264,12 +281,16 @@ export async function joinLobbyAndMaybeStartMatch(
         slots: placement.slots,
         score: scoreLobbyCandidate(lobby, currentSlots, placement.slots, requestedEntries.length),
       }
-    })
-    .filter((candidate): candidate is { lobby: LobbyState, slots: (string | null)[], score: string } => candidate != null)
+    }))
+
+  const scoredCandidates = candidateResults
+    .filter((candidate): candidate is { lobby: LobbyState, slots: (string | null)[], score: string } => candidate != null && 'lobby' in candidate)
     .sort((left, right) => left.score.localeCompare(right.score))
 
   const chosen = scoredCandidates[0]
   if (!chosen) {
+    const gateError = candidateResults.find((result): result is { gateError: string } => result != null && 'gateError' in result)?.gateError
+    if (gateError) return { error: gateError }
     return { error: 'No compatible open lobby could fit this join.' }
   }
 
@@ -296,12 +317,51 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   const slottedEntries = mapLobbySlotsToEntries(nextSlots, filterQueueEntriesForLobby(nextLobby, queue.entries))
+  const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
   return {
     stage: 'open',
     lobby: nextLobby,
-    embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
-    components: lobbyComponents(mode, nextLobby.id),
+    embeds: renderPayload.embeds,
+    components: renderPayload.components,
   }
+}
+
+async function getRoleGateErrorForLobby(
+  token: string | undefined,
+  kv: KVNamespace,
+  lobby: LobbyState,
+  requestedEntries: MatchJoinEntry[],
+  rankedRoleConfigByGuildId: Map<string, Awaited<ReturnType<typeof getRankedRoleConfig>>>,
+  memberRoleIdsByKey: Map<string, string[]>,
+): Promise<string | null> {
+  if (!lobby.minRole) return null
+  if (!lobby.guildId) return 'This lobby is missing guild context, so rank gating is unavailable.'
+  if (!token) return 'Rank-gated lobbies are unavailable because the bot token is missing.'
+
+  let config = rankedRoleConfigByGuildId.get(lobby.guildId)
+  if (!config) {
+    config = await getRankedRoleConfig(kv, lobby.guildId)
+    rankedRoleConfigByGuildId.set(lobby.guildId, config)
+  }
+
+  const gateLabel = fallbackRoleLabel(lobby.minRole)
+
+  for (const entry of requestedEntries) {
+    if (lobby.memberPlayerIds.includes(entry.playerId)) continue
+
+    const memberKey = `${lobby.guildId}:${entry.playerId}`
+    let roleIds = memberRoleIdsByKey.get(memberKey)
+    if (!roleIds) {
+      roleIds = await fetchGuildMemberRoleIds(token, lobby.guildId, entry.playerId)
+      memberRoleIdsByKey.set(memberKey, roleIds)
+    }
+
+    if (!memberMeetsRankedRoleGate(roleIds, lobby.minRole, config)) {
+      return `This lobby requires at least ${gateLabel}.`
+    }
+  }
+
+  return null
 }
 
 export function collectFfaPlacementUserIds(vars: Record<string, any>): string[] {

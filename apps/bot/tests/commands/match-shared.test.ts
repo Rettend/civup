@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
-import { createLobby, getLobby } from '../../src/services/lobby.ts'
+import { createLobby, getLobby, setLobbyMinRole } from '../../src/services/lobby.ts'
 import { getQueueState } from '../../src/services/queue.ts'
+import { setRankedRoleCurrentRoles } from '../../src/services/ranked-roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 describe('match shared grouped join behavior', () => {
@@ -21,7 +22,6 @@ describe('match shared grouped join behavior', () => {
         joinEntry('p1', 'Player One', ['p2']),
         joinEntry('p2', 'Player Two', ['p1']),
       ],
-      'draft-channel',
     )
 
     expect('error' in outcome).toBe(false)
@@ -53,7 +53,6 @@ describe('match shared grouped join behavior', () => {
         joinEntry('p1', 'Player One', ['p2']),
         joinEntry('p2', 'Player Two', ['p1']),
       ],
-      'draft-channel',
     )
 
     const conflict = await joinLobbyAndMaybeStartMatch(
@@ -63,7 +62,6 @@ describe('match shared grouped join behavior', () => {
         joinEntry('p1', 'Player One', ['p3']),
         joinEntry('p3', 'Player Three', ['p1']),
       ],
-      'draft-channel',
     )
 
     expect('error' in conflict).toBe(true)
@@ -88,7 +86,6 @@ describe('match shared grouped join behavior', () => {
       { env: { KV: kv } },
       '3v3',
       [joinEntry('host', 'Host', [])],
-      'draft-channel',
     )
 
     const outcome = await joinLobbyAndMaybeStartMatch(
@@ -99,7 +96,6 @@ describe('match shared grouped join behavior', () => {
         joinEntry('p2', 'Player Two', ['p1', 'p3']),
         joinEntry('p3', 'Player Three', ['p1', 'p2']),
       ],
-      'draft-channel',
     )
 
     expect('error' in outcome).toBe(false)
@@ -121,7 +117,6 @@ describe('match shared grouped join behavior', () => {
       { env: { KV: kv } },
       '3v3',
       [joinEntry('host', 'Host', [])],
-      'draft-channel',
     )
 
     const outcome = await joinLobbyAndMaybeStartMatch(
@@ -131,13 +126,74 @@ describe('match shared grouped join behavior', () => {
         joinEntry('p1', 'Player One', ['p2']),
         joinEntry('p2', 'Player Two', ['p1']),
       ],
-      'draft-channel',
     )
 
     expect('error' in outcome).toBe(false)
 
     const lobby = await getLobby(kv, '3v3')
     expect(lobby?.slots).toEqual(['host', 'p1', 'p2', null, null, null])
+  })
+
+  test('role-gated lobbies reject players without the configured minimum role', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      guildId: 'guild-1',
+      hostId: 'host',
+      channelId: 'draft-channel',
+      messageId: 'message-1',
+    })
+
+    await setLobbyMinRole(kv, lobby.id, 'legion')
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      legion: '11111111111111111',
+    })
+
+    await withMockGuildMemberRoles({ challenger: [] }, async () => {
+      const outcome = await joinLobbyAndMaybeStartMatch(
+        { env: { KV: kv, DISCORD_TOKEN: 'token' } },
+        '2v2',
+        [joinEntry('challenger', 'Challenger', [])],
+      )
+
+      expect('error' in outcome).toBe(true)
+      if ('error' in outcome) expect(outcome.error).toContain('requires at least')
+    })
+  })
+
+  test('role-gated lobbies are skipped when another compatible lobby exists', async () => {
+    const { kv } = createTrackedKv()
+    const gatedLobby = await createLobby(kv, {
+      mode: '2v2',
+      guildId: 'guild-1',
+      hostId: 'host-1',
+      channelId: 'draft-channel',
+      messageId: 'message-1',
+    })
+    const openLobby = await createLobby(kv, {
+      mode: '2v2',
+      guildId: 'guild-1',
+      hostId: 'host-2',
+      channelId: 'draft-channel',
+      messageId: 'message-2',
+    })
+
+    await setLobbyMinRole(kv, gatedLobby.id, 'legion')
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      legion: '11111111111111111',
+    })
+
+    await withMockGuildMemberRoles({ challenger: [] }, async () => {
+      const outcome = await joinLobbyAndMaybeStartMatch(
+        { env: { KV: kv, DISCORD_TOKEN: 'token' } },
+        '2v2',
+        [joinEntry('challenger', 'Challenger', [])],
+      )
+
+      expect('error' in outcome).toBe(false)
+      if ('error' in outcome) return
+      expect(outcome.lobby.id).toBe(openLobby.id)
+    })
   })
 })
 
@@ -152,5 +208,28 @@ function joinEntry(playerId: string, displayName: string, partyIds: string[]): {
     displayName,
     avatarUrl: `https://example.com/${playerId}.png`,
     partyIds,
+  }
+}
+
+async function withMockGuildMemberRoles(
+  rolesByUserId: Record<string, string[]>,
+  run: () => Promise<void>,
+): Promise<void> {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input) => {
+    const url = String(input)
+    const match = url.match(/\/guilds\/[^/]+\/members\/([^/?]+)/)
+    const userId = match?.[1]
+    return new Response(JSON.stringify({ roles: userId ? (rolesByUserId[userId] ?? []) : [] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  try {
+    await run()
+  }
+  finally {
+    globalThis.fetch = originalFetch
   }
 }

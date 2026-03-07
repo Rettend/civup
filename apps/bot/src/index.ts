@@ -1,14 +1,15 @@
-import type { DraftWebhookPayload, GameMode } from '@civup/game'
-import type { LobbyState } from './services/lobby.ts'
+import type { CompetitiveTier, DraftWebhookPayload, GameMode } from '@civup/game'
 import type { Env } from './env.ts'
+import type { LobbyState } from './services/lobby.ts'
+import type { RankedRoleVisual } from './services/ranked-roles.ts'
 import { createDb, matches, matchParticipants, playerRatings } from '@civup/db'
-import { formatModeLabel, GAME_MODES, maxPlayerCount, minPlayerCount } from '@civup/game'
+import { COMPETITIVE_TIERS, formatModeLabel, GAME_MODES, maxPlayerCount, minPlayerCount } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import * as commands from './commands/index.ts'
 import * as cron from './cron/cleanup.ts'
-import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed, lobbyResultEmbed } from './embeds/match.ts'
+import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyResultEmbed } from './embeds/match.ts'
 import { clearLobbyMappings, createDraftRoom, getLobbyForUser, getMatchForChannel, getMatchForUser, storeMatchMapping, storeUserLobbyMappings, storeUserMatchMappings } from './services/activity.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from './services/config.ts'
 import { createChannelMessage } from './services/discord.ts'
@@ -24,21 +25,23 @@ import {
   rebuildQueueEntriesFromPremadeEdgeSet,
   slotToTeamIndex,
 } from './services/lobby-premades.ts'
+import { buildOpenLobbyRenderPayload } from './services/lobby-render.ts'
 import {
   attachLobbyMatch,
   clearLobbyById,
+  filterQueueEntriesForLobby,
+  getLobbiesByMode,
   getLobby,
   getLobbyByChannel,
   getLobbyById,
   getLobbyByMatch,
-  getLobbiesByMode,
   getOpenLobbyForPlayer,
-  filterQueueEntriesForLobby,
   mapLobbySlotsToEntries,
   normalizeLobbySlots,
   sameLobbySlots,
-  setLobbyMemberPlayerIds,
   setLobbyDraftConfig,
+  setLobbyMemberPlayerIds,
+  setLobbyMinRole,
   setLobbySlots,
   setLobbyStatus,
   touchLobby,
@@ -47,6 +50,15 @@ import {
 import { storeMatchMessageMapping } from './services/match-message.ts'
 import { activateDraftMatch, cancelDraftMatch, cancelMatchByModerator, createDraftMatch, reportMatch } from './services/match.ts'
 import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, moveQueueEntriesBetweenModes, setQueueEntries } from './services/queue.ts'
+import {
+  buildRankedRoleVisuals,
+  fallbackRoleLabel,
+  fetchGuildMemberRoleIds,
+  getRankedRoleConfig,
+  getRankedRoleGateError,
+  memberMeetsRankedRoleGate,
+
+} from './services/ranked-roles.ts'
 import { createStateStore } from './services/state-store.ts'
 import { getSystemChannel } from './services/system-channels.ts'
 import { factory } from './setup.ts'
@@ -164,6 +176,27 @@ app.get('/api/lobby/user/:userId', async (c) => {
   return c.json(await buildOpenLobbySnapshot(kv, mode, lobby))
 })
 
+// Ranked-role visuals for one open lobby (used by activity min-rank UI)
+app.get('/api/lobby-ranks/:mode/:lobbyId', async (c) => {
+  const mode = parseGameMode(c.req.param('mode'))
+  const lobbyId = c.req.param('lobbyId')
+  const kv = createStateStore(c.env)
+  if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
+  if (!lobbyId) return c.json({ error: 'lobbyId is required' }, 400)
+
+  const lobby = await getLobbyById(kv, lobbyId)
+  if (!lobby || lobby.mode !== mode || lobby.status !== 'open') {
+    return c.json({ error: 'No open lobby for this mode' }, 404)
+  }
+
+  const rankedRoleConfig = lobby.guildId
+    ? await getRankedRoleConfig(kv, lobby.guildId)
+    : emptyRankedRoleConfig()
+  const visuals = buildRankedRoleVisuals(rankedRoleConfig)
+
+  return c.json({ options: visuals })
+})
+
 // Host-only lobby config update (pre-draft)
 app.post('/api/lobby/:mode/config', async (c) => {
   const mode = parseGameMode(c.req.param('mode'))
@@ -184,10 +217,11 @@ app.post('/api/lobby/:mode/config', async (c) => {
     return c.json({ error: 'Invalid request body' }, 400)
   }
 
-  const { userId, banTimerSeconds, pickTimerSeconds, lobbyId } = body as {
+  const { userId, banTimerSeconds, pickTimerSeconds, minRole: minRoleRaw, lobbyId } = body as {
     userId?: string
     banTimerSeconds?: unknown
     pickTimerSeconds?: unknown
+    minRole?: unknown
     lobbyId?: unknown
   }
 
@@ -207,17 +241,67 @@ app.post('/api/lobby/:mode/config', async (c) => {
   }
   let lobby = resolvedLobby
 
+  const parsedMinRole = Object.prototype.hasOwnProperty.call(body, 'minRole')
+    ? parseLobbyMinRole(minRoleRaw)
+    : lobby.minRole
+  if (parsedMinRole === undefined) {
+    return c.json({ error: `minRole must be one of ${COMPETITIVE_TIERS.join(', ')}, or null` }, 400)
+  }
+  const normalizedMinRole = parsedMinRole
+  const minRoleChanged = normalizedMinRole !== lobby.minRole
+
   if (lobby.hostId !== userId) {
     return c.json({ error: 'Only the lobby host can update draft timers' }, 403)
   }
 
-  const updated = await setLobbyDraftConfig(kv, lobby.id, {
+  if (minRoleChanged && normalizedMinRole && !lobby.guildId) {
+    return c.json({ error: 'This lobby is missing guild context, so minimum rank cannot be set.' }, 400)
+  }
+
+  const queue = await getQueueState(kv, mode)
+  const lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
+
+  const rankedRoleConfig = lobby.guildId ? await getRankedRoleConfig(kv, lobby.guildId) : null
+  if (minRoleChanged && normalizedMinRole && rankedRoleConfig) {
+    const gateError = getRankedRoleGateError(rankedRoleConfig, normalizedMinRole)
+    if (gateError) return c.json({ error: gateError }, 400)
+
+    const memberGateError = await validateLobbyMembersAgainstMinRole(
+      c.env.DISCORD_TOKEN,
+      lobby,
+      lobbyQueueEntries,
+      rankedRoleConfig,
+      normalizedMinRole,
+    )
+    if (memberGateError) return c.json(memberGateError, 400)
+  }
+
+  const draftUpdated = await setLobbyDraftConfig(kv, lobby.id, {
     banTimerSeconds: normalizedBan,
     pickTimerSeconds: normalizedPick,
   }, lobby)
 
+  lobby = draftUpdated ?? lobby
+  const minRoleUpdated = await setLobbyMinRole(kv, lobby.id, normalizedMinRole, lobby)
+  const updated = minRoleUpdated ?? lobby
+
   if (!updated) {
     return c.json({ error: 'Lobby not found' }, 404)
+  }
+
+  const nextLobbyQueueEntries = buildLobbyQueueEntries(updated, queue.entries)
+  const slots = normalizeLobbySlots(mode, updated.slots, nextLobbyQueueEntries)
+  const slottedEntries = mapLobbySlotsToEntries(slots, nextLobbyQueueEntries)
+
+  try {
+    const renderPayload = await buildOpenLobbyRenderPayload(kv, updated, slottedEntries)
+    await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, updated, {
+      embeds: renderPayload.embeds,
+      components: renderPayload.components,
+    })
+  }
+  catch (error) {
+    console.error(`Failed to update lobby embed after config change in ${mode}:`, error)
   }
 
   return c.json(await buildOpenLobbySnapshot(kv, mode, updated))
@@ -313,9 +397,10 @@ app.post('/api/lobby/:mode/mode', async (c) => {
   const slottedEntries = mapLobbySlotsToEntries(normalizedNextSlots, movedLobbyQueueEntries)
 
   try {
+    const renderPayload = await buildOpenLobbyRenderPayload(kv, finalizedLobby, slottedEntries)
     await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, finalizedLobby, {
-      embeds: [lobbyOpenEmbed(nextMode, slottedEntries, maxPlayerCount(nextMode))],
-      components: lobbyComponents(nextMode, finalizedLobby.id),
+      embeds: renderPayload.embeds,
+      components: renderPayload.components,
     })
   }
   catch (error) {
@@ -408,6 +493,11 @@ app.post('/api/lobby/:mode/place', async (c) => {
       return c.json({ error: 'displayName is required when joining as spectator.' }, 400)
     }
 
+    const joinGateError = await validatePlayerAgainstLobbyMinRole(c.env.DISCORD_TOKEN, kv, lobby, movingPlayerId)
+    if (joinGateError) {
+      return c.json({ error: joinGateError }, 400)
+    }
+
     const joinResult = await addToQueue(kv, mode, {
       playerId: movingPlayerId,
       displayName,
@@ -480,9 +570,10 @@ app.post('/api/lobby/:mode/place', async (c) => {
 
   const slottedEntries = mapLobbySlotsToEntries(slots, lobbyQueueEntries)
   try {
+    const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
     await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
-      embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
-      components: lobbyComponents(mode, nextLobby.id),
+      embeds: renderPayload.embeds,
+      components: renderPayload.components,
     })
   }
   catch (error) {
@@ -560,9 +651,10 @@ app.post('/api/lobby/:mode/remove', async (c) => {
   const slottedEntries = mapLobbySlotsToEntries(slots, nextLobbyQueueEntries)
 
   try {
+    const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
     await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
-      embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
-      components: lobbyComponents(mode, nextLobby.id),
+      embeds: renderPayload.embeds,
+      components: renderPayload.components,
     })
   }
   catch (error) {
@@ -733,9 +825,10 @@ app.post('/api/lobby/:mode/arrange', async (c) => {
   const slottedEntries = mapLobbySlotsToEntries(arranged.slots, lobbyQueueEntries)
 
   try {
+    const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
     await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
-      embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
-      components: lobbyComponents(mode, nextLobby.id),
+      embeds: renderPayload.embeds,
+      components: renderPayload.components,
     })
   }
   catch (error) {
@@ -817,9 +910,10 @@ app.post('/api/lobby/:mode/fill-test', async (c) => {
   const slottedEntries = mapLobbySlotsToEntries(slots, buildLobbyQueueEntries(nextLobby, nextEntries))
 
   try {
+    const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
     await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
-      embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
-      components: lobbyComponents(mode, nextLobby.id),
+      embeds: renderPayload.embeds,
+      components: renderPayload.components,
     })
   }
   catch (error) {
@@ -902,9 +996,10 @@ app.post('/api/lobby/:mode/fill-active-test', async (c) => {
   const slottedEntries = mapLobbySlotsToEntries(slots, buildLobbyQueueEntries(nextLobby, nextEntries))
 
   try {
+    const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
     await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
-      embeds: [lobbyOpenEmbed(mode, slottedEntries, maxPlayerCount(mode))],
-      components: lobbyComponents(mode, nextLobby.id),
+      embeds: renderPayload.embeds,
+      components: renderPayload.components,
     })
   }
   catch (error) {
@@ -1474,6 +1569,7 @@ async function buildOpenLobbySnapshotFromParts(
     mode,
     hostId: lobby.hostId,
     status: lobby.status,
+    minRole: lobby.minRole,
     entries: slotEntries.map((entry) => {
       if (!entry) return null
       return {
@@ -1545,6 +1641,107 @@ function parseLobbyTimerSeconds(value: unknown): number | null | undefined {
   const rounded = Math.round(numeric)
   if (rounded < 0 || rounded > MAX_CONFIG_TIMER_SECONDS) return undefined
   return rounded
+}
+
+function parseLobbyMinRole(value: unknown): CompetitiveTier | null | undefined {
+  if (value == null) return null
+  if (typeof value === 'string' && value.trim().length === 0) return null
+  if (typeof value !== 'string') return undefined
+  return COMPETITIVE_TIERS.includes(value as CompetitiveTier) ? value as CompetitiveTier : undefined
+}
+
+async function validatePlayerAgainstLobbyMinRole(
+  token: string,
+  kv: KVNamespace,
+  lobby: LobbyState,
+  playerId: string,
+): Promise<string | null> {
+  if (!lobby.minRole) return null
+  if (!lobby.guildId) return 'This lobby is missing guild context, so rank gating is unavailable.'
+
+  const config = await getRankedRoleConfig(kv, lobby.guildId)
+  const gateError = getRankedRoleGateError(config, lobby.minRole)
+  if (gateError) return gateError
+  const visuals = buildRankedRoleVisuals(config)
+  const minRoleVisual = getRankedRoleVisualForTier(visuals, lobby.minRole)
+
+  const roleIds = await fetchGuildMemberRoleIds(token, lobby.guildId, playerId)
+  if (memberMeetsRankedRoleGate(roleIds, lobby.minRole, config)) return null
+  return `This lobby requires at least ${minRoleVisual?.label ?? fallbackRoleLabel(lobby.minRole)}.`
+}
+
+async function validateLobbyMembersAgainstMinRole(
+  token: string,
+  lobby: LobbyState,
+  lobbyQueueEntries: Awaited<ReturnType<typeof getQueueState>>['entries'],
+  config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
+  minRole: CompetitiveTier,
+): Promise<{
+  error: string
+  errorCode: string
+  context?: {
+    playerId: string
+    playerName: string
+    minRole: RankedRoleVisual
+  }
+} | null> {
+  if (!lobby.guildId) {
+    return {
+      error: 'This lobby is missing guild context, so rank gating is unavailable.',
+      errorCode: 'MIN_ROLE_CONTEXT_MISSING',
+    }
+  }
+
+  const visuals = buildRankedRoleVisuals(config)
+  const minRoleVisual = getRankedRoleVisualForTier(visuals, minRole)
+  if (!minRoleVisual) {
+    return {
+      error: `Minimum rank ${fallbackRoleLabel(minRole)} is not configured yet. Ask an admin to run /admin ranked roles.`,
+      errorCode: 'MIN_ROLE_NOT_CONFIGURED',
+    }
+  }
+  const queueEntryByPlayerId = new Map(lobbyQueueEntries.map(entry => [entry.playerId, entry]))
+
+  for (const playerId of lobby.memberPlayerIds) {
+    const roleIds = await fetchGuildMemberRoleIds(token, lobby.guildId, playerId)
+    if (memberMeetsRankedRoleGate(roleIds, minRole, config)) continue
+
+    const playerName = queueEntryByPlayerId.get(playerId)?.displayName ?? 'Unknown player'
+    return {
+      error: `${playerName} does not meet the new minimum rank ${minRoleVisual.label}.`,
+      errorCode: 'MIN_ROLE_MEMBER_MISMATCH',
+      context: {
+        playerId,
+        playerName,
+        minRole: minRoleVisual,
+      },
+    }
+  }
+
+  return null
+}
+
+function getRankedRoleVisualForTier(visuals: RankedRoleVisual[], tier: CompetitiveTier): RankedRoleVisual | null {
+  return visuals.find(visual => visual.tier === tier) ?? null
+}
+
+function emptyRankedRoleConfig(): Awaited<ReturnType<typeof getRankedRoleConfig>> {
+  return {
+    currentRoles: {
+      champion: null,
+      legion: null,
+      gladiator: null,
+      squire: null,
+      pleb: null,
+    },
+    currentRoleMeta: {
+      champion: { label: null, color: null },
+      legion: { label: null, color: null },
+      gladiator: { label: null, color: null },
+      squire: { label: null, color: null },
+      pleb: { label: null, color: null },
+    },
+  }
 }
 
 function parseHostIdFromDraftData(raw: string | null): string | null {

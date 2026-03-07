@@ -1,5 +1,5 @@
-import type { GameMode, QueueEntry } from '@civup/game'
-import { GAME_MODES, maxPlayerCount } from '@civup/game'
+import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
+import { COMPETITIVE_TIERS, GAME_MODES, maxPlayerCount } from '@civup/game'
 import { nanoid } from 'nanoid'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from './state-store.ts'
 
@@ -14,10 +14,12 @@ export interface LobbyState {
   id: string
   mode: GameMode
   status: LobbyStatus
+  guildId: string | null
   hostId: string
   channelId: string
   messageId: string
   matchId: string | null
+  minRole: CompetitiveTier | null
   /** Player IDs currently attached to this lobby (slotted or spectator). */
   memberPlayerIds: string[]
   /** Slot player IDs for open lobby ordering (null = empty slot) */
@@ -136,6 +138,7 @@ export async function createLobby(
   kv: KVNamespace,
   input: {
     mode: GameMode
+    guildId?: string | null
     hostId: string
     channelId: string
     messageId: string
@@ -149,10 +152,12 @@ export async function createLobby(
     id: nanoid(10),
     mode: input.mode,
     status: 'open',
+    guildId: normalizeGuildId(input.guildId),
     hostId: input.hostId,
     channelId: input.channelId,
     messageId: input.messageId,
     matchId: null,
+    minRole: null,
     memberPlayerIds: [input.hostId],
     slots,
     draftConfig: { ...DEFAULT_DRAFT_CONFIG },
@@ -266,6 +271,28 @@ export async function setLobbyDraftConfig(
   const updated: LobbyState = {
     ...lobby,
     draftConfig: normalizedDraftConfig,
+    updatedAt: Date.now(),
+    revision: lobby.revision + 1,
+  }
+  await putLobby(kv, updated)
+  return updated
+}
+
+export async function setLobbyMinRole(
+  kv: KVNamespace,
+  lobbyId: string,
+  minRole: CompetitiveTier | null,
+  currentLobby?: LobbyState,
+): Promise<LobbyState | null> {
+  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
+  if (!lobby) return null
+
+  const normalizedMinRole = normalizeCompetitiveTier(minRole)
+  if (lobby.minRole === normalizedMinRole) return lobby
+
+  const updated: LobbyState = {
+    ...lobby,
+    minRole: normalizedMinRole,
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
@@ -455,11 +482,19 @@ function normalizeLobby(raw: StoredLobbyState | LobbyState): LobbyState {
   return {
     ...raw,
     id: typeof raw.id === 'string' && raw.id.length > 0 ? raw.id : nanoid(10),
+    guildId: normalizeGuildId(raw.guildId),
     slots: normalizeStoredSlots(raw.mode, raw.slots),
     draftConfig: normalizeDraftConfig(raw.draftConfig),
+    minRole: normalizeCompetitiveTier(raw.minRole),
     memberPlayerIds: normalizeMemberPlayerIds(raw.memberPlayerIds),
     revision: normalizeLobbyRevision(raw.revision),
   }
+}
+
+function normalizeGuildId(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
 }
 
 function normalizeStoredSlots(mode: GameMode, value: unknown): (string | null)[] {
@@ -506,6 +541,11 @@ function normalizeTimerSeconds(value: unknown): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value)) return null
   const rounded = Math.round(value)
   return rounded >= 0 ? rounded : null
+}
+
+function normalizeCompetitiveTier(value: unknown): CompetitiveTier | null {
+  if (typeof value !== 'string') return null
+  return COMPETITIVE_TIERS.includes(value as CompetitiveTier) ? value as CompetitiveTier : null
 }
 
 function normalizeLobbyRevision(value: unknown): number {

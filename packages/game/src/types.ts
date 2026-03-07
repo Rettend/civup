@@ -6,15 +6,36 @@ export type GameMode = 'ffa' | '1v1' | '2v2' | '3v3'
 /** Leaderboard tracks (teamers combines 2v2 + 3v3) */
 export type LeaderboardMode = 'ffa' | 'duel' | 'teamers'
 
+/** Live competitive rank tiers used for role gates and ranked roles. */
+export type CompetitiveTier = 'pleb' | 'squire' | 'gladiator' | 'legion' | 'champion'
+
 export const GAME_MODES = ['ffa', '1v1', '2v2', '3v3'] as const satisfies readonly GameMode[]
 
 export const LEADERBOARD_MODES = ['ffa', 'duel', 'teamers'] as const satisfies readonly LeaderboardMode[]
+
+export const COMPETITIVE_TIERS = ['pleb', 'squire', 'gladiator', 'legion', 'champion'] as const satisfies readonly CompetitiveTier[]
 
 /** Map game mode to its leaderboard track */
 export function toLeaderboardMode(mode: GameMode): LeaderboardMode {
   if (mode === '2v2' || mode === '3v3') return 'teamers'
   if (mode === '1v1') return 'duel'
   return 'ffa'
+}
+
+/** Whether one competitive tier satisfies another tier's minimum gate. */
+export function competitiveTierMeetsMinimum(current: CompetitiveTier | null, minimum: CompetitiveTier | null): boolean {
+  if (minimum == null) return true
+  if (current == null) return false
+  return competitiveTierRank(current) >= competitiveTierRank(minimum)
+}
+
+/** Numeric order for comparing competitive tier prestige. */
+export function competitiveTierRank(tier: CompetitiveTier): number {
+  if (tier === 'pleb') return 0
+  if (tier === 'squire') return 1
+  if (tier === 'gladiator') return 2
+  if (tier === 'legion') return 3
+  return 4
 }
 
 /** Whether a game mode is team-based */

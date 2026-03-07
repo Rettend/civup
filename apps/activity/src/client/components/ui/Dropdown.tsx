@@ -5,6 +5,7 @@ import { cn } from '~/client/lib/css'
 interface DropdownOption {
   value: string
   label: string
+  render?: () => JSX.Element
 }
 
 interface DropdownProps {
@@ -20,9 +21,14 @@ export function Dropdown(props: DropdownProps) {
   const [open, setOpen] = createSignal(false)
   let containerRef: HTMLDivElement | undefined
 
-  const selectedLabel = () => {
-    const option = props.options.find(o => o.value === props.value)
-    return option?.label ?? props.value ?? ''
+  const selectedOption = () => props.options.find(o => o.value === props.value)
+
+  const fallbackValue = () => props.value ?? ''
+
+  const renderSelected = () => {
+    const option = selectedOption()
+    if (option?.render) return option.render()
+    return option?.label ?? fallbackValue()
   }
 
   const handleSelect = (value: string) => {
@@ -99,7 +105,7 @@ export function Dropdown(props: DropdownProps) {
             open() && 'border-accent-gold/50 bg-bg-primary/80',
           )}
         >
-          <span class="truncate">{selectedLabel()}</span>
+          <span class="min-w-0 truncate">{renderSelected()}</span>
           <span
             class={cn(
               'i-ph-caret-down text-xs text-text-muted transition-transform duration-150',
@@ -131,7 +137,7 @@ export function Dropdown(props: DropdownProps) {
                       : 'text-text-secondary hover:bg-white/6 hover:text-text-primary',
                   )}
                 >
-                  {option.label}
+                  {option.render ? option.render() : option.label}
                 </button>
               )}
             </For>

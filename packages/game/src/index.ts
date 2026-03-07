@@ -5,6 +5,7 @@ export { allLeaderIds, getLeader, leaderMap, leaders, searchLeaders } from './le
 export { formatModeLabel } from './mode.ts'
 export type { ClientMessage, DraftCancelledWebhookPayload, DraftCompleteWebhookPayload, DraftWebhookPayload, RoomConfig, ServerMessage } from './protocol.ts'
 export type {
+  CompetitiveTier,
   DraftAction,
   DraftCancelReason,
   DraftError,
@@ -26,4 +27,18 @@ export type {
   QueueEntry,
   QueueState,
 } from './types.ts'
-export { canStartWithPlayerCount, defaultPlayerCount, GAME_MODES, isTeamMode, LEADERBOARD_MODES, maxPlayerCount, minPlayerCount, playersPerTeam, teamCount, toLeaderboardMode } from './types.ts'
+export {
+  canStartWithPlayerCount,
+  COMPETITIVE_TIERS,
+  competitiveTierMeetsMinimum,
+  competitiveTierRank,
+  defaultPlayerCount,
+  GAME_MODES,
+  isTeamMode,
+  LEADERBOARD_MODES,
+  maxPlayerCount,
+  minPlayerCount,
+  playersPerTeam,
+  teamCount,
+  toLeaderboardMode,
+} from './types.ts'

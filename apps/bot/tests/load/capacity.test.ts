@@ -443,7 +443,6 @@ async function simulateMatchJoin(kv: KVNamespace): Promise<void> {
       displayName: 'Guest',
       avatarUrl: '',
     }],
-    'channel-draft',
   )
   if ('error' in outcome) throw new Error(outcome.error)
 }

@@ -49,13 +49,14 @@ const STAGE_COLORS: Record<LobbyStage, number> = {
   'scrubbed': 0xA8B1BD,
 }
 
-export function lobbyOpenEmbed(mode: GameMode, entries: (QueueEntry | null)[], targetSize: number): Embed {
+export function lobbyOpenEmbed(mode: GameMode, entries: (QueueEntry | null)[], targetSize: number, minRoleId?: string | null): Embed {
   const embed = baseLobbyEmbed(mode, 'open')
+  const minRoleField = minRoleId ? { name: 'Min Rank', value: `<@&${minRoleId}>`, inline: false } : null
 
   if (mode === '1v1') {
     const p1 = entries[0]?.playerId
     const p2 = entries[1]?.playerId
-    return embed.fields(
+    const fields = [
       {
         name: 'Team A',
         value: `1. ${p1 ? `<@${p1}>` : '`[empty]`'}`,
@@ -66,7 +67,8 @@ export function lobbyOpenEmbed(mode: GameMode, entries: (QueueEntry | null)[], t
         value: `1. ${p2 ? `<@${p2}>` : '`[empty]`'}`,
         inline: true,
       },
-    )
+    ]
+    return minRoleField ? embed.fields(minRoleField, ...fields) : embed.fields(...fields)
   }
 
   if (mode === '2v2' || mode === '3v3') {
@@ -80,10 +82,11 @@ export function lobbyOpenEmbed(mode: GameMode, entries: (QueueEntry | null)[], t
       return `${i + 1}. ${playerId ? `<@${playerId}>` : '`[empty]`'}`
     }).join('\n')
 
-    return embed.fields(
+    const fields = [
       { name: 'Team A', value: teamALines, inline: true },
       { name: 'Team B', value: teamBLines, inline: true },
-    )
+    ]
+    return minRoleField ? embed.fields(minRoleField, ...fields) : embed.fields(...fields)
   }
 
   const half = Math.ceil(targetSize / 2)
@@ -97,10 +100,11 @@ export function lobbyOpenEmbed(mode: GameMode, entries: (QueueEntry | null)[], t
     return `${seat + 1}. ${playerId ? `<@${playerId}>` : '`[empty]`'}`
   }).join('\n')
 
-  return embed.fields(
+  const fields = [
     { name: 'Slots', value: firstColumn, inline: true },
     { name: 'Slots', value: secondColumn || '\u200B', inline: true },
-  )
+  ]
+  return minRoleField ? embed.fields(minRoleField, ...fields) : embed.fields(...fields)
 }
 
 export function lobbyDraftingEmbed(mode: GameMode, seats: DraftSeat[]): Embed {
