@@ -54,6 +54,18 @@ export function initDraft(
   })
 }
 
+export function resetDraft() {
+  setDraftStore({
+    state: null,
+    hostId: null,
+    seatIndex: null,
+    timerEndsAt: null,
+    completedAt: null,
+    lastEvents: [],
+    optimisticSeatPicks: {},
+  })
+}
+
 export function updateDraft(
   state: DraftState,
   hostId: string,

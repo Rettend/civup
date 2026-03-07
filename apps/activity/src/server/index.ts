@@ -42,7 +42,12 @@ export default {
       if (url.pathname.startsWith('/api/parties/')) {
         return await handlePartyProxy(request, url, env)
       }
-      if (url.pathname.startsWith('/api/match/') || url.pathname.startsWith('/api/lobby/') || url.pathname.startsWith('/api/lobby-ranks/')) {
+      if (
+        url.pathname.startsWith('/api/activity/')
+        || url.pathname.startsWith('/api/match/')
+        || url.pathname.startsWith('/api/lobby/')
+        || url.pathname.startsWith('/api/lobby-ranks/')
+      ) {
         return await handleMatchProxy(request, url, env)
       }
       return new Response(null, { status: 404 })
@@ -184,7 +189,8 @@ function shouldWarnForMatchProxy(method: string, pathname: string, status: numbe
   if (status !== 404 || method.toUpperCase() !== 'GET') return true
 
   return !(
-    pathname.startsWith('/api/match/')
+    pathname.startsWith('/api/activity/')
+    || pathname.startsWith('/api/match/')
     || pathname.startsWith('/api/lobby/')
     || pathname.startsWith('/api/lobby-ranks/')
   )

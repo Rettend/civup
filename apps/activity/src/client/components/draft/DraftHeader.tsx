@@ -20,8 +20,13 @@ import {
 import { Button } from '../ui'
 import { BanSquare } from './BanSquare'
 
+interface DraftHeaderProps {
+  onSwitchTarget?: () => void
+  canSwitchTarget?: boolean
+}
+
 /** Header bar: bans on left/right, phase label centered, timer with shrinking line */
-export function DraftHeader() {
+export function DraftHeader(props: DraftHeaderProps) {
   const state = () => draftStore.state
   const accent = () => phaseAccent()
   const amHost = () => userId() === draftStore.hostId
@@ -268,7 +273,16 @@ export function DraftHeader() {
         </Show>
 
         {/* Right bans (team mode) or empty */}
-        <div class="flex gap-1.5 items-center">
+        <div class="flex gap-2 items-center">
+          <Show when={props.onSwitchTarget && props.canSwitchTarget}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => props.onSwitchTarget?.()}
+            >
+              Switch
+            </Button>
+          </Show>
           <Show when={isTeamMode()}>
             <For each={rightBans()}>
               {civId => <BanSquare civId={civId} />}

@@ -3,7 +3,7 @@ import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel } from '@civup/game'
 import { Button } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { getMatchForUser, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity.ts'
+import { getMatchForUser, storeUserActivityTarget, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity.ts'
 import { sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
 import { upsertLobbyMessage } from '../../services/lobby-message.ts'
 import { clearLobbyById, getLobbyById } from '../../services/lobby.ts'
@@ -44,6 +44,10 @@ export const component_match_join = factory.component(
       }
 
       if (userMatchId) {
+        const interactionChannelId = c.interaction.channel_id ?? null
+        if (interactionChannelId) {
+          await storeUserActivityTarget(kv, interactionChannelId, [identity.userId], { kind: 'match', id: userMatchId })
+        }
         c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], userMatchId))
         return c.resActivity()
       }
@@ -59,10 +63,12 @@ export const component_match_join = factory.component(
           await sendTransientEphemeralResponse(c, 'This lobby was stale and has been cleared. Use `/match create` to start a fresh lobby.', 'error')
         })
       }
+      await storeUserActivityTarget(kv, lobby.channelId, [identity.userId], { kind: 'match', id: lobby.matchId })
       c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], lobby.matchId))
       return c.resActivity()
     }
 
+    await storeUserActivityTarget(kv, lobby.channelId, [identity.userId], { kind: 'lobby', id: lobby.id })
     c.executionCtx.waitUntil(storeUserLobbyMappings(kv, [identity.userId], lobby.id))
 
     // Keep component response fast so Discord doesn't time out launch-activity interactions.

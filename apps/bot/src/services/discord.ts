@@ -79,6 +79,23 @@ export async function editChannelMessage(
   )
 }
 
+export async function deleteChannelMessage(
+  token: string,
+  channelId: string,
+  messageId: string,
+): Promise<void> {
+  await requestDiscord(
+    'delete message',
+    `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`,
+    {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bot ${token}`,
+      },
+    },
+  )
+}
+
 export async function editGuildMemberRoles(
   token: string,
   guildId: string,
