@@ -21,6 +21,7 @@ import { upsertLeaderboardMessagesForChannel } from '../services/leaderboard-mes
 import { addModRole, getModRoleIds, hasAdminPermission, removeModRole } from '../services/permissions'
 import { previewRankedRoles, syncRankedRoles } from '../services/ranked-role-sync.ts'
 import { fallbackRoleLabel, fetchGuildRoles, getRankedRoleConfig, RANKED_TIERS_BY_PRESTIGE, setRankedRoleCurrentRoles } from '../services/ranked-roles.ts'
+import { endSeason, startSeason } from '../services/seasons.ts'
 import { clearLeaderboardDirtyState, clearLeaderboardMessageState, clearSystemChannel, getSystemChannel, setSystemChannel } from '../services/system-channels'
 import { factory } from '../setup'
 
@@ -537,15 +538,27 @@ export const component_admin_season_confirm = factory.component(
 
       if (pending.action === 'start') {
         const seasonName = pending.seasonName ?? 'Season'
-        const _db = createDb(c.env.DB)
-        // TODO: implement startSeason service
-        await sendTransientEphemeralResponse(c, `**${seasonName}** has started! Season lifecycle service is not implemented yet.`, 'info')
+        try {
+          const db = createDb(c.env.DB)
+          const season = await startSeason(db, { name: seasonName })
+          await sendTransientEphemeralResponse(c, `Started **S${season.seasonNumber} ${season.name}**. New matches will now count toward this season.`, 'success')
+        }
+        catch (error) {
+          const message = error instanceof Error ? error.message : 'Failed to start the season.'
+          await sendTransientEphemeralResponse(c, message, 'error')
+        }
         return
       }
 
-      const _db = createDb(c.env.DB)
-      // TODO: implement endSeason service
-      await sendTransientEphemeralResponse(c, 'Season has ended! Season lifecycle service is not implemented yet.', 'info')
+      try {
+        const db = createDb(c.env.DB)
+        const season = await endSeason(db)
+        await sendTransientEphemeralResponse(c, `Ended **S${season.seasonNumber} ${season.name}**. Season peaks are now frozen in storage.`, 'success')
+      }
+      catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to end the season.'
+        await sendTransientEphemeralResponse(c, message, 'error')
+      }
     })
   },
 )
