@@ -1,6 +1,6 @@
 import { For } from 'solid-js'
 import { cn } from '~/client/lib/css'
-import { draftStore } from '~/client/stores'
+import { draftStore, selectedWinningTeam, userId } from '~/client/stores'
 import { PlayerSlot } from './PlayerSlot'
 
 /** Arranges PlayerSlots for team (left/right + center gap with "vs") and FFA (2-row grid) */
@@ -8,6 +8,8 @@ export function SlotStrip() {
   const state = () => draftStore.state
   const isTeamMode = () => state()?.seats.some(s => s.team != null) ?? false
   const seatCount = () => state()?.seats.length ?? 0
+  const amHost = () => userId() === draftStore.hostId
+  const isTeamResultMode = () => state()?.status === 'complete' && isTeamMode() && amHost()
 
   const leftSeats = () => {
     const s = state()
@@ -33,6 +35,18 @@ export function SlotStrip() {
     return Array.from({ length: count - perRow }, (_, i) => perRow + i)
   }
 
+  const teamWrapperClass = (team: 0 | 1) => {
+    if (!isTeamResultMode()) return ''
+    const selectedTeam = selectedWinningTeam()
+    if (selectedTeam === team) {
+      return 'border-accent-gold/55 bg-accent-gold/8 shadow-[0_0_0_1px_rgba(200,170,110,0.12),0_0_32px_rgba(200,170,110,0.08)]'
+    }
+    if (selectedTeam != null) {
+      return 'border-white/8 bg-black/20'
+    }
+    return 'border-white/10 bg-white/[0.02]'
+  }
+
   return (
     <div class="flex flex-1 min-h-0 items-end justify-center">
       {/* Team mode layout */}
@@ -40,13 +54,20 @@ export function SlotStrip() {
         <div class="slot-strip-team flex h-full w-full items-end justify-center">
           {/* Left team */}
           <div class="flex flex-1 h-full items-stretch justify-end">
-            <For each={leftSeats()}>
-              {seatIdx => (
-                <div class="slot-cell border-r border-white/10 last:border-r-0">
-                  <PlayerSlot seatIndex={seatIdx} />
-                </div>
-              )}
-            </For>
+            <div class={cn(
+              'flex h-full w-full items-stretch justify-end overflow-hidden transition-all duration-300',
+              isTeamResultMode() && 'm-2 rounded-2xl border p-1',
+              teamWrapperClass(0),
+            )}
+            >
+              <For each={leftSeats()}>
+                {seatIdx => (
+                  <div class="slot-cell border-r border-white/10 last:border-r-0">
+                    <PlayerSlot seatIndex={seatIdx} />
+                  </div>
+                )}
+              </For>
+            </div>
           </div>
 
           {/* Center gap */}
@@ -56,13 +77,20 @@ export function SlotStrip() {
 
           {/* Right team */}
           <div class="flex flex-1 h-full items-stretch justify-start">
-            <For each={rightSeats()}>
-              {seatIdx => (
-                <div class="slot-cell border-l border-white/10 first:border-l-0">
-                  <PlayerSlot seatIndex={seatIdx} />
-                </div>
-              )}
-            </For>
+            <div class={cn(
+              'flex h-full w-full items-stretch justify-start overflow-hidden transition-all duration-300',
+              isTeamResultMode() && 'm-2 rounded-2xl border p-1',
+              teamWrapperClass(1),
+            )}
+            >
+              <For each={rightSeats()}>
+                {seatIdx => (
+                  <div class="slot-cell border-l border-white/10 first:border-l-0">
+                    <PlayerSlot seatIndex={seatIdx} />
+                  </div>
+                )}
+              </For>
+            </div>
           </div>
         </div>
       )}
