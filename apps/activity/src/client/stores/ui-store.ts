@@ -16,6 +16,7 @@ export const [detailLeaderId, setDetailLeaderId] = createSignal<string | null>(n
 export const [isMiniView, setIsMiniView] = createSignal(false)
 export const [ffaPlacementOrder, setFfaPlacementOrder] = createSignal<number[]>([])
 export const [selectedWinningTeam, setSelectedWinningTeam] = createSignal<0 | 1 | null>(null)
+export const [resultSelectionsLocked, setResultSelectionsLocked] = createSignal(false)
 
 // ── Phase Accent ───────────────────────────────────────────
 
@@ -115,4 +116,5 @@ export function clearWinningTeam() {
 export function clearResultSelections() {
   setFfaPlacementOrder([])
   setSelectedWinningTeam(null)
+  setResultSelectionsLocked(false)
 }

@@ -1,4 +1,4 @@
-import { For } from 'solid-js'
+import { For, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import { draftStore, selectedWinningTeam, userId } from '~/client/stores'
 import { PlayerSlot } from './PlayerSlot'
@@ -36,15 +36,35 @@ export function SlotStrip() {
   }
 
   const teamWrapperClass = (team: 0 | 1) => {
-    if (!isTeamResultMode()) return ''
+    return ''
+  }
+
+  const teamWrapperOverlayClass = (team: 0 | 1) => {
+    if (!isTeamResultMode()) return 'hidden'
     const selectedTeam = selectedWinningTeam()
     if (selectedTeam === team) {
-      return 'border-accent-gold/55 bg-accent-gold/8 shadow-[0_0_0_1px_rgba(200,170,110,0.12),0_0_32px_rgba(200,170,110,0.08)]'
+      return 'shadow-[inset_0_0_0_2px_rgba(200,170,110,0.58),inset_0_0_28px_rgba(200,170,110,0.14)]'
     }
     if (selectedTeam != null) {
-      return 'border-white/8 bg-black/20'
+      return 'bg-black/20 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]'
     }
-    return 'border-white/10 bg-white/[0.02]'
+    // No border when nothing is selected yet — overlay stays invisible
+    return 'hidden'
+  }
+
+  const teamOverlayWidth = (slotCount: number) => {
+    // Each .slot-cell is flex: 1 1 0 with max-width: 400px.
+    // Inter-slot borders: (N-1) * 1px (border-r on all but last).
+    return `min(${slotCount * 400 + Math.max(0, slotCount - 1)}px, 100%)`
+  }
+
+  /** Dramatic golden radial glow — three layers emanating from bottom center */
+  const winnerGlowStyle = {
+    background: [
+      'radial-gradient(ellipse farthest-side at 50% 130%, rgba(200,170,110,0.38) 0%, rgba(200,170,110,0.14) 40%, transparent 72%)',
+      'radial-gradient(ellipse closest-side at 50% 100%, rgba(255,215,100,0.26) 0%, transparent 55%)',
+      'linear-gradient(to top, rgba(200,170,110,0.10) 0%, transparent 40%)',
+    ].join(', '),
   }
 
   return (
@@ -55,14 +75,36 @@ export function SlotStrip() {
           {/* Left team */}
           <div class="flex flex-1 h-full items-stretch justify-end">
             <div class={cn(
-              'flex h-full w-full items-stretch justify-end overflow-hidden transition-all duration-300',
-              isTeamResultMode() && 'm-2 rounded-2xl border p-1',
+              'relative flex h-full w-full items-stretch justify-end overflow-hidden transition-all duration-300',
               teamWrapperClass(0),
             )}
             >
+              <Show when={isTeamResultMode()}>
+                <div
+                  class={cn('pointer-events-none absolute inset-y-0 right-0 z-30', teamWrapperOverlayClass(0))}
+                  style={{ width: teamOverlayWidth(leftSeats().length) }}
+                />
+              </Show>
+              <Show when={isTeamResultMode() && selectedWinningTeam() === 0}>
+                <div
+                  class="pointer-events-none absolute inset-y-0 right-0 z-40 flex items-center justify-center"
+                  style={{ width: teamOverlayWidth(leftSeats().length) }}
+                >
+                  <div class="anim-fade-in flex h-16 w-16 items-center justify-center rounded-full border border-[#f4dca8]/45 bg-accent-gold text-[#17130d] shadow-[0_0_14px_-3px_rgba(200,170,110,0.8),0_0_44px_-8px_rgba(200,170,110,0.45),0_0_80px_-12px_rgba(200,170,110,0.2),0_4px_16px_rgba(0,0,0,0.35)]">
+                    <span class="i-ph:trophy-fill text-[30px]" />
+                  </div>
+                </div>
+              </Show>
+              {/* Full-width dramatic bottom glow for winning team */}
+              <Show when={isTeamResultMode() && selectedWinningTeam() === 0}>
+                <div
+                  class="anim-fade-in pointer-events-none absolute inset-0 z-20"
+                  style={winnerGlowStyle}
+                />
+              </Show>
               <For each={leftSeats()}>
                 {seatIdx => (
-                  <div class="slot-cell border-r border-white/10 last:border-r-0">
+                  <div class="slot-cell">
                     <PlayerSlot seatIndex={seatIdx} />
                   </div>
                 )}
@@ -78,14 +120,36 @@ export function SlotStrip() {
           {/* Right team */}
           <div class="flex flex-1 h-full items-stretch justify-start">
             <div class={cn(
-              'flex h-full w-full items-stretch justify-start overflow-hidden transition-all duration-300',
-              isTeamResultMode() && 'm-2 rounded-2xl border p-1',
+              'relative flex h-full w-full items-stretch justify-start overflow-hidden transition-all duration-300',
               teamWrapperClass(1),
             )}
             >
+              <Show when={isTeamResultMode()}>
+                <div
+                  class={cn('pointer-events-none absolute inset-y-0 left-0 z-30', teamWrapperOverlayClass(1))}
+                  style={{ width: teamOverlayWidth(rightSeats().length) }}
+                />
+              </Show>
+              <Show when={isTeamResultMode() && selectedWinningTeam() === 1}>
+                <div
+                  class="pointer-events-none absolute inset-y-0 left-0 z-40 flex items-center justify-center"
+                  style={{ width: teamOverlayWidth(rightSeats().length) }}
+                >
+                  <div class="anim-fade-in flex h-16 w-16 items-center justify-center rounded-full border border-[#f4dca8]/45 bg-accent-gold text-[#17130d] shadow-[0_0_14px_-3px_rgba(200,170,110,0.8),0_0_44px_-8px_rgba(200,170,110,0.45),0_0_80px_-12px_rgba(200,170,110,0.2),0_4px_16px_rgba(0,0,0,0.35)]">
+                    <span class="i-ph:trophy-fill text-[30px]" />
+                  </div>
+                </div>
+              </Show>
+              {/* Full-width dramatic bottom glow for winning team */}
+              <Show when={isTeamResultMode() && selectedWinningTeam() === 1}>
+                <div
+                  class="anim-fade-in pointer-events-none absolute inset-0 z-20"
+                  style={winnerGlowStyle}
+                />
+              </Show>
               <For each={rightSeats()}>
                 {seatIdx => (
-                  <div class="slot-cell border-l border-white/10 first:border-l-0">
+                  <div class="slot-cell">
                     <PlayerSlot seatIndex={seatIdx} />
                   </div>
                 )}

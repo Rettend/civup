@@ -243,9 +243,11 @@ export async function activateDraftMatch(
   if (isTeamMode(gameMode)) {
     const picksByTeam = new Map<number, string[]>()
     for (const pick of input.state.picks) {
-      const teamPicks = picksByTeam.get(pick.seatIndex) ?? []
+      const team = input.state.seats[pick.seatIndex]?.team
+      if (team == null) continue
+      const teamPicks = picksByTeam.get(team) ?? []
       teamPicks.push(pick.civId)
-      picksByTeam.set(pick.seatIndex, teamPicks)
+      picksByTeam.set(team, teamPicks)
     }
 
     const teamPickOffsets = new Map<number, number>()
@@ -448,9 +450,11 @@ function mapCivsFromDraftState(
 
     const picksByTeam = new Map<number, string[]>()
     for (const pick of state.picks) {
-      const teamPicks = picksByTeam.get(pick.seatIndex) ?? []
+      const team = state.seats[pick.seatIndex]?.team
+      if (team == null) continue
+      const teamPicks = picksByTeam.get(team) ?? []
       teamPicks.push(pick.civId)
-      picksByTeam.set(pick.seatIndex, teamPicks)
+      picksByTeam.set(team, teamPicks)
     }
 
     const teamPickOffsets = new Map<number, number>()

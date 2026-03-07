@@ -3,50 +3,75 @@ import type { DraftFormat, DraftStep } from './types.ts'
 /**
  * 2v2 Format:
  * - 3 blind bans per team (simultaneous)
- * - Captains submit bans/picks (seat 0 = Team A captain, seat 1 = Team B captain)
- * - Team A picks 1
- * - Team B picks 2
- * - Team A picks 1
+ * - Captains submit bans (seat 0 = Team A captain, seat 1 = Team B captain)
+ * - Full rosters pick individually in snake order: A1, B1, B2, A2
+ * - Legacy 2-seat rooms keep captain-only pick ownership
  */
 export const default2v2: DraftFormat = {
   id: 'default-2v2',
   name: '2v2',
   gameMode: '2v2',
   blindBans: true,
-  getSteps(_seatCount: number): DraftStep[] {
-    // Seats: 0 = Team A captain, 1 = Team B captain
-    return [
-      // Phase 1: Both captains ban 3 simultaneously (blind)
+  getSteps(seatCount: number): DraftStep[] {
+    const steps: DraftStep[] = [
       { action: 'ban', seats: [0, 1], count: 3, timer: 120 },
-      // Phase 2: Team A picks 1
-      { action: 'pick', seats: [0], count: 1, timer: 60 },
-      // Phase 3: Team B picks 2
-      { action: 'pick', seats: [1], count: 2, timer: 90 },
-      // Phase 4: Team A picks 1
-      { action: 'pick', seats: [0], count: 1, timer: 60 },
     ]
+
+    if (seatCount >= 4) {
+      steps.push(
+        { action: 'pick', seats: [0], count: 1, timer: 60 },
+        { action: 'pick', seats: [1], count: 1, timer: 60 },
+        { action: 'pick', seats: [3], count: 1, timer: 60 },
+        { action: 'pick', seats: [2], count: 1, timer: 60 },
+      )
+      return steps
+    }
+
+    steps.push(
+      { action: 'pick', seats: [0], count: 1, timer: 60 },
+      { action: 'pick', seats: [1], count: 2, timer: 90 },
+      { action: 'pick', seats: [0], count: 1, timer: 60 },
+    )
+    return steps
   },
 }
 
 /**
  * 3v3 Format:
  * - 3 blind bans per team (simultaneous)
- * - Captains submit bans/picks (seat 0 = Team A captain, seat 1 = Team B captain)
- * - Snake pick: T1-T2-T2-T1-T1-T2
+ * - Captains submit bans (seat 0 = Team A captain, seat 1 = Team B captain)
+ * - Full rosters pick individually in snake order: A1, B1, B2, A2, A3, B3
+ * - Legacy 2-seat rooms keep captain-only pick ownership
  */
 export const default3v3: DraftFormat = {
   id: 'default-3v3',
   name: '3v3',
   gameMode: '3v3',
   blindBans: true,
-  getSteps(_seatCount: number): DraftStep[] {
-    return [
+  getSteps(seatCount: number): DraftStep[] {
+    const steps: DraftStep[] = [
       { action: 'ban', seats: [0, 1], count: 3, timer: 120 },
+    ]
+
+    if (seatCount >= 6) {
+      steps.push(
+        { action: 'pick', seats: [0], count: 1, timer: 60 },
+        { action: 'pick', seats: [1], count: 1, timer: 60 },
+        { action: 'pick', seats: [3], count: 1, timer: 60 },
+        { action: 'pick', seats: [2], count: 1, timer: 60 },
+        { action: 'pick', seats: [4], count: 1, timer: 60 },
+        { action: 'pick', seats: [5], count: 1, timer: 60 },
+      )
+      return steps
+    }
+
+    steps.push(
       { action: 'pick', seats: [0], count: 1, timer: 60 },
       { action: 'pick', seats: [1], count: 2, timer: 90 },
       { action: 'pick', seats: [0], count: 2, timer: 90 },
       { action: 'pick', seats: [1], count: 1, timer: 60 },
-    ]
+    )
+    return steps
   },
 }
 
