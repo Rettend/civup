@@ -1,4 +1,4 @@
-import { isLocalHost, normalizeHost } from '@civup/utils'
+import { isDev, normalizeHost } from '@civup/utils'
 
 interface Env {
   DISCORD_CLIENT_ID: string
@@ -127,19 +127,7 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
 
 function shouldUseBotServiceBinding(request: Request, env: Env): boolean {
   if (!env.BOT) return false
-  if (import.meta.env.DEV) return false
-
-  const requestHost = new URL(request.url).hostname.toLowerCase()
-  if (isLocalHost(requestHost) || requestHost.includes('-dev.')) {
-    return false
-  }
-
-  if (env.BOT_HOST) {
-    const botHost = normalizeHost(env.BOT_HOST, 'http://localhost:8787').toLowerCase()
-    if (isLocalHost(botHost) || botHost.includes('-dev.')) {
-      return false
-    }
-  }
+  if (isDev({ viteDev: import.meta.env.DEV, host: request.url, configuredHosts: [env.BOT_HOST] })) return false
 
   return true
 }

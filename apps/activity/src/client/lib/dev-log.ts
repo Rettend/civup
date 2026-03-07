@@ -1,4 +1,6 @@
 /* eslint-disable no-console */
+import { isDev } from './is-dev'
+
 type DevLogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 interface DevLogPayload {
@@ -11,14 +13,7 @@ interface DevLogPayload {
 }
 
 export function shouldRelayDevLog() {
-  if (typeof window === 'undefined') return false
-  if (import.meta.env.DEV) return true
-
-  const host = window.location.hostname.trim().toLowerCase()
-  return host === 'localhost'
-    || host === '127.0.0.1'
-    || host.endsWith('.localhost')
-    || host.includes('-dev.')
+  return typeof window !== 'undefined' && isDev()
 }
 
 function normalizeMeta(meta: unknown): unknown {

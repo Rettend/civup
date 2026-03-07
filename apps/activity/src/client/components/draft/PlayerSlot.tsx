@@ -71,6 +71,47 @@ export function PlayerSlot(props: PlayerSlotProps) {
   }
 
   const isPlaced = () => placementRank() >= 0
+  const anyFfaPlaced = () => ffaPlacementOrder().length > 0
+
+  /** Boosted glow for compact FFA slots (smaller area needs higher intensity) */
+  const ffaWinnerGlowStyle = {
+    background: [
+      'radial-gradient(ellipse farthest-side at 50% 130%, rgba(200,170,110,0.55) 0%, rgba(200,170,110,0.22) 40%, transparent 72%)',
+      'radial-gradient(ellipse closest-side at 50% 100%, rgba(255,215,100,0.38) 0%, transparent 55%)',
+      'linear-gradient(to top, rgba(200,170,110,0.16) 0%, transparent 40%)',
+    ].join(', '),
+  }
+
+  /**
+   * Neighbor-aware gold border: each slot draws top+left always, and
+   * right/bottom only if the neighbor on that side is NOT also selected.
+   * Using real borders avoids doubled-looking inset-shadow corners.
+   */
+  const ffaGoldBorderStyle = () => {
+    if (!isPlaced()) return {}
+    const order = ffaPlacementOrder()
+    const count = state()?.seats.length ?? 0
+    if (count === 0) return {}
+    const perRow = Math.ceil(count / 2)
+    const row = props.seatIndex < perRow ? 0 : 1
+    const col = row === 0 ? props.seatIndex : props.seatIndex - perRow
+
+    const rightIdx = (row === 0 ? col < perRow - 1 : col < (count - perRow) - 1)
+      ? props.seatIndex + 1
+      : -1
+    const belowIdx = row === 0 && (perRow + col) < count
+      ? perRow + col
+      : -1
+
+    const c = 'rgba(200,170,110,0.58)'
+    return {
+      'border-top': `2px solid ${c}`,
+      'border-left': `2px solid ${c}`,
+      'border-right': rightIdx < 0 || !order.includes(rightIdx) ? `2px solid ${c}` : '0 solid transparent',
+      'border-bottom': belowIdx < 0 || !order.includes(belowIdx) ? `2px solid ${c}` : '0 solid transparent',
+      'box-shadow': 'inset 0 0 28px rgba(200,170,110,0.14)',
+    }
+  }
   const seatTeam = () => seat()?.team ?? null
   const isLosingTeamDimmed = () => {
     const team = seatTeam()
@@ -133,32 +174,39 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
       {/* FFA placement overlay */}
       <Show when={isFfaPlacementMode()}>
-        {/* Interactive border glow */}
-        <div
-          class={cn(
-            'absolute inset-0 z-30 pointer-events-none transition-all duration-300',
-            isPlaced()
-              ? 'ring-3 ring-inset ring-accent-gold/70 shadow-[inset_0_0_24px_rgba(200,170,110,0.22)]'
-              : 'ring-1 ring-inset ring-white/10 hover-parent:ring-white/25',
-          )}
-        />
+        {/* Bottom radial glow on selected slots */}
+        <Show when={isPlaced()}>
+          <div
+            class="anim-fade-in pointer-events-none absolute inset-0 z-20"
+            style={ffaWinnerGlowStyle}
+          />
+        </Show>
+
+        {/* Gold border with neighbor-aware collapse */}
+        <Show when={isPlaced()}>
+          <div
+            class="absolute inset-0 z-30 pointer-events-none box-border"
+            style={ffaGoldBorderStyle()}
+          />
+        </Show>
 
         {/* Placement badge */}
         <Show when={isPlaced()}>
           <div class="anim-fade-in left-1/2 top-1/2 absolute z-40 -translate-x-1/2 -translate-y-1/2">
             <div class={cn(
               'flex items-center justify-center rounded-full',
-              'border border-[#f4dca8]/45 bg-accent-gold text-[#17130d] font-bold shadow-lg shadow-accent-gold/30',
+              'border border-[#f4dca8]/45 bg-accent-gold font-bold shadow-[0_0_14px_-3px_rgba(200,170,110,0.8),0_0_44px_-8px_rgba(200,170,110,0.45),0_0_80px_-12px_rgba(200,170,110,0.2),0_4px_16px_rgba(0,0,0,0.35)]',
               props.compact ? 'w-10 h-10 text-base' : 'w-12 h-12 text-xl',
             )}
+            style={{ color: '#17130d' }}
             >
               {placementRank() + 1}
             </div>
           </div>
         </Show>
 
-        {/* Darken when placed */}
-        <Show when={isPlaced()}>
+        {/* Dim unselected slots when any placement has been made */}
+        <Show when={anyFfaPlaced() && !isPlaced()}>
           <div class="bg-black/50 pointer-events-none inset-0 absolute z-25" />
         </Show>
       </Show>

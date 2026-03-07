@@ -46,7 +46,7 @@ export function SlotStrip() {
       return 'shadow-[inset_0_0_0_2px_rgba(200,170,110,0.58),inset_0_0_28px_rgba(200,170,110,0.14)]'
     }
     if (selectedTeam != null) {
-      return 'bg-black/20 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]'
+      return 'bg-black/20'
     }
     // No border when nothing is selected yet — overlay stays invisible
     return 'hidden'
@@ -98,8 +98,8 @@ export function SlotStrip() {
               {/* Full-width dramatic bottom glow for winning team */}
               <Show when={isTeamResultMode() && selectedWinningTeam() === 0}>
                 <div
-                  class="anim-fade-in pointer-events-none absolute inset-0 z-20"
-                  style={winnerGlowStyle}
+                  class="anim-fade-in pointer-events-none absolute inset-y-0 right-0 z-20"
+                  style={{ ...winnerGlowStyle, width: teamOverlayWidth(leftSeats().length) }}
                 />
               </Show>
               <For each={leftSeats()}>
@@ -143,8 +143,8 @@ export function SlotStrip() {
               {/* Full-width dramatic bottom glow for winning team */}
               <Show when={isTeamResultMode() && selectedWinningTeam() === 1}>
                 <div
-                  class="anim-fade-in pointer-events-none absolute inset-0 z-20"
-                  style={winnerGlowStyle}
+                  class="anim-fade-in pointer-events-none absolute inset-y-0 left-0 z-20"
+                  style={{ ...winnerGlowStyle, width: teamOverlayWidth(rightSeats().length) }}
                 />
               </Show>
               <For each={rightSeats()}>
@@ -166,7 +166,7 @@ export function SlotStrip() {
           <div class="flex flex-1 min-h-0 w-full items-stretch justify-center">
             <For each={ffaTopRow()}>
               {seatIdx => (
-                <div class={cn('slot-cell-ffa border-r border-b border-white/10 last:border-r-0')}>
+                <div class="slot-cell-ffa">
                   <PlayerSlot seatIndex={seatIdx} compact />
                 </div>
               )}
@@ -177,7 +177,7 @@ export function SlotStrip() {
           <div class="flex flex-1 min-h-0 w-full items-stretch justify-center">
             <For each={ffaBottomRow()}>
               {seatIdx => (
-                <div class={cn('slot-cell-ffa border-r border-white/10 last:border-r-0')}>
+                <div class="slot-cell-ffa">
                   <PlayerSlot seatIndex={seatIdx} compact />
                 </div>
               )}
