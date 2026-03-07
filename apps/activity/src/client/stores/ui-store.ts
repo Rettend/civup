@@ -92,7 +92,7 @@ export function toggleDetail(leaderId: string) {
 export function toggleFfaPlacement(seatIndex: number) {
   setFfaPlacementOrder((prev) => {
     const idx = prev.indexOf(seatIndex)
-    if (idx >= 0) return prev.slice(0, idx)
+    if (idx >= 0) return prev.filter(idx => idx !== seatIndex)
     return [...prev, seatIndex]
   })
 }

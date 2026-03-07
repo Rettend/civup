@@ -11,7 +11,6 @@ export {
   fetchMatchForChannel,
   fetchMatchForUser,
   fetchMatchState,
-  fillLobbyWithActiveTestPlayers,
   fillLobbyWithTestPlayers,
   type LobbySnapshot,
   type LobbyRankedRolesSnapshot,

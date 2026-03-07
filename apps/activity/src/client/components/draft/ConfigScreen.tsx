@@ -4,6 +4,7 @@ import { COMPETITIVE_TIERS, formatModeLabel } from '@civup/game'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, TextInput } from '~/client/components/ui'
 import { cn } from '~/client/lib/css'
+import { isDev } from '~/client/lib/is-dev'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
 import {
   arrangeLobbyTeams,
@@ -12,7 +13,6 @@ import {
   displayName as currentDisplayName,
   draftStore,
   fetchLobbyRankedRoles,
-  fillLobbyWithActiveTestPlayers,
   fillLobbyWithTestPlayers,
   isSpectator,
   placeLobbySlot,
@@ -740,34 +740,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
     }
   }
 
-  const handleFillActiveTestPlayers = async () => {
-    const lobby = currentLobby()
-    const currentUserId = userId()
-    if (!lobby || !currentUserId || !amHost()) return
-    if (lobbyActionPending() || startPending() || cancelPending()) return
-
-    setLobbyActionPending(true)
-    clearConfigMessage()
-    try {
-      const result = await fillLobbyWithActiveTestPlayers(lobby.mode, lobby.id, currentUserId)
-      if (!result.ok) {
-        showErrorMessage(result.error)
-        return
-      }
-
-      applyLobbySnapshot(result.lobby)
-      if (result.addedCount > 0) {
-        showInfoMessage(`Added ${result.addedCount} active test player${result.addedCount === 1 ? '' : 's'} to empty slots.`)
-      }
-      else {
-        showInfoMessage('Lobby is already full.')
-      }
-    }
-    finally {
-      setLobbyActionPending(false)
-    }
-  }
-
   const handlePlaceSelf = async (slot: number) => {
     const lobby = currentLobby()
     const currentUserId = userId()
@@ -1319,20 +1291,15 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       <span class="i-ph:scales-bold text-lg" />
                     </button>
                   </Show>
-                  <button
-                    class="text-sm text-text-secondary px-6 py-2.5 border border-white/12 rounded-lg bg-white/3 cursor-pointer transition-colors hover:text-text-primary hover:border-white/20 hover:bg-white/6 disabled:opacity-60 disabled:cursor-not-allowed"
-                    disabled={cancelPending() || startPending() || lobbyActionPending()}
-                    onClick={() => void handleFillTestPlayers()}
-                  >
-                    Fill Test Players
-                  </button>
-                  <button
-                    class="text-sm text-text-secondary px-6 py-2.5 border border-white/12 rounded-lg bg-white/3 cursor-pointer transition-colors hover:text-text-primary hover:border-white/20 hover:bg-white/6 disabled:opacity-60 disabled:cursor-not-allowed"
-                    disabled={cancelPending() || startPending() || lobbyActionPending()}
-                    onClick={() => void handleFillActiveTestPlayers()}
-                  >
-                    Fill Active Test Players
-                  </button>
+                  <Show when={isDev()}>
+                    <button
+                      class="text-sm text-text-secondary px-6 py-2.5 border border-white/12 rounded-lg bg-white/3 cursor-pointer transition-colors hover:text-text-primary hover:border-white/20 hover:bg-white/6 disabled:opacity-60 disabled:cursor-not-allowed"
+                      disabled={cancelPending() || startPending() || lobbyActionPending()}
+                      onClick={() => void handleFillTestPlayers()}
+                    >
+                      Fill Test Players
+                    </button>
+                  </Show>
                 </div>
               )}
             >

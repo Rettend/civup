@@ -83,14 +83,14 @@ describe('ui-store helpers', () => {
     expect(tagFilters().other).toEqual([])
   })
 
-  test('toggleFfaPlacement appends seats and truncates when re-clicking a placed seat', () => {
+  test('toggleFfaPlacement appends seats and removes only the clicked seat when toggled off', () => {
     toggleFfaPlacement(0)
     toggleFfaPlacement(3)
     toggleFfaPlacement(5)
     expect(ffaPlacementOrder()).toEqual([0, 3, 5])
 
     toggleFfaPlacement(3)
-    expect(ffaPlacementOrder()).toEqual([0])
+    expect(ffaPlacementOrder()).toEqual([0, 5])
   })
 
   test('selectWinningTeam toggles the selected team', () => {
