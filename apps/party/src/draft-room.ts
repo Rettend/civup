@@ -20,6 +20,9 @@ interface ConnectionState {
 const WEBHOOK_MAX_ATTEMPTS = 4
 const WEBHOOK_RETRY_BASE_MS = 250
 const WEBHOOK_RETRY_MAX_MS = 1500
+const DEBUG_ACTIVE_BOT_PLAYER_ID_PREFIX = 'debug-active-lobby-bot:'
+const DEBUG_ACTIVE_BOT_DELAY_MS = 5000
+const DEBUG_ACTIVE_BOT_STAGGER_MS = 150
 
 // ── Draft Room Server ────────────────────────────────────────
 
@@ -323,6 +326,7 @@ export class Main extends Server {
   private async applyResult(newState: DraftState, events: DraftEvent[]) {
     await this.ctx.storage.put('state', newState)
     const config = await this.ctx.storage.get<RoomConfig>('config')
+    const format = config ? draftFormatMap.get(config.formatId) : null
     let webhookTask: Promise<void> | null = null
 
     // Set timer when a new step starts
@@ -346,6 +350,9 @@ export class Main extends Server {
         await this.ctx.storage.deleteAlarm()
       }
       await this.ctx.storage.put('timerEndsAt', timerEndsAt)
+      if (format) {
+        this.scheduleDebugActiveBotActions(newState, format.blindBans)
+      }
     }
 
     if (newState.status === 'complete') {
@@ -387,6 +394,97 @@ export class Main extends Server {
       this.ctx.waitUntil(webhookTask.catch((error) => {
         console.error(`Failed to deliver draft webhook for match ${newState.matchId}:`, error)
       }))
+    }
+  }
+
+  private scheduleDebugActiveBotActions(state: DraftState, blindBans: boolean) {
+    const step = getCurrentStep(state)
+    if (!step) return
+
+    const activeSeats = step.seats === 'all'
+      ? Array.from({ length: state.seats.length }, (_, i) => i)
+      : step.seats
+
+    let delayMs = DEBUG_ACTIVE_BOT_DELAY_MS
+    for (const seatIndex of activeSeats) {
+      const playerId = state.seats[seatIndex]?.playerId
+      if (!isDebugActiveBotPlayerId(playerId)) continue
+
+      const submittedCount = state.submissions[seatIndex]?.length ?? 0
+      if (submittedCount >= step.count) continue
+
+      const scheduledStepIndex = state.currentStepIndex
+      const scheduledDelayMs = delayMs
+      delayMs += DEBUG_ACTIVE_BOT_STAGGER_MS
+
+      this.ctx.waitUntil(wait(scheduledDelayMs)
+        .then(() => this.runDebugActiveBotAction(scheduledStepIndex, seatIndex, blindBans))
+        .catch((error) => {
+          console.error(`Debug active bot action failed for seat ${seatIndex} in match ${state.matchId}:`, error)
+        }))
+    }
+  }
+
+  private async runDebugActiveBotAction(stepIndex: number, seatIndex: number, blindBans: boolean) {
+    const state = await this.ctx.storage.get<DraftState>('state')
+    if (!state || state.status !== 'active') return
+    if (state.currentStepIndex !== stepIndex) return
+
+    const step = state.steps[state.currentStepIndex]
+    if (!step || !isSeatInStep(step, seatIndex, state.seats.length)) return
+
+    const seat = state.seats[seatIndex]
+    if (!seat || !isDebugActiveBotPlayerId(seat.playerId)) return
+
+    const submittedCount = state.submissions[seatIndex]?.length ?? 0
+    if (submittedCount >= step.count) return
+
+    const availablePool = [...state.availableCivIds]
+    if (availablePool.length === 0) return
+
+    let result:
+      | { state: DraftState, events: DraftEvent[] }
+      | { error: string }
+
+    if (step.action === 'ban') {
+      const remainingCount = Math.min(step.count - submittedCount, availablePool.length)
+      if (remainingCount <= 0) return
+
+      const civIds = pickRandomDistinct(availablePool, remainingCount)
+      result = processDraftInput(
+        state,
+        { type: 'BAN', seatIndex, civIds },
+        blindBans,
+      )
+    }
+    else {
+      const [civId] = pickRandomDistinct(availablePool, 1)
+      if (!civId) return
+      result = processDraftInput(
+        state,
+        { type: 'PICK', seatIndex, civId },
+        blindBans,
+      )
+    }
+    if (isDraftError(result)) return
+
+    const nextState = result.state
+    await this.applyResult(result.state, result.events)
+
+    const nextStep = nextState.steps[nextState.currentStepIndex]
+    const nextSubmittedCount = nextState.submissions[seatIndex]?.length ?? 0
+    const needsFollowUpOnSameStep = nextState.status === 'active'
+      && nextState.currentStepIndex === stepIndex
+      && nextStep != null
+      && isSeatInStep(nextStep, seatIndex, nextState.seats.length)
+      && nextSubmittedCount < nextStep.count
+
+    if (needsFollowUpOnSameStep) {
+      this.ctx.waitUntil(wait(DEBUG_ACTIVE_BOT_DELAY_MS)
+        .then(() => this.runDebugActiveBotAction(stepIndex, seatIndex, blindBans))
+        .catch((error) => {
+          console.error(`Debug active bot follow-up action failed for seat ${seatIndex} in match ${nextState.matchId}:`, error)
+        }))
     }
   }
 
@@ -530,6 +628,27 @@ export class Main extends Server {
 }
 
 // ── Utility ──────────────────────────────────────────────────
+
+function isDebugActiveBotPlayerId(playerId: string | null | undefined): boolean {
+  return typeof playerId === 'string' && playerId.startsWith(DEBUG_ACTIVE_BOT_PLAYER_ID_PREFIX)
+}
+
+function isSeatInStep(step: DraftState['steps'][number], seatIndex: number, totalSeats: number): boolean {
+  if (step.seats === 'all') return seatIndex >= 0 && seatIndex < totalSeats
+  return step.seats.includes(seatIndex)
+}
+
+function pickRandomDistinct<T>(items: T[], count: number): T[] {
+  const pool = [...items]
+  const picks: T[] = []
+  const target = Math.max(0, Math.min(count, pool.length))
+  for (let i = 0; i < target; i++) {
+    const index = Math.floor(Math.random() * pool.length)
+    const [next] = pool.splice(index, 1)
+    if (next != null) picks.push(next)
+  }
+  return picks
+}
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {

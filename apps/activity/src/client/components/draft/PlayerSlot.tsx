@@ -2,7 +2,7 @@ import type { Leader } from '@civup/game'
 import { getLeader } from '@civup/game'
 import { createEffect, createSignal, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
-import { draftStore, ffaPlacementOrder, getOptimisticSeatPick, phaseAccent, toggleFfaPlacement, userId } from '~/client/stores'
+import { draftStore, ffaPlacementOrder, getOptimisticSeatPick, phaseAccent, selectedWinningTeam, selectWinningTeam, toggleFfaPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -62,6 +62,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
   const isFfa = () => !(state()?.seats.some(s => s.team != null) ?? false)
   const amHost = () => userId() === draftStore.hostId
   const isFfaPlacementMode = () => isComplete() && isFfa() && amHost()
+  const isTeamResultMode = () => isComplete() && !isFfa() && amHost()
 
   const placementRank = () => {
     if (!isFfaPlacementMode()) return -1
@@ -69,23 +70,43 @@ export function PlayerSlot(props: PlayerSlotProps) {
   }
 
   const isPlaced = () => placementRank() >= 0
+  const seatTeam = () => seat()?.team ?? null
+  const isWinningTeamSelected = () => {
+    const team = seatTeam()
+    return isTeamResultMode() && team != null && selectedWinningTeam() === team
+  }
+  const isLosingTeamDimmed = () => {
+    const team = seatTeam()
+    const selectedTeam = selectedWinningTeam()
+    return isTeamResultMode() && team != null && selectedTeam != null && selectedTeam !== team
+  }
 
   const handleSlotClick = () => {
     if (!isFfaPlacementMode()) return
     toggleFfaPlacement(props.seatIndex)
   }
 
+  const handleTeamResultClick = () => {
+    if (!isTeamResultMode()) return
+    const team = seatTeam()
+    if (team == null || (team !== 0 && team !== 1)) return
+    selectWinningTeam(team)
+  }
+
   return (
     <div
       class={cn(
         'relative flex flex-col overflow-hidden bg-bg-secondary h-full isolate',
-        isFfaPlacementMode() && 'cursor-pointer',
+        (isFfaPlacementMode() || isTeamResultMode()) && 'cursor-pointer',
       )}
       classList={{
         'slot-accent-gold': isActive() && accent() === 'gold',
         'slot-accent-red': isActive() && accent() === 'red',
       }}
-      onClick={handleSlotClick}
+      onClick={() => {
+        handleSlotClick()
+        handleTeamResultClick()
+      }}
     >
       {/* Side Glows */}
       <div
@@ -145,12 +166,26 @@ export function PlayerSlot(props: PlayerSlotProps) {
         </Show>
       </Show>
 
+      {/* Team result overlay */}
+      <Show when={isTeamResultMode()}>
+        <div
+          class={cn(
+            'absolute inset-0 z-30 pointer-events-none transition-all duration-300',
+            isWinningTeamSelected()
+              ? 'ring-2 ring-inset ring-accent-gold/45 bg-accent-gold/6 shadow-[inset_0_0_16px_rgba(200,170,110,0.12)]'
+              : isLosingTeamDimmed()
+                ? 'bg-black/28'
+                : 'ring-1 ring-inset ring-white/10',
+          )}
+        />
+      </Show>
+
       {/* Portrait */}
-      <Show when={leader()}>
+      <Show when={leader()} keyed>
         {l => (
           <img
-            src={`/assets/leaders-full/${l().id}.webp`}
-            alt={l().name}
+            src={`/assets/leaders-full/${l.id}.webp`}
+            alt={l.name}
             class={cn(
               'absolute inset-0 h-full w-full object-cover',
               props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
@@ -178,17 +213,17 @@ export function PlayerSlot(props: PlayerSlotProps) {
       )}
       >
         {/* Leader name (when picked) */}
-        <Show when={leader()}>
+        <Show when={leader()} keyed>
           {l => (
             <div class="mb-1">
-              <div class="text-base text-text-primary leading-tight font-semibold truncate">{l().name}</div>
-              <div class="text-sm text-text-secondary/80 leading-tight truncate">{l().civilization}</div>
+              <div class="text-base text-text-primary leading-tight font-semibold truncate">{l.name}</div>
+              <div class="text-sm text-text-secondary/80 leading-tight truncate">{l.civilization}</div>
             </div>
           )}
         </Show>
 
         {/* Discord name and avatar */}
-        <Show when={seat()}>
+        <Show when={seat()} keyed>
           {s => (
             <div class={cn(
               'flex items-center gap-2',
@@ -196,16 +231,16 @@ export function PlayerSlot(props: PlayerSlotProps) {
               filled() && !isActive() && 'text-text-secondary/60',
             )}
             >
-              <Show when={seatAvatarUrl()}>
+              <Show when={seatAvatarUrl()} keyed>
                 {url => (
                   <img
-                    src={url()}
+                    src={url}
                     alt=""
                     class="rounded-full shrink-0 h-5 w-5 object-cover"
                   />
                 )}
               </Show>
-              <span class="text-sm leading-tight truncate">{s().displayName}</span>
+              <span class="text-sm leading-tight truncate">{s.displayName}</span>
             </div>
           )}
         </Show>

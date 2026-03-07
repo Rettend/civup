@@ -2,6 +2,7 @@ import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import {
   clearFfaPlacements,
+  clearResultSelections,
   currentStepDuration,
   draftStore,
   ffaPlacementOrder,
@@ -11,6 +12,7 @@ import {
   phaseLabel,
   reportMatchResult,
   scrubMatchResult,
+  selectedWinningTeam,
   sendScrub,
   userId,
 } from '~/client/stores'
@@ -94,13 +96,27 @@ export function DraftHeader() {
   })
 
   // ── Result Reporting ────────────────────────
-  const [resultStatus, setResultStatus] = createSignal<'idle' | 'submitting:A' | 'submitting:B' | 'submitting:ffa' | 'submitting:scrub' | 'done'>('idle')
+  const [resultStatus, setResultStatus] = createSignal<'idle' | 'submitting:result' | 'submitting:scrub' | 'done'>('idle')
 
-  const reportWinner = async (team: 'A' | 'B') => {
+  createEffect(on(() => state()?.matchId, () => {
+    setResultStatus('idle')
+    clearResultSelections()
+  }, { defer: true }))
+
+  createEffect(() => {
+    if (state()?.status === 'complete') return
+    setResultStatus('idle')
+    clearResultSelections()
+  })
+
+  const reportSelectedTeam = async () => {
     const uid = userId()
-    if (!uid) return
-    setResultStatus(`submitting:${team}`)
-    const res = await reportMatchResult(draftStore.state!.matchId, uid, team)
+    const team = selectedWinningTeam()
+    if (!uid || team == null) return
+
+    setResultStatus('submitting:result')
+    const teamToken = team === 0 ? 'A' : 'B'
+    const res = await reportMatchResult(draftStore.state!.matchId, uid, teamToken)
     setResultStatus(res.ok ? 'done' : 'idle')
   }
 
@@ -110,13 +126,21 @@ export function DraftHeader() {
     const order = ffaPlacementOrder()
     const s = state()
     if (!s || order.length !== seatCount()) return
-    setResultStatus('submitting:ffa')
+    setResultStatus('submitting:result')
     const placements = order.map(idx => `<@${s.seats[idx]!.playerId}>`).join('\n')
     const res = await reportMatchResult(s.matchId, uid, placements)
     if (res.ok) {
       setResultStatus('done')
     }
     else { setResultStatus('idle'); clearFfaPlacements() }
+  }
+
+  const confirmResult = async () => {
+    if (isTeamMode()) {
+      await reportSelectedTeam()
+      return
+    }
+    await reportFfa()
   }
 
   const scrubMatch = async () => {
@@ -137,6 +161,13 @@ export function DraftHeader() {
   }
 
   const canInteract = () => amHost() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
+  const resultSelectionReady = () => isTeamMode() ? selectedWinningTeam() != null : ffaPlacementOrder().length === seatCount()
+  const selectionHint = () => {
+    if (isTeamMode()) {
+      return selectedWinningTeam() == null ? 'Select the winning team below' : 'Winner selected'
+    }
+    return resultSelectionReady() ? 'Placements ready' : 'Select final placements below'
+  }
 
   return (
     <header class={cn('relative flex flex-col shrink-0 overflow-hidden', isComplete() ? 'bg-bg-secondary' : phaseHeaderBg(), 'transition-colors duration-200')}>
@@ -178,56 +209,26 @@ export function DraftHeader() {
                     <span class="text-lg text-accent-gold tracking-widest font-bold uppercase">Result reported</span>
                   }
                 >
-                  {/* Host controls */}
-                  <Show
-                    when={isTeamMode()}
-                    fallback={(
-                      <div class="flex gap-2 items-center">
-                        <Button
-                          size="sm"
-                          disabled={!canInteract() || ffaPlacementOrder().length !== seatCount()}
-                          onClick={reportFfa}
-                        >
-                          {resultStatus() === 'submitting:ffa' ? 'Submitting...' : 'Confirm Result'}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="redOutline"
-                          disabled={!canInteract()}
-                          onClick={scrubMatch}
-                        >
-                          {resultStatus() === 'submitting:scrub' ? 'Submitting...' : 'Scrub'}
-                        </Button>
-                      </div>
-                    )}
-                  >
-                    <div class="flex gap-2 items-center">
-                      <Button
-                        size="sm"
-                        disabled={!canInteract()}
-                        onClick={() => reportWinner('A')}
-                      >
-                        {resultStatus() === 'submitting:A' ? 'Submitting...' : 'Team A Won'}
-                      </Button>
-                      <Button
-                        size="sm"
-                        class="text-white/90 border-white/25 bg-white/5 hover:text-white hover:border-white/40 hover:bg-white/10"
-                        variant="outline"
-                        disabled={!canInteract()}
-                        onClick={() => reportWinner('B')}
-                      >
-                        {resultStatus() === 'submitting:B' ? 'Submitting...' : 'Team B Won'}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="redOutline"
-                        disabled={!canInteract()}
-                        onClick={scrubMatch}
-                      >
-                        {resultStatus() === 'submitting:scrub' ? 'Submitting...' : 'Scrub'}
-                      </Button>
+                  <div class="flex gap-2 items-center">
+                    <div class="text-xs text-text-secondary/80 mr-2 min-w-0 hidden md:block">
+                      {selectionHint()}
                     </div>
-                  </Show>
+                    <Button
+                      size="sm"
+                      disabled={!canInteract() || !resultSelectionReady()}
+                      onClick={confirmResult}
+                    >
+                      {resultStatus() === 'submitting:result' ? 'Submitting...' : 'Confirm Result'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="redOutline"
+                      disabled={!canInteract()}
+                      onClick={scrubMatch}
+                    >
+                      {resultStatus() === 'submitting:scrub' ? 'Submitting...' : 'Scrub'}
+                    </Button>
+                  </div>
                 </Show>
               </Show>
             </div>
