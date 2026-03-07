@@ -325,6 +325,7 @@ function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
   if (a.mode !== b.mode) return false
   if (a.hostId !== b.hostId) return false
   if (a.status !== b.status) return false
+  if (a.minRole !== b.minRole) return false
   if (a.minPlayers !== b.minPlayers) return false
   if (a.targetSize !== b.targetSize) return false
   if (a.draftConfig.banTimerSeconds !== b.draftConfig.banTimerSeconds) return false

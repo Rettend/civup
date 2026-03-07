@@ -21,6 +21,7 @@ export async function upsertLobbyMessage(
       content: null,
       embeds: payload.embeds,
       components: payload.components,
+      allowed_mentions: { parse: [] },
     })
     return lobby
   }
@@ -30,6 +31,7 @@ export async function upsertLobbyMessage(
     const created = await createChannelMessage(token, lobby.channelId, {
       embeds: payload.embeds,
       components: payload.components,
+      allowed_mentions: { parse: [] },
     })
 
     const updated = await setLobbyMessage(kv, lobby.id, lobby.channelId, created.id)

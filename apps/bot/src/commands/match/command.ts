@@ -9,6 +9,7 @@ import { clearLobbyMappings, getMatchForUser, storeUserLobbyMappings, storeUserM
 import { createChannelMessage } from '../../services/discord.ts'
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard-message.ts'
+import { buildOpenLobbyRenderPayload } from '../../services/lobby-render.ts'
 import { upsertLobbyMessage } from '../../services/lobby-message.ts'
 import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getLobbiesByMode, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyMemberPlayerIds, setLobbySlots, setLobbyStatus } from '../../services/lobby.ts'
 import { storeMatchMessageMapping } from '../../services/match-message.ts'
@@ -103,17 +104,24 @@ export const command_match = factory.command<MatchVar>(
               const message = await createChannelMessage(c.env.DISCORD_TOKEN, draftChannelId, {
                 embeds: [embed],
                 components: lobbyComponents(mode),
+                allowed_mentions: { parse: [] },
               })
               const lobby = await createLobby(kv, {
                 mode,
+                guildId: c.interaction.guild_id ?? null,
                 hostId: identity.userId,
                 channelId: draftChannelId,
                 messageId: message.id,
               })
               await storeUserLobbyMappings(kv, [identity.userId], lobby.id)
+              const renderPayload = await buildOpenLobbyRenderPayload(
+                kv,
+                lobby,
+                mapLobbySlotsToEntries(lobby.slots, filterQueueEntriesForLobby(lobby, nextQueue.entries)),
+              )
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-                embeds: [lobbyOpenEmbed(mode, mapLobbySlotsToEntries(lobby.slots, filterQueueEntriesForLobby(lobby, nextQueue.entries)), maxPlayerCount(mode))],
-                components: lobbyComponents(mode, lobby.id),
+                embeds: renderPayload.embeds,
+                components: renderPayload.components,
               })
               if (interactionChannelId === draftChannelId) {
                 await clearDeferredEphemeralResponse(c)
@@ -355,9 +363,10 @@ export const command_match = factory.command<MatchVar>(
               nextLobby = await setLobbySlots(kv, nextLobby.id, slots, nextLobby) ?? nextLobby
             }
             try {
+              const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
-                embeds: [lobbyOpenEmbed(removedMode, slottedEntries, maxPlayerCount(removedMode))],
-                components: lobbyComponents(removedMode, nextLobby.id),
+                embeds: renderPayload.embeds,
+                components: renderPayload.components,
               })
             }
             catch (error) {

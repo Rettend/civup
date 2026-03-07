@@ -2,6 +2,12 @@ export interface DiscordMessagePayload {
   content?: string | null
   embeds?: unknown[]
   components?: unknown
+  allowed_mentions?: {
+    parse?: string[]
+    roles?: string[]
+    users?: string[]
+    replied_user?: boolean
+  }
 }
 
 interface DiscordMessageResponse {
