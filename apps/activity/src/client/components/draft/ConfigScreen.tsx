@@ -1,5 +1,6 @@
-import type { LobbySnapshot, LobbyTeamArrangeStrategy } from '~/client/stores'
-import { formatModeLabel } from '@civup/game'
+import type { CompetitiveTier } from '@civup/game'
+import type { LobbySnapshot, LobbyTeamArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
+import { COMPETITIVE_TIERS, formatModeLabel } from '@civup/game'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, TextInput } from '~/client/components/ui'
 import { cn } from '~/client/lib/css'
@@ -10,6 +11,7 @@ import {
   avatarUrl as currentAvatarUrl,
   displayName as currentDisplayName,
   draftStore,
+  fetchLobbyRankedRoles,
   fillLobbyWithActiveTestPlayers,
   fillLobbyWithTestPlayers,
   isSpectator,
@@ -20,7 +22,7 @@ import {
   sendStart,
   startLobbyDraft,
   toggleLobbyPremadeLink,
-  updateLobbyDraftConfig,
+  updateLobbyConfig,
   updateLobbyMode,
   userId,
 } from '~/client/stores'
@@ -49,6 +51,25 @@ interface DraftTimerConfig {
   banTimerSeconds: number | null
   pickTimerSeconds: number | null
 }
+
+interface MinRoleMismatchDetail {
+  playerName: string
+  roleLabel: string
+  roleColor: string | null
+}
+
+interface MinRoleSetDetail {
+  roleLabel: string
+  roleColor: string | null
+}
+
+const FALLBACK_RANKED_ROLE_OPTIONS: RankedRoleOptionSnapshot[] = [
+  { tier: 'champion', rank: 1, roleId: null, label: 'Role 1', color: null },
+  { tier: 'legion', rank: 2, roleId: null, label: 'Role 2', color: null },
+  { tier: 'gladiator', rank: 3, roleId: null, label: 'Role 3', color: null },
+  { tier: 'squire', rank: 4, roleId: null, label: 'Role 4', color: null },
+  { tier: 'pleb', rank: 5, roleId: null, label: 'Role 5', color: null },
+]
 
 type OptimisticLobbyAction
   = | {
@@ -119,6 +140,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
         }
       : null,
   )
+  const [rankedRoleOptions, setRankedRoleOptions] = createSignal<RankedRoleOptionSnapshot[]>(FALLBACK_RANKED_ROLE_OPTIONS)
+  const [minRoleMismatchDetail, setMinRoleMismatchDetail] = createSignal<MinRoleMismatchDetail | null>(null)
+  const [minRoleSetDetail, setMinRoleSetDetail] = createSignal<MinRoleSetDetail | null>(null)
+  let rankedRoleOptionsFetchKey: string | null = null
 
   createEffect(() => {
     const incomingLobby = props.lobby ?? null
@@ -224,6 +249,30 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return id === hostId()
   }
 
+  createEffect(() => {
+    const lobby = currentLobby()
+    if (!lobby) {
+      rankedRoleOptionsFetchKey = null
+      setRankedRoleOptions(FALLBACK_RANKED_ROLE_OPTIONS)
+      return
+    }
+
+    const nextFetchKey = `${lobby.mode}:${lobby.id}`
+    if (rankedRoleOptionsFetchKey === nextFetchKey) return
+    rankedRoleOptionsFetchKey = nextFetchKey
+
+    let cancelled = false
+    void (async () => {
+      const snapshot = await fetchLobbyRankedRoles(lobby.mode, lobby.id)
+      if (cancelled) return
+      setRankedRoleOptions(snapshot?.options?.length ? snapshot.options : FALLBACK_RANKED_ROLE_OPTIONS)
+    })()
+
+    onCleanup(() => {
+      cancelled = true
+    })
+  })
+
   const formatId = () => {
     const lobby = currentLobby()
     if (lobby) return formatModeLabel(lobby.mode, 'DRAFT')
@@ -255,6 +304,31 @@ export function ConfigScreen(props: ConfigScreenProps) {
     }
   }
 
+  const lobbyMinRoleValue = () => currentLobby()?.minRole ?? ''
+  const formattedLobbyMinRole = () => formatLobbyMinRole(currentLobby()?.minRole ?? null, rankedRoleOptions())
+  const minRoleDropdownOptions = () => [
+    {
+      value: '',
+      label: 'Anyone',
+      render: () => (
+        <span class="flex gap-2 items-center">
+          <span class="rounded-full bg-white/25 h-2.5 w-2.5" />
+          Anyone
+        </span>
+      ),
+    },
+    ...rankedRoleOptions().map(option => ({
+      value: option.tier,
+      label: option.label,
+      render: () => (
+        <span class="flex gap-2 items-center">
+          <span class="rounded-full h-2.5 w-2.5" style={buildRankDotStyle(option.color)} />
+          {option.label}
+        </span>
+      ),
+    })),
+  ]
+
   const banTimerPlaceholder = () => timerSecondsToMinutesPlaceholder(serverDefaultTimerConfig().banTimerSeconds)
   const pickTimerPlaceholder = () => timerSecondsToMinutesPlaceholder(serverDefaultTimerConfig().pickTimerSeconds)
 
@@ -265,16 +339,36 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const clearConfigMessage = () => {
     setConfigMessage(null)
     setConfigMessageTone(null)
+    setMinRoleMismatchDetail(null)
+    setMinRoleSetDetail(null)
   }
 
   const showErrorMessage = (message: string) => {
     setConfigMessage(message)
     setConfigMessageTone('error')
+    setMinRoleMismatchDetail(null)
+    setMinRoleSetDetail(null)
   }
 
   const showInfoMessage = (message: string) => {
     setConfigMessage(message)
     setConfigMessageTone('info')
+    setMinRoleMismatchDetail(null)
+    setMinRoleSetDetail(null)
+  }
+
+  const showMinRoleMismatchMessage = (detail: MinRoleMismatchDetail) => {
+    setConfigMessage(`${detail.playerName} does not meet the new minimum rank ${detail.roleLabel}`)
+    setConfigMessageTone('error')
+    setMinRoleMismatchDetail(detail)
+    setMinRoleSetDetail(null)
+  }
+
+  const showMinRoleSetMessage = (detail: MinRoleSetDetail) => {
+    setConfigMessage(`Minimum rank set to ${detail.roleLabel}`)
+    setConfigMessageTone('info')
+    setMinRoleMismatchDetail(null)
+    setMinRoleSetDetail(detail)
   }
 
   createEffect(() => {
@@ -524,9 +618,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
       await optimisticTimerConfig.commit({ banTimerSeconds, pickTimerSeconds }, async () => {
         const lobby = currentLobby()
         if (lobby) {
-          const result = await updateLobbyDraftConfig(lobby.mode, lobby.id, currentUserId, {
+          const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, {
             banTimerSeconds,
             pickTimerSeconds,
+            minRole: lobby.minRole,
           })
           if (!result.ok) throw new Error(result.error)
           applyLobbySnapshot(result.lobby)
@@ -561,6 +656,56 @@ export function ConfigScreen(props: ConfigScreenProps) {
       }
       applyLobbySnapshot(result.lobby)
       showInfoMessage(`Lobby mode changed to ${formatModeLabel(result.lobby.mode, result.lobby.mode)}.`)
+    }
+    finally {
+      setLobbyActionPending(false)
+    }
+  }
+
+  const handleLobbyMinRoleChange = async (value: string) => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || !amHost()) return
+    if (lobbyActionPending()) return
+
+    const nextMinRole = normalizeLobbyMinRoleValue(value)
+    if (lobby.minRole === nextMinRole) return
+
+    setLobbyActionPending(true)
+    clearConfigMessage()
+    try {
+      const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, {
+        banTimerSeconds: timerConfig().banTimerSeconds,
+        pickTimerSeconds: timerConfig().pickTimerSeconds,
+        minRole: nextMinRole,
+      })
+      if (!result.ok) {
+        if (result.errorCode === 'MIN_ROLE_MEMBER_MISMATCH' && result.context?.minRole) {
+          showMinRoleMismatchMessage({
+            playerName: result.context.playerName,
+            roleLabel: result.context.minRole.label,
+            roleColor: result.context.minRole.color,
+          })
+          return
+        }
+        showErrorMessage(result.error)
+        return
+      }
+
+      applyLobbySnapshot(result.lobby)
+      const refreshedOptions = await fetchLobbyRankedRoles(result.lobby.mode, result.lobby.id)
+      if (refreshedOptions?.options?.length) setRankedRoleOptions(refreshedOptions.options)
+      const optionSource = refreshedOptions?.options?.length ? refreshedOptions.options : rankedRoleOptions()
+      const selectedMinRole = nextMinRole ? findRankedRoleOptionByTier(optionSource, nextMinRole) : null
+      if (nextMinRole) {
+        showMinRoleSetMessage({
+          roleLabel: selectedMinRole?.label ?? fallbackRoleLabel(nextMinRole),
+          roleColor: selectedMinRole?.color ?? null,
+        })
+      }
+      else {
+        showInfoMessage('Minimum rank cleared')
+      }
     }
     finally {
       setLobbyActionPending(false)
@@ -1033,6 +1178,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
               fallback={(
                 <div class="flex flex-col gap-2">
                   <ReadonlyTimerRow
+                    label="Min rank"
+                    value={formattedLobbyMinRole()}
+                  />
+                  <ReadonlyTimerRow
                     label="Ban timer"
                     value={formatTimerValue(timerConfig().banTimerSeconds, serverDefaultTimerConfig().banTimerSeconds)}
                   />
@@ -1044,6 +1193,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
               )}
             >
               <div class="flex flex-col gap-2">
+                <Dropdown
+                  label="Minimum Rank"
+                  value={lobbyMinRoleValue()}
+                  disabled={lobbyActionPending()}
+                  options={minRoleDropdownOptions()}
+                  onChange={value => void handleLobbyMinRoleChange(value)}
+                />
+
                 <TextInput
                   type="number"
                   label="Ban Timer (minutes)"
@@ -1088,13 +1245,25 @@ export function ConfigScreen(props: ConfigScreenProps) {
               <Show when={configMessage()}>
                 <div class="text-xs text-text-primary flex gap-1.5 items-center">
                   <span class={cn(
-                    'text-sm',
+                    'text-base shrink-0 self-center',
                     configMessageTone() === 'error'
                       ? 'i-ph-x-bold text-accent-red'
                       : 'i-ph-check-bold text-accent-gold',
                   )}
                   />
-                  <span>{configMessage()}</span>
+                  <Show
+                    when={configMessageTone() === 'error' && minRoleMismatchDetail()}
+                    fallback={(
+                      <Show
+                        when={configMessageTone() === 'info' && minRoleSetDetail()}
+                        fallback={<span class="leading-relaxed">{configMessage()}</span>}
+                      >
+                        <MinRoleSetNotice detail={minRoleSetDetail()!} />
+                      </Show>
+                    )}
+                  >
+                    <MinRoleMismatchNotice detail={minRoleMismatchDetail()!} />
+                  </Show>
                 </div>
               </Show>
             </div>
@@ -1388,6 +1557,97 @@ function formatTimerValue(timerSeconds: number | null, defaultTimerSeconds: numb
   const minutes = Math.round(timerSeconds / 60)
   if (minutes === 1) return '1 minute'
   return `${minutes} minutes`
+}
+
+function normalizeLobbyMinRoleValue(value: string): CompetitiveTier | null {
+  return COMPETITIVE_TIERS.includes(value as CompetitiveTier) ? value as CompetitiveTier : null
+}
+
+function fallbackRoleLabel(tier: CompetitiveTier): string {
+  if (tier === 'champion') return 'Role 1'
+  if (tier === 'legion') return 'Role 2'
+  if (tier === 'gladiator') return 'Role 3'
+  if (tier === 'squire') return 'Role 4'
+  return 'Role 5'
+}
+
+function findRankedRoleOptionByTier(
+  options: RankedRoleOptionSnapshot[],
+  tier: CompetitiveTier,
+): RankedRoleOptionSnapshot | null {
+  return options.find(option => option.tier === tier) ?? null
+}
+
+function formatLobbyMinRole(minRole: CompetitiveTier | null, options: RankedRoleOptionSnapshot[]): string {
+  if (!minRole) return 'Anyone'
+  return findRankedRoleOptionByTier(options, minRole)?.label ?? fallbackRoleLabel(minRole)
+}
+
+function buildRankDotStyle(color: string | null): Record<string, string> {
+  return color ? { 'background-color': color } : { 'background-color': 'rgba(255,255,255,0.25)' }
+}
+
+function buildRolePillStyle(color: string | null): Record<string, string> {
+  if (!color) {
+    return {
+      'color': 'rgb(229,229,229)',
+      'background-color': 'rgba(255,255,255,0.06)',
+      'border-color': 'rgba(255,255,255,0.22)',
+    }
+  }
+
+  const normalized = normalizeHexColor(color)
+  if (!normalized) {
+    return {
+      color,
+      'background-color': 'rgba(255,255,255,0.06)',
+      'border-color': 'rgba(255,255,255,0.22)',
+    }
+  }
+
+  return {
+    'color': normalized,
+    'background-color': `${normalized}1F`,
+    'border-color': `${normalized}66`,
+  }
+}
+
+function normalizeHexColor(color: string): string | null {
+  const trimmed = color.trim()
+  if (!/^#[0-9A-F]{6}$/i.test(trimmed)) return null
+  return trimmed.toUpperCase()
+}
+
+function MinRoleMismatchNotice(props: { detail: MinRoleMismatchDetail }) {
+  return (
+    <span class="leading-relaxed">
+      <strong class="text-text-primary font-semibold">{props.detail.playerName}</strong>
+      {' '}
+      does not meet the new minimum rank
+      {' '}
+      <span
+        class="font-semibold px-1.5 py-0.5 border rounded-sm inline-flex items-center"
+        style={buildRolePillStyle(props.detail.roleColor)}
+      >
+        {props.detail.roleLabel}
+      </span>
+    </span>
+  )
+}
+
+function MinRoleSetNotice(props: { detail: MinRoleSetDetail }) {
+  return (
+    <span class="leading-relaxed">
+      Minimum rank set to
+      {' '}
+      <span
+        class="font-semibold px-1.5 py-0.5 border rounded-sm inline-flex items-center"
+        style={buildRolePillStyle(props.detail.roleColor)}
+      >
+        {props.detail.roleLabel}
+      </span>
+    </span>
+  )
 }
 
 function applyOptimisticLobbyAction(

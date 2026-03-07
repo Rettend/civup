@@ -1,5 +1,6 @@
 import type { EphemeralResponseTone } from '../embeds/response'
 import type { SystemChannelType } from '../services/system-channels'
+import type { CompetitiveTier } from '@civup/game'
 import { createDb } from '@civup/db'
 import { Button, Command, Components, Option, SubCommand, SubGroup } from 'discord-hono'
 import {
@@ -18,6 +19,7 @@ import {
 } from '../services/ephemeral-response'
 import { upsertLeaderboardMessagesForChannel } from '../services/leaderboard-message'
 import { addModRole, getModRoleIds, hasAdminPermission, removeModRole } from '../services/permissions'
+import { fetchGuildRoles, getRankedRoleConfig, RANKED_TIERS_BY_PRESTIGE, setRankedRoleCurrentRoles } from '../services/ranked-roles.ts'
 import { clearLeaderboardDirtyState, clearLeaderboardMessageState, clearSystemChannel, getSystemChannel, setSystemChannel } from '../services/system-channels'
 import { factory } from '../setup'
 
@@ -29,6 +31,23 @@ interface Var {
   mode?: string
   target?: string
   role?: string
+  role1?: string
+  role2?: string
+  role3?: string
+  role4?: string
+  role5?: string
+}
+
+interface ResolvedRoleData {
+  id?: string
+  name?: string
+  color?: number
+}
+
+interface InteractionResolvedRoles {
+  resolved?: {
+    roles?: Record<string, ResolvedRoleData>
+  }
 }
 
 export const command_admin = factory.command<Var>(
@@ -47,6 +66,15 @@ export const command_admin = factory.command<Var>(
         new Option('name', 'Season name').required(),
       ),
       new SubCommand('end', 'End the current season'),
+    ),
+    new SubGroup('ranked', 'Ranked commands').options(
+      new SubCommand('roles', 'Show or update current ranked role mappings').options(
+        new Option('role1', 'Highest rank role', 'Role'),
+        new Option('role2', 'Second-highest rank role', 'Role'),
+        new Option('role3', 'Third rank role', 'Role'),
+        new Option('role4', 'Fourth rank role', 'Role'),
+        new Option('role5', 'Lowest rank role', 'Role'),
+      ),
     ),
     new SubCommand('setup', 'View or toggle system channels').options(
       new Option('target', 'Channel role to configure')
@@ -230,6 +258,47 @@ export const command_admin = factory.command<Var>(
             'info',
             { components, autoDeleteMs: null },
           )
+        })
+      }
+
+      // ── ranked roles ────────────────────────────────────
+      case 'ranked roles': {
+        const guildId = c.interaction.guild_id
+        if (!guildId) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'This command can only be used in a server.', 'error')
+          })
+        }
+
+        const updates = buildRankedRoleUpdates(c.var)
+        const resolvedRoleDisplayById = buildResolvedRoleDisplayById(c.interaction.data)
+
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          const hasUpdates = Object.keys(updates).length > 0
+          let roleDisplayById: Map<string, { name: string, color: string | null }> | undefined = resolvedRoleDisplayById.size > 0
+            ? resolvedRoleDisplayById
+            : undefined
+          if (!roleDisplayById) {
+            try {
+              const roles = await fetchGuildRoles(c.env.DISCORD_TOKEN, guildId)
+              roleDisplayById = new Map(roles.map(role => [role.id, { name: role.name, color: role.color }]))
+            }
+            catch (error) {
+              console.error('Failed to fetch guild roles while saving ranked role config:', error)
+            }
+          }
+
+          const currentConfig = await getRankedRoleConfig(c.env.KV, guildId)
+          const config = hasUpdates
+            ? await setRankedRoleCurrentRoles(c.env.KV, guildId, updates, roleDisplayById)
+            : roleDisplayById
+              ? await setRankedRoleCurrentRoles(c.env.KV, guildId, currentConfig.currentRoles, roleDisplayById)
+              : currentConfig
+
+          const actionPrefix = hasUpdates
+            ? 'Updated current ranked roles:'
+            : 'Current ranked roles:'
+          await sendTransientEphemeralResponse(c, `${actionPrefix}\n${formatRankedRoleConfig(config)}`, 'success')
         })
       }
 
@@ -520,6 +589,42 @@ function parseSetupTarget(value: string): SystemChannelType | null {
 function formatChannelMention(channelId: string | null): string {
   if (!channelId) return '`not set`'
   return `<#${channelId}>`
+}
+
+function buildRankedRoleUpdates(vars: Var): Partial<Record<CompetitiveTier, string | null>> {
+  const updates: Partial<Record<CompetitiveTier, string | null>> = {}
+
+  const roleInputs = [vars.role1, vars.role2, vars.role3, vars.role4, vars.role5]
+  for (let index = 0; index < roleInputs.length; index++) {
+    const roleId = roleInputs[index]
+    const tier = RANKED_TIERS_BY_PRESTIGE[index]
+    if (!tier || !roleId) continue
+    updates[tier] = roleId
+  }
+
+  return updates
+}
+
+function formatRankedRoleConfig(config: Awaited<ReturnType<typeof getRankedRoleConfig>>): string {
+  return RANKED_TIERS_BY_PRESTIGE
+    .map((tier, index) => `${index + 1}. ${config.currentRoles[tier] ? `<@&${config.currentRoles[tier]}>` : '`not set`'}`)
+    .join('\n')
+}
+
+function buildResolvedRoleDisplayById(data: unknown): Map<string, { name: string, color: string | null }> {
+  const resolved = (data as InteractionResolvedRoles | undefined)?.resolved?.roles
+  const displayById = new Map<string, { name: string, color: string | null }>()
+  if (!resolved) return displayById
+
+  for (const [roleId, role] of Object.entries(resolved)) {
+    const name = typeof role?.name === 'string' && role.name.trim().length > 0 ? role.name : roleId
+    const color = typeof role?.color === 'number' && Number.isFinite(role.color) && role.color > 0
+      ? `#${Math.round(role.color).toString(16).padStart(6, '0').toUpperCase()}`
+      : null
+    displayById.set(roleId, { name, color })
+  }
+
+  return displayById
 }
 
 function getInteractionUserId(c: {

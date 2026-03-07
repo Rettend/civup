@@ -1,4 +1,5 @@
-import type { ClientMessage, ServerMessage } from '@civup/game'
+import type { ClientMessage, CompetitiveTier, ServerMessage } from '@civup/game'
+import { COMPETITIVE_TIERS } from '@civup/game'
 import { api, ApiError } from '@civup/utils'
 import PartySocket from 'partysocket'
 import { createSignal } from 'solid-js'
@@ -32,6 +33,7 @@ export interface LobbySnapshot {
   mode: string
   hostId: string
   status: string
+  minRole: CompetitiveTier | null
   entries: ({
     playerId: string
     displayName: string
@@ -48,6 +50,30 @@ export interface LobbySnapshot {
     banTimerSeconds: number | null
     pickTimerSeconds: number | null
   }
+}
+
+export interface RankedRoleOptionSnapshot {
+  tier: CompetitiveTier
+  rank: number
+  roleId: string | null
+  label: string
+  color: string | null
+}
+
+export interface LobbyRankedRolesSnapshot {
+  options: RankedRoleOptionSnapshot[]
+}
+
+export interface LobbyConfigErrorContext {
+  playerId: string
+  playerName: string
+  minRole: RankedRoleOptionSnapshot
+}
+
+export interface LobbyConfigErrorResult {
+  error: string
+  errorCode?: string
+  context?: LobbyConfigErrorContext
 }
 
 export type LobbyTeamArrangeStrategy = 'randomize' | 'balance'
@@ -323,29 +349,116 @@ export async function fetchLobbyForUser(
   }
 }
 
-/** Update host draft timer config for an open lobby */
-export async function updateLobbyDraftConfig(
+/** Update host draft config for an open lobby */
+export async function updateLobbyConfig(
   mode: string,
   lobbyId: string,
   userId: string,
   draftConfig: {
     banTimerSeconds: number | null
     pickTimerSeconds: number | null
+    minRole?: CompetitiveTier | null
   },
-): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
+): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string, errorCode?: string, context?: LobbyConfigErrorContext }> {
   try {
     const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/config`, {
       lobbyId,
       userId,
       banTimerSeconds: draftConfig.banTimerSeconds,
       pickTimerSeconds: draftConfig.pickTimerSeconds,
+      minRole: draftConfig.minRole,
     })
     return { ok: true, lobby }
   }
   catch (err) {
     console.error('Failed to update lobby config:', err)
-    if (err instanceof ApiError) return { ok: false, error: err.message }
+    if (err instanceof ApiError) {
+      const parsed = parseLobbyConfigApiError(err.data)
+      return {
+        ok: false,
+        error: err.message,
+        errorCode: parsed?.errorCode,
+        context: parsed?.context,
+      }
+    }
     return { ok: false, error: 'Network error while updating lobby config' }
+  }
+}
+
+/** Fetch ranked-role option labels/colors for one open lobby. */
+export async function fetchLobbyRankedRoles(
+  mode: string,
+  lobbyId: string,
+): Promise<LobbyRankedRolesSnapshot | null> {
+  try {
+    return await api.get<LobbyRankedRolesSnapshot>(`/api/lobby-ranks/${mode}/${lobbyId}`)
+  }
+  catch (err) {
+    console.error('Failed to fetch lobby ranked roles:', err)
+    return null
+  }
+}
+
+function parseLobbyConfigApiError(data: unknown): LobbyConfigErrorResult | null {
+  if (!data || typeof data !== 'object') return null
+
+  const parsed = data as {
+    error?: unknown
+    errorCode?: unknown
+    context?: unknown
+  }
+
+  const error = typeof parsed.error === 'string' ? parsed.error : null
+  if (!error) return null
+
+  const errorCode = typeof parsed.errorCode === 'string' ? parsed.errorCode : undefined
+  const context = parseLobbyConfigErrorContext(parsed.context)
+  return { error, errorCode, context }
+}
+
+function parseLobbyConfigErrorContext(data: unknown): LobbyConfigErrorContext | undefined {
+  if (!data || typeof data !== 'object') return undefined
+
+  const parsed = data as {
+    playerId?: unknown
+    playerName?: unknown
+    minRole?: unknown
+  }
+
+  if (typeof parsed.playerId !== 'string' || typeof parsed.playerName !== 'string') return undefined
+  const minRole = parseRankedRoleOption(parsed.minRole)
+  if (!minRole) return undefined
+
+  return {
+    playerId: parsed.playerId,
+    playerName: parsed.playerName,
+    minRole,
+  }
+}
+
+function parseRankedRoleOption(data: unknown): RankedRoleOptionSnapshot | null {
+  if (!data || typeof data !== 'object') return null
+
+  const parsed = data as {
+    tier?: unknown
+    rank?: unknown
+    roleId?: unknown
+    label?: unknown
+    color?: unknown
+  }
+
+  if (typeof parsed.tier !== 'string' || !COMPETITIVE_TIERS.includes(parsed.tier as CompetitiveTier)) return null
+  if (typeof parsed.rank !== 'number' || !Number.isFinite(parsed.rank)) return null
+  if (parsed.roleId != null && typeof parsed.roleId !== 'string') return null
+  if (typeof parsed.label !== 'string') return null
+  if (parsed.color != null && typeof parsed.color !== 'string') return null
+
+  return {
+    tier: parsed.tier as CompetitiveTier,
+    rank: Math.round(parsed.rank),
+    roleId: parsed.roleId ?? null,
+    label: parsed.label,
+    color: parsed.color ?? null,
   }
 }
 
