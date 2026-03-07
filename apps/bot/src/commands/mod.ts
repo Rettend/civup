@@ -9,6 +9,7 @@ import { clearLobbyMappings } from '../services/activity'
 import { createChannelMessage } from '../services/discord'
 import { sendTransientEphemeralResponse } from '../services/ephemeral-response'
 import { markLeaderboardsDirty } from '../services/leaderboard-message'
+import { markRankedRolesDirty } from '../services/ranked-role-sync.ts'
 import { clearLobbyById, filterQueueEntriesForLobby, getLobbyById, getLobbyByMatch } from '../services/lobby'
 import { upsertLobbyMessage } from '../services/lobby-message'
 import { cancelMatchByModerator, resolveMatchByModerator } from '../services/match'
@@ -167,6 +168,13 @@ export const command_mod = factory.command<ModVar>(
             console.error(`Failed to mark leaderboards dirty after cancelling match ${result.match.id}:`, error)
           }
 
+          try {
+            await markRankedRolesDirty(kv, `mod-cancel:${result.match.id}`)
+          }
+          catch (error) {
+            console.error(`Failed to mark ranked roles dirty after cancelling match ${result.match.id}:`, error)
+          }
+
           const recalculated = result.recalculatedMatchIds.length
           await sendTransientEphemeralResponse(
             c,
@@ -256,6 +264,13 @@ export const command_mod = factory.command<ModVar>(
           }
           catch (error) {
             console.error(`Failed to mark leaderboards dirty after resolving match ${result.match.id}:`, error)
+          }
+
+          try {
+            await markRankedRolesDirty(kv, `mod-resolve:${result.match.id}`)
+          }
+          catch (error) {
+            console.error(`Failed to mark ranked roles dirty after resolving match ${result.match.id}:`, error)
           }
 
           const recalculated = result.recalculatedMatchIds.length

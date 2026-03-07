@@ -37,7 +37,7 @@ export interface RankedRoleVisual {
   color: string | null
 }
 
-const RANKED_ROLE_CONFIG_KEY_PREFIX = 'ranked-roles:config:'
+export const RANKED_ROLE_CONFIG_KEY_PREFIX = 'ranked-roles:config:'
 
 export const RANKED_TIERS_BY_PRESTIGE = ['champion', 'legion', 'gladiator', 'squire', 'pleb'] as const satisfies readonly CompetitiveTier[]
 
@@ -98,6 +98,10 @@ export async function setRankedRoleCurrentRoles(
 
 export function getConfiguredRankedRoleId(config: RankedRoleConfig, tier: CompetitiveTier): string | null {
   return config.currentRoles[tier] ?? null
+}
+
+export function getMissingRankedRoleConfigTiers(config: RankedRoleConfig): CompetitiveTier[] {
+  return COMPETITIVE_TIERS.filter(tier => !getConfiguredRankedRoleId(config, tier))
 }
 
 export function resolveCurrentCompetitiveTierFromRoleIds(

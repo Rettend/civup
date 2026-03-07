@@ -49,6 +49,14 @@ export function createTestKv(): KVNamespace {
     async delete(key: string) {
       store.delete(key)
     },
+    async list(options?: { prefix?: string }) {
+      const prefix = options?.prefix ?? ''
+      return {
+        keys: [...store.keys()].filter(key => key.startsWith(prefix)).map(name => ({ name })),
+        list_complete: true,
+        cursor: '',
+      }
+    },
   }
 
   return kv as unknown as KVNamespace
