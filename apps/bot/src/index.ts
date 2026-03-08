@@ -3,7 +3,7 @@ import type { Env } from './env.ts'
 import type { LobbyState } from './services/lobby.ts'
 import type { RankedRoleVisual } from './services/ranked-roles.ts'
 import { createDb, matches, matchParticipants, playerRatings } from '@civup/db'
-import { COMPETITIVE_TIERS, formatModeLabel, GAME_MODES, maxPlayerCount, minPlayerCount } from '@civup/game'
+import { COMPETITIVE_TIERS, formatModeLabel, GAME_MODES, isTeamMode, maxPlayerCount, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
 import { isDev } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
@@ -24,7 +24,6 @@ import {
   compactSlottedPremadesForMode,
   moveSlottedPremadeGroup,
   rebuildQueueEntriesFromPremadeEdgeSet,
-  slotToTeamIndex,
 } from './services/lobby-premades.ts'
 import { buildOpenLobbyRenderPayload } from './services/lobby-render.ts'
 import {
@@ -615,7 +614,7 @@ app.post('/api/lobby/:mode/place', async (c) => {
 
   const sourceSlot = slots.findIndex(playerId => playerId === movingPlayerId)
   const targetPlayerId = slots[targetSlot]
-  const movingPremadeGroup = (mode === '2v2' || mode === '3v3') && sourceSlot >= 0
+  const movingPremadeGroup = isTeamMode(mode) && sourceSlot >= 0
     ? buildSlottedPremadeGroups(mode, slots, lobbyQueueEntries).find(group => group.playerIds.includes(movingPlayerId)) ?? null
     : null
 
@@ -654,7 +653,7 @@ app.post('/api/lobby/:mode/place', async (c) => {
     }
   }
 
-  if ((mode === '2v2' || mode === '3v3') && !arePremadeGroupsAdjacent(mode, slots, lobbyQueueEntries)) {
+  if (isTeamMode(mode) && !arePremadeGroupsAdjacent(mode, slots, lobbyQueueEntries)) {
     return c.json({ error: 'This move would split a linked premade.' }, 400)
   }
 
@@ -730,7 +729,7 @@ app.post('/api/lobby/:mode/remove', async (c) => {
 
   slots[slot] = null
   let nextEntries = queue.entries
-  if (mode === '2v2' || mode === '3v3') {
+  if (isTeamMode(mode)) {
     const nextEdges = buildActivePremadeEdgeSet(mode, slots, lobbyQueueEntries)
     nextEntries = rebuildQueueEntriesFromPremadeEdgeSet(mode, slots, queue.entries, nextEdges)
     await setQueueEntries(kv, mode, nextEntries, {
@@ -762,7 +761,7 @@ app.post('/api/lobby/:mode/link', async (c) => {
   const mode = parseGameMode(c.req.param('mode'))
   const kv = createStateStore(c.env)
   if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
-  if (mode !== '2v2' && mode !== '3v3') {
+  if (!isTeamMode(mode)) {
     return c.json({ error: 'Premade links are only available in 2v2 and 3v3.' }, 400)
   }
 
@@ -839,7 +838,7 @@ app.post('/api/lobby/:mode/arrange', async (c) => {
   const mode = parseGameMode(c.req.param('mode'))
   const kv = createStateStore(c.env)
   if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
-  if (mode !== '2v2' && mode !== '3v3') {
+  if (!isTeamMode(mode)) {
     return c.json({ error: 'Team arrange actions are only available in 2v2 and 3v3 lobbies.' }, 400)
   }
 
@@ -1807,11 +1806,6 @@ async function resolveOpenLobbyFromBody(
 
 function buildLobbyQueueEntries(lobby: LobbyState, queueEntries: Awaited<ReturnType<typeof getQueueState>>['entries']) {
   return filterQueueEntriesForLobby(lobby, queueEntries)
-}
-
-function parseGameMode(modeParam: string): GameMode | null {
-  if (!GAME_MODES.includes(modeParam as GameMode)) return null
-  return modeParam as GameMode
 }
 
 function parseSlotIndex(value: unknown): number | null {

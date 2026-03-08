@@ -1,15 +1,10 @@
 import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import { playerRatings } from '@civup/db'
+import { formatLeaderboardModeLabel } from '@civup/game'
 import { buildLeaderboard } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { eq } from 'drizzle-orm'
-
-const MODE_LABELS: Record<LeaderboardMode, string> = {
-  duel: 'Duel',
-  teamers: 'Teamers',
-  ffa: 'FFA',
-}
 
 const MODE_COLORS: Record<LeaderboardMode, number> = {
   duel: 0xEF4444,
@@ -54,7 +49,7 @@ export async function leaderboardEmbed(
 }
 
 function formatLeaderboardTitle(mode: LeaderboardMode, titlePrefix?: string): string {
-  const baseTitle = `${MODE_LABELS[mode]} Leaderboard`
+  const baseTitle = `${formatLeaderboardModeLabel(mode, mode)} Leaderboard`
   return titlePrefix ? `${titlePrefix} ${baseTitle}` : baseTitle
 }
 

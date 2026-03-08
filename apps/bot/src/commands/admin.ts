@@ -2,6 +2,7 @@ import type { CompetitiveTier } from '@civup/game'
 import type { EphemeralResponseTone } from '../embeds/response'
 import type { SystemChannelType } from '../services/system-channels'
 import { createDb } from '@civup/db'
+import { formatLeaderboardModeLabel, LEADERBOARD_MODE_CHOICES, parseLeaderboardMode } from '@civup/game'
 import { Button, Command, Components, Option, SubCommand, SubGroup } from 'discord-hono'
 import { ephemeralResponseEmbed } from '../embeds/response.ts'
 import {
@@ -103,11 +104,7 @@ export const command_admin = factory.command<Var>(
     new SubCommand('reset', 'Reset a player\'s rating').options(
       new Option('player', 'Player to reset', 'User').required(),
       new Option('mode', 'Rating mode to reset')
-        .choices(
-          { name: 'Duel', value: 'duel' },
-          { name: 'Teamers', value: 'teamers' },
-          { name: 'FFA', value: 'ffa' },
-        )
+        .choices(...LEADERBOARD_MODE_CHOICES)
         .required(),
     ),
   ),
@@ -485,7 +482,7 @@ export const command_admin = factory.command<Var>(
       // ── reset ───────────────────────────────────────────
       case 'reset': {
         const playerId = c.var.player
-        const mode = c.var.mode
+        const mode = parseLeaderboardMode(c.var.mode)
         if (!playerId || !mode) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
             await sendTransientEphemeralResponse(c, 'Please provide player and mode.', 'error')
@@ -495,7 +492,7 @@ export const command_admin = factory.command<Var>(
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           const _db = createDb(c.env.DB)
           // TODO: implement resetRating service
-          await sendTransientEphemeralResponse(c, `<@${playerId}>\'s **${mode}** rating has been reset.`, 'success')
+          await sendTransientEphemeralResponse(c, `<@${playerId}>\'s **${formatLeaderboardModeLabel(mode, mode)}** rating has been reset.`, 'success')
         })
       }
 
@@ -755,9 +752,9 @@ function formatRankedRoleChangeLine(
   config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
 ): string {
   const previous = player.previousAssignment
-    ? `${formatRankedRoleReference(config, player.previousAssignment.tier)}${player.previousAssignment.sourceMode ? ` (${formatLeaderboardMode(player.previousAssignment.sourceMode)})` : ''}`
+    ? `${formatRankedRoleReference(config, player.previousAssignment.tier)}${player.previousAssignment.sourceMode ? ` (${formatLeaderboardModeLabel(player.previousAssignment.sourceMode, player.previousAssignment.sourceMode)})` : ''}`
     : 'none'
-  const next = `${formatRankedRoleReference(config, player.assignment.tier)}${player.assignment.sourceMode ? ` (${formatLeaderboardMode(player.assignment.sourceMode)})` : ''}`
+  const next = `${formatRankedRoleReference(config, player.assignment.tier)}${player.assignment.sourceMode ? ` (${formatLeaderboardModeLabel(player.assignment.sourceMode, player.assignment.sourceMode)})` : ''}`
   const pending = player.pendingDemotion
     ? ` - demotion hold ${player.pendingDemotion.belowKeepSyncs}/7`
     : ''
@@ -780,12 +777,6 @@ function formatRankedRoleReference(
   const roleId = config.currentRoles[tier]
   if (roleId) return `<@&${roleId}>`
   return getConfiguredRankedRoleLabel(config, tier) ?? formatRankedRoleSlotLabel(tier)
-}
-
-function formatLeaderboardMode(mode: 'ffa' | 'duel' | 'teamers'): string {
-  if (mode === 'ffa') return 'FFA'
-  if (mode === 'duel') return 'Duel'
-  return 'Teamers'
 }
 
 function buildResolvedRoleDisplayById(data: unknown): Map<string, { name: string, color: string | null }> {

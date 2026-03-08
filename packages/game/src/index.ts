@@ -2,7 +2,30 @@ export { MAX_TIMER_SECONDS } from './constants.ts'
 export { default1v1, default2v2, default3v3, defaultFfa, draftFormatMap, draftFormats, formatDraftStepLabel, getDefaultFormat } from './draft-formats.ts'
 export { createDraft, getBansForSeat, getCurrentStep, getPendingSeats, getPicksForSeat, isDraftError, isPlayerTurn, processDraftInput } from './draft-machine.ts'
 export { allLeaderIds, getLeader, leaderMap, leaders, searchLeaders } from './leaders.ts'
-export { formatModeLabel } from './mode.ts'
+export {
+  canStartWithPlayerCount,
+  defaultPlayerCount,
+  formatLeaderboardModeLabel,
+  formatModeLabel,
+  GAME_MODE_CHOICES,
+  inferGameMode,
+  isGameMode,
+  isLeaderboardMode,
+  isTeamMode,
+  leaderboardModesToGameModes,
+  LEADERBOARD_MODE_CHOICES,
+  LEADERBOARD_MODE_LABELS,
+  maxPlayerCount,
+  maxTeammatesForMode,
+  minPlayerCount,
+  parseGameMode,
+  parseLeaderboardMode,
+  playersPerTeam,
+  slotToTeamIndex,
+  teamCount,
+  teamSize,
+  toLeaderboardMode,
+} from './mode.ts'
 export type { ClientMessage, DraftCancelledWebhookPayload, DraftCompleteWebhookPayload, DraftWebhookPayload, RoomConfig, ServerMessage } from './protocol.ts'
 export type {
   CompetitiveTier,
@@ -28,17 +51,9 @@ export type {
   QueueState,
 } from './types.ts'
 export {
-  canStartWithPlayerCount,
   COMPETITIVE_TIERS,
   competitiveTierMeetsMinimum,
   competitiveTierRank,
-  defaultPlayerCount,
   GAME_MODES,
-  isTeamMode,
   LEADERBOARD_MODES,
-  maxPlayerCount,
-  minPlayerCount,
-  playersPerTeam,
-  teamCount,
-  toLeaderboardMode,
 } from './types.ts'

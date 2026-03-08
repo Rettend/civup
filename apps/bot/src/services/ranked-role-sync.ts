@@ -1,7 +1,7 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import { playerRatings, players } from '@civup/db'
-import { COMPETITIVE_TIERS, competitiveTierRank, LEADERBOARD_MODES } from '@civup/game'
+import { COMPETITIVE_TIERS, competitiveTierRank, formatLeaderboardModeLabel, LEADERBOARD_MODES } from '@civup/game'
 import { displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'
 import { createChannelMessage, DiscordApiError, editGuildMemberRoles } from './discord.ts'
 import { fetchGuildMemberRoleIds, formatRankedRoleSlotLabel, getMissingRankedRoleConfigTiers, getRankedRoleConfig, RANKED_ROLE_CONFIG_KEY_PREFIX, RANKED_TIERS_BY_PRESTIGE } from './ranked-roles.ts'
@@ -668,17 +668,17 @@ function buildRankAnnouncementLine(
   const next = player.assignment
   if (!previous) {
     if (competitiveTierRank(next.tier) <= competitiveTierRank('pleb')) return null
-    return `- <@${player.playerId}> qualified for ranked at ${formatRankAnnouncementRole(config, next.tier)}${next.sourceMode ? ` in ${formatLeaderboardMode(next.sourceMode)}` : ''}.`
+    return `- <@${player.playerId}> qualified for ranked at ${formatRankAnnouncementRole(config, next.tier)}${next.sourceMode ? ` in ${formatLeaderboardModeLabel(next.sourceMode, next.sourceMode)}` : ''}.`
   }
 
   const previousRank = competitiveTierRank(previous.tier)
   const nextRank = competitiveTierRank(next.tier)
   if (nextRank > previousRank) {
-    return `- <@${player.playerId}> promoted from ${formatRankAnnouncementRole(config, previous.tier)} to ${formatRankAnnouncementRole(config, next.tier)}${next.sourceMode ? ` in ${formatLeaderboardMode(next.sourceMode)}` : ''}.`
+    return `- <@${player.playerId}> promoted from ${formatRankAnnouncementRole(config, previous.tier)} to ${formatRankAnnouncementRole(config, next.tier)}${next.sourceMode ? ` in ${formatLeaderboardModeLabel(next.sourceMode, next.sourceMode)}` : ''}.`
   }
 
   if (nextRank < previousRank) {
-    return `- <@${player.playerId}> dropped from ${formatRankAnnouncementRole(config, previous.tier)} to ${formatRankAnnouncementRole(config, next.tier)}${next.sourceMode ? ` in ${formatLeaderboardMode(next.sourceMode)}` : ''}.`
+    return `- <@${player.playerId}> dropped from ${formatRankAnnouncementRole(config, previous.tier)} to ${formatRankAnnouncementRole(config, next.tier)}${next.sourceMode ? ` in ${formatLeaderboardModeLabel(next.sourceMode, next.sourceMode)}` : ''}.`
   }
 
   return null
@@ -690,12 +690,6 @@ function formatRankAnnouncementRole(
 ): string {
   const roleId = config.currentRoles[tier]
   return roleId ? `<@&${roleId}>` : `**${formatRankedRoleSlotLabel(tier)}**`
-}
-
-function formatLeaderboardMode(mode: LeaderboardMode): string {
-  if (mode === 'ffa') return 'FFA'
-  if (mode === 'duel') return 'Duel'
-  return 'Teamers'
 }
 
 function getInactivityPenalty(lastPlayedAt: number | null, now: number): number {

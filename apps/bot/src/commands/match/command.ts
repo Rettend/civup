@@ -1,7 +1,7 @@
 import type { GameMode, QueueEntry } from '@civup/game'
 import type { MatchJoinEntry, MatchVar } from './shared.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { formatModeLabel, isTeamMode, maxPlayerCount, minPlayerCount } from '@civup/game'
+import { formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, maxPlayerCount, maxTeammatesForMode, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
 import { Command, Option, SubCommand } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyOpenEmbed, lobbyResultEmbed } from '../../embeds/match.ts'
@@ -19,7 +19,7 @@ import { markRankedRolesDirty } from '../../services/ranked-role-sync.ts'
 import { createStateStore } from '../../services/state-store.ts'
 import { getSystemChannel } from '../../services/system-channels.ts'
 import { factory } from '../../setup.ts'
-import { collectFfaPlacementUserIds, GAME_MODE_CHOICES, getIdentity, getIdentityByUserId, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
+import { collectFfaPlacementUserIds, getIdentity, getIdentityByUserId, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
 
 export const command_match = factory.command<MatchVar>(
   new Command('match', 'Looking for game, queue management').options(
@@ -412,7 +412,7 @@ export const command_match = factory.command<MatchVar>(
       case 'status': {
         return c.resDefer(async (c) => {
           const kv = createStateStore(c.env)
-          const modes: GameMode[] = ['ffa', '1v1', '2v2', '3v3']
+          const modes = GAME_MODES
           const lines: string[] = []
           const guildId = c.interaction.guild_id ?? null
 
@@ -620,8 +620,7 @@ export const command_match = factory.command<MatchVar>(
 )
 
 function normalizeMatchMode(mode: string): GameMode {
-  if (mode === '1v1' || mode === '2v2' || mode === '3v3' || mode === 'ffa') return mode
-  return isTeamMode(mode as GameMode) ? mode as GameMode : '1v1'
+  return parseGameMode(mode) ?? '1v1'
 }
 
 function buildMatchJoinRequest(
@@ -695,12 +694,6 @@ function buildMatchJoinRequest(
   return { entries, teammateIds }
 }
 
-function maxTeammatesForMode(mode: GameMode): number {
-  if (mode === '2v2') return 1
-  if (mode === '3v3') return 2
-  return 0
-}
-
 async function findPlayersInLiveMatches(
   db: ReturnType<typeof createDb>,
   kv: KVNamespace,
@@ -743,7 +736,7 @@ async function findHostedOpenLobby(kv: KVNamespace, hostId: string) {
 }
 
 async function findHostedOpenLobbies(kv: KVNamespace, hostId: string) {
-  const modes: GameMode[] = ['ffa', '1v1', '2v2', '3v3']
+  const modes = GAME_MODES
   const lobbies = [] as Awaited<ReturnType<typeof getLobbiesByMode>>[number][]
   for (const mode of modes) {
     lobbies.push(...(await getLobbiesByMode(kv, mode)).filter(candidate => candidate.status === 'open' && candidate.hostId === hostId))
@@ -812,7 +805,7 @@ function buildCancelledLobbyParticipants(lobby: { mode: GameMode, slots: (string
       const entry = entryByPlayerId.get(playerId)
       return {
         playerId,
-        team: toLobbyTeam(lobby.mode, slot),
+        team: slotToTeamIndex(lobby.mode, slot),
         civId: null,
         placement: null,
         ratingBeforeMu: null,
@@ -823,13 +816,6 @@ function buildCancelledLobbyParticipants(lobby: { mode: GameMode, slots: (string
       }
     })
     .filter(participant => participant != null)
-}
-
-function toLobbyTeam(mode: GameMode, slot: number): number | null {
-  if (mode === '1v1') return slot
-  if (mode === '2v2') return slot < 2 ? 0 : 1
-  if (mode === '3v3') return slot < 3 ? 0 : 1
-  return null
 }
 
 function formatLobbyMessageLink(guildId: string | null, channelId: string, messageId: string): string {

@@ -1,5 +1,16 @@
 import { describe, expect, test } from 'bun:test'
-import { formatModeLabel } from '../src/mode'
+import {
+  formatLeaderboardModeLabel,
+  formatModeLabel,
+  inferGameMode,
+  leaderboardModesToGameModes,
+  maxTeammatesForMode,
+  parseGameMode,
+  parseLeaderboardMode,
+  slotToTeamIndex,
+  teamSize,
+  toLeaderboardMode,
+} from '../src/mode.ts'
 
 describe('formatModeLabel', () => {
   test('uses fallback for nullish or blank values', () => {
@@ -22,5 +33,74 @@ describe('formatModeLabel', () => {
   test('replaces dashes with spaces for other modes', () => {
     expect(formatModeLabel('default-2v2')).toBe('2v2')
     expect(formatModeLabel('duel-ranked')).toBe('duel ranked')
+  })
+})
+
+describe('parseGameMode', () => {
+  test('parses canonical game modes', () => {
+    expect(parseGameMode('ffa')).toBe('ffa')
+    expect(parseGameMode('1V1')).toBe('1v1')
+    expect(parseGameMode(' default-2V2 ')).toBe('2v2')
+    expect(parseGameMode('3v3')).toBe('3v3')
+  })
+
+  test('rejects unknown modes', () => {
+    expect(parseGameMode('duel')).toBeNull()
+    expect(parseGameMode('blind-ffa')).toBeNull()
+    expect(parseGameMode('')).toBeNull()
+  })
+})
+
+describe('inferGameMode', () => {
+  test('extracts mode suffixes from format ids', () => {
+    expect(inferGameMode('snake-ffa')).toBe('ffa')
+    expect(inferGameMode('draft-1v1')).toBe('1v1')
+    expect(inferGameMode('ranked-2v2')).toBe('2v2')
+    expect(inferGameMode('blind-3v3')).toBe('3v3')
+  })
+
+  test('falls back when no mode can be inferred', () => {
+    expect(inferGameMode('custom', '1v1')).toBe('1v1')
+    expect(inferGameMode(null)).toBe('ffa')
+  })
+})
+
+describe('formatLeaderboardModeLabel', () => {
+  test('formats supported leaderboard modes', () => {
+    expect(formatLeaderboardModeLabel('ffa')).toBe('FFA')
+    expect(formatLeaderboardModeLabel('DUEL')).toBe('Duel')
+    expect(formatLeaderboardModeLabel('teamers')).toBe('Teamers')
+  })
+
+  test('uses fallback for unknown modes', () => {
+    expect(formatLeaderboardModeLabel('all', 'All')).toBe('All')
+  })
+})
+
+describe('shared mode helpers', () => {
+  test('maps game modes to leaderboard tracks', () => {
+    expect(toLeaderboardMode('ffa')).toBe('ffa')
+    expect(toLeaderboardMode('1v1')).toBe('duel')
+    expect(toLeaderboardMode('2v2')).toBe('teamers')
+    expect(toLeaderboardMode('3v3')).toBe('teamers')
+  })
+
+  test('expands leaderboard tracks to game modes', () => {
+    expect(leaderboardModesToGameModes('ffa')).toEqual(['ffa'])
+    expect(leaderboardModesToGameModes('duel')).toEqual(['1v1'])
+    expect(leaderboardModesToGameModes('teamers')).toEqual(['2v2', '3v3'])
+  })
+
+  test('derives shared team helpers', () => {
+    expect(teamSize('ffa')).toBeNull()
+    expect(teamSize('1v1')).toBe(1)
+    expect(teamSize('2v2')).toBe(2)
+    expect(maxTeammatesForMode('ffa')).toBe(0)
+    expect(maxTeammatesForMode('2v2')).toBe(1)
+    expect(maxTeammatesForMode('3v3')).toBe(2)
+    expect(slotToTeamIndex('1v1', 0)).toBe(0)
+    expect(slotToTeamIndex('1v1', 1)).toBe(1)
+    expect(slotToTeamIndex('2v2', 3)).toBe(1)
+    expect(slotToTeamIndex('ffa', 0)).toBeNull()
   })
 })

@@ -1,14 +1,8 @@
-import type { LeaderboardMode } from '@civup/game'
 import { createDb } from '@civup/db'
+import { LEADERBOARD_MODE_CHOICES, parseLeaderboardMode } from '@civup/game'
 import { Command, Option } from 'discord-hono'
 import { leaderboardEmbed } from '../embeds/leaderboard.ts'
 import { factory } from '../setup.ts'
-
-const MODE_CHOICES = [
-  { name: 'Duel', value: 'duel' },
-  { name: 'Teamers', value: 'teamers' },
-  { name: 'FFA', value: 'ffa' },
-] as const
 
 interface Var {
   mode?: string
@@ -17,10 +11,10 @@ interface Var {
 export const command_leaderboard = factory.command<Var>(
   new Command('leaderboard', 'Show the top players').options(
     new Option('mode', 'Leaderboard track')
-      .choices(...MODE_CHOICES),
+      .choices(...LEADERBOARD_MODE_CHOICES),
   ),
   (c) => {
-    const mode = (c.var.mode ?? 'ffa') as LeaderboardMode
+    const mode = parseLeaderboardMode(c.var.mode) ?? 'ffa'
 
     return c.resDefer(async (c) => {
       const db = createDb(c.env.DB)

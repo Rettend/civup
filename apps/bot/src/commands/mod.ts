@@ -1,7 +1,7 @@
 import type { GameMode } from '@civup/game'
 import type { MatchVar } from './match/shared'
 import { createDb } from '@civup/db'
-import { formatModeLabel } from '@civup/game'
+import { formatModeLabel, parseGameMode } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
 import { clearLobbyMappings } from '../services/activity'
@@ -290,6 +290,5 @@ export const command_mod = factory.command<ModVar>(
 )
 
 function normalizeMatchMode(mode: string): GameMode {
-  if (mode === '1v1' || mode === '2v2' || mode === '3v3' || mode === 'ffa') return mode
-  return '1v1'
+  return parseGameMode(mode) ?? '1v1'
 }

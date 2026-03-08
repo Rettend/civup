@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { DraftCancelReason, DraftSeat, DraftState, GameMode, LeaderboardMode } from '@civup/game'
 import type { FfaEntry, TeamInput } from '@civup/rating'
 import { matchBans, matches, matchParticipants, playerRatings, players } from '@civup/db'
-import { isTeamMode, toLeaderboardMode } from '@civup/game'
+import { isTeamMode, leaderboardModesToGameModes, parseGameMode, toLeaderboardMode } from '@civup/game'
 import { calculateRatings, createRating, displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'
 import { and, asc, eq, inArray, isNull, lt, or } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from './activity.ts'
@@ -628,7 +628,7 @@ export async function resolveMatchByModerator(
 
   if (participants.length === 0) return { error: `Match **${input.matchId}** has no participants.` }
 
-  const gameMode = toSupportedGameMode(match.gameMode)
+  const gameMode = parseGameMode(match.gameMode)
   if (!gameMode) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
   const parsedPlacements = parseModerationPlacements(gameMode, input.placements, participants)
   if ('error' in parsedPlacements) return parsedPlacements
@@ -742,7 +742,7 @@ export async function cancelMatchByModerator(
 
   let recalculatedMatchIds: string[] = []
   if (previousStatus === 'completed') {
-    const gameMode = toSupportedGameMode(match.gameMode)
+    const gameMode = parseGameMode(match.gameMode)
     if (!gameMode) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
     const leaderboardMode = toLeaderboardMode(gameMode)
     const recalculated = await recalculateLeaderboardMode(db, leaderboardMode)
@@ -872,17 +872,6 @@ function parseOrderedParticipantIds(
   return { orderedIds }
 }
 
-function toSupportedGameMode(mode: string): GameMode | null {
-  if (mode === 'ffa' || mode === '1v1' || mode === '2v2' || mode === '3v3') return mode
-  return null
-}
-
-function leaderboardModesToGameModes(mode: LeaderboardMode): string[] {
-  if (mode === 'duel') return ['1v1']
-  if (mode === 'teamers') return ['2v2', '3v3']
-  return ['ffa']
-}
-
 async function recalculateLeaderboardMode(
   db: Database,
   leaderboardMode: LeaderboardMode,
@@ -921,7 +910,7 @@ async function recalculateLeaderboardMode(
       return { error: `Completed match **${match.id}** has missing placements.` }
     }
 
-    const gameMode = toSupportedGameMode(match.gameMode)
+    const gameMode = parseGameMode(match.gameMode)
     if (!gameMode) return { error: `Completed match **${match.id}** has unsupported game mode: ${match.gameMode}.` }
     let ratingUpdates
 

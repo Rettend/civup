@@ -2,20 +2,13 @@ import type { GameMode, QueueEntry } from '@civup/game'
 import type { Embed } from 'discord-hono'
 import type { lobbyComponents } from '../../embeds/match.ts'
 import type { LobbyState } from '../../services/lobby.ts'
-import { formatModeLabel, maxPlayerCount } from '@civup/game'
+import { formatModeLabel, isTeamMode, maxPlayerCount, teamSize as modeTeamSize } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby-render.ts'
 import { filterQueueEntriesForLobby, getLobbiesByMode, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby.ts'
 import { getPlayerQueueMode, getQueueState, MAX_QUEUE_ENTRIES, setQueueEntries } from '../../services/queue.ts'
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, memberMeetsRankedRoleGate } from '../../services/ranked-roles.ts'
 import { createStateStore } from '../../services/state-store.ts'
-
-export const GAME_MODE_CHOICES = [
-  { name: '1v1', value: '1v1' },
-  { name: '2v2', value: '2v2' },
-  { name: '3v3', value: '3v3' },
-  { name: 'FFA', value: 'ffa' },
-] as const
 
 export const FFA_PLACEMENT_KEYS = ['second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'] as const
 export type FfaPlacementKey = (typeof FFA_PLACEMENT_KEYS)[number]
@@ -424,7 +417,7 @@ function placeRequestedEntries(
 
   if (unslottedPlayerIds.length === 0) return { slots: nextSlots }
 
-  if (mode !== '2v2' && mode !== '3v3') {
+  if (!isTeamMode(mode)) {
     for (const playerId of unslottedPlayerIds) {
       const emptySlot = nextSlots.findIndex(slot => slot == null)
       if (emptySlot < 0) break
@@ -439,7 +432,7 @@ function placeRequestedEntries(
     return { slots: nextSlots }
   }
 
-  const teamSize = mode === '2v2' ? 2 : 3
+  const teamSize = modeTeamSize(mode) ?? 0
   const slottedTeamIndexes = requestedPlayerIds
     .map((playerId) => {
       const slotIndex = nextSlots.findIndex(slot => slot === playerId)

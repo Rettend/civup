@@ -1,15 +1,11 @@
 import type { Database } from '@civup/db'
+import type { LeaderboardMode } from '@civup/game'
 import type { PlayerRankModeSummary, PlayerRankProfile } from '../services/player-rank.ts'
 import type { SeasonRankHistoryEntry, SeasonRankHistoryModeSummary } from '../services/season-snapshot-roles.ts'
 import { players } from '@civup/db'
+import { formatLeaderboardModeLabel, LEADERBOARD_MODES } from '@civup/game'
 import { Embed } from 'discord-hono'
 import { eq } from 'drizzle-orm'
-
-const MODE_LABELS = {
-  ffa: 'FFA',
-  duel: 'Duel',
-  teamers: 'Teamers',
-} as const
 
 export async function rankEmbed(
   db: Database,
@@ -91,11 +87,11 @@ function formatModeRole(mode: PlayerRankModeSummary | SeasonRankHistoryModeSumma
 function pushSeasonFields(
   fields: Array<{ name: string, value: string, inline?: boolean }>,
   seasonName: string,
-  modes: Partial<Record<'ffa' | 'duel' | 'teamers', PlayerRankModeSummary | SeasonRankHistoryModeSummary | undefined>>,
+  modes: Partial<Record<LeaderboardMode, PlayerRankModeSummary | SeasonRankHistoryModeSummary | undefined>>,
 ): void {
-  const visibleModes = (['ffa', 'duel', 'teamers'] as const)
+  const visibleModes = LEADERBOARD_MODES
     .map(mode => ({ mode, summary: modes[mode] }))
-    .filter((entry): entry is { mode: 'ffa' | 'duel' | 'teamers', summary: PlayerRankModeSummary | SeasonRankHistoryModeSummary } => {
+    .filter((entry): entry is { mode: LeaderboardMode, summary: PlayerRankModeSummary | SeasonRankHistoryModeSummary } => {
       return !!entry.summary && entry.summary.gamesPlayed > 0
     })
 
@@ -109,7 +105,7 @@ function pushSeasonFields(
 
   for (const entry of visibleModes) {
     fields.push({
-      name: MODE_LABELS[entry.mode],
+      name: formatLeaderboardModeLabel(entry.mode, entry.mode),
       value: formatModeSummary(entry.summary),
       inline: true,
     })

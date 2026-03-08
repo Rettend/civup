@@ -15,13 +15,6 @@ export const LEADERBOARD_MODES = ['ffa', 'duel', 'teamers'] as const satisfies r
 
 export const COMPETITIVE_TIERS = ['pleb', 'squire', 'gladiator', 'legion', 'champion'] as const satisfies readonly CompetitiveTier[]
 
-/** Map game mode to its leaderboard track */
-export function toLeaderboardMode(mode: GameMode): LeaderboardMode {
-  if (mode === '2v2' || mode === '3v3') return 'teamers'
-  if (mode === '1v1') return 'duel'
-  return 'ffa'
-}
-
 /** Whether one competitive tier satisfies another tier's minimum gate. */
 export function competitiveTierMeetsMinimum(current: CompetitiveTier | null, minimum: CompetitiveTier | null): boolean {
   if (minimum == null) return true
@@ -38,55 +31,6 @@ export function competitiveTierRank(tier: CompetitiveTier): number {
   return 4
 }
 
-/** Whether a game mode is team-based */
-export function isTeamMode(mode: GameMode): mode is '2v2' | '3v3' {
-  return mode === '2v2' || mode === '3v3'
-}
-
-/** Number of teams for team modes */
-export function teamCount(mode: GameMode): number {
-  if (mode === '1v1') return 2
-  if (mode === '2v2') return 2
-  if (mode === '3v3') return 2
-  return 0 // FFA has no teams
-}
-
-/** Players per team */
-export function playersPerTeam(mode: GameMode): number {
-  if (mode === '1v1') return 1
-  if (mode === '2v2') return 2
-  if (mode === '3v3') return 3
-  return 1 // FFA: each player is their own "team" for draft purposes
-}
-
-/** Default player count for a mode */
-export function defaultPlayerCount(mode: GameMode): number {
-  if (mode === 'ffa') return 8
-  if (mode === '1v1') return 2
-  if (mode === '2v2') return 4
-  if (mode === '3v3') return 6
-  return 8
-}
-
-/** Maximum player count allowed for a lobby mode */
-export function maxPlayerCount(mode: GameMode): number {
-  if (mode === 'ffa') return 10
-  return defaultPlayerCount(mode)
-}
-
-/** Minimum players required before a lobby can start */
-export function minPlayerCount(mode: GameMode): number {
-  if (mode === 'ffa') return 6
-  return defaultPlayerCount(mode)
-}
-
-/** Whether a lobby can start with the current player count */
-export function canStartWithPlayerCount(mode: GameMode, playerCount: number): boolean {
-  if (mode === 'ffa') {
-    return playerCount >= minPlayerCount(mode) && playerCount <= maxPlayerCount(mode)
-  }
-  return playerCount === defaultPlayerCount(mode)
-}
 
 // ── Leaders ─────────────────────────────────────────────────
 
