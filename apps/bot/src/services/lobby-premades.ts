@@ -1,4 +1,5 @@
 import type { GameMode, QueueEntry } from '@civup/game'
+import { maxPlayerCount, slotToTeamIndex, teamSize as modeTeamSize } from '@civup/game'
 
 export interface SlottedPremadeGroup {
   playerIds: string[]
@@ -11,7 +12,7 @@ export function buildSlottedPremadeGroups(
   slots: (string | null)[],
   queueEntries: QueueEntry[],
 ): SlottedPremadeGroup[] {
-  const teamSize = getTeamSize(mode)
+  const teamSize = modeTeamSize(mode)
   if (!teamSize) return []
 
   const slottedPlayerIds = slots.filter((playerId): playerId is string => playerId != null)
@@ -152,7 +153,7 @@ export function rebuildQueueEntriesFromPremadeEdgeSet(
   queueEntries: QueueEntry[],
   activeEdges: Set<number>,
 ): QueueEntry[] {
-  const teamSize = getTeamSize(mode)
+  const teamSize = modeTeamSize(mode)
   if (!teamSize) return queueEntries
 
   const queueOrderByPlayerId = new Map<string, number>()
@@ -210,7 +211,7 @@ export function compactSlottedPremadesForMode(
   orderedPlayerIds: string[],
   queueEntries: QueueEntry[],
 ): { slots: (string | null)[] } | { error: string } {
-  const targetSize = maxSlotCount(mode)
+  const targetSize = maxPlayerCount(mode)
   const normalizedOrderedPlayers = orderedPlayerIds.slice(0, targetSize)
 
   if (mode === 'ffa') {
@@ -221,7 +222,7 @@ export function compactSlottedPremadesForMode(
     return { slots }
   }
 
-  const teamSize = getTeamSize(mode)
+  const teamSize = modeTeamSize(mode)
   if (!teamSize) {
     return { error: 'Linked premades do not fit this mode.' }
   }
@@ -254,29 +255,8 @@ export function compactSlottedPremadesForMode(
   return { slots }
 }
 
-export function slotToTeamIndex(mode: GameMode, slot: number): 0 | 1 | null {
-  const teamSize = getTeamSize(mode)
-  if (!teamSize) return null
-  if (slot < 0 || slot >= teamSize * 2) return null
-  return slot < teamSize ? 0 : 1
-}
-
-function getTeamSize(mode: GameMode): number | null {
-  if (mode === '1v1') return 1
-  if (mode === '2v2') return 2
-  if (mode === '3v3') return 3
-  return null
-}
-
-function maxSlotCount(mode: GameMode): number {
-  if (mode === 'ffa') return 10
-  if (mode === '1v1') return 2
-  if (mode === '2v2') return 4
-  return 6
-}
-
 function buildContiguousSegments(mode: GameMode, size: number): number[][] {
-  const teamSize = getTeamSize(mode)
+  const teamSize = modeTeamSize(mode)
   if (!teamSize || size <= 0 || size > teamSize) return []
 
   const segments: number[][] = []

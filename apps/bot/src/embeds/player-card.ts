@@ -1,7 +1,7 @@
 import type { Database } from '@civup/db'
 import type { GameMode, LeaderboardMode } from '@civup/game'
 import { matches, matchParticipants, playerRatings, players } from '@civup/db'
-import { getLeader, LEADERBOARD_MODES } from '@civup/game'
+import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MODES, parseGameMode, toLeaderboardMode } from '@civup/game'
 import { displayRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, desc, eq } from 'drizzle-orm'
@@ -9,19 +9,6 @@ import { leaderEmojiMention } from '../constants/leader-emojis.ts'
 import type { PlayerRankProfile } from '../services/player-rank.ts'
 
 export type StatsModeFilter = 'all' | GameMode
-
-const LEADERBOARD_MODE_LABELS: Record<LeaderboardMode, string> = {
-  ffa: 'FFA',
-  duel: 'Duel',
-  teamers: 'Teamers',
-}
-
-const GAME_MODE_LABELS: Record<GameMode, string> = {
-  'ffa': 'FFA',
-  '1v1': '1v1',
-  '2v2': '2v2',
-  '3v3': '3v3',
-}
 
 const TOP_LEADERS_LIMIT = 5
 
@@ -44,7 +31,7 @@ export async function playerCardEmbed(
     .from(playerRatings)
     .where(eq(playerRatings.playerId, playerId))
 
-  const requestedModeLabel = modeFilter === 'all' ? null : GAME_MODE_LABELS[modeFilter]
+  const requestedModeLabel = modeFilter === 'all' ? null : formatModeLabel(modeFilter, modeFilter)
   const rankProfile = options.rankProfile ?? null
 
   const embed = new Embed()
@@ -65,7 +52,7 @@ export async function playerCardEmbed(
       : 0
 
     fields.push({
-      name: LEADERBOARD_MODE_LABELS[mode],
+      name: formatLeaderboardModeLabel(mode, mode),
       value: [
         `Rating: ${formatModeRating(rankProfile?.modes[mode], Math.round(rating))}`,
         `Games: ${ratingRow.gamesPlayed}`,
@@ -161,9 +148,7 @@ function formatRankedRoleMention(mode: PlayerRankProfile['modes'][LeaderboardMod
 
 function getRatingModes(modeFilter: StatsModeFilter): readonly LeaderboardMode[] {
   if (modeFilter === 'all') return LEADERBOARD_MODES
-  if (modeFilter === 'ffa') return ['ffa']
-  if (modeFilter === '1v1') return ['duel']
-  return ['teamers']
+  return [toLeaderboardMode(modeFilter)]
 }
 
 function buildCompletedMatchesWhereClause(playerId: string, modeFilter: StatsModeFilter) {
@@ -258,7 +243,8 @@ function formatRecentRatingChange(match: {
 }
 
 function formatGameModeLabel(gameMode: string): string {
-  if (gameMode in GAME_MODE_LABELS) return GAME_MODE_LABELS[gameMode as GameMode]
+  const parsed = parseGameMode(gameMode)
+  if (parsed) return formatModeLabel(parsed, parsed)
   return gameMode.toUpperCase()
 }
 

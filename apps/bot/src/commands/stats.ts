@@ -1,5 +1,6 @@
 import type { StatsModeFilter } from '../embeds/player-card.ts'
 import { createDb } from '@civup/db'
+import { GAME_MODE_CHOICES } from '@civup/game'
 import { Command, Option } from 'discord-hono'
 import { playerCardEmbed } from '../embeds/player-card.ts'
 import { syncPlayerProfileFromDiscord } from '../services/player-profile.ts'
@@ -8,10 +9,7 @@ import { factory } from '../setup.ts'
 
 const MODE_CHOICES = [
   { name: 'All', value: 'all' },
-  { name: 'FFA', value: 'ffa' },
-  { name: '1v1', value: '1v1' },
-  { name: '2v2', value: '2v2' },
-  { name: '3v3', value: '3v3' },
+  ...GAME_MODE_CHOICES,
 ] as const
 
 interface Var {
