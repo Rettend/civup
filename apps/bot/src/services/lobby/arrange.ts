@@ -101,7 +101,7 @@ export function arrangeTeamLobbySlots(
     const { teamAIds, teamBIds } = assignmentToTeams(chosen.assignment, groups)
     const randomizedTeamA = randomizeTeamOrder(teamAIds, groups, random)
     const randomizedTeamB = randomizeTeamOrder(teamBIds, groups, random)
-      return { slots: buildTeamSlots(teamSlotCount, randomizedTeamA, randomizedTeamB) }
+    return { slots: buildTeamSlots(teamSlotCount, randomizedTeamA, randomizedTeamB) }
   }
 
   const minScore = Math.min(...scoredCandidates.map(candidate => candidate.score))

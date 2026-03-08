@@ -1,5 +1,5 @@
 import type { GameMode, QueueEntry } from '@civup/game'
-import { maxPlayerCount, slotToTeamIndex, teamSize as modeTeamSize } from '@civup/game'
+import { maxPlayerCount, teamSize as modeTeamSize, slotToTeamIndex } from '@civup/game'
 
 export interface SlottedPremadeGroup {
   playerIds: string[]

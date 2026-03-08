@@ -1,12 +1,12 @@
 import type { Database } from '@civup/db'
 import type { GameMode, LeaderboardMode } from '@civup/game'
+import type { PlayerRankProfile } from '../services/player/rank.ts'
 import { matches, matchParticipants, playerRatings, players } from '@civup/db'
 import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MODES, parseGameMode, toLeaderboardMode } from '@civup/game'
 import { displayRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, desc, eq } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
-import type { PlayerRankProfile } from '../services/player/rank.ts'
 
 export type StatsModeFilter = 'all' | GameMode
 
