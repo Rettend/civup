@@ -1,4 +1,5 @@
 import type { Database as CivupDatabase } from '@civup/db'
+import { readdir } from 'node:fs/promises'
 import { schema } from '@civup/db'
 import { Database } from 'bun:sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
@@ -7,14 +8,18 @@ export async function createTestDatabase(): Promise<{ db: CivupDatabase, sqlite:
   const sqlite = new Database(':memory:')
   sqlite.run('PRAGMA foreign_keys = ON')
 
-  const migrationSql = await Bun.file(
-    new URL('../../../../packages/db/migrations/0000_busy_young_avengers.sql', import.meta.url),
-  ).text()
+  const migrationDir = new URL('../../../../packages/db/migrations/', import.meta.url)
+  const migrationFiles = (await readdir(migrationDir))
+    .filter(file => /^\d+_.*\.sql$/.test(file))
+    .sort((a, b) => a.localeCompare(b))
 
-  for (const statement of migrationSql.split('--> statement-breakpoint')) {
-    const sql = statement.trim()
-    if (!sql) continue
-    sqlite.exec(sql)
+  for (const file of migrationFiles) {
+    const migrationSql = await Bun.file(new URL(file, migrationDir)).text()
+    for (const statement of migrationSql.split('--> statement-breakpoint')) {
+      const sql = statement.trim()
+      if (!sql) continue
+      sqlite.exec(sql)
+    }
   }
 
   const db = drizzle(sqlite, { schema }) as unknown as CivupDatabase
@@ -43,6 +48,14 @@ export function createTestKv(): KVNamespace {
     },
     async delete(key: string) {
       store.delete(key)
+    },
+    async list(options?: { prefix?: string }) {
+      const prefix = options?.prefix ?? ''
+      return {
+        keys: [...store.keys()].filter(key => key.startsWith(prefix)).map(name => ({ name })),
+        list_complete: true,
+        cursor: '',
+      }
     },
   }
 

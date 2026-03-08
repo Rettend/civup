@@ -1,5 +1,5 @@
-import { Server } from 'partyserver'
 import type { Connection, WSMessage } from 'partyserver'
+import { Server } from 'partyserver'
 
 interface StateStoreEnv extends Cloudflare.Env {
   CIVUP_SECRET?: string
@@ -21,38 +21,57 @@ type StateKvRequest
     key: string
     type?: 'json'
   }
-    | {
-      op: 'put'
+  | {
+    op: 'put'
+    key: string
+    value: string
+    expirationTtl?: number
+  }
+  | {
+    op: 'delete'
+    key: string
+  }
+  | {
+    op: 'list'
+    prefix?: string
+  }
+  | {
+    op: 'mget'
+    entries: Array<{
+      key: string
+      type?: 'json'
+    }>
+  }
+  | {
+    op: 'mput'
+    entries: Array<{
       key: string
       value: string
       expirationTtl?: number
-    }
-    | {
-      op: 'delete'
-      key: string
-    }
-    | {
-      op: 'list'
-      prefix?: string
-    }
+    }>
+  }
+  | {
+    op: 'mdelete'
+    keys: string[]
+  }
 
 type StateSocketRequest
   = | {
     type: 'subscribe-key'
     key: string
   }
-    | {
-      type: 'subscribe-prefix'
-      prefix: string
-    }
-    | {
-      type: 'unsubscribe-key'
-      key: string
-    }
-    | {
-      type: 'unsubscribe-prefix'
-      prefix: string
-    }
+  | {
+    type: 'subscribe-prefix'
+    prefix: string
+  }
+  | {
+    type: 'unsubscribe-key'
+    key: string
+  }
+  | {
+    type: 'unsubscribe-prefix'
+    prefix: string
+  }
 
 type StateSocketResponse
   = | {
@@ -60,13 +79,13 @@ type StateSocketResponse
     key: string
     op: 'put' | 'delete'
   }
-    | {
-      type: 'error'
-      message: string
-    }
+  | {
+    type: 'error'
+    message: string
+  }
 
 const STORAGE_PREFIX = 'kv:'
-const ALLOWED_SUBSCRIPTION_KEY_PREFIXES = ['activity:', 'activity-user:']
+const ALLOWED_SUBSCRIPTION_KEY_PREFIXES = ['activity:', 'activity-user:', 'activity-target-user:']
 const ALLOWED_SUBSCRIPTION_PREFIXES = ['lobby:mode:']
 
 export class State extends Server<StateStoreEnv> {
@@ -128,6 +147,57 @@ export class State extends Server<StateStoreEnv> {
         if (!isValidPrefix(prefix)) return json({ error: 'Invalid prefix' }, 400)
         const result = await this.listValues(prefix)
         return json(result)
+      }
+
+      case 'mget': {
+        if (!Array.isArray(payload.entries)) return json({ error: 'Invalid entries' }, 400)
+        const values: unknown[] = []
+
+        for (const entry of payload.entries) {
+          if (!entry || typeof entry !== 'object') return json({ error: 'Invalid entry' }, 400)
+          const key = typeof entry.key === 'string' ? entry.key : null
+          if (!key || !isValidKey(key)) return json({ error: 'Invalid key' }, 400)
+          values.push(await this.getValue(key, entry.type === 'json' ? 'json' : undefined))
+        }
+
+        return json({ values })
+      }
+
+      case 'mput': {
+        if (!Array.isArray(payload.entries)) return json({ error: 'Invalid entries' }, 400)
+
+        for (const entry of payload.entries) {
+          if (!entry || typeof entry !== 'object') return json({ error: 'Invalid entry' }, 400)
+          if (!isValidKey(entry.key)) return json({ error: 'Invalid key' }, 400)
+          if (typeof entry.value !== 'string') return json({ error: 'Invalid value' }, 400)
+
+          const ttlSeconds = normalizeTtlSeconds(entry.expirationTtl)
+          const existing = await this.ctx.storage.get<StoredValue>(storageKey(entry.key))
+          const previous = await this.ensureFreshValue(entry.key, existing)
+          await this.putValue(entry.key, entry.value, ttlSeconds)
+          if (!previous || previous.value !== entry.value) {
+            this.broadcastStateChanged(entry.key, 'put')
+          }
+        }
+
+        return json({ ok: true })
+      }
+
+      case 'mdelete': {
+        if (!Array.isArray(payload.keys)) return json({ error: 'Invalid keys' }, 400)
+
+        for (const key of payload.keys) {
+          if (!isValidKey(key)) return json({ error: 'Invalid key' }, 400)
+
+          const existing = await this.ctx.storage.get<StoredValue>(storageKey(key))
+          const previous = await this.ensureFreshValue(key, existing)
+          await this.ctx.storage.delete(storageKey(key))
+          if (previous) {
+            this.broadcastStateChanged(key, 'delete')
+          }
+        }
+
+        return json({ ok: true })
       }
 
       default:
@@ -289,9 +359,7 @@ export class State extends Server<StateStoreEnv> {
       if (!state) continue
 
       if (!state.keySubscriptions.includes(key)
-        && !state.prefixSubscriptions.some(prefix => key.startsWith(prefix))) {
-        continue
-      }
+        && !state.prefixSubscriptions.some(prefix => key.startsWith(prefix))) { continue }
 
       this.sendSocketMessage(connection, { type: 'state-changed', key, op })
     }

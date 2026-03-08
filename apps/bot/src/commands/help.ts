@@ -1,7 +1,7 @@
 import { api } from '@civup/utils'
 import { Command, Embed } from 'discord-hono'
-import { sendTransientEphemeralResponse } from '../services/ephemeral-response'
-import { canUseModCommands, hasAdminPermission, parseRoleIds } from '../services/permissions'
+import { sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
+import { canUseModCommands, hasAdminPermission, parseRoleIds } from '../services/permissions/index.ts'
 import { factory } from '../setup'
 
 const MAX_HELP_DESCRIPTION_LENGTH = 3_800
@@ -40,7 +40,7 @@ export const command_help = factory.command(
       roles: parseRoleIds(c.interaction.member?.roles),
     })
 
-    return c.flags('EPHEMERAL').resDefer(async (c) => {
+    return c.resDefer(async (c) => {
       let commandDefs: DiscordApplicationCommand[]
       try {
         commandDefs = await fetchRegisteredCommands(

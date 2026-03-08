@@ -1,100 +1,32 @@
 /* eslint-disable no-console */
 import type { DraftSeat, DraftState, GameMode, QueueEntry } from '@civup/game'
+import type { CapacityModel, OverageRatesPerMillion, UsageLimits } from './capacity/model.ts'
 import { playerRatings, players } from '@civup/db'
-import {
-  allLeaderIds,
-  createDraft,
-  getDefaultFormat,
-  isDraftError,
-  processDraftInput,
-} from '@civup/game'
+import { allLeaderIds, createDraft, getDefaultFormat, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
-import { markLeaderboardsDirty } from '../../src/services/leaderboard-message.ts'
-import {
-  getMatchForChannel,
-  storeMatchMapping,
-} from '../../src/services/activity.ts'
-import {
-  getServerDraftTimerDefaults,
-  resolveDraftTimerConfig,
-} from '../../src/services/config.ts'
-import {
-  clearLobbyByMatch,
-  createLobby,
-  getLobbyByChannel,
-  getLobby,
-  getLobbyByMatch,
-  mapLobbySlotsToEntries,
-  normalizeLobbySlots,
-  sameLobbySlots,
-  setLobbySlots,
-  setLobbyStatus,
-  upsertLobby,
-} from '../../src/services/lobby.ts'
-import { storeMatchMessageMapping } from '../../src/services/match-message.ts'
-import {
-  activateDraftMatch,
-  createDraftMatch,
-  reportMatch,
-} from '../../src/services/match.ts'
-import {
-  addToQueue,
-  clearQueue,
-  getPlayerQueueMode,
-  getQueueState,
-} from '../../src/services/queue.ts'
-import { createStateStore } from '../../src/services/state-store.ts'
-import {
-  getSystemChannel,
-  setSystemChannel,
-} from '../../src/services/system-channels.ts'
+import { getMatchForChannel, storeMatchMapping } from '../../src/services/activity/index.ts'
+import { getServerDraftTimerDefaults, resolveDraftTimerConfig } from '../../src/services/config/index.ts'
+import { markLeaderboardsDirty } from '../../src/services/leaderboard/message.ts'
+import { clearLobbiesByMode, createLobby, getLobby, getLobbyByChannel, getLobbyByMatch, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots, setLobbyStatus, upsertLobby } from '../../src/services/lobby/index.ts'
+import { activateDraftMatch, createDraftMatch, reportMatch } from '../../src/services/match/index.ts'
+import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
+import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState } from '../../src/services/queue/index.ts'
+import { createStateStore } from '../../src/services/state/store.ts'
+import { getSystemChannel, setSystemChannel } from '../../src/services/system/channels.ts'
+import { installStateCoordinatorHarness } from '../helpers/state-coordinator-harness.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
-
-interface UsageLimits {
-  workersRequests: number
-  d1RowsRead: number
-  d1RowsWritten: number
-  kvReads: number
-  kvWrites: number
-  kvDeletes: number
-  kvLists: number
-  doRequests: number
-  doDurationGbSeconds: number
-}
-
-interface PerDraftUsage {
-  workersRequests: number
-  d1RowsReadBase: number
-  d1RowsReadPerLeaderboardPlayer: number
-  d1RowsWritten: number
-  kvReads: number
-  kvWrites: number
-  kvDeletes: number
-  kvLists: number
-  doRequests: number
-  doDurationGbSeconds: number
-}
-
-interface DailyUsage {
-  workersRequests: number
-  d1RowsRead: number
-  d1RowsWritten: number
-  kvReads: number
-  kvWrites: number
-  kvDeletes: number
-  kvLists: number
-  doRequests: number
-  doDurationGbSeconds: number
-}
+import { estimateDailyUsage, estimateOverageUsd, findMaxPlaysPerDay, findMaxPlaysPerDayForOverageBudget, findMetricBreakpoints } from './capacity/model.ts'
 
 interface SimulationResult {
   usage: {
     workersRequests: number
     d1RowsRead: number
     d1RowsWritten: number
+    doSqliteRowsRead: number
+    doSqliteRowsWritten: number
     kvReads: number
     kvWrites: number
     kvDeletes: number
@@ -104,40 +36,36 @@ interface SimulationResult {
   }
 }
 
-interface CapacityModel {
-  perDraft: PerDraftUsage
-  lobbyPollCycles: number
-}
-
-interface MetricBreakpoint {
-  metric: keyof UsageLimits
-  playersPerDay: number
-  draftsPerDay: number
-  limit: number
-  usageAtBreakpoint: number
-}
-
-const DAILY_PLAYER_SCENARIOS = [100, 200, 1000] as const
+const DAILY_PLAY_SCENARIOS = [100, 200, 1000] as const
 const PLAYERS_PER_DRAFT = 2
-const LOBBY_POLL_INTERVAL_SECONDS = 90
-const AVERAGE_LOBBY_WAIT_SECONDS = 0
-const LOBBY_POLL_CYCLES = Math.max(0, Math.round(AVERAGE_LOBBY_WAIT_SECONDS / LOBBY_POLL_INTERVAL_SECONDS))
 
 const DO_WEBSOCKET_BILLING_RATIO = 20
+const DO_CREATE_ROOM_REQUESTS_PER_DRAFT = 1
+const LOBBY_WATCH_SUBSCRIBE_MESSAGES_PER_CONNECTION = 3
+const ESTIMATED_DO_GB_SECONDS_PER_REQUEST = 0.0025
 
-const DO_REQUESTS_PER_DRAFT = {
-  createRoom: 1,
-  draftRoomWebsocketConnects: 2,
-  draftRoomIncomingMessages: 5,
-  lobbyWatchWebsocketConnects: 2,
-  lobbyWatchIncomingMessages: 8,
-}
-const ASSUMED_DO_DURATION_GB_SECONDS_PER_DRAFT = 2
+const SIMULATED_DRAFT_ACTIONS: Array<Parameters<typeof processDraftInput>[1]> = [
+  { type: 'START' },
+  {
+    type: 'BAN',
+    seatIndex: 0,
+    civIds: [allLeaderIds[0]!, allLeaderIds[1]!, allLeaderIds[2]!],
+  },
+  {
+    type: 'BAN',
+    seatIndex: 1,
+    civIds: [allLeaderIds[3]!, allLeaderIds[4]!, allLeaderIds[5]!],
+  },
+  { type: 'PICK', seatIndex: 0, civId: allLeaderIds[6]! },
+  { type: 'PICK', seatIndex: 1, civId: allLeaderIds[7]! },
+]
 
 const FREE_DAILY_LIMITS: UsageLimits = {
   workersRequests: 100_000,
   d1RowsRead: 5_000_000,
   d1RowsWritten: 100_000,
+  doSqliteRowsRead: 5_000_000,
+  doSqliteRowsWritten: 100_000,
   kvReads: 100_000,
   kvWrites: 1_000,
   kvDeletes: 1_000,
@@ -150,6 +78,8 @@ const PAID_MONTHLY_LIMITS: UsageLimits = {
   workersRequests: 10_000_000,
   d1RowsRead: 25_000_000_000,
   d1RowsWritten: 50_000_000,
+  doSqliteRowsRead: 25_000_000_000,
+  doSqliteRowsWritten: 50_000_000,
   kvReads: 10_000_000,
   kvWrites: 1_000_000,
   kvDeletes: 1_000_000,
@@ -158,28 +88,45 @@ const PAID_MONTHLY_LIMITS: UsageLimits = {
   doDurationGbSeconds: 400_000,
 }
 
+const PAID_OVERAGE_RATES_PER_MILLION: OverageRatesPerMillion = {
+  workersRequests: 0.30,
+  d1RowsRead: 0.001,
+  d1RowsWritten: 1.0,
+  doSqliteRowsRead: 0.001,
+  doSqliteRowsWritten: 1.0,
+  kvReads: 0.50,
+  kvWrites: 5.0,
+  kvDeletes: 5.0,
+  kvLists: 5.0,
+  doRequests: 0.15,
+  doDurationGbSeconds: 12.5,
+}
+
+const PAID_BASE_MONTHLY_PRICE_USD = 5
+const PAID_TARGET_MONTHLY_PRICE_USD = 10
+const PAID_EXTRA_OVERAGE_BUDGET_USD = PAID_TARGET_MONTHLY_PRICE_USD - PAID_BASE_MONTHLY_PRICE_USD
+
 const DAYS_PER_MONTH = 30
 const SHOULD_PRINT_REPORT = Bun.env.CIVUP_CAPACITY_REPORT === '1'
 
 describe('1v1 capacity model', () => {
   test('prints free vs paid capacity projections', async () => {
     const baseline = await simulateOneVOneDraft({
-      lobbyPollCycles: LOBBY_POLL_CYCLES,
       leaderboardRows: 0,
     })
     const withOneLeaderboardRow = await simulateOneVOneDraft({
-      lobbyPollCycles: LOBBY_POLL_CYCLES,
       leaderboardRows: 1,
     })
 
     const d1RowsReadPerLeaderboardPlayer = withOneLeaderboardRow.usage.d1RowsRead - baseline.usage.d1RowsRead
     const model: CapacityModel = {
-      lobbyPollCycles: LOBBY_POLL_CYCLES,
       perDraft: {
         workersRequests: baseline.usage.workersRequests,
         d1RowsReadBase: baseline.usage.d1RowsRead,
         d1RowsReadPerLeaderboardPlayer,
         d1RowsWritten: baseline.usage.d1RowsWritten,
+        doSqliteRowsRead: baseline.usage.doSqliteRowsRead,
+        doSqliteRowsWritten: baseline.usage.doSqliteRowsWritten,
         kvReads: baseline.usage.kvReads,
         kvWrites: baseline.usage.kvWrites,
         kvDeletes: baseline.usage.kvDeletes,
@@ -189,14 +136,16 @@ describe('1v1 capacity model', () => {
       },
     }
 
-    const scenarioRows = DAILY_PLAYER_SCENARIOS.map((playersPerDay) => {
-      const usage = estimateDailyUsage(model, playersPerDay)
+    const scenarioRows = DAILY_PLAY_SCENARIOS.map((playsPerDay) => {
+      const usage = estimateDailyUsage(model, playsPerDay, PLAYERS_PER_DRAFT)
       return {
-        playersPerDay,
-        draftsPerDay: playersPerDay / PLAYERS_PER_DRAFT,
+        playsPerDay,
+        draftsPerDay1v1: playsPerDay / PLAYERS_PER_DRAFT,
         workersRequests: usage.workersRequests,
         d1RowsRead: usage.d1RowsRead,
         d1RowsWritten: usage.d1RowsWritten,
+        doSqliteRowsRead: usage.doSqliteRowsRead,
+        doSqliteRowsWritten: usage.doSqliteRowsWritten,
         kvReads: usage.kvReads,
         kvWrites: usage.kvWrites,
         kvDeletes: usage.kvDeletes,
@@ -206,27 +155,49 @@ describe('1v1 capacity model', () => {
       }
     })
 
-    const freeCapacityPlayersPerDay = findMaxPlayersPerDay({
+    const freeCapacityPlaysPerDay = findMaxPlaysPerDay({
       model,
       limits: FREE_DAILY_LIMITS,
       periodDays: 1,
+      playersPerDraft: PLAYERS_PER_DRAFT,
     })
 
-    const paidCapacityPlayersPerDay = findMaxPlayersPerDay({
+    const paidIncludedCapacityPlaysPerDay = findMaxPlaysPerDay({
       model,
       limits: PAID_MONTHLY_LIMITS,
       periodDays: DAYS_PER_MONTH,
+      playersPerDraft: PLAYERS_PER_DRAFT,
+    })
+
+    const paidTenDollarCapacityPlaysPerDay = findMaxPlaysPerDayForOverageBudget({
+      model,
+      limits: PAID_MONTHLY_LIMITS,
+      periodDays: DAYS_PER_MONTH,
+      playersPerDraft: PLAYERS_PER_DRAFT,
+      overageRatesPerMillion: PAID_OVERAGE_RATES_PER_MILLION,
+      overageBudgetUsd: PAID_EXTRA_OVERAGE_BUDGET_USD,
+    })
+
+    const paidTenDollarOverageUsd = estimateOverageUsd({
+      model,
+      playsPerDay: paidTenDollarCapacityPlaysPerDay,
+      limits: PAID_MONTHLY_LIMITS,
+      periodDays: DAYS_PER_MONTH,
+      playersPerDraft: PLAYERS_PER_DRAFT,
+      overageRatesPerMillion: PAID_OVERAGE_RATES_PER_MILLION,
     })
 
     const freeBreakpoints = findMetricBreakpoints({
       model,
       limits: FREE_DAILY_LIMITS,
       periodDays: 1,
+      playersPerDraft: PLAYERS_PER_DRAFT,
     })
     const paidBreakpoints = findMetricBreakpoints({
       model,
       limits: PAID_MONTHLY_LIMITS,
       periodDays: DAYS_PER_MONTH,
+      playersPerDraft: PLAYERS_PER_DRAFT,
     })
 
     const freeBottleneck = freeBreakpoints[0]!
@@ -237,11 +208,10 @@ describe('1v1 capacity model', () => {
       console.table([
         {
           playersPerDraft: PLAYERS_PER_DRAFT,
-          lobbyPollIntervalSeconds: LOBBY_POLL_INTERVAL_SECONDS,
-          averageLobbyWaitSeconds: AVERAGE_LOBBY_WAIT_SECONDS,
-          lobbyPollCycles: model.lobbyPollCycles,
-          doRequestsPerDraft: model.perDraft.doRequests,
-          doDurationGbSecondsPerDraft: model.perDraft.doDurationGbSeconds,
+          draftRoomIncomingMessages: SIMULATED_DRAFT_ACTIONS.length,
+          lobbyWatchSubscribeMessagesPerConnection: LOBBY_WATCH_SUBSCRIBE_MESSAGES_PER_CONNECTION,
+          doWebsocketBillingRatio: DO_WEBSOCKET_BILLING_RATIO,
+          estimatedDoGbSecondsPerRequest: ESTIMATED_DO_GB_SECONDS_PER_REQUEST,
         },
       ])
 
@@ -252,6 +222,8 @@ describe('1v1 capacity model', () => {
           d1RowsReadBase: model.perDraft.d1RowsReadBase,
           d1RowsReadPerLeaderboardPlayer: model.perDraft.d1RowsReadPerLeaderboardPlayer,
           d1RowsWritten: model.perDraft.d1RowsWritten,
+          doSqliteRowsRead: model.perDraft.doSqliteRowsRead,
+          doSqliteRowsWritten: model.perDraft.doSqliteRowsWritten,
           kvReads: model.perDraft.kvReads,
           kvWrites: model.perDraft.kvWrites,
           kvDeletes: model.perDraft.kvDeletes,
@@ -261,22 +233,28 @@ describe('1v1 capacity model', () => {
         },
       ])
 
-      console.log('\n[capacity] scenario usage by daily players')
+      console.log('\n[capacity] scenario usage by daily plays')
       console.table(scenarioRows)
 
       console.log('\n[capacity] plan ceilings')
       console.table([
         {
           plan: 'free',
-          playersPerDay: freeCapacityPlayersPerDay,
-          draftsPerDay: freeCapacityPlayersPerDay / PLAYERS_PER_DRAFT,
+          playsPerDay: freeCapacityPlaysPerDay,
+          draftsPerDay1v1: freeCapacityPlaysPerDay / PLAYERS_PER_DRAFT,
           bottleneck: freeBottleneck.metric,
         },
         {
           plan: '$5 included',
-          playersPerDay: paidCapacityPlayersPerDay,
-          draftsPerDay: paidCapacityPlayersPerDay / PLAYERS_PER_DRAFT,
+          playsPerDay: paidIncludedCapacityPlaysPerDay,
+          draftsPerDay1v1: paidIncludedCapacityPlaysPerDay / PLAYERS_PER_DRAFT,
           bottleneck: paidBottleneck.metric,
+        },
+        {
+          plan: '$10 target',
+          playsPerDay: paidTenDollarCapacityPlaysPerDay,
+          draftsPerDay1v1: paidTenDollarCapacityPlaysPerDay / PLAYERS_PER_DRAFT,
+          bottleneck: `$${PAID_EXTRA_OVERAGE_BUDGET_USD.toFixed(2)} monthly overage budget`,
         },
       ])
 
@@ -286,28 +264,29 @@ describe('1v1 capacity model', () => {
           plan: 'free',
           rank: index + 1,
           metric: row.metric,
-          playersPerDay: row.playersPerDay,
-          draftsPerDay: row.draftsPerDay,
+          playsPerDay: row.playsPerDay,
+          draftsPerDay1v1: row.draftsPerDay1v1,
         })),
         ...paidBreakpoints.map((row, index) => ({
           plan: '$5 included',
           rank: index + 1,
           metric: row.metric,
-          playersPerDay: row.playersPerDay,
-          draftsPerDay: row.draftsPerDay,
+          playsPerDay: row.playsPerDay,
+          draftsPerDay1v1: row.draftsPerDay1v1,
         })),
       ])
     }
 
-    expect(model.perDraft.kvWrites).toBeGreaterThan(0)
+    expect(model.perDraft.kvWrites).toBeGreaterThanOrEqual(0)
     expect(model.perDraft.d1RowsWritten).toBeGreaterThan(0)
-    expect(freeCapacityPlayersPerDay).toBeGreaterThan(0)
-    expect(paidCapacityPlayersPerDay).toBeGreaterThan(0)
+    expect(freeCapacityPlaysPerDay).toBeGreaterThan(0)
+    expect(paidIncludedCapacityPlaysPerDay).toBeGreaterThan(0)
+    expect(paidTenDollarCapacityPlaysPerDay).toBeGreaterThanOrEqual(paidIncludedCapacityPlaysPerDay)
+    expect(paidTenDollarOverageUsd).toBeLessThanOrEqual(PAID_EXTRA_OVERAGE_BUDGET_USD)
   })
 })
 
 async function simulateOneVOneDraft(input: {
-  lobbyPollCycles: number
   leaderboardRows: number
 }): Promise<SimulationResult> {
   const { db, sqlite } = await createTestDatabase()
@@ -359,17 +338,6 @@ async function simulateOneVOneDraft(input: {
       })
     }
 
-    for (let poll = 0; poll < input.lobbyPollCycles; poll++) {
-      for (const _userId of ['p1', 'p2']) {
-        await callActivityBotApi(async () => {
-          await lookupLobbyForChannel(kv, 'channel-draft')
-        }, () => {
-          botRequests += 1
-          activityRequests += 1
-        })
-      }
-    }
-
     const started = await callActivityBotApi(
       async () => startDraftFromOpenLobby(db, kv),
       () => {
@@ -416,18 +384,26 @@ async function simulateOneVOneDraft(input: {
     const kvDeletes = operations.filter(op => op.type === 'delete').length
     const kvLists = operations.filter(op => op.type === 'list').length
     const coordinatorRequests = stateCoordinator.requests()
+    const doRequests = estimateDoBilledRequestUnits({
+      stateCoordinatorRequests: coordinatorRequests,
+      playersPerDraft: PLAYERS_PER_DRAFT,
+      draftRoomIncomingMessages: SIMULATED_DRAFT_ACTIONS.length,
+      lobbyWatchSubscribeMessagesPerConnection: LOBBY_WATCH_SUBSCRIBE_MESSAGES_PER_CONNECTION,
+    })
 
     return {
       usage: {
         workersRequests: botRequests + activityRequests,
         d1RowsRead: sqlTracker.counts.rowsRead,
         d1RowsWritten: sqlTracker.counts.rowsWritten,
+        doSqliteRowsRead: stateCoordinator.sqliteRowsRead(),
+        doSqliteRowsWritten: stateCoordinator.sqliteRowsWritten(),
         kvReads,
         kvWrites,
         kvDeletes,
         kvLists,
-        doRequests: estimateDoBilledRequestUnits(coordinatorRequests),
-        doDurationGbSeconds: ASSUMED_DO_DURATION_GB_SECONDS_PER_DRAFT,
+        doRequests,
+        doDurationGbSeconds: estimateDoDurationGbSeconds(doRequests),
       },
     }
   }
@@ -462,10 +438,11 @@ async function simulateMatchJoin(kv: KVNamespace): Promise<void> {
   const outcome = await joinLobbyAndMaybeStartMatch(
     { env: { KV: kv } },
     '1v1',
-    'p2',
-    'Guest',
-    '',
-    'channel-draft',
+    [{
+      playerId: 'p2',
+      displayName: 'Guest',
+      avatarUrl: '',
+    }],
   )
   if ('error' in outcome) throw new Error(outcome.error)
 }
@@ -512,7 +489,7 @@ async function startDraftFromOpenLobby(
     revision: nextLobbyBase.revision + 1,
   })
 
-  await storeMatchMessageMapping(kv, 'message-lobby-drafting', matchId)
+  await storeMatchMessageMapping(db, 'message-lobby-drafting', matchId)
 
   return { matchId, seats }
 }
@@ -536,8 +513,8 @@ async function handleDraftCompleteWebhook(
   const lobby = await getLobbyByMatch(kv, matchId)
   if (!lobby) throw new Error('Expected lobby mapping during draft-complete webhook simulation')
 
-  await setLobbyStatus(kv, lobby.mode, 'active')
-  await storeMatchMessageMapping(kv, 'message-lobby-active', matchId)
+  await setLobbyStatus(kv, lobby.mode, 'active', lobby)
+  await storeMatchMessageMapping(db, 'message-lobby-active', matchId)
 }
 
 async function handleMatchReport(
@@ -555,36 +532,26 @@ async function handleMatchReport(
 
   const lobby = await getLobbyByMatch(kv, matchId)
   if (lobby) {
-    await setLobbyStatus(kv, lobby.mode, 'completed')
-    await storeMatchMessageMapping(kv, 'message-lobby-reported', matchId)
-    await clearLobbyByMatch(kv, matchId)
+    await setLobbyStatus(kv, lobby.id, 'completed', lobby)
+    await storeMatchMessageMapping(db, 'message-lobby-reported', matchId)
+    await clearLobbiesByMode(kv, lobby.mode)
   }
 
   const archiveChannelId = await getSystemChannel(kv, 'archive')
   if (archiveChannelId) {
-    await storeMatchMessageMapping(kv, 'message-archive-reported', matchId)
+    await storeMatchMessageMapping(db, 'message-archive-reported', matchId)
   }
 
-  await markLeaderboardsDirty(kv, `match-report:${matchId}`)
+  await markLeaderboardsDirty(db, `match-report:${matchId}`)
 }
 
 function buildCompletedDraftState(matchId: string, seats: DraftSeat[]): DraftState {
   const format = getDefaultFormat('1v1')
   let state = createDraft(matchId, format, seats, allLeaderIds)
 
-  state = applyDraftInput(state, { type: 'START' }, format.blindBans)
-  state = applyDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: [
-    allLeaderIds[0]!,
-    allLeaderIds[1]!,
-    allLeaderIds[2]!,
-  ] }, format.blindBans)
-  state = applyDraftInput(state, { type: 'BAN', seatIndex: 1, civIds: [
-    allLeaderIds[3]!,
-    allLeaderIds[4]!,
-    allLeaderIds[5]!,
-  ] }, format.blindBans)
-  state = applyDraftInput(state, { type: 'PICK', seatIndex: 0, civId: allLeaderIds[6]! }, format.blindBans)
-  state = applyDraftInput(state, { type: 'PICK', seatIndex: 1, civId: allLeaderIds[7]! }, format.blindBans)
+  for (const action of SIMULATED_DRAFT_ACTIONS) {
+    state = applyDraftInput(state, action, format.blindBans)
+  }
 
   if (state.status !== 'complete') {
     throw new Error(`Expected completed draft state, got ${state.status}`)
@@ -706,316 +673,29 @@ async function callActivityBotApi<T>(
   return fn()
 }
 
-interface StateCoordinatorHarness {
-  host: string
-  secret: string
-  requests: () => number
-  restore: () => void
-}
+function estimateDoBilledRequestUnits(input: {
+  stateCoordinatorRequests: number
+  playersPerDraft: number
+  draftRoomIncomingMessages: number
+  lobbyWatchSubscribeMessagesPerConnection: number
+}): number {
+  const draftRoomWebsocketConnects = input.playersPerDraft
+  const lobbyWatchWebsocketConnects = input.playersPerDraft
+  const lobbyWatchIncomingMessages = input.playersPerDraft * input.lobbyWatchSubscribeMessagesPerConnection
 
-function installStateCoordinatorHarness(): StateCoordinatorHarness {
-  const host = 'https://state-coordinator.test'
-  const secret = 'capacity-test-secret'
-  const storage = new Map<string, { value: string, expiresAt: number | null }>()
-  let requestCount = 0
-
-  const originalFetch = globalThis.fetch
-  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const requestUrl = typeof input === 'string'
-      ? new URL(input)
-      : input instanceof URL
-        ? input
-        : new URL(input.url)
-
-    if (requestUrl.origin !== host || requestUrl.pathname !== '/parties/state/global') {
-      return originalFetch(input as any, init)
-    }
-
-    requestCount += 1
-    const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase()
-    if (method !== 'POST') {
-      return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-        status: 405,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
-
-    const providedSecret = resolveHeader(init?.headers, 'X-CivUp-State-Secret')
-    if (providedSecret !== secret) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
-
-    const rawBody = typeof init?.body === 'string'
-      ? init.body
-      : input instanceof Request
-        ? await input.text()
-        : ''
-
-    let payload: {
-      op?: string
-      key?: unknown
-      type?: unknown
-      value?: unknown
-      expirationTtl?: unknown
-      prefix?: unknown
-    }
-    try {
-      payload = JSON.parse(rawBody) as typeof payload
-    }
-    catch {
-      return new Response(JSON.stringify({ error: 'Invalid JSON payload' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
-
-    if (payload.op === 'get') {
-      const key = typeof payload.key === 'string' ? payload.key : null
-      if (!key) return jsonError('Invalid key')
-      const value = getValue(storage, key)
-      if (value == null) return jsonResponse({ value: null })
-      if (payload.type === 'json') {
-        try {
-          return jsonResponse({ value: JSON.parse(value) })
-        }
-        catch {
-          return jsonResponse({ value: null })
-        }
-      }
-      return jsonResponse({ value })
-    }
-
-    if (payload.op === 'put') {
-      const key = typeof payload.key === 'string' ? payload.key : null
-      const value = typeof payload.value === 'string' ? payload.value : null
-      if (!key) return jsonError('Invalid key')
-      if (value == null) return jsonError('Invalid value')
-
-      const ttlSeconds = typeof payload.expirationTtl === 'number' && Number.isFinite(payload.expirationTtl)
-        ? Math.max(0, Math.round(payload.expirationTtl))
-        : 0
-      const expiresAt = ttlSeconds > 0 ? Date.now() + ttlSeconds * 1000 : null
-      storage.set(key, { value, expiresAt })
-      return jsonResponse({ ok: true })
-    }
-
-    if (payload.op === 'delete') {
-      const key = typeof payload.key === 'string' ? payload.key : null
-      if (!key) return jsonError('Invalid key')
-      storage.delete(key)
-      return jsonResponse({ ok: true })
-    }
-
-    if (payload.op === 'list') {
-      const prefix = typeof payload.prefix === 'string' ? payload.prefix : ''
-      const keys: { name: string }[] = []
-      for (const key of storage.keys()) {
-        const value = getValue(storage, key)
-        if (value == null) continue
-        if (!key.startsWith(prefix)) continue
-        keys.push({ name: key })
-      }
-      return jsonResponse({
-        keys,
-        list_complete: true,
-        cursor: '',
-      })
-    }
-
-    return jsonError('Unknown operation')
-  }
-
-  return {
-    host,
-    secret,
-    requests: () => requestCount,
-    restore: () => {
-      globalThis.fetch = originalFetch
-    },
-  }
-}
-
-function resolveHeader(headers: HeadersInit | undefined, name: string): string | null {
-  if (!headers) return null
-
-  const target = name.toLowerCase()
-  if (headers instanceof Headers) {
-    return headers.get(name)
-  }
-
-  if (Array.isArray(headers)) {
-    const entry = headers.find(([headerName]) => headerName.toLowerCase() === target)
-    return entry?.[1] ?? null
-  }
-
-  const value = headers[name] ?? headers[name.toLowerCase()]
-  if (Array.isArray(value)) return value[0] ?? null
-  return typeof value === 'string' ? value : null
-}
-
-function getValue(storage: Map<string, { value: string, expiresAt: number | null }>, key: string): string | null {
-  const stored = storage.get(key)
-  if (!stored) return null
-  if (stored.expiresAt != null && stored.expiresAt <= Date.now()) {
-    storage.delete(key)
-    return null
-  }
-  return stored.value
-}
-
-function jsonResponse(body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  })
-}
-
-function jsonError(message: string): Response {
-  return new Response(JSON.stringify({ error: message }), {
-    status: 400,
-    headers: { 'Content-Type': 'application/json' },
-  })
-}
-
-function estimateDoBilledRequestUnits(stateCoordinatorRequests: number): number {
-  const billedDraftMessages = Math.ceil(DO_REQUESTS_PER_DRAFT.draftRoomIncomingMessages / DO_WEBSOCKET_BILLING_RATIO)
-  const billedLobbyWatchMessages = Math.ceil(DO_REQUESTS_PER_DRAFT.lobbyWatchIncomingMessages / DO_WEBSOCKET_BILLING_RATIO)
+  const billedDraftMessages = Math.ceil(input.draftRoomIncomingMessages / DO_WEBSOCKET_BILLING_RATIO)
+  const billedLobbyWatchMessages = Math.ceil(lobbyWatchIncomingMessages / DO_WEBSOCKET_BILLING_RATIO)
 
   return (
-    DO_REQUESTS_PER_DRAFT.createRoom
-    + DO_REQUESTS_PER_DRAFT.draftRoomWebsocketConnects
-    + DO_REQUESTS_PER_DRAFT.lobbyWatchWebsocketConnects
+    DO_CREATE_ROOM_REQUESTS_PER_DRAFT
+    + draftRoomWebsocketConnects
+    + lobbyWatchWebsocketConnects
     + billedDraftMessages
     + billedLobbyWatchMessages
-    + stateCoordinatorRequests
+    + input.stateCoordinatorRequests
   )
 }
 
-function estimateDailyUsage(model: CapacityModel, playersPerDay: number): DailyUsage {
-  const draftsPerDay = playersPerDay / PLAYERS_PER_DRAFT
-  const d1RowsReadPerDraft = model.perDraft.d1RowsReadBase + model.perDraft.d1RowsReadPerLeaderboardPlayer * playersPerDay
-
-  return {
-    workersRequests: Math.ceil(draftsPerDay * model.perDraft.workersRequests),
-    d1RowsRead: Math.ceil(draftsPerDay * d1RowsReadPerDraft),
-    d1RowsWritten: Math.ceil(draftsPerDay * model.perDraft.d1RowsWritten),
-    kvReads: Math.ceil(draftsPerDay * model.perDraft.kvReads),
-    kvWrites: Math.ceil(draftsPerDay * model.perDraft.kvWrites),
-    kvDeletes: Math.ceil(draftsPerDay * model.perDraft.kvDeletes),
-    kvLists: Math.ceil(draftsPerDay * model.perDraft.kvLists),
-    doRequests: Math.ceil(draftsPerDay * model.perDraft.doRequests),
-    doDurationGbSeconds: Math.ceil(draftsPerDay * model.perDraft.doDurationGbSeconds),
-  }
-}
-
-function multiplyDailyUsage(usage: DailyUsage, days: number): DailyUsage {
-  return {
-    workersRequests: usage.workersRequests * days,
-    d1RowsRead: usage.d1RowsRead * days,
-    d1RowsWritten: usage.d1RowsWritten * days,
-    kvReads: usage.kvReads * days,
-    kvWrites: usage.kvWrites * days,
-    kvDeletes: usage.kvDeletes * days,
-    kvLists: usage.kvLists * days,
-    doRequests: usage.doRequests * days,
-    doDurationGbSeconds: usage.doDurationGbSeconds * days,
-  }
-}
-
-function findMaxPlayersPerDay(input: {
-  model: CapacityModel
-  limits: UsageLimits
-  periodDays: number
-}): number {
-  let low = 0
-  let high = 200_000
-
-  while (low < high) {
-    const mid = Math.floor((low + high + 1) / 2)
-    const daily = estimateDailyUsage(input.model, mid)
-    const usage = input.periodDays === 1 ? daily : multiplyDailyUsage(daily, input.periodDays)
-
-    if (fitsLimits(usage, input.limits)) {
-      low = mid
-    }
-    else {
-      high = mid - 1
-    }
-  }
-
-  return low
-}
-
-function findMetricBreakpoints(input: {
-  model: CapacityModel
-  limits: UsageLimits
-  periodDays: number
-}): MetricBreakpoint[] {
-  const metrics = Object.keys(input.limits) as (keyof UsageLimits)[]
-
-  return metrics
-    .map((metric) => {
-      const playersPerDay = findMaxPlayersPerDayByMetric({
-        model: input.model,
-        metric,
-        limit: input.limits[metric],
-        periodDays: input.periodDays,
-      })
-      const daily = estimateDailyUsage(input.model, playersPerDay)
-      const usage = input.periodDays === 1 ? daily : multiplyDailyUsage(daily, input.periodDays)
-
-      return {
-        metric,
-        playersPerDay,
-        draftsPerDay: playersPerDay / PLAYERS_PER_DRAFT,
-        limit: input.limits[metric],
-        usageAtBreakpoint: usage[metric],
-      }
-    })
-    .sort((a, b) => {
-      if (a.playersPerDay === b.playersPerDay) return a.metric.localeCompare(b.metric)
-      return a.playersPerDay - b.playersPerDay
-    })
-}
-
-function findMaxPlayersPerDayByMetric(input: {
-  model: CapacityModel
-  metric: keyof UsageLimits
-  limit: number
-  periodDays: number
-}): number {
-  let low = 0
-  let high = 200_000
-
-  while (low < high) {
-    const mid = Math.floor((low + high + 1) / 2)
-    const daily = estimateDailyUsage(input.model, mid)
-    const usage = input.periodDays === 1 ? daily : multiplyDailyUsage(daily, input.periodDays)
-
-    if (usage[input.metric] <= input.limit) {
-      low = mid
-    }
-    else {
-      high = mid - 1
-    }
-  }
-
-  return low
-}
-
-function fitsLimits(usage: DailyUsage, limits: UsageLimits): boolean {
-  return (
-    usage.workersRequests <= limits.workersRequests
-    && usage.d1RowsRead <= limits.d1RowsRead
-    && usage.d1RowsWritten <= limits.d1RowsWritten
-    && usage.kvReads <= limits.kvReads
-    && usage.kvWrites <= limits.kvWrites
-    && usage.kvDeletes <= limits.kvDeletes
-    && usage.kvLists <= limits.kvLists
-    && usage.doRequests <= limits.doRequests
-    && usage.doDurationGbSeconds <= limits.doDurationGbSeconds
-  )
+function estimateDoDurationGbSeconds(doRequests: number): number {
+  return Number((doRequests * ESTIMATED_DO_GB_SECONDS_PER_REQUEST).toFixed(4))
 }

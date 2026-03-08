@@ -1,11 +1,6 @@
 import type { TagFilterState } from '~/client/lib/leader-tags'
 import { createMemo, createSignal } from 'solid-js'
-import {
-  countActiveTagFilters,
-  createEmptyTagFilters,
-  getTagCategory,
-
-} from '~/client/lib/leader-tags'
+import { countActiveTagFilters, createEmptyTagFilters, getTagCategory } from '~/client/lib/leader-tags'
 import { currentStep } from './draft-store'
 
 // ── UI State ───────────────────────────────────────────────
@@ -20,6 +15,8 @@ export const [gridOpen, setGridOpen] = createSignal(false)
 export const [detailLeaderId, setDetailLeaderId] = createSignal<string | null>(null)
 export const [isMiniView, setIsMiniView] = createSignal(false)
 export const [ffaPlacementOrder, setFfaPlacementOrder] = createSignal<number[]>([])
+export const [selectedWinningTeam, setSelectedWinningTeam] = createSignal<0 | 1 | null>(null)
+export const [resultSelectionsLocked, setResultSelectionsLocked] = createSignal(false)
 
 // ── Phase Accent ───────────────────────────────────────────
 
@@ -63,6 +60,7 @@ export function clearSelections() {
   setSearchQuery('')
   setTagFilters(createEmptyTagFilters())
   setDetailLeaderId(null)
+  clearResultSelections()
 }
 
 /** Toggle a single leader tag within its category filter set */
@@ -94,7 +92,7 @@ export function toggleDetail(leaderId: string) {
 export function toggleFfaPlacement(seatIndex: number) {
   setFfaPlacementOrder((prev) => {
     const idx = prev.indexOf(seatIndex)
-    if (idx >= 0) return prev.slice(0, idx)
+    if (idx >= 0) return prev.filter(idx => idx !== seatIndex)
     return [...prev, seatIndex]
   })
 }
@@ -102,4 +100,21 @@ export function toggleFfaPlacement(seatIndex: number) {
 /** Clear FFA placement order */
 export function clearFfaPlacements() {
   setFfaPlacementOrder([])
+}
+
+/** Select or clear the winning team for team-mode result reporting. */
+export function selectWinningTeam(team: 0 | 1) {
+  setSelectedWinningTeam(prev => (prev === team ? null : team))
+}
+
+/** Clear the selected winning team. */
+export function clearWinningTeam() {
+  setSelectedWinningTeam(null)
+}
+
+/** Clear all post-draft result selection state. */
+export function clearResultSelections() {
+  setFfaPlacementOrder([])
+  setSelectedWinningTeam(null)
+  setResultSelectionsLocked(false)
 }

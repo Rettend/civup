@@ -13,15 +13,15 @@ if (!DISCORD_APPLICATION_ID || !DISCORD_TOKEN) {
   process.exit(1)
 }
 
-const allCommands = factory.getCommands(Object.values(commands))
+const commandsForRegistration = factory.getCommands(Object.values(commands))
 
-console.log(`Registering ${allCommands.length} commands...`)
-for (const cmd of allCommands) {
+console.log(`Registering ${commandsForRegistration.length} commands...`)
+for (const cmd of commandsForRegistration) {
   console.log(`  /${(cmd as { name?: string }).name}`)
 }
 
 await register(
-  allCommands,
+  commandsForRegistration,
   DISCORD_APPLICATION_ID,
   DISCORD_TOKEN,
   DISCORD_TEST_GUILD_ID, // omit for global registration

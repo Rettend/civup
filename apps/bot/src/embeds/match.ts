@@ -1,5 +1,5 @@
 import type { DraftCancelReason, DraftSeat, GameMode, QueueEntry } from '@civup/game'
-import { getLeader } from '@civup/game'
+import { formatModeLabel, getLeader, isTeamMode } from '@civup/game'
 import { displayRating } from '@civup/rating'
 import { Button, Components, Embed } from 'discord-hono'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
@@ -24,13 +24,6 @@ interface ModerationContext {
 
 export type LobbyStage = 'open' | 'drafting' | 'draft-complete' | 'reported' | 'cancelled' | 'scrubbed'
 
-const MODE_LABELS: Record<GameMode, string> = {
-  '1v1': '1v1',
-  '2v2': '2v2',
-  '3v3': '3v3',
-  'ffa': 'FFA',
-}
-
 const STAGE_LABELS: Record<LobbyStage, string> = {
   'open': 'LOBBY OPEN',
   'drafting': 'DRAFT READY',
@@ -49,13 +42,14 @@ const STAGE_COLORS: Record<LobbyStage, number> = {
   'scrubbed': 0xA8B1BD,
 }
 
-export function lobbyOpenEmbed(mode: GameMode, entries: (QueueEntry | null)[], targetSize: number): Embed {
+export function lobbyOpenEmbed(mode: GameMode, entries: (QueueEntry | null)[], targetSize: number, minRoleId?: string | null): Embed {
   const embed = baseLobbyEmbed(mode, 'open')
+  const minRoleField = minRoleId ? { name: 'Min Rank', value: `<@&${minRoleId}>`, inline: false } : null
 
   if (mode === '1v1') {
     const p1 = entries[0]?.playerId
     const p2 = entries[1]?.playerId
-    return embed.fields(
+    const fields = [
       {
         name: 'Team A',
         value: `1. ${p1 ? `<@${p1}>` : '`[empty]`'}`,
@@ -66,10 +60,11 @@ export function lobbyOpenEmbed(mode: GameMode, entries: (QueueEntry | null)[], t
         value: `1. ${p2 ? `<@${p2}>` : '`[empty]`'}`,
         inline: true,
       },
-    )
+    ]
+    return minRoleField ? embed.fields(minRoleField, ...fields) : embed.fields(...fields)
   }
 
-  if (mode === '2v2' || mode === '3v3') {
+  if (isTeamMode(mode)) {
     const teamSize = targetSize / 2
     const teamALines = Array.from({ length: teamSize }, (_, i) => {
       const playerId = entries[i]?.playerId
@@ -80,10 +75,11 @@ export function lobbyOpenEmbed(mode: GameMode, entries: (QueueEntry | null)[], t
       return `${i + 1}. ${playerId ? `<@${playerId}>` : '`[empty]`'}`
     }).join('\n')
 
-    return embed.fields(
+    const fields = [
       { name: 'Team A', value: teamALines, inline: true },
       { name: 'Team B', value: teamBLines, inline: true },
-    )
+    ]
+    return minRoleField ? embed.fields(minRoleField, ...fields) : embed.fields(...fields)
   }
 
   const half = Math.ceil(targetSize / 2)
@@ -97,10 +93,11 @@ export function lobbyOpenEmbed(mode: GameMode, entries: (QueueEntry | null)[], t
     return `${seat + 1}. ${playerId ? `<@${playerId}>` : '`[empty]`'}`
   }).join('\n')
 
-  return embed.fields(
+  const fields = [
     { name: 'Slots', value: firstColumn, inline: true },
     { name: 'Slots', value: secondColumn || '\u200B', inline: true },
-  )
+  ]
+  return minRoleField ? embed.fields(minRoleField, ...fields) : embed.fields(...fields)
 }
 
 export function lobbyDraftingEmbed(mode: GameMode, seats: DraftSeat[]): Embed {
@@ -153,16 +150,16 @@ export function lobbyResultEmbed(
   return lobbyReportedEmbed(mode, participants, moderation)
 }
 
-export function lobbyComponents(mode: GameMode): Components {
+export function lobbyComponents(mode: GameMode, lobbyId?: string): Components {
   const label = 'Join'
   return new Components().row(
-    new Button('match-join', label, 'Primary').custom_id(mode),
+    new Button('match-join', label, 'Primary').custom_id(lobbyId ? `${mode}:${lobbyId}` : mode),
   )
 }
 
 function baseLobbyEmbed(mode: GameMode, stage: LobbyStage): Embed {
   return new Embed()
-    .title(`${STAGE_LABELS[stage]}  -  ${MODE_LABELS[mode]}`)
+    .title(`${STAGE_LABELS[stage]}  -  ${formatModeLabel(mode, mode)}`)
     .color(STAGE_COLORS[stage])
 }
 
@@ -205,7 +202,7 @@ function lobbyDraftCompleteLeaderEmbed(
 
 function lobbyReportedEmbed(mode: GameMode, participants: LobbyParticipant[], moderation?: ModerationContext): Embed {
   const embed = baseLobbyEmbed(mode, 'reported')
-  const usesTeamRows = mode === '2v2' || mode === '3v3'
+  const usesTeamRows = isTeamMode(mode)
   const description = usesTeamRows
     ? formatReportedTeamRows(participants)
     : formatReportedFlatRows(participants)

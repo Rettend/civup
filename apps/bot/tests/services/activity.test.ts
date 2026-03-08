@@ -1,13 +1,29 @@
 import { describe, expect, test } from 'bun:test'
 import {
   clearActivityMappings,
+  clearLobbyMappings,
   getMatchForUser,
+  getUserActivityTarget,
   storeMatchMapping,
+  storeUserActivityTarget,
+  storeUserLobbyMappings,
   storeUserMatchMappings,
-} from '../../src/services/activity.ts'
+} from '../../src/services/activity/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 describe('activity mapping behavior', () => {
+  test('channel-scoped activity target resolves for lobby and spectator selection', async () => {
+    const { kv } = createTrackedKv()
+
+    await storeUserActivityTarget(kv, 'channel-1', ['spectator-1'], { kind: 'lobby', id: 'lobby-1' })
+
+    await expect(getUserActivityTarget(kv, 'channel-1', 'spectator-1')).resolves.toEqual({
+      kind: 'lobby',
+      id: 'lobby-1',
+      selectedAt: expect.any(Number),
+    })
+  })
+
   test('getMatchForUser resolves active mapping', async () => {
     const { kv } = createTrackedKv()
 
@@ -28,22 +44,38 @@ describe('activity mapping behavior', () => {
     await expect(getMatchForUser(kv, 'user-1')).resolves.toBeNull()
 
     const staleCleanupDeletes = operations.filter(op => op.type === 'delete' && op.key === 'activity-user:user-1')
-    expect(staleCleanupDeletes).toHaveLength(1)
+    expect(staleCleanupDeletes).toHaveLength(0)
   })
 
-  test('clearActivityMappings skips eager user deletes', async () => {
+  test('clearActivityMappings removes match and user-target mappings eagerly', async () => {
     const { kv, operations, resetOperations } = createTrackedKv()
 
     await storeMatchMapping(kv, 'channel-1', 'match-1')
     await storeUserMatchMappings(kv, ['user-1', 'user-2'], 'match-1')
+    await storeUserActivityTarget(kv, 'channel-1', ['user-1', 'user-2'], { kind: 'match', id: 'match-1' })
 
     resetOperations()
     await clearActivityMappings(kv, 'match-1', ['user-1', 'user-2'], 'channel-1')
 
     const deleteKeys = operations.filter(op => op.type === 'delete').map(op => op.key)
     expect(deleteKeys).toContain('activity-match:match-1')
-    expect(deleteKeys).toContain('activity:channel-1')
-    expect(deleteKeys).not.toContain('activity-user:user-1')
-    expect(deleteKeys).not.toContain('activity-user:user-2')
+    expect(deleteKeys).toContain('activity-user:user-1')
+    expect(deleteKeys).toContain('activity-user:user-2')
+    expect(deleteKeys).toContain('activity-target-user:user-1:channel-1')
+    expect(deleteKeys).toContain('activity-target-user:user-2:channel-1')
+  })
+
+  test('clearLobbyMappings removes lobby reopen mapping and channel target', async () => {
+    const { kv, operations, resetOperations } = createTrackedKv()
+
+    await storeUserLobbyMappings(kv, ['user-1'], 'lobby-1')
+    await storeUserActivityTarget(kv, 'channel-1', ['user-1'], { kind: 'lobby', id: 'lobby-1' })
+
+    resetOperations()
+    await clearLobbyMappings(kv, ['user-1'], 'channel-1')
+
+    const deleteKeys = operations.filter(op => op.type === 'delete').map(op => op.key)
+    expect(deleteKeys).toContain('activity-lobby-user:user-1')
+    expect(deleteKeys).toContain('activity-target-user:user-1:channel-1')
   })
 })

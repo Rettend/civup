@@ -29,7 +29,10 @@
   ],
 
   "triggers": {
-    "crons": ["0 * * * *", "*/2 * * * *"]
+    "crons": [
+      "0 * * * *", // every hour
+      "*/2 * * * *" // every 2 minutes
+    ]
   },
 
   "observability": {

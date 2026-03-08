@@ -1,9 +1,10 @@
-import type { ClientMessage, ServerMessage } from '@civup/game'
+import type { ClientMessage, CompetitiveTier, ServerMessage } from '@civup/game'
+import { COMPETITIVE_TIERS } from '@civup/game'
 import { api, ApiError } from '@civup/utils'
 import PartySocket from 'partysocket'
 import { createSignal } from 'solid-js'
 import { relayDevLog } from '../lib/dev-log'
-import { initDraft, updateDraft } from './draft-store'
+import { initDraft, setOptimisticSeatPick, updateDraft } from './draft-store'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -27,14 +28,17 @@ export interface MatchStateSnapshot {
 }
 
 export interface LobbySnapshot {
+  id: string
   revision: number
   mode: string
   hostId: string
   status: string
+  minRole: CompetitiveTier | null
   entries: ({
     playerId: string
     displayName: string
     avatarUrl?: string | null
+    partyIds?: string[]
   } | null)[]
   minPlayers: number
   targetSize: number
@@ -47,6 +51,32 @@ export interface LobbySnapshot {
     pickTimerSeconds: number | null
   }
 }
+
+export interface RankedRoleOptionSnapshot {
+  tier: CompetitiveTier
+  rank: number
+  roleId: string | null
+  label: string
+  color: string | null
+}
+
+export interface LobbyRankedRolesSnapshot {
+  options: RankedRoleOptionSnapshot[]
+}
+
+export interface LobbyConfigErrorContext {
+  playerId: string
+  playerName: string
+  minRole: RankedRoleOptionSnapshot
+}
+
+export interface LobbyConfigErrorResult {
+  error: string
+  errorCode?: string
+  context?: LobbyConfigErrorContext
+}
+
+export type LobbyTeamArrangeStrategy = 'randomize' | 'balance'
 
 interface StateWatchMessage {
   type: 'state-changed' | 'error'
@@ -65,6 +95,38 @@ export interface LobbyStateWatchOptions {
   onInvalidation: (key: string) => void
   onDisconnected?: () => void
   onError?: (message: string) => void
+}
+
+export interface ActivityTargetOption {
+  kind: 'lobby' | 'match'
+  id: string
+  lobbyId: string
+  matchId: string | null
+  channelId: string
+  mode: string
+  status: 'open' | 'drafting' | 'active'
+  participantCount: number
+  targetSize: number
+  isMember: boolean
+  isHost: boolean
+  updatedAt: number
+}
+
+export type ActivityLaunchSelection
+  = | {
+    kind: 'lobby'
+    option: ActivityTargetOption
+    lobby: LobbySnapshot
+  }
+  | {
+    kind: 'match'
+    option: ActivityTargetOption
+    matchId: string
+  }
+
+export interface ActivityLaunchSnapshot {
+  selection: ActivityLaunchSelection | null
+  options: ActivityTargetOption[]
 }
 
 // ── State ──────────────────────────────────────────────────
@@ -170,8 +232,7 @@ export function watchLobbyState(host: string, options: LobbyStateWatchOptions): 
     if (closed) return
     options.onConnected?.()
     stateSocket.send(JSON.stringify({ type: 'subscribe-prefix', prefix: 'lobby:mode:' }))
-    stateSocket.send(JSON.stringify({ type: 'subscribe-key', key: `activity:${options.channelId}` }))
-    stateSocket.send(JSON.stringify({ type: 'subscribe-key', key: `activity-user:${options.userId}` }))
+    stateSocket.send(JSON.stringify({ type: 'subscribe-key', key: `activity-target-user:${options.userId}:${options.channelId}` }))
   })
 
   stateSocket.addEventListener('message', (event) => {
@@ -234,15 +295,18 @@ export function sendBan(civIds: string[]) {
 }
 
 export function sendPick(civId: string) {
-  sendMessage({ type: 'pick', civId })
+  const sent = sendMessage({ type: 'pick', civId })
+  if (sent) {
+    setOptimisticSeatPick(civId)
+  }
 }
 
 export function sendCancel(reason: 'cancel' | 'scrub') {
-  sendMessage({ type: 'cancel', reason })
+  return sendMessage({ type: 'cancel', reason })
 }
 
 export function sendScrub() {
-  sendCancel('scrub')
+  return sendCancel('scrub')
 }
 
 export function sendConfig(banTimerSeconds: number | null, pickTimerSeconds: number | null): Promise<void> {
@@ -316,38 +380,128 @@ export async function fetchLobbyForUser(
   }
 }
 
-/** Update host draft timer config for an open lobby */
-export async function updateLobbyDraftConfig(
+/** Update host draft config for an open lobby */
+export async function updateLobbyConfig(
   mode: string,
+  lobbyId: string,
   userId: string,
   draftConfig: {
     banTimerSeconds: number | null
     pickTimerSeconds: number | null
+    minRole?: CompetitiveTier | null
   },
-): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
+): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string, errorCode?: string, context?: LobbyConfigErrorContext }> {
   try {
     const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/config`, {
+      lobbyId,
       userId,
       banTimerSeconds: draftConfig.banTimerSeconds,
       pickTimerSeconds: draftConfig.pickTimerSeconds,
+      minRole: draftConfig.minRole,
     })
     return { ok: true, lobby }
   }
   catch (err) {
     console.error('Failed to update lobby config:', err)
-    if (err instanceof ApiError) return { ok: false, error: err.message }
+    if (err instanceof ApiError) {
+      const parsed = parseLobbyConfigApiError(err.data)
+      return {
+        ok: false,
+        error: err.message,
+        errorCode: parsed?.errorCode,
+        context: parsed?.context,
+      }
+    }
     return { ok: false, error: 'Network error while updating lobby config' }
+  }
+}
+
+/** Fetch ranked-role option labels/colors for one open lobby. */
+export async function fetchLobbyRankedRoles(
+  mode: string,
+  lobbyId: string,
+): Promise<LobbyRankedRolesSnapshot | null> {
+  try {
+    return await api.get<LobbyRankedRolesSnapshot>(`/api/lobby-ranks/${mode}/${lobbyId}`)
+  }
+  catch (err) {
+    console.error('Failed to fetch lobby ranked roles:', err)
+    return null
+  }
+}
+
+function parseLobbyConfigApiError(data: unknown): LobbyConfigErrorResult | null {
+  if (!data || typeof data !== 'object') return null
+
+  const parsed = data as {
+    error?: unknown
+    errorCode?: unknown
+    context?: unknown
+  }
+
+  const error = typeof parsed.error === 'string' ? parsed.error : null
+  if (!error) return null
+
+  const errorCode = typeof parsed.errorCode === 'string' ? parsed.errorCode : undefined
+  const context = parseLobbyConfigErrorContext(parsed.context)
+  return { error, errorCode, context }
+}
+
+function parseLobbyConfigErrorContext(data: unknown): LobbyConfigErrorContext | undefined {
+  if (!data || typeof data !== 'object') return undefined
+
+  const parsed = data as {
+    playerId?: unknown
+    playerName?: unknown
+    minRole?: unknown
+  }
+
+  if (typeof parsed.playerId !== 'string' || typeof parsed.playerName !== 'string') return undefined
+  const minRole = parseRankedRoleOption(parsed.minRole)
+  if (!minRole) return undefined
+
+  return {
+    playerId: parsed.playerId,
+    playerName: parsed.playerName,
+    minRole,
+  }
+}
+
+function parseRankedRoleOption(data: unknown): RankedRoleOptionSnapshot | null {
+  if (!data || typeof data !== 'object') return null
+
+  const parsed = data as {
+    tier?: unknown
+    rank?: unknown
+    roleId?: unknown
+    label?: unknown
+    color?: unknown
+  }
+
+  if (typeof parsed.tier !== 'string' || !COMPETITIVE_TIERS.includes(parsed.tier as CompetitiveTier)) return null
+  if (typeof parsed.rank !== 'number' || !Number.isFinite(parsed.rank)) return null
+  if (parsed.roleId != null && typeof parsed.roleId !== 'string') return null
+  if (typeof parsed.label !== 'string') return null
+  if (parsed.color != null && typeof parsed.color !== 'string') return null
+
+  return {
+    tier: parsed.tier as CompetitiveTier,
+    rank: Math.round(parsed.rank),
+    roleId: parsed.roleId ?? null,
+    label: parsed.label,
+    color: parsed.color ?? null,
   }
 }
 
 /** Update open lobby game mode (host-only). */
 export async function updateLobbyMode(
   mode: string,
+  lobbyId: string,
   userId: string,
   nextMode: string,
 ): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
-    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/mode`, { userId, nextMode })
+    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/mode`, { lobbyId, userId, nextMode })
     return { ok: true, lobby }
   }
   catch (err) {
@@ -361,6 +515,7 @@ export async function updateLobbyMode(
 export async function placeLobbySlot(
   mode: string,
   payload: {
+    lobbyId: string
     userId: string
     targetSlot: number
     playerId?: string
@@ -383,6 +538,7 @@ export async function placeLobbySlot(
 export async function removeLobbySlot(
   mode: string,
   payload: {
+    lobbyId: string
     userId: string
     slot: number
   },
@@ -398,13 +554,50 @@ export async function removeLobbySlot(
   }
 }
 
+/** Arrange team lobby slots while keeping premades intact (host-only). */
+export async function arrangeLobbyTeams(
+  mode: string,
+  lobbyId: string,
+  userId: string,
+  strategy: LobbyTeamArrangeStrategy,
+): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
+  try {
+    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/arrange`, { lobbyId, userId, strategy })
+    return { ok: true, lobby }
+  }
+  catch (err) {
+    console.error('Failed to arrange lobby teams:', err)
+    if (err instanceof ApiError) return { ok: false, error: err.message }
+    return { ok: false, error: 'Network error while arranging teams' }
+  }
+}
+
+/** Toggle a visible premade link between neighboring team slots. */
+export async function toggleLobbyPremadeLink(
+  mode: string,
+  lobbyId: string,
+  userId: string,
+  leftSlot: number,
+): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
+  try {
+    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/link`, { lobbyId, userId, leftSlot })
+    return { ok: true, lobby }
+  }
+  catch (err) {
+    console.error('Failed to toggle lobby premade link:', err)
+    if (err instanceof ApiError) return { ok: false, error: err.message }
+    return { ok: false, error: 'Network error while toggling premade link' }
+  }
+}
+
 /** Start a draft from an open lobby (host-only). */
 export async function startLobbyDraft(
   mode: string,
+  lobbyId: string,
   userId: string,
 ): Promise<{ ok: true, matchId: string } | { ok: false, error: string }> {
   try {
-    const data = await api.post<{ matchId?: string }>(`/api/lobby/${mode}/start`, { userId })
+    const data = await api.post<{ matchId?: string }>(`/api/lobby/${mode}/start`, { lobbyId, userId })
     if (!data.matchId) return { ok: false, error: 'Draft started but no match ID was returned' }
     return { ok: true, matchId: data.matchId }
   }
@@ -418,10 +611,11 @@ export async function startLobbyDraft(
 /** Cancel an open lobby before draft room creation */
 export async function cancelLobby(
   mode: string,
+  lobbyId: string,
   userId: string,
 ): Promise<{ ok: true } | { ok: false, error: string }> {
   try {
-    await api.post(`/api/lobby/${mode}/cancel`, { userId })
+    await api.post(`/api/lobby/${mode}/cancel`, { lobbyId, userId })
     return { ok: true }
   }
   catch (err) {
@@ -442,6 +636,42 @@ export async function fetchMatchForUser(
   catch (err) {
     console.error('Failed to fetch match for user:', err)
     return null
+  }
+}
+
+/** Resolve the current activity target plus available options for one channel/user pair. */
+export async function fetchActivityLaunchSnapshot(
+  channelId: string,
+  userId: string,
+): Promise<ActivityLaunchSnapshot | null> {
+  try {
+    return await api.get<ActivityLaunchSnapshot>(`/api/activity/launch/${channelId}/${userId}`)
+  }
+  catch (err) {
+    console.error('Failed to fetch activity launch snapshot:', err)
+    return null
+  }
+}
+
+/** Persist a new activity target selection for this channel. */
+export async function selectActivityTarget(
+  channelId: string,
+  userId: string,
+  target: Pick<ActivityTargetOption, 'kind' | 'id'>,
+): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string }> {
+  try {
+    const snapshot = await api.post<ActivityLaunchSnapshot>('/api/activity/target', {
+      channelId,
+      userId,
+      kind: target.kind,
+      id: target.id,
+    })
+    return { ok: true, snapshot }
+  }
+  catch (err) {
+    console.error('Failed to select activity target:', err)
+    if (err instanceof ApiError) return { ok: false, error: err.message }
+    return { ok: false, error: 'Network error while switching activity target' }
   }
 }
 
@@ -473,16 +703,33 @@ export async function reportMatchResult(
   }
 }
 
-/** Fill empty lobby slots with test players (host-only). */
+/** Scrub an already completed draft match (host-only). */
+export async function scrubMatchResult(
+  matchId: string,
+  reporterId: string,
+): Promise<{ ok: true } | { ok: false, error: string }> {
+  try {
+    await api.post(`/api/match/${matchId}/scrub`, { reporterId })
+    return { ok: true }
+  }
+  catch (err) {
+    console.error('Failed to scrub match result:', err)
+    if (err instanceof ApiError) return { ok: false, error: err.message }
+    return { ok: false, error: 'Network error while scrubbing match' }
+  }
+}
+
+/** Fill empty lobby slots with active test players (host-only, dev-only). */
 export async function fillLobbyWithTestPlayers(
   mode: string,
+  lobbyId: string,
   userId: string,
 ): Promise<{ ok: true, lobby: LobbySnapshot, addedCount: number } | { ok: false, error: string }> {
   try {
     const res = await fetch(`/api/lobby/${mode}/fill-test`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify({ lobbyId, userId }),
     })
 
     const data = await res.json() as LobbySnapshot & { error?: string, addedCount?: unknown }

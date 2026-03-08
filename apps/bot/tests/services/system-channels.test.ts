@@ -3,7 +3,7 @@ import {
   clearLeaderboardDirtyState,
   getLeaderboardDirtyState,
   markLeaderboardDirty,
-} from '../../src/services/system-channels.ts'
+} from '../../src/services/system/channels.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 describe('leaderboard dirty state', () => {

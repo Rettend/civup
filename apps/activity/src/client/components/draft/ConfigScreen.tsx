@@ -1,14 +1,41 @@
-import type { LobbySnapshot } from '~/client/stores'
-import { formatModeLabel } from '@civup/game'
-import { createEffect, createSignal, For, Show } from 'solid-js'
+import type {
+  DraftTimerConfig,
+  LobbyModeValue,
+  MinRoleMismatchDetail,
+  MinRoleSetDetail,
+  OptimisticLobbyAction,
+  PendingOptimisticLobbyAction,
+  PlayerRow,
+} from '~/client/lib/config-screen/helpers'
+import type { LobbySnapshot, LobbyTeamArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
+import { formatModeLabel, GAME_MODE_CHOICES, inferGameMode } from '@civup/game'
+import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, TextInput } from '~/client/components/ui'
+import {
+  applyOptimisticLobbyAction,
+  buildRankDotStyle,
+  findRankedRoleOptionByTier,
+  formatLobbyMinRole,
+  formatTimerValue,
+  getTimerConfigFromDraft,
+  MAX_TIMER_MINUTES,
+  normalizeLobbyMinRoleValue,
+  normalizeTimerMinutesInput,
+  parseTimerMinutesInput,
+  timerSecondsToMinutesInput,
+  timerSecondsToMinutesPlaceholder,
+} from '~/client/lib/config-screen/helpers'
+import { MinRoleMismatchNotice, MinRoleSetNotice, PlayerChip, PremadeLinkButton, ReadonlyTimerRow } from '~/client/lib/config-screen/parts'
 import { cn } from '~/client/lib/css'
+import { isDev } from '~/client/lib/is-dev'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
 import {
+  arrangeLobbyTeams,
   cancelLobby,
   avatarUrl as currentAvatarUrl,
   displayName as currentDisplayName,
   draftStore,
+  fetchLobbyRankedRoles,
   fillLobbyWithTestPlayers,
   isSpectator,
   placeLobbySlot,
@@ -17,33 +44,16 @@ import {
   sendConfig,
   sendStart,
   startLobbyDraft,
-  updateLobbyDraftConfig,
+  toggleLobbyPremadeLink,
+  updateLobbyConfig,
   updateLobbyMode,
   userId,
 } from '~/client/stores'
 
-const MAX_TIMER_MINUTES = 30
-const LOBBY_MODES = ['1v1', '2v2', '3v3', 'ffa'] as const
-type LobbyModeValue = typeof LOBBY_MODES[number]
-
 interface ConfigScreenProps {
   lobby?: LobbySnapshot
   onLobbyStarted?: (matchId: string) => void
-}
-
-interface PlayerRow {
-  key: string
-  slot: number
-  name: string
-  playerId: string | null
-  avatarUrl: string | null
-  isHost: boolean
-  empty: boolean
-}
-
-interface DraftTimerConfig {
-  banTimerSeconds: number | null
-  pickTimerSeconds: number | null
+  onSwitchTarget?: () => void
 }
 
 /** Pre-draft setup screen (lobby waiting + room waiting). */
@@ -54,11 +64,15 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const [pickMinutes, setPickMinutes] = createSignal('')
   const [editingField, setEditingField] = createSignal<'ban' | 'pick' | null>(null)
   const [configMessage, setConfigMessage] = createSignal<string | null>(null)
+  const [configMessageTone, setConfigMessageTone] = createSignal<'error' | 'info' | null>(null)
   const [cancelPending, setCancelPending] = createSignal(false)
   const [startPending, setStartPending] = createSignal(false)
   const [lobbyActionPending, setLobbyActionPending] = createSignal(false)
   const [draggingPlayerId, setDraggingPlayerId] = createSignal<string | null>(null)
   const [dragOverSlot, setDragOverSlot] = createSignal<number | null>(null)
+  const [optimisticLobbyAction, setOptimisticLobbyAction] = createSignal<OptimisticLobbyAction | null>(null)
+  let optimisticLobbyActionTimeout: ReturnType<typeof setTimeout> | null = null
+  let bootstrapJoinHintUsed = false
   const [lobbyTimerConfig, setLobbyTimerConfig] = createSignal<DraftTimerConfig | null>(
     props.lobby
       ? {
@@ -67,6 +81,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
         }
       : null,
   )
+  const [rankedRoleOptions, setRankedRoleOptions] = createSignal<RankedRoleOptionSnapshot[]>([])
+  const [minRoleMismatchDetail, setMinRoleMismatchDetail] = createSignal<MinRoleMismatchDetail | null>(null)
+  const [minRoleSetDetail, setMinRoleSetDetail] = createSignal<MinRoleSetDetail | null>(null)
+  let rankedRoleOptionsFetchKey: string | null = null
 
   createEffect(() => {
     const incomingLobby = props.lobby ?? null
@@ -90,7 +108,80 @@ export function ConfigScreen(props: ConfigScreenProps) {
     })
   })
 
-  const currentLobby = () => lobbyState()
+  const clearOptimisticLobbyAction = () => {
+    if (optimisticLobbyActionTimeout) {
+      clearTimeout(optimisticLobbyActionTimeout)
+      optimisticLobbyActionTimeout = null
+    }
+    setOptimisticLobbyAction(null)
+  }
+
+  createEffect(() => {
+    const action = optimisticLobbyAction()
+    if (!action) return
+
+    const lobby = lobbyState()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || lobby.status !== 'open') {
+      clearOptimisticLobbyAction()
+      return
+    }
+
+    if (lobby.revision > action.baseRevision) {
+      clearOptimisticLobbyAction()
+      return
+    }
+
+    if (Date.now() > action.expiresAt) {
+      clearOptimisticLobbyAction()
+      return
+    }
+
+    if (action.kind === 'place-self' || action.kind === 'remove-self') {
+      const currentSlot = lobby.entries.findIndex(entry => entry?.playerId === currentUserId)
+
+      if (action.kind === 'place-self' && currentSlot === action.targetSlot) {
+        clearOptimisticLobbyAction()
+        return
+      }
+
+      if (action.kind === 'remove-self' && currentSlot < 0) {
+        clearOptimisticLobbyAction()
+      }
+    }
+  })
+
+  const startOptimisticLobbyAction = (action: PendingOptimisticLobbyAction) => {
+    clearOptimisticLobbyAction()
+    const expiresAt = Date.now() + 2500
+    const baseRevision = lobbyState()?.revision ?? 0
+    const next = {
+      ...action,
+      baseRevision,
+      expiresAt,
+    } as OptimisticLobbyAction
+
+    setOptimisticLobbyAction(next)
+    optimisticLobbyActionTimeout = setTimeout(() => {
+      setOptimisticLobbyAction((current) => {
+        if (!current || current.expiresAt !== expiresAt) return current
+        return null
+      })
+      optimisticLobbyActionTimeout = null
+    }, 2500)
+  }
+
+  onCleanup(() => {
+    clearOptimisticLobbyAction()
+  })
+
+  const currentLobby = () => applyOptimisticLobbyAction(
+    lobbyState(),
+    optimisticLobbyAction(),
+    userId(),
+    currentDisplayName(),
+    currentAvatarUrl(),
+  )
   const isLobbyMode = () => currentLobby() != null
   const hostId = () => currentLobby()?.hostId ?? draftStore.hostId ?? state()?.seats[0]?.playerId ?? null
   const amHost = () => {
@@ -99,6 +190,30 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return id === hostId()
   }
 
+  createEffect(() => {
+    const lobby = currentLobby()
+    if (!lobby) {
+      rankedRoleOptionsFetchKey = null
+      setRankedRoleOptions([])
+      return
+    }
+
+    const nextFetchKey = `${lobby.mode}:${lobby.id}`
+    if (rankedRoleOptionsFetchKey === nextFetchKey) return
+    rankedRoleOptionsFetchKey = nextFetchKey
+
+    let cancelled = false
+    void (async () => {
+      const snapshot = await fetchLobbyRankedRoles(lobby.mode, lobby.id)
+      if (cancelled) return
+      setRankedRoleOptions(snapshot?.options ?? [])
+    })()
+
+    onCleanup(() => {
+      cancelled = true
+    })
+  })
+
   const formatId = () => {
     const lobby = currentLobby()
     if (lobby) return formatModeLabel(lobby.mode, 'DRAFT')
@@ -106,7 +221,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   }
   const isTeamMode = () => {
     const lobby = currentLobby()
-    if (lobby) return lobby.mode === '1v1' || lobby.mode === '2v2' || lobby.mode === '3v3'
+    if (lobby) return inferGameMode(lobby.mode) !== 'ffa'
     return state()?.seats.some(s => s.team != null) ?? false
   }
 
@@ -130,12 +245,72 @@ export function ConfigScreen(props: ConfigScreenProps) {
     }
   }
 
+  const lobbyMinRoleValue = () => currentLobby()?.minRole ?? ''
+  const formattedLobbyMinRole = () => formatLobbyMinRole(currentLobby()?.minRole ?? null, rankedRoleOptions())
+  const minRoleDropdownOptions = () => [
+    {
+      value: '',
+      label: 'Anyone',
+      render: () => (
+        <span class="flex gap-2 items-center">
+          <span class="rounded-full bg-white/25 h-2.5 w-2.5" />
+          Anyone
+        </span>
+      ),
+    },
+    ...rankedRoleOptions().map(option => ({
+      value: option.tier,
+      label: option.label,
+      render: () => (
+        <span class="flex gap-2 items-center">
+          <span class="rounded-full h-2.5 w-2.5" style={buildRankDotStyle(option.color)} />
+          {option.label}
+        </span>
+      ),
+    })),
+  ]
+
   const banTimerPlaceholder = () => timerSecondsToMinutesPlaceholder(serverDefaultTimerConfig().banTimerSeconds)
   const pickTimerPlaceholder = () => timerSecondsToMinutesPlaceholder(serverDefaultTimerConfig().pickTimerSeconds)
 
   const optimisticTimerConfig = createOptimisticState(timerConfig, {
     equals: (a, b) => a.banTimerSeconds === b.banTimerSeconds && a.pickTimerSeconds === b.pickTimerSeconds,
   })
+
+  const clearConfigMessage = () => {
+    setConfigMessage(null)
+    setConfigMessageTone(null)
+    setMinRoleMismatchDetail(null)
+    setMinRoleSetDetail(null)
+  }
+
+  const showErrorMessage = (message: string) => {
+    setConfigMessage(message)
+    setConfigMessageTone('error')
+    setMinRoleMismatchDetail(null)
+    setMinRoleSetDetail(null)
+  }
+
+  const showInfoMessage = (message: string) => {
+    setConfigMessage(message)
+    setConfigMessageTone('info')
+    setMinRoleMismatchDetail(null)
+    setMinRoleSetDetail(null)
+  }
+
+  const showMinRoleMismatchMessage = (detail: MinRoleMismatchDetail) => {
+    setConfigMessage(`${detail.playerName} does not meet the new minimum rank ${detail.roleLabel}`)
+    setConfigMessageTone('error')
+    setMinRoleMismatchDetail(detail)
+    setMinRoleSetDetail(null)
+  }
+
+  const showMinRoleSetMessage = (detail: MinRoleSetDetail) => {
+    setConfigMessage(`Minimum rank set to ${detail.roleLabel}`)
+    setConfigMessageTone('info')
+    setMinRoleMismatchDetail(null)
+    setMinRoleSetDetail(detail)
+  }
 
   createEffect(() => {
     const config = optimisticTimerConfig.value()
@@ -146,8 +321,39 @@ export function ConfigScreen(props: ConfigScreenProps) {
   createEffect(() => {
     const status = optimisticTimerConfig.status()
     if (status === 'error') {
-      setConfigMessage(optimisticTimerConfig.error() ?? 'Failed to save changes.')
+      showErrorMessage(optimisticTimerConfig.error() ?? 'Failed to save changes.')
     }
+  })
+
+  createEffect(() => {
+    if (bootstrapJoinHintUsed) return
+    if (optimisticLobbyAction()) return
+
+    const lobby = lobbyState()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || lobby.status !== 'open') return
+
+    if (lobby.hostId === currentUserId) {
+      bootstrapJoinHintUsed = true
+      return
+    }
+
+    if (lobby.entries.some(entry => entry?.playerId === currentUserId)) {
+      bootstrapJoinHintUsed = true
+      return
+    }
+
+    const firstEmptySlot = lobby.entries.findIndex(entry => entry == null)
+    if (firstEmptySlot < 0) {
+      bootstrapJoinHintUsed = true
+      return
+    }
+
+    bootstrapJoinHintUsed = true
+    startOptimisticLobbyAction({
+      kind: 'place-self',
+      targetSlot: firstEmptySlot,
+    })
   })
 
   const applyLobbySnapshot = (lobby: LobbySnapshot) => {
@@ -177,6 +383,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
           name: entry?.displayName ?? '[empty]',
           playerId: entry?.playerId ?? null,
           avatarUrl: entry?.avatarUrl ?? null,
+          partyIds: entry?.partyIds ?? [],
           isHost: entry?.playerId === hostId(),
           empty: entry == null,
         }
@@ -190,6 +397,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       name: seat.displayName,
       playerId: seat.playerId,
       avatarUrl: seat.avatarUrl ?? null,
+      partyIds: [],
       isHost: seat.playerId === hostId(),
       empty: false,
     }))
@@ -206,6 +414,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
           name: entry?.displayName ?? '[empty]',
           playerId: entry?.playerId ?? null,
           avatarUrl: entry?.avatarUrl ?? null,
+          partyIds: entry?.partyIds ?? [],
           isHost: entry?.playerId === hostId(),
           empty: entry == null,
         }
@@ -218,6 +427,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       name: seat.displayName,
       playerId: seat.playerId,
       avatarUrl: seat.avatarUrl ?? null,
+      partyIds: [],
       isHost: seat.playerId === hostId(),
       empty: false,
     }))
@@ -236,9 +446,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   }
 
   const lobbyMode = (): LobbyModeValue => {
-    const raw = currentLobby()?.mode
-    if (raw) return normalizeLobbyMode(raw)
-    return inferModeFromFormatId(state()?.formatId)
+    return inferGameMode(currentLobby()?.mode ?? state()?.formatId)
   }
 
   const filledSlots = () => {
@@ -263,10 +471,18 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return currentLobby()?.entries.some(entry => entry?.playerId === id) ?? false
   }
 
+  const currentUserLinkedPartySize = () => {
+    const id = userId()
+    if (!id) return 0
+    const entry = currentLobby()?.entries.find(candidate => candidate?.playerId === id)
+    return entry?.partyIds?.length ?? 0
+  }
+
   const canJoinSlot = (row: PlayerRow) => {
     if (!isLobbyMode()) return false
     if (!row.empty) return false
     if (!userId()) return false
+    if (!amHost() && currentUserLinkedPartySize() > 0) return false
     return true
   }
 
@@ -287,6 +503,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const id = userId()
     if (!id) return false
     if (amHost()) return true
+    if (row.partyIds.length > 0) return false
     return row.playerId === id
   }
 
@@ -297,6 +514,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const id = userId()
     if (!dragged || !id) return false
     if (amHost()) return true
+    if (currentUserLinkedPartySize() > 0) return false
     return dragged === id && row.empty
   }
 
@@ -312,7 +530,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       const parsedPick = parseTimerMinutesInput(nextPickMinutes)
       if (parsedBan === undefined || parsedPick === undefined) {
         optimisticTimerConfig.clearError()
-        setConfigMessage(`Use whole minutes between 0 and ${MAX_TIMER_MINUTES}.`)
+        showErrorMessage(`Use whole minutes between 0 and ${MAX_TIMER_MINUTES}.`)
         const current = optimisticTimerConfig.value()
         setBanMinutes(timerSecondsToMinutesInput(current.banTimerSeconds))
         setPickMinutes(timerSecondsToMinutesInput(current.pickTimerSeconds))
@@ -331,17 +549,18 @@ export function ConfigScreen(props: ConfigScreenProps) {
       const currentUserId = userId()
       if (!currentUserId) {
         optimisticTimerConfig.clearError()
-        setConfigMessage('Could not identify your Discord user. Reopen the activity.')
+        showErrorMessage('Could not identify your Discord user. Reopen the activity.')
         return
       }
 
-      setConfigMessage(null)
+      clearConfigMessage()
       await optimisticTimerConfig.commit({ banTimerSeconds, pickTimerSeconds }, async () => {
         const lobby = currentLobby()
         if (lobby) {
-          const result = await updateLobbyDraftConfig(lobby.mode, currentUserId, {
+          const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, {
             banTimerSeconds,
             pickTimerSeconds,
+            minRole: lobby.minRole,
           })
           if (!result.ok) throw new Error(result.error)
           applyLobbySnapshot(result.lobby)
@@ -367,15 +586,65 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (lobbyActionPending()) return
 
     setLobbyActionPending(true)
-    setConfigMessage(null)
+    clearConfigMessage()
     try {
-      const result = await updateLobbyMode(lobby.mode, currentUserId, nextMode)
+      const result = await updateLobbyMode(lobby.mode, lobby.id, currentUserId, nextMode)
       if (!result.ok) {
-        setConfigMessage(result.error)
+        showErrorMessage(result.error)
         return
       }
       applyLobbySnapshot(result.lobby)
-      setConfigMessage(`Lobby mode changed to ${formatModeLabel(result.lobby.mode, result.lobby.mode)}.`)
+      showInfoMessage(`Lobby mode changed to ${formatModeLabel(result.lobby.mode, result.lobby.mode)}.`)
+    }
+    finally {
+      setLobbyActionPending(false)
+    }
+  }
+
+  const handleLobbyMinRoleChange = async (value: string) => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || !amHost()) return
+    if (lobbyActionPending()) return
+
+    const nextMinRole = normalizeLobbyMinRoleValue(value)
+    if (lobby.minRole === nextMinRole) return
+
+    setLobbyActionPending(true)
+    clearConfigMessage()
+    try {
+      const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, {
+        banTimerSeconds: timerConfig().banTimerSeconds,
+        pickTimerSeconds: timerConfig().pickTimerSeconds,
+        minRole: nextMinRole,
+      })
+      if (!result.ok) {
+        if (result.errorCode === 'MIN_ROLE_MEMBER_MISMATCH' && result.context?.minRole) {
+          showMinRoleMismatchMessage({
+            playerName: result.context.playerName,
+            roleLabel: result.context.minRole.label,
+            roleColor: result.context.minRole.color,
+          })
+          return
+        }
+        showErrorMessage(result.error)
+        return
+      }
+
+      applyLobbySnapshot(result.lobby)
+      const refreshedOptions = await fetchLobbyRankedRoles(result.lobby.mode, result.lobby.id)
+      if (refreshedOptions?.options?.length) setRankedRoleOptions(refreshedOptions.options)
+      const optionSource = refreshedOptions?.options?.length ? refreshedOptions.options : rankedRoleOptions()
+      const selectedMinRole = nextMinRole ? findRankedRoleOptionByTier(optionSource, nextMinRole) : null
+      if (nextMinRole) {
+        showMinRoleSetMessage({
+          roleLabel: selectedMinRole?.label ?? 'Unranked',
+          roleColor: selectedMinRole?.color ?? null,
+        })
+      }
+      else {
+        showInfoMessage('Minimum rank cleared')
+      }
     }
     finally {
       setLobbyActionPending(false)
@@ -389,20 +658,20 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (lobbyActionPending() || startPending() || cancelPending()) return
 
     setLobbyActionPending(true)
-    setConfigMessage(null)
+    clearConfigMessage()
     try {
-      const result = await fillLobbyWithTestPlayers(lobby.mode, currentUserId)
+      const result = await fillLobbyWithTestPlayers(lobby.mode, lobby.id, currentUserId)
       if (!result.ok) {
-        setConfigMessage(result.error)
+        showErrorMessage(result.error)
         return
       }
 
       applyLobbySnapshot(result.lobby)
       if (result.addedCount > 0) {
-        setConfigMessage(`Added ${result.addedCount} test player${result.addedCount === 1 ? '' : 's'} to empty slots.`)
+        showInfoMessage(`Added ${result.addedCount} test player${result.addedCount === 1 ? '' : 's'} to empty slots.`)
       }
       else {
-        setConfigMessage('Lobby is already full.')
+        showInfoMessage('Lobby is already full.')
       }
     }
     finally {
@@ -416,20 +685,24 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (!lobby || !currentUserId) return
     if (lobbyActionPending()) return
 
+    startOptimisticLobbyAction({ kind: 'place-self', targetSlot: slot })
     setLobbyActionPending(true)
-    setConfigMessage(null)
+    clearConfigMessage()
     try {
       const result = await placeLobbySlot(lobby.mode, {
+        lobbyId: lobby.id,
         userId: currentUserId,
         targetSlot: slot,
         displayName: currentDisplayName(),
         avatarUrl: currentAvatarUrl(),
       })
       if (!result.ok) {
-        setConfigMessage(result.error)
+        clearOptimisticLobbyAction()
+        showErrorMessage(result.error)
         return
       }
       applyLobbySnapshot(result.lobby)
+      clearOptimisticLobbyAction()
     }
     finally {
       setLobbyActionPending(false)
@@ -444,12 +717,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (lobbyActionPending()) return
 
     const payload: {
+      lobbyId: string
       userId: string
       targetSlot: number
       playerId?: string
       displayName?: string
       avatarUrl?: string | null
     } = {
+      lobbyId: lobby.id,
       userId: currentUserId,
       targetSlot: slot,
       displayName: currentDisplayName(),
@@ -460,15 +735,32 @@ export function ConfigScreen(props: ConfigScreenProps) {
       payload.playerId = draggedPlayerId
     }
 
+    const draggedEntry = lobby.entries.find(entry => entry?.playerId === draggedPlayerId) ?? null
+    const isLinkedDrag = isTeamMode() && (draggedEntry?.partyIds?.length ?? 0) > 0
+
+    let optimisticAction: PendingOptimisticLobbyAction | null = null
+    if (draggedPlayerId === currentUserId && !isLinkedDrag) {
+      optimisticAction = { kind: 'place-self', targetSlot: slot }
+    }
+    else if (amHost() && !isLinkedDrag) {
+      optimisticAction = { kind: 'move-player', playerId: draggedPlayerId, targetSlot: slot }
+    }
+
+    if (optimisticAction) {
+      startOptimisticLobbyAction(optimisticAction)
+    }
+
     setLobbyActionPending(true)
-    setConfigMessage(null)
+    clearConfigMessage()
     try {
       const result = await placeLobbySlot(lobby.mode, payload)
       if (!result.ok) {
-        setConfigMessage(result.error)
+        if (optimisticAction) clearOptimisticLobbyAction()
+        showErrorMessage(result.error)
         return
       }
       applyLobbySnapshot(result.lobby)
+      if (optimisticAction) clearOptimisticLobbyAction()
     }
     finally {
       setLobbyActionPending(false)
@@ -483,18 +775,34 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (!lobby || !currentUserId) return
     if (lobbyActionPending()) return
 
+    const removingPlayerId = lobby.entries[slot]?.playerId ?? null
+    let optimisticAction: PendingOptimisticLobbyAction | null = null
+    if (removingPlayerId === currentUserId) {
+      optimisticAction = { kind: 'remove-self' }
+    }
+    else if (removingPlayerId && amHost()) {
+      optimisticAction = { kind: 'remove-player', playerId: removingPlayerId }
+    }
+
+    if (optimisticAction) {
+      startOptimisticLobbyAction(optimisticAction)
+    }
+
     setLobbyActionPending(true)
-    setConfigMessage(null)
+    clearConfigMessage()
     try {
       const result = await removeLobbySlot(lobby.mode, {
+        lobbyId: lobby.id,
         userId: currentUserId,
         slot,
       })
       if (!result.ok) {
-        setConfigMessage(result.error)
+        if (optimisticAction) clearOptimisticLobbyAction()
+        showErrorMessage(result.error)
         return
       }
       applyLobbySnapshot(result.lobby)
+      if (optimisticAction) clearOptimisticLobbyAction()
     }
     finally {
       setLobbyActionPending(false)
@@ -508,21 +816,137 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (!canStartLobby() || startPending() || lobbyActionPending()) return
 
     setStartPending(true)
-    setConfigMessage(null)
+    clearConfigMessage()
     try {
-      const result = await startLobbyDraft(lobby.mode, currentUserId)
+      const result = await startLobbyDraft(lobby.mode, lobby.id, currentUserId)
       if (!result.ok) {
-        setConfigMessage(result.error)
+        showErrorMessage(result.error)
         return
       }
 
       props.onLobbyStarted?.(result.matchId)
-      setConfigMessage('Draft room created. Opening draft...')
+      showInfoMessage('Draft room created. Opening draft...')
     }
     finally {
       setStartPending(false)
     }
   }
+
+  const handleArrangeTeams = async (strategy: LobbyTeamArrangeStrategy) => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || !amHost()) return
+    const mode = inferGameMode(lobby.mode)
+    if (mode !== '2v2' && mode !== '3v3') return
+    if (lobbyActionPending() || startPending() || cancelPending()) return
+
+    setLobbyActionPending(true)
+    clearConfigMessage()
+    try {
+      const result = await arrangeLobbyTeams(lobby.mode, lobby.id, currentUserId, strategy)
+      if (!result.ok) {
+        showErrorMessage(result.error)
+        return
+      }
+
+      applyLobbySnapshot(result.lobby)
+      showInfoMessage(strategy === 'randomize' ? 'Teams randomized.' : 'Teams auto-balanced.')
+    }
+    finally {
+      setLobbyActionPending(false)
+    }
+  }
+
+  const areRowsPremadeLinked = (leftRow: PlayerRow, rightRow: PlayerRow) => {
+    if (!leftRow.playerId || !rightRow.playerId) return false
+    return leftRow.partyIds.includes(rightRow.playerId) && rightRow.partyIds.includes(leftRow.playerId)
+  }
+
+  const canTogglePremadeLink = (leftRow: PlayerRow, rightRow: PlayerRow) => {
+    const currentUserId = userId()
+    if (!currentUserId || !isLobbyMode() || !isTeamMode()) return false
+    if (lobbyActionPending() || startPending() || cancelPending()) return false
+    if (!leftRow.playerId || !rightRow.playerId) return false
+    if (amHost()) return true
+    return leftRow.playerId === currentUserId || rightRow.playerId === currentUserId
+  }
+
+  const handleTogglePremadeLink = async (leftRow: PlayerRow, rightRow: PlayerRow) => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId) return
+    const mode = inferGameMode(lobby.mode)
+    if (mode !== '2v2' && mode !== '3v3') return
+    if (!canTogglePremadeLink(leftRow, rightRow)) return
+
+    const currentlyLinked = areRowsPremadeLinked(leftRow, rightRow)
+    setLobbyActionPending(true)
+    clearConfigMessage()
+    try {
+      const result = await toggleLobbyPremadeLink(lobby.mode, lobby.id, currentUserId, leftRow.slot)
+      if (!result.ok) {
+        showErrorMessage(result.error)
+        return
+      }
+
+      applyLobbySnapshot(result.lobby)
+      showInfoMessage(currentlyLinked ? 'Premade link removed.' : 'Premade link added.')
+    }
+    finally {
+      setLobbyActionPending(false)
+    }
+  }
+
+  const renderTeamColumn = (rows: PlayerRow[]) => (
+    <div class="flex flex-col">
+      <For each={rows}>
+        {(row, index) => {
+          const nextRow = () => rows[index() + 1] ?? null
+          return (
+            <>
+              <PlayerChip
+                row={row}
+                pending={lobbyActionPending()}
+                draggable={canDragRow(row)}
+                allowDrop={canDropOnRow(row)}
+                dropActive={canDropOnRow(row) && dragOverSlot() === row.slot}
+                showJoin={canJoinSlot(row)}
+                showRemove={canRemoveSlot(row)}
+                onJoin={() => void handlePlaceSelf(row.slot)}
+                onRemove={() => void handleRemoveFromSlot(row.slot)}
+                onDragStart={() => {
+                  if (!row.playerId) return
+                  setDraggingPlayerId(row.playerId)
+                }}
+                onDragEnd={() => {
+                  setDraggingPlayerId(null)
+                  setDragOverSlot(null)
+                }}
+                onDragEnter={() => setDragOverSlot(row.slot)}
+                onDragLeave={() => { if (dragOverSlot() === row.slot) setDragOverSlot(null) }}
+                onDrop={() => void handleDropOnSlot(row.slot)}
+              />
+              <Show when={nextRow()}>
+                {(next) => {
+                  const linked = () => areRowsPremadeLinked(row, next())
+                  const canToggle = () => canTogglePremadeLink(row, next())
+                  return (
+                    <PremadeLinkButton
+                      linked={linked()}
+                      interactive={canToggle()}
+                      pending={lobbyActionPending()}
+                      title={linked() ? 'Unlink premade' : 'Link premade'}
+                      onToggle={() => void handleTogglePremadeLink(row, next())}
+                    />
+                  )
+                }}
+              </Show>
+            </>
+          )
+        }}
+      </For>
+    </div>
+  )
 
   const handleCancelAction = async () => {
     if (cancelPending()) return
@@ -531,19 +955,19 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (lobby) {
       const currentUserId = userId()
       if (!currentUserId) {
-        setConfigMessage('Could not identify your Discord user. Reopen the activity.')
+        showErrorMessage('Could not identify your Discord user. Reopen the activity.')
         return
       }
 
       setCancelPending(true)
-      setConfigMessage(null)
+      clearConfigMessage()
       try {
-        const result = await cancelLobby(lobby.mode, currentUserId)
+        const result = await cancelLobby(lobby.mode, lobby.id, currentUserId)
         if (!result.ok) {
-          setConfigMessage(result.error)
+          showErrorMessage(result.error)
           return
         }
-        setConfigMessage('Lobby cancelled. Closing...')
+        showInfoMessage('Lobby cancelled. Closing...')
       }
       finally {
         setCancelPending(false)
@@ -557,9 +981,24 @@ export function ConfigScreen(props: ConfigScreenProps) {
   return (
     <div class="text-text-primary font-sans bg-bg-primary overflow-y-auto min-h-dvh">
       <div class="mx-auto px-6 py-4 flex flex-col gap-6 max-w-5xl w-full">
-        <div class="text-center">
-          <h1 class="text-2xl text-heading mb-1">Draft Setup</h1>
-          <span class="text-sm text-accent-gold font-medium">{formatId()}</span>
+        <div class="grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-center">
+          <div class="h-9 w-9" />
+          <div class="text-center">
+            <h1 class="text-2xl text-heading mb-1">Draft Setup</h1>
+            <span class="text-sm text-accent-gold font-medium">{formatId()}</span>
+          </div>
+
+          <Show when={props.onSwitchTarget} fallback={<div class="h-9 w-9" />}>
+            <button
+              type="button"
+              class="text-text-secondary border border-border-subtle rounded-md flex shrink-0 h-9 w-9 cursor-pointer transition-colors items-center justify-center hover:text-text-primary hover:bg-bg-hover"
+              title="Lobby Overview"
+              aria-label="Lobby Overview"
+              onClick={() => props.onSwitchTarget?.()}
+            >
+              <span class="i-ph-squares-four-bold text-base" />
+            </button>
+          </Show>
         </div>
 
         <div class="gap-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -632,65 +1071,11 @@ export function ConfigScreen(props: ConfigScreenProps) {
               <div class="gap-4 grid grid-cols-2">
                 <div>
                   <div class="text-xs text-accent-gold tracking-wider font-bold mb-2">Team A</div>
-                  <div class="flex flex-col gap-2">
-                    <For each={teamRows(0)}>
-                      {row => (
-                        <PlayerChip
-                          row={row}
-                          pending={lobbyActionPending()}
-                          draggable={canDragRow(row)}
-                          allowDrop={canDropOnRow(row)}
-                          dropActive={canDropOnRow(row) && dragOverSlot() === row.slot}
-                          showJoin={canJoinSlot(row)}
-                          showRemove={canRemoveSlot(row)}
-                          onJoin={() => void handlePlaceSelf(row.slot)}
-                          onRemove={() => void handleRemoveFromSlot(row.slot)}
-                          onDragStart={() => {
-                            if (!row.playerId) return
-                            setDraggingPlayerId(row.playerId)
-                          }}
-                          onDragEnd={() => {
-                            setDraggingPlayerId(null)
-                            setDragOverSlot(null)
-                          }}
-                          onDragEnter={() => setDragOverSlot(row.slot)}
-                          onDragLeave={() => { if (dragOverSlot() === row.slot) setDragOverSlot(null) }}
-                          onDrop={() => void handleDropOnSlot(row.slot)}
-                        />
-                      )}
-                    </For>
-                  </div>
+                  {renderTeamColumn(teamRows(0))}
                 </div>
                 <div>
                   <div class="text-xs text-accent-gold tracking-wider font-bold mb-2">Team B</div>
-                  <div class="flex flex-col gap-2">
-                    <For each={teamRows(1)}>
-                      {row => (
-                        <PlayerChip
-                          row={row}
-                          pending={lobbyActionPending()}
-                          draggable={canDragRow(row)}
-                          allowDrop={canDropOnRow(row)}
-                          dropActive={canDropOnRow(row) && dragOverSlot() === row.slot}
-                          showJoin={canJoinSlot(row)}
-                          showRemove={canRemoveSlot(row)}
-                          onJoin={() => void handlePlaceSelf(row.slot)}
-                          onRemove={() => void handleRemoveFromSlot(row.slot)}
-                          onDragStart={() => {
-                            if (!row.playerId) return
-                            setDraggingPlayerId(row.playerId)
-                          }}
-                          onDragEnd={() => {
-                            setDraggingPlayerId(null)
-                            setDragOverSlot(null)
-                          }}
-                          onDragEnter={() => setDragOverSlot(row.slot)}
-                          onDragLeave={() => { if (dragOverSlot() === row.slot) setDragOverSlot(null) }}
-                          onDrop={() => void handleDropOnSlot(row.slot)}
-                        />
-                      )}
-                    </For>
-                  </div>
+                  {renderTeamColumn(teamRows(1))}
                 </div>
               </div>
             </Show>
@@ -711,8 +1096,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
                 label="Game Mode"
                 value={lobbyMode()}
                 disabled={lobbyActionPending()}
-                options={LOBBY_MODES.map(mode => ({ value: mode, label: formatModeLabel(mode, mode) }))}
-                onChange={value => void handleLobbyModeChange(normalizeLobbyMode(value))}
+                options={GAME_MODE_CHOICES.map(choice => ({ value: choice.value, label: choice.name }))}
+                onChange={value => void handleLobbyModeChange(inferGameMode(value))}
               />
             </Show>
 
@@ -720,6 +1105,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
               when={amHost()}
               fallback={(
                 <div class="flex flex-col gap-2">
+                  <ReadonlyTimerRow
+                    label="Min rank"
+                    value={formattedLobbyMinRole()}
+                  />
                   <ReadonlyTimerRow
                     label="Ban timer"
                     value={formatTimerValue(timerConfig().banTimerSeconds, serverDefaultTimerConfig().banTimerSeconds)}
@@ -732,6 +1121,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
               )}
             >
               <div class="flex flex-col gap-2">
+                <Dropdown
+                  label="Minimum Rank"
+                  value={lobbyMinRoleValue()}
+                  disabled={lobbyActionPending()}
+                  options={minRoleDropdownOptions()}
+                  onChange={value => void handleLobbyMinRoleChange(value)}
+                />
+
                 <TextInput
                   type="number"
                   label="Ban Timer (minutes)"
@@ -743,7 +1140,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   onFocus={() => setEditingField('ban')}
                   onInput={(event) => {
                     optimisticTimerConfig.clearError()
-                    setConfigMessage(null)
+                    clearConfigMessage()
                     const normalized = normalizeTimerMinutesInput(event.currentTarget.value)
                     event.currentTarget.value = normalized
                     setBanMinutes(normalized)
@@ -762,7 +1159,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   onFocus={() => setEditingField('pick')}
                   onInput={(event) => {
                     optimisticTimerConfig.clearError()
-                    setConfigMessage(null)
+                    clearConfigMessage()
                     const normalized = normalizeTimerMinutesInput(event.currentTarget.value)
                     event.currentTarget.value = normalized
                     setPickMinutes(normalized)
@@ -776,13 +1173,25 @@ export function ConfigScreen(props: ConfigScreenProps) {
               <Show when={configMessage()}>
                 <div class="text-xs text-text-primary flex gap-1.5 items-center">
                   <span class={cn(
-                    'text-sm',
-                    configMessage()?.toLowerCase().includes('failed') || configMessage()?.toLowerCase().includes('error')
+                    'text-base shrink-0 self-center',
+                    configMessageTone() === 'error'
                       ? 'i-ph-x-bold text-accent-red'
                       : 'i-ph-check-bold text-accent-gold',
                   )}
                   />
-                  <span>{configMessage()}</span>
+                  <Show
+                    when={configMessageTone() === 'error' && minRoleMismatchDetail()}
+                    fallback={(
+                      <Show
+                        when={configMessageTone() === 'info' && minRoleSetDetail()}
+                        fallback={<span class="leading-relaxed">{configMessage()}</span>}
+                      >
+                        <MinRoleSetNotice detail={minRoleSetDetail()!} />
+                      </Show>
+                    )}
+                  >
+                    <MinRoleMismatchNotice detail={minRoleMismatchDetail()!} />
+                  </Show>
                 </div>
               </Show>
             </div>
@@ -818,13 +1227,35 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   >
                     {cancelPending() ? 'Cancelling...' : 'Cancel Lobby'}
                   </button>
-                  <button
-                    class="text-sm text-text-secondary px-6 py-2.5 border border-white/12 rounded-lg bg-white/3 cursor-pointer transition-colors hover:text-text-primary hover:border-white/20 hover:bg-white/6 disabled:opacity-60 disabled:cursor-not-allowed"
-                    disabled={cancelPending() || startPending() || lobbyActionPending()}
-                    onClick={() => void handleFillTestPlayers()}
-                  >
-                    Fill Test Players
-                  </button>
+                  <Show when={lobbyMode() === '2v2' || lobbyMode() === '3v3'}>
+                    <button
+                      class="text-text-secondary border border-white/12 rounded-lg bg-white/3 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-text-primary hover:border-white/20 hover:bg-white/6 disabled:opacity-60 disabled:cursor-not-allowed"
+                      title="Randomize"
+                      aria-label="Randomize teams"
+                      disabled={cancelPending() || startPending() || lobbyActionPending()}
+                      onClick={() => void handleArrangeTeams('randomize')}
+                    >
+                      <span class="i-ph:shuffle-simple-bold text-lg" />
+                    </button>
+                    <button
+                      class="text-text-secondary border border-white/12 rounded-lg bg-white/3 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-text-primary hover:border-white/20 hover:bg-white/6 disabled:opacity-60 disabled:cursor-not-allowed"
+                      title="Auto-balance"
+                      aria-label="Auto-balance teams"
+                      disabled={cancelPending() || startPending() || lobbyActionPending()}
+                      onClick={() => void handleArrangeTeams('balance')}
+                    >
+                      <span class="i-ph:scales-bold text-lg" />
+                    </button>
+                  </Show>
+                  <Show when={isDev()}>
+                    <button
+                      class="text-sm text-text-secondary px-6 py-2.5 border border-white/12 rounded-lg bg-white/3 cursor-pointer transition-colors hover:text-text-primary hover:border-white/20 hover:bg-white/6 disabled:opacity-60 disabled:cursor-not-allowed"
+                      disabled={cancelPending() || startPending() || lobbyActionPending()}
+                      onClick={() => void handleFillTestPlayers()}
+                    >
+                      Fill Test Players
+                    </button>
+                  </Show>
                 </div>
               )}
             >
@@ -848,185 +1279,4 @@ export function ConfigScreen(props: ConfigScreenProps) {
       </div>
     </div>
   )
-}
-
-interface PlayerChipProps {
-  row: PlayerRow
-  pending: boolean
-  draggable: boolean
-  allowDrop: boolean
-  dropActive: boolean
-  showJoin: boolean
-  showRemove: boolean
-  onJoin?: () => void
-  onRemove?: () => void
-  onDragStart?: () => void
-  onDragEnd?: () => void
-  onDragEnter?: () => void
-  onDragLeave?: () => void
-  onDrop?: () => void
-}
-
-function PlayerChip(props: PlayerChipProps) {
-  return (
-    <div
-      class={cn(
-        'group flex items-center gap-2 rounded-md px-3 py-2 border transition-colors',
-        props.row.empty ? 'bg-bg-primary/20 text-text-muted border-transparent' : 'bg-bg-primary/40 border-transparent',
-        props.row.empty && props.showJoin && !props.pending && 'hover:bg-bg-primary/30 cursor-pointer',
-        props.draggable && !props.pending && 'cursor-grab active:cursor-grabbing',
-        props.dropActive && 'border-accent-gold/65 border-dashed bg-accent-gold/8',
-      )}
-      onClick={() => { if (props.showJoin && !props.pending) props.onJoin?.() }}
-      draggable={props.draggable && !props.pending}
-      onDragStart={(event) => {
-        if (!event.dataTransfer) return
-        event.dataTransfer.effectAllowed = 'move'
-        event.dataTransfer.setData('text/plain', props.row.playerId ?? '')
-        props.onDragStart?.()
-      }}
-      onDragEnd={() => props.onDragEnd?.()}
-      onDragOver={(event) => {
-        if (!props.allowDrop) return
-        event.preventDefault()
-        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
-        props.onDragEnter?.()
-      }}
-      onDragLeave={(event) => {
-        if (event.currentTarget.contains(event.relatedTarget as Node)) return
-        props.onDragLeave?.()
-      }}
-      onDrop={(event) => {
-        if (!props.allowDrop) return
-        event.preventDefault()
-        props.onDrop?.()
-      }}
-    >
-      <Show
-        when={!props.row.empty && props.row.avatarUrl}
-        fallback={<div class="i-ph-user-bold text-sm text-text-muted" />}
-      >
-        {avatar => (
-          <img
-            src={avatar()}
-            alt={props.row.name}
-            draggable={false}
-            class="rounded-full h-5 w-5 pointer-events-none object-cover"
-          />
-        )}
-      </Show>
-
-      <span class="text-sm flex-1 truncate">{props.row.name}</span>
-
-      <Show when={props.showJoin && !props.pending}>
-        <button
-          class="text-text-secondary rounded-sm opacity-0 flex h-5 w-5 transition-opacity items-center justify-center hover:text-text-primary hover:bg-white/8 group-hover:opacity-100"
-          onClick={(event) => {
-            event.stopPropagation()
-            props.onJoin?.()
-          }}
-        >
-          <span class="i-ph-plus-bold text-xs" />
-        </button>
-      </Show>
-
-      <Show when={props.showRemove && !props.pending}>
-        <button
-          class="text-text-secondary rounded-sm opacity-0 flex h-5 w-5 transition-opacity items-center justify-center hover:text-accent-red hover:bg-white/8 group-hover:opacity-100"
-          onClick={(event) => {
-            event.stopPropagation()
-            props.onRemove?.()
-          }}
-        >
-          <span class="i-ph-x-bold text-xs" />
-        </button>
-      </Show>
-
-      <Show when={!props.showJoin && !props.showRemove && props.row.isHost}>
-        <span class="text-[10px] text-accent-gold tracking-wider font-bold uppercase">Host</span>
-      </Show>
-    </div>
-  )
-}
-
-function ReadonlyTimerRow(props: { label: string, value: string }) {
-  return (
-    <div class="text-sm px-3 py-2 rounded-md bg-bg-primary/35 flex items-center justify-between">
-      <span class="text-text-secondary">{props.label}</span>
-      <span class="text-text-primary font-medium">{props.value}</span>
-    </div>
-  )
-}
-
-function getTimerConfigFromDraft(state: typeof draftStore.state): { banTimerSeconds: number | null, pickTimerSeconds: number | null } {
-  if (!state) return { banTimerSeconds: null, pickTimerSeconds: null }
-
-  const banTimer = state.steps.find(step => step.action === 'ban')?.timer ?? null
-  const pickTimer = state.steps.find(step => step.action === 'pick')?.timer ?? null
-  return {
-    banTimerSeconds: banTimer,
-    pickTimerSeconds: pickTimer,
-  }
-}
-
-function timerSecondsToMinutesInput(timerSeconds: number | null): string {
-  if (timerSeconds == null) return ''
-  return String(Math.round(timerSeconds / 60))
-}
-
-function timerSecondsToMinutesPlaceholder(timerSeconds: number | null): string {
-  if (timerSeconds == null) return ''
-  return String(Math.round(timerSeconds / 60))
-}
-
-function parseTimerMinutesInput(value: string): number | null | undefined {
-  const trimmed = value.trim()
-  if (!trimmed) return null
-
-  const numeric = Number(trimmed)
-  if (!Number.isFinite(numeric) || !Number.isInteger(numeric)) return undefined
-  if (numeric < 0 || numeric > MAX_TIMER_MINUTES) return undefined
-  return numeric
-}
-
-function normalizeTimerMinutesInput(value: string): string {
-  const trimmed = value.trim()
-  if (!trimmed) return ''
-
-  const numeric = Number(trimmed)
-  if (!Number.isFinite(numeric)) return value
-
-  const bounded = Math.min(MAX_TIMER_MINUTES, Math.max(0, Math.round(numeric)))
-  return String(bounded)
-}
-
-function formatTimerValue(timerSeconds: number | null, defaultTimerSeconds: number | null = null): string {
-  if (timerSeconds == null && defaultTimerSeconds != null) {
-    if (defaultTimerSeconds === 0) return 'Unlimited'
-    const defaultMinutes = Math.round(defaultTimerSeconds / 60)
-    if (defaultMinutes === 1) return '1 minute'
-    return `${defaultMinutes} minutes`
-  }
-
-  if (timerSeconds == null) return 'Server default'
-  if (timerSeconds === 0) return 'Unlimited'
-  const minutes = Math.round(timerSeconds / 60)
-  if (minutes === 1) return '1 minute'
-  return `${minutes} minutes`
-}
-
-function normalizeLobbyMode(value: string | undefined): LobbyModeValue {
-  if (value === '1v1' || value === '2v2' || value === '3v3' || value === 'ffa') return value
-  return 'ffa'
-}
-
-function inferModeFromFormatId(value: string | undefined): LobbyModeValue {
-  if (!value) return 'ffa'
-
-  const normalized = value.trim().toLowerCase()
-  if (normalized === '1v1' || normalized.endsWith('-1v1')) return '1v1'
-  if (normalized === '2v2' || normalized.endsWith('-2v2')) return '2v2'
-  if (normalized === '3v3' || normalized.endsWith('-3v3')) return '3v3'
-  if (normalized === 'ffa' || normalized.endsWith('-ffa')) return 'ffa'
-  return 'ffa'
 }
