@@ -52,7 +52,6 @@ import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, moveQueueEnt
 import { markRankedRolesDirty } from './services/ranked-role-sync.ts'
 import {
   buildRankedRoleVisuals,
-  fallbackRoleLabel,
   fetchGuildMemberRoleIds,
   getRankedRoleConfig,
   getRankedRoleGateError,
@@ -1858,7 +1857,7 @@ async function validatePlayerAgainstLobbyMinRole(
 
   const roleIds = await fetchGuildMemberRoleIds(token, lobby.guildId, playerId)
   if (memberMeetsRankedRoleGate(roleIds, lobby.minRole, config)) return null
-  return `This lobby requires at least ${minRoleVisual?.label ?? fallbackRoleLabel(lobby.minRole)}.`
+  return `This lobby requires at least ${minRoleVisual?.label ?? 'that ranked role'}.`
 }
 
 async function validateLobbyMembersAgainstMinRole(
@@ -1887,7 +1886,7 @@ async function validateLobbyMembersAgainstMinRole(
   const minRoleVisual = getRankedRoleVisualForTier(visuals, minRole)
   if (!minRoleVisual) {
     return {
-      error: `Minimum rank ${fallbackRoleLabel(minRole)} is not configured yet. Ask an admin to run /admin ranked roles.`,
+      error: 'This minimum ranked role is not configured yet. Ask an admin to run /admin ranked roles.',
       errorCode: 'MIN_ROLE_NOT_CONFIGURED',
     }
   }

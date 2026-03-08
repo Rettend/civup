@@ -58,14 +58,6 @@ const EMPTY_RANKED_ROLE_CONFIG: RankedRoleConfig = {
   },
 }
 
-const DEFAULT_COMPETITIVE_TIER_LABELS: Record<CompetitiveTier, string> = {
-  pleb: 'Pleb',
-  squire: 'Squire',
-  gladiator: 'Gladiator',
-  legion: 'Legion',
-  champion: 'Champion',
-}
-
 export async function getRankedRoleConfig(kv: KVNamespace, guildId: string): Promise<RankedRoleConfig> {
   const stored = await kv.get(configKey(guildId), 'json') as StoredRankedRoleConfig | null
   return normalizeRankedRoleConfig(stored)
@@ -140,25 +132,26 @@ export async function resolveMemberCurrentCompetitiveTier(
 export function getRankedRoleGateError(config: RankedRoleConfig, minRole: CompetitiveTier): string | null {
   return getConfiguredRankedRoleId(config, minRole)
     ? null
-    : `Minimum rank ${fallbackRoleLabel(minRole)} is not configured yet. Ask an admin to run /admin ranked roles.`
+    : 'This minimum ranked role is not configured yet. Ask an admin to run /admin ranked roles.'
 }
 
 export function buildRankedRoleVisuals(
   config: RankedRoleConfig,
   displayByRoleId?: Map<string, RankedRoleDisplaySource>,
 ): RankedRoleVisual[] {
-  return RANKED_TIERS_BY_PRESTIGE.map((tier, index) => {
+  return RANKED_TIERS_BY_PRESTIGE.flatMap((tier, index) => {
     const roleId = getConfiguredRankedRoleId(config, tier)
+    if (!roleId) return []
     const display = roleId ? displayByRoleId?.get(roleId) : undefined
     const storedMeta = config.currentRoleMeta[tier]
 
-    return {
+    return [{
       tier,
       rank: index + 1,
       roleId,
-      label: display?.name ?? storedMeta.label ?? fallbackRoleLabel(tier),
+      label: display?.name ?? storedMeta.label ?? roleId,
       color: display?.color ?? storedMeta.color ?? null,
-    }
+    }]
   })
 }
 
@@ -180,17 +173,13 @@ export async function resolveRankedRoleVisuals(
   return buildRankedRoleVisuals(config, displayByRoleId)
 }
 
-export function fallbackRoleLabel(tier: CompetitiveTier): string {
-  const rank = rankedRoleNumber(tier)
-  return `Role ${rank}`
+export function formatRankedRoleSlotLabel(tier: CompetitiveTier): string {
+  return `Role ${rankedRoleNumber(tier)}`
 }
 
-export function formatCompetitiveTierLabel(tier: CompetitiveTier): string {
-  return DEFAULT_COMPETITIVE_TIER_LABELS[tier]
-}
-
-export function getRankedTierLabel(config: RankedRoleConfig, tier: CompetitiveTier): string {
-  return config.currentRoleMeta[tier].label ?? formatCompetitiveTierLabel(tier)
+export function getConfiguredRankedRoleLabel(config: RankedRoleConfig, tier: CompetitiveTier): string | null {
+  const label = config.currentRoleMeta[tier].label?.trim()
+  return label && label.length > 0 ? label : formatRankedRoleSlotLabel(tier)
 }
 
 export function rankedRoleNumber(tier: CompetitiveTier): number {

@@ -1,9 +1,9 @@
-import { matches, playerRatings, players, seasonPeakRanks } from '@civup/db'
+import { matches, playerRatings, players, seasonPeakModeRanks, seasonPeakRanks } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { createDraftMatch } from '../../src/services/match.ts'
 import { syncRankedRoles } from '../../src/services/ranked-role-sync.ts'
-import { endSeason, getActiveSeason, startSeason, syncSeasonPeakRanks } from '../../src/services/seasons.ts'
+import { endSeason, getActiveSeason, startSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks } from '../../src/services/seasons.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
@@ -88,6 +88,49 @@ describe('season services', () => {
 
     expect(peak?.tier).toBe('squire')
     expect(peak?.sourceMode).toBe('ffa')
+    expect(peak?.achievedAt).toBe(NOW + 2)
+
+    sqlite.close()
+  })
+
+  test('syncSeasonPeakModeRanks keeps the best per-mode tier and rating in a season', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const season = await startSeason(db, { name: 'Spring', now: NOW })
+    await seedPlayerIdentity(db, PLAYER_ID)
+
+    const first = await syncSeasonPeakModeRanks(db, {
+      seasonId: season.id,
+      candidates: [{ playerId: PLAYER_ID, mode: 'ffa', tier: null, rating: 612 }],
+      activeModesByPlayerId: new Map([[PLAYER_ID, new Set(['ffa'])]]),
+      now: NOW + 1,
+    })
+    expect(first.inserted).toBe(1)
+
+    const second = await syncSeasonPeakModeRanks(db, {
+      seasonId: season.id,
+      candidates: [{ playerId: PLAYER_ID, mode: 'ffa', tier: 'pleb', rating: 637 }],
+      activeModesByPlayerId: new Map([[PLAYER_ID, new Set(['ffa'])]]),
+      now: NOW + 2,
+    })
+    expect(second.updated).toBe(1)
+
+    const third = await syncSeasonPeakModeRanks(db, {
+      seasonId: season.id,
+      candidates: [{ playerId: PLAYER_ID, mode: 'ffa', tier: 'pleb', rating: 630 }],
+      activeModesByPlayerId: new Map([[PLAYER_ID, new Set(['ffa'])]]),
+      now: NOW + 3,
+    })
+    expect(third.skipped).toBe(1)
+
+    const [peak] = await db
+      .select()
+      .from(seasonPeakModeRanks)
+      .where(eq(seasonPeakModeRanks.playerId, PLAYER_ID))
+      .limit(1)
+
+    expect(peak?.mode).toBe('ffa')
+    expect(peak?.tier).toBe('pleb')
+    expect(peak?.rating).toBe(637)
     expect(peak?.achievedAt).toBe(NOW + 2)
 
     sqlite.close()

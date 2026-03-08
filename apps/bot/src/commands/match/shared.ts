@@ -7,7 +7,7 @@ import { buildDiscordAvatarUrl } from '@civup/utils'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby-render.ts'
 import { filterQueueEntriesForLobby, getLobbiesByMode, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby.ts'
 import { getPlayerQueueMode, getQueueState, MAX_QUEUE_ENTRIES, setQueueEntries } from '../../services/queue.ts'
-import { fallbackRoleLabel, fetchGuildMemberRoleIds, getRankedRoleConfig, memberMeetsRankedRoleGate } from '../../services/ranked-roles.ts'
+import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, memberMeetsRankedRoleGate } from '../../services/ranked-roles.ts'
 import { createStateStore } from '../../services/state-store.ts'
 
 export const GAME_MODE_CHOICES = [
@@ -344,7 +344,7 @@ async function getRoleGateErrorForLobby(
     rankedRoleConfigByGuildId.set(lobby.guildId, config)
   }
 
-  const gateLabel = fallbackRoleLabel(lobby.minRole)
+  const gateLabel = buildRankedRoleVisuals(config).find(option => option.tier === lobby.minRole)?.label ?? 'that ranked role'
 
   for (const entry of requestedEntries) {
     if (lobby.memberPlayerIds.includes(entry.playerId)) continue
