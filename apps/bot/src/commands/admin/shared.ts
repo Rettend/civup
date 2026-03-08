@@ -1,11 +1,11 @@
 import type { EphemeralResponseTone } from '../../embeds/response'
-import type { SystemChannelType } from '../../services/system-channels'
+import type { SystemChannelType } from '../../services/system/channels.ts'
 import type { AdminVar, InteractionResolvedRoles } from './types.ts'
 import { ephemeralResponseEmbed } from '../../embeds/response.ts'
 import {
   sendEphemeralResponse as sendRawEphemeralResponse,
   sendTransientEphemeralResponse as sendRawTransientEphemeralResponse,
-} from '../../services/ephemeral-response.ts'
+} from '../../services/response/ephemeral.ts'
 
 export function getInteractionUserId(c: {
   interaction: {

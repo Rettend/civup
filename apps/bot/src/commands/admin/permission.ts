@@ -1,5 +1,5 @@
 import type { AdminCommandContext } from './types.ts'
-import { addModRole, getModRoleIds, removeModRole } from '../../services/permissions.ts'
+import { addModRole, getModRoleIds, removeModRole } from '../../services/permissions/index.ts'
 import { sendTransientEphemeralResponse } from './shared.ts'
 
 export function handlePermissionList(c: AdminCommandContext) {

@@ -1,5 +1,5 @@
 import type { LobbyState } from './types.ts'
-import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../discord.ts'
+import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
 import { setLobbyMessage } from './mutations.ts'
 
 interface LobbyRenderPayload {
