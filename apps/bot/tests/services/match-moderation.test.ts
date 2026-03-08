@@ -2,7 +2,7 @@ import { matches, matchParticipants, playerRatings, players } from '@civup/db'
 import { buildLeaderboard } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
-import { cancelMatchByModerator, reportMatch, resolveMatchByModerator } from '../../src/services/match.ts'
+import { cancelMatchByModerator, reportMatch, resolveMatchByModerator } from '../../src/services/match/index.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('match moderation recalculation', () => {

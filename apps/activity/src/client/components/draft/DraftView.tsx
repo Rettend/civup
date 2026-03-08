@@ -20,6 +20,7 @@ import { SlotStrip } from './SlotStrip'
 interface DraftViewProps {
   matchId: string
   autoStart?: boolean
+  onSwitchTarget?: () => void
 }
 
 /** Main draft layout */
@@ -85,11 +86,13 @@ export function DraftView(props: DraftViewProps) {
         >
           <Show
             when={isActiveOrComplete()}
-            fallback={showAutoStartSplash() ? <AutoStartingDraftScreen /> : <ConfigScreen />}
+            fallback={showAutoStartSplash()
+              ? <AutoStartingDraftScreen />
+              : <ConfigScreen onSwitchTarget={props.onSwitchTarget} />}
           >
             {/* Active + Complete draft view */}
             <div class="text-text-primary font-sans bg-bg-primary flex flex-col h-screen relative overflow-hidden">
-              <DraftHeader />
+              <DraftHeader onSwitchTarget={props.onSwitchTarget} />
               <DraftTimeline />
 
               {/* Main area */}
@@ -128,7 +131,7 @@ export function DraftView(props: DraftViewProps) {
 
                 {/* Post-draft message */}
                 <Show when={state()?.status === 'complete'}>
-                  <div class="flex inset-x-0 top-8 justify-center absolute z-5">
+                  <div class="flex inset-x-0 top-8 justify-center absolute z-50">
                     <div class="px-4 py-2 border border-white/5 rounded-lg bg-bg-secondary/80 flex flex-col gap-1 shadow-2xl shadow-black/50 items-center backdrop-blur-sm">
                       <span class="text-base text-accent-gold font-bold">You can close the activity!</span>
                       <span class="text-sm text-text-primary/80">Don't forget to report the result</span>

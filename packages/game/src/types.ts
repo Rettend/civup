@@ -6,65 +6,29 @@ export type GameMode = 'ffa' | '1v1' | '2v2' | '3v3'
 /** Leaderboard tracks (teamers combines 2v2 + 3v3) */
 export type LeaderboardMode = 'ffa' | 'duel' | 'teamers'
 
+/** Live competitive rank tiers used for role gates and ranked roles. */
+export type CompetitiveTier = 'pleb' | 'squire' | 'gladiator' | 'legion' | 'champion'
+
 export const GAME_MODES = ['ffa', '1v1', '2v2', '3v3'] as const satisfies readonly GameMode[]
 
 export const LEADERBOARD_MODES = ['ffa', 'duel', 'teamers'] as const satisfies readonly LeaderboardMode[]
 
-/** Map game mode to its leaderboard track */
-export function toLeaderboardMode(mode: GameMode): LeaderboardMode {
-  if (mode === '2v2' || mode === '3v3') return 'teamers'
-  if (mode === '1v1') return 'duel'
-  return 'ffa'
+export const COMPETITIVE_TIERS = ['pleb', 'squire', 'gladiator', 'legion', 'champion'] as const satisfies readonly CompetitiveTier[]
+
+/** Whether one competitive tier satisfies another tier's minimum gate. */
+export function competitiveTierMeetsMinimum(current: CompetitiveTier | null, minimum: CompetitiveTier | null): boolean {
+  if (minimum == null) return true
+  if (current == null) return false
+  return competitiveTierRank(current) >= competitiveTierRank(minimum)
 }
 
-/** Whether a game mode is team-based */
-export function isTeamMode(mode: GameMode): mode is '2v2' | '3v3' {
-  return mode === '2v2' || mode === '3v3'
-}
-
-/** Number of teams for team modes */
-export function teamCount(mode: GameMode): number {
-  if (mode === '1v1') return 2
-  if (mode === '2v2') return 2
-  if (mode === '3v3') return 2
-  return 0 // FFA has no teams
-}
-
-/** Players per team */
-export function playersPerTeam(mode: GameMode): number {
-  if (mode === '1v1') return 1
-  if (mode === '2v2') return 2
-  if (mode === '3v3') return 3
-  return 1 // FFA: each player is their own "team" for draft purposes
-}
-
-/** Default player count for a mode */
-export function defaultPlayerCount(mode: GameMode): number {
-  if (mode === 'ffa') return 8
-  if (mode === '1v1') return 2
-  if (mode === '2v2') return 4
-  if (mode === '3v3') return 6
-  return 8
-}
-
-/** Maximum player count allowed for a lobby mode */
-export function maxPlayerCount(mode: GameMode): number {
-  if (mode === 'ffa') return 10
-  return defaultPlayerCount(mode)
-}
-
-/** Minimum players required before a lobby can start */
-export function minPlayerCount(mode: GameMode): number {
-  if (mode === 'ffa') return 6
-  return defaultPlayerCount(mode)
-}
-
-/** Whether a lobby can start with the current player count */
-export function canStartWithPlayerCount(mode: GameMode, playerCount: number): boolean {
-  if (mode === 'ffa') {
-    return playerCount >= minPlayerCount(mode) && playerCount <= maxPlayerCount(mode)
-  }
-  return playerCount === defaultPlayerCount(mode)
+/** Numeric order for comparing competitive tier prestige. */
+export function competitiveTierRank(tier: CompetitiveTier): number {
+  if (tier === 'pleb') return 0
+  if (tier === 'squire') return 1
+  if (tier === 'gladiator') return 2
+  if (tier === 'legion') return 3
+  return 4
 }
 
 // ── Leaders ─────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import type { DraftSeat, DraftState } from '../src/types.ts'
 import { describe, expect, test } from 'bun:test'
-import { default1v1, default2v2, defaultFfa } from '../src/draft-formats.ts'
+import { default1v1, default2v2, default3v3, defaultFfa } from '../src/draft-formats.ts'
 import {
   createDraft,
   getBansForSeat,
@@ -31,6 +31,17 @@ function create2v2PlayerSeats(): DraftSeat[] {
     { playerId: 'b1', displayName: 'B1', team: 1 },
     { playerId: 'a2', displayName: 'A2', team: 0 },
     { playerId: 'b2', displayName: 'B2', team: 1 },
+  ]
+}
+
+function create3v3PlayerSeats(): DraftSeat[] {
+  return [
+    { playerId: 'a1', displayName: 'A1', team: 0 },
+    { playerId: 'b1', displayName: 'B1', team: 1 },
+    { playerId: 'a2', displayName: 'A2', team: 0 },
+    { playerId: 'b2', displayName: 'B2', team: 1 },
+    { playerId: 'a3', displayName: 'A3', team: 0 },
+    { playerId: 'b3', displayName: 'B3', team: 1 },
   ]
 }
 
@@ -390,6 +401,46 @@ describe('processDraftInput — PICK (sequential)', () => {
     expect(isDraftError(result)).toBe(true)
     if (!isDraftError(result)) return
     expect(result.error).toBe('Current step is not a pick phase')
+  })
+
+  test('full 2v2 rosters pick one civ per player in snake order', () => {
+    let state = startDraft(createDraft('match-123', default2v2, create2v2PlayerSeats(), createTestCivPool()))
+
+    let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
+    if (isDraftError(result)) throw new Error(result.error)
+    result = processDraftInput(result.state, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true)
+    if (isDraftError(result)) throw new Error(result.error)
+    state = result.state
+
+    expect(state.steps[state.currentStepIndex]!.seats).toEqual([0])
+
+    result = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' })
+    if (isDraftError(result)) throw new Error(result.error)
+    expect(result.state.steps[result.state.currentStepIndex]!.seats).toEqual([1])
+
+    result = processDraftInput(result.state, { type: 'PICK', seatIndex: 1, civId: 'civ-20' })
+    if (isDraftError(result)) throw new Error(result.error)
+    expect(result.state.steps[result.state.currentStepIndex]!.seats).toEqual([3])
+
+    result = processDraftInput(result.state, { type: 'PICK', seatIndex: 3, civId: 'civ-21' })
+    if (isDraftError(result)) throw new Error(result.error)
+    expect(result.state.steps[result.state.currentStepIndex]!.seats).toEqual([2])
+
+    result = processDraftInput(result.state, { type: 'PICK', seatIndex: 2, civId: 'civ-11' })
+    if (isDraftError(result)) throw new Error(result.error)
+
+    expect(result.state.status).toBe('complete')
+    expect(result.state.picks).toEqual([
+      { civId: 'civ-10', seatIndex: 0, stepIndex: 1 },
+      { civId: 'civ-20', seatIndex: 1, stepIndex: 2 },
+      { civId: 'civ-21', seatIndex: 3, stepIndex: 3 },
+      { civId: 'civ-11', seatIndex: 2, stepIndex: 4 },
+    ])
+  })
+
+  test('full 3v3 rosters expand to individual pick steps', () => {
+    const draft = startDraft(createDraft('match-123', default3v3, create3v3PlayerSeats(), createTestCivPool()))
+    expect(draft.steps.slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4]])
   })
 })
 

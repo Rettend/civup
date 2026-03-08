@@ -1,31 +1,30 @@
 import type { GameMode } from '@civup/game'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { formatModeLabel, maxPlayerCount } from '@civup/game'
+import { formatModeLabel } from '@civup/game'
 import { Button } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/match.ts'
-import { getMatchForUser, storeUserMatchMappings } from '../../services/activity.ts'
-import { clearDeferredEphemeralResponse, sendTransientEphemeralResponse } from '../../services/ephemeral-response.ts'
-import { upsertLobbyMessage } from '../../services/lobby-message.ts'
-import { clearLobby, getLobby, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby.ts'
-import { getQueueState, removeFromQueue } from '../../services/queue.ts'
-import { createStateStore } from '../../services/state-store.ts'
+import { getMatchForUser, storeUserActivityTarget, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity/index.ts'
+import { sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
+import { clearLobbyById, getLobbyById } from '../../services/lobby/index.ts'
+import { upsertLobbyMessage } from '../../services/lobby/message.ts'
+import { createStateStore } from '../../services/state/store.ts'
 import { factory } from '../../setup.ts'
 import { getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
 
 export const component_match_join = factory.component(
   new Button('match-join', 'Join', 'Primary'),
   async (c) => {
-    const mode = c.var.custom_id as GameMode | undefined
+    const [modeRaw, lobbyId] = (c.var.custom_id ?? '').split(':')
+    const mode = modeRaw as GameMode | undefined
     const kv = createStateStore(c.env)
     const identity = getIdentity(c)
-    if (!identity || !mode) {
+    if (!identity || !mode || !lobbyId) {
       return c.flags('EPHEMERAL').resDefer(async (c) => {
         await sendTransientEphemeralResponse(c, 'Something went wrong.', 'error')
       })
     }
 
-    const lobby = await getLobby(kv, mode)
+    const lobby = await getLobbyById(kv, lobbyId)
     if (!lobby) {
       let userMatchId = await getMatchForUser(kv, identity.userId)
       if (!userMatchId) {
@@ -45,6 +44,10 @@ export const component_match_join = factory.component(
       }
 
       if (userMatchId) {
+        const interactionChannelId = c.interaction.channel_id ?? null
+        if (interactionChannelId) {
+          await storeUserActivityTarget(kv, interactionChannelId, [identity.userId], { kind: 'match', id: userMatchId })
+        }
         c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], userMatchId))
         return c.resActivity()
       }
@@ -55,24 +58,30 @@ export const component_match_join = factory.component(
 
     if (lobby.status !== 'open') {
       if (!lobby.matchId) {
-        await clearLobby(kv, mode)
+        await clearLobbyById(kv, lobby.id)
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           await sendTransientEphemeralResponse(c, 'This lobby was stale and has been cleared. Use `/match create` to start a fresh lobby.', 'error')
         })
       }
+      await storeUserActivityTarget(kv, lobby.channelId, [identity.userId], { kind: 'match', id: lobby.matchId })
       c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], lobby.matchId))
       return c.resActivity()
     }
+
+    await storeUserActivityTarget(kv, lobby.channelId, [identity.userId], { kind: 'lobby', id: lobby.id })
+    c.executionCtx.waitUntil(storeUserLobbyMappings(kv, [identity.userId], lobby.id))
 
     // Keep component response fast so Discord doesn't time out launch-activity interactions.
     c.executionCtx.waitUntil((async () => {
       const outcome = await joinLobbyAndMaybeStartMatch(
         c,
         mode,
-        identity.userId,
-        identity.displayName,
-        identity.avatarUrl,
-        lobby.channelId,
+        [{
+          playerId: identity.userId,
+          displayName: identity.displayName,
+          avatarUrl: identity.avatarUrl,
+        }],
+        { preferredLobbyId: lobby.id },
       )
       if ('error' in outcome) {
         console.warn('[match-join] join failed after activity launch', {
@@ -84,7 +93,7 @@ export const component_match_join = factory.component(
       }
 
       try {
-        await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
+        await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, outcome.lobby, {
           embeds: outcome.embeds,
           components: outcome.components,
         })
@@ -101,47 +110,4 @@ export const component_match_join = factory.component(
 export const component_draft_activity = factory.component(
   new Button('draft-activity', 'Open Draft Activity', 'Primary'),
   c => c.resActivity(),
-)
-
-export const component_match_leave = factory.component(
-  new Button('match-leave', 'Leave Queue', 'Secondary'),
-  (c) => {
-    const identity = getIdentity(c)
-    if (!identity) {
-      return c.flags('EPHEMERAL').resDefer(async (c) => {
-        await sendTransientEphemeralResponse(c, 'Something went wrong.', 'error')
-      })
-    }
-
-    return c.flags('EPHEMERAL').resDefer(async (c) => {
-      const kv = createStateStore(c.env)
-      const removed = await removeFromQueue(kv, identity.userId)
-
-      if (!removed) {
-        await sendTransientEphemeralResponse(c, 'You are not in any queue.', 'error')
-        return
-      }
-
-      const lobby = await getLobby(kv, removed)
-      if (lobby?.status === 'open') {
-        const queue = await getQueueState(kv, removed)
-        const slots = normalizeLobbySlots(removed, lobby.slots, queue.entries)
-        const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
-        if (!sameLobbySlots(slots, lobby.slots)) {
-          await setLobbySlots(kv, removed, slots)
-        }
-        try {
-          await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-            embeds: [lobbyOpenEmbed(removed, slottedEntries, maxPlayerCount(removed))],
-            components: lobbyComponents(removed),
-          })
-        }
-        catch (error) {
-          console.error('Failed to update lobby message after leave button:', error)
-        }
-      }
-
-      await clearDeferredEphemeralResponse(c)
-    })
-  },
 )
