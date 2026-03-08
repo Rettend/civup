@@ -7,6 +7,7 @@ import { displayRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, desc, eq } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
+import { getDisplaySeason } from '../services/season/index.ts'
 
 export type StatsModeFilter = 'all' | GameMode
 
@@ -25,6 +26,7 @@ export async function playerCardEmbed(
     .limit(1)
 
   const displayName = player?.displayName ?? `<@${playerId}>`
+  const displaySeason = await getDisplaySeason(db)
 
   const ratings = await db
     .select()
@@ -62,7 +64,7 @@ export async function playerCardEmbed(
     })
   }
 
-  const completedMatchesWhere = buildCompletedMatchesWhereClause(playerId, modeFilter)
+  const completedMatchesWhere = buildCompletedMatchesWhereClause(playerId, modeFilter, displaySeason?.id ?? null)
 
   const leaderRows = await db
     .select({
@@ -151,19 +153,15 @@ function getRatingModes(modeFilter: StatsModeFilter): readonly LeaderboardMode[]
   return [toLeaderboardMode(modeFilter)]
 }
 
-function buildCompletedMatchesWhereClause(playerId: string, modeFilter: StatsModeFilter) {
-  if (modeFilter === 'all') {
-    return and(
-      eq(matchParticipants.playerId, playerId),
-      eq(matches.status, 'completed'),
-    )
-  }
-
-  return and(
+function buildCompletedMatchesWhereClause(playerId: string, modeFilter: StatsModeFilter, seasonId: string | null) {
+  const conditions = [
     eq(matchParticipants.playerId, playerId),
     eq(matches.status, 'completed'),
-    eq(matches.gameMode, modeFilter),
-  )
+  ]
+
+  if (seasonId) conditions.push(eq(matches.seasonId, seasonId))
+  if (modeFilter !== 'all') conditions.push(eq(matches.gameMode, modeFilter))
+  return and(...conditions)
 }
 
 function summarizeLeaderStats(rows: Array<{ civId: string | null, placement: number | null }>) {

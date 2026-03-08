@@ -1,6 +1,6 @@
 import { playerRatings, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { getCurrentRankAssignments, getRankedRoleDemotionCandidates, listRankedRoleConfigGuildIds, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
+import { getCurrentRankAssignments, getRankedRoleDemotionCandidates, listRankedRoleConfigGuildIds, markRankedRolesDirty, previewRankedRoles, resetCurrentRankedRoleState, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
@@ -182,6 +182,54 @@ describe('ranked role sync service', () => {
     expect(messagePosts[0]).toContain('qualified for ranked at <@&22222222222222222>')
 
     sqlite.close()
+  })
+
+  test('season reset clears tracked assignments and reapplies the fallback pleb role', async () => {
+    const kv = createTestKv()
+    const heroId = playerIdFor('hero', 1)
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      pleb: '11111111111111111',
+      squire: '22222222222222222',
+      gladiator: '33333333333333333',
+      legion: '44444444444444444',
+      champion: '55555555555555555',
+    })
+    await seedPreviousAssignment(kv, 'guild-1', heroId, { tier: 'squire', sourceMode: 'ffa' })
+
+    const patchCalls: Array<{ userId: string, roles: string[] }> = []
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input)
+      if (init?.method === 'GET' && url.includes('/members/')) {
+        return new Response(JSON.stringify({ roles: ['legacy-role', '22222222222222222'] }), { status: 200 })
+      }
+      if (init?.method === 'PATCH' && url.includes('/members/')) {
+        const userId = url.split('/').pop() ?? ''
+        const payload = JSON.parse(String(init.body)) as { roles: string[] }
+        patchCalls.push({ userId, roles: payload.roles })
+        return new Response('{}', { status: 200 })
+      }
+
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+
+    const result = await resetCurrentRankedRoleState({
+      kv,
+      guildId: 'guild-1',
+      token: 'token',
+    })
+
+    expect(result.clearedAssignments).toBe(1)
+    expect(result.appliedDiscordChanges).toBe(1)
+    expect(patchCalls[0]?.userId).toBe(heroId)
+    expect(patchCalls[0]?.roles).toContain('11111111111111111')
+    expect(patchCalls[0]?.roles).not.toContain('22222222222222222')
+
+    const assignments = await getCurrentRankAssignments(kv, 'guild-1')
+    expect(assignments.byPlayerId[heroId]).toBeUndefined()
+
+    const candidates = await getRankedRoleDemotionCandidates(kv, 'guild-1')
+    expect(candidates.byPlayerId[heroId]).toBeUndefined()
   })
 
   test('lists configured guilds and stores ranked dirty state', async () => {
