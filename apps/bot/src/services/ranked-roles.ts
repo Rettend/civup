@@ -58,6 +58,14 @@ const EMPTY_RANKED_ROLE_CONFIG: RankedRoleConfig = {
   },
 }
 
+const DEFAULT_COMPETITIVE_TIER_LABELS: Record<CompetitiveTier, string> = {
+  pleb: 'Pleb',
+  squire: 'Squire',
+  gladiator: 'Gladiator',
+  legion: 'Legion',
+  champion: 'Champion',
+}
+
 export async function getRankedRoleConfig(kv: KVNamespace, guildId: string): Promise<RankedRoleConfig> {
   const stored = await kv.get(configKey(guildId), 'json') as StoredRankedRoleConfig | null
   return normalizeRankedRoleConfig(stored)
@@ -175,6 +183,14 @@ export async function resolveRankedRoleVisuals(
 export function fallbackRoleLabel(tier: CompetitiveTier): string {
   const rank = rankedRoleNumber(tier)
   return `Role ${rank}`
+}
+
+export function formatCompetitiveTierLabel(tier: CompetitiveTier): string {
+  return DEFAULT_COMPETITIVE_TIER_LABELS[tier]
+}
+
+export function getRankedTierLabel(config: RankedRoleConfig, tier: CompetitiveTier): string {
+  return config.currentRoleMeta[tier].label ?? formatCompetitiveTierLabel(tier)
 }
 
 export function rankedRoleNumber(tier: CompetitiveTier): number {
