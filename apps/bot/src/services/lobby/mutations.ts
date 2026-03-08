@@ -1,7 +1,7 @@
 import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { LobbyDraftConfig, LobbyState, LobbyStatus } from './types.ts'
-import { createEmptySlots, DEFAULT_DRAFT_CONFIG, normalizeCompetitiveTier, normalizeDraftConfig, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from './normalize.ts'
 import { nanoid } from 'nanoid'
+import { createEmptySlots, DEFAULT_DRAFT_CONFIG, normalizeCompetitiveTier, normalizeDraftConfig, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from './normalize.ts'
 import { getLobbyById, putLobby } from './store.ts'
 
 const LOBBY_STATUS_TRANSITIONS: Record<LobbyStatus, LobbyStatus[]> = {

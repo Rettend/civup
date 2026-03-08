@@ -3,8 +3,8 @@ import { Command, Option } from 'discord-hono'
 import { rankEmbed } from '../embeds/rank.ts'
 import { syncPlayerProfileFromDiscord } from '../services/player/profile.ts'
 import { getPlayerRankProfile } from '../services/player/rank.ts'
-import { listPlayerSeasonSnapshotHistory } from '../services/season/snapshot-roles.ts'
 import { getActiveSeason } from '../services/season/index.ts'
+import { listPlayerSeasonSnapshotHistory } from '../services/season/snapshot-roles.ts'
 import { factory } from '../setup.ts'
 
 interface Var {

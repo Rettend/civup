@@ -1,19 +1,19 @@
 /* eslint-disable no-console */
 /**
-  # set once
+   # set once
   set CLOUDFLARE_API_TOKEN=...
   set CLOUDFLARE_ACCOUNT_ID=...
- 
+
   # baseline
   bun run cf:usage:snapshot -- --from 2026-02-15T00:00:00.000Z --output .tmp/cf-before.json
- 
+
   # play one full 1v1 flow in prod (create -> join -> start -> draft -> report)
- 
+
   # after
   bun run cf:usage:snapshot -- --from 2026-02-15T00:00:00.000Z --output .tmp/cf-after.json
- 
+
   # delta
-  bun run cf:usage:diff -- --before .tmp/cf-before.json --after .tmp/cf-after.json
+ bun run cf:usage:diff -- --before .tmp/cf-before.json --after .tmp/cf-after.json
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'

@@ -6,7 +6,6 @@ import {
   leaderboardModesToGameModes,
   maxTeammatesForMode,
   parseGameMode,
-  parseLeaderboardMode,
   slotToTeamIndex,
   teamSize,
   toLeaderboardMode,
