@@ -1,0 +1,35 @@
+import type { CompetitiveTier, GameMode } from '@civup/game'
+
+export type LobbyStatus = 'open' | 'drafting' | 'active' | 'completed' | 'cancelled' | 'scrubbed'
+
+export interface LobbyDraftConfig {
+  banTimerSeconds: number | null
+  pickTimerSeconds: number | null
+}
+
+export interface LobbyState {
+  id: string
+  mode: GameMode
+  status: LobbyStatus
+  guildId: string | null
+  hostId: string
+  channelId: string
+  messageId: string
+  matchId: string | null
+  minRole: CompetitiveTier | null
+  /** Player IDs currently attached to this lobby (slotted or spectator). */
+  memberPlayerIds: string[]
+  /** Slot player IDs for open lobby ordering (null = empty slot) */
+  slots: (string | null)[]
+  draftConfig: LobbyDraftConfig
+  createdAt: number
+  updatedAt: number
+  revision: number
+}
+
+export interface StoredLobbyState extends Omit<LobbyState, 'draftConfig' | 'slots' | 'revision' | 'memberPlayerIds'> {
+  draftConfig?: Partial<LobbyDraftConfig> | null
+  slots?: unknown
+  revision?: unknown
+  memberPlayerIds?: unknown
+}

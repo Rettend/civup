@@ -1,8 +1,8 @@
 import type { QueueEntry } from '@civup/game'
-import type { LobbyState } from './lobby.ts'
+import type { LobbyState } from './types.ts'
 import { maxPlayerCount } from '@civup/game'
-import { lobbyComponents, lobbyOpenEmbed } from '../embeds/match.ts'
-import { getConfiguredRankedRoleId, getRankedRoleConfig } from './ranked-roles.ts'
+import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/match.ts'
+import { getConfiguredRankedRoleId, getRankedRoleConfig } from '../ranked/roles.ts'
 
 export async function buildOpenLobbyRenderPayload(
   kv: KVNamespace,

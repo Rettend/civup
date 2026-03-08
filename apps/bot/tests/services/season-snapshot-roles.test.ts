@@ -1,6 +1,6 @@
 import { matchParticipants, matches, players, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { ensureSeasonSnapshotRoles, finalizeSeasonSnapshotRoles, getSeasonSnapshotRoleMappings, listPlayerSeasonSnapshotHistory } from '../../src/services/season-snapshot-roles.ts'
+import { ensureSeasonSnapshotRoles, finalizeSeasonSnapshotRoles, getSeasonSnapshotRoleMappings, listPlayerSeasonSnapshotHistory } from '../../src/services/season/snapshot-roles.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000

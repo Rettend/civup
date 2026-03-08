@@ -1,6 +1,6 @@
 import type { QueueEntry } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
-import { arePremadeGroupsAdjacent, buildActivePremadeEdgeSet, buildSlottedPremadeGroups, compactSlottedPremadesForMode, moveSlottedPremadeGroup, rebuildQueueEntriesFromPremadeEdgeSet } from '../../src/services/lobby-premades.ts'
+import { arePremadeGroupsAdjacent, buildActivePremadeEdgeSet, buildSlottedPremadeGroups, compactSlottedPremadesForMode, moveSlottedPremadeGroup, rebuildQueueEntriesFromPremadeEdgeSet } from '../../src/services/lobby/premades.ts'
 
 describe('lobby premade helpers', () => {
   test('buildActivePremadeEdgeSet keeps adjacent chain links for a trio', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { getMatchIdForMessage, storeMatchMessageMapping } from '../../src/services/match-message.ts'
+import { getMatchIdForMessage, storeMatchMessageMapping } from '../../src/services/match/message.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
 

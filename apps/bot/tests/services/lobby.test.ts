@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createLobby, getLobbyByChannel, getLobbyById, setLobbyMinRole, setLobbySlots, setLobbyStatus } from '../../src/services/lobby.ts'
+import { createLobby, getLobbyByChannel, getLobbyById, setLobbyMinRole, setLobbySlots, setLobbyStatus } from '../../src/services/lobby/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 describe('lobby service KV write behavior', () => {

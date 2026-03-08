@@ -1,9 +1,9 @@
 import { createDb } from '@civup/db'
 import { getQueueTimeoutMs } from '../services/config.ts'
 import { refreshDirtyLeaderboards } from '../services/leaderboard-message.ts'
-import { pruneAbandonedMatches } from '../services/match.ts'
+import { pruneAbandonedMatches } from '../services/match/index.ts'
 import { pruneStaleEntries } from '../services/queue.ts'
-import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, syncRankedRoles } from '../services/ranked-role-sync.ts'
+import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, syncRankedRoles } from '../services/ranked/role-sync.ts'
 import { createStateStore } from '../services/state-store.ts'
 import { factory } from '../setup.ts'
 

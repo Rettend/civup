@@ -5,9 +5,9 @@ import { matchBans, matches, matchParticipants, playerRatings, players } from '@
 import { isTeamMode, leaderboardModesToGameModes, parseGameMode, toLeaderboardMode } from '@civup/game'
 import { calculateRatings, createRating, displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'
 import { and, asc, eq, inArray, isNull, lt, or } from 'drizzle-orm'
-import { clearActivityMappings, getChannelForMatch } from './activity.ts'
-import { clearLobbyByMatch } from './lobby.ts'
-import { getActiveSeason } from './seasons.ts'
+import { clearActivityMappings, getChannelForMatch } from '../activity.ts'
+import { clearLobbyByMatch } from '../lobby/index.ts'
+import { getActiveSeason } from '../season/index.ts'
 
 // ── Types ───────────────────────────────────────────────────
 
