@@ -58,7 +58,7 @@ export async function getPlayerRankProfile(
     } satisfies PlayerRankModeSummary]
   })) as Record<LeaderboardMode, PlayerRankModeSummary>
 
-  const overallTier = previewPlayer?.assignment.tier ?? null
+  const overallTier = previewPlayer?.assignment.tier ?? (config.currentRoles.pleb ? 'pleb' : null)
   return {
     overallTier,
     overallRoleId: overallTier ? config.currentRoles[overallTier] ?? null : null,

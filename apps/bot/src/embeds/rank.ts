@@ -24,18 +24,19 @@ export async function rankEmbed(
 
   const displayName = player?.displayName ?? `<@${playerId}>`
   const activeSeason = options.activeSeason
-  const currentSeasonName = activeSeason?.name ?? 'Current Rank'
 
   const pastSeasons = activeSeason
     ? options.seasonHistory.filter(entry => entry.seasonId !== activeSeason.id)
     : options.seasonHistory
 
   const fields: Array<{ name: string, value: string, inline?: boolean }> = []
-  pushSeasonFields(fields, currentSeasonName, {
-    ffa: rankProfile.modes.ffa.gamesPlayed > 0 ? rankProfile.modes.ffa : undefined,
-    duel: rankProfile.modes.duel.gamesPlayed > 0 ? rankProfile.modes.duel : undefined,
-    teamers: rankProfile.modes.teamers.gamesPlayed > 0 ? rankProfile.modes.teamers : undefined,
-  })
+  if (activeSeason) {
+    pushSeasonFields(fields, activeSeason.name, {
+      ffa: rankProfile.modes.ffa.gamesPlayed > 0 ? rankProfile.modes.ffa : undefined,
+      duel: rankProfile.modes.duel.gamesPlayed > 0 ? rankProfile.modes.duel : undefined,
+      teamers: rankProfile.modes.teamers.gamesPlayed > 0 ? rankProfile.modes.teamers : undefined,
+    }, { emptyValue: 'No ranked games yet.' })
+  }
 
   for (const season of pastSeasons) {
     pushSeasonFields(fields, season.seasonName, season.modes)
@@ -88,14 +89,23 @@ function pushSeasonFields(
   fields: Array<{ name: string, value: string, inline?: boolean }>,
   seasonName: string,
   modes: Partial<Record<LeaderboardMode, PlayerRankModeSummary | SeasonRankHistoryModeSummary | undefined>>,
-): void {
+  options: { emptyValue?: string } = {},
+): boolean {
   const visibleModes = LEADERBOARD_MODES
     .map(mode => ({ mode, summary: modes[mode] }))
     .filter((entry): entry is { mode: LeaderboardMode, summary: PlayerRankModeSummary | SeasonRankHistoryModeSummary } => {
       return !!entry.summary && entry.summary.gamesPlayed > 0
     })
 
-  if (visibleModes.length === 0) return
+  if (visibleModes.length === 0) {
+    if (!options.emptyValue) return false
+    fields.push({
+      name: seasonName,
+      value: options.emptyValue,
+      inline: false,
+    })
+    return true
+  }
 
   fields.push({
     name: seasonName,
@@ -110,4 +120,6 @@ function pushSeasonFields(
       inline: true,
     })
   }
+
+  return true
 }

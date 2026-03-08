@@ -196,6 +196,65 @@ export async function syncRankedRoles(options: RankedRoleSyncOptions): Promise<R
   }
 }
 
+export async function resetCurrentRankedRoleState(options: {
+  kv: KVNamespace
+  guildId: string
+  token?: string
+}): Promise<{ clearedAssignments: number, appliedDiscordChanges: number }> {
+  const previousAssignments = await getCurrentRankAssignments(options.kv, options.guildId)
+  const playerIds = Object.keys(previousAssignments.byPlayerId).filter(isDiscordSnowflake)
+
+  await setCurrentRankAssignments(options.kv, options.guildId, { byPlayerId: {} })
+  await setRankedRoleDemotionCandidates(options.kv, options.guildId, { byPlayerId: {} })
+
+  const token = options.token?.trim()
+  if (!token || playerIds.length === 0) {
+    return {
+      clearedAssignments: playerIds.length,
+      appliedDiscordChanges: 0,
+    }
+  }
+
+  const config = await getRankedRoleConfig(options.kv, options.guildId)
+  const rankedRoleIds = [...new Set(COMPETITIVE_TIERS
+    .map(tier => config.currentRoles[tier])
+    .filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0))]
+  const fallbackRoleId = config.currentRoles.pleb
+
+  let appliedDiscordChanges = 0
+  for (const playerId of playerIds) {
+    let roleIds: string[]
+    try {
+      roleIds = await fetchGuildMemberRoleIds(token, options.guildId, playerId)
+    }
+    catch (error) {
+      if (error instanceof DiscordApiError && error.status === 404) continue
+      throw error
+    }
+
+    const nextRoleIds = roleIds.filter(roleId => !rankedRoleIds.includes(roleId))
+    if (fallbackRoleId && !nextRoleIds.includes(fallbackRoleId)) nextRoleIds.push(fallbackRoleId)
+    nextRoleIds.sort((a, b) => a.localeCompare(b))
+
+    const currentSorted = [...roleIds].sort((a, b) => a.localeCompare(b))
+    if (sameStringArray(currentSorted, nextRoleIds)) continue
+
+    try {
+      await editGuildMemberRoles(token, options.guildId, playerId, nextRoleIds)
+      appliedDiscordChanges += 1
+    }
+    catch (error) {
+      if (error instanceof DiscordApiError && error.status === 404) continue
+      throw error
+    }
+  }
+
+  return {
+    clearedAssignments: playerIds.length,
+    appliedDiscordChanges,
+  }
+}
+
 export async function listRankedRoleConfigGuildIds(kv: KVNamespace): Promise<string[]> {
   const result = await kv.list({ prefix: RANKED_ROLE_CONFIG_KEY_PREFIX })
   const guildIds = result.keys
