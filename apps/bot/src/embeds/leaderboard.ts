@@ -5,6 +5,7 @@ import { formatLeaderboardModeLabel } from '@civup/game'
 import { buildLeaderboard } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { eq } from 'drizzle-orm'
+import { getActiveSeason } from '../services/season/index.ts'
 
 const MODE_COLORS: Record<LeaderboardMode, number> = {
   duel: 0xEF4444,
@@ -17,8 +18,19 @@ export async function leaderboardEmbed(
   mode: LeaderboardMode,
   options: {
     titlePrefix?: string
+    showOffseasonData?: boolean
   } = {},
 ): Promise<Embed> {
+  if (!options.titlePrefix && !options.showOffseasonData) {
+    const activeSeason = await getActiveSeason(db)
+    if (!activeSeason) {
+      return new Embed()
+        .title(formatLeaderboardTitle(mode, options.titlePrefix))
+        .description('No active season right now.')
+        .color(MODE_COLORS[mode])
+    }
+  }
+
   const rows = await db
     .select()
     .from(playerRatings)

@@ -121,12 +121,13 @@ describe('player rank views', () => {
     expect(JSON.stringify(stats.fields)).toContain('Rating: <@&22222222222222222> (740)')
 
     expect(rank.description).toContain('<@100010000000000099> - <@&22222222222222222>')
-    expect(JSON.stringify(rank.fields)).toContain('Season 2')
+    expect(rank.fields?.[0]?.name).toBe('S2')
+    expect(JSON.stringify(rank.fields)).toContain('S2')
     expect(JSON.stringify(rank.fields)).toContain('FFA')
     expect(JSON.stringify(rank.fields)).toContain('Duel')
     expect(JSON.stringify(rank.fields)).toContain('Rating: <@&11111111111111111> (637)')
     expect(JSON.stringify(rank.fields)).toContain('Rating: <@&22222222222222222> (740)')
-    expect(JSON.stringify(rank.fields)).toContain('Season 1')
+    expect(JSON.stringify(rank.fields)).toContain('S1')
     expect(JSON.stringify(rank.fields)).toContain('Rating: <@&61111111111111111> (631)')
     expect(JSON.stringify(rank.fields)).toContain('Rating: <@&64444444444444444> (711)')
     expect(JSON.stringify(rank.fields)).not.toContain('Teamers')
@@ -195,9 +196,10 @@ describe('player rank views', () => {
     expect(JSON.stringify(stats.fields)).not.toContain('Recent Matches')
     expect(JSON.stringify(stats.fields)).not.toContain('Top Leaders')
 
-    expect(JSON.stringify(rank.fields)).toContain('Season 2')
+    expect(rank.fields?.[0]?.name).toBe('S2')
+    expect(JSON.stringify(rank.fields)).toContain('S2')
     expect(JSON.stringify(rank.fields)).toContain('No ranked games yet.')
-    expect(JSON.stringify(rank.fields)).toContain('Season 1')
+    expect(JSON.stringify(rank.fields)).toContain('S1')
     expect(JSON.stringify(rank.fields)).toContain('Rating: <@&61111111111111111> (683)')
 
     sqlite.close()
