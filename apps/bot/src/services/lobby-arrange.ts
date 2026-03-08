@@ -1,5 +1,6 @@
 import type { GameMode, QueueEntry } from '@civup/game'
 import type { PlayerRating } from '@civup/rating'
+import { isTeamMode, teamSize } from '@civup/game'
 import { createRating, predictWinProbabilities } from '@civup/rating'
 
 export type TeamArrangeStrategy = 'randomize' | 'balance'
@@ -38,16 +39,19 @@ export interface ArrangeTeamLobbySlotsInput {
 export function arrangeTeamLobbySlots(
   input: ArrangeTeamLobbySlotsInput,
 ): { slots: (string | null)[] } | { error: string } {
-  if (input.mode !== '2v2' && input.mode !== '3v3') {
+  if (!isTeamMode(input.mode)) {
     return { error: 'Team arrange actions are only available in 2v2 and 3v3 lobbies.' }
   }
 
-  const teamSize = input.mode === '2v2' ? 2 : 3
+  const teamSlotCount = teamSize(input.mode)
+  if (!teamSlotCount) {
+    return { error: 'Team arrange actions are only available in 2v2 and 3v3 lobbies.' }
+  }
   const queueByPlayerId = new Map(input.queueEntries.map(entry => [entry.playerId, entry]))
   const slottedPlayerIds = input.slots.filter((playerId): playerId is string => playerId != null)
 
   if (slottedPlayerIds.length === 0) {
-    return { slots: Array.from({ length: teamSize * 2 }, () => null as string | null) }
+    return { slots: Array.from({ length: teamSlotCount * 2 }, () => null as string | null) }
   }
 
   const slotOrderByPlayerId = new Map<string, number>()
@@ -59,12 +63,12 @@ export function arrangeTeamLobbySlots(
 
   const groups = buildPremadeGroups(slottedPlayerIds, queueByPlayerId, slotOrderByPlayerId)
   for (const group of groups) {
-    if (group.size > teamSize) {
+    if (group.size > teamSlotCount) {
       return { error: 'One premade is larger than the lobby team size.' }
     }
   }
 
-  const assignments = enumerateAssignments(groups, teamSize)
+  const assignments = enumerateAssignments(groups, teamSlotCount)
   if (assignments.length === 0) {
     return { error: 'Could not find a valid team layout for the current premades.' }
   }
@@ -97,7 +101,7 @@ export function arrangeTeamLobbySlots(
     const { teamAIds, teamBIds } = assignmentToTeams(chosen.assignment, groups)
     const randomizedTeamA = randomizeTeamOrder(teamAIds, groups, random)
     const randomizedTeamB = randomizeTeamOrder(teamBIds, groups, random)
-    return { slots: buildTeamSlots(teamSize, randomizedTeamA, randomizedTeamB) }
+      return { slots: buildTeamSlots(teamSlotCount, randomizedTeamA, randomizedTeamB) }
   }
 
   const minScore = Math.min(...scoredCandidates.map(candidate => candidate.score))
@@ -108,7 +112,7 @@ export function arrangeTeamLobbySlots(
   if (!chosen) return { error: 'Could not auto-balance teams for this lobby.' }
 
   const { teamAIds, teamBIds } = assignmentToTeams(chosen.assignment, groups)
-  return { slots: buildTeamSlots(teamSize, teamAIds, teamBIds) }
+  return { slots: buildTeamSlots(teamSlotCount, teamAIds, teamBIds) }
 }
 
 function buildPremadeGroups(
