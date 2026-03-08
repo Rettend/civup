@@ -2,117 +2,156 @@
 
 Draft bot for Civ VI that uses Discord Activities
 
-<https://github.com/user-attachments/assets/e3ac25bf-27b1-4549-9a4d-3666560230d6>
+## Requirements
 
-## Deployment
+- Bun
+- Cloudflare account
+- Discord app created in the Discord Developer Portal
+- `cloudflared` locally for dev
 
-### One-time setup
+## Local setup
 
-1. Install deps: `bun install`
-2. Provision infra (only if D1/KV do not already exist):
+1. Install deps:
 
-```bash
-bun run bot:d1:create
-bun run bot:kv:create
-```
+    ```bash
+    bun install
+    ```
 
-1. Create production env files:
+2. Copy the dev env files:
 
-```bash
-cp apps/bot/.prod.secrets.example apps/bot/.prod.secrets
-cp apps/activity/.prod.secrets.example apps/activity/.prod.secrets
-cp apps/activity/.prod.vars.example apps/activity/.prod.vars
-```
+    ```bash
+    cp cloudflared.dev.example.yml cloudflared.dev.yml
+    cp apps/bot/.dev.vars.example apps/bot/.dev.vars
+    cp apps/activity/.dev.vars.example apps/activity/.dev.vars
+    cp apps/party/.dev.vars.example apps/party/.dev.vars
+    ```
 
-1. Fill in secrets/vars in those files.
-2. Upload Worker secrets:
+    and fill them in. glhf
 
-```bash
-bun run bot:secrets:prod
-bun run a:secrets:prod
-```
+3. Apply the local DB schema:
 
-### Discord Developer Portal Setup
+    ```bash
+    bun run bot:l:migrate
+    ```
 
-#### Interactions Endpoint URL
+4. Set up Cloudflare Tunnels
 
-Prod: <https://civup-bot.rettend.workers.dev>
-Dev: <https://bot-dev.rettend.me> (your cloudflared tunnel to local wrangler dev)
+    Update `cloudflared.dev.yml` with your domains and create tunnels, also update `apps/activity/vite.config.ts`.
 
-#### Activity URL Mapping (Embedded App)
+5. Set these in the Discord Developer Portal:
 
-Prod: <https://civup-activity.rettend.workers.dev>
-Dev: <https://activity-dev.rettend.me> (your cloudflared tunnel to local wrangler dev)
+    - Interactions Endpoint URL: your bot tunnel URL
+    - Activity URL Mapping: your activity tunnel URL
 
-### Production URLs and bindings
+6. Register bot commands in your guild:
 
-Production runtime URLs are configured in:
+    ```bash
+    bun run bot:register
+    ```
 
-- `apps/bot/wrangler.jsonc`
-- `apps/activity/wrangler.jsonc`
+7. Start the full local stack:
 
-Current defaults:
+    It runs these: 1. Bot, 2. Activity, 3. Partyserver, 4. Tunnels
 
-- `BOT_HOST=https://civup-bot.rettend.workers.dev`
-- `PARTY_HOST=https://party.rettend.me`
+    ```bash
+    bun run dev:new
+    ```
 
-If you switch to custom domains, update both Wrangler configs.
+    This will rebuild the activity app, use `bun run dev` to skip that.
 
-### Deploy
-
-Deploy DB schema + Bot + Activity:
-
-```bash
-bun run deploy:prod
-```
-
-Register slash commands after deploy:
+## Local commands
 
 ```bash
-bun run bot:register:prod
+bun run dev:new
+bun run dev
+
+bun run bot:l:migrate
+bun run bot:dev
+bun run a:dev:new
+bun run a:dev
+bun run party:dev
+bun run tunnel
+bun run bot:kv:local
 ```
 
-Or run the full flow in one command:
-
-```bash
-bun run deploy:prod:full
-```
-
-PartyKit deploy remains:
-
-```bash
-bun run party:deploy
-```
-
-## Development
-
-```bash
-bun run dev:new    # Rebuild activity, then start full local stack
-bun run dev        # Reuse existing activity build, then start full local stack
-
-bun run bot:dev    # Bot (Cloudflare Worker)
-bun run a:dev:new  # Activity rebuild + local Wrangler preview
-bun run a:dev      # Activity local Wrangler preview (no rebuild)
-bun run party:dev  # Party Server
-bun run tunnel     # Cloudflared tunnel for local bot dev
-```
-
-For local worker-to-worker routing in dev, point the workers at the local Wrangler ports instead of the public tunnels:
-
-```bash
-BOT_HOST=http://127.0.0.1:8787
-PARTY_HOST=http://127.0.0.1:8788
-```
-
-Trigger leaderboard update cron locally:
+Trigger the leaderboard cron locally:
 
 ```bash
 curl.exe "http://127.0.0.1:8787/cdn-cgi/handler/scheduled?cron=%2A%2F2+%2A+%2A+%2A+%2A"
 ```
 
-## Project
+## Production setup
 
-- `apps/bot`: Slash command handler (Cloudflare Worker).
-- `apps/activity`: Frontend (SolidJS).
-- `apps/party`: Realtime backend (PartyKit).
-- `packages/db`: Drizzle ORM & Schema.
+1. Provision Cloudflare resources once:
+
+    ```bash
+    bun run bot:d1:create
+    bun run bot:kv:create
+    ```
+
+2. Copy the production env files:
+
+    ```bash
+    cp apps/bot/.prod.secrets.example apps/bot/.prod.secrets
+    cp apps/activity/.prod.secrets.example apps/activity/.prod.secrets
+    cp apps/activity/.prod.vars.example apps/activity/.prod.vars
+    cp apps/party/.prod.secrets.example apps/party/.prod.secrets
+    ```
+
+    fill them in again :)
+
+3. Update Cloudflare config to use your own account, URLs, and routes:
+
+    - `apps/bot/wrangler.jsonc`
+    - `apps/activity/wrangler.jsonc`
+    - `apps/party/wrangler.jsonc`
+
+    At minimum:
+
+    - set `BOT_HOST` to your deployed bot worker URL
+    - set `PARTY_HOST` to your deployed party worker URL
+    - set `VITE_ACTIVITY_HOST` to your deployed activity host without protocol
+    - replace account IDs, database IDs, KV IDs, and route/domain values that still point at a different account
+
+4. Upload secrets:
+
+    ```bash
+    bun run bot:secrets:prod
+    bun run a:secrets:prod
+    bun run party:secrets:prod
+    ```
+
+5. In the Discord Developer Portal:
+
+    - Interactions Endpoint URL: your bot worker URL
+    - Activity URL Mapping: your activity worker URL
+
+6. Deploy:
+
+    ```bash
+    bun run deploy:prod
+    ```
+
+    That runs the remote DB migration and deploys bot, activity, and party.
+
+7. Register slash commands:
+
+    ```bash
+    bun run bot:register:prod
+    ```
+
+    Or do deploy + register in one step:
+
+    ```bash
+    bun run deploy:prod:full
+    ```
+
+## Project layout
+
+- `apps/bot`: Discord interactions worker
+- `apps/activity`: Discord Activity frontend
+- `apps/party`: realtime draft partyserver
+- `packages/db`: Drizzle schema and migrations
+- `packages/game`: shared game data and draft logic
+- `packages/rating`: elo system
+- `packages/utils`: shared utils
