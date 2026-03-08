@@ -1,6 +1,6 @@
 import type { CompetitiveTier } from '@civup/game'
 import { COMPETITIVE_TIERS, competitiveTierMeetsMinimum, competitiveTierRank } from '@civup/game'
-import { DiscordApiError } from './discord.ts'
+import { DiscordApiError } from '../discord.ts'
 
 export interface RankedRoleConfig {
   currentRoles: Record<CompetitiveTier, string | null>

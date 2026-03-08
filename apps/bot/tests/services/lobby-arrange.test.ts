@@ -1,6 +1,6 @@
 import type { QueueEntry } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
-import { arrangeTeamLobbySlots } from '../../src/services/lobby-arrange.ts'
+import { arrangeTeamLobbySlots } from '../../src/services/lobby/arrange.ts'
 
 describe('lobby arrange helpers', () => {
   test('randomize keeps premades together and can repair split layouts', () => {

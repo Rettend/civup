@@ -1,7 +1,7 @@
 import type { CompetitiveTier, DraftWebhookPayload, GameMode } from '@civup/game'
 import type { Env } from './env.ts'
-import type { LobbyState } from './services/lobby.ts'
-import type { RankedRoleVisual } from './services/ranked-roles.ts'
+import type { LobbyState } from './services/lobby/index.ts'
+import type { RankedRoleVisual } from './services/ranked/roles.ts'
 import { createDb, matches, matchParticipants, playerRatings } from '@civup/db'
 import { COMPETITIVE_TIERS, formatModeLabel, GAME_MODES, isTeamMode, maxPlayerCount, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
 import { isDev } from '@civup/utils'
@@ -15,8 +15,8 @@ import { clearLobbyMappings, clearUserActivityTargets, createDraftRoom, getLobby
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from './services/config.ts'
 import { createChannelMessage } from './services/discord.ts'
 import { markLeaderboardsDirty } from './services/leaderboard-message.ts'
-import { arrangeTeamLobbySlots } from './services/lobby-arrange.ts'
-import { upsertLobbyMessage } from './services/lobby-message.ts'
+import { arrangeTeamLobbySlots } from './services/lobby/arrange.ts'
+import { upsertLobbyMessage } from './services/lobby/message.ts'
 import {
   arePremadeGroupsAdjacent,
   buildActivePremadeEdgeSet,
@@ -24,8 +24,8 @@ import {
   compactSlottedPremadesForMode,
   moveSlottedPremadeGroup,
   rebuildQueueEntriesFromPremadeEdgeSet,
-} from './services/lobby-premades.ts'
-import { buildOpenLobbyRenderPayload } from './services/lobby-render.ts'
+} from './services/lobby/premades.ts'
+import { buildOpenLobbyRenderPayload } from './services/lobby/render.ts'
 import {
   attachLobbyMatch,
   clearLobbyById,
@@ -44,11 +44,11 @@ import {
   setLobbyStatus,
   touchLobby,
   upsertLobby,
-} from './services/lobby.ts'
-import { storeMatchMessageMapping } from './services/match-message.ts'
-import { activateDraftMatch, cancelDraftMatch, cancelMatchByModerator, createDraftMatch, reportMatch } from './services/match.ts'
+} from './services/lobby/index.ts'
+import { storeMatchMessageMapping } from './services/match/message.ts'
+import { activateDraftMatch, cancelDraftMatch, cancelMatchByModerator, createDraftMatch, reportMatch } from './services/match/index.ts'
 import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, moveQueueEntriesBetweenModes, setQueueEntries } from './services/queue.ts'
-import { markRankedRolesDirty } from './services/ranked-role-sync.ts'
+import { markRankedRolesDirty } from './services/ranked/role-sync.ts'
 import {
   buildRankedRoleVisuals,
   fetchGuildMemberRoleIds,
@@ -56,7 +56,7 @@ import {
   getRankedRoleGateError,
   memberMeetsRankedRoleGate,
 
-} from './services/ranked-roles.ts'
+} from './services/ranked/roles.ts'
 import { createStateStore } from './services/state-store.ts'
 import { getSystemChannel } from './services/system-channels.ts'
 import { factory } from './setup.ts'

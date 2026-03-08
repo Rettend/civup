@@ -2,9 +2,9 @@ import { matchParticipants, matches, playerRatings, players, seasonPeakModeRanks
 import { describe, expect, test } from 'bun:test'
 import { playerCardEmbed } from '../../src/embeds/player-card.ts'
 import { rankEmbed } from '../../src/embeds/rank.ts'
-import { getPlayerRankProfile } from '../../src/services/player-rank.ts'
-import { setRankedRoleCurrentRoles } from '../../src/services/ranked-roles.ts'
-import { listPlayerSeasonSnapshotHistory } from '../../src/services/season-snapshot-roles.ts'
+import { getPlayerRankProfile } from '../../src/services/player/rank.ts'
+import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { listPlayerSeasonSnapshotHistory } from '../../src/services/season/snapshot-roles.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000

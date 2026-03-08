@@ -3,8 +3,8 @@ import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import { matchParticipants, matches, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
 import { COMPETITIVE_TIERS, toLeaderboardMode } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { createGuildRole, deleteGuildRole, DiscordApiError, editGuildMemberRoles } from './discord.ts'
-import { fetchGuildMemberRoleIds, fetchGuildRoles, formatRankedRoleSlotLabel, getConfiguredRankedRoleLabel, getRankedRoleConfig } from './ranked-roles.ts'
+import { createGuildRole, deleteGuildRole, DiscordApiError, editGuildMemberRoles } from '../discord.ts'
+import { fetchGuildMemberRoleIds, fetchGuildRoles, formatRankedRoleSlotLabel, getConfiguredRankedRoleLabel, getRankedRoleConfig } from '../ranked/roles.ts'
 
 interface StoredSeasonSnapshotRoleMappings {
   bySeasonId?: Record<string, {

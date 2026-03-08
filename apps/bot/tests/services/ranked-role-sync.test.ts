@@ -1,7 +1,7 @@
 import { playerRatings, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { getCurrentRankAssignments, getRankedRoleDemotionCandidates, listRankedRoleConfigGuildIds, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked-role-sync.ts'
-import { setRankedRoleCurrentRoles } from '../../src/services/ranked-roles.ts'
+import { getCurrentRankAssignments, getRankedRoleDemotionCandidates, listRankedRoleConfigGuildIds, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
+import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const DAY_MS = 86_400_000

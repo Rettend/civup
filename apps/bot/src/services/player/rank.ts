@@ -4,8 +4,8 @@ import { playerRatings } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
 import { LEADERBOARD_MIN_GAMES, displayRating } from '@civup/rating'
 import { eq } from 'drizzle-orm'
-import { previewRankedRoles } from './ranked-role-sync.ts'
-import { getConfiguredRankedRoleLabel, getRankedRoleConfig } from './ranked-roles.ts'
+import { previewRankedRoles } from '../ranked/role-sync.ts'
+import { getConfiguredRankedRoleLabel, getRankedRoleConfig } from '../ranked/roles.ts'
 
 export interface PlayerRankModeSummary {
   mode: LeaderboardMode

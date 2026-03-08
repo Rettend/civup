@@ -3,10 +3,10 @@ import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import { playerRatings, players } from '@civup/db'
 import { COMPETITIVE_TIERS, competitiveTierRank, formatLeaderboardModeLabel, LEADERBOARD_MODES } from '@civup/game'
 import { displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'
-import { createChannelMessage, DiscordApiError, editGuildMemberRoles } from './discord.ts'
-import { fetchGuildMemberRoleIds, formatRankedRoleSlotLabel, getMissingRankedRoleConfigTiers, getRankedRoleConfig, RANKED_ROLE_CONFIG_KEY_PREFIX, RANKED_TIERS_BY_PRESTIGE } from './ranked-roles.ts'
-import { syncSeasonPeakModeRanks, getActiveSeason, syncSeasonPeakRanks } from './seasons.ts'
-import { getSystemChannel } from './system-channels.ts'
+import { createChannelMessage, DiscordApiError, editGuildMemberRoles } from '../discord.ts'
+import { fetchGuildMemberRoleIds, formatRankedRoleSlotLabel, getMissingRankedRoleConfigTiers, getRankedRoleConfig, RANKED_ROLE_CONFIG_KEY_PREFIX, RANKED_TIERS_BY_PRESTIGE } from './roles.ts'
+import { syncSeasonPeakModeRanks, getActiveSeason, syncSeasonPeakRanks } from '../season/index.ts'
+import { getSystemChannel } from '../system-channels.ts'
 
 export interface CurrentRankAssignment {
   tier: CompetitiveTier

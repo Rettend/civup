@@ -3,8 +3,8 @@ import { createDb } from '@civup/db'
 import { GAME_MODE_CHOICES } from '@civup/game'
 import { Command, Option } from 'discord-hono'
 import { playerCardEmbed } from '../embeds/player-card.ts'
-import { syncPlayerProfileFromDiscord } from '../services/player-profile.ts'
-import { getPlayerRankProfile } from '../services/player-rank.ts'
+import { syncPlayerProfileFromDiscord } from '../services/player/profile.ts'
+import { getPlayerRankProfile } from '../services/player/rank.ts'
 import { factory } from '../setup.ts'
 
 const MODE_CHOICES = [

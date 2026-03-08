@@ -2,7 +2,7 @@ import type { DraftSeat, DraftTimerConfig, GameMode, QueueEntry, RoomConfig } fr
 import { allLeaderIds, GAME_MODES, getDefaultFormat, isTeamMode, slotToTeamIndex, teamSize } from '@civup/game'
 import { api, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
-import { getLobbiesByMode } from './lobby.ts'
+import { getLobbiesByMode } from './lobby/index.ts'
 import { stateStoreMdelete, stateStoreMput } from './state-store.ts'
 
 // ── Types ───────────────────────────────────────────────────

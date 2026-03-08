@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds, setRankedRoleCurrentRoles } from '../../src/services/ranked-roles.ts'
+import { getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds, setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTestKv } from '../helpers/test-env.ts'
 
 describe('ranked role config service', () => {
