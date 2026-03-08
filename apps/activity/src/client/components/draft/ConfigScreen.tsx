@@ -64,14 +64,6 @@ interface MinRoleSetDetail {
   roleColor: string | null
 }
 
-const FALLBACK_RANKED_ROLE_OPTIONS: RankedRoleOptionSnapshot[] = [
-  { tier: 'champion', rank: 1, roleId: null, label: 'Role 1', color: null },
-  { tier: 'legion', rank: 2, roleId: null, label: 'Role 2', color: null },
-  { tier: 'gladiator', rank: 3, roleId: null, label: 'Role 3', color: null },
-  { tier: 'squire', rank: 4, roleId: null, label: 'Role 4', color: null },
-  { tier: 'pleb', rank: 5, roleId: null, label: 'Role 5', color: null },
-]
-
 type OptimisticLobbyAction
   = | {
     kind: 'place-self'
@@ -141,7 +133,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         }
       : null,
   )
-  const [rankedRoleOptions, setRankedRoleOptions] = createSignal<RankedRoleOptionSnapshot[]>(FALLBACK_RANKED_ROLE_OPTIONS)
+  const [rankedRoleOptions, setRankedRoleOptions] = createSignal<RankedRoleOptionSnapshot[]>([])
   const [minRoleMismatchDetail, setMinRoleMismatchDetail] = createSignal<MinRoleMismatchDetail | null>(null)
   const [minRoleSetDetail, setMinRoleSetDetail] = createSignal<MinRoleSetDetail | null>(null)
   let rankedRoleOptionsFetchKey: string | null = null
@@ -254,7 +246,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const lobby = currentLobby()
     if (!lobby) {
       rankedRoleOptionsFetchKey = null
-      setRankedRoleOptions(FALLBACK_RANKED_ROLE_OPTIONS)
+      setRankedRoleOptions([])
       return
     }
 
@@ -266,7 +258,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     void (async () => {
       const snapshot = await fetchLobbyRankedRoles(lobby.mode, lobby.id)
       if (cancelled) return
-      setRankedRoleOptions(snapshot?.options?.length ? snapshot.options : FALLBACK_RANKED_ROLE_OPTIONS)
+      setRankedRoleOptions(snapshot?.options ?? [])
     })()
 
     onCleanup(() => {
@@ -700,7 +692,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       const selectedMinRole = nextMinRole ? findRankedRoleOptionByTier(optionSource, nextMinRole) : null
       if (nextMinRole) {
         showMinRoleSetMessage({
-          roleLabel: selectedMinRole?.label ?? fallbackRoleLabel(nextMinRole),
+          roleLabel: selectedMinRole?.label ?? 'Unranked',
           roleColor: selectedMinRole?.color ?? null,
         })
       }
@@ -1546,14 +1538,6 @@ function normalizeLobbyMinRoleValue(value: string): CompetitiveTier | null {
   return COMPETITIVE_TIERS.includes(value as CompetitiveTier) ? value as CompetitiveTier : null
 }
 
-function fallbackRoleLabel(tier: CompetitiveTier): string {
-  if (tier === 'champion') return 'Role 1'
-  if (tier === 'legion') return 'Role 2'
-  if (tier === 'gladiator') return 'Role 3'
-  if (tier === 'squire') return 'Role 4'
-  return 'Role 5'
-}
-
 function findRankedRoleOptionByTier(
   options: RankedRoleOptionSnapshot[],
   tier: CompetitiveTier,
@@ -1563,7 +1547,7 @@ function findRankedRoleOptionByTier(
 
 function formatLobbyMinRole(minRole: CompetitiveTier | null, options: RankedRoleOptionSnapshot[]): string {
   if (!minRole) return 'Anyone'
-  return findRankedRoleOptionByTier(options, minRole)?.label ?? fallbackRoleLabel(minRole)
+  return findRankedRoleOptionByTier(options, minRole)?.label ?? 'Unranked'
 }
 
 function buildRankDotStyle(color: string | null): Record<string, string> {

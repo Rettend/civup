@@ -3,6 +3,7 @@ import type { EphemeralResponseTone } from '../embeds/response'
 import type { SystemChannelType } from '../services/system-channels'
 import { createDb } from '@civup/db'
 import { Button, Command, Components, Option, SubCommand, SubGroup } from 'discord-hono'
+import { ephemeralResponseEmbed } from '../embeds/response.ts'
 import {
   getServerConfigRows,
   parseServerConfigKey,
@@ -17,10 +18,11 @@ import {
   sendTransientEphemeralResponse as sendRawTransientEphemeralResponse,
   SHOW_EPHEMERAL_RESPONSE_BUTTON_ID,
 } from '../services/ephemeral-response'
-import { upsertLeaderboardMessagesForChannel } from '../services/leaderboard-message'
+import { archiveSeasonLeaderboards, upsertLeaderboardMessagesForChannel } from '../services/leaderboard-message'
 import { addModRole, getModRoleIds, hasAdminPermission, removeModRole } from '../services/permissions'
 import { previewRankedRoles, syncRankedRoles } from '../services/ranked-role-sync.ts'
-import { fallbackRoleLabel, fetchGuildRoles, getRankedRoleConfig, RANKED_TIERS_BY_PRESTIGE, setRankedRoleCurrentRoles } from '../services/ranked-roles.ts'
+import { fetchGuildRoles, formatRankedRoleSlotLabel, getConfiguredRankedRoleLabel, getRankedRoleConfig, RANKED_TIERS_BY_PRESTIGE, setRankedRoleCurrentRoles } from '../services/ranked-roles.ts'
+import { ensureSeasonSnapshotRoles, finalizeSeasonSnapshotRoles } from '../services/season-snapshot-roles.ts'
 import { endSeason, startSeason } from '../services/seasons.ts'
 import { clearLeaderboardDirtyState, clearLeaderboardMessageState, clearSystemChannel, getSystemChannel, setSystemChannel } from '../services/system-channels'
 import { factory } from '../setup'
@@ -86,6 +88,7 @@ export const command_admin = factory.command<Var>(
           { name: 'Draft', value: 'draft' },
           { name: 'Archive', value: 'archive' },
           { name: 'Leaderboard', value: 'leaderboard' },
+          { name: 'Rank Announcements', value: 'rank-announcements' },
         ),
     ),
     new SubCommand('config', 'View or update configuration').options(
@@ -321,8 +324,9 @@ export const command_admin = factory.command<Var>(
             kv: c.env.KV,
             guildId,
           })
+          const config = await getRankedRoleConfig(c.env.KV, guildId)
 
-          await sendEphemeralResponse(c, formatRankedRolePreview(preview), 'info')
+          await sendEphemeralResponse(c, formatRankedRolePreview(preview, config), 'info')
         })
       }
 
@@ -344,8 +348,9 @@ export const command_admin = factory.command<Var>(
               token: c.env.DISCORD_TOKEN,
               applyDiscord: true,
             })
+            const config = await getRankedRoleConfig(c.env.KV, guildId)
 
-            await sendEphemeralResponse(c, formatRankedRoleSyncResult(result), 'success')
+            await sendEphemeralResponse(c, formatRankedRoleSyncResult(result, config), 'success')
           }
           catch (error) {
             console.error('Failed to sync ranked roles:', error)
@@ -360,10 +365,11 @@ export const command_admin = factory.command<Var>(
         const rawTarget = c.var.target
         if (!rawTarget) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
-            const [draftChannelId, archiveChannelId, leaderboardChannelId] = await Promise.all([
+            const [draftChannelId, archiveChannelId, leaderboardChannelId, rankAnnouncementsChannelId] = await Promise.all([
               getSystemChannel(c.env.KV, 'draft'),
               getSystemChannel(c.env.KV, 'archive'),
               getSystemChannel(c.env.KV, 'leaderboard'),
+              getSystemChannel(c.env.KV, 'rank-announcements'),
             ])
 
             await sendEphemeralResponse(
@@ -371,7 +377,8 @@ export const command_admin = factory.command<Var>(
               '**Configured channels:**\n'
               + `Draft — ${formatChannelMention(draftChannelId)}\n`
               + `Archive — ${formatChannelMention(archiveChannelId)}\n`
-              + `Leaderboard — ${formatChannelMention(leaderboardChannelId)}`,
+              + `Leaderboard — ${formatChannelMention(leaderboardChannelId)}\n`
+              + `Rank Announcements — ${formatChannelMention(rankAnnouncementsChannelId)}`,
               'info',
             )
           })
@@ -502,7 +509,7 @@ export const command_admin = factory.command<Var>(
 
 export const component_admin_season_confirm = factory.component(
   new Button('admin-season-confirm', 'Confirm', 'Primary'),
-  (c) => {
+  async (c) => {
     const token = c.var.custom_id
     if (!token) {
       return c.flags('EPHEMERAL').resDefer(async (c) => {
@@ -510,29 +517,34 @@ export const component_admin_season_confirm = factory.component(
       })
     }
 
-    return c.flags('EPHEMERAL').resDefer(async (c) => {
-      if (!hasAdminPermission({ permissions: c.interaction.member?.permissions })) {
+    if (!hasAdminPermission({ permissions: c.interaction.member?.permissions })) {
+      return c.flags('EPHEMERAL').resDefer(async (c) => {
         await sendTransientEphemeralResponse(c, 'You need Administrator or Manage Server permission for this action.', 'error')
-        return
-      }
+      })
+    }
 
-      const actorId = getInteractionUserId(c)
-      const guildId = c.interaction.guild_id
-      if (!actorId || !guildId) {
+    const actorId = getInteractionUserId(c)
+    const guildId = c.interaction.guild_id
+    if (!actorId || !guildId) {
+      return c.flags('EPHEMERAL').resDefer(async (c) => {
         await sendTransientEphemeralResponse(c, 'This action can only be used in a server.', 'error')
-        return
-      }
+      })
+    }
 
-      const pending = await getSeasonConfirmation(c.env.KV, token)
-      if (!pending) {
+    const pending = await getSeasonConfirmation(c.env.KV, token)
+    if (!pending) {
+      return c.flags('EPHEMERAL').resDefer(async (c) => {
         await sendTransientEphemeralResponse(c, 'This confirmation expired. Run the command again.', 'error')
-        return
-      }
+      })
+    }
 
-      if (pending.actorId !== actorId || pending.guildId !== guildId) {
+    if (pending.actorId !== actorId || pending.guildId !== guildId) {
+      return c.flags('EPHEMERAL').resDefer(async (c) => {
         await sendTransientEphemeralResponse(c, 'Only the original command author can confirm this action.', 'error')
-        return
-      }
+      })
+    }
+
+    return c.update().resDefer(async (c) => {
 
       await clearSeasonConfirmation(c.env.KV, token)
 
@@ -541,11 +553,12 @@ export const component_admin_season_confirm = factory.component(
         try {
           const db = createDb(c.env.DB)
           const season = await startSeason(db, { name: seasonName })
-          await sendTransientEphemeralResponse(c, `Started **S${season.seasonNumber} ${season.name}**. New matches will now count toward this season.`, 'success')
+          await ensureSeasonSnapshotRoles(c.env.KV, guildId, c.env.DISCORD_TOKEN, season)
+          await updateSeasonActionPrompt(c, `Started **${season.name}**. New matches will now count toward this season.`, 'success')
         }
         catch (error) {
           const message = error instanceof Error ? error.message : 'Failed to start the season.'
-          await sendTransientEphemeralResponse(c, message, 'error')
+          await updateSeasonActionPrompt(c, message, 'error')
         }
         return
       }
@@ -553,11 +566,13 @@ export const component_admin_season_confirm = factory.component(
       try {
         const db = createDb(c.env.DB)
         const season = await endSeason(db)
-        await sendTransientEphemeralResponse(c, `Ended **S${season.seasonNumber} ${season.name}**. Season peaks are now frozen in storage.`, 'success')
+        await archiveSeasonLeaderboards(db, c.env.KV, c.env.DISCORD_TOKEN, season.name)
+        await finalizeSeasonSnapshotRoles(db, c.env.KV, guildId, c.env.DISCORD_TOKEN, season)
+        await updateSeasonActionPrompt(c, `Ended **${season.name}**. Season peaks are now frozen in storage.`, 'success')
       }
       catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to end the season.'
-        await sendTransientEphemeralResponse(c, message, 'error')
+        await updateSeasonActionPrompt(c, message, 'error')
       }
     })
   },
@@ -565,7 +580,7 @@ export const component_admin_season_confirm = factory.component(
 
 export const component_admin_season_cancel = factory.component(
   new Button('admin-season-cancel', 'Cancel', 'Secondary'),
-  (c) => {
+  async (c) => {
     const token = c.var.custom_id
     if (!token) {
       return c.flags('EPHEMERAL').resDefer(async (c) => {
@@ -573,28 +588,32 @@ export const component_admin_season_cancel = factory.component(
       })
     }
 
-    return c.flags('EPHEMERAL').resDefer(async (c) => {
-      const actorId = getInteractionUserId(c)
-      const guildId = c.interaction.guild_id
-      if (!actorId || !guildId) {
+    const actorId = getInteractionUserId(c)
+    const guildId = c.interaction.guild_id
+    if (!actorId || !guildId) {
+      return c.flags('EPHEMERAL').resDefer(async (c) => {
         await sendTransientEphemeralResponse(c, 'This action can only be used in a server.', 'error')
-        return
-      }
+      })
+    }
 
-      const pending = await getSeasonConfirmation(c.env.KV, token)
-      if (!pending) {
+    const pending = await getSeasonConfirmation(c.env.KV, token)
+    if (!pending) {
+      return c.flags('EPHEMERAL').resDefer(async (c) => {
         await sendTransientEphemeralResponse(c, 'This confirmation already expired or was already handled.', 'info')
-        return
-      }
+      })
+    }
 
-      if (pending.actorId !== actorId || pending.guildId !== guildId) {
+    if (pending.actorId !== actorId || pending.guildId !== guildId) {
+      return c.flags('EPHEMERAL').resDefer(async (c) => {
         await sendTransientEphemeralResponse(c, 'Only the original command author can cancel this confirmation.', 'error')
-        return
-      }
+      })
+    }
+
+    return c.update().resDefer(async (c) => {
 
       await clearSeasonConfirmation(c.env.KV, token)
 
-      await sendTransientEphemeralResponse(c, 'Cancelled season action.', 'info')
+      await updateSeasonActionPrompt(c, 'Cancelled season action.', 'info')
     })
   },
 )
@@ -640,14 +659,26 @@ export const component_admin_show_response = factory.component(
   },
 )
 
+async function updateSeasonActionPrompt(
+  c: { followup: (data?: any) => Promise<unknown> },
+  message: string,
+  tone: EphemeralResponseTone,
+): Promise<void> {
+  await c.followup({
+    embeds: [ephemeralResponseEmbed(message, tone)],
+    components: [],
+  })
+}
+
 function setupTargetLabel(target: SystemChannelType): string {
   if (target === 'draft') return 'Draft'
   if (target === 'archive') return 'Archive'
+  if (target === 'rank-announcements') return 'Rank Announcements'
   return 'Leaderboard'
 }
 
 function parseSetupTarget(value: string): SystemChannelType | null {
-  if (value === 'draft' || value === 'archive' || value === 'leaderboard') return value
+  if (value === 'draft' || value === 'archive' || value === 'leaderboard' || value === 'rank-announcements') return value
   return null
 }
 
@@ -676,15 +707,18 @@ function formatRankedRoleConfig(config: Awaited<ReturnType<typeof getRankedRoleC
     .join('\n')
 }
 
-function formatRankedRolePreview(preview: Awaited<ReturnType<typeof previewRankedRoles>>): string {
+function formatRankedRolePreview(
+  preview: Awaited<ReturnType<typeof previewRankedRoles>>,
+  config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
+): string {
   const lines = [
     '**Ranked role preview**',
-    `Champion ${preview.distribution.champion} / Legion ${preview.distribution.legion} / Gladiator ${preview.distribution.gladiator} / Squire ${preview.distribution.squire} / Pleb ${preview.distribution.pleb}`,
+    formatRankedRoleDistribution(preview.distribution, config),
     `Unranked: ${preview.unrankedCount}`,
   ]
 
   if (preview.missingConfigTiers.length > 0) {
-    lines.push(`Missing current role mappings: ${preview.missingConfigTiers.map(tier => fallbackRoleLabel(tier)).join(', ')}`)
+    lines.push(`Missing current role mappings: ${preview.missingConfigTiers.map(tier => formatRankedRoleSlotLabel(tier)).join(', ')}`)
   }
 
   const changes = preview.playerPreviews.filter(player => player.status !== 'kept')
@@ -692,46 +726,66 @@ function formatRankedRolePreview(preview: Awaited<ReturnType<typeof previewRanke
 
   lines.push('', '**Changes**')
   for (const player of changes.slice(0, 12)) {
-    lines.push(formatRankedRoleChangeLine(player))
+    lines.push(formatRankedRoleChangeLine(player, config))
   }
   if (changes.length > 12) lines.push(`...and ${changes.length - 12} more`)
   return lines.join('\n')
 }
 
-function formatRankedRoleSyncResult(result: Awaited<ReturnType<typeof syncRankedRoles>>): string {
+function formatRankedRoleSyncResult(
+  result: Awaited<ReturnType<typeof syncRankedRoles>>,
+  config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
+): string {
   const lines = [
     '**Ranked roles synced**',
-    `Updated Discord members: ${result.appliedDiscordChanges}`,
-    `C ${result.distribution.champion} / L ${result.distribution.legion} / G ${result.distribution.gladiator} / S ${result.distribution.squire} / P ${result.distribution.pleb}`,
+    `Updated members: ${result.appliedDiscordChanges}`,
+    formatRankedRoleDistribution(result.distribution, config),
     `Unranked: ${result.unrankedCount}`,
   ]
 
   if (result.missingConfigTiers.length > 0) {
-    lines.push(`Missing current role mappings: ${result.missingConfigTiers.map(tier => fallbackRoleLabel(tier)).join(', ')}`)
+    lines.push(`Missing current role mappings: ${result.missingConfigTiers.map(tier => formatRankedRoleSlotLabel(tier)).join(', ')}`)
   }
 
   return lines.join('\n')
 }
 
-function formatRankedRoleChangeLine(player: Awaited<ReturnType<typeof previewRankedRoles>>['playerPreviews'][number]): string {
+function formatRankedRoleChangeLine(
+  player: Awaited<ReturnType<typeof previewRankedRoles>>['playerPreviews'][number],
+  config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
+): string {
   const previous = player.previousAssignment
-    ? `${capitalizeTier(player.previousAssignment.tier)}${player.previousAssignment.sourceMode ? ` (${formatLeaderboardMode(player.previousAssignment.sourceMode)})` : ''}`
+    ? `${formatRankedRoleReference(config, player.previousAssignment.tier)}${player.previousAssignment.sourceMode ? ` (${formatLeaderboardMode(player.previousAssignment.sourceMode)})` : ''}`
     : 'none'
-  const next = `${capitalizeTier(player.assignment.tier)}${player.assignment.sourceMode ? ` (${formatLeaderboardMode(player.assignment.sourceMode)})` : ''}`
+  const next = `${formatRankedRoleReference(config, player.assignment.tier)}${player.assignment.sourceMode ? ` (${formatLeaderboardMode(player.assignment.sourceMode)})` : ''}`
   const pending = player.pendingDemotion
     ? ` - demotion hold ${player.pendingDemotion.belowKeepSyncs}/7`
     : ''
   return `- ${player.displayName}: ${previous} -> ${next}${pending}`
 }
 
+function formatRankedRoleDistribution(
+  distribution: Awaited<ReturnType<typeof previewRankedRoles>>['distribution'],
+  config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
+): string {
+  return RANKED_TIERS_BY_PRESTIGE
+    .map(tier => `${formatRankedRoleReference(config, tier)} ${distribution[tier]}`)
+    .join(' / ')
+}
+
+function formatRankedRoleReference(
+  config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
+  tier: CompetitiveTier,
+): string {
+  const roleId = config.currentRoles[tier]
+  if (roleId) return `<@&${roleId}>`
+  return getConfiguredRankedRoleLabel(config, tier) ?? formatRankedRoleSlotLabel(tier)
+}
+
 function formatLeaderboardMode(mode: 'ffa' | 'duel' | 'teamers'): string {
   if (mode === 'ffa') return 'FFA'
   if (mode === 'duel') return 'Duel'
   return 'Teamers'
-}
-
-function capitalizeTier(tier: CompetitiveTier): string {
-  return tier.charAt(0).toUpperCase() + tier.slice(1)
 }
 
 function buildResolvedRoleDisplayById(data: unknown): Map<string, { name: string, color: string | null }> {
