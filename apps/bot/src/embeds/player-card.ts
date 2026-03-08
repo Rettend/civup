@@ -6,6 +6,7 @@ import { displayRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, desc, eq } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
+import type { PlayerRankProfile } from '../services/player-rank.ts'
 
 export type StatsModeFilter = 'all' | GameMode
 
@@ -28,6 +29,7 @@ export async function playerCardEmbed(
   db: Database,
   playerId: string,
   modeFilter: StatsModeFilter = 'all',
+  options: { rankProfile?: PlayerRankProfile | null } = {},
 ): Promise<Embed> {
   const [player] = await db
     .select()
@@ -43,10 +45,11 @@ export async function playerCardEmbed(
     .where(eq(playerRatings.playerId, playerId))
 
   const requestedModeLabel = modeFilter === 'all' ? null : GAME_MODE_LABELS[modeFilter]
+  const rankProfile = options.rankProfile ?? null
 
   const embed = new Embed()
     .title(`${displayName}'s Stats`)
-    .description(requestedModeLabel ? `<@${playerId}> - ${requestedModeLabel}` : `<@${playerId}>`)
+    .description(buildPlayerCardDescription(playerId, requestedModeLabel, rankProfile))
     .color(0xC8AA6E)
 
   const fields: Array<{ name: string, value: string, inline?: boolean }> = []
@@ -64,7 +67,7 @@ export async function playerCardEmbed(
     fields.push({
       name: LEADERBOARD_MODE_LABELS[mode],
       value: [
-        `Rating: **${Math.round(rating)}**`,
+        `Rating: **${Math.round(rating)}**${formatModeTierSuffix(rankProfile?.modes[mode])}`,
         `Games: ${ratingRow.gamesPlayed}`,
         `Wins: ${ratingRow.wins} (${winRate}%)`,
       ].join('\n'),
@@ -131,6 +134,21 @@ export async function playerCardEmbed(
   embed.fields(...fields)
 
   return embed
+}
+
+function buildPlayerCardDescription(playerId: string, requestedModeLabel: string | null, rankProfile: PlayerRankProfile | null): string {
+  const parts = [`<@${playerId}>`]
+
+  if (rankProfile?.overallRoleId) parts.push(`<@&${rankProfile.overallRoleId}>`)
+  else if (rankProfile?.overallLabel) parts.push(rankProfile.overallLabel)
+
+  if (requestedModeLabel) parts.push(requestedModeLabel)
+  return parts.join(' - ')
+}
+
+function formatModeTierSuffix(mode: PlayerRankProfile['modes'][LeaderboardMode] | undefined): string {
+  const label = mode?.tierLabel?.trim()
+  return label ? ` • **${label}**` : ''
 }
 
 function getRatingModes(modeFilter: StatsModeFilter): readonly LeaderboardMode[] {

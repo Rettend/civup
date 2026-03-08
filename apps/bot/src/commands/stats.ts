@@ -3,6 +3,7 @@ import { createDb } from '@civup/db'
 import { Command, Option } from 'discord-hono'
 import { playerCardEmbed } from '../embeds/player-card.ts'
 import { syncPlayerProfileFromDiscord } from '../services/player-profile.ts'
+import { getPlayerRankProfile } from '../services/player-rank.ts'
 import { factory } from '../setup.ts'
 
 const MODE_CHOICES = [
@@ -24,6 +25,7 @@ export const command_stats = factory.command<Var>(
     new Option('mode', 'Filter by game mode').choices(...MODE_CHOICES),
   ),
   (c) => {
+    const guildId = c.interaction.guild_id
     const targetId = c.var.player
       ?? c.interaction.member?.user?.id
       ?? c.interaction.user?.id
@@ -40,7 +42,11 @@ export const command_stats = factory.command<Var>(
         console.error(`Failed to sync player profile for ${targetId}:`, error)
       }
 
-      const embed = await playerCardEmbed(db, targetId, mode)
+      const rankProfile = guildId
+        ? await getPlayerRankProfile(db, c.env.KV, guildId, targetId)
+        : null
+
+      const embed = await playerCardEmbed(db, targetId, mode, { rankProfile })
       await c.followup({ embeds: [embed] })
     })
   },
