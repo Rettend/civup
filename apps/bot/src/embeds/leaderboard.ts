@@ -1,15 +1,10 @@
 import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import { playerRatings } from '@civup/db'
+import { formatLeaderboardModeLabel } from '@civup/game'
 import { buildLeaderboard } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { eq } from 'drizzle-orm'
-
-const MODE_LABELS: Record<LeaderboardMode, string> = {
-  duel: 'Duel',
-  teamers: 'Teamers',
-  ffa: 'FFA',
-}
 
 const MODE_COLORS: Record<LeaderboardMode, number> = {
   duel: 0xEF4444,
@@ -17,7 +12,13 @@ const MODE_COLORS: Record<LeaderboardMode, number> = {
   ffa: 0xF59E0B,
 }
 
-export async function leaderboardEmbed(db: Database, mode: LeaderboardMode): Promise<Embed> {
+export async function leaderboardEmbed(
+  db: Database,
+  mode: LeaderboardMode,
+  options: {
+    titlePrefix?: string
+  } = {},
+): Promise<Embed> {
   const rows = await db
     .select()
     .from(playerRatings)
@@ -28,7 +29,7 @@ export async function leaderboardEmbed(db: Database, mode: LeaderboardMode): Pro
 
   if (top25.length === 0) {
     return new Embed()
-      .title(`${MODE_LABELS[mode]} Leaderboard`)
+      .title(formatLeaderboardTitle(mode, options.titlePrefix))
       .description('No players with enough games to rank yet.')
       .color(MODE_COLORS[mode])
   }
@@ -42,9 +43,14 @@ export async function leaderboardEmbed(db: Database, mode: LeaderboardMode): Pro
   })
 
   return new Embed()
-    .title(`${MODE_LABELS[mode]} Leaderboard`)
+    .title(formatLeaderboardTitle(mode, options.titlePrefix))
     .description(lines.join('\n'))
     .color(MODE_COLORS[mode])
+}
+
+function formatLeaderboardTitle(mode: LeaderboardMode, titlePrefix?: string): string {
+  const baseTitle = `${formatLeaderboardModeLabel(mode, mode)} Leaderboard`
+  return titlePrefix ? `${titlePrefix} ${baseTitle}` : baseTitle
 }
 
 function formatPlacementCode(placement: number): string {

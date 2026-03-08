@@ -1,5 +1,5 @@
 import type { Rating as OSRating } from 'openskill'
-import { ordinal, predictWin, rate, rating } from 'openskill'
+import { predictWin, rate, rating } from 'openskill'
 
 // ── Constants ───────────────────────────────────────────────
 
@@ -14,6 +14,15 @@ export const DISPLAY_RATING_BASE = 600
 
 /** Scale multiplier for display rating deltas and spread */
 export const DISPLAY_RATING_SCALE = 5
+
+/** Multiplier for sigma when calculating conservative display rating */
+export const Z_MULTIPLIER = 2 // 95% confidence
+
+/** Core openskill parameters tweaked for Civ 6 */
+export const RATING_OPTIONS = {
+  beta: 3.0, // Trust game outcomes more (less luck)
+  tau: 0.3, // Prevent sigma from bottoming out (dynamic ratings)
+}
 
 /** Minimum games required to appear on leaderboard */
 export const LEADERBOARD_MIN_GAMES = 3
@@ -39,11 +48,10 @@ export function createRating(playerId: string): PlayerRating {
 }
 
 /**
- * Conservative display rating: mu - 3*sigma.
- * Scaled and offset for a friendlier ladder UX.
+ * Conservative display rating: mu - Z_MULTIPLIER * sigma.
  */
 export function displayRating(mu: number, sigma: number): number {
-  return DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * ordinal({ mu, sigma })
+  return DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * (mu - Z_MULTIPLIER * sigma)
 }
 
 // ── Rating Calculation ──────────────────────────────────────
@@ -91,7 +99,7 @@ export function calculateTeamRatings(teams: TeamInput[]): RatingUpdate[] {
   // For multi-team (e.g. 3+ teams), rank corresponds to placement
   const rank = teams.map((_, i) => i + 1)
 
-  const updatedTeams = rate(osTeams, { rank })
+  const updatedTeams = rate(osTeams, { rank, ...RATING_OPTIONS })
 
   const updates: RatingUpdate[] = []
 
@@ -151,7 +159,7 @@ export function calculateFfaRatings(entries: FfaEntry[]): RatingUpdate[] {
   // Rank array — OpenSkill uses 1-based ranks, ties are same rank value
   const rank = sorted.map(e => e.placement)
 
-  const updatedTeams = rate(osTeams, { rank })
+  const updatedTeams = rate(osTeams, { rank, ...RATING_OPTIONS })
 
   return sorted.map((entry, i) => {
     const updated = updatedTeams[i]![0]!
@@ -200,7 +208,7 @@ export function predictWinProbabilities(teams: PlayerRating[][]): number[] {
   const osTeams: OSRating[][] = teams.map(t =>
     t.map(p => ({ mu: p.mu, sigma: p.sigma })),
   )
-  return predictWin(osTeams)
+  return predictWin(osTeams, RATING_OPTIONS)
 }
 
 // ── Leaderboard Helpers ─────────────────────────────────────
@@ -242,6 +250,34 @@ export function buildLeaderboard(
       winRate: p.gamesPlayed > 0 ? p.wins / p.gamesPlayed : 0,
     }))
     .sort((a, b) => b.displayRating - a.displayRating)
+}
+
+// ── Inactivity Decay ──────────────────────────────────────────
+
+/**
+ * Apply sigma inflation based on days of inactivity.
+ * This naturally lowers their display rating and allows for faster movement when they return.
+ *
+ * @param mu - Current mu
+ * @param sigma - Current sigma
+ * @param daysInactive - Total days since last played
+ * @param gracePeriodDays - Days before penalty starts (default 14)
+ * @param penaltyPerDay - Sigma increase per day after grace period (default 0.1)
+ */
+export function applyInactivityDecay(
+  mu: number,
+  sigma: number,
+  daysInactive: number,
+  gracePeriodDays: number = 14,
+  penaltyPerDay: number = 0.1,
+): { mu: number, sigma: number } {
+  if (daysInactive <= gracePeriodDays) {
+    return { mu, sigma }
+  }
+  const penaltyDays = daysInactive - gracePeriodDays
+  // Cap sigma at the default starting sigma so they don't become *more* uncertain than a new player
+  const newSigma = Math.min(DEFAULT_SIGMA, sigma + (penaltyDays * penaltyPerDay))
+  return { mu, sigma: newSigma }
 }
 
 // ── Season Reset ────────────────────────────────────────────

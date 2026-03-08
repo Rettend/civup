@@ -1,4 +1,4 @@
-import { isLocalHost, normalizeHost } from '@civup/utils'
+import { isDev, normalizeHost } from '@civup/utils'
 
 interface Env {
   DISCORD_CLIENT_ID: string
@@ -31,27 +31,31 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
 
-    // POST /api/token — Discord OAuth code → access_token exchange
-    if (url.pathname === '/api/token' && request.method === 'POST') {
-      return handleTokenExchange(request, env)
+    try {
+      // POST /api/token — Discord OAuth code → access_token exchange
+      if (url.pathname === '/api/token' && request.method === 'POST') {
+        return await handleTokenExchange(request, env)
+      }
+      if (url.pathname === '/api/dev-log' && request.method === 'POST') {
+        return await handleDevLog(request)
+      }
+      if (url.pathname.startsWith('/api/parties/')) {
+        return await handlePartyProxy(request, url, env)
+      }
+      if (
+        url.pathname.startsWith('/api/activity/')
+        || url.pathname.startsWith('/api/match/')
+        || url.pathname.startsWith('/api/lobby/')
+        || url.pathname.startsWith('/api/lobby-ranks/')
+      ) {
+        return await handleMatchProxy(request, url, env)
+      }
+      return new Response(null, { status: 404 })
     }
-
-    if (url.pathname === '/api/dev-log' && request.method === 'POST') {
-      return handleDevLog(request)
+    catch (error) {
+      console.error('[activity:req:error]', request.method, url.pathname, error)
+      throw error
     }
-
-    // /api/parties/* — proxy HTTP + WebSocket to PartyKit
-    if (url.pathname.startsWith('/api/parties/')) {
-      return handlePartyProxy(request, url, env)
-    }
-
-    // /api/match/* and /api/lobby/* — proxy bot API calls
-    if (url.pathname.startsWith('/api/match/') || url.pathname.startsWith('/api/lobby/')) {
-      return handleMatchProxy(request, url, env)
-    }
-
-    // All other routes fall through to static assets (SPA).
-    return new Response(null, { status: 404 })
   },
 } satisfies ExportedHandler<Env>
 
@@ -103,11 +107,13 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
 
     const body = await response.text()
     if (!response.ok) {
-      console.warn('[activity] Match proxy upstream non-OK', {
-        targetUrl,
-        status: response.status,
-        bodyPreview: body.slice(0, 200),
-      })
+      if (shouldWarnForMatchProxy(request.method, url.pathname, response.status)) {
+        console.warn('[activity] Match proxy upstream non-OK', {
+          targetUrl,
+          status: response.status,
+          bodyPreview: body.slice(0, 200),
+        })
+      }
     }
 
     return new Response(body, {
@@ -126,19 +132,7 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
 
 function shouldUseBotServiceBinding(request: Request, env: Env): boolean {
   if (!env.BOT) return false
-  if (import.meta.env.DEV) return false
-
-  const requestHost = new URL(request.url).hostname.toLowerCase()
-  if (isLocalHost(requestHost) || requestHost.includes('-dev.')) {
-    return false
-  }
-
-  if (env.BOT_HOST) {
-    const botHost = normalizeHost(env.BOT_HOST, 'http://localhost:8787').toLowerCase()
-    if (isLocalHost(botHost) || botHost.includes('-dev.')) {
-      return false
-    }
-  }
+  if (isDev({ viteDev: import.meta.env.DEV, host: request.url, configuredHosts: [env.BOT_HOST] })) return false
 
   return true
 }
@@ -191,13 +185,29 @@ function buildProxyRequest(targetUrl: string, request: Request): Request {
   return new Request(targetUrl, init)
 }
 
+function shouldWarnForMatchProxy(method: string, pathname: string, status: number): boolean {
+  if (status !== 404 || method.toUpperCase() !== 'GET') return true
+
+  return !(
+    pathname.startsWith('/api/activity/')
+    || pathname.startsWith('/api/match/')
+    || pathname.startsWith('/api/lobby/')
+    || pathname.startsWith('/api/lobby-ranks/')
+  )
+}
+
 async function handleTokenExchange(request: Request, env: Env): Promise<Response> {
   try {
-    const body = await request.json<{ code: string }>()
+    const body = await request.json<{ code: string, redirectUri?: string }>()
 
     if (!body.code || typeof body.code !== 'string') {
       return json({ error: 'Missing or invalid "code" in request body' }, 400)
     }
+
+    const requestUrl = new URL(request.url)
+    const redirectUri = typeof body.redirectUri === 'string' && body.redirectUri.trim().length > 0
+      ? body.redirectUri.trim()
+      : requestUrl.origin
 
     const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
       method: 'POST',
@@ -207,6 +217,7 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
         client_secret: env.DISCORD_CLIENT_SECRET,
         grant_type: 'authorization_code',
         code: body.code,
+        redirect_uri: redirectUri,
       }),
     })
 
@@ -232,6 +243,7 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
       console.error('Discord token exchange failed:', {
         status: tokenResponse.status,
         retryAfter,
+        redirectUri,
         detail: detailMessage,
       })
 

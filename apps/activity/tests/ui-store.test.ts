@@ -1,23 +1,31 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import {
   banSelections,
+  clearFfaPlacements,
+  clearResultSelections,
   clearSelections,
   clearTagFilters,
   detailLeaderId,
+  ffaPlacementOrder,
   searchQuery,
   selectedLeader,
+  selectedWinningTeam,
+  selectWinningTeam,
   setBanSelections,
   setDetailLeaderId,
   setSearchQuery,
   setSelectedLeader,
   tagFilters,
   toggleBanSelection,
+  toggleFfaPlacement,
   toggleTagFilter,
 } from '../src/client/stores/ui-store'
 
 describe('ui-store helpers', () => {
   beforeEach(() => {
     clearSelections()
+    clearFfaPlacements()
+    clearResultSelections()
     clearTagFilters()
   })
 
@@ -38,6 +46,9 @@ describe('ui-store helpers', () => {
     setSearchQuery('rome')
     setDetailLeaderId('civ-9')
     toggleTagFilter('econ:gold')
+    toggleFfaPlacement(0)
+    toggleFfaPlacement(1)
+    selectWinningTeam(1)
 
     clearSelections()
 
@@ -50,6 +61,8 @@ describe('ui-store helpers', () => {
     expect(tagFilters().spike).toEqual([])
     expect(tagFilters().role).toEqual([])
     expect(tagFilters().other).toEqual([])
+    expect(ffaPlacementOrder()).toEqual([])
+    expect(selectedWinningTeam()).toBeNull()
   })
 
   test('toggleTagFilter updates category buckets and active count', () => {
@@ -68,5 +81,39 @@ describe('ui-store helpers', () => {
     expect(tagFilters().spike).toEqual([])
     expect(tagFilters().role).toEqual([])
     expect(tagFilters().other).toEqual([])
+  })
+
+  test('toggleFfaPlacement appends seats and removes only the clicked seat when toggled off', () => {
+    toggleFfaPlacement(0)
+    toggleFfaPlacement(3)
+    toggleFfaPlacement(5)
+    expect(ffaPlacementOrder()).toEqual([0, 3, 5])
+
+    toggleFfaPlacement(3)
+    expect(ffaPlacementOrder()).toEqual([0, 5])
+  })
+
+  test('selectWinningTeam toggles the selected team', () => {
+    expect(selectedWinningTeam()).toBeNull()
+
+    selectWinningTeam(0)
+    expect(selectedWinningTeam()).toBe(0)
+
+    selectWinningTeam(0)
+    expect(selectedWinningTeam()).toBeNull()
+
+    selectWinningTeam(1)
+    expect(selectedWinningTeam()).toBe(1)
+  })
+
+  test('clearResultSelections clears both team and ffa result state', () => {
+    toggleFfaPlacement(1)
+    toggleFfaPlacement(4)
+    selectWinningTeam(0)
+
+    clearResultSelections()
+
+    expect(ffaPlacementOrder()).toEqual([])
+    expect(selectedWinningTeam()).toBeNull()
   })
 })

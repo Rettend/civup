@@ -1,4 +1,6 @@
 /* eslint-disable no-console */
+import { isDev } from './is-dev'
+
 type DevLogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 interface DevLogPayload {
@@ -8,6 +10,10 @@ interface DevLogPayload {
   href: string
   userAgent: string
   meta?: unknown
+}
+
+export function shouldRelayDevLog() {
+  return typeof window !== 'undefined' && isDev()
 }
 
 function normalizeMeta(meta: unknown): unknown {
@@ -23,7 +29,7 @@ function normalizeMeta(meta: unknown): unknown {
 }
 
 export function relayDevLog(level: DevLogLevel, message: string, meta?: unknown) {
-  if (!import.meta.env.DEV || typeof window === 'undefined') return
+  if (!shouldRelayDevLog() || typeof window === 'undefined') return
 
   const normalizedMeta = normalizeMeta(meta)
   const prefix = '[activity-dev]'
@@ -31,6 +37,8 @@ export function relayDevLog(level: DevLogLevel, message: string, meta?: unknown)
   else if (level === 'warn') console.warn(prefix, message, normalizedMeta)
   else if (level === 'debug') console.debug(prefix, message, normalizedMeta)
   else console.log(prefix, message, normalizedMeta)
+
+  if (level !== 'warn' && level !== 'error') return
 
   const payload: DevLogPayload = {
     timestamp: new Date().toISOString(),
