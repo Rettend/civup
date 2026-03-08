@@ -1,6 +1,6 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
-import { seasonPeakRanks, seasons } from '@civup/db'
+import { seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
 import { competitiveTierRank } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 
@@ -15,6 +15,13 @@ export interface SeasonPeakSyncResult {
   inserted: number
   updated: number
   skipped: number
+}
+
+export interface SeasonModePeakCandidate {
+  playerId: string
+  mode: LeaderboardMode
+  tier: CompetitiveTier | null
+  rating: number
 }
 
 export async function getActiveSeason(db: Database) {
@@ -149,4 +156,99 @@ export async function syncSeasonPeakRanks(
     updated,
     skipped,
   }
+}
+
+export async function syncSeasonPeakModeRanks(
+  db: Database,
+  input: {
+    seasonId: string
+    candidates: SeasonModePeakCandidate[]
+    activeModesByPlayerId: Map<string, Set<LeaderboardMode>>
+    now?: number
+  },
+): Promise<SeasonPeakSyncResult> {
+  const now = input.now ?? Date.now()
+  const activeCandidates = input.candidates.filter((candidate) => {
+    const activeModes = input.activeModesByPlayerId.get(candidate.playerId)
+    return activeModes?.has(candidate.mode) ?? false
+  })
+  if (activeCandidates.length === 0) {
+    return {
+      seasonId: input.seasonId,
+      inserted: 0,
+      updated: 0,
+      skipped: 0,
+    }
+  }
+
+  const existingRows = await db
+    .select()
+    .from(seasonPeakModeRanks)
+    .where(and(
+      eq(seasonPeakModeRanks.seasonId, input.seasonId),
+      inArray(seasonPeakModeRanks.playerId, activeCandidates.map(candidate => candidate.playerId)),
+      inArray(seasonPeakModeRanks.mode, activeCandidates.map(candidate => candidate.mode)),
+    ))
+
+  const existingByKey = new Map(
+    existingRows.map(row => [`${row.playerId}:${row.mode}`, row]),
+  )
+
+  let inserted = 0
+  let updated = 0
+  let skipped = 0
+
+  for (const candidate of activeCandidates) {
+    const key = `${candidate.playerId}:${candidate.mode}`
+    const existing = existingByKey.get(key)
+    if (!existing) {
+      await db.insert(seasonPeakModeRanks).values({
+        seasonId: input.seasonId,
+        playerId: candidate.playerId,
+        mode: candidate.mode,
+        tier: candidate.tier,
+        rating: candidate.rating,
+        achievedAt: now,
+      })
+      inserted += 1
+      continue
+    }
+
+    if (!isBetterSeasonModePeak(candidate, existing)) {
+      skipped += 1
+      continue
+    }
+
+    await db
+      .update(seasonPeakModeRanks)
+      .set({
+        tier: candidate.tier,
+        rating: candidate.rating,
+        achievedAt: now,
+      })
+      .where(and(
+        eq(seasonPeakModeRanks.seasonId, input.seasonId),
+        eq(seasonPeakModeRanks.playerId, candidate.playerId),
+        eq(seasonPeakModeRanks.mode, candidate.mode),
+      ))
+
+    updated += 1
+  }
+
+  return {
+    seasonId: input.seasonId,
+    inserted,
+    updated,
+    skipped,
+  }
+}
+
+function isBetterSeasonModePeak(
+  candidate: SeasonModePeakCandidate,
+  existing: { tier: string | null, rating: number },
+): boolean {
+  const candidateRank = candidate.tier ? competitiveTierRank(candidate.tier) : -1
+  const existingRank = existing.tier ? competitiveTierRank(existing.tier as CompetitiveTier) : -1
+  if (candidateRank !== existingRank) return candidateRank > existingRank
+  return candidate.rating > existing.rating
 }

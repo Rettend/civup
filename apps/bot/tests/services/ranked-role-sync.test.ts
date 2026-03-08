@@ -136,6 +136,54 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
+  test('sync posts rank announcements for new qualifiers', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      pleb: '11111111111111111',
+      squire: '22222222222222222',
+      gladiator: '33333333333333333',
+      legion: '44444444444444444',
+      champion: '55555555555555555',
+    })
+    await kv.put('system:channel:rank-announcements', 'channel-1')
+
+    const messagePosts: string[] = []
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input)
+      if (init?.method === 'GET' && url.includes('/members/')) {
+        return new Response(JSON.stringify({ roles: [] }), { status: 200 })
+      }
+      if (init?.method === 'PATCH' && url.includes('/members/')) {
+        return new Response('{}', { status: 200 })
+      }
+      if (init?.method === 'POST' && url.includes('/channels/channel-1/messages')) {
+        const payload = JSON.parse(String(init.body)) as { content?: string }
+        messagePosts.push(payload.content ?? '')
+        return new Response(JSON.stringify({ id: 'message-1' }), { status: 200 })
+      }
+
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+
+    await syncRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      token: 'token',
+      now: NOW,
+      applyDiscord: true,
+    })
+
+    expect(messagePosts).toHaveLength(1)
+    expect(messagePosts[0]).toContain('Rank updates')
+    expect(messagePosts[0]).toContain('qualified for ranked at <@&22222222222222222>')
+
+    sqlite.close()
+  })
+
   test('lists configured guilds and stores ranked dirty state', async () => {
     const kv = createTestKv()
     await setRankedRoleCurrentRoles(kv, 'guild-b', { pleb: '11111111111111111' })

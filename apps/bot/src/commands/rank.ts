@@ -3,6 +3,8 @@ import { Command, Option } from 'discord-hono'
 import { rankEmbed } from '../embeds/rank.ts'
 import { syncPlayerProfileFromDiscord } from '../services/player-profile.ts'
 import { getPlayerRankProfile } from '../services/player-rank.ts'
+import { listPlayerSeasonSnapshotHistory } from '../services/season-snapshot-roles.ts'
+import { getActiveSeason } from '../services/seasons.ts'
 import { factory } from '../setup.ts'
 
 interface Var {
@@ -31,8 +33,16 @@ export const command_rank = factory.command<Var>(
         console.error(`Failed to sync player profile for ${targetId}:`, error)
       }
 
-      const profile = await getPlayerRankProfile(db, c.env.KV, guildId, targetId)
-      const embed = await rankEmbed(db, targetId, profile)
+      const [profile, activeSeason, seasonHistory] = await Promise.all([
+        getPlayerRankProfile(db, c.env.KV, guildId, targetId),
+        getActiveSeason(db),
+        listPlayerSeasonSnapshotHistory(db, c.env.KV, guildId, targetId),
+      ])
+
+      const embed = await rankEmbed(db, targetId, profile, {
+        activeSeason,
+        seasonHistory,
+      })
       await c.followup({ embeds: [embed] })
     })
   },

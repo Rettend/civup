@@ -48,7 +48,7 @@ export async function playerCardEmbed(
   const rankProfile = options.rankProfile ?? null
 
   const embed = new Embed()
-    .title(`${displayName}'s Stats`)
+    .title('Stats')
     .description(buildPlayerCardDescription(playerId, requestedModeLabel, rankProfile))
     .color(0xC8AA6E)
 
@@ -67,7 +67,7 @@ export async function playerCardEmbed(
     fields.push({
       name: LEADERBOARD_MODE_LABELS[mode],
       value: [
-        `Rating: **${Math.round(rating)}**${formatModeTierSuffix(rankProfile?.modes[mode])}`,
+        `Rating: ${formatModeRating(rankProfile?.modes[mode], Math.round(rating))}`,
         `Games: ${ratingRow.gamesPlayed}`,
         `Wins: ${ratingRow.wins} (${winRate}%)`,
       ].join('\n'),
@@ -146,9 +146,17 @@ function buildPlayerCardDescription(playerId: string, requestedModeLabel: string
   return parts.join(' - ')
 }
 
-function formatModeTierSuffix(mode: PlayerRankProfile['modes'][LeaderboardMode] | undefined): string {
-  const label = mode?.tierLabel?.trim()
-  return label ? ` • **${label}**` : ''
+function formatModeRating(mode: PlayerRankProfile['modes'][LeaderboardMode] | undefined, fallbackRating: number): string {
+  if (!mode) return String(fallbackRating)
+  const label = formatRankedRoleMention(mode)
+  const rating = mode.rating ?? fallbackRating
+  return label ? `${label} (${rating})` : String(rating)
+}
+
+function formatRankedRoleMention(mode: PlayerRankProfile['modes'][LeaderboardMode]): string | null {
+  if (mode.tierRoleId) return `<@&${mode.tierRoleId}>`
+  const label = mode.tierLabel?.trim()
+  return label || null
 }
 
 function getRatingModes(modeFilter: StatsModeFilter): readonly LeaderboardMode[] {

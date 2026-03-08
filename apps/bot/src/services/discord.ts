@@ -10,7 +10,16 @@ export interface DiscordMessagePayload {
   }
 }
 
+export interface DiscordGuildRolePayload {
+  name: string
+  color?: number
+}
+
 interface DiscordMessageResponse {
+  id: string
+}
+
+interface DiscordGuildRoleResponse {
   id: string
 }
 
@@ -112,6 +121,44 @@ export async function editGuildMemberRoles(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ roles: roleIds }),
+    },
+  )
+}
+
+export async function createGuildRole(
+  token: string,
+  guildId: string,
+  payload: DiscordGuildRolePayload,
+): Promise<DiscordGuildRoleResponse> {
+  const response = await requestDiscord(
+    'create guild role',
+    `https://discord.com/api/v10/guilds/${guildId}/roles`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bot ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    },
+  )
+
+  return await response.json() as DiscordGuildRoleResponse
+}
+
+export async function deleteGuildRole(
+  token: string,
+  guildId: string,
+  roleId: string,
+): Promise<void> {
+  await requestDiscord(
+    'delete guild role',
+    `https://discord.com/api/v10/guilds/${guildId}/roles/${roleId}`,
+    {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bot ${token}`,
+      },
     },
   )
 }

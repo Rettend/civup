@@ -5,12 +5,13 @@ import { LEADERBOARD_MODES } from '@civup/game'
 import { LEADERBOARD_MIN_GAMES, displayRating } from '@civup/rating'
 import { eq } from 'drizzle-orm'
 import { previewRankedRoles } from './ranked-role-sync.ts'
-import { getRankedRoleConfig, getRankedTierLabel } from './ranked-roles.ts'
+import { getConfiguredRankedRoleLabel, getRankedRoleConfig } from './ranked-roles.ts'
 
 export interface PlayerRankModeSummary {
   mode: LeaderboardMode
   tier: CompetitiveTier | null
   tierLabel: string | null
+  tierRoleId: string | null
   rating: number | null
   gamesPlayed: number
   wins: number
@@ -48,7 +49,8 @@ export async function getPlayerRankProfile(
     return [mode, {
       mode,
       tier,
-      tierLabel: tier ? getRankedTierLabel(config, tier) : eligible ? getRankedTierLabel(config, 'pleb') : 'Provisional',
+      tierLabel: tier && config.currentRoles[tier] ? getConfiguredRankedRoleLabel(config, tier) : 'Unranked',
+      tierRoleId: tier && config.currentRoles[tier] ? config.currentRoles[tier] ?? null : null,
       rating: ratingRow ? Math.round(displayRating(ratingRow.mu, ratingRow.sigma)) : null,
       gamesPlayed: ratingRow?.gamesPlayed ?? 0,
       wins: ratingRow?.wins ?? 0,
@@ -60,7 +62,7 @@ export async function getPlayerRankProfile(
   return {
     overallTier,
     overallRoleId: overallTier ? config.currentRoles[overallTier] ?? null : null,
-    overallLabel: overallTier ? getRankedTierLabel(config, overallTier) : null,
+    overallLabel: overallTier && config.currentRoles[overallTier] ? getConfiguredRankedRoleLabel(config, overallTier) : 'Unranked',
     modes,
   }
 }

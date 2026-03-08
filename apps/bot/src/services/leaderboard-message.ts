@@ -45,6 +45,38 @@ export async function refreshConfiguredLeaderboards(
   return true
 }
 
+export async function archiveSeasonLeaderboards(
+  db: Database,
+  kv: KVNamespace,
+  token: string,
+  seasonName: string,
+): Promise<boolean> {
+  const leaderboardChannelId = await getSystemChannel(kv, 'leaderboard')
+  if (!leaderboardChannelId) return false
+
+  const existing = await getLeaderboardMessageState(db)
+  const archivedEmbeds = await buildLeaderboardEmbeds(db, { titlePrefix: seasonName })
+
+  if (existing?.channelId === leaderboardChannelId) {
+    try {
+      await editChannelMessage(token, leaderboardChannelId, existing.messageId, {
+        content: null,
+        embeds: archivedEmbeds,
+      })
+    }
+    catch (error) {
+      if (!isDiscordApiError(error, 404)) throw error
+      await createChannelMessage(token, leaderboardChannelId, { embeds: archivedEmbeds })
+    }
+  }
+  else {
+    await createChannelMessage(token, leaderboardChannelId, { embeds: archivedEmbeds })
+  }
+
+  await upsertLeaderboardMessagesForChannel(db, kv, token, leaderboardChannelId, { forceCreate: true })
+  return true
+}
+
 export async function refreshDirtyLeaderboards(
   db: Database,
   kv: KVNamespace,
@@ -65,10 +97,13 @@ export async function upsertLeaderboardMessagesForChannel(
   kv: KVNamespace,
   token: string,
   channelId: string,
+  options: {
+    forceCreate?: boolean
+  } = {},
 ): Promise<LeaderboardMessageState> {
   const existing = await getLeaderboardMessageState(db)
-  const previousMessageId = existing?.channelId === channelId ? existing.messageId : null
-  const embeds = await Promise.all(LEADERBOARD_MODES.map(mode => leaderboardEmbed(db, mode)))
+  const previousMessageId = !options.forceCreate && existing?.channelId === channelId ? existing.messageId : null
+  const embeds = await buildLeaderboardEmbeds(db)
 
   if (previousMessageId) {
     try {
@@ -101,6 +136,15 @@ export async function upsertLeaderboardMessagesForChannel(
   }
   await setLeaderboardMessageState(db, state)
   return state
+}
+
+async function buildLeaderboardEmbeds(
+  db: Database,
+  options: {
+    titlePrefix?: string
+  } = {},
+) {
+  return await Promise.all(LEADERBOARD_MODES.map(mode => leaderboardEmbed(db, mode, options)))
 }
 
 async function getLeaderboardMessageState(db: Database): Promise<LeaderboardMessageState | null> {
