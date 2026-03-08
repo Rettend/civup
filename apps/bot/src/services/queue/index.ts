@@ -1,6 +1,6 @@
 import type { GameMode, QueueEntry, QueueState } from '@civup/game'
 import { formatModeLabel, GAME_MODES, maxPlayerCount } from '@civup/game'
-import { stateStoreMget } from './state-store.ts'
+import { stateStoreMget } from '../state/store.ts'
 
 const QUEUE_KEY_PREFIX = 'queue:'
 const QUEUE_TTL = 60 * 60 // 1 hour KV TTL

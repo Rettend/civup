@@ -1,7 +1,7 @@
 import type { AdminVar } from './types.ts'
 import { LEADERBOARD_MODE_CHOICES } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
-import { hasAdminPermission } from '../../services/permissions.ts'
+import { hasAdminPermission } from '../../services/permissions/index.ts'
 import { factory } from '../../setup.ts'
 import { component_admin_show_response } from './components.ts'
 import { handleConfig } from './config.ts'

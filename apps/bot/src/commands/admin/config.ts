@@ -1,5 +1,5 @@
 import type { AdminCommandContext } from './types.ts'
-import { getServerConfigRows, parseServerConfigKey, SERVER_CONFIG_KEYS, setServerConfigValue } from '../../services/config.ts'
+import { getServerConfigRows, parseServerConfigKey, SERVER_CONFIG_KEYS, setServerConfigValue } from '../../services/config/index.ts'
 import { sendTransientEphemeralResponse } from './shared.ts'
 
 export function handleConfig(c: AdminCommandContext) {

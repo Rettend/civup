@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
 import { createLobby, getLobby, setLobbyMinRole } from '../../src/services/lobby/index.ts'
-import { getQueueState } from '../../src/services/queue.ts'
+import { getQueueState } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 

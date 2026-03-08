@@ -1,6 +1,6 @@
-import type { EphemeralResponseTone } from '../embeds/response.ts'
+import type { EphemeralResponseTone } from '../../embeds/response.ts'
 import { Button, Components } from 'discord-hono'
-import { ephemeralResponseEmbed } from '../embeds/response.ts'
+import { ephemeralResponseEmbed } from '../../embeds/response.ts'
 
 export const TRANSIENT_EPHEMERAL_DELETE_MS = 10_000
 export const SHOW_EPHEMERAL_RESPONSE_BUTTON_ID = 'admin-show-response'

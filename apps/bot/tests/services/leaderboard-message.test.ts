@@ -1,6 +1,6 @@
 import { leaderboardMessageStates, playerRatings, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { archiveSeasonLeaderboards, upsertLeaderboardMessagesForChannel } from '../../src/services/leaderboard-message.ts'
+import { archiveSeasonLeaderboards, upsertLeaderboardMessagesForChannel } from '../../src/services/leaderboard/message.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000

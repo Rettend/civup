@@ -5,7 +5,7 @@ import {
   getModRoleIds,
   hasAdminPermission,
   removeModRole,
-} from '../../src/services/permissions.ts'
+} from '../../src/services/permissions/index.ts'
 import { createTestKv } from '../helpers/test-env.ts'
 
 describe('permissions service', () => {

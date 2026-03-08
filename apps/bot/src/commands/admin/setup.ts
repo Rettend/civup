@@ -1,7 +1,7 @@
 import type { AdminCommandContext } from './types.ts'
 import { createDb } from '@civup/db'
-import { upsertLeaderboardMessagesForChannel } from '../../services/leaderboard-message.ts'
-import { clearLeaderboardDirtyState, clearLeaderboardMessageState, clearSystemChannel, getSystemChannel, setSystemChannel } from '../../services/system-channels.ts'
+import { upsertLeaderboardMessagesForChannel } from '../../services/leaderboard/message.ts'
+import { clearLeaderboardDirtyState, clearLeaderboardMessageState, clearSystemChannel, getSystemChannel, setSystemChannel } from '../../services/system/channels.ts'
 import { formatChannelMention, parseSetupTarget, sendEphemeralResponse, sendTransientEphemeralResponse, setupTargetLabel } from './shared.ts'
 
 export function handleSetup(c: AdminCommandContext) {

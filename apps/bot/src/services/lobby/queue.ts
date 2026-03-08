@@ -1,7 +1,7 @@
 import type { GameMode, QueueState } from '@civup/game'
 import type { LobbyState } from './types.ts'
-import { parseQueueState } from '../queue.ts'
-import { stateStoreMget } from '../state-store.ts'
+import { parseQueueState } from '../queue/index.ts'
+import { stateStoreMget } from '../state/store.ts'
 import { parseLobbyState } from './normalize.ts'
 
 const LOBBY_MODE_KEY_PREFIX = 'lobby:mode:'

@@ -1,13 +1,13 @@
 import type { Database } from '@civup/db'
-import type { LeaderboardDirtyState, LeaderboardMessageState } from './system-channels.ts'
+import type { LeaderboardDirtyState, LeaderboardMessageState } from '../system/channels.ts'
 import { leaderboardDirtyStates, leaderboardMessageStates } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
 import { eq } from 'drizzle-orm'
-import { leaderboardEmbed } from '../embeds/leaderboard.ts'
-import { createChannelMessage, editChannelMessage, isDiscordApiError } from './discord.ts'
+import { leaderboardEmbed } from '../../embeds/leaderboard.ts'
+import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
 import {
   getSystemChannel,
-} from './system-channels.ts'
+} from '../system/channels.ts'
 
 const LEADERBOARD_SCOPE = 'global'
 
