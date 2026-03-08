@@ -7,7 +7,7 @@ import {
   removeFromQueue,
   removeFromQueueAndUnlinkParty,
   setQueueEntries,
-} from '../../src/services/queue.ts'
+} from '../../src/services/queue/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 describe('queue service KV behavior', () => {

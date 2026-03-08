@@ -8,7 +8,7 @@ import {
   storeUserActivityTarget,
   storeUserLobbyMappings,
   storeUserMatchMappings,
-} from '../../src/services/activity.ts'
+} from '../../src/services/activity/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 describe('activity mapping behavior', () => {

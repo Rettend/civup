@@ -1,7 +1,7 @@
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from './types.ts'
 import { GAME_MODES } from '@civup/game'
-import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state-store.ts'
+import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
 import { idKey, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
 import { normalizeLobby, parseLobbyState } from './normalize.ts'
 

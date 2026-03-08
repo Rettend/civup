@@ -1,11 +1,11 @@
 import type { AdminComponentContext } from './types.ts'
 import { Button } from 'discord-hono'
-import { createChannelMessage } from '../../services/discord.ts'
+import { createChannelMessage } from '../../services/discord/index.ts'
 import {
   clearDeferredEphemeralResponse,
   sendTransientEphemeralResponse as sendRawTransientEphemeralResponse,
   SHOW_EPHEMERAL_RESPONSE_BUTTON_ID,
-} from '../../services/ephemeral-response.ts'
+} from '../../services/response/ephemeral.ts'
 import { factory } from '../../setup.ts'
 
 export const component_admin_show_response = factory.component(
