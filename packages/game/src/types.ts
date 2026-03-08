@@ -31,7 +31,6 @@ export function competitiveTierRank(tier: CompetitiveTier): number {
   return 4
 }
 
-
 // ── Leaders ─────────────────────────────────────────────────
 
 export interface LeaderAbility {

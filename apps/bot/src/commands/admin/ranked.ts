@@ -2,8 +2,8 @@ import type { CompetitiveTier } from '@civup/game'
 import type { AdminCommandContext, AdminVar } from './types.ts'
 import { createDb } from '@civup/db'
 import { formatLeaderboardModeLabel, parseLeaderboardMode } from '@civup/game'
-import { fetchGuildRoles, formatRankedRoleSlotLabel, getConfiguredRankedRoleLabel, getRankedRoleConfig, RANKED_TIERS_BY_PRESTIGE, setRankedRoleCurrentRoles } from '../../services/ranked/roles.ts'
 import { previewRankedRoles, syncRankedRoles } from '../../services/ranked/role-sync.ts'
+import { fetchGuildRoles, formatRankedRoleSlotLabel, getConfiguredRankedRoleLabel, getRankedRoleConfig, RANKED_TIERS_BY_PRESTIGE, setRankedRoleCurrentRoles } from '../../services/ranked/roles.ts'
 import { buildResolvedRoleDisplayById, sendEphemeralResponse, sendTransientEphemeralResponse } from './shared.ts'
 
 export function handleRankedRoles(c: AdminCommandContext) {

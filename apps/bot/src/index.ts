@@ -16,16 +16,6 @@ import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTime
 import { createChannelMessage } from './services/discord.ts'
 import { markLeaderboardsDirty } from './services/leaderboard-message.ts'
 import { arrangeTeamLobbySlots } from './services/lobby/arrange.ts'
-import { upsertLobbyMessage } from './services/lobby/message.ts'
-import {
-  arePremadeGroupsAdjacent,
-  buildActivePremadeEdgeSet,
-  buildSlottedPremadeGroups,
-  compactSlottedPremadesForMode,
-  moveSlottedPremadeGroup,
-  rebuildQueueEntriesFromPremadeEdgeSet,
-} from './services/lobby/premades.ts'
-import { buildOpenLobbyRenderPayload } from './services/lobby/render.ts'
 import {
   attachLobbyMatch,
   clearLobbyById,
@@ -45,8 +35,18 @@ import {
   touchLobby,
   upsertLobby,
 } from './services/lobby/index.ts'
-import { storeMatchMessageMapping } from './services/match/message.ts'
+import { upsertLobbyMessage } from './services/lobby/message.ts'
+import {
+  arePremadeGroupsAdjacent,
+  buildActivePremadeEdgeSet,
+  buildSlottedPremadeGroups,
+  compactSlottedPremadesForMode,
+  moveSlottedPremadeGroup,
+  rebuildQueueEntriesFromPremadeEdgeSet,
+} from './services/lobby/premades.ts'
+import { buildOpenLobbyRenderPayload } from './services/lobby/render.ts'
 import { activateDraftMatch, cancelDraftMatch, cancelMatchByModerator, createDraftMatch, reportMatch } from './services/match/index.ts'
+import { storeMatchMessageMapping } from './services/match/message.ts'
 import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, moveQueueEntriesBetweenModes, setQueueEntries } from './services/queue.ts'
 import { markRankedRolesDirty } from './services/ranked/role-sync.ts'
 import {

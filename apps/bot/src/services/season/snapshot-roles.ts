@@ -1,6 +1,6 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
-import { matchParticipants, matches, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
+import { matches, matchParticipants, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
 import { COMPETITIVE_TIERS, toLeaderboardMode } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { createGuildRole, deleteGuildRole, DiscordApiError, editGuildMemberRoles } from '../discord.ts'
@@ -325,7 +325,7 @@ function normalizeRoleId(value: unknown): string | null {
 function normalizeDiscordColor(value: string | null): number | undefined {
   if (!value) return undefined
   const normalized = value.startsWith('#') ? value.slice(1) : value
-  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return undefined
+  if (!/^[0-9a-f]{6}$/i.test(normalized)) return undefined
   const parsed = Number.parseInt(normalized, 16)
   return Number.isFinite(parsed) ? parsed : undefined
 }

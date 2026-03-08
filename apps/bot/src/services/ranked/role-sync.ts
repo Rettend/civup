@@ -4,9 +4,9 @@ import { playerRatings, players } from '@civup/db'
 import { COMPETITIVE_TIERS, competitiveTierRank, formatLeaderboardModeLabel, LEADERBOARD_MODES } from '@civup/game'
 import { displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'
 import { createChannelMessage, DiscordApiError, editGuildMemberRoles } from '../discord.ts'
-import { fetchGuildMemberRoleIds, formatRankedRoleSlotLabel, getMissingRankedRoleConfigTiers, getRankedRoleConfig, RANKED_ROLE_CONFIG_KEY_PREFIX, RANKED_TIERS_BY_PRESTIGE } from './roles.ts'
-import { syncSeasonPeakModeRanks, getActiveSeason, syncSeasonPeakRanks } from '../season/index.ts'
+import { getActiveSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks } from '../season/index.ts'
 import { getSystemChannel } from '../system-channels.ts'
+import { fetchGuildMemberRoleIds, formatRankedRoleSlotLabel, getMissingRankedRoleConfigTiers, getRankedRoleConfig, RANKED_ROLE_CONFIG_KEY_PREFIX, RANKED_TIERS_BY_PRESTIGE } from './roles.ts'
 
 export interface CurrentRankAssignment {
   tier: CompetitiveTier
@@ -651,7 +651,7 @@ async function postRankAnnouncements(
     content: ['**Rank updates**', ...changedPlayers.map(entry => entry.line)].join('\n'),
     allowed_mentions: {
       users: changedPlayers.map(entry => entry.player.playerId),
-      roles: [...new Set(changedPlayers.flatMap(entry => {
+      roles: [...new Set(changedPlayers.flatMap((entry) => {
         const roles = [config.currentRoles[entry.player.assignment.tier]]
         if (entry.player.previousAssignment) roles.push(config.currentRoles[entry.player.previousAssignment.tier])
         return roles.filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)

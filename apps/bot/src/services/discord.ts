@@ -157,7 +157,7 @@ export async function deleteGuildRole(
     {
       method: 'DELETE',
       headers: {
-        'Authorization': `Bot ${token}`,
+        Authorization: `Bot ${token}`,
       },
     },
   )
