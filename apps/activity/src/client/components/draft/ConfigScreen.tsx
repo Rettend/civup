@@ -1,8 +1,31 @@
-import type { CompetitiveTier } from '@civup/game'
+import type {
+  DraftTimerConfig,
+  LobbyModeValue,
+  MinRoleMismatchDetail,
+  MinRoleSetDetail,
+  OptimisticLobbyAction,
+  PendingOptimisticLobbyAction,
+  PlayerRow,
+} from '~/client/lib/config-screen/helpers'
 import type { LobbySnapshot, LobbyTeamArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
-import { COMPETITIVE_TIERS, formatModeLabel } from '@civup/game'
+import { formatModeLabel, GAME_MODE_CHOICES, inferGameMode } from '@civup/game'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, TextInput } from '~/client/components/ui'
+import {
+  applyOptimisticLobbyAction,
+  buildRankDotStyle,
+  findRankedRoleOptionByTier,
+  formatLobbyMinRole,
+  formatTimerValue,
+  getTimerConfigFromDraft,
+  MAX_TIMER_MINUTES,
+  normalizeLobbyMinRoleValue,
+  normalizeTimerMinutesInput,
+  parseTimerMinutesInput,
+  timerSecondsToMinutesInput,
+  timerSecondsToMinutesPlaceholder,
+} from '~/client/lib/config-screen/helpers'
+import { MinRoleMismatchNotice, MinRoleSetNotice, PlayerChip, PremadeLinkButton, ReadonlyTimerRow } from '~/client/lib/config-screen/parts'
 import { cn } from '~/client/lib/css'
 import { isDev } from '~/client/lib/is-dev'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
@@ -27,86 +50,11 @@ import {
   userId,
 } from '~/client/stores'
 
-const MAX_TIMER_MINUTES = 30
-const LOBBY_MODES = ['1v1', '2v2', '3v3', 'ffa'] as const
-type LobbyModeValue = typeof LOBBY_MODES[number]
-
 interface ConfigScreenProps {
   lobby?: LobbySnapshot
   onLobbyStarted?: (matchId: string) => void
   onSwitchTarget?: () => void
 }
-
-interface PlayerRow {
-  key: string
-  slot: number
-  name: string
-  playerId: string | null
-  avatarUrl: string | null
-  partyIds: string[]
-  isHost: boolean
-  empty: boolean
-}
-
-interface DraftTimerConfig {
-  banTimerSeconds: number | null
-  pickTimerSeconds: number | null
-}
-
-interface MinRoleMismatchDetail {
-  playerName: string
-  roleLabel: string
-  roleColor: string | null
-}
-
-interface MinRoleSetDetail {
-  roleLabel: string
-  roleColor: string | null
-}
-
-type OptimisticLobbyAction
-  = | {
-    kind: 'place-self'
-    targetSlot: number
-    baseRevision: number
-    expiresAt: number
-  }
-  | {
-    kind: 'remove-self'
-    baseRevision: number
-    expiresAt: number
-  }
-  | {
-    kind: 'move-player'
-    playerId: string
-    targetSlot: number
-    baseRevision: number
-    expiresAt: number
-  }
-  | {
-    kind: 'remove-player'
-    playerId: string
-    baseRevision: number
-    expiresAt: number
-  }
-
-type PendingOptimisticLobbyAction
-  = | {
-    kind: 'place-self'
-    targetSlot: number
-  }
-  | {
-    kind: 'remove-self'
-  }
-  | {
-    kind: 'move-player'
-    playerId: string
-    targetSlot: number
-  }
-  | {
-    kind: 'remove-player'
-    playerId: string
-  }
 
 /** Pre-draft setup screen (lobby waiting + room waiting). */
 export function ConfigScreen(props: ConfigScreenProps) {
@@ -273,7 +221,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   }
   const isTeamMode = () => {
     const lobby = currentLobby()
-    if (lobby) return lobby.mode === '1v1' || lobby.mode === '2v2' || lobby.mode === '3v3'
+    if (lobby) return inferGameMode(lobby.mode) !== 'ffa'
     return state()?.seats.some(s => s.team != null) ?? false
   }
 
@@ -498,9 +446,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   }
 
   const lobbyMode = (): LobbyModeValue => {
-    const raw = currentLobby()?.mode
-    if (raw) return normalizeLobbyMode(raw)
-    return inferModeFromFormatId(state()?.formatId)
+    return inferGameMode(currentLobby()?.mode ?? state()?.formatId)
   }
 
   const filledSlots = () => {
@@ -890,7 +836,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const lobby = currentLobby()
     const currentUserId = userId()
     if (!lobby || !currentUserId || !amHost()) return
-    if (lobby.mode !== '2v2' && lobby.mode !== '3v3') return
+    const mode = inferGameMode(lobby.mode)
+    if (mode !== '2v2' && mode !== '3v3') return
     if (lobbyActionPending() || startPending() || cancelPending()) return
 
     setLobbyActionPending(true)
@@ -928,7 +875,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const lobby = currentLobby()
     const currentUserId = userId()
     if (!lobby || !currentUserId) return
-    if (lobby.mode !== '2v2' && lobby.mode !== '3v3') return
+    const mode = inferGameMode(lobby.mode)
+    if (mode !== '2v2' && mode !== '3v3') return
     if (!canTogglePremadeLink(leftRow, rightRow)) return
 
     const currentlyLinked = areRowsPremadeLinked(leftRow, rightRow)
@@ -1148,8 +1096,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
                 label="Game Mode"
                 value={lobbyMode()}
                 disabled={lobbyActionPending()}
-                options={LOBBY_MODES.map(mode => ({ value: mode, label: formatModeLabel(mode, mode) }))}
-                onChange={value => void handleLobbyModeChange(normalizeLobbyMode(value))}
+                options={GAME_MODE_CHOICES.map(choice => ({ value: choice.value, label: choice.name }))}
+                onChange={value => void handleLobbyModeChange(inferGameMode(value))}
               />
             </Show>
 
@@ -1331,386 +1279,4 @@ export function ConfigScreen(props: ConfigScreenProps) {
       </div>
     </div>
   )
-}
-
-interface PlayerChipProps {
-  row: PlayerRow
-  pending: boolean
-  draggable: boolean
-  allowDrop: boolean
-  dropActive: boolean
-  showJoin: boolean
-  showRemove: boolean
-  onJoin?: () => void
-  onRemove?: () => void
-  onDragStart?: () => void
-  onDragEnd?: () => void
-  onDragEnter?: () => void
-  onDragLeave?: () => void
-  onDrop?: () => void
-}
-
-interface PremadeLinkButtonProps {
-  linked: boolean
-  interactive: boolean
-  pending: boolean
-  title: string
-  onToggle?: () => void
-}
-
-function PlayerChip(props: PlayerChipProps) {
-  return (
-    <div
-      class={cn(
-        'group flex items-center gap-2 rounded-md px-3 py-2 border transition-colors',
-        props.row.empty ? 'bg-bg-primary/20 text-text-muted border-transparent' : 'bg-bg-primary/40 border-transparent',
-        props.row.empty && props.showJoin && !props.pending && 'hover:bg-bg-primary/30 cursor-pointer',
-        props.draggable && !props.pending && 'cursor-grab active:cursor-grabbing',
-        props.dropActive && 'border-accent-gold/65 border-dashed bg-accent-gold/8',
-      )}
-      onClick={() => { if (props.showJoin && !props.pending) props.onJoin?.() }}
-      draggable={props.draggable && !props.pending}
-      onDragStart={(event) => {
-        if (!event.dataTransfer) return
-        event.dataTransfer.effectAllowed = 'move'
-        event.dataTransfer.setData('text/plain', props.row.playerId ?? '')
-        props.onDragStart?.()
-      }}
-      onDragEnd={() => props.onDragEnd?.()}
-      onDragOver={(event) => {
-        if (!props.allowDrop) return
-        event.preventDefault()
-        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
-        props.onDragEnter?.()
-      }}
-      onDragLeave={(event) => {
-        if (event.currentTarget.contains(event.relatedTarget as Node)) return
-        props.onDragLeave?.()
-      }}
-      onDrop={(event) => {
-        if (!props.allowDrop) return
-        event.preventDefault()
-        props.onDrop?.()
-      }}
-    >
-      <Show
-        when={!props.row.empty && props.row.avatarUrl}
-        fallback={<div class="i-ph-user-bold text-sm text-text-muted" />}
-      >
-        {avatar => (
-          <img
-            src={avatar()}
-            alt={props.row.name}
-            draggable={false}
-            class="rounded-full h-5 w-5 pointer-events-none object-cover"
-          />
-        )}
-      </Show>
-
-      <span class="text-sm flex-1 truncate">{props.row.name}</span>
-
-      <Show when={props.showJoin && !props.pending}>
-        <button
-          class="text-text-secondary rounded-sm opacity-0 flex h-5 w-5 transition-opacity items-center justify-center hover:text-text-primary hover:bg-white/8 group-hover:opacity-100"
-          onClick={(event) => {
-            event.stopPropagation()
-            props.onJoin?.()
-          }}
-        >
-          <span class="i-ph-plus-bold text-xs" />
-        </button>
-      </Show>
-
-      <Show when={props.showRemove && !props.pending}>
-        <button
-          class="text-text-secondary rounded-sm opacity-0 flex h-5 w-5 transition-opacity items-center justify-center hover:text-accent-red hover:bg-white/8 group-hover:opacity-100"
-          onClick={(event) => {
-            event.stopPropagation()
-            props.onRemove?.()
-          }}
-        >
-          <span class="i-ph-x-bold text-xs" />
-        </button>
-      </Show>
-
-      <Show when={!props.showJoin && !props.showRemove && props.row.isHost}>
-        <span class="text-[10px] text-accent-gold tracking-wider font-bold uppercase">Host</span>
-      </Show>
-    </div>
-  )
-}
-
-function PremadeLinkButton(props: PremadeLinkButtonProps) {
-  return (
-    <button
-      type="button"
-      class={cn(
-        'group flex h-2 w-full items-center justify-center rounded-sm transition-colors',
-        props.interactive && !props.pending ? 'cursor-pointer hover:bg-white/3' : 'cursor-default',
-        props.pending && 'pointer-events-none opacity-60',
-      )}
-      disabled={!props.interactive || props.pending}
-      title={props.title}
-      aria-label={props.title}
-      onClick={() => props.onToggle?.()}
-    >
-      <span
-        class={cn(
-          'h-[2px] w-12 rounded-full transition-colors',
-          props.linked
-            ? 'bg-accent-gold'
-            : props.interactive
-              ? 'bg-white/16 group-hover:bg-white/28'
-              : 'bg-white/8',
-        )}
-      />
-    </button>
-  )
-}
-
-function ReadonlyTimerRow(props: { label: string, value: string }) {
-  return (
-    <div class="text-sm px-3 py-2 rounded-md bg-bg-primary/35 flex items-center justify-between">
-      <span class="text-text-secondary">{props.label}</span>
-      <span class="text-text-primary font-medium">{props.value}</span>
-    </div>
-  )
-}
-
-function getTimerConfigFromDraft(state: typeof draftStore.state): { banTimerSeconds: number | null, pickTimerSeconds: number | null } {
-  if (!state) return { banTimerSeconds: null, pickTimerSeconds: null }
-
-  const banTimer = state.steps.find(step => step.action === 'ban')?.timer ?? null
-  const pickTimer = state.steps.find(step => step.action === 'pick')?.timer ?? null
-  return {
-    banTimerSeconds: banTimer,
-    pickTimerSeconds: pickTimer,
-  }
-}
-
-function timerSecondsToMinutesInput(timerSeconds: number | null): string {
-  if (timerSeconds == null) return ''
-  return String(Math.round(timerSeconds / 60))
-}
-
-function timerSecondsToMinutesPlaceholder(timerSeconds: number | null): string {
-  if (timerSeconds == null) return ''
-  return String(Math.round(timerSeconds / 60))
-}
-
-function parseTimerMinutesInput(value: string): number | null | undefined {
-  const trimmed = value.trim()
-  if (!trimmed) return null
-
-  const numeric = Number(trimmed)
-  if (!Number.isFinite(numeric) || !Number.isInteger(numeric)) return undefined
-  if (numeric < 0 || numeric > MAX_TIMER_MINUTES) return undefined
-  return numeric
-}
-
-function normalizeTimerMinutesInput(value: string): string {
-  const trimmed = value.trim()
-  if (!trimmed) return ''
-
-  const numeric = Number(trimmed)
-  if (!Number.isFinite(numeric)) return value
-
-  const bounded = Math.min(MAX_TIMER_MINUTES, Math.max(0, Math.round(numeric)))
-  return String(bounded)
-}
-
-function formatTimerValue(timerSeconds: number | null, defaultTimerSeconds: number | null = null): string {
-  if (timerSeconds == null && defaultTimerSeconds != null) {
-    if (defaultTimerSeconds === 0) return 'Unlimited'
-    const defaultMinutes = Math.round(defaultTimerSeconds / 60)
-    if (defaultMinutes === 1) return '1 minute'
-    return `${defaultMinutes} minutes`
-  }
-
-  if (timerSeconds == null) return 'Server default'
-  if (timerSeconds === 0) return 'Unlimited'
-  const minutes = Math.round(timerSeconds / 60)
-  if (minutes === 1) return '1 minute'
-  return `${minutes} minutes`
-}
-
-function normalizeLobbyMinRoleValue(value: string): CompetitiveTier | null {
-  return COMPETITIVE_TIERS.includes(value as CompetitiveTier) ? value as CompetitiveTier : null
-}
-
-function findRankedRoleOptionByTier(
-  options: RankedRoleOptionSnapshot[],
-  tier: CompetitiveTier,
-): RankedRoleOptionSnapshot | null {
-  return options.find(option => option.tier === tier) ?? null
-}
-
-function formatLobbyMinRole(minRole: CompetitiveTier | null, options: RankedRoleOptionSnapshot[]): string {
-  if (!minRole) return 'Anyone'
-  return findRankedRoleOptionByTier(options, minRole)?.label ?? 'Unranked'
-}
-
-function buildRankDotStyle(color: string | null): Record<string, string> {
-  return color ? { 'background-color': color } : { 'background-color': 'rgba(255,255,255,0.25)' }
-}
-
-function buildRolePillStyle(color: string | null): Record<string, string> {
-  if (!color) {
-    return {
-      'color': 'rgb(229,229,229)',
-      'background-color': 'rgba(255,255,255,0.06)',
-      'border-color': 'rgba(255,255,255,0.22)',
-    }
-  }
-
-  const normalized = normalizeHexColor(color)
-  if (!normalized) {
-    return {
-      color,
-      'background-color': 'rgba(255,255,255,0.06)',
-      'border-color': 'rgba(255,255,255,0.22)',
-    }
-  }
-
-  return {
-    'color': normalized,
-    'background-color': `${normalized}1F`,
-    'border-color': `${normalized}66`,
-  }
-}
-
-function normalizeHexColor(color: string): string | null {
-  const trimmed = color.trim()
-  if (!/^#[0-9A-F]{6}$/i.test(trimmed)) return null
-  return trimmed.toUpperCase()
-}
-
-function MinRoleMismatchNotice(props: { detail: MinRoleMismatchDetail }) {
-  return (
-    <span class="leading-relaxed">
-      <strong class="text-text-primary font-semibold">{props.detail.playerName}</strong>
-      {' '}
-      does not meet the new minimum rank
-      {' '}
-      <span
-        class="font-semibold px-1.5 py-0.5 border rounded-sm inline-flex items-center"
-        style={buildRolePillStyle(props.detail.roleColor)}
-      >
-        {props.detail.roleLabel}
-      </span>
-    </span>
-  )
-}
-
-function MinRoleSetNotice(props: { detail: MinRoleSetDetail }) {
-  return (
-    <span class="leading-relaxed">
-      Minimum rank set to
-      {' '}
-      <span
-        class="font-semibold px-1.5 py-0.5 border rounded-sm inline-flex items-center"
-        style={buildRolePillStyle(props.detail.roleColor)}
-      >
-        {props.detail.roleLabel}
-      </span>
-    </span>
-  )
-}
-
-function applyOptimisticLobbyAction(
-  lobby: LobbySnapshot | null,
-  action: OptimisticLobbyAction | null,
-  currentUserId: string | null,
-  currentUserDisplayName: string | null,
-  currentUserAvatarUrl: string | null,
-): LobbySnapshot | null {
-  if (!lobby || !action || !currentUserId) return lobby
-  if (Date.now() > action.expiresAt) return lobby
-  if (lobby.status !== 'open') return lobby
-
-  const entries = [...lobby.entries]
-
-  const movePlayer = (playerId: string, targetSlot: number): boolean => {
-    if (targetSlot < 0 || targetSlot >= entries.length) return false
-
-    const sourceSlot = entries.findIndex(entry => entry?.playerId === playerId)
-    if (sourceSlot === targetSlot) return false
-    const targetEntry = entries[targetSlot]
-
-    if (sourceSlot < 0) {
-      if (targetEntry && targetEntry.playerId !== playerId) return false
-
-      entries[targetSlot] = {
-        playerId,
-        displayName: typeof currentUserDisplayName === 'string' && currentUserDisplayName.trim().length > 0
-          ? currentUserDisplayName
-          : 'You',
-        avatarUrl: currentUserAvatarUrl || null,
-      }
-      return true
-    }
-
-    const sourceEntry = entries[sourceSlot]
-    if (!sourceEntry) return false
-
-    entries[sourceSlot] = targetEntry ?? null
-    entries[targetSlot] = sourceEntry
-    return true
-  }
-
-  const removePlayer = (playerId: string): boolean => {
-    const sourceSlot = entries.findIndex(entry => entry?.playerId === playerId)
-    if (sourceSlot < 0) return false
-    entries[sourceSlot] = null
-    return true
-  }
-
-  const changed = (() => {
-    switch (action.kind) {
-      case 'place-self':
-        return movePlayer(currentUserId, action.targetSlot)
-      case 'remove-self':
-        return removePlayer(currentUserId)
-      case 'move-player':
-        return movePlayer(action.playerId, action.targetSlot)
-      case 'remove-player':
-        return removePlayer(action.playerId)
-      default:
-        return false
-    }
-  })()
-
-  if (!changed) return lobby
-
-  let hasPlayerDiff = false
-  for (let i = 0; i < entries.length; i++) {
-    const before = lobby.entries[i]?.playerId ?? null
-    const after = entries[i]?.playerId ?? null
-    if (before !== after) {
-      hasPlayerDiff = true
-      break
-    }
-  }
-  if (!hasPlayerDiff) return lobby
-
-  return {
-    ...lobby,
-    entries,
-  }
-}
-
-function normalizeLobbyMode(value: string | undefined): LobbyModeValue {
-  if (value === '1v1' || value === '2v2' || value === '3v3' || value === 'ffa') return value
-  return 'ffa'
-}
-
-function inferModeFromFormatId(value: string | undefined): LobbyModeValue {
-  if (!value) return 'ffa'
-
-  const normalized = value.trim().toLowerCase()
-  if (normalized === '1v1' || normalized.endsWith('-1v1')) return '1v1'
-  if (normalized === '2v2' || normalized.endsWith('-2v2')) return '2v2'
-  if (normalized === '3v3' || normalized.endsWith('-3v3')) return '3v3'
-  if (normalized === 'ffa' || normalized.endsWith('-ffa')) return 'ffa'
-  return 'ffa'
 }

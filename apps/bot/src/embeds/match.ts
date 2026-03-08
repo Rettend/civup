@@ -1,5 +1,5 @@
 import type { DraftCancelReason, DraftSeat, GameMode, QueueEntry } from '@civup/game'
-import { getLeader } from '@civup/game'
+import { formatModeLabel, getLeader, isTeamMode } from '@civup/game'
 import { displayRating } from '@civup/rating'
 import { Button, Components, Embed } from 'discord-hono'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
@@ -23,13 +23,6 @@ interface ModerationContext {
 }
 
 export type LobbyStage = 'open' | 'drafting' | 'draft-complete' | 'reported' | 'cancelled' | 'scrubbed'
-
-const MODE_LABELS: Record<GameMode, string> = {
-  '1v1': '1v1',
-  '2v2': '2v2',
-  '3v3': '3v3',
-  'ffa': 'FFA',
-}
 
 const STAGE_LABELS: Record<LobbyStage, string> = {
   'open': 'LOBBY OPEN',
@@ -71,7 +64,7 @@ export function lobbyOpenEmbed(mode: GameMode, entries: (QueueEntry | null)[], t
     return minRoleField ? embed.fields(minRoleField, ...fields) : embed.fields(...fields)
   }
 
-  if (mode === '2v2' || mode === '3v3') {
+  if (isTeamMode(mode)) {
     const teamSize = targetSize / 2
     const teamALines = Array.from({ length: teamSize }, (_, i) => {
       const playerId = entries[i]?.playerId
@@ -166,7 +159,7 @@ export function lobbyComponents(mode: GameMode, lobbyId?: string): Components {
 
 function baseLobbyEmbed(mode: GameMode, stage: LobbyStage): Embed {
   return new Embed()
-    .title(`${STAGE_LABELS[stage]}  -  ${MODE_LABELS[mode]}`)
+    .title(`${STAGE_LABELS[stage]}  -  ${formatModeLabel(mode, mode)}`)
     .color(STAGE_COLORS[stage])
 }
 
@@ -209,7 +202,7 @@ function lobbyDraftCompleteLeaderEmbed(
 
 function lobbyReportedEmbed(mode: GameMode, participants: LobbyParticipant[], moderation?: ModerationContext): Embed {
   const embed = baseLobbyEmbed(mode, 'reported')
-  const usesTeamRows = mode === '2v2' || mode === '3v3'
+  const usesTeamRows = isTeamMode(mode)
   const description = usesTeamRows
     ? formatReportedTeamRows(participants)
     : formatReportedFlatRows(participants)
