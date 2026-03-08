@@ -1,6 +1,7 @@
-import { leaderboardMessageStates, playerRatings, players } from '@civup/db'
+import { leaderboardMessageStates, playerRatings, players, seasons } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { archiveSeasonLeaderboards, upsertLeaderboardMessagesForChannel } from '../../src/services/leaderboard/message.ts'
+import { eq } from 'drizzle-orm'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
@@ -31,6 +32,14 @@ describe('leaderboard message service', () => {
       wins: 5,
       lastPlayedAt: NOW,
     })
+    await db.insert(seasons).values({
+      id: 'season-9',
+      seasonNumber: 9,
+      name: 'Season 9',
+      startsAt: NOW - 10_000,
+      endsAt: null,
+      active: true,
+    })
 
     const postPayloads: any[] = []
     const patchPayloads: any[] = []
@@ -53,6 +62,7 @@ describe('leaderboard message service', () => {
     }) as typeof fetch
 
     await upsertLeaderboardMessagesForChannel(db, kv, 'token', 'channel-1')
+    await db.update(seasons).set({ active: false, endsAt: NOW + 1 }).where(eq(seasons.id, 'season-9'))
     await archiveSeasonLeaderboards(db, kv, 'token', 'Season 9')
 
     expect(postPayloads).toHaveLength(2)
@@ -60,6 +70,7 @@ describe('leaderboard message service', () => {
     expect(JSON.stringify(patchPayloads[0].embeds)).toContain('Season 9 FFA Leaderboard')
     expect(JSON.stringify(postPayloads[1].embeds)).toContain('FFA Leaderboard')
     expect(JSON.stringify(postPayloads[1].embeds)).not.toContain('Season 9 FFA Leaderboard')
+    expect(JSON.stringify(postPayloads[1].embeds)).toContain('No active season right now.')
 
     const [state] = await db.select().from(leaderboardMessageStates).limit(1)
     expect(state?.messageId).toBe('message-2')

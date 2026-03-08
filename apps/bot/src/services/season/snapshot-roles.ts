@@ -74,14 +74,17 @@ export async function ensureSeasonSnapshotRoles(
 
   for (const tier of COMPETITIVE_TIERS) {
     const existingRoleId = existing?.roles[tier] ?? null
-    if (existingRoleId && guildRoleById.has(existingRoleId)) {
+    const sourceRoleId = config.currentRoles[tier]
+    const sourceRole = sourceRoleId ? guildRoleById.get(sourceRoleId) : null
+    const roleLabel = sourceRole?.name ?? getConfiguredRankedRoleLabel(config, tier) ?? formatRankedRoleSlotLabel(tier)
+    const roleName = formatSeasonSnapshotRoleName(season.seasonNumber, roleLabel)
+    const legacyRoleName = formatLegacySeasonSnapshotRoleName(season.name, roleLabel)
+    const mappedRole = existingRoleId ? guildRoleById.get(existingRoleId) : null
+    if (mappedRole && (mappedRole.name === roleName || mappedRole.name === legacyRoleName)) {
       roles[tier] = existingRoleId
       continue
     }
 
-    const roleLabel = getConfiguredRankedRoleLabel(config, tier) ?? formatRankedRoleSlotLabel(tier)
-    const roleName = formatSeasonSnapshotRoleName(season.seasonNumber, roleLabel)
-    const legacyRoleName = formatLegacySeasonSnapshotRoleName(season.name, roleLabel)
     const existingRole = guildRoleByName.get(roleName) ?? guildRoleByName.get(legacyRoleName)
     if (existingRole) {
       roles[tier] = existingRole.id
@@ -90,7 +93,7 @@ export async function ensureSeasonSnapshotRoles(
 
     const created = await createGuildRole(token, guildId, {
       name: roleName,
-      color: normalizeDiscordColor(config.currentRoleMeta[tier].color),
+      color: normalizeDiscordColor(sourceRole?.color ?? config.currentRoleMeta[tier].color),
     })
     roles[tier] = created.id
   }
