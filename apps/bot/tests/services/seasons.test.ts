@@ -15,29 +15,51 @@ describe('season services', () => {
   test('startSeason and endSeason manage the active season lifecycle', async () => {
     const { db, sqlite } = await createTestDatabase()
 
-    const first = await startSeason(db, { name: 'Spring', now: NOW })
+    const first = await startSeason(db, { now: NOW })
     expect(first.seasonNumber).toBe(1)
+    expect(first.name).toBe('Season 1')
     expect(first.active).toBeTrue()
 
     const active = await getActiveSeason(db)
     expect(active?.id).toBe(first.id)
 
-    await expect(startSeason(db, { name: 'Summer', now: NOW + 1 })).rejects.toThrow('still active')
+    await expect(startSeason(db, { now: NOW + 1 })).rejects.toThrow('still active')
 
     const ended = await endSeason(db, { now: NOW + DAY_MS })
     expect(ended.active).toBeFalse()
     expect(ended.endsAt).toBe(NOW + DAY_MS)
     expect(await getActiveSeason(db)).toBeNull()
 
-    const second = await startSeason(db, { name: 'Summer', now: NOW + 2 * DAY_MS })
+    const second = await startSeason(db, { now: NOW + 2 * DAY_MS })
     expect(second.seasonNumber).toBe(2)
+    expect(second.name).toBe('Season 2')
+
+    sqlite.close()
+  })
+
+  test('startSeason clears current ratings for the new season', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    await seedPlayerIdentity(db, PLAYER_ID)
+    await seedRating(db, {
+      playerId: PLAYER_ID,
+      mode: 'duel',
+      mu: 40,
+      sigma: 6,
+      gamesPlayed: 6,
+      lastPlayedAt: NOW - DAY_MS,
+    })
+
+    await startSeason(db, { now: NOW })
+
+    const ratings = await db.select().from(playerRatings)
+    expect(ratings).toHaveLength(0)
 
     sqlite.close()
   })
 
   test('createDraftMatch tags new matches with the active season', async () => {
     const { db, sqlite } = await createTestDatabase()
-    const season = await startSeason(db, { name: 'Spring', now: NOW })
+    const season = await startSeason(db, { now: NOW })
 
     await createDraftMatch(db, {
       matchId: 'match-1',
@@ -53,7 +75,7 @@ describe('season services', () => {
 
   test('syncSeasonPeakRanks keeps the best tier reached in a season', async () => {
     const { db, sqlite } = await createTestDatabase()
-    const season = await startSeason(db, { name: 'Spring', now: NOW })
+    const season = await startSeason(db, { now: NOW })
     await seedPlayerIdentity(db, PLAYER_ID)
 
     const first = await syncSeasonPeakRanks(db, {
@@ -95,7 +117,7 @@ describe('season services', () => {
 
   test('syncSeasonPeakModeRanks keeps the best per-mode tier and rating in a season', async () => {
     const { db, sqlite } = await createTestDatabase()
-    const season = await startSeason(db, { name: 'Spring', now: NOW })
+    const season = await startSeason(db, { now: NOW })
     await seedPlayerIdentity(db, PLAYER_ID)
 
     const first = await syncSeasonPeakModeRanks(db, {
@@ -139,7 +161,7 @@ describe('season services', () => {
   test('ranked sync records peaks only for players active during the current season', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
-    const season = await startSeason(db, { name: 'Spring', now: NOW - DAY_MS })
+    const season = await startSeason(db, { now: NOW - DAY_MS })
 
     await seedPlayers(db, 'ffa', 7, { prefix: 'inactive', lastPlayedAt: NOW - 2 * DAY_MS })
     await seedPlayerIdentity(db, HERO_ID)

@@ -1,6 +1,6 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
-import { seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
+import { playerRatings, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
 import { competitiveTierRank } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 
@@ -35,31 +35,53 @@ export async function getActiveSeason(db: Database) {
   return season ?? null
 }
 
-export async function startSeason(db: Database, input: { name: string, now?: number }) {
-  const name = input.name.trim()
-  if (!name) throw new Error('Season name is required.')
+export async function getLatestSeason(db: Database) {
+  const [season] = await db
+    .select()
+    .from(seasons)
+    .orderBy(desc(seasons.seasonNumber))
+    .limit(1)
+
+  return season ?? null
+}
+
+export async function getDisplaySeason(db: Database) {
+  const activeSeason = await getActiveSeason(db)
+  if (activeSeason) return activeSeason
+  return await getLatestSeason(db)
+}
+
+export async function getNextSeasonNumber(db: Database): Promise<number> {
+  const latestSeason = await getLatestSeason(db)
+  return (latestSeason?.seasonNumber ?? 0) + 1
+}
+
+export function formatSeasonName(seasonNumber: number): string {
+  return `Season ${Math.max(1, Math.round(seasonNumber))}`
+}
+
+export function formatSeasonShortName(seasonNumber: number): string {
+  return `S${Math.max(1, Math.round(seasonNumber))}`
+}
+
+export async function startSeason(db: Database, input: { now?: number } = {}) {
 
   const existing = await getActiveSeason(db)
   if (existing) throw new Error(`Cannot start a new season while **${existing.name}** is still active.`)
 
   const now = input.now ?? Date.now()
-  const [latestSeason] = await db
-    .select({ seasonNumber: seasons.seasonNumber })
-    .from(seasons)
-    .orderBy(desc(seasons.seasonNumber))
-    .limit(1)
-
-  const seasonNumber = (latestSeason?.seasonNumber ?? 0) + 1
+  const seasonNumber = await getNextSeasonNumber(db)
   const season = {
     id: `season-${seasonNumber}`,
     seasonNumber,
-    name,
+    name: formatSeasonName(seasonNumber),
     startsAt: now,
     endsAt: null,
     active: true,
   } as const
 
   await db.insert(seasons).values(season)
+  await db.delete(playerRatings)
   return season
 }
 

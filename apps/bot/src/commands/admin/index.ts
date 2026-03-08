@@ -23,9 +23,7 @@ export const command_admin = factory.command<AdminVar>(
       ),
     ),
     new SubGroup('season', 'Season management').options(
-      new SubCommand('start', 'Start a new season').options(
-        new Option('name', 'Season name').required(),
-      ),
+      new SubCommand('start', 'Start a new season'),
       new SubCommand('end', 'End the current season'),
     ),
     new SubGroup('ranked', 'Ranked commands').options(

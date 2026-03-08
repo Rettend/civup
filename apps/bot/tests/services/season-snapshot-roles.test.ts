@@ -81,11 +81,11 @@ describe('season snapshot roles', () => {
     }))
 
     const guildRoles = new Map<string, { id: string, name: string, color: number }>([
-      ['71111111111111111', { id: '71111111111111111', name: 'Season 1 Pleb', color: 0 }],
-      ['72222222222222222', { id: '72222222222222222', name: 'Season 1 Squire', color: 0 }],
-      ['73333333333333333', { id: '73333333333333333', name: 'Season 1 Gladiator', color: 0 }],
-      ['74444444444444444', { id: '74444444444444444', name: 'Season 1 Legion', color: 0 }],
-      ['75555555555555555', { id: '75555555555555555', name: 'Season 1 Champion', color: 0 }],
+      ['71111111111111111', { id: '71111111111111111', name: 'S1 Pleb', color: 0 }],
+      ['72222222222222222', { id: '72222222222222222', name: 'S1 Squire', color: 0 }],
+      ['73333333333333333', { id: '73333333333333333', name: 'S1 Gladiator', color: 0 }],
+      ['74444444444444444', { id: '74444444444444444', name: 'S1 Legion', color: 0 }],
+      ['75555555555555555', { id: '75555555555555555', name: 'S1 Champion', color: 0 }],
     ])
     const memberRoles = new Map<string, string[]>([
       [veteranId, ['74444444444444444']],
@@ -141,6 +141,7 @@ describe('season snapshot roles', () => {
     })
 
     expect(createdRoles.squire).toMatch(/^8/)
+    expect([...guildRoles.values()].some(role => role.name.startsWith('S5 '))).toBeTrue()
 
     await finalizeSeasonSnapshotRoles(db, kv, 'guild-1', 'token', {
       id: 'season-5',

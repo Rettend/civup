@@ -5,6 +5,7 @@ import { COMPETITIVE_TIERS, toLeaderboardMode } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { createGuildRole, deleteGuildRole, DiscordApiError, editGuildMemberRoles } from '../discord/index.ts'
 import { fetchGuildMemberRoleIds, fetchGuildRoles, formatRankedRoleSlotLabel, getConfiguredRankedRoleLabel, getRankedRoleConfig } from '../ranked/roles.ts'
+import { formatSeasonShortName } from './index.ts'
 
 interface StoredSeasonSnapshotRoleMappings {
   bySeasonId?: Record<string, {
@@ -78,8 +79,10 @@ export async function ensureSeasonSnapshotRoles(
       continue
     }
 
-    const roleName = formatSeasonSnapshotRoleName(season.name, getConfiguredRankedRoleLabel(config, tier) ?? formatRankedRoleSlotLabel(tier))
-    const existingRole = guildRoleByName.get(roleName)
+    const roleLabel = getConfiguredRankedRoleLabel(config, tier) ?? formatRankedRoleSlotLabel(tier)
+    const roleName = formatSeasonSnapshotRoleName(season.seasonNumber, roleLabel)
+    const legacyRoleName = formatLegacySeasonSnapshotRoleName(season.name, roleLabel)
+    const existingRole = guildRoleByName.get(roleName) ?? guildRoleByName.get(legacyRoleName)
     if (existingRole) {
       roles[tier] = existingRole.id
       continue
@@ -216,8 +219,8 @@ export async function listPlayerSeasonSnapshotHistory(
     .sort((left, right) => right.seasonNumber - left.seasonNumber)
 }
 
-export function formatSeasonSnapshotRoleName(seasonName: string, roleLabel: string): string {
-  return `${seasonName} ${roleLabel}`
+export function formatSeasonSnapshotRoleName(seasonNumber: number, roleLabel: string): string {
+  return `${formatSeasonShortName(seasonNumber)} ${roleLabel}`
 }
 
 async function trimExpiredSeasonSnapshotRoles(
@@ -292,6 +295,10 @@ async function setSeasonSnapshotRoleMappings(kv: KVNamespace, guildId: string, m
 
 function snapshotRolesKey(guildId: string): string {
   return `${SEASON_SNAPSHOT_ROLE_KEY_PREFIX}${guildId}`
+}
+
+function formatLegacySeasonSnapshotRoleName(seasonName: string, roleLabel: string): string {
+  return `${seasonName} ${roleLabel}`
 }
 
 function normalizeSeasonSnapshotRoleMappings(raw: StoredSeasonSnapshotRoleMappings | null | undefined): SeasonSnapshotRoleMappings {
