@@ -1,6 +1,7 @@
 import { matches, matchParticipants, players, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { ensureSeasonSnapshotRoles, finalizeSeasonSnapshotRoles, getSeasonSnapshotRoleMappings, listPlayerSeasonSnapshotHistory } from '../../src/services/season/snapshot-roles.ts'
+import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
@@ -79,8 +80,20 @@ describe('season snapshot roles', () => {
         },
       },
     }))
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      pleb: '11111111111111111',
+      squire: '12222222222222222',
+      gladiator: '13333333333333333',
+      legion: '14444444444444444',
+      champion: '15555555555555555',
+    })
 
     const guildRoles = new Map<string, { id: string, name: string, color: number }>([
+      ['11111111111111111', { id: '11111111111111111', name: 'Stonefolk', color: 0x111111 }],
+      ['12222222222222222', { id: '12222222222222222', name: 'Bronzeguard', color: 0x222222 }],
+      ['13333333333333333', { id: '13333333333333333', name: 'Iron Vanguard', color: 0x333333 }],
+      ['14444444444444444', { id: '14444444444444444', name: 'Legion Prime', color: 0x444444 }],
+      ['15555555555555555', { id: '15555555555555555', name: 'Sun Champion', color: 0x555555 }],
       ['71111111111111111', { id: '71111111111111111', name: 'S1 Pleb', color: 0 }],
       ['72222222222222222', { id: '72222222222222222', name: 'S1 Squire', color: 0 }],
       ['73333333333333333', { id: '73333333333333333', name: 'S1 Gladiator', color: 0 }],
@@ -141,7 +154,7 @@ describe('season snapshot roles', () => {
     })
 
     expect(createdRoles.squire).toMatch(/^8/)
-    expect([...guildRoles.values()].some(role => role.name.startsWith('S5 '))).toBeTrue()
+    expect([...guildRoles.values()].some(role => role.name === 'S5 Bronzeguard' && role.color === 0x222222)).toBeTrue()
 
     await finalizeSeasonSnapshotRoles(db, kv, 'guild-1', 'token', {
       id: 'season-5',
