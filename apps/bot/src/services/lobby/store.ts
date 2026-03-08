@@ -1,0 +1,125 @@
+import type { GameMode } from '@civup/game'
+import type { LobbyState } from './types.ts'
+import { GAME_MODES } from '@civup/game'
+import { idKey, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
+import { parseLobbyState, normalizeLobby } from './normalize.ts'
+import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state-store.ts'
+
+export async function getLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise<LobbyState[]> {
+  const listed = await kv.list({ prefix: modePrefix(mode) })
+  const lobbyIds = listed.keys
+    .map(entry => entry.name.slice(modePrefix(mode).length))
+    .filter((lobbyId): lobbyId is string => lobbyId.length > 0)
+
+  if (lobbyIds.length === 0) return []
+
+  const rawLobbies = await stateStoreMget(
+    kv,
+    lobbyIds.map(lobbyId => ({ key: idKey(lobbyId), type: 'json' })),
+  )
+
+  return rawLobbies
+    .map(raw => parseLobbyState(raw))
+    .filter((lobby): lobby is LobbyState => lobby != null)
+    .filter(lobby => lobby.mode === mode)
+    .sort((left, right) => left.createdAt - right.createdAt)
+}
+
+/** Temporary convenience lookup for the most recently updated lobby in a mode. */
+export async function getLobby(kv: KVNamespace, mode: GameMode): Promise<LobbyState | null> {
+  const lobbies = await getLobbiesByMode(kv, mode)
+  return [...lobbies].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null
+}
+
+export async function getLobbyById(kv: KVNamespace, lobbyId: string): Promise<LobbyState | null> {
+  const raw = await kv.get(idKey(lobbyId), 'json')
+  return parseLobbyState(raw)
+}
+
+export async function getLobbyByChannel(kv: KVNamespace, channelId: string): Promise<LobbyState | null> {
+  const lobbies = await getAllLobbies(kv)
+  const openLobbies = lobbies
+    .filter(lobby => lobby.channelId === channelId && lobby.status === 'open')
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+
+  return openLobbies[0] ?? null
+}
+
+export async function getOpenLobbyForPlayer(
+  kv: KVNamespace,
+  playerId: string,
+  mode?: GameMode,
+): Promise<LobbyState | null> {
+  const lobbies = mode ? await getLobbiesByMode(kv, mode) : await getAllLobbies(kv)
+  return lobbies.find(lobby => lobby.status === 'open' && lobby.memberPlayerIds.includes(playerId)) ?? null
+}
+
+export async function getLobbyByMatch(kv: KVNamespace, matchId: string): Promise<LobbyState | null> {
+  const lobbyId = await kv.get(matchKey(matchId))
+  if (!lobbyId) return null
+  const lobby = await getLobbyById(kv, lobbyId)
+  if (!lobby || lobby.matchId !== matchId) return null
+  return lobby
+}
+
+export async function upsertLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
+  const normalizedLobby = normalizeLobby(lobby)
+  await putLobby(kv, normalizedLobby)
+}
+
+export async function clearLobbyById(kv: KVNamespace, lobbyId: string): Promise<void> {
+  const lobby = await getLobbyById(kv, lobbyId)
+  const keys = [idKey(lobbyId)]
+  if (lobby) {
+    keys.push(modeIndexKey(lobby.mode, lobby.id))
+    if (lobby.matchId) keys.push(matchKey(lobby.matchId))
+  }
+  await stateStoreMdelete(kv, keys)
+}
+
+export async function clearLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise<void> {
+  const lobbies = await getLobbiesByMode(kv, mode)
+  if (lobbies.length === 0) return
+  await stateStoreMdelete(kv, lobbies.flatMap((lobby) => {
+    const keys = [idKey(lobby.id), modeIndexKey(mode, lobby.id)]
+    if (lobby.matchId) keys.push(matchKey(lobby.matchId))
+    return keys
+  }))
+}
+
+export async function clearLobbyByMatch(kv: KVNamespace, matchId: string): Promise<void> {
+  const lobbyId = await kv.get(matchKey(matchId))
+  if (!lobbyId) {
+    await stateStoreMdelete(kv, [matchKey(matchId)])
+    return
+  }
+  await clearLobbyById(kv, lobbyId)
+}
+
+export async function putLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
+  const entries = [
+    {
+      key: idKey(lobby.id),
+      value: JSON.stringify(lobby),
+      expirationTtl: LOBBY_TTL,
+    },
+    {
+      key: modeIndexKey(lobby.mode, lobby.id),
+      value: lobby.id,
+      expirationTtl: LOBBY_TTL,
+    },
+  ]
+  if (lobby.matchId) {
+    entries.push({
+      key: matchKey(lobby.matchId),
+      value: lobby.id,
+      expirationTtl: LOBBY_TTL,
+    })
+  }
+  await stateStoreMput(kv, entries)
+}
+
+async function getAllLobbies(kv: KVNamespace): Promise<LobbyState[]> {
+  const all = await Promise.all(GAME_MODES.map(mode => getLobbiesByMode(kv, mode)))
+  return all.flat().sort((left, right) => left.createdAt - right.createdAt)
+}

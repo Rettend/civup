@@ -1,9 +1,9 @@
 import { matches, playerRatings, players, seasonPeakModeRanks, seasonPeakRanks } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
-import { createDraftMatch } from '../../src/services/match.ts'
-import { syncRankedRoles } from '../../src/services/ranked-role-sync.ts'
-import { endSeason, getActiveSeason, startSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks } from '../../src/services/seasons.ts'
+import { createDraftMatch } from '../../src/services/match/index.ts'
+import { syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
+import { endSeason, getActiveSeason, startSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks } from '../../src/services/season/index.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
