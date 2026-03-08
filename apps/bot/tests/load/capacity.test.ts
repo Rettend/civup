@@ -8,7 +8,7 @@ import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
 import { getMatchForChannel, storeMatchMapping } from '../../src/services/activity.ts'
 import { getServerDraftTimerDefaults, resolveDraftTimerConfig } from '../../src/services/config.ts'
 import { markLeaderboardsDirty } from '../../src/services/leaderboard-message.ts'
-import { clearLobby, createLobby, getLobby, getLobbyByChannel, getLobbyByMatch, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots, setLobbyStatus, upsertLobby } from '../../src/services/lobby.ts'
+import { clearLobbiesByMode, createLobby, getLobby, getLobbyByChannel, getLobbyByMatch, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots, setLobbyStatus, upsertLobby } from '../../src/services/lobby.ts'
 import { storeMatchMessageMapping } from '../../src/services/match-message.ts'
 import { activateDraftMatch, createDraftMatch, reportMatch } from '../../src/services/match.ts'
 import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState } from '../../src/services/queue.ts'
@@ -532,9 +532,9 @@ async function handleMatchReport(
 
   const lobby = await getLobbyByMatch(kv, matchId)
   if (lobby) {
-    await setLobbyStatus(kv, lobby.mode, 'completed', lobby)
+    await setLobbyStatus(kv, lobby.id, 'completed', lobby)
     await storeMatchMessageMapping(db, 'message-lobby-reported', matchId)
-    await clearLobby(kv, lobby.mode)
+    await clearLobbiesByMode(kv, lobby.mode)
   }
 
   const archiveChannelId = await getSystemChannel(kv, 'archive')

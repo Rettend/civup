@@ -1,5 +1,5 @@
 import type { DraftSeat, DraftTimerConfig, GameMode, QueueEntry, RoomConfig } from '@civup/game'
-import { allLeaderIds, GAME_MODES, getDefaultFormat, isTeamMode } from '@civup/game'
+import { allLeaderIds, GAME_MODES, getDefaultFormat, isTeamMode, slotToTeamIndex, teamSize } from '@civup/game'
 import { api, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
 import { getLobbiesByMode } from './lobby.ts'
@@ -83,10 +83,10 @@ function buildDraftWebhookUrl(botHost: string | undefined, partyHost: string | u
 function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
   if (isTeamMode(mode)) {
     // Team modes: first slot of each team is the captain (A1, B1, A2, B2...)
-    const teamSize = mode === '2v2' ? 2 : 3
+    const teamSlotCount = teamSize(mode) ?? 0
     const seats: DraftSeat[] = []
 
-    for (let i = 0; i < teamSize; i++) {
+    for (let i = 0; i < teamSlotCount; i++) {
       const teamAEntry = entries[i]
       if (teamAEntry) {
         seats.push({
@@ -97,7 +97,7 @@ function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
         })
       }
 
-      const teamBEntry = entries[teamSize + i]
+      const teamBEntry = entries[teamSlotCount + i]
       if (teamBEntry) {
         seats.push({
           playerId: teamBEntry.playerId,
@@ -116,7 +116,7 @@ function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
       playerId: e.playerId,
       displayName: e.displayName,
       avatarUrl: e.avatarUrl ?? null,
-      team: i,
+      team: slotToTeamIndex(mode, i) ?? undefined,
     }))
   }
 
