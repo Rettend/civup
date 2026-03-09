@@ -42,7 +42,6 @@ export const command_admin = factory.command<AdminVar>(
         { name: 'Draft', value: 'draft' },
         { name: 'Archive', value: 'archive' },
         { name: 'Leaderboard', value: 'leaderboard' },
-        { name: 'Rank Announcements', value: 'rank-announcements' },
       ),
     ),
     new SubCommand('config', 'View or update configuration').options(

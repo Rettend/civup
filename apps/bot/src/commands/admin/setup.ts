@@ -8,11 +8,10 @@ export function handleSetup(c: AdminCommandContext) {
   const rawTarget = c.var.target
   if (!rawTarget) {
     return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
-      const [draftChannelId, archiveChannelId, leaderboardChannelId, rankAnnouncementsChannelId] = await Promise.all([
+      const [draftChannelId, archiveChannelId, leaderboardChannelId] = await Promise.all([
         getSystemChannel(c.env.KV, 'draft'),
         getSystemChannel(c.env.KV, 'archive'),
         getSystemChannel(c.env.KV, 'leaderboard'),
-        getSystemChannel(c.env.KV, 'rank-announcements'),
       ])
 
       await sendEphemeralResponse(
@@ -20,8 +19,7 @@ export function handleSetup(c: AdminCommandContext) {
         '**Configured channels:**\n'
         + `Draft — ${formatChannelMention(draftChannelId)}\n`
         + `Archive — ${formatChannelMention(archiveChannelId)}\n`
-        + `Leaderboard — ${formatChannelMention(leaderboardChannelId)}\n`
-        + `Rank Announcements — ${formatChannelMention(rankAnnouncementsChannelId)}`,
+        + `Leaderboard — ${formatChannelMention(leaderboardChannelId)}`,
         'info',
       )
     })

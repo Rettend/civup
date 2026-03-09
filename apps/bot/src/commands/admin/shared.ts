@@ -53,12 +53,11 @@ export async function updateSeasonActionPrompt(
 export function setupTargetLabel(target: SystemChannelType): string {
   if (target === 'draft') return 'Draft'
   if (target === 'archive') return 'Archive'
-  if (target === 'rank-announcements') return 'Rank Announcements'
   return 'Leaderboard'
 }
 
 export function parseSetupTarget(value: string): SystemChannelType | null {
-  if (value === 'draft' || value === 'archive' || value === 'leaderboard' || value === 'rank-announcements') return value
+  if (value === 'draft' || value === 'archive' || value === 'leaderboard') return value
   return null
 }
 
