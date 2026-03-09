@@ -1,5 +1,6 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
+import type { RankedRoleConfig } from './roles.ts'
 import { playerRatings, players } from '@civup/db'
 import { competitiveTierRank, formatLeaderboardModeLabel, LEADERBOARD_MODES } from '@civup/game'
 import { displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'
@@ -10,7 +11,6 @@ import {
   fetchGuildMemberRoleIds,
   formatRankedRoleSlotLabel,
   getConfiguredRankedRoleId,
-  getHighestRankedRoleTier,
   getLowestRankedRoleTier,
   getMissingRankedRoleConfigTiers,
   getRankedRoleConfig,
@@ -18,7 +18,7 @@ import {
   hasConfiguredRankedRoleTier,
   normalizeRankedRoleTierId,
   RANKED_ROLE_CONFIG_KEY_PREFIX,
-  type RankedRoleConfig,
+
 } from './roles.ts'
 
 export interface CurrentRankAssignment {

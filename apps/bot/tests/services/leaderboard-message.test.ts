@@ -1,7 +1,7 @@
 import { leaderboardMessageStates, playerRatings, players, seasons } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { archiveSeasonLeaderboards, upsertLeaderboardMessagesForChannel } from '../../src/services/leaderboard/message.ts'
 import { eq } from 'drizzle-orm'
+import { archiveSeasonLeaderboards, upsertLeaderboardMessagesForChannel } from '../../src/services/leaderboard/message.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000

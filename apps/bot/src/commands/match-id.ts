@@ -1,7 +1,7 @@
 import { createDb } from '@civup/db'
 import { Command } from 'discord-hono'
-import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { getMatchIdForMessage } from '../services/match/message.ts'
+import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { factory } from '../setup.ts'
 
 export const command_match_id = factory.command(

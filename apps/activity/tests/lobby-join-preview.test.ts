@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'bun:test'
 import type { LobbySnapshot } from '../src/client/stores'
+import { describe, expect, test } from 'bun:test'
 import { resolvePendingJoinGhostSlot } from '../src/client/lib/config-screen/helpers'
 
 const baseLobby: LobbySnapshot = {

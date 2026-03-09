@@ -7,9 +7,6 @@ import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 const DAY_MS = 86_400_000
 const NOW = 1_700_000_000_000
 const originalFetch = globalThis.fetch
-const TIER_1 = 'tier1'
-const TIER_2 = 'tier2'
-const TIER_3 = 'tier3'
 const TIER_4 = 'tier4'
 const TIER_5 = 'tier5'
 
