@@ -10,7 +10,8 @@ import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { clearLobbyById, getLobbyByMatch, setLobbyStatus, upsertLobbyMessage } from '../services/lobby/index.ts'
 import { cancelMatchByModerator, getHostIdFromDraftData, reportMatch } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
-import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, syncRankedRoles } from '../services/ranked/role-sync.ts'
+import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../services/ranked/role-sync.ts'
+import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 
@@ -82,12 +83,16 @@ export function registerMatchRoutes(app: Hono<Env>) {
     let rankedRoleLines: string[] = []
     if (guildId) {
       try {
-        const rankedPreview = await syncRankedRoles({ db, kv, guildId })
+        const rankedPreview = await previewRankedRoles({ db, kv, guildId })
         rankedRoleLines = await listRankedRoleMatchUpdateLines({
           kv,
           guildId,
           preview: rankedPreview,
           playerIds: result.participants.map(participant => participant.playerId),
+        })
+        await syncSeasonPeaksForPlayers(db, {
+          playerIds: result.participants.map(participant => participant.playerId),
+          playerPreviews: rankedPreview.playerPreviews,
         })
       }
       catch (error) {

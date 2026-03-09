@@ -2,6 +2,7 @@ import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import { playerRatings, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
 import { competitiveTierRank } from '@civup/game'
+import { displayRating } from '@civup/rating'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 
@@ -23,6 +24,15 @@ export interface SeasonModePeakCandidate {
   mode: LeaderboardMode
   tier: CompetitiveTier | null
   rating: number
+}
+
+export interface SeasonPeakPreviewPlayer {
+  playerId: string
+  assignment: {
+    tier: CompetitiveTier
+    sourceMode: LeaderboardMode | null
+  }
+  ladderTiers: Record<LeaderboardMode, CompetitiveTier | null>
 }
 
 export async function getActiveSeason(db: Database) {
@@ -274,6 +284,110 @@ export async function syncSeasonPeakModeRanks(
   }
 }
 
+export async function syncSeasonPeaksForPlayers(
+  db: Database,
+  input: {
+    playerIds: string[]
+    playerPreviews: SeasonPeakPreviewPlayer[]
+    now?: number
+  },
+): Promise<{
+  seasonId: string | null
+  overall: SeasonPeakSyncResult
+  byMode: SeasonPeakSyncResult
+}> {
+  const activeSeason = await getActiveSeason(db)
+  if (!activeSeason) {
+    return {
+      seasonId: null,
+      overall: emptySeasonPeakSyncResult(null),
+      byMode: emptySeasonPeakSyncResult(null),
+    }
+  }
+
+  const playerIds = [...new Set(input.playerIds.filter(playerId => playerId.length > 0))]
+  if (playerIds.length === 0) {
+    return {
+      seasonId: activeSeason.id,
+      overall: emptySeasonPeakSyncResult(activeSeason.id),
+      byMode: emptySeasonPeakSyncResult(activeSeason.id),
+    }
+  }
+
+  const ratings = await db
+    .select({
+      playerId: playerRatings.playerId,
+      mode: playerRatings.mode,
+      mu: playerRatings.mu,
+      sigma: playerRatings.sigma,
+      lastPlayedAt: playerRatings.lastPlayedAt,
+    })
+    .from(playerRatings)
+    .where(inArray(playerRatings.playerId, playerIds))
+
+  const previewByPlayerId = new Map(input.playerPreviews.map(player => [player.playerId, player]))
+  const activePlayerIds = new Set<string>()
+  const activeModesByPlayerId = new Map<string, Set<LeaderboardMode>>()
+
+  for (const row of ratings) {
+    const mode = row.mode as LeaderboardMode
+    const lastPlayedAt = row.lastPlayedAt ?? null
+    if (lastPlayedAt == null || lastPlayedAt < activeSeason.startsAt) continue
+
+    activePlayerIds.add(row.playerId)
+    const activeModes = activeModesByPlayerId.get(row.playerId) ?? new Set<LeaderboardMode>()
+    activeModes.add(mode)
+    activeModesByPlayerId.set(row.playerId, activeModes)
+  }
+
+  const overallCandidates = playerIds
+    .map((playerId) => {
+      const preview = previewByPlayerId.get(playerId)
+      if (!preview) return null
+      return {
+        playerId,
+        tier: preview.assignment.tier,
+        sourceMode: preview.assignment.sourceMode,
+      }
+    })
+    .filter((candidate): candidate is SeasonPeakCandidate => candidate !== null)
+
+  const modeCandidates = ratings
+    .map((row) => {
+      const mode = row.mode as LeaderboardMode
+      const preview = previewByPlayerId.get(row.playerId)
+      if (!preview) return null
+      return {
+        playerId: row.playerId,
+        mode,
+        tier: preview.ladderTiers[mode] ?? null,
+        rating: Math.round(displayRating(row.mu, row.sigma)),
+      }
+    })
+    .filter((candidate): candidate is SeasonModePeakCandidate => candidate !== null)
+
+  const [overall, byMode] = await Promise.all([
+    syncSeasonPeakRanks(db, {
+      seasonId: activeSeason.id,
+      candidates: overallCandidates,
+      activePlayerIds,
+      now: input.now,
+    }),
+    syncSeasonPeakModeRanks(db, {
+      seasonId: activeSeason.id,
+      candidates: modeCandidates,
+      activeModesByPlayerId,
+      now: input.now,
+    }),
+  ])
+
+  return {
+    seasonId: activeSeason.id,
+    overall,
+    byMode,
+  }
+}
+
 function isBetterSeasonModePeak(
   candidate: SeasonModePeakCandidate,
   existing: { tier: string | null, rating: number },
@@ -283,4 +397,13 @@ function isBetterSeasonModePeak(
   const existingRank = existingTier ? competitiveTierRank(existingTier) : -1
   if (candidateRank !== existingRank) return candidateRank > existingRank
   return candidate.rating > existing.rating
+}
+
+function emptySeasonPeakSyncResult(seasonId: string | null): SeasonPeakSyncResult {
+  return {
+    seasonId,
+    inserted: 0,
+    updated: 0,
+    skipped: 0,
+  }
 }
