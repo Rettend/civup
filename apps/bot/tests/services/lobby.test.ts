@@ -42,6 +42,25 @@ describe('lobby service KV write behavior', () => {
     expect(putKeys).toContain(`lobby:mode:ffa:${lobby.id}`)
   })
 
+  test('setLobbySlots rewrites the mode index value when revision changes', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    expect(await kv.get(`lobby:mode:ffa:${lobby.id}`)).toBe(String(lobby.revision))
+
+    const nextSlots = [...lobby.slots]
+    nextSlots[1] = 'player-2'
+    const updated = await setLobbySlots(kv, lobby.id, nextSlots)
+
+    expect(updated).not.toBeNull()
+    expect(await kv.get(`lobby:mode:ffa:${lobby.id}`)).toBe(String(updated?.revision))
+  })
+
   test('setLobbySlots bumps revision when slots change', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {

@@ -116,6 +116,7 @@ export type ActivityLaunchSelection
   = | {
     kind: 'lobby'
     option: ActivityTargetOption
+    pendingJoin: boolean
     lobby: LobbySnapshot
   }
   | {

@@ -52,6 +52,7 @@ import {
 
 interface ConfigScreenProps {
   lobby?: LobbySnapshot
+  showJoinPending?: boolean
   onLobbyStarted?: (matchId: string) => void
   onSwitchTarget?: () => void
 }
@@ -72,7 +73,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const [dragOverSlot, setDragOverSlot] = createSignal<number | null>(null)
   const [optimisticLobbyAction, setOptimisticLobbyAction] = createSignal<OptimisticLobbyAction | null>(null)
   let optimisticLobbyActionTimeout: ReturnType<typeof setTimeout> | null = null
-  let bootstrapJoinHintUsed = false
   const [lobbyTimerConfig, setLobbyTimerConfig] = createSignal<DraftTimerConfig | null>(
     props.lobby
       ? {
@@ -323,37 +323,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (status === 'error') {
       showErrorMessage(optimisticTimerConfig.error() ?? 'Failed to save changes.')
     }
-  })
-
-  createEffect(() => {
-    if (bootstrapJoinHintUsed) return
-    if (optimisticLobbyAction()) return
-
-    const lobby = lobbyState()
-    const currentUserId = userId()
-    if (!lobby || !currentUserId || lobby.status !== 'open') return
-
-    if (lobby.hostId === currentUserId) {
-      bootstrapJoinHintUsed = true
-      return
-    }
-
-    if (lobby.entries.some(entry => entry?.playerId === currentUserId)) {
-      bootstrapJoinHintUsed = true
-      return
-    }
-
-    const firstEmptySlot = lobby.entries.findIndex(entry => entry == null)
-    if (firstEmptySlot < 0) {
-      bootstrapJoinHintUsed = true
-      return
-    }
-
-    bootstrapJoinHintUsed = true
-    startOptimisticLobbyAction({
-      kind: 'place-self',
-      targetSlot: firstEmptySlot,
-    })
   })
 
   const applyLobbySnapshot = (lobby: LobbySnapshot) => {
@@ -685,7 +654,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (!lobby || !currentUserId) return
     if (lobbyActionPending()) return
 
-    startOptimisticLobbyAction({ kind: 'place-self', targetSlot: slot })
     setLobbyActionPending(true)
     clearConfigMessage()
     try {
@@ -697,12 +665,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
         avatarUrl: currentAvatarUrl(),
       })
       if (!result.ok) {
-        clearOptimisticLobbyAction()
         showErrorMessage(result.error)
         return
       }
       applyLobbySnapshot(result.lobby)
-      clearOptimisticLobbyAction()
     }
     finally {
       setLobbyActionPending(false)
@@ -737,9 +703,12 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
     const draggedEntry = lobby.entries.find(entry => entry?.playerId === draggedPlayerId) ?? null
     const isLinkedDrag = isTeamMode() && (draggedEntry?.partyIds?.length ?? 0) > 0
+    const currentUserSlot = draggedPlayerId === currentUserId
+      ? lobby.entries.findIndex(entry => entry?.playerId === currentUserId)
+      : -1
 
     let optimisticAction: PendingOptimisticLobbyAction | null = null
-    if (draggedPlayerId === currentUserId && !isLinkedDrag) {
+    if (draggedPlayerId === currentUserId && !isLinkedDrag && currentUserSlot >= 0) {
       optimisticAction = { kind: 'place-self', targetSlot: slot }
     }
     else if (amHost() && !isLinkedDrag) {
@@ -1085,7 +1054,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
             <div class="text-xs text-text-muted tracking-widest font-bold flex uppercase items-center justify-between">
               <span>Config</span>
               <span class="flex h-4 w-4 items-center justify-center">
-                <Show when={optimisticTimerConfig.status() === 'pending' || lobbyActionPending() || startPending()}>
+                <Show when={props.showJoinPending || optimisticTimerConfig.status() === 'pending' || lobbyActionPending() || startPending()}>
                   <span class="i-gg:spinner text-sm text-accent-gold animate-spin" />
                 </Show>
               </span>
