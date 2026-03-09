@@ -21,7 +21,7 @@ type AppState
   = | { status: 'loading' }
     | { status: 'error', message: string }
     | { status: 'overview' }
-    | { status: 'lobby-waiting', lobby: LobbySnapshot }
+    | { status: 'lobby-waiting', lobby: LobbySnapshot, joinPending: boolean }
     | { status: 'authenticated', matchId: string, autoStart: boolean }
 
 const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
@@ -127,6 +127,7 @@ export default function App() {
 
     if (snapshot.selection.kind === 'lobby') {
       const nextLobby = snapshot.selection.lobby
+      const joinPending = snapshot.selection.pendingJoin
       setPickerError(null)
 
       if (state().status === 'authenticated') {
@@ -134,10 +135,10 @@ export default function App() {
       }
 
       setState((prev) => {
-        if (prev.status !== 'lobby-waiting') return { status: 'lobby-waiting', lobby: nextLobby }
-        if (nextLobby.revision < prev.lobby.revision) return prev
-        if (isSameLobbySnapshot(prev.lobby, nextLobby)) return prev
-        return { status: 'lobby-waiting', lobby: nextLobby }
+        if (prev.status !== 'lobby-waiting') return { status: 'lobby-waiting', lobby: nextLobby, joinPending }
+        const resolvedLobby = nextLobby.revision < prev.lobby.revision ? prev.lobby : nextLobby
+        if (isSameLobbySnapshot(prev.lobby, resolvedLobby) && prev.joinPending === joinPending) return prev
+        return { status: 'lobby-waiting', lobby: resolvedLobby, joinPending }
       })
       return
     }
@@ -297,6 +298,7 @@ export default function App() {
         <Match when={state().status === 'lobby-waiting'}>
           <ConfigScreen
             lobby={(state() as Extract<AppState, { status: 'lobby-waiting' }>).lobby}
+            showJoinPending={(state() as Extract<AppState, { status: 'lobby-waiting' }>).joinPending}
             onSwitchTarget={openOverview}
             onLobbyStarted={(matchId) => {
               const currentUserId = userId()

@@ -25,6 +25,7 @@ export interface ActivityTargetSelection {
   kind: 'lobby' | 'match'
   id: string
   selectedAt: number
+  pendingJoin: boolean
 }
 
 // ── Configuration ──────────────────────────────────────────
@@ -164,14 +165,15 @@ export async function storeUserActivityTarget(
   kv: KVNamespace,
   channelId: string,
   userIds: string[],
-  target: Pick<ActivityTargetSelection, 'kind' | 'id'>,
+  target: Pick<ActivityTargetSelection, 'kind' | 'id'> & { pendingJoin?: boolean },
 ): Promise<void> {
   const selectedAt = Date.now()
+  const pendingJoin = target.kind === 'lobby' && target.pendingJoin === true
   await stateStoreMput(
     kv,
     userIds.map(userId => ({
       key: targetUserKey(userId, channelId),
-      value: JSON.stringify({ ...target, selectedAt } satisfies ActivityTargetSelection),
+      value: JSON.stringify({ kind: target.kind, id: target.id, selectedAt, pendingJoin } satisfies ActivityTargetSelection),
       expirationTtl: ACTIVITY_MAPPING_TTL,
     })),
   )
@@ -303,6 +305,7 @@ function parseActivityTargetSelection(raw: unknown): ActivityTargetSelection | n
     kind?: unknown
     id?: unknown
     selectedAt?: unknown
+    pendingJoin?: unknown
   }
 
   if (parsed.kind !== 'lobby' && parsed.kind !== 'match') return null
@@ -313,5 +316,6 @@ function parseActivityTargetSelection(raw: unknown): ActivityTargetSelection | n
     kind: parsed.kind,
     id: parsed.id,
     selectedAt: parsed.selectedAt,
+    pendingJoin: parsed.pendingJoin === true,
   }
 }
