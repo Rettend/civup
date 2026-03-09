@@ -1,21 +1,28 @@
 import type { CompetitiveTier } from '@civup/game'
-import { COMPETITIVE_TIERS, competitiveTierMeetsMinimum, competitiveTierRank } from '@civup/game'
+import { competitiveTierMeetsMinimum, competitiveTierNumber, competitiveTierRank, isCompetitiveTier } from '@civup/game'
 import { DiscordApiError } from '../discord/index.ts'
 
+export interface RankedRoleTierConfig {
+  roleId: string | null
+  label: string | null
+  color: string | null
+}
+
 export interface RankedRoleConfig {
-  currentRoles: Record<CompetitiveTier, string | null>
-  currentRoleMeta: Record<CompetitiveTier, {
-    label: string | null
-    color: string | null
-  }>
+  tiers: RankedRoleTierConfig[]
 }
 
 interface StoredRankedRoleConfig {
-  currentRoles?: Partial<Record<CompetitiveTier, unknown>>
-  currentRoleMeta?: Partial<Record<CompetitiveTier, {
+  tiers?: Array<{
+    roleId?: unknown
     label?: unknown
     color?: unknown
-  }>>
+  }>
+  currentRoles?: Record<string, unknown>
+  currentRoleMeta?: Record<string, {
+    label?: unknown
+    color?: unknown
+  }>
 }
 
 interface DiscordGuildRole {
@@ -38,24 +45,41 @@ export interface RankedRoleVisual {
 }
 
 export const RANKED_ROLE_CONFIG_KEY_PREFIX = 'ranked-roles:config:'
+export const DEFAULT_RANKED_ROLE_TIER_COUNT = 5
+export const MIN_RANKED_ROLE_TIER_COUNT = 3
+export const MAX_RANKED_ROLE_TIER_COUNT = 10
 
-export const RANKED_TIERS_BY_PRESTIGE = ['champion', 'legion', 'gladiator', 'squire', 'pleb'] as const satisfies readonly CompetitiveTier[]
+const LEGACY_RANKED_TIERS_BY_PRESTIGE = ['champion', 'legion', 'gladiator', 'squire', 'pleb'] as const
 
-const EMPTY_RANKED_ROLE_CONFIG: RankedRoleConfig = {
-  currentRoles: {
-    pleb: null,
-    squire: null,
-    gladiator: null,
-    legion: null,
-    champion: null,
-  },
-  currentRoleMeta: {
-    pleb: { label: null, color: null },
-    squire: { label: null, color: null },
-    gladiator: { label: null, color: null },
-    legion: { label: null, color: null },
-    champion: { label: null, color: null },
-  },
+export function createRankedRoleTierId(rank: number): CompetitiveTier {
+  return `tier${Math.max(1, Math.round(rank))}`
+}
+
+export function getRankedRoleTierCount(config: RankedRoleConfig): number {
+  return config.tiers.length
+}
+
+export function getHighestRankedRoleTier(config: RankedRoleConfig): CompetitiveTier | null {
+  return config.tiers.length > 0 ? createRankedRoleTierId(1) : null
+}
+
+export function getLowestRankedRoleTier(config: RankedRoleConfig): CompetitiveTier | null {
+  return config.tiers.length > 0 ? createRankedRoleTierId(config.tiers.length) : null
+}
+
+export function hasConfiguredRankedRoleTier(config: RankedRoleConfig, tier: CompetitiveTier): boolean {
+  const rank = rankedRoleNumber(tier)
+  return rank >= 1 && rank <= config.tiers.length
+}
+
+export function parseConfiguredRankedRoleTier(config: RankedRoleConfig, value: unknown): CompetitiveTier | null {
+  const tier = normalizeRankedRoleTierId(value)
+  if (!tier) return null
+  return hasConfiguredRankedRoleTier(config, tier) ? tier : null
+}
+
+export function normalizeRankedRoleTierId(value: unknown): CompetitiveTier | null {
+  return normalizeTierKey(value)
 }
 
 export async function getRankedRoleConfig(kv: KVNamespace, guildId: string): Promise<RankedRoleConfig> {
@@ -63,30 +87,36 @@ export async function getRankedRoleConfig(kv: KVNamespace, guildId: string): Pro
   return normalizeRankedRoleConfig(stored)
 }
 
-export async function setRankedRoleCurrentRoles(
+export async function setRankedRoleTierCount(
   kv: KVNamespace,
   guildId: string,
-  updates: Partial<Record<CompetitiveTier, string | null>>,
+  tierCount: number,
+): Promise<RankedRoleConfig> {
+  const current = await getRankedRoleConfig(kv, guildId)
+  const next = resizeRankedRoleConfig(current, tierCount)
+  await kv.put(configKey(guildId), JSON.stringify(next))
+  return next
+}
+
+export async function updateRankedRoleConfig(
+  kv: KVNamespace,
+  guildId: string,
+  input: {
+    tierCount?: number
+    tierRoleIdsByRank?: Array<string | null | undefined>
+  },
   roleDisplayById?: Map<string, RankedRoleDisplaySource>,
 ): Promise<RankedRoleConfig> {
   const current = await getRankedRoleConfig(kv, guildId)
-  const next: RankedRoleConfig = {
-    currentRoles: { ...current.currentRoles },
-    currentRoleMeta: {
-      pleb: { ...current.currentRoleMeta.pleb },
-      squire: { ...current.currentRoleMeta.squire },
-      gladiator: { ...current.currentRoleMeta.gladiator },
-      legion: { ...current.currentRoleMeta.legion },
-      champion: { ...current.currentRoleMeta.champion },
-    },
-  }
+  const next = resizeRankedRoleConfig(current, input.tierCount ?? current.tiers.length)
 
-  for (const tier of COMPETITIVE_TIERS) {
-    if (!(tier in updates)) continue
-    const roleId = normalizeRoleId(updates[tier])
-    next.currentRoles[tier] = roleId
+  for (let index = 0; index < next.tiers.length; index++) {
+    const update = input.tierRoleIdsByRank?.[index]
+    if (update === undefined) continue
+    const roleId = normalizeRoleId(update)
     const display = roleId ? roleDisplayById?.get(roleId) : null
-    next.currentRoleMeta[tier] = {
+    next.tiers[index] = {
+      roleId,
       label: display?.name ?? null,
       color: display?.color ?? null,
     }
@@ -96,12 +126,49 @@ export async function setRankedRoleCurrentRoles(
   return next
 }
 
+export async function setRankedRoleCurrentRoles(
+  kv: KVNamespace,
+  guildId: string,
+  updates: Partial<Record<CompetitiveTier, string | null>>,
+  roleDisplayById?: Map<string, RankedRoleDisplaySource>,
+): Promise<RankedRoleConfig> {
+  const current = await getRankedRoleConfig(kv, guildId)
+  const requestedRanks = Object.keys(updates)
+    .map(normalizeTierKey)
+    .filter((tier): tier is CompetitiveTier => tier != null)
+    .map(tier => rankedRoleNumber(tier))
+  const highestRank = requestedRanks.length > 0 ? Math.max(...requestedRanks) : current.tiers.length
+  const next = resizeRankedRoleConfig(current, Math.max(current.tiers.length, highestRank))
+
+  for (const [rawTier, rawRoleId] of Object.entries(updates)) {
+    const tier = normalizeTierKey(rawTier)
+    if (!tier) continue
+    const index = rankedRoleNumber(tier) - 1
+    const slot = next.tiers[index]
+    if (!slot) continue
+
+    const roleId = normalizeRoleId(rawRoleId)
+    const display = roleId ? roleDisplayById?.get(roleId) : null
+    next.tiers[index] = {
+      roleId,
+      label: display?.name ?? slot.label ?? null,
+      color: display?.color ?? slot.color ?? null,
+    }
+  }
+
+  await kv.put(configKey(guildId), JSON.stringify(next))
+  return next
+}
+
 export function getConfiguredRankedRoleId(config: RankedRoleConfig, tier: CompetitiveTier): string | null {
-  return config.currentRoles[tier] ?? null
+  const slot = getRankedRoleTierConfig(config, tier)
+  return slot?.roleId ?? null
 }
 
 export function getMissingRankedRoleConfigTiers(config: RankedRoleConfig): CompetitiveTier[] {
-  return COMPETITIVE_TIERS.filter(tier => !getConfiguredRankedRoleId(config, tier))
+  return config.tiers
+    .map((_tier, index) => createRankedRoleTierId(index + 1))
+    .filter(tier => !getConfiguredRankedRoleId(config, tier))
 }
 
 export function resolveCurrentCompetitiveTierFromRoleIds(
@@ -110,8 +177,9 @@ export function resolveCurrentCompetitiveTierFromRoleIds(
 ): CompetitiveTier | null {
   let best: CompetitiveTier | null = null
 
-  for (const tier of COMPETITIVE_TIERS) {
-    const roleId = getConfiguredRankedRoleId(config, tier)
+  for (let index = 0; index < config.tiers.length; index++) {
+    const tier = createRankedRoleTierId(index + 1)
+    const roleId = config.tiers[index]?.roleId ?? null
     if (!roleId || !roleIds.includes(roleId)) continue
     if (!best || competitiveTierRank(tier) > competitiveTierRank(best)) best = tier
   }
@@ -139,18 +207,17 @@ export function buildRankedRoleVisuals(
   config: RankedRoleConfig,
   displayByRoleId?: Map<string, RankedRoleDisplaySource>,
 ): RankedRoleVisual[] {
-  return RANKED_TIERS_BY_PRESTIGE.flatMap((tier, index) => {
-    const roleId = getConfiguredRankedRoleId(config, tier)
-    if (!roleId) return []
-    const display = roleId ? displayByRoleId?.get(roleId) : undefined
-    const storedMeta = config.currentRoleMeta[tier]
+  return config.tiers.flatMap((slot, index) => {
+    if (!slot.roleId) return []
+    const tier = createRankedRoleTierId(index + 1)
+    const display = displayByRoleId?.get(slot.roleId)
 
     return [{
       tier,
       rank: index + 1,
-      roleId,
-      label: display?.name ?? storedMeta.label ?? roleId,
-      color: display?.color ?? storedMeta.color ?? null,
+      roleId: slot.roleId,
+      label: display?.name ?? slot.label ?? slot.roleId,
+      color: display?.color ?? slot.color ?? null,
     }]
   })
 }
@@ -173,18 +240,19 @@ export async function resolveRankedRoleVisuals(
   return buildRankedRoleVisuals(config, displayByRoleId)
 }
 
-export function formatRankedRoleSlotLabel(tier: CompetitiveTier): string {
-  return `Role ${rankedRoleNumber(tier)}`
+export function formatRankedRoleSlotLabel(tierOrRank: CompetitiveTier | number): string {
+  const rank = typeof tierOrRank === 'number' ? Math.max(1, Math.round(tierOrRank)) : rankedRoleNumber(tierOrRank)
+  return `Role ${rank}`
 }
 
 export function getConfiguredRankedRoleLabel(config: RankedRoleConfig, tier: CompetitiveTier): string | null {
-  const label = config.currentRoleMeta[tier].label?.trim()
+  const label = getRankedRoleTierConfig(config, tier)?.label?.trim()
   return label && label.length > 0 ? label : formatRankedRoleSlotLabel(tier)
 }
 
 export function rankedRoleNumber(tier: CompetitiveTier): number {
-  const index = RANKED_TIERS_BY_PRESTIGE.indexOf(tier)
-  return index >= 0 ? index + 1 : 5 - competitiveTierRank(tier)
+  const normalized = normalizeTierKey(tier)
+  return competitiveTierNumber(normalized ?? '') ?? DEFAULT_RANKED_ROLE_TIER_COUNT
 }
 
 export function memberMeetsRankedRoleGate(
@@ -244,25 +312,70 @@ function configKey(guildId: string): string {
   return `${RANKED_ROLE_CONFIG_KEY_PREFIX}${guildId}`
 }
 
+function getRankedRoleTierConfig(config: RankedRoleConfig, tier: CompetitiveTier): RankedRoleTierConfig | null {
+  const index = rankedRoleNumber(tier) - 1
+  return config.tiers[index] ?? null
+}
+
+function resizeRankedRoleConfig(config: RankedRoleConfig, requestedTierCount: number): RankedRoleConfig {
+  const tierCount = clampTierCount(requestedTierCount)
+  const tiers = Array.from({ length: tierCount }, (_value, index) => {
+    const existing = config.tiers[index]
+    return existing ? { ...existing } : createEmptyRankedRoleTierConfig()
+  })
+  return { tiers }
+}
+
 function normalizeRankedRoleConfig(raw: StoredRankedRoleConfig | null | undefined): RankedRoleConfig {
-  const currentRoles = { ...EMPTY_RANKED_ROLE_CONFIG.currentRoles }
-  const currentRoleMeta = {
-    pleb: { ...EMPTY_RANKED_ROLE_CONFIG.currentRoleMeta.pleb },
-    squire: { ...EMPTY_RANKED_ROLE_CONFIG.currentRoleMeta.squire },
-    gladiator: { ...EMPTY_RANKED_ROLE_CONFIG.currentRoleMeta.gladiator },
-    legion: { ...EMPTY_RANKED_ROLE_CONFIG.currentRoleMeta.legion },
-    champion: { ...EMPTY_RANKED_ROLE_CONFIG.currentRoleMeta.champion },
+  if (Array.isArray(raw?.tiers) && raw.tiers.length > 0) {
+    const tiers = resizeRankedRoleConfig({
+      tiers: raw.tiers.map((tier) => ({
+        roleId: normalizeRoleId(tier?.roleId),
+        label: normalizeOptionalLabel(tier?.label),
+        color: normalizeOptionalLabel(tier?.color),
+      })),
+    }, raw.tiers.length)
+    return tiers
   }
 
-  for (const tier of COMPETITIVE_TIERS) {
-    currentRoles[tier] = normalizeRoleId(raw?.currentRoles?.[tier])
-    currentRoleMeta[tier] = {
-      label: normalizeOptionalLabel(raw?.currentRoleMeta?.[tier]?.label),
-      color: normalizeOptionalLabel(raw?.currentRoleMeta?.[tier]?.color),
-    }
-  }
+  const legacyRoles = LEGACY_RANKED_TIERS_BY_PRESTIGE.map((legacyTier) => ({
+    roleId: normalizeRoleId(raw?.currentRoles?.[legacyTier]),
+    label: normalizeOptionalLabel(raw?.currentRoleMeta?.[legacyTier]?.label),
+    color: normalizeOptionalLabel(raw?.currentRoleMeta?.[legacyTier]?.color),
+  }))
 
-  return { currentRoles, currentRoleMeta }
+  const hasLegacyConfig = legacyRoles.some(tier => tier.roleId || tier.label || tier.color)
+  if (hasLegacyConfig) return { tiers: legacyRoles }
+
+  return createDefaultRankedRoleConfig()
+}
+
+function createDefaultRankedRoleConfig(): RankedRoleConfig {
+  return {
+    tiers: Array.from({ length: DEFAULT_RANKED_ROLE_TIER_COUNT }, () => createEmptyRankedRoleTierConfig()),
+  }
+}
+
+function createEmptyRankedRoleTierConfig(): RankedRoleTierConfig {
+  return {
+    roleId: null,
+    label: null,
+    color: null,
+  }
+}
+
+function clampTierCount(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_RANKED_ROLE_TIER_COUNT
+  return Math.max(MIN_RANKED_ROLE_TIER_COUNT, Math.min(MAX_RANKED_ROLE_TIER_COUNT, Math.round(value)))
+}
+
+function normalizeTierKey(value: unknown): CompetitiveTier | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim().toLowerCase()
+  if (isCompetitiveTier(trimmed)) return trimmed
+
+  const legacyIndex = LEGACY_RANKED_TIERS_BY_PRESTIGE.indexOf(trimmed as typeof LEGACY_RANKED_TIERS_BY_PRESTIGE[number])
+  return legacyIndex >= 0 ? createRankedRoleTierId(legacyIndex + 1) : null
 }
 
 function normalizeRoleId(value: unknown): string | null {

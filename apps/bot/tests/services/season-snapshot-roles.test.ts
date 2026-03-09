@@ -6,6 +6,8 @@ import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
 const originalFetch = globalThis.fetch
+const TIER_2 = 'tier2'
+const TIER_4 = 'tier4'
 
 describe('season snapshot roles', () => {
   afterEach(() => {
@@ -33,14 +35,14 @@ describe('season snapshot roles', () => {
     }
 
     await db.insert(seasonPeakRanks).values([
-      { seasonId: 'season-1', playerId: veteranId, tier: 'legion', sourceMode: 'duel', achievedAt: NOW - 1000 },
-      { seasonId: 'season-5', playerId: heroId, tier: 'squire', sourceMode: 'ffa', achievedAt: NOW },
+      { seasonId: 'season-1', playerId: veteranId, tier: TIER_2, sourceMode: 'duel', achievedAt: NOW - 1000 },
+      { seasonId: 'season-5', playerId: heroId, tier: TIER_4, sourceMode: 'ffa', achievedAt: NOW },
     ])
     await db.insert(seasonPeakModeRanks).values({
       seasonId: 'season-5',
       playerId: heroId,
       mode: 'ffa',
-      tier: 'squire',
+      tier: TIER_4,
       rating: 642,
       achievedAt: NOW,
     })
@@ -71,21 +73,21 @@ describe('season snapshot roles', () => {
           seasonNumber: 1,
           seasonName: 'Season 1',
           roles: {
-            pleb: '71111111111111111',
-            squire: '72222222222222222',
-            gladiator: '73333333333333333',
-            legion: '74444444444444444',
-            champion: '75555555555555555',
+            tier5: '71111111111111111',
+            tier4: '72222222222222222',
+            tier3: '73333333333333333',
+            tier2: '74444444444444444',
+            tier1: '75555555555555555',
           },
         },
       },
     }))
     await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      pleb: '11111111111111111',
-      squire: '12222222222222222',
-      gladiator: '13333333333333333',
-      legion: '14444444444444444',
-      champion: '15555555555555555',
+      tier5: '11111111111111111',
+      tier4: '12222222222222222',
+      tier3: '13333333333333333',
+      tier2: '14444444444444444',
+      tier1: '15555555555555555',
     })
 
     const guildRoles = new Map<string, { id: string, name: string, color: number }>([
@@ -153,7 +155,7 @@ describe('season snapshot roles', () => {
       name: 'Season 5',
     })
 
-    expect(createdRoles.squire).toMatch(/^8/)
+    expect(createdRoles.tier4).toMatch(/^8/)
     expect([...guildRoles.values()].some(role => role.name === 'S5 Bronzeguard' && role.color === 0x222222)).toBeTrue()
 
     await finalizeSeasonSnapshotRoles(db, kv, 'guild-1', 'token', {
@@ -163,15 +165,15 @@ describe('season snapshot roles', () => {
     })
 
     const mappings = await getSeasonSnapshotRoleMappings(kv, 'guild-1')
-    expect(mappings.bySeasonId['season-5']?.roles.squire).toMatch(/^8/)
+    expect(mappings.bySeasonId['season-5']?.roles.tier4).toMatch(/^8/)
     expect(mappings.bySeasonId['season-1']).toBeUndefined()
 
-    expect(patchCalls.find(call => call.userId === heroId)?.roles).toContain(createdRoles.squire)
+    expect(patchCalls.find(call => call.userId === heroId)?.roles).toContain(createdRoles.tier4)
     expect(patchCalls.find(call => call.userId === veteranId)?.roles).not.toContain('74444444444444444')
     expect(deletedRoleIds).toContain('74444444444444444')
 
     const history = await listPlayerSeasonSnapshotHistory(db, kv, 'guild-1', heroId)
-    expect(history[0]?.modes.ffa?.tierRoleId).toBe(createdRoles.squire)
+    expect(history[0]?.modes.ffa?.tierRoleId).toBe(createdRoles.tier4)
     expect(history[0]?.modes.ffa?.rating).toBe(642)
 
     sqlite.close()

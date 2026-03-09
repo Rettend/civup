@@ -7,6 +7,11 @@ import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 const DAY_MS = 86_400_000
 const NOW = 1_700_000_000_000
 const originalFetch = globalThis.fetch
+const TIER_1 = 'tier1'
+const TIER_2 = 'tier2'
+const TIER_3 = 'tier3'
+const TIER_4 = 'tier4'
+const TIER_5 = 'tier5'
 
 describe('ranked role sync service', () => {
   afterEach(() => {
@@ -27,9 +32,9 @@ describe('ranked role sync service', () => {
     const hero = preview.playerPreviews.find(player => player.playerId === heroId)
 
     expect(hero).not.toBeUndefined()
-    expect(hero?.ladderTiers.ffa).toBe('pleb')
-    expect(hero?.ladderTiers.duel).toBe('squire')
-    expect(hero?.assignment.tier).toBe('squire')
+    expect(hero?.ladderTiers.ffa).toBe(TIER_5)
+    expect(hero?.ladderTiers.duel).toBe(TIER_4)
+    expect(hero?.assignment.tier).toBe(TIER_4)
     expect(hero?.assignment.sourceMode).toBe('duel')
 
     sqlite.close()
@@ -44,13 +49,13 @@ describe('ranked role sync service', () => {
     await seedRating(db, { playerId: oldSquireId, mode: 'ffa', mu: 26, sigma: 8.333, gamesPlayed: 6, lastPlayedAt: NOW - 120 * DAY_MS })
 
     await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      pleb: '11111111111111111',
-      squire: '22222222222222222',
-      gladiator: '33333333333333333',
-      legion: '44444444444444444',
-      champion: '55555555555555555',
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
     })
-    await seedPreviousAssignment(kv, 'guild-1', oldSquireId, { tier: 'squire', sourceMode: 'ffa' })
+    await seedPreviousAssignment(kv, 'guild-1', oldSquireId, { tier: TIER_4, sourceMode: 'ffa' })
 
     for (let index = 0; index < 6; index++) {
       const result = await syncRankedRoles({
@@ -61,7 +66,7 @@ describe('ranked role sync service', () => {
         advanceDemotionWindow: true,
       })
       const preview = result.playerPreviews.find(player => player.playerId === oldSquireId)
-      expect(preview?.assignment.tier).toBe('squire')
+      expect(preview?.assignment.tier).toBe(TIER_4)
       expect(preview?.pendingDemotion?.belowKeepSyncs).toBe(index + 1)
     }
 
@@ -74,7 +79,7 @@ describe('ranked role sync service', () => {
     })
     const demoted = finalResult.playerPreviews.find(player => player.playerId === oldSquireId)
 
-    expect(demoted?.assignment.tier).toBe('pleb')
+    expect(demoted?.assignment.tier).toBe(TIER_5)
     expect(demoted?.pendingDemotion).toBeNull()
 
     const storedCandidates = await getRankedRoleDemotionCandidates(kv, 'guild-1')
@@ -89,11 +94,11 @@ describe('ranked role sync service', () => {
     await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
 
     await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      pleb: '11111111111111111',
-      squire: '22222222222222222',
-      gladiator: '33333333333333333',
-      legion: '44444444444444444',
-      champion: '55555555555555555',
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
     })
 
     const patchCalls: Array<{ userId: string, roles: string[] }> = []
@@ -130,8 +135,8 @@ describe('ranked role sync service', () => {
     expect(topPlayerCall?.roles).not.toContain('legacy-role')
 
     const assignments = await getCurrentRankAssignments(kv, 'guild-1')
-    expect(assignments.byPlayerId[topPlayerId]?.tier).toBe('squire')
-    expect(assignments.byPlayerId[bottomPlayerId]?.tier).toBe('pleb')
+    expect(assignments.byPlayerId[topPlayerId]?.tier).toBe(TIER_4)
+    expect(assignments.byPlayerId[bottomPlayerId]?.tier).toBe(TIER_5)
 
     sqlite.close()
   })
@@ -142,13 +147,13 @@ describe('ranked role sync service', () => {
     await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
 
     await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      pleb: '11111111111111111',
-      squire: '22222222222222222',
-      gladiator: '33333333333333333',
-      legion: '44444444444444444',
-      champion: '55555555555555555',
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
     })
-    await seedPreviousAssignment(kv, 'guild-1', playerIdFor('ffa', 1), { tier: 'pleb', sourceMode: null })
+    await seedPreviousAssignment(kv, 'guild-1', playerIdFor('ffa', 1), { tier: TIER_5, sourceMode: null })
     const preview = await syncRankedRoles({
       db,
       kv,
@@ -174,13 +179,13 @@ describe('ranked role sync service', () => {
     const heroId = playerIdFor('hero', 1)
 
     await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      pleb: '11111111111111111',
-      squire: '22222222222222222',
-      gladiator: '33333333333333333',
-      legion: '44444444444444444',
-      champion: '55555555555555555',
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
     })
-    await seedPreviousAssignment(kv, 'guild-1', heroId, { tier: 'squire', sourceMode: 'ffa' })
+    await seedPreviousAssignment(kv, 'guild-1', heroId, { tier: TIER_4, sourceMode: 'ffa' })
 
     const patchCalls: Array<{ userId: string, roles: string[] }> = []
     globalThis.fetch = (async (input, init) => {
@@ -219,8 +224,8 @@ describe('ranked role sync service', () => {
 
   test('lists configured guilds and stores ranked dirty state', async () => {
     const kv = createTestKv()
-    await setRankedRoleCurrentRoles(kv, 'guild-b', { pleb: '11111111111111111' })
-    await setRankedRoleCurrentRoles(kv, 'guild-a', { pleb: '22222222222222222' })
+    await setRankedRoleCurrentRoles(kv, 'guild-b', { tier5: '11111111111111111' })
+    await setRankedRoleCurrentRoles(kv, 'guild-a', { tier5: '22222222222222222' })
 
     const guildIds = await listRankedRoleConfigGuildIds(kv)
     expect(guildIds).toEqual(['guild-a', 'guild-b'])
@@ -280,7 +285,7 @@ async function seedPreviousAssignment(
   kv: KVNamespace,
   guildId: string,
   playerId: string,
-  assignment: { tier: 'pleb' | 'squire' | 'gladiator' | 'legion' | 'champion', sourceMode: 'ffa' | 'duel' | 'teamers' | null },
+  assignment: { tier: string, sourceMode: 'ffa' | 'duel' | 'teamers' | null },
 ): Promise<void> {
   await kv.put(`ranked-roles:current-assignments:${guildId}`, JSON.stringify({
     byPlayerId: {

@@ -1,6 +1,5 @@
 import type { CompetitiveTier, DraftState, GameMode } from '@civup/game'
 import type { LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
-import { COMPETITIVE_TIERS } from '@civup/game'
 
 export const MAX_TIMER_MINUTES = 30
 
@@ -133,7 +132,8 @@ export function formatTimerValue(timerSeconds: number | null, defaultTimerSecond
 }
 
 export function normalizeLobbyMinRoleValue(value: string): CompetitiveTier | null {
-  return COMPETITIVE_TIERS.includes(value as CompetitiveTier) ? value as CompetitiveTier : null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
 }
 
 export function findRankedRoleOptionByTier(

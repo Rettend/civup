@@ -1,6 +1,6 @@
 import { createDb, playerRatings } from '@civup/db'
 import type { GameMode } from '@civup/game'
-import { COMPETITIVE_TIERS, formatModeLabel, isTeamMode, maxPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
+import { formatModeLabel, isTeamMode, maxPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
 import { isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import type { Hono } from 'hono'
@@ -121,7 +121,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       ? parseLobbyMinRole(minRoleRaw)
       : lobby.minRole
     if (parsedMinRole === undefined) {
-      return c.json({ error: `minRole must be one of ${COMPETITIVE_TIERS.join(', ')}, or null` }, 400)
+      return c.json({ error: 'minRole must be a ranked tier id like tier1, or null' }, 400)
     }
     const normalizedMinRole = parsedMinRole
     const minRoleChanged = normalizedMinRole !== lobby.minRole

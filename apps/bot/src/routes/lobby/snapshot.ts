@@ -1,11 +1,11 @@
 import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { RankedRoleVisual } from '../../services/ranked/roles.ts'
-import { COMPETITIVE_TIERS, GAME_MODES, maxPlayerCount, minPlayerCount } from '@civup/game'
+import { GAME_MODES, maxPlayerCount, minPlayerCount } from '@civup/game'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
 import { filterQueueEntriesForLobby, getLobbiesByMode, getLobbyById, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
 import { getQueueState } from '../../services/queue/index.ts'
-import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, getRankedRoleGateError, memberMeetsRankedRoleGate } from '../../services/ranked/roles.ts'
+import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, getRankedRoleGateError, memberMeetsRankedRoleGate, normalizeRankedRoleTierId } from '../../services/ranked/roles.ts'
 
 const TEMP_LOBBY_START_MIN_PLAYERS_FFA = 1
 
@@ -132,8 +132,7 @@ export function parseLobbyTimerSeconds(value: unknown): number | null | undefine
 export function parseLobbyMinRole(value: unknown): CompetitiveTier | null | undefined {
   if (value == null) return null
   if (typeof value === 'string' && value.trim().length === 0) return null
-  if (typeof value !== 'string') return undefined
-  return COMPETITIVE_TIERS.includes(value as CompetitiveTier) ? value as CompetitiveTier : undefined
+  return normalizeRankedRoleTierId(value) ?? undefined
 }
 
 export async function validatePlayerAgainstLobbyMinRole(
@@ -209,20 +208,7 @@ export async function validateLobbyMembersAgainstMinRole(
 
 export function emptyRankedRoleConfig(): Awaited<ReturnType<typeof getRankedRoleConfig>> {
   return {
-    currentRoles: {
-      champion: null,
-      legion: null,
-      gladiator: null,
-      squire: null,
-      pleb: null,
-    },
-    currentRoleMeta: {
-      champion: { label: null, color: null },
-      legion: { label: null, color: null },
-      gladiator: { label: null, color: null },
-      squire: { label: null, color: null },
-      pleb: { label: null, color: null },
-    },
+    tiers: Array.from({ length: 5 }, () => ({ roleId: null, label: null, color: null })),
   }
 }
 

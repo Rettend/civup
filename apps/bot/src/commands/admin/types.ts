@@ -6,11 +6,17 @@ export interface AdminVar {
   mode?: string
   target?: string
   role?: string
+  count?: string
   role1?: string
   role2?: string
   role3?: string
   role4?: string
   role5?: string
+  role6?: string
+  role7?: string
+  role8?: string
+  role9?: string
+  role10?: string
 }
 
 export interface ResolvedRoleData {
