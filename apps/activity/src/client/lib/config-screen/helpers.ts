@@ -1,5 +1,5 @@
 import type { CompetitiveTier, DraftState, GameMode } from '@civup/game'
-import type { LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
+import type { LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
 import { COMPETITIVE_TIERS } from '@civup/game'
 
 export const MAX_TIMER_MINUTES = 30
@@ -15,6 +15,7 @@ export interface PlayerRow {
   partyIds: string[]
   isHost: boolean
   empty: boolean
+  pendingSelf: boolean
 }
 
 export interface DraftTimerConfig {
@@ -258,4 +259,22 @@ export function applyOptimisticLobbyAction(
   if (!hasPlayerDiff) return lobby
 
   return { ...lobby, entries }
+}
+
+export function resolvePendingJoinGhostSlot(
+  lobby: LobbySnapshot | null,
+  currentUserId: string | null,
+  pendingJoinActive: boolean,
+  joinEligibility: LobbyJoinEligibilitySnapshot | null | undefined,
+  preferredSlot: number | null = null,
+): number | null {
+  if (!lobby || !currentUserId || !pendingJoinActive) return null
+  if (!joinEligibility?.canJoin) return null
+  if (lobby.entries.some(entry => entry?.playerId === currentUserId)) return null
+
+  const pendingSlot = preferredSlot ?? joinEligibility.pendingSlot
+  if (pendingSlot == null || !Number.isInteger(pendingSlot)) return null
+  if (pendingSlot < 0 || pendingSlot >= lobby.entries.length) return null
+  if (lobby.entries[pendingSlot] != null) return null
+  return pendingSlot
 }

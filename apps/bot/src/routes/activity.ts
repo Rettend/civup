@@ -3,13 +3,19 @@ import type { Hono } from 'hono'
 import type { Env } from '../env.ts'
 import type { LobbyState } from '../services/lobby/index.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { GAME_MODES, maxPlayerCount } from '@civup/game'
+import { formatModeLabel, GAME_MODES, maxPlayerCount } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { clearUserActivityTargets, getLobbyForUser, getMatchForChannel, getMatchForUser, getUserActivityTarget, storeUserActivityTarget, storeUserMatchMappings } from '../services/activity/index.ts'
 import { filterQueueEntriesForLobby, getLobbiesByMode, getLobbyById, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
 import { getPlayerQueueMode, getQueueState } from '../services/queue/index.ts'
 import { createStateStore } from '../services/state/store.ts'
-import { buildOpenLobbySnapshot, getUniqueOpenLobbyForChannel } from './lobby/snapshot.ts'
+import { buildOpenLobbySnapshot, getUniqueOpenLobbyForChannel, validatePlayerAgainstLobbyMinRole } from './lobby/snapshot.ts'
+
+export interface LobbyJoinEligibility {
+  canJoin: boolean
+  blockedReason: string | null
+  pendingSlot: number | null
+}
 
 interface ActivityTargetOption {
   kind: 'lobby' | 'match'
@@ -31,6 +37,7 @@ type ActivityLaunchSelection
       kind: 'lobby'
       option: ActivityTargetOption
       pendingJoin: boolean
+      joinEligibility: LobbyJoinEligibility
       lobby: Awaited<ReturnType<typeof buildOpenLobbySnapshot>>
     }
     | {
@@ -139,7 +146,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
     const userId = c.req.param('userId')
     const kv = createStateStore(c.env)
 
-    return c.json(await buildActivityLaunchSnapshot(kv, channelId, userId))
+    return c.json(await buildActivityLaunchSnapshot(c.env.DISCORD_TOKEN, kv, channelId, userId))
   })
 
   app.post('/api/activity/target', async (c) => {
@@ -182,27 +189,30 @@ export function registerActivityRoutes(app: Hono<Env>) {
     }
 
     await storeUserActivityTarget(kv, channelId, [userId], { kind, id })
-    return c.json(await buildActivityLaunchSnapshotFromTargets(kv, targets, { target, pendingJoin: false }))
+    return c.json(await buildActivityLaunchSnapshotFromTargets(c.env.DISCORD_TOKEN, kv, userId, targets, { target, pendingJoin: false }))
   })
 }
 
 async function buildActivityLaunchSnapshot(
+  token: string | undefined,
   kv: KVNamespace,
   channelId: string,
   userId: string,
 ): Promise<ActivityLaunchSnapshot> {
   const targets = await listChannelActivityTargets(kv, channelId, userId)
   const selection = await resolveActivityLaunchSelection(kv, channelId, userId, targets)
-  return buildActivityLaunchSnapshotFromTargets(kv, targets, selection)
+  return buildActivityLaunchSnapshotFromTargets(token, kv, userId, targets, selection)
 }
 
 async function buildActivityLaunchSnapshotFromTargets(
+  token: string | undefined,
   kv: KVNamespace,
+  userId: string,
   targets: ChannelActivityTarget[],
   selection: ResolvedActivitySelection | null,
 ): Promise<ActivityLaunchSnapshot> {
   return {
-    selection: selection ? await serializeActivityLaunchSelection(kv, selection) : null,
+    selection: selection ? await serializeActivityLaunchSelection(token, kv, userId, selection) : null,
     options: targets.map(target => target.option),
   }
 }
@@ -229,15 +239,19 @@ async function resolveActivityLaunchSelection(
 }
 
 async function serializeActivityLaunchSelection(
+  token: string | undefined,
   kv: KVNamespace,
+  userId: string,
   selection: ResolvedActivitySelection,
 ): Promise<ActivityLaunchSelection> {
   if (selection.target.option.kind === 'lobby') {
+    const lobby = await buildOpenLobbySnapshot(kv, selection.target.lobby.mode, selection.target.lobby)
     return {
       kind: 'lobby',
       option: selection.target.option,
       pendingJoin: selection.pendingJoin,
-      lobby: await buildOpenLobbySnapshot(kv, selection.target.lobby.mode, selection.target.lobby),
+      joinEligibility: await resolveLobbyJoinEligibility(token, kv, userId, selection.target.lobby, lobby),
+      lobby,
     }
   }
 
@@ -245,6 +259,75 @@ async function serializeActivityLaunchSelection(
     kind: 'match',
     option: selection.target.option,
     matchId: selection.target.option.id,
+  }
+}
+
+export async function resolveLobbyJoinEligibility(
+  token: string | undefined,
+  kv: KVNamespace,
+  userId: string,
+  lobby: LobbyState,
+  lobbySnapshot: Awaited<ReturnType<typeof buildOpenLobbySnapshot>>,
+): Promise<LobbyJoinEligibility> {
+  if (lobby.status !== 'open') {
+    return {
+      canJoin: false,
+      blockedReason: 'This lobby is no longer open.',
+      pendingSlot: null,
+    }
+  }
+
+  if (lobby.memberPlayerIds.includes(userId) || lobbySnapshot.entries.some(entry => entry?.playerId === userId)) {
+    return {
+      canJoin: true,
+      blockedReason: null,
+      pendingSlot: null,
+    }
+  }
+
+  const existingLobby = await getOpenLobbyForPlayer(kv, userId, lobby.mode)
+  if (existingLobby && existingLobby.id !== lobby.id) {
+    return {
+      canJoin: false,
+      blockedReason: 'You are already in another open lobby.',
+      pendingSlot: null,
+    }
+  }
+
+  const existingQueueMode = await getPlayerQueueMode(kv, userId)
+  if (existingQueueMode) {
+    return {
+      canJoin: false,
+      blockedReason: `You're already in the ${formatModeLabel(existingQueueMode)} queue. Leave it first with /match leave.`,
+      pendingSlot: null,
+    }
+  }
+
+  const pendingSlot = lobbySnapshot.entries.findIndex(entry => entry == null)
+  if (pendingSlot < 0) {
+    return {
+      canJoin: false,
+      blockedReason: 'This lobby is full.',
+      pendingSlot: null,
+    }
+  }
+
+  if (lobby.minRole && !token) {
+    return {
+      canJoin: false,
+      blockedReason: 'Rank-gated lobbies are unavailable because the bot token is missing.',
+      pendingSlot: null,
+    }
+  }
+
+  const blockedReason = token
+    ? await validatePlayerAgainstLobbyMinRole(token, kv, lobby, userId)
+    : null
+
+  return {
+    canJoin: blockedReason == null,
+    blockedReason,
+    pendingSlot: blockedReason == null ? pendingSlot : null,
   }
 }
 

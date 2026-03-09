@@ -112,11 +112,18 @@ export interface ActivityTargetOption {
   updatedAt: number
 }
 
+export interface LobbyJoinEligibilitySnapshot {
+  canJoin: boolean
+  blockedReason: string | null
+  pendingSlot: number | null
+}
+
 export type ActivityLaunchSelection
   = | {
     kind: 'lobby'
     option: ActivityTargetOption
     pendingJoin: boolean
+    joinEligibility: LobbyJoinEligibilitySnapshot
     lobby: LobbySnapshot
   }
   | {
