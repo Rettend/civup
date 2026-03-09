@@ -1,4 +1,4 @@
-import type { ActivityLaunchSelection, ActivityTargetOption, LobbySnapshot, LobbyStateWatch } from './stores'
+import type { ActivityLaunchSelection, ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot, LobbyStateWatch } from './stores'
 import { createSignal, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
 import { activityTargetOptionKey, ActivityTargetPicker, ConfigScreen, DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
@@ -21,7 +21,7 @@ type AppState
   = | { status: 'loading' }
     | { status: 'error', message: string }
     | { status: 'overview' }
-    | { status: 'lobby-waiting', lobby: LobbySnapshot, joinPending: boolean }
+    | { status: 'lobby-waiting', lobby: LobbySnapshot, joinPending: boolean, joinEligibility: LobbyJoinEligibilitySnapshot }
     | { status: 'authenticated', matchId: string, autoStart: boolean }
 
 const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
@@ -128,6 +128,7 @@ export default function App() {
     if (snapshot.selection.kind === 'lobby') {
       const nextLobby = snapshot.selection.lobby
       const joinPending = snapshot.selection.pendingJoin
+      const joinEligibility = snapshot.selection.joinEligibility
       setPickerError(null)
 
       if (state().status === 'authenticated') {
@@ -135,10 +136,16 @@ export default function App() {
       }
 
       setState((prev) => {
-        if (prev.status !== 'lobby-waiting') return { status: 'lobby-waiting', lobby: nextLobby, joinPending }
+        if (prev.status !== 'lobby-waiting') return { status: 'lobby-waiting', lobby: nextLobby, joinPending, joinEligibility }
         const resolvedLobby = nextLobby.revision < prev.lobby.revision ? prev.lobby : nextLobby
-        if (isSameLobbySnapshot(prev.lobby, resolvedLobby) && prev.joinPending === joinPending) return prev
-        return { status: 'lobby-waiting', lobby: resolvedLobby, joinPending }
+        if (
+          isSameLobbySnapshot(prev.lobby, resolvedLobby)
+          && prev.joinPending === joinPending
+          && prev.joinEligibility.canJoin === joinEligibility.canJoin
+          && prev.joinEligibility.blockedReason === joinEligibility.blockedReason
+          && prev.joinEligibility.pendingSlot === joinEligibility.pendingSlot
+        ) return prev
+        return { status: 'lobby-waiting', lobby: resolvedLobby, joinPending, joinEligibility }
       })
       return
     }
@@ -299,6 +306,7 @@ export default function App() {
           <ConfigScreen
             lobby={(state() as Extract<AppState, { status: 'lobby-waiting' }>).lobby}
             showJoinPending={(state() as Extract<AppState, { status: 'lobby-waiting' }>).joinPending}
+            joinEligibility={(state() as Extract<AppState, { status: 'lobby-waiting' }>).joinEligibility}
             onSwitchTarget={openOverview}
             onLobbyStarted={(matchId) => {
               const currentUserId = userId()

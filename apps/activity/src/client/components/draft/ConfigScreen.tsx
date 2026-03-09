@@ -7,7 +7,7 @@ import type {
   PendingOptimisticLobbyAction,
   PlayerRow,
 } from '~/client/lib/config-screen/helpers'
-import type { LobbySnapshot, LobbyTeamArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
+import type { LobbyJoinEligibilitySnapshot, LobbySnapshot, LobbyTeamArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
 import { formatModeLabel, GAME_MODE_CHOICES, inferGameMode } from '@civup/game'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, TextInput } from '~/client/components/ui'
@@ -22,6 +22,7 @@ import {
   normalizeLobbyMinRoleValue,
   normalizeTimerMinutesInput,
   parseTimerMinutesInput,
+  resolvePendingJoinGhostSlot,
   timerSecondsToMinutesInput,
   timerSecondsToMinutesPlaceholder,
 } from '~/client/lib/config-screen/helpers'
@@ -53,6 +54,7 @@ import {
 interface ConfigScreenProps {
   lobby?: LobbySnapshot
   showJoinPending?: boolean
+  joinEligibility?: LobbyJoinEligibilitySnapshot
   onLobbyStarted?: (matchId: string) => void
   onSwitchTarget?: () => void
 }
@@ -69,6 +71,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const [cancelPending, setCancelPending] = createSignal(false)
   const [startPending, setStartPending] = createSignal(false)
   const [lobbyActionPending, setLobbyActionPending] = createSignal(false)
+  const [pendingPlaceSelfSlot, setPendingPlaceSelfSlot] = createSignal<number | null>(null)
   const [draggingPlayerId, setDraggingPlayerId] = createSignal<string | null>(null)
   const [dragOverSlot, setDragOverSlot] = createSignal<number | null>(null)
   const [optimisticLobbyAction, setOptimisticLobbyAction] = createSignal<OptimisticLobbyAction | null>(null)
@@ -182,6 +185,13 @@ export function ConfigScreen(props: ConfigScreenProps) {
     currentDisplayName(),
     currentAvatarUrl(),
   )
+  const pendingSelfJoinSlot = () => resolvePendingJoinGhostSlot(
+    currentLobby(),
+    userId(),
+    (props.showJoinPending === true) || pendingPlaceSelfSlot() != null,
+    props.joinEligibility,
+    pendingPlaceSelfSlot(),
+  )
   const isLobbyMode = () => currentLobby() != null
   const hostId = () => currentLobby()?.hostId ?? draftStore.hostId ?? state()?.seats[0]?.playerId ?? null
   const amHost = () => {
@@ -212,6 +222,28 @@ export function ConfigScreen(props: ConfigScreenProps) {
     onCleanup(() => {
       cancelled = true
     })
+  })
+
+  createEffect(() => {
+    const slot = pendingPlaceSelfSlot()
+    if (slot == null) return
+
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || props.joinEligibility?.canJoin === false) {
+      setPendingPlaceSelfSlot(null)
+      return
+    }
+
+    if (lobby.entries.some(entry => entry?.playerId === currentUserId)) {
+      setPendingPlaceSelfSlot(null)
+      return
+    }
+
+    const targetEntry = lobby.entries[slot] ?? null
+    if (targetEntry && targetEntry.playerId !== currentUserId) {
+      setPendingPlaceSelfSlot(null)
+    }
   })
 
   const formatId = () => {
@@ -338,6 +370,37 @@ export function ConfigScreen(props: ConfigScreenProps) {
     })
   }
 
+  const buildLobbyRow = (slot: number, entry: LobbySnapshot['entries'][number] | null, key: string): PlayerRow => {
+    const pendingSelf = pendingSelfJoinSlot() === slot
+    const currentUserId = userId()
+
+    if (pendingSelf && currentUserId) {
+      return {
+        key,
+        slot,
+        name: currentDisplayName() || 'You',
+        playerId: currentUserId,
+        avatarUrl: currentAvatarUrl(),
+        partyIds: [],
+        isHost: false,
+        empty: false,
+        pendingSelf: true,
+      }
+    }
+
+    return {
+      key,
+      slot,
+      name: entry?.displayName ?? '[empty]',
+      playerId: entry?.playerId ?? null,
+      avatarUrl: entry?.avatarUrl ?? null,
+      partyIds: entry?.partyIds ?? [],
+      isHost: entry?.playerId === hostId(),
+      empty: entry == null,
+      pendingSelf: false,
+    }
+  }
+
   const teamRows = (team: 0 | 1): PlayerRow[] => {
     const lobby = currentLobby()
     if (lobby) {
@@ -346,16 +409,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       return Array.from({ length: size }, (_, i) => {
         const slot = start + i
         const entry = lobby.entries[slot] ?? null
-        return {
-          key: `lobby-${slot}`,
-          slot,
-          name: entry?.displayName ?? '[empty]',
-          playerId: entry?.playerId ?? null,
-          avatarUrl: entry?.avatarUrl ?? null,
-          partyIds: entry?.partyIds ?? [],
-          isHost: entry?.playerId === hostId(),
-          empty: entry == null,
-        }
+        return buildLobbyRow(slot, entry, `lobby-${slot}`)
       })
     }
 
@@ -369,6 +423,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       partyIds: [],
       isHost: seat.playerId === hostId(),
       empty: false,
+      pendingSelf: false,
     }))
   }
 
@@ -377,16 +432,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (lobby) {
       return Array.from({ length: lobby.targetSize }, (_, i) => {
         const entry = lobby.entries[i] ?? null
-        return {
-          key: `lobby-ffa-${i}`,
-          slot: i,
-          name: entry?.displayName ?? '[empty]',
-          playerId: entry?.playerId ?? null,
-          avatarUrl: entry?.avatarUrl ?? null,
-          partyIds: entry?.partyIds ?? [],
-          isHost: entry?.playerId === hostId(),
-          empty: entry == null,
-        }
+        return buildLobbyRow(i, entry, `lobby-ffa-${i}`)
       })
     }
 
@@ -399,6 +445,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       partyIds: [],
       isHost: seat.playerId === hostId(),
       empty: false,
+      pendingSelf: false,
     }))
   }
 
@@ -440,6 +487,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return currentLobby()?.entries.some(entry => entry?.playerId === id) ?? false
   }
 
+  const viewerJoinBlockedReason = () => {
+    const currentUserId = userId()
+    const eligibility = props.joinEligibility
+    if (!currentUserId || !eligibility || eligibility.canJoin) return null
+    if (isCurrentUserSlotted()) return null
+    return eligibility.blockedReason ?? 'You cannot join this lobby right now.'
+  }
+
   const currentUserLinkedPartySize = () => {
     const id = userId()
     if (!id) return 0
@@ -451,13 +506,15 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (!isLobbyMode()) return false
     if (!row.empty) return false
     if (!userId()) return false
+    if (props.showJoinPending && !isCurrentUserSlotted()) return false
+    if (props.joinEligibility && !props.joinEligibility.canJoin && !isCurrentUserSlotted()) return false
     if (!amHost() && currentUserLinkedPartySize() > 0) return false
     return true
   }
 
   const canRemoveSlot = (row: PlayerRow) => {
     if (!isLobbyMode()) return false
-    if (row.empty || !row.playerId) return false
+    if (row.empty || !row.playerId || row.pendingSelf) return false
     if (row.isHost) return false
     const id = userId()
     if (!id) return false
@@ -468,7 +525,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const canDragRow = (row: PlayerRow) => {
     if (!isLobbyMode()) return false
     if (lobbyActionPending()) return false
-    if (row.empty || !row.playerId) return false
+    if (row.empty || !row.playerId || row.pendingSelf) return false
     const id = userId()
     if (!id) return false
     if (amHost()) return true
@@ -653,6 +710,9 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const currentUserId = userId()
     if (!lobby || !currentUserId) return
     if (lobbyActionPending()) return
+    if (!isCurrentUserSlotted() && props.joinEligibility?.canJoin !== false) {
+      setPendingPlaceSelfSlot(slot)
+    }
 
     setLobbyActionPending(true)
     clearConfigMessage()
@@ -671,6 +731,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       applyLobbySnapshot(result.lobby)
     }
     finally {
+      setPendingPlaceSelfSlot(null)
       setLobbyActionPending(false)
     }
   }
@@ -971,10 +1032,18 @@ export function ConfigScreen(props: ConfigScreenProps) {
         </div>
 
         <div class="gap-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div class="p-4 rounded-lg bg-bg-secondary">
-            <div class="text-xs text-text-muted tracking-widest font-bold mb-3 uppercase">Players</div>
+        <div class="p-4 rounded-lg bg-bg-secondary">
+          <div class="text-xs text-text-muted tracking-widest font-bold mb-3 uppercase">Players</div>
 
-            <Show
+          <Show when={viewerJoinBlockedReason()}>
+            {reason => (
+              <div class="mb-3 rounded-md border border-accent-red/25 bg-accent-red/10 px-3 py-2 text-sm text-accent-red">
+                {reason()}
+              </div>
+            )}
+          </Show>
+
+          <Show
               when={isTeamMode()}
               fallback={(
                 <div class="gap-3 grid grid-cols-2">
