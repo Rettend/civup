@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 import type { DraftInput, DraftSeat, DraftState, GameMode, QueueEntry } from '@civup/game'
 import type { CapacityModel, OverageRatesPerMillion, UsageLimits } from './capacity/model.ts'
-import { matchParticipants, matches, playerRatings, players } from '@civup/db'
+import { matches, matchParticipants, playerRatings, players } from '@civup/db'
 import {
   allLeaderIds,
   createDraft,
@@ -15,6 +15,8 @@ import {
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
+import { resolveLobbyJoinEligibility } from '../../src/routes/activity.ts'
+import { buildOpenLobbySnapshot } from '../../src/routes/lobby/snapshot.ts'
 import {
   clearLobbyMappings,
   getUserActivityTarget,
@@ -23,7 +25,7 @@ import {
   storeUserLobbyMappings,
   storeUserMatchMappings,
 } from '../../src/services/activity/index.ts'
-import { getServerDraftTimerDefaults, resolveDraftTimerConfig } from '../../src/services/config/index.ts'
+import { resolveDraftTimerConfig } from '../../src/services/config/index.ts'
 import { markLeaderboardsDirty } from '../../src/services/leaderboard/message.ts'
 import {
   attachLobbyMatch,
@@ -41,10 +43,8 @@ import {
 import { activateDraftMatch, createDraftMatch, reportMatch } from '../../src/services/match/index.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
 import { addToQueue, clearQueue, getQueueState } from '../../src/services/queue/index.ts'
-import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
-import { resolveLobbyJoinEligibility } from '../../src/routes/activity.ts'
-import { buildOpenLobbySnapshot } from '../../src/routes/lobby/snapshot.ts'
+import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
 import { createStateStore } from '../../src/services/state/store.ts'
 import { getSystemChannel, setSystemChannel } from '../../src/services/system/channels.ts'
@@ -736,7 +736,7 @@ function scenarioPlayersPerDraft(mode: CapacityScenario): number {
 
 function printReports(reports: ScenarioReport[]): void {
   console.log('\n[capacity] assumptions')
-  console.table(reports.map((report) => ({
+  console.table(reports.map(report => ({
     mode: report.mode.label,
     players: scenarioPlayersPerDraft(report.mode),
     draftMsgs: report.draftRoomIncomingMessages,
@@ -748,7 +748,7 @@ function printReports(reports: ScenarioReport[]): void {
   })
 
   console.log('\n[capacity] measured per draft usage')
-  console.table(reports.map((report) => ({
+  console.table(reports.map(report => ({
     mode: report.mode.label,
     workersRequests: report.model.perDraft.workersRequests,
     d1RowsRead: report.model.perDraft.d1RowsReadBase,
