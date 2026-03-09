@@ -14,7 +14,7 @@ export const DEFAULT_SIGMA = 25 / 3 // ~8.333
 export const DISPLAY_RATING_BASE = 1000
 
 /** Scale multiplier for display rating deltas and spread */
-export const DISPLAY_RATING_SCALE = 22
+export const DISPLAY_RATING_SCALE = 18
 
 /** Visible Elo intentionally ignores sigma; uncertainty stays internal. */
 export const Z_MULTIPLIER = 0

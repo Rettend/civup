@@ -18,11 +18,6 @@ interface StoredRankedRoleConfig {
     label?: unknown
     color?: unknown
   }>
-  currentRoles?: Record<string, unknown>
-  currentRoleMeta?: Record<string, {
-    label?: unknown
-    color?: unknown
-  }>
 }
 
 interface DiscordGuildRole {
@@ -48,8 +43,6 @@ export const RANKED_ROLE_CONFIG_KEY_PREFIX = 'ranked-roles:config:'
 export const DEFAULT_RANKED_ROLE_TIER_COUNT = 5
 export const MIN_RANKED_ROLE_TIER_COUNT = 3
 export const MAX_RANKED_ROLE_TIER_COUNT = 10
-
-const LEGACY_RANKED_TIERS_BY_PRESTIGE = ['champion', 'legion', 'gladiator', 'squire', 'pleb'] as const
 
 export function createRankedRoleTierId(rank: number): CompetitiveTier {
   return `tier${Math.max(1, Math.round(rank))}`
@@ -108,7 +101,7 @@ export async function updateRankedRoleConfig(
   roleDisplayById?: Map<string, RankedRoleDisplaySource>,
 ): Promise<RankedRoleConfig> {
   const current = await getRankedRoleConfig(kv, guildId)
-  const next = resizeRankedRoleConfig(current, input.tierCount ?? current.tiers.length)
+  const next = resizeRankedRoleConfig(current, resolveNextTierCount(current, input))
 
   for (let index = 0; index < next.tiers.length; index++) {
     const update = input.tierRoleIdsByRank?.[index]
@@ -241,7 +234,7 @@ export async function resolveRankedRoleVisuals(
 }
 
 export function formatRankedRoleSlotLabel(tierOrRank: CompetitiveTier | number): string {
-  const rank = typeof tierOrRank === 'number' ? Math.max(1, Math.round(tierOrRank)) : rankedRoleNumber(tierOrRank)
+  const rank = typeof tierOrRank === 'number' ? Math.max(1, Math.round(tierOrRank)) : Math.max(1, rankedRoleNumber(tierOrRank))
   return `Role ${rank}`
 }
 
@@ -252,7 +245,7 @@ export function getConfiguredRankedRoleLabel(config: RankedRoleConfig, tier: Com
 
 export function rankedRoleNumber(tier: CompetitiveTier): number {
   const normalized = normalizeTierKey(tier)
-  return competitiveTierNumber(normalized ?? '') ?? DEFAULT_RANKED_ROLE_TIER_COUNT
+  return competitiveTierNumber(normalized ?? '') ?? 0
 }
 
 export function memberMeetsRankedRoleGate(
@@ -327,27 +320,33 @@ function resizeRankedRoleConfig(config: RankedRoleConfig, requestedTierCount: nu
 }
 
 function normalizeRankedRoleConfig(raw: StoredRankedRoleConfig | null | undefined): RankedRoleConfig {
-  if (Array.isArray(raw?.tiers) && raw.tiers.length > 0) {
-    const tiers = resizeRankedRoleConfig({
-      tiers: raw.tiers.map((tier) => ({
-        roleId: normalizeRoleId(tier?.roleId),
-        label: normalizeOptionalLabel(tier?.label),
-        color: normalizeOptionalLabel(tier?.color),
-      })),
-    }, raw.tiers.length)
-    return tiers
-  }
+  if (!Array.isArray(raw?.tiers) || raw.tiers.length === 0) return createDefaultRankedRoleConfig()
+  return resizeRankedRoleConfig({
+    tiers: raw.tiers.map((tier) => ({
+      roleId: normalizeRoleId(tier?.roleId),
+      label: normalizeOptionalLabel(tier?.label),
+      color: normalizeOptionalLabel(tier?.color),
+    })),
+  }, raw.tiers.length)
+}
 
-  const legacyRoles = LEGACY_RANKED_TIERS_BY_PRESTIGE.map((legacyTier) => ({
-    roleId: normalizeRoleId(raw?.currentRoles?.[legacyTier]),
-    label: normalizeOptionalLabel(raw?.currentRoleMeta?.[legacyTier]?.label),
-    color: normalizeOptionalLabel(raw?.currentRoleMeta?.[legacyTier]?.color),
-  }))
+function resolveNextTierCount(
+  current: RankedRoleConfig,
+  input: {
+    tierCount?: number
+    tierRoleIdsByRank?: Array<string | null | undefined>
+  },
+): number {
+  if (typeof input.tierCount === 'number') return input.tierCount
 
-  const hasLegacyConfig = legacyRoles.some(tier => tier.roleId || tier.label || tier.color)
-  if (hasLegacyConfig) return { tiers: legacyRoles }
+  const highestConfiguredRank = current.tiers.reduce((best, tier, index) => tier.roleId ? index + 1 : best, 0)
+  const highestProvidedRank = (input.tierRoleIdsByRank ?? []).reduce((best, roleId, index) => {
+    return normalizeRoleId(roleId) ? index + 1 : best
+  }, 0)
+  const derivedTierCount = Math.max(highestConfiguredRank, highestProvidedRank)
 
-  return createDefaultRankedRoleConfig()
+  if (derivedTierCount > 0) return derivedTierCount
+  return current.tiers.length
 }
 
 function createDefaultRankedRoleConfig(): RankedRoleConfig {
@@ -372,10 +371,7 @@ function clampTierCount(value: number): number {
 function normalizeTierKey(value: unknown): CompetitiveTier | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim().toLowerCase()
-  if (isCompetitiveTier(trimmed)) return trimmed
-
-  const legacyIndex = LEGACY_RANKED_TIERS_BY_PRESTIGE.indexOf(trimmed as typeof LEGACY_RANKED_TIERS_BY_PRESTIGE[number])
-  return legacyIndex >= 0 ? createRankedRoleTierId(legacyIndex + 1) : null
+  return isCompetitiveTier(trimmed) ? trimmed : null
 }
 
 function normalizeRoleId(value: unknown): string | null {
