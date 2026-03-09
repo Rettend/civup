@@ -20,6 +20,7 @@ export interface ParticipantRow {
   ratingAfterSigma: number | null
   leaderboardBeforeRank?: number | null
   leaderboardAfterRank?: number | null
+  leaderboardEligibleCount?: number | null
 }
 
 export interface ReportInput {

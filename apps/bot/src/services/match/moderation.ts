@@ -1,12 +1,12 @@
 import type { Database } from '@civup/db'
 import type { CancelMatchInput, CancelMatchResult, ResolveMatchInput, ResolveMatchResult } from './types.ts'
-import { matchBans, matches, matchParticipants } from '@civup/db'
+import { matchBans, matches, matchParticipants, playerRatings } from '@civup/db'
 import { parseGameMode, toLeaderboardMode } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { clearLobbyByMatch } from '../lobby/index.ts'
 import { parseModerationPlacements } from './placements.ts'
-import { recalculateLeaderboardMode } from './ratings.ts'
+import { buildRankByPlayer, recalculateLeaderboardMode } from './ratings.ts'
 
 export async function resolveMatchByModerator(
   db: Database,
@@ -69,6 +69,16 @@ export async function resolveMatchByModerator(
   await clearLobbyByMatch(kv, input.matchId)
 
   const leaderboardMode = toLeaderboardMode(gameMode)
+  const leaderboardRowsBefore = await db
+    .select({
+      playerId: playerRatings.playerId,
+      mu: playerRatings.mu,
+      sigma: playerRatings.sigma,
+      gamesPlayed: playerRatings.gamesPlayed,
+    })
+    .from(playerRatings)
+    .where(eq(playerRatings.mode, leaderboardMode))
+  const beforeRankByPlayer = buildRankByPlayer(leaderboardRowsBefore)
   const recalculated = await recalculateLeaderboardMode(db, leaderboardMode)
   if ('error' in recalculated) return recalculated
 
@@ -83,9 +93,26 @@ export async function resolveMatchByModerator(
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, input.matchId))
 
+  const leaderboardRowsAfter = await db
+    .select({
+      playerId: playerRatings.playerId,
+      mu: playerRatings.mu,
+      sigma: playerRatings.sigma,
+      gamesPlayed: playerRatings.gamesPlayed,
+    })
+    .from(playerRatings)
+    .where(eq(playerRatings.mode, leaderboardMode))
+  const afterRankByPlayer = buildRankByPlayer(leaderboardRowsAfter)
+  const leaderboardEligibleCount = afterRankByPlayer.size
+
   return {
     match: updatedMatch!,
-    participants: updatedParticipants,
+    participants: updatedParticipants.map(participant => ({
+      ...participant,
+      leaderboardBeforeRank: beforeRankByPlayer.get(participant.playerId) ?? null,
+      leaderboardAfterRank: afterRankByPlayer.get(participant.playerId) ?? null,
+      leaderboardEligibleCount,
+    })),
     previousStatus,
     recalculatedMatchIds: recalculated.matchIds,
   }

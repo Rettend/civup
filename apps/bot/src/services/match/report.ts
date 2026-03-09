@@ -301,6 +301,7 @@ async function finalizeReportedMatch(
     .where(eq(playerRatings.mode, leaderboardMode))
 
   const afterRankByPlayer = buildRankByPlayer(leaderboardRowsAfter)
+  const leaderboardEligibleCount = afterRankByPlayer.size
 
   const updatedParticipants = await db
     .select()
@@ -311,6 +312,7 @@ async function finalizeReportedMatch(
     ...participant,
     leaderboardBeforeRank: beforeRankByPlayer.get(participant.playerId) ?? null,
     leaderboardAfterRank: afterRankByPlayer.get(participant.playerId) ?? null,
+    leaderboardEligibleCount,
   }))
 
   return { match: updatedMatch!, participants: participantsWithLeaderboardRanks }

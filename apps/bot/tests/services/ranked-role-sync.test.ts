@@ -1,6 +1,6 @@
 import { playerRatings, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { getCurrentRankAssignments, getRankedRoleDemotionCandidates, listRankedRoleConfigGuildIds, markRankedRolesDirty, previewRankedRoles, resetCurrentRankedRoleState, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
+import { getCurrentRankAssignments, getRankedRoleDemotionCandidates, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, resetCurrentRankedRoleState, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
@@ -136,7 +136,7 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
-  test('sync posts rank announcements for new qualifiers', async () => {
+  test('builds compact ranked role update lines for match participants', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
@@ -148,38 +148,23 @@ describe('ranked role sync service', () => {
       legion: '44444444444444444',
       champion: '55555555555555555',
     })
-    await kv.put('system:channel:rank-announcements', 'channel-1')
-
-    const messagePosts: string[] = []
-    globalThis.fetch = (async (input, init) => {
-      const url = String(input)
-      if (init?.method === 'GET' && url.includes('/members/')) {
-        return new Response(JSON.stringify({ roles: [] }), { status: 200 })
-      }
-      if (init?.method === 'PATCH' && url.includes('/members/')) {
-        return new Response('{}', { status: 200 })
-      }
-      if (init?.method === 'POST' && url.includes('/channels/channel-1/messages')) {
-        const payload = JSON.parse(String(init.body)) as { content?: string }
-        messagePosts.push(payload.content ?? '')
-        return new Response(JSON.stringify({ id: 'message-1' }), { status: 200 })
-      }
-
-      return new Response('not found', { status: 404 })
-    }) as typeof fetch
-
-    await syncRankedRoles({
+    await seedPreviousAssignment(kv, 'guild-1', playerIdFor('ffa', 1), { tier: 'pleb', sourceMode: null })
+    const preview = await syncRankedRoles({
       db,
       kv,
       guildId: 'guild-1',
-      token: 'token',
       now: NOW,
-      applyDiscord: true,
+    })
+    const lines = await listRankedRoleMatchUpdateLines({
+      kv,
+      guildId: 'guild-1',
+      preview,
+      playerIds: [playerIdFor('ffa', 1), playerIdFor('ffa', 2), playerIdFor('ffa', 8)],
     })
 
-    expect(messagePosts).toHaveLength(1)
-    expect(messagePosts[0]).toContain('Rank updates')
-    expect(messagePosts[0]).toContain('qualified for ranked at <@&22222222222222222>')
+    expect(lines).toHaveLength(2)
+    expect(lines[0]).toContain('⬆️')
+    expect(lines[0]).toContain('<@&11111111111111111> -> <@&22222222222222222>')
 
     sqlite.close()
   })

@@ -15,7 +15,7 @@ import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { cancelMatchByModerator, reportMatch } from '../../services/match/index.ts'
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, removeFromQueue, removeFromQueueAndUnlinkParty } from '../../services/queue/index.ts'
-import { markRankedRolesDirty } from '../../services/ranked/role-sync.ts'
+import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, syncRankedRoles } from '../../services/ranked/role-sync.ts'
 import { createStateStore } from '../../services/state/store.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
 import { factory } from '../../setup.ts'
@@ -566,11 +566,28 @@ export const command_match = factory.command<MatchVar>(
           const reportedMode = normalizeMatchMode(result.match.gameMode)
 
           const lobby = await getLobbyByMatch(kv, result.match.id)
+          const guildId = lobby?.guildId ?? c.interaction.guild_id ?? null
+          let rankedRoleLines: string[] = []
+          if (guildId) {
+            try {
+              const rankedPreview = await syncRankedRoles({ db, kv, guildId })
+              rankedRoleLines = await listRankedRoleMatchUpdateLines({
+                kv,
+                guildId,
+                preview: rankedPreview,
+                playerIds: result.participants.map(participant => participant.playerId),
+              })
+            }
+            catch (error) {
+              console.error(`Failed to preview ranked role changes after match ${result.match.id}:`, error)
+            }
+          }
+
           if (lobby) {
             await setLobbyStatus(kv, lobby.id, 'completed', lobby)
             try {
               const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-                embeds: [lobbyResultEmbed(lobby.mode, result.participants)],
+                embeds: [lobbyResultEmbed(lobby.mode, result.participants, undefined, { rankedRoleLines })],
                 components: [],
               })
               await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
@@ -586,7 +603,7 @@ export const command_match = factory.command<MatchVar>(
           if (archiveChannelId) {
             try {
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-                embeds: [lobbyResultEmbed(reportedMode, result.participants)],
+                embeds: [lobbyResultEmbed(reportedMode, result.participants, undefined, { rankedRoleLines })],
               })
               await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
             }
