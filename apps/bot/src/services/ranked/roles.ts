@@ -322,7 +322,7 @@ function resizeRankedRoleConfig(config: RankedRoleConfig, requestedTierCount: nu
 function normalizeRankedRoleConfig(raw: StoredRankedRoleConfig | null | undefined): RankedRoleConfig {
   if (!Array.isArray(raw?.tiers) || raw.tiers.length === 0) return createDefaultRankedRoleConfig()
   return resizeRankedRoleConfig({
-    tiers: raw.tiers.map((tier) => ({
+    tiers: raw.tiers.map(tier => ({
       roleId: normalizeRoleId(tier?.roleId),
       label: normalizeOptionalLabel(tier?.label),
       color: normalizeOptionalLabel(tier?.color),

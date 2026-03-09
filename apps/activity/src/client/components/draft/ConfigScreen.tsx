@@ -1032,18 +1032,18 @@ export function ConfigScreen(props: ConfigScreenProps) {
         </div>
 
         <div class="gap-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div class="p-4 rounded-lg bg-bg-secondary">
-          <div class="text-xs text-text-muted tracking-widest font-bold mb-3 uppercase">Players</div>
+          <div class="p-4 rounded-lg bg-bg-secondary">
+            <div class="text-xs text-text-muted tracking-widest font-bold mb-3 uppercase">Players</div>
 
-          <Show when={viewerJoinBlockedReason()}>
-            {reason => (
-              <div class="mb-3 rounded-md border border-accent-red/25 bg-accent-red/10 px-3 py-2 text-sm text-accent-red">
-                {reason()}
-              </div>
-            )}
-          </Show>
+            <Show when={viewerJoinBlockedReason()}>
+              {reason => (
+                <div class="text-sm text-accent-red mb-3 px-3 py-2 border border-accent-red/25 rounded-md bg-accent-red/10">
+                  {reason()}
+                </div>
+              )}
+            </Show>
 
-          <Show
+            <Show
               when={isTeamMode()}
               fallback={(
                 <div class="gap-3 grid grid-cols-2">

@@ -157,7 +157,9 @@ export default function App() {
           && prev.joinEligibility.canJoin === joinEligibility.canJoin
           && prev.joinEligibility.blockedReason === joinEligibility.blockedReason
           && prev.joinEligibility.pendingSlot === joinEligibility.pendingSlot
-        ) return prev
+        ) {
+          return prev
+        }
         return { status: 'lobby-waiting', lobby: resolvedLobby, joinPending, joinEligibility }
       })
       return
@@ -221,12 +223,6 @@ export default function App() {
     })
   }
 
-  const restoreLastSelection = async () => {
-    const lastSelection = lastResolvedSelection()
-    if (!lastSelection) return
-    await handleTargetSelection(lastSelection.option)
-  }
-
   const handleTargetSelection = async (option: ActivityTargetOption) => {
     const channelId = activeChannelId
     const currentUserId = activeUserId
@@ -245,6 +241,12 @@ export default function App() {
     finally {
       setPickerBusy(false)
     }
+  }
+
+  const restoreLastSelection = async () => {
+    const lastSelection = lastResolvedSelection()
+    if (!lastSelection) return
+    await handleTargetSelection(lastSelection.option)
   }
 
   onMount(async () => {

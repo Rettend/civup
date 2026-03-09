@@ -8,6 +8,7 @@ export default antfu({
   rules: {
     'no-console': 'warn',
     'antfu/if-newline': 'off',
+    'jsdoc/check-alignment': 'off',
 
     // 'style/curly-newline': [
     //   'warn',

@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { addToQueue } from '../../src/services/queue/index.ts'
-import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
-import { createLobby, getLobbyById, setLobbyMinRole } from '../../src/services/lobby/index.ts'
 import { resolveLobbyJoinEligibility } from '../../src/routes/activity.ts'
 import { buildOpenLobbySnapshot } from '../../src/routes/lobby/snapshot.ts'
+import { createLobby, getLobbyById, setLobbyMinRole } from '../../src/services/lobby/index.ts'
+import { addToQueue } from '../../src/services/queue/index.ts'
+import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch

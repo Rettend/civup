@@ -1,16 +1,16 @@
 import type { FfaEntry, PlayerRating, RatingUpdate } from '../src/index.ts'
 import { describe, expect, test } from 'bun:test'
 import {
+  calculateFfaRatings,
+  calculateTeamRatings,
+  createRating,
   DEFAULT_MU,
   DEFAULT_SIGMA,
   DISPLAY_RATING_BASE,
   DISPLAY_RATING_SCALE,
-  Z_MULTIPLIER,
-  calculateFfaRatings,
-  calculateTeamRatings,
-  createRating,
   displayRating,
   predictWinProbabilities,
+  Z_MULTIPLIER,
 } from '../src/index.ts'
 
 function playerFromDisplay(playerId: string, targetDisplay: number, sigma: number = 5): PlayerRating {

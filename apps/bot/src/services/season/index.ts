@@ -76,7 +76,6 @@ export function formatSeasonShortName(seasonNumber: number): string {
 }
 
 export async function startSeason(db: Database, input: { now?: number } = {}) {
-
   const existing = await getActiveSeason(db)
   if (existing) throw new Error(`Cannot start a new season while **${existing.name}** is still active.`)
 

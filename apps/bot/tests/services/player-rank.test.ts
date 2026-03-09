@@ -9,7 +9,6 @@ import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
 const HERO_ID = '100010000000000099'
-const TIER_1 = 'tier1'
 const TIER_2 = 'tier2'
 const TIER_4 = 'tier4'
 const TIER_5 = 'tier5'

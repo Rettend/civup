@@ -34,17 +34,17 @@ interface ActivityTargetOption {
 
 type ActivityLaunchSelection
   = | {
-      kind: 'lobby'
-      option: ActivityTargetOption
-      pendingJoin: boolean
-      joinEligibility: LobbyJoinEligibility
-      lobby: Awaited<ReturnType<typeof buildOpenLobbySnapshot>>
-    }
-    | {
-      kind: 'match'
-      option: ActivityTargetOption
-      matchId: string
-    }
+    kind: 'lobby'
+    option: ActivityTargetOption
+    pendingJoin: boolean
+    joinEligibility: LobbyJoinEligibility
+    lobby: Awaited<ReturnType<typeof buildOpenLobbySnapshot>>
+  }
+  | {
+    kind: 'match'
+    option: ActivityTargetOption
+    matchId: string
+  }
 
 interface ActivityLaunchSnapshot {
   selection: ActivityLaunchSelection | null
