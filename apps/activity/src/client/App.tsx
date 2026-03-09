@@ -58,6 +58,12 @@ export default function App() {
     resetDraft()
   }
 
+  const shouldHoldAuthenticatedDraftState = () => {
+    if (state().status !== 'authenticated') return false
+    if (connectionStatus() === 'connecting' || connectionStatus() === 'connected') return true
+    return draftStore.state != null
+  }
+
   onCleanup(() => {
     stopActivityWatch()
     stopActivitySafetyPoll()
@@ -107,15 +113,18 @@ export default function App() {
     autoStart = false,
     allowSelectionWhileOverview = false,
   ) => {
+    const current = state()
     const previousSelectionKey = currentTargetKey()
     const nextSelectionKey = snapshot.selection ? activityTargetOptionKey(snapshot.selection.option) : null
     setAvailableTargets(snapshot.options)
-    setLastResolvedSelection(snapshot.selection)
 
     if (!snapshot.selection) {
       setPickerError(null)
 
-      if (state().status === 'authenticated') {
+      if (shouldHoldAuthenticatedDraftState()) return
+
+      setLastResolvedSelection(null)
+      if (current.status === 'authenticated') {
         clearDraftConnection()
       }
 
@@ -123,7 +132,11 @@ export default function App() {
       return
     }
 
-    if (state().status === 'overview' && !allowSelectionWhileOverview && previousSelectionKey === nextSelectionKey) return
+    if (current.status === 'authenticated' && snapshot.selection.kind === 'lobby' && shouldHoldAuthenticatedDraftState()) return
+
+    setLastResolvedSelection(snapshot.selection)
+
+    if (current.status === 'overview' && !allowSelectionWhileOverview && previousSelectionKey === nextSelectionKey) return
 
     if (snapshot.selection.kind === 'lobby') {
       const nextLobby = snapshot.selection.lobby
@@ -131,7 +144,7 @@ export default function App() {
       const joinEligibility = snapshot.selection.joinEligibility
       setPickerError(null)
 
-      if (state().status === 'authenticated') {
+      if (current.status === 'authenticated') {
         clearDraftConnection()
       }
 

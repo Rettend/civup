@@ -232,10 +232,15 @@ async function resolveActivityLaunchSelection(
         pendingJoin: storedTarget.kind === 'lobby' && storedTarget.pendingJoin,
       }
     }
+
+    const fallbackSelection = pickDefaultActivityLaunchSelection(targets)
+    if (fallbackSelection) return fallbackSelection
+
     await clearUserActivityTargets(kv, channelId, [userId])
+    return null
   }
 
-  return null
+  return pickDefaultActivityLaunchSelection(targets)
 }
 
 async function serializeActivityLaunchSelection(
@@ -424,4 +429,15 @@ function activityTargetPriority(option: ActivityTargetOption): number {
   if (option.isMember) return 1
   if (option.kind === 'lobby') return 2
   return option.status === 'drafting' ? 3 : 4
+}
+
+function pickDefaultActivityLaunchSelection(targets: ChannelActivityTarget[]): ResolvedActivitySelection | null {
+  const preferredTarget = targets.find(target => (target.option.isHost || target.option.isMember) && target.option.kind === 'match')
+    ?? targets.find(target => target.option.isHost || target.option.isMember)
+  if (!preferredTarget) return null
+
+  return {
+    target: preferredTarget,
+    pendingJoin: false,
+  }
 }

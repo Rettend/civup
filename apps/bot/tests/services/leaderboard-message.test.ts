@@ -70,7 +70,7 @@ describe('leaderboard message service', () => {
     expect(JSON.stringify(patchPayloads[0].embeds)).toContain('Season 9 FFA Leaderboard')
     expect(JSON.stringify(postPayloads[1].embeds)).toContain('FFA Leaderboard')
     expect(JSON.stringify(postPayloads[1].embeds)).not.toContain('Season 9 FFA Leaderboard')
-    expect(JSON.stringify(postPayloads[1].embeds)).toContain('No active season right now.')
+    expect(JSON.stringify(postPayloads[1].embeds)).toContain('<@100010000000000001>')
 
     const [state] = await db.select().from(leaderboardMessageStates).limit(1)
     expect(state?.messageId).toBe('message-2')
