@@ -105,7 +105,7 @@ export async function putLobby(kv: KVNamespace, lobby: LobbyState): Promise<void
     },
     {
       key: modeIndexKey(lobby.mode, lobby.id),
-      value: lobby.id,
+      value: String(lobby.revision),
       expirationTtl: LOBBY_TTL,
     },
   ]

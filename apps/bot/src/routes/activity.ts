@@ -28,10 +28,11 @@ interface ActivityTargetOption {
 
 type ActivityLaunchSelection
   = | {
-    kind: 'lobby'
-    option: ActivityTargetOption
-    lobby: Awaited<ReturnType<typeof buildOpenLobbySnapshot>>
-  }
+      kind: 'lobby'
+      option: ActivityTargetOption
+      pendingJoin: boolean
+      lobby: Awaited<ReturnType<typeof buildOpenLobbySnapshot>>
+    }
     | {
       kind: 'match'
       option: ActivityTargetOption
@@ -46,6 +47,11 @@ interface ActivityLaunchSnapshot {
 interface ChannelActivityTarget {
   option: ActivityTargetOption
   lobby: LobbyState
+}
+
+interface ResolvedActivitySelection {
+  target: ChannelActivityTarget
+  pendingJoin: boolean
 }
 
 export function registerActivityRoutes(app: Hono<Env>) {
@@ -176,7 +182,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
     }
 
     await storeUserActivityTarget(kv, channelId, [userId], { kind, id })
-    return c.json(await buildActivityLaunchSnapshotFromTargets(kv, targets, target))
+    return c.json(await buildActivityLaunchSnapshotFromTargets(kv, targets, { target, pendingJoin: false }))
   })
 }
 
@@ -193,7 +199,7 @@ async function buildActivityLaunchSnapshot(
 async function buildActivityLaunchSnapshotFromTargets(
   kv: KVNamespace,
   targets: ChannelActivityTarget[],
-  selection: ChannelActivityTarget | null,
+  selection: ResolvedActivitySelection | null,
 ): Promise<ActivityLaunchSnapshot> {
   return {
     selection: selection ? await serializeActivityLaunchSelection(kv, selection) : null,
@@ -206,12 +212,15 @@ async function resolveActivityLaunchSelection(
   channelId: string,
   userId: string,
   targets: ChannelActivityTarget[],
-): Promise<ChannelActivityTarget | null> {
+): Promise<ResolvedActivitySelection | null> {
   const storedTarget = await getUserActivityTarget(kv, channelId, userId)
   if (storedTarget) {
     const storedSelection = targets.find(target => target.option.kind === storedTarget.kind && target.option.id === storedTarget.id) ?? null
     if (storedSelection) {
-      return storedSelection
+      return {
+        target: storedSelection,
+        pendingJoin: storedTarget.kind === 'lobby' && storedTarget.pendingJoin,
+      }
     }
     await clearUserActivityTargets(kv, channelId, [userId])
   }
@@ -221,20 +230,21 @@ async function resolveActivityLaunchSelection(
 
 async function serializeActivityLaunchSelection(
   kv: KVNamespace,
-  selection: ChannelActivityTarget,
+  selection: ResolvedActivitySelection,
 ): Promise<ActivityLaunchSelection> {
-  if (selection.option.kind === 'lobby') {
+  if (selection.target.option.kind === 'lobby') {
     return {
       kind: 'lobby',
-      option: selection.option,
-      lobby: await buildOpenLobbySnapshot(kv, selection.lobby.mode, selection.lobby),
+      option: selection.target.option,
+      pendingJoin: selection.pendingJoin,
+      lobby: await buildOpenLobbySnapshot(kv, selection.target.lobby.mode, selection.target.lobby),
     }
   }
 
   return {
     kind: 'match',
-    option: selection.option,
-    matchId: selection.option.id,
+    option: selection.target.option,
+    matchId: selection.target.option.id,
   }
 }
 
