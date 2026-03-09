@@ -10,6 +10,8 @@ const NOW = 1_700_000_000_000
 const DAY_MS = 86_400_000
 const PLAYER_ID = '100010000000000001'
 const HERO_ID = '100010000000000099'
+const TIER_4 = 'tier4'
+const TIER_5 = 'tier5'
 
 describe('season services', () => {
   test('startSeason and endSeason manage the active season lifecycle', async () => {
@@ -80,7 +82,7 @@ describe('season services', () => {
 
     const first = await syncSeasonPeakRanks(db, {
       seasonId: season.id,
-      candidates: [{ playerId: PLAYER_ID, tier: 'pleb', sourceMode: null }],
+      candidates: [{ playerId: PLAYER_ID, tier: TIER_5, sourceMode: null }],
       activePlayerIds: new Set([PLAYER_ID]),
       now: NOW + 1,
     })
@@ -88,7 +90,7 @@ describe('season services', () => {
 
     const second = await syncSeasonPeakRanks(db, {
       seasonId: season.id,
-      candidates: [{ playerId: PLAYER_ID, tier: 'squire', sourceMode: 'ffa' }],
+      candidates: [{ playerId: PLAYER_ID, tier: TIER_4, sourceMode: 'ffa' }],
       activePlayerIds: new Set([PLAYER_ID]),
       now: NOW + 2,
     })
@@ -96,7 +98,7 @@ describe('season services', () => {
 
     const third = await syncSeasonPeakRanks(db, {
       seasonId: season.id,
-      candidates: [{ playerId: PLAYER_ID, tier: 'pleb', sourceMode: null }],
+      candidates: [{ playerId: PLAYER_ID, tier: TIER_5, sourceMode: null }],
       activePlayerIds: new Set([PLAYER_ID]),
       now: NOW + 3,
     })
@@ -108,7 +110,7 @@ describe('season services', () => {
       .where(eq(seasonPeakRanks.playerId, PLAYER_ID))
       .limit(1)
 
-    expect(peak?.tier).toBe('squire')
+    expect(peak?.tier).toBe(TIER_4)
     expect(peak?.sourceMode).toBe('ffa')
     expect(peak?.achievedAt).toBe(NOW + 2)
 
@@ -130,7 +132,7 @@ describe('season services', () => {
 
     const second = await syncSeasonPeakModeRanks(db, {
       seasonId: season.id,
-      candidates: [{ playerId: PLAYER_ID, mode: 'ffa', tier: 'pleb', rating: 637 }],
+      candidates: [{ playerId: PLAYER_ID, mode: 'ffa', tier: TIER_5, rating: 637 }],
       activeModesByPlayerId: new Map([[PLAYER_ID, new Set(['ffa'])]]),
       now: NOW + 2,
     })
@@ -138,7 +140,7 @@ describe('season services', () => {
 
     const third = await syncSeasonPeakModeRanks(db, {
       seasonId: season.id,
-      candidates: [{ playerId: PLAYER_ID, mode: 'ffa', tier: 'pleb', rating: 630 }],
+      candidates: [{ playerId: PLAYER_ID, mode: 'ffa', tier: TIER_5, rating: 630 }],
       activeModesByPlayerId: new Map([[PLAYER_ID, new Set(['ffa'])]]),
       now: NOW + 3,
     })
@@ -151,7 +153,7 @@ describe('season services', () => {
       .limit(1)
 
     expect(peak?.mode).toBe('ffa')
-    expect(peak?.tier).toBe('pleb')
+    expect(peak?.tier).toBe(TIER_5)
     expect(peak?.rating).toBe(637)
     expect(peak?.achievedAt).toBe(NOW + 2)
 
@@ -188,7 +190,7 @@ describe('season services', () => {
 
     expect(peakRows).toHaveLength(1)
     expect(peakRows[0]?.playerId).toBe(HERO_ID)
-    expect(peakRows[0]?.tier).toBe('squire')
+    expect(peakRows[0]?.tier).toBe(TIER_4)
     expect(peakRows[0]?.sourceMode).toBe('ffa')
 
     sqlite.close()

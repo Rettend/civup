@@ -1,7 +1,8 @@
 import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
-import { COMPETITIVE_TIERS, maxPlayerCount } from '@civup/game'
+import { maxPlayerCount } from '@civup/game'
 import { nanoid } from 'nanoid'
+import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 
 export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   banTimerSeconds: null,
@@ -71,8 +72,7 @@ export function normalizeMemberPlayerIds(value: unknown): string[] {
 }
 
 export function normalizeCompetitiveTier(value: unknown): CompetitiveTier | null {
-  if (typeof value !== 'string') return null
-  return COMPETITIVE_TIERS.includes(value as CompetitiveTier) ? value as CompetitiveTier : null
+  return normalizeRankedRoleTierId(value)
 }
 
 export function normalizeLobbyRevision(value: unknown): number {

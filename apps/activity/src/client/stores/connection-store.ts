@@ -1,5 +1,4 @@
 import type { ClientMessage, CompetitiveTier, ServerMessage } from '@civup/game'
-import { COMPETITIVE_TIERS } from '@civup/game'
 import { api, ApiError } from '@civup/utils'
 import PartySocket from 'partysocket'
 import { createSignal } from 'solid-js'
@@ -486,14 +485,14 @@ function parseRankedRoleOption(data: unknown): RankedRoleOptionSnapshot | null {
     color?: unknown
   }
 
-  if (typeof parsed.tier !== 'string' || !COMPETITIVE_TIERS.includes(parsed.tier as CompetitiveTier)) return null
+  if (typeof parsed.tier !== 'string' || parsed.tier.trim().length === 0) return null
   if (typeof parsed.rank !== 'number' || !Number.isFinite(parsed.rank)) return null
   if (parsed.roleId != null && typeof parsed.roleId !== 'string') return null
   if (typeof parsed.label !== 'string') return null
   if (parsed.color != null && typeof parsed.color !== 'string') return null
 
   return {
-    tier: parsed.tier as CompetitiveTier,
+    tier: parsed.tier.trim(),
     rank: Math.round(parsed.rank),
     roleId: parsed.roleId ?? null,
     label: parsed.label,

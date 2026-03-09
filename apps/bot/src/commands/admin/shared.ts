@@ -84,7 +84,7 @@ export function buildResolvedRoleDisplayById(data: unknown): Map<string, { name:
 
 export function buildRankedRoleUpdates(vars: AdminVar): Record<string, string | null> {
   const updates: Record<string, string | null> = {}
-  const roleInputs = [vars.role1, vars.role2, vars.role3, vars.role4, vars.role5]
+  const roleInputs = [vars.role1, vars.role2, vars.role3, vars.role4, vars.role5, vars.role6, vars.role7, vars.role8, vars.role9, vars.role10]
   for (let index = 0; index < roleInputs.length; index++) {
     const roleId = roleInputs[index]
     if (!roleId) continue

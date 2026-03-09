@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds, setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds, setRankedRoleCurrentRoles, setRankedRoleTierCount } from '../../src/services/ranked/roles.ts'
 import { createTestKv } from '../helpers/test-env.ts'
 
 describe('ranked role config service', () => {
@@ -7,39 +7,40 @@ describe('ranked role config service', () => {
     const kv = createTestKv()
 
     await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      squire: '11111111111111111',
-      gladiator: '22222222222222222',
+      tier4: '11111111111111111',
+      tier3: '22222222222222222',
     })
 
     const config = await getRankedRoleConfig(kv, 'guild-1')
-    expect(config.currentRoles.pleb).toBeNull()
-    expect(config.currentRoles.squire).toBe('11111111111111111')
-    expect(config.currentRoles.gladiator).toBe('22222222222222222')
-    expect(config.currentRoles.legion).toBeNull()
-    expect(config.currentRoleMeta.squire.label).toBeNull()
+    expect(config.tiers[4]?.roleId).toBeNull()
+    expect(config.tiers[3]?.roleId).toBe('11111111111111111')
+    expect(config.tiers[2]?.roleId).toBe('22222222222222222')
+    expect(config.tiers[1]?.roleId).toBeNull()
+    expect(config.tiers[3]?.label).toBeNull()
   })
 
   test('resolves the highest configured tier from member roles', () => {
     const tier = resolveCurrentCompetitiveTierFromRoleIds(
       ['11111111111111111', '33333333333333333'],
       {
-        currentRoles: {
-          pleb: '00000000000000000',
-          squire: '11111111111111111',
-          gladiator: '22222222222222222',
-          legion: '33333333333333333',
-          champion: '44444444444444444',
-        },
-        currentRoleMeta: {
-          pleb: { label: null, color: null },
-          squire: { label: null, color: null },
-          gladiator: { label: null, color: null },
-          legion: { label: null, color: null },
-          champion: { label: null, color: null },
-        },
+        tiers: [
+          { roleId: '44444444444444444', label: null, color: null },
+          { roleId: '33333333333333333', label: null, color: null },
+          { roleId: '22222222222222222', label: null, color: null },
+          { roleId: '11111111111111111', label: null, color: null },
+          { roleId: '00000000000000000', label: null, color: null },
+        ],
       },
     )
 
-    expect(tier).toBe('legion')
+    expect(tier).toBe('tier2')
+  })
+
+  test('supports resizing to a custom tier count', async () => {
+    const kv = createTestKv()
+
+    const config = await setRankedRoleTierCount(kv, 'guild-1', 3)
+
+    expect(config.tiers).toHaveLength(3)
   })
 })
