@@ -1,5 +1,6 @@
 import type { Rating as OSRating } from 'openskill'
 import { predictWin, rate, rating } from 'openskill'
+import { bradleyTerryFull } from 'openskill/models'
 
 // ── Constants ───────────────────────────────────────────────
 
@@ -22,6 +23,14 @@ export const Z_MULTIPLIER = 2 // 95% confidence
 export const RATING_OPTIONS = {
   beta: 3.0, // Trust game outcomes more (less luck)
   tau: 0.3, // Prevent sigma from bottoming out (dynamic ratings)
+}
+
+function getFfaRatingOptions(playerCount: number) {
+  return {
+    ...RATING_OPTIONS,
+    model: bradleyTerryFull,
+    beta: RATING_OPTIONS.beta * Math.max(1, playerCount - 1),
+  }
 }
 
 /** Minimum games required to appear on leaderboard */
@@ -159,7 +168,7 @@ export function calculateFfaRatings(entries: FfaEntry[]): RatingUpdate[] {
   // Rank array — OpenSkill uses 1-based ranks, ties are same rank value
   const rank = sorted.map(e => e.placement)
 
-  const updatedTeams = rate(osTeams, { rank, ...RATING_OPTIONS })
+  const updatedTeams = rate(osTeams, { rank, ...getFfaRatingOptions(sorted.length) })
 
   return sorted.map((entry, i) => {
     const updated = updatedTeams[i]![0]!

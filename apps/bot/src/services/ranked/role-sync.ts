@@ -3,9 +3,8 @@ import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import { playerRatings, players } from '@civup/db'
 import { COMPETITIVE_TIERS, competitiveTierRank, formatLeaderboardModeLabel, LEADERBOARD_MODES } from '@civup/game'
 import { displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'
-import { createChannelMessage, DiscordApiError, editGuildMemberRoles } from '../discord/index.ts'
+import { DiscordApiError, editGuildMemberRoles } from '../discord/index.ts'
 import { getActiveSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks } from '../season/index.ts'
-import { getSystemChannel } from '../system/channels.ts'
 import { fetchGuildMemberRoleIds, formatRankedRoleSlotLabel, getMissingRankedRoleConfigTiers, getRankedRoleConfig, RANKED_ROLE_CONFIG_KEY_PREFIX, RANKED_TIERS_BY_PRESTIGE } from './roles.ts'
 
 export interface CurrentRankAssignment {
@@ -182,18 +181,27 @@ export async function syncRankedRoles(options: RankedRoleSyncOptions): Promise<R
     const token = options.token?.trim()
     if (!token) throw new Error('Cannot sync ranked roles without a Discord bot token.')
     appliedDiscordChanges = await applyCurrentRankRoles(options.kv, options.guildId, token, preview.playerPreviews)
-    try {
-      await postRankAnnouncements(options.kv, options.guildId, token, preview.playerPreviews)
-    }
-    catch (error) {
-      console.error('Failed to post rank announcements:', error)
-    }
   }
 
   return {
     ...preview,
     appliedDiscordChanges,
   }
+}
+
+export async function listRankedRoleMatchUpdateLines(options: {
+  kv: KVNamespace
+  guildId: string
+  preview: Pick<RankedRolePreview, 'playerPreviews'>
+  playerIds: string[]
+}): Promise<string[]> {
+  const config = await getRankedRoleConfig(options.kv, options.guildId)
+  const playerIdSet = new Set(options.playerIds)
+
+  return options.preview.playerPreviews
+    .filter(player => playerIdSet.has(player.playerId))
+    .map(player => buildRankMatchUpdateLine(player, config))
+    .filter((line): line is string => typeof line === 'string' && line.length > 0)
 }
 
 export async function resetCurrentRankedRoleState(options: {
@@ -690,36 +698,7 @@ async function applyCurrentRankRoles(
   return appliedChanges
 }
 
-async function postRankAnnouncements(
-  kv: KVNamespace,
-  guildId: string,
-  token: string,
-  playerPreviews: RankedRolePlayerPreview[],
-): Promise<void> {
-  const channelId = await getSystemChannel(kv, 'rank-announcements')
-  if (!channelId) return
-  const config = await getRankedRoleConfig(kv, guildId)
-
-  const changedPlayers = playerPreviews
-    .map(player => ({ player, line: buildRankAnnouncementLine(player, config) }))
-    .filter((entry): entry is { player: RankedRolePlayerPreview, line: string } => typeof entry.line === 'string' && entry.line.length > 0)
-
-  if (changedPlayers.length === 0) return
-
-  await createChannelMessage(token, channelId, {
-    content: ['**Rank updates**', ...changedPlayers.map(entry => entry.line)].join('\n'),
-    allowed_mentions: {
-      users: changedPlayers.map(entry => entry.player.playerId),
-      roles: [...new Set(changedPlayers.flatMap((entry) => {
-        const roles = [config.currentRoles[entry.player.assignment.tier]]
-        if (entry.player.previousAssignment) roles.push(config.currentRoles[entry.player.previousAssignment.tier])
-        return roles.filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)
-      }))],
-    },
-  })
-}
-
-function buildRankAnnouncementLine(
+function buildRankMatchUpdateLine(
   player: RankedRolePlayerPreview,
   config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
 ): string | null {
@@ -727,17 +706,17 @@ function buildRankAnnouncementLine(
   const next = player.assignment
   if (!previous) {
     if (competitiveTierRank(next.tier) <= competitiveTierRank('pleb')) return null
-    return `- <@${player.playerId}> qualified for ranked at ${formatRankAnnouncementRole(config, next.tier)}${next.sourceMode ? ` in ${formatLeaderboardModeLabel(next.sourceMode, next.sourceMode)}` : ''}.`
+    return `🆕 <@${player.playerId}> qualified for ${formatRankAnnouncementRole(config, next.tier)}${next.sourceMode ? ` (${formatLeaderboardModeLabel(next.sourceMode, next.sourceMode)})` : ''}`
   }
 
   const previousRank = competitiveTierRank(previous.tier)
   const nextRank = competitiveTierRank(next.tier)
   if (nextRank > previousRank) {
-    return `- <@${player.playerId}> promoted from ${formatRankAnnouncementRole(config, previous.tier)} to ${formatRankAnnouncementRole(config, next.tier)}${next.sourceMode ? ` in ${formatLeaderboardModeLabel(next.sourceMode, next.sourceMode)}` : ''}.`
+    return `⬆️ <@${player.playerId}> ${formatRankAnnouncementRole(config, previous.tier)} -> ${formatRankAnnouncementRole(config, next.tier)}${next.sourceMode ? ` (${formatLeaderboardModeLabel(next.sourceMode, next.sourceMode)})` : ''}`
   }
 
   if (nextRank < previousRank) {
-    return `- <@${player.playerId}> dropped from ${formatRankAnnouncementRole(config, previous.tier)} to ${formatRankAnnouncementRole(config, next.tier)}${next.sourceMode ? ` in ${formatLeaderboardModeLabel(next.sourceMode, next.sourceMode)}` : ''}.`
+    return `⬇️ <@${player.playerId}> ${formatRankAnnouncementRole(config, previous.tier)} -> ${formatRankAnnouncementRole(config, next.tier)}${next.sourceMode ? ` (${formatLeaderboardModeLabel(next.sourceMode, next.sourceMode)})` : ''}`
   }
 
   return null
