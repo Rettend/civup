@@ -28,7 +28,6 @@ export const command_admin = factory.command<AdminVar>(
     ),
     new SubGroup('ranked', 'Ranked commands').options(
       new SubCommand('roles', 'Show or update current ranked role mappings').options(
-        new Option('count', 'How many ranked roles to use (3-10)'),
         new Option('role1', 'Ranked role 1 (highest)', 'Role'),
         new Option('role2', 'Ranked role 2', 'Role'),
         new Option('role3', 'Ranked role 3', 'Role'),

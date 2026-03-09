@@ -83,14 +83,13 @@ export async function ensureSeasonSnapshotRoles(
     const sourceRole = sourceRoleId ? guildRoleById.get(sourceRoleId) : null
     const roleLabel = sourceRole?.name ?? getConfiguredRankedRoleLabel(config, tier) ?? formatRankedRoleSlotLabel(tier)
     const roleName = formatSeasonSnapshotRoleName(season.seasonNumber, roleLabel)
-    const legacyRoleName = formatLegacySeasonSnapshotRoleName(season.name, roleLabel)
     const mappedRole = existingRoleId ? guildRoleById.get(existingRoleId) : null
-    if (mappedRole && (mappedRole.name === roleName || mappedRole.name === legacyRoleName)) {
+    if (mappedRole && mappedRole.name === roleName) {
       roles[tier] = existingRoleId
       continue
     }
 
-    const existingRole = guildRoleByName.get(roleName) ?? guildRoleByName.get(legacyRoleName)
+    const existingRole = guildRoleByName.get(roleName)
     if (existingRole) {
       roles[tier] = existingRole.id
       continue
@@ -304,10 +303,6 @@ async function setSeasonSnapshotRoleMappings(kv: KVNamespace, guildId: string, m
 
 function snapshotRolesKey(guildId: string): string {
   return `${SEASON_SNAPSHOT_ROLE_KEY_PREFIX}${guildId}`
-}
-
-function formatLegacySeasonSnapshotRoleName(seasonName: string, roleLabel: string): string {
-  return `${seasonName} ${roleLabel}`
 }
 
 function normalizeSeasonSnapshotRoleMappings(raw: StoredSeasonSnapshotRoleMappings | null | undefined): SeasonSnapshotRoleMappings {

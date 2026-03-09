@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds, setRankedRoleCurrentRoles, setRankedRoleTierCount } from '../../src/services/ranked/roles.ts'
+import { getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds, setRankedRoleCurrentRoles, setRankedRoleTierCount, updateRankedRoleConfig } from '../../src/services/ranked/roles.ts'
 import { createTestKv } from '../helpers/test-env.ts'
 
 describe('ranked role config service', () => {
@@ -42,5 +42,16 @@ describe('ranked role config service', () => {
     const config = await setRankedRoleTierCount(kv, 'guild-1', 3)
 
     expect(config.tiers).toHaveLength(3)
+  })
+
+  test('derives tier count from configured role slots when count is omitted', async () => {
+    const kv = createTestKv()
+
+    const config = await updateRankedRoleConfig(kv, 'guild-1', {
+      tierRoleIdsByRank: ['11111111111111111', '22222222222222222', '33333333333333333'],
+    })
+
+    expect(config.tiers).toHaveLength(3)
+    expect(config.tiers[2]?.roleId).toBe('33333333333333333')
   })
 })

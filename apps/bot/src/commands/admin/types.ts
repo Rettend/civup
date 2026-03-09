@@ -6,7 +6,6 @@ export interface AdminVar {
   mode?: string
   target?: string
   role?: string
-  count?: string
   role1?: string
   role2?: string
   role3?: string

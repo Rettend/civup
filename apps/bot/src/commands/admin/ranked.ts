@@ -10,9 +10,6 @@ import {
   getConfiguredRankedRoleId,
   getConfiguredRankedRoleLabel,
   getRankedRoleConfig,
-  getRankedRoleTierCount,
-  MAX_RANKED_ROLE_TIER_COUNT,
-  MIN_RANKED_ROLE_TIER_COUNT,
   updateRankedRoleConfig,
 } from '../../services/ranked/roles.ts'
 import { buildResolvedRoleDisplayById, sendEphemeralResponse, sendTransientEphemeralResponse } from './shared.ts'
@@ -26,18 +23,12 @@ export function handleRankedRoles(c: AdminCommandContext) {
   }
 
   const roleInputs = getRankedRoleInputs(c.var)
-  const tierCount = parseTierCountInput(c.var.count)
-  if (c.var.count && tierCount == null) {
-    return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
-      await sendTransientEphemeralResponse(c, `Ranked role count must be between ${MIN_RANKED_ROLE_TIER_COUNT} and ${MAX_RANKED_ROLE_TIER_COUNT}.`, 'error')
-    })
-  }
 
   const resolvedRoleDisplayById = buildResolvedRoleDisplayById(c.interaction.data)
 
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
     const hasRoleUpdates = roleInputs.some(roleId => typeof roleId === 'string' && roleId.length > 0)
-    const hasConfigChanges = hasRoleUpdates || tierCount != null
+    const hasConfigChanges = hasRoleUpdates
     let roleDisplayById: Map<string, { name: string, color: string | null }> | undefined = resolvedRoleDisplayById.size > 0
       ? resolvedRoleDisplayById
       : undefined
@@ -54,7 +45,6 @@ export function handleRankedRoles(c: AdminCommandContext) {
     const currentConfig = await getRankedRoleConfig(c.env.KV, guildId)
     const config = hasConfigChanges
       ? await updateRankedRoleConfig(c.env.KV, guildId, {
-          tierCount: tierCount ?? getRankedRoleTierCount(currentConfig),
           tierRoleIdsByRank: roleInputs,
         }, roleDisplayById)
       : currentConfig
@@ -129,23 +119,15 @@ function getRankedRoleInputs(vars: AdminVar): Array<string | null | undefined> {
   return [vars.role1, vars.role2, vars.role3, vars.role4, vars.role5, vars.role6, vars.role7, vars.role8, vars.role9, vars.role10]
 }
 
-function parseTierCountInput(value: string | undefined): number | null {
-  if (typeof value !== 'string' || value.trim().length === 0) return null
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric) || !Number.isInteger(numeric)) return null
-  const rounded = Math.round(numeric)
-  if (rounded < MIN_RANKED_ROLE_TIER_COUNT || rounded > MAX_RANKED_ROLE_TIER_COUNT) return null
-  return rounded
-}
-
 function formatRankedRoleConfig(config: Awaited<ReturnType<typeof getRankedRoleConfig>>): string {
-  const lines = [`Count: ${getRankedRoleTierCount(config)}`]
-  for (let index = 0; index < getRankedRoleTierCount(config); index++) {
+  const lines: string[] = []
+  for (let index = 0; index < config.tiers.length; index++) {
     const tier = createRankedRoleTierId(index + 1)
     const roleId = getConfiguredRankedRoleId(config, tier)
-    lines.push(`${index + 1}. ${roleId ? `<@&${roleId}>` : '`not set`'}`)
+    if (!roleId) continue
+    lines.push(`${index + 1}. <@&${roleId}>`)
   }
-  return lines.join('\n')
+  return lines.length > 0 ? lines.join('\n') : 'No ranked roles configured yet.'
 }
 
 function formatRankedRolePreview(
@@ -154,7 +136,6 @@ function formatRankedRolePreview(
 ): string {
   const lines = [
     '**Ranked role preview**',
-    `Count: ${getRankedRoleTierCount(config)}`,
     formatRankedRoleDistribution(preview.distribution, config),
     `Unranked: ${preview.unrankedCount}`,
   ]
@@ -180,7 +161,6 @@ function formatRankedRoleSyncResult(
 ): string {
   const lines = [
     '**Ranked roles synced**',
-    `Count: ${getRankedRoleTierCount(config)}`,
     `Updated members: ${result.appliedDiscordChanges}`,
     formatRankedRoleDistribution(result.distribution, config),
     `Unranked: ${result.unrankedCount}`,
@@ -210,7 +190,7 @@ function formatRankedRoleDistribution(
   config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
 ): string {
   const parts: string[] = []
-  for (let index = 0; index < getRankedRoleTierCount(config); index++) {
+  for (let index = 0; index < config.tiers.length; index++) {
     const tier = createRankedRoleTierId(index + 1)
     parts.push(`${formatRankedRoleReference(config, tier)} ${distribution[tier] ?? 0}`)
   }

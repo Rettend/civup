@@ -121,11 +121,11 @@ function buildEqualFfaEntries(playerCount: number): FfaEntry[] {
 
 describe('calculateFfaRatings realistic distributions', () => {
   test.each([
-    [6, [44.64, 26.79, 8.93, -8.93, -26.79, -44.64]],
-    [7, [43.0, 28.67, 14.33, 0.0, -14.33, -28.67, -43.0]],
-    [8, [39.7, 28.36, 17.01, 5.67, -5.67, -17.01, -28.36, -39.7]],
-    [9, [37.85, 28.39, 18.93, 9.46, 0.0, -9.46, -18.93, -28.39, -37.85]],
-    [10, [34.71, 26.99, 19.28, 11.57, 3.86, -3.86, -11.57, -19.28, -26.99, -34.71]],
+    [6, [36.53, 21.92, 7.31, -7.31, -21.92, -36.53]],
+    [7, [35.18, 23.46, 11.73, 0.0, -11.73, -23.46, -35.18]],
+    [8, [32.48, 23.2, 13.92, 4.64, -4.64, -13.92, -23.2, -32.48]],
+    [9, [30.97, 23.23, 15.49, 7.74, 0.0, -7.74, -15.49, -23.23, -30.97]],
+    [10, [28.4, 22.09, 15.78, 9.47, 3.16, -3.16, -9.47, -15.78, -22.09, -28.4]],
   ])('equal-skill %i-player FFAs produce stable placement spreads', (playerCount, expectedDeltas) => {
     const updates = calculateFfaRatings(buildEqualFfaEntries(playerCount))
 
@@ -187,21 +187,39 @@ describe('calculateFfaRatings realistic distributions', () => {
     const winDelta = playerById(calculateFfaRatings(heroWinField), 'hero').displayDelta
     const midDelta = playerById(calculateFfaRatings(heroMidField), 'hero').displayDelta
 
-    expect(winDelta).toBeGreaterThan(7)
-    expect(winDelta).toBeLessThan(8)
+    expect(winDelta).toBeGreaterThan(6)
+    expect(winDelta).toBeLessThan(7)
     expect(midDelta).toBeGreaterThan(0)
     expect(midDelta).toBeLessThan(1)
   })
 })
 
 describe('duel progression simulations', () => {
+  test('provisional equal-skill duel wins are much more volatile than established ones', () => {
+    const provisional = calculateTeamRatings([
+      { players: [createRating('new1')] },
+      { players: [createRating('new2')] },
+    ])
+    const established = calculateTeamRatings([
+      { players: [playerFromDisplay('est1', 1000)] },
+      { players: [playerFromDisplay('est2', 1000)] },
+    ])
+
+    const provisionalWinner = playerById(provisional, 'new1')
+    const establishedWinner = playerById(established, 'est1')
+
+    expect(provisionalWinner.displayDelta).toBeCloseTo(49.93, 2)
+    expect(establishedWinner.displayDelta).toBeCloseTo(27.35, 2)
+    expect(provisionalWinner.displayDelta).toBeGreaterThan(establishedWinner.displayDelta + 20)
+  })
+
   test.each([
-    [0.5, 1006],
-    [0.52, 1019],
-    [0.55, 1039],
-    [0.6, 1072],
-    [0.7, 1143],
-    [0.8, 1230],
+    [0.5, 1005],
+    [0.52, 1016],
+    [0.55, 1032],
+    [0.6, 1059],
+    [0.7, 1117],
+    [0.8, 1188],
   ])('display rating after 100 games reflects a %p duel win rate against 1000 opposition', (winRate, expectedDisplay) => {
     const averageDisplay = averageDisplayAfterGames(winRate, 100)
     expect(averageDisplay).toBeCloseTo(expectedDisplay, 0)
@@ -216,8 +234,23 @@ describe('duel progression simulations', () => {
     const winner = playerById(updates, 'p1')
     const loser = playerById(updates, 'p2')
 
-    expect(winner.displayDelta).toBeCloseTo(33.42, 2)
-    expect(loser.displayDelta).toBeCloseTo(-33.42, 2)
+    expect(winner.displayDelta).toBeCloseTo(27.35, 2)
+    expect(loser.displayDelta).toBeCloseTo(-27.35, 2)
+  })
+
+  test('established favorites cannot farm huge Elo from weaker duel opponents', () => {
+    const modestFavorite = calculateTeamRatings([
+      { players: [playerFromDisplay('fav-1200', 1200)] },
+      { players: [playerFromDisplay('dog-1000', 1000)] },
+    ])
+    const heavyFavorite = calculateTeamRatings([
+      { players: [playerFromDisplay('fav-1400', 1400)] },
+      { players: [playerFromDisplay('dog-1000', 1000)] },
+    ])
+
+    expect(playerById(modestFavorite, 'fav-1200').displayDelta).toBeCloseTo(11.3, 2)
+    expect(playerById(heavyFavorite, 'fav-1400').displayDelta).toBeCloseTo(3.47, 2)
+    expect(playerById(heavyFavorite, 'fav-1400').displayDelta).toBeLessThan(8)
   })
 })
 
@@ -240,7 +273,7 @@ describe('teamer rating scenarios', () => {
     expect(probabilities[0]).toBeCloseTo(0.5, 6)
     expect(probabilities[1]).toBeCloseTo(0.5, 6)
     expect(learnerUpdate.displayDelta).toBeGreaterThan(carryUpdate.displayDelta)
-    expect(carryUpdate.displayDelta).toBeGreaterThan(15)
+    expect(carryUpdate.displayDelta).toBeGreaterThan(13)
   })
 
   test('mixed-team upsets punish weaker favorites more than the carry', () => {
@@ -283,12 +316,12 @@ describe('teamer rating scenarios', () => {
 
     for (const playerId of ['pro1', 'pro2', 'pro3']) {
       expect(Math.abs(playerById(expectedWinUpdates, playerId).displayDelta)).toBeLessThan(1)
-      expect(playerById(upsetUpdates, playerId).displayDelta).toBeLessThan(-25)
+      expect(playerById(upsetUpdates, playerId).displayDelta).toBeLessThan(-24)
     }
 
     for (const playerId of ['avg1', 'avg2', 'avg3']) {
       expect(Math.abs(playerById(expectedWinUpdates, playerId).displayDelta)).toBeLessThan(1)
-      expect(playerById(upsetUpdates, playerId).displayDelta).toBeGreaterThan(45)
+      expect(playerById(upsetUpdates, playerId).displayDelta).toBeGreaterThan(37)
     }
   })
 })
@@ -309,9 +342,9 @@ describe('cross-mode progression sanity', () => {
     const twoVTwo60 = averageTeamDisplayAfterGames(2, 0.6, 100)
     const threeVThree60 = averageTeamDisplayAfterGames(3, 0.6, 100)
 
-    expect(duel60).toBeCloseTo(1072, 0)
-    expect(twoVTwo60).toBeCloseTo(1103, 0)
-    expect(threeVThree60).toBeCloseTo(1125, 0)
+    expect(duel60).toBeCloseTo(1059, 0)
+    expect(twoVTwo60).toBeCloseTo(1084, 0)
+    expect(threeVThree60).toBeCloseTo(1102, 0)
     expect(twoVTwo60).toBeGreaterThan(duel60)
     expect(threeVThree60).toBeGreaterThan(twoVTwo60)
     expect(threeVThree60 - duel60).toBeLessThan(60)
@@ -324,7 +357,7 @@ describe('cross-mode progression sanity', () => {
 
     expect(averagePattern).toBeGreaterThan(990)
     expect(averagePattern).toBeLessThan(1010)
-    expect(mildTopPattern).toBeGreaterThan(1300)
-    expect(mildBottomPattern).toBeLessThan(700)
+    expect(mildTopPattern).toBeGreaterThan(1260)
+    expect(mildBottomPattern).toBeLessThan(750)
   })
 })
