@@ -2,8 +2,8 @@ import { matches, playerRatings, players, seasonPeakModeRanks, seasonPeakRanks }
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { createDraftMatch } from '../../src/services/match/index.ts'
-import { syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
-import { endSeason, getActiveSeason, startSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks } from '../../src/services/season/index.ts'
+import { previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
+import { endSeason, getActiveSeason, startSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
@@ -192,6 +192,62 @@ describe('season services', () => {
     expect(peakRows[0]?.playerId).toBe(HERO_ID)
     expect(peakRows[0]?.tier).toBe(TIER_4)
     expect(peakRows[0]?.sourceMode).toBe('ffa')
+
+    sqlite.close()
+  })
+
+  test('participant-scoped season peak sync updates only requested players from ranked preview', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const season = await startSeason(db, { now: NOW - DAY_MS })
+
+    await seedPlayers(db, 'ffa', 7, { prefix: 'active', lastPlayedAt: NOW })
+    await seedPlayerIdentity(db, HERO_ID)
+    await seedRating(db, {
+      playerId: HERO_ID,
+      mode: 'ffa',
+      mu: 50,
+      sigma: 6,
+      gamesPlayed: 6,
+      lastPlayedAt: NOW,
+    })
+
+    const rivalId = playerIdFor('rival', 1)
+    await seedPlayerIdentity(db, rivalId)
+    await seedRating(db, {
+      playerId: rivalId,
+      mode: 'duel',
+      mu: 44,
+      sigma: 6,
+      gamesPlayed: 6,
+      lastPlayedAt: NOW,
+    })
+
+    const preview = await previewRankedRoles({ db, kv, guildId: 'guild-1', now: NOW })
+    const result = await syncSeasonPeaksForPlayers(db, {
+      playerIds: [HERO_ID],
+      playerPreviews: preview.playerPreviews,
+      now: NOW + 1,
+    })
+
+    expect(result.seasonId).toBe(season.id)
+    expect(result.overall.inserted).toBe(1)
+
+    const peakRows = await db
+      .select()
+      .from(seasonPeakRanks)
+      .where(eq(seasonPeakRanks.seasonId, season.id))
+
+    const peakModeRows = await db
+      .select()
+      .from(seasonPeakModeRanks)
+      .where(eq(seasonPeakModeRanks.seasonId, season.id))
+
+    expect(peakRows).toHaveLength(1)
+    expect(peakRows[0]?.playerId).toBe(HERO_ID)
+    expect(peakModeRows).toHaveLength(1)
+    expect(peakModeRows[0]?.playerId).toBe(HERO_ID)
+    expect(peakModeRows[0]?.mode).toBe('ffa')
 
     sqlite.close()
   })
