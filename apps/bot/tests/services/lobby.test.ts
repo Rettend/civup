@@ -119,10 +119,10 @@ describe('lobby service KV write behavior', () => {
       messageId: 'message-1',
     })
 
-    await setLobbyMinRole(kv, lobby.id, 'gladiator')
+    await setLobbyMinRole(kv, lobby.id, 'tier3')
     const stored = await getLobbyById(kv, lobby.id)
 
-    expect(stored?.minRole).toBe('gladiator')
+    expect(stored?.minRole).toBe('tier3')
     expect(stored?.guildId).toBe('guild-1')
   })
 })

@@ -54,9 +54,9 @@ describe('activity lobby join eligibility', () => {
       joinedAt: Date.now(),
     })
 
-    await setLobbyMinRole(kv, lobby.id, 'legion')
+    await setLobbyMinRole(kv, lobby.id, 'tier2')
     await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      legion: '11111111111111111',
+      tier2: '11111111111111111',
     })
 
     globalThis.fetch = (async () => new Response(JSON.stringify({ roles: [] }), {

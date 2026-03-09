@@ -3,6 +3,7 @@ import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import { playerRatings, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
 import { competitiveTierRank } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
+import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 
 export interface SeasonPeakCandidate {
   playerId: string
@@ -139,12 +140,18 @@ export async function syncSeasonPeakRanks(
   let skipped = 0
 
   for (const candidate of activeCandidates) {
+    const normalizedTier = normalizeRankedRoleTierId(candidate.tier)
+    if (!normalizedTier) {
+      skipped += 1
+      continue
+    }
+
     const existing = existingByPlayerId.get(candidate.playerId)
     if (!existing) {
       await db.insert(seasonPeakRanks).values({
         seasonId: input.seasonId,
         playerId: candidate.playerId,
-        tier: candidate.tier,
+        tier: normalizedTier,
         sourceMode: candidate.sourceMode,
         achievedAt: now,
       })
@@ -152,7 +159,8 @@ export async function syncSeasonPeakRanks(
       continue
     }
 
-    if (competitiveTierRank(candidate.tier) <= competitiveTierRank(existing.tier as CompetitiveTier)) {
+    const existingTier = normalizeRankedRoleTierId(existing.tier)
+    if (existingTier && competitiveTierRank(normalizedTier) <= competitiveTierRank(existingTier)) {
       skipped += 1
       continue
     }
@@ -160,7 +168,7 @@ export async function syncSeasonPeakRanks(
     await db
       .update(seasonPeakRanks)
       .set({
-        tier: candidate.tier,
+        tier: normalizedTier,
         sourceMode: candidate.sourceMode,
         achievedAt: now,
       })
@@ -221,6 +229,7 @@ export async function syncSeasonPeakModeRanks(
   let skipped = 0
 
   for (const candidate of activeCandidates) {
+    const normalizedTier = candidate.tier ? normalizeRankedRoleTierId(candidate.tier) : null
     const key = `${candidate.playerId}:${candidate.mode}`
     const existing = existingByKey.get(key)
     if (!existing) {
@@ -228,7 +237,7 @@ export async function syncSeasonPeakModeRanks(
         seasonId: input.seasonId,
         playerId: candidate.playerId,
         mode: candidate.mode,
-        tier: candidate.tier,
+        tier: normalizedTier,
         rating: candidate.rating,
         achievedAt: now,
       })
@@ -236,7 +245,7 @@ export async function syncSeasonPeakModeRanks(
       continue
     }
 
-    if (!isBetterSeasonModePeak(candidate, existing)) {
+    if (!isBetterSeasonModePeak({ ...candidate, tier: normalizedTier }, existing)) {
       skipped += 1
       continue
     }
@@ -244,7 +253,7 @@ export async function syncSeasonPeakModeRanks(
     await db
       .update(seasonPeakModeRanks)
       .set({
-        tier: candidate.tier,
+        tier: normalizedTier,
         rating: candidate.rating,
         achievedAt: now,
       })
@@ -270,7 +279,8 @@ function isBetterSeasonModePeak(
   existing: { tier: string | null, rating: number },
 ): boolean {
   const candidateRank = candidate.tier ? competitiveTierRank(candidate.tier) : -1
-  const existingRank = existing.tier ? competitiveTierRank(existing.tier as CompetitiveTier) : -1
+  const existingTier = normalizeRankedRoleTierId(existing.tier)
+  const existingRank = existingTier ? competitiveTierRank(existingTier) : -1
   if (candidateRank !== existingRank) return candidateRank > existingRank
   return candidate.rating > existing.rating
 }

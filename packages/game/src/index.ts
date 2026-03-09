@@ -52,8 +52,10 @@ export type {
 } from './types.ts'
 export {
   COMPETITIVE_TIERS,
+  competitiveTierNumber,
   competitiveTierMeetsMinimum,
   competitiveTierRank,
   GAME_MODES,
+  isCompetitiveTier,
   LEADERBOARD_MODES,
 } from './types.ts'

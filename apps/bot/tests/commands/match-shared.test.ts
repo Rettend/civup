@@ -144,9 +144,9 @@ describe('match shared grouped join behavior', () => {
       messageId: 'message-1',
     })
 
-    await setLobbyMinRole(kv, lobby.id, 'legion')
+    await setLobbyMinRole(kv, lobby.id, 'tier2')
     await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      legion: '11111111111111111',
+      tier2: '11111111111111111',
     })
 
     await withMockGuildMemberRoles({ challenger: [] }, async () => {
@@ -178,9 +178,9 @@ describe('match shared grouped join behavior', () => {
       messageId: 'message-2',
     })
 
-    await setLobbyMinRole(kv, gatedLobby.id, 'legion')
+    await setLobbyMinRole(kv, gatedLobby.id, 'tier2')
     await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      legion: '11111111111111111',
+      tier2: '11111111111111111',
     })
 
     await withMockGuildMemberRoles({ challenger: [] }, async () => {
