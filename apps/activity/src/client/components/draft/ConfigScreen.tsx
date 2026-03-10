@@ -17,6 +17,7 @@ import {
   formatLeaderPoolValue,
   formatLobbyMinRole,
   formatTimerValue,
+  getLeaderPoolSizeMinimum,
   getTimerConfigFromDraft,
   leaderPoolSizePlaceholder,
   leaderPoolSizeToInput,
@@ -35,6 +36,7 @@ import { MinRoleSetNotice, PlayerChip, PremadeLinkButton, ReadonlyTimerRow } fro
 import { cn } from '~/client/lib/css'
 import { isDev } from '~/client/lib/is-dev'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
+import { MiniFrame, MiniSeatGrid, type MiniSeatItem } from './MiniLayout'
 import {
   arrangeLobbyTeams,
   cancelLobby,
@@ -43,6 +45,7 @@ import {
   draftStore,
   fetchLobbyRankedRoles,
   fillLobbyWithTestPlayers,
+  isMiniView,
   isSpectator,
   placeLobbySlot,
   removeLobbySlot,
@@ -307,6 +310,12 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (lobby) return lobby.entries.filter(entry => entry != null).length
     return state()?.seats.length ?? 0
   }
+  const leaderPoolValidationCount = () => {
+    const lobby = currentLobby()
+    if (lobby) return lobby.mode === 'ffa' ? leaderPoolPlayerCount() : lobby.targetSize
+    return state()?.seats.length ?? leaderPoolPlayerCount()
+  }
+  const leaderPoolMinimumValue = () => getLeaderPoolSizeMinimum(lobbyMode(), leaderPoolValidationCount())
   const leaderPoolPlaceholderValue = () => leaderPoolSizePlaceholder(lobbyMode(), leaderPoolPlayerCount())
   const currentDraftLeaderPoolSize = () => {
     const draftState = state()
@@ -589,10 +598,11 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
       const parsedBan = parseTimerMinutesInput(nextBanMinutes)
       const parsedPick = parseTimerMinutesInput(nextPickMinutes)
-      const parsedLeaderPool = parseLeaderPoolSizeInput(leaderPoolInput())
+      const leaderPoolMinimum = leaderPoolMinimumValue()
+      const parsedLeaderPool = parseLeaderPoolSizeInput(leaderPoolInput(), leaderPoolMinimum)
       if (parsedBan === undefined || parsedPick === undefined || parsedLeaderPool === undefined) {
         optimisticTimerConfig.clearError()
-        showErrorMessage(`Use whole numbers for timers and leaders. Leaders can be 1-${MAX_LEADER_POOL_INPUT}, or blank for the mode default.`)
+        showErrorMessage(`Use whole numbers for timers and leaders. Leaders can be ${leaderPoolMinimum}-${MAX_LEADER_POOL_INPUT}, or blank for the mode default.`)
         const current = optimisticTimerConfig.value()
         setBanMinutes(timerSecondsToMinutesInput(current.banTimerSeconds))
         setPickMinutes(timerSecondsToMinutesInput(current.pickTimerSeconds))
@@ -1044,9 +1054,44 @@ export function ConfigScreen(props: ConfigScreenProps) {
     sendCancel('cancel')
   }
 
+  const toMiniSeatItem = (row: PlayerRow, team: number | null): MiniSeatItem => ({
+    key: row.key,
+    name: row.empty ? 'Empty' : row.name,
+    avatarUrl: row.avatarUrl ?? null,
+    team,
+    empty: row.empty,
+  })
+
+  const miniColumns = () => {
+    if (isTeamMode()) {
+      return [
+        teamRows(0).map(row => toMiniSeatItem(row, 0)),
+        teamRows(1).map(row => toMiniSeatItem(row, 1)),
+      ]
+    }
+
+    return [
+      ffaFirstColumn().map(row => toMiniSeatItem(row, null)),
+      ffaSecondColumn().map(row => toMiniSeatItem(row, null)),
+    ]
+  }
+
+  const setupStatusText = () => {
+    if (isLobbyMode()) {
+      if (amHost()) return canStartLobby() ? 'Ready to start' : 'Waiting for more players'
+      return isCurrentUserSlotted() ? 'Waiting for host' : 'Spectating'
+    }
+
+    if (amHost()) return 'Ready to start'
+    return isSpectator() ? 'Spectating' : 'Waiting for host'
+  }
+
   return (
-    <div class="text-text-primary font-sans bg-bg-primary overflow-y-auto min-h-dvh">
-      <div class="mx-auto px-6 py-4 flex flex-col gap-6 max-w-5xl w-full">
+    <Show
+      when={isMiniView()}
+      fallback={(
+        <div class="text-text-primary font-sans bg-bg-primary overflow-y-auto min-h-dvh">
+          <div class="mx-auto px-6 py-4 flex flex-col gap-6 max-w-5xl w-full">
         <div class="grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-center">
           <div class="h-9 w-9" />
           <div class="text-center">
@@ -1213,7 +1258,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   <TextInput
                     type="number"
                     label="Leaders"
-                    min="1"
+                    min={String(leaderPoolMinimumValue())}
                     max={String(MAX_LEADER_POOL_INPUT)}
                     step="1"
                     value={leaderPoolInput()}
@@ -1222,7 +1267,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                     onInput={(event) => {
                       optimisticTimerConfig.clearError()
                       clearConfigMessage()
-                      const normalized = normalizeLeaderPoolSizeInput(event.currentTarget.value)
+                      const normalized = normalizeLeaderPoolSizeInput(event.currentTarget.value, leaderPoolMinimumValue())
                       event.currentTarget.value = normalized
                       setLeaderPoolInput(normalized)
                     }}
@@ -1297,9 +1342,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
             when={amHost()}
             fallback={(
               <span class="text-sm text-text-muted">
-                {isLobbyMode()
-                  ? isCurrentUserSlotted() ? 'Waiting for host to start...' : 'Spectating - waiting for host to start'
-                  : isSpectator() ? 'Spectating - waiting for host to start' : 'Waiting for host to start...'}
+                {setupStatusText()}
               </span>
             )}
           >
@@ -1353,7 +1396,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
                 </div>
               )}
             >
-              <div class="flex gap-3 items-center">
+              <div class="flex flex-col items-center gap-2">
+                <span class="text-sm text-text-muted">{setupStatusText()}</span>
+
+                <div class="flex gap-3 items-center">
                 <button
                   class="text-sm text-black font-bold px-8 py-2.5 rounded-lg bg-accent-gold cursor-pointer transition-colors hover:bg-accent-gold/80"
                   onClick={sendStart}
@@ -1366,11 +1412,25 @@ export function ConfigScreen(props: ConfigScreenProps) {
                 >
                   Cancel Draft
                 </button>
+                </div>
               </div>
             </Show>
           </Show>
         </div>
-      </div>
-    </div>
+          </div>
+        </div>
+      )}
+    >
+      <MiniFrame
+        modeLabel={formatId()}
+        title="Draft Setup"
+        titleAccent="gold"
+        rightLabel={currentLobby() ? `${filledSlots()}/${currentLobby()!.targetSize}` : null}
+      >
+        <MiniSeatGrid
+          columns={miniColumns()}
+        />
+      </MiniFrame>
+    </Show>
   )
 }

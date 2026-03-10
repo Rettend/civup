@@ -10,9 +10,11 @@ import {
   disconnect,
   draftStore,
   fetchActivityLaunchSnapshot,
+  isMiniView,
   resetDraft,
   selectActivityTarget,
   setAuthenticatedUser,
+  setIsMiniView,
   userId,
   watchLobbyState,
 } from './stores'
@@ -27,6 +29,8 @@ type AppState
 const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
   || (typeof window !== 'undefined' ? window.location.host : 'localhost:5173')
 const ACTIVITY_SAFETY_POLL_MS = 90_000
+const MINI_VIEW_MAX_WIDTH = 520
+const MINI_VIEW_MAX_HEIGHT = 340
 
 export default function App() {
   const [state, setState] = createSignal<AppState>({ status: 'loading' })
@@ -68,6 +72,13 @@ export default function App() {
     stopActivityWatch()
     stopActivitySafetyPoll()
     clearDraftConnection()
+  })
+
+  onMount(() => {
+    const syncMiniView = () => setIsMiniView(window.innerWidth <= MINI_VIEW_MAX_WIDTH && window.innerHeight <= MINI_VIEW_MAX_HEIGHT)
+    syncMiniView()
+    window.addEventListener('resize', syncMiniView)
+    onCleanup(() => window.removeEventListener('resize', syncMiniView))
   })
 
   const currentTargetKey = () => {
@@ -311,18 +322,33 @@ export default function App() {
         </Match>
 
         <Match when={state().status === 'overview'}>
-          <main class="text-text-primary font-sans bg-bg-primary min-h-screen overflow-y-auto">
-            <div class="mx-auto px-6 py-4 max-w-5xl">
-              <TargetPickerPanel
-                options={availableTargets()}
-                busy={pickerBusy()}
-                selectedKey={currentTargetKey()}
-                error={pickerError()}
-                onSelect={handleTargetSelection}
-                onResume={lastResolvedSelection() ? restoreLastSelection : undefined}
-              />
-            </div>
-          </main>
+          <Show
+            when={isMiniView()}
+            fallback={(
+              <main class="text-text-primary font-sans bg-bg-primary min-h-screen overflow-y-auto">
+                <div class="mx-auto px-6 py-4 max-w-5xl">
+                  <TargetPickerPanel
+                    options={availableTargets()}
+                    busy={pickerBusy()}
+                    selectedKey={currentTargetKey()}
+                    error={pickerError()}
+                    onSelect={handleTargetSelection}
+                    onResume={lastResolvedSelection() ? restoreLastSelection : undefined}
+                  />
+                </div>
+              </main>
+            )}
+          >
+            <TargetPickerPanel
+              mini
+              options={availableTargets()}
+              busy={pickerBusy()}
+              selectedKey={currentTargetKey()}
+              error={pickerError()}
+              onSelect={handleTargetSelection}
+              onResume={lastResolvedSelection() ? restoreLastSelection : undefined}
+            />
+          </Show>
         </Match>
 
         <Match when={state().status === 'lobby-waiting'}>
@@ -415,6 +441,7 @@ function DraftWithConnection(props: {
 }
 
 function TargetPickerPanel(props: {
+  mini?: boolean
   options: ActivityTargetOption[]
   busy: boolean
   selectedKey: string | null
@@ -422,6 +449,20 @@ function TargetPickerPanel(props: {
   onSelect: (option: ActivityTargetOption) => void
   onResume?: () => void
 }) {
+  if (props.mini) {
+    return (
+      <ActivityTargetPicker
+        mini
+        error={props.error}
+        options={props.options}
+        busy={props.busy}
+        selectedKey={props.selectedKey}
+        onSelect={props.onSelect}
+        onClose={props.onResume}
+      />
+    )
+  }
+
   return (
     <div class="flex flex-col gap-4">
       <ActivityTargetPicker

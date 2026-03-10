@@ -1,7 +1,7 @@
-import { formatModeLabel, getLeader } from '@civup/game'
-import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
-import { cn } from '~/client/lib/css'
+import { formatModeLabel } from '@civup/game'
+import { createEffect, createSignal, onCleanup } from 'solid-js'
 import { draftStore, phaseAccent, phaseLabel } from '~/client/stores'
+import { MiniFrame, MiniSeatGrid, type MiniSeatItem } from './MiniLayout'
 
 /** Minimized PiP view */
 export function MiniView() {
@@ -15,107 +15,100 @@ export function MiniView() {
       setRemaining(0)
       return
     }
-    const tick = () => setRemaining(Math.max(0, endsAt! - Date.now()))
+
+    const tick = () => setRemaining(Math.max(0, endsAt - Date.now()))
     tick()
     const interval = setInterval(tick, 100)
     onCleanup(() => clearInterval(interval))
   })
-  const seconds = () => Math.ceil(remaining() / 1000)
 
-  const formatName = () => formatModeLabel(state()?.formatId)
+  const modeLabel = () => formatModeLabel(state()?.formatId)
+  const timerLabel = () => {
+    if (state()?.status !== 'active' || draftStore.timerEndsAt == null) return null
 
-  const activeSeatName = () => {
-    const s = state()
-    if (!s || s.status !== 'active') return null
-    const step = s.steps[s.currentStepIndex]
-    if (!step) return null
-    if (step.seats === 'all') return 'All Players'
-    const seat = s.seats[step.seats[0]!]
-    return seat?.displayName ?? null
+    const seconds = Math.ceil(remaining() / 1000)
+    const minutes = Math.floor(seconds / 60)
+    return `${minutes}:${(seconds % 60).toString().padStart(2, '0')}`
   }
 
-  const lastPick = () => {
-    const s = state()
-    if (!s || s.picks.length === 0) return null
-    const last = s.picks[s.picks.length - 1]!
-    try {
-      const leader = getLeader(last.civId)
-      return { name: leader.name, portraitUrl: leader.portraitUrl }
+  const title = () => {
+    const current = state()
+    if (!current) return 'Draft'
+    if (current.status === 'waiting') return 'Draft Setup'
+    if (current.status === 'complete') return 'Draft Complete'
+    if (current.status === 'cancelled') {
+      if (current.cancelReason === 'cancel') return 'Draft Cancelled'
+      if (current.cancelReason === 'timeout') return 'Auto-Scrubbed'
+      return 'Match Scrubbed'
     }
-    catch { return { name: last.civId, portraitUrl: undefined } }
+    return phaseLabel()
+  }
+
+  const titleAccent = (): 'gold' | 'red' => {
+    const current = state()
+    if (current?.status === 'cancelled') return 'red'
+    if (current?.status === 'active' && accent() === 'red') return 'red'
+    return 'gold'
+  }
+
+  const activeSeatSet = () => {
+    const current = state()
+    if (!current || current.status !== 'active') return new Set<number>()
+
+    const step = current.steps[current.currentStepIndex]
+    if (!step) return new Set<number>()
+
+    const activeSeats = step.seats === 'all'
+      ? current.seats.map((_, seatIndex) => seatIndex)
+      : step.seats
+
+    return new Set(activeSeats.filter((seatIndex) => {
+      const submittedCount = current.submissions[seatIndex]?.length ?? 0
+      return submittedCount < step.count
+    }))
+  }
+
+  const seatItems = (): MiniSeatItem[] => {
+    const current = state()
+    if (!current) return []
+
+    const picksBySeat = new Map(current.picks.map(pick => [pick.seatIndex, pick.civId]))
+    const activeSeats = activeSeatSet()
+
+    return current.seats.map((seat, seatIndex) => ({
+      key: `${seat.playerId}:${seatIndex}`,
+      name: seat.displayName,
+      avatarUrl: seat.avatarUrl ?? null,
+      leaderId: picksBySeat.get(seatIndex) ?? null,
+      team: seat.team ?? null,
+      active: activeSeats.has(seatIndex),
+    }))
+  }
+
+  const columns = () => {
+    const items = seatItems()
+    if (items.some(item => item.team != null)) {
+      return [
+        items.filter(item => item.team === 0),
+        items.filter(item => item.team === 1),
+      ]
+    }
+
+    const midpoint = Math.ceil(items.length / 2)
+    return [items.slice(0, midpoint), items.slice(midpoint)]
   }
 
   return (
-    <div class="text-text-primary font-sans p-3 bg-bg-primary flex flex-col h-screen">
-      {/* Top row */}
-      <div class="flex items-center justify-between">
-        <span class="text-xs text-text-muted font-medium">{formatName()}</span>
-        <span class={cn(
-          'text-xs font-bold tracking-widest uppercase',
-          accent() === 'red' ? 'text-accent-red' : 'text-accent-gold',
-        )}
-        >
-          {phaseLabel()}
-        </span>
-        <Show when={draftStore.timerEndsAt != null}>
-          <span class="text-sm text-text-primary font-bold font-mono tabular-nums">
-            {Math.floor(seconds() / 60)}
-            :
-            {(seconds() % 60).toString().padStart(2, '0')}
-          </span>
-        </Show>
-      </div>
-
-      {/* Whose turn */}
-      <div class="mt-4 flex-1">
-        <Show when={activeSeatName()}>
-          {name => (
-            <div>
-              <div class="text-xs text-text-muted">Waiting for</div>
-              <div class={cn(
-                'text-lg font-bold',
-                accent() === 'red' ? 'text-accent-red' : 'text-accent-gold',
-              )}
-              >
-                {name()}
-              </div>
-            </div>
-          )}
-        </Show>
-
-        <Show when={state()?.status === 'waiting'}>
-          <div class="text-sm text-text-muted">Waiting to start...</div>
-        </Show>
-
-        <Show when={state()?.status === 'complete'}>
-          <div class="text-sm text-accent-gold font-bold">Draft Complete</div>
-        </Show>
-
-        <Show when={state()?.status === 'cancelled'}>
-          <div class="text-sm text-[#b8c0cb] font-semibold">
-            {state()?.cancelReason === 'cancel'
-              ? 'Draft Cancelled'
-              : state()?.cancelReason === 'timeout'
-                ? 'Auto-Scrubbed'
-                : 'Match Scrubbed'}
-          </div>
-        </Show>
-      </div>
-
-      {/* Last pick */}
-      <Show when={lastPick()}>
-        {pick => (
-          <div class="flex gap-2 items-center">
-            <Show when={pick().portraitUrl}>
-              {url => <img src={url()} alt={pick().name} class="rounded h-8 w-8 object-cover" />}
-            </Show>
-            <div>
-              <div class="text-[10px] text-text-muted uppercase">Last Pick</div>
-              <div class="text-xs text-text-primary font-medium">{pick().name}</div>
-            </div>
-          </div>
-        )}
-      </Show>
-    </div>
+    <MiniFrame
+      modeLabel={modeLabel()}
+      title={title()}
+      titleAccent={titleAccent()}
+      rightLabel={timerLabel()}
+    >
+      <MiniSeatGrid
+        columns={columns()}
+        activeTone={accent()}
+      />
+    </MiniFrame>
   )
 }
