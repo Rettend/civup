@@ -3,10 +3,10 @@ import type { Hono } from 'hono'
 import type { Env } from '../env.ts'
 import type { LobbyState } from '../services/lobby/index.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { formatModeLabel, GAME_MODES, maxPlayerCount } from '@civup/game'
+import { formatModeLabel, maxPlayerCount } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { clearUserActivityTargets, getLobbyForUser, getMatchForChannel, getMatchForUser, getUserActivityTarget, storeUserActivityTarget, storeUserMatchMappings } from '../services/activity/index.ts'
-import { filterQueueEntriesForLobby, getLobbiesByMode, getLobbyById, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
+import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbyById, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
 import { getPlayerQueueMode, getPlayerQueueModeFromStates, getQueueState, getQueueStates } from '../services/queue/index.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, getUniqueOpenLobbyForChannel, validatePlayerAgainstLobbyMinRole } from './lobby/snapshot.ts'
@@ -373,63 +373,60 @@ async function loadActivityLaunchContext(
   const queueStates = await getQueueStates(kv)
   const targets: ChannelActivityTarget[] = []
 
-  const lobbiesByModeArray = await Promise.all(GAME_MODES.map(mode => getLobbiesByMode(kv, mode)))
   const lobbiesByMode = new Map<GameMode, LobbyState[]>()
-  for (let modeIndex = 0; modeIndex < GAME_MODES.length; modeIndex++) {
-    const mode = GAME_MODES[modeIndex]!
-    const lobbies = lobbiesByModeArray[modeIndex] ?? []
-    lobbiesByMode.set(mode, lobbies)
+  const channelLobbies = await getLobbiesByChannel(kv, channelId)
+  for (const lobby of channelLobbies) {
+    const mode = lobby.mode
+    const existing = lobbiesByMode.get(mode)
+    if (existing) existing.push(lobby)
+    else lobbiesByMode.set(mode, [lobby])
 
-    for (const lobby of lobbies) {
-      if (lobby.channelId !== channelId) continue
+    if (lobby.status === 'open') {
+      const queue = queueStates.get(mode)
+      if (!queue) continue
 
-      if (lobby.status === 'open') {
-        const queue = queueStates.get(mode)
-        if (!queue) continue
+      const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
+      const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
+      targets.push({
+        lobby,
+        queueEntries: lobbyQueueEntries,
+        slots,
+        option: {
+          kind: 'lobby',
+          id: lobby.id,
+          lobbyId: lobby.id,
+          matchId: null,
+          channelId,
+          mode,
+          status: 'open',
+          participantCount: countFilledSlots(slots),
+          targetSize: maxPlayerCount(mode),
+          isMember: lobby.memberPlayerIds.includes(userId),
+          isHost: lobby.hostId === userId,
+          updatedAt: lobby.updatedAt,
+        },
+      })
+      continue
+    }
 
-        const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
-        const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
-        targets.push({
-          lobby,
-          queueEntries: lobbyQueueEntries,
-          slots,
-          option: {
-            kind: 'lobby',
-            id: lobby.id,
-            lobbyId: lobby.id,
-            matchId: null,
-            channelId,
-            mode,
-            status: 'open',
-            participantCount: countFilledSlots(slots),
-            targetSize: maxPlayerCount(mode),
-            isMember: lobby.memberPlayerIds.includes(userId),
-            isHost: lobby.hostId === userId,
-            updatedAt: lobby.updatedAt,
-          },
-        })
-        continue
-      }
-
-      if ((lobby.status === 'drafting' || lobby.status === 'active') && lobby.matchId) {
-        targets.push({
-          lobby,
-          option: {
-            kind: 'match',
-            id: lobby.matchId,
-            lobbyId: lobby.id,
-            matchId: lobby.matchId,
-            channelId,
-            mode,
-            status: lobby.status,
-            participantCount: countFilledSlots(lobby.slots),
-            targetSize: maxPlayerCount(mode),
-            isMember: lobby.memberPlayerIds.includes(userId),
-            isHost: lobby.hostId === userId,
-            updatedAt: lobby.updatedAt,
-          },
-        })
-      }
+    if ((lobby.status === 'drafting' || lobby.status === 'active') && lobby.matchId) {
+      targets.push({
+        lobby,
+        option: {
+          kind: 'match',
+          id: lobby.matchId,
+          lobbyId: lobby.id,
+          matchId: lobby.matchId,
+          channelId,
+          mode,
+          status: lobby.status,
+          participantCount: countFilledSlots(lobby.slots),
+          targetSize: maxPlayerCount(mode),
+          isMember: lobby.memberPlayerIds.includes(userId),
+          isHost: lobby.hostId === userId,
+          updatedAt: lobby.updatedAt,
+        },
+      })
     }
   }
 
