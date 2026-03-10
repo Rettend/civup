@@ -43,6 +43,7 @@ export interface DailyUsage {
 
 export interface CapacityModel {
   perDraft: PerDraftUsage
+  backgroundDaily?: DailyUsage
 }
 
 export interface MetricBreakpoint {
@@ -63,7 +64,7 @@ export function estimateDailyUsage(
   const draftsPerDay = playsPerDay / playersPerDraft
   const d1RowsReadPerDraft = model.perDraft.d1RowsReadBase + model.perDraft.d1RowsReadPerLeaderboardPlayer * playsPerDay
 
-  const usage: DailyUsage = {
+  const perDraftUsage: DailyUsage = {
     workersRequests: Math.ceil(draftsPerDay * model.perDraft.workersRequests),
     d1RowsRead: Math.ceil(draftsPerDay * d1RowsReadPerDraft),
     d1RowsWritten: Math.ceil(draftsPerDay * model.perDraft.d1RowsWritten),
@@ -77,7 +78,7 @@ export function estimateDailyUsage(
     doDurationGbSeconds: Math.ceil(draftsPerDay * model.perDraft.doDurationGbSeconds),
   }
 
-  return usage
+  return addUsage(perDraftUsage, model.backgroundDaily)
 }
 
 export function multiplyUsage(usage: DailyUsage, days: number): DailyUsage {
@@ -93,6 +94,24 @@ export function multiplyUsage(usage: DailyUsage, days: number): DailyUsage {
     kvLists: usage.kvLists * days,
     doRequests: usage.doRequests * days,
     doDurationGbSeconds: usage.doDurationGbSeconds * days,
+  }
+}
+
+export function addUsage(base: DailyUsage, extra?: DailyUsage): DailyUsage {
+  if (!extra) return base
+
+  return {
+    workersRequests: base.workersRequests + extra.workersRequests,
+    d1RowsRead: base.d1RowsRead + extra.d1RowsRead,
+    d1RowsWritten: base.d1RowsWritten + extra.d1RowsWritten,
+    doSqliteRowsRead: base.doSqliteRowsRead + extra.doSqliteRowsRead,
+    doSqliteRowsWritten: base.doSqliteRowsWritten + extra.doSqliteRowsWritten,
+    kvReads: base.kvReads + extra.kvReads,
+    kvWrites: base.kvWrites + extra.kvWrites,
+    kvDeletes: base.kvDeletes + extra.kvDeletes,
+    kvLists: base.kvLists + extra.kvLists,
+    doRequests: base.doRequests + extra.doRequests,
+    doDurationGbSeconds: base.doDurationGbSeconds + extra.doDurationGbSeconds,
   }
 }
 

@@ -33,8 +33,9 @@ export const cron_leaderboards = factory.cron(
   '*/2 * * * *',
   async (c) => {
     const db = createDb(c.env.DB)
+    const kv = createStateStore(c.env)
     try {
-      const refreshed = await refreshDirtyLeaderboards(db, c.env.KV, c.env.DISCORD_TOKEN)
+      const refreshed = await refreshDirtyLeaderboards(db, kv, c.env.DISCORD_TOKEN)
       if (refreshed) {
         // eslint-disable-next-line no-console
         console.log('[cron] Refreshed dirty leaderboards')

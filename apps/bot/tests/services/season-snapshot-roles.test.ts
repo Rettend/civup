@@ -173,7 +173,7 @@ describe('season snapshot roles', () => {
     expect(deletedRoleIds).toContain('74444444444444444')
 
     const history = await listPlayerSeasonSnapshotHistory(db, kv, 'guild-1', heroId)
-    expect(history[0]?.modes.ffa?.tierRoleId).toBe(createdRoles.tier4)
+    expect(history[0]?.modes.ffa?.tierRoleId).toBe('12222222222222222')
     expect(history[0]?.modes.ffa?.rating).toBe(642)
 
     sqlite.close()

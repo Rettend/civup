@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 import type { DraftInput, DraftSeat, DraftState, GameMode, QueueEntry } from '@civup/game'
-import type { CapacityModel, OverageRatesPerMillion, UsageLimits } from './capacity/model.ts'
+import type { CapacityModel, DailyUsage, OverageRatesPerMillion, UsageLimits } from './capacity/model.ts'
 import { matches, matchParticipants, playerRatings, players } from '@civup/db'
 import {
   allLeaderIds,
@@ -25,6 +25,7 @@ import {
 } from '../../src/services/activity/index.ts'
 import { resolveDraftTimerConfig } from '../../src/services/config/index.ts'
 import { markLeaderboardsDirty } from '../../src/services/leaderboard/message.ts'
+import { refreshDirtyLeaderboards } from '../../src/services/leaderboard/message.ts'
 import {
   attachLobbyMatch,
   clearLobbyById,
@@ -132,6 +133,7 @@ const DO_WEBSOCKET_BILLING_RATIO = 20
 const DO_CREATE_ROOM_REQUESTS_PER_DRAFT = 1
 const LOBBY_WATCH_SUBSCRIBE_MESSAGES_PER_CONNECTION = 2
 const ESTIMATED_DO_GB_SECONDS_PER_REQUEST = 0.0025
+const LEADERBOARD_CRON_RUNS_PER_DAY = 24 * 60 / 2
 
 const FREE_DAILY_LIMITS: UsageLimits = {
   workersRequests: 100_000,
@@ -185,9 +187,11 @@ const NOW = 1_700_000_000_000
 
 describe('capacity models', () => {
   test('prints current ranked lifecycle capacity projections', async () => {
+    const leaderboardCronRunUsage = await measureLeaderboardCronRunUsage()
+    const leaderboardCronBackgroundUsage = multiplyUsage(leaderboardCronRunUsage, LEADERBOARD_CRON_RUNS_PER_DAY)
     const reports: ScenarioReport[] = []
     for (const mode of CAPACITY_SCENARIOS) {
-      reports.push(await buildScenarioReport(mode))
+      reports.push(await buildScenarioReport(mode, leaderboardCronBackgroundUsage))
     }
 
     if (SHOULD_PRINT_REPORT) printReports(reports)
@@ -204,7 +208,10 @@ describe('capacity models', () => {
   })
 })
 
-async function buildScenarioReport(mode: CapacityScenario): Promise<ScenarioReport> {
+async function buildScenarioReport(
+  mode: CapacityScenario,
+  leaderboardCronBackgroundUsage: DailyUsage,
+): Promise<ScenarioReport> {
   const baseline = await simulateScenarioLifecycle({ mode, backgroundRatedPlayers: 0 })
   const withOneBackgroundPlayer = await simulateScenarioLifecycle({ mode, backgroundRatedPlayers: 1 })
 
@@ -223,6 +230,7 @@ async function buildScenarioReport(mode: CapacityScenario): Promise<ScenarioRepo
       doRequests: baseline.usage.doRequests,
       doDurationGbSeconds: baseline.usage.doDurationGbSeconds,
     },
+    backgroundDaily: leaderboardCronBackgroundUsage,
   }
 
   const playersPerDraft = scenarioPlayersPerDraft(mode)
@@ -275,6 +283,51 @@ async function buildScenarioReport(mode: CapacityScenario): Promise<ScenarioRepo
       periodDays: DAYS_PER_MONTH,
       playersPerDraft,
     }),
+  }
+}
+
+async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
+  const { db, sqlite } = await createTestDatabase()
+  const sqlTracker = trackSqlite(sqlite)
+  const { kv: rawKv, operations, resetOperations } = createTrackedKv({ trackReads: true })
+  const stateCoordinator = installStateCoordinatorHarness()
+  const kv = createStateStore({
+    KV: rawKv,
+    PARTY_HOST: stateCoordinator.host,
+    CIVUP_SECRET: stateCoordinator.secret,
+  })
+
+  try {
+    resetOperations()
+    sqlTracker.reset()
+    stateCoordinator.reset()
+
+    await refreshDirtyLeaderboards(db, kv, 'token')
+
+    const kvReads = operations.filter(op => op.type === 'get').length
+    const kvWrites = operations.filter(op => op.type === 'put').length
+    const kvDeletes = operations.filter(op => op.type === 'delete').length
+    const kvLists = operations.filter(op => op.type === 'list').length
+    const doRequests = stateCoordinator.requests()
+
+    return {
+      workersRequests: 1,
+      d1RowsRead: sqlTracker.counts.rowsRead,
+      d1RowsWritten: sqlTracker.counts.rowsWritten,
+      doSqliteRowsRead: stateCoordinator.sqliteRowsRead(),
+      doSqliteRowsWritten: stateCoordinator.sqliteRowsWritten(),
+      kvReads,
+      kvWrites,
+      kvDeletes,
+      kvLists,
+      doRequests,
+      doDurationGbSeconds: estimateDoDurationGbSeconds(doRequests),
+    }
+  }
+  finally {
+    stateCoordinator.restore()
+    sqlTracker.restore()
+    sqlite.close()
   }
 }
 
@@ -714,6 +767,8 @@ function scenarioPlayersPerDraft(mode: CapacityScenario): number {
 }
 
 function printReports(reports: ScenarioReport[]): void {
+  const backgroundDailyUsage = reports[0]?.model.backgroundDaily
+
   console.log('\n[capacity] assumptions')
   console.table(reports.map(report => ({
     mode: report.mode.label,
@@ -721,10 +776,16 @@ function printReports(reports: ScenarioReport[]): void {
     draftMsgs: report.draftRoomIncomingMessages,
   })))
   console.log('[capacity] globals', {
+    leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
     lobbyWatchMsgsPerConnection: LOBBY_WATCH_SUBSCRIBE_MESSAGES_PER_CONNECTION,
     doWebsocketBillingRatio: DO_WEBSOCKET_BILLING_RATIO,
     estimatedDoGbSecondsPerRequest: ESTIMATED_DO_GB_SECONDS_PER_REQUEST,
   })
+
+  if (backgroundDailyUsage) {
+    console.log('\n[capacity] background daily usage')
+    console.table([backgroundDailyUsage])
+  }
 
   console.log('\n[capacity] measured per draft usage')
   console.table(reports.map(report => ({

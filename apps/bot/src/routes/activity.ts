@@ -194,7 +194,8 @@ export function registerActivityRoutes(app: Hono<Env>) {
     const context = await loadActivityLaunchContext(kv, channelId, userId)
     const target = context.targets.find(candidate => candidate.option.kind === kind && candidate.option.id === id)
     if (!target) {
-      return c.json({ error: 'That activity target is no longer available in this channel' }, 404)
+      const selection = await resolveActivityLaunchSelection(kv, channelId, userId, context.targets)
+      return c.json(await buildActivityLaunchSnapshotFromTargets(c.env.DISCORD_TOKEN, kv, userId, context, selection))
     }
 
     await storeUserActivityTarget(kv, channelId, [userId], { kind, id })
