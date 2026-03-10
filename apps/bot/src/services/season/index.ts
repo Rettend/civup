@@ -4,6 +4,7 @@ import { playerRatings, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@c
 import { competitiveTierRank } from '@civup/game'
 import { displayRating } from '@civup/rating'
 import { and, desc, eq, inArray } from 'drizzle-orm'
+import { clearAllLeaderboardModeSnapshots } from '../leaderboard/snapshot.ts'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 
 export interface SeasonPeakCandidate {
@@ -75,7 +76,7 @@ export function formatSeasonShortName(seasonNumber: number): string {
   return `S${Math.max(1, Math.round(seasonNumber))}`
 }
 
-export async function startSeason(db: Database, input: { now?: number } = {}) {
+export async function startSeason(db: Database, input: { now?: number, kv?: KVNamespace } = {}) {
   const existing = await getActiveSeason(db)
   if (existing) throw new Error(`Cannot start a new season while **${existing.name}** is still active.`)
 
@@ -92,6 +93,7 @@ export async function startSeason(db: Database, input: { now?: number } = {}) {
 
   await db.insert(seasons).values(season)
   await db.delete(playerRatings)
+  if (input.kv) await clearAllLeaderboardModeSnapshots(input.kv)
   return season
 }
 

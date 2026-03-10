@@ -53,10 +53,12 @@ import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
 import {
+  estimateDailyUsage,
   estimateOverageUsd,
   findMaxPlaysPerDay,
   findMaxPlaysPerDayForOverageBudget,
   findMetricBreakpoints,
+  multiplyUsage,
 } from './capacity/model.ts'
 
 interface UsageSample {
@@ -137,8 +139,8 @@ const FREE_DAILY_LIMITS: UsageLimits = {
   workersRequests: 100_000,
   d1RowsRead: 5_000_000,
   d1RowsWritten: 100_000,
-  doSqliteRowsRead: 5_000_000,
-  doSqliteRowsWritten: 100_000,
+  doSqliteRowsRead: null,
+  doSqliteRowsWritten: null,
   kvReads: 100_000,
   kvWrites: 1_000,
   kvDeletes: 1_000,
@@ -151,8 +153,8 @@ const PAID_MONTHLY_LIMITS: UsageLimits = {
   workersRequests: 10_000_000,
   d1RowsRead: 25_000_000_000,
   d1RowsWritten: 50_000_000,
-  doSqliteRowsRead: 25_000_000_000,
-  doSqliteRowsWritten: 50_000_000,
+  doSqliteRowsRead: null,
+  doSqliteRowsWritten: null,
   kvReads: 10_000_000,
   kvWrites: 1_000_000,
   kvDeletes: 1_000_000,
@@ -165,8 +167,6 @@ const PAID_OVERAGE_RATES_PER_MILLION: OverageRatesPerMillion = {
   workersRequests: 0.30,
   d1RowsRead: 0.001,
   d1RowsWritten: 1.0,
-  doSqliteRowsRead: 0.001,
-  doSqliteRowsWritten: 1.0,
   kvReads: 0.50,
   kvWrites: 5.0,
   kvDeletes: 5.0,
@@ -299,7 +299,7 @@ async function simulateScenarioLifecycle(input: {
     await setSystemChannel(kv, 'draft', CHANNEL_ID)
     await setSystemChannel(kv, 'archive', 'channel-archive')
     await setSystemChannel(kv, 'leaderboard', 'channel-leaderboard')
-    await startSeason(db, { now: NOW })
+    await startSeason(db, { now: NOW, kv })
     await setRankedRoleCurrentRoles(kv, GUILD_ID, {
       tier5: '11111111111111111',
       tier4: '22222222222222222',
@@ -759,13 +759,15 @@ function printReports(reports: ScenarioReport[]): void {
   console.table(reports.map(report => ({
     mode: report.mode.label,
     workersRequests: report.model.perDraft.workersRequests,
-    d1RowsRead: report.model.perDraft.d1RowsReadBase,
+    d1RowsReadBase: report.model.perDraft.d1RowsReadBase,
+    d1RowsReadPerRatedPlayer: report.model.perDraft.d1RowsReadPerLeaderboardPlayer,
     d1RowsWritten: report.model.perDraft.d1RowsWritten,
     doSqliteRowsRead: report.model.perDraft.doSqliteRowsRead,
     doSqliteRowsWritten: report.model.perDraft.doSqliteRowsWritten,
     kvReads: report.model.perDraft.kvReads,
     kvWrites: report.model.perDraft.kvWrites,
     doRequests: report.model.perDraft.doRequests,
+    doDurationGbSeconds: report.model.perDraft.doDurationGbSeconds,
   })))
 
   console.log('\n[capacity] plan ceilings')
@@ -795,6 +797,35 @@ function printReports(reports: ScenarioReport[]): void {
         playsPerDay: report.paidTenDollarCapacityPlaysPerDay,
         draftsPerDay: report.paidTenDollarCapacityPlaysPerDay / playersPerDraft,
         bottleneck: '',
+      },
+    ]
+  }))
+
+  console.log('\n[capacity] projected usage at plan ceilings')
+  console.table(reports.flatMap((report) => {
+    const freeUsage = projectUsageAtCapacity(report, report.freeCapacityPlaysPerDay, 1)
+    const paidUsage = projectUsageAtCapacity(report, report.paidIncludedCapacityPlaysPerDay, DAYS_PER_MONTH)
+
+    return [
+      {
+        mode: report.mode.label,
+        plan: 'free',
+        playsPerDay: report.freeCapacityPlaysPerDay,
+        d1RowsRead: freeUsage.d1RowsRead,
+        doSqliteRowsRead: freeUsage.doSqliteRowsRead,
+        doSqliteRowsWritten: freeUsage.doSqliteRowsWritten,
+        doRequests: freeUsage.doRequests,
+        doDurationGbSeconds: freeUsage.doDurationGbSeconds,
+      },
+      {
+        mode: report.mode.label,
+        plan: '$5 included',
+        playsPerDay: report.paidIncludedCapacityPlaysPerDay,
+        d1RowsRead: paidUsage.d1RowsRead,
+        doSqliteRowsRead: paidUsage.doSqliteRowsRead,
+        doSqliteRowsWritten: paidUsage.doSqliteRowsWritten,
+        doRequests: paidUsage.doRequests,
+        doDurationGbSeconds: paidUsage.doDurationGbSeconds,
       },
     ]
   }))
@@ -855,4 +886,17 @@ function estimateDoBilledRequestUnits(input: {
 
 function estimateDoDurationGbSeconds(doRequests: number): number {
   return Number((doRequests * ESTIMATED_DO_GB_SECONDS_PER_REQUEST).toFixed(4))
+}
+
+function projectUsageAtCapacity(
+  report: ScenarioReport,
+  playsPerDay: number,
+  periodDays: number,
+) {
+  const dailyUsage = estimateDailyUsage(
+    report.model,
+    playsPerDay,
+    scenarioPlayersPerDraft(report.mode),
+  )
+  return periodDays === 1 ? dailyUsage : multiplyUsage(dailyUsage, periodDays)
 }
