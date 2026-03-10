@@ -18,7 +18,6 @@ import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
 import {
   clearLobbyMappings,
-  getUserActivityTarget,
   storeMatchMapping,
   storeUserActivityTarget,
   storeUserLobbyMappings,
