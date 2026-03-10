@@ -1,6 +1,6 @@
 import type { CompetitiveTier, DraftState, GameMode } from '@civup/game'
 import type { LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
-import { getDefaultLeaderPoolSize, MAX_LEADER_POOL_SIZE } from '@civup/game'
+import { getDefaultLeaderPoolSize, getMinimumLeaderPoolSize, MAX_LEADER_POOL_SIZE } from '@civup/game'
 
 export const MAX_TIMER_MINUTES = 30
 export const MAX_LEADER_POOL_INPUT = MAX_LEADER_POOL_SIZE
@@ -142,24 +142,28 @@ export function leaderPoolSizePlaceholder(mode: GameMode, playerCount: number): 
   return String(getDefaultLeaderPoolSize(mode, playerCount))
 }
 
-export function parseLeaderPoolSizeInput(value: string): number | null | undefined {
+export function getLeaderPoolSizeMinimum(mode: GameMode, playerCount: number): number {
+  return getMinimumLeaderPoolSize(mode, playerCount)
+}
+
+export function parseLeaderPoolSizeInput(value: string, minimum: number, maximum: number = MAX_LEADER_POOL_INPUT): number | null | undefined {
   const trimmed = value.trim()
   if (!trimmed) return null
 
   const numeric = Number(trimmed)
   if (!Number.isFinite(numeric) || !Number.isInteger(numeric)) return undefined
-  if (numeric < 1 || numeric > MAX_LEADER_POOL_INPUT) return undefined
+  if (numeric < minimum || numeric > maximum) return undefined
   return numeric
 }
 
-export function normalizeLeaderPoolSizeInput(value: string): string {
+export function normalizeLeaderPoolSizeInput(value: string, minimum: number, maximum: number = MAX_LEADER_POOL_INPUT): string {
   const trimmed = value.trim()
   if (!trimmed) return ''
 
   const numeric = Number(trimmed)
   if (!Number.isFinite(numeric)) return value
 
-  const bounded = Math.min(MAX_LEADER_POOL_INPUT, Math.max(0, Math.round(numeric)))
+  const bounded = Math.min(maximum, Math.max(minimum, Math.round(numeric)))
   return String(bounded)
 }
 
