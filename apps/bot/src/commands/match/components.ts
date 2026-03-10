@@ -4,9 +4,9 @@ import { formatModeLabel } from '@civup/game'
 import { Button } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { getMatchForUser, storeUserActivityTarget, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity/index.ts'
-import { sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { clearLobbyById, getLobbyById } from '../../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
+import { sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { createStateStore } from '../../services/state/store.ts'
 import { factory } from '../../setup.ts'
 import { getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
@@ -68,7 +68,7 @@ export const component_match_join = factory.component(
       return c.resActivity()
     }
 
-    await storeUserActivityTarget(kv, lobby.channelId, [identity.userId], { kind: 'lobby', id: lobby.id })
+    await storeUserActivityTarget(kv, lobby.channelId, [identity.userId], { kind: 'lobby', id: lobby.id, pendingJoin: true })
     c.executionCtx.waitUntil(storeUserLobbyMappings(kv, [identity.userId], lobby.id))
 
     // Keep component response fast so Discord doesn't time out launch-activity interactions.
@@ -81,9 +81,13 @@ export const component_match_join = factory.component(
           displayName: identity.displayName,
           avatarUrl: identity.avatarUrl,
         }],
-        { preferredLobbyId: lobby.id },
+        {
+          preferredLobbyId: lobby.id,
+          skipMatchmakingMinRole: true,
+        },
       )
       if ('error' in outcome) {
+        await storeUserActivityTarget(kv, lobby.channelId, [identity.userId], { kind: 'lobby', id: lobby.id })
         console.warn('[match-join] join failed after activity launch', {
           mode,
           userId: identity.userId,
@@ -93,6 +97,7 @@ export const component_match_join = factory.component(
       }
 
       try {
+        await storeUserActivityTarget(kv, outcome.lobby.channelId, [identity.userId], { kind: 'lobby', id: outcome.lobby.id })
         await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, outcome.lobby, {
           embeds: outcome.embeds,
           components: outcome.components,

@@ -1,6 +1,6 @@
 import type { Database } from '@civup/db'
-import type { FfaEntry, TeamInput } from '@civup/rating'
 import type { LeaderboardMode } from '@civup/game'
+import type { FfaEntry, TeamInput } from '@civup/rating'
 import { matches, matchParticipants, playerRatings } from '@civup/db'
 import { isTeamMode, leaderboardModesToGameModes, parseGameMode } from '@civup/game'
 import { calculateRatings, createRating, displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'

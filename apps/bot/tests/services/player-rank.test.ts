@@ -9,6 +9,9 @@ import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
 const HERO_ID = '100010000000000099'
+const TIER_2 = 'tier2'
+const TIER_4 = 'tier4'
+const TIER_5 = 'tier5'
 
 describe('player rank views', () => {
   test('builds overall and per-mode ranked data for a player', async () => {
@@ -16,11 +19,11 @@ describe('player rank views', () => {
     const kv = createTestKv()
 
     await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      pleb: '11111111111111111',
-      squire: '22222222222222222',
-      gladiator: '33333333333333333',
-      legion: '44444444444444444',
-      champion: '55555555555555555',
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
     })
 
     await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
@@ -31,12 +34,12 @@ describe('player rank views', () => {
 
     const profile = await getPlayerRankProfile(db, kv, 'guild-1', HERO_ID, NOW)
 
-    expect(profile.overallTier).toBe('squire')
+    expect(profile.overallTier).toBe(TIER_4)
     expect(profile.overallRoleId).toBe('22222222222222222')
-    expect(profile.modes.ffa.tier).toBe('pleb')
+    expect(profile.modes.ffa.tier).toBe(TIER_5)
     expect(profile.modes.ffa.tierLabel).toBe('Role 5')
     expect(profile.modes.ffa.tierRoleId).toBe('11111111111111111')
-    expect(profile.modes.duel.tier).toBe('squire')
+    expect(profile.modes.duel.tier).toBe(TIER_4)
     expect(profile.modes.duel.tierLabel).toBe('Role 4')
     expect(profile.modes.duel.tierRoleId).toBe('22222222222222222')
     expect(profile.modes.teamers.rating).toBeNull()
@@ -49,11 +52,11 @@ describe('player rank views', () => {
     const kv = createTestKv()
 
     await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      pleb: '11111111111111111',
-      squire: '22222222222222222',
-      gladiator: '33333333333333333',
-      legion: '44444444444444444',
-      champion: '55555555555555555',
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
     })
 
     await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
@@ -61,32 +64,32 @@ describe('player rank views', () => {
     await seedPlayerIdentity(db, HERO_ID)
     await seedRating(db, { playerId: HERO_ID, mode: 'ffa', mu: 24, sigma: 8.333, gamesPlayed: 6, lastPlayedAt: NOW })
     await seedRating(db, { playerId: HERO_ID, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 6, lastPlayedAt: NOW })
-    await seedSeason(db, { id: 'season-1', seasonNumber: 1, name: 'Spring', startsAt: NOW - 2 * 86_400_000, endsAt: null, active: true })
-    await seedSeason(db, { id: 'season-0', seasonNumber: 0, name: 'Winter', startsAt: NOW - 20 * 86_400_000, endsAt: NOW - 10 * 86_400_000, active: false })
-    await db.insert(seasonPeakRanks).values({ seasonId: 'season-0', playerId: HERO_ID, tier: 'legion', sourceMode: 'duel', achievedAt: NOW - 15_000 })
+    await seedSeason(db, { id: 'season-2', seasonNumber: 2, name: 'Season 2', startsAt: NOW - 2 * 86_400_000, endsAt: null, active: true })
+    await seedSeason(db, { id: 'season-1', seasonNumber: 1, name: 'Season 1', startsAt: NOW - 20 * 86_400_000, endsAt: NOW - 10 * 86_400_000, active: false })
+    await db.insert(seasonPeakRanks).values({ seasonId: 'season-1', playerId: HERO_ID, tier: TIER_2, sourceMode: 'duel', achievedAt: NOW - 15_000 })
     await db.insert(seasonPeakModeRanks).values([
-      { seasonId: 'season-0', playerId: HERO_ID, mode: 'ffa', tier: 'pleb', rating: 631, achievedAt: NOW - 20_000 },
-      { seasonId: 'season-0', playerId: HERO_ID, mode: 'duel', tier: 'legion', rating: 711, achievedAt: NOW - 15_000 },
+      { seasonId: 'season-1', playerId: HERO_ID, mode: 'ffa', tier: TIER_5, rating: 631, achievedAt: NOW - 20_000 },
+      { seasonId: 'season-1', playerId: HERO_ID, mode: 'duel', tier: TIER_2, rating: 711, achievedAt: NOW - 15_000 },
     ])
     await seedCompletedSeasonMatch(db, {
-      matchId: 'winter-ffa-1',
-      seasonId: 'season-0',
+      matchId: 'season-1-ffa-1',
+      seasonId: 'season-1',
       gameMode: 'ffa',
       playerId: HERO_ID,
       placement: 1,
       completedAt: NOW - 30_000,
     })
     await seedCompletedSeasonMatch(db, {
-      matchId: 'winter-duel-1',
-      seasonId: 'season-0',
+      matchId: 'season-1-duel-1',
+      seasonId: 'season-1',
       gameMode: '1v1',
       playerId: HERO_ID,
       placement: 1,
       completedAt: NOW - 25_000,
     })
     await seedCompletedSeasonMatch(db, {
-      matchId: 'winter-duel-2',
-      seasonId: 'season-0',
+      matchId: 'season-1-duel-2',
+      seasonId: 'season-1',
       gameMode: '1v1',
       playerId: HERO_ID,
       placement: 2,
@@ -94,15 +97,15 @@ describe('player rank views', () => {
     })
     await kv.put('ranked-roles:season-snapshots:guild-1', JSON.stringify({
       bySeasonId: {
-        'season-0': {
-          seasonNumber: 0,
-          seasonName: 'Winter',
+        'season-1': {
+          seasonNumber: 1,
+          seasonName: 'Season 1',
           roles: {
-            pleb: '61111111111111111',
-            squire: '62222222222222222',
-            gladiator: '63333333333333333',
-            legion: '64444444444444444',
-            champion: '65555555555555555',
+            tier5: '61111111111111111',
+            tier4: '62222222222222222',
+            tier3: '63333333333333333',
+            tier2: '64444444444444444',
+            tier1: '65555555555555555',
           },
         },
       },
@@ -112,24 +115,95 @@ describe('player rank views', () => {
     const history = await listPlayerSeasonSnapshotHistory(db, kv, 'guild-1', HERO_ID)
     const stats = (await playerCardEmbed(db, HERO_ID, 'all', { rankProfile: profile })).toJSON()
     const rank = (await rankEmbed(db, HERO_ID, profile, {
-      activeSeason: { id: 'season-1', seasonNumber: 1, name: 'Spring' },
+      activeSeason: { id: 'season-2', seasonNumber: 2, name: 'Season 2' },
       seasonHistory: history,
     })).toJSON()
 
     expect(stats.description).toContain('<@100010000000000099> - <@&22222222222222222>')
-    expect(JSON.stringify(stats.fields)).toContain('Rating: <@&11111111111111111> (637)')
-    expect(JSON.stringify(stats.fields)).toContain('Rating: <@&22222222222222222> (740)')
+    expect(JSON.stringify(stats.fields)).toContain('Rating: <@&11111111111111111> (982)')
+    expect(JSON.stringify(stats.fields)).toContain('Rating: <@&22222222222222222> (1270)')
 
     expect(rank.description).toContain('<@100010000000000099> - <@&22222222222222222>')
-    expect(JSON.stringify(rank.fields)).toContain('Spring')
+    expect(rank.fields?.[0]?.name).toBe('S2')
+    expect(JSON.stringify(rank.fields)).toContain('S2')
     expect(JSON.stringify(rank.fields)).toContain('FFA')
     expect(JSON.stringify(rank.fields)).toContain('Duel')
-    expect(JSON.stringify(rank.fields)).toContain('Rating: <@&11111111111111111> (637)')
-    expect(JSON.stringify(rank.fields)).toContain('Rating: <@&22222222222222222> (740)')
-    expect(JSON.stringify(rank.fields)).toContain('Winter')
-    expect(JSON.stringify(rank.fields)).toContain('Rating: <@&61111111111111111> (631)')
-    expect(JSON.stringify(rank.fields)).toContain('Rating: <@&64444444444444444> (711)')
+    expect(JSON.stringify(rank.fields)).toContain('Rating: <@&11111111111111111> (982)')
+    expect(JSON.stringify(rank.fields)).toContain('Rating: <@&22222222222222222> (1270)')
+    expect(JSON.stringify(rank.fields)).toContain('S1')
+    expect(JSON.stringify(rank.fields)).toContain('Rating: <@&11111111111111111> (631)')
+    expect(JSON.stringify(rank.fields)).toContain('Rating: <@&44444444444444444> (711)')
     expect(JSON.stringify(rank.fields)).not.toContain('Teamers')
+
+    sqlite.close()
+  })
+
+  test('shows an empty new current season without leaking previous season stats', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
+    })
+
+    await seedPlayerIdentity(db, HERO_ID)
+    await seedSeason(db, { id: 'season-2', seasonNumber: 2, name: 'Season 2', startsAt: NOW - 1_000, endsAt: null, active: true })
+    await seedSeason(db, { id: 'season-1', seasonNumber: 1, name: 'Season 1', startsAt: NOW - 20_000, endsAt: NOW - 10_000, active: false })
+    await db.insert(seasonPeakRanks).values({ seasonId: 'season-1', playerId: HERO_ID, tier: TIER_5, sourceMode: 'duel', achievedAt: NOW - 15_000 })
+    await db.insert(seasonPeakModeRanks).values({
+      seasonId: 'season-1',
+      playerId: HERO_ID,
+      mode: 'duel',
+      tier: TIER_5,
+      rating: 683,
+      achievedAt: NOW - 15_000,
+    })
+    await seedCompletedSeasonMatch(db, {
+      matchId: 'season-1-duel-1',
+      seasonId: 'season-1',
+      gameMode: '1v1',
+      playerId: HERO_ID,
+      placement: 1,
+      completedAt: NOW - 12_000,
+    })
+    await kv.put('ranked-roles:season-snapshots:guild-1', JSON.stringify({
+      bySeasonId: {
+        'season-1': {
+          seasonNumber: 1,
+          seasonName: 'Season 1',
+          roles: {
+            tier5: '61111111111111111',
+            tier4: '62222222222222222',
+            tier3: '63333333333333333',
+            tier2: '64444444444444444',
+            tier1: '65555555555555555',
+          },
+        },
+      },
+    }))
+
+    const profile = await getPlayerRankProfile(db, kv, 'guild-1', HERO_ID, NOW)
+    const history = await listPlayerSeasonSnapshotHistory(db, kv, 'guild-1', HERO_ID)
+    const stats = (await playerCardEmbed(db, HERO_ID, 'all', { rankProfile: profile })).toJSON()
+    const rank = (await rankEmbed(db, HERO_ID, profile, {
+      activeSeason: { id: 'season-2', seasonNumber: 2, name: 'Season 2' },
+      seasonHistory: history,
+    })).toJSON()
+
+    expect(stats.description).toContain('<@100010000000000099> - <@&11111111111111111>')
+    expect(JSON.stringify(stats.fields)).toContain('No games played yet.')
+    expect(JSON.stringify(stats.fields)).not.toContain('Recent Matches')
+    expect(JSON.stringify(stats.fields)).not.toContain('Top Leaders')
+
+    expect(rank.fields?.[0]?.name).toBe('S2')
+    expect(JSON.stringify(rank.fields)).toContain('S2')
+    expect(JSON.stringify(rank.fields)).toContain('No ranked games yet.')
+    expect(JSON.stringify(rank.fields)).toContain('S1')
+    expect(JSON.stringify(rank.fields)).toContain('Rating: <@&11111111111111111> (683)')
 
     sqlite.close()
   })

@@ -1,10 +1,15 @@
-import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
-import { playerRatings } from '@civup/db'
 import { formatLeaderboardModeLabel } from '@civup/game'
 import { buildLeaderboard } from '@civup/rating'
 import { Embed } from 'discord-hono'
-import { eq } from 'drizzle-orm'
+
+interface LeaderboardRatingRow {
+  playerId: string
+  mu: number
+  sigma: number
+  gamesPlayed: number
+  wins: number
+}
 
 const MODE_COLORS: Record<LeaderboardMode, number> = {
   duel: 0xEF4444,
@@ -12,19 +17,15 @@ const MODE_COLORS: Record<LeaderboardMode, number> = {
   ffa: 0xF59E0B,
 }
 
-export async function leaderboardEmbed(
-  db: Database,
+export function leaderboardEmbed(
   mode: LeaderboardMode,
+  rows: readonly LeaderboardRatingRow[],
   options: {
     titlePrefix?: string
+    showOffseasonData?: boolean
   } = {},
-): Promise<Embed> {
-  const rows = await db
-    .select()
-    .from(playerRatings)
-    .where(eq(playerRatings.mode, mode))
-
-  const entries = buildLeaderboard(rows)
+): Embed {
+  const entries = buildLeaderboard([...rows])
   const top25 = entries.slice(0, 25)
 
   if (top25.length === 0) {

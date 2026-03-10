@@ -4,9 +4,10 @@ import { matchBans, matches, matchParticipants } from '@civup/db'
 import { parseGameMode, toLeaderboardMode } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
+import { ensureLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearLobbyByMatch } from '../lobby/index.ts'
 import { parseModerationPlacements } from './placements.ts'
-import { recalculateLeaderboardMode } from './ratings.ts'
+import { buildRankByPlayer, recalculateLeaderboardMode } from './ratings.ts'
 
 export async function resolveMatchByModerator(
   db: Database,
@@ -69,6 +70,8 @@ export async function resolveMatchByModerator(
   await clearLobbyByMatch(kv, input.matchId)
 
   const leaderboardMode = toLeaderboardMode(gameMode)
+  const leaderboardSnapshotBefore = await ensureLeaderboardModeSnapshot(db, kv, leaderboardMode)
+  const beforeRankByPlayer = buildRankByPlayer(leaderboardSnapshotBefore.rows)
   const recalculated = await recalculateLeaderboardMode(db, leaderboardMode)
   if ('error' in recalculated) return recalculated
 
@@ -83,9 +86,18 @@ export async function resolveMatchByModerator(
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, input.matchId))
 
+  const leaderboardSnapshotAfter = await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode)
+  const afterRankByPlayer = buildRankByPlayer(leaderboardSnapshotAfter.rows)
+  const leaderboardEligibleCount = afterRankByPlayer.size
+
   return {
     match: updatedMatch!,
-    participants: updatedParticipants,
+    participants: updatedParticipants.map(participant => ({
+      ...participant,
+      leaderboardBeforeRank: beforeRankByPlayer.get(participant.playerId) ?? null,
+      leaderboardAfterRank: afterRankByPlayer.get(participant.playerId) ?? null,
+      leaderboardEligibleCount,
+    })),
     previousStatus,
     recalculatedMatchIds: recalculated.matchIds,
   }
@@ -150,6 +162,7 @@ export async function cancelMatchByModerator(
     const leaderboardMode = toLeaderboardMode(gameMode)
     const recalculated = await recalculateLeaderboardMode(db, leaderboardMode)
     if ('error' in recalculated) return recalculated
+    await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode)
     recalculatedMatchIds = recalculated.matchIds
   }
 

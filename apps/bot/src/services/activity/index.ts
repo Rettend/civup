@@ -1,8 +1,8 @@
 import type { DraftSeat, DraftTimerConfig, GameMode, QueueEntry, RoomConfig } from '@civup/game'
-import { allLeaderIds, GAME_MODES, getDefaultFormat, isTeamMode, slotToTeamIndex, teamSize } from '@civup/game'
+import { getDefaultFormat, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamSize } from '@civup/game'
 import { api, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
-import { getLobbiesByMode } from '../lobby/index.ts'
+import { getLobbiesByChannel } from '../lobby/index.ts'
 import { stateStoreMdelete, stateStoreMput } from '../state/store.ts'
 
 // ── Types ───────────────────────────────────────────────────
@@ -19,12 +19,14 @@ export interface CreateDraftRoomOptions {
   botHost?: string
   webhookSecret?: string
   timerConfig?: DraftTimerConfig
+  leaderPoolSize?: number | null
 }
 
 export interface ActivityTargetSelection {
   kind: 'lobby' | 'match'
   id: string
   selectedAt: number
+  pendingJoin: boolean
 }
 
 // ── Configuration ──────────────────────────────────────────
@@ -48,12 +50,13 @@ export async function createDraftRoom(
   const matchId = nanoid(12)
   const format = getDefaultFormat(mode)
   const seats: DraftSeat[] = buildSeats(mode, entries)
+  const leaderPoolSize = resolveLeaderPoolSize(mode, seats.length, options.leaderPoolSize)
   const config: RoomConfig = {
     matchId,
     hostId: options.hostId,
     formatId: format.id,
     seats,
-    civPool: allLeaderIds,
+    civPool: sampleLeaderPool(leaderPoolSize),
     timerConfig: options.timerConfig,
     webhookUrl: buildDraftWebhookUrl(options.botHost, options.partyHost),
     webhookSecret: options.webhookSecret,
@@ -164,14 +167,15 @@ export async function storeUserActivityTarget(
   kv: KVNamespace,
   channelId: string,
   userIds: string[],
-  target: Pick<ActivityTargetSelection, 'kind' | 'id'>,
+  target: Pick<ActivityTargetSelection, 'kind' | 'id'> & { pendingJoin?: boolean },
 ): Promise<void> {
   const selectedAt = Date.now()
+  const pendingJoin = target.kind === 'lobby' && target.pendingJoin === true
   await stateStoreMput(
     kv,
     userIds.map(userId => ({
       key: targetUserKey(userId, channelId),
-      value: JSON.stringify({ ...target, selectedAt } satisfies ActivityTargetSelection),
+      value: JSON.stringify({ kind: target.kind, id: target.id, selectedAt, pendingJoin } satisfies ActivityTargetSelection),
       expirationTtl: ACTIVITY_MAPPING_TTL,
     })),
   )
@@ -228,14 +232,12 @@ export async function getMatchForChannel(
 ): Promise<string | null> {
   const matchIds = new Set<string>()
 
-  const lobbiesByMode = await Promise.all(GAME_MODES.map(mode => getLobbiesByMode(kv, mode)))
-  for (const lobbies of lobbiesByMode) {
-    for (const lobby of lobbies) {
-      if (lobby.channelId !== channelId || !lobby.matchId) continue
-      if (lobby.status !== 'drafting' && lobby.status !== 'active') continue
-      matchIds.add(lobby.matchId)
-      if (matchIds.size > 1) return null
-    }
+  const lobbies = await getLobbiesByChannel(kv, channelId)
+  for (const lobby of lobbies) {
+    if (!lobby.matchId) continue
+    if (lobby.status !== 'drafting' && lobby.status !== 'active') continue
+    matchIds.add(lobby.matchId)
+    if (matchIds.size > 1) return null
   }
 
   return [...matchIds][0] ?? null
@@ -296,6 +298,15 @@ export async function clearLobbyMappings(
   await stateStoreMdelete(kv, keys)
 }
 
+/** Remove only the user -> open-lobby mapping while keeping the current channel target. */
+export async function clearUserLobbyMappings(
+  kv: KVNamespace,
+  userIds: string[],
+): Promise<void> {
+  if (userIds.length === 0) return
+  await stateStoreMdelete(kv, userIds.map(userId => `activity-lobby-user:${userId}`))
+}
+
 function parseActivityTargetSelection(raw: unknown): ActivityTargetSelection | null {
   if (!raw || typeof raw !== 'object') return null
 
@@ -303,6 +314,7 @@ function parseActivityTargetSelection(raw: unknown): ActivityTargetSelection | n
     kind?: unknown
     id?: unknown
     selectedAt?: unknown
+    pendingJoin?: unknown
   }
 
   if (parsed.kind !== 'lobby' && parsed.kind !== 'match') return null
@@ -313,5 +325,6 @@ function parseActivityTargetSelection(raw: unknown): ActivityTargetSelection | n
     kind: parsed.kind,
     id: parsed.id,
     selectedAt: parsed.selectedAt,
+    pendingJoin: parsed.pendingJoin === true,
   }
 }

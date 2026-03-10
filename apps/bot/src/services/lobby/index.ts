@@ -8,5 +8,5 @@ export { buildActivePremadeEdgeSet, buildSlottedPremadeGroups, compactSlottedPre
 export { getLobbyAndQueueState } from './queue.ts'
 export { buildOpenLobbyRenderPayload } from './render.ts'
 export { filterQueueEntriesForLobby, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots } from './slots.ts'
-export { clearLobbiesByMode, clearLobbyById, clearLobbyByMatch, getLobbiesByMode, getLobby, getLobbyByChannel, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, upsertLobby } from './store.ts'
+export { clearLobbiesByMode, clearLobbyById, clearLobbyByMatch, getLobbiesByChannel, getLobbiesByMode, getLobby, getLobbyByChannel, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, upsertLobby } from './store.ts'
 export type { LobbyDraftConfig, LobbyState, LobbyStatus } from './types.ts'

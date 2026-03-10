@@ -6,7 +6,6 @@ import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
 import { clearLobbyMappings } from '../services/activity/index.ts'
 import { createChannelMessage } from '../services/discord/index.ts'
-import { sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { clearLobbyById, filterQueueEntriesForLobby, getLobbyById, getLobbyByMatch } from '../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
@@ -14,7 +13,8 @@ import { cancelMatchByModerator, resolveMatchByModerator } from '../services/mat
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { canUseModCommands, parseRoleIds } from '../services/permissions/index.ts'
 import { clearQueue, getQueueState } from '../services/queue/index.ts'
-import { markRankedRolesDirty } from '../services/ranked/role-sync.ts'
+import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, syncRankedRoles } from '../services/ranked/role-sync.ts'
+import { sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 import { factory } from '../setup'
@@ -231,11 +231,27 @@ export const command_mod = factory.command<ModVar>(
 
           const mode = normalizeMatchMode(result.match.gameMode)
           const moderation = { actorId, reason }
+          const guildId = existingLobby?.guildId ?? c.interaction.guild_id ?? null
+          let rankedRoleLines: string[] = []
+          if (guildId) {
+            try {
+              const rankedPreview = await syncRankedRoles({ db, kv, guildId })
+              rankedRoleLines = await listRankedRoleMatchUpdateLines({
+                kv,
+                guildId,
+                preview: rankedPreview,
+                playerIds: result.participants.map(participant => participant.playerId),
+              })
+            }
+            catch (error) {
+              console.error(`Failed to preview ranked role changes after resolving match ${result.match.id}:`, error)
+            }
+          }
 
           if (existingLobby) {
             try {
               const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
-                embeds: [lobbyResultEmbed(mode, result.participants, moderation)],
+                embeds: [lobbyResultEmbed(mode, result.participants, moderation, { rankedRoleLines })],
                 components: [],
               })
               await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
@@ -249,7 +265,7 @@ export const command_mod = factory.command<ModVar>(
           if (archiveChannelId) {
             try {
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-                embeds: [lobbyResultEmbed(mode, result.participants, moderation)],
+                embeds: [lobbyResultEmbed(mode, result.participants, moderation, { rankedRoleLines })],
               })
               await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
             }

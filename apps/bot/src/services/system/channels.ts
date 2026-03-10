@@ -1,4 +1,4 @@
-export type SystemChannelType = 'draft' | 'archive' | 'leaderboard' | 'rank-announcements'
+export type SystemChannelType = 'draft' | 'archive' | 'leaderboard'
 
 export interface LeaderboardMessageState {
   channelId: string

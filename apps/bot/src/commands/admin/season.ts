@@ -1,24 +1,19 @@
 import type { AdminCommandContext, AdminComponentContext } from './types.ts'
 import { createDb } from '@civup/db'
 import { Button, Components } from 'discord-hono'
-import { archiveSeasonLeaderboards } from '../../services/leaderboard/message.ts'
+import { archiveSeasonLeaderboards, refreshConfiguredLeaderboards } from '../../services/leaderboard/message.ts'
 import { hasAdminPermission } from '../../services/permissions/index.ts'
+import { resetCurrentRankedRoleState, syncRankedRoles } from '../../services/ranked/role-sync.ts'
 import { clearSeasonConfirmation, createSeasonConfirmation, getSeasonConfirmation } from '../../services/season/confirmation.ts'
-import { endSeason, startSeason } from '../../services/season/index.ts'
+import { endSeason, formatSeasonName, getActiveSeason, getNextSeasonNumber, startSeason } from '../../services/season/index.ts'
 import { ensureSeasonSnapshotRoles, finalizeSeasonSnapshotRoles } from '../../services/season/snapshot-roles.ts'
+import { createStateStore } from '../../services/state/store.ts'
 import { factory } from '../../setup.ts'
 import { getInteractionUserId, sendEphemeralResponse, sendTransientEphemeralResponse, updateSeasonActionPrompt } from './shared.ts'
 
 export function handleSeasonStart(c: AdminCommandContext) {
-  const seasonName = c.var.name?.trim()
   const guildId = c.interaction.guild_id
   const actorId = getInteractionUserId(c)
-
-  if (!seasonName) {
-    return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
-      await sendTransientEphemeralResponse(c, 'Please provide a season name.', 'error')
-    })
-  }
 
   if (!guildId || !actorId) {
     return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
@@ -27,6 +22,14 @@ export function handleSeasonStart(c: AdminCommandContext) {
   }
 
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
+    const db = createDb(c.env.DB)
+    const activeSeason = await getActiveSeason(db)
+    if (activeSeason) {
+      await sendTransientEphemeralResponse(c, `Cannot start a new season while **${activeSeason.name}** is still active.`, 'error')
+      return
+    }
+
+    const seasonName = formatSeasonName(await getNextSeasonNumber(db))
     const token = await createSeasonConfirmation(c.env.KV, {
       guildId,
       actorId,
@@ -59,11 +62,18 @@ export function handleSeasonEnd(c: AdminCommandContext) {
   }
 
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
+    const db = createDb(c.env.DB)
+    const activeSeason = await getActiveSeason(db)
+    if (!activeSeason) {
+      await sendTransientEphemeralResponse(c, 'There is no active season to end.', 'error')
+      return
+    }
+
     const token = await createSeasonConfirmation(c.env.KV, {
       guildId,
       actorId,
       action: 'end',
-      seasonName: null,
+      seasonName: activeSeason.name,
     })
 
     const components = new Components().row(
@@ -73,7 +83,7 @@ export function handleSeasonEnd(c: AdminCommandContext) {
 
     await sendEphemeralResponse(
       c,
-      'Confirm season end? This action is not recoverable.',
+      `Confirm season end for **${activeSeason.name}**? This action is not recoverable.`,
       'info',
       { components, autoDeleteMs: null },
     )
@@ -119,13 +129,15 @@ export const component_admin_season_confirm = factory.component(
 
     return c.update().resDefer(async (c: AdminComponentContext) => {
       await clearSeasonConfirmation(c.env.KV, token)
+      const kv = createStateStore(c.env)
 
       if (pending.action === 'start') {
-        const seasonName = pending.seasonName ?? 'Season'
         try {
           const db = createDb(c.env.DB)
-          const season = await startSeason(db, { name: seasonName })
-          await ensureSeasonSnapshotRoles(c.env.KV, guildId, c.env.DISCORD_TOKEN, season)
+          const season = await startSeason(db, { kv })
+          await resetCurrentRankedRoleState({ kv, guildId, token: c.env.DISCORD_TOKEN })
+          await refreshConfiguredLeaderboards(db, kv, c.env.DISCORD_TOKEN)
+          await ensureSeasonSnapshotRoles(kv, guildId, c.env.DISCORD_TOKEN, season)
           await updateSeasonActionPrompt(c, `Started **${season.name}**. New matches will now count toward this season.`, 'success')
         }
         catch (error) {
@@ -137,10 +149,11 @@ export const component_admin_season_confirm = factory.component(
 
       try {
         const db = createDb(c.env.DB)
+        await syncRankedRoles({ db, kv, guildId })
         const season = await endSeason(db)
-        await archiveSeasonLeaderboards(db, c.env.KV, c.env.DISCORD_TOKEN, season.name)
-        await finalizeSeasonSnapshotRoles(db, c.env.KV, guildId, c.env.DISCORD_TOKEN, season)
-        await updateSeasonActionPrompt(c, `Ended **${season.name}**. Season peaks are now frozen in storage.`, 'success')
+        await archiveSeasonLeaderboards(db, kv, c.env.DISCORD_TOKEN, season.name)
+        await finalizeSeasonSnapshotRoles(db, kv, guildId, c.env.DISCORD_TOKEN, season)
+        await updateSeasonActionPrompt(c, `Ended **${season.name}**. Season data is now archived.`, 'success')
       }
       catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to end the season.'

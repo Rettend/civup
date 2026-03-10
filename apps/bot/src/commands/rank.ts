@@ -5,6 +5,7 @@ import { syncPlayerProfileFromDiscord } from '../services/player/profile.ts'
 import { getPlayerRankProfile } from '../services/player/rank.ts'
 import { getActiveSeason } from '../services/season/index.ts'
 import { listPlayerSeasonSnapshotHistory } from '../services/season/snapshot-roles.ts'
+import { createStateStore } from '../services/state/store.ts'
 import { factory } from '../setup.ts'
 
 interface Var {
@@ -26,6 +27,7 @@ export const command_rank = factory.command<Var>(
 
     return c.resDefer(async (c) => {
       const db = createDb(c.env.DB)
+      const kv = createStateStore(c.env)
       try {
         await syncPlayerProfileFromDiscord(db, c.env.DISCORD_TOKEN, targetId)
       }
@@ -34,9 +36,9 @@ export const command_rank = factory.command<Var>(
       }
 
       const [profile, activeSeason, seasonHistory] = await Promise.all([
-        getPlayerRankProfile(db, c.env.KV, guildId, targetId),
+        getPlayerRankProfile(db, kv, guildId, targetId),
         getActiveSeason(db),
-        listPlayerSeasonSnapshotHistory(db, c.env.KV, guildId, targetId),
+        listPlayerSeasonSnapshotHistory(db, kv, guildId, targetId),
       ])
 
       const embed = await rankEmbed(db, targetId, profile, {

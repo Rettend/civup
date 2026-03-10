@@ -7,7 +7,6 @@ import {
   isSpectator,
   sendStart,
   setGridOpen,
-  setIsMiniView,
   userId,
 } from '~/client/stores'
 import { ConfigScreen } from './ConfigScreen'
@@ -68,10 +67,8 @@ export function DraftView(props: DraftViewProps) {
   })
 
   createEffect(() => {
-    const check = () => setIsMiniView(window.innerWidth < 500)
-    check()
-    window.addEventListener('resize', check)
-    onCleanup(() => window.removeEventListener('resize', check))
+    if (!isMiniView()) return
+    setGridOpen(false)
   })
 
   const isActiveOrComplete = () => state()?.status === 'active' || state()?.status === 'complete'
@@ -144,7 +141,9 @@ export function DraftView(props: DraftViewProps) {
         </Show>
       )}
     >
-      <CancelledDraftScreen />
+      <Show when={!isMiniView()} fallback={<MiniView />}>
+        <CancelledDraftScreen />
+      </Show>
     </Show>
   )
 }

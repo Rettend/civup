@@ -94,7 +94,7 @@ export const default1v1: DraftFormat = {
 
 /**
  * FFA Format:
- * - 2 blind bans per player (simultaneous)
+ * - 1 blind ban per player (simultaneous)
  * - Snake pick order (by rating, handled externally):
  *   P1, P2, ..., Pn (one pick each — each player picks 1 civ)
  */
@@ -105,8 +105,8 @@ export const defaultFfa: DraftFormat = {
   blindBans: true,
   getSteps(seatCount: number): DraftStep[] {
     const steps: DraftStep[] = [
-      // Everyone bans 2 simultaneously (blind)
-      { action: 'ban', seats: 'all', count: 2, timer: 120 },
+      // Everyone bans 1 simultaneously (blind)
+      { action: 'ban', seats: 'all', count: 1, timer: 120 },
     ]
     // Each player picks 1 in order (seat 0, 1, 2, ..., n-1)
     for (let i = 0; i < seatCount; i++) {

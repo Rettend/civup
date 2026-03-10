@@ -15,6 +15,7 @@ interface LobbyParticipant {
   ratingAfterSigma?: number | null
   leaderboardBeforeRank?: number | null
   leaderboardAfterRank?: number | null
+  leaderboardEligibleCount?: number | null
 }
 
 interface ModerationContext {
@@ -146,8 +147,9 @@ export function lobbyResultEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
   moderation?: ModerationContext,
+  options: { rankedRoleLines?: string[] } = {},
 ): Embed {
-  return lobbyReportedEmbed(mode, participants, moderation)
+  return lobbyReportedEmbed(mode, participants, moderation, options)
 }
 
 export function lobbyComponents(mode: GameMode, lobbyId?: string): Components {
@@ -200,24 +202,33 @@ function lobbyDraftCompleteLeaderEmbed(
   return moderationField ? embed.fields(moderationField, playerField) : embed.fields(playerField)
 }
 
-function lobbyReportedEmbed(mode: GameMode, participants: LobbyParticipant[], moderation?: ModerationContext): Embed {
+const LEADERBOARD_UPDATE_TRACKED_PERCENT = 0.10
+const LEADERBOARD_UPDATE_MIN_POSITIONS = 3
+
+function lobbyReportedEmbed(
+  mode: GameMode,
+  participants: LobbyParticipant[],
+  moderation?: ModerationContext,
+  options: { rankedRoleLines?: string[] } = {},
+): Embed {
   const embed = baseLobbyEmbed(mode, 'reported')
   const usesTeamRows = isTeamMode(mode)
   const description = usesTeamRows
     ? formatReportedTeamRows(participants)
     : formatReportedFlatRows(participants)
   const leaderboardUpdate = formatLeaderboardUpdate(participants)
+  const rankedRoleUpdate = formatRankedRoleUpdate(options.rankedRoleLines)
   const moderationField = buildModerationField(moderation)
 
   embed.description(description || '`[empty]`')
 
-  if (!leaderboardUpdate) {
-    if (!moderationField) return embed
-    return embed.fields(moderationField)
-  }
+  const fields = [
+    moderationField,
+    leaderboardUpdate ? { name: 'Leaderboard', value: leaderboardUpdate, inline: false } : null,
+    rankedRoleUpdate ? { name: 'Rank Roles', value: rankedRoleUpdate, inline: false } : null,
+  ].filter((field): field is { name: string, value: string, inline: false } => field !== null)
 
-  const leaderboardField = { name: 'Leaderboard', value: leaderboardUpdate, inline: false }
-  return moderationField ? embed.fields(moderationField, leaderboardField) : embed.fields(leaderboardField)
+  return fields.length > 0 ? embed.fields(...fields) : embed
 }
 
 function formatReportedTeamRows(participants: LobbyParticipant[]): string {
@@ -321,6 +332,11 @@ function formatReportedRating(participant: LobbyParticipant): string {
 }
 
 function formatLeaderboardUpdate(participants: LobbyParticipant[]): string | null {
+  const eligibleCount = participants.find(participant => (participant.leaderboardEligibleCount ?? 0) > 0)?.leaderboardEligibleCount ?? 0
+  const trackedMaxRank = eligibleCount > 0
+    ? Math.max(LEADERBOARD_UPDATE_MIN_POSITIONS, Math.round(eligibleCount * LEADERBOARD_UPDATE_TRACKED_PERCENT))
+    : 0
+
   const movers = participants
     .map((participant) => {
       const after = participant.leaderboardAfterRank ?? null
@@ -337,7 +353,7 @@ function formatLeaderboardUpdate(participants: LobbyParticipant[]): string | nul
       }
 
       const gain = before - after
-      if (gain <= 0) return null
+      if (gain <= 0 || trackedMaxRank < 1 || after > trackedMaxRank) return null
 
       return {
         playerId: participant.playerId,
@@ -358,6 +374,11 @@ function formatLeaderboardUpdate(participants: LobbyParticipant[]): string | nul
       return `⬆️ <@${move.playerId}> ${formatPlacementCode(move.before)} -> ${formatPlacementCode(move.after)}`
     })
     .join('\n')
+}
+
+function formatRankedRoleUpdate(lines: string[] | undefined): string | null {
+  if (!lines || lines.length === 0) return null
+  return lines.join('\n')
 }
 
 function formatLeaderName(civId: string | null): string {

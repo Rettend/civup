@@ -53,12 +53,11 @@ export async function updateSeasonActionPrompt(
 export function setupTargetLabel(target: SystemChannelType): string {
   if (target === 'draft') return 'Draft'
   if (target === 'archive') return 'Archive'
-  if (target === 'rank-announcements') return 'Rank Announcements'
   return 'Leaderboard'
 }
 
 export function parseSetupTarget(value: string): SystemChannelType | null {
-  if (value === 'draft' || value === 'archive' || value === 'leaderboard' || value === 'rank-announcements') return value
+  if (value === 'draft' || value === 'archive' || value === 'leaderboard') return value
   return null
 }
 
@@ -85,7 +84,7 @@ export function buildResolvedRoleDisplayById(data: unknown): Map<string, { name:
 
 export function buildRankedRoleUpdates(vars: AdminVar): Record<string, string | null> {
   const updates: Record<string, string | null> = {}
-  const roleInputs = [vars.role1, vars.role2, vars.role3, vars.role4, vars.role5]
+  const roleInputs = [vars.role1, vars.role2, vars.role3, vars.role4, vars.role5, vars.role6, vars.role7, vars.role8, vars.role9, vars.role10]
   for (let index = 0; index < roleInputs.length; index++) {
     const roleId = roleInputs[index]
     if (!roleId) continue

@@ -1,13 +1,12 @@
 import type {
   DraftTimerConfig,
   LobbyModeValue,
-  MinRoleMismatchDetail,
   MinRoleSetDetail,
   OptimisticLobbyAction,
   PendingOptimisticLobbyAction,
   PlayerRow,
 } from '~/client/lib/config-screen/helpers'
-import type { LobbySnapshot, LobbyTeamArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
+import type { LobbyJoinEligibilitySnapshot, LobbySnapshot, LobbyTeamArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
 import { formatModeLabel, GAME_MODE_CHOICES, inferGameMode } from '@civup/game'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, TextInput } from '~/client/components/ui'
@@ -15,20 +14,29 @@ import {
   applyOptimisticLobbyAction,
   buildRankDotStyle,
   findRankedRoleOptionByTier,
+  formatLeaderPoolValue,
   formatLobbyMinRole,
   formatTimerValue,
+  getLeaderPoolSizeMinimum,
   getTimerConfigFromDraft,
+  leaderPoolSizePlaceholder,
+  leaderPoolSizeToInput,
+  MAX_LEADER_POOL_INPUT,
   MAX_TIMER_MINUTES,
+  normalizeLeaderPoolSizeInput,
   normalizeLobbyMinRoleValue,
   normalizeTimerMinutesInput,
+  parseLeaderPoolSizeInput,
   parseTimerMinutesInput,
+  resolvePendingJoinGhostSlot,
   timerSecondsToMinutesInput,
   timerSecondsToMinutesPlaceholder,
 } from '~/client/lib/config-screen/helpers'
-import { MinRoleMismatchNotice, MinRoleSetNotice, PlayerChip, PremadeLinkButton, ReadonlyTimerRow } from '~/client/lib/config-screen/parts'
+import { MinRoleSetNotice, PlayerChip, PremadeLinkButton, ReadonlyTimerRow } from '~/client/lib/config-screen/parts'
 import { cn } from '~/client/lib/css'
 import { isDev } from '~/client/lib/is-dev'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
+import { MiniFrame, MiniSeatGrid, type MiniSeatItem } from './MiniLayout'
 import {
   arrangeLobbyTeams,
   cancelLobby,
@@ -37,6 +45,7 @@ import {
   draftStore,
   fetchLobbyRankedRoles,
   fillLobbyWithTestPlayers,
+  isMiniView,
   isSpectator,
   placeLobbySlot,
   removeLobbySlot,
@@ -52,8 +61,14 @@ import {
 
 interface ConfigScreenProps {
   lobby?: LobbySnapshot
+  showJoinPending?: boolean
+  joinEligibility?: LobbyJoinEligibilitySnapshot
   onLobbyStarted?: (matchId: string) => void
   onSwitchTarget?: () => void
+}
+
+interface LobbyEditableDraftConfig extends DraftTimerConfig {
+  leaderPoolSize: number | null
 }
 
 /** Pre-draft setup screen (lobby waiting + room waiting). */
@@ -62,27 +77,28 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const [lobbyState, setLobbyState] = createSignal<LobbySnapshot | null>(props.lobby ?? null)
   const [banMinutes, setBanMinutes] = createSignal('')
   const [pickMinutes, setPickMinutes] = createSignal('')
-  const [editingField, setEditingField] = createSignal<'ban' | 'pick' | null>(null)
+  const [leaderPoolInput, setLeaderPoolInput] = createSignal('')
+  const [editingField, setEditingField] = createSignal<'ban' | 'pick' | 'leaderPool' | null>(null)
   const [configMessage, setConfigMessage] = createSignal<string | null>(null)
   const [configMessageTone, setConfigMessageTone] = createSignal<'error' | 'info' | null>(null)
   const [cancelPending, setCancelPending] = createSignal(false)
   const [startPending, setStartPending] = createSignal(false)
   const [lobbyActionPending, setLobbyActionPending] = createSignal(false)
+  const [pendingPlaceSelfSlot, setPendingPlaceSelfSlot] = createSignal<number | null>(null)
   const [draggingPlayerId, setDraggingPlayerId] = createSignal<string | null>(null)
   const [dragOverSlot, setDragOverSlot] = createSignal<number | null>(null)
   const [optimisticLobbyAction, setOptimisticLobbyAction] = createSignal<OptimisticLobbyAction | null>(null)
   let optimisticLobbyActionTimeout: ReturnType<typeof setTimeout> | null = null
-  let bootstrapJoinHintUsed = false
-  const [lobbyTimerConfig, setLobbyTimerConfig] = createSignal<DraftTimerConfig | null>(
+  const [lobbyTimerConfig, setLobbyTimerConfig] = createSignal<LobbyEditableDraftConfig | null>(
     props.lobby
       ? {
           banTimerSeconds: props.lobby.draftConfig.banTimerSeconds,
           pickTimerSeconds: props.lobby.draftConfig.pickTimerSeconds,
+          leaderPoolSize: props.lobby.draftConfig.leaderPoolSize,
         }
       : null,
   )
   const [rankedRoleOptions, setRankedRoleOptions] = createSignal<RankedRoleOptionSnapshot[]>([])
-  const [minRoleMismatchDetail, setMinRoleMismatchDetail] = createSignal<MinRoleMismatchDetail | null>(null)
   const [minRoleSetDetail, setMinRoleSetDetail] = createSignal<MinRoleSetDetail | null>(null)
   let rankedRoleOptionsFetchKey: string | null = null
 
@@ -105,6 +121,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     setLobbyTimerConfig({
       banTimerSeconds: lobby.draftConfig.banTimerSeconds,
       pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
+      leaderPoolSize: lobby.draftConfig.leaderPoolSize,
     })
   })
 
@@ -182,6 +199,13 @@ export function ConfigScreen(props: ConfigScreenProps) {
     currentDisplayName(),
     currentAvatarUrl(),
   )
+  const pendingSelfJoinSlot = () => resolvePendingJoinGhostSlot(
+    currentLobby(),
+    userId(),
+    (props.showJoinPending === true) || pendingPlaceSelfSlot() != null,
+    props.joinEligibility,
+    pendingPlaceSelfSlot(),
+  )
   const isLobbyMode = () => currentLobby() != null
   const hostId = () => currentLobby()?.hostId ?? draftStore.hostId ?? state()?.seats[0]?.playerId ?? null
   const amHost = () => {
@@ -214,6 +238,28 @@ export function ConfigScreen(props: ConfigScreenProps) {
     })
   })
 
+  createEffect(() => {
+    const slot = pendingPlaceSelfSlot()
+    if (slot == null) return
+
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || props.joinEligibility?.canJoin === false) {
+      setPendingPlaceSelfSlot(null)
+      return
+    }
+
+    if (lobby.entries.some(entry => entry?.playerId === currentUserId)) {
+      setPendingPlaceSelfSlot(null)
+      return
+    }
+
+    const targetEntry = lobby.entries[slot] ?? null
+    if (targetEntry && targetEntry.playerId !== currentUserId) {
+      setPendingPlaceSelfSlot(null)
+    }
+  })
+
   const formatId = () => {
     const lobby = currentLobby()
     if (lobby) return formatModeLabel(lobby.mode, 'DRAFT')
@@ -225,15 +271,27 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return state()?.seats.some(s => s.team != null) ?? false
   }
 
-  const timerConfig = (): DraftTimerConfig => {
+  const draftConfig = (): LobbyEditableDraftConfig => {
     const lobby = currentLobby()
     if (lobby) {
       return lobbyTimerConfig() ?? {
         banTimerSeconds: lobby.draftConfig.banTimerSeconds,
         pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
+        leaderPoolSize: lobby.draftConfig.leaderPoolSize,
       }
     }
-    return getTimerConfigFromDraft(state())
+    return {
+      ...getTimerConfigFromDraft(state()),
+      leaderPoolSize: null,
+    }
+  }
+
+  const timerConfig = (): DraftTimerConfig => {
+    const config = draftConfig()
+    return {
+      banTimerSeconds: config.banTimerSeconds,
+      pickTimerSeconds: config.pickTimerSeconds,
+    }
   }
 
   const serverDefaultTimerConfig = (): DraftTimerConfig => {
@@ -247,6 +305,33 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
   const lobbyMinRoleValue = () => currentLobby()?.minRole ?? ''
   const formattedLobbyMinRole = () => formatLobbyMinRole(currentLobby()?.minRole ?? null, rankedRoleOptions())
+  const leaderPoolPlayerCount = () => {
+    const lobby = currentLobby()
+    if (lobby) return lobby.entries.filter(entry => entry != null).length
+    return state()?.seats.length ?? 0
+  }
+  const leaderPoolValidationCount = () => {
+    const lobby = currentLobby()
+    if (lobby) return lobby.mode === 'ffa' ? leaderPoolPlayerCount() : lobby.targetSize
+    return state()?.seats.length ?? leaderPoolPlayerCount()
+  }
+  const leaderPoolMinimumValue = () => getLeaderPoolSizeMinimum(lobbyMode(), leaderPoolValidationCount())
+  const leaderPoolPlaceholderValue = () => leaderPoolSizePlaceholder(lobbyMode(), leaderPoolPlayerCount())
+  const currentDraftLeaderPoolSize = () => {
+    const draftState = state()
+    if (!draftState) return null
+    return new Set([
+      ...draftState.availableCivIds,
+      ...draftState.bans.map(selection => selection.civId),
+      ...draftState.picks.map(selection => selection.civId),
+    ]).size
+  }
+  const formattedLeaderPool = () => {
+    const lobby = currentLobby()
+    if (lobby) return formatLeaderPoolValue(draftConfig().leaderPoolSize, inferGameMode(lobby.mode), leaderPoolPlayerCount())
+    const size = currentDraftLeaderPoolSize()
+    return size == null ? 'Unknown' : String(size)
+  }
   const minRoleDropdownOptions = () => [
     {
       value: '',
@@ -273,42 +358,31 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const banTimerPlaceholder = () => timerSecondsToMinutesPlaceholder(serverDefaultTimerConfig().banTimerSeconds)
   const pickTimerPlaceholder = () => timerSecondsToMinutesPlaceholder(serverDefaultTimerConfig().pickTimerSeconds)
 
-  const optimisticTimerConfig = createOptimisticState(timerConfig, {
-    equals: (a, b) => a.banTimerSeconds === b.banTimerSeconds && a.pickTimerSeconds === b.pickTimerSeconds,
+  const optimisticTimerConfig = createOptimisticState(draftConfig, {
+    equals: (a, b) => a.banTimerSeconds === b.banTimerSeconds && a.pickTimerSeconds === b.pickTimerSeconds && a.leaderPoolSize === b.leaderPoolSize,
   })
 
   const clearConfigMessage = () => {
     setConfigMessage(null)
     setConfigMessageTone(null)
-    setMinRoleMismatchDetail(null)
     setMinRoleSetDetail(null)
   }
 
   const showErrorMessage = (message: string) => {
     setConfigMessage(message)
     setConfigMessageTone('error')
-    setMinRoleMismatchDetail(null)
     setMinRoleSetDetail(null)
   }
 
   const showInfoMessage = (message: string) => {
     setConfigMessage(message)
     setConfigMessageTone('info')
-    setMinRoleMismatchDetail(null)
-    setMinRoleSetDetail(null)
-  }
-
-  const showMinRoleMismatchMessage = (detail: MinRoleMismatchDetail) => {
-    setConfigMessage(`${detail.playerName} does not meet the new minimum rank ${detail.roleLabel}`)
-    setConfigMessageTone('error')
-    setMinRoleMismatchDetail(detail)
     setMinRoleSetDetail(null)
   }
 
   const showMinRoleSetMessage = (detail: MinRoleSetDetail) => {
-    setConfigMessage(`Minimum rank set to ${detail.roleLabel}`)
+    setConfigMessage(`Min rank set to ${detail.roleLabel}`)
     setConfigMessageTone('info')
-    setMinRoleMismatchDetail(null)
     setMinRoleSetDetail(detail)
   }
 
@@ -316,6 +390,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const config = optimisticTimerConfig.value()
     if (editingField() !== 'ban') setBanMinutes(timerSecondsToMinutesInput(config.banTimerSeconds))
     if (editingField() !== 'pick') setPickMinutes(timerSecondsToMinutesInput(config.pickTimerSeconds))
+    if (editingField() !== 'leaderPool') setLeaderPoolInput(leaderPoolSizeToInput(config.leaderPoolSize))
   })
 
   createEffect(() => {
@@ -323,37 +398,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (status === 'error') {
       showErrorMessage(optimisticTimerConfig.error() ?? 'Failed to save changes.')
     }
-  })
-
-  createEffect(() => {
-    if (bootstrapJoinHintUsed) return
-    if (optimisticLobbyAction()) return
-
-    const lobby = lobbyState()
-    const currentUserId = userId()
-    if (!lobby || !currentUserId || lobby.status !== 'open') return
-
-    if (lobby.hostId === currentUserId) {
-      bootstrapJoinHintUsed = true
-      return
-    }
-
-    if (lobby.entries.some(entry => entry?.playerId === currentUserId)) {
-      bootstrapJoinHintUsed = true
-      return
-    }
-
-    const firstEmptySlot = lobby.entries.findIndex(entry => entry == null)
-    if (firstEmptySlot < 0) {
-      bootstrapJoinHintUsed = true
-      return
-    }
-
-    bootstrapJoinHintUsed = true
-    startOptimisticLobbyAction({
-      kind: 'place-self',
-      targetSlot: firstEmptySlot,
-    })
   })
 
   const applyLobbySnapshot = (lobby: LobbySnapshot) => {
@@ -366,7 +410,39 @@ export function ConfigScreen(props: ConfigScreenProps) {
     setLobbyTimerConfig({
       banTimerSeconds: resolvedLobby.draftConfig.banTimerSeconds,
       pickTimerSeconds: resolvedLobby.draftConfig.pickTimerSeconds,
+      leaderPoolSize: resolvedLobby.draftConfig.leaderPoolSize,
     })
+  }
+
+  const buildLobbyRow = (slot: number, entry: LobbySnapshot['entries'][number] | null, key: string): PlayerRow => {
+    const pendingSelf = pendingSelfJoinSlot() === slot
+    const currentUserId = userId()
+
+    if (pendingSelf && currentUserId) {
+      return {
+        key,
+        slot,
+        name: currentDisplayName() || 'You',
+        playerId: currentUserId,
+        avatarUrl: currentAvatarUrl(),
+        partyIds: [],
+        isHost: false,
+        empty: false,
+        pendingSelf: true,
+      }
+    }
+
+    return {
+      key,
+      slot,
+      name: entry?.displayName ?? '[empty]',
+      playerId: entry?.playerId ?? null,
+      avatarUrl: entry?.avatarUrl ?? null,
+      partyIds: entry?.partyIds ?? [],
+      isHost: entry?.playerId === hostId(),
+      empty: entry == null,
+      pendingSelf: false,
+    }
   }
 
   const teamRows = (team: 0 | 1): PlayerRow[] => {
@@ -377,16 +453,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       return Array.from({ length: size }, (_, i) => {
         const slot = start + i
         const entry = lobby.entries[slot] ?? null
-        return {
-          key: `lobby-${slot}`,
-          slot,
-          name: entry?.displayName ?? '[empty]',
-          playerId: entry?.playerId ?? null,
-          avatarUrl: entry?.avatarUrl ?? null,
-          partyIds: entry?.partyIds ?? [],
-          isHost: entry?.playerId === hostId(),
-          empty: entry == null,
-        }
+        return buildLobbyRow(slot, entry, `lobby-${slot}`)
       })
     }
 
@@ -400,6 +467,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       partyIds: [],
       isHost: seat.playerId === hostId(),
       empty: false,
+      pendingSelf: false,
     }))
   }
 
@@ -408,16 +476,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (lobby) {
       return Array.from({ length: lobby.targetSize }, (_, i) => {
         const entry = lobby.entries[i] ?? null
-        return {
-          key: `lobby-ffa-${i}`,
-          slot: i,
-          name: entry?.displayName ?? '[empty]',
-          playerId: entry?.playerId ?? null,
-          avatarUrl: entry?.avatarUrl ?? null,
-          partyIds: entry?.partyIds ?? [],
-          isHost: entry?.playerId === hostId(),
-          empty: entry == null,
-        }
+        return buildLobbyRow(i, entry, `lobby-ffa-${i}`)
       })
     }
 
@@ -430,6 +489,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       partyIds: [],
       isHost: seat.playerId === hostId(),
       empty: false,
+      pendingSelf: false,
     }))
   }
 
@@ -471,6 +531,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return currentLobby()?.entries.some(entry => entry?.playerId === id) ?? false
   }
 
+  const viewerJoinBlockedReason = () => {
+    const currentUserId = userId()
+    const eligibility = props.joinEligibility
+    if (!currentUserId || !eligibility || eligibility.canJoin) return null
+    if (isCurrentUserSlotted()) return null
+    return eligibility.blockedReason ?? 'You cannot join this lobby right now.'
+  }
+
   const currentUserLinkedPartySize = () => {
     const id = userId()
     if (!id) return 0
@@ -482,13 +550,15 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (!isLobbyMode()) return false
     if (!row.empty) return false
     if (!userId()) return false
+    if (props.showJoinPending && !isCurrentUserSlotted()) return false
+    if (props.joinEligibility && !props.joinEligibility.canJoin && !isCurrentUserSlotted()) return false
     if (!amHost() && currentUserLinkedPartySize() > 0) return false
     return true
   }
 
   const canRemoveSlot = (row: PlayerRow) => {
     if (!isLobbyMode()) return false
-    if (row.empty || !row.playerId) return false
+    if (row.empty || !row.playerId || row.pendingSelf) return false
     if (row.isHost) return false
     const id = userId()
     if (!id) return false
@@ -499,7 +569,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const canDragRow = (row: PlayerRow) => {
     if (!isLobbyMode()) return false
     if (lobbyActionPending()) return false
-    if (row.empty || !row.playerId) return false
+    if (row.empty || !row.playerId || row.pendingSelf) return false
     const id = userId()
     if (!id) return false
     if (amHost()) return true
@@ -528,20 +598,28 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
       const parsedBan = parseTimerMinutesInput(nextBanMinutes)
       const parsedPick = parseTimerMinutesInput(nextPickMinutes)
-      if (parsedBan === undefined || parsedPick === undefined) {
+      const leaderPoolMinimum = leaderPoolMinimumValue()
+      const parsedLeaderPool = parseLeaderPoolSizeInput(leaderPoolInput(), leaderPoolMinimum)
+      if (parsedBan === undefined || parsedPick === undefined || parsedLeaderPool === undefined) {
         optimisticTimerConfig.clearError()
-        showErrorMessage(`Use whole minutes between 0 and ${MAX_TIMER_MINUTES}.`)
+        showErrorMessage(`Use whole numbers for timers and leaders. Leaders can be ${leaderPoolMinimum}-${MAX_LEADER_POOL_INPUT}, or blank for the mode default.`)
         const current = optimisticTimerConfig.value()
         setBanMinutes(timerSecondsToMinutesInput(current.banTimerSeconds))
         setPickMinutes(timerSecondsToMinutesInput(current.pickTimerSeconds))
+        setLeaderPoolInput(leaderPoolSizeToInput(current.leaderPoolSize))
         return
       }
 
       const banTimerSeconds = parsedBan == null ? null : parsedBan * 60
       const pickTimerSeconds = parsedPick == null ? null : parsedPick * 60
+      const leaderPoolSize = parsedLeaderPool
       const current = optimisticTimerConfig.value()
 
-      if (banTimerSeconds === current.banTimerSeconds && pickTimerSeconds === current.pickTimerSeconds) {
+      if (
+        banTimerSeconds === current.banTimerSeconds
+        && pickTimerSeconds === current.pickTimerSeconds
+        && leaderPoolSize === current.leaderPoolSize
+      ) {
         optimisticTimerConfig.clearError()
         return
       }
@@ -554,12 +632,13 @@ export function ConfigScreen(props: ConfigScreenProps) {
       }
 
       clearConfigMessage()
-      await optimisticTimerConfig.commit({ banTimerSeconds, pickTimerSeconds }, async () => {
+      await optimisticTimerConfig.commit({ banTimerSeconds, pickTimerSeconds, leaderPoolSize }, async () => {
         const lobby = currentLobby()
         if (lobby) {
           const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, {
             banTimerSeconds,
             pickTimerSeconds,
+            leaderPoolSize,
             minRole: lobby.minRole,
           })
           if (!result.ok) throw new Error(result.error)
@@ -616,17 +695,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
       const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, {
         banTimerSeconds: timerConfig().banTimerSeconds,
         pickTimerSeconds: timerConfig().pickTimerSeconds,
+        leaderPoolSize: draftConfig().leaderPoolSize,
         minRole: nextMinRole,
       })
       if (!result.ok) {
-        if (result.errorCode === 'MIN_ROLE_MEMBER_MISMATCH' && result.context?.minRole) {
-          showMinRoleMismatchMessage({
-            playerName: result.context.playerName,
-            roleLabel: result.context.minRole.label,
-            roleColor: result.context.minRole.color,
-          })
-          return
-        }
         showErrorMessage(result.error)
         return
       }
@@ -643,7 +715,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         })
       }
       else {
-        showInfoMessage('Minimum rank cleared')
+        showInfoMessage('Min rank cleared')
       }
     }
     finally {
@@ -684,8 +756,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const currentUserId = userId()
     if (!lobby || !currentUserId) return
     if (lobbyActionPending()) return
+    if (!isCurrentUserSlotted() && props.joinEligibility?.canJoin !== false) {
+      setPendingPlaceSelfSlot(slot)
+    }
 
-    startOptimisticLobbyAction({ kind: 'place-self', targetSlot: slot })
     setLobbyActionPending(true)
     clearConfigMessage()
     try {
@@ -697,14 +771,13 @@ export function ConfigScreen(props: ConfigScreenProps) {
         avatarUrl: currentAvatarUrl(),
       })
       if (!result.ok) {
-        clearOptimisticLobbyAction()
         showErrorMessage(result.error)
         return
       }
       applyLobbySnapshot(result.lobby)
-      clearOptimisticLobbyAction()
     }
     finally {
+      setPendingPlaceSelfSlot(null)
       setLobbyActionPending(false)
     }
   }
@@ -737,9 +810,12 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
     const draggedEntry = lobby.entries.find(entry => entry?.playerId === draggedPlayerId) ?? null
     const isLinkedDrag = isTeamMode() && (draggedEntry?.partyIds?.length ?? 0) > 0
+    const currentUserSlot = draggedPlayerId === currentUserId
+      ? lobby.entries.findIndex(entry => entry?.playerId === currentUserId)
+      : -1
 
     let optimisticAction: PendingOptimisticLobbyAction | null = null
-    if (draggedPlayerId === currentUserId && !isLinkedDrag) {
+    if (draggedPlayerId === currentUserId && !isLinkedDrag && currentUserSlot >= 0) {
       optimisticAction = { kind: 'place-self', targetSlot: slot }
     }
     else if (amHost() && !isLinkedDrag) {
@@ -978,9 +1054,44 @@ export function ConfigScreen(props: ConfigScreenProps) {
     sendCancel('cancel')
   }
 
+  const toMiniSeatItem = (row: PlayerRow, team: number | null): MiniSeatItem => ({
+    key: row.key,
+    name: row.empty ? 'Empty' : row.name,
+    avatarUrl: row.avatarUrl ?? null,
+    team,
+    empty: row.empty,
+  })
+
+  const miniColumns = () => {
+    if (isTeamMode()) {
+      return [
+        teamRows(0).map(row => toMiniSeatItem(row, 0)),
+        teamRows(1).map(row => toMiniSeatItem(row, 1)),
+      ]
+    }
+
+    return [
+      ffaFirstColumn().map(row => toMiniSeatItem(row, null)),
+      ffaSecondColumn().map(row => toMiniSeatItem(row, null)),
+    ]
+  }
+
+  const setupStatusText = () => {
+    if (isLobbyMode()) {
+      if (amHost()) return canStartLobby() ? 'Ready to start' : 'Waiting for more players'
+      return isCurrentUserSlotted() ? 'Waiting for host' : 'Spectating'
+    }
+
+    if (amHost()) return 'Ready to start'
+    return isSpectator() ? 'Spectating' : 'Waiting for host'
+  }
+
   return (
-    <div class="text-text-primary font-sans bg-bg-primary overflow-y-auto min-h-dvh">
-      <div class="mx-auto px-6 py-4 flex flex-col gap-6 max-w-5xl w-full">
+    <Show
+      when={isMiniView()}
+      fallback={(
+        <div class="text-text-primary font-sans bg-bg-primary overflow-y-auto min-h-dvh">
+          <div class="mx-auto px-6 py-4 flex flex-col gap-6 max-w-5xl w-full">
         <div class="grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-center">
           <div class="h-9 w-9" />
           <div class="text-center">
@@ -1004,6 +1115,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
         <div class="gap-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div class="p-4 rounded-lg bg-bg-secondary">
             <div class="text-xs text-text-muted tracking-widest font-bold mb-3 uppercase">Players</div>
+
+            <Show when={viewerJoinBlockedReason()}>
+              {reason => (
+                <div class="text-sm text-accent-red mb-3 px-3 py-2 border border-accent-red/25 rounded-md bg-accent-red/10">
+                  {reason()}
+                </div>
+              )}
+            </Show>
 
             <Show
               when={isTeamMode()}
@@ -1085,7 +1204,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
             <div class="text-xs text-text-muted tracking-widest font-bold flex uppercase items-center justify-between">
               <span>Config</span>
               <span class="flex h-4 w-4 items-center justify-center">
-                <Show when={optimisticTimerConfig.status() === 'pending' || lobbyActionPending() || startPending()}>
+                <Show when={props.showJoinPending || optimisticTimerConfig.status() === 'pending' || lobbyActionPending() || startPending()}>
                   <span class="i-gg:spinner text-sm text-accent-gold animate-spin" />
                 </Show>
               </span>
@@ -1105,9 +1224,15 @@ export function ConfigScreen(props: ConfigScreenProps) {
               when={amHost()}
               fallback={(
                 <div class="flex flex-col gap-2">
+                  <Show when={isLobbyMode()}>
+                    <ReadonlyTimerRow
+                      label="Matchmaking min rank"
+                      value={formattedLobbyMinRole()}
+                    />
+                  </Show>
                   <ReadonlyTimerRow
-                    label="Min rank"
-                    value={formattedLobbyMinRole()}
+                    label="Leaders"
+                    value={formattedLeaderPool()}
                   />
                   <ReadonlyTimerRow
                     label="Ban timer"
@@ -1121,13 +1246,34 @@ export function ConfigScreen(props: ConfigScreenProps) {
               )}
             >
               <div class="flex flex-col gap-2">
-                <Dropdown
-                  label="Minimum Rank"
-                  value={lobbyMinRoleValue()}
-                  disabled={lobbyActionPending()}
-                  options={minRoleDropdownOptions()}
-                  onChange={value => void handleLobbyMinRoleChange(value)}
-                />
+                <Show when={isLobbyMode()}>
+                  <Dropdown
+                    label="Matchmaking Min Rank"
+                    value={lobbyMinRoleValue()}
+                    disabled={lobbyActionPending()}
+                    options={minRoleDropdownOptions()}
+                    onChange={value => void handleLobbyMinRoleChange(value)}
+                  />
+
+                  <TextInput
+                    type="number"
+                    label="Leaders"
+                    min={String(leaderPoolMinimumValue())}
+                    max={String(MAX_LEADER_POOL_INPUT)}
+                    step="1"
+                    value={leaderPoolInput()}
+                    placeholder={leaderPoolPlaceholderValue()}
+                    onFocus={() => setEditingField('leaderPool')}
+                    onInput={(event) => {
+                      optimisticTimerConfig.clearError()
+                      clearConfigMessage()
+                      const normalized = normalizeLeaderPoolSizeInput(event.currentTarget.value, leaderPoolMinimumValue())
+                      event.currentTarget.value = normalized
+                      setLeaderPoolInput(normalized)
+                    }}
+                    onBlur={() => void saveConfigOnBlur()}
+                  />
+                </Show>
 
                 <TextInput
                   type="number"
@@ -1180,17 +1326,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   )}
                   />
                   <Show
-                    when={configMessageTone() === 'error' && minRoleMismatchDetail()}
-                    fallback={(
-                      <Show
-                        when={configMessageTone() === 'info' && minRoleSetDetail()}
-                        fallback={<span class="leading-relaxed">{configMessage()}</span>}
-                      >
-                        <MinRoleSetNotice detail={minRoleSetDetail()!} />
-                      </Show>
-                    )}
+                    when={configMessageTone() === 'info' && minRoleSetDetail()}
+                    fallback={<span class="leading-relaxed">{configMessage()}</span>}
                   >
-                    <MinRoleMismatchNotice detail={minRoleMismatchDetail()!} />
+                    <MinRoleSetNotice detail={minRoleSetDetail()!} />
                   </Show>
                 </div>
               </Show>
@@ -1203,9 +1342,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
             when={amHost()}
             fallback={(
               <span class="text-sm text-text-muted">
-                {isLobbyMode()
-                  ? isCurrentUserSlotted() ? 'Waiting for host to start...' : 'Spectating - waiting for host to start'
-                  : isSpectator() ? 'Spectating - waiting for host to start' : 'Waiting for host to start...'}
+                {setupStatusText()}
               </span>
             )}
           >
@@ -1259,7 +1396,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
                 </div>
               )}
             >
-              <div class="flex gap-3 items-center">
+              <div class="flex flex-col items-center gap-2">
+                <span class="text-sm text-text-muted">{setupStatusText()}</span>
+
+                <div class="flex gap-3 items-center">
                 <button
                   class="text-sm text-black font-bold px-8 py-2.5 rounded-lg bg-accent-gold cursor-pointer transition-colors hover:bg-accent-gold/80"
                   onClick={sendStart}
@@ -1272,11 +1412,25 @@ export function ConfigScreen(props: ConfigScreenProps) {
                 >
                   Cancel Draft
                 </button>
+                </div>
               </div>
             </Show>
           </Show>
         </div>
-      </div>
-    </div>
+          </div>
+        </div>
+      )}
+    >
+      <MiniFrame
+        modeLabel={formatId()}
+        title="Draft Setup"
+        titleAccent="gold"
+        rightLabel={currentLobby() ? `${filledSlots()}/${currentLobby()!.targetSize}` : null}
+      >
+        <MiniSeatGrid
+          columns={miniColumns()}
+        />
+      </MiniFrame>
+    </Show>
   )
 }

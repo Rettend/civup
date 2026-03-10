@@ -5,6 +5,7 @@ import { LEADERBOARD_MODES } from '@civup/game'
 import { eq } from 'drizzle-orm'
 import { leaderboardEmbed } from '../../embeds/leaderboard.ts'
 import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
+import { ensureLeaderboardModeSnapshots } from './snapshot.ts'
 import {
   getSystemChannel,
 } from '../system/channels.ts'
@@ -55,7 +56,7 @@ export async function archiveSeasonLeaderboards(
   if (!leaderboardChannelId) return false
 
   const existing = await getLeaderboardMessageState(db)
-  const archivedEmbeds = await buildLeaderboardEmbeds(db, { titlePrefix: seasonName })
+  const archivedEmbeds = await buildLeaderboardEmbeds(db, kv, { titlePrefix: seasonName })
 
   if (existing?.channelId === leaderboardChannelId) {
     try {
@@ -103,7 +104,7 @@ export async function upsertLeaderboardMessagesForChannel(
 ): Promise<LeaderboardMessageState> {
   const existing = await getLeaderboardMessageState(db)
   const previousMessageId = !options.forceCreate && existing?.channelId === channelId ? existing.messageId : null
-  const embeds = await buildLeaderboardEmbeds(db)
+  const embeds = await buildLeaderboardEmbeds(db, kv)
 
   if (previousMessageId) {
     try {
@@ -140,11 +141,16 @@ export async function upsertLeaderboardMessagesForChannel(
 
 async function buildLeaderboardEmbeds(
   db: Database,
+  kv: KVNamespace,
   options: {
     titlePrefix?: string
   } = {},
 ) {
-  return await Promise.all(LEADERBOARD_MODES.map(mode => leaderboardEmbed(db, mode, options)))
+  const snapshots = await ensureLeaderboardModeSnapshots(db, kv)
+  return LEADERBOARD_MODES.map((mode) => {
+    const snapshot = snapshots.get(mode)
+    return leaderboardEmbed(mode, snapshot?.rows ?? [], options)
+  })
 }
 
 async function getLeaderboardMessageState(db: Database): Promise<LeaderboardMessageState | null> {

@@ -5,7 +5,7 @@ import { LEADERBOARD_MODES } from '@civup/game'
 import { displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'
 import { eq } from 'drizzle-orm'
 import { previewRankedRoles } from '../ranked/role-sync.ts'
-import { getConfiguredRankedRoleLabel, getRankedRoleConfig } from '../ranked/roles.ts'
+import { getConfiguredRankedRoleId, getConfiguredRankedRoleLabel, getLowestRankedRoleTier, getRankedRoleConfig } from '../ranked/roles.ts'
 
 export interface PlayerRankModeSummary {
   mode: LeaderboardMode
@@ -34,7 +34,7 @@ export async function getPlayerRankProfile(
 ): Promise<PlayerRankProfile> {
   const [ratingRows, preview, config] = await Promise.all([
     db.select().from(playerRatings).where(eq(playerRatings.playerId, playerId)),
-    previewRankedRoles({ db, kv, guildId, now }),
+    previewRankedRoles({ db, kv, guildId, now, playerIds: [playerId], includePlayerIdentities: false }),
     getRankedRoleConfig(kv, guildId),
   ])
 
@@ -49,8 +49,8 @@ export async function getPlayerRankProfile(
     return [mode, {
       mode,
       tier,
-      tierLabel: tier && config.currentRoles[tier] ? getConfiguredRankedRoleLabel(config, tier) : 'Unranked',
-      tierRoleId: tier && config.currentRoles[tier] ? config.currentRoles[tier] ?? null : null,
+      tierLabel: tier ? getConfiguredRankedRoleLabel(config, tier) : 'Unranked',
+      tierRoleId: tier ? getConfiguredRankedRoleId(config, tier) : null,
       rating: ratingRow ? Math.round(displayRating(ratingRow.mu, ratingRow.sigma)) : null,
       gamesPlayed: ratingRow?.gamesPlayed ?? 0,
       wins: ratingRow?.wins ?? 0,
@@ -58,11 +58,12 @@ export async function getPlayerRankProfile(
     } satisfies PlayerRankModeSummary]
   })) as Record<LeaderboardMode, PlayerRankModeSummary>
 
-  const overallTier = previewPlayer?.assignment.tier ?? null
+  const fallbackTier = getLowestRankedRoleTier(config)
+  const overallTier = previewPlayer?.assignment.tier ?? fallbackTier
   return {
     overallTier,
-    overallRoleId: overallTier ? config.currentRoles[overallTier] ?? null : null,
-    overallLabel: overallTier && config.currentRoles[overallTier] ? getConfiguredRankedRoleLabel(config, overallTier) : 'Unranked',
+    overallRoleId: overallTier ? getConfiguredRankedRoleId(config, overallTier) : null,
+    overallLabel: overallTier ? getConfiguredRankedRoleLabel(config, overallTier) : 'Unranked',
     modes,
   }
 }

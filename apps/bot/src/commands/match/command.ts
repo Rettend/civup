@@ -5,9 +5,8 @@ import { formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, maxPlayerCount, maxTeam
 import { Command, Option, SubCommand } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyOpenEmbed, lobbyResultEmbed } from '../../embeds/match.ts'
-import { clearLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity/index.ts'
+import { clearLobbyMappings, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
-import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
 import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getLobbiesByMode, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyMemberPlayerIds, setLobbySlots, setLobbyStatus } from '../../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
@@ -15,7 +14,9 @@ import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { cancelMatchByModerator, reportMatch } from '../../services/match/index.ts'
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, removeFromQueue, removeFromQueueAndUnlinkParty } from '../../services/queue/index.ts'
-import { markRankedRolesDirty } from '../../services/ranked/role-sync.ts'
+import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../../services/ranked/role-sync.ts'
+import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
+import { syncSeasonPeaksForPlayers } from '../../services/season/index.ts'
 import { createStateStore } from '../../services/state/store.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
 import { factory } from '../../setup.ts'
@@ -379,7 +380,7 @@ export const command_match = factory.command<MatchVar>(
           }
 
           const removedMode = removed.mode
-          await clearLobbyMappings(kv, [identity.userId], currentLobby?.channelId)
+          await clearUserLobbyMappings(kv, [identity.userId])
 
           const lobby = currentLobby?.mode === removedMode ? currentLobby : await getOpenLobbyForPlayer(kv, identity.userId, removedMode)
           if (lobby?.status === 'open') {
@@ -566,11 +567,39 @@ export const command_match = factory.command<MatchVar>(
           const reportedMode = normalizeMatchMode(result.match.gameMode)
 
           const lobby = await getLobbyByMatch(kv, result.match.id)
+          const guildId = lobby?.guildId ?? c.interaction.guild_id ?? null
+          let rankedRoleLines: string[] = []
+          if (guildId) {
+            try {
+              const participantIds = result.participants.map(participant => participant.playerId)
+              const rankedPreview = await previewRankedRoles({
+                db,
+                kv,
+                guildId,
+                playerIds: participantIds,
+                includePlayerIdentities: false,
+              })
+              rankedRoleLines = await listRankedRoleMatchUpdateLines({
+                kv,
+                guildId,
+                preview: rankedPreview,
+                playerIds: participantIds,
+              })
+              await syncSeasonPeaksForPlayers(db, {
+                playerIds: participantIds,
+                playerPreviews: rankedPreview.playerPreviews,
+              })
+            }
+            catch (error) {
+              console.error(`Failed to preview ranked role changes after match ${result.match.id}:`, error)
+            }
+          }
+
           if (lobby) {
             await setLobbyStatus(kv, lobby.id, 'completed', lobby)
             try {
               const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-                embeds: [lobbyResultEmbed(lobby.mode, result.participants)],
+                embeds: [lobbyResultEmbed(lobby.mode, result.participants, undefined, { rankedRoleLines })],
                 components: [],
               })
               await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
@@ -586,7 +615,7 @@ export const command_match = factory.command<MatchVar>(
           if (archiveChannelId) {
             try {
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-                embeds: [lobbyResultEmbed(reportedMode, result.participants)],
+                embeds: [lobbyResultEmbed(reportedMode, result.participants, undefined, { rankedRoleLines })],
               })
               await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
             }

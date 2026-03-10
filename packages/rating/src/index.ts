@@ -1,33 +1,52 @@
 import type { Rating as OSRating } from 'openskill'
 import { predictWin, rate, rating } from 'openskill'
+import { bradleyTerryFull } from 'openskill/models'
 
 // ── Constants ───────────────────────────────────────────────
 
-/** Default mu for new players */
+/** Default mu for new players (how good the system thinks you are) */
 export const DEFAULT_MU = 25.0
 
-/** Default sigma for new players */
+/** Default sigma for new players (how unsure the system is about your skill) */
 export const DEFAULT_SIGMA = 25 / 3 // ~8.333
 
-/** Baseline added to conservative display rating for UX-friendly numbers */
-export const DISPLAY_RATING_BASE = 600
+/** Starting elo for display */
+export const DISPLAY_RATING_BASE = 1000
 
 /** Scale multiplier for display rating deltas and spread */
-export const DISPLAY_RATING_SCALE = 5
+export const DISPLAY_RATING_SCALE = 18
 
-/** Multiplier for sigma when calculating conservative display rating */
-export const Z_MULTIPLIER = 2 // 95% confidence
+/** Visible Elo intentionally ignores sigma; uncertainty stays internal. */
+export const Z_MULTIPLIER = 0
 
 /** Core openskill parameters tweaked for Civ 6 */
 export const RATING_OPTIONS = {
   beta: 3.0, // Trust game outcomes more (less luck)
-  tau: 0.3, // Prevent sigma from bottoming out (dynamic ratings)
+  tau: 0.3, // Adds back some uncertainty to prevent stagnation
+}
+
+function getFfaRatingOptions(playerCount: number) {
+  const ffaBetaByPlayerCount: Record<number, number> = {
+    3: 30,
+    4: 40,
+    5: 50,
+    6: 60,
+    7: 75,
+    8: 95,
+    9: 114,
+    10: 140,
+  }
+
+  return {
+    ...RATING_OPTIONS,
+    model: bradleyTerryFull,
+    beta: ffaBetaByPlayerCount[playerCount] ?? (1.5 * playerCount * Math.max(1, playerCount - 1)),
+  }
 }
 
 /** Minimum games required to appear on leaderboard */
 export const LEADERBOARD_MIN_GAMES = 3
 
-/** Leaderboard modes */
 export type LeaderboardMode = 'ffa' | 'duel' | 'teamers'
 
 // ── Player Rating ───────────────────────────────────────────
@@ -48,10 +67,11 @@ export function createRating(playerId: string): PlayerRating {
 }
 
 /**
- * Conservative display rating: mu - Z_MULTIPLIER * sigma.
+ * Visible Elo derived from skill.
  */
 export function displayRating(mu: number, sigma: number): number {
-  return DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * (mu - Z_MULTIPLIER * sigma)
+  const anchoredSkill = (mu - (Z_MULTIPLIER * sigma)) - (DEFAULT_MU - (Z_MULTIPLIER * DEFAULT_SIGMA))
+  return DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * anchoredSkill
 }
 
 // ── Rating Calculation ──────────────────────────────────────
@@ -90,7 +110,6 @@ export interface TeamInput {
  * @returns Rating updates for every player across all teams.
  */
 export function calculateTeamRatings(teams: TeamInput[]): RatingUpdate[] {
-  // Build OpenSkill team arrays
   const osTeams: OSRating[][] = teams.map(t =>
     t.players.map(p => ({ mu: p.mu, sigma: p.sigma })),
   )
@@ -129,9 +148,6 @@ export function calculateTeamRatings(teams: TeamInput[]): RatingUpdate[] {
 
 // ── FFA Ratings ─────────────────────────────────────────────
 
-/**
- * A single FFA player entry with placement.
- */
 export interface FfaEntry {
   player: PlayerRating
   /** 1-based placement (1 = winner). Players can share placement (tie). */
@@ -144,22 +160,17 @@ export interface FfaEntry {
  * OpenSkill natively supports N-player rankings. Each player is treated as
  * their own "team" of 1. The `rank` option specifies the placement order.
  *
- * Ties are supported: players with the same placement value will be ranked equally.
- *
  * @param entries - All FFA players with their placements (1 = winner).
  * @returns Rating updates for every player.
  */
 export function calculateFfaRatings(entries: FfaEntry[]): RatingUpdate[] {
-  // Sort by placement for consistent ordering
   const sorted = [...entries].sort((a, b) => a.placement - b.placement)
 
   // Each player is a "team" of 1
   const osTeams: OSRating[][] = sorted.map(e => [{ mu: e.player.mu, sigma: e.player.sigma }])
-
-  // Rank array — OpenSkill uses 1-based ranks, ties are same rank value
   const rank = sorted.map(e => e.placement)
 
-  const updatedTeams = rate(osTeams, { rank, ...RATING_OPTIONS })
+  const updatedTeams = rate(osTeams, { rank, ...getFfaRatingOptions(sorted.length) })
 
   return sorted.map((entry, i) => {
     const updated = updatedTeams[i]![0]!
@@ -177,7 +188,7 @@ export function calculateFfaRatings(entries: FfaEntry[]): RatingUpdate[] {
   })
 }
 
-// ── Unified Calculate ───────────────────────────────────────
+// ── Unified Calculation ────────────────────────────────────
 
 export type MatchResult
   = | { type: 'team', teams: TeamInput[] }

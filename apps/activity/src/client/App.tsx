@@ -1,4 +1,4 @@
-import type { ActivityLaunchSelection, ActivityTargetOption, LobbySnapshot, LobbyStateWatch } from './stores'
+import type { ActivityLaunchSelection, ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot, LobbyStateWatch } from './stores'
 import { createSignal, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
 import { activityTargetOptionKey, ActivityTargetPicker, ConfigScreen, DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
@@ -10,9 +10,11 @@ import {
   disconnect,
   draftStore,
   fetchActivityLaunchSnapshot,
+  isMiniView,
   resetDraft,
   selectActivityTarget,
   setAuthenticatedUser,
+  setIsMiniView,
   userId,
   watchLobbyState,
 } from './stores'
@@ -21,12 +23,14 @@ type AppState
   = | { status: 'loading' }
     | { status: 'error', message: string }
     | { status: 'overview' }
-    | { status: 'lobby-waiting', lobby: LobbySnapshot }
+    | { status: 'lobby-waiting', lobby: LobbySnapshot, joinPending: boolean, joinEligibility: LobbyJoinEligibilitySnapshot }
     | { status: 'authenticated', matchId: string, autoStart: boolean }
 
 const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
   || (typeof window !== 'undefined' ? window.location.host : 'localhost:5173')
 const ACTIVITY_SAFETY_POLL_MS = 90_000
+const MINI_VIEW_MAX_WIDTH = 520
+const MINI_VIEW_MAX_HEIGHT = 340
 
 export default function App() {
   const [state, setState] = createSignal<AppState>({ status: 'loading' })
@@ -58,10 +62,23 @@ export default function App() {
     resetDraft()
   }
 
+  const shouldHoldAuthenticatedDraftState = () => {
+    if (state().status !== 'authenticated') return false
+    if (connectionStatus() === 'connecting' || connectionStatus() === 'connected') return true
+    return draftStore.state != null
+  }
+
   onCleanup(() => {
     stopActivityWatch()
     stopActivitySafetyPoll()
     clearDraftConnection()
+  })
+
+  onMount(() => {
+    const syncMiniView = () => setIsMiniView(window.innerWidth <= MINI_VIEW_MAX_WIDTH && window.innerHeight <= MINI_VIEW_MAX_HEIGHT)
+    syncMiniView()
+    window.addEventListener('resize', syncMiniView)
+    onCleanup(() => window.removeEventListener('resize', syncMiniView))
   })
 
   const currentTargetKey = () => {
@@ -75,12 +92,19 @@ export default function App() {
 
   const openOverview = () => {
     const current = state()
+    const hadTerminalDraft = draftStore.state?.status === 'complete' || draftStore.state?.status === 'cancelled'
     if (current.status === 'authenticated') {
+      if (hadTerminalDraft) setAvailableTargets([])
       clearDraftConnection()
     }
     resetDraft()
     setPickerError(null)
     setState({ status: 'overview' })
+
+    const channelId = activeChannelId
+    const currentUserId = activeUserId
+    if (!channelId || !currentUserId) return
+    void refreshActivityState(channelId, currentUserId)
   }
 
   const transitionToDraft = (matchId: string, currentUserId: string, autoStart: boolean) => {
@@ -107,15 +131,18 @@ export default function App() {
     autoStart = false,
     allowSelectionWhileOverview = false,
   ) => {
+    const current = state()
     const previousSelectionKey = currentTargetKey()
     const nextSelectionKey = snapshot.selection ? activityTargetOptionKey(snapshot.selection.option) : null
     setAvailableTargets(snapshot.options)
-    setLastResolvedSelection(snapshot.selection)
 
     if (!snapshot.selection) {
       setPickerError(null)
 
-      if (state().status === 'authenticated') {
+      if (shouldHoldAuthenticatedDraftState()) return
+
+      setLastResolvedSelection(null)
+      if (current.status === 'authenticated') {
         clearDraftConnection()
       }
 
@@ -123,21 +150,35 @@ export default function App() {
       return
     }
 
-    if (state().status === 'overview' && !allowSelectionWhileOverview && previousSelectionKey === nextSelectionKey) return
+    if (current.status === 'authenticated' && snapshot.selection.kind === 'lobby' && shouldHoldAuthenticatedDraftState()) return
+
+    setLastResolvedSelection(snapshot.selection)
+
+    if (current.status === 'overview' && !allowSelectionWhileOverview && previousSelectionKey === nextSelectionKey) return
 
     if (snapshot.selection.kind === 'lobby') {
       const nextLobby = snapshot.selection.lobby
+      const joinPending = snapshot.selection.pendingJoin
+      const joinEligibility = snapshot.selection.joinEligibility
       setPickerError(null)
 
-      if (state().status === 'authenticated') {
+      if (current.status === 'authenticated') {
         clearDraftConnection()
       }
 
       setState((prev) => {
-        if (prev.status !== 'lobby-waiting') return { status: 'lobby-waiting', lobby: nextLobby }
-        if (nextLobby.revision < prev.lobby.revision) return prev
-        if (isSameLobbySnapshot(prev.lobby, nextLobby)) return prev
-        return { status: 'lobby-waiting', lobby: nextLobby }
+        if (prev.status !== 'lobby-waiting') return { status: 'lobby-waiting', lobby: nextLobby, joinPending, joinEligibility }
+        const resolvedLobby = nextLobby.revision < prev.lobby.revision ? prev.lobby : nextLobby
+        if (
+          isSameLobbySnapshot(prev.lobby, resolvedLobby)
+          && prev.joinPending === joinPending
+          && prev.joinEligibility.canJoin === joinEligibility.canJoin
+          && prev.joinEligibility.blockedReason === joinEligibility.blockedReason
+          && prev.joinEligibility.pendingSlot === joinEligibility.pendingSlot
+        ) {
+          return prev
+        }
+        return { status: 'lobby-waiting', lobby: resolvedLobby, joinPending, joinEligibility }
       })
       return
     }
@@ -200,12 +241,6 @@ export default function App() {
     })
   }
 
-  const restoreLastSelection = async () => {
-    const lastSelection = lastResolvedSelection()
-    if (!lastSelection) return
-    await handleTargetSelection(lastSelection.option)
-  }
-
   const handleTargetSelection = async (option: ActivityTargetOption) => {
     const channelId = activeChannelId
     const currentUserId = activeUserId
@@ -217,6 +252,7 @@ export default function App() {
       const result = await selectActivityTarget(channelId, currentUserId, option)
       if (!result.ok) {
         setPickerError(result.error)
+        void refreshActivityState(channelId, currentUserId)
         return
       }
       applyLaunchSnapshot(channelId, currentUserId, result.snapshot, false, true)
@@ -224,6 +260,12 @@ export default function App() {
     finally {
       setPickerBusy(false)
     }
+  }
+
+  const restoreLastSelection = async () => {
+    const lastSelection = lastResolvedSelection()
+    if (!lastSelection) return
+    await handleTargetSelection(lastSelection.option)
   }
 
   onMount(async () => {
@@ -280,23 +322,40 @@ export default function App() {
         </Match>
 
         <Match when={state().status === 'overview'}>
-          <main class="text-text-primary font-sans bg-bg-primary min-h-screen overflow-y-auto">
-            <div class="mx-auto px-6 py-4 max-w-5xl">
-              <TargetPickerPanel
-                options={availableTargets()}
-                busy={pickerBusy()}
-                selectedKey={currentTargetKey()}
-                error={pickerError()}
-                onSelect={handleTargetSelection}
-                onResume={lastResolvedSelection() ? restoreLastSelection : undefined}
-              />
-            </div>
-          </main>
+          <Show
+            when={isMiniView()}
+            fallback={(
+              <main class="text-text-primary font-sans bg-bg-primary min-h-screen overflow-y-auto">
+                <div class="mx-auto px-6 py-4 max-w-5xl">
+                  <TargetPickerPanel
+                    options={availableTargets()}
+                    busy={pickerBusy()}
+                    selectedKey={currentTargetKey()}
+                    error={pickerError()}
+                    onSelect={handleTargetSelection}
+                    onResume={lastResolvedSelection() ? restoreLastSelection : undefined}
+                  />
+                </div>
+              </main>
+            )}
+          >
+            <TargetPickerPanel
+              mini
+              options={availableTargets()}
+              busy={pickerBusy()}
+              selectedKey={currentTargetKey()}
+              error={pickerError()}
+              onSelect={handleTargetSelection}
+              onResume={lastResolvedSelection() ? restoreLastSelection : undefined}
+            />
+          </Show>
         </Match>
 
         <Match when={state().status === 'lobby-waiting'}>
           <ConfigScreen
             lobby={(state() as Extract<AppState, { status: 'lobby-waiting' }>).lobby}
+            showJoinPending={(state() as Extract<AppState, { status: 'lobby-waiting' }>).joinPending}
+            joinEligibility={(state() as Extract<AppState, { status: 'lobby-waiting' }>).joinEligibility}
             onSwitchTarget={openOverview}
             onLobbyStarted={(matchId) => {
               const currentUserId = userId()
@@ -382,6 +441,7 @@ function DraftWithConnection(props: {
 }
 
 function TargetPickerPanel(props: {
+  mini?: boolean
   options: ActivityTargetOption[]
   busy: boolean
   selectedKey: string | null
@@ -389,6 +449,20 @@ function TargetPickerPanel(props: {
   onSelect: (option: ActivityTargetOption) => void
   onResume?: () => void
 }) {
+  if (props.mini) {
+    return (
+      <ActivityTargetPicker
+        mini
+        error={props.error}
+        options={props.options}
+        busy={props.busy}
+        selectedKey={props.selectedKey}
+        onSelect={props.onSelect}
+        onClose={props.onResume}
+      />
+    )
+  }
+
   return (
     <div class="flex flex-col gap-4">
       <ActivityTargetPicker
@@ -419,6 +493,7 @@ function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
   if (a.targetSize !== b.targetSize) return false
   if (a.draftConfig.banTimerSeconds !== b.draftConfig.banTimerSeconds) return false
   if (a.draftConfig.pickTimerSeconds !== b.draftConfig.pickTimerSeconds) return false
+  if (a.draftConfig.leaderPoolSize !== b.draftConfig.leaderPoolSize) return false
   if (a.serverDefaults.banTimerSeconds !== b.serverDefaults.banTimerSeconds) return false
   if (a.serverDefaults.pickTimerSeconds !== b.serverDefaults.pickTimerSeconds) return false
   if (a.entries.length !== b.entries.length) return false

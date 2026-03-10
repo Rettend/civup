@@ -7,13 +7,27 @@ export type GameMode = 'ffa' | '1v1' | '2v2' | '3v3'
 export type LeaderboardMode = 'ffa' | 'duel' | 'teamers'
 
 /** Live competitive rank tiers used for role gates and ranked roles. */
-export type CompetitiveTier = 'pleb' | 'squire' | 'gladiator' | 'legion' | 'champion'
+export type CompetitiveTier = string
 
 export const GAME_MODES = ['ffa', '1v1', '2v2', '3v3'] as const satisfies readonly GameMode[]
 
 export const LEADERBOARD_MODES = ['ffa', 'duel', 'teamers'] as const satisfies readonly LeaderboardMode[]
 
-export const COMPETITIVE_TIERS = ['pleb', 'squire', 'gladiator', 'legion', 'champion'] as const satisfies readonly CompetitiveTier[]
+export const COMPETITIVE_TIERS = ['tier1', 'tier2', 'tier3', 'tier4', 'tier5'] as const satisfies readonly CompetitiveTier[]
+
+/** Whether a value is a normalized ranked tier id like `tier1`. */
+export function isCompetitiveTier(value: unknown): value is CompetitiveTier {
+  return typeof value === 'string' && /^tier\d+$/i.test(value.trim())
+}
+
+/** Extract the numeric position from a ranked tier id. */
+export function competitiveTierNumber(tier: CompetitiveTier): number | null {
+  const match = /^tier(\d+)$/i.exec(tier.trim())
+  if (!match) return null
+  const parsed = Number(match[1])
+  if (!Number.isFinite(parsed) || parsed < 1) return null
+  return Math.round(parsed)
+}
 
 /** Whether one competitive tier satisfies another tier's minimum gate. */
 export function competitiveTierMeetsMinimum(current: CompetitiveTier | null, minimum: CompetitiveTier | null): boolean {
@@ -24,11 +38,8 @@ export function competitiveTierMeetsMinimum(current: CompetitiveTier | null, min
 
 /** Numeric order for comparing competitive tier prestige. */
 export function competitiveTierRank(tier: CompetitiveTier): number {
-  if (tier === 'pleb') return 0
-  if (tier === 'squire') return 1
-  if (tier === 'gladiator') return 2
-  if (tier === 'legion') return 3
-  return 4
+  const number = competitiveTierNumber(tier)
+  return number == null ? 0 : 1_000_000 - number
 }
 
 // ── Leaders ─────────────────────────────────────────────────
