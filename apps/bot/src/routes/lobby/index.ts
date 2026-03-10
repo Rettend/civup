@@ -519,10 +519,14 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       })
     }
 
-    const updatedLobby = await setLobbySlots(kv, lobby.id, slots, lobby)
-    const nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
+    const nextMemberIds = lobby.memberPlayerIds.filter(playerId => playerId !== targetPlayerId)
+    let nextLobby = await setLobbyMemberPlayerIds(kv, lobby.id, nextMemberIds, lobby) ?? lobby
+    const updatedLobby = await setLobbySlots(kv, nextLobby.id, slots, nextLobby)
+    nextLobby = updatedLobby ?? { ...nextLobby, slots, updatedAt: Date.now() }
     const nextLobbyQueueEntries = buildLobbyQueueEntries(nextLobby, nextEntries)
     const slottedEntries = mapLobbySlotsToEntries(slots, nextLobbyQueueEntries)
+
+    await clearLobbyMappings(kv, [targetPlayerId], lobby.channelId)
 
     try {
       const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)

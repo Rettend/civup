@@ -2,7 +2,7 @@ import type { GameMode } from '@civup/game'
 import type { LobbyState } from './types.ts'
 import { GAME_MODES } from '@civup/game'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
-import { idKey, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
+import { channelIndexKey, channelPrefix, idKey, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
 import { normalizeLobby, parseLobbyState } from './normalize.ts'
 
 export async function getLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise<LobbyState[]> {
@@ -37,12 +37,32 @@ export async function getLobbyById(kv: KVNamespace, lobbyId: string): Promise<Lo
 }
 
 export async function getLobbyByChannel(kv: KVNamespace, channelId: string): Promise<LobbyState | null> {
-  const lobbies = await getAllLobbies(kv)
+  const lobbies = await getLobbiesByChannel(kv, channelId)
   const openLobbies = lobbies
-    .filter(lobby => lobby.channelId === channelId && lobby.status === 'open')
+    .filter(lobby => lobby.status === 'open')
     .sort((left, right) => right.updatedAt - left.updatedAt)
 
   return openLobbies[0] ?? null
+}
+
+export async function getLobbiesByChannel(kv: KVNamespace, channelId: string): Promise<LobbyState[]> {
+  const listed = await kv.list({ prefix: channelPrefix(channelId) })
+  const lobbyIds = listed.keys
+    .map(entry => entry.name.slice(channelPrefix(channelId).length))
+    .filter((lobbyId): lobbyId is string => lobbyId.length > 0)
+
+  if (lobbyIds.length === 0) return []
+
+  const rawLobbies = await stateStoreMget(
+    kv,
+    lobbyIds.map(lobbyId => ({ key: idKey(lobbyId), type: 'json' })),
+  )
+
+  return rawLobbies
+    .map(raw => parseLobbyState(raw))
+    .filter((lobby): lobby is LobbyState => lobby != null)
+    .filter(lobby => lobby.channelId === channelId)
+    .sort((left, right) => left.createdAt - right.createdAt)
 }
 
 export async function getOpenLobbyForPlayer(
@@ -72,6 +92,7 @@ export async function clearLobbyById(kv: KVNamespace, lobbyId: string): Promise<
   const keys = [idKey(lobbyId)]
   if (lobby) {
     keys.push(modeIndexKey(lobby.mode, lobby.id))
+    keys.push(channelIndexKey(lobby.channelId, lobby.id))
     if (lobby.matchId) keys.push(matchKey(lobby.matchId))
   }
   await stateStoreMdelete(kv, keys)
@@ -81,7 +102,7 @@ export async function clearLobbiesByMode(kv: KVNamespace, mode: GameMode): Promi
   const lobbies = await getLobbiesByMode(kv, mode)
   if (lobbies.length === 0) return
   await stateStoreMdelete(kv, lobbies.flatMap((lobby) => {
-    const keys = [idKey(lobby.id), modeIndexKey(mode, lobby.id)]
+    const keys = [idKey(lobby.id), modeIndexKey(mode, lobby.id), channelIndexKey(lobby.channelId, lobby.id)]
     if (lobby.matchId) keys.push(matchKey(lobby.matchId))
     return keys
   }))
@@ -105,6 +126,11 @@ export async function putLobby(kv: KVNamespace, lobby: LobbyState): Promise<void
     },
     {
       key: modeIndexKey(lobby.mode, lobby.id),
+      value: String(lobby.revision),
+      expirationTtl: LOBBY_TTL,
+    },
+    {
+      key: channelIndexKey(lobby.channelId, lobby.id),
       value: String(lobby.revision),
       expirationTtl: LOBBY_TTL,
     },

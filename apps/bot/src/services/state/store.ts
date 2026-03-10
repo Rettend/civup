@@ -92,6 +92,7 @@ const HOT_KEY_PREFIXES = [
   'player-queue:',
   'lobby:id:',
   'lobby:mode:',
+  'lobby:channel:',
   'lobby:match:',
   'activity:',
   'activity-match:',

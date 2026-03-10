@@ -1,9 +1,9 @@
 import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { RankedRoleVisual } from '../../services/ranked/roles.ts'
-import { GAME_MODES, maxPlayerCount, minPlayerCount } from '@civup/game'
+import { maxPlayerCount, minPlayerCount } from '@civup/game'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
-import { filterQueueEntriesForLobby, getLobbiesByMode, getLobbyById, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
+import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, getLobbyById, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
 import { getQueueState } from '../../services/queue/index.ts'
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, getRankedRoleGateError, memberMeetsRankedRoleGate, normalizeRankedRoleTierId } from '../../services/ranked/roles.ts'
 
@@ -76,9 +76,7 @@ export function canStartLobbyWithPlayerCount(mode: GameMode, playerCount: number
 }
 
 export async function getUniqueOpenLobbyForChannel(kv: KVNamespace, channelId: string): Promise<LobbyState | null> {
-  const lobbiesByMode = await Promise.all(GAME_MODES.map(mode => getLobbiesByMode(kv, mode)))
-  const openLobbies = lobbiesByMode
-    .flat()
+  const openLobbies = (await getLobbiesByChannel(kv, channelId))
     .filter(lobby => lobby.channelId === channelId && lobby.status === 'open')
     .sort((left, right) => right.updatedAt - left.updatedAt)
 

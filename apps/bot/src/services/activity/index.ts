@@ -1,8 +1,8 @@
 import type { DraftSeat, DraftTimerConfig, GameMode, QueueEntry, RoomConfig } from '@civup/game'
-import { allLeaderIds, GAME_MODES, getDefaultFormat, isTeamMode, slotToTeamIndex, teamSize } from '@civup/game'
+import { allLeaderIds, getDefaultFormat, isTeamMode, slotToTeamIndex, teamSize } from '@civup/game'
 import { api, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
-import { getLobbiesByMode } from '../lobby/index.ts'
+import { getLobbiesByChannel } from '../lobby/index.ts'
 import { stateStoreMdelete, stateStoreMput } from '../state/store.ts'
 
 // ── Types ───────────────────────────────────────────────────
@@ -230,14 +230,12 @@ export async function getMatchForChannel(
 ): Promise<string | null> {
   const matchIds = new Set<string>()
 
-  const lobbiesByMode = await Promise.all(GAME_MODES.map(mode => getLobbiesByMode(kv, mode)))
-  for (const lobbies of lobbiesByMode) {
-    for (const lobby of lobbies) {
-      if (lobby.channelId !== channelId || !lobby.matchId) continue
-      if (lobby.status !== 'drafting' && lobby.status !== 'active') continue
-      matchIds.add(lobby.matchId)
-      if (matchIds.size > 1) return null
-    }
+  const lobbies = await getLobbiesByChannel(kv, channelId)
+  for (const lobby of lobbies) {
+    if (!lobby.matchId) continue
+    if (lobby.status !== 'drafting' && lobby.status !== 'active') continue
+    matchIds.add(lobby.matchId)
+    if (matchIds.size > 1) return null
   }
 
   return [...matchIds][0] ?? null
