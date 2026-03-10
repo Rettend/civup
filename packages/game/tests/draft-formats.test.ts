@@ -30,6 +30,10 @@ describe('draft formats', () => {
   test('3v3 full roster order stays A1, B1, B2, A2, B3, A3', () => {
     expect(default3v3.getSteps(6).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4]])
   })
+
+  test('FFA opens with one blind ban each', () => {
+    expect(defaultFfa.getSteps(8)[0]).toEqual({ action: 'ban', seats: 'all', count: 1, timer: 120 })
+  })
 })
 
 describe('formatDraftStepLabel', () => {

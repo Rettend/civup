@@ -2,7 +2,7 @@ import type { GameMode } from '@civup/game'
 import type { Hono } from 'hono'
 import type { Env } from '../../env.ts'
 import { createDb, playerRatings } from '@civup/db'
-import { formatModeLabel, isTeamMode, maxPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
+import { formatModeLabel, getMinimumLeaderPoolSize, isTeamMode, MAX_LEADER_POOL_SIZE, maxPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
 import { isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
@@ -42,13 +42,12 @@ import {
   buildOpenLobbySnapshotFromParts,
   canStartLobbyWithPlayerCount,
   emptyRankedRoleConfig,
+  parseLobbyLeaderPoolSize,
   lobbyMinPlayerCount,
   parseLobbyMinRole,
   parseLobbyTimerSeconds,
   parseSlotIndex,
   resolveOpenLobbyFromBody,
-  validateLobbyMembersAgainstMinRole,
-  validatePlayerAgainstLobbyMinRole,
 } from './snapshot.ts'
 
 const DEBUG_TEST_PLAYER_ID_PREFIX = 'debug-active-lobby-bot:'
@@ -93,10 +92,11 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-    const { userId, banTimerSeconds, pickTimerSeconds, minRole: minRoleRaw, lobbyId } = body as {
+    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, minRole: minRoleRaw, lobbyId } = body as {
       userId?: string
       banTimerSeconds?: unknown
       pickTimerSeconds?: unknown
+      leaderPoolSize?: unknown
       minRole?: unknown
       lobbyId?: unknown
     }
@@ -107,8 +107,15 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const normalizedBan = parseLobbyTimerSeconds(banTimerSeconds)
     const normalizedPick = parseLobbyTimerSeconds(pickTimerSeconds)
+    const hasLeaderPoolSize = Object.prototype.hasOwnProperty.call(body, 'leaderPoolSize')
+    const parsedLeaderPoolSize = hasLeaderPoolSize
+      ? parseLobbyLeaderPoolSize(leaderPoolSizeRaw)
+      : undefined
     if (normalizedBan === undefined || normalizedPick === undefined) {
       return c.json({ error: `Timers must be numbers between 0 and ${MAX_CONFIG_TIMER_SECONDS}` }, 400)
+    }
+    if (hasLeaderPoolSize && parsedLeaderPoolSize === undefined) {
+      return c.json({ error: `leaderPoolSize must be an integer between 1 and ${MAX_LEADER_POOL_SIZE}, or null` }, 400)
     }
 
     const resolvedLobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
@@ -124,37 +131,42 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'minRole must be a ranked tier id like tier1, or null' }, 400)
     }
     const normalizedMinRole = parsedMinRole
+    const normalizedLeaderPoolSize: number | null = hasLeaderPoolSize
+      ? parsedLeaderPoolSize ?? null
+      : lobby.draftConfig.leaderPoolSize
     const minRoleChanged = normalizedMinRole !== lobby.minRole
 
     if (lobby.hostId !== userId) {
-      return c.json({ error: 'Only the lobby host can update draft timers' }, 403)
+      return c.json({ error: 'Only the lobby host can update draft config' }, 403)
     }
 
     if (minRoleChanged && normalizedMinRole && !lobby.guildId) {
-      return c.json({ error: 'This lobby is missing guild context, so minimum rank cannot be set.' }, 400)
+      return c.json({ error: 'This lobby is missing guild context, so matchmaking min rank cannot be set.' }, 400)
     }
 
     const queue = await getQueueState(kv, mode)
     const lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
+    const currentPlayerCount = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
+      .filter(playerId => playerId != null)
+      .length
+
+    const leaderPoolError = getLeaderPoolSizeError(
+      mode,
+      normalizedLeaderPoolSize,
+      mode === 'ffa' ? currentPlayerCount : maxPlayerCount(mode),
+    )
+    if (leaderPoolError) return c.json({ error: leaderPoolError }, 400)
 
     const rankedRoleConfig = lobby.guildId ? await getRankedRoleConfig(kv, lobby.guildId) : null
     if (minRoleChanged && normalizedMinRole && rankedRoleConfig) {
       const gateError = getRankedRoleGateError(rankedRoleConfig, normalizedMinRole)
       if (gateError) return c.json({ error: gateError }, 400)
-
-      const memberGateError = await validateLobbyMembersAgainstMinRole(
-        c.env.DISCORD_TOKEN,
-        lobby,
-        lobbyQueueEntries,
-        rankedRoleConfig,
-        normalizedMinRole,
-      )
-      if (memberGateError) return c.json(memberGateError, 400)
     }
 
     const draftUpdated = await setLobbyDraftConfig(kv, lobby.id, {
       banTimerSeconds: normalizedBan,
       pickTimerSeconds: normalizedPick,
+      leaderPoolSize: normalizedLeaderPoolSize,
     }, lobby)
 
     lobby = draftUpdated ?? lobby
@@ -365,11 +377,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
       if (typeof displayName !== 'string' || displayName.trim().length === 0) {
         return c.json({ error: 'displayName is required when joining as spectator.' }, 400)
-      }
-
-      const joinGateError = await validatePlayerAgainstLobbyMinRole(c.env.DISCORD_TOKEN, kv, lobby, movingPlayerId)
-      if (joinGateError) {
-        return c.json({ error: joinGateError }, 400)
       }
 
       const joinResult = await addToQueue(kv, mode, {
@@ -867,12 +874,16 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     try {
       const timerConfig = await resolveDraftTimerConfig(kv, lobby.draftConfig)
+      const leaderPoolError = getLeaderPoolSizeError(mode, lobby.draftConfig.leaderPoolSize, selectedEntries.length)
+      if (leaderPoolError) return c.json({ error: leaderPoolError }, 400)
+
       const { matchId, seats } = await createDraftRoom(mode, selectedEntries, {
         hostId: lobby.hostId,
         partyHost: c.env.PARTY_HOST,
         botHost: c.env.BOT_HOST,
         webhookSecret: c.env.CIVUP_SECRET,
         timerConfig,
+        leaderPoolSize: lobby.draftConfig.leaderPoolSize,
       })
 
       const db = createDb(c.env.DB)
@@ -992,6 +1003,23 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     await clearLobbyById(kv, lobby.id)
     return c.json({ ok: true })
   })
+}
+
+function getLeaderPoolSizeError(
+  mode: GameMode,
+  leaderPoolSize: number | null,
+  playerCount: number,
+): string | null {
+  if (leaderPoolSize == null) return null
+
+  const minimumSize = getMinimumLeaderPoolSize(mode, playerCount)
+  if (leaderPoolSize >= minimumSize) return null
+
+  if (mode === 'ffa') {
+    return `Leaders must be at least ${minimumSize} for a ${playerCount}-player FFA.`
+  }
+
+  return `Leaders must be at least ${minimumSize} for ${formatModeLabel(mode)}.`
 }
 
 function buildDebugFillPlayerId(prefix: string, mode: GameMode, slot: number, existingIds: Set<string>): string {

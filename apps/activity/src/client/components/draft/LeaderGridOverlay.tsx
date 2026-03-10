@@ -98,15 +98,27 @@ export function LeaderGridOverlay() {
     if (isMyTurn() && !hasSubmitted()) setGridOpen(true)
   })
 
+  const draftLeaderPoolIds = createMemo(() => {
+    const draftState = state()
+    if (!draftState) return new Set(leaders.map(leader => leader.id))
+
+    return new Set([
+      ...draftState.availableCivIds,
+      ...draftState.bans.map(selection => selection.civId),
+      ...draftState.picks.map(selection => selection.civId),
+    ])
+  })
+
   const filteredLeaders = createMemo(() => {
     const query = searchQuery().trim()
     const filters = tagFilters()
+    const leaderPoolIds = draftLeaderPoolIds()
     let result = query ? searchLeaders(query) : [...leaders]
-    result = result.filter(leader => leaderMatchesTagFilters(leader.tags, filters))
+    result = result.filter(leader => leaderPoolIds.has(leader.id) && leaderMatchesTagFilters(leader.tags, filters))
     return result.sort((a, b) => a.name.localeCompare(b.name))
   })
 
-  const ghostCount = createMemo(() => Math.max(0, leaders.length - filteredLeaders().length))
+  const ghostCount = createMemo(() => Math.max(0, draftLeaderPoolIds().size - filteredLeaders().length))
 
   const isTagActive = (category: LeaderTagCategory, tag: string): boolean => {
     return tagFilters()[category].includes(tag)
@@ -344,7 +356,7 @@ export function LeaderGridOverlay() {
               <div class="text-[11px] text-text-muted ml-auto">
                 {filteredLeaders().length}
                 /
-                {leaders.length}
+                {draftLeaderPoolIds().size}
                 {' '}
                 shown
               </div>

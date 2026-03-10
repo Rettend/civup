@@ -1,12 +1,13 @@
 import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
-import { maxPlayerCount } from '@civup/game'
+import { maxPlayerCount, MAX_LEADER_POOL_SIZE } from '@civup/game'
 import { nanoid } from 'nanoid'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 
 export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   banTimerSeconds: null,
   pickTimerSeconds: null,
+  leaderPoolSize: null,
 }
 
 export function parseLobbyState(raw: unknown): LobbyState | null {
@@ -54,6 +55,7 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
   return {
     banTimerSeconds: normalizeTimerSeconds(config?.banTimerSeconds),
     pickTimerSeconds: normalizeTimerSeconds(config?.pickTimerSeconds),
+    leaderPoolSize: normalizeLeaderPoolSize(config?.leaderPoolSize),
   }
 }
 
@@ -84,6 +86,7 @@ export function normalizeLobbyRevision(value: unknown): number {
 export function sameDraftConfig(a: LobbyDraftConfig, b: LobbyDraftConfig): boolean {
   return a.banTimerSeconds === b.banTimerSeconds
     && a.pickTimerSeconds === b.pickTimerSeconds
+    && a.leaderPoolSize === b.leaderPoolSize
 }
 
 export function sameStringArray(a: string[], b: string[]): boolean {
@@ -104,4 +107,11 @@ function normalizeTimerSeconds(value: unknown): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value)) return null
   const rounded = Math.round(value)
   return rounded >= 0 ? rounded : null
+}
+
+function normalizeLeaderPoolSize(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  const rounded = Math.round(value)
+  if (rounded < 1 || rounded > MAX_LEADER_POOL_SIZE) return null
+  return rounded
 }

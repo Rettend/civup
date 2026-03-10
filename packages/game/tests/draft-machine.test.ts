@@ -488,19 +488,19 @@ describe('full FFA draft flow', () => {
   test('completes 4-player FFA draft', () => {
     let state = startDraft(createDraft('match-ffa', defaultFfa, createFfaSeats(4), createTestCivPool()))
 
-    // Step 0: Everyone bans 2 (simultaneous/blind)
+    // Step 0: Everyone bans 1 (simultaneous/blind)
     for (let i = 0; i < 4; i++) {
       const result = processDraftInput(state, {
         type: 'BAN',
         seatIndex: i,
-        civIds: [`civ-${i * 2 + 1}`, `civ-${i * 2 + 2}`],
+        civIds: [`civ-${i + 1}`],
       }, true)
       if (isDraftError(result)) throw new Error(result.error)
       state = result.state
     }
 
-    // Should have 8 bans total
-    expect(state.bans).toHaveLength(8)
+    // Should have 4 bans total
+    expect(state.bans).toHaveLength(4)
     expect(state.currentStepIndex).toBe(1)
 
     // Steps 1-4: Each player picks 1

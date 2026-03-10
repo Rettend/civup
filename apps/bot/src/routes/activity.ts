@@ -10,7 +10,7 @@ import { clearUserActivityTargets, getLobbyForUser, getMatchForChannel, getMatch
 import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbyById, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
 import { getPlayerQueueMode, getPlayerQueueModeFromStates, getQueueStates } from '../services/queue/index.ts'
 import { createStateStore } from '../services/state/store.ts'
-import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, getUniqueOpenLobbyForChannel, validatePlayerAgainstLobbyMinRole } from './lobby/snapshot.ts'
+import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, getUniqueOpenLobbyForChannel } from './lobby/snapshot.ts'
 
 export interface LobbyJoinEligibility {
   canJoin: boolean
@@ -347,22 +347,10 @@ export async function resolveLobbyJoinEligibility(
     }
   }
 
-  if (lobby.minRole && !token) {
-    return {
-      canJoin: false,
-      blockedReason: 'Rank-gated lobbies are unavailable because the bot token is missing.',
-      pendingSlot: null,
-    }
-  }
-
-  const blockedReason = token
-    ? await validatePlayerAgainstLobbyMinRole(token, kv, lobby, userId)
-    : null
-
   return {
-    canJoin: blockedReason == null,
-    blockedReason,
-    pendingSlot: blockedReason == null ? pendingSlot : null,
+    canJoin: true,
+    blockedReason: null,
+    pendingSlot,
   }
 }
 
