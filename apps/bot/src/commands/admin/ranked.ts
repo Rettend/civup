@@ -12,6 +12,7 @@ import {
   getRankedRoleConfig,
   updateRankedRoleConfig,
 } from '../../services/ranked/roles.ts'
+import { createStateStore } from '../../services/state/store.ts'
 import { buildResolvedRoleDisplayById, sendEphemeralResponse, sendTransientEphemeralResponse } from './shared.ts'
 
 export function handleRankedRoles(c: AdminCommandContext) {
@@ -107,9 +108,10 @@ export function handleRankedPreview(c: AdminCommandContext) {
   }
 
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
+    const kv = createStateStore(c.env)
     const db = createDb(c.env.DB)
-    const preview = await previewRankedRoles({ db, kv: c.env.KV, guildId })
-    const config = await getRankedRoleConfig(c.env.KV, guildId)
+    const preview = await previewRankedRoles({ db, kv, guildId })
+    const config = await getRankedRoleConfig(kv, guildId)
     await sendEphemeralResponse(c, formatRankedRolePreview(preview, config), 'info')
   })
 }
@@ -123,16 +125,17 @@ export function handleRankedSync(c: AdminCommandContext) {
   }
 
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
+    const kv = createStateStore(c.env)
     const db = createDb(c.env.DB)
     try {
       const result = await syncRankedRoles({
         db,
-        kv: c.env.KV,
+        kv,
         guildId,
         token: c.env.DISCORD_TOKEN,
         applyDiscord: true,
       })
-      const config = await getRankedRoleConfig(c.env.KV, guildId)
+      const config = await getRankedRoleConfig(kv, guildId)
       await sendEphemeralResponse(c, formatRankedRoleSyncResult(result, config), 'success')
     }
     catch (error) {
