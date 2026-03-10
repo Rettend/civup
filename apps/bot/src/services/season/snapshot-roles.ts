@@ -155,7 +155,7 @@ export async function listPlayerSeasonSnapshotHistory(
   guildId: string,
   playerId: string,
 ): Promise<SeasonRankHistoryEntry[]> {
-  const [rows, matchRows, mappings, config] = await Promise.all([
+  const [rows, matchRows, config] = await Promise.all([
     db
       .select({
         seasonId: seasonPeakModeRanks.seasonId,
@@ -181,7 +181,6 @@ export async function listPlayerSeasonSnapshotHistory(
         eq(matchParticipants.playerId, playerId),
         eq(matches.status, 'completed'),
       )),
-    getSeasonSnapshotRoleMappings(kv, guildId),
     getRankedRoleConfig(kv, guildId),
   ])
 
@@ -215,7 +214,7 @@ export async function listPlayerSeasonSnapshotHistory(
       mode,
       tier,
       tierLabel: tier ? getConfiguredRankedRoleLabel(config, tier) ?? formatRankedRoleSlotLabel(tier) : 'Unranked',
-      tierRoleId: tier ? mappings.bySeasonId[row.seasonId]?.roles[tier] ?? null : null,
+      tierRoleId: tier ? getConfiguredRankedRoleId(config, tier) : null,
       rating: row.rating,
       gamesPlayed: stats.gamesPlayed,
       wins: stats.wins,
