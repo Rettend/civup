@@ -6,7 +6,7 @@ import { formatModeLabel, getMinimumLeaderPoolSize, isTeamMode, MAX_LEADER_POOL_
 import { isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
-import { clearLobbyMappings, createDraftRoom, storeMatchMapping, storeUserActivityTarget, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity/index.ts'
+import { clearLobbyMappings, clearUserLobbyMappings, createDraftRoom, storeMatchMapping, storeUserActivityTarget, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from '../../services/config/index.ts'
 import {
   arrangeTeamLobbySlots,
@@ -33,7 +33,7 @@ import {
 import { arePremadeGroupsAdjacent } from '../../services/lobby/premades.ts'
 import { createDraftMatch } from '../../services/match/index.ts'
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
-import { addToQueue, clearQueue, getQueueState, moveQueueEntriesBetweenModes, setQueueEntries } from '../../services/queue/index.ts'
+import { addToQueue, clearQueue, getQueueState, moveQueueEntriesBetweenModes, removeFromQueueAndUnlinkParty, setQueueEntries } from '../../services/queue/index.ts'
 import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
 import { createStateStore } from '../../services/state/store.ts'
 import {
@@ -141,7 +141,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     if (minRoleChanged && normalizedMinRole && !lobby.guildId) {
-      return c.json({ error: 'This lobby is missing guild context, so matchmaking min rank cannot be set.' }, 400)
+      return c.json({ error: 'This lobby is missing guild context, so min rank cannot be set.' }, 400)
     }
 
     const queue = await getQueueState(kv, mode)
@@ -516,13 +516,16 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'You can only remove yourself from a slot.' }, 403)
     }
 
+    const removed = await removeFromQueueAndUnlinkParty(kv, targetPlayerId)
+    const queueAfterRemoval = removed.mode ? await getQueueState(kv, mode) : queue
+
     slots[slot] = null
-    let nextEntries = queue.entries
+    let nextEntries = queueAfterRemoval.entries
     if (isTeamMode(mode)) {
-      const nextEdges = buildActivePremadeEdgeSet(mode, slots, lobbyQueueEntries)
-      nextEntries = rebuildQueueEntriesFromPremadeEdgeSet(mode, slots, queue.entries, nextEdges)
+      const nextEdges = buildActivePremadeEdgeSet(mode, slots, queueAfterRemoval.entries)
+      nextEntries = rebuildQueueEntriesFromPremadeEdgeSet(mode, slots, queueAfterRemoval.entries, nextEdges)
       await setQueueEntries(kv, mode, nextEntries, {
-        currentState: queue,
+        currentState: queueAfterRemoval,
       })
     }
 
@@ -533,7 +536,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const nextLobbyQueueEntries = buildLobbyQueueEntries(nextLobby, nextEntries)
     const slottedEntries = mapLobbySlotsToEntries(slots, nextLobbyQueueEntries)
 
-    await clearLobbyMappings(kv, [targetPlayerId], lobby.channelId)
+    await clearUserLobbyMappings(kv, [targetPlayerId])
 
     try {
       const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)

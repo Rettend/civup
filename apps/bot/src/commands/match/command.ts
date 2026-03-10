@@ -5,7 +5,7 @@ import { formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, maxPlayerCount, maxTeam
 import { Command, Option, SubCommand } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyOpenEmbed, lobbyResultEmbed } from '../../embeds/match.ts'
-import { clearLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity/index.ts'
+import { clearLobbyMappings, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
 import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getLobbiesByMode, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyMemberPlayerIds, setLobbySlots, setLobbyStatus } from '../../services/lobby/index.ts'
@@ -380,7 +380,7 @@ export const command_match = factory.command<MatchVar>(
           }
 
           const removedMode = removed.mode
-          await clearLobbyMappings(kv, [identity.userId], currentLobby?.channelId)
+          await clearUserLobbyMappings(kv, [identity.userId])
 
           const lobby = currentLobby?.mode === removedMode ? currentLobby : await getOpenLobbyForPlayer(kv, identity.userId, removedMode)
           if (lobby?.status === 'open') {

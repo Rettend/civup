@@ -298,6 +298,15 @@ export async function clearLobbyMappings(
   await stateStoreMdelete(kv, keys)
 }
 
+/** Remove only the user -> open-lobby mapping while keeping the current channel target. */
+export async function clearUserLobbyMappings(
+  kv: KVNamespace,
+  userIds: string[],
+): Promise<void> {
+  if (userIds.length === 0) return
+  await stateStoreMdelete(kv, userIds.map(userId => `activity-lobby-user:${userId}`))
+}
+
 function parseActivityTargetSelection(raw: unknown): ActivityTargetSelection | null {
   if (!raw || typeof raw !== 'object') return null
 
