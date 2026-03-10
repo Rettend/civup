@@ -7,7 +7,7 @@ import { formatModeLabel, GAME_MODES, maxPlayerCount } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { clearUserActivityTargets, getLobbyForUser, getMatchForChannel, getMatchForUser, getUserActivityTarget, storeUserActivityTarget, storeUserMatchMappings } from '../services/activity/index.ts'
 import { filterQueueEntriesForLobby, getLobbiesByMode, getLobbyById, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
-import { getPlayerQueueMode, getQueueState } from '../services/queue/index.ts'
+import { getPlayerQueueMode, getPlayerQueueModeFromStates, getQueueState, getQueueStates } from '../services/queue/index.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, getUniqueOpenLobbyForChannel, validatePlayerAgainstLobbyMinRole } from './lobby/snapshot.ts'
 
@@ -61,6 +61,12 @@ interface ChannelActivityTarget {
 interface ResolvedActivitySelection {
   target: ChannelActivityTarget
   pendingJoin: boolean
+}
+
+interface ActivityLaunchContext {
+  targets: ChannelActivityTarget[]
+  queueStates: Map<GameMode, Awaited<ReturnType<typeof getQueueState>>>
+  lobbiesByMode: Map<GameMode, LobbyState[]>
 }
 
 export function registerActivityRoutes(app: Hono<Env>) {
@@ -184,14 +190,14 @@ export function registerActivityRoutes(app: Hono<Env>) {
     }
 
     const kv = createStateStore(c.env)
-    const targets = await listChannelActivityTargets(kv, channelId, userId)
-    const target = targets.find(candidate => candidate.option.kind === kind && candidate.option.id === id)
+    const context = await loadActivityLaunchContext(kv, channelId, userId)
+    const target = context.targets.find(candidate => candidate.option.kind === kind && candidate.option.id === id)
     if (!target) {
       return c.json({ error: 'That activity target is no longer available in this channel' }, 404)
     }
 
     await storeUserActivityTarget(kv, channelId, [userId], { kind, id })
-    return c.json(await buildActivityLaunchSnapshotFromTargets(c.env.DISCORD_TOKEN, kv, userId, targets, { target, pendingJoin: false }))
+    return c.json(await buildActivityLaunchSnapshotFromTargets(c.env.DISCORD_TOKEN, kv, userId, context, { target, pendingJoin: false }))
   })
 }
 
@@ -201,21 +207,21 @@ export async function buildActivityLaunchSnapshot(
   channelId: string,
   userId: string,
 ): Promise<ActivityLaunchSnapshot> {
-  const targets = await listChannelActivityTargets(kv, channelId, userId)
-  const selection = await resolveActivityLaunchSelection(kv, channelId, userId, targets)
-  return buildActivityLaunchSnapshotFromTargets(token, kv, userId, targets, selection)
+  const context = await loadActivityLaunchContext(kv, channelId, userId)
+  const selection = await resolveActivityLaunchSelection(kv, channelId, userId, context.targets)
+  return buildActivityLaunchSnapshotFromTargets(token, kv, userId, context, selection)
 }
 
 async function buildActivityLaunchSnapshotFromTargets(
   token: string | undefined,
   kv: KVNamespace,
   userId: string,
-  targets: ChannelActivityTarget[],
+  context: ActivityLaunchContext,
   selection: ResolvedActivitySelection | null,
 ): Promise<ActivityLaunchSnapshot> {
   return {
-    selection: selection ? await serializeActivityLaunchSelection(token, kv, userId, selection) : null,
-    options: targets.map(target => target.option),
+    selection: selection ? await serializeActivityLaunchSelection(token, kv, userId, context, selection) : null,
+    options: context.targets.map(target => target.option),
   }
 }
 
@@ -249,6 +255,7 @@ async function serializeActivityLaunchSelection(
   token: string | undefined,
   kv: KVNamespace,
   userId: string,
+  context: ActivityLaunchContext,
   selection: ResolvedActivitySelection,
 ): Promise<ActivityLaunchSelection> {
   if (selection.target.option.kind === 'lobby') {
@@ -263,7 +270,13 @@ async function serializeActivityLaunchSelection(
       kind: 'lobby',
       option: selection.target.option,
       pendingJoin: selection.pendingJoin,
-      joinEligibility: await resolveLobbyJoinEligibility(token, kv, userId, selection.target.lobby, lobby),
+      joinEligibility: await resolveLobbyJoinEligibility(token, kv, userId, selection.target.lobby, lobby, {
+        existingLobby: findOpenLobbyForPlayerInMode(
+          context.lobbiesByMode.get(selection.target.lobby.mode) ?? [],
+          userId,
+        ),
+        existingQueueMode: getPlayerQueueModeFromStates(context.queueStates.values(), userId),
+      }),
       lobby,
     }
   }
@@ -281,6 +294,10 @@ export async function resolveLobbyJoinEligibility(
   userId: string,
   lobby: LobbyState,
   lobbySnapshot: Awaited<ReturnType<typeof buildOpenLobbySnapshot>>,
+  options?: {
+    existingLobby?: LobbyState | null
+    existingQueueMode?: GameMode | null
+  },
 ): Promise<LobbyJoinEligibility> {
   if (lobby.status !== 'open') {
     return {
@@ -298,7 +315,9 @@ export async function resolveLobbyJoinEligibility(
     }
   }
 
-  const existingLobby = await getOpenLobbyForPlayer(kv, userId, lobby.mode)
+  const existingLobby = options?.existingLobby !== undefined
+    ? options.existingLobby
+    : await getOpenLobbyForPlayer(kv, userId, lobby.mode)
   if (existingLobby && existingLobby.id !== lobby.id) {
     return {
       canJoin: false,
@@ -307,11 +326,13 @@ export async function resolveLobbyJoinEligibility(
     }
   }
 
-  const existingQueueMode = await getPlayerQueueMode(kv, userId)
+  const existingQueueMode = options?.existingQueueMode !== undefined
+    ? options.existingQueueMode
+    : await getPlayerQueueMode(kv, userId)
   if (existingQueueMode) {
     return {
       canJoin: false,
-      blockedReason: `You're already in the ${formatModeLabel(existingQueueMode)} queue. Leave it first with /match leave.`,
+      blockedReason: `You're already in a ${formatModeLabel(existingQueueMode)} lobby.`,
       pendingSlot: null,
     }
   }
@@ -344,28 +365,27 @@ export async function resolveLobbyJoinEligibility(
   }
 }
 
-async function listChannelActivityTargets(
+async function loadActivityLaunchContext(
   kv: KVNamespace,
   channelId: string,
   userId: string,
-): Promise<ChannelActivityTarget[]> {
-  const queueByMode = new Map<GameMode, Awaited<ReturnType<typeof getQueueState>>>()
+): Promise<ActivityLaunchContext> {
+  const queueStates = await getQueueStates(kv)
   const targets: ChannelActivityTarget[] = []
 
-  const lobbiesByMode = await Promise.all(GAME_MODES.map(mode => getLobbiesByMode(kv, mode)))
+  const lobbiesByModeArray = await Promise.all(GAME_MODES.map(mode => getLobbiesByMode(kv, mode)))
+  const lobbiesByMode = new Map<GameMode, LobbyState[]>()
   for (let modeIndex = 0; modeIndex < GAME_MODES.length; modeIndex++) {
     const mode = GAME_MODES[modeIndex]!
-    const lobbies = lobbiesByMode[modeIndex] ?? []
+    const lobbies = lobbiesByModeArray[modeIndex] ?? []
+    lobbiesByMode.set(mode, lobbies)
 
     for (const lobby of lobbies) {
       if (lobby.channelId !== channelId) continue
 
       if (lobby.status === 'open') {
-        let queue = queueByMode.get(mode)
-        if (!queue) {
-          queue = await getQueueState(kv, mode)
-          queueByMode.set(mode, queue)
-        }
+        const queue = queueStates.get(mode)
+        if (!queue) continue
 
         const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
         const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
@@ -413,7 +433,15 @@ async function listChannelActivityTargets(
     }
   }
 
-  return targets.sort(compareActivityTargets)
+  return {
+    targets: targets.sort(compareActivityTargets),
+    queueStates,
+    lobbiesByMode,
+  }
+}
+
+function findOpenLobbyForPlayerInMode(lobbies: readonly LobbyState[], userId: string): LobbyState | null {
+  return lobbies.find(lobby => lobby.status === 'open' && lobby.memberPlayerIds.includes(userId)) ?? null
 }
 
 function countFilledSlots(slots: (string | null)[]): number {
