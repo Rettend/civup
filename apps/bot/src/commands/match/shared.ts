@@ -133,6 +133,7 @@ export async function joinLobbyAndMaybeStartMatch(
   requestedEntries: MatchJoinEntry[],
   options?: {
     preferredLobbyId?: string
+    skipMatchmakingMinRole?: boolean
   },
 ): Promise<
   | {
@@ -266,6 +267,7 @@ export async function joinLobbyAndMaybeStartMatch(
         requestedEntries,
         rankedRoleConfigByGuildId,
         memberRoleIdsByKey,
+        options?.skipMatchmakingMinRole === true,
       )
       if (gateError) {
         return { gateError }
@@ -333,7 +335,9 @@ async function getRoleGateErrorForLobby(
   requestedEntries: MatchJoinEntry[],
   rankedRoleConfigByGuildId: Map<string, Awaited<ReturnType<typeof getRankedRoleConfig>>>,
   memberRoleIdsByKey: Map<string, string[]>,
+  skipMatchmakingMinRole: boolean,
 ): Promise<string | null> {
+  if (skipMatchmakingMinRole) return null
   if (!lobby.minRole) return null
   if (!lobby.guildId) return 'This lobby is missing guild context, so rank gating is unavailable.'
   if (!token) return 'Rank-gated lobbies are unavailable because the bot token is missing.'

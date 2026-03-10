@@ -153,7 +153,7 @@ export function MinRoleMismatchNotice(props: { detail: MinRoleMismatchDetail }) 
     <span class="leading-relaxed">
       <strong class="text-text-primary font-semibold">{props.detail.playerName}</strong>
       {' '}
-      does not meet the new matchmaking min rank
+      does not meet the new min rank
       {' '}
       <span
         class="font-semibold px-1.5 py-0.5 border rounded-sm inline-flex items-center"
@@ -168,7 +168,7 @@ export function MinRoleMismatchNotice(props: { detail: MinRoleMismatchDetail }) 
 export function MinRoleSetNotice(props: { detail: MinRoleSetDetail }) {
   return (
     <span class="leading-relaxed">
-      Matchmaking min rank set to
+      Min rank set to
       {' '}
       <span
         class="font-semibold px-1.5 py-0.5 border rounded-sm inline-flex items-center"

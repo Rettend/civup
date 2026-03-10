@@ -81,7 +81,10 @@ export const component_match_join = factory.component(
           displayName: identity.displayName,
           avatarUrl: identity.avatarUrl,
         }],
-        { preferredLobbyId: lobby.id },
+        {
+          preferredLobbyId: lobby.id,
+          skipMatchmakingMinRole: true,
+        },
       )
       if ('error' in outcome) {
         await storeUserActivityTarget(kv, lobby.channelId, [identity.userId], { kind: 'lobby', id: lobby.id })
