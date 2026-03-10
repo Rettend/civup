@@ -1,11 +1,12 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import type { RankedRoleConfig } from './roles.ts'
-import { playerRatings, players } from '@civup/db'
+import { players } from '@civup/db'
 import { competitiveTierRank, formatLeaderboardModeLabel, LEADERBOARD_MODES } from '@civup/game'
 import { displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'
 import { inArray } from 'drizzle-orm'
 import { DiscordApiError, editGuildMemberRoles } from '../discord/index.ts'
+import { ensureLeaderboardModeSnapshots } from '../leaderboard/snapshot.ts'
 import { getActiveSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks } from '../season/index.ts'
 import {
   createRankedRoleTierId,
@@ -401,21 +402,24 @@ async function buildRankedRolePreviewState({
   playerIds,
   includePlayerIdentities = true,
 }: RankedRoleSyncOptions): Promise<RankedRolePreviewState> {
-  const [ratingRows, previousAssignments, previousCandidates, config] = await Promise.all([
-    db.select().from(playerRatings),
+  const [leaderboardSnapshots, previousAssignments, previousCandidates, config] = await Promise.all([
+    ensureLeaderboardModeSnapshots(db, kv),
     getCurrentRankAssignments(kv, guildId),
     getRankedRoleDemotionCandidates(kv, guildId),
     getRankedRoleConfig(kv, guildId),
   ])
 
-  const ratings = ratingRows.map(row => ({
-    playerId: row.playerId,
-    mode: row.mode as LeaderboardMode,
-    mu: row.mu,
-    sigma: row.sigma,
-    gamesPlayed: row.gamesPlayed,
-    lastPlayedAt: row.lastPlayedAt ?? null,
-  })).filter(row => LEADERBOARD_MODES.includes(row.mode) && isDiscordSnowflake(row.playerId))
+  const ratings = [...leaderboardSnapshots.values()]
+    .flatMap(snapshot => snapshot.rows)
+    .map(row => ({
+      playerId: row.playerId,
+      mode: row.mode,
+      mu: row.mu,
+      sigma: row.sigma,
+      gamesPlayed: row.gamesPlayed,
+      lastPlayedAt: row.lastPlayedAt ?? null,
+    }))
+    .filter(row => LEADERBOARD_MODES.includes(row.mode) && isDiscordSnowflake(row.playerId))
 
   const laddersByMode = new Map<LeaderboardMode, LadderSnapshots>()
   for (const mode of LEADERBOARD_MODES) {

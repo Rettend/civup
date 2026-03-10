@@ -7,6 +7,7 @@ import { isTeamMode, toLeaderboardMode } from '@civup/game'
 import { calculateRatings, createRating } from '@civup/rating'
 import { and, eq } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
+import { ensureLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { getHostIdFromDraftData } from './draft-data.ts'
 import { parseOrderedParticipantIds, resolveWinningTeamIndex } from './placements.ts'
 import { buildRankByPlayer } from './ratings.ts'
@@ -130,30 +131,16 @@ async function finalizeReportedMatch(
   const matchId = match.id
   const gameMode = match.gameMode as GameMode
   const leaderboardMode = toLeaderboardMode(gameMode)
-  const leaderboardRowsBefore = await db
-    .select({
-      playerId: playerRatings.playerId,
-      mu: playerRatings.mu,
-      sigma: playerRatings.sigma,
-      gamesPlayed: playerRatings.gamesPlayed,
-    })
-    .from(playerRatings)
-    .where(eq(playerRatings.mode, leaderboardMode))
-
-  const beforeRankByPlayer = buildRankByPlayer(leaderboardRowsBefore)
+  const leaderboardSnapshotBefore = await ensureLeaderboardModeSnapshot(db, kv, leaderboardMode)
+  const beforeRankByPlayer = buildRankByPlayer(leaderboardSnapshotBefore.rows)
+  const leaderboardSnapshotByPlayerId = new Map(
+    leaderboardSnapshotBefore.rows.map(row => [row.playerId, row]),
+  )
+  const placementByPlayerId = new Map(participantRows.map(participant => [participant.playerId, participant.placement]))
   const playerRatingMap = new Map<string, { mu: number, sigma: number }>()
 
   for (const participant of participantRows) {
-    const [existing] = await db
-      .select()
-      .from(playerRatings)
-      .where(
-        and(
-          eq(playerRatings.playerId, participant.playerId),
-          eq(playerRatings.mode, leaderboardMode),
-        ),
-      )
-      .limit(1)
+    const existing = leaderboardSnapshotByPlayerId.get(participant.playerId)
 
     if (existing) {
       playerRatingMap.set(participant.playerId, { mu: existing.mu, sigma: existing.sigma })
@@ -217,18 +204,8 @@ async function finalizeReportedMatch(
         ),
       )
 
-    const [existing] = await db
-      .select()
-      .from(playerRatings)
-      .where(
-        and(
-          eq(playerRatings.playerId, update.playerId),
-          eq(playerRatings.mode, leaderboardMode),
-        ),
-      )
-      .limit(1)
-
-    const isWin = participantRows.find(participant => participant.playerId === update.playerId)?.placement === 1
+    const existing = leaderboardSnapshotByPlayerId.get(update.playerId)
+    const isWin = placementByPlayerId.get(update.playerId) === 1
 
     if (existing) {
       await db
@@ -290,17 +267,8 @@ async function finalizeReportedMatch(
     .where(eq(matches.id, matchId))
     .limit(1)
 
-  const leaderboardRowsAfter = await db
-    .select({
-      playerId: playerRatings.playerId,
-      mu: playerRatings.mu,
-      sigma: playerRatings.sigma,
-      gamesPlayed: playerRatings.gamesPlayed,
-    })
-    .from(playerRatings)
-    .where(eq(playerRatings.mode, leaderboardMode))
-
-  const afterRankByPlayer = buildRankByPlayer(leaderboardRowsAfter)
+  const leaderboardSnapshotAfter = await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode, now)
+  const afterRankByPlayer = buildRankByPlayer(leaderboardSnapshotAfter.rows)
   const leaderboardEligibleCount = afterRankByPlayer.size
 
   const updatedParticipants = await db

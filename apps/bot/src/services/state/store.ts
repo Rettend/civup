@@ -87,6 +87,7 @@ interface StateStoreBatchCapableKv extends KVNamespace {
 const DEFAULT_PARTY_HOST = 'http://localhost:1999'
 const STATE_ROOM_NAME = 'global'
 const HOT_KEY_PREFIXES = [
+  'leaderboard:snapshot:',
   'queue:',
   'player-queue:',
   'lobby:id:',

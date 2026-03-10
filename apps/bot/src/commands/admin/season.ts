@@ -132,7 +132,7 @@ export const component_admin_season_confirm = factory.component(
       if (pending.action === 'start') {
         try {
           const db = createDb(c.env.DB)
-          const season = await startSeason(db)
+          const season = await startSeason(db, { kv: c.env.KV })
           await resetCurrentRankedRoleState({ kv: c.env.KV, guildId, token: c.env.DISCORD_TOKEN })
           await refreshConfiguredLeaderboards(db, c.env.KV, c.env.DISCORD_TOKEN)
           await ensureSeasonSnapshotRoles(c.env.KV, guildId, c.env.DISCORD_TOKEN, season)

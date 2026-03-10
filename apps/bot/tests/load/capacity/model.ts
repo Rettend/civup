@@ -1,15 +1,15 @@
 export interface UsageLimits {
-  workersRequests: number
-  d1RowsRead: number
-  d1RowsWritten: number
-  doSqliteRowsRead: number
-  doSqliteRowsWritten: number
-  kvReads: number
-  kvWrites: number
-  kvDeletes: number
-  kvLists: number
-  doRequests: number
-  doDurationGbSeconds: number
+  workersRequests: number | null
+  d1RowsRead: number | null
+  d1RowsWritten: number | null
+  doSqliteRowsRead: number | null
+  doSqliteRowsWritten: number | null
+  kvReads: number | null
+  kvWrites: number | null
+  kvDeletes: number | null
+  kvLists: number | null
+  doRequests: number | null
+  doDurationGbSeconds: number | null
 }
 
 export interface PerDraftUsage {
@@ -130,24 +130,27 @@ export function findMetricBreakpoints(input: {
   const metrics = Object.keys(input.limits) as (keyof UsageLimits)[]
 
   return metrics
-    .map((metric) => {
+    .flatMap((metric) => {
+      const limit = input.limits[metric]
+      if (typeof limit !== 'number' || !Number.isFinite(limit)) return []
+
       const playsPerDay = findMaxPlaysPerDayByMetric({
         model: input.model,
         metric,
-        limit: input.limits[metric],
+        limit,
         periodDays: input.periodDays,
         playersPerDraft: input.playersPerDraft,
       })
       const daily = estimateDailyUsage(input.model, playsPerDay, input.playersPerDraft)
       const usage = input.periodDays === 1 ? daily : multiplyUsage(daily, input.periodDays)
 
-      return {
+      return [{
         metric,
         playsPerDay,
         draftsPerDay1v1: playsPerDay / input.playersPerDraft,
-        limit: input.limits[metric],
+        limit,
         usageAtBreakpoint: usage[metric],
-      }
+      }]
     })
     .sort((a, b) => {
       if (a.playsPerDay === b.playsPerDay) return a.metric.localeCompare(b.metric)
@@ -230,17 +233,17 @@ function findMaxPlaysPerDayByMetric(input: {
 
 function fitsLimits(usage: DailyUsage, limits: UsageLimits): boolean {
   return (
-    usage.workersRequests <= limits.workersRequests
-    && usage.d1RowsRead <= limits.d1RowsRead
-    && usage.d1RowsWritten <= limits.d1RowsWritten
-    && usage.doSqliteRowsRead <= limits.doSqliteRowsRead
-    && usage.doSqliteRowsWritten <= limits.doSqliteRowsWritten
-    && usage.kvReads <= limits.kvReads
-    && usage.kvWrites <= limits.kvWrites
-    && usage.kvDeletes <= limits.kvDeletes
-    && usage.kvLists <= limits.kvLists
-    && usage.doRequests <= limits.doRequests
-    && usage.doDurationGbSeconds <= limits.doDurationGbSeconds
+    isWithinLimit(usage.workersRequests, limits.workersRequests)
+    && isWithinLimit(usage.d1RowsRead, limits.d1RowsRead)
+    && isWithinLimit(usage.d1RowsWritten, limits.d1RowsWritten)
+    && isWithinLimit(usage.doSqliteRowsRead, limits.doSqliteRowsRead)
+    && isWithinLimit(usage.doSqliteRowsWritten, limits.doSqliteRowsWritten)
+    && isWithinLimit(usage.kvReads, limits.kvReads)
+    && isWithinLimit(usage.kvWrites, limits.kvWrites)
+    && isWithinLimit(usage.kvDeletes, limits.kvDeletes)
+    && isWithinLimit(usage.kvLists, limits.kvLists)
+    && isWithinLimit(usage.doRequests, limits.doRequests)
+    && isWithinLimit(usage.doDurationGbSeconds, limits.doDurationGbSeconds)
   )
 }
 
@@ -253,7 +256,10 @@ function estimateOverageUsdForUsage(
 
   const metrics = Object.keys(limits) as (keyof UsageLimits)[]
   for (const metric of metrics) {
-    const overage = usage[metric] - limits[metric]
+    const limit = limits[metric]
+    if (typeof limit !== 'number' || !Number.isFinite(limit)) continue
+
+    const overage = usage[metric] - limit
     if (overage <= 0) continue
 
     const ratePerMillion = overageRatesPerMillion[metric]
@@ -265,4 +271,8 @@ function estimateOverageUsdForUsage(
   }
 
   return total
+}
+
+function isWithinLimit(usage: number, limit: number | null): boolean {
+  return typeof limit !== 'number' || !Number.isFinite(limit) || usage <= limit
 }
