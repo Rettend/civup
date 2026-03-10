@@ -164,9 +164,7 @@ export function phaseLabel(): string {
   const step = s.steps[s.currentStepIndex]
   if (!step) return ''
 
-  const action = step.action.toUpperCase()
-  const stepNum = s.currentStepIndex + 1
-  return `${action} PHASE ${stepNum}`
+  return step.action === 'ban' ? 'BAN PHASE' : 'PICK PHASE'
 }
 
 /** Get the timer duration for the current step (in seconds) */
