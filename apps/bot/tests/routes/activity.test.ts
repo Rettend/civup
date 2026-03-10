@@ -38,7 +38,7 @@ describe('activity lobby join eligibility', () => {
     })
   })
 
-  test('blocks pending ghost joins when the viewer misses the minimum rank', async () => {
+  test('allows direct activity joins even when the viewer misses the matchmaking min rank', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: '2v2',
@@ -70,8 +70,10 @@ describe('activity lobby join eligibility', () => {
     const gatedLobby = await buildOpenLobbySnapshot(kv, '2v2', storedLobby!)
     const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-2', storedLobby!, gatedLobby)
 
-    expect(eligibility.canJoin).toBe(false)
-    expect(eligibility.pendingSlot).toBeNull()
-    expect(eligibility.blockedReason).toContain('requires at least')
+    expect(eligibility).toEqual({
+      canJoin: true,
+      blockedReason: null,
+      pendingSlot: 1,
+    })
   })
 })
