@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import { registerLobbyRoutes } from '../../src/routes/lobby/index.ts'
-import { createLobby, getLobbyById, setLobbyMemberPlayerIds, setLobbySlots } from '../../src/services/lobby/index.ts'
+import { createLobby, getLobbyById, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../../src/services/lobby/index.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -91,6 +91,56 @@ describe('lobby routes', () => {
 
     const configuredLobby = await configResponse.json()
     expect(configuredLobby.minRole).toBe('tier2')
+  })
+
+  test('direct lobby joins ignore matchmaking min rank', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      guildId: 'guild-1',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier2: GLADIATOR_ROLE_ID,
+    })
+
+    const gatedLobby = await getLobbyById(kv, lobby.id)
+    expect(gatedLobby).not.toBeNull()
+    await setLobbyMinRole(kv, lobby.id, 'tier2', gatedLobby!)
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const joinResponse = await app.request('/api/lobby/2v2/place', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: 'pleb',
+        lobbyId: lobby.id,
+        targetSlot: 1,
+        displayName: 'Pleb',
+        avatarUrl: null,
+      }),
+    }, buildEnv(kv))
+
+    expect(joinResponse.status).toBe(200)
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.memberPlayerIds).toEqual(['host', 'pleb'])
   })
 })
 

@@ -45,7 +45,7 @@ const STAGE_COLORS: Record<LobbyStage, number> = {
 
 export function lobbyOpenEmbed(mode: GameMode, entries: (QueueEntry | null)[], targetSize: number, minRoleId?: string | null): Embed {
   const embed = baseLobbyEmbed(mode, 'open')
-  const minRoleField = minRoleId ? { name: 'Min Rank', value: `<@&${minRoleId}>`, inline: false } : null
+  const minRoleField = minRoleId ? { name: 'Matchmaking Min Rank', value: `<@&${minRoleId}>`, inline: false } : null
 
   if (mode === '1v1') {
     const p1 = entries[0]?.playerId

@@ -1,10 +1,9 @@
-export type ServerConfigKey = 'ban_timer' | 'pick_timer' | 'queue_timeout' | 'match_category'
+export type ServerConfigKey = 'ban_timer' | 'pick_timer' | 'queue_timeout'
 
 interface ServerConfigValues {
   banTimerSeconds: number
   pickTimerSeconds: number
   queueTimeoutMinutes: number
-  matchCategoryId: string | null
 }
 
 interface DraftTimerConfig {
@@ -20,13 +19,12 @@ interface ConfigSetResult {
 
 const CONFIG_KEY_PREFIX = 'config:'
 
-export const SERVER_CONFIG_KEYS = ['ban_timer', 'pick_timer', 'queue_timeout', 'match_category'] as const satisfies readonly ServerConfigKey[]
+export const SERVER_CONFIG_KEYS = ['ban_timer', 'pick_timer', 'queue_timeout'] as const satisfies readonly ServerConfigKey[]
 
 export const SERVER_CONFIG_DESCRIPTIONS: Record<ServerConfigKey, string> = {
   ban_timer: 'Ban phase timer in seconds',
   pick_timer: 'Pick phase timer in seconds',
   queue_timeout: 'Queue timeout in minutes',
-  match_category: 'Category ID for temp voice channels',
 }
 
 export const MAX_CONFIG_TIMER_SECONDS = 30 * 60
@@ -63,36 +61,22 @@ function parseStoredQueueTimeoutMinutes(value: string | null): number {
   return parsed
 }
 
-function parseStoredCategoryId(value: string | null): string | null {
-  if (!value) return null
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  return trimmed
-}
-
 function defaultTimerSecondsForKey(key: 'ban_timer' | 'pick_timer'): number {
   if (key === 'ban_timer') return DEFAULT_BAN_TIMER_SECONDS
   return DEFAULT_PICK_TIMER_SECONDS
 }
 
-function formatOptionalText(value: string | null): string {
-  if (value == null) return 'null'
-  return value
-}
-
 async function getServerConfigValues(kv: KVNamespace): Promise<ServerConfigValues> {
-  const [banTimerRaw, pickTimerRaw, queueTimeoutRaw, matchCategoryRaw] = await Promise.all([
+  const [banTimerRaw, pickTimerRaw, queueTimeoutRaw] = await Promise.all([
     kv.get(configKey('ban_timer')),
     kv.get(configKey('pick_timer')),
     kv.get(configKey('queue_timeout')),
-    kv.get(configKey('match_category')),
   ])
 
   return {
     banTimerSeconds: parseStoredTimerSeconds(banTimerRaw, DEFAULT_BAN_TIMER_SECONDS),
     pickTimerSeconds: parseStoredTimerSeconds(pickTimerRaw, DEFAULT_PICK_TIMER_SECONDS),
     queueTimeoutMinutes: parseStoredQueueTimeoutMinutes(queueTimeoutRaw),
-    matchCategoryId: parseStoredCategoryId(matchCategoryRaw),
   }
 }
 
@@ -102,7 +86,6 @@ export function parseServerConfigKey(key: string | undefined): ServerConfigKey |
   if (normalized === 'ban_timer') return 'ban_timer'
   if (normalized === 'pick_timer') return 'pick_timer'
   if (normalized === 'queue_timeout') return 'queue_timeout'
-  if (normalized === 'match_category') return 'match_category'
   return null
 }
 
@@ -114,8 +97,7 @@ export async function getServerConfigDisplayValue(
 
   if (key === 'ban_timer') return String(values.banTimerSeconds)
   if (key === 'pick_timer') return String(values.pickTimerSeconds)
-  if (key === 'queue_timeout') return String(values.queueTimeoutMinutes)
-  return formatOptionalText(values.matchCategoryId)
+  return String(values.queueTimeoutMinutes)
 }
 
 export async function getServerConfigRows(
@@ -137,11 +119,6 @@ export async function getServerConfigRows(
       key: 'queue_timeout',
       value: String(values.queueTimeoutMinutes),
       description: SERVER_CONFIG_DESCRIPTIONS.queue_timeout,
-    },
-    {
-      key: 'match_category',
-      value: formatOptionalText(values.matchCategoryId),
-      description: SERVER_CONFIG_DESCRIPTIONS.match_category,
     },
   ]
 }
@@ -191,20 +168,7 @@ export async function setServerConfigValue(
     return { ok: true, value: String(parsed) }
   }
 
-  if (shouldReset) {
-    await kv.delete(configKey(key))
-    return { ok: true, value: 'null' }
-  }
-
-  if (!/^\d{17,20}$/.test(trimmed)) {
-    return {
-      ok: false,
-      error: `\`${key}\` must be a Discord snowflake (17-20 digits), or \`null\` to clear it.`,
-    }
-  }
-
-  await kv.put(configKey(key), trimmed)
-  return { ok: true, value: trimmed }
+  return { ok: false, error: `Unsupported config key: ${key}` }
 }
 
 export async function resolveDraftTimerConfig(

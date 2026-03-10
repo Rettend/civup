@@ -1,7 +1,9 @@
 import type { CompetitiveTier, DraftState, GameMode } from '@civup/game'
 import type { LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
+import { getDefaultLeaderPoolSize, MAX_LEADER_POOL_SIZE } from '@civup/game'
 
 export const MAX_TIMER_MINUTES = 30
+export const MAX_LEADER_POOL_INPUT = MAX_LEADER_POOL_SIZE
 
 export type LobbyModeValue = GameMode
 
@@ -129,6 +131,44 @@ export function formatTimerValue(timerSeconds: number | null, defaultTimerSecond
   const minutes = Math.round(timerSeconds / 60)
   if (minutes === 1) return '1 minute'
   return `${minutes} minutes`
+}
+
+export function leaderPoolSizeToInput(leaderPoolSize: number | null): string {
+  if (leaderPoolSize == null) return ''
+  return String(leaderPoolSize)
+}
+
+export function leaderPoolSizePlaceholder(mode: GameMode, playerCount: number): string {
+  return String(getDefaultLeaderPoolSize(mode, playerCount))
+}
+
+export function parseLeaderPoolSizeInput(value: string): number | null | undefined {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  const numeric = Number(trimmed)
+  if (!Number.isFinite(numeric) || !Number.isInteger(numeric)) return undefined
+  if (numeric < 1 || numeric > MAX_LEADER_POOL_INPUT) return undefined
+  return numeric
+}
+
+export function normalizeLeaderPoolSizeInput(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+
+  const numeric = Number(trimmed)
+  if (!Number.isFinite(numeric)) return value
+
+  const bounded = Math.min(MAX_LEADER_POOL_INPUT, Math.max(0, Math.round(numeric)))
+  return String(bounded)
+}
+
+export function formatLeaderPoolValue(
+  leaderPoolSize: number | null,
+  mode: GameMode,
+  playerCount: number,
+): string {
+  return String(leaderPoolSize ?? getDefaultLeaderPoolSize(mode, playerCount))
 }
 
 export function normalizeLobbyMinRoleValue(value: string): CompetitiveTier | null {

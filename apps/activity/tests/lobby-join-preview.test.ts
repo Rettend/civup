@@ -20,6 +20,7 @@ const baseLobby: LobbySnapshot = {
   draftConfig: {
     banTimerSeconds: null,
     pickTimerSeconds: null,
+    leaderPoolSize: null,
   },
   serverDefaults: {
     banTimerSeconds: null,

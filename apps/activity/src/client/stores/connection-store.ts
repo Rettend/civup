@@ -44,6 +44,7 @@ export interface LobbySnapshot {
   draftConfig: {
     banTimerSeconds: number | null
     pickTimerSeconds: number | null
+    leaderPoolSize: number | null
   }
   serverDefaults: {
     banTimerSeconds: number | null
@@ -61,18 +62,6 @@ export interface RankedRoleOptionSnapshot {
 
 export interface LobbyRankedRolesSnapshot {
   options: RankedRoleOptionSnapshot[]
-}
-
-export interface LobbyConfigErrorContext {
-  playerId: string
-  playerName: string
-  minRole: RankedRoleOptionSnapshot
-}
-
-export interface LobbyConfigErrorResult {
-  error: string
-  errorCode?: string
-  context?: LobbyConfigErrorContext
 }
 
 export type LobbyTeamArrangeStrategy = 'randomize' | 'balance'
@@ -395,30 +384,24 @@ export async function updateLobbyConfig(
   draftConfig: {
     banTimerSeconds: number | null
     pickTimerSeconds: number | null
+    leaderPoolSize: number | null
     minRole?: CompetitiveTier | null
   },
-): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string, errorCode?: string, context?: LobbyConfigErrorContext }> {
+): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
     const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/config`, {
       lobbyId,
       userId,
       banTimerSeconds: draftConfig.banTimerSeconds,
       pickTimerSeconds: draftConfig.pickTimerSeconds,
+      leaderPoolSize: draftConfig.leaderPoolSize,
       minRole: draftConfig.minRole,
     })
     return { ok: true, lobby }
   }
   catch (err) {
     console.error('Failed to update lobby config:', err)
-    if (err instanceof ApiError) {
-      const parsed = parseLobbyConfigApiError(err.data)
-      return {
-        ok: false,
-        error: err.message,
-        errorCode: parsed?.errorCode,
-        context: parsed?.context,
-      }
-    }
+    if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while updating lobby config' }
   }
 }
@@ -434,43 +417,6 @@ export async function fetchLobbyRankedRoles(
   catch (err) {
     console.error('Failed to fetch lobby ranked roles:', err)
     return null
-  }
-}
-
-function parseLobbyConfigApiError(data: unknown): LobbyConfigErrorResult | null {
-  if (!data || typeof data !== 'object') return null
-
-  const parsed = data as {
-    error?: unknown
-    errorCode?: unknown
-    context?: unknown
-  }
-
-  const error = typeof parsed.error === 'string' ? parsed.error : null
-  if (!error) return null
-
-  const errorCode = typeof parsed.errorCode === 'string' ? parsed.errorCode : undefined
-  const context = parseLobbyConfigErrorContext(parsed.context)
-  return { error, errorCode, context }
-}
-
-function parseLobbyConfigErrorContext(data: unknown): LobbyConfigErrorContext | undefined {
-  if (!data || typeof data !== 'object') return undefined
-
-  const parsed = data as {
-    playerId?: unknown
-    playerName?: unknown
-    minRole?: unknown
-  }
-
-  if (typeof parsed.playerId !== 'string' || typeof parsed.playerName !== 'string') return undefined
-  const minRole = parseRankedRoleOption(parsed.minRole)
-  if (!minRole) return undefined
-
-  return {
-    playerId: parsed.playerId,
-    playerName: parsed.playerName,
-    minRole,
   }
 }
 
