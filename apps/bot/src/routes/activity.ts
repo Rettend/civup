@@ -9,7 +9,7 @@ import { clearUserActivityTargets, getLobbyForUser, getMatchForChannel, getMatch
 import { filterQueueEntriesForLobby, getLobbiesByMode, getLobbyById, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
 import { getPlayerQueueMode, getQueueState } from '../services/queue/index.ts'
 import { createStateStore } from '../services/state/store.ts'
-import { buildOpenLobbySnapshot, getUniqueOpenLobbyForChannel, validatePlayerAgainstLobbyMinRole } from './lobby/snapshot.ts'
+import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, getUniqueOpenLobbyForChannel, validatePlayerAgainstLobbyMinRole } from './lobby/snapshot.ts'
 
 export interface LobbyJoinEligibility {
   canJoin: boolean
@@ -54,6 +54,8 @@ interface ActivityLaunchSnapshot {
 interface ChannelActivityTarget {
   option: ActivityTargetOption
   lobby: LobbyState
+  queueEntries?: Awaited<ReturnType<typeof getQueueState>>['entries']
+  slots?: (string | null)[]
 }
 
 interface ResolvedActivitySelection {
@@ -193,7 +195,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
   })
 }
 
-async function buildActivityLaunchSnapshot(
+export async function buildActivityLaunchSnapshot(
   token: string | undefined,
   kv: KVNamespace,
   channelId: string,
@@ -250,7 +252,13 @@ async function serializeActivityLaunchSelection(
   selection: ResolvedActivitySelection,
 ): Promise<ActivityLaunchSelection> {
   if (selection.target.option.kind === 'lobby') {
-    const lobby = await buildOpenLobbySnapshot(kv, selection.target.lobby.mode, selection.target.lobby)
+    const lobby = await buildOpenLobbySnapshotFromParts(
+      kv,
+      selection.target.lobby.mode,
+      selection.target.lobby,
+      selection.target.queueEntries ?? [],
+      selection.target.slots ?? selection.target.lobby.slots,
+    )
     return {
       kind: 'lobby',
       option: selection.target.option,
@@ -363,6 +371,8 @@ async function listChannelActivityTargets(
         const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
         targets.push({
           lobby,
+          queueEntries: lobbyQueueEntries,
+          slots,
           option: {
             kind: 'lobby',
             id: lobby.id,

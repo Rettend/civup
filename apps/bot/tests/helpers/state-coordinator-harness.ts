@@ -4,6 +4,7 @@ export interface StateCoordinatorHarness {
   requests: () => number
   sqliteRowsRead: () => number
   sqliteRowsWritten: () => number
+  reset: () => void
   restore: () => void
 }
 
@@ -204,6 +205,11 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
     requests: () => requestCount,
     sqliteRowsRead: () => sqliteRowsRead,
     sqliteRowsWritten: () => sqliteRowsWritten,
+    reset: () => {
+      requestCount = 0
+      sqliteRowsRead = 0
+      sqliteRowsWritten = 0
+    },
     restore: () => {
       globalThis.fetch = originalFetch
     },

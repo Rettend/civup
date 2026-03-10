@@ -15,8 +15,7 @@ import {
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
-import { resolveLobbyJoinEligibility } from '../../src/routes/activity.ts'
-import { buildOpenLobbySnapshot } from '../../src/routes/lobby/snapshot.ts'
+import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
 import {
   clearLobbyMappings,
   getUserActivityTarget,
@@ -139,8 +138,8 @@ const FREE_DAILY_LIMITS: UsageLimits = {
   workersRequests: 100_000,
   d1RowsRead: 5_000_000,
   d1RowsWritten: 100_000,
-  doSqliteRowsRead: null,
-  doSqliteRowsWritten: null,
+  doSqliteRowsRead: 5_000_000,
+  doSqliteRowsWritten: 100_000,
   kvReads: 100_000,
   kvWrites: 1_000,
   kvDeletes: 1_000,
@@ -153,8 +152,8 @@ const PAID_MONTHLY_LIMITS: UsageLimits = {
   workersRequests: 10_000_000,
   d1RowsRead: 25_000_000_000,
   d1RowsWritten: 50_000_000,
-  doSqliteRowsRead: null,
-  doSqliteRowsWritten: null,
+  doSqliteRowsRead: 25_000_000_000,
+  doSqliteRowsWritten: 50_000_000,
   kvReads: 10_000_000,
   kvWrites: 1_000_000,
   kvDeletes: 1_000_000,
@@ -167,6 +166,8 @@ const PAID_OVERAGE_RATES_PER_MILLION: OverageRatesPerMillion = {
   workersRequests: 0.30,
   d1RowsRead: 0.001,
   d1RowsWritten: 1.0,
+  doSqliteRowsRead: 0.001,
+  doSqliteRowsWritten: 1.0,
   kvReads: 0.50,
   kvWrites: 5.0,
   kvDeletes: 5.0,
@@ -313,6 +314,7 @@ async function simulateScenarioLifecycle(input: {
 
     resetOperations()
     sqlTracker.reset()
+    stateCoordinator.reset()
 
     botRequests += 1
     await simulateMatchCreate(kv, input.mode)
@@ -421,37 +423,7 @@ async function simulateActivityLaunchSnapshot(
   channelId: string,
   userId: string,
 ): Promise<void> {
-  const storedTarget = await getUserActivityTarget(kv, channelId, userId)
-  const queueByMode = new Map<GameMode, Awaited<ReturnType<typeof getQueueState>>>()
-  const lobbiesByMode = await Promise.all(GAME_MODES.map(mode => getLobbiesByMode(kv, mode)))
-  let selectedLobby: { mode: GameMode, lobby: Awaited<ReturnType<typeof getLobbiesByMode>>[number] } | null = null
-
-  for (let modeIndex = 0; modeIndex < GAME_MODES.length; modeIndex++) {
-    const mode = GAME_MODES[modeIndex]!
-    const lobbies = lobbiesByMode[modeIndex] ?? []
-
-    for (const lobby of lobbies) {
-      if (lobby.channelId !== channelId) continue
-
-      if (lobby.status === 'open') {
-        let queue = queueByMode.get(mode)
-        if (!queue) {
-          queue = await getQueueState(kv, mode)
-          queueByMode.set(mode, queue)
-        }
-
-        const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
-        normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
-        if (!selectedLobby) selectedLobby = { mode, lobby }
-        if (storedTarget?.kind === 'lobby' && storedTarget.id === lobby.id) selectedLobby = { mode, lobby }
-      }
-    }
-  }
-
-  if (!selectedLobby) return
-
-  const snapshot = await buildOpenLobbySnapshot(kv, selectedLobby.mode, selectedLobby.lobby)
-  await resolveLobbyJoinEligibility(undefined, kv, userId, selectedLobby.lobby, snapshot)
+  await buildActivityLaunchSnapshot(undefined, kv, channelId, userId)
 }
 
 async function startDraftFromOpenLobby(
