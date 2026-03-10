@@ -113,18 +113,38 @@ export async function getPlayerQueueMode(
   kv: KVNamespace,
   playerId: string,
 ): Promise<GameMode | null> {
-  const queueStates = await stateStoreMget(
+  return getPlayerQueueModeFromStates((await getQueueStates(kv)).values(), playerId)
+}
+
+export async function getQueueStates(
+  kv: KVNamespace,
+  modes: readonly GameMode[] = GAME_MODES,
+): Promise<Map<GameMode, QueueState>> {
+  const requestedModes = [...new Set(modes)]
+  if (requestedModes.length === 0) return new Map()
+
+  const rawQueueStates = await stateStoreMget(
     kv,
-    GAME_MODES.map(mode => ({ key: queueKey(mode), type: 'json' })),
+    requestedModes.map(mode => ({ key: queueKey(mode), type: 'json' })),
   )
 
-  for (let index = 0; index < GAME_MODES.length; index++) {
-    const mode = GAME_MODES[index]
+  const queueStates = new Map<GameMode, QueueState>()
+  for (let index = 0; index < requestedModes.length; index++) {
+    const mode = requestedModes[index]
     if (!mode) continue
+    queueStates.set(mode, parseQueueState(mode, rawQueueStates[index]))
+  }
 
-    const state = parseQueueState(mode, queueStates[index])
+  return queueStates
+}
+
+export function getPlayerQueueModeFromStates(
+  queueStates: Iterable<QueueState>,
+  playerId: string,
+): GameMode | null {
+  for (const state of queueStates) {
     if (!state.entries.some(entry => entry.playerId === playerId)) continue
-    return mode
+    return state.mode
   }
 
   return null
