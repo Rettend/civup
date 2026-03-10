@@ -83,15 +83,22 @@ export function registerMatchRoutes(app: Hono<Env>) {
     let rankedRoleLines: string[] = []
     if (guildId) {
       try {
-        const rankedPreview = await previewRankedRoles({ db, kv, guildId })
+        const participantIds = result.participants.map(participant => participant.playerId)
+        const rankedPreview = await previewRankedRoles({
+          db,
+          kv,
+          guildId,
+          playerIds: participantIds,
+          includePlayerIdentities: false,
+        })
         rankedRoleLines = await listRankedRoleMatchUpdateLines({
           kv,
           guildId,
           preview: rankedPreview,
-          playerIds: result.participants.map(participant => participant.playerId),
+          playerIds: participantIds,
         })
         await syncSeasonPeaksForPlayers(db, {
-          playerIds: result.participants.map(participant => participant.playerId),
+          playerIds: participantIds,
           playerPreviews: rankedPreview.playerPreviews,
         })
       }

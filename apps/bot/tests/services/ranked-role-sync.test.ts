@@ -37,6 +37,32 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
+  test('preview can focus on requested players without loading the full preview roster', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
+    await seedPlayers(db, 'duel', 8, { prefix: 'duel' })
+    const heroId = playerIdFor('hero', 1)
+    await seedPlayerIdentity(db, heroId)
+    await seedRating(db, { playerId: heroId, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 8, lastPlayedAt: NOW })
+
+    const preview = await previewRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      now: NOW,
+      playerIds: [heroId],
+      includePlayerIdentities: false,
+    })
+
+    expect(preview.playerPreviews).toHaveLength(1)
+    expect(preview.playerPreviews[0]?.playerId).toBe(heroId)
+    expect(preview.playerPreviews[0]?.displayName).toBe(`<@${heroId}>`)
+    expect(preview.playerPreviews[0]?.assignment.sourceMode).toBe('duel')
+
+    sqlite.close()
+  })
+
   test('daily sync keeps demotion candidates until the delay is reached', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()

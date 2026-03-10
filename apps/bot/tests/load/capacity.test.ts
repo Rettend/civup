@@ -546,15 +546,23 @@ async function handleMatchReport(
   const guildId = lobby?.guildId ?? null
 
   if (guildId) {
-    const rankedPreview = await previewRankedRoles({ db, kv, guildId, now: NOW + 6_000 })
+    const participantIds = reported.participants.map(participant => participant.playerId)
+    const rankedPreview = await previewRankedRoles({
+      db,
+      kv,
+      guildId,
+      now: NOW + 6_000,
+      playerIds: participantIds,
+      includePlayerIdentities: false,
+    })
     await listRankedRoleMatchUpdateLines({
       kv,
       guildId,
       preview: rankedPreview,
-      playerIds: reported.participants.map(participant => participant.playerId),
+      playerIds: participantIds,
     })
     await syncSeasonPeaksForPlayers(db, {
-      playerIds: reported.participants.map(participant => participant.playerId),
+      playerIds: participantIds,
       playerPreviews: rankedPreview.playerPreviews,
       now: NOW + 6_000,
     })
