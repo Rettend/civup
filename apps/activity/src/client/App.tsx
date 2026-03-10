@@ -81,12 +81,19 @@ export default function App() {
 
   const openOverview = () => {
     const current = state()
+    const hadTerminalDraft = draftStore.state?.status === 'complete' || draftStore.state?.status === 'cancelled'
     if (current.status === 'authenticated') {
+      if (hadTerminalDraft) setAvailableTargets([])
       clearDraftConnection()
     }
     resetDraft()
     setPickerError(null)
     setState({ status: 'overview' })
+
+    const channelId = activeChannelId
+    const currentUserId = activeUserId
+    if (!channelId || !currentUserId) return
+    void refreshActivityState(channelId, currentUserId)
   }
 
   const transitionToDraft = (matchId: string, currentUserId: string, autoStart: boolean) => {
@@ -234,6 +241,7 @@ export default function App() {
       const result = await selectActivityTarget(channelId, currentUserId, option)
       if (!result.ok) {
         setPickerError(result.error)
+        void refreshActivityState(channelId, currentUserId)
         return
       }
       applyLaunchSnapshot(channelId, currentUserId, result.snapshot, false, true)

@@ -126,5 +126,5 @@ function formatTargetTitle(option: ActivityTargetOption): string {
 function formatTargetStatus(option: ActivityTargetOption): string {
   if (option.kind === 'lobby') return 'Open'
   if (option.status === 'drafting') return 'Drafting'
-  return 'Active'
+  return 'Completed'
 }

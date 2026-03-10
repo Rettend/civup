@@ -898,11 +898,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         })
       }
 
-      await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
-      await storeMatchMapping(kv, lobby.channelId, matchId)
-      await storeUserMatchMappings(kv, lobby.memberPlayerIds, matchId)
-      await storeUserActivityTarget(kv, lobby.channelId, lobby.memberPlayerIds, { kind: 'match', id: matchId })
-
       await setLobbySlots(kv, lobby.id, slots, lobby)
       const lobbyForMessage = await attachLobbyMatch(kv, lobby.id, matchId, lobby)
       if (!lobbyForMessage) {
@@ -924,6 +919,11 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         })
         return c.json({ error: 'Lobby state changed while starting. Please retry.' }, 409)
       }
+
+      await clearLobbyMappings(kv, lobbyForMessage.memberPlayerIds, lobbyForMessage.channelId)
+      await storeMatchMapping(kv, lobbyForMessage.channelId, matchId)
+      await storeUserMatchMappings(kv, lobbyForMessage.memberPlayerIds, matchId)
+      await storeUserActivityTarget(kv, lobbyForMessage.channelId, lobbyForMessage.memberPlayerIds, { kind: 'match', id: matchId })
 
       try {
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobbyForMessage, {
