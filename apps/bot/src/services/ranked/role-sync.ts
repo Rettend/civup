@@ -4,6 +4,7 @@ import type { RankedRoleConfig } from './roles.ts'
 import { playerRatings, players } from '@civup/db'
 import { competitiveTierRank, formatLeaderboardModeLabel, LEADERBOARD_MODES } from '@civup/game'
 import { displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'
+import { inArray } from 'drizzle-orm'
 import { DiscordApiError, editGuildMemberRoles } from '../discord/index.ts'
 import { getActiveSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks } from '../season/index.ts'
 import {
@@ -80,6 +81,8 @@ interface RankedRoleSyncOptions {
   now?: number
   applyDiscord?: boolean
   advanceDemotionWindow?: boolean
+  playerIds?: string[]
+  includePlayerIdentities?: boolean
 }
 
 interface RatingSnapshotRow {
@@ -182,7 +185,10 @@ export async function previewRankedRoles(options: RankedRoleSyncOptions): Promis
 }
 
 export async function syncRankedRoles(options: RankedRoleSyncOptions): Promise<RankedRoleSyncResult> {
-  const state = await buildRankedRolePreviewState(options)
+  const state = await buildRankedRolePreviewState({
+    ...options,
+    includePlayerIdentities: false,
+  })
   const preview = state.preview
   await setCurrentRankAssignments(options.kv, options.guildId, {
     byPlayerId: Object.fromEntries(preview.playerPreviews.map(player => [player.playerId, player.assignment])),
@@ -381,15 +387,22 @@ function demotionCandidatesKey(guildId: string): string {
   return `${DEMOTION_CANDIDATES_KEY_PREFIX}${guildId}`
 }
 
-async function buildRankedRolePreview({ db, kv, guildId, now = Date.now(), advanceDemotionWindow = false }: RankedRoleSyncOptions): Promise<RankedRolePreview> {
-  const state = await buildRankedRolePreviewState({ db, kv, guildId, now, advanceDemotionWindow })
+async function buildRankedRolePreview(options: RankedRoleSyncOptions): Promise<RankedRolePreview> {
+  const state = await buildRankedRolePreviewState(options)
   return state.preview
 }
 
-async function buildRankedRolePreviewState({ db, kv, guildId, now = Date.now(), advanceDemotionWindow = false }: RankedRoleSyncOptions): Promise<RankedRolePreviewState> {
-  const [ratingRows, playerRows, previousAssignments, previousCandidates, config] = await Promise.all([
+async function buildRankedRolePreviewState({
+  db,
+  kv,
+  guildId,
+  now = Date.now(),
+  advanceDemotionWindow = false,
+  playerIds,
+  includePlayerIdentities = true,
+}: RankedRoleSyncOptions): Promise<RankedRolePreviewState> {
+  const [ratingRows, previousAssignments, previousCandidates, config] = await Promise.all([
     db.select().from(playerRatings),
-    db.select({ id: players.id, displayName: players.displayName }).from(players),
     getCurrentRankAssignments(kv, guildId),
     getRankedRoleDemotionCandidates(kv, guildId),
     getRankedRoleConfig(kv, guildId),
@@ -404,10 +417,6 @@ async function buildRankedRolePreviewState({ db, kv, guildId, now = Date.now(), 
     lastPlayedAt: row.lastPlayedAt ?? null,
   })).filter(row => LEADERBOARD_MODES.includes(row.mode) && isDiscordSnowflake(row.playerId))
 
-  const playerIdentityById = new Map<string, PlayerIdentity>(
-    playerRows.map(row => [row.id, { displayName: row.displayName }]),
-  )
-
   const laddersByMode = new Map<LeaderboardMode, LadderSnapshots>()
   for (const mode of LEADERBOARD_MODES) {
     laddersByMode.set(mode, buildLadderSnapshots(ratings.filter(row => row.mode === mode), mode, now, config))
@@ -420,12 +429,20 @@ async function buildRankedRolePreviewState({ db, kv, guildId, now = Date.now(), 
     knownPlayerIds.add(playerId)
   }
 
+  const requestedPlayerIds = buildRequestedPlayerIds(playerIds)
+  const previewPlayerIds = requestedPlayerIds ?? [...knownPlayerIds].sort((a, b) => a.localeCompare(b))
+  const playerIdentityById = await loadPlayerIdentityById(
+    db,
+    previewPlayerIds,
+    includePlayerIdentities,
+  )
+
   const playerPreviews: RankedRolePlayerPreview[] = []
   const distribution = createTierCounter(config)
   let unrankedCount = 0
   const fallbackTier = getLowestRankedRoleTier(config) ?? createRankedRoleTierId(getRankedRoleTierCount(config))
 
-  for (const playerId of [...knownPlayerIds].sort((a, b) => a.localeCompare(b))) {
+  for (const playerId of previewPlayerIds) {
     const previousAssignment = (() => {
       const assignment = previousAssignments.byPlayerId[playerId] ?? null
       return assignment && hasConfiguredRankedRoleTier(config, assignment.tier) ? assignment : null
@@ -480,8 +497,31 @@ async function buildRankedRolePreviewState({ db, kv, guildId, now = Date.now(), 
       unrankedCount,
       distribution,
     },
-    ratings,
+      ratings,
   }
+}
+
+function buildRequestedPlayerIds(playerIds: string[] | undefined): string[] | null {
+  if (!playerIds || playerIds.length === 0) return null
+
+  const filtered = [...new Set(playerIds.filter(isDiscordSnowflake))]
+  if (filtered.length === 0) return []
+  return filtered.sort((a, b) => a.localeCompare(b))
+}
+
+async function loadPlayerIdentityById(
+  db: Database,
+  playerIds: string[],
+  includePlayerIdentities: boolean,
+): Promise<Map<string, PlayerIdentity>> {
+  if (!includePlayerIdentities || playerIds.length === 0) return new Map()
+
+  const playerRows = await db
+    .select({ id: players.id, displayName: players.displayName })
+    .from(players)
+    .where(inArray(players.id, playerIds))
+
+  return new Map(playerRows.map(row => [row.id, { displayName: row.displayName }]))
 }
 
 function buildSeasonActivePlayerIds(ratings: RatingSnapshotRow[], startsAt: number): Set<string> {

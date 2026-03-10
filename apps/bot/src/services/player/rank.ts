@@ -34,7 +34,7 @@ export async function getPlayerRankProfile(
 ): Promise<PlayerRankProfile> {
   const [ratingRows, preview, config] = await Promise.all([
     db.select().from(playerRatings).where(eq(playerRatings.playerId, playerId)),
-    previewRankedRoles({ db, kv, guildId, now }),
+    previewRankedRoles({ db, kv, guildId, now, playerIds: [playerId], includePlayerIdentities: false }),
     getRankedRoleConfig(kv, guildId),
   ])
 
