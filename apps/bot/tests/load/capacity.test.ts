@@ -1,64 +1,139 @@
 /* eslint-disable no-console */
-import type { DraftSeat, DraftState, GameMode, QueueEntry } from '@civup/game'
-import type { CapacityModel, OverageRatesPerMillion, UsageLimits } from './capacity/model.ts'
-import { playerRatings, players } from '@civup/db'
-import { allLeaderIds, createDraft, getDefaultFormat, isDraftError, processDraftInput } from '@civup/game'
+import type { DraftInput, DraftSeat, DraftState, GameMode, QueueEntry } from '@civup/game'
+import type { CapacityModel, DailyUsage, OverageRatesPerMillion, UsageLimits } from './capacity/model.ts'
+import { matches, matchParticipants, playerRatings, players } from '@civup/db'
+import {
+  allLeaderIds,
+  createDraft,
+  GAME_MODES,
+  getDefaultFormat,
+  isDraftError,
+  processDraftInput,
+  slotToTeamIndex,
+  toLeaderboardMode,
+} from '@civup/game'
 import { describe, expect, test } from 'bun:test'
+import { eq } from 'drizzle-orm'
 import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
-import { getMatchForChannel, storeMatchMapping } from '../../src/services/activity/index.ts'
-import { getServerDraftTimerDefaults, resolveDraftTimerConfig } from '../../src/services/config/index.ts'
+import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
+import {
+  clearLobbyMappings,
+  storeMatchMapping,
+  storeUserActivityTarget,
+  storeUserLobbyMappings,
+  storeUserMatchMappings,
+} from '../../src/services/activity/index.ts'
+import { resolveDraftTimerConfig } from '../../src/services/config/index.ts'
 import { markLeaderboardsDirty } from '../../src/services/leaderboard/message.ts'
-import { clearLobbiesByMode, createLobby, getLobby, getLobbyByChannel, getLobbyByMatch, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots, setLobbyStatus, upsertLobby } from '../../src/services/lobby/index.ts'
+import { refreshDirtyLeaderboards } from '../../src/services/leaderboard/message.ts'
+import {
+  attachLobbyMatch,
+  clearLobbyById,
+  createLobby,
+  filterQueueEntriesForLobby,
+  getLobbiesByMode,
+  getLobby,
+  getLobbyByMatch,
+  mapLobbySlotsToEntries,
+  normalizeLobbySlots,
+  setLobbySlots,
+  setLobbyStatus,
+} from '../../src/services/lobby/index.ts'
 import { activateDraftMatch, createDraftMatch, reportMatch } from '../../src/services/match/index.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
-import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState } from '../../src/services/queue/index.ts'
+import { addToQueue, clearQueue, getQueueState } from '../../src/services/queue/index.ts'
+import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
+import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
 import { createStateStore } from '../../src/services/state/store.ts'
 import { getSystemChannel, setSystemChannel } from '../../src/services/system/channels.ts'
 import { installStateCoordinatorHarness } from '../helpers/state-coordinator-harness.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
-import { estimateDailyUsage, estimateOverageUsd, findMaxPlaysPerDay, findMaxPlaysPerDayForOverageBudget, findMetricBreakpoints } from './capacity/model.ts'
+import {
+  estimateDailyUsage,
+  estimateOverageUsd,
+  findMaxPlaysPerDay,
+  findMaxPlaysPerDayForOverageBudget,
+  findMetricBreakpoints,
+  multiplyUsage,
+} from './capacity/model.ts'
 
-interface SimulationResult {
-  usage: {
-    workersRequests: number
-    d1RowsRead: number
-    d1RowsWritten: number
-    doSqliteRowsRead: number
-    doSqliteRowsWritten: number
-    kvReads: number
-    kvWrites: number
-    kvDeletes: number
-    kvLists: number
-    doRequests: number
-    doDurationGbSeconds: number
-  }
+interface UsageSample {
+  workersRequests: number
+  d1RowsRead: number
+  d1RowsWritten: number
+  doSqliteRowsRead: number
+  doSqliteRowsWritten: number
+  kvReads: number
+  kvWrites: number
+  kvDeletes: number
+  kvLists: number
+  doRequests: number
+  doDurationGbSeconds: number
 }
 
-const DAILY_PLAY_SCENARIOS = [100, 200, 1000] as const
-const PLAYERS_PER_DRAFT = 2
+interface SimulationResult {
+  usage: UsageSample
+  draftRoomIncomingMessages: number
+}
+
+interface CapacityScenario {
+  id: string
+  label: string
+  mode: GameMode
+  joinGroups: string[][]
+}
+
+interface ScenarioReport {
+  mode: CapacityScenario
+  model: CapacityModel
+  draftRoomIncomingMessages: number
+  freeCapacityPlaysPerDay: number
+  paidIncludedCapacityPlaysPerDay: number
+  paidTenDollarCapacityPlaysPerDay: number
+  paidTenDollarOverageUsd: number
+  freeBreakpoints: ReturnType<typeof findMetricBreakpoints>
+  paidBreakpoints: ReturnType<typeof findMetricBreakpoints>
+}
+
+const CHANNEL_ID = 'channel-draft'
+const GUILD_ID = 'guild-1'
+const HOST_ID = 'p1'
+
+const CAPACITY_SCENARIOS: CapacityScenario[] = [
+  {
+    id: 'duel-ranked',
+    label: '1v1',
+    mode: '1v1',
+    joinGroups: [['p2']],
+  },
+  {
+    id: 'teamers-2v2',
+    label: '2v2',
+    mode: '2v2',
+    joinGroups: [['p2'], ['p3', 'p4']],
+  },
+  {
+    id: 'teamers-3v3',
+    label: '3v3',
+    mode: '3v3',
+    joinGroups: [['p2', 'p3'], ['p4', 'p5', 'p6']],
+  },
+  {
+    id: 'ffa-eight-player',
+    label: 'ffa8',
+    mode: 'ffa',
+    joinGroups: [['p2'], ['p3'], ['p4'], ['p5'], ['p6'], ['p7'], ['p8']],
+  },
+]
 
 const DO_WEBSOCKET_BILLING_RATIO = 20
 const DO_CREATE_ROOM_REQUESTS_PER_DRAFT = 1
-const LOBBY_WATCH_SUBSCRIBE_MESSAGES_PER_CONNECTION = 3
+const LOBBY_WATCH_SUBSCRIBE_MESSAGES_PER_CONNECTION = 2
 const ESTIMATED_DO_GB_SECONDS_PER_REQUEST = 0.0025
-
-const SIMULATED_DRAFT_ACTIONS: Array<Parameters<typeof processDraftInput>[1]> = [
-  { type: 'START' },
-  {
-    type: 'BAN',
-    seatIndex: 0,
-    civIds: [allLeaderIds[0]!, allLeaderIds[1]!, allLeaderIds[2]!],
-  },
-  {
-    type: 'BAN',
-    seatIndex: 1,
-    civIds: [allLeaderIds[3]!, allLeaderIds[4]!, allLeaderIds[5]!],
-  },
-  { type: 'PICK', seatIndex: 0, civId: allLeaderIds[6]! },
-  { type: 'PICK', seatIndex: 1, civId: allLeaderIds[7]! },
-]
+const LEADERBOARD_CRON_RUNS_PER_DAY = 24 * 60 / 2
 
 const FREE_DAILY_LIMITS: UsageLimits = {
   workersRequests: 100_000,
@@ -108,186 +183,157 @@ const PAID_EXTRA_OVERAGE_BUDGET_USD = PAID_TARGET_MONTHLY_PRICE_USD - PAID_BASE_
 
 const DAYS_PER_MONTH = 30
 const SHOULD_PRINT_REPORT = Bun.env.CIVUP_CAPACITY_REPORT === '1'
+const NOW = 1_700_000_000_000
 
-describe('1v1 capacity model', () => {
-  test('prints free vs paid capacity projections', async () => {
-    const baseline = await simulateOneVOneDraft({
-      leaderboardRows: 0,
-    })
-    const withOneLeaderboardRow = await simulateOneVOneDraft({
-      leaderboardRows: 1,
-    })
-
-    const d1RowsReadPerLeaderboardPlayer = withOneLeaderboardRow.usage.d1RowsRead - baseline.usage.d1RowsRead
-    const model: CapacityModel = {
-      perDraft: {
-        workersRequests: baseline.usage.workersRequests,
-        d1RowsReadBase: baseline.usage.d1RowsRead,
-        d1RowsReadPerLeaderboardPlayer,
-        d1RowsWritten: baseline.usage.d1RowsWritten,
-        doSqliteRowsRead: baseline.usage.doSqliteRowsRead,
-        doSqliteRowsWritten: baseline.usage.doSqliteRowsWritten,
-        kvReads: baseline.usage.kvReads,
-        kvWrites: baseline.usage.kvWrites,
-        kvDeletes: baseline.usage.kvDeletes,
-        kvLists: baseline.usage.kvLists,
-        doRequests: baseline.usage.doRequests,
-        doDurationGbSeconds: baseline.usage.doDurationGbSeconds,
-      },
+describe('capacity models', () => {
+  test('prints current ranked lifecycle capacity projections', async () => {
+    const leaderboardCronRunUsage = await measureLeaderboardCronRunUsage()
+    const leaderboardCronBackgroundUsage = multiplyUsage(leaderboardCronRunUsage, LEADERBOARD_CRON_RUNS_PER_DAY)
+    const reports: ScenarioReport[] = []
+    for (const mode of CAPACITY_SCENARIOS) {
+      reports.push(await buildScenarioReport(mode, leaderboardCronBackgroundUsage))
     }
 
-    const scenarioRows = DAILY_PLAY_SCENARIOS.map((playsPerDay) => {
-      const usage = estimateDailyUsage(model, playsPerDay, PLAYERS_PER_DRAFT)
-      return {
-        playsPerDay,
-        draftsPerDay1v1: playsPerDay / PLAYERS_PER_DRAFT,
-        workersRequests: usage.workersRequests,
-        d1RowsRead: usage.d1RowsRead,
-        d1RowsWritten: usage.d1RowsWritten,
-        doSqliteRowsRead: usage.doSqliteRowsRead,
-        doSqliteRowsWritten: usage.doSqliteRowsWritten,
-        kvReads: usage.kvReads,
-        kvWrites: usage.kvWrites,
-        kvDeletes: usage.kvDeletes,
-        kvLists: usage.kvLists,
-        doRequests: usage.doRequests,
-        doDurationGbSeconds: usage.doDurationGbSeconds,
-      }
-    })
+    if (SHOULD_PRINT_REPORT) printReports(reports)
 
-    const freeCapacityPlaysPerDay = findMaxPlaysPerDay({
-      model,
-      limits: FREE_DAILY_LIMITS,
-      periodDays: 1,
-      playersPerDraft: PLAYERS_PER_DRAFT,
-    })
-
-    const paidIncludedCapacityPlaysPerDay = findMaxPlaysPerDay({
-      model,
-      limits: PAID_MONTHLY_LIMITS,
-      periodDays: DAYS_PER_MONTH,
-      playersPerDraft: PLAYERS_PER_DRAFT,
-    })
-
-    const paidTenDollarCapacityPlaysPerDay = findMaxPlaysPerDayForOverageBudget({
-      model,
-      limits: PAID_MONTHLY_LIMITS,
-      periodDays: DAYS_PER_MONTH,
-      playersPerDraft: PLAYERS_PER_DRAFT,
-      overageRatesPerMillion: PAID_OVERAGE_RATES_PER_MILLION,
-      overageBudgetUsd: PAID_EXTRA_OVERAGE_BUDGET_USD,
-    })
-
-    const paidTenDollarOverageUsd = estimateOverageUsd({
-      model,
-      playsPerDay: paidTenDollarCapacityPlaysPerDay,
-      limits: PAID_MONTHLY_LIMITS,
-      periodDays: DAYS_PER_MONTH,
-      playersPerDraft: PLAYERS_PER_DRAFT,
-      overageRatesPerMillion: PAID_OVERAGE_RATES_PER_MILLION,
-    })
-
-    const freeBreakpoints = findMetricBreakpoints({
-      model,
-      limits: FREE_DAILY_LIMITS,
-      periodDays: 1,
-      playersPerDraft: PLAYERS_PER_DRAFT,
-    })
-    const paidBreakpoints = findMetricBreakpoints({
-      model,
-      limits: PAID_MONTHLY_LIMITS,
-      periodDays: DAYS_PER_MONTH,
-      playersPerDraft: PLAYERS_PER_DRAFT,
-    })
-
-    const freeBottleneck = freeBreakpoints[0]!
-    const paidBottleneck = paidBreakpoints[0]!
-
-    if (SHOULD_PRINT_REPORT) {
-      console.log('\n[capacity] assumptions')
-      console.table([
-        {
-          playersPerDraft: PLAYERS_PER_DRAFT,
-          draftRoomIncomingMessages: SIMULATED_DRAFT_ACTIONS.length,
-          lobbyWatchSubscribeMessagesPerConnection: LOBBY_WATCH_SUBSCRIBE_MESSAGES_PER_CONNECTION,
-          doWebsocketBillingRatio: DO_WEBSOCKET_BILLING_RATIO,
-          estimatedDoGbSecondsPerRequest: ESTIMATED_DO_GB_SECONDS_PER_REQUEST,
-        },
-      ])
-
-      console.log('\n[capacity] measured per draft usage')
-      console.table([
-        {
-          workersRequests: model.perDraft.workersRequests,
-          d1RowsReadBase: model.perDraft.d1RowsReadBase,
-          d1RowsReadPerLeaderboardPlayer: model.perDraft.d1RowsReadPerLeaderboardPlayer,
-          d1RowsWritten: model.perDraft.d1RowsWritten,
-          doSqliteRowsRead: model.perDraft.doSqliteRowsRead,
-          doSqliteRowsWritten: model.perDraft.doSqliteRowsWritten,
-          kvReads: model.perDraft.kvReads,
-          kvWrites: model.perDraft.kvWrites,
-          kvDeletes: model.perDraft.kvDeletes,
-          kvLists: model.perDraft.kvLists,
-          doRequests: model.perDraft.doRequests,
-          doDurationGbSeconds: model.perDraft.doDurationGbSeconds,
-        },
-      ])
-
-      console.log('\n[capacity] scenario usage by daily plays')
-      console.table(scenarioRows)
-
-      console.log('\n[capacity] plan ceilings')
-      console.table([
-        {
-          plan: 'free',
-          playsPerDay: freeCapacityPlaysPerDay,
-          draftsPerDay1v1: freeCapacityPlaysPerDay / PLAYERS_PER_DRAFT,
-          bottleneck: freeBottleneck.metric,
-        },
-        {
-          plan: '$5 included',
-          playsPerDay: paidIncludedCapacityPlaysPerDay,
-          draftsPerDay1v1: paidIncludedCapacityPlaysPerDay / PLAYERS_PER_DRAFT,
-          bottleneck: paidBottleneck.metric,
-        },
-        {
-          plan: '$10 target',
-          playsPerDay: paidTenDollarCapacityPlaysPerDay,
-          draftsPerDay1v1: paidTenDollarCapacityPlaysPerDay / PLAYERS_PER_DRAFT,
-          bottleneck: `$${PAID_EXTRA_OVERAGE_BUDGET_USD.toFixed(2)} monthly overage budget`,
-        },
-      ])
-
-      console.log('\n[capacity] bottleneck breakpoints by metric')
-      console.table([
-        ...freeBreakpoints.map((row, index) => ({
-          plan: 'free',
-          rank: index + 1,
-          metric: row.metric,
-          playsPerDay: row.playsPerDay,
-          draftsPerDay1v1: row.draftsPerDay1v1,
-        })),
-        ...paidBreakpoints.map((row, index) => ({
-          plan: '$5 included',
-          rank: index + 1,
-          metric: row.metric,
-          playsPerDay: row.playsPerDay,
-          draftsPerDay1v1: row.draftsPerDay1v1,
-        })),
-      ])
+    expect(reports).toHaveLength(CAPACITY_SCENARIOS.length)
+    for (const report of reports) {
+      expect(report.model.perDraft.workersRequests).toBeGreaterThan(0)
+      expect(report.model.perDraft.d1RowsWritten).toBeGreaterThan(0)
+      expect(report.freeCapacityPlaysPerDay).toBeGreaterThan(0)
+      expect(report.paidIncludedCapacityPlaysPerDay).toBeGreaterThan(0)
+      expect(report.paidTenDollarCapacityPlaysPerDay).toBeGreaterThanOrEqual(report.paidIncludedCapacityPlaysPerDay)
+      expect(report.paidTenDollarOverageUsd).toBeLessThanOrEqual(PAID_EXTRA_OVERAGE_BUDGET_USD)
     }
-
-    expect(model.perDraft.kvWrites).toBeGreaterThanOrEqual(0)
-    expect(model.perDraft.d1RowsWritten).toBeGreaterThan(0)
-    expect(freeCapacityPlaysPerDay).toBeGreaterThan(0)
-    expect(paidIncludedCapacityPlaysPerDay).toBeGreaterThan(0)
-    expect(paidTenDollarCapacityPlaysPerDay).toBeGreaterThanOrEqual(paidIncludedCapacityPlaysPerDay)
-    expect(paidTenDollarOverageUsd).toBeLessThanOrEqual(PAID_EXTRA_OVERAGE_BUDGET_USD)
   })
 })
 
-async function simulateOneVOneDraft(input: {
-  leaderboardRows: number
+async function buildScenarioReport(
+  mode: CapacityScenario,
+  leaderboardCronBackgroundUsage: DailyUsage,
+): Promise<ScenarioReport> {
+  const baseline = await simulateScenarioLifecycle({ mode, backgroundRatedPlayers: 0 })
+  const withOneBackgroundPlayer = await simulateScenarioLifecycle({ mode, backgroundRatedPlayers: 1 })
+
+  const model: CapacityModel = {
+    perDraft: {
+      workersRequests: baseline.usage.workersRequests,
+      d1RowsReadBase: baseline.usage.d1RowsRead,
+      d1RowsReadPerLeaderboardPlayer: withOneBackgroundPlayer.usage.d1RowsRead - baseline.usage.d1RowsRead,
+      d1RowsWritten: baseline.usage.d1RowsWritten,
+      doSqliteRowsRead: baseline.usage.doSqliteRowsRead,
+      doSqliteRowsWritten: baseline.usage.doSqliteRowsWritten,
+      kvReads: baseline.usage.kvReads,
+      kvWrites: baseline.usage.kvWrites,
+      kvDeletes: baseline.usage.kvDeletes,
+      kvLists: baseline.usage.kvLists,
+      doRequests: baseline.usage.doRequests,
+      doDurationGbSeconds: baseline.usage.doDurationGbSeconds,
+    },
+    backgroundDaily: leaderboardCronBackgroundUsage,
+  }
+
+  const playersPerDraft = scenarioPlayersPerDraft(mode)
+  const freeCapacityPlaysPerDay = findMaxPlaysPerDay({
+    model,
+    limits: FREE_DAILY_LIMITS,
+    periodDays: 1,
+    playersPerDraft,
+  })
+  const paidIncludedCapacityPlaysPerDay = findMaxPlaysPerDay({
+    model,
+    limits: PAID_MONTHLY_LIMITS,
+    periodDays: DAYS_PER_MONTH,
+    playersPerDraft,
+  })
+  const paidTenDollarCapacityPlaysPerDay = findMaxPlaysPerDayForOverageBudget({
+    model,
+    limits: PAID_MONTHLY_LIMITS,
+    periodDays: DAYS_PER_MONTH,
+    playersPerDraft,
+    overageRatesPerMillion: PAID_OVERAGE_RATES_PER_MILLION,
+    overageBudgetUsd: PAID_EXTRA_OVERAGE_BUDGET_USD,
+  })
+  const paidTenDollarOverageUsd = estimateOverageUsd({
+    model,
+    playsPerDay: paidTenDollarCapacityPlaysPerDay,
+    limits: PAID_MONTHLY_LIMITS,
+    periodDays: DAYS_PER_MONTH,
+    playersPerDraft,
+    overageRatesPerMillion: PAID_OVERAGE_RATES_PER_MILLION,
+  })
+
+  return {
+    mode,
+    model,
+    draftRoomIncomingMessages: baseline.draftRoomIncomingMessages,
+    freeCapacityPlaysPerDay,
+    paidIncludedCapacityPlaysPerDay,
+    paidTenDollarCapacityPlaysPerDay,
+    paidTenDollarOverageUsd,
+    freeBreakpoints: findMetricBreakpoints({
+      model,
+      limits: FREE_DAILY_LIMITS,
+      periodDays: 1,
+      playersPerDraft,
+    }),
+    paidBreakpoints: findMetricBreakpoints({
+      model,
+      limits: PAID_MONTHLY_LIMITS,
+      periodDays: DAYS_PER_MONTH,
+      playersPerDraft,
+    }),
+  }
+}
+
+async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
+  const { db, sqlite } = await createTestDatabase()
+  const sqlTracker = trackSqlite(sqlite)
+  const { kv: rawKv, operations, resetOperations } = createTrackedKv({ trackReads: true })
+  const stateCoordinator = installStateCoordinatorHarness()
+  const kv = createStateStore({
+    KV: rawKv,
+    PARTY_HOST: stateCoordinator.host,
+    CIVUP_SECRET: stateCoordinator.secret,
+  })
+
+  try {
+    resetOperations()
+    sqlTracker.reset()
+    stateCoordinator.reset()
+
+    await refreshDirtyLeaderboards(db, kv, 'token')
+
+    const kvReads = operations.filter(op => op.type === 'get').length
+    const kvWrites = operations.filter(op => op.type === 'put').length
+    const kvDeletes = operations.filter(op => op.type === 'delete').length
+    const kvLists = operations.filter(op => op.type === 'list').length
+    const doRequests = stateCoordinator.requests()
+
+    return {
+      workersRequests: 1,
+      d1RowsRead: sqlTracker.counts.rowsRead,
+      d1RowsWritten: sqlTracker.counts.rowsWritten,
+      doSqliteRowsRead: stateCoordinator.sqliteRowsRead(),
+      doSqliteRowsWritten: stateCoordinator.sqliteRowsWritten(),
+      kvReads,
+      kvWrites,
+      kvDeletes,
+      kvLists,
+      doRequests,
+      doDurationGbSeconds: estimateDoDurationGbSeconds(doRequests),
+    }
+  }
+  finally {
+    stateCoordinator.restore()
+    sqlTracker.restore()
+    sqlite.close()
+  }
+}
+
+async function simulateScenarioLifecycle(input: {
+  mode: CapacityScenario
+  backgroundRatedPlayers: number
 }): Promise<SimulationResult> {
   const { db, sqlite } = await createTestDatabase()
   const sqlTracker = trackSqlite(sqlite)
@@ -303,95 +349,67 @@ async function simulateOneVOneDraft(input: {
   let activityRequests = 0
 
   try {
-    await setSystemChannel(kv, 'draft', 'channel-draft')
+    await setSystemChannel(kv, 'draft', CHANNEL_ID)
     await setSystemChannel(kv, 'archive', 'channel-archive')
     await setSystemChannel(kv, 'leaderboard', 'channel-leaderboard')
-
-    if (input.leaderboardRows > 0) {
-      await seedLeaderboardRows(db, input.leaderboardRows)
-    }
+    await startSeason(db, { now: NOW, kv })
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, {
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
+    })
+    await seedRatedPlayers(db, input.mode, input.backgroundRatedPlayers)
+    await syncRankedRoles({ db, kv, guildId: GUILD_ID, now: NOW + 1_000 })
+    await markRankedRolesDirty(kv, 'steady-state-preexisting-dirty-flag')
 
     resetOperations()
     sqlTracker.reset()
+    stateCoordinator.reset()
 
     botRequests += 1
-    await simulateMatchCreate(kv)
+    await simulateMatchCreate(kv, input.mode)
 
-    botRequests += 1
-    await simulateMatchJoin(kv)
-
-    activityRequests += 2
-
-    for (const _userId of ['p1', 'p2']) {
-      await callActivityBotApi(async () => {
-        await lookupMatchForChannel(kv, 'channel-draft')
-      }, () => {
-        botRequests += 1
-        activityRequests += 1
-      })
-
-      await callActivityBotApi(async () => {
-        await lookupLobbyForChannel(kv, 'channel-draft')
-      }, () => {
-        botRequests += 1
-        activityRequests += 1
-      })
+    for (const group of input.mode.joinGroups) {
+      botRequests += 1
+      await simulateMatchJoin(kv, input.mode, group)
     }
 
-    const started = await callActivityBotApi(
-      async () => startDraftFromOpenLobby(db, kv),
-      () => {
-        botRequests += 1
-        activityRequests += 1
-      },
-    )
-
-    await callActivityBotApi(async () => {
-      await lookupLobbyForChannel(kv, 'channel-draft')
-    }, () => {
+    const playerIds = scenarioPlayerIds(input.mode)
+    activityRequests += playerIds.length
+    for (const playerId of playerIds) {
       botRequests += 1
-      activityRequests += 1
-    })
-
-    await callActivityBotApi(async () => {
-      await lookupLobbyForUser(kv, 'p2')
-    }, () => {
-      botRequests += 1
-      activityRequests += 1
-    })
-
-    await callActivityBotApi(async () => {
-      await lookupMatchForChannel(kv, 'channel-draft')
-    }, () => {
-      botRequests += 1
-      activityRequests += 1
-    })
+      await simulateActivityLaunchSnapshot(kv, CHANNEL_ID, playerId)
+    }
 
     botRequests += 1
-    await handleDraftCompleteWebhook(db, kv, started.matchId, started.seats)
+    const started = await startDraftFromOpenLobby(db, kv, input.mode)
 
-    await callActivityBotApi(async () => {
-      await handleMatchReport(db, kv, started.matchId)
-    }, () => {
+    botRequests += 1
+    await handleDraftCompleteWebhook(db, kv, started.matchId, started.completedDraftState)
+
+    for (let index = 0; index < playerIds.length; index++) {
       botRequests += 1
-      activityRequests += 1
-    })
+      await fetchMatchStateSnapshot(db, started.matchId)
+    }
 
-    activityRequests += 2
+    botRequests += 1
+    await handleMatchReport(db, kv, input.mode, started.matchId)
 
     const kvReads = operations.filter(op => op.type === 'get').length
     const kvWrites = operations.filter(op => op.type === 'put').length
     const kvDeletes = operations.filter(op => op.type === 'delete').length
     const kvLists = operations.filter(op => op.type === 'list').length
-    const coordinatorRequests = stateCoordinator.requests()
     const doRequests = estimateDoBilledRequestUnits({
-      stateCoordinatorRequests: coordinatorRequests,
-      playersPerDraft: PLAYERS_PER_DRAFT,
-      draftRoomIncomingMessages: SIMULATED_DRAFT_ACTIONS.length,
+      stateCoordinatorRequests: stateCoordinator.requests(),
+      playersPerDraft: scenarioPlayersPerDraft(input.mode),
+      draftRoomIncomingMessages: started.draftRoomIncomingMessages,
       lobbyWatchSubscribeMessagesPerConnection: LOBBY_WATCH_SUBSCRIBE_MESSAGES_PER_CONNECTION,
     })
 
     return {
+      draftRoomIncomingMessages: started.draftRoomIncomingMessages,
       usage: {
         workersRequests: botRequests + activityRequests,
         d1RowsRead: sqlTracker.counts.rowsRead,
@@ -414,155 +432,235 @@ async function simulateOneVOneDraft(input: {
   }
 }
 
-async function simulateMatchCreate(kv: KVNamespace): Promise<void> {
-  const mode: GameMode = '1v1'
+async function simulateMatchCreate(kv: KVNamespace, mode: CapacityScenario): Promise<void> {
+  const draftChannelId = await getSystemChannel(kv, 'draft')
+  if (!draftChannelId) throw new Error('Expected draft channel to be configured')
 
-  await getSystemChannel(kv, 'draft')
-  await getLobby(kv, mode)
-  await getQueueState(kv, mode)
+  await Promise.all(GAME_MODES.map(mode => getLobbiesByMode(kv, mode)))
+  const queue = await getQueueState(kv, mode.mode)
 
-  const hostEntry = queueEntry('p1', 'Host', 1)
-  const addResult = await addToQueue(kv, mode, hostEntry)
+  const hostEntry = buildQueueEntry(HOST_ID, 1)
+  const addResult = await addToQueue(kv, mode.mode, hostEntry, { currentState: queue })
   if (addResult.error) throw new Error(addResult.error)
 
-  await getQueueState(kv, mode)
-  await createLobby(kv, {
-    mode,
-    hostId: hostEntry.playerId,
-    channelId: 'channel-draft',
-    messageId: 'message-lobby-open',
+  const lobby = await createLobby(kv, {
+    mode: mode.mode,
+    guildId: GUILD_ID,
+    hostId: HOST_ID,
+    channelId: draftChannelId,
+    messageId: `message-lobby-open-${mode.id}`,
   })
+  await storeUserLobbyMappings(kv, [HOST_ID], lobby.id)
+  await storeUserActivityTarget(kv, draftChannelId, [HOST_ID], { kind: 'lobby', id: lobby.id })
 }
 
-async function simulateMatchJoin(kv: KVNamespace): Promise<void> {
+async function simulateMatchJoin(
+  kv: KVNamespace,
+  mode: CapacityScenario,
+  group: string[],
+): Promise<void> {
   const outcome = await joinLobbyAndMaybeStartMatch(
     { env: { KV: kv } },
-    '1v1',
-    [{
-      playerId: 'p2',
-      displayName: 'Guest',
-      avatarUrl: '',
-    }],
+    mode.mode,
+    buildJoinEntries(group),
   )
   if ('error' in outcome) throw new Error(outcome.error)
+
+  await storeUserLobbyMappings(kv, group, outcome.lobby.id)
+  await storeUserActivityTarget(kv, outcome.lobby.channelId, group, { kind: 'lobby', id: outcome.lobby.id })
+}
+
+async function simulateActivityLaunchSnapshot(
+  kv: KVNamespace,
+  channelId: string,
+  userId: string,
+): Promise<void> {
+  await buildActivityLaunchSnapshot(undefined, kv, channelId, userId)
 }
 
 async function startDraftFromOpenLobby(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   kv: KVNamespace,
-): Promise<{ matchId: string, seats: DraftSeat[] }> {
-  const mode: GameMode = '1v1'
-  const lobby = await getLobby(kv, mode)
-  if (!lobby || lobby.status !== 'open') throw new Error('Expected open 1v1 lobby before start')
+  mode: CapacityScenario,
+): Promise<{
+  matchId: string
+  completedDraftState: DraftState
+  draftRoomIncomingMessages: number
+}> {
+  const lobby = await getLobby(kv, mode.mode)
+  if (!lobby || lobby.status !== 'open') throw new Error(`Expected open ${mode.mode} lobby before start`)
 
-  const queue = await getQueueState(kv, mode)
-  const slots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
-  const slottedEntries = mapLobbySlotsToEntries(slots, queue.entries)
+  const queue = await getQueueState(kv, mode.mode)
+  const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
+  const slots = normalizeLobbySlots(mode.mode, lobby.slots, lobbyQueueEntries)
+  const slottedEntries = mapLobbySlotsToEntries(slots, lobbyQueueEntries)
   const selectedEntries = slottedEntries.filter((entry): entry is Exclude<(typeof slottedEntries)[number], null> => entry !== null)
 
   await resolveDraftTimerConfig(kv, lobby.draftConfig)
 
-  const matchId = 'match-1'
-  const seats = selectedEntries.map((entry, team): DraftSeat => ({
-    playerId: entry.playerId,
-    displayName: entry.displayName,
-    avatarUrl: entry.avatarUrl ?? null,
-    team,
-  }))
+  const matchId = `match-${mode.id}`
+  const seats = buildDraftSeats(mode.mode, slottedEntries)
+  if (selectedEntries.length !== seats.length) throw new Error('Seat count did not match selected entries')
 
-  await createDraftMatch(db, { matchId, mode, seats })
+  await createDraftMatch(db, { matchId, mode: mode.mode, seats })
 
-  if (queue.entries.length > 0) {
-    await clearQueue(kv, mode, queue.entries.map(entry => entry.playerId))
+  if (lobby.memberPlayerIds.length > 0) {
+    await clearQueue(kv, mode.mode, lobby.memberPlayerIds, { currentState: queue })
   }
 
+  await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
   await storeMatchMapping(kv, lobby.channelId, matchId)
+  await storeUserMatchMappings(kv, lobby.memberPlayerIds, matchId)
+  await storeUserActivityTarget(kv, lobby.channelId, lobby.memberPlayerIds, { kind: 'match', id: matchId })
 
-  const attachedLobby = await setLobbySlots(kv, mode, slots)
-  const nextLobbyBase = attachedLobby ?? { ...lobby, slots }
+  const slottedLobby = await setLobbySlots(kv, lobby.id, slots, lobby) ?? { ...lobby, slots }
+  await attachLobbyMatch(kv, lobby.id, matchId, slottedLobby)
+  await storeMatchMessageMapping(db, `message-lobby-drafting-${mode.id}`, matchId)
 
-  await upsertLobby(kv, {
-    ...nextLobbyBase,
-    status: 'drafting',
+  const completedDraft = buildCompletedDraftState(matchId, mode.mode, seats)
+  return {
     matchId,
-    updatedAt: Date.now(),
-    revision: nextLobbyBase.revision + 1,
-  })
-
-  await storeMatchMessageMapping(db, 'message-lobby-drafting', matchId)
-
-  return { matchId, seats }
+    completedDraftState: completedDraft.state,
+    draftRoomIncomingMessages: completedDraft.inputCount,
+  }
 }
 
 async function handleDraftCompleteWebhook(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   kv: KVNamespace,
   matchId: string,
-  seats: DraftSeat[],
+  state: DraftState,
 ): Promise<void> {
-  const state = buildCompletedDraftState(matchId, seats)
-
   const activated = await activateDraftMatch(db, {
     state,
-    completedAt: Date.now(),
-    hostId: seats[0]!.playerId,
+    completedAt: NOW + 5_000,
+    hostId: state.seats[0]?.playerId ?? HOST_ID,
   })
-
   if ('error' in activated) throw new Error(activated.error)
 
   const lobby = await getLobbyByMatch(kv, matchId)
-  if (!lobby) throw new Error('Expected lobby mapping during draft-complete webhook simulation')
+  if (!lobby) throw new Error('Expected lobby mapping during draft-complete simulation')
 
-  await setLobbyStatus(kv, lobby.mode, 'active', lobby)
-  await storeMatchMessageMapping(db, 'message-lobby-active', matchId)
+  await setLobbyStatus(kv, lobby.id, 'active', lobby)
+  await storeMatchMessageMapping(db, `message-lobby-active-${matchId}`, matchId)
+}
+
+async function fetchMatchStateSnapshot(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  matchId: string,
+): Promise<void> {
+  await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
+  await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
 }
 
 async function handleMatchReport(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   kv: KVNamespace,
+  mode: CapacityScenario,
   matchId: string,
 ): Promise<void> {
   const reported = await reportMatch(db, kv, {
     matchId,
-    reporterId: 'p1',
-    placements: 'A',
+    reporterId: HOST_ID,
+    placements: buildPlacements(mode),
   })
-
   if ('error' in reported) throw new Error(reported.error)
 
   const lobby = await getLobbyByMatch(kv, matchId)
+  const guildId = lobby?.guildId ?? null
+
+  if (guildId) {
+    const participantIds = reported.participants.map(participant => participant.playerId)
+    const rankedPreview = await previewRankedRoles({
+      db,
+      kv,
+      guildId,
+      now: NOW + 6_000,
+      playerIds: participantIds,
+      includePlayerIdentities: false,
+    })
+    await listRankedRoleMatchUpdateLines({
+      kv,
+      guildId,
+      preview: rankedPreview,
+      playerIds: participantIds,
+    })
+    await syncSeasonPeaksForPlayers(db, {
+      playerIds: participantIds,
+      playerPreviews: rankedPreview.playerPreviews,
+      now: NOW + 6_000,
+    })
+  }
+
   if (lobby) {
     await setLobbyStatus(kv, lobby.id, 'completed', lobby)
-    await storeMatchMessageMapping(db, 'message-lobby-reported', matchId)
-    await clearLobbiesByMode(kv, lobby.mode)
+    await storeMatchMessageMapping(db, `message-lobby-reported-${mode.id}`, matchId)
+    await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
+    await clearLobbyById(kv, lobby.id)
   }
 
   const archiveChannelId = await getSystemChannel(kv, 'archive')
   if (archiveChannelId) {
-    await storeMatchMessageMapping(db, 'message-archive-reported', matchId)
+    await storeMatchMessageMapping(db, `message-archive-reported-${mode.id}`, matchId)
   }
 
   await markLeaderboardsDirty(db, `match-report:${matchId}`)
+  await markRankedRolesDirty(kv, `match-report:${matchId}`)
 }
 
-function buildCompletedDraftState(matchId: string, seats: DraftSeat[]): DraftState {
-  const format = getDefaultFormat('1v1')
+function buildCompletedDraftState(
+  matchId: string,
+  mode: GameMode,
+  seats: DraftSeat[],
+): { state: DraftState, inputCount: number } {
+  const format = getDefaultFormat(mode)
   let state = createDraft(matchId, format, seats, allLeaderIds)
+  let inputCount = 0
 
-  for (const action of SIMULATED_DRAFT_ACTIONS) {
-    state = applyDraftInput(state, action, format.blindBans)
+  state = applyDraftInput(state, { type: 'START' }, format.blindBans)
+  inputCount += 1
+
+  while (state.status !== 'complete') {
+    const step = state.steps[state.currentStepIndex]
+    if (!step) throw new Error('Expected a current draft step while completing the draft')
+
+    const activeSeatIndices = step.seats === 'all'
+      ? Array.from({ length: state.seats.length }, (_value, index) => index)
+      : [...step.seats]
+
+    if (step.action === 'ban') {
+      const reserved = new Set<string>()
+      for (const seatIndex of activeSeatIndices) {
+        if (state.submissions[seatIndex]) continue
+        const civIds = pickAvailableCivs(state.availableCivIds, step.count, reserved)
+        for (const civId of civIds) reserved.add(civId)
+        state = applyDraftInput(state, { type: 'BAN', seatIndex, civIds }, format.blindBans)
+        inputCount += 1
+      }
+      continue
+    }
+
+    const currentStepIndex = state.currentStepIndex
+    for (const seatIndex of activeSeatIndices) {
+      const picksMade = state.submissions[seatIndex]?.length ?? 0
+      if (picksMade >= step.count) continue
+
+      const alreadyChosen = new Set(Object.values(state.submissions).flat())
+      const [civId] = pickAvailableCivs(state.availableCivIds, 1, alreadyChosen)
+      if (!civId) throw new Error('Expected a civ to be available for the next pick')
+
+      state = applyDraftInput(state, { type: 'PICK', seatIndex, civId }, format.blindBans)
+      inputCount += 1
+      if (state.status === 'complete' || state.currentStepIndex !== currentStepIndex) break
+    }
   }
 
-  if (state.status !== 'complete') {
-    throw new Error(`Expected completed draft state, got ${state.status}`)
-  }
-
-  return state
+  return { state, inputCount }
 }
 
 function applyDraftInput(
   state: DraftState,
-  input: Parameters<typeof processDraftInput>[1],
+  input: DraftInput,
   blindBans: boolean,
 ): DraftState {
   const result = processDraftInput(state, input, blindBans)
@@ -570,107 +668,229 @@ function applyDraftInput(
   return result.state
 }
 
-async function lookupMatchForChannel(kv: KVNamespace, channelId: string): Promise<string | null> {
-  return getMatchForChannel(kv, channelId)
-}
-
-async function lookupLobbyForChannel(kv: KVNamespace, channelId: string): Promise<unknown | null> {
-  const lobby = await getLobbyByChannel(kv, channelId)
-  if (lobby?.status === 'open') return buildOpenLobbySnapshot(kv, lobby.mode, lobby)
-  return null
-}
-
-async function lookupLobbyForUser(kv: KVNamespace, userId: string): Promise<unknown | null> {
-  const mode = await getPlayerQueueMode(kv, userId)
-  if (!mode) return null
-
-  const lobby = await getLobby(kv, mode)
-  if (!lobby || lobby.status !== 'open') return null
-
-  return buildOpenLobbySnapshot(kv, mode, lobby)
-}
-
-async function buildOpenLobbySnapshot(
-  kv: KVNamespace,
-  mode: GameMode,
-  lobby: {
-    hostId: string
-    status: string
-    slots: (string | null)[]
-    draftConfig: {
-      banTimerSeconds: number | null
-      pickTimerSeconds: number | null
-    }
-  },
-): Promise<unknown> {
-  const queue = await getQueueState(kv, mode)
-  const normalizedSlots = normalizeLobbySlots(mode, lobby.slots, queue.entries)
-
-  if (sameLobbySlots(normalizedSlots, lobby.slots)) {
-    return buildOpenLobbySnapshotFromParts(kv, mode, queue.entries, normalizedSlots)
-  }
-
-  const updatedLobby = await setLobbySlots(kv, mode, normalizedSlots)
-  const resolvedLobby = updatedLobby ?? {
-    ...lobby,
-    slots: normalizedSlots,
-  }
-
-  return buildOpenLobbySnapshotFromParts(kv, mode, queue.entries, resolvedLobby.slots)
-}
-
-async function buildOpenLobbySnapshotFromParts(
-  kv: KVNamespace,
-  _mode: GameMode,
-  queueEntries: Awaited<ReturnType<typeof getQueueState>>['entries'],
-  slots: (string | null)[],
-): Promise<unknown> {
-  mapLobbySlotsToEntries(slots, queueEntries)
-  await getServerDraftTimerDefaults(kv)
-  return null
-}
-
-async function seedLeaderboardRows(
+async function seedRatedPlayers(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
-  count: number,
+  mode: CapacityScenario,
+  backgroundRatedPlayers: number,
 ): Promise<void> {
-  const now = Date.now()
-  const playerRows = Array.from({ length: count }, (_, index) => ({
-    id: `seed-player-${index + 1}`,
-    displayName: `Seed Player ${index + 1}`,
-    avatarUrl: null,
-    createdAt: now,
-  }))
+  const playerIds = [
+    ...scenarioPlayerIds(mode),
+    ...Array.from({ length: backgroundRatedPlayers }, (_value, index) => `seed-${mode.id}-${index + 1}`),
+  ]
+  const leaderboardMode = toLeaderboardMode(mode.mode)
 
-  if (playerRows.length > 0) {
-    await db.insert(players).values(playerRows)
-    await db.insert(playerRatings).values(playerRows.map((player, index) => ({
-      playerId: player.id,
-      mode: 'duel',
-      mu: 25 + (index % 7),
-      sigma: 8,
-      gamesPlayed: 10,
-      wins: 5,
-      lastPlayedAt: now,
-    })))
-  }
+  await db.insert(players).values(playerIds.map((playerId, index) => ({
+    id: playerId,
+    displayName: playerId.toUpperCase(),
+    avatarUrl: null,
+    createdAt: NOW + index,
+  })))
+
+  await db.insert(playerRatings).values(playerIds.map((playerId, index) => ({
+    playerId,
+    mode: leaderboardMode,
+    mu: 40 - index,
+    sigma: 6,
+    gamesPlayed: 10,
+    wins: Math.max(0, 6 - (index % 4)),
+    lastPlayedAt: NOW + 10_000 + index,
+  })))
 }
 
-function queueEntry(playerId: string, displayName: string, joinedAt: number): QueueEntry {
+function buildJoinEntries(group: string[]): QueueEntry[] {
+  return group.map((playerId, index) => ({
+    playerId,
+    displayName: `Player ${playerId}`,
+    avatarUrl: null,
+    joinedAt: index + 2,
+    partyIds: group.filter(candidate => candidate !== playerId),
+  }))
+}
+
+function buildDraftSeats(
+  mode: GameMode,
+  slottedEntries: ReturnType<typeof mapLobbySlotsToEntries>,
+): DraftSeat[] {
+  const seats: DraftSeat[] = []
+
+  for (let index = 0; index < slottedEntries.length; index++) {
+    const entry = slottedEntries[index]
+    if (!entry) continue
+    const team = slotToTeamIndex(mode, index)
+    seats.push({
+      playerId: entry.playerId,
+      displayName: entry.displayName,
+      avatarUrl: entry.avatarUrl ?? null,
+      team: team ?? undefined,
+    })
+  }
+
+  return seats
+}
+
+function buildPlacements(mode: CapacityScenario): string {
+  if (mode.mode !== 'ffa') return 'A'
+  return scenarioPlayerIds(mode).map(playerId => `<@${playerId}>`).join('\n')
+}
+
+function buildQueueEntry(playerId: string, joinedAt: number): QueueEntry {
   return {
     playerId,
-    displayName,
+    displayName: `Player ${playerId}`,
     avatarUrl: null,
     joinedAt,
   }
 }
 
-async function callActivityBotApi<T>(
-  fn: () => Promise<T>,
-  increment: () => void,
-): Promise<T> {
-  increment()
-  return fn()
+function pickAvailableCivs(
+  availableCivIds: string[],
+  count: number,
+  blocked: Set<string>,
+): string[] {
+  const picked: string[] = []
+
+  for (const civId of availableCivIds) {
+    if (blocked.has(civId)) continue
+    picked.push(civId)
+    if (picked.length >= count) return picked
+  }
+
+  throw new Error(`Expected ${count} available civs, found ${picked.length}`)
+}
+
+function scenarioPlayerIds(mode: CapacityScenario): string[] {
+  return [...new Set([HOST_ID, ...mode.joinGroups.flat()])]
+}
+
+function scenarioPlayersPerDraft(mode: CapacityScenario): number {
+  return scenarioPlayerIds(mode).length
+}
+
+function printReports(reports: ScenarioReport[]): void {
+  const backgroundDailyUsage = reports[0]?.model.backgroundDaily
+
+  console.log('\n[capacity] assumptions')
+  console.table(reports.map(report => ({
+    mode: report.mode.label,
+    players: scenarioPlayersPerDraft(report.mode),
+    draftMsgs: report.draftRoomIncomingMessages,
+  })))
+  console.log('[capacity] globals', {
+    leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
+    lobbyWatchMsgsPerConnection: LOBBY_WATCH_SUBSCRIBE_MESSAGES_PER_CONNECTION,
+    doWebsocketBillingRatio: DO_WEBSOCKET_BILLING_RATIO,
+    estimatedDoGbSecondsPerRequest: ESTIMATED_DO_GB_SECONDS_PER_REQUEST,
+  })
+
+  if (backgroundDailyUsage) {
+    console.log('\n[capacity] background daily usage')
+    console.table([backgroundDailyUsage])
+  }
+
+  console.log('\n[capacity] measured per draft usage')
+  console.table(reports.map(report => ({
+    mode: report.mode.label,
+    workersRequests: report.model.perDraft.workersRequests,
+    d1RowsReadBase: report.model.perDraft.d1RowsReadBase,
+    d1RowsReadPerRatedPlayer: report.model.perDraft.d1RowsReadPerLeaderboardPlayer,
+    d1RowsWritten: report.model.perDraft.d1RowsWritten,
+    doSqliteRowsRead: report.model.perDraft.doSqliteRowsRead,
+    doSqliteRowsWritten: report.model.perDraft.doSqliteRowsWritten,
+    kvReads: report.model.perDraft.kvReads,
+    kvWrites: report.model.perDraft.kvWrites,
+    doRequests: report.model.perDraft.doRequests,
+    doDurationGbSeconds: report.model.perDraft.doDurationGbSeconds,
+  })))
+
+  console.log('\n[capacity] plan ceilings')
+  console.table(reports.flatMap((report) => {
+    const playersPerDraft = scenarioPlayersPerDraft(report.mode)
+    const freeBottleneck = report.freeBreakpoints[0]
+    const paidBottleneck = report.paidBreakpoints[0]
+
+    return [
+      {
+        mode: report.mode.label,
+        plan: 'free',
+        playsPerDay: report.freeCapacityPlaysPerDay,
+        draftsPerDay: report.freeCapacityPlaysPerDay / playersPerDraft,
+        bottleneck: freeBottleneck?.metric ?? 'unknown',
+      },
+      {
+        mode: report.mode.label,
+        plan: '$5 included',
+        playsPerDay: report.paidIncludedCapacityPlaysPerDay,
+        draftsPerDay: report.paidIncludedCapacityPlaysPerDay / playersPerDraft,
+        bottleneck: paidBottleneck?.metric ?? 'unknown',
+      },
+      {
+        mode: report.mode.label,
+        plan: '$10 target',
+        playsPerDay: report.paidTenDollarCapacityPlaysPerDay,
+        draftsPerDay: report.paidTenDollarCapacityPlaysPerDay / playersPerDraft,
+        bottleneck: '',
+      },
+    ]
+  }))
+
+  console.log('\n[capacity] projected usage at plan ceilings')
+  console.table(reports.flatMap((report) => {
+    const freeUsage = projectUsageAtCapacity(report, report.freeCapacityPlaysPerDay, 1)
+    const paidUsage = projectUsageAtCapacity(report, report.paidIncludedCapacityPlaysPerDay, DAYS_PER_MONTH)
+
+    return [
+      {
+        mode: report.mode.label,
+        plan: 'free',
+        playsPerDay: report.freeCapacityPlaysPerDay,
+        d1RowsRead: freeUsage.d1RowsRead,
+        doSqliteRowsRead: freeUsage.doSqliteRowsRead,
+        doSqliteRowsWritten: freeUsage.doSqliteRowsWritten,
+        doRequests: freeUsage.doRequests,
+        doDurationGbSeconds: freeUsage.doDurationGbSeconds,
+      },
+      {
+        mode: report.mode.label,
+        plan: '$5 included',
+        playsPerDay: report.paidIncludedCapacityPlaysPerDay,
+        d1RowsRead: paidUsage.d1RowsRead,
+        doSqliteRowsRead: paidUsage.doSqliteRowsRead,
+        doSqliteRowsWritten: paidUsage.doSqliteRowsWritten,
+        doRequests: paidUsage.doRequests,
+        doDurationGbSeconds: paidUsage.doDurationGbSeconds,
+      },
+    ]
+  }))
+
+  console.log('\n[capacity] metric breakpoints')
+  console.table(reports.flatMap((report) => {
+    const playersPerDraft = scenarioPlayersPerDraft(report.mode)
+    const freeRows = report.mode.id === 'duel-ranked'
+      ? report.freeBreakpoints
+      : report.freeBreakpoints.slice(0, 3)
+    const paidRows = report.mode.id === 'duel-ranked'
+      ? report.paidBreakpoints
+      : report.paidBreakpoints.slice(0, 3)
+
+    return [
+      ...freeRows.map((row, index) => ({
+        mode: report.mode.label,
+        plan: 'free',
+        rank: index + 1,
+        metric: row.metric,
+        playsPerDay: row.playsPerDay,
+        draftsPerDay: row.playsPerDay / playersPerDraft,
+      })),
+      ...paidRows.map((row, index) => ({
+        mode: report.mode.label,
+        plan: '$5 included',
+        rank: index + 1,
+        metric: row.metric,
+        playsPerDay: row.playsPerDay,
+        draftsPerDay: row.playsPerDay / playersPerDraft,
+      })),
+    ]
+  }))
 }
 
 function estimateDoBilledRequestUnits(input: {
@@ -698,4 +918,17 @@ function estimateDoBilledRequestUnits(input: {
 
 function estimateDoDurationGbSeconds(doRequests: number): number {
   return Number((doRequests * ESTIMATED_DO_GB_SECONDS_PER_REQUEST).toFixed(4))
+}
+
+function projectUsageAtCapacity(
+  report: ScenarioReport,
+  playsPerDay: number,
+  periodDays: number,
+) {
+  const dailyUsage = estimateDailyUsage(
+    report.model,
+    playsPerDay,
+    scenarioPlayersPerDraft(report.mode),
+  )
+  return periodDays === 1 ? dailyUsage : multiplyUsage(dailyUsage, periodDays)
 }

@@ -20,6 +20,20 @@ describe('activity mapping behavior', () => {
     await expect(getUserActivityTarget(kv, 'channel-1', 'spectator-1')).resolves.toEqual({
       kind: 'lobby',
       id: 'lobby-1',
+      pendingJoin: false,
+      selectedAt: expect.any(Number),
+    })
+  })
+
+  test('channel-scoped activity target preserves pending lobby joins', async () => {
+    const { kv } = createTrackedKv()
+
+    await storeUserActivityTarget(kv, 'channel-1', ['player-1'], { kind: 'lobby', id: 'lobby-1', pendingJoin: true })
+
+    await expect(getUserActivityTarget(kv, 'channel-1', 'player-1')).resolves.toEqual({
+      kind: 'lobby',
+      id: 'lobby-1',
+      pendingJoin: true,
       selectedAt: expect.any(Number),
     })
   })

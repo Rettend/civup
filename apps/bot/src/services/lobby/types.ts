@@ -5,6 +5,7 @@ export type LobbyStatus = 'open' | 'drafting' | 'active' | 'completed' | 'cancel
 export interface LobbyDraftConfig {
   banTimerSeconds: number | null
   pickTimerSeconds: number | null
+  leaderPoolSize: number | null
 }
 
 export interface LobbyState {

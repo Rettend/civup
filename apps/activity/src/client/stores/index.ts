@@ -16,6 +16,7 @@ export {
   fetchMatchForUser,
   fetchMatchState,
   fillLobbyWithTestPlayers,
+  type LobbyJoinEligibilitySnapshot,
   type LobbyRankedRolesSnapshot,
   type LobbySnapshot,
   type LobbyStateWatch,

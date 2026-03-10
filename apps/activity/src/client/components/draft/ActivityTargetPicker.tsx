@@ -2,8 +2,11 @@ import type { ActivityTargetOption } from '~/client/stores'
 import { formatModeLabel } from '@civup/game'
 import { For, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
+import { MiniFrame } from './MiniLayout'
 
 interface ActivityTargetPickerProps {
+  mini?: boolean
+  error?: string | null
   options: ActivityTargetOption[]
   busy?: boolean
   selectedKey?: string | null
@@ -12,6 +15,75 @@ interface ActivityTargetPickerProps {
 }
 
 export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
+  if (props.mini) {
+    const visibleOptions = () => props.options.slice(0, 4)
+    const hiddenCount = () => Math.max(0, props.options.length - visibleOptions().length)
+
+    return (
+      <MiniFrame title="Lobby Overview" titleAccent="gold">
+        <Show
+          when={visibleOptions().length > 0}
+          fallback={(
+            <div class="border border-white/8 rounded-lg bg-bg-secondary/90 flex flex-1 items-center justify-center px-4 text-center">
+              <span class="text-[10px] text-text-secondary">No active lobbies</span>
+            </div>
+          )}
+        >
+          <div class="flex min-h-0 flex-1 flex-col gap-1.5 overflow-hidden">
+            <div class="grid grid-cols-2 gap-1.5">
+              <For each={visibleOptions()}>
+                {option => (
+                  <div class="border border-white/8 rounded bg-bg-secondary/92 flex min-w-0 flex-col gap-1 overflow-hidden px-2 py-1.5">
+                    <div class="flex min-w-0 items-center justify-between gap-1">
+                      <span class="text-[9px] text-accent-gold truncate tracking-[0.14em] font-semibold uppercase">
+                        {formatModeLabel(option.mode, option.mode)}
+                      </span>
+                      <span class={cn(
+                        'text-[8px] font-semibold uppercase shrink-0',
+                        option.kind === 'lobby'
+                          ? 'text-[#93c5fd]'
+                          : option.status === 'drafting'
+                            ? 'text-[#99f6e4]'
+                            : 'text-[#fcd34d]',
+                      )}
+                      >
+                        {formatMiniTargetStatus(option)}
+                      </span>
+                    </div>
+
+                    <div class="text-[10px] text-text-secondary flex items-center justify-between gap-1 leading-none">
+                      <span>
+                        {option.participantCount}
+                        /
+                        {option.targetSize}
+                      </span>
+                      <Show when={option.isHost || option.isMember}>
+                        <span class="text-[8px] text-accent-gold tracking-[0.1em] font-semibold uppercase">
+                          {option.isHost ? 'H' : 'J'}
+                        </span>
+                      </Show>
+                    </div>
+                  </div>
+                )}
+              </For>
+            </div>
+
+            <Show when={hiddenCount() > 0 || props.error}>
+              <div class="flex items-center justify-between gap-2 px-1 text-[9px] leading-none">
+                <span class="text-text-secondary/80">
+                  {hiddenCount() > 0 ? `+${hiddenCount()} more` : ''}
+                </span>
+                <Show when={props.error}>
+                  {error => <span class="text-accent-red truncate">{error()}</span>}
+                </Show>
+              </div>
+            </Show>
+          </div>
+        </Show>
+      </MiniFrame>
+    )
+  }
+
   return (
     <section class="flex flex-col gap-6">
       {/* Header: spacer | title | close button */}
@@ -126,5 +198,11 @@ function formatTargetTitle(option: ActivityTargetOption): string {
 function formatTargetStatus(option: ActivityTargetOption): string {
   if (option.kind === 'lobby') return 'Open'
   if (option.status === 'drafting') return 'Drafting'
-  return 'Active'
+  return 'Completed'
+}
+
+function formatMiniTargetStatus(option: ActivityTargetOption): string {
+  if (option.kind === 'lobby') return 'O'
+  if (option.status === 'drafting') return 'D'
+  return 'C'
 }
