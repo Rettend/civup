@@ -5,6 +5,7 @@ import { Command, Option } from 'discord-hono'
 import { playerCardEmbed } from '../embeds/player-card.ts'
 import { syncPlayerProfileFromDiscord } from '../services/player/profile.ts'
 import { getPlayerRankProfile } from '../services/player/rank.ts'
+import { createStateStore } from '../services/state/store.ts'
 import { factory } from '../setup.ts'
 
 const MODE_CHOICES = [
@@ -33,6 +34,7 @@ export const command_stats = factory.command<Var>(
 
     return c.resDefer(async (c) => {
       const db = createDb(c.env.DB)
+      const kv = createStateStore(c.env)
       try {
         await syncPlayerProfileFromDiscord(db, c.env.DISCORD_TOKEN, targetId)
       }
@@ -41,7 +43,7 @@ export const command_stats = factory.command<Var>(
       }
 
       const rankProfile = guildId
-        ? await getPlayerRankProfile(db, c.env.KV, guildId, targetId)
+        ? await getPlayerRankProfile(db, kv, guildId, targetId)
         : null
 
       const embed = await playerCardEmbed(db, targetId, mode, { rankProfile })

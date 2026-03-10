@@ -7,6 +7,7 @@ import { resetCurrentRankedRoleState, syncRankedRoles } from '../../services/ran
 import { clearSeasonConfirmation, createSeasonConfirmation, getSeasonConfirmation } from '../../services/season/confirmation.ts'
 import { endSeason, formatSeasonName, getActiveSeason, getNextSeasonNumber, startSeason } from '../../services/season/index.ts'
 import { ensureSeasonSnapshotRoles, finalizeSeasonSnapshotRoles } from '../../services/season/snapshot-roles.ts'
+import { createStateStore } from '../../services/state/store.ts'
 import { factory } from '../../setup.ts'
 import { getInteractionUserId, sendEphemeralResponse, sendTransientEphemeralResponse, updateSeasonActionPrompt } from './shared.ts'
 
@@ -128,14 +129,15 @@ export const component_admin_season_confirm = factory.component(
 
     return c.update().resDefer(async (c: AdminComponentContext) => {
       await clearSeasonConfirmation(c.env.KV, token)
+      const kv = createStateStore(c.env)
 
       if (pending.action === 'start') {
         try {
           const db = createDb(c.env.DB)
-          const season = await startSeason(db, { kv: c.env.KV })
-          await resetCurrentRankedRoleState({ kv: c.env.KV, guildId, token: c.env.DISCORD_TOKEN })
-          await refreshConfiguredLeaderboards(db, c.env.KV, c.env.DISCORD_TOKEN)
-          await ensureSeasonSnapshotRoles(c.env.KV, guildId, c.env.DISCORD_TOKEN, season)
+          const season = await startSeason(db, { kv })
+          await resetCurrentRankedRoleState({ kv, guildId, token: c.env.DISCORD_TOKEN })
+          await refreshConfiguredLeaderboards(db, kv, c.env.DISCORD_TOKEN)
+          await ensureSeasonSnapshotRoles(kv, guildId, c.env.DISCORD_TOKEN, season)
           await updateSeasonActionPrompt(c, `Started **${season.name}**. New matches will now count toward this season.`, 'success')
         }
         catch (error) {
@@ -147,10 +149,10 @@ export const component_admin_season_confirm = factory.component(
 
       try {
         const db = createDb(c.env.DB)
-        await syncRankedRoles({ db, kv: c.env.KV, guildId })
+        await syncRankedRoles({ db, kv, guildId })
         const season = await endSeason(db)
-        await archiveSeasonLeaderboards(db, c.env.KV, c.env.DISCORD_TOKEN, season.name)
-        await finalizeSeasonSnapshotRoles(db, c.env.KV, guildId, c.env.DISCORD_TOKEN, season)
+        await archiveSeasonLeaderboards(db, kv, c.env.DISCORD_TOKEN, season.name)
+        await finalizeSeasonSnapshotRoles(db, kv, guildId, c.env.DISCORD_TOKEN, season)
         await updateSeasonActionPrompt(c, `Ended **${season.name}**. Season data is now archived.`, 'success')
       }
       catch (error) {
