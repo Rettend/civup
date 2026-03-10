@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
+import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
 import { registerLobbyRoutes } from '../../src/routes/lobby/index.ts'
+import { getLobbyForUser, storeUserActivityTarget, storeUserLobbyMappings } from '../../src/services/activity/index.ts'
 import { createLobby, getLobbyById, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../../src/services/lobby/index.ts'
-import { addToQueue } from '../../src/services/queue/index.ts'
+import { addToQueue, getPlayerQueueMode } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
@@ -141,6 +143,121 @@ describe('lobby routes', () => {
     expect(joinResponse.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
     expect(updatedLobby?.memberPlayerIds).toEqual(['host', 'pleb'])
+  })
+
+  test('removing yourself from a slot clears queue state so you can rejoin', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '1v1',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '1v1', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '1v1', {
+      playerId: 'pleb',
+      displayName: 'Pleb',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+
+    const withMember = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'pleb'], lobby)
+    const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'pleb'], withMember ?? lobby)
+    expect(withSlots).not.toBeNull()
+
+    await storeUserLobbyMappings(kv, ['pleb'], lobby.id)
+    await storeUserActivityTarget(kv, lobby.channelId, ['pleb'], { kind: 'lobby', id: lobby.id })
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const removeResponse = await app.request('/api/lobby/1v1/remove', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: 'pleb', slot: 1, lobbyId: lobby.id }),
+    }, buildEnv(kv))
+    expect(removeResponse.status).toBe(200)
+
+    expect(await getPlayerQueueMode(kv, 'pleb')).toBeNull()
+    expect(await getLobbyForUser(kv, 'pleb')).toBeNull()
+
+    const rejoinResponse = await app.request('/api/lobby/1v1/place', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: 'pleb',
+        lobbyId: lobby.id,
+        targetSlot: 1,
+        displayName: 'Pleb',
+        avatarUrl: null,
+      }),
+    }, buildEnv(kv))
+
+    expect(rejoinResponse.status).toBe(200)
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.memberPlayerIds).toEqual(['host', 'pleb'])
+  })
+
+  test('removing yourself keeps the current lobby selected for spectating', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '1v1',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '1v1', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '1v1', {
+      playerId: 'pleb',
+      displayName: 'Pleb',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+
+    const withMember = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'pleb'], lobby)
+    const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'pleb'], withMember ?? lobby)
+    expect(withSlots).not.toBeNull()
+
+    await storeUserLobbyMappings(kv, ['pleb'], lobby.id)
+    await storeUserActivityTarget(kv, lobby.channelId, ['pleb'], { kind: 'lobby', id: lobby.id })
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const removeResponse = await app.request('/api/lobby/1v1/remove', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: 'pleb', slot: 1, lobbyId: lobby.id }),
+    }, buildEnv(kv))
+    expect(removeResponse.status).toBe(200)
+
+    const snapshot = await buildActivityLaunchSnapshot('token', kv, lobby.channelId, 'pleb')
+    expect(snapshot.selection?.kind).toBe('lobby')
+    if (snapshot.selection?.kind !== 'lobby') return
+    expect(snapshot.selection.lobby.id).toBe(lobby.id)
+    expect(snapshot.selection.joinEligibility.canJoin).toBe(true)
   })
 })
 

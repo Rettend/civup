@@ -193,7 +193,7 @@ export async function resolveMemberCurrentCompetitiveTier(
 export function getRankedRoleGateError(config: RankedRoleConfig, minRole: CompetitiveTier): string | null {
   return getConfiguredRankedRoleId(config, minRole)
     ? null
-    : 'This matchmaking min rank is not configured yet. Ask an admin to run /admin ranked roles.'
+    : 'This min rank is not configured yet. Ask an admin to run /admin ranked roles.'
 }
 
 export function buildRankedRoleVisuals(

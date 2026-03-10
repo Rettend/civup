@@ -372,7 +372,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   }
 
   const showMinRoleSetMessage = (detail: MinRoleSetDetail) => {
-    setConfigMessage(`Matchmaking min rank set to ${detail.roleLabel}`)
+    setConfigMessage(`Min rank set to ${detail.roleLabel}`)
     setConfigMessageTone('info')
     setMinRoleSetDetail(detail)
   }
@@ -705,7 +705,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         })
       }
       else {
-        showInfoMessage('Matchmaking min rank cleared')
+        showInfoMessage('Min rank cleared')
       }
     }
     finally {
