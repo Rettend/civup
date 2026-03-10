@@ -501,7 +501,7 @@ async function buildRankedRolePreviewState({
       unrankedCount,
       distribution,
     },
-      ratings,
+    ratings,
   }
 }
 
