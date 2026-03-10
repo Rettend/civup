@@ -1,6 +1,8 @@
 import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { LobbyDraftConfig, LobbyState, LobbyStatus } from './types.ts'
 import { nanoid } from 'nanoid'
+import { stateStoreMdelete } from '../state/store.ts'
+import { channelIndexKey } from './keys.ts'
 import { createEmptySlots, DEFAULT_DRAFT_CONFIG, normalizeCompetitiveTier, normalizeDraftConfig, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from './normalize.ts'
 import { getLobbyById, putLobby } from './store.ts'
 
@@ -135,6 +137,9 @@ export async function setLobbyMessage(
     messageId,
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
+  }
+  if (lobby.channelId !== channelId) {
+    await stateStoreMdelete(kv, [channelIndexKey(lobby.channelId, lobby.id)])
   }
   await putLobby(kv, updated)
   return updated

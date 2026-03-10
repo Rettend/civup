@@ -15,7 +15,6 @@ import {
 
   predictWinProbabilities,
   seasonReset,
-  Z_MULTIPLIER,
 } from '../src/index.ts'
 
 // ── createRating ────────────────────────────────────────────
@@ -32,20 +31,18 @@ describe('createRating', () => {
 // ── displayRating ───────────────────────────────────────────
 
 describe('displayRating', () => {
-  test('returns base + scale*(mu - Z_MULTIPLIER*sigma) for default rating', () => {
+  test('anchors new players at the display rating base', () => {
     const dr = displayRating(DEFAULT_MU, DEFAULT_SIGMA)
-    expect(dr).toBeCloseTo(DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * (DEFAULT_MU - Z_MULTIPLIER * DEFAULT_SIGMA), 2)
+    expect(dr).toBeCloseTo(DISPLAY_RATING_BASE, 2)
   })
 
-  test('returns positive value for skilled player', () => {
-    // After many games, sigma shrinks and mu grows
+  test('moves linearly with mu', () => {
     const dr = displayRating(30, 3)
-    expect(dr).toBeCloseTo(DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * (30 - Z_MULTIPLIER * 3), 0)
+    expect(dr).toBeCloseTo(DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * (30 - DEFAULT_MU), 0)
   })
 
-  test('returns below base for very uncertain player', () => {
-    const dr = displayRating(10, 10) // 10 - 20 = -10 * 5 = -50 + 600 = 550
-    expect(dr).toBeLessThan(DISPLAY_RATING_BASE)
+  test('ignores sigma in visible display rating', () => {
+    expect(displayRating(30, 3)).toBeCloseTo(displayRating(30, 10), 8)
   })
 })
 
@@ -266,7 +263,7 @@ describe('buildLeaderboard', () => {
 
     const lb = buildLeaderboard(players)
 
-    expect(lb[0]!.displayRating).toBeCloseTo(DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * (30 - Z_MULTIPLIER * 4), 0) // e.g. 710
+    expect(lb[0]!.displayRating).toBeCloseTo(DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * (30 - DEFAULT_MU), 0)
     expect(lb[0]!.winRate).toBeCloseTo(0.6, 2)
   })
 

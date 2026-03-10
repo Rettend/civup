@@ -6,7 +6,7 @@ import { formatModeLabel, isTeamMode, maxPlayerCount, teamSize as modeTeamSize }
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { filterQueueEntriesForLobby, getLobbiesByMode, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby/index.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
-import { getPlayerQueueMode, getQueueState, MAX_QUEUE_ENTRIES, setQueueEntries } from '../../services/queue/index.ts'
+import { getQueueStates, MAX_QUEUE_ENTRIES, setQueueEntries } from '../../services/queue/index.ts'
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, memberMeetsRankedRoleGate } from '../../services/ranked/roles.ts'
 import { createStateStore } from '../../services/state/store.ts'
 
@@ -133,6 +133,7 @@ export async function joinLobbyAndMaybeStartMatch(
   requestedEntries: MatchJoinEntry[],
   options?: {
     preferredLobbyId?: string
+    skipMatchmakingMinRole?: boolean
   },
 ): Promise<
   | {
@@ -156,10 +157,19 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   const kv = createStateStore(c.env)
-  let queue = await getQueueState(kv, mode)
+  const queueStates = await getQueueStates(kv)
+  let queue = queueStates.get(mode)
+  if (!queue) throw new Error(`Queue state missing for mode ${mode}`)
   const openLobbies = (await getLobbiesByMode(kv, mode)).filter(lobby => lobby.status === 'open')
   const queueByPlayerId = new Map<string, QueueEntry>(queue.entries.map(entry => [entry.playerId, entry]))
+  const queueModeByPlayerId = new Map<string, GameMode>()
   const lobbyByPlayerId = new Map<string, LobbyState>()
+
+  for (const queueState of queueStates.values()) {
+    for (const entry of queueState.entries) {
+      if (!queueModeByPlayerId.has(entry.playerId)) queueModeByPlayerId.set(entry.playerId, queueState.mode)
+    }
+  }
 
   for (const lobby of openLobbies) {
     for (const playerId of lobby.memberPlayerIds) {
@@ -168,12 +178,10 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   for (const entry of requestedEntries) {
-    const existingMode = queueByPlayerId.has(entry.playerId)
-      ? mode
-      : await getPlayerQueueMode(kv, entry.playerId)
+    const existingMode = queueByPlayerId.has(entry.playerId) ? mode : (queueModeByPlayerId.get(entry.playerId) ?? null)
     if (!existingMode || existingMode === mode) continue
     return {
-      error: `<@${entry.playerId}> is already in the ${formatModeLabel(existingMode)} queue. Leave it first with \`/match leave\`.`,
+      error: `<@${entry.playerId}> is already in a ${formatModeLabel(existingMode)} lobby.`,
     }
   }
 
@@ -259,6 +267,7 @@ export async function joinLobbyAndMaybeStartMatch(
         requestedEntries,
         rankedRoleConfigByGuildId,
         memberRoleIdsByKey,
+        options?.skipMatchmakingMinRole === true,
       )
       if (gateError) {
         return { gateError }
@@ -326,7 +335,9 @@ async function getRoleGateErrorForLobby(
   requestedEntries: MatchJoinEntry[],
   rankedRoleConfigByGuildId: Map<string, Awaited<ReturnType<typeof getRankedRoleConfig>>>,
   memberRoleIdsByKey: Map<string, string[]>,
+  skipMatchmakingMinRole: boolean,
 ): Promise<string | null> {
+  if (skipMatchmakingMinRole) return null
   if (!lobby.minRole) return null
   if (!lobby.guildId) return 'This lobby is missing guild context, so rank gating is unavailable.'
   if (!token) return 'Rank-gated lobbies are unavailable because the bot token is missing.'

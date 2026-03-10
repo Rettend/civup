@@ -34,6 +34,7 @@ export function PlayerChip(props: PlayerChipProps) {
       class={cn(
         'group flex items-center gap-2 rounded-md px-3 py-2 border transition-colors',
         props.row.empty ? 'bg-bg-primary/20 text-text-muted border-transparent' : 'bg-bg-primary/40 border-transparent',
+        props.row.pendingSelf && 'opacity-45',
         props.row.empty && props.showJoin && !props.pending && 'hover:bg-bg-primary/30 cursor-pointer',
         props.draggable && !props.pending && 'cursor-grab active:cursor-grabbing',
         props.dropActive && 'border-accent-gold/65 border-dashed bg-accent-gold/8',
@@ -103,7 +104,7 @@ export function PlayerChip(props: PlayerChipProps) {
         </button>
       </Show>
 
-      <Show when={!props.showJoin && !props.showRemove && props.row.isHost}>
+      <Show when={!props.row.pendingSelf && !props.showJoin && !props.showRemove && props.row.isHost}>
         <span class="text-[10px] text-accent-gold tracking-wider font-bold uppercase">Host</span>
       </Show>
     </div>
@@ -152,7 +153,7 @@ export function MinRoleMismatchNotice(props: { detail: MinRoleMismatchDetail }) 
     <span class="leading-relaxed">
       <strong class="text-text-primary font-semibold">{props.detail.playerName}</strong>
       {' '}
-      does not meet the new minimum rank
+      does not meet the new min rank
       {' '}
       <span
         class="font-semibold px-1.5 py-0.5 border rounded-sm inline-flex items-center"
@@ -167,7 +168,7 @@ export function MinRoleMismatchNotice(props: { detail: MinRoleMismatchDetail }) 
 export function MinRoleSetNotice(props: { detail: MinRoleSetDetail }) {
   return (
     <span class="leading-relaxed">
-      Minimum rank set to
+      Min rank set to
       {' '}
       <span
         class="font-semibold px-1.5 py-0.5 border rounded-sm inline-flex items-center"

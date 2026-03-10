@@ -1,11 +1,10 @@
 import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
-import type { RankedRoleVisual } from '../../services/ranked/roles.ts'
-import { COMPETITIVE_TIERS, GAME_MODES, maxPlayerCount, minPlayerCount } from '@civup/game'
+import { maxPlayerCount, MAX_LEADER_POOL_SIZE, minPlayerCount } from '@civup/game'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
-import { filterQueueEntriesForLobby, getLobbiesByMode, getLobbyById, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
+import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, getLobbyById, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
 import { getQueueState } from '../../services/queue/index.ts'
-import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, getRankedRoleGateError, memberMeetsRankedRoleGate } from '../../services/ranked/roles.ts'
+import { getRankedRoleConfig, normalizeRankedRoleTierId } from '../../services/ranked/roles.ts'
 
 const TEMP_LOBBY_START_MIN_PLAYERS_FFA = 1
 
@@ -76,9 +75,7 @@ export function canStartLobbyWithPlayerCount(mode: GameMode, playerCount: number
 }
 
 export async function getUniqueOpenLobbyForChannel(kv: KVNamespace, channelId: string): Promise<LobbyState | null> {
-  const lobbiesByMode = await Promise.all(GAME_MODES.map(mode => getLobbiesByMode(kv, mode)))
-  const openLobbies = lobbiesByMode
-    .flat()
+  const openLobbies = (await getLobbiesByChannel(kv, channelId))
     .filter(lobby => lobby.channelId === channelId && lobby.status === 'open')
     .sort((left, right) => right.updatedAt - left.updatedAt)
 
@@ -129,103 +126,26 @@ export function parseLobbyTimerSeconds(value: unknown): number | null | undefine
   return rounded
 }
 
+export function parseLobbyLeaderPoolSize(value: unknown): number | null | undefined {
+  if (value == null) return null
+  if (typeof value === 'string' && value.trim().length === 0) return null
+
+  const numeric = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(numeric)) return undefined
+
+  const rounded = Math.round(numeric)
+  if (rounded < 1 || rounded > MAX_LEADER_POOL_SIZE) return undefined
+  return rounded
+}
+
 export function parseLobbyMinRole(value: unknown): CompetitiveTier | null | undefined {
   if (value == null) return null
   if (typeof value === 'string' && value.trim().length === 0) return null
-  if (typeof value !== 'string') return undefined
-  return COMPETITIVE_TIERS.includes(value as CompetitiveTier) ? value as CompetitiveTier : undefined
-}
-
-export async function validatePlayerAgainstLobbyMinRole(
-  token: string,
-  kv: KVNamespace,
-  lobby: LobbyState,
-  playerId: string,
-): Promise<string | null> {
-  if (!lobby.minRole) return null
-  if (!lobby.guildId) return 'This lobby is missing guild context, so rank gating is unavailable.'
-
-  const config = await getRankedRoleConfig(kv, lobby.guildId)
-  const gateError = getRankedRoleGateError(config, lobby.minRole)
-  if (gateError) return gateError
-  const visuals = buildRankedRoleVisuals(config)
-  const minRoleVisual = getRankedRoleVisualForTier(visuals, lobby.minRole)
-
-  const roleIds = await fetchGuildMemberRoleIds(token, lobby.guildId, playerId)
-  if (memberMeetsRankedRoleGate(roleIds, lobby.minRole, config)) return null
-  return `This lobby requires at least ${minRoleVisual?.label ?? 'that ranked role'}.`
-}
-
-export async function validateLobbyMembersAgainstMinRole(
-  token: string,
-  lobby: LobbyState,
-  lobbyQueueEntries: Awaited<ReturnType<typeof getQueueState>>['entries'],
-  config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
-  minRole: CompetitiveTier,
-): Promise<{
-  error: string
-  errorCode: string
-  context?: {
-    playerId: string
-    playerName: string
-    minRole: RankedRoleVisual
-  }
-} | null> {
-  if (!lobby.guildId) {
-    return {
-      error: 'This lobby is missing guild context, so rank gating is unavailable.',
-      errorCode: 'MIN_ROLE_CONTEXT_MISSING',
-    }
-  }
-
-  const visuals = buildRankedRoleVisuals(config)
-  const minRoleVisual = getRankedRoleVisualForTier(visuals, minRole)
-  if (!minRoleVisual) {
-    return {
-      error: 'This minimum ranked role is not configured yet. Ask an admin to run /admin ranked roles.',
-      errorCode: 'MIN_ROLE_NOT_CONFIGURED',
-    }
-  }
-  const queueEntryByPlayerId = new Map(lobbyQueueEntries.map(entry => [entry.playerId, entry]))
-
-  for (const playerId of lobby.memberPlayerIds) {
-    const roleIds = await fetchGuildMemberRoleIds(token, lobby.guildId, playerId)
-    if (memberMeetsRankedRoleGate(roleIds, minRole, config)) continue
-
-    const playerName = queueEntryByPlayerId.get(playerId)?.displayName ?? 'Unknown player'
-    return {
-      error: `${playerName} does not meet the new minimum rank ${minRoleVisual.label}.`,
-      errorCode: 'MIN_ROLE_MEMBER_MISMATCH',
-      context: {
-        playerId,
-        playerName,
-        minRole: minRoleVisual,
-      },
-    }
-  }
-
-  return null
+  return normalizeRankedRoleTierId(value) ?? undefined
 }
 
 export function emptyRankedRoleConfig(): Awaited<ReturnType<typeof getRankedRoleConfig>> {
   return {
-    currentRoles: {
-      champion: null,
-      legion: null,
-      gladiator: null,
-      squire: null,
-      pleb: null,
-    },
-    currentRoleMeta: {
-      champion: { label: null, color: null },
-      legion: { label: null, color: null },
-      gladiator: { label: null, color: null },
-      squire: { label: null, color: null },
-      pleb: { label: null, color: null },
-    },
+    tiers: Array.from({ length: 5 }, () => ({ roleId: null, label: null, color: null })),
   }
-}
-
-function getRankedRoleVisualForTier(visuals: RankedRoleVisual[], tier: CompetitiveTier): RankedRoleVisual | null {
-  return visuals.find(visual => visual.tier === tier) ?? null
 }

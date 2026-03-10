@@ -10,7 +10,8 @@ import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { clearLobbyById, getLobbyByMatch, setLobbyStatus, upsertLobbyMessage } from '../services/lobby/index.ts'
 import { cancelMatchByModerator, getHostIdFromDraftData, reportMatch } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
-import { markRankedRolesDirty } from '../services/ranked/role-sync.ts'
+import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../services/ranked/role-sync.ts'
+import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 
@@ -78,11 +79,39 @@ export function registerMatchRoutes(app: Hono<Env>) {
     const reportedMode = result.match.gameMode as GameMode
 
     const lobby = await getLobbyByMatch(kv, result.match.id)
+    const guildId = lobby?.guildId ?? null
+    let rankedRoleLines: string[] = []
+    if (guildId) {
+      try {
+        const participantIds = result.participants.map(participant => participant.playerId)
+        const rankedPreview = await previewRankedRoles({
+          db,
+          kv,
+          guildId,
+          playerIds: participantIds,
+          includePlayerIdentities: false,
+        })
+        rankedRoleLines = await listRankedRoleMatchUpdateLines({
+          kv,
+          guildId,
+          preview: rankedPreview,
+          playerIds: participantIds,
+        })
+        await syncSeasonPeaksForPlayers(db, {
+          playerIds: participantIds,
+          playerPreviews: rankedPreview.playerPreviews,
+        })
+      }
+      catch (error) {
+        console.error(`Failed to preview ranked role changes after match ${result.match.id}:`, error)
+      }
+    }
+
     if (lobby) {
       await setLobbyStatus(kv, lobby.id, 'completed', lobby)
       try {
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-          embeds: [lobbyResultEmbed(lobby.mode, result.participants)],
+          embeds: [lobbyResultEmbed(lobby.mode, result.participants, undefined, { rankedRoleLines })],
           components: [],
         })
         await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
@@ -98,7 +127,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
     if (archiveChannelId) {
       try {
         const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-          embeds: [lobbyResultEmbed(reportedMode, result.participants)],
+          embeds: [lobbyResultEmbed(reportedMode, result.participants, undefined, { rankedRoleLines })],
         })
         await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
       }

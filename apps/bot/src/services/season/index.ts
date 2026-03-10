@@ -1,8 +1,11 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
-import { seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
+import { playerRatings, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
 import { competitiveTierRank } from '@civup/game'
+import { displayRating } from '@civup/rating'
 import { and, desc, eq, inArray } from 'drizzle-orm'
+import { clearAllLeaderboardModeSnapshots } from '../leaderboard/snapshot.ts'
+import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 
 export interface SeasonPeakCandidate {
   playerId: string
@@ -24,6 +27,15 @@ export interface SeasonModePeakCandidate {
   rating: number
 }
 
+export interface SeasonPeakPreviewPlayer {
+  playerId: string
+  assignment: {
+    tier: CompetitiveTier
+    sourceMode: LeaderboardMode | null
+  }
+  ladderTiers: Record<LeaderboardMode, CompetitiveTier | null>
+}
+
 export async function getActiveSeason(db: Database) {
   const [season] = await db
     .select()
@@ -35,31 +47,53 @@ export async function getActiveSeason(db: Database) {
   return season ?? null
 }
 
-export async function startSeason(db: Database, input: { name: string, now?: number }) {
-  const name = input.name.trim()
-  if (!name) throw new Error('Season name is required.')
-
-  const existing = await getActiveSeason(db)
-  if (existing) throw new Error(`Cannot start a new season while **${existing.name}** is still active.`)
-
-  const now = input.now ?? Date.now()
-  const [latestSeason] = await db
-    .select({ seasonNumber: seasons.seasonNumber })
+export async function getLatestSeason(db: Database) {
+  const [season] = await db
+    .select()
     .from(seasons)
     .orderBy(desc(seasons.seasonNumber))
     .limit(1)
 
-  const seasonNumber = (latestSeason?.seasonNumber ?? 0) + 1
+  return season ?? null
+}
+
+export async function getDisplaySeason(db: Database) {
+  const activeSeason = await getActiveSeason(db)
+  if (activeSeason) return activeSeason
+  return await getLatestSeason(db)
+}
+
+export async function getNextSeasonNumber(db: Database): Promise<number> {
+  const latestSeason = await getLatestSeason(db)
+  return (latestSeason?.seasonNumber ?? 0) + 1
+}
+
+export function formatSeasonName(seasonNumber: number): string {
+  return `Season ${Math.max(1, Math.round(seasonNumber))}`
+}
+
+export function formatSeasonShortName(seasonNumber: number): string {
+  return `S${Math.max(1, Math.round(seasonNumber))}`
+}
+
+export async function startSeason(db: Database, input: { now?: number, kv?: KVNamespace } = {}) {
+  const existing = await getActiveSeason(db)
+  if (existing) throw new Error(`Cannot start a new season while **${existing.name}** is still active.`)
+
+  const now = input.now ?? Date.now()
+  const seasonNumber = await getNextSeasonNumber(db)
   const season = {
     id: `season-${seasonNumber}`,
     seasonNumber,
-    name,
+    name: formatSeasonName(seasonNumber),
     startsAt: now,
     endsAt: null,
     active: true,
   } as const
 
   await db.insert(seasons).values(season)
+  await db.delete(playerRatings)
+  if (input.kv) await clearAllLeaderboardModeSnapshots(input.kv)
   return season
 }
 
@@ -117,12 +151,18 @@ export async function syncSeasonPeakRanks(
   let skipped = 0
 
   for (const candidate of activeCandidates) {
+    const normalizedTier = normalizeRankedRoleTierId(candidate.tier)
+    if (!normalizedTier) {
+      skipped += 1
+      continue
+    }
+
     const existing = existingByPlayerId.get(candidate.playerId)
     if (!existing) {
       await db.insert(seasonPeakRanks).values({
         seasonId: input.seasonId,
         playerId: candidate.playerId,
-        tier: candidate.tier,
+        tier: normalizedTier,
         sourceMode: candidate.sourceMode,
         achievedAt: now,
       })
@@ -130,7 +170,8 @@ export async function syncSeasonPeakRanks(
       continue
     }
 
-    if (competitiveTierRank(candidate.tier) <= competitiveTierRank(existing.tier as CompetitiveTier)) {
+    const existingTier = normalizeRankedRoleTierId(existing.tier)
+    if (existingTier && competitiveTierRank(normalizedTier) <= competitiveTierRank(existingTier)) {
       skipped += 1
       continue
     }
@@ -138,7 +179,7 @@ export async function syncSeasonPeakRanks(
     await db
       .update(seasonPeakRanks)
       .set({
-        tier: candidate.tier,
+        tier: normalizedTier,
         sourceMode: candidate.sourceMode,
         achievedAt: now,
       })
@@ -199,6 +240,7 @@ export async function syncSeasonPeakModeRanks(
   let skipped = 0
 
   for (const candidate of activeCandidates) {
+    const normalizedTier = candidate.tier ? normalizeRankedRoleTierId(candidate.tier) : null
     const key = `${candidate.playerId}:${candidate.mode}`
     const existing = existingByKey.get(key)
     if (!existing) {
@@ -206,7 +248,7 @@ export async function syncSeasonPeakModeRanks(
         seasonId: input.seasonId,
         playerId: candidate.playerId,
         mode: candidate.mode,
-        tier: candidate.tier,
+        tier: normalizedTier,
         rating: candidate.rating,
         achievedAt: now,
       })
@@ -214,7 +256,7 @@ export async function syncSeasonPeakModeRanks(
       continue
     }
 
-    if (!isBetterSeasonModePeak(candidate, existing)) {
+    if (!isBetterSeasonModePeak({ ...candidate, tier: normalizedTier }, existing)) {
       skipped += 1
       continue
     }
@@ -222,7 +264,7 @@ export async function syncSeasonPeakModeRanks(
     await db
       .update(seasonPeakModeRanks)
       .set({
-        tier: candidate.tier,
+        tier: normalizedTier,
         rating: candidate.rating,
         achievedAt: now,
       })
@@ -243,12 +285,126 @@ export async function syncSeasonPeakModeRanks(
   }
 }
 
+export async function syncSeasonPeaksForPlayers(
+  db: Database,
+  input: {
+    playerIds: string[]
+    playerPreviews: SeasonPeakPreviewPlayer[]
+    now?: number
+  },
+): Promise<{
+  seasonId: string | null
+  overall: SeasonPeakSyncResult
+  byMode: SeasonPeakSyncResult
+}> {
+  const activeSeason = await getActiveSeason(db)
+  if (!activeSeason) {
+    return {
+      seasonId: null,
+      overall: emptySeasonPeakSyncResult(null),
+      byMode: emptySeasonPeakSyncResult(null),
+    }
+  }
+
+  const playerIds = [...new Set(input.playerIds.filter(playerId => playerId.length > 0))]
+  if (playerIds.length === 0) {
+    return {
+      seasonId: activeSeason.id,
+      overall: emptySeasonPeakSyncResult(activeSeason.id),
+      byMode: emptySeasonPeakSyncResult(activeSeason.id),
+    }
+  }
+
+  const ratings = await db
+    .select({
+      playerId: playerRatings.playerId,
+      mode: playerRatings.mode,
+      mu: playerRatings.mu,
+      sigma: playerRatings.sigma,
+      lastPlayedAt: playerRatings.lastPlayedAt,
+    })
+    .from(playerRatings)
+    .where(inArray(playerRatings.playerId, playerIds))
+
+  const previewByPlayerId = new Map(input.playerPreviews.map(player => [player.playerId, player]))
+  const activePlayerIds = new Set<string>()
+  const activeModesByPlayerId = new Map<string, Set<LeaderboardMode>>()
+
+  for (const row of ratings) {
+    const mode = row.mode as LeaderboardMode
+    const lastPlayedAt = row.lastPlayedAt ?? null
+    if (lastPlayedAt == null || lastPlayedAt < activeSeason.startsAt) continue
+
+    activePlayerIds.add(row.playerId)
+    const activeModes = activeModesByPlayerId.get(row.playerId) ?? new Set<LeaderboardMode>()
+    activeModes.add(mode)
+    activeModesByPlayerId.set(row.playerId, activeModes)
+  }
+
+  const overallCandidates = playerIds
+    .map((playerId) => {
+      const preview = previewByPlayerId.get(playerId)
+      if (!preview) return null
+      return {
+        playerId,
+        tier: preview.assignment.tier,
+        sourceMode: preview.assignment.sourceMode,
+      }
+    })
+    .filter((candidate): candidate is SeasonPeakCandidate => candidate !== null)
+
+  const modeCandidates = ratings
+    .map((row) => {
+      const mode = row.mode as LeaderboardMode
+      const preview = previewByPlayerId.get(row.playerId)
+      if (!preview) return null
+      return {
+        playerId: row.playerId,
+        mode,
+        tier: preview.ladderTiers[mode] ?? null,
+        rating: Math.round(displayRating(row.mu, row.sigma)),
+      }
+    })
+    .filter((candidate): candidate is SeasonModePeakCandidate => candidate !== null)
+
+  const [overall, byMode] = await Promise.all([
+    syncSeasonPeakRanks(db, {
+      seasonId: activeSeason.id,
+      candidates: overallCandidates,
+      activePlayerIds,
+      now: input.now,
+    }),
+    syncSeasonPeakModeRanks(db, {
+      seasonId: activeSeason.id,
+      candidates: modeCandidates,
+      activeModesByPlayerId,
+      now: input.now,
+    }),
+  ])
+
+  return {
+    seasonId: activeSeason.id,
+    overall,
+    byMode,
+  }
+}
+
 function isBetterSeasonModePeak(
   candidate: SeasonModePeakCandidate,
   existing: { tier: string | null, rating: number },
 ): boolean {
   const candidateRank = candidate.tier ? competitiveTierRank(candidate.tier) : -1
-  const existingRank = existing.tier ? competitiveTierRank(existing.tier as CompetitiveTier) : -1
+  const existingTier = normalizeRankedRoleTierId(existing.tier)
+  const existingRank = existingTier ? competitiveTierRank(existingTier) : -1
   if (candidateRank !== existingRank) return candidateRank > existingRank
   return candidate.rating > existing.rating
+}
+
+function emptySeasonPeakSyncResult(seasonId: string | null): SeasonPeakSyncResult {
+  return {
+    seasonId,
+    inserted: 0,
+    updated: 0,
+    skipped: 0,
+  }
 }

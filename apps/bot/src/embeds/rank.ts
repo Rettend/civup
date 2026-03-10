@@ -6,6 +6,7 @@ import { players } from '@civup/db'
 import { formatLeaderboardModeLabel, LEADERBOARD_MODES } from '@civup/game'
 import { Embed } from 'discord-hono'
 import { eq } from 'drizzle-orm'
+import { formatSeasonShortName } from '../services/season/index.ts'
 
 export async function rankEmbed(
   db: Database,
@@ -24,21 +25,22 @@ export async function rankEmbed(
 
   const displayName = player?.displayName ?? `<@${playerId}>`
   const activeSeason = options.activeSeason
-  const currentSeasonName = activeSeason?.name ?? 'Current Rank'
 
   const pastSeasons = activeSeason
     ? options.seasonHistory.filter(entry => entry.seasonId !== activeSeason.id)
     : options.seasonHistory
 
   const fields: Array<{ name: string, value: string, inline?: boolean }> = []
-  pushSeasonFields(fields, currentSeasonName, {
-    ffa: rankProfile.modes.ffa.gamesPlayed > 0 ? rankProfile.modes.ffa : undefined,
-    duel: rankProfile.modes.duel.gamesPlayed > 0 ? rankProfile.modes.duel : undefined,
-    teamers: rankProfile.modes.teamers.gamesPlayed > 0 ? rankProfile.modes.teamers : undefined,
-  })
+  if (activeSeason) {
+    pushSeasonFields(fields, formatSeasonShortName(activeSeason.seasonNumber), {
+      ffa: rankProfile.modes.ffa.gamesPlayed > 0 ? rankProfile.modes.ffa : undefined,
+      duel: rankProfile.modes.duel.gamesPlayed > 0 ? rankProfile.modes.duel : undefined,
+      teamers: rankProfile.modes.teamers.gamesPlayed > 0 ? rankProfile.modes.teamers : undefined,
+    }, { emptyValue: 'No ranked games yet.' })
+  }
 
   for (const season of pastSeasons) {
-    pushSeasonFields(fields, season.seasonName, season.modes)
+    pushSeasonFields(fields, formatSeasonShortName(season.seasonNumber), season.modes)
   }
 
   if (fields.length === 0) {
@@ -86,28 +88,40 @@ function formatModeRole(mode: PlayerRankModeSummary | SeasonRankHistoryModeSumma
 
 function pushSeasonFields(
   fields: Array<{ name: string, value: string, inline?: boolean }>,
-  seasonName: string,
+  seasonLabel: string,
   modes: Partial<Record<LeaderboardMode, PlayerRankModeSummary | SeasonRankHistoryModeSummary | undefined>>,
-): void {
+  options: { emptyValue?: string } = {},
+): boolean {
   const visibleModes = LEADERBOARD_MODES
     .map(mode => ({ mode, summary: modes[mode] }))
     .filter((entry): entry is { mode: LeaderboardMode, summary: PlayerRankModeSummary | SeasonRankHistoryModeSummary } => {
       return !!entry.summary && entry.summary.gamesPlayed > 0
     })
 
-  if (visibleModes.length === 0) return
+  if (visibleModes.length === 0) {
+    if (!options.emptyValue) return false
+    pushInlineSeasonRow(fields, seasonLabel, [{ name: '\u200B', value: options.emptyValue, inline: true }])
+    return true
+  }
 
-  fields.push({
-    name: seasonName,
-    value: '\u200B',
-    inline: false,
-  })
-
-  for (const entry of visibleModes) {
-    fields.push({
+  for (let index = 0; index < visibleModes.length; index += 2) {
+    const chunk = visibleModes.slice(index, index + 2)
+    pushInlineSeasonRow(fields, seasonLabel, chunk.map(entry => ({
       name: formatLeaderboardModeLabel(entry.mode, entry.mode),
       value: formatModeSummary(entry.summary),
       inline: true,
-    })
+    })))
   }
+
+  return true
+}
+
+function pushInlineSeasonRow(
+  fields: Array<{ name: string, value: string, inline?: boolean }>,
+  seasonLabel: string,
+  rowFields: Array<{ name: string, value: string, inline?: boolean }>,
+): void {
+  fields.push({ name: seasonLabel, value: '\u200B', inline: true })
+  fields.push(...rowFields)
+  while (fields.length % 3 !== 0) fields.push({ name: '\u200B', value: '\u200B', inline: true })
 }
