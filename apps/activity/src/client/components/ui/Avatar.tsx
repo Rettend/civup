@@ -16,9 +16,9 @@ const sizes = {
 } as const
 
 const rings = {
-  gold: 'ring-2 ring-accent-gold',
-  red: 'ring-2 ring-accent-red',
-  blue: 'ring-2 ring-accent-blue',
+  gold: 'ring-2 ring-accent',
+  red: 'ring-2 ring-danger',
+  blue: 'ring-2 ring-info',
   none: '',
 } as const
 
@@ -33,7 +33,7 @@ export function Avatar(props: AvatarProps) {
   return (
     <div
       class={cn(
-        'relative rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center bg-bg-secondary',
+        'relative rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center bg-bg-subtle',
         sizes[local.size ?? 'md'],
         rings[local.ring ?? 'none'],
         local.class,
@@ -49,7 +49,7 @@ export function Avatar(props: AvatarProps) {
             />
           )
         : (
-            <span class="text-text-muted font-semibold">{initials()}</span>
+            <span class="text-fg-subtle font-semibold">{initials()}</span>
           )}
     </div>
   )

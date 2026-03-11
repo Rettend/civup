@@ -3,11 +3,11 @@ import { splitProps } from 'solid-js'
 import { cn } from '~/client/lib/css'
 
 const variants = {
-  gold: 'bg-accent-gold text-bg-primary hover:bg-accent-gold/90 font-semibold',
-  red: 'bg-accent-red text-white hover:bg-accent-red/90 font-semibold',
-  ghost: 'bg-transparent text-text-secondary hover:bg-bg-hover hover:text-text-primary',
-  redOutline: 'border border-accent-red/50 bg-accent-red/10 text-accent-red/90 hover:bg-accent-red/15 hover:border-accent-red/80 hover:text-accent-red font-medium',
-  outline: 'border border-border-subtle text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+  gold: 'bg-accent text-bg hover:brightness-110 font-semibold',
+  red: 'bg-danger text-white hover:brightness-110 font-semibold',
+  ghost: 'bg-transparent text-fg-muted border border-border hover:bg-bg-muted hover:text-fg',
+  redOutline: 'border border-danger/50 bg-danger/10 text-danger/90 hover:bg-danger/15 hover:border-danger/80 hover:text-danger font-medium',
+  outline: 'border border-border text-fg-muted hover:bg-bg-muted hover:text-fg hover:border-border-hover',
 } as const
 
 const sizes = {
