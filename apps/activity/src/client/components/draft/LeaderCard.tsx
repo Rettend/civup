@@ -26,9 +26,11 @@ const ZOOMED_LEADERS = [
 const SLIGHTLY_ZOOMED_LEADERS = [
   'Te\' K\'inich II',
 ]
+const DOUBLE_TAP_DETAIL_WINDOW_MS = 280
 
 interface LeaderCardProps {
   leader: Leader
+  detailTrigger?: 'single' | 'double'
   /** Called while hovering to position the lightweight tooltip */
   onHoverMove?: (leader: Leader, x: number, y: number) => void
   /** Called when hover/focus leaves this card */
@@ -39,6 +41,7 @@ interface LeaderCardProps {
 export function LeaderCard(props: LeaderCardProps) {
   const state = () => draftStore.state
   const step = currentStep
+  let lastDetailTapAt = 0
 
   const isBanned = (): boolean => state()?.bans.some(b => b.civId === props.leader.id) ?? false
   const isPicked = (): boolean => state()?.picks.some(p => p.civId === props.leader.id) ?? false
@@ -56,7 +59,20 @@ export function LeaderCard(props: LeaderCardProps) {
   const handleClick = () => {
     props.onHoverLeave?.()
 
-    toggleDetail(props.leader.id)
+    if (props.detailTrigger === 'double') {
+      const now = Date.now()
+      const isDoubleTap = now - lastDetailTapAt <= DOUBLE_TAP_DETAIL_WINDOW_MS
+      lastDetailTapAt = now
+
+      if (isDoubleTap) {
+        lastDetailTapAt = 0
+        toggleDetail(props.leader.id)
+        return
+      }
+    }
+    else {
+      toggleDetail(props.leader.id)
+    }
 
     if (!isClickable()) return
 

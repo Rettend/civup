@@ -29,8 +29,9 @@ type AppState
 const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
   || (typeof window !== 'undefined' ? window.location.host : 'localhost:5173')
 const ACTIVITY_SAFETY_POLL_MS = 90_000
-const MINI_VIEW_MAX_WIDTH = 520
-const MINI_VIEW_MAX_HEIGHT = 340
+const MINI_VIEW_MAX_WIDTH = 430
+const MINI_VIEW_MAX_HEIGHT = 260
+const MINI_VIEW_MIN_ASPECT_RATIO = 1.5
 
 export default function App() {
   const [state, setState] = createSignal<AppState>({ status: 'loading' })
@@ -75,10 +76,29 @@ export default function App() {
   })
 
   onMount(() => {
-    const syncMiniView = () => setIsMiniView(window.innerWidth <= MINI_VIEW_MAX_WIDTH && window.innerHeight <= MINI_VIEW_MAX_HEIGHT)
+    const viewport = window.visualViewport
+    const syncMiniView = () => {
+      const width = viewport?.width ?? window.innerWidth
+      const height = viewport?.height ?? window.innerHeight
+      const isLandscape = width > height
+      const aspectRatio = height > 0 ? width / height : 0
+
+      setIsMiniView(
+        isLandscape
+        && width <= MINI_VIEW_MAX_WIDTH
+        && height <= MINI_VIEW_MAX_HEIGHT
+        && aspectRatio >= MINI_VIEW_MIN_ASPECT_RATIO,
+      )
+    }
+
     syncMiniView()
     window.addEventListener('resize', syncMiniView)
-    onCleanup(() => window.removeEventListener('resize', syncMiniView))
+    viewport?.addEventListener('resize', syncMiniView)
+
+    onCleanup(() => {
+      window.removeEventListener('resize', syncMiniView)
+      viewport?.removeEventListener('resize', syncMiniView)
+    })
   })
 
   const currentTargetKey = () => {
