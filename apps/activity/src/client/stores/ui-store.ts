@@ -29,14 +29,14 @@ export const phaseAccent = createMemo(() => {
 
 /** CSS color value for the current phase accent */
 export const phaseAccentColor = createMemo(() => {
-  return phaseAccent() === 'red' ? '#e84057' : '#c8aa6e'
+  return phaseAccent() === 'red' ? 'var(--danger)' : 'var(--accent)'
 })
 
 /** Header tint class for phase mood */
 export const phaseHeaderBg = createMemo(() => {
   const step = currentStep()
-  if (!step) return 'bg-bg-secondary'
-  return step.action === 'ban' ? 'bg-[#1a0a0e]' : 'bg-bg-secondary'
+  if (!step) return 'bg-bg-subtle'
+  return step.action === 'ban' ? 'bg-[var(--phase-ban-bg)]' : 'bg-bg-subtle'
 })
 
 // ── Actions ────────────────────────────────────────────────

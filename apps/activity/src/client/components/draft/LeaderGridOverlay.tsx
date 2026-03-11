@@ -254,12 +254,12 @@ export function LeaderGridOverlay() {
 
           {/* Left: Filter panel */}
           <Show when={filtersOpen()}>
-            <div class="anim-detail-in grid-panel-glow border border-r-0 border-white/8 rounded-l-lg bg-bg-secondary flex shrink-0 flex-col w-56 shadow-2xl bottom-0 right-full top-0 absolute z-10 overflow-hidden">
+            <div class="anim-detail-in grid-panel-glow border border-r-0 border-border rounded-l-lg bg-bg-subtle flex shrink-0 flex-col w-56 shadow-2xl bottom-0 right-full top-0 absolute z-10 overflow-hidden">
               <div class="p-3 flex-1 overflow-y-auto">
                 <div class="mb-2 flex shrink-0 items-center justify-between">
-                  <span class="text-xs text-text-secondary font-semibold">Filters</span>
+                  <span class="text-xs text-fg-muted font-semibold">Filters</span>
                   <button
-                    class="text-[10px] text-text-muted px-2 py-0.5 border border-white/10 rounded transition-colors hover:text-text-secondary hover:bg-bg-hover disabled:opacity-40 disabled:cursor-not-allowed"
+                    class="text-[10px] text-fg-subtle px-2 py-0.5 border border-border rounded transition-colors hover:text-fg-muted hover:bg-bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
                     disabled={activeTagFilterCount() === 0}
                     onClick={clearTagFilters}
                   >
@@ -272,7 +272,7 @@ export function LeaderGridOverlay() {
                     {category => (
                       <Show when={FILTER_TAG_OPTIONS[category].length > 0}>
                         <div>
-                          <div class="text-[10px] text-text-muted tracking-widest font-semibold mb-1 uppercase">{TAG_CATEGORY_LABELS[category]}</div>
+                          <div class="text-[10px] text-fg-subtle tracking-widest font-semibold mb-1 uppercase">{TAG_CATEGORY_LABELS[category]}</div>
                           <div class="flex flex-wrap gap-1.5">
                             <For each={FILTER_TAG_OPTIONS[category]}>
                               {(option) => {
@@ -299,28 +299,28 @@ export function LeaderGridOverlay() {
           {/* Center: Main grid */}
           <div
             class={cn(
-              'flex flex-col w-full max-h-full overflow-hidden rounded-lg bg-bg-secondary shadow-2xl grid-panel-glow relative z-20',
+              'flex flex-col w-full max-h-full overflow-hidden rounded-lg bg-bg-subtle shadow-2xl grid-panel-glow relative z-20',
               'w-[min(calc(100vw-36rem),68rem)]',
-              'border border-white/8',
+              'border border-border',
               filtersOpen() && 'rounded-r-none',
               hasDetail() && 'rounded-l-none',
             )}
           >
-            <div class="px-3 py-2 border-b border-white/5 flex gap-2 items-center">
+            <div class="px-3 py-2 border-b border-border-subtle flex gap-2 items-center">
               {/* Search */}
               <div class="shrink-0 min-w-40 w-52 relative xl:w-64">
-                <div class="i-ph-magnifying-glass-bold text-sm text-text-muted left-3 top-1/2 absolute -translate-y-1/2" />
+                <div class="i-ph-magnifying-glass-bold text-sm text-fg-subtle left-3 top-1/2 absolute -translate-y-1/2" />
                 <input
                   type="text"
                   placeholder="Search..."
                   value={searchQuery()}
                   onInput={e => setSearchQuery(e.currentTarget.value)}
                   class={cn(
-                    'text-sm text-text-primary px-3.5 py-2 pl-8 rounded-lg w-full',
-                    'bg-bg-primary/60 border border-white/8',
+                    'text-sm text-fg px-3.5 py-2 pl-8 rounded-lg w-full',
+                    'bg-bg/60 border border-border',
                     'outline-none transition-all duration-150',
-                    'placeholder:text-text-muted/60',
-                    'focus:border-accent-gold/50 focus:bg-bg-primary/80 focus:shadow-[0_0_0_3px_rgba(200,170,110,0.08)]',
+                    'placeholder:text-fg-subtle/60',
+                    'focus:border-accent/50 focus:bg-bg/80 focus:shadow-[0_0_0_3px_var(--accent-subtle)]',
                   )}
                 />
               </div>
@@ -330,15 +330,15 @@ export function LeaderGridOverlay() {
                 class={cn(
                   'inline-flex items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-all duration-150 cursor-pointer self-stretch',
                   filtersOpen()
-                    ? 'border-accent-gold/40 bg-accent-gold/15 text-accent-gold'
-                    : 'border-white/8 bg-bg-primary/60 text-text-secondary hover:bg-bg-hover hover:border-white/12',
+                    ? 'border-accent/40 bg-accent/15 text-accent'
+                    : 'border-border bg-bg/60 text-fg-muted hover:bg-bg-muted hover:border-border-hover',
                 )}
                 onClick={() => setFiltersOpen(prev => !prev)}
               >
                 <div class="i-ph-funnel-bold text-sm" />
                 <span>Filters</span>
                 <Show when={activeTagFilterCount() > 0}>
-                  <span class="text-[10px] text-accent-gold font-semibold px-1.5 py-0.5 rounded-full bg-accent-gold/15">
+                  <span class="text-[10px] text-accent font-semibold px-1.5 py-0.5 rounded-full bg-accent/15">
                     {activeTagFilterCount()}
                   </span>
                 </Show>
@@ -346,24 +346,22 @@ export function LeaderGridOverlay() {
 
               <Show when={activeTagFilterCount() > 0}>
                 <button
-                  class="text-[11px] text-text-muted px-2 py-1 border border-white/10 rounded cursor-pointer transition-colors hover:text-text-secondary hover:bg-bg-hover"
+                  class="text-[11px] text-fg-subtle px-2 py-1 border border-border rounded cursor-pointer transition-colors hover:text-fg-muted hover:bg-bg-muted"
                   onClick={clearTagFilters}
                 >
                   Clear
                 </button>
               </Show>
 
-              <div class="text-[11px] text-text-muted ml-auto">
+              <div class="text-[11px] text-fg-subtle ml-auto">
                 {filteredLeaders().length}
                 /
                 {draftLeaderPoolIds().size}
-                {' '}
-                shown
               </div>
 
               {/* Close grid button */}
               <button
-                class="text-text-muted ml-1 cursor-pointer hover:text-text-secondary"
+                class="text-fg-subtle ml-1 cursor-pointer hover:text-fg-muted"
                 onClick={() => { setGridOpen(false); setFiltersOpen(false) }}
               >
                 <div class="i-ph-x-bold text-sm" />
@@ -396,15 +394,15 @@ export function LeaderGridOverlay() {
 
             {/* Bottom action bar */}
             <Show when={state()?.status === 'active' && isMyTurn() && !hasSubmitted()}>
-              <div class="px-4 py-3 border-t border-white/5 flex items-center justify-center">
+              <div class="px-4 py-3 border-t border-border-subtle flex items-center justify-center">
                 {/* Ban action */}
                 <Show when={step()?.action === 'ban'}>
                   <button
                     class={cn(
                       'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
                       canConfirmBan()
-                        ? 'bg-accent-red text-white cursor-pointer hover:bg-accent-red/80'
-                        : 'bg-accent-red/20 text-accent-red/50 cursor-not-allowed',
+                        ? 'bg-danger text-white cursor-pointer hover:bg-danger/80'
+                        : 'bg-danger/20 text-danger/50 cursor-not-allowed',
                     )}
                     disabled={!canConfirmBan()}
                     onClick={handleConfirmBan}
@@ -423,8 +421,8 @@ export function LeaderGridOverlay() {
                     class={cn(
                       'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
                       canConfirmPick()
-                        ? 'bg-accent-gold text-black cursor-pointer hover:bg-accent-gold/80'
-                        : 'bg-accent-gold/20 text-accent-gold/50 cursor-not-allowed',
+                        ? 'bg-accent text-black cursor-pointer hover:bg-accent/80'
+                        : 'bg-accent/20 text-accent/50 cursor-not-allowed',
                     )}
                     disabled={!canConfirmPick()}
                     onClick={handleConfirmPick}
@@ -438,7 +436,7 @@ export function LeaderGridOverlay() {
 
           {/* Right: Leader detail panel */}
           <Show when={hasDetail()}>
-            <div class="anim-detail-in grid-panel-glow border border-white/8 rounded-r-lg bg-bg-secondary max-w-full w-64 shadow-2xl bottom-0 right-0 top-0 absolute z-30 overflow-hidden lg:border-l-0 lg:rounded-l-none xl:w-80 lg:left-full lg:right-auto lg:z-10">
+            <div class="anim-detail-in grid-panel-glow border border-border rounded-r-lg bg-bg-subtle max-w-full w-64 shadow-2xl bottom-0 right-0 top-0 absolute z-30 overflow-hidden lg:border-l-0 lg:rounded-l-none xl:w-80 lg:left-full lg:right-auto lg:z-10">
               <LeaderDetailPanel />
             </div>
           </Show>
@@ -452,14 +450,14 @@ export function LeaderGridOverlay() {
             ref={(el) => {
               tooltipRef = el
             }}
-            class="px-2 py-1 border border-white/10 rounded bg-bg-primary/95 max-w-56 pointer-events-none shadow-black/40 shadow-lg fixed z-30"
+            class="px-2 py-1 border border-border rounded bg-bg/95 max-w-56 pointer-events-none shadow-black/40 shadow-lg fixed z-30"
             style={{
               left: `${tooltipPosition().left}px`,
               top: `${tooltipPosition().top}px`,
             }}
           >
-            <div class="text-xs text-text-primary font-semibold truncate">{tooltip().name}</div>
-            <div class="text-[11px] text-text-secondary truncate">{tooltip().civ}</div>
+            <div class="text-xs text-fg font-semibold truncate">{tooltip().name}</div>
+            <div class="text-[11px] text-fg-muted truncate">{tooltip().civ}</div>
             <Show when={tooltip().tags.length > 0}>
               <div class="mt-1 flex flex-wrap gap-1 max-w-56">
                 <For each={tooltip().tags}>
@@ -475,7 +473,7 @@ export function LeaderGridOverlay() {
 }
 
 function RandomLeaderCard(props: { disabled: boolean, active: boolean, accent: 'gold' | 'red', onClick: () => void }) {
-  const accentRing = () => props.accent === 'red' ? 'accent-red' : 'accent-gold'
+  const accentRing = () => props.accent === 'red' ? 'danger' : 'accent'
 
   return (
     <button
@@ -495,18 +493,18 @@ function RandomLeaderCard(props: { disabled: boolean, active: boolean, accent: '
           'ring-2 ring-inset',
 
           // Disabled
-          props.disabled && 'bg-bg-primary/35 text-text-muted/45 ring-transparent',
+          props.disabled && 'bg-bg/35 text-fg-subtle/45 ring-transparent',
 
           // Default (not active, not disabled)
-          !props.disabled && !props.active && 'bg-bg-primary/60 text-text-secondary ring-white/10',
-          !props.disabled && !props.active && 'group-hover:ring-white/30 group-hover:brightness-115 group-hover:bg-bg-hover',
+          !props.disabled && !props.active && 'bg-bg/60 text-fg-muted ring-border',
+          !props.disabled && !props.active && 'group-hover:ring-white/30 group-hover:brightness-115 group-hover:bg-bg-muted',
 
           // Active
-          !props.disabled && props.active && accentRing() === 'accent-gold' && 'ring-accent-gold bg-accent-gold/10 text-accent-gold shadow-[0_0_10px_rgba(200,170,110,0.3)]',
-          !props.disabled && props.active && accentRing() === 'accent-gold' && 'group-hover:brightness-115 group-hover:shadow-[0_0_14px_rgba(200,170,110,0.45)]',
+          !props.disabled && props.active && accentRing() === 'accent' && 'ring-accent bg-accent/10 text-accent shadow-[0_0_10px_var(--accent-muted)]',
+          !props.disabled && props.active && accentRing() === 'accent' && 'group-hover:brightness-115 group-hover:shadow-[0_0_14px_var(--accent-muted)]',
 
-          !props.disabled && props.active && accentRing() === 'accent-red' && 'ring-accent-red bg-accent-red/10 text-accent-red shadow-[0_0_10px_rgba(232,64,87,0.3)]',
-          !props.disabled && props.active && accentRing() === 'accent-red' && 'group-hover:brightness-115 group-hover:shadow-[0_0_14px_rgba(232,64,87,0.45)]',
+          !props.disabled && props.active && accentRing() === 'danger' && 'ring-danger bg-danger/10 text-danger shadow-[0_0_10px_var(--danger-muted)]',
+          !props.disabled && props.active && accentRing() === 'danger' && 'group-hover:brightness-115 group-hover:shadow-[0_0_14px_var(--danger-muted)]',
         )}
       >
         <span class="i-ph-dice-five-bold text-base" />
@@ -566,7 +564,7 @@ function FilterTagButton(props: { tag: string, active: boolean, onClick: () => v
     <button
       class="group text-[11px] leading-none font-semibold px-2.5 py-1 border rounded inline-flex gap-1.5 cursor-pointer items-center relative overflow-hidden"
       style={{
-        'color': props.active ? meta().textColor : '#8f98a8',
+        'color': props.active ? meta().textColor : 'var(--fg-muted)',
         'background-color': props.active ? meta().bgColor : 'rgba(143, 152, 168, 0.12)',
         'border-color': props.active ? meta().borderColor : 'rgba(143, 152, 168, 0.26)',
         'box-shadow': props.active ? 'inset 0 0 0 1px rgba(255, 255, 255, 0.12)' : 'none',
