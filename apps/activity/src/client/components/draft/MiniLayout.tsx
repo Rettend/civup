@@ -3,6 +3,11 @@ import { getLeader } from '@civup/game'
 import { For, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 
+const MINI_NAME_FADE_STYLE = {
+  'mask-image': 'linear-gradient(to right, black calc(100% - 2.5rem), transparent calc(100% - 1.2rem))',
+  '-webkit-mask-image': 'linear-gradient(to right, black calc(100% - 2.5rem), transparent calc(100% - 1.2rem))',
+}
+
 export interface MiniSeatItem {
   key: string
   name: string
@@ -33,17 +38,17 @@ interface MiniSeatGridProps {
  */
 export function MiniFrame(props: MiniFrameProps) {
   const titleColorClass = () => {
-    if (props.titleAccent === 'red') return 'text-accent-red'
-    if (props.titleAccent === 'gold') return 'text-accent-gold'
-    return 'text-accent-gold'
+    if (props.titleAccent === 'red') return 'text-danger'
+    if (props.titleAccent === 'gold') return 'text-accent'
+    return 'text-accent'
   }
 
   return (
-    <div class="text-text-primary font-sans bg-bg-primary flex h-screen flex-col overflow-hidden p-3">
-      <div class="relative h-5 shrink-0">
+    <div class="text-fg font-sans p-3 bg-bg flex flex-col h-screen overflow-hidden">
+      <div class="shrink-0 h-5 relative">
         <Show when={props.modeLabel}>
           {label => (
-            <span class="absolute left-0 top-1/2 max-w-[34%] -translate-y-1/2 truncate text-xs text-text-muted font-medium">
+            <span class="text-xs text-fg-subtle font-medium max-w-[34%] truncate left-0 top-1/2 absolute -translate-y-1/2">
               {label()}
             </span>
           )}
@@ -55,7 +60,7 @@ export function MiniFrame(props: MiniFrameProps) {
 
         <Show when={props.rightLabel}>
           {label => (
-            <span class="absolute right-0 top-1/2 max-w-[34%] -translate-y-1/2 truncate text-right text-sm text-text-primary font-bold font-mono tabular-nums">
+            <span class="text-sm text-fg font-bold font-mono text-right max-w-[34%] truncate right-0 top-1/2 absolute tabular-nums -translate-y-1/2">
               {label()}
             </span>
           )}
@@ -63,7 +68,7 @@ export function MiniFrame(props: MiniFrameProps) {
       </div>
 
       {/* Content */}
-      <div class="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div class="mt-3 flex flex-1 flex-col min-h-0 overflow-hidden">
         {props.children}
       </div>
     </div>
@@ -74,16 +79,16 @@ export function MiniSeatGrid(props: MiniSeatGridProps) {
   const columnCount = () => Math.max(props.columns.length, 1)
 
   return (
-    <div class="flex min-h-0 flex-1 flex-col gap-1.5 overflow-hidden">
+    <div class="flex flex-1 flex-col gap-1.5 min-h-0 overflow-hidden">
       <div
-        class="grid min-h-0 flex-1 gap-2 overflow-hidden"
+        class="flex-1 gap-2 grid min-h-0 overflow-hidden"
         style={{
           'grid-template-columns': `repeat(${columnCount()}, minmax(0, 1fr))`,
         }}
       >
         <For each={props.columns}>
           {column => (
-            <div class="flex min-h-0 flex-col gap-1 overflow-hidden">
+            <div class="flex flex-col gap-1 min-h-0 overflow-hidden">
               <For each={column}>
                 {item => <MiniSeatRow item={item} activeTone={props.activeTone ?? 'gold'} />}
               </For>
@@ -93,7 +98,7 @@ export function MiniSeatGrid(props: MiniSeatGridProps) {
       </div>
 
       <Show when={props.footer}>
-        {footer => <div class="px-1 text-[9px] text-text-secondary/80 truncate leading-none">{footer()}</div>}
+        {footer => <div class="text-[9px] text-fg-muted/80 leading-none px-1 truncate">{footer()}</div>}
       </Show>
     </div>
   )
@@ -113,25 +118,25 @@ function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' }) 
   }
 
   const backgroundClass = () => {
-    if (props.item.empty) return 'border border-dashed border-white/8 bg-bg-primary/26'
-    return 'border border-white/10 bg-white/6'
+    if (props.item.empty) return 'border border-dashed border-border-subtle bg-bg/26'
+    return 'border border-border bg-white/6'
   }
 
   const activeClass = () => {
     if (!props.item.active) return ''
-    if (props.activeTone === 'red') return 'border-accent-red/55 shadow-[inset_0_0_0_1px_rgba(232,64,87,0.18)]'
-    return 'border-accent-gold/55 shadow-[inset_0_0_0_1px_rgba(200,170,110,0.18)]'
+    if (props.activeTone === 'red') return 'border-danger/55 shadow-[inset_0_0_0_1px_var(--danger-subtle)]'
+    return 'border-accent/55 shadow-[inset_0_0_0_1px_var(--accent-subtle)]'
   }
 
   return (
-    <div class={cn('flex h-6 items-center gap-1 overflow-hidden rounded px-1.5', backgroundClass(), activeClass())}>
+    <div class={cn('relative flex h-6 items-center gap-1 overflow-hidden rounded px-1.5', backgroundClass(), activeClass())}>
       {/* Avatar — small, matching leader icon size */}
       <Show
         when={!props.item.empty && props.item.avatarUrl}
         fallback={(
           <div class={cn(
             'flex h-4 w-4 shrink-0 items-center justify-center rounded-full',
-            props.item.empty ? 'bg-white/4 text-text-muted/60' : 'bg-bg-primary/70 text-text-muted/80',
+            props.item.empty ? 'bg-white/4 text-fg-subtle/60' : 'bg-bg/70 text-fg-subtle/80',
           )}
           >
             <span class="i-ph-user-bold text-[8px]" />
@@ -142,48 +147,55 @@ function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' }) 
           <img
             src={avatar()}
             alt=""
-            class="h-4 w-4 shrink-0 rounded-full object-cover"
+            class="rounded-full shrink-0 h-4 w-4 object-cover"
           />
         )}
       </Show>
 
       {/* Name */}
-      <span class={cn('min-w-0 flex-1 truncate text-[8px] leading-none', props.item.empty ? 'text-text-muted/75' : 'text-text-primary')}>
-        {props.item.name}
-      </span>
+      <div class="flex-1 min-w-0 overflow-hidden">
+        <span
+          class={cn('block overflow-hidden whitespace-nowrap text-[6px] leading-none', props.item.empty ? 'text-fg-subtle/75' : 'text-fg')}
+          style={MINI_NAME_FADE_STYLE}
+        >
+          {props.item.name}
+        </span>
+      </div>
 
       {/* Leader portrait or active pulse */}
-      <Show
-        when={leaderPortraitUrl()}
-        fallback={(
-          <Show
-            when={props.item.leaderId}
-            fallback={(
-              <Show when={props.item.active}>
-                <div class="-mr-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
-                  <span class={cn(
-                    'h-1.5 w-1.5 rounded-full animate-pulse',
-                    props.activeTone === 'red' ? 'bg-accent-red' : 'bg-accent-gold',
-                  )}
-                  />
-                </div>
-              </Show>
-            )}
-          >
-            <div class="-mr-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-white/10 bg-bg-primary/80">
-              <span class="i-ph-crown-simple-fill text-[8px] text-accent-gold" />
-            </div>
-          </Show>
-        )}
-      >
-        {portraitUrl => (
-          <img
-            src={portraitUrl()}
-            alt=""
-            class="-mr-0.5 h-5 w-5 shrink-0 rounded-full border border-white/10 object-cover"
-          />
-        )}
-      </Show>
+      <div class="flex h-5 w-5 items-center right-1 top-1/2 justify-center absolute -translate-y-1/2">
+        <Show
+          when={leaderPortraitUrl()}
+          fallback={(
+            <Show
+              when={props.item.leaderId}
+              fallback={(
+                <Show when={props.item.active}>
+                  <div class="flex h-5 w-5 items-center justify-center">
+                    <span class={cn(
+                      'h-1.5 w-1.5 rounded-full animate-pulse',
+                      props.activeTone === 'red' ? 'bg-danger' : 'bg-accent',
+                    )}
+                    />
+                  </div>
+                </Show>
+              )}
+            >
+              <div class="border border-border rounded-full bg-bg/80 flex h-5 w-5 items-center justify-center">
+                <span class="i-ph-crown-simple-fill text-[8px] text-accent" />
+              </div>
+            </Show>
+          )}
+        >
+          {portraitUrl => (
+            <img
+              src={portraitUrl()}
+              alt=""
+              class="border border-border rounded-full h-5 w-5 object-cover"
+            />
+          )}
+        </Show>
+      </div>
     </div>
   )
 }

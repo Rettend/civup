@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "bun run preview",
     "dev:new": "bun run build && bun run preview",
+    "dev:live": "vite --host 0.0.0.0 --port 5173",
     "build": "vite build",
     "build:prod": "bun --env-file=.prod.vars vite build",
     "preview": "wrangler dev --config wrangler.json --cwd dist/civup_activity --port 5173 --show-interactive-dev-session=false --log-level log",

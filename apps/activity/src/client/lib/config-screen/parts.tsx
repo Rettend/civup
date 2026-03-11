@@ -64,19 +64,21 @@ export function PlayerChip(props: PlayerChipProps) {
         props.onDrop?.()
       }}
     >
-      <Show
-        when={!props.row.empty && props.row.avatarUrl}
-        fallback={<div class="i-ph-user-bold text-sm text-fg-subtle" />}
-      >
-        {avatar => (
-          <img
-            src={avatar()}
-            alt={props.row.name}
-            draggable={false}
-            class="rounded-full h-5 w-5 pointer-events-none object-cover"
-          />
-        )}
-      </Show>
+      <div class="flex shrink-0 h-5 w-5 items-center justify-center">
+        <Show
+          when={!props.row.empty && props.row.avatarUrl}
+          fallback={<div class="i-ph-user-bold text-sm text-fg-subtle" />}
+        >
+          {avatar => (
+            <img
+              src={avatar()}
+              alt={props.row.name}
+              draggable={false}
+              class="rounded-full h-5 w-5 pointer-events-none object-cover"
+            />
+          )}
+        </Show>
+      </div>
 
       <span class="text-sm flex-1 truncate">{props.row.name}</span>
 
@@ -118,7 +120,7 @@ export function PremadeLinkButton(props: PremadeLinkButtonProps) {
       class={cn(
         'group flex h-2 w-full items-center justify-center rounded-sm transition-colors',
         props.interactive && !props.pending ? 'cursor-pointer hover:bg-white/3' : 'cursor-default',
-        props.pending && 'pointer-events-none opacity-60',
+        props.pending && 'pointer-events-none',
       )}
       disabled={!props.interactive || props.pending}
       title={props.title}
@@ -129,7 +131,9 @@ export function PremadeLinkButton(props: PremadeLinkButtonProps) {
         class={cn(
           'h-[2px] w-12 rounded-full transition-colors',
           props.linked
-            ? 'bg-accent'
+            ? props.interactive && !props.pending
+              ? 'bg-accent/55 group-hover:bg-accent/65'
+              : 'bg-accent/50'
             : props.interactive
               ? 'bg-white/16 group-hover:bg-white/28'
               : 'bg-white/6',

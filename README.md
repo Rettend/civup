@@ -63,11 +63,13 @@ Draft bot for Civ VI that uses Discord Activities
 ```bash
 bun run dev:new
 bun run dev
+bun run dev:live
 
 bun run bot:l:migrate
 bun run bot:dev
 bun run a:dev:new
 bun run a:dev
+bun run a:dev:live
 bun run party:dev
 bun run tunnel
 bun run bot:kv:local

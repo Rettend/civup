@@ -673,6 +673,21 @@ export async function scrubMatchResult(
 }
 
 /** Fill empty lobby slots with active test players (host-only, dev-only). */
+export async function canFillLobbyWithTestPlayers(mode: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/lobby/${mode}/fill-test`, {
+      method: 'GET',
+      headers: { 'Cache-Control': 'no-store' },
+    })
+    return res.ok
+  }
+  catch (err) {
+    console.error('Failed to check test-player fill availability:', err)
+    return false
+  }
+}
+
+/** Fill empty lobby slots with active test players (host-only, dev-only). */
 export async function fillLobbyWithTestPlayers(
   mode: string,
   lobbyId: string,
