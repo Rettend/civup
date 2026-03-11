@@ -2,6 +2,7 @@ import type { ActivityLaunchSelection, ActivityTargetOption, LobbyJoinEligibilit
 import { createSignal, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
 import { activityTargetOptionKey, ActivityTargetPicker, ConfigScreen, DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
+import { cn } from './lib/css'
 import { relayDevLog } from './lib/dev-log'
 import {
   connectionError,
@@ -10,6 +11,7 @@ import {
   disconnect,
   draftStore,
   fetchActivityLaunchSnapshot,
+  isMobileLayout,
   isMiniView,
   resetDraft,
   selectActivityTarget,
@@ -348,7 +350,21 @@ export default function App() {
           <Show
             when={isMiniView()}
             fallback={(
-              <main class="text-text-primary bg-bg-primary font-sans min-h-screen overflow-y-auto">
+              <main class="text-text-primary bg-bg-primary font-sans min-h-screen overflow-y-auto relative">
+                <Show when={lastResolvedSelection()}>
+                  <button
+                    type="button"
+                    class={cn(
+                      'text-fg-muted border border-border-subtle rounded-md flex h-9 w-9 cursor-pointer transition-colors items-center justify-center z-20 absolute hover:text-fg hover:bg-bg-muted',
+                      isMobileLayout() ? 'top-12 right-4' : 'top-4 right-6',
+                    )}
+                    title="Return"
+                    aria-label="Return"
+                    onClick={() => void restoreLastSelection()}
+                  >
+                    <span class="i-ph-arrow-right-bold text-base" />
+                  </button>
+                </Show>
                 <div class="mx-auto px-6 py-4 max-w-5xl">
                   <TargetPickerPanel
                     options={availableTargets()}
