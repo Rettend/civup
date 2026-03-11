@@ -30,7 +30,7 @@ export function LeaderDetailPanel() {
         <div class="p-4 h-full w-full select-text relative overflow-y-auto">
           {/* Close button */}
           <button
-            class="text-text-muted cursor-pointer right-2 top-2 absolute hover:text-text-secondary"
+            class="text-fg-subtle cursor-pointer right-2 top-2 absolute hover:text-fg-muted"
             onClick={() => setDetailLeaderId(null)}
           >
             <div class="i-ph-x-bold text-base" />
@@ -44,23 +44,23 @@ export function LeaderDetailPanel() {
               )}
             </Show>
             <div class="min-w-0">
-              <h3 class="text-base text-text-primary font-bold truncate">{l().name}</h3>
-              <span class="text-sm text-text-secondary">{l().civilization}</span>
+              <h3 class="text-base text-fg font-bold truncate">{l().name}</h3>
+              <span class="text-sm text-fg-muted">{l().civilization}</span>
             </div>
           </div>
 
           {/* Ability */}
           <div class="mb-3">
-            <div class="text-[10px] text-accent-gold tracking-widest font-bold mb-1 uppercase">Ability</div>
-            <p class="text-sm text-text-primary font-medium">{l().ability.name}</p>
-            <RichLeaderText text={l().ability.description} class="text-xs text-text-secondary leading-relaxed mt-0.5 block" />
+            <div class="text-[10px] text-accent tracking-widest font-bold mb-1 uppercase">Ability</div>
+            <p class="text-sm text-fg font-medium">{l().ability.name}</p>
+            <RichLeaderText text={l().ability.description} class="text-xs text-fg-muted leading-relaxed mt-0.5 block" />
           </div>
 
           {/* Uniques */}
           <For each={allUniques()}>
             {section => (
               <div class="mb-3">
-                <div class="text-[10px] text-accent-gold tracking-widest font-bold mb-1.5 uppercase">{section.label}</div>
+                <div class="text-[10px] text-accent tracking-widest font-bold mb-1.5 uppercase">{section.label}</div>
                 <For each={section.items}>
                   {item => <UniqueRow item={item} />}
                 </For>
@@ -90,9 +90,9 @@ function UniqueRow(props: { item: LeaderUnique }) {
           )}
         </Show>
         <div class={cn('flex items-baseline gap-1.5 min-w-0', !props.item.iconUrl && 'ml-0')}>
-          <span class="text-sm text-text-primary font-medium shrink-0 whitespace-nowrap">{props.item.name}</span>
+          <span class="text-sm text-fg font-medium shrink-0 whitespace-nowrap">{props.item.name}</span>
           <Show when={props.item.replaces}>
-            <span class="text-xs text-text-muted shrink-0 whitespace-nowrap">
+            <span class="text-xs text-fg-subtle shrink-0 whitespace-nowrap">
               (
               {props.item.replaces}
               )
@@ -102,7 +102,7 @@ function UniqueRow(props: { item: LeaderUnique }) {
       </div>
 
       {/* Description */}
-      <RichLeaderText text={props.item.description} class="text-xs text-text-secondary leading-relaxed mt-0.5 block" />
+      <RichLeaderText text={props.item.description} class="text-xs text-fg-muted leading-relaxed mt-0.5 block" />
     </div>
   )
 }

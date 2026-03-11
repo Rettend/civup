@@ -174,11 +174,11 @@ export function DraftHeader(props: DraftHeaderProps) {
   const resultSelectionReady = () => isTeamMode() ? selectedWinningTeam() != null : ffaPlacementOrder().length === seatCount()
 
   return (
-    <header class={cn('relative flex flex-col shrink-0 overflow-hidden', isComplete() ? 'bg-bg-secondary' : phaseHeaderBg(), 'transition-colors duration-200')}>
+    <header class={cn('relative flex flex-col shrink-0 overflow-hidden', isComplete() ? 'bg-bg-subtle' : phaseHeaderBg(), 'transition-colors duration-200')}>
       <Show when={phaseFlash()}>
         <div class={cn(
           'pointer-events-none absolute inset-0 z-0 anim-phase-flash',
-          accent() === 'red' ? 'bg-accent-red/20' : 'bg-accent-gold/20',
+          accent() === 'red' ? 'bg-danger/20' : 'bg-accent/20',
         )}
         />
       </Show>
@@ -191,7 +191,7 @@ export function DraftHeader(props: DraftHeaderProps) {
             {civId => <BanSquare civId={civId} />}
           </For>
           <Show when={leftBans().length === 0 && state()?.status !== 'waiting'}>
-            <span class="text-xs text-text-muted/30">No bans</span>
+            <span class="text-xs text-fg-muted/30">No bans</span>
           </Show>
         </div>
 
@@ -204,13 +204,13 @@ export function DraftHeader(props: DraftHeaderProps) {
               <Show
                 when={amHost()}
                 fallback={
-                  <span class="text-lg text-accent-gold tracking-widest font-bold uppercase">{phaseLabel()}</span>
+                  <span class="text-lg text-accent tracking-widest font-bold uppercase">{phaseLabel()}</span>
                 }
               >
                 <Show
                   when={resultStatus() !== 'done'}
                   fallback={
-                    <span class="text-lg text-accent-gold tracking-widest font-bold uppercase">Result reported</span>
+                    <span class="text-lg text-accent tracking-widest font-bold uppercase">Result reported</span>
                   }
                 >
                   <div class="flex gap-2 items-center">
@@ -219,7 +219,7 @@ export function DraftHeader(props: DraftHeaderProps) {
                       disabled={!canInteract() || !resultSelectionReady()}
                       onClick={confirmResult}
                     >
-                      {resultStatus() === 'submitting:result' ? 'Submitting...' : 'Confirm Result'}
+                      {resultStatus() === 'submitting:result' ? 'Submitting' : 'Confirm Result'}
                     </Button>
                     <Button
                       size="sm"
@@ -227,7 +227,7 @@ export function DraftHeader(props: DraftHeaderProps) {
                       disabled={!canInteract()}
                       onClick={scrubMatch}
                     >
-                      {resultStatus() === 'submitting:scrub' ? 'Submitting...' : 'Scrub'}
+                      {resultStatus() === 'submitting:scrub' ? 'Submitting' : 'Scrub'}
                     </Button>
                   </div>
                 </Show>
@@ -238,7 +238,7 @@ export function DraftHeader(props: DraftHeaderProps) {
           <div class="flex flex-col gap-0.5 items-center relative">
             <span class={cn(
               'text-xs font-bold tracking-widest uppercase',
-              accent() === 'red' ? 'text-accent-red' : 'text-accent-gold',
+              accent() === 'red' ? 'text-danger' : 'text-accent',
             )}
             >
               {phaseLabel()}
@@ -247,10 +247,10 @@ export function DraftHeader(props: DraftHeaderProps) {
             <Show when={draftStore.timerEndsAt != null}>
               <span class={cn(
                 'font-mono text-lg font-bold tabular-nums leading-none',
-                isExpired() && 'text-text-muted',
-                isCritical() && 'text-accent-red animate-pulse',
-                isUrgent() && !isCritical() && 'text-accent-red',
-                !isUrgent() && !isCritical() && !isExpired() && 'text-text-primary',
+                isExpired() && 'text-fg-subtle',
+                isCritical() && 'text-danger animate-pulse',
+                isUrgent() && !isCritical() && 'text-danger',
+                !isUrgent() && !isCritical() && !isExpired() && 'text-fg',
               )}
               >
                 {seconds()}
@@ -261,7 +261,7 @@ export function DraftHeader(props: DraftHeaderProps) {
             <Show when={amHost() && state()?.status === 'active'}>
               <div class="ml-6 left-full top-1/2 absolute -translate-y-1/2">
                 <button
-                  class="text-xs text-[#cdd5df] px-3 py-1.5 border border-[#aeb6c2]/25 rounded-full bg-[#8f99a8]/8 cursor-pointer whitespace-nowrap transition-colors hover:border-[#aeb6c2]/40 hover:bg-[#8f99a8]/15"
+                  class="text-xs text-fg-muted px-3 py-1.5 border border-border rounded-full bg-bg-muted/30 cursor-pointer whitespace-nowrap transition-colors hover:border-border-hover hover:bg-bg-muted/50"
                   onClick={sendScrub}
                 >
                   Scrub
@@ -276,7 +276,7 @@ export function DraftHeader(props: DraftHeaderProps) {
           <Show when={props.onSwitchTarget}>
             <button
               type="button"
-              class="text-text-secondary border border-border-subtle rounded-md flex shrink-0 h-7 w-7 cursor-pointer transition-colors items-center justify-center hover:text-text-primary hover:bg-bg-hover"
+              class="text-fg-muted border border-border rounded-md flex shrink-0 h-7 w-7 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:bg-bg-muted"
               title="Lobby Overview"
               aria-label="Lobby Overview"
               onClick={() => props.onSwitchTarget?.()}
@@ -289,7 +289,7 @@ export function DraftHeader(props: DraftHeaderProps) {
               {civId => <BanSquare civId={civId} />}
             </For>
             <Show when={rightBans().length === 0 && state()?.status !== 'waiting'}>
-              <span class="text-xs text-text-muted/30">No bans</span>
+              <span class="text-xs text-fg-subtle/30">No bans</span>
             </Show>
           </Show>
         </div>
@@ -305,7 +305,7 @@ export function DraftHeader(props: DraftHeaderProps) {
             )}
             style={{
               'width': `${progress() * 100}%`,
-              'background-color': isCritical() || isUrgent() ? '#e84057' : phaseAccentColor(),
+              'background-color': isCritical() || isUrgent() ? 'var(--danger)' : phaseAccentColor(),
             }}
           />
         </div>

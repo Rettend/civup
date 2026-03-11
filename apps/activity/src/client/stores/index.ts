@@ -4,6 +4,7 @@ export {
   type ActivityTargetOption,
   arrangeLobbyTeams,
   cancelLobby,
+  canFillLobbyWithTestPlayers,
   connectionError,
   connectionStatus,
   connectToRoom,

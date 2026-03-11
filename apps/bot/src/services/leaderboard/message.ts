@@ -5,10 +5,10 @@ import { LEADERBOARD_MODES } from '@civup/game'
 import { eq } from 'drizzle-orm'
 import { leaderboardEmbed } from '../../embeds/leaderboard.ts'
 import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
-import { ensureLeaderboardModeSnapshots } from './snapshot.ts'
 import {
   getSystemChannel,
 } from '../system/channels.ts'
+import { ensureLeaderboardModeSnapshots } from './snapshot.ts'
 
 const LEADERBOARD_SCOPE = 'global'
 

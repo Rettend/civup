@@ -78,7 +78,7 @@ export function Dropdown(props: DropdownProps) {
   return (
     <div class="flex flex-col gap-1.5">
       {props.label && (
-        <label class="text-[11px] text-text-muted tracking-wider font-semibold pl-0.5 uppercase">
+        <label class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">
           {props.label}
         </label>
       )}
@@ -96,19 +96,19 @@ export function Dropdown(props: DropdownProps) {
           onClick={() => { if (!props.disabled) setOpen(prev => !prev) }}
           class={cn(
             'w-full flex items-center justify-between gap-2',
-            'text-sm text-text-primary px-3.5 py-2.5 rounded-lg',
-            'bg-bg-primary/60 border border-white/8',
+            'text-sm text-fg px-3.5 py-2.5 rounded-lg',
+            'bg-bg/60 border border-border-subtle',
             'outline-none transition-all duration-150 cursor-pointer',
-            'hover:border-white/15 hover:bg-bg-primary/75',
-            'focus:border-accent-gold/50 focus:bg-bg-primary/80 focus:shadow-[0_0_0_3px_rgba(200,170,110,0.08)]',
-            'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-white/8',
-            open() && 'border-accent-gold/50 bg-bg-primary/80',
+            'hover:border-border hover:bg-bg/75',
+            'focus:border-accent/50 focus:bg-bg/80 focus:shadow-[0_0_0_3px_var(--accent-subtle)]',
+            'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border-subtle',
+            open() && 'border-accent/50 bg-bg/80',
           )}
         >
           <span class="min-w-0 truncate">{renderSelected()}</span>
           <span
             class={cn(
-              'i-ph-caret-down text-xs text-text-muted transition-transform duration-150',
+              'i-ph-caret-down text-xs text-fg-subtle transition-transform duration-150',
               open() && 'rotate-180',
             )}
           />
@@ -119,7 +119,7 @@ export function Dropdown(props: DropdownProps) {
           <div
             class={cn(
               'absolute z-50 mt-1.5 w-full rounded-lg overflow-hidden',
-              'bg-bg-secondary border border-white/10',
+              'bg-bg-subtle border border-border-subtle',
               'shadow-lg shadow-black/40',
               'anim-fade-in',
             )}
@@ -133,8 +133,8 @@ export function Dropdown(props: DropdownProps) {
                     'w-full text-left text-sm px-3.5 py-2.5 cursor-pointer',
                     'transition-colors duration-100',
                     option.value === props.value
-                      ? 'bg-accent-gold/12 text-accent-gold font-medium'
-                      : 'text-text-secondary hover:bg-white/6 hover:text-text-primary',
+                      ? 'bg-accent/12 text-accent font-medium'
+                      : 'text-fg-muted hover:bg-white/6 hover:text-fg',
                   )}
                 >
                   {option.render ? option.render() : option.label}

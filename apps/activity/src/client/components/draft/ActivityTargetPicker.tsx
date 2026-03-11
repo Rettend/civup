@@ -24,42 +24,42 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
         <Show
           when={visibleOptions().length > 0}
           fallback={(
-            <div class="border border-white/8 rounded-lg bg-bg-secondary/90 flex flex-1 items-center justify-center px-4 text-center">
-              <span class="text-[10px] text-text-secondary">No active lobbies</span>
+            <div class="px-4 text-center border border-border-subtle rounded-lg bg-bg-subtle/90 flex flex-1 items-center justify-center">
+              <span class="text-[10px] text-fg-muted">No active lobbies</span>
             </div>
           )}
         >
-          <div class="flex min-h-0 flex-1 flex-col gap-1.5 overflow-hidden">
-            <div class="grid grid-cols-2 gap-1.5">
+          <div class="flex flex-1 flex-col gap-1.5 min-h-0 overflow-hidden">
+            <div class="gap-1.5 grid grid-cols-2">
               <For each={visibleOptions()}>
                 {option => (
-                  <div class="border border-white/8 rounded bg-bg-secondary/92 flex min-w-0 flex-col gap-1 overflow-hidden px-2 py-1.5">
-                    <div class="flex min-w-0 items-center justify-between gap-1">
-                      <span class="text-[9px] text-accent-gold truncate tracking-[0.14em] font-semibold uppercase">
+                  <div class="px-2 py-1.5 border border-border-subtle rounded bg-bg-subtle/92 flex flex-col gap-1 min-w-0 overflow-hidden">
+                    <div class="flex gap-1 min-w-0 items-center justify-between">
+                      <span class="text-[10px] text-fg tracking-[0.14em] font-bold truncate uppercase">
                         {formatModeLabel(option.mode, option.mode)}
                       </span>
                       <span class={cn(
-                        'text-[8px] font-semibold uppercase shrink-0',
+                        'text-[6px] font-semibold uppercase shrink-0',
                         option.kind === 'lobby'
-                          ? 'text-[#93c5fd]'
+                          ? 'text-info'
                           : option.status === 'drafting'
-                            ? 'text-[#99f6e4]'
-                            : 'text-[#fcd34d]',
+                            ? 'text-info'
+                            : 'text-accent',
                       )}
                       >
                         {formatMiniTargetStatus(option)}
                       </span>
                     </div>
 
-                    <div class="text-[10px] text-text-secondary flex items-center justify-between gap-1 leading-none">
+                    <div class="text-[10px] text-fg-muted leading-none flex gap-1 items-center justify-between">
                       <span>
                         {option.participantCount}
                         /
                         {option.targetSize}
                       </span>
                       <Show when={option.isHost || option.isMember}>
-                        <span class="text-[8px] text-accent-gold tracking-[0.1em] font-semibold uppercase">
-                          {option.isHost ? 'H' : 'J'}
+                        <span class="text-[8px] text-accent tracking-[0.1em] font-semibold uppercase">
+                          {option.isHost ? 'Host' : 'Joined'}
                         </span>
                       </Show>
                     </div>
@@ -69,12 +69,12 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
             </div>
 
             <Show when={hiddenCount() > 0 || props.error}>
-              <div class="flex items-center justify-between gap-2 px-1 text-[9px] leading-none">
-                <span class="text-text-secondary/80">
+              <div class="text-[9px] leading-none px-1 flex gap-2 items-center justify-between">
+                <span class="text-fg-muted/80">
                   {hiddenCount() > 0 ? `+${hiddenCount()} more` : ''}
                 </span>
                 <Show when={props.error}>
-                  {error => <span class="text-accent-red truncate">{error()}</span>}
+                  {error => <span class="text-danger truncate">{error()}</span>}
                 </Show>
               </div>
             </Show>
@@ -96,7 +96,7 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
         <Show when={props.onClose} fallback={<div class="h-9 w-9" />}>
           <button
             type="button"
-            class="text-text-secondary border border-border-subtle rounded-md flex shrink-0 h-9 w-9 cursor-pointer transition-colors items-center justify-center hover:text-text-primary hover:bg-bg-hover"
+            class="text-fg-muted border border-border-subtle rounded-md flex shrink-0 h-9 w-9 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:bg-bg-muted"
             title="Return"
             aria-label="Return"
             onClick={() => props.onClose?.()}
@@ -109,12 +109,12 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
       <Show
         when={props.options.length > 0}
         fallback={(
-          <div class="px-6 py-8 text-center border border-white/8 rounded-2xl bg-bg-secondary/90">
-            <div class="text-lg text-text-primary font-semibold">No active lobbies right now</div>
-            <div class="text-sm text-text-secondary mt-2">
+          <div class="px-6 py-8 text-center border border-border-subtle rounded-2xl bg-bg-subtle/90">
+            <div class="text-lg text-fg font-semibold">No active lobbies right now</div>
+            <div class="text-sm text-fg-muted mt-2">
               Use
               {' '}
-              <code class="text-accent-gold">/match create</code>
+              <code class="text-accent">/match create</code>
               {' '}
               in Discord to open a new lobby in this channel.
             </div>
@@ -133,29 +133,29 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
                   onClick={() => props.onSelect(option)}
                   class={cn(
                     'group flex flex-col rounded-xl border p-4 text-left transition-all duration-150 cursor-pointer min-h-[120px]',
-                    'bg-bg-secondary/95 border-white/8',
+                    'bg-bg-subtle/95 border-border-subtle',
                     'disabled:opacity-60 disabled:cursor-wait',
                     selected()
-                      ? 'border-accent-gold/60 bg-accent-gold/8 shadow-[0_0_0_1px_rgba(200,170,110,0.2)] hover:border-accent-gold/80 hover:bg-accent-gold/14'
-                      : 'hover:border-accent-gold/40 hover:bg-bg-secondary',
+                      ? 'border-accent/60 bg-accent/8 shadow-[0_0_0_1px_var(--accent-subtle)] hover:border-accent/80 hover:bg-accent/14'
+                      : 'hover:border-accent/40 hover:bg-bg-subtle',
                   )}
                 >
                   {/* Top: mode + title */}
                   <div class="flex gap-3 items-start justify-between">
                     <div>
-                      <div class="text-[11px] text-accent-gold tracking-[0.16em] font-semibold">
+                      <div class="text-[11px] text-accent tracking-[0.16em] font-semibold">
                         {formatModeLabel(option.mode, option.mode)}
                       </div>
-                      <div class="text-base text-text-primary font-semibold mt-0.5">{formatTargetTitle(option)}</div>
+                      <div class="text-base text-fg font-semibold mt-0.5">{formatTargetTitle(option)}</div>
                     </div>
 
                     <span class={cn(
-                      'px-2 py-1 rounded-full text-[10px] tracking-[0.12em] font-semibold uppercase shrink-0',
+                      'px-2 py-1 rounded-full text-[8px] tracking-[0.12em] font-semibold uppercase shrink-0',
                       option.kind === 'lobby'
-                        ? 'bg-[#2563eb]/15 text-[#93c5fd]'
+                        ? 'bg-info/15 text-info'
                         : option.status === 'drafting'
-                          ? 'bg-[#0ea5a4]/15 text-[#99f6e4]'
-                          : 'bg-[#d97706]/15 text-[#fcd34d]',
+                          ? 'bg-info/15 text-info'
+                          : 'bg-accent/15 text-accent',
                     )}
                     >
                       {formatTargetStatus(option)}
@@ -163,7 +163,7 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
                   </div>
 
                   {/* Bottom: player count + host/member indicator — pinned to bottom */}
-                  <div class="text-sm text-text-secondary mt-auto pt-3 flex items-center justify-between">
+                  <div class="text-sm text-fg-muted mt-auto pt-3 flex items-center justify-between">
                     <span class="flex gap-1.5 items-center">
                       <span class="i-ph:users-duotone text-base" />
                       {option.participantCount}
@@ -171,7 +171,7 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
                       {option.targetSize}
                     </span>
                     <Show when={option.isHost || option.isMember}>
-                      <span class="text-[10px] text-accent-gold tracking-[0.12em] font-semibold uppercase">
+                      <span class="text-[10px] text-accent tracking-[0.12em] font-semibold uppercase">
                         {option.isHost ? 'Host' : 'Joined'}
                       </span>
                     </Show>
@@ -202,7 +202,7 @@ function formatTargetStatus(option: ActivityTargetOption): string {
 }
 
 function formatMiniTargetStatus(option: ActivityTargetOption): string {
-  if (option.kind === 'lobby') return 'O'
-  if (option.status === 'drafting') return 'D'
-  return 'C'
+  if (option.kind === 'lobby') return 'Open'
+  if (option.status === 'drafting') return 'Draft'
+  return 'Done'
 }

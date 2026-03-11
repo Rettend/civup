@@ -42,8 +42,8 @@ import {
   buildOpenLobbySnapshotFromParts,
   canStartLobbyWithPlayerCount,
   emptyRankedRoleConfig,
-  parseLobbyLeaderPoolSize,
   lobbyMinPlayerCount,
+  parseLobbyLeaderPoolSize,
   parseLobbyMinRole,
   parseLobbyTimerSeconds,
   parseSlotIndex,
@@ -53,6 +53,13 @@ import {
 const DEBUG_TEST_PLAYER_ID_PREFIX = 'debug-active-lobby-bot:'
 
 export function registerLobbyRoutes(app: Hono<Env>) {
+  app.get('/api/lobby/:mode/fill-test', async (c) => {
+    const mode = parseGameMode(c.req.param('mode'))
+    if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
+    if (!isDebugLobbyFillEnabled(c.req.url, c.env.BOT_HOST)) return c.json({ error: 'Not found' }, 404)
+    return c.body(null, 204)
+  })
+
   app.get('/api/lobby-ranks/:mode/:lobbyId', async (c) => {
     const mode = parseGameMode(c.req.param('mode'))
     const lobbyId = c.req.param('lobbyId')

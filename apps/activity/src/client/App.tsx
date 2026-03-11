@@ -302,19 +302,19 @@ export default function App() {
     <>
       <Switch>
         <Match when={state().status === 'loading'}>
-          <main class="text-text-primary font-sans bg-bg-primary flex min-h-screen items-center justify-center">
+          <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
             <div class="text-center">
-              <div class="text-2xl text-accent-gold font-bold mb-2">CivUp</div>
-              <div class="text-sm text-text-secondary">Connecting to Discord...</div>
+              <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
+              <div class="text-sm text-fg-muted">Connecting to Discord...</div>
             </div>
           </main>
         </Match>
 
         <Match when={state().status === 'error'}>
-          <main class="text-text-primary font-sans bg-bg-primary flex min-h-screen items-center justify-center">
-            <div class="p-6 text-center rounded-lg bg-bg-secondary max-w-md">
-              <div class="text-lg text-accent-red font-bold mb-2">Connection Failed</div>
-              <div class="text-sm text-text-secondary">
+          <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
+            <div class="p-6 text-center rounded-lg bg-bg-subtle max-w-md">
+              <div class="text-lg text-danger font-bold mb-2">Connection Failed</div>
+              <div class="text-sm text-fg-muted">
                 {(state() as Extract<AppState, { status: 'error' }>).message}
               </div>
             </div>
@@ -325,7 +325,7 @@ export default function App() {
           <Show
             when={isMiniView()}
             fallback={(
-              <main class="text-text-primary font-sans bg-bg-primary min-h-screen overflow-y-auto">
+              <main class="text-text-primary bg-bg-primary font-sans min-h-screen overflow-y-auto">
                 <div class="mx-auto px-6 py-4 max-w-5xl">
                   <TargetPickerPanel
                     options={availableTargets()}
@@ -393,10 +393,10 @@ function DraftWithConnection(props: {
   return (
     <Switch>
       <Match when={connectionStatus() === 'connecting'}>
-        <main class="text-text-primary font-sans bg-bg-primary flex min-h-screen items-center justify-center">
+        <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
           <div class="text-center">
-            <div class="text-2xl text-accent-gold font-bold mb-2">CivUp</div>
-            <div class="text-sm text-text-secondary">Joining draft room...</div>
+            <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
+            <div class="text-sm text-fg-muted">Joining draft room...</div>
           </div>
         </main>
       </Match>
@@ -410,10 +410,10 @@ function DraftWithConnection(props: {
       </Match>
 
       <Match when={connectionStatus() === 'error'}>
-        <main class="text-text-primary font-sans bg-bg-primary flex min-h-screen items-center justify-center">
-          <div class="p-6 text-center rounded-lg bg-bg-secondary max-w-md">
-            <div class="text-lg text-accent-red font-bold mb-2">Connection Error</div>
-            <div class="text-sm text-text-secondary">
+        <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
+          <div class="p-6 text-center rounded-lg bg-bg-subtle max-w-md">
+            <div class="text-lg text-danger font-bold mb-2">Connection Error</div>
+            <div class="text-sm text-fg-muted">
               {connectionError() ?? 'Failed to connect to draft room'}
             </div>
           </div>
@@ -429,10 +429,10 @@ function DraftWithConnection(props: {
       </Match>
 
       <Match when={connectionStatus() === 'disconnected'}>
-        <main class="text-text-primary font-sans bg-bg-primary flex min-h-screen items-center justify-center">
-          <div class="p-6 text-center rounded-lg bg-bg-secondary max-w-md">
-            <div class="text-lg text-text-muted font-bold mb-2">Disconnected</div>
-            <div class="text-sm text-text-secondary">Lost connection to the draft room.</div>
+        <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
+          <div class="p-6 text-center rounded-lg bg-bg-subtle max-w-md">
+            <div class="text-lg text-fg-subtle font-bold mb-2">Disconnected</div>
+            <div class="text-sm text-fg-muted">Lost connection to the draft room.</div>
           </div>
         </main>
       </Match>
@@ -474,7 +474,7 @@ function TargetPickerPanel(props: {
       />
 
       <Show when={props.error}>
-        <div class="text-sm text-accent-red px-4 py-3 border border-accent-red/25 rounded-xl bg-accent-red/10">
+        <div class="text-sm text-danger px-4 py-3 border border-danger/25 rounded-xl bg-danger/10">
           {props.error}
         </div>
       </Show>

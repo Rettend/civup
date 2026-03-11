@@ -24,8 +24,7 @@ import {
   storeUserMatchMappings,
 } from '../../src/services/activity/index.ts'
 import { resolveDraftTimerConfig } from '../../src/services/config/index.ts'
-import { markLeaderboardsDirty } from '../../src/services/leaderboard/message.ts'
-import { refreshDirtyLeaderboards } from '../../src/services/leaderboard/message.ts'
+import { markLeaderboardsDirty, refreshDirtyLeaderboards } from '../../src/services/leaderboard/message.ts'
 import {
   attachLobbyMatch,
   clearLobbyById,
@@ -784,7 +783,10 @@ function printReports(reports: ScenarioReport[]): void {
 
   if (backgroundDailyUsage) {
     console.log('\n[capacity] background daily usage')
-    console.table([backgroundDailyUsage])
+    console.table([{
+      ...backgroundDailyUsage,
+      doDurationGbSeconds: roundForReport(backgroundDailyUsage.doDurationGbSeconds),
+    }])
   }
 
   console.log('\n[capacity] measured per draft usage')
@@ -799,7 +801,7 @@ function printReports(reports: ScenarioReport[]): void {
     kvReads: report.model.perDraft.kvReads,
     kvWrites: report.model.perDraft.kvWrites,
     doRequests: report.model.perDraft.doRequests,
-    doDurationGbSeconds: report.model.perDraft.doDurationGbSeconds,
+    doDurationGbSeconds: roundForReport(report.model.perDraft.doDurationGbSeconds),
   })))
 
   console.log('\n[capacity] plan ceilings')
@@ -813,21 +815,21 @@ function printReports(reports: ScenarioReport[]): void {
         mode: report.mode.label,
         plan: 'free',
         playsPerDay: report.freeCapacityPlaysPerDay,
-        draftsPerDay: report.freeCapacityPlaysPerDay / playersPerDraft,
+        draftsPerDay: roundForReport(report.freeCapacityPlaysPerDay / playersPerDraft),
         bottleneck: freeBottleneck?.metric ?? 'unknown',
       },
       {
         mode: report.mode.label,
         plan: '$5 included',
         playsPerDay: report.paidIncludedCapacityPlaysPerDay,
-        draftsPerDay: report.paidIncludedCapacityPlaysPerDay / playersPerDraft,
+        draftsPerDay: roundForReport(report.paidIncludedCapacityPlaysPerDay / playersPerDraft),
         bottleneck: paidBottleneck?.metric ?? 'unknown',
       },
       {
         mode: report.mode.label,
         plan: '$10 target',
         playsPerDay: report.paidTenDollarCapacityPlaysPerDay,
-        draftsPerDay: report.paidTenDollarCapacityPlaysPerDay / playersPerDraft,
+        draftsPerDay: roundForReport(report.paidTenDollarCapacityPlaysPerDay / playersPerDraft),
         bottleneck: '',
       },
     ]
@@ -847,7 +849,7 @@ function printReports(reports: ScenarioReport[]): void {
         doSqliteRowsRead: freeUsage.doSqliteRowsRead,
         doSqliteRowsWritten: freeUsage.doSqliteRowsWritten,
         doRequests: freeUsage.doRequests,
-        doDurationGbSeconds: freeUsage.doDurationGbSeconds,
+        doDurationGbSeconds: roundForReport(freeUsage.doDurationGbSeconds),
       },
       {
         mode: report.mode.label,
@@ -857,7 +859,7 @@ function printReports(reports: ScenarioReport[]): void {
         doSqliteRowsRead: paidUsage.doSqliteRowsRead,
         doSqliteRowsWritten: paidUsage.doSqliteRowsWritten,
         doRequests: paidUsage.doRequests,
-        doDurationGbSeconds: paidUsage.doDurationGbSeconds,
+        doDurationGbSeconds: roundForReport(paidUsage.doDurationGbSeconds),
       },
     ]
   }))
@@ -879,7 +881,7 @@ function printReports(reports: ScenarioReport[]): void {
         rank: index + 1,
         metric: row.metric,
         playsPerDay: row.playsPerDay,
-        draftsPerDay: row.playsPerDay / playersPerDraft,
+        draftsPerDay: roundForReport(row.playsPerDay / playersPerDraft),
       })),
       ...paidRows.map((row, index) => ({
         mode: report.mode.label,
@@ -887,10 +889,14 @@ function printReports(reports: ScenarioReport[]): void {
         rank: index + 1,
         metric: row.metric,
         playsPerDay: row.playsPerDay,
-        draftsPerDay: row.playsPerDay / playersPerDraft,
+        draftsPerDay: roundForReport(row.playsPerDay / playersPerDraft),
       })),
     ]
   }))
+}
+
+function roundForReport(value: number): number {
+  return Number.isInteger(value) ? value : Number(value.toFixed(1))
 }
 
 function estimateDoBilledRequestUnits(input: {
