@@ -111,12 +111,12 @@ export function LeaderCard(props: LeaderCardProps) {
           !isActive() && !isClickable() && !isUnavailable() && 'group-hover:ring-white/15',
 
           // Selected pick
-          isSelected() && 'ring-accent-gold shadow-[0_0_10px_rgba(200,170,110,0.3)]',
-          isSelected() && 'group-hover:ring-accent-gold group-hover:brightness-115 group-hover:shadow-[0_0_14px_rgba(200,170,110,0.45)]',
+          isSelected() && 'ring-accent shadow-[0_0_10px_var(--accent-muted)]',
+          isSelected() && 'group-hover:ring-accent group-hover:brightness-115 group-hover:shadow-[0_0_14px_var(--accent-muted)]',
 
           // Selected ban
-          isBanSelected() && 'ring-accent-red shadow-[0_0_10px_rgba(232,64,87,0.3)]',
-          isBanSelected() && 'group-hover:ring-accent-red group-hover:brightness-115 group-hover:shadow-[0_0_14px_rgba(232,64,87,0.45)]',
+          isBanSelected() && 'ring-danger shadow-[0_0_10px_var(--danger-muted)]',
+          isBanSelected() && 'group-hover:ring-danger group-hover:brightness-115 group-hover:shadow-[0_0_14px_var(--danger-muted)]',
         )}
       >
         {/* Portrait */}
@@ -124,11 +124,11 @@ export function LeaderCard(props: LeaderCardProps) {
           when={props.leader.portraitUrl}
           fallback={(
             <div class={cn(
-              'bg-bg-secondary flex h-full w-full items-center justify-center rounded-full',
+              'bg-bg-subtle flex h-full w-full items-center justify-center rounded-full',
               isUnavailable() && 'opacity-25',
             )}
             >
-              <span class="text-lg text-accent-gold/40 font-bold">
+              <span class="text-lg text-accent/40 font-bold">
                 {props.leader.name.slice(0, 1)}
               </span>
             </div>
@@ -151,8 +151,8 @@ export function LeaderCard(props: LeaderCardProps) {
 
         {/* Banned overlay */}
         <Show when={isBanned()}>
-          <div class="rounded-full bg-accent-red/10 flex items-center inset-0 justify-center absolute">
-            <span class="text-2xl text-accent-red font-bold">✕</span>
+          <div class="rounded-full bg-danger/10 flex items-center inset-0 justify-center absolute">
+            <span class="text-2xl text-danger font-bold">✕</span>
           </div>
         </Show>
       </div>

@@ -20,7 +20,7 @@ export function TextInput(props: TextInputProps) {
   return (
     <div class="flex flex-col gap-1.5">
       {props.label && (
-        <label class="text-[11px] text-text-muted tracking-wider font-semibold pl-0.5 uppercase">
+        <label class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">
           {props.label}
         </label>
       )}
@@ -35,13 +35,20 @@ export function TextInput(props: TextInputProps) {
         onInput={(e) => { if (typeof props.onInput === 'function') props.onInput(e) }}
         onFocus={(e) => { if (typeof props.onFocus === 'function') props.onFocus(e) }}
         onBlur={(e) => { if (typeof props.onBlur === 'function') props.onBlur(e) }}
+        style={props.type === 'number'
+          ? {
+              'appearance': 'textfield',
+              '-moz-appearance': 'textfield',
+            }
+          : undefined}
         class={cn(
-          'text-sm text-text-primary px-3.5 py-2.5 rounded-lg',
-          'bg-bg-primary/60 border border-white/8',
+          'text-sm text-fg px-3.5 py-2.5 rounded-lg',
+          'bg-bg/60 border border-border-subtle',
           'outline-none transition-all duration-150',
-          'placeholder:text-text-muted/60',
-          'focus:border-accent-gold/50 focus:bg-bg-primary/80 focus:shadow-[0_0_0_3px_rgba(200,170,110,0.08)]',
+          'placeholder:text-fg-subtle/60',
+          'focus:border-accent/50 focus:bg-bg/80 focus:shadow-[0_0_0_3px_var(--accent-subtle)]',
           'disabled:opacity-50 disabled:cursor-not-allowed',
+          props.type === 'number' && '[&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
           props.class,
         )}
       />

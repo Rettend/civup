@@ -1,3 +1,4 @@
+import type { PresetWind4Theme } from 'unocss'
 import fs from 'node:fs/promises'
 import { defineConfig, presetIcons, presetWind4 } from 'unocss'
 import { minify } from './src/client/lib/css'
@@ -22,41 +23,163 @@ export default defineConfig({
     }),
   ],
   theme: {
+    font: {
+      sans: '\'Inter Variable\', system-ui, -apple-system, sans-serif',
+      mono: '\'JetBrains Mono\', \'Fira Code\', monospace',
+    },
     colors: {
+      // ── Surface / Background ─────────────────────────────
       bg: {
-        primary: '#0a0e14',
-        secondary: '#111827',
-        hover: '#151d2b',
+        DEFAULT: 'var(--bg)',
+        subtle: 'var(--bg-subtle)',
+        muted: 'var(--bg-muted)',
+        elevated: 'var(--bg-elevated)',
       },
-      accent: {
-        'gold': '#c8aa6e',
-        'gold-dim': '#7c6a3e',
-        'red': '#e84057',
-        'red-dim': '#8b2636',
-        'blue': '#0ac8b9',
-        'slate': '#334155',
+      // ── Foreground / Text ────────────────────────────────
+      fg: {
+        DEFAULT: 'var(--fg)',
+        muted: 'var(--fg-muted)',
+        subtle: 'var(--fg-subtle)',
       },
-      text: {
-        primary: '#ffffff',
-        secondary: '#a0aec0',
-        muted: '#4a5568',
-      },
+      // ── Border ───────────────────────────────────────────
       border: {
-        subtle: 'rgba(255, 255, 255, 0.1)',
+        DEFAULT: 'var(--border)',
+        subtle: 'var(--border-subtle)',
+        hover: 'var(--border-hover)',
+      },
+      // ── Accent: Gold ─────────────────────────────────────
+      accent: {
+        DEFAULT: 'var(--accent)',
+        muted: 'var(--accent-muted)',
+        subtle: 'var(--accent-subtle)',
+      },
+      // ── Semantic: Danger / Ban ───────────────────────────
+      danger: {
+        DEFAULT: 'var(--danger)',
+        muted: 'var(--danger-muted)',
+        subtle: 'var(--danger-subtle)',
+      },
+      // ── Semantic: Info / Teal ────────────────────────────
+      info: {
+        DEFAULT: 'var(--info)',
+        muted: 'var(--info-muted)',
       },
     },
-  },
+    animation: {
+      keyframes: {
+        'fade-in': '{from { opacity: 0 } to { opacity: 1 }}',
+        'slide-up': '{from { opacity: 0; transform: translateY(12px) } to { opacity: 1; transform: translateY(0) }}',
+        'slide-right': '{from { opacity: 0; transform: translateX(12px) } to { opacity: 1; transform: translateX(0) }}',
+        'scale-in': '{from { opacity: 0; transform: scale(1.02) } to { opacity: 1; transform: scale(1) }}',
+        'phase-flash': '{from { opacity: 0.35 } to { opacity: 0 }}',
+        'glow-breathe': '{0%, 100% { opacity: 0.2 } 50% { opacity: 0.05 }}',
+        'glow-fade-out': '{from { opacity: 0.2 } to { opacity: 0 }}',
+      },
+      durations: {
+        'fade-in': '200ms',
+        'slide-up': '250ms',
+        'slide-right': '200ms',
+        'scale-in': '300ms',
+        'phase-flash': '200ms',
+        'glow-breathe': '3s',
+        'glow-fade-out': '400ms',
+      },
+      timingFns: {
+        'fade-in': 'ease-out',
+        'slide-up': 'ease-out',
+        'slide-right': 'ease-out',
+        'scale-in': 'ease-out',
+        'phase-flash': 'ease-out',
+        'glow-breathe': 'ease-in-out',
+        'glow-fade-out': 'ease-out',
+      },
+      counts: {
+        'glow-breathe': 'infinite',
+      },
+    },
+  } satisfies PresetWind4Theme,
   shortcuts: {
+    // ── Headings ─────────────────────────────────────────
     'text-heading': 'font-bold uppercase tracking-wider',
+
+    // ── Focus states ─────────────────────────────────────
+    'focus-ring': 'outline-none focus-visible:(ring-2 ring-accent/50 ring-offset-2 ring-offset-bg)',
+
+    // ── Panel glow (cards, overlays) ─────────────────────
+    'panel-glow': 'shadow-[0_0_20px_var(--accent-subtle),0_0_40px_var(--accent-subtle),inset_0_1px_0_var(--accent-muted)]',
   },
+  rules: [
+    // Fill mode for animations
+    ['animate-fill-both', { 'animation-fill-mode': 'both' }],
+    ['animate-fill-forwards', { 'animation-fill-mode': 'forwards' }],
+  ],
   preflights: [
     {
       getCSS: () => {
         return minify`
+          /* ────────────────────────────────────────────────────
+             CivUp Design Tokens — Dark Theme
+             
+             Inspired by npmx.dev's minimal black & white palette,
+             with a gold accent for competitive gaming warmth.
+             
+             All colors flow through CSS custom properties so the
+             entire palette can be swapped by overriding :root.
+             ──────────────────────────────────────────────────── */
+
+          :root {
+            /* ── Surface / Background ────────────────────── */
+            --bg:           #09090b;
+            --bg-subtle:    #161619;
+            --bg-muted:     #18181b;
+            --bg-elevated:  #1e1e22;
+
+            /* ── Foreground / Text ───────────────────────── */
+            --fg:           #fafafa;
+            --fg-muted:     #a1a1aa;
+            --fg-subtle:    #71717a;
+
+            /* ── Border ──────────────────────────────────── */
+            --border:        rgba(255, 255, 255, 0.14);
+            --border-subtle: rgba(255, 255, 255, 0.08);
+            --border-hover:  rgba(255, 255, 255, 0.22);
+
+            /* ── Accent: Gold ────────────────────────────── */
+            --accent:        #c8aa6e;
+            --accent-muted:  rgba(200, 170, 110, 0.25);
+            --accent-subtle: rgba(200, 170, 110, 0.08);
+
+            /* ── Semantic: Danger / Ban ───────────────────── */
+            --danger:        #e84057;
+            --danger-muted:  rgba(232, 64, 87, 0.25);
+            --danger-subtle: rgba(232, 64, 87, 0.08);
+
+            /* ── Semantic: Info / Teal ───────────────────── */
+            --info:          #0ac8b9;
+            --info-muted:    rgba(10, 200, 185, 0.25);
+
+            /* ── Phase-specific backgrounds ──────────────── */
+            --phase-ban-bg:  #1a0a0e;
+            --phase-pick-bg: var(--bg-subtle);
+
+            /* ── Glow / FX accents ───────────────────────── */
+            --glow-gold:     rgba(200, 170, 110, 0.55);
+            --glow-gold-dim: rgba(200, 170, 110, 0.14);
+            --glow-red:      rgba(232, 64, 87, 0.30);
+            --glow-red-dim:  rgba(232, 64, 87, 0.14);
+
+            /* ── Placement badge ─────────────────────────── */
+            --badge-gold-border: rgba(244, 220, 168, 0.45);
+            --badge-gold-text:   #17130d;
+
+            /* ── Slot glow (set per-slot via classList) ──── */
+            --slot-glow: var(--accent);
+          }
+
           body {
             font-family: 'Inter Variable', sans-serif;
-            background: #0a0e14;
-            color: #ffffff;
+            background: var(--bg);
+            color: var(--fg);
             user-select: none;
             -webkit-user-select: none;
           }
@@ -70,8 +193,12 @@ export default defineConfig({
 
           ::-webkit-scrollbar { width: 4px; }
           ::-webkit-scrollbar-track { background: transparent; }
-          ::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
-          ::-webkit-scrollbar-thumb:hover { background: #475569; }
+          ::-webkit-scrollbar-thumb { background: var(--fg-subtle); border-radius: 2px; }
+          ::-webkit-scrollbar-thumb:hover { background: var(--fg-muted); }
+
+          /* ── Legacy animation classes ──────────────────── */
+          /* These are gradually being replaced by theme animations  
+             but we keep them for backward compatibility during migration. */
 
           @keyframes civup-fade-in {
             from { opacity: 0; }
@@ -114,8 +241,8 @@ export default defineConfig({
             to { opacity: 0; }
           }
           .anim-glow-fade-out { animation: civup-glow-fade-out 400ms ease-out forwards; }
-          .slot-accent-gold { --slot-glow: #c8aa6e; }
-          .slot-accent-red  { --slot-glow: #e84057; }
+          .slot-accent-gold { --slot-glow: var(--accent); }
+          .slot-accent-red  { --slot-glow: var(--danger); }
 
           .slot-cell {
             flex: 1 1 0;
@@ -139,9 +266,9 @@ export default defineConfig({
 
           .grid-panel-glow {
             box-shadow:
-              0 0 20px rgba(200, 170, 110, 0.08),
-              0 0 40px rgba(200, 170, 110, 0.04),
-              inset 0 1px 0 rgba(200, 170, 110, 0.15);
+              0 0 20px var(--accent-subtle),
+              0 0 40px var(--accent-subtle),
+              inset 0 1px 0 var(--accent-muted);
           }
         `
       },

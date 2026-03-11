@@ -45,23 +45,23 @@ export function Timer(props: TimerProps) {
       <div
         class={cn(
           'text-center font-mono text-lg font-bold tabular-nums transition-colors',
-          isExpired() && 'text-text-muted',
-          isCritical() && 'text-accent-red animate-pulse',
-          isUrgent() && 'text-accent-red',
-          !isUrgent() && !isCritical() && !isExpired() && 'text-text-primary',
+          isExpired() && 'text-fg-subtle',
+          isCritical() && 'text-danger animate-pulse',
+          isUrgent() && 'text-danger',
+          !isUrgent() && !isCritical() && !isExpired() && 'text-fg',
         )}
       >
         {props.endsAt == null ? '∞' : `${seconds()}s`}
       </div>
 
       {/* Progress bar */}
-      <div class="rounded-full bg-bg-secondary h-1 w-full overflow-hidden">
+      <div class="rounded-full bg-bg-subtle h-1 w-full overflow-hidden">
         <div
           class={cn(
             'h-full rounded-full transition-all duration-100 ease-linear',
-            isCritical() && 'bg-accent-red animate-pulse',
-            isUrgent() && 'bg-accent-red',
-            !isUrgent() && !isCritical() && 'bg-accent-gold',
+            isCritical() && 'bg-danger animate-pulse',
+            isUrgent() && 'bg-danger',
+            !isUrgent() && !isCritical() && 'bg-accent',
           )}
           style={{ width: `${progress() * 100}%` }}
         />

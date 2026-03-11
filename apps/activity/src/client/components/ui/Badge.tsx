@@ -3,10 +3,10 @@ import { splitProps } from 'solid-js'
 import { cn } from '~/client/lib/css'
 
 const variants = {
-  default: 'bg-bg-hover text-text-secondary',
-  gold: 'bg-accent-gold/20 text-accent-gold',
-  red: 'bg-accent-red/20 text-accent-red',
-  blue: 'bg-accent-blue/20 text-accent-blue',
+  default: 'bg-bg-muted text-fg-muted',
+  gold: 'bg-accent/20 text-accent',
+  red: 'bg-danger/20 text-danger',
+  blue: 'bg-info/20 text-info',
 } as const
 
 export type BadgeVariant = keyof typeof variants
