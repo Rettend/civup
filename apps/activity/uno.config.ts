@@ -264,6 +264,26 @@ export default defineConfig({
             max-height: 100%;
           }
 
+          .civup-h-scroll {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+          }
+
+          .civup-h-scroll::-webkit-scrollbar {
+            display: none;
+          }
+
+          @media (hover: hover) and (pointer: fine) {
+            .civup-h-scroll {
+              cursor: grab;
+            }
+
+            .civup-h-scroll.is-dragging {
+              cursor: grabbing;
+              user-select: none;
+            }
+          }
+
           .grid-panel-glow {
             box-shadow:
               0 0 20px var(--accent-subtle),
