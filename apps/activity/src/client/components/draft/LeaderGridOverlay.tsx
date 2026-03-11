@@ -86,12 +86,15 @@ export function LeaderGridOverlay() {
   const [panelsDocked, setPanelsDocked] = createSignal(false)
   const [tooltipSize, setTooltipSize] = createSignal({ width: 224, height: 96 })
   let tooltipRef: HTMLDivElement | undefined
+  let restoreFiltersAfterCollapse = false
+  let restoreDetailLeaderId: string | null = null
+  let restoreSelectedLeaderId: string | null = null
 
   const hasDetail = () => detailLeaderId() != null
-  const showDockedPanels = () => panelsDocked() && !gridExpanded()
+  const showDockedPanels = () => panelsDocked()
   const showStackedShelf = () => !panelsDocked() && !gridExpanded()
-  const showFocusPanelStrip = () => gridExpanded() && (filtersOpen() || hasDetail())
-  const detailTriggerMode = () => gridExpanded() ? 'double' as const : 'single' as const
+  const showFocusPanelStrip = () => !panelsDocked() && gridExpanded() && (filtersOpen() || hasDetail())
+  const singleClickShowsDetail = () => panelsDocked()
 
   onMount(() => {
     const viewport = window.visualViewport
@@ -239,19 +242,35 @@ export function LeaderGridOverlay() {
   }
 
   const handleToggleFilters = () => {
+    if (!panelsDocked() && gridExpanded() && !filtersOpen()) setDetailLeaderId(null)
     setFiltersOpen(prev => !prev)
   }
 
   const handleToggleGridExpanded = () => {
     setHoverTooltip(null)
-    setGridExpanded((prev) => {
-      const next = !prev
+    const next = !gridExpanded()
+
+    if (!panelsDocked()) {
       if (next) {
+        restoreFiltersAfterCollapse = filtersOpen()
+        restoreDetailLeaderId = detailLeaderId()
+        restoreSelectedLeaderId = selectedLeader()
         setFiltersOpen(false)
         setDetailLeaderId(null)
       }
-      return next
-    })
+      else {
+        if (!filtersOpen() && restoreFiltersAfterCollapse) setFiltersOpen(true)
+        if (!detailLeaderId() && restoreDetailLeaderId && selectedLeader() === restoreSelectedLeaderId) {
+          setDetailLeaderId(restoreDetailLeaderId)
+        }
+
+        restoreFiltersAfterCollapse = false
+        restoreDetailLeaderId = null
+        restoreSelectedLeaderId = null
+      }
+    }
+
+    setGridExpanded(next)
   }
 
   const handleLeaderHoverMove = (leader: Leader, x: number, y: number) => {
@@ -283,6 +302,12 @@ export function LeaderGridOverlay() {
     onCleanup(() => cancelAnimationFrame(raf))
   })
 
+  createEffect(() => {
+    if (panelsDocked() || !gridExpanded()) return
+    if (!filtersOpen() || !hasDetail()) return
+    setFiltersOpen(false)
+  })
+
   const renderFilterPanel = (className: string) => (
     <div class={cn('grid-panel-glow border border-border rounded-lg bg-bg-subtle flex min-h-0 flex-col shadow-2xl overflow-hidden', className)}>
       <div class="p-3 flex-1 overflow-y-auto">
@@ -290,7 +315,7 @@ export function LeaderGridOverlay() {
           <span class="text-xs text-fg-muted font-semibold">Filters</span>
           <div class="flex items-center gap-2">
             <button
-              class="text-[10px] text-fg-subtle px-2 py-0.5 border border-border rounded transition-colors hover:text-fg-muted hover:bg-bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+              class="text-[10px] text-fg px-2.5 py-1 border border-border-hover rounded bg-bg-muted/70 transition-colors hover:bg-bg hover:border-fg-subtle disabled:opacity-40 disabled:cursor-not-allowed"
               disabled={activeTagFilterCount() === 0}
               onClick={clearTagFilters}
             >
@@ -334,56 +359,6 @@ export function LeaderGridOverlay() {
     </div>
   )
 
-  const renderFilterPlaceholder = () => (
-    <div class="grid-panel-glow border border-border rounded-lg bg-bg-subtle/92 flex min-h-0 flex-col shadow-2xl overflow-hidden">
-      <div class="p-4 flex flex-1 flex-col justify-between gap-4">
-        <div>
-          <div class="text-[10px] text-fg-subtle tracking-widest font-semibold mb-1 uppercase">Filters</div>
-          <div class="text-sm text-fg font-medium">Refine the leader pool without shrinking the grid.</div>
-          <div class="text-xs text-fg-muted leading-relaxed mt-1">
-            <Show when={activeTagFilterCount() > 0} fallback={<>No filters active.</>}>
-              {activeTagFilterCount()}
-              {' '}
-              filter
-              {activeTagFilterCount() === 1 ? '' : 's'}
-              {' '}
-              active.
-            </Show>
-          </div>
-        </div>
-
-        <button
-          class="text-xs text-fg border border-border rounded-lg bg-bg/60 inline-flex w-fit items-center gap-1.5 px-3 py-1.5 transition-colors hover:bg-bg-muted hover:border-border-hover"
-          onClick={() => setFiltersOpen(true)}
-        >
-          <span class="i-ph-funnel-bold text-sm" />
-          <span>{activeTagFilterCount() > 0 ? 'Edit Filters' : 'Open Filters'}</span>
-        </button>
-      </div>
-    </div>
-  )
-
-  const renderDetailPlaceholder = () => (
-    <div class="grid-panel-glow border border-border rounded-lg bg-bg-subtle/92 flex min-h-0 flex-col shadow-2xl overflow-hidden">
-      <div class="p-4 flex flex-1 flex-col justify-between gap-4">
-        <div>
-          <div class="text-[10px] text-fg-subtle tracking-widest font-semibold mb-1 uppercase">Leader Details</div>
-          <div class="text-sm text-fg font-medium">Inspect abilities and uniques without losing your place in the grid.</div>
-          <div class="text-xs text-fg-muted leading-relaxed mt-1">
-            {gridExpanded()
-              ? 'Double-click or double-tap a leader while expanded to open details.'
-              : 'Click a leader to preview details here.'}
-          </div>
-        </div>
-
-        <div class="text-[11px] text-fg-subtle inline-flex items-center gap-1.5">
-          <span class="i-ph-info-bold text-sm" />
-          <span>{gridExpanded() ? 'Single taps keep selection focused.' : 'Selection and details stay in sync.'}</span>
-        </div>
-      </div>
-    </div>
-  )
-
   const renderGridPanel = (className: string) => (
     <div
       class={cn(
@@ -396,14 +371,9 @@ export function LeaderGridOverlay() {
         className,
       )}
     >
-      <div class="px-3 py-2 border-b border-border-subtle flex flex-wrap gap-2 items-center">
+      <div class="px-3 py-2 border-b border-border-subtle flex gap-2 items-center min-w-0">
         <button
-          class={cn(
-            'inline-flex items-center justify-center rounded-lg border h-9 w-9 transition-all duration-150 cursor-pointer',
-            gridExpanded()
-              ? 'border-accent/40 bg-accent/15 text-accent'
-              : 'border-border bg-bg/60 text-fg-muted hover:bg-bg-muted hover:border-border-hover',
-          )}
+          class="text-fg-subtle shrink-0 cursor-pointer hover:text-fg-muted"
           title={gridExpanded() ? 'Restore side panels' : 'Expand leader grid'}
           aria-label={gridExpanded() ? 'Restore side panels' : 'Expand leader grid'}
           onClick={handleToggleGridExpanded}
@@ -413,7 +383,7 @@ export function LeaderGridOverlay() {
           </Show>
         </button>
 
-        <div class="relative min-w-0 basis-full sm:basis-auto sm:flex-1 sm:min-w-40 xl:flex-none xl:w-64">
+        <div class="relative min-w-0 flex-1 max-w-72">
           <div class="i-ph-magnifying-glass-bold text-sm text-fg-subtle left-3 top-1/2 absolute -translate-y-1/2" />
           <input
             type="text"
@@ -432,17 +402,18 @@ export function LeaderGridOverlay() {
 
         <button
           class={cn(
-            'inline-flex items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-all duration-150 cursor-pointer self-stretch',
+            'relative inline-flex items-center justify-center rounded-lg border h-9 w-9 shrink-0 transition-all duration-150 cursor-pointer',
             filtersOpen()
               ? 'border-accent/40 bg-accent/15 text-accent'
               : 'border-border bg-bg/60 text-fg-muted hover:bg-bg-muted hover:border-border-hover',
           )}
+          title="Filters"
+          aria-label="Filters"
           onClick={handleToggleFilters}
         >
           <div class="i-ph-funnel-bold text-sm" />
-          <span>Filters</span>
           <Show when={activeTagFilterCount() > 0}>
-            <span class="text-[10px] text-accent font-semibold px-1.5 py-0.5 rounded-full bg-accent/15">
+            <span class="text-[10px] text-accent font-semibold px-1 py-0.5 rounded-full bg-bg-subtle min-w-4 right-0 top-0 absolute translate-x-1/4 -translate-y-1/4">
               {activeTagFilterCount()}
             </span>
           </Show>
@@ -457,7 +428,7 @@ export function LeaderGridOverlay() {
           </button>
         </Show>
 
-        <div class="flex flex-1 min-w-0 items-center justify-end gap-2 sm:ml-auto sm:flex-none">
+        <div class="flex shrink-0 items-center gap-2 ml-auto">
           <div class="text-[11px] text-fg-subtle">
             {filteredLeaders().length}
             /
@@ -485,7 +456,7 @@ export function LeaderGridOverlay() {
             {leader => (
               <LeaderCard
                 leader={leader}
-                detailTrigger={detailTriggerMode()}
+                singleClickShowsDetail={singleClickShowsDetail()}
                 onHoverMove={handleLeaderHoverMove}
                 onHoverLeave={handleLeaderHoverLeave}
               />
@@ -547,7 +518,15 @@ export function LeaderGridOverlay() {
         <Show
           when={showStackedShelf()}
           fallback={(
-            <div class={cn('anim-overlay-in pointer-events-auto relative z-30', gridExpanded() ? 'h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]' : 'flex flex-col max-h-full items-center')}>
+            <div
+              class={cn(
+                'anim-overlay-in pointer-events-auto relative z-30',
+                panelsDocked()
+                  ? 'flex flex-col max-h-full items-center'
+                  : 'h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]',
+                panelsDocked() && gridExpanded() && 'h-full',
+              )}
+            >
               <Show when={showDockedPanels() && filtersOpen()}>
                 <div class="anim-detail-in absolute z-10 right-full top-0 bottom-0 w-56">
                   {renderFilterPanel('h-full rounded-l-lg rounded-r-none border-r-0')}
@@ -563,17 +542,19 @@ export function LeaderGridOverlay() {
               </Show>
 
               <Show when={showFocusPanelStrip()}>
-                <div class="absolute inset-x-0 top-0 z-30 pointer-events-none" style={{ height: 'min(45%, 18rem)' }}>
-                  <div class={cn('grid h-full gap-2 pointer-events-auto', filtersOpen() && hasDetail() ? 'grid-cols-2' : 'grid-cols-1')}>
-                    <Show when={filtersOpen()}>
+                <div class="absolute inset-0 z-30 pointer-events-none overflow-hidden">
+                  <Show when={filtersOpen()}>
+                    <div class="h-full min-h-0 w-full pointer-events-auto overflow-hidden">
                       {renderFilterPanel('h-full')}
-                    </Show>
-                    <Show when={hasDetail()}>
+                    </div>
+                  </Show>
+                  <Show when={!filtersOpen() && hasDetail()}>
+                    <div class="h-full min-h-0 w-full pointer-events-auto overflow-hidden">
                       <div class="grid-panel-glow border border-border rounded-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
                         <LeaderDetailPanel />
                       </div>
-                    </Show>
-                  </div>
+                    </div>
+                  </Show>
                 </div>
               </Show>
 
@@ -581,20 +562,35 @@ export function LeaderGridOverlay() {
             </div>
           )}
         >
-          <div class="anim-overlay-in pointer-events-auto relative z-30 h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)] flex flex-col gap-2">
-            <div class="grid grid-cols-2 gap-2 flex-1 min-h-0">
-              <Show when={filtersOpen()} fallback={renderFilterPlaceholder()}>
-                {renderFilterPanel('h-full')}
-              </Show>
-
-              <Show when={hasDetail()} fallback={renderDetailPlaceholder()}>
-                <div class="grid-panel-glow border border-border rounded-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
-                  <LeaderDetailPanel />
+          <div class="anim-overlay-in pointer-events-auto relative z-30 h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]">
+            <Show when={filtersOpen() || hasDetail()}>
+              <div class="grid absolute inset-x-0 top-0 z-30 grid-cols-2 gap-2 pointer-events-none overflow-hidden" style={{ height: '35%' }}>
+                <div class={cn('h-full min-h-0 overflow-hidden', filtersOpen() ? 'pointer-events-auto' : 'pointer-events-none')}>
+                  <Show when={filtersOpen()}>
+                    {renderFilterPanel('h-full')}
+                  </Show>
                 </div>
-              </Show>
-            </div>
 
-            {renderGridPanel('flex-1 min-h-0')}
+                <div class={cn('h-full min-h-0 overflow-hidden', hasDetail() ? 'pointer-events-auto' : 'pointer-events-none')}>
+                  <Show when={hasDetail()}>
+                    <div class="grid-panel-glow border border-border rounded-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
+                      <LeaderDetailPanel />
+                    </div>
+                  </Show>
+                </div>
+              </div>
+            </Show>
+
+            <div class="flex h-full flex-col gap-2">
+              <div class="grid grid-cols-2 gap-2 shrink-0" style={{ height: '35%' }}>
+                <div />
+                <div />
+              </div>
+
+              <div class="min-h-0 flex-1">
+                {renderGridPanel('h-full')}
+              </div>
+            </div>
           </div>
         </Show>
       </div>
