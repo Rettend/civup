@@ -32,35 +32,73 @@ interface AuthorizeErrorPayload {
 export const discordSdk = new DiscordSDK(CLIENT_ID)
 let setupInFlight: Promise<Auth> | null = null
 
-function readCachedToken(): string | null {
+function getStorage(type: 'local' | 'session'): Storage | null {
   if (typeof window === 'undefined') return null
 
-  const raw = window.sessionStorage.getItem(AUTH_TOKEN_CACHE_KEY)
-  if (!raw) return null
-
   try {
-    const cached = JSON.parse(raw) as CachedToken
-    if (!cached.accessToken || !cached.expiresAt) {
-      window.sessionStorage.removeItem(AUTH_TOKEN_CACHE_KEY)
-      return null
-    }
-
-    if (Date.now() >= cached.expiresAt - TOKEN_EXPIRY_SAFETY_MS) {
-      window.sessionStorage.removeItem(AUTH_TOKEN_CACHE_KEY)
-      return null
-    }
-
-    return cached.accessToken
+    return type === 'local' ? window.localStorage : window.sessionStorage
   }
   catch {
-    window.sessionStorage.removeItem(AUTH_TOKEN_CACHE_KEY)
     return null
   }
 }
 
-function cacheToken(accessToken: string, expiresIn?: number) {
-  if (typeof window === 'undefined') return
+function readCachedTokenFromStorage(storage: Storage | null): CachedToken | null {
+  if (!storage) return null
 
+  try {
+    const raw = storage.getItem(AUTH_TOKEN_CACHE_KEY)
+    if (!raw) return null
+
+    const cached = JSON.parse(raw) as CachedToken
+    if (!cached.accessToken || !cached.expiresAt) {
+      storage.removeItem(AUTH_TOKEN_CACHE_KEY)
+      return null
+    }
+
+    if (Date.now() >= cached.expiresAt - TOKEN_EXPIRY_SAFETY_MS) {
+      storage.removeItem(AUTH_TOKEN_CACHE_KEY)
+      return null
+    }
+
+    return cached
+  }
+  catch {
+    storage.removeItem(AUTH_TOKEN_CACHE_KEY)
+    return null
+  }
+}
+
+function writeCachedTokenToStorage(storage: Storage | null, payload: CachedToken) {
+  if (!storage) return
+
+  try {
+    storage.setItem(AUTH_TOKEN_CACHE_KEY, JSON.stringify(payload))
+  }
+  catch {}
+}
+
+function clearCachedTokenFromStorage(storage: Storage | null) {
+  if (!storage) return
+
+  try {
+    storage.removeItem(AUTH_TOKEN_CACHE_KEY)
+  }
+  catch {}
+}
+
+function readCachedToken(): string | null {
+  const sessionToken = readCachedTokenFromStorage(getStorage('session'))
+  if (sessionToken) return sessionToken.accessToken
+
+  const localToken = readCachedTokenFromStorage(getStorage('local'))
+  if (!localToken) return null
+
+  writeCachedTokenToStorage(getStorage('session'), localToken)
+  return localToken.accessToken
+}
+
+function cacheToken(accessToken: string, expiresIn?: number) {
   const expiresAt = Date.now() + (
     typeof expiresIn === 'number' && expiresIn > 0
       ? expiresIn * 1000
@@ -68,12 +106,13 @@ function cacheToken(accessToken: string, expiresIn?: number) {
   )
 
   const payload: CachedToken = { accessToken, expiresAt }
-  window.sessionStorage.setItem(AUTH_TOKEN_CACHE_KEY, JSON.stringify(payload))
+  writeCachedTokenToStorage(getStorage('session'), payload)
+  writeCachedTokenToStorage(getStorage('local'), payload)
 }
 
 function clearCachedToken() {
-  if (typeof window === 'undefined') return
-  window.sessionStorage.removeItem(AUTH_TOKEN_CACHE_KEY)
+  clearCachedTokenFromStorage(getStorage('session'))
+  clearCachedTokenFromStorage(getStorage('local'))
 }
 
 async function authenticateWithToken(accessToken: string): Promise<Auth> {

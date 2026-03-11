@@ -1,3 +1,4 @@
+import { formatModeLabel } from '@civup/game'
 import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import {
@@ -6,6 +7,7 @@ import {
   currentStepDuration,
   draftStore,
   ffaPlacementOrder,
+  isMobileLayout,
   phaseAccent,
   phaseAccentColor,
   phaseHeaderBg,
@@ -172,6 +174,61 @@ export function DraftHeader(props: DraftHeaderProps) {
 
   const canInteract = () => amHost() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
   const resultSelectionReady = () => isTeamMode() ? selectedWinningTeam() != null : ffaPlacementOrder().length === seatCount()
+  const showMobileActionRow = () => isMobileLayout() && amHost() && (state()?.status === 'active' || isComplete())
+  const draftTitle = () => {
+    const modeLabel = formatModeLabel(state()?.formatId, 'Draft')
+    return modeLabel ? `${modeLabel} Draft` : 'Draft'
+  }
+
+  const renderOverviewButton = () => (
+    <Show when={props.onSwitchTarget}>
+      <button
+        type="button"
+        class="text-fg-muted border border-border rounded-md flex shrink-0 h-7 w-7 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:bg-bg-muted"
+        title="Lobby Overview"
+        aria-label="Lobby Overview"
+        onClick={() => props.onSwitchTarget?.()}
+      >
+        <span class="i-ph-squares-four-bold text-sm" />
+      </button>
+    </Show>
+  )
+
+  const renderScrubButton = () => (
+    <button
+      class="text-xs text-fg-muted px-3 py-1.5 border border-border rounded-full bg-bg-muted/30 cursor-pointer whitespace-nowrap transition-colors hover:border-border-hover hover:bg-bg-muted/50"
+      onClick={sendScrub}
+    >
+      Scrub
+    </button>
+  )
+
+  const renderResultActions = () => (
+    <Show
+      when={resultStatus() !== 'done'}
+      fallback={(
+        <span class="text-sm sm:text-lg text-accent tracking-widest font-bold uppercase">Result reported</span>
+      )}
+    >
+      <div class="flex flex-wrap gap-2 items-center justify-center">
+        <Button
+          size="sm"
+          disabled={!canInteract() || !resultSelectionReady()}
+          onClick={confirmResult}
+        >
+          {resultStatus() === 'submitting:result' ? 'Submitting' : 'Confirm Result'}
+        </Button>
+        <Button
+          size="sm"
+          variant="redOutline"
+          disabled={!canInteract()}
+          onClick={scrubMatch}
+        >
+          {resultStatus() === 'submitting:scrub' ? 'Submitting' : 'Scrub'}
+        </Button>
+      </div>
+    </Show>
+  )
 
   return (
     <header class={cn('relative flex flex-col shrink-0 overflow-hidden', isComplete() ? 'bg-bg-subtle' : phaseHeaderBg(), 'transition-colors duration-200')}>
@@ -183,117 +240,156 @@ export function DraftHeader(props: DraftHeaderProps) {
         />
       </Show>
 
-      {/* Main row */}
-      <div class="px-4 py-2.5 flex items-center justify-between relative z-10">
-        {/* Left bans */}
-        <div class="flex gap-1.5 items-center">
-          <For each={leftBans()}>
-            {civId => <BanSquare civId={civId} />}
-          </For>
-          <Show when={leftBans().length === 0 && state()?.status !== 'waiting'}>
-            <span class="text-xs text-fg-muted/30">No bans</span>
-          </Show>
-        </div>
-
-        {/* Center: phase + timer / post-draft controls */}
-        <Show
-          when={!isComplete()}
-          fallback={(
-            <div class="flex gap-3 items-center relative">
-              {/* Post-draft center content */}
-              <Show
-                when={amHost()}
-                fallback={
-                  <span class="text-lg text-accent tracking-widest font-bold uppercase">{phaseLabel()}</span>
-                }
-              >
-                <Show
-                  when={resultStatus() !== 'done'}
-                  fallback={
-                    <span class="text-lg text-accent tracking-widest font-bold uppercase">Result reported</span>
-                  }
-                >
-                  <div class="flex gap-2 items-center">
-                    <Button
-                      size="sm"
-                      disabled={!canInteract() || !resultSelectionReady()}
-                      onClick={confirmResult}
-                    >
-                      {resultStatus() === 'submitting:result' ? 'Submitting' : 'Confirm Result'}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="redOutline"
-                      disabled={!canInteract()}
-                      onClick={scrubMatch}
-                    >
-                      {resultStatus() === 'submitting:scrub' ? 'Submitting' : 'Scrub'}
-                    </Button>
-                  </div>
-                </Show>
-              </Show>
-            </div>
-          )}
-        >
-          <div class="flex flex-col gap-0.5 items-center relative">
-            <span class={cn(
-              'text-xs font-bold tracking-widest uppercase',
-              accent() === 'red' ? 'text-danger' : 'text-accent',
-            )}
-            >
-              {phaseLabel()}
-            </span>
-
-            <Show when={draftStore.timerEndsAt != null}>
-              <span class={cn(
-                'font-mono text-lg font-bold tabular-nums leading-none',
-                isExpired() && 'text-fg-subtle',
-                isCritical() && 'text-danger animate-pulse',
-                isUrgent() && !isCritical() && 'text-danger',
-                !isUrgent() && !isCritical() && !isExpired() && 'text-fg',
-              )}
-              >
-                {seconds()}
-                s
+      <Show when={isMobileLayout()}>
+        <div class="relative z-10 flex flex-col">
+          <div class="px-4 pt-2 pb-1.5 flex justify-center">
+            <div class="flex min-h-10 flex-col items-center justify-center gap-0.5 text-center">
+              <span class="max-w-[72vw] truncate text-[10px] text-fg-muted/70 font-semibold tracking-[0.18em] uppercase">
+                {draftTitle()}
               </span>
-            </Show>
 
-            <Show when={amHost() && state()?.status === 'active'}>
-              <div class="ml-6 left-full top-1/2 absolute -translate-y-1/2">
-                <button
-                  class="text-xs text-fg-muted px-3 py-1.5 border border-border rounded-full bg-bg-muted/30 cursor-pointer whitespace-nowrap transition-colors hover:border-border-hover hover:bg-bg-muted/50"
-                  onClick={sendScrub}
+              <div class="flex items-center gap-2">
+                <span class={cn(
+                  'text-xs font-bold tracking-widest uppercase',
+                  accent() === 'red' ? 'text-danger' : 'text-accent',
+                )}
                 >
-                  Scrub
-                </button>
+                  {phaseLabel()}
+                </span>
+
+                <Show when={draftStore.timerEndsAt != null}>
+                  <span class={cn(
+                    'font-mono text-base font-bold tabular-nums leading-none',
+                    isExpired() && 'text-fg-subtle',
+                    isCritical() && 'text-danger animate-pulse',
+                    isUrgent() && !isCritical() && 'text-danger',
+                    !isUrgent() && !isCritical() && !isExpired() && 'text-fg',
+                  )}
+                  >
+                    {seconds()}
+                    s
+                  </span>
+                </Show>
+              </div>
+            </div>
+          </div>
+
+          <div class="px-3 pb-2.5 flex flex-wrap items-start gap-2">
+            <div class="flex min-w-0 flex-1 justify-start">
+              <div class="flex min-w-0 flex-wrap gap-1.5 items-center">
+                <For each={leftBans()}>
+                  {civId => <BanSquare civId={civId} />}
+                </For>
+                <Show when={leftBans().length === 0 && state()?.status !== 'waiting'}>
+                  <span class="text-xs text-fg-muted/30">No bans</span>
+                </Show>
+              </div>
+            </div>
+
+            <div class="flex min-w-0 flex-1 justify-end">
+              <div class="flex min-w-0 flex-wrap gap-2 items-center justify-end">
+                <Show when={!showMobileActionRow()}>
+                  {renderOverviewButton()}
+                </Show>
+                <Show when={isTeamMode()}>
+                  <For each={rightBans()}>
+                    {civId => <BanSquare civId={civId} />}
+                  </For>
+                  <Show when={rightBans().length === 0 && state()?.status !== 'waiting'}>
+                    <span class="text-xs text-fg-subtle/30">No bans</span>
+                  </Show>
+                </Show>
+              </div>
+            </div>
+
+            <Show when={showMobileActionRow()}>
+              <div class="relative flex w-full items-center justify-center min-h-8 px-9">
+                <Show when={state()?.status === 'active'} fallback={renderResultActions()}>
+                  {renderScrubButton()}
+                </Show>
+                <div class="right-0 absolute flex items-center justify-end">
+                  {renderOverviewButton()}
+                </div>
               </div>
             </Show>
           </div>
-        </Show>
+        </div>
+      </Show>
 
-        {/* Right bans (team mode) or empty */}
-        <div class="flex gap-2 items-center">
-          <Show when={props.onSwitchTarget}>
-            <button
-              type="button"
-              class="text-fg-muted border border-border rounded-md flex shrink-0 h-7 w-7 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:bg-bg-muted"
-              title="Lobby Overview"
-              aria-label="Lobby Overview"
-              onClick={() => props.onSwitchTarget?.()}
-            >
-              <span class="i-ph-squares-four-bold text-sm" />
-            </button>
-          </Show>
-          <Show when={isTeamMode()}>
-            <For each={rightBans()}>
+      <Show when={!isMobileLayout()}>
+        {/* Main row */}
+        <div class="px-4 py-2.5 flex items-center justify-between relative z-10">
+          {/* Left bans */}
+          <div class="flex gap-1.5 items-center">
+            <For each={leftBans()}>
               {civId => <BanSquare civId={civId} />}
             </For>
-            <Show when={rightBans().length === 0 && state()?.status !== 'waiting'}>
-              <span class="text-xs text-fg-subtle/30">No bans</span>
+            <Show when={leftBans().length === 0 && state()?.status !== 'waiting'}>
+              <span class="text-xs text-fg-muted/30">No bans</span>
             </Show>
+          </div>
+
+          {/* Center: phase + timer / post-draft controls */}
+          <Show
+            when={!isComplete()}
+            fallback={(
+              <div class="flex gap-3 items-center relative">
+                <Show
+                  when={amHost()}
+                  fallback={
+                    <span class="text-lg text-accent tracking-widest font-bold uppercase">{phaseLabel()}</span>
+                  }
+                >
+                  {renderResultActions()}
+                </Show>
+              </div>
+            )}
+          >
+            <div class="flex flex-col gap-0.5 items-center relative">
+              <span class={cn(
+                'text-xs font-bold tracking-widest uppercase',
+                accent() === 'red' ? 'text-danger' : 'text-accent',
+              )}
+              >
+                {phaseLabel()}
+              </span>
+
+              <Show when={draftStore.timerEndsAt != null}>
+                <span class={cn(
+                  'font-mono text-lg font-bold tabular-nums leading-none',
+                  isExpired() && 'text-fg-subtle',
+                  isCritical() && 'text-danger animate-pulse',
+                  isUrgent() && !isCritical() && 'text-danger',
+                  !isUrgent() && !isCritical() && !isExpired() && 'text-fg',
+                )}
+                >
+                  {seconds()}
+                  s
+                </span>
+              </Show>
+
+              <Show when={amHost() && state()?.status === 'active'}>
+                <div class="ml-6 left-full top-1/2 absolute -translate-y-1/2">
+                  {renderScrubButton()}
+                </div>
+              </Show>
+            </div>
           </Show>
+
+          {/* Right bans (team mode) or empty */}
+          <div class="flex gap-2 items-center">
+            {renderOverviewButton()}
+            <Show when={isTeamMode()}>
+              <For each={rightBans()}>
+                {civId => <BanSquare civId={civId} />}
+              </For>
+              <Show when={rightBans().length === 0 && state()?.status !== 'waiting'}>
+                <span class="text-xs text-fg-subtle/30">No bans</span>
+              </Show>
+            </Show>
+          </div>
         </div>
-      </div>
+      </Show>
 
       {/* Shrinking timer line */}
       <Show when={draftStore.timerEndsAt != null && !isExpired()}>

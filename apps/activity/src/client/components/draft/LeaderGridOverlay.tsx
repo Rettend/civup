@@ -89,12 +89,14 @@ export function LeaderGridOverlay() {
   let restoreFiltersAfterCollapse = false
   let restoreDetailLeaderId: string | null = null
   let restoreSelectedLeaderId: string | null = null
+  let skipNextOverlayAnimation = false
 
   const hasDetail = () => detailLeaderId() != null
   const showDockedPanels = () => panelsDocked()
   const showStackedShelf = () => !panelsDocked() && !gridExpanded()
   const showFocusPanelStrip = () => !panelsDocked() && gridExpanded() && (filtersOpen() || hasDetail())
   const singleClickShowsDetail = () => panelsDocked()
+  const overlayEntranceClass = () => skipNextOverlayAnimation ? '' : 'anim-overlay-in'
 
   onMount(() => {
     const viewport = window.visualViewport
@@ -249,6 +251,7 @@ export function LeaderGridOverlay() {
   const handleToggleGridExpanded = () => {
     setHoverTooltip(null)
     const next = !gridExpanded()
+    skipNextOverlayAnimation = true
 
     if (!panelsDocked()) {
       if (next) {
@@ -271,6 +274,9 @@ export function LeaderGridOverlay() {
     }
 
     setGridExpanded(next)
+    queueMicrotask(() => {
+      skipNextOverlayAnimation = false
+    })
   }
 
   const handleLeaderHoverMove = (leader: Leader, x: number, y: number) => {
@@ -520,7 +526,8 @@ export function LeaderGridOverlay() {
           fallback={(
             <div
               class={cn(
-                'anim-overlay-in pointer-events-auto relative z-30',
+                overlayEntranceClass(),
+                'pointer-events-auto relative z-30',
                 panelsDocked()
                   ? 'flex flex-col max-h-full items-center'
                   : 'h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]',
@@ -562,7 +569,7 @@ export function LeaderGridOverlay() {
             </div>
           )}
         >
-          <div class="anim-overlay-in pointer-events-auto relative z-30 h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]">
+          <div class={cn(overlayEntranceClass(), 'pointer-events-auto relative z-30 h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]')}>
             <Show when={filtersOpen() || hasDetail()}>
               <div class="grid absolute inset-x-0 top-0 z-30 grid-cols-2 gap-2 pointer-events-none overflow-hidden" style={{ height: '35%' }}>
                 <div class={cn('h-full min-h-0 overflow-hidden', filtersOpen() ? 'pointer-events-auto' : 'pointer-events-none')}>
