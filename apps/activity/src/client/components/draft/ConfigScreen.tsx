@@ -38,8 +38,8 @@ import { cn } from '~/client/lib/css'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
 import {
   arrangeLobbyTeams,
-  canFillLobbyWithTestPlayers,
   cancelLobby,
+  canFillLobbyWithTestPlayers,
   avatarUrl as currentAvatarUrl,
   displayName as currentDisplayName,
   draftStore,

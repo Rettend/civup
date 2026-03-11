@@ -325,7 +325,7 @@ export default function App() {
           <Show
             when={isMiniView()}
             fallback={(
-              <main class="text-text-primary font-sans bg-bg-primary min-h-screen overflow-y-auto">
+              <main class="text-text-primary bg-bg-primary font-sans min-h-screen overflow-y-auto">
                 <div class="mx-auto px-6 py-4 max-w-5xl">
                   <TargetPickerPanel
                     options={availableTargets()}
