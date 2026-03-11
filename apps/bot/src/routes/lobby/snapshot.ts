@@ -1,10 +1,11 @@
 import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
-import { maxPlayerCount, MAX_LEADER_POOL_SIZE, minPlayerCount } from '@civup/game'
+import type { getRankedRoleConfig } from '../../services/ranked/roles.ts'
+import { MAX_LEADER_POOL_SIZE, maxPlayerCount, minPlayerCount } from '@civup/game'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
 import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, getLobbyById, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
 import { getQueueState } from '../../services/queue/index.ts'
-import { getRankedRoleConfig, normalizeRankedRoleTierId } from '../../services/ranked/roles.ts'
+import { normalizeRankedRoleTierId } from '../../services/ranked/roles.ts'
 
 const TEMP_LOBBY_START_MIN_PLAYERS_FFA = 1
 
