@@ -1,4 +1,3 @@
-import { formatModeLabel } from '@civup/game'
 import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import {
@@ -19,7 +18,7 @@ import {
   setResultSelectionsLocked,
   userId,
 } from '~/client/stores'
-import { Button } from '../ui'
+import { Button, HorizontalScroller } from '../ui'
 import { BanSquare } from './BanSquare'
 
 interface DraftHeaderProps {
@@ -44,19 +43,23 @@ export function DraftHeader(props: DraftHeaderProps) {
     phaseFlashTimeout = null
   }
 
-  /** Bans for team A (seatIndex 0) or all bans for FFA */
+  const allBans = () => state()?.bans.map(b => b.civId) ?? []
+  const ffaSplitIndex = () => Math.ceil(allBans().length / 2)
+
+  /** Bans for team A or the first half of FFA bans. */
   const leftBans = () => {
     const s = state()
     if (!s) return [] as string[]
     if (isTeamMode()) return s.bans.filter(b => b.seatIndex === 0).map(b => b.civId)
-    return s.bans.map(b => b.civId)
+    return allBans().slice(0, ffaSplitIndex())
   }
 
-  /** Bans for team B (seatIndex 1) — only in team mode */
+  /** Bans for team B or the second half of FFA bans. */
   const rightBans = () => {
     const s = state()
-    if (!s || !isTeamMode()) return [] as string[]
-    return s.bans.filter(b => b.seatIndex === 1).map(b => b.civId)
+    if (!s) return [] as string[]
+    if (isTeamMode()) return s.bans.filter(b => b.seatIndex === 1).map(b => b.civId)
+    return allBans().slice(ffaSplitIndex())
   }
 
   const [remaining, setRemaining] = createSignal(0)
@@ -175,16 +178,14 @@ export function DraftHeader(props: DraftHeaderProps) {
   const canInteract = () => amHost() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
   const resultSelectionReady = () => isTeamMode() ? selectedWinningTeam() != null : ffaPlacementOrder().length === seatCount()
   const showMobileActionRow = () => isMobileLayout() && amHost() && (state()?.status === 'active' || isComplete())
-  const draftTitle = () => {
-    const modeLabel = formatModeLabel(state()?.formatId, 'Draft')
-    return modeLabel ? `${modeLabel} Draft` : 'Draft'
-  }
+  const showLeftNoBans = () => state()?.status !== 'waiting' && (isTeamMode() ? leftBans().length === 0 : allBans().length === 0)
+  const showRightNoBans = () => state()?.status !== 'waiting' && isTeamMode() && rightBans().length === 0
 
   const renderOverviewButton = () => (
     <Show when={props.onSwitchTarget}>
       <button
         type="button"
-        class="text-fg-muted border border-border rounded-md flex shrink-0 h-7 w-7 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:bg-bg-muted"
+        class="text-fg-muted border border-border rounded-md flex shrink-0 h-8 w-8 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:bg-bg-muted"
         title="Lobby Overview"
         aria-label="Lobby Overview"
         onClick={() => props.onSwitchTarget?.()}
@@ -230,6 +231,56 @@ export function DraftHeader(props: DraftHeaderProps) {
     </Show>
   )
 
+  const renderBanItems = (bans: string[], showPlaceholder: boolean) => (
+    <Show
+      when={bans.length > 0}
+      fallback={showPlaceholder
+        ? <span class="text-xs text-fg-muted/30 whitespace-nowrap">No bans</span>
+        : null}
+    >
+      <For each={bans}>
+        {civId => <BanSquare civId={civId} />}
+      </For>
+    </Show>
+  )
+
+  const renderBanRail = (side: 'left' | 'right', bans: string[], showPlaceholder: boolean) => (
+    <div class={cn('flex min-w-0 flex-1 overflow-hidden', side === 'left' ? 'justify-start' : 'justify-end')}>
+      <HorizontalScroller
+        class="w-fit max-w-full"
+        contentClass="flex flex-nowrap items-center gap-1.5 whitespace-nowrap"
+      >
+        {renderBanItems(bans, showPlaceholder)}
+      </HorizontalScroller>
+    </div>
+  )
+
+  const renderMobileBanRail = () => (
+    <HorizontalScroller
+      class="max-w-full"
+      style={{ width: 'calc(100% - 2.75rem)' }}
+      contentClass={cn(
+        'flex min-w-full items-center whitespace-nowrap',
+        isTeamMode() ? 'justify-between gap-2' : 'justify-center gap-1.5',
+      )}
+    >
+      <Show
+        when={isTeamMode()}
+        fallback={renderBanItems(allBans(), state()?.status !== 'waiting' && allBans().length === 0)}
+      >
+        <>
+          <div class="flex items-center gap-1.5 whitespace-nowrap">
+            {renderBanItems(leftBans(), state()?.status !== 'waiting' && leftBans().length === 0)}
+          </div>
+          <div class="h-8 w-8 shrink-0" />
+          <div class="flex items-center gap-1.5 whitespace-nowrap">
+            {renderBanItems(rightBans(), state()?.status !== 'waiting' && rightBans().length === 0)}
+          </div>
+        </>
+      </Show>
+    </HorizontalScroller>
+  )
+
   return (
     <header class={cn('relative flex flex-col shrink-0 overflow-hidden', isComplete() ? 'bg-bg-subtle' : phaseHeaderBg(), 'transition-colors duration-200')}>
       <Show when={phaseFlash()}>
@@ -242,110 +293,8 @@ export function DraftHeader(props: DraftHeaderProps) {
 
       <Show when={isMobileLayout()}>
         <div class="relative z-10 flex flex-col">
-          <div class="px-4 pt-2 pb-1.5 flex justify-center">
-            <div class="flex min-h-10 flex-col items-center justify-center gap-0.5 text-center">
-              <span class="max-w-[72vw] truncate text-[10px] text-fg-muted/70 font-semibold tracking-[0.18em] uppercase">
-                {draftTitle()}
-              </span>
-
-              <div class="flex items-center gap-2">
-                <span class={cn(
-                  'text-xs font-bold tracking-widest uppercase',
-                  accent() === 'red' ? 'text-danger' : 'text-accent',
-                )}
-                >
-                  {phaseLabel()}
-                </span>
-
-                <Show when={draftStore.timerEndsAt != null}>
-                  <span class={cn(
-                    'font-mono text-base font-bold tabular-nums leading-none',
-                    isExpired() && 'text-fg-subtle',
-                    isCritical() && 'text-danger animate-pulse',
-                    isUrgent() && !isCritical() && 'text-danger',
-                    !isUrgent() && !isCritical() && !isExpired() && 'text-fg',
-                  )}
-                  >
-                    {seconds()}
-                    s
-                  </span>
-                </Show>
-              </div>
-            </div>
-          </div>
-
-          <div class="px-3 pb-2.5 flex flex-wrap items-start gap-2">
-            <div class="flex min-w-0 flex-1 justify-start">
-              <div class="flex min-w-0 flex-wrap gap-1.5 items-center">
-                <For each={leftBans()}>
-                  {civId => <BanSquare civId={civId} />}
-                </For>
-                <Show when={leftBans().length === 0 && state()?.status !== 'waiting'}>
-                  <span class="text-xs text-fg-muted/30">No bans</span>
-                </Show>
-              </div>
-            </div>
-
-            <div class="flex min-w-0 flex-1 justify-end">
-              <div class="flex min-w-0 flex-wrap gap-2 items-center justify-end">
-                <Show when={!showMobileActionRow()}>
-                  {renderOverviewButton()}
-                </Show>
-                <Show when={isTeamMode()}>
-                  <For each={rightBans()}>
-                    {civId => <BanSquare civId={civId} />}
-                  </For>
-                  <Show when={rightBans().length === 0 && state()?.status !== 'waiting'}>
-                    <span class="text-xs text-fg-subtle/30">No bans</span>
-                  </Show>
-                </Show>
-              </div>
-            </div>
-
-            <Show when={showMobileActionRow()}>
-              <div class="relative flex w-full items-center justify-center min-h-8 px-9">
-                <Show when={state()?.status === 'active'} fallback={renderResultActions()}>
-                  {renderScrubButton()}
-                </Show>
-                <div class="right-0 absolute flex items-center justify-end">
-                  {renderOverviewButton()}
-                </div>
-              </div>
-            </Show>
-          </div>
-        </div>
-      </Show>
-
-      <Show when={!isMobileLayout()}>
-        {/* Main row */}
-        <div class="px-4 py-2.5 flex items-center justify-between relative z-10">
-          {/* Left bans */}
-          <div class="flex gap-1.5 items-center">
-            <For each={leftBans()}>
-              {civId => <BanSquare civId={civId} />}
-            </For>
-            <Show when={leftBans().length === 0 && state()?.status !== 'waiting'}>
-              <span class="text-xs text-fg-muted/30">No bans</span>
-            </Show>
-          </div>
-
-          {/* Center: phase + timer / post-draft controls */}
-          <Show
-            when={!isComplete()}
-            fallback={(
-              <div class="flex gap-3 items-center relative">
-                <Show
-                  when={amHost()}
-                  fallback={
-                    <span class="text-lg text-accent tracking-widest font-bold uppercase">{phaseLabel()}</span>
-                  }
-                >
-                  {renderResultActions()}
-                </Show>
-              </div>
-            )}
-          >
-            <div class="flex flex-col gap-0.5 items-center relative">
+          <div class="pointer-events-none px-12 pt-2 pb-1.5 flex flex-col items-center justify-center text-center">
+            <div class="flex min-h-4 items-center justify-center">
               <span class={cn(
                 'text-xs font-bold tracking-widest uppercase',
                 accent() === 'red' ? 'text-danger' : 'text-accent',
@@ -353,10 +302,12 @@ export function DraftHeader(props: DraftHeaderProps) {
               >
                 {phaseLabel()}
               </span>
+            </div>
 
+            <div class="flex min-h-5 items-center justify-center">
               <Show when={draftStore.timerEndsAt != null}>
                 <span class={cn(
-                  'font-mono text-lg font-bold tabular-nums leading-none',
+                  'font-mono text-base font-bold tabular-nums leading-none',
                   isExpired() && 'text-fg-subtle',
                   isCritical() && 'text-danger animate-pulse',
                   isUrgent() && !isCritical() && 'text-danger',
@@ -367,26 +318,84 @@ export function DraftHeader(props: DraftHeaderProps) {
                   s
                 </span>
               </Show>
+            </div>
+          </div>
 
-              <Show when={amHost() && state()?.status === 'active'}>
-                <div class="ml-6 left-full top-1/2 absolute -translate-y-1/2">
-                  {renderScrubButton()}
-                </div>
+          <div class="relative px-3 pb-2 min-h-8">
+            {renderMobileBanRail()}
+            <div class="right-3 top-1/2 absolute z-20 flex -translate-y-1/2 items-center justify-end">
+              {renderOverviewButton()}
+            </div>
+          </div>
+
+          <Show when={showMobileActionRow()}>
+            <div class="flex px-3 pb-2 justify-center">
+              <Show when={state()?.status === 'active'} fallback={renderResultActions()}>
+                {renderScrubButton()}
               </Show>
             </div>
           </Show>
+        </div>
+      </Show>
 
-          {/* Right bans (team mode) or empty */}
-          <div class="flex gap-2 items-center">
+      <Show when={!isMobileLayout()}>
+        {/* Main row */}
+        <div class="px-4 py-2.5 relative z-10">
+          <div class="right-4 top-1/2 absolute z-20 -translate-y-1/2">
             {renderOverviewButton()}
-            <Show when={isTeamMode()}>
-              <For each={rightBans()}>
-                {civId => <BanSquare civId={civId} />}
-              </For>
-              <Show when={rightBans().length === 0 && state()?.status !== 'waiting'}>
-                <span class="text-xs text-fg-subtle/30">No bans</span>
-              </Show>
+          </div>
+
+          <div class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 pr-12">
+            {renderBanRail('left', leftBans(), showLeftNoBans())}
+
+            {/* Center: phase + timer / post-draft controls */}
+            <Show
+              when={!isComplete()}
+              fallback={(
+                <div class="flex gap-3 items-center relative">
+                  <Show
+                    when={amHost()}
+                    fallback={
+                      <span class="text-lg text-accent tracking-widest font-bold uppercase">{phaseLabel()}</span>
+                    }
+                  >
+                    {renderResultActions()}
+                  </Show>
+                </div>
+              )}
+            >
+              <div class="flex flex-col gap-0.5 items-center relative">
+                <span class={cn(
+                  'text-xs font-bold tracking-widest uppercase',
+                  accent() === 'red' ? 'text-danger' : 'text-accent',
+                )}
+                >
+                  {phaseLabel()}
+                </span>
+
+                <Show when={draftStore.timerEndsAt != null}>
+                  <span class={cn(
+                    'font-mono text-lg font-bold tabular-nums leading-none',
+                    isExpired() && 'text-fg-subtle',
+                    isCritical() && 'text-danger animate-pulse',
+                    isUrgent() && !isCritical() && 'text-danger',
+                    !isUrgent() && !isCritical() && !isExpired() && 'text-fg',
+                  )}
+                  >
+                    {seconds()}
+                    s
+                  </span>
+                </Show>
+
+                <Show when={amHost() && state()?.status === 'active'}>
+                  <div class="ml-6 left-full top-1/2 absolute -translate-y-1/2">
+                    {renderScrubButton()}
+                  </div>
+                </Show>
+              </div>
             </Show>
+
+            {renderBanRail('right', rightBans(), showRightNoBans())}
           </div>
         </div>
       </Show>

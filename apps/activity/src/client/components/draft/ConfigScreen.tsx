@@ -1140,7 +1140,21 @@ export function ConfigScreen(props: ConfigScreenProps) {
     <Show
       when={isMiniView()}
       fallback={(
-        <div class="text-fg font-sans bg-bg overflow-y-auto min-h-dvh">
+        <div class="text-fg font-sans bg-bg overflow-y-auto min-h-dvh relative">
+          <Show when={props.onSwitchTarget}>
+            <button
+              type="button"
+              class={cn(
+                'text-fg-muted border border-border-subtle rounded-md flex h-9 w-9 cursor-pointer transition-colors items-center justify-center z-20 absolute hover:text-fg hover:bg-bg-muted',
+                isMobileLayout() ? 'top-12 right-4' : 'top-4 right-6',
+              )}
+              title="Lobby Overview"
+              aria-label="Lobby Overview"
+              onClick={() => props.onSwitchTarget?.()}
+            >
+              <span class="i-ph-squares-four-bold text-base" />
+            </button>
+          </Show>
           <div class={cn('mx-auto px-6 py-4 flex flex-col gap-6 max-w-5xl w-full', isMobileLayout() && 'pt-12')}>
             <div class="grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-center">
               <div class="h-9 w-9" />
@@ -1148,18 +1162,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                 <h1 class="text-2xl text-heading mb-1">Draft Setup</h1>
                 <span class="text-sm text-accent font-medium">{formatId()}</span>
               </div>
-
-              <Show when={props.onSwitchTarget} fallback={<div class="h-9 w-9" />}>
-                <button
-                  type="button"
-                  class="text-fg-muted border border-border-subtle rounded-md flex shrink-0 h-9 w-9 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:bg-bg-muted"
-                  title="Lobby Overview"
-                  aria-label="Lobby Overview"
-                  onClick={() => props.onSwitchTarget?.()}
-                >
-                  <span class="i-ph-squares-four-bold text-base" />
-                </button>
-              </Show>
+              <div class="h-9 w-9" />
             </div>
 
             <div class="gap-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
