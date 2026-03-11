@@ -24,8 +24,7 @@ import {
   storeUserMatchMappings,
 } from '../../src/services/activity/index.ts'
 import { resolveDraftTimerConfig } from '../../src/services/config/index.ts'
-import { markLeaderboardsDirty } from '../../src/services/leaderboard/message.ts'
-import { refreshDirtyLeaderboards } from '../../src/services/leaderboard/message.ts'
+import { markLeaderboardsDirty, refreshDirtyLeaderboards } from '../../src/services/leaderboard/message.ts'
 import {
   attachLobbyMatch,
   clearLobbyById,
