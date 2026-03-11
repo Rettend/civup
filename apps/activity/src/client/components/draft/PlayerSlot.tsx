@@ -76,13 +76,13 @@ export function PlayerSlot(props: PlayerSlotProps) {
   /** Boosted glow for compact FFA slots (smaller area needs higher intensity) */
   const ffaWinnerGlowStyle = {
     background: [
-      'radial-gradient(ellipse farthest-side at 50% 130%, rgba(200,170,110,0.55) 0%, rgba(200,170,110,0.22) 40%, transparent 72%)',
+      'radial-gradient(ellipse farthest-side at 50% 130%, var(--glow-gold) 0%, var(--glow-gold-dim) 40%, transparent 72%)',
       'radial-gradient(ellipse closest-side at 50% 100%, rgba(255,215,100,0.38) 0%, transparent 55%)',
-      'linear-gradient(to top, rgba(200,170,110,0.16) 0%, transparent 40%)',
+      'linear-gradient(to top, var(--glow-gold-dim) 0%, transparent 40%)',
     ].join(', '),
   }
 
-  const ffaGoldBorderColor = 'rgba(200,170,110,0.58)'
+  const ffaGoldBorderColor = 'var(--accent-muted)'
 
   const ffaGridMetrics = () => {
     const count = state()?.seats.length ?? 0
@@ -147,7 +147,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
       `border-left:${ffaHasPlacedLeft() ? '0 solid transparent' : `2px solid ${ffaGoldBorderColor}`}`,
       `border-right:${ffaHasPlacedRight() ? '0 solid transparent' : `2px solid ${ffaGoldBorderColor}`}`,
       `border-bottom:${ffaHasPlacedBelow() ? '0 solid transparent' : `2px solid ${ffaGoldBorderColor}`}`,
-      'box-shadow:inset 0 0 28px rgba(200,170,110,0.14)',
+      'box-shadow:inset 0 0 28px var(--glow-gold-dim)',
     ].join(';')
   }
 
@@ -192,7 +192,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
   return (
     <div
       class={cn(
-        'relative flex flex-col overflow-hidden bg-bg-secondary h-full isolate',
+        'relative flex flex-col overflow-hidden bg-bg-subtle h-full isolate',
         canSelectResult() && (isFfaPlacementMode() || isTeamResultMode()) && 'cursor-pointer',
       )}
       classList={{
@@ -251,10 +251,10 @@ export function PlayerSlot(props: PlayerSlotProps) {
             <div
               class={cn(
                 'flex items-center justify-center rounded-full leading-none',
-                'border border-[#f4dca8]/45 bg-accent-gold font-black shadow-[0_4px_12px_rgba(0,0,0,0.5),0_8px_28px_rgba(0,0,0,0.4),0_16px_48px_rgba(0,0,0,0.25)]',
+                'border border-[var(--badge-gold-border)] bg-accent font-black shadow-[0_4px_12px_rgba(0,0,0,0.5),0_8px_28px_rgba(0,0,0,0.4),0_16px_48px_rgba(0,0,0,0.25)]',
                 props.compact ? 'h-12 w-12 text-xl' : 'h-14 w-14 text-2xl',
               )}
-              style={{ 'color': '#17130d', 'font-weight': 900 }}
+              style={{ 'color': 'var(--badge-gold-text)', 'font-weight': 900 }}
             >
               <span class={cn(placementIconClass(), props.compact ? 'text-[28px]' : 'text-[32px]')} />
             </div>
@@ -294,7 +294,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
         <div class="flex flex-1 items-center justify-center">
           <div class={cn(
             'i-ph-user-bold text-3xl',
-            isActive() ? (accent() === 'red' ? 'text-accent-red/80' : 'text-accent-gold/80') : 'text-text-muted/50',
+            isActive() ? (accent() === 'red' ? 'text-danger/80' : 'text-accent/80') : 'text-fg-muted/40',
           )}
           />
         </div>
@@ -303,15 +303,15 @@ export function PlayerSlot(props: PlayerSlotProps) {
       {/* Bottom gradient overlay */}
       <div class={cn(
         'absolute inset-x-0 bottom-0 px-2 pb-2 pt-8 z-20',
-        filled() ? 'bg-gradient-to-t from-black/80 to-transparent' : 'bg-gradient-to-t from-bg-primary/40 to-transparent',
+        filled() ? 'bg-gradient-to-t from-black/80 to-transparent' : 'bg-gradient-to-t from-bg/40 to-transparent',
       )}
       >
         {/* Leader name (when picked) */}
         <Show when={leader()} keyed>
           {l => (
             <div class="mb-1">
-              <div class="text-base text-text-primary leading-tight font-semibold truncate">{l.name}</div>
-              <div class="text-sm text-text-secondary/80 leading-tight truncate">{l.civilization}</div>
+              <div class="text-base text-fg leading-tight font-semibold truncate">{l.name}</div>
+              <div class="text-sm text-fg-muted/80 leading-tight truncate">{l.civilization}</div>
             </div>
           )}
         </Show>
@@ -321,8 +321,8 @@ export function PlayerSlot(props: PlayerSlotProps) {
           {s => (
             <div class={cn(
               'flex items-center gap-2',
-              isActive() ? (accent() === 'red' ? 'text-accent-red' : 'text-accent-gold') : 'text-text-secondary',
-              filled() && !isActive() && 'text-text-secondary/60',
+              isActive() ? (accent() === 'red' ? 'text-danger' : 'text-accent') : 'text-fg-muted',
+              filled() && !isActive() && 'text-fg-muted/60',
             )}
             >
               <Show when={seatAvatarUrl()} keyed>
@@ -344,7 +344,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
       <div class="left-1.5 top-1.5 absolute z-20">
         <span class={cn(
           'text-[10px] font-bold tracking-wide uppercase',
-          isActive() ? (accent() === 'red' ? 'text-accent-red' : 'text-accent-gold') : (filled() ? 'text-white/80 drop-shadow-md' : 'text-text-muted/70'),
+          isActive() ? (accent() === 'red' ? 'text-danger' : 'text-accent') : (filled() ? 'text-white/80 drop-shadow-md' : 'text-fg-muted/50'),
         )}
         >
           {props.seatIndex + 1}

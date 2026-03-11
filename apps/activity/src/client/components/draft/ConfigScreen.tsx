@@ -71,6 +71,8 @@ interface LobbyEditableDraftConfig extends DraftTimerConfig {
   leaderPoolSize: number | null
 }
 
+const CONFIG_MESSAGE_TIMEOUT_MS = 4000
+
 /** Pre-draft setup screen (lobby waiting + room waiting). */
 export function ConfigScreen(props: ConfigScreenProps) {
   const state = () => draftStore.state
@@ -89,6 +91,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const [dragOverSlot, setDragOverSlot] = createSignal<number | null>(null)
   const [optimisticLobbyAction, setOptimisticLobbyAction] = createSignal<OptimisticLobbyAction | null>(null)
   let optimisticLobbyActionTimeout: ReturnType<typeof setTimeout> | null = null
+  let configMessageTimeout: ReturnType<typeof setTimeout> | null = null
   const [lobbyTimerConfig, setLobbyTimerConfig] = createSignal<LobbyEditableDraftConfig | null>(
     props.lobby
       ? {
@@ -363,28 +366,47 @@ export function ConfigScreen(props: ConfigScreenProps) {
   })
 
   const clearConfigMessage = () => {
+    if (configMessageTimeout) {
+      clearTimeout(configMessageTimeout)
+      configMessageTimeout = null
+    }
     setConfigMessage(null)
     setConfigMessageTone(null)
     setMinRoleSetDetail(null)
+  }
+
+  const scheduleConfigMessageClear = () => {
+    if (configMessageTimeout) clearTimeout(configMessageTimeout)
+    configMessageTimeout = setTimeout(() => {
+      configMessageTimeout = null
+      clearConfigMessage()
+    }, CONFIG_MESSAGE_TIMEOUT_MS)
   }
 
   const showErrorMessage = (message: string) => {
     setConfigMessage(message)
     setConfigMessageTone('error')
     setMinRoleSetDetail(null)
+    scheduleConfigMessageClear()
   }
 
   const showInfoMessage = (message: string) => {
     setConfigMessage(message)
     setConfigMessageTone('info')
     setMinRoleSetDetail(null)
+    scheduleConfigMessageClear()
   }
 
   const showMinRoleSetMessage = (detail: MinRoleSetDetail) => {
     setConfigMessage(`Min rank set to ${detail.roleLabel}`)
     setConfigMessageTone('info')
     setMinRoleSetDetail(detail)
+    scheduleConfigMessageClear()
   }
+
+  onCleanup(() => {
+    if (configMessageTimeout) clearTimeout(configMessageTimeout)
+  })
 
   createEffect(() => {
     const config = optimisticTimerConfig.value()
@@ -602,7 +624,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       const parsedLeaderPool = parseLeaderPoolSizeInput(leaderPoolInput(), leaderPoolMinimum)
       if (parsedBan === undefined || parsedPick === undefined || parsedLeaderPool === undefined) {
         optimisticTimerConfig.clearError()
-        showErrorMessage(`Use whole numbers for timers and leaders. Leaders can be ${leaderPoolMinimum}-${MAX_LEADER_POOL_INPUT}, or blank for the mode default.`)
+        showErrorMessage(`Leaders can be ${leaderPoolMinimum}-${MAX_LEADER_POOL_INPUT}, or blank for the default.`)
         const current = optimisticTimerConfig.value()
         setBanMinutes(timerSecondsToMinutesInput(current.banTimerSeconds))
         setPickMinutes(timerSecondsToMinutesInput(current.pickTimerSeconds))
@@ -673,7 +695,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         return
       }
       applyLobbySnapshot(result.lobby)
-      showInfoMessage(`Lobby mode changed to ${formatModeLabel(result.lobby.mode, result.lobby.mode)}.`)
+      showInfoMessage(`Game mode changed to ${formatModeLabel(result.lobby.mode, result.lobby.mode)}.`)
     }
     finally {
       setLobbyActionPending(false)
@@ -1090,19 +1112,19 @@ export function ConfigScreen(props: ConfigScreenProps) {
     <Show
       when={isMiniView()}
       fallback={(
-        <div class="text-text-primary font-sans bg-bg-primary overflow-y-auto min-h-dvh">
+        <div class="text-fg font-sans bg-bg overflow-y-auto min-h-dvh">
           <div class="mx-auto px-6 py-4 flex flex-col gap-6 max-w-5xl w-full">
         <div class="grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-center">
           <div class="h-9 w-9" />
           <div class="text-center">
             <h1 class="text-2xl text-heading mb-1">Draft Setup</h1>
-            <span class="text-sm text-accent-gold font-medium">{formatId()}</span>
+            <span class="text-sm text-accent font-medium">{formatId()}</span>
           </div>
 
           <Show when={props.onSwitchTarget} fallback={<div class="h-9 w-9" />}>
             <button
               type="button"
-              class="text-text-secondary border border-border-subtle rounded-md flex shrink-0 h-9 w-9 cursor-pointer transition-colors items-center justify-center hover:text-text-primary hover:bg-bg-hover"
+              class="text-fg-muted border border-border-subtle rounded-md flex shrink-0 h-9 w-9 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:bg-bg-muted"
               title="Lobby Overview"
               aria-label="Lobby Overview"
               onClick={() => props.onSwitchTarget?.()}
@@ -1113,12 +1135,12 @@ export function ConfigScreen(props: ConfigScreenProps) {
         </div>
 
         <div class="gap-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div class="p-4 rounded-lg bg-bg-secondary">
-            <div class="text-xs text-text-muted tracking-widest font-bold mb-3 uppercase">Players</div>
+          <div class="p-4 rounded-lg bg-bg-subtle">
+            <div class="text-xs text-fg-subtle tracking-widest font-bold mb-3 uppercase">Players</div>
 
             <Show when={viewerJoinBlockedReason()}>
               {reason => (
-                <div class="text-sm text-accent-red mb-3 px-3 py-2 border border-accent-red/25 rounded-md bg-accent-red/10">
+                <div class="text-sm text-danger mb-3 px-3 py-2 border border-danger/25 rounded-md bg-danger/10">
                   {reason()}
                 </div>
               )}
@@ -1189,23 +1211,23 @@ export function ConfigScreen(props: ConfigScreenProps) {
             >
               <div class="gap-4 grid grid-cols-2">
                 <div>
-                  <div class="text-xs text-accent-gold tracking-wider font-bold mb-2">Team A</div>
+                  <div class="text-xs text-accent tracking-wider font-bold mb-2">Team A</div>
                   {renderTeamColumn(teamRows(0))}
                 </div>
                 <div>
-                  <div class="text-xs text-accent-gold tracking-wider font-bold mb-2">Team B</div>
+                  <div class="text-xs text-accent tracking-wider font-bold mb-2">Team B</div>
                   {renderTeamColumn(teamRows(1))}
                 </div>
               </div>
             </Show>
           </div>
 
-          <div class="p-4 rounded-lg bg-bg-secondary flex flex-col gap-3">
-            <div class="text-xs text-text-muted tracking-widest font-bold flex uppercase items-center justify-between">
+          <div class="p-4 rounded-lg bg-bg-subtle flex flex-col gap-3">
+            <div class="text-xs text-fg-subtle tracking-widest font-bold flex uppercase items-center justify-between">
               <span>Config</span>
               <span class="flex h-4 w-4 items-center justify-center">
                 <Show when={props.showJoinPending || optimisticTimerConfig.status() === 'pending' || lobbyActionPending() || startPending()}>
-                  <span class="i-gg:spinner text-sm text-accent-gold animate-spin" />
+                  <span class="i-gg:spinner text-sm text-accent animate-spin" />
                 </Show>
               </span>
             </div>
@@ -1317,12 +1339,12 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
             <div class="min-h-5">
               <Show when={configMessage()}>
-                <div class="text-xs text-text-primary flex gap-1.5 items-center">
+                <div class="text-xs text-fg flex gap-1.5 items-center">
                   <span class={cn(
                     'text-base shrink-0 self-center',
                     configMessageTone() === 'error'
-                      ? 'i-ph-x-bold text-accent-red'
-                      : 'i-ph-check-bold text-accent-gold',
+                      ? 'i-ph-x-bold text-danger'
+                      : 'i-ph-check-bold text-accent',
                   )}
                   />
                   <Show
@@ -1341,7 +1363,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
           <Show
             when={amHost()}
             fallback={(
-              <span class="text-sm text-text-muted">
+              <span class="text-sm text-fg-subtle">
                 {setupStatusText()}
               </span>
             )}
@@ -1351,14 +1373,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
               fallback={(
                 <div class="flex gap-3 items-center">
                   <button
-                    class="text-sm text-black font-bold px-8 py-2.5 rounded-lg bg-accent-gold cursor-pointer transition-colors hover:bg-accent-gold/80 disabled:opacity-60 disabled:cursor-not-allowed"
+                    class="text-sm text-bg font-bold px-8 py-2.5 rounded-lg bg-accent cursor-pointer transition-colors hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed"
                     disabled={!canStartLobby() || startPending() || lobbyActionPending()}
                     onClick={() => void handleStartLobbyDraftAction()}
                   >
                     {startPending() ? 'Starting...' : 'Start Draft'}
                   </button>
                   <button
-                    class="text-sm text-text-secondary px-6 py-2.5 border border-white/12 rounded-lg bg-white/3 cursor-pointer transition-colors hover:text-text-primary hover:border-white/20 hover:bg-white/6 disabled:opacity-60 disabled:cursor-not-allowed"
+                    class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed"
                     disabled={cancelPending() || startPending() || lobbyActionPending()}
                     onClick={() => void handleCancelAction()}
                   >
@@ -1366,7 +1388,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   </button>
                   <Show when={lobbyMode() === '2v2' || lobbyMode() === '3v3'}>
                     <button
-                      class="text-text-secondary border border-white/12 rounded-lg bg-white/3 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-text-primary hover:border-white/20 hover:bg-white/6 disabled:opacity-60 disabled:cursor-not-allowed"
+                      class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed"
                       title="Randomize"
                       aria-label="Randomize teams"
                       disabled={cancelPending() || startPending() || lobbyActionPending()}
@@ -1375,7 +1397,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       <span class="i-ph:shuffle-simple-bold text-lg" />
                     </button>
                     <button
-                      class="text-text-secondary border border-white/12 rounded-lg bg-white/3 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-text-primary hover:border-white/20 hover:bg-white/6 disabled:opacity-60 disabled:cursor-not-allowed"
+                      class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed"
                       title="Auto-balance"
                       aria-label="Auto-balance teams"
                       disabled={cancelPending() || startPending() || lobbyActionPending()}
@@ -1386,7 +1408,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   </Show>
                   <Show when={isDev()}>
                     <button
-                      class="text-sm text-text-secondary px-6 py-2.5 border border-white/12 rounded-lg bg-white/3 cursor-pointer transition-colors hover:text-text-primary hover:border-white/20 hover:bg-white/6 disabled:opacity-60 disabled:cursor-not-allowed"
+                      class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed"
                       disabled={cancelPending() || startPending() || lobbyActionPending()}
                       onClick={() => void handleFillTestPlayers()}
                     >
@@ -1397,17 +1419,17 @@ export function ConfigScreen(props: ConfigScreenProps) {
               )}
             >
               <div class="flex flex-col items-center gap-2">
-                <span class="text-sm text-text-muted">{setupStatusText()}</span>
+                <span class="text-sm text-fg-subtle">{setupStatusText()}</span>
 
                 <div class="flex gap-3 items-center">
                 <button
-                  class="text-sm text-black font-bold px-8 py-2.5 rounded-lg bg-accent-gold cursor-pointer transition-colors hover:bg-accent-gold/80"
+                  class="text-sm text-bg font-bold px-8 py-2.5 rounded-lg bg-accent cursor-pointer transition-colors hover:brightness-110"
                   onClick={sendStart}
                 >
                   Start Draft
                 </button>
                 <button
-                  class="text-sm text-text-secondary px-6 py-2.5 border border-white/12 rounded-lg bg-white/3 cursor-pointer transition-colors hover:text-text-primary hover:border-white/20 hover:bg-white/6"
+                  class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50"
                   onClick={() => void handleCancelAction()}
                 >
                   Cancel Draft

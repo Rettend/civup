@@ -50,7 +50,7 @@ export function SlotStrip() {
     if (!isTeamResultMode()) return 'hidden'
     const selectedTeam = selectedWinningTeam()
     if (selectedTeam === team) {
-      return 'shadow-[inset_0_0_0_2px_rgba(200,170,110,0.58),inset_0_0_28px_rgba(200,170,110,0.14)]'
+      return 'shadow-[inset_0_0_0_2px_var(--accent-muted),inset_0_0_28px_var(--glow-gold-dim)]'
     }
     if (selectedTeam != null) {
       return 'bg-black/20'
@@ -68,9 +68,9 @@ export function SlotStrip() {
   /** Dramatic golden radial glow — three layers emanating from bottom center */
   const winnerGlowStyle = {
     background: [
-      'radial-gradient(ellipse farthest-side at 50% 130%, rgba(200,170,110,0.38) 0%, rgba(200,170,110,0.14) 40%, transparent 72%)',
+      'radial-gradient(ellipse farthest-side at 50% 130%, var(--glow-gold) 0%, var(--glow-gold-dim) 40%, transparent 72%)',
       'radial-gradient(ellipse closest-side at 50% 100%, rgba(255,215,100,0.26) 0%, transparent 55%)',
-      'linear-gradient(to top, rgba(200,170,110,0.10) 0%, transparent 40%)',
+      'linear-gradient(to top, var(--glow-gold-dim) 0%, transparent 40%)',
     ].join(', '),
   }
 
@@ -97,7 +97,7 @@ export function SlotStrip() {
                   class="flex pointer-events-none items-center inset-y-0 right-0 justify-center absolute z-40"
                   style={{ width: teamOverlayWidth(leftSeats().length) }}
                 >
-                  <div class="anim-fade-in text-[#17130d] border border-[#f4dca8]/45 rounded-full bg-accent-gold flex h-16 w-16 shadow-[0_4px_12px_rgba(0,0,0,0.5),0_8px_28px_rgba(0,0,0,0.4),0_16px_48px_rgba(0,0,0,0.25)] items-center justify-center">
+                  <div class="anim-fade-in border rounded-full bg-accent flex h-16 w-16 shadow-[0_4px_12px_rgba(0,0,0,0.5),0_8px_28px_rgba(0,0,0,0.4),0_16px_48px_rgba(0,0,0,0.25)] items-center justify-center" style={{ 'color': 'var(--badge-gold-text)', 'border-color': 'var(--badge-gold-border)' }}>
                     <span class="i-ph:trophy-fill text-[30px]" />
                   </div>
                 </div>
@@ -121,7 +121,7 @@ export function SlotStrip() {
 
           {/* Center gap */}
           <div class="flex shrink-0 flex-col w-12 items-center self-center justify-center">
-            <span class="text-lg text-text-muted/30 tracking-widest font-bold">VS</span>
+            <span class="text-lg text-fg-muted/30 tracking-widest font-bold">VS</span>
           </div>
 
           {/* Right team */}
@@ -142,7 +142,7 @@ export function SlotStrip() {
                   class="flex pointer-events-none items-center inset-y-0 left-0 justify-center absolute z-40"
                   style={{ width: teamOverlayWidth(rightSeats().length) }}
                 >
-                  <div class="anim-fade-in text-[#17130d] border border-[#f4dca8]/45 rounded-full bg-accent-gold flex h-16 w-16 shadow-[0_4px_12px_rgba(0,0,0,0.5),0_8px_28px_rgba(0,0,0,0.4),0_16px_48px_rgba(0,0,0,0.25)] items-center justify-center">
+                  <div class="anim-fade-in border rounded-full bg-accent flex h-16 w-16 shadow-[0_4px_12px_rgba(0,0,0,0.5),0_8px_28px_rgba(0,0,0,0.4),0_16px_48px_rgba(0,0,0,0.25)] items-center justify-center" style={{ 'color': 'var(--badge-gold-text)', 'border-color': 'var(--badge-gold-border)' }}>
                     <span class="i-ph:trophy-fill text-[30px]" />
                   </div>
                 </div>

@@ -33,11 +33,11 @@ export function PlayerChip(props: PlayerChipProps) {
     <div
       class={cn(
         'group flex items-center gap-2 rounded-md px-3 py-2 border transition-colors',
-        props.row.empty ? 'bg-bg-primary/20 text-text-muted border-transparent' : 'bg-bg-primary/40 border-transparent',
+        props.row.empty ? 'bg-white/4 text-fg-subtle border-transparent' : 'bg-white/8 border-transparent',
         props.row.pendingSelf && 'opacity-45',
-        props.row.empty && props.showJoin && !props.pending && 'hover:bg-bg-primary/30 cursor-pointer',
+        props.row.empty && props.showJoin && !props.pending && 'hover:bg-white/8 cursor-pointer',
         props.draggable && !props.pending && 'cursor-grab active:cursor-grabbing',
-        props.dropActive && 'border-accent-gold/65 border-dashed bg-accent-gold/8',
+        props.dropActive && 'border-accent/65 border-dashed bg-accent/8',
       )}
       onClick={() => { if (props.showJoin && !props.pending) props.onJoin?.() }}
       draggable={props.draggable && !props.pending}
@@ -66,7 +66,7 @@ export function PlayerChip(props: PlayerChipProps) {
     >
       <Show
         when={!props.row.empty && props.row.avatarUrl}
-        fallback={<div class="i-ph-user-bold text-sm text-text-muted" />}
+        fallback={<div class="i-ph-user-bold text-sm text-fg-subtle" />}
       >
         {avatar => (
           <img
@@ -82,7 +82,7 @@ export function PlayerChip(props: PlayerChipProps) {
 
       <Show when={props.showJoin && !props.pending}>
         <button
-          class="text-text-secondary rounded-sm opacity-0 flex h-5 w-5 transition-opacity items-center justify-center hover:text-text-primary hover:bg-white/8 group-hover:opacity-100"
+          class="text-fg-muted rounded-sm opacity-0 flex h-5 w-5 transition-opacity items-center justify-center hover:text-fg hover:bg-white/8 group-hover:opacity-100"
           onClick={(event) => {
             event.stopPropagation()
             props.onJoin?.()
@@ -94,7 +94,7 @@ export function PlayerChip(props: PlayerChipProps) {
 
       <Show when={props.showRemove && !props.pending}>
         <button
-          class="text-text-secondary rounded-sm opacity-0 flex h-5 w-5 transition-opacity items-center justify-center hover:text-accent-red hover:bg-white/8 group-hover:opacity-100"
+          class="text-fg-muted rounded-sm opacity-0 flex h-5 w-5 transition-opacity items-center justify-center hover:text-danger hover:bg-white/8 group-hover:opacity-100"
           onClick={(event) => {
             event.stopPropagation()
             props.onRemove?.()
@@ -105,7 +105,7 @@ export function PlayerChip(props: PlayerChipProps) {
       </Show>
 
       <Show when={!props.row.pendingSelf && !props.showJoin && !props.showRemove && props.row.isHost}>
-        <span class="text-[10px] text-accent-gold tracking-wider font-bold uppercase">Host</span>
+        <span class="text-[10px] text-accent tracking-wider font-bold uppercase">Host</span>
       </Show>
     </div>
   )
@@ -129,10 +129,10 @@ export function PremadeLinkButton(props: PremadeLinkButtonProps) {
         class={cn(
           'h-[2px] w-12 rounded-full transition-colors',
           props.linked
-            ? 'bg-accent-gold'
+            ? 'bg-accent'
             : props.interactive
               ? 'bg-white/16 group-hover:bg-white/28'
-              : 'bg-white/8',
+              : 'bg-white/6',
         )}
       />
     </button>
@@ -141,9 +141,9 @@ export function PremadeLinkButton(props: PremadeLinkButtonProps) {
 
 export function ReadonlyTimerRow(props: { label: string, value: string }) {
   return (
-    <div class="text-sm px-3 py-2 rounded-md bg-bg-primary/35 flex items-center justify-between">
-      <span class="text-text-secondary">{props.label}</span>
-      <span class="text-text-primary font-medium">{props.value}</span>
+    <div class="text-sm px-3 py-2 rounded-md bg-bg/35 flex items-center justify-between">
+      <span class="text-fg-muted">{props.label}</span>
+      <span class="text-fg font-medium">{props.value}</span>
     </div>
   )
 }
@@ -151,7 +151,7 @@ export function ReadonlyTimerRow(props: { label: string, value: string }) {
 export function MinRoleMismatchNotice(props: { detail: MinRoleMismatchDetail }) {
   return (
     <span class="leading-relaxed">
-      <strong class="text-text-primary font-semibold">{props.detail.playerName}</strong>
+      <strong class="text-fg font-semibold">{props.detail.playerName}</strong>
       {' '}
       does not meet the new min rank
       {' '}

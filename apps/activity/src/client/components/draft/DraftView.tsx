@@ -88,7 +88,7 @@ export function DraftView(props: DraftViewProps) {
               : <ConfigScreen onSwitchTarget={props.onSwitchTarget} />}
           >
             {/* Active + Complete draft view */}
-            <div class="text-text-primary font-sans bg-bg-primary flex flex-col h-screen relative overflow-hidden">
+            <div class="text-fg font-sans bg-bg flex flex-col h-screen relative overflow-hidden">
               <DraftHeader onSwitchTarget={props.onSwitchTarget} />
               <DraftTimeline />
 
@@ -105,8 +105,8 @@ export function DraftView(props: DraftViewProps) {
                     <button
                       class={cn(
                         'flex items-center gap-1 rounded-full px-5 py-1.5 text-xs font-medium cursor-pointer',
-                        'bg-bg-secondary border border-white/10 text-text-secondary',
-                        'hover:bg-bg-hover hover:text-text-primary transition-colors',
+                        'bg-bg-subtle border border-border text-fg-muted',
+                        'hover:bg-bg-muted hover:text-fg transition-colors',
                       )}
                       onClick={() => setGridOpen(!gridOpen())}
                     >
@@ -121,7 +121,7 @@ export function DraftView(props: DraftViewProps) {
                 <Show when={!gridOpen() && state()?.status === 'active'}>
                   <div class="flex inset-x-0 bottom-12 justify-center absolute z-5">
                     <Show when={isSpectator()}>
-                      <span class="text-xs text-text-muted px-3 py-1 rounded-full bg-bg-secondary/80">Spectating</span>
+                      <span class="text-xs text-fg-subtle px-3 py-1 rounded-full bg-bg-subtle/80">Spectating</span>
                     </Show>
                   </div>
                 </Show>
@@ -129,9 +129,9 @@ export function DraftView(props: DraftViewProps) {
                 {/* Post-draft message */}
                 <Show when={state()?.status === 'complete'}>
                   <div class="flex inset-x-0 top-8 justify-center absolute z-50">
-                    <div class="px-4 py-2 border border-white/5 rounded-lg bg-bg-secondary/80 flex flex-col gap-1 shadow-2xl shadow-black/50 items-center backdrop-blur-sm">
-                      <span class="text-base text-accent-gold font-bold">You can close the activity!</span>
-                      <span class="text-sm text-text-primary/80">Don't forget to report the result</span>
+                    <div class="px-4 py-2 border border-border-subtle rounded-lg bg-bg-subtle/80 flex flex-col gap-1 shadow-2xl shadow-black/50 items-center backdrop-blur-sm">
+                      <span class="text-base text-accent font-bold">You can close the activity!</span>
+                      <span class="text-sm text-fg/80">Don't forget to report the result</span>
                     </div>
                   </div>
                 </Show>
@@ -150,10 +150,10 @@ export function DraftView(props: DraftViewProps) {
 
 function AutoStartingDraftScreen() {
   return (
-    <main class="text-text-primary font-sans bg-bg-primary flex min-h-screen items-center justify-center">
+    <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
       <div class="text-center">
-        <div class="text-2xl text-accent-gold font-bold mb-2">CivUp</div>
-        <div class="text-sm text-text-secondary">Starting draft...</div>
+        <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
+        <div class="text-sm text-fg-muted">Starting draft...</div>
       </div>
     </main>
   )
@@ -176,12 +176,12 @@ function CancelledDraftScreen() {
   }
 
   return (
-    <main class="text-text-primary font-sans bg-bg-primary h-screen overflow-y-auto">
+    <main class="text-fg font-sans bg-bg h-screen overflow-y-auto">
       <div class="mx-auto px-4 py-10 flex flex-col gap-4 max-w-3xl md:px-8">
-        <section class="p-7 text-center border border-[#aeb6c2]/20 rounded-lg bg-[#111827]/70">
-          <div class="text-[11px] text-[#9aa3af] tracking-[0.14em] font-semibold mb-2 uppercase">Session Closed</div>
-          <h1 class="text-3xl text-[#d6dde6] font-semibold mb-3">{title()}</h1>
-          <p class="text-sm text-[#9ca6b3] leading-relaxed">{detail()}</p>
+        <section class="p-7 text-center border border-border rounded-lg bg-bg-subtle/70">
+          <div class="text-[11px] text-fg-subtle tracking-[0.14em] font-semibold mb-2 uppercase">Session Closed</div>
+          <h1 class="text-3xl text-fg font-semibold mb-3">{title()}</h1>
+          <p class="text-sm text-fg-muted leading-relaxed">{detail()}</p>
         </section>
       </div>
     </main>

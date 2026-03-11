@@ -156,14 +156,14 @@ export function parseLeaderPoolSizeInput(value: string, minimum: number, maximum
   return numeric
 }
 
-export function normalizeLeaderPoolSizeInput(value: string, minimum: number, maximum: number = MAX_LEADER_POOL_INPUT): string {
+export function normalizeLeaderPoolSizeInput(value: string, _minimum: number, maximum: number = MAX_LEADER_POOL_INPUT): string {
   const trimmed = value.trim()
   if (!trimmed) return ''
 
   const numeric = Number(trimmed)
   if (!Number.isFinite(numeric)) return value
 
-  const bounded = Math.min(maximum, Math.max(minimum, Math.round(numeric)))
+  const bounded = Math.min(maximum, Math.max(0, Math.round(numeric)))
   return String(bounded)
 }
 
