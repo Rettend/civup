@@ -19,6 +19,11 @@ interface Service {
 const processes: Array<{ name: string, proc: ReturnType<typeof spawn> }> = []
 
 const rebuildActivity = process.argv.includes('--rebuild-activity')
+const activityLive = process.argv.includes('--activity-live')
+
+const activityCommand = activityLive
+  ? ['bun', 'x', 'vite', '--host', '0.0.0.0', '--port', '5173']
+  : ['bun', 'x', 'wrangler', 'dev', '--config', 'wrangler.json', '--cwd', 'dist/civup_activity', '--port', '5173', '--show-interactive-dev-session=false', '--log-level', 'log']
 
 const services: Service[] = [
   {
@@ -29,7 +34,7 @@ const services: Service[] = [
   {
     name: 'activity',
     cwd: activityRoot,
-    cmd: ['bun', 'x', 'wrangler', 'dev', '--config', 'wrangler.json', '--cwd', 'dist/civup_activity', '--port', '5173', '--show-interactive-dev-session=false', '--log-level', 'log'],
+    cmd: activityCommand,
   },
   {
     name: 'party',
@@ -46,7 +51,7 @@ let shuttingDown = false
 if (rebuildActivity) {
   runCommand('activity build', ['bun', 'x', 'vite', 'build'], activityRoot)
 }
-else if (!existsSync(activityPreviewConfig)) {
+else if (!activityLive && !existsSync(activityPreviewConfig)) {
   console.error('[dev] Activity preview bundle is missing. Run `bun run dev:new` or `bun run a:dev:new` first.')
   process.exit(1)
 }
