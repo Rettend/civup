@@ -27,7 +27,7 @@ export function LeaderDetailPanel() {
   return (
     <Show when={leader()}>
       {l => (
-        <div class="p-4 h-full w-full select-text relative overflow-y-auto">
+        <div class="p-4 h-full w-full select-text relative overflow-x-hidden overflow-y-auto sm:overflow-x-visible">
           {/* Close button */}
           <button
             class="text-fg-subtle cursor-pointer right-2 top-2 absolute hover:text-fg-muted"
@@ -75,6 +75,8 @@ export function LeaderDetailPanel() {
 
 /** Single unique item row: 32x32 icon, name (replaces X) on one line, description below */
 function UniqueRow(props: { item: LeaderUnique }) {
+  const replacesText = () => props.item.replaces?.replace(/\s+district$/i, '')
+
   return (
     <div class="mb-2">
       {/* Name row: icon + name + replaces */}
@@ -89,12 +91,12 @@ function UniqueRow(props: { item: LeaderUnique }) {
             />
           )}
         </Show>
-        <div class={cn('flex items-baseline gap-1.5 min-w-0', !props.item.iconUrl && 'ml-0')}>
-          <span class="text-sm text-fg font-medium shrink-0 whitespace-nowrap">{props.item.name}</span>
-          <Show when={props.item.replaces}>
-            <span class="text-xs text-fg-subtle shrink-0 whitespace-nowrap">
+        <div class={cn('flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5', !props.item.iconUrl && 'ml-0')}>
+          <span class="text-sm text-fg font-medium min-w-0 whitespace-normal break-words">{props.item.name}</span>
+          <Show when={replacesText()}>
+            <span class="text-xs text-fg-subtle min-w-0 whitespace-normal break-words">
               (
-              {props.item.replaces}
+              {replacesText()}
               )
             </span>
           </Show>
