@@ -219,7 +219,7 @@ export function DraftHeader(props: DraftHeaderProps) {
                       disabled={!canInteract() || !resultSelectionReady()}
                       onClick={confirmResult}
                     >
-                      {resultStatus() === 'submitting:result' ? 'Submitting...' : 'Confirm Result'}
+                      {resultStatus() === 'submitting:result' ? 'Submitting' : 'Confirm Result'}
                     </Button>
                     <Button
                       size="sm"
@@ -227,7 +227,7 @@ export function DraftHeader(props: DraftHeaderProps) {
                       disabled={!canInteract()}
                       onClick={scrubMatch}
                     >
-                      {resultStatus() === 'submitting:scrub' ? 'Submitting...' : 'Scrub'}
+                      {resultStatus() === 'submitting:scrub' ? 'Submitting' : 'Scrub'}
                     </Button>
                   </div>
                 </Show>

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "bun scripts/dev.ts",
     "dev:new": "bun scripts/dev.ts --rebuild-activity",
+    "dev:live": "bun scripts/dev.ts --activity-live",
     "test": "bun run --filter '*' test",
     "test:cov": "bun test --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=coverage",
     "test:ui": "bun-test-ui -p 51299",
@@ -13,6 +14,7 @@
     "check": "bun run --filter '*' check",
     "a:dev": "bun run --filter civup-activity dev",
     "a:dev:new": "bun run --filter civup-activity dev:new",
+    "a:dev:live": "bun run --filter civup-activity dev:live",
     "a:build": "bun run --filter civup-activity build",
     "a:deploy": "bun run --filter civup-activity deploy:prod",
     "a:deploy:prod": "bun run --filter civup-activity deploy:prod",
