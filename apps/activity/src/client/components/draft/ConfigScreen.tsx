@@ -45,6 +45,7 @@ import {
   draftStore,
   fetchLobbyRankedRoles,
   fillLobbyWithTestPlayers,
+  isMobileLayout,
   isMiniView,
   isSpectator,
   placeLobbySlot,
@@ -1140,7 +1141,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       when={isMiniView()}
       fallback={(
         <div class="text-fg font-sans bg-bg overflow-y-auto min-h-dvh">
-          <div class="mx-auto px-6 py-4 flex flex-col gap-6 max-w-5xl w-full">
+          <div class={cn('mx-auto px-6 py-4 flex flex-col gap-6 max-w-5xl w-full', isMobileLayout() && 'pt-12')}>
             <div class="grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-center">
               <div class="h-9 w-9" />
               <div class="text-center">

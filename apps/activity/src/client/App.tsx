@@ -14,6 +14,7 @@ import {
   resetDraft,
   selectActivityTarget,
   setAuthenticatedUser,
+  setIsMobileLayout,
   setIsMiniView,
   userId,
   watchLobbyState,
@@ -32,6 +33,7 @@ const ACTIVITY_SAFETY_POLL_MS = 90_000
 const MINI_VIEW_MAX_WIDTH = 430
 const MINI_VIEW_MAX_HEIGHT = 260
 const MINI_VIEW_MIN_ASPECT_RATIO = 1.5
+const MOBILE_LAYOUT_BREAKPOINT = 640
 
 export default function App() {
   const [state, setState] = createSignal<AppState>({ status: 'loading' })
@@ -83,6 +85,7 @@ export default function App() {
       const isLandscape = width > height
       const aspectRatio = height > 0 ? width / height : 0
 
+      setIsMobileLayout(width < MOBILE_LAYOUT_BREAKPOINT)
       setIsMiniView(
         isLandscape
         && width <= MINI_VIEW_MAX_WIDTH

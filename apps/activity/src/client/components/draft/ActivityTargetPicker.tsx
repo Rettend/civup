@@ -2,6 +2,7 @@ import type { ActivityTargetOption } from '~/client/stores'
 import { formatModeLabel } from '@civup/game'
 import { For, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
+import { isMobileLayout } from '~/client/stores'
 import { MiniFrame } from './MiniLayout'
 
 interface ActivityTargetPickerProps {
@@ -85,7 +86,7 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
   }
 
   return (
-    <section class="flex flex-col gap-6">
+    <section class={cn('flex flex-col gap-6', isMobileLayout() && 'pt-12')}>
       {/* Header: spacer | title | close button */}
       <div class="grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-center">
         <div class="h-9 w-9" />
