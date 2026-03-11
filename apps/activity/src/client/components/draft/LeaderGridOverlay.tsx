@@ -1,7 +1,7 @@
 import type { Leader } from '@civup/game'
 import type { LeaderTagCategory } from '~/client/lib/leader-tags'
 import { leaders, searchLeaders } from '@civup/game'
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createMemo, createSignal, createTrackedEffect as createEffect, For, onCleanup, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import {
   getFilterTagOptions,
@@ -270,18 +270,18 @@ export function LeaderGridOverlay() {
                 <div class="space-y-2">
                   <For each={TAG_CATEGORY_ORDER}>
                     {category => (
-                      <Show when={FILTER_TAG_OPTIONS[category].length > 0}>
+                      <Show when={FILTER_TAG_OPTIONS[category()].length > 0}>
                         <div>
-                          <div class="text-[10px] text-fg-subtle tracking-widest font-semibold mb-1 uppercase">{TAG_CATEGORY_LABELS[category]}</div>
+                          <div class="text-[10px] text-fg-subtle tracking-widest font-semibold mb-1 uppercase">{TAG_CATEGORY_LABELS[category()]}</div>
                           <div class="flex flex-wrap gap-1.5">
-                            <For each={FILTER_TAG_OPTIONS[category]}>
+                            <For each={FILTER_TAG_OPTIONS[category()]}>
                               {(option) => {
-                                const active = () => isTagActive(category, option.id)
+                                const active = () => isTagActive(category(), option().id)
                                 return (
                                   <FilterTagButton
-                                    tag={option.id}
+                                    tag={option().id}
                                     active={active()}
-                                    onClick={() => toggleTagFilter(option.id)}
+                                    onClick={() => toggleTagFilter(option().id)}
                                   />
                                 )
                               }}
@@ -380,7 +380,7 @@ export function LeaderGridOverlay() {
                 <For each={filteredLeaders()}>
                   {leader => (
                     <LeaderCard
-                      leader={leader}
+                      leader={leader()}
                       onHoverMove={handleLeaderHoverMove}
                       onHoverLeave={handleLeaderHoverLeave}
                     />
@@ -461,7 +461,7 @@ export function LeaderGridOverlay() {
             <Show when={tooltip().tags.length > 0}>
               <div class="mt-1 flex flex-wrap gap-1 max-w-56">
                 <For each={tooltip().tags}>
-                  {tag => <TagPill tag={tag} compact />}
+                  {tag => <TagPill tag={tag()} compact />}
                 </For>
               </div>
             </Show>

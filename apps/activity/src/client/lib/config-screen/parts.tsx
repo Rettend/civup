@@ -40,7 +40,7 @@ export function PlayerChip(props: PlayerChipProps) {
         props.dropActive && 'border-accent/65 border-dashed bg-accent/8',
       )}
       onClick={() => { if (props.showJoin && !props.pending) props.onJoin?.() }}
-      draggable={props.draggable && !props.pending}
+      draggable={props.draggable && !props.pending ? 'true' : undefined}
       onDragStart={(event) => {
         if (!event.dataTransfer) return
         event.dataTransfer.effectAllowed = 'move'

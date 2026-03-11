@@ -91,7 +91,7 @@ export function Dropdown(props: DropdownProps) {
         {/* Trigger */}
         <button
           type="button"
-          tabIndex={0}
+          tabindex={0}
           disabled={props.disabled}
           onClick={() => { if (!props.disabled) setOpen(prev => !prev) }}
           class={cn(
@@ -128,16 +128,16 @@ export function Dropdown(props: DropdownProps) {
               {option => (
                 <button
                   type="button"
-                  onClick={() => handleSelect(option.value)}
+                  onClick={() => handleSelect(option().value)}
                   class={cn(
                     'w-full text-left text-sm px-3.5 py-2.5 cursor-pointer',
                     'transition-colors duration-100',
-                    option.value === props.value
+                    option().value === props.value
                       ? 'bg-accent/12 text-accent font-medium'
                       : 'text-fg-muted hover:bg-white/6 hover:text-fg',
                   )}
                 >
-                  {option.render ? option.render() : option.label}
+                  {option().render ? option().render!() : option().label}
                 </button>
               )}
             </For>

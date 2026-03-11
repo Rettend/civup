@@ -1,5 +1,5 @@
 import type { JSX } from 'solid-js'
-import { splitProps } from 'solid-js'
+import { omit } from 'solid-js'
 import { cn } from '~/client/lib/css'
 
 const variants = {
@@ -25,7 +25,7 @@ interface ButtonProps extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 export function Button(props: ButtonProps) {
-  const [local, rest] = splitProps(props, ['variant', 'size', 'class', 'children'])
+  const rest = omit(props, 'variant', 'size', 'class', 'children')
 
   return (
     <button
@@ -33,13 +33,13 @@ export function Button(props: ButtonProps) {
         'inline-flex items-center justify-center rounded-md transition-all duration-200 cursor-pointer',
         'disabled:opacity-50 disabled:pointer-events-none',
         'active:scale-95',
-        variants[local.variant ?? 'gold'],
-        sizes[local.size ?? 'md'],
-        local.class,
+        variants[props.variant ?? 'gold'],
+        sizes[props.size ?? 'md'],
+        props.class,
       )}
       {...rest}
     >
-      {local.children}
+      {props.children}
     </button>
   )
 }

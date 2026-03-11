@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
+import { createSignal, createTrackedEffect as createEffect, onCleanup, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import {
   draftStore,

@@ -60,9 +60,9 @@ export function LeaderDetailPanel() {
           <For each={allUniques()}>
             {section => (
               <div class="mb-3">
-                <div class="text-[10px] text-accent tracking-widest font-bold mb-1.5 uppercase">{section.label}</div>
-                <For each={section.items}>
-                  {item => <UniqueRow item={item} />}
+                <div class="text-[10px] text-accent tracking-widest font-bold mb-1.5 uppercase">{section().label}</div>
+                <For each={section().items}>
+                  {item => <UniqueRow item={item()} />}
                 </For>
               </div>
             )}

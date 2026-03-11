@@ -1,7 +1,8 @@
 import type { ActivityLaunchSelection, ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot, LobbyStateWatch } from './stores'
-import { createSignal, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
+import { createEffect, createSignal, flush, onCleanup, onSettled, Show } from 'solid-js'
 import { activityTargetOptionKey, ActivityTargetPicker, ConfigScreen, DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
+import { postDevTrace, updateDevOverlay } from './lib/debug-trace'
 import { relayDevLog } from './lib/dev-log'
 import {
   connectionError,
@@ -29,6 +30,7 @@ type AppState
 const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
   || (typeof window !== 'undefined' ? window.location.host : 'localhost:5173')
 const ACTIVITY_SAFETY_POLL_MS = 90_000
+const ACTIVITY_BOOTSTRAP_TIMEOUT_MS = 90_000
 const MINI_VIEW_MAX_WIDTH = 520
 const MINI_VIEW_MAX_HEIGHT = 340
 
@@ -38,12 +40,16 @@ export default function App() {
   const [pickerBusy, setPickerBusy] = createSignal(false)
   const [pickerError, setPickerError] = createSignal<string | null>(null)
   const [lastResolvedSelection, setLastResolvedSelection] = createSignal<ActivityLaunchSelection | null>(null)
+  const [bootstrapStage, setBootstrapStage] = createSignal('Preparing activity bootstrap')
   let activityWatch: LobbyStateWatch | null = null
   let activitySafetyPoll: ReturnType<typeof setInterval> | null = null
+  let activityBootstrapTimeout: ReturnType<typeof setTimeout> | null = null
   let activityRefreshInFlight = false
+  let activityRefreshPromise: Promise<void> | null = null
   let activityRefreshPending = false
   let activeChannelId: string | null = null
   let activeUserId: string | null = null
+  let bootstrapTimedOut = false
 
   const stopActivityWatch = () => {
     if (!activityWatch) return
@@ -62,23 +68,134 @@ export default function App() {
     resetDraft()
   }
 
+  const clearActivityBootstrapTimeout = () => {
+    if (!activityBootstrapTimeout) return
+    clearTimeout(activityBootstrapTimeout)
+    activityBootstrapTimeout = null
+  }
+
+  const startActivityBootstrapTimeout = () => {
+    clearActivityBootstrapTimeout()
+    bootstrapTimedOut = false
+    activityBootstrapTimeout = setTimeout(() => {
+      bootstrapTimedOut = true
+      relayDevLog('error', 'Activity bootstrap timed out', {
+        timeoutMs: ACTIVITY_BOOTSTRAP_TIMEOUT_MS,
+        stage: bootstrapStage(),
+        activityHost: ACTIVITY_HOST,
+      })
+      if (state().status !== 'loading') return
+      setAppState({
+        status: 'error',
+        message: `Activity startup timed out while ${bootstrapStage().toLowerCase()}. Close and reopen the activity.`,
+      }, 'bootstrap-timeout')
+    }, ACTIVITY_BOOTSTRAP_TIMEOUT_MS)
+  }
+
+  const withPendingWarning = async <T,>(
+    promise: Promise<T>,
+    message: string,
+    meta?: unknown,
+    warningAfterMs = 12_000,
+  ): Promise<T> => {
+    let settled = false
+    const timeout = setTimeout(() => {
+      if (settled) return
+      relayDevLog('warn', message, {
+        stage: bootstrapStage(),
+        ...((meta && typeof meta === 'object' && !Array.isArray(meta)) ? meta as Record<string, unknown> : { meta }),
+      })
+    }, warningAfterMs)
+
+    try {
+      return await promise
+    }
+    finally {
+      settled = true
+      clearTimeout(timeout)
+    }
+  }
+
   const shouldHoldAuthenticatedDraftState = () => {
     if (state().status !== 'authenticated') return false
     if (connectionStatus() === 'connecting' || connectionStatus() === 'connected') return true
     return draftStore.state != null
   }
 
+  const setAppState = (
+    next: AppState | ((prev: AppState) => AppState),
+    reason: string,
+    meta?: Record<string, unknown>,
+  ) => {
+    setState((prev) => {
+      const resolved = typeof next === 'function' ? next(prev) : next
+      postDevTrace('App setState', {
+        reason,
+        from: prev.status,
+        to: resolved.status,
+        ...meta,
+      })
+      queueMicrotask(() => {
+        postDevTrace('App setState applied', {
+          reason,
+          current: state().status,
+          ...meta,
+        })
+      })
+      return resolved
+    })
+  }
+
+  createEffect(
+    () => ({
+      appStatus: state().status,
+      bootstrapStage: bootstrapStage(),
+      connection: connectionStatus(),
+      draftStatus: draftStore.state?.status ?? null,
+      targetCount: availableTargets().length,
+      currentTarget: currentTargetKey(),
+    }),
+    (next, prev) => {
+      updateDevOverlay('Activity state', {
+        appStatus: next.appStatus,
+        bootstrapStage: next.bootstrapStage,
+        connection: next.connection,
+        draftStatus: next.draftStatus,
+        targetCount: next.targetCount,
+        currentTarget: next.currentTarget,
+      })
+      postDevTrace('Activity state snapshot', {
+        next,
+        prev: prev ?? null,
+      })
+
+      queueMicrotask(() => {
+        if (typeof document === 'undefined') return
+        const bodyText = document.body.textContent ?? ''
+        postDevTrace('Activity DOM snapshot', {
+          rootChildren: document.getElementById('root')?.childElementCount ?? 0,
+          showsLoading: bodyText.includes('Loading activity state'),
+          showsJoining: bodyText.includes('Joining draft room'),
+          showsDisconnected: bodyText.includes('Disconnected'),
+          showsConnectionFailed: bodyText.includes('Connection Failed'),
+          bodyPreview: bodyText.trim().slice(0, 240),
+        })
+      })
+    },
+  )
+
   onCleanup(() => {
+    clearActivityBootstrapTimeout()
     stopActivityWatch()
     stopActivitySafetyPoll()
     clearDraftConnection()
   })
 
-  onMount(() => {
+  onSettled(() => {
     const syncMiniView = () => setIsMiniView(window.innerWidth <= MINI_VIEW_MAX_WIDTH && window.innerHeight <= MINI_VIEW_MAX_HEIGHT)
     syncMiniView()
     window.addEventListener('resize', syncMiniView)
-    onCleanup(() => window.removeEventListener('resize', syncMiniView))
+    return () => window.removeEventListener('resize', syncMiniView)
   })
 
   const currentTargetKey = () => {
@@ -99,7 +216,7 @@ export default function App() {
     }
     resetDraft()
     setPickerError(null)
-    setState({ status: 'overview' })
+    setAppState({ status: 'overview' }, 'open-overview')
 
     const channelId = activeChannelId
     const currentUserId = activeUserId
@@ -117,7 +234,7 @@ export default function App() {
     const isSameMatch = current.status === 'authenticated' && current.matchId === matchId
     const hasTerminalDraft = draftStore.state?.status === 'complete' || draftStore.state?.status === 'cancelled'
 
-    setState({ status: 'authenticated', matchId, autoStart: nextAutoStart })
+    setAppState({ status: 'authenticated', matchId, autoStart: nextAutoStart }, 'transition-to-draft', { matchId, autoStart: nextAutoStart })
     if (isSameMatch && (connectionStatus() === 'connected' || hasTerminalDraft)) return
 
     resetDraft()
@@ -134,6 +251,14 @@ export default function App() {
     const current = state()
     const previousSelectionKey = currentTargetKey()
     const nextSelectionKey = snapshot.selection ? activityTargetOptionKey(snapshot.selection.option) : null
+    postDevTrace('Apply launch snapshot', {
+      currentStatus: current.status,
+      previousSelectionKey,
+      nextSelectionKey,
+      optionCount: snapshot.options.length,
+      selectionKind: snapshot.selection?.kind ?? null,
+      selectionId: snapshot.selection?.option.id ?? null,
+    })
     setAvailableTargets(snapshot.options)
 
     if (!snapshot.selection) {
@@ -146,7 +271,7 @@ export default function App() {
         clearDraftConnection()
       }
 
-      setState({ status: 'overview' })
+      setAppState({ status: 'overview' }, 'launch-snapshot-empty-selection')
       return
     }
 
@@ -166,7 +291,7 @@ export default function App() {
         clearDraftConnection()
       }
 
-      setState((prev) => {
+      setAppState((prev) => {
         if (prev.status !== 'lobby-waiting') return { status: 'lobby-waiting', lobby: nextLobby, joinPending, joinEligibility }
         const resolvedLobby = nextLobby.revision < prev.lobby.revision ? prev.lobby : nextLobby
         if (
@@ -179,7 +304,7 @@ export default function App() {
           return prev
         }
         return { status: 'lobby-waiting', lobby: resolvedLobby, joinPending, joinEligibility }
-      })
+      }, 'launch-snapshot-lobby-selection', { lobbyId: nextLobby.id, lobbyRevision: nextLobby.revision, joinPending })
       return
     }
 
@@ -189,22 +314,29 @@ export default function App() {
   const refreshActivityState = async (channelId: string, currentUserId: string) => {
     if (activityRefreshInFlight) {
       activityRefreshPending = true
-      return
+      postDevTrace('Refresh activity state joined inflight request', { channelId, userId: currentUserId })
+      return activityRefreshPromise ?? Promise.resolve()
     }
 
     activityRefreshInFlight = true
-    try {
+    activityRefreshPromise = (async () => {
+      postDevTrace('Refresh activity state start', { channelId, userId: currentUserId })
       const snapshot = await fetchActivityLaunchSnapshot(channelId, currentUserId)
       if (!snapshot) {
         if (state().status === 'loading') {
-          setState({ status: 'error', message: 'Failed to load the activity state. Reopen the activity and try again.' })
+          setAppState({ status: 'error', message: 'Failed to load the activity state. Reopen the activity and try again.' }, 'initial-refresh-failed')
         }
         return
       }
       applyLaunchSnapshot(channelId, currentUserId, snapshot)
+    })()
+
+    try {
+      await activityRefreshPromise
     }
     finally {
       activityRefreshInFlight = false
+      activityRefreshPromise = null
       if (activityRefreshPending) {
         activityRefreshPending = false
         void refreshActivityState(channelId, currentUserId)
@@ -268,116 +400,152 @@ export default function App() {
     await handleTargetSelection(lastSelection.option)
   }
 
-  onMount(async () => {
-    try {
-      const auth = await setupDiscordSdk()
-      setAuthenticatedUser(auth)
-      const channelId = discordSdk.channelId
+  onSettled(() => {
+    void (async () => {
+      setBootstrapStage('Initializing Discord SDK')
+      startActivityBootstrapTimeout()
+      try {
+        const auth = await setupDiscordSdk({ onStage: setBootstrapStage })
+        if (bootstrapTimedOut) return
 
-      if (!channelId) {
-        setState({ status: 'error', message: 'No channel ID found - start from Discord' })
-        return
+        setBootstrapStage('Authenticating activity user')
+        setAuthenticatedUser(auth)
+        const channelId = discordSdk.channelId
+
+        if (!channelId) {
+          setAppState({ status: 'error', message: 'No channel ID found - start from Discord' }, 'missing-channel-id')
+          return
+        }
+
+        activeChannelId = channelId
+        activeUserId = auth.user.id
+        setBootstrapStage('Subscribing to lobby state')
+        startActivityWatch(channelId, auth.user.id)
+        setBootstrapStage('Loading activity state')
+        await withPendingWarning(
+          refreshActivityState(channelId, auth.user.id),
+          'Initial activity state request is still pending',
+          { channelId, userId: auth.user.id },
+        )
+        flush()
+        if (state().status === 'loading') {
+          relayDevLog('error', 'Initial activity state resolved but app is still loading', {
+            channelId,
+            userId: auth.user.id,
+            availableTargetCount: availableTargets().length,
+            lastResolvedSelection: lastResolvedSelection()?.option ?? null,
+          })
+          setAppState({
+            status: 'error',
+            message: 'The activity state loaded, but the UI did not transition correctly. Close and reopen the activity.',
+          }, 'initial-refresh-still-loading')
+        }
       }
-
-      activeChannelId = channelId
-      activeUserId = auth.user.id
-      startActivityWatch(channelId, auth.user.id)
-      await refreshActivityState(channelId, auth.user.id)
-    }
-    catch (err) {
-      console.error('Discord SDK setup failed:', err)
-      relayDevLog('error', 'Activity app setup failed', err)
-      setState({
-        status: 'error',
-        message: err instanceof Error && err.message.trim().length > 0
-          ? err.message
-          : typeof err === 'string' && err.trim().length > 0
-            ? err
-            : 'Unknown error',
-      })
-    }
+      catch (err) {
+        console.error('Discord SDK setup failed:', err)
+        relayDevLog('error', 'Activity app setup failed', err)
+        setAppState({
+          status: 'error',
+          message: err instanceof Error && err.message.trim().length > 0
+            ? err.message
+            : typeof err === 'string' && err.trim().length > 0
+              ? err
+              : 'Unknown error',
+        }, 'bootstrap-catch')
+      }
+      finally {
+        clearActivityBootstrapTimeout()
+      }
+    })()
   })
 
-  return (
-    <>
-      <Switch>
-        <Match when={state().status === 'loading'}>
-          <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
-            <div class="text-center">
-              <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
-              <div class="text-sm text-fg-muted">Connecting to Discord...</div>
-            </div>
-          </main>
-        </Match>
+  const renderAppState = () => {
+    const current = state()
 
-        <Match when={state().status === 'error'}>
-          <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
-            <div class="p-6 text-center rounded-lg bg-bg-subtle max-w-md">
-              <div class="text-lg text-danger font-bold mb-2">Connection Failed</div>
-              <div class="text-sm text-fg-muted">
-                {(state() as Extract<AppState, { status: 'error' }>).message}
+    if (current.status === 'loading') {
+      return (
+        <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
+          <div class="text-center">
+            <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
+            <div class="text-sm text-fg-muted">{bootstrapStage()}</div>
+            <div class="text-xs text-fg-subtle mt-2">If this sits here for a while, reopen the activity and check the dev logs.</div>
+          </div>
+        </main>
+      )
+    }
+
+    if (current.status === 'error') {
+      return (
+        <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
+          <div class="p-6 text-center rounded-lg bg-bg-subtle max-w-md">
+            <div class="text-lg text-danger font-bold mb-2">Connection Failed</div>
+            <div class="text-sm text-fg-muted">{current.message}</div>
+          </div>
+        </main>
+      )
+    }
+
+    if (current.status === 'overview') {
+      return (
+        <Show
+          when={isMiniView()}
+          fallback={(
+            <main class="text-text-primary bg-bg-primary font-sans min-h-screen overflow-y-auto">
+              <div class="mx-auto px-6 py-4 max-w-5xl">
+                <TargetPickerPanel
+                  options={availableTargets()}
+                  busy={pickerBusy()}
+                  selectedKey={currentTargetKey()}
+                  error={pickerError()}
+                  onSelect={handleTargetSelection}
+                  onResume={lastResolvedSelection() ? restoreLastSelection : undefined}
+                />
               </div>
-            </div>
-          </main>
-        </Match>
-
-        <Match when={state().status === 'overview'}>
-          <Show
-            when={isMiniView()}
-            fallback={(
-              <main class="text-text-primary bg-bg-primary font-sans min-h-screen overflow-y-auto">
-                <div class="mx-auto px-6 py-4 max-w-5xl">
-                  <TargetPickerPanel
-                    options={availableTargets()}
-                    busy={pickerBusy()}
-                    selectedKey={currentTargetKey()}
-                    error={pickerError()}
-                    onSelect={handleTargetSelection}
-                    onResume={lastResolvedSelection() ? restoreLastSelection : undefined}
-                  />
-                </div>
-              </main>
-            )}
-          >
-            <TargetPickerPanel
-              mini
-              options={availableTargets()}
-              busy={pickerBusy()}
-              selectedKey={currentTargetKey()}
-              error={pickerError()}
-              onSelect={handleTargetSelection}
-              onResume={lastResolvedSelection() ? restoreLastSelection : undefined}
-            />
-          </Show>
-        </Match>
-
-        <Match when={state().status === 'lobby-waiting'}>
-          <ConfigScreen
-            lobby={(state() as Extract<AppState, { status: 'lobby-waiting' }>).lobby}
-            showJoinPending={(state() as Extract<AppState, { status: 'lobby-waiting' }>).joinPending}
-            joinEligibility={(state() as Extract<AppState, { status: 'lobby-waiting' }>).joinEligibility}
-            onSwitchTarget={openOverview}
-            onLobbyStarted={(matchId) => {
-              const currentUserId = userId()
-              if (!currentUserId) {
-                setState({ status: 'error', message: 'Could not identify your Discord user. Reopen the activity.' })
-                return
-              }
-              transitionToDraft(matchId, currentUserId, true)
-            }}
+            </main>
+          )}
+        >
+          <TargetPickerPanel
+            mini
+            options={availableTargets()}
+            busy={pickerBusy()}
+            selectedKey={currentTargetKey()}
+            error={pickerError()}
+            onSelect={handleTargetSelection}
+            onResume={lastResolvedSelection() ? restoreLastSelection : undefined}
           />
-        </Match>
+        </Show>
+      )
+    }
 
-        <Match when={state().status === 'authenticated'}>
-          <DraftWithConnection
-            matchId={(state() as Extract<AppState, { status: 'authenticated' }>).matchId}
-            autoStart={(state() as Extract<AppState, { status: 'authenticated' }>).autoStart}
-            onSwitchTarget={openOverview}
-          />
-        </Match>
-      </Switch>
-    </>
-  )
+    if (current.status === 'lobby-waiting') {
+      return (
+        <ConfigScreen
+          lobby={current.lobby}
+          showJoinPending={current.joinPending}
+          joinEligibility={current.joinEligibility}
+          onSwitchTarget={openOverview}
+          onLobbyStarted={(matchId) => {
+            const currentUserId = userId()
+            if (!currentUserId) {
+              setAppState({ status: 'error', message: 'Could not identify your Discord user. Reopen the activity.' }, 'missing-user-id-on-lobby-start')
+              return
+            }
+            transitionToDraft(matchId, currentUserId, true)
+          }}
+        />
+      )
+    }
+
+    return (
+      <DraftWithConnection
+        matchId={current.matchId}
+        autoStart={current.autoStart}
+        onSwitchTarget={openOverview}
+      />
+    )
+  }
+
+  return <div class="contents">{renderAppState()}</div>
 }
 
 function DraftWithConnection(props: {
@@ -390,54 +558,62 @@ function DraftWithConnection(props: {
     return status === 'complete' || status === 'cancelled'
   }
 
-  return (
-    <Switch>
-      <Match when={connectionStatus() === 'connecting'}>
+  const renderConnectionState = () => {
+    const status = connectionStatus()
+
+    if (status === 'connecting') {
+      return (
         <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
           <div class="text-center">
             <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
             <div class="text-sm text-fg-muted">Joining draft room...</div>
           </div>
         </main>
-      </Match>
+      )
+    }
 
-      <Match when={hasTerminalState() && (connectionStatus() === 'error' || connectionStatus() === 'disconnected')}>
+    if (hasTerminalState() && (status === 'error' || status === 'disconnected')) {
+      return (
         <DraftView
           matchId={props.matchId}
           autoStart={props.autoStart}
           onSwitchTarget={props.onSwitchTarget}
         />
-      </Match>
+      )
+    }
 
-      <Match when={connectionStatus() === 'error'}>
+    if (status === 'error') {
+      return (
         <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
           <div class="p-6 text-center rounded-lg bg-bg-subtle max-w-md">
             <div class="text-lg text-danger font-bold mb-2">Connection Error</div>
-            <div class="text-sm text-fg-muted">
-              {connectionError() ?? 'Failed to connect to draft room'}
-            </div>
+            <div class="text-sm text-fg-muted">{connectionError() ?? 'Failed to connect to draft room'}</div>
           </div>
         </main>
-      </Match>
+      )
+    }
 
-      <Match when={connectionStatus() === 'connected'}>
+    if (status === 'connected') {
+      return (
         <DraftView
           matchId={props.matchId}
           autoStart={props.autoStart}
           onSwitchTarget={props.onSwitchTarget}
         />
-      </Match>
+      )
+    }
 
-      <Match when={connectionStatus() === 'disconnected'}>
-        <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
-          <div class="p-6 text-center rounded-lg bg-bg-subtle max-w-md">
-            <div class="text-lg text-fg-subtle font-bold mb-2">Disconnected</div>
-            <div class="text-sm text-fg-muted">Lost connection to the draft room.</div>
-          </div>
-        </main>
-      </Match>
-    </Switch>
-  )
+    return (
+      <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
+        <div class="p-6 text-center rounded-lg bg-bg-subtle max-w-md">
+          <div class="text-lg text-fg-subtle font-bold mb-2">Disconnected</div>
+          <div class="text-sm text-fg-muted">Lost connection to the draft room.</div>
+        </div>
+      </main>
+    )
+  }
+
+  return <div class="contents">{renderConnectionState()}</div>
 }
 
 function TargetPickerPanel(props: {

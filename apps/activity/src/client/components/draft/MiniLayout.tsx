@@ -85,15 +85,15 @@ export function MiniSeatGrid(props: MiniSeatGridProps) {
         style={{
           'grid-template-columns': `repeat(${columnCount()}, minmax(0, 1fr))`,
         }}
-      >
-        <For each={props.columns}>
-          {column => (
-            <div class="flex flex-col gap-1 min-h-0 overflow-hidden">
-              <For each={column}>
-                {item => <MiniSeatRow item={item} activeTone={props.activeTone ?? 'gold'} />}
-              </For>
-            </div>
-          )}
+        >
+          <For each={props.columns}>
+            {column => (
+              <div class="flex flex-col gap-1 min-h-0 overflow-hidden">
+                <For each={column()}>
+                  {item => <MiniSeatRow item={item()} activeTone={props.activeTone ?? 'gold'} />}
+                </For>
+              </div>
+            )}
         </For>
       </div>
 

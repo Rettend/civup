@@ -1,5 +1,5 @@
 import type { JSX } from 'solid-js'
-import { splitProps } from 'solid-js'
+import { omit } from 'solid-js'
 import { cn } from '~/client/lib/css'
 
 interface AvatarProps extends JSX.HTMLAttributes<HTMLDivElement> {
@@ -23,28 +23,28 @@ const rings = {
 } as const
 
 export function Avatar(props: AvatarProps) {
-  const [local, rest] = splitProps(props, ['src', 'alt', 'size', 'ring', 'class'])
+  const rest = omit(props, 'src', 'alt', 'size', 'ring', 'class')
 
   const initials = () => {
-    if (!local.alt) return '?'
-    return local.alt.slice(0, 2).toUpperCase()
+    if (!props.alt) return '?'
+    return props.alt.slice(0, 2).toUpperCase()
   }
 
   return (
     <div
       class={cn(
         'relative rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center bg-bg-subtle',
-        sizes[local.size ?? 'md'],
-        rings[local.ring ?? 'none'],
-        local.class,
+        sizes[props.size ?? 'md'],
+        rings[props.ring ?? 'none'],
+        props.class,
       )}
       {...rest}
     >
-      {local.src
+      {props.src
         ? (
             <img
-              src={local.src}
-              alt={local.alt ?? ''}
+              src={props.src}
+              alt={props.alt ?? ''}
               class="h-full w-full object-cover"
             />
           )

@@ -1,5 +1,5 @@
 import type { Accessor } from 'solid-js'
-import { createEffect, createMemo, createSignal } from 'solid-js'
+import { createMemo, createSignal, createTrackedEffect as createEffect } from 'solid-js'
 
 type OptimisticStatus = 'idle' | 'pending' | 'error'
 

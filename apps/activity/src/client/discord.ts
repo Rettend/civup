@@ -5,6 +5,10 @@ import { relayDevLog } from './lib/dev-log'
 
 export type Auth = CommandResponse<'authenticate'>
 
+export interface DiscordSetupOptions {
+  onStage?: (stage: string) => void
+}
+
 const CLIENT_ID = import.meta.env.VITE_DISCORD_CLIENT_ID as string
 const AUTH_TOKEN_CACHE_KEY = 'civup.discord.access-token'
 const TOKEN_EXPIRY_SAFETY_MS = 30_000
@@ -76,9 +80,38 @@ function clearCachedToken() {
   window.sessionStorage.removeItem(AUTH_TOKEN_CACHE_KEY)
 }
 
-async function authenticateWithToken(accessToken: string): Promise<Auth> {
-  relayDevLog('info', 'Authenticating with Discord access token')
-  const auth = await discordSdk.commands.authenticate({ access_token: accessToken })
+function updateSetupStage(options: DiscordSetupOptions, stage: string, meta?: unknown) {
+  options.onStage?.(stage)
+  relayDevLog('info', `Discord setup: ${stage}`, meta)
+}
+
+async function withPendingWarning<T>(
+  promise: Promise<T>,
+  warningMessage: string,
+  warningMeta?: unknown,
+  warningAfterMs = 12_000,
+): Promise<T> {
+  let settled = false
+  const timeout = setTimeout(() => {
+    if (settled) return
+    relayDevLog('warn', warningMessage, warningMeta)
+  }, warningAfterMs)
+
+  try {
+    return await promise
+  }
+  finally {
+    settled = true
+    clearTimeout(timeout)
+  }
+}
+
+async function authenticateWithToken(accessToken: string, options: DiscordSetupOptions): Promise<Auth> {
+  updateSetupStage(options, 'Authenticating with Discord access token')
+  const auth = await withPendingWarning(
+    discordSdk.commands.authenticate({ access_token: accessToken }),
+    'Discord authenticate command is still pending',
+  )
   if (!auth) throw new Error('Discord authenticate command failed')
   return auth
 }
@@ -99,10 +132,19 @@ function getRedirectUri(): string {
   return window.location.origin
 }
 
-async function setupDiscordSdkInternal(): Promise<Auth> {
-  relayDevLog('info', 'Waiting for Discord SDK ready')
-  await discordSdk.ready()
-  relayDevLog('info', 'Discord SDK ready', {
+async function setupDiscordSdkInternal(options: DiscordSetupOptions = {}): Promise<Auth> {
+  updateSetupStage(options, 'Waiting for Discord SDK ready')
+  await withPendingWarning(
+    discordSdk.ready(),
+    'Discord SDK ready() is still pending',
+    {
+      channelId: discordSdk.channelId,
+      guildId: discordSdk.guildId,
+      instanceId: discordSdk.instanceId,
+    },
+    15_000,
+  )
+  updateSetupStage(options, 'Discord SDK ready', {
     channelId: discordSdk.channelId,
     guildId: discordSdk.guildId,
     instanceId: discordSdk.instanceId,
@@ -111,8 +153,8 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
   const cachedToken = readCachedToken()
   if (cachedToken) {
     try {
-      relayDevLog('info', 'Using cached Discord access token')
-      return await authenticateWithToken(cachedToken)
+      updateSetupStage(options, 'Using cached Discord access token')
+      return await authenticateWithToken(cachedToken, options)
     }
     catch (error) {
       relayDevLog('warn', 'Cached Discord access token failed, clearing it', error)
@@ -120,11 +162,11 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
     }
   }
 
-  relayDevLog('info', 'Requesting Discord authorization code')
+  updateSetupStage(options, 'Requesting Discord authorization code')
   const redirectUri = getRedirectUri()
   let code: string
   try {
-    const response = await discordSdk.commands.authorize({
+    const response = await withPendingWarning(discordSdk.commands.authorize({
       client_id: CLIENT_ID,
       response_type: 'code',
       state: '',
@@ -135,7 +177,7 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
         'guilds.members.read',
         'rpc.voice.read',
       ],
-    })
+    }), 'Discord authorize command is still pending', { redirectUri })
     code = response.code
   }
   catch (error) {
@@ -147,15 +189,15 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
     })
     throw error
   }
-  relayDevLog('info', 'Received Discord authorization code')
+  updateSetupStage(options, 'Received Discord authorization code')
 
   let payload: TokenExchangeResponse
   try {
-    relayDevLog('info', 'Exchanging Discord authorization code for access token')
-    payload = await api.post<TokenExchangeResponse>('/api/token', {
+    updateSetupStage(options, 'Exchanging Discord authorization code for access token')
+    payload = await withPendingWarning(api.post<TokenExchangeResponse>('/api/token', {
       code,
       redirectUri,
-    })
+    }), 'Discord token exchange is still pending', { redirectUri })
   }
   catch (err: any) {
     if (!(err instanceof ApiError)) throw err
@@ -183,17 +225,17 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
     throw new Error('Token exchange succeeded but access_token was missing')
   }
 
-  relayDevLog('info', 'Received Discord access token payload', {
+  updateSetupStage(options, 'Received Discord access token payload', {
     expiresIn: payload.expires_in ?? null,
   })
   cacheToken(payload.access_token, payload.expires_in)
 
-  return authenticateWithToken(payload.access_token)
+  return authenticateWithToken(payload.access_token, options)
 }
 
-export async function setupDiscordSdk(): Promise<Auth> {
+export async function setupDiscordSdk(options: DiscordSetupOptions = {}): Promise<Auth> {
   if (setupInFlight) return setupInFlight
-  setupInFlight = setupDiscordSdkInternal()
+  setupInFlight = setupDiscordSdkInternal(options)
     .catch((error) => {
       relayDevLog('error', 'Discord SDK setup failed', error)
       throw new Error(describeError(error))

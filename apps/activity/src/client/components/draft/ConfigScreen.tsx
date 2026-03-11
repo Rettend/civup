@@ -9,7 +9,7 @@ import type {
 } from '~/client/lib/config-screen/helpers'
 import type { LobbyJoinEligibilitySnapshot, LobbySnapshot, LobbyTeamArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
 import { formatModeLabel, GAME_MODE_CHOICES, inferGameMode } from '@civup/game'
-import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createSignal, createTrackedEffect as createEffect, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, TextInput } from '~/client/components/ui'
 import {
   applyOptimisticLobbyAction,
@@ -35,6 +35,7 @@ import {
 } from '~/client/lib/config-screen/helpers'
 import { MinRoleSetNotice, PlayerChip, PremadeLinkButton, ReadonlyTimerRow } from '~/client/lib/config-screen/parts'
 import { cn } from '~/client/lib/css'
+import { postDevTrace } from '~/client/lib/debug-trace'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
 import {
   arrangeLobbyTeams,
@@ -76,6 +77,12 @@ const CONFIG_MESSAGE_TIMEOUT_MS = 4000
 
 /** Pre-draft setup screen (lobby waiting + room waiting). */
 export function ConfigScreen(props: ConfigScreenProps) {
+  postDevTrace('ConfigScreen invoked', {
+    lobbyId: props.lobby?.id ?? null,
+    lobbyRevision: props.lobby?.revision ?? null,
+    joinPending: props.showJoinPending ?? false,
+  })
+
   const state = () => draftStore.state
   const [lobbyState, setLobbyState] = createSignal<LobbySnapshot | null>(props.lobby ?? null)
   const [banMinutes, setBanMinutes] = createSignal('')
@@ -454,12 +461,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
       if (current && lobby.revision < current.revision) return current
       return lobby
     })
-    const resolvedLobby = lobbyState()
-    if (!resolvedLobby) return
     setLobbyTimerConfig({
-      banTimerSeconds: resolvedLobby.draftConfig.banTimerSeconds,
-      pickTimerSeconds: resolvedLobby.draftConfig.pickTimerSeconds,
-      leaderPoolSize: resolvedLobby.draftConfig.leaderPoolSize,
+      banTimerSeconds: lobby.draftConfig.banTimerSeconds,
+      pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
+      leaderPoolSize: lobby.draftConfig.leaderPoolSize,
     })
   }
 
@@ -1030,38 +1035,38 @@ export function ConfigScreen(props: ConfigScreenProps) {
           return (
             <>
               <PlayerChip
-                row={row}
+                row={row()}
                 pending={lobbyActionPending()}
-                draggable={canDragRow(row)}
-                allowDrop={canDropOnRow(row)}
-                dropActive={canDropOnRow(row) && dragOverSlot() === row.slot}
-                showJoin={canJoinSlot(row)}
-                showRemove={canRemoveSlot(row)}
-                onJoin={() => void handlePlaceSelf(row.slot)}
-                onRemove={() => void handleRemoveFromSlot(row.slot)}
+                draggable={canDragRow(row())}
+                allowDrop={canDropOnRow(row())}
+                dropActive={canDropOnRow(row()) && dragOverSlot() === row().slot}
+                showJoin={canJoinSlot(row())}
+                showRemove={canRemoveSlot(row())}
+                onJoin={() => void handlePlaceSelf(row().slot)}
+                onRemove={() => void handleRemoveFromSlot(row().slot)}
                 onDragStart={() => {
-                  if (!row.playerId) return
-                  setDraggingPlayerId(row.playerId)
+                  if (!row().playerId) return
+                  setDraggingPlayerId(row().playerId)
                 }}
                 onDragEnd={() => {
                   setDraggingPlayerId(null)
                   setDragOverSlot(null)
                 }}
-                onDragEnter={() => setDragOverSlot(row.slot)}
-                onDragLeave={() => { if (dragOverSlot() === row.slot) setDragOverSlot(null) }}
-                onDrop={() => void handleDropOnSlot(row.slot)}
+                onDragEnter={() => setDragOverSlot(row().slot)}
+                onDragLeave={() => { if (dragOverSlot() === row().slot) setDragOverSlot(null) }}
+                onDrop={() => void handleDropOnSlot(row().slot)}
               />
               <Show when={nextRow()}>
                 {(next) => {
-                  const linked = () => areRowsPremadeLinked(row, next())
-                  const canToggle = () => canTogglePremadeLink(row, next())
+                  const linked = () => areRowsPremadeLinked(row(), next())
+                  const canToggle = () => canTogglePremadeLink(row(), next())
                   return (
                     <PremadeLinkButton
                       linked={linked()}
                       interactive={canToggle()}
                       pending={lobbyActionPending() || startPending() || cancelPending()}
                       title={linked() ? 'Unlink premade' : 'Link premade'}
-                      onToggle={() => void handleTogglePremadeLink(row, next())}
+                      onToggle={() => void handleTogglePremadeLink(row(), next())}
                     />
                   )
                 }}
@@ -1181,26 +1186,26 @@ export function ConfigScreen(props: ConfigScreenProps) {
                         <For each={ffaFirstColumn()}>
                           {row => (
                             <PlayerChip
-                              row={row}
+                              row={row()}
                               pending={lobbyActionPending()}
-                              draggable={canDragRow(row)}
-                              allowDrop={canDropOnRow(row)}
-                              dropActive={canDropOnRow(row) && dragOverSlot() === row.slot}
-                              showJoin={canJoinSlot(row)}
-                              showRemove={canRemoveSlot(row)}
-                              onJoin={() => void handlePlaceSelf(row.slot)}
-                              onRemove={() => void handleRemoveFromSlot(row.slot)}
+                              draggable={canDragRow(row())}
+                              allowDrop={canDropOnRow(row())}
+                              dropActive={canDropOnRow(row()) && dragOverSlot() === row().slot}
+                              showJoin={canJoinSlot(row())}
+                              showRemove={canRemoveSlot(row())}
+                              onJoin={() => void handlePlaceSelf(row().slot)}
+                              onRemove={() => void handleRemoveFromSlot(row().slot)}
                               onDragStart={() => {
-                                if (!row.playerId) return
-                                setDraggingPlayerId(row.playerId)
+                                if (!row().playerId) return
+                                setDraggingPlayerId(row().playerId)
                               }}
                               onDragEnd={() => {
                                 setDraggingPlayerId(null)
                                 setDragOverSlot(null)
                               }}
-                              onDragEnter={() => setDragOverSlot(row.slot)}
-                              onDragLeave={() => { if (dragOverSlot() === row.slot) setDragOverSlot(null) }}
-                              onDrop={() => void handleDropOnSlot(row.slot)}
+                              onDragEnter={() => setDragOverSlot(row().slot)}
+                              onDragLeave={() => { if (dragOverSlot() === row().slot) setDragOverSlot(null) }}
+                              onDrop={() => void handleDropOnSlot(row().slot)}
                             />
                           )}
                         </For>
@@ -1209,26 +1214,26 @@ export function ConfigScreen(props: ConfigScreenProps) {
                         <For each={ffaSecondColumn()}>
                           {row => (
                             <PlayerChip
-                              row={row}
+                              row={row()}
                               pending={lobbyActionPending()}
-                              draggable={canDragRow(row)}
-                              allowDrop={canDropOnRow(row)}
-                              dropActive={canDropOnRow(row) && dragOverSlot() === row.slot}
-                              showJoin={canJoinSlot(row)}
-                              showRemove={canRemoveSlot(row)}
-                              onJoin={() => void handlePlaceSelf(row.slot)}
-                              onRemove={() => void handleRemoveFromSlot(row.slot)}
+                              draggable={canDragRow(row())}
+                              allowDrop={canDropOnRow(row())}
+                              dropActive={canDropOnRow(row()) && dragOverSlot() === row().slot}
+                              showJoin={canJoinSlot(row())}
+                              showRemove={canRemoveSlot(row())}
+                              onJoin={() => void handlePlaceSelf(row().slot)}
+                              onRemove={() => void handleRemoveFromSlot(row().slot)}
                               onDragStart={() => {
-                                if (!row.playerId) return
-                                setDraggingPlayerId(row.playerId)
+                                if (!row().playerId) return
+                                setDraggingPlayerId(row().playerId)
                               }}
                               onDragEnd={() => {
                                 setDraggingPlayerId(null)
                                 setDragOverSlot(null)
                               }}
-                              onDragEnter={() => setDragOverSlot(row.slot)}
-                              onDragLeave={() => { if (dragOverSlot() === row.slot) setDragOverSlot(null) }}
-                              onDrop={() => void handleDropOnSlot(row.slot)}
+                              onDragEnter={() => setDragOverSlot(row().slot)}
+                              onDragLeave={() => { if (dragOverSlot() === row().slot) setDragOverSlot(null) }}
+                              onDrop={() => void handleDropOnSlot(row().slot)}
                             />
                           )}
                         </For>

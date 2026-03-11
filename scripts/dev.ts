@@ -9,6 +9,7 @@ const botRoot = resolve(repoRoot, 'apps', 'bot')
 const activityRoot = resolve(repoRoot, 'apps', 'activity')
 const partyRoot = resolve(repoRoot, 'apps', 'party')
 const activityPreviewConfig = resolve(activityRoot, 'dist', 'civup_activity', 'wrangler.json')
+const activityPreviewPersistDir = resolve(repoRoot, '.wrangler', 'activity-preview')
 
 interface Service {
   name: string
@@ -23,7 +24,7 @@ const activityLive = process.argv.includes('--activity-live')
 
 const activityCommand = activityLive
   ? ['bun', 'x', 'vite', '--host', '0.0.0.0', '--port', '5173']
-  : ['bun', 'x', 'wrangler', 'dev', '--config', 'wrangler.json', '--cwd', 'dist/civup_activity', '--port', '5173', '--show-interactive-dev-session=false', '--log-level', 'log']
+  : ['bun', 'x', 'wrangler', 'dev', '--config', 'wrangler.json', '--cwd', 'dist/civup_activity', '--persist-to', activityPreviewPersistDir, '--port', '5173', '--show-interactive-dev-session=false', '--log-level', 'log']
 
 const services: Service[] = [
   {

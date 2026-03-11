@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
+import { createSignal, createTrackedEffect as createEffect, onCleanup, For, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import {
   clearFfaPlacements,
@@ -82,11 +82,24 @@ export function DraftHeader(props: DraftHeaderProps) {
   const isUrgent = () => seconds() <= 10 && seconds() > 5
   const isCritical = () => seconds() <= 5 && seconds() > 0
   const isExpired = () => draftStore.timerEndsAt != null && remaining() <= 0
+  let previousAccent: ReturnType<typeof accent> | undefined
+  let previousMatchId: string | undefined
+  let hasSeenAccent = false
+  let hasSeenMatchId = false
 
   // Brief phase flash on ban/pick transitions
-  createEffect(on(accent, (next, prev) => {
+  createEffect(() => {
+    const next = accent()
     const s = state()
-    if (!prev || prev === next || !s || s.status !== 'active') return
+    if (!hasSeenAccent) {
+      previousAccent = next
+      hasSeenAccent = true
+      return
+    }
+    if (!previousAccent || previousAccent === next || !s || s.status !== 'active') {
+      previousAccent = next
+      return
+    }
 
     clearPhaseFlashTimeout()
     setPhaseFlash(true)
@@ -94,7 +107,8 @@ export function DraftHeader(props: DraftHeaderProps) {
       setPhaseFlash(false)
       phaseFlashTimeout = null
     }, 220)
-  }, { defer: true }))
+    previousAccent = next
+  })
 
   onCleanup(() => {
     clearPhaseFlashTimeout()
@@ -108,10 +122,19 @@ export function DraftHeader(props: DraftHeaderProps) {
     setResultSelectionsLocked(resultStatus() !== 'idle')
   })
 
-  createEffect(on(() => state()?.matchId, () => {
-    setResultStatus('idle')
-    clearResultSelections()
-  }, { defer: true }))
+  createEffect(() => {
+    const matchId = state()?.matchId
+    if (!hasSeenMatchId) {
+      previousMatchId = matchId
+      hasSeenMatchId = true
+      return
+    }
+    if (previousMatchId !== matchId) {
+      setResultStatus('idle')
+      clearResultSelections()
+      previousMatchId = matchId
+    }
+  })
 
   createEffect(() => {
     if (state()?.status === 'complete') return
@@ -188,7 +211,7 @@ export function DraftHeader(props: DraftHeaderProps) {
         {/* Left bans */}
         <div class="flex gap-1.5 items-center">
           <For each={leftBans()}>
-            {civId => <BanSquare civId={civId} />}
+            {civId => <BanSquare civId={civId()} />}
           </For>
           <Show when={leftBans().length === 0 && state()?.status !== 'waiting'}>
             <span class="text-xs text-fg-muted/30">No bans</span>
@@ -286,7 +309,7 @@ export function DraftHeader(props: DraftHeaderProps) {
           </Show>
           <Show when={isTeamMode()}>
             <For each={rightBans()}>
-              {civId => <BanSquare civId={civId} />}
+              {civId => <BanSquare civId={civId()} />}
             </For>
             <Show when={rightBans().length === 0 && state()?.status !== 'waiting'}>
               <span class="text-xs text-fg-subtle/30">No bans</span>

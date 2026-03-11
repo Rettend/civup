@@ -1,5 +1,5 @@
 import type { JSX } from 'solid-js'
-import { splitProps } from 'solid-js'
+import { omit } from 'solid-js'
 import { cn } from '~/client/lib/css'
 
 const variants = {
@@ -16,18 +16,18 @@ interface BadgeProps extends JSX.HTMLAttributes<HTMLSpanElement> {
 }
 
 export function Badge(props: BadgeProps) {
-  const [local, rest] = splitProps(props, ['variant', 'class', 'children'])
+  const rest = omit(props, 'variant', 'class', 'children')
 
   return (
     <span
       class={cn(
         'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
-        variants[local.variant ?? 'default'],
-        local.class,
+        variants[props.variant ?? 'default'],
+        props.class,
       )}
       {...rest}
     >
-      {local.children}
+      {props.children}
     </span>
   )
 }

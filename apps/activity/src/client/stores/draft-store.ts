@@ -1,5 +1,5 @@
 import type { DraftEvent, DraftState, DraftStep } from '@civup/game'
-import { createStore, produce } from 'solid-js/store'
+import { createStore } from 'solid-js'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -20,17 +20,27 @@ export interface DraftStore {
   optimisticSeatPicks: Record<number, string>
 }
 
+function createEmptyDraftStore(): DraftStore {
+  return {
+    state: null,
+    hostId: null,
+    seatIndex: null,
+    timerEndsAt: null,
+    completedAt: null,
+    lastEvents: [],
+    optimisticSeatPicks: {},
+  }
+}
+
+function replaceDraftStore(next: DraftStore) {
+  setDraftStore((store) => {
+    Object.assign(store, next)
+  })
+}
+
 // ── Store ──────────────────────────────────────────────────
 
-const [draftStore, setDraftStore] = createStore<DraftStore>({
-  state: null,
-  hostId: null,
-  seatIndex: null,
-  timerEndsAt: null,
-  completedAt: null,
-  lastEvents: [],
-  optimisticSeatPicks: {},
-})
+const [draftStore, setDraftStore] = createStore<DraftStore>(createEmptyDraftStore())
 
 export { draftStore }
 
@@ -43,7 +53,7 @@ export function initDraft(
   timerEndsAt: number | null,
   completedAt: number | null,
 ) {
-  setDraftStore({
+  replaceDraftStore({
     state,
     hostId,
     seatIndex,
@@ -55,15 +65,7 @@ export function initDraft(
 }
 
 export function resetDraft() {
-  setDraftStore({
-    state: null,
-    hostId: null,
-    seatIndex: null,
-    timerEndsAt: null,
-    completedAt: null,
-    lastEvents: [],
-    optimisticSeatPicks: {},
-  })
+  replaceDraftStore(createEmptyDraftStore())
 }
 
 export function updateDraft(
@@ -73,14 +75,14 @@ export function updateDraft(
   timerEndsAt: number | null,
   completedAt: number | null,
 ) {
-  setDraftStore(produce((s) => {
+  setDraftStore((s) => {
     s.state = state
     s.hostId = hostId
     s.timerEndsAt = timerEndsAt
     s.completedAt = completedAt
     s.lastEvents = events
     s.optimisticSeatPicks = {}
-  }))
+  })
 }
 
 /** Optimistically show a pick for this client's seat until server update arrives. */
@@ -100,7 +102,9 @@ export function setOptimisticSeatPick(civId: string): void {
   const submittedCount = s.submissions[seat]?.length ?? 0
   if (submittedCount >= step.count) return
 
-  setDraftStore('optimisticSeatPicks', seat, civId)
+  setDraftStore((store) => {
+    store.optimisticSeatPicks[seat] = civId
+  })
 }
 
 export function getOptimisticSeatPick(seatIndex: number): string | null {

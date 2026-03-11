@@ -13,8 +13,8 @@ export function RichLeaderText(props: RichLeaderTextProps) {
     <span class={cn('inline', props.class)}>
       <For each={parts()}>
         {(part) => {
-          const token = part.match(/^:([a-z0-9_]+):$/)?.[1]
-          if (!token) return part
+          const token = part().match(/^:([a-z0-9_]+):$/)?.[1]
+          if (!token) return <>{part()}</>
 
           return (
             <img

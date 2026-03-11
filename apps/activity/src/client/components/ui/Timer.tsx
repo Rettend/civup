@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup } from 'solid-js'
+import { createSignal, createTrackedEffect as createEffect, onCleanup } from 'solid-js'
 import { cn } from '~/client/lib/css'
 
 interface TimerProps {

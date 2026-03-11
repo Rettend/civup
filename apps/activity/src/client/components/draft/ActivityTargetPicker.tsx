@@ -36,30 +36,30 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
                   <div class="px-2 py-1.5 border border-border-subtle rounded bg-bg-subtle/92 flex flex-col gap-1 min-w-0 overflow-hidden">
                     <div class="flex gap-1 min-w-0 items-center justify-between">
                       <span class="text-[10px] text-fg tracking-[0.14em] font-bold truncate uppercase">
-                        {formatModeLabel(option.mode, option.mode)}
+                        {formatModeLabel(option().mode, option().mode)}
                       </span>
                       <span class={cn(
                         'text-[6px] font-semibold uppercase shrink-0',
-                        option.kind === 'lobby'
+                        option().kind === 'lobby'
                           ? 'text-info'
-                          : option.status === 'drafting'
+                          : option().status === 'drafting'
                             ? 'text-info'
                             : 'text-accent',
                       )}
                       >
-                        {formatMiniTargetStatus(option)}
+                        {formatMiniTargetStatus(option())}
                       </span>
                     </div>
 
                     <div class="text-[10px] text-fg-muted leading-none flex gap-1 items-center justify-between">
                       <span>
-                        {option.participantCount}
+                        {option().participantCount}
                         /
-                        {option.targetSize}
+                        {option().targetSize}
                       </span>
-                      <Show when={option.isHost || option.isMember}>
+                      <Show when={option().isHost || option().isMember}>
                         <span class="text-[8px] text-accent tracking-[0.1em] font-semibold uppercase">
-                          {option.isHost ? 'Host' : 'Joined'}
+                          {option().isHost ? 'Host' : 'Joined'}
                         </span>
                       </Show>
                     </div>
@@ -124,13 +124,13 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
         <div class="gap-3 grid md:grid-cols-2 xl:grid-cols-3">
           <For each={props.options}>
             {(option) => {
-              const selected = () => props.selectedKey === activityTargetOptionKey(option)
+              const selected = () => props.selectedKey === activityTargetOptionKey(option())
 
               return (
                 <button
                   type="button"
                   disabled={props.busy}
-                  onClick={() => props.onSelect(option)}
+                  onClick={() => props.onSelect(option())}
                   class={cn(
                     'group flex flex-col rounded-xl border p-4 text-left transition-all duration-150 cursor-pointer min-h-[120px]',
                     'bg-bg-subtle/95 border-border-subtle',
@@ -144,21 +144,21 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
                   <div class="flex gap-3 items-start justify-between">
                     <div>
                       <div class="text-[11px] text-accent tracking-[0.16em] font-semibold">
-                        {formatModeLabel(option.mode, option.mode)}
+                        {formatModeLabel(option().mode, option().mode)}
                       </div>
-                      <div class="text-base text-fg font-semibold mt-0.5">{formatTargetTitle(option)}</div>
+                      <div class="text-base text-fg font-semibold mt-0.5">{formatTargetTitle(option())}</div>
                     </div>
 
                     <span class={cn(
                       'px-2 py-1 rounded-full text-[8px] tracking-[0.12em] font-semibold uppercase shrink-0',
-                      option.kind === 'lobby'
+                      option().kind === 'lobby'
                         ? 'bg-info/15 text-info'
-                        : option.status === 'drafting'
+                        : option().status === 'drafting'
                           ? 'bg-info/15 text-info'
                           : 'bg-accent/15 text-accent',
                     )}
                     >
-                      {formatTargetStatus(option)}
+                      {formatTargetStatus(option())}
                     </span>
                   </div>
 
@@ -166,13 +166,13 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
                   <div class="text-sm text-fg-muted mt-auto pt-3 flex items-center justify-between">
                     <span class="flex gap-1.5 items-center">
                       <span class="i-ph:users-duotone text-base" />
-                      {option.participantCount}
+                      {option().participantCount}
                       /
-                      {option.targetSize}
+                      {option().targetSize}
                     </span>
-                    <Show when={option.isHost || option.isMember}>
+                    <Show when={option().isHost || option().isMember}>
                       <span class="text-[10px] text-accent tracking-[0.12em] font-semibold uppercase">
-                        {option.isHost ? 'Host' : 'Joined'}
+                        {option().isHost ? 'Host' : 'Joined'}
                       </span>
                     </Show>
                   </div>

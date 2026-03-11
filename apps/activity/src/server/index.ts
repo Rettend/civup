@@ -116,7 +116,8 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
       }
     }
 
-    return new Response(body, {
+    const responseBody = response.status === 204 ? null : body
+    return new Response(responseBody, {
       status: response.status,
       headers: {
         'Content-Type': response.headers.get('Content-Type') ?? 'application/json',

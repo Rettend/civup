@@ -1,6 +1,6 @@
 import type { MiniSeatItem } from './MiniLayout'
 import { formatModeLabel } from '@civup/game'
-import { createEffect, createSignal, onCleanup } from 'solid-js'
+import { createSignal, createTrackedEffect as createEffect, onCleanup } from 'solid-js'
 import { draftStore, phaseAccent, phaseLabel } from '~/client/stores'
 import { MiniFrame, MiniSeatGrid } from './MiniLayout'
 

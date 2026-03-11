@@ -1,5 +1,6 @@
 /* @refresh reload */
-import { render } from 'solid-js/web'
+import { render } from '@solidjs/web'
+import { postDevTrace, updateDevOverlay } from './lib/debug-trace'
 import { relayDevLog, shouldRelayDevLog } from './lib/dev-log'
 import '@fontsource-variable/inter'
 import 'virtual:uno.css'
@@ -22,6 +23,29 @@ function setupGlobalDevErrorRelay() {
   })
 }
 
+function setupRootObserver(root: HTMLElement) {
+  updateDevOverlay('Activity boot', { phase: 'root-ready' })
+
+  const report = (reason: string) => {
+    const bodyText = root.textContent?.trim().replace(/\s+/g, ' ').slice(0, 240) ?? ''
+    updateDevOverlay('Activity DOM', {
+      reason,
+      rootChildren: root.childElementCount,
+      text: bodyText || '[empty]',
+    })
+    postDevTrace('Activity root snapshot', {
+      reason,
+      rootChildren: root.childElementCount,
+      text: bodyText || '[empty]',
+    })
+  }
+
+  report('initial')
+
+  const observer = new MutationObserver(() => report('mutation'))
+  observer.observe(root, { childList: true, subtree: true, characterData: true })
+}
+
 async function bootstrap() {
   setupGlobalDevErrorRelay()
 
@@ -34,6 +58,7 @@ async function bootstrap() {
   }
 
   render(() => <App />, root)
+  setupRootObserver(root)
 }
 
 void bootstrap().catch((error) => {

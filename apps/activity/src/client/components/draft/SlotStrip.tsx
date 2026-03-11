@@ -112,7 +112,7 @@ export function SlotStrip() {
               <For each={leftSeats()}>
                 {seatIdx => (
                   <div class="slot-cell">
-                    <PlayerSlot seatIndex={seatIdx} />
+                    <PlayerSlot seatIndex={seatIdx()} />
                   </div>
                 )}
               </For>
@@ -157,7 +157,7 @@ export function SlotStrip() {
               <For each={rightSeats()}>
                 {seatIdx => (
                   <div class="slot-cell">
-                    <PlayerSlot seatIndex={seatIdx} />
+                    <PlayerSlot seatIndex={seatIdx()} />
                   </div>
                 )}
               </For>
@@ -180,8 +180,8 @@ export function SlotStrip() {
             <For each={ffaGridCells()}>
               {seatIdx => (
                 <div class="slot-cell-ffa h-full min-h-0 w-full">
-                  <Show when={seatIdx != null}>
-                    <PlayerSlot seatIndex={seatIdx!} compact />
+                  <Show when={seatIdx() != null}>
+                    <PlayerSlot seatIndex={seatIdx()!} compact />
                   </Show>
                 </div>
               )}

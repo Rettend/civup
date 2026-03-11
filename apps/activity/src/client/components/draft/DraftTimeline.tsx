@@ -13,10 +13,10 @@ export function DraftTimeline() {
     <Show when={steps().length > 0}>
       <div class="px-4 py-1.5 flex gap-1 items-center justify-center">
         <For each={steps()}>
-          {(step: { action: 'pick' | 'ban', seats: number[] | 'all', count: number }, idx) => {
+          {(step, idx) => {
             const isCurrent = () => idx() === currentIdx()
             const isPast = () => idx() < currentIdx()
-            const isBan = () => step.action === 'ban'
+            const isBan = () => step().action === 'ban'
 
             return (
               <>
@@ -31,7 +31,7 @@ export function DraftTimeline() {
                   !isCurrent() && !isPast() && 'text-fg-muted/50',
                 )}
                 >
-                  {formatDraftStepLabel(step, state()?.seats ?? [])}
+                  {formatDraftStepLabel(step(), state()?.seats ?? [])}
                 </span>
               </>
             )

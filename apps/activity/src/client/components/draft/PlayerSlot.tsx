@@ -1,6 +1,6 @@
 import type { Leader } from '@civup/game'
 import { getLeader } from '@civup/game'
-import { createEffect, createSignal, Show } from 'solid-js'
+import { createSignal, createTrackedEffect as createEffect, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import { draftStore, ffaPlacementOrder, getOptimisticSeatPick, phaseAccent, resultSelectionsLocked, selectedWinningTeam, selectWinningTeam, toggleFfaPlacement, userId } from '~/client/stores'
 
@@ -191,14 +191,14 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
   return (
     <div
-      class={cn(
+      class={[
         'relative flex flex-col overflow-hidden bg-bg-subtle h-full isolate',
         canSelectResult() && (isFfaPlacementMode() || isTeamResultMode()) && 'cursor-pointer',
-      )}
-      classList={{
-        'slot-accent-gold': isActive() && accent() === 'gold',
-        'slot-accent-red': isActive() && accent() === 'red',
-      }}
+        {
+          'slot-accent-gold': isActive() && accent() === 'gold',
+          'slot-accent-red': isActive() && accent() === 'red',
+        },
+      ]}
       onClick={() => {
         handleSlotClick()
         handleTeamResultClick()
@@ -206,24 +206,28 @@ export function PlayerSlot(props: PlayerSlotProps) {
     >
       {/* Side Glows */}
       <div
-        class="w-6 pointer-events-none inset-y-0 left-0 absolute z-10 from-[var(--slot-glow)] to-transparent bg-gradient-to-r"
-        classList={{
-          'anim-glow-breathe': isActive(),
-          'anim-glow-fade-out': wasEverActive() && !isActive(),
-          'opacity-0': !wasEverActive(),
-        }}
+        class={[
+          'w-6 pointer-events-none inset-y-0 left-0 absolute z-10 from-[var(--slot-glow)] to-transparent bg-gradient-to-r',
+          {
+            'anim-glow-breathe': isActive(),
+            'anim-glow-fade-out': wasEverActive() && !isActive(),
+            'opacity-0': !wasEverActive(),
+          },
+        ]}
         style={{
           '-webkit-mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
           'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
         }}
       />
       <div
-        class="w-6 pointer-events-none inset-y-0 right-0 absolute z-10 from-[var(--slot-glow)] to-transparent bg-gradient-to-l"
-        classList={{
-          'anim-glow-breathe': isActive(),
-          'anim-glow-fade-out': wasEverActive() && !isActive(),
-          'opacity-0': !wasEverActive(),
-        }}
+        class={[
+          'w-6 pointer-events-none inset-y-0 right-0 absolute z-10 from-[var(--slot-glow)] to-transparent bg-gradient-to-l',
+          {
+            'anim-glow-breathe': isActive(),
+            'anim-glow-fade-out': wasEverActive() && !isActive(),
+            'opacity-0': !wasEverActive(),
+          },
+        ]}
         style={{
           '-webkit-mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
           'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
@@ -278,8 +282,8 @@ export function PlayerSlot(props: PlayerSlotProps) {
       <Show when={leader()} keyed>
         {l => (
           <img
-            src={`/assets/leaders-full/${l.id}.webp`}
-            alt={l.name}
+            src={`/assets/leaders-full/${l().id}.webp`}
+            alt={l().name}
             class={cn(
               'absolute inset-0 h-full w-full object-cover',
               props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
@@ -310,8 +314,8 @@ export function PlayerSlot(props: PlayerSlotProps) {
         <Show when={leader()} keyed>
           {l => (
             <div class="mb-1">
-              <div class="text-base text-fg leading-tight font-semibold truncate">{l.name}</div>
-              <div class="text-sm text-fg-muted/80 leading-tight truncate">{l.civilization}</div>
+              <div class="text-base text-fg leading-tight font-semibold truncate">{l().name}</div>
+              <div class="text-sm text-fg-muted/80 leading-tight truncate">{l().civilization}</div>
             </div>
           )}
         </Show>
@@ -328,13 +332,13 @@ export function PlayerSlot(props: PlayerSlotProps) {
               <Show when={seatAvatarUrl()} keyed>
                 {url => (
                   <img
-                    src={url}
+                    src={url()}
                     alt=""
                     class="rounded-full shrink-0 h-5 w-5 object-cover"
                   />
                 )}
               </Show>
-              <span class="text-sm leading-tight truncate">{s.displayName}</span>
+              <span class="text-sm leading-tight truncate">{s().displayName}</span>
             </div>
           )}
         </Show>
