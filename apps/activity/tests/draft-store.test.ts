@@ -44,7 +44,7 @@ describe('draft-store helpers', () => {
     const active = createActiveBanState()
     initDraft(active, 'team-a', 0, null, null)
 
-    expect(phaseLabel()).toBe('BAN PHASE 1')
+    expect(phaseLabel()).toBe('BAN PHASE')
     expect(isMyTurn()).toBe(true)
     expect(currentStepDuration()).toBe(active.steps[0]!.timer ?? 0)
 

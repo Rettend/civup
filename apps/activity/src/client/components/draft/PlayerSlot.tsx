@@ -2,7 +2,8 @@ import type { Leader } from '@civup/game'
 import { getLeader } from '@civup/game'
 import { createEffect, createSignal, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
-import { draftStore, ffaPlacementOrder, getOptimisticSeatPick, phaseAccent, resultSelectionsLocked, selectedWinningTeam, selectWinningTeam, toggleFfaPlacement, userId } from '~/client/stores'
+import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
+import { draftStore, ffaPlacementOrder, getOptimisticSeatPick, isMobileLayout, phaseAccent, resultSelectionsLocked, selectedWinningTeam, selectWinningTeam, toggleFfaPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -84,57 +85,47 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
   const ffaGoldBorderColor = 'var(--accent-muted)'
 
-  const ffaGridMetrics = () => {
-    const count = state()?.seats.length ?? 0
-    const perRow = Math.ceil(count / 2)
-    const bottomCount = count - perRow
-    const bottomStart = Math.floor((perRow - bottomCount) / 2)
-    return { count, perRow, bottomCount, bottomStart }
-  }
+  const ffaGridLayout = () => createSeatGridLayout(
+    state()?.seats.length ?? 0,
+    isMobileLayout() ? 2 : Math.ceil((state()?.seats.length ?? 0) / 2),
+  )
 
   const ffaGridPosition = () => {
-    const { perRow, bottomStart } = ffaGridMetrics()
-    if (props.seatIndex < perRow) {
-      return { row: 0 as const, col: props.seatIndex }
-    }
-    return { row: 1 as const, col: bottomStart + (props.seatIndex - perRow) }
+    return findSeatGridPosition(ffaGridLayout(), props.seatIndex)
   }
 
   const ffaSeatAt = (row: number, col: number): number | null => {
-    const { perRow, bottomCount, bottomStart } = ffaGridMetrics()
-    if (row === 0) {
-      return col >= 0 && col < perRow ? col : null
-    }
-    if (row === 1) {
-      return col >= bottomStart && col < bottomStart + bottomCount ? perRow + (col - bottomStart) : null
-    }
-    return null
+    return getSeatAtGridPosition(ffaGridLayout(), row, col)
   }
 
   const ffaHasPlacedLeft = () => {
-    if (!isPlaced()) return false
-    const { row, col } = ffaGridPosition()
+    const position = ffaGridPosition()
+    if (!isPlaced() || !position) return false
+    const { row, col } = position
     const leftSeat = ffaSeatAt(row, col - 1)
     return leftSeat != null && ffaPlacementOrder().includes(leftSeat)
   }
 
   const ffaHasPlacedAbove = () => {
-    if (!isPlaced()) return false
-    const { row, col } = ffaGridPosition()
+    const position = ffaGridPosition()
+    if (!isPlaced() || !position) return false
+    const { row, col } = position
     const aboveSeat = ffaSeatAt(row - 1, col)
     return aboveSeat != null && ffaPlacementOrder().includes(aboveSeat)
   }
 
   const ffaHasPlacedRight = () => {
-    if (!isPlaced()) return false
-    const { row, col } = ffaGridPosition()
+    const position = ffaGridPosition()
+    if (!isPlaced() || !position) return false
+    const { row, col } = position
     const rightSeat = ffaSeatAt(row, col + 1)
     return rightSeat != null && ffaPlacementOrder().includes(rightSeat)
   }
 
   const ffaHasPlacedBelow = () => {
-    if (!isPlaced()) return false
-    const { row, col } = ffaGridPosition()
+    const position = ffaGridPosition()
+    if (!isPlaced() || !position) return false
+    const { row, col } = position
     const belowSeat = ffaSeatAt(row + 1, col)
     return belowSeat != null && ffaPlacementOrder().includes(belowSeat)
   }
