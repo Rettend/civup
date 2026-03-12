@@ -1,4 +1,4 @@
-import type { ActivityLaunchSelection, ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot, LobbyStateWatch } from './stores'
+import type { ActivityLaunchSelection, ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot, LobbyStateWatch, PartySocketTarget } from './stores'
 import { createSignal, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
 import { activityTargetOptionKey, ActivityTargetPicker, ConfigScreen, DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
@@ -31,6 +31,7 @@ type AppState
 
 const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
   || (typeof window !== 'undefined' ? window.location.host : 'localhost:5173')
+const PARTY_SOCKET_TARGET = resolvePartySocketTarget()
 const ACTIVITY_SAFETY_POLL_MS = 90_000
 const MINI_VIEW_MAX_WIDTH = 430
 const MINI_VIEW_MAX_HEIGHT = 260
@@ -151,7 +152,7 @@ export default function App() {
     if (isSameMatch && (isDraftConnectionInFlight() || hasTerminalDraft)) return
 
     resetDraft()
-    connectToRoom(ACTIVITY_HOST, matchId, currentUserId)
+    connectToRoom(PARTY_SOCKET_TARGET, matchId, currentUserId)
   }
 
   const applyLaunchSnapshot = (
@@ -253,7 +254,7 @@ export default function App() {
     stopActivityWatch()
     stopActivitySafetyPoll()
 
-    activityWatch = watchLobbyState(ACTIVITY_HOST, {
+    activityWatch = watchLobbyState(PARTY_SOCKET_TARGET, {
       channelId,
       userId: currentUserId,
       onConnected: () => {
@@ -422,6 +423,14 @@ export default function App() {
       </Switch>
     </>
   )
+}
+
+function resolvePartySocketTarget(): PartySocketTarget {
+  return {
+    host: typeof window !== 'undefined' ? window.location.host : ACTIVITY_HOST,
+    prefix: 'api/parties',
+    label: 'activity-origin',
+  }
 }
 
 function DraftWithConnection(props: {
