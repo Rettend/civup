@@ -17,7 +17,6 @@ import type {
  * Create a new draft state.
  *
  * Seats always represent player slots.
- * Team formats can choose to activate only captain seats (for default team formats: 0 and 1).
  */
 export function createDraft(
   matchId: string,

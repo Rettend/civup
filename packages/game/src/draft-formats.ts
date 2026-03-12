@@ -1,21 +1,12 @@
 import type { DraftFormat, DraftSeat, DraftStep, GameMode } from './types.ts'
 
 const FULL_ROSTER_2V2_PICK_ORDER = [0, 1, 3, 2] as const
-const FULL_ROSTER_3V3_PICK_ORDER = [0, 1, 3, 2, 5, 4] as const
-const FULL_ROSTER_4V4_PICK_ORDER = [0, 1, 3, 2, 5, 4, 7, 6] as const
+const FULL_ROSTER_3V3_PICK_ORDER = [0, 1, 3, 2, 4, 5] as const
+const FULL_ROSTER_4V4_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7] as const
 const TEAM_BAN_STEP: DraftStep = { action: 'ban', seats: [0, 1], count: 3, timer: 120 }
 
 function createSinglePickStep(seat: number): DraftStep {
   return { action: 'pick', seats: [seat], count: 1, timer: 60 }
-}
-
-function createCaptainPickSteps(counts: readonly number[]): DraftStep[] {
-  return counts.map((count, index) => ({
-    action: 'pick',
-    seats: [index % 2],
-    count,
-    timer: count > 1 ? 90 : 60,
-  }))
 }
 
 function createTeamFormat(config: {
@@ -23,23 +14,14 @@ function createTeamFormat(config: {
   name: string
   gameMode: Extract<GameMode, '2v2' | '3v3' | '4v4'>
   fullRosterPickOrder: readonly number[]
-  captainPickCounts: readonly number[]
 }): DraftFormat {
   return {
     id: config.id,
     name: config.name,
     gameMode: config.gameMode,
     blindBans: true,
-    getSteps(seatCount: number): DraftStep[] {
-      const steps: DraftStep[] = [TEAM_BAN_STEP]
-
-      if (seatCount >= config.fullRosterPickOrder.length) {
-        steps.push(...config.fullRosterPickOrder.map(createSinglePickStep))
-        return steps
-      }
-
-      steps.push(...createCaptainPickSteps(config.captainPickCounts))
-      return steps
+    getSteps(_seatCount: number): DraftStep[] {
+      return [TEAM_BAN_STEP, ...config.fullRosterPickOrder.map(createSinglePickStep)]
     },
   }
 }
@@ -48,54 +30,45 @@ function createTeamFormat(config: {
  * 2v2 Format:
  * - 3 blind bans per team (simultaneous)
  * - Captains submit bans (seat 0 = Team A captain, seat 1 = Team B captain)
- * - Full rosters pick individually in snake order: A1, B1, B2, A2
- * - Legacy 2-seat rooms keep captain-only pick ownership
+ * - Pick order: 1221
  */
 export const default2v2 = createTeamFormat({
   id: 'default-2v2',
   name: '2v2',
   gameMode: '2v2',
   fullRosterPickOrder: FULL_ROSTER_2V2_PICK_ORDER,
-  captainPickCounts: [1, 2, 1],
 })
 
 /**
  * 3v3 Format:
  * - 3 blind bans per team (simultaneous)
  * - Captains submit bans (seat 0 = Team A captain, seat 1 = Team B captain)
- * - Full rosters pick individually in snake order: A1, B1, B2, A2, B3, A3
- * - Legacy 2-seat rooms keep captain-only pick ownership
- * - Pick order: 1-2-2-1-2-1
+ * - Pick order: 122112
  */
 export const default3v3 = createTeamFormat({
   id: 'default-3v3',
   name: '3v3',
   gameMode: '3v3',
   fullRosterPickOrder: FULL_ROSTER_3V3_PICK_ORDER,
-  captainPickCounts: [1, 2, 1, 1, 1],
 })
 
 /**
  * 4v4 Format:
  * - 3 blind bans per team (simultaneous)
  * - Captains submit bans (seat 0 = Team A captain, seat 1 = Team B captain)
- * - Full rosters pick individually in snake order: A1, B1, B2, A2, B3, A3, B4, A4
- * - Legacy 2-seat rooms keep captain-only pick ownership
- * - Pick order: 1-2-2-1-2-1-2-1
+ * - Pick order: 12212112
  */
 export const default4v4 = createTeamFormat({
   id: 'default-4v4',
   name: '4v4',
   gameMode: '4v4',
   fullRosterPickOrder: FULL_ROSTER_4V4_PICK_ORDER,
-  captainPickCounts: [1, 2, 1, 1, 1, 1, 1],
 })
 
 /**
  * 1v1 Format:
  * - 3 blind bans each (simultaneous)
- * - Player 1 picks 1
- * - Player 2 picks 1
+ * - Pick order: 12
  */
 export const default1v1: DraftFormat = {
   id: 'default-1v1',
@@ -114,8 +87,7 @@ export const default1v1: DraftFormat = {
 /**
  * FFA Format:
  * - 1 blind ban per player (simultaneous)
- * - Snake pick order (by rating, handled externally):
- *   P1, P2, ..., Pn (one pick each — each player picks 1 civ)
+ * - Players just pick in order (by rating or random)
  */
 export const defaultFfa: DraftFormat = {
   id: 'default-ffa',
