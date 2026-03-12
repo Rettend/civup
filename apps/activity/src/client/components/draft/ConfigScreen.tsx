@@ -8,7 +8,7 @@ import type {
   PlayerRow,
 } from '~/client/lib/config-screen/helpers'
 import type { LobbyJoinEligibilitySnapshot, LobbySnapshot, LobbyTeamArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
-import { formatModeLabel, GAME_MODE_CHOICES, inferGameMode } from '@civup/game'
+import { formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isTeamMode as isTeamGameMode } from '@civup/game'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, TextInput } from '~/client/components/ui'
 import {
@@ -963,7 +963,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const currentUserId = userId()
     if (!lobby || !currentUserId || !amHost()) return
     const mode = inferGameMode(lobby.mode)
-    if (mode !== '2v2' && mode !== '3v3') return
+    if (!isTeamGameMode(mode)) return
     if (lobbyActionPending() || startPending() || cancelPending()) return
 
     setLobbyActionPending(true)
@@ -1001,7 +1001,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const currentUserId = userId()
     if (!lobby || !currentUserId) return
     const mode = inferGameMode(lobby.mode)
-    if (mode !== '2v2' && mode !== '3v3') return
+    if (!isTeamGameMode(mode)) return
     if (lobbyActionPending() || startPending() || cancelPending()) return
     if (!canTogglePremadeLink(leftRow, rightRow)) return
 
@@ -1417,7 +1417,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       >
                         {cancelPending() ? 'Cancelling...' : 'Cancel Lobby'}
                       </button>
-                      <Show when={lobbyMode() === '2v2' || lobbyMode() === '3v3'}>
+                      <Show when={isTeamGameMode(lobbyMode())}>
                         <button
                           class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed"
                           title="Randomize"

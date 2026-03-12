@@ -33,8 +33,9 @@ export const command_match = factory.command<MatchVar>(
       new Option('mode', 'Game mode to queue for')
         .required()
         .choices(...GAME_MODE_CHOICES),
-      new Option('teammate', 'Teammate for 2v2/3v3', 'User'),
-      new Option('teammate2', 'Second teammate for 3v3', 'User'),
+      new Option('teammate', 'Teammate for 2v2/3v3/4v4', 'User'),
+      new Option('teammate2', 'Second teammate for 3v3/4v4', 'User'),
+      new Option('teammate3', 'Third teammate for 4v4', 'User'),
     ),
     new SubCommand('cancel', 'Cancel your hosted open or live lobby').options(
       new Option('match_id', 'Optional match or lobby ID override'),
@@ -654,7 +655,7 @@ function normalizeMatchMode(mode: string): GameMode {
 
 function buildMatchJoinRequest(
   c: {
-    var: Pick<MatchVar, 'teammate' | 'teammate2'>
+    var: Pick<MatchVar, 'teammate' | 'teammate2' | 'teammate3'>
     interaction: {
       member?: { user?: { id?: string, global_name?: string | null, username?: string, avatar?: string | null } }
       user?: { id?: string, global_name?: string | null, username?: string, avatar?: string | null }
@@ -666,13 +667,13 @@ function buildMatchJoinRequest(
 ):
   | { entries: MatchJoinEntry[], teammateIds: string[] }
   | { error: string } {
-  const rawTeammateIds = [c.var.teammate, c.var.teammate2]
+  const rawTeammateIds = [c.var.teammate, c.var.teammate2, c.var.teammate3]
     .filter((value): value is string => typeof value === 'string' && value.length > 0)
   const teammateLimit = maxTeammatesForMode(mode)
 
   if (rawTeammateIds.length > teammateLimit) {
     if (teammateLimit === 0) {
-      return { error: 'Teammate options are only available for 2v2 and 3v3.' }
+      return { error: 'Teammate options are only available for 2v2, 3v3, and 4v4.' }
     }
     return {
       error: `${formatModeLabel(mode)} supports up to ${teammateLimit} teammate option${teammateLimit === 1 ? '' : 's'}.`,

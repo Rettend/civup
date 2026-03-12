@@ -40,12 +40,12 @@ export function arrangeTeamLobbySlots(
   input: ArrangeTeamLobbySlotsInput,
 ): { slots: (string | null)[] } | { error: string } {
   if (!isTeamMode(input.mode)) {
-    return { error: 'Team arrange actions are only available in 2v2 and 3v3 lobbies.' }
+    return { error: 'Team arrange actions are only available in 2v2, 3v3, and 4v4 lobbies.' }
   }
 
   const teamSlotCount = teamSize(input.mode)
   if (!teamSlotCount) {
-    return { error: 'Team arrange actions are only available in 2v2 and 3v3 lobbies.' }
+    return { error: 'Team arrange actions are only available in 2v2, 3v3, and 4v4 lobbies.' }
   }
   const queueByPlayerId = new Map(input.queueEntries.map(entry => [entry.playerId, entry]))
   const slottedPlayerIds = input.slots.filter((playerId): playerId is string => playerId != null)
