@@ -69,8 +69,13 @@ export default function App() {
 
   const shouldHoldAuthenticatedDraftState = () => {
     if (state().status !== 'authenticated') return false
-    if (connectionStatus() === 'connecting' || connectionStatus() === 'connected') return true
+    if (isDraftConnectionInFlight()) return true
     return draftStore.state != null
+  }
+
+  const isDraftConnectionInFlight = () => {
+    const status = connectionStatus()
+    return status === 'connecting' || status === 'reconnecting' || status === 'connected'
   }
 
   onCleanup(() => {
@@ -143,7 +148,7 @@ export default function App() {
     const hasTerminalDraft = draftStore.state?.status === 'complete' || draftStore.state?.status === 'cancelled'
 
     setState({ status: 'authenticated', matchId, autoStart: nextAutoStart })
-    if (isSameMatch && (connectionStatus() === 'connected' || hasTerminalDraft)) return
+    if (isSameMatch && (isDraftConnectionInFlight() || hasTerminalDraft)) return
 
     resetDraft()
     connectToRoom(ACTIVITY_HOST, matchId, currentUserId)
@@ -424,9 +429,14 @@ function DraftWithConnection(props: {
   autoStart: boolean
   onSwitchTarget?: () => void
 }) {
+  const hasDraftState = () => draftStore.state != null
   const hasTerminalState = () => {
     const status = draftStore.state?.status
     return status === 'complete' || status === 'cancelled'
+  }
+  const shouldRenderDraftView = () => {
+    const status = connectionStatus()
+    return status === 'connected' || (status === 'reconnecting' && hasDraftState())
   }
 
   return (
@@ -436,6 +446,32 @@ function DraftWithConnection(props: {
           <div class="text-center">
             <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
             <div class="text-sm text-fg-muted">Joining draft room...</div>
+          </div>
+        </main>
+      </Match>
+
+      <Match when={shouldRenderDraftView()}>
+        <>
+          <DraftView
+            matchId={props.matchId}
+            autoStart={props.autoStart}
+            onSwitchTarget={props.onSwitchTarget}
+          />
+          <Show when={connectionStatus() === 'reconnecting'}>
+            <div class="pointer-events-none fixed bottom-3 left-3 z-50 sm:bottom-4 sm:left-4">
+              <div class="text-xs text-fg px-3 py-1.5 border border-border rounded-full bg-bg-subtle/90 shadow-2xl shadow-black/30 backdrop-blur-sm">
+                Reconnecting...
+              </div>
+            </div>
+          </Show>
+        </>
+      </Match>
+
+      <Match when={connectionStatus() === 'reconnecting'}>
+        <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
+          <div class="text-center">
+            <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
+            <div class="text-sm text-fg-muted">Reconnecting to draft room...</div>
           </div>
         </main>
       </Match>
@@ -457,14 +493,6 @@ function DraftWithConnection(props: {
             </div>
           </div>
         </main>
-      </Match>
-
-      <Match when={connectionStatus() === 'connected'}>
-        <DraftView
-          matchId={props.matchId}
-          autoStart={props.autoStart}
-          onSwitchTarget={props.onSwitchTarget}
-        />
       </Match>
 
       <Match when={connectionStatus() === 'disconnected'}>
