@@ -1,14 +1,15 @@
 import type { GameMode, QueueEntry } from '@civup/game'
+import type { LobbyState } from '../../services/lobby/index.ts'
 import type { MatchJoinEntry, MatchVar } from './shared.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, maxPlayerCount, maxTeammatesForMode, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
-import { Command, Option, SubCommand } from 'discord-hono'
+import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyOpenEmbed, lobbyResultEmbed } from '../../embeds/match.ts'
 import { clearLobbyMappings, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
-import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getLobbiesByMode, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyMemberPlayerIds, setLobbySlots, setLobbyStatus } from '../../services/lobby/index.ts'
+import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getLobbiesByMode, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyMemberPlayerIds, setLobbySlots, setLobbyStatus, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { cancelMatchByModerator, reportMatch } from '../../services/match/index.ts'
@@ -18,6 +19,7 @@ import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRole
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { syncSeasonPeaksForPlayers } from '../../services/season/index.ts'
 import { createStateStore } from '../../services/state/store.ts'
+import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
 import { factory } from '../../setup.ts'
 import { collectFfaPlacementUserIds, getIdentity, getIdentityByUserId, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
@@ -28,6 +30,7 @@ export const command_match = factory.command<MatchVar>(
       new Option('mode', 'Game mode for the lobby')
         .required()
         .choices(...GAME_MODE_CHOICES),
+      new Option('steam_link', 'Optional Civ 6 Steam lobby link').max_length(MAX_STEAM_LOBBY_LINK_LENGTH),
     ),
     new SubCommand('join', 'Join the queue for a game mode').options(
       new Option('mode', 'Game mode to queue for')
@@ -55,17 +58,32 @@ export const command_match = factory.command<MatchVar>(
       new Option('ninth', 'FFA 9th place', 'User'),
       new Option('tenth', 'FFA 10th place', 'User'),
     ),
+    new SubGroup('steam', 'Manage the Civ 6 Steam lobby link').options(
+      new SubCommand('set', 'Set or update the Steam lobby link').options(
+        new Option('steam_link', 'Civ 6 Steam lobby link').required().max_length(MAX_STEAM_LOBBY_LINK_LENGTH),
+        new Option('match_id', 'Optional match or lobby ID override'),
+      ),
+      new SubCommand('clear', 'Clear the Steam lobby link').options(
+        new Option('match_id', 'Optional match or lobby ID override'),
+      ),
+    ),
   ),
   async (c) => {
     switch (c.sub.string) {
       // ── create ──────────────────────────────────────────
       case 'create': {
         const mode = c.var.mode as GameMode
+        const steamLobbyLink = parseSteamLobbyLink(c.var.steam_link)
         const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id
         const identity = getIdentity(c)
         if (!identity) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
             await sendTransientEphemeralResponse(c, 'Could not identify you.', 'error')
+          })
+        }
+        if (steamLobbyLink === undefined) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, STEAM_LOBBY_LINK_ERROR, 'error')
           })
         }
 
@@ -84,11 +102,17 @@ export const command_match = factory.command<MatchVar>(
 
             const existingHostedLobby = await findHostedOpenLobby(kv, identity.userId)
             if (existingHostedLobby) {
-              await storeUserLobbyMappings(kv, [identity.userId], existingHostedLobby.id)
-              await storeUserActivityTarget(kv, existingHostedLobby.channelId, [identity.userId], { kind: 'lobby', id: existingHostedLobby.id })
+              const updatedLobby = steamLobbyLink !== null
+                ? (await setLobbySteamLobbyLink(kv, existingHostedLobby.id, steamLobbyLink, existingHostedLobby) ?? existingHostedLobby)
+                : existingHostedLobby
+
+              await storeUserLobbyMappings(kv, [identity.userId], updatedLobby.id)
+              await storeUserActivityTarget(kv, updatedLobby.channelId, [identity.userId], { kind: 'lobby', id: updatedLobby.id })
               await sendTransientEphemeralResponse(
                 c,
-                `You already have an open ${formatModeLabel(existingHostedLobby.mode)} lobby in <#${existingHostedLobby.channelId}>.`,
+                steamLobbyLink !== null
+                  ? `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>. Updated its Steam lobby link.`
+                  : `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>.`,
                 'info',
               )
               return
@@ -127,13 +151,18 @@ export const command_match = factory.command<MatchVar>(
                 hostId: identity.userId,
                 channelId: draftChannelId,
                 messageId: message.id,
+                steamLobbyLink,
               })
-              const { lobby, reusedExisting } = await reconcileHostedOpenLobbyCreation(
+              const { lobby: reconciledLobby, reusedExisting } = await reconcileHostedOpenLobbyCreation(
                 c.env.DISCORD_TOKEN,
                 kv,
                 identity.userId,
                 createdLobby,
               )
+              const lobby = steamLobbyLink !== null
+                ? (await setLobbySteamLobbyLink(kv, reconciledLobby.id, steamLobbyLink, reconciledLobby) ?? reconciledLobby)
+                : reconciledLobby
+
               await storeUserLobbyMappings(kv, [identity.userId], lobby.id)
               await storeUserActivityTarget(kv, lobby.channelId, [identity.userId], { kind: 'lobby', id: lobby.id })
               if (!reusedExisting) {
@@ -148,13 +177,25 @@ export const command_match = factory.command<MatchVar>(
                 })
               }
               if (reusedExisting) {
-                await sendTransientEphemeralResponse(c, `You already had an open ${formatModeLabel(lobby.mode)} lobby in <#${lobby.channelId}>.`, 'info')
+                await sendTransientEphemeralResponse(
+                  c,
+                  steamLobbyLink !== null
+                    ? `You already had an open ${formatModeLabel(lobby.mode)} lobby in <#${lobby.channelId}>. Updated its Steam lobby link.`
+                    : `You already had an open ${formatModeLabel(lobby.mode)} lobby in <#${lobby.channelId}>.`,
+                  'info',
+                )
               }
               else if (interactionChannelId === draftChannelId) {
                 await clearDeferredEphemeralResponse(c)
               }
               else {
-                await sendTransientEphemeralResponse(c, `Created ${formatModeLabel(mode)} lobby in <#${draftChannelId}>.`, 'info')
+                await sendTransientEphemeralResponse(
+                  c,
+                  steamLobbyLink !== null
+                    ? `Created ${formatModeLabel(mode)} lobby in <#${draftChannelId}> with the Steam lobby link set.`
+                    : `Created ${formatModeLabel(mode)} lobby in <#${draftChannelId}>.`,
+                  'info',
+                )
               }
             }
             catch (error) {
@@ -407,6 +448,57 @@ export const command_match = factory.command<MatchVar>(
           }
 
           await clearDeferredEphemeralResponse(c)
+        })
+      }
+
+      // ── steam set / clear ───────────────────────────────
+      case 'steam set':
+      case 'steam clear': {
+        const identity = getIdentity(c)
+        if (!identity) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'Could not identify you.', 'error')
+          })
+        }
+
+        const nextSteamLobbyLink = c.sub.string === 'steam set'
+          ? parseSteamLobbyLink(c.var.steam_link)
+          : null
+        if (nextSteamLobbyLink === undefined || (c.sub.string === 'steam set' && nextSteamLobbyLink == null)) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, STEAM_LOBBY_LINK_ERROR, 'error')
+          })
+        }
+
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          const kv = createStateStore(c.env)
+          const targetId = c.var.match_id?.trim() ?? null
+          const resolvedTarget = await resolveHostedSteamLobbyTarget(kv, identity.userId, targetId)
+          if ('error' in resolvedTarget) {
+            await sendTransientEphemeralResponse(c, resolvedTarget.error, 'error')
+            return
+          }
+
+          const currentLobby = resolvedTarget.lobby
+          const updatedLobby = await setLobbySteamLobbyLink(kv, currentLobby.id, nextSteamLobbyLink, currentLobby) ?? currentLobby
+          const targetLabel = describeSteamLobbyTarget(updatedLobby)
+
+          if (c.sub.string === 'steam clear') {
+            if (currentLobby.steamLobbyLink == null) {
+              await sendTransientEphemeralResponse(c, `No Steam lobby link was set for your hosted ${targetLabel}.`, 'info')
+              return
+            }
+
+            await sendTransientEphemeralResponse(c, `Cleared the Steam lobby link for your hosted ${targetLabel}.`, 'success')
+            return
+          }
+
+          if (currentLobby.steamLobbyLink === nextSteamLobbyLink) {
+            await sendTransientEphemeralResponse(c, `That Steam lobby link is already set for your hosted ${targetLabel}.`, 'info')
+            return
+          }
+
+          await sendTransientEphemeralResponse(c, `Set the Steam lobby link for your hosted ${targetLabel}.`, 'success')
         })
       }
 
@@ -775,6 +867,54 @@ async function findHostedOpenLobbies(kv: KVNamespace, hostId: string) {
     if (left.createdAt !== right.createdAt) return left.createdAt - right.createdAt
     return left.id.localeCompare(right.id)
   })
+}
+
+async function findHostedEditableLobbies(kv: KVNamespace, hostId: string): Promise<LobbyState[]> {
+  const modes = GAME_MODES
+  const lobbies: LobbyState[] = []
+  for (const mode of modes) {
+    lobbies.push(...(await getLobbiesByMode(kv, mode)).filter(candidate => candidate.hostId === hostId && isSteamLobbyEditableStatus(candidate.status)))
+  }
+  return lobbies.sort((left, right) => {
+    if (left.updatedAt !== right.updatedAt) return right.updatedAt - left.updatedAt
+    return left.id.localeCompare(right.id)
+  })
+}
+
+async function resolveHostedSteamLobbyTarget(
+  kv: KVNamespace,
+  hostId: string,
+  targetId: string | null,
+): Promise<{ lobby: LobbyState } | { error: string }> {
+  if (targetId) {
+    const lobbyById = await getLobbyById(kv, targetId)
+    const lobby = lobbyById ?? await getLobbyByMatch(kv, targetId)
+    if (!lobby) return { error: 'Could not find that hosted lobby or match.' }
+    if (lobby.hostId !== hostId) return { error: 'You can only update the Steam lobby link on your own hosted lobby or match.' }
+    if (!isSteamLobbyEditableStatus(lobby.status)) {
+      return { error: 'Steam lobby links can only be managed while the lobby is open or the match is live.' }
+    }
+    return { lobby }
+  }
+
+  const hostedLobbies = await findHostedEditableLobbies(kv, hostId)
+  if (hostedLobbies.length === 0) {
+    return { error: 'No hosted open or live lobby found. Pass `match_id` to target a specific lobby or match.' }
+  }
+  if (hostedLobbies.length > 1) {
+    return { error: 'You are hosting multiple open or live lobbies. Pass `match_id` to pick the right one.' }
+  }
+  return { lobby: hostedLobbies[0]! }
+}
+
+function isSteamLobbyEditableStatus(status: LobbyState['status']): boolean {
+  return status === 'open' || status === 'drafting' || status === 'active'
+}
+
+function describeSteamLobbyTarget(lobby: LobbyState): string {
+  if (lobby.status === 'open') return `${formatModeLabel(lobby.mode)} lobby`
+  if (lobby.status === 'drafting') return `${formatModeLabel(lobby.mode)} draft`
+  return `${formatModeLabel(lobby.mode)} match`
 }
 
 async function reconcileHostedOpenLobbyCreation(

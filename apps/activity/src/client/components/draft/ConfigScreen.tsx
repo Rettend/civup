@@ -60,12 +60,14 @@ import {
   userId,
 } from '~/client/stores'
 import { MiniFrame, MiniSeatGrid } from './MiniLayout'
+import { SteamLobbyButton } from './SteamLobbyButton'
 
 interface ConfigScreenProps {
   lobby?: LobbySnapshot
+  steamLobbyLink?: string | null
   showJoinPending?: boolean
   joinEligibility?: LobbyJoinEligibilitySnapshot
-  onLobbyStarted?: (matchId: string) => void
+  onLobbyStarted?: (matchId: string, steamLobbyLink: string | null) => void
   onSwitchTarget?: () => void
 }
 
@@ -213,6 +215,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     props.joinEligibility,
     pendingPlaceSelfSlot(),
   )
+  const steamLobbyLink = () => currentLobby()?.steamLobbyLink ?? props.steamLobbyLink ?? null
   const isLobbyMode = () => currentLobby() != null
   const hostId = () => currentLobby()?.hostId ?? draftStore.hostId ?? state()?.seats[0]?.playerId ?? null
   const amHost = () => {
@@ -950,7 +953,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         return
       }
 
-      props.onLobbyStarted?.(result.matchId)
+      props.onLobbyStarted?.(result.matchId, lobby.steamLobbyLink)
       showInfoMessage('Draft room created. Opening draft...')
     }
     finally {
@@ -1155,6 +1158,13 @@ export function ConfigScreen(props: ConfigScreenProps) {
               <span class="i-ph-squares-four-bold text-base" />
             </button>
           </Show>
+          <SteamLobbyButton
+            steamLobbyLink={steamLobbyLink()}
+            class={cn(
+              'z-20 absolute',
+              isMobileLayout() ? 'top-12 left-4 h-9 w-9' : 'top-4 left-6 h-9 w-9',
+            )}
+          />
           <div class={cn('mx-auto px-6 py-4 flex flex-col gap-6 max-w-5xl w-full', isMobileLayout() && 'pt-12')}>
             <div class="grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-center">
               <div class="h-9 w-9" />

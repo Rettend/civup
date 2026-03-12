@@ -8,6 +8,7 @@ const baseLobby: LobbySnapshot = {
   mode: '2v2',
   hostId: 'host-1',
   status: 'open',
+  steamLobbyLink: null,
   minRole: null,
   entries: [
     { playerId: 'host-1', displayName: 'Host', avatarUrl: null, partyIds: [] },

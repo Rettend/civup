@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
-import { registerActivityRoutes, resolveLobbyJoinEligibility } from '../../src/routes/activity.ts'
+import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility } from '../../src/routes/activity.ts'
 import { buildOpenLobbySnapshot } from '../../src/routes/lobby/snapshot.ts'
 import { getUserActivityTarget, storeUserActivityTarget } from '../../src/services/activity/index.ts'
-import { createLobby, getLobbyById, setLobbyMinRole } from '../../src/services/lobby/index.ts'
+import { attachLobbyMatch, createLobby, getLobbyById, setLobbyMinRole } from '../../src/services/lobby/index.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -126,6 +126,45 @@ describe('activity target selection', () => {
       }),
     ])
     await expect(getUserActivityTarget(kv, 'channel-1', 'spectator-1')).resolves.toBeNull()
+  })
+
+  test('includes the Steam lobby link in open lobby snapshots', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+      steamLobbyLink: 'steam://joinlobby/289070/12345678901234567/76561198000000000',
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const snapshot = await buildOpenLobbySnapshot(kv, '2v2', lobby)
+    expect(snapshot.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
+  })
+
+  test('includes the Steam lobby link in live match activity selections', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+      steamLobbyLink: 'steam://joinlobby/289070/12345678901234567/76561198000000000',
+    })
+
+    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, kv, lobby.channelId, 'host-1')
+    expect(snapshot.selection?.kind).toBe('match')
+    if (snapshot.selection?.kind !== 'match') return
+    expect(snapshot.selection.matchId).toBe('match-1')
+    expect(snapshot.selection.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
   })
 })
 

@@ -20,8 +20,10 @@ import {
 } from '~/client/stores'
 import { Button, HorizontalScroller } from '../ui'
 import { BanSquare } from './BanSquare'
+import { SteamLobbyButton } from './SteamLobbyButton'
 
 interface DraftHeaderProps {
+  steamLobbyLink?: string | null
   onSwitchTarget?: () => void
 }
 
@@ -180,6 +182,9 @@ export function DraftHeader(props: DraftHeaderProps) {
   const showMobileActionRow = () => isMobileLayout() && amHost() && (state()?.status === 'active' || isComplete())
   const showLeftNoBans = () => state()?.status !== 'waiting' && (isTeamMode() ? leftBans().length === 0 : allBans().length === 0)
   const showRightNoBans = () => state()?.status !== 'waiting' && isTeamMode() && rightBans().length === 0
+  const hasSteamLobbyLink = () => Boolean(props.steamLobbyLink)
+  const hasOverviewButton = () => Boolean(props.onSwitchTarget)
+  const mobileRailInsetCount = () => Number(hasSteamLobbyLink()) + Number(hasOverviewButton())
 
   const renderOverviewButton = () => (
     <Show when={props.onSwitchTarget}>
@@ -193,6 +198,13 @@ export function DraftHeader(props: DraftHeaderProps) {
         <span class="i-ph-squares-four-bold text-sm" />
       </button>
     </Show>
+  )
+
+  const renderSteamLobbyButton = (sizeClass: string) => (
+    <SteamLobbyButton
+      steamLobbyLink={props.steamLobbyLink ?? null}
+      class={sizeClass}
+    />
   )
 
   const renderScrubButton = () => (
@@ -258,7 +270,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   const renderMobileBanRail = () => (
     <HorizontalScroller
       class="max-w-full"
-      style={{ width: 'calc(100% - 2.75rem)' }}
+      style={{ width: `calc(100% - ${mobileRailInsetCount() * 2.75}rem)` }}
       contentClass={cn(
         'flex min-w-full items-center whitespace-nowrap',
         isTeamMode() ? 'justify-between gap-2' : 'justify-center gap-1.5',
@@ -323,6 +335,9 @@ export function DraftHeader(props: DraftHeaderProps) {
 
           <div class="relative px-3 pb-2 min-h-8">
             {renderMobileBanRail()}
+            <div class="left-3 top-1/2 absolute z-20 flex -translate-y-1/2 items-center justify-start">
+              {renderSteamLobbyButton('h-8 w-8')}
+            </div>
             <div class="right-3 top-1/2 absolute z-20 flex -translate-y-1/2 items-center justify-end">
               {renderOverviewButton()}
             </div>
@@ -341,11 +356,19 @@ export function DraftHeader(props: DraftHeaderProps) {
       <Show when={!isMobileLayout()}>
         {/* Main row */}
         <div class="px-4 py-2.5 relative z-10">
+          <div class="left-4 top-1/2 absolute z-20 -translate-y-1/2">
+            {renderSteamLobbyButton('h-8 w-8')}
+          </div>
           <div class="right-4 top-1/2 absolute z-20 -translate-y-1/2">
             {renderOverviewButton()}
           </div>
 
-          <div class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 pr-12">
+          <div class={cn(
+            'grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4',
+            hasSteamLobbyLink() && 'pl-12',
+            hasOverviewButton() && 'pr-12',
+          )}
+          >
             {renderBanRail('left', leftBans(), showLeftNoBans())}
 
             {/* Center: phase + timer / post-draft controls */}
