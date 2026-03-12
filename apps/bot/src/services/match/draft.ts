@@ -2,6 +2,7 @@ import type { Database } from '@civup/db'
 import type { DraftState, GameMode } from '@civup/game'
 import type { ActivateDraftInput, ActivateDraftResult, CancelDraftInput, CancelDraftResult, CreateDraftMatchInput, ParticipantRow } from './types.ts'
 import { matchBans, matches, matchParticipants, players } from '@civup/db'
+import { isTeamMode } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { getActiveSeason } from '../season/index.ts'
@@ -269,7 +270,7 @@ function mapCivsFromDraftState(
 ): Map<string, string | null> {
   const civByPlayer = new Map<string, string | null>()
 
-  if (gameMode === '2v2' || gameMode === '3v3') {
+  if (isTeamMode(gameMode)) {
     const playerToSeatIndex = new Map<string, number>()
     state.seats.forEach((seat, idx) => {
       playerToSeatIndex.set(seat.playerId, idx)

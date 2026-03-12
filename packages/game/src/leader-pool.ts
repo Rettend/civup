@@ -2,11 +2,9 @@ import type { GameMode } from './types.ts'
 import { allLeaderIds } from './leaders.ts'
 import { defaultPlayerCount } from './mode.ts'
 
-const DEFAULT_VERSUS_LEADER_POOL_SIZES = {
-  '1v1': 24,
-  '2v2': 32,
-  '3v3': 40,
-} as const satisfies Record<Exclude<GameMode, 'ffa'>, number>
+const VERSUS_DEFAULT_LEADER_POOL_BASE = 16
+const VERSUS_DEFAULT_LEADER_POOL_PER_PLAYER = 4
+const VERSUS_MINIMUM_LEADER_POOL_BASE = 6
 
 const FFA_DEFAULT_PLAYER_FLOOR = 6
 const FFA_DEFAULT_POOL_MULTIPLIER = 4
@@ -18,7 +16,13 @@ export function getDefaultLeaderPoolSize(
   mode: GameMode,
   playerCount: number = defaultPlayerCount(mode),
 ): number {
-  if (mode !== 'ffa') return DEFAULT_VERSUS_LEADER_POOL_SIZES[mode]
+  if (mode !== 'ffa') {
+    const fullLobbyPlayerCount = Math.max(1, defaultPlayerCount(mode))
+    return Math.min(
+      MAX_LEADER_POOL_SIZE,
+      VERSUS_DEFAULT_LEADER_POOL_BASE + fullLobbyPlayerCount * VERSUS_DEFAULT_LEADER_POOL_PER_PLAYER,
+    )
+  }
 
   const normalizedPlayerCount = Math.max(1, Math.round(playerCount))
   const scaledPlayerCount = Math.max(FFA_DEFAULT_PLAYER_FLOOR, normalizedPlayerCount)
@@ -30,9 +34,7 @@ export function getMinimumLeaderPoolSize(mode: GameMode, playerCount: number): n
   const normalizedPlayerCount = Math.max(1, Math.round(playerCount))
 
   if (mode === 'ffa') return normalizedPlayerCount * 2
-  if (mode === '1v1') return 8
-  if (mode === '2v2') return 10
-  return 12
+  return VERSUS_MINIMUM_LEADER_POOL_BASE + normalizedPlayerCount
 }
 
 /** Resolve a lobby override against the mode default. */

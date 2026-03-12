@@ -5,6 +5,7 @@ export const GAME_MODE_CHOICES = [
   { name: '1v1', value: '1v1' },
   { name: '2v2', value: '2v2' },
   { name: '3v3', value: '3v3' },
+  { name: '4v4', value: '4v4' },
   { name: 'FFA', value: 'ffa' },
 ] as const satisfies readonly { name: string, value: GameMode }[]
 
@@ -22,7 +23,7 @@ export const LEADERBOARD_MODE_LABELS: Record<LeaderboardMode, string> = {
 
 const LEADERBOARD_MODE_GAME_MODES = {
   duel: ['1v1'],
-  teamers: ['2v2', '3v3'],
+  teamers: ['2v2', '3v3', '4v4'],
   ffa: ['ffa'],
 } as const satisfies Record<LeaderboardMode, readonly GameMode[]>
 
@@ -95,7 +96,7 @@ export function formatLeaderboardModeLabel(mode: string | null | undefined, fall
 
 /** Map game mode to its leaderboard track. */
 export function toLeaderboardMode(mode: GameMode): LeaderboardMode {
-  if (mode === '2v2' || mode === '3v3') return 'teamers'
+  if (mode === '2v2' || mode === '3v3' || mode === '4v4') return 'teamers'
   if (mode === '1v1') return 'duel'
   return 'ffa'
 }
@@ -106,16 +107,17 @@ export function leaderboardModesToGameModes(mode: LeaderboardMode): readonly Gam
 }
 
 /** Whether a game mode is team-based. */
-export function isTeamMode(mode: GameMode): mode is '2v2' | '3v3' {
-  return mode === '2v2' || mode === '3v3'
+export function isTeamMode(mode: GameMode): mode is '2v2' | '3v3' | '4v4' {
+  return mode === '2v2' || mode === '3v3' || mode === '4v4'
 }
 
 /** Players on one side of a lobby, or null for FFA. */
-export function teamSize(mode: GameMode): 1 | 2 | 3 | null {
+export function teamSize(mode: GameMode): 1 | 2 | 3 | 4 | null {
   if (mode === 'ffa') return null
   if (mode === '1v1') return 1
   if (mode === '2v2') return 2
-  return 3
+  if (mode === '3v3') return 3
+  return 4
 }
 
 /** Number of teams for team or duel modes. */

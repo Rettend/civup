@@ -98,11 +98,11 @@ export interface TeamInput {
 }
 
 /**
- * Calculate rating updates for team-based games (duel, 2v2, 3v3).
+ * Calculate rating updates for team-based games (duel, 2v2, 3v3, 4v4).
  *
  * Teams are ordered by placement: index 0 = 1st place (winner), index 1 = 2nd place (loser).
  * For a duel, each "team" has exactly 1 player.
- * For 2v2, each team has 2 players; for 3v3, each team has 3.
+ * For 2v2, each team has 2 players; for 3v3, each team has 3; for 4v4, each team has 4.
  *
  * OpenSkill's `rate()` takes teams in placement order by default.
  *
