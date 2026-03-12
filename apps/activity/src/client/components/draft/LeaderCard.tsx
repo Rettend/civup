@@ -4,10 +4,13 @@ import { cn } from '~/client/lib/css'
 import {
   banSelections,
   currentStep,
+  detailLeaderId,
   draftStore,
   isMyTurn,
   isRandomSelected,
   selectedLeader,
+  setBanSelections,
+  setDetailLeaderId,
   setIsRandomSelected,
   setSelectedLeader,
   toggleBanSelection,
@@ -26,19 +29,30 @@ const ZOOMED_LEADERS = [
 const SLIGHTLY_ZOOMED_LEADERS = [
   'Te\' K\'inich II',
 ]
+const DOUBLE_TAP_DETAIL_WINDOW_MS = 280
 
 interface LeaderCardProps {
   leader: Leader
+  singleClickShowsDetail?: boolean
   /** Called while hovering to position the lightweight tooltip */
   onHoverMove?: (leader: Leader, x: number, y: number) => void
   /** Called when hover/focus leaves this card */
   onHoverLeave?: () => void
 }
 
+interface ClickSnapshot {
+  selectedLeaderId: string | null
+  banSelectionIds: string[]
+  detailLeaderId: string | null
+  randomSelected: boolean
+}
+
 /** Icon-only leader card for the grid overlay */
 export function LeaderCard(props: LeaderCardProps) {
   const state = () => draftStore.state
   const step = currentStep
+  let pendingClickTimeout: ReturnType<typeof setTimeout> | null = null
+  let pendingClickSnapshot: ClickSnapshot | null = null
 
   const isBanned = (): boolean => state()?.bans.some(b => b.civId === props.leader.id) ?? false
   const isPicked = (): boolean => state()?.picks.some(p => p.civId === props.leader.id) ?? false
@@ -53,10 +67,22 @@ export function LeaderCard(props: LeaderCardProps) {
     return state()?.status === 'active'
   }
 
-  const handleClick = () => {
-    props.onHoverLeave?.()
+  const captureClickSnapshot = (): ClickSnapshot => ({
+    selectedLeaderId: selectedLeader(),
+    banSelectionIds: [...banSelections()],
+    detailLeaderId: detailLeaderId(),
+    randomSelected: isRandomSelected(),
+  })
 
-    toggleDetail(props.leader.id)
+  const restoreClickSnapshot = (snapshot: ClickSnapshot) => {
+    setSelectedLeader(snapshot.selectedLeaderId)
+    setBanSelections(snapshot.banSelectionIds)
+    setDetailLeaderId(snapshot.detailLeaderId)
+    setIsRandomSelected(snapshot.randomSelected)
+  }
+
+  const handleSingleClick = () => {
+    if (props.singleClickShowsDetail) toggleDetail(props.leader.id)
 
     if (!isClickable()) return
 
@@ -72,6 +98,31 @@ export function LeaderCard(props: LeaderCardProps) {
       const id = props.leader.id
       setSelectedLeader(prev => prev === id ? null : id)
     }
+  }
+
+  const handleDoubleClick = () => {
+    toggleDetail(props.leader.id)
+  }
+
+  const handleClick = () => {
+    props.onHoverLeave?.()
+
+    if (pendingClickTimeout) {
+      clearTimeout(pendingClickTimeout)
+      pendingClickTimeout = null
+
+      if (pendingClickSnapshot) restoreClickSnapshot(pendingClickSnapshot)
+      pendingClickSnapshot = null
+      handleDoubleClick()
+      return
+    }
+
+    pendingClickSnapshot = captureClickSnapshot()
+    handleSingleClick()
+    pendingClickTimeout = setTimeout(() => {
+      pendingClickTimeout = null
+      pendingClickSnapshot = null
+    }, DOUBLE_TAP_DETAIL_WINDOW_MS)
   }
 
   const handleHoverMove = (event: MouseEvent) => {

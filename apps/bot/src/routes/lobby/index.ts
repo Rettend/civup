@@ -231,7 +231,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const nextMode = typeof nextModeRaw === 'string' ? parseGameMode(nextModeRaw) : null
     if (!nextMode) {
-      return c.json({ error: 'nextMode must be one of ffa, 1v1, 2v2, 3v3' }, 400)
+      return c.json({ error: 'nextMode must be one of ffa, 1v1, 2v2, 3v3, 4v4' }, 400)
     }
 
     const resolvedLobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
@@ -564,7 +564,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
     if (!isTeamMode(mode)) {
-      return c.json({ error: 'Premade links are only available in 2v2 and 3v3.' }, 400)
+      return c.json({ error: 'Premade links are only available in 2v2, 3v3, and 4v4.' }, 400)
     }
 
     let body: unknown
@@ -640,7 +640,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
     if (!isTeamMode(mode)) {
-      return c.json({ error: 'Team arrange actions are only available in 2v2 and 3v3 lobbies.' }, 400)
+      return c.json({ error: 'Team arrange actions are only available in 2v2, 3v3, and 4v4 lobbies.' }, 400)
     }
 
     let body: unknown

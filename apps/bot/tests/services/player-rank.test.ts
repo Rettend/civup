@@ -1,3 +1,4 @@
+import type { GameMode } from '@civup/game'
 import { matches, matchParticipants, playerRatings, players, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { playerCardEmbed } from '../../src/embeds/player-card.ts'
@@ -285,7 +286,7 @@ async function seedCompletedSeasonMatch(
   row: {
     matchId: string
     seasonId: string
-    gameMode: 'ffa' | '1v1' | '2v2' | '3v3'
+    gameMode: GameMode
     playerId: string
     placement: number
     completedAt: number

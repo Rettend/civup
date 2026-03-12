@@ -17,6 +17,7 @@ export interface LobbyState {
   channelId: string
   messageId: string
   matchId: string | null
+  steamLobbyLink: string | null
   minRole: CompetitiveTier | null
   /** Player IDs currently attached to this lobby (slotted or spectator). */
   memberPlayerIds: string[]
@@ -28,7 +29,8 @@ export interface LobbyState {
   revision: number
 }
 
-export interface StoredLobbyState extends Omit<LobbyState, 'draftConfig' | 'slots' | 'revision' | 'memberPlayerIds'> {
+export interface StoredLobbyState extends Omit<LobbyState, 'draftConfig' | 'slots' | 'revision' | 'memberPlayerIds' | 'steamLobbyLink'> {
+  steamLobbyLink?: unknown
   draftConfig?: Partial<LobbyDraftConfig> | null
   slots?: unknown
   revision?: unknown
