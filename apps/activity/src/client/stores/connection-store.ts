@@ -32,6 +32,7 @@ export interface LobbySnapshot {
   mode: string
   hostId: string
   status: string
+  steamLobbyLink: string | null
   minRole: CompetitiveTier | null
   entries: ({
     playerId: string
@@ -118,6 +119,7 @@ export type ActivityLaunchSelection
     kind: 'match'
     option: ActivityTargetOption
     matchId: string
+    steamLobbyLink: string | null
   }
 
 export interface ActivityLaunchSnapshot {

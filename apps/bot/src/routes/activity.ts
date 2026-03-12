@@ -45,6 +45,7 @@ type ActivityLaunchSelection
     kind: 'match'
     option: ActivityTargetOption
     matchId: string
+    steamLobbyLink: string | null
   }
 
 interface ActivityLaunchSnapshot {
@@ -287,6 +288,7 @@ async function serializeActivityLaunchSelection(
     kind: 'match',
     option: selection.target.option,
     matchId: selection.target.option.id,
+    steamLobbyLink: selection.target.lobby.steamLobbyLink,
   }
 }
 
