@@ -27,6 +27,7 @@ describe('formatModeLabel', () => {
     expect(formatModeLabel('1V1')).toBe('1v1')
     expect(formatModeLabel('default-2V2')).toBe('2v2')
     expect(formatModeLabel('3V3')).toBe('3v3')
+    expect(formatModeLabel('4V4')).toBe('4v4')
   })
 
   test('replaces dashes with spaces for other modes', () => {
@@ -41,6 +42,7 @@ describe('parseGameMode', () => {
     expect(parseGameMode('1V1')).toBe('1v1')
     expect(parseGameMode(' default-2V2 ')).toBe('2v2')
     expect(parseGameMode('3v3')).toBe('3v3')
+    expect(parseGameMode('4v4')).toBe('4v4')
   })
 
   test('rejects unknown modes', () => {
@@ -56,6 +58,7 @@ describe('inferGameMode', () => {
     expect(inferGameMode('draft-1v1')).toBe('1v1')
     expect(inferGameMode('ranked-2v2')).toBe('2v2')
     expect(inferGameMode('blind-3v3')).toBe('3v3')
+    expect(inferGameMode('captains-4v4')).toBe('4v4')
   })
 
   test('falls back when no mode can be inferred', () => {
@@ -82,24 +85,28 @@ describe('shared mode helpers', () => {
     expect(toLeaderboardMode('1v1')).toBe('duel')
     expect(toLeaderboardMode('2v2')).toBe('teamers')
     expect(toLeaderboardMode('3v3')).toBe('teamers')
+    expect(toLeaderboardMode('4v4')).toBe('teamers')
   })
 
   test('expands leaderboard tracks to game modes', () => {
     expect(leaderboardModesToGameModes('ffa')).toEqual(['ffa'])
     expect(leaderboardModesToGameModes('duel')).toEqual(['1v1'])
-    expect(leaderboardModesToGameModes('teamers')).toEqual(['2v2', '3v3'])
+    expect(leaderboardModesToGameModes('teamers')).toEqual(['2v2', '3v3', '4v4'])
   })
 
   test('derives shared team helpers', () => {
     expect(teamSize('ffa')).toBeNull()
     expect(teamSize('1v1')).toBe(1)
     expect(teamSize('2v2')).toBe(2)
+    expect(teamSize('4v4')).toBe(4)
     expect(maxTeammatesForMode('ffa')).toBe(0)
     expect(maxTeammatesForMode('2v2')).toBe(1)
     expect(maxTeammatesForMode('3v3')).toBe(2)
+    expect(maxTeammatesForMode('4v4')).toBe(3)
     expect(slotToTeamIndex('1v1', 0)).toBe(0)
     expect(slotToTeamIndex('1v1', 1)).toBe(1)
     expect(slotToTeamIndex('2v2', 3)).toBe(1)
+    expect(slotToTeamIndex('4v4', 7)).toBe(1)
     expect(slotToTeamIndex('ffa', 0)).toBeNull()
   })
 })

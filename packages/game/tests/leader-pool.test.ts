@@ -6,6 +6,7 @@ describe('leader pool helpers', () => {
     expect(getDefaultLeaderPoolSize('1v1', 2)).toBe(24)
     expect(getDefaultLeaderPoolSize('2v2', 4)).toBe(32)
     expect(getDefaultLeaderPoolSize('3v3', 6)).toBe(40)
+    expect(getDefaultLeaderPoolSize('4v4', 8)).toBe(48)
   })
 
   test('scales FFA defaults with player count', () => {
@@ -23,6 +24,7 @@ describe('leader pool helpers', () => {
     expect(getMinimumLeaderPoolSize('1v1', 2)).toBe(8)
     expect(getMinimumLeaderPoolSize('2v2', 4)).toBe(10)
     expect(getMinimumLeaderPoolSize('3v3', 6)).toBe(12)
+    expect(getMinimumLeaderPoolSize('4v4', 8)).toBe(14)
     expect(getMinimumLeaderPoolSize('ffa', 7)).toBe(14)
   })
 

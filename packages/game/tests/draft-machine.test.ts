@@ -1,6 +1,6 @@
 import type { DraftSeat, DraftState } from '../src/types.ts'
 import { describe, expect, test } from 'bun:test'
-import { default1v1, default2v2, default3v3, defaultFfa } from '../src/draft-formats.ts'
+import { default1v1, default2v2, default3v3, default4v4, defaultFfa } from '../src/draft-formats.ts'
 import {
   createDraft,
   getBansForSeat,
@@ -42,6 +42,19 @@ function create3v3PlayerSeats(): DraftSeat[] {
     { playerId: 'b2', displayName: 'B2', team: 1 },
     { playerId: 'a3', displayName: 'A3', team: 0 },
     { playerId: 'b3', displayName: 'B3', team: 1 },
+  ]
+}
+
+function create4v4PlayerSeats(): DraftSeat[] {
+  return [
+    { playerId: 'a1', displayName: 'A1', team: 0 },
+    { playerId: 'b1', displayName: 'B1', team: 1 },
+    { playerId: 'a2', displayName: 'A2', team: 0 },
+    { playerId: 'b2', displayName: 'B2', team: 1 },
+    { playerId: 'a3', displayName: 'A3', team: 0 },
+    { playerId: 'b3', displayName: 'B3', team: 1 },
+    { playerId: 'a4', displayName: 'A4', team: 0 },
+    { playerId: 'b4', displayName: 'B4', team: 1 },
   ]
 }
 
@@ -441,6 +454,11 @@ describe('processDraftInput — PICK (sequential)', () => {
   test('full 3v3 rosters expand to individual pick steps', () => {
     const draft = startDraft(createDraft('match-123', default3v3, create3v3PlayerSeats(), createTestCivPool()))
     expect(draft.steps.slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4]])
+  })
+
+  test('full 4v4 rosters expand to individual pick steps', () => {
+    const draft = startDraft(createDraft('match-4v4', default4v4, create4v4PlayerSeats(), createTestCivPool()))
+    expect(draft.steps.slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [7], [6]])
   })
 })
 

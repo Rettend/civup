@@ -7,7 +7,7 @@ import { initDraft, setOptimisticSeatPick, updateDraft } from './draft-store'
 
 // ── Types ──────────────────────────────────────────────────
 
-export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'reconnecting' | 'connected' | 'error'
 
 export interface MatchStateSnapshot {
   match: {
@@ -32,6 +32,7 @@ export interface LobbySnapshot {
   mode: string
   hostId: string
   status: string
+  steamLobbyLink: string | null
   minRole: CompetitiveTier | null
   entries: ({
     playerId: string
@@ -118,6 +119,7 @@ export type ActivityLaunchSelection
     kind: 'match'
     option: ActivityTargetOption
     matchId: string
+    steamLobbyLink: string | null
   }
 
 export interface ActivityLaunchSnapshot {
@@ -125,10 +127,19 @@ export interface ActivityLaunchSnapshot {
   options: ActivityTargetOption[]
 }
 
+export interface PartySocketTarget {
+  host: string
+  prefix?: string
+  label?: string
+}
+
 // ── State ──────────────────────────────────────────────────
 
 export const [connectionStatus, setConnectionStatus] = createSignal<ConnectionStatus>('disconnected')
 export const [connectionError, setConnectionError] = createSignal<string | null>(null)
+
+const DRAFT_SOCKET_FATAL_CLOSE_MIN = 4000
+const DRAFT_SOCKET_FATAL_CLOSE_MAX = 5000
 
 // ── Socket ─────────────────────────────────────────────────
 
@@ -142,30 +153,33 @@ let pendingConfigAck:
   | null = null
 
 /** Connect to PartyKit draft room using host and match ID */
-export function connectToRoom(host: string, roomId: string, playerId: string) {
-  if (socket) {
-    socket.close()
-  }
+export function connectToRoom(target: PartySocketTarget, roomId: string, playerId: string) {
+  const previousSocket = socket
+  socket = null
+  previousSocket?.close()
 
   setConnectionStatus('connecting')
   setConnectionError(null)
 
-  socket = new PartySocket({
-    host,
+  const nextSocket = new PartySocket({
+    host: target.host,
     party: 'main',
-    prefix: 'api/parties',
+    prefix: target.prefix ?? 'api/parties',
     room: roomId,
     id: playerId,
     query: { playerId },
-    maxRetries: 2,
+    maxRetries: Infinity,
   })
+  socket = nextSocket
 
-  socket.addEventListener('open', () => {
+  nextSocket.addEventListener('open', () => {
+    if (socket !== nextSocket) return
     setConnectionStatus('connected')
     setConnectionError(null)
   })
 
-  socket.addEventListener('message', (event) => {
+  nextSocket.addEventListener('message', (event) => {
+    if (socket !== nextSocket) return
     try {
       const msg = JSON.parse(event.data as string) as ServerMessage
       handleServerMessage(msg)
@@ -176,25 +190,62 @@ export function connectToRoom(host: string, roomId: string, playerId: string) {
     }
   })
 
-  socket.addEventListener('close', (event) => {
+  nextSocket.addEventListener('close', (event) => {
+    if (socket !== nextSocket) return
+
     const code = typeof event.code === 'number' ? event.code : -1
     const reason = typeof event.reason === 'string' && event.reason.length > 0
       ? event.reason
       : typeof event.type === 'string'
         ? event.type
         : '-'
+
     if (code !== 1000) {
-      relayDevLog('warn', 'Draft socket closed unexpectedly', { code, reason, roomId })
+      relayDevLog('warn', 'Draft socket closed unexpectedly', {
+        code,
+        reason,
+        roomId,
+        retryCount: nextSocket.retryCount,
+        target: describePartySocketTarget(target),
+      })
+
+      if (shouldRetryDraftSocket(nextSocket, code)) {
+        setConnectionStatus('reconnecting')
+        setConnectionError(null)
+        return
+      }
+
+      socket = null
       setConnectionStatus('error')
       setConnectionError(`WebSocket closed (${code}${reason ? `: ${reason}` : ''})`)
       return
     }
 
+    socket = null
     setConnectionStatus('disconnected')
   })
 
-  socket.addEventListener('error', () => {
-    relayDevLog('error', 'Draft socket connection failed', { roomId, playerId })
+  nextSocket.addEventListener('error', () => {
+    if (socket !== nextSocket) return
+
+    if (shouldRetryDraftSocket(nextSocket)) {
+      relayDevLog('warn', 'Draft socket connection interrupted', {
+        roomId,
+        playerId,
+        retryCount: nextSocket.retryCount,
+        target: describePartySocketTarget(target),
+      })
+      setConnectionStatus('reconnecting')
+      setConnectionError(null)
+      return
+    }
+
+    relayDevLog('error', 'Draft socket connection failed', {
+      roomId,
+      playerId,
+      target: describePartySocketTarget(target),
+    })
+    socket = null
     setConnectionStatus('error')
     setConnectionError('WebSocket connection failed')
   })
@@ -212,15 +263,17 @@ export function disconnect() {
 }
 
 /** Subscribe to lobby/match invalidation events from state coordinator room. */
-export function watchLobbyState(host: string, options: LobbyStateWatchOptions): LobbyStateWatch {
+export function watchLobbyState(target: PartySocketTarget, options: LobbyStateWatchOptions): LobbyStateWatch {
   let closed = false
 
+  const socketId = `lobby-watch:${options.userId}:${Math.random().toString(36).slice(2, 10)}`
+
   const stateSocket = new PartySocket({
-    host,
+    host: target.host,
     party: 'state',
-    prefix: 'api/parties',
+    prefix: target.prefix ?? 'api/parties',
     room: 'global',
-    id: `lobby-watch:${options.userId}:${Math.random().toString(36).slice(2, 10)}`,
+    id: socketId,
     maxRetries: 2,
   })
 
@@ -755,4 +808,18 @@ function formatConfigAckError(message: string): Error {
     return new Error('Draft room server is outdated (missing config support). Redeploy/restart party server and create a new lobby.')
   }
   return new Error(message)
+}
+
+function describePartySocketTarget(target: PartySocketTarget): string {
+  return `${target.label ?? 'socket'}:${target.host}/${target.prefix ?? 'api/parties'}`
+}
+
+function shouldRetryDraftSocket(currentSocket: PartySocket, code?: number): boolean {
+  if (!currentSocket.shouldReconnect) return false
+  if (typeof code === 'number' && isFatalDraftSocketClose(code)) return false
+  return true
+}
+
+function isFatalDraftSocketClose(code: number): boolean {
+  return code >= DRAFT_SOCKET_FATAL_CLOSE_MIN && code < DRAFT_SOCKET_FATAL_CLOSE_MAX
 }

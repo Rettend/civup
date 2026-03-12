@@ -1,7 +1,7 @@
 export type { ArrangeTeamLobbySlotsInput, TeamArrangeStrategy } from './arrange.ts'
 export { arrangeTeamLobbySlots } from './arrange.ts'
 export { upsertLobbyMessage } from './message.ts'
-export { attachLobbyMatch, canTransitionLobbyStatus, createLobby, setLobbyDraftConfig, setLobbyMemberPlayerIds, setLobbyMessage, setLobbyMinRole, setLobbySlots, setLobbyStatus, touchLobby } from './mutations.ts'
+export { attachLobbyMatch, canTransitionLobbyStatus, createLobby, setLobbyDraftConfig, setLobbyMemberPlayerIds, setLobbyMessage, setLobbyMinRole, setLobbySlots, setLobbyStatus, setLobbySteamLobbyLink, touchLobby } from './mutations.ts'
 export { parseLobbyState } from './normalize.ts'
 export type { SlottedPremadeGroup } from './premades.ts'
 export { buildActivePremadeEdgeSet, buildSlottedPremadeGroups, compactSlottedPremadesForMode, moveSlottedPremadeGroup, rebuildQueueEntriesFromPremadeEdgeSet } from './premades.ts'

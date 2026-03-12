@@ -1,7 +1,7 @@
 import type { Leader } from '@civup/game'
 import type { LeaderTagCategory } from '~/client/lib/leader-tags'
 import { leaders, searchLeaders } from '@civup/game'
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import {
   getFilterTagOptions,
@@ -40,6 +40,7 @@ import { LeaderCard } from './LeaderCard'
 import { LeaderDetailPanel } from './LeaderDetailPanel'
 
 const FILTER_TAG_OPTIONS = getFilterTagOptions(leaders)
+const DOCKED_PANEL_MIN_WIDTH = 1280
 
 interface HoverTooltip {
   name: string
@@ -81,10 +82,38 @@ export function LeaderGridOverlay() {
   const accent = () => phaseAccent()
   const [hoverTooltip, setHoverTooltip] = createSignal<HoverTooltip | null>(null)
   const [filtersOpen, setFiltersOpen] = createSignal(false)
+  const [gridExpanded, setGridExpanded] = createSignal(false)
+  const [panelsDocked, setPanelsDocked] = createSignal(false)
   const [tooltipSize, setTooltipSize] = createSignal({ width: 224, height: 96 })
   let tooltipRef: HTMLDivElement | undefined
+  let restoreFiltersAfterCollapse = false
+  let restoreDetailLeaderId: string | null = null
+  let restoreSelectedLeaderId: string | null = null
+  let skipNextOverlayAnimation = false
 
   const hasDetail = () => detailLeaderId() != null
+  const showDockedPanels = () => panelsDocked()
+  const showStackedShelf = () => !panelsDocked() && !gridExpanded()
+  const showFocusPanelStrip = () => !panelsDocked() && gridExpanded() && (filtersOpen() || hasDetail())
+  const singleClickShowsDetail = () => panelsDocked()
+  const overlayEntranceClass = () => skipNextOverlayAnimation ? '' : 'anim-overlay-in'
+
+  onMount(() => {
+    const viewport = window.visualViewport
+    const syncPanelLayout = () => {
+      const width = viewport?.width ?? window.innerWidth
+      setPanelsDocked(width >= DOCKED_PANEL_MIN_WIDTH)
+    }
+
+    syncPanelLayout()
+    window.addEventListener('resize', syncPanelLayout)
+    viewport?.addEventListener('resize', syncPanelLayout)
+
+    onCleanup(() => {
+      window.removeEventListener('resize', syncPanelLayout)
+      viewport?.removeEventListener('resize', syncPanelLayout)
+    })
+  })
 
   const tooltipPosition = createMemo<TooltipPosition>(() => {
     const tooltip = hoverTooltip()
@@ -214,6 +243,42 @@ export function LeaderGridOverlay() {
     setGridOpen(false)
   }
 
+  const handleToggleFilters = () => {
+    if (!panelsDocked() && gridExpanded() && !filtersOpen()) setDetailLeaderId(null)
+    setFiltersOpen(prev => !prev)
+  }
+
+  const handleToggleGridExpanded = () => {
+    setHoverTooltip(null)
+    const next = !gridExpanded()
+    skipNextOverlayAnimation = true
+
+    if (!panelsDocked()) {
+      if (next) {
+        restoreFiltersAfterCollapse = filtersOpen()
+        restoreDetailLeaderId = detailLeaderId()
+        restoreSelectedLeaderId = selectedLeader()
+        setFiltersOpen(false)
+        setDetailLeaderId(null)
+      }
+      else {
+        if (!filtersOpen() && restoreFiltersAfterCollapse) setFiltersOpen(true)
+        if (!detailLeaderId() && restoreDetailLeaderId && selectedLeader() === restoreSelectedLeaderId) {
+          setDetailLeaderId(restoreDetailLeaderId)
+        }
+
+        restoreFiltersAfterCollapse = false
+        restoreDetailLeaderId = null
+        restoreSelectedLeaderId = null
+      }
+    }
+
+    setGridExpanded(next)
+    queueMicrotask(() => {
+      skipNextOverlayAnimation = false
+    })
+  }
+
   const handleLeaderHoverMove = (leader: Leader, x: number, y: number) => {
     setHoverTooltip({
       name: leader.name,
@@ -243,204 +308,298 @@ export function LeaderGridOverlay() {
     onCleanup(() => cancelAnimationFrame(raf))
   })
 
+  createEffect(() => {
+    if (panelsDocked() || !gridExpanded()) return
+    if (!filtersOpen() || !hasDetail()) return
+    setFiltersOpen(false)
+  })
+
+  const renderFilterPanel = (className: string) => (
+    <div class={cn('grid-panel-glow border border-border rounded-lg bg-bg-subtle flex min-h-0 flex-col shadow-2xl overflow-hidden', className)}>
+      <div class="p-3 flex-1 overflow-y-auto">
+        <div class="mb-2 flex shrink-0 items-center justify-between gap-2">
+          <span class="text-xs text-fg-muted font-semibold">Filters</span>
+          <div class="flex items-center gap-2">
+            <button
+              class="text-[10px] text-fg px-2.5 py-1 border border-border-hover rounded bg-bg-muted/70 transition-colors hover:bg-bg hover:border-fg-subtle disabled:opacity-40 disabled:cursor-not-allowed"
+              disabled={activeTagFilterCount() === 0}
+              onClick={clearTagFilters}
+            >
+              Clear all
+            </button>
+            <button
+              class="text-fg-subtle cursor-pointer hover:text-fg-muted"
+              onClick={() => setFiltersOpen(false)}
+            >
+              <div class="i-ph-x-bold text-sm" />
+            </button>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <For each={TAG_CATEGORY_ORDER}>
+            {category => (
+              <Show when={FILTER_TAG_OPTIONS[category].length > 0}>
+                <div>
+                  <div class="text-[10px] text-fg-subtle tracking-widest font-semibold mb-1 uppercase">{TAG_CATEGORY_LABELS[category]}</div>
+                  <div class="flex flex-wrap gap-1.5">
+                    <For each={FILTER_TAG_OPTIONS[category]}>
+                      {(option) => {
+                        const active = () => isTagActive(category, option.id)
+                        return (
+                          <FilterTagButton
+                            tag={option.id}
+                            active={active()}
+                            onClick={() => toggleTagFilter(option.id)}
+                          />
+                        )
+                      }}
+                    </For>
+                  </div>
+                </div>
+              </Show>
+            )}
+          </For>
+        </div>
+      </div>
+    </div>
+  )
+
+  const renderGridPanel = (className: string) => (
+    <div
+      class={cn(
+        'flex flex-col max-h-full overflow-hidden rounded-lg bg-bg-subtle shadow-2xl grid-panel-glow relative z-20 border border-border',
+        showDockedPanels()
+          ? 'w-[min(calc(100vw-32rem),68rem)] xl:w-[min(calc(100vw-36rem),68rem)] 2xl:w-[min(calc(100vw-40rem),68rem)]'
+          : 'w-full',
+        showDockedPanels() && filtersOpen() && 'rounded-l-none',
+        showDockedPanels() && hasDetail() && 'rounded-r-none',
+        className,
+      )}
+    >
+      <div class="px-3 py-2 border-b border-border-subtle flex gap-2 items-center min-w-0">
+        <button
+          class="text-fg-subtle shrink-0 cursor-pointer hover:text-fg-muted"
+          title={gridExpanded() ? 'Restore side panels' : 'Expand leader grid'}
+          aria-label={gridExpanded() ? 'Restore side panels' : 'Expand leader grid'}
+          onClick={handleToggleGridExpanded}
+        >
+          <Show when={gridExpanded()} fallback={<div class="i-ph-caret-line-up-bold text-sm" />}>
+            <div class="i-ph-caret-line-down-bold text-sm" />
+          </Show>
+        </button>
+
+        <div class="relative min-w-0 flex-1 max-w-72">
+          <div class="i-ph-magnifying-glass-bold text-sm text-fg-subtle left-3 top-1/2 absolute -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Search..."
+            value={searchQuery()}
+            onInput={e => setSearchQuery(e.currentTarget.value)}
+            class={cn(
+              'text-sm text-fg px-3.5 py-2 pl-8 rounded-lg w-full',
+              'bg-bg/60 border border-border',
+              'outline-none transition-all duration-150',
+              'placeholder:text-fg-subtle/60',
+              'focus:border-accent/50 focus:bg-bg/80 focus:shadow-[0_0_0_3px_var(--accent-subtle)]',
+            )}
+          />
+        </div>
+
+        <button
+          class={cn(
+            'relative inline-flex items-center justify-center rounded-lg border h-9 w-9 shrink-0 transition-all duration-150 cursor-pointer',
+            filtersOpen()
+              ? 'border-accent/40 bg-accent/15 text-accent'
+              : 'border-border bg-bg/60 text-fg-muted hover:bg-bg-muted hover:border-border-hover',
+          )}
+          title="Filters"
+          aria-label="Filters"
+          onClick={handleToggleFilters}
+        >
+          <div class="i-ph-funnel-bold text-sm" />
+          <Show when={activeTagFilterCount() > 0}>
+            <span class="text-[10px] text-accent font-semibold px-1 py-0.5 rounded-full bg-bg-subtle min-w-4 right-0 top-0 absolute translate-x-1/4 -translate-y-1/4">
+              {activeTagFilterCount()}
+            </span>
+          </Show>
+        </button>
+
+        <Show when={activeTagFilterCount() > 0}>
+          <button
+            class="text-[11px] text-fg-subtle px-2 py-1 border border-border rounded cursor-pointer transition-colors hover:text-fg-muted hover:bg-bg-muted"
+            onClick={clearTagFilters}
+          >
+            Clear
+          </button>
+        </Show>
+
+        <div class="flex shrink-0 items-center gap-2 ml-auto">
+          <div class="text-[11px] text-fg-subtle">
+            {filteredLeaders().length}
+            /
+            {draftLeaderPoolIds().size}
+          </div>
+
+          <button
+            class="text-fg-subtle cursor-pointer hover:text-fg-muted"
+            onClick={() => { setGridOpen(false); setFiltersOpen(false) }}
+          >
+            <div class="i-ph-x-bold text-sm" />
+          </button>
+        </div>
+      </div>
+
+      <div class={cn('p-1.5 flex-1 overflow-y-auto', showDockedPanels() ? 'min-h-[calc(3*4.5rem)]' : 'min-h-0')}>
+        <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
+          <RandomLeaderCard
+            disabled={!canUseRandom()}
+            active={isRandomSelected()}
+            accent={accent()}
+            onClick={handleToggleRandom}
+          />
+          <For each={filteredLeaders()}>
+            {leader => (
+              <LeaderCard
+                leader={leader}
+                singleClickShowsDetail={singleClickShowsDetail()}
+                onHoverMove={handleLeaderHoverMove}
+                onHoverLeave={handleLeaderHoverLeave}
+              />
+            )}
+          </For>
+          <For each={Array.from({ length: ghostCount() })}>
+            {() => <div class="aspect-square" />}
+          </For>
+        </div>
+      </div>
+
+      <Show when={state()?.status === 'active' && isMyTurn() && !hasSubmitted()}>
+        <div class="px-4 py-3 border-t border-border-subtle flex items-center justify-center">
+          <Show when={step()?.action === 'ban'}>
+            <button
+              class={cn(
+                'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
+                canConfirmBan()
+                  ? 'bg-danger text-white cursor-pointer hover:bg-danger/80'
+                  : 'bg-danger/20 text-danger/50 cursor-not-allowed',
+              )}
+              disabled={!canConfirmBan()}
+              onClick={handleConfirmBan}
+            >
+              Confirm Bans (
+              {isRandomSelected() ? step()!.count : banSelections().length}
+              /
+              {step()!.count}
+              )
+            </button>
+          </Show>
+
+          <Show when={step()?.action === 'pick'}>
+            <button
+              class={cn(
+                'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
+                canConfirmPick()
+                  ? 'bg-accent text-black cursor-pointer hover:bg-accent/80'
+                  : 'bg-accent/20 text-accent/50 cursor-not-allowed',
+              )}
+              disabled={!canConfirmPick()}
+              onClick={handleConfirmPick}
+            >
+              Confirm Pick
+            </button>
+          </Show>
+        </div>
+      </Show>
+    </div>
+  )
+
   return (
     <Show when={gridOpen()}>
       {/* Backdrop */}
       <div class="bg-black/40 inset-0 absolute z-10" onClick={handleBackdropClick} />
 
       {/* Centered grid */}
-      <div class="flex pointer-events-none items-end inset-x-0 bottom-14 top-6 justify-center absolute z-20">
-        <div class="anim-overlay-in flex flex-col max-h-full pointer-events-auto items-center relative z-30">
-
-          {/* Left: Filter panel */}
-          <Show when={filtersOpen()}>
-            <div class="anim-detail-in grid-panel-glow border border-r-0 border-border rounded-l-lg bg-bg-subtle flex shrink-0 flex-col w-56 shadow-2xl bottom-0 right-full top-0 absolute z-10 overflow-hidden">
-              <div class="p-3 flex-1 overflow-y-auto">
-                <div class="mb-2 flex shrink-0 items-center justify-between">
-                  <span class="text-xs text-fg-muted font-semibold">Filters</span>
-                  <button
-                    class="text-[10px] text-fg-subtle px-2 py-0.5 border border-border rounded transition-colors hover:text-fg-muted hover:bg-bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
-                    disabled={activeTagFilterCount() === 0}
-                    onClick={clearTagFilters}
-                  >
-                    Clear all
-                  </button>
+      <div class={cn('flex pointer-events-none inset-x-0 bottom-14 justify-center absolute z-20', gridExpanded() || showStackedShelf() ? 'items-stretch top-3' : 'items-end top-6')}>
+        <Show
+          when={showStackedShelf()}
+          fallback={(
+            <div
+              class={cn(
+                overlayEntranceClass(),
+                'pointer-events-auto relative z-30',
+                panelsDocked()
+                  ? 'flex flex-col max-h-full items-center'
+                  : 'h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]',
+                panelsDocked() && gridExpanded() && 'h-full',
+              )}
+            >
+              <Show when={showDockedPanels() && filtersOpen()}>
+                <div class="anim-detail-in absolute z-10 right-full top-0 bottom-0 w-56">
+                  {renderFilterPanel('h-full rounded-l-lg rounded-r-none border-r-0')}
                 </div>
-
-                <div class="space-y-2">
-                  <For each={TAG_CATEGORY_ORDER}>
-                    {category => (
-                      <Show when={FILTER_TAG_OPTIONS[category].length > 0}>
-                        <div>
-                          <div class="text-[10px] text-fg-subtle tracking-widest font-semibold mb-1 uppercase">{TAG_CATEGORY_LABELS[category]}</div>
-                          <div class="flex flex-wrap gap-1.5">
-                            <For each={FILTER_TAG_OPTIONS[category]}>
-                              {(option) => {
-                                const active = () => isTagActive(category, option.id)
-                                return (
-                                  <FilterTagButton
-                                    tag={option.id}
-                                    active={active()}
-                                    onClick={() => toggleTagFilter(option.id)}
-                                  />
-                                )
-                              }}
-                            </For>
-                          </div>
-                        </div>
-                      </Show>
-                    )}
-                  </For>
-                </div>
-              </div>
-            </div>
-          </Show>
-
-          {/* Center: Main grid */}
-          <div
-            class={cn(
-              'flex flex-col w-full max-h-full overflow-hidden rounded-lg bg-bg-subtle shadow-2xl grid-panel-glow relative z-20',
-              'w-[min(calc(100vw-36rem),68rem)]',
-              'border border-border',
-              filtersOpen() && 'rounded-r-none',
-              hasDetail() && 'rounded-l-none',
-            )}
-          >
-            <div class="px-3 py-2 border-b border-border-subtle flex gap-2 items-center">
-              {/* Search */}
-              <div class="shrink-0 min-w-40 w-52 relative xl:w-64">
-                <div class="i-ph-magnifying-glass-bold text-sm text-fg-subtle left-3 top-1/2 absolute -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Search..."
-                  value={searchQuery()}
-                  onInput={e => setSearchQuery(e.currentTarget.value)}
-                  class={cn(
-                    'text-sm text-fg px-3.5 py-2 pl-8 rounded-lg w-full',
-                    'bg-bg/60 border border-border',
-                    'outline-none transition-all duration-150',
-                    'placeholder:text-fg-subtle/60',
-                    'focus:border-accent/50 focus:bg-bg/80 focus:shadow-[0_0_0_3px_var(--accent-subtle)]',
-                  )}
-                />
-              </div>
-
-              {/* Filter trigger */}
-              <button
-                class={cn(
-                  'inline-flex items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-all duration-150 cursor-pointer self-stretch',
-                  filtersOpen()
-                    ? 'border-accent/40 bg-accent/15 text-accent'
-                    : 'border-border bg-bg/60 text-fg-muted hover:bg-bg-muted hover:border-border-hover',
-                )}
-                onClick={() => setFiltersOpen(prev => !prev)}
-              >
-                <div class="i-ph-funnel-bold text-sm" />
-                <span>Filters</span>
-                <Show when={activeTagFilterCount() > 0}>
-                  <span class="text-[10px] text-accent font-semibold px-1.5 py-0.5 rounded-full bg-accent/15">
-                    {activeTagFilterCount()}
-                  </span>
-                </Show>
-              </button>
-
-              <Show when={activeTagFilterCount() > 0}>
-                <button
-                  class="text-[11px] text-fg-subtle px-2 py-1 border border-border rounded cursor-pointer transition-colors hover:text-fg-muted hover:bg-bg-muted"
-                  onClick={clearTagFilters}
-                >
-                  Clear
-                </button>
               </Show>
 
-              <div class="text-[11px] text-fg-subtle ml-auto">
-                {filteredLeaders().length}
-                /
-                {draftLeaderPoolIds().size}
-              </div>
+              <Show when={showDockedPanels() && hasDetail()}>
+                <div class="anim-detail-in absolute z-10 left-full top-0 bottom-0 w-64 xl:w-72 2xl:w-80">
+                  <div class="grid-panel-glow border border-border border-l-0 rounded-r-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
+                    <LeaderDetailPanel />
+                  </div>
+                </div>
+              </Show>
 
-              {/* Close grid button */}
-              <button
-                class="text-fg-subtle ml-1 cursor-pointer hover:text-fg-muted"
-                onClick={() => { setGridOpen(false); setFiltersOpen(false) }}
-              >
-                <div class="i-ph-x-bold text-sm" />
-              </button>
+              <Show when={showFocusPanelStrip()}>
+                <div class="absolute inset-0 z-30 pointer-events-none overflow-hidden">
+                  <Show when={filtersOpen()}>
+                    <div class="h-full min-h-0 w-full pointer-events-auto overflow-hidden">
+                      {renderFilterPanel('h-full')}
+                    </div>
+                  </Show>
+                  <Show when={!filtersOpen() && hasDetail()}>
+                    <div class="h-full min-h-0 w-full pointer-events-auto overflow-hidden">
+                      <div class="grid-panel-glow border border-border rounded-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
+                        <LeaderDetailPanel />
+                      </div>
+                    </div>
+                  </Show>
+                </div>
+              </Show>
+
+              {renderGridPanel(gridExpanded() ? 'h-full' : '')}
             </div>
+          )}
+        >
+          <div class={cn(overlayEntranceClass(), 'pointer-events-auto relative z-30 h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]')}>
+            <Show when={filtersOpen() || hasDetail()}>
+              <div class="grid absolute inset-x-0 top-0 z-30 grid-cols-2 gap-2 pointer-events-none overflow-hidden" style={{ height: '35%' }}>
+                <div class={cn('h-full min-h-0 overflow-hidden', filtersOpen() ? 'pointer-events-auto' : 'pointer-events-none')}>
+                  <Show when={filtersOpen()}>
+                    {renderFilterPanel('h-full')}
+                  </Show>
+                </div>
 
-            {/* Leader icon grid */}
-            <div class="p-1.5 flex-1 min-h-0 overflow-y-auto">
-              <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
-                <RandomLeaderCard
-                  disabled={!canUseRandom()}
-                  active={isRandomSelected()}
-                  accent={accent()}
-                  onClick={handleToggleRandom}
-                />
-                <For each={filteredLeaders()}>
-                  {leader => (
-                    <LeaderCard
-                      leader={leader}
-                      onHoverMove={handleLeaderHoverMove}
-                      onHoverLeave={handleLeaderHoverLeave}
-                    />
-                  )}
-                </For>
-                <For each={Array.from({ length: ghostCount() })}>
-                  {() => <div class="aspect-square" />}
-                </For>
-              </div>
-            </div>
-
-            {/* Bottom action bar */}
-            <Show when={state()?.status === 'active' && isMyTurn() && !hasSubmitted()}>
-              <div class="px-4 py-3 border-t border-border-subtle flex items-center justify-center">
-                {/* Ban action */}
-                <Show when={step()?.action === 'ban'}>
-                  <button
-                    class={cn(
-                      'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
-                      canConfirmBan()
-                        ? 'bg-danger text-white cursor-pointer hover:bg-danger/80'
-                        : 'bg-danger/20 text-danger/50 cursor-not-allowed',
-                    )}
-                    disabled={!canConfirmBan()}
-                    onClick={handleConfirmBan}
-                  >
-                    Confirm Bans (
-                    {isRandomSelected() ? step()!.count : banSelections().length}
-                    /
-                    {step()!.count}
-                    )
-                  </button>
-                </Show>
-
-                {/* Pick action */}
-                <Show when={step()?.action === 'pick'}>
-                  <button
-                    class={cn(
-                      'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
-                      canConfirmPick()
-                        ? 'bg-accent text-black cursor-pointer hover:bg-accent/80'
-                        : 'bg-accent/20 text-accent/50 cursor-not-allowed',
-                    )}
-                    disabled={!canConfirmPick()}
-                    onClick={handleConfirmPick}
-                  >
-                    Confirm Pick
-                  </button>
-                </Show>
+                <div class={cn('h-full min-h-0 overflow-hidden', hasDetail() ? 'pointer-events-auto' : 'pointer-events-none')}>
+                  <Show when={hasDetail()}>
+                    <div class="grid-panel-glow border border-border rounded-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
+                      <LeaderDetailPanel />
+                    </div>
+                  </Show>
+                </div>
               </div>
             </Show>
-          </div>
 
-          {/* Right: Leader detail panel */}
-          <Show when={hasDetail()}>
-            <div class="anim-detail-in grid-panel-glow border border-border rounded-r-lg bg-bg-subtle max-w-full w-64 shadow-2xl bottom-0 right-0 top-0 absolute z-30 overflow-hidden lg:border-l-0 lg:rounded-l-none xl:w-80 lg:left-full lg:right-auto lg:z-10">
-              <LeaderDetailPanel />
+            <div class="flex h-full flex-col gap-2">
+              <div class="grid grid-cols-2 gap-2 shrink-0" style={{ height: '35%' }}>
+                <div />
+                <div />
+              </div>
+
+              <div class="min-h-0 flex-1">
+                {renderGridPanel('h-full')}
+              </div>
             </div>
-          </Show>
-        </div>
+          </div>
+        </Show>
       </div>
 
       {/* Hover tooltip */}

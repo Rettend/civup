@@ -46,6 +46,7 @@ export async function buildOpenLobbySnapshotFromParts(
     mode,
     hostId: lobby.hostId,
     status: lobby.status,
+    steamLobbyLink: lobby.steamLobbyLink,
     minRole: lobby.minRole,
     entries: slotEntries.map((entry) => {
       if (!entry) return null
