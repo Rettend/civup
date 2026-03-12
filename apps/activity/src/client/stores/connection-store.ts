@@ -125,6 +125,12 @@ export interface ActivityLaunchSnapshot {
   options: ActivityTargetOption[]
 }
 
+export interface PartySocketTarget {
+  host: string
+  prefix?: string
+  label?: string
+}
+
 // ── State ──────────────────────────────────────────────────
 
 export const [connectionStatus, setConnectionStatus] = createSignal<ConnectionStatus>('disconnected')
@@ -145,7 +151,7 @@ let pendingConfigAck:
   | null = null
 
 /** Connect to PartyKit draft room using host and match ID */
-export function connectToRoom(host: string, roomId: string, playerId: string) {
+export function connectToRoom(target: PartySocketTarget, roomId: string, playerId: string) {
   const previousSocket = socket
   socket = null
   previousSocket?.close()
@@ -154,9 +160,9 @@ export function connectToRoom(host: string, roomId: string, playerId: string) {
   setConnectionError(null)
 
   const nextSocket = new PartySocket({
-    host,
+    host: target.host,
     party: 'main',
-    prefix: 'api/parties',
+    prefix: target.prefix ?? 'api/parties',
     room: roomId,
     id: playerId,
     query: { playerId },
@@ -198,6 +204,7 @@ export function connectToRoom(host: string, roomId: string, playerId: string) {
         reason,
         roomId,
         retryCount: nextSocket.retryCount,
+        target: describePartySocketTarget(target),
       })
 
       if (shouldRetryDraftSocket(nextSocket, code)) {
@@ -224,13 +231,18 @@ export function connectToRoom(host: string, roomId: string, playerId: string) {
         roomId,
         playerId,
         retryCount: nextSocket.retryCount,
+        target: describePartySocketTarget(target),
       })
       setConnectionStatus('reconnecting')
       setConnectionError(null)
       return
     }
 
-    relayDevLog('error', 'Draft socket connection failed', { roomId, playerId })
+    relayDevLog('error', 'Draft socket connection failed', {
+      roomId,
+      playerId,
+      target: describePartySocketTarget(target),
+    })
     socket = null
     setConnectionStatus('error')
     setConnectionError('WebSocket connection failed')
@@ -249,15 +261,17 @@ export function disconnect() {
 }
 
 /** Subscribe to lobby/match invalidation events from state coordinator room. */
-export function watchLobbyState(host: string, options: LobbyStateWatchOptions): LobbyStateWatch {
+export function watchLobbyState(target: PartySocketTarget, options: LobbyStateWatchOptions): LobbyStateWatch {
   let closed = false
 
+  const socketId = `lobby-watch:${options.userId}:${Math.random().toString(36).slice(2, 10)}`
+
   const stateSocket = new PartySocket({
-    host,
+    host: target.host,
     party: 'state',
-    prefix: 'api/parties',
+    prefix: target.prefix ?? 'api/parties',
     room: 'global',
-    id: `lobby-watch:${options.userId}:${Math.random().toString(36).slice(2, 10)}`,
+    id: socketId,
     maxRetries: 2,
   })
 
@@ -792,6 +806,10 @@ function formatConfigAckError(message: string): Error {
     return new Error('Draft room server is outdated (missing config support). Redeploy/restart party server and create a new lobby.')
   }
   return new Error(message)
+}
+
+function describePartySocketTarget(target: PartySocketTarget): string {
+  return `${target.label ?? 'socket'}:${target.host}/${target.prefix ?? 'api/parties'}`
 }
 
 function shouldRetryDraftSocket(currentSocket: PartySocket, code?: number): boolean {

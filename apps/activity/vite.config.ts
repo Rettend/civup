@@ -83,7 +83,6 @@ function firstNonEmpty(...values: Array<string | undefined>): string {
   return ''
 }
 
-const vitePartyHost = firstNonEmpty(process.env.VITE_PARTY_HOST, process.env.PARTY_HOST, devVars.PARTY_HOST)
 const viteDiscordClientId = firstNonEmpty(process.env.VITE_DISCORD_CLIENT_ID, process.env.DISCORD_CLIENT_ID, devVars.DISCORD_CLIENT_ID)
 const viteActivityHost = firstNonEmpty(process.env.VITE_ACTIVITY_HOST, devVars.VITE_ACTIVITY_HOST)
 
@@ -105,7 +104,6 @@ export default defineConfig({
     },
   },
   define: {
-    'import.meta.env.VITE_PARTY_HOST': JSON.stringify(vitePartyHost),
     'import.meta.env.VITE_DISCORD_CLIENT_ID': JSON.stringify(viteDiscordClientId),
     'import.meta.env.VITE_ACTIVITY_HOST': JSON.stringify(viteActivityHost),
   },
