@@ -2,6 +2,7 @@ export {
   type ActivityLaunchSelection,
   type ActivityLaunchSnapshot,
   type ActivityTargetOption,
+  type PartySocketTarget,
   arrangeLobbyTeams,
   cancelLobby,
   canFillLobbyWithTestPlayers,
