@@ -20,13 +20,6 @@ function createTestCivPool(count = 50): string[] {
 
 function create2v2Seats(): DraftSeat[] {
   return [
-    { playerId: 'teamA', displayName: 'Team A', team: 0 },
-    { playerId: 'teamB', displayName: 'Team B', team: 1 },
-  ]
-}
-
-function create2v2PlayerSeats(): DraftSeat[] {
-  return [
     { playerId: 'a1', displayName: 'A1', team: 0 },
     { playerId: 'b1', displayName: 'B1', team: 1 },
     { playerId: 'a2', displayName: 'A2', team: 0 },
@@ -104,10 +97,11 @@ describe('createDraft', () => {
     const seats = create2v2Seats()
     const draft = createDraft('match-123', default2v2, seats, createTestCivPool())
 
-    // 2v2 has: ban([0,1]), pick([0]), pick([1]), pick([0])
-    expect(draft.steps.length).toBeGreaterThan(0)
+    // 2v2 has: ban([0,1]), then A1, B1, B2, A2 pick individually
+    expect(draft.steps.length).toBe(5)
     expect(draft.steps[0]!.action).toBe('ban')
     expect(draft.steps[0]!.seats).toEqual([0, 1])
+    expect(draft.steps.slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2]])
   })
 
   test('creates draft with FFA format and correct number of steps', () => {
@@ -206,8 +200,8 @@ describe('processDraftInput — CANCEL', () => {
 // ── BAN Flow (Blind Bans, Simultaneous) ─────────────────────
 
 describe('processDraftInput — BAN (blind bans)', () => {
-  test('team ban step is captain-only when full team rosters are present', () => {
-    const draft = startDraft(createDraft('match-captains', default2v2, create2v2PlayerSeats(), createTestCivPool()))
+  test('team ban step only activates the first seat on each team', () => {
+    const draft = startDraft(createDraft('match-captains', default2v2, create2v2Seats(), createTestCivPool()))
 
     expect(getPendingSeats(draft)).toEqual([0, 1])
 
@@ -349,37 +343,35 @@ describe('processDraftInput — PICK (sequential)', () => {
     expect(result.events).toContainEqual({ type: 'PICK_SUBMITTED', seatIndex: 0, civId: 'civ-10' })
   })
 
-  test('handles multi-pick step correctly', () => {
+  test('keeps the back-to-back Team 2 picks on separate seats', () => {
     let state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
     state = completeBanPhase(state)
 
-    // Team A picks 1
+    // A1 picks first.
     let result = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' })
     if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
-    // Now at pick step [1] count=2 (Team B picks 2)
+    // Team 2 now gets consecutive picks from B1 then B2.
     expect(state.steps[state.currentStepIndex]!.seats).toEqual([1])
-    expect(state.steps[state.currentStepIndex]!.count).toBe(2)
+    expect(state.steps[state.currentStepIndex]!.count).toBe(1)
 
-    // First pick by Team B
     result = processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-20' })
     expect(isDraftError(result)).toBe(false)
     if (isDraftError(result)) return
 
-    // Step should NOT advance yet (need 2 picks)
-    expect(result.state.currentStepIndex).toBe(2)
-    expect(result.state.submissions[1]).toEqual(['civ-20'])
+    expect(result.state.currentStepIndex).toBe(3)
+    expect(result.state.steps[result.state.currentStepIndex]!.seats).toEqual([3])
+    expect(result.state.submissions).toEqual({})
 
-    // Second pick by Team B
-    result = processDraftInput(result.state, { type: 'PICK', seatIndex: 1, civId: 'civ-21' })
+    result = processDraftInput(result.state, { type: 'PICK', seatIndex: 3, civId: 'civ-21' })
     expect(isDraftError(result)).toBe(false)
     if (isDraftError(result)) return
 
-    // Now step should advance
-    expect(result.state.currentStepIndex).toBe(3)
+    expect(result.state.currentStepIndex).toBe(4)
+    expect(result.state.steps[result.state.currentStepIndex]!.seats).toEqual([2])
     expect(result.state.picks).toContainEqual({ civId: 'civ-20', seatIndex: 1, stepIndex: 2 })
-    expect(result.state.picks).toContainEqual({ civId: 'civ-21', seatIndex: 1, stepIndex: 2 })
+    expect(result.state.picks).toContainEqual({ civId: 'civ-21', seatIndex: 3, stepIndex: 3 })
   })
 
   test('rejects pick from wrong seat', () => {
@@ -416,8 +408,8 @@ describe('processDraftInput — PICK (sequential)', () => {
     expect(result.error).toBe('Current step is not a pick phase')
   })
 
-  test('full 2v2 rosters pick one civ per player in snake order', () => {
-    let state = startDraft(createDraft('match-123', default2v2, create2v2PlayerSeats(), createTestCivPool()))
+  test('full 2v2 rosters pick one civ per player in balanced order', () => {
+    let state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
 
     let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
     if (isDraftError(result)) throw new Error(result.error)
@@ -453,12 +445,12 @@ describe('processDraftInput — PICK (sequential)', () => {
 
   test('full 3v3 rosters expand to individual pick steps', () => {
     const draft = startDraft(createDraft('match-123', default3v3, create3v3PlayerSeats(), createTestCivPool()))
-    expect(draft.steps.slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4]])
+    expect(draft.steps.slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [4], [5]])
   })
 
   test('full 4v4 rosters expand to individual pick steps', () => {
     const draft = startDraft(createDraft('match-4v4', default4v4, create4v4PlayerSeats(), createTestCivPool()))
-    expect(draft.steps.slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [7], [6]])
+    expect(draft.steps.slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7]])
   })
 })
 
@@ -480,15 +472,15 @@ describe('full 2v2 draft flow', () => {
     if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
-    // Step 2: Team B picks 2
+    // Step 2-3: Team B picks with B1 then B2
     result = processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-20' })
     if (isDraftError(result)) throw new Error(result.error)
-    result = processDraftInput(result.state, { type: 'PICK', seatIndex: 1, civId: 'civ-21' })
+    result = processDraftInput(result.state, { type: 'PICK', seatIndex: 3, civId: 'civ-21' })
     if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
-    // Step 3: Team A picks 1
-    result = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-11' })
+    // Step 4: A2 closes the draft
+    result = processDraftInput(state, { type: 'PICK', seatIndex: 2, civId: 'civ-11' })
     if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
@@ -661,7 +653,7 @@ describe('error cases', () => {
     expect(result.error).toBe('Seat 99 is not active in this step')
   })
 
-  test('picking same civ twice in multi-pick step fails', () => {
+  test('picking the same civ twice across consecutive team picks fails', () => {
     let state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
 
     // Complete ban phase
@@ -676,13 +668,13 @@ describe('error cases', () => {
     if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
-    // Team B picks first civ
+    // B1 picks first civ.
     result = processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-20' })
     if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
-    // Team B tries to pick same civ again
-    result = processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-20' })
+    // B2 tries to pick the same civ on the next step.
+    result = processDraftInput(state, { type: 'PICK', seatIndex: 3, civId: 'civ-20' })
     expect(isDraftError(result)).toBe(true)
     if (!isDraftError(result)) return
     expect(result.error).toBe('Civ civ-20 is not available')
@@ -791,9 +783,10 @@ describe('query helpers', () => {
   test('isPlayerTurn correctly identifies active player', () => {
     const state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
 
-    // In ban phase, both teams are active
-    expect(isPlayerTurn(state, 'teamA')).toBe(true)
-    expect(isPlayerTurn(state, 'teamB')).toBe(true)
+    // In ban phase, only the first seat on each team is active.
+    expect(isPlayerTurn(state, 'a1')).toBe(true)
+    expect(isPlayerTurn(state, 'b1')).toBe(true)
+    expect(isPlayerTurn(state, 'a2')).toBe(false)
     expect(isPlayerTurn(state, 'unknown')).toBe(false)
   })
 })
