@@ -28,6 +28,7 @@ export async function createLobby(
     hostId: string
     channelId: string
     messageId: string
+    steamLobbyLink?: string | null
   },
 ): Promise<LobbyState> {
   const now = Date.now()
@@ -43,6 +44,7 @@ export async function createLobby(
     channelId: input.channelId,
     messageId: input.messageId,
     matchId: null,
+    steamLobbyLink: input.steamLobbyLink ?? null,
     minRole: null,
     memberPlayerIds: [input.hostId],
     slots,
@@ -182,6 +184,27 @@ export async function setLobbyMinRole(
   const updated: LobbyState = {
     ...lobby,
     minRole: normalizedMinRole,
+    updatedAt: Date.now(),
+    revision: lobby.revision + 1,
+  }
+  await putLobby(kv, updated)
+  return updated
+}
+
+export async function setLobbySteamLobbyLink(
+  kv: KVNamespace,
+  lobbyId: string,
+  steamLobbyLink: string | null,
+  currentLobby?: LobbyState,
+): Promise<LobbyState | null> {
+  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
+  if (!lobby) return null
+
+  if (lobby.steamLobbyLink === steamLobbyLink) return lobby
+
+  const updated: LobbyState = {
+    ...lobby,
+    steamLobbyLink,
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }

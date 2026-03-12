@@ -24,6 +24,7 @@ export const LOBBY_STATUS_LABELS = {
 
 export interface MatchVar {
   mode?: string
+  steam_link?: string
   teammate?: string
   teammate2?: string
   teammate3?: string

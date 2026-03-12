@@ -27,7 +27,7 @@ type AppState
     | { status: 'error', message: string }
     | { status: 'overview' }
     | { status: 'lobby-waiting', lobby: LobbySnapshot, joinPending: boolean, joinEligibility: LobbyJoinEligibilitySnapshot }
-    | { status: 'authenticated', matchId: string, autoStart: boolean }
+    | { status: 'authenticated', matchId: string, autoStart: boolean, steamLobbyLink: string | null }
 
 const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
   || (typeof window !== 'undefined' ? window.location.host : 'localhost:5173')
@@ -138,7 +138,7 @@ export default function App() {
     void refreshActivityState(channelId, currentUserId)
   }
 
-  const transitionToDraft = (matchId: string, currentUserId: string, autoStart: boolean) => {
+  const transitionToDraft = (matchId: string, currentUserId: string, autoStart: boolean, steamLobbyLink: string | null) => {
     setPickerError(null)
 
     const current = state()
@@ -148,7 +148,7 @@ export default function App() {
     const isSameMatch = current.status === 'authenticated' && current.matchId === matchId
     const hasTerminalDraft = draftStore.state?.status === 'complete' || draftStore.state?.status === 'cancelled'
 
-    setState({ status: 'authenticated', matchId, autoStart: nextAutoStart })
+    setState({ status: 'authenticated', matchId, autoStart: nextAutoStart, steamLobbyLink })
     if (isSameMatch && (isDraftConnectionInFlight() || hasTerminalDraft)) return
 
     resetDraft()
@@ -214,7 +214,7 @@ export default function App() {
       return
     }
 
-    transitionToDraft(snapshot.selection.matchId, currentUserId, autoStart)
+    transitionToDraft(snapshot.selection.matchId, currentUserId, autoStart, snapshot.selection.steamLobbyLink)
   }
 
   const refreshActivityState = async (channelId: string, currentUserId: string) => {
@@ -402,13 +402,13 @@ export default function App() {
             showJoinPending={(state() as Extract<AppState, { status: 'lobby-waiting' }>).joinPending}
             joinEligibility={(state() as Extract<AppState, { status: 'lobby-waiting' }>).joinEligibility}
             onSwitchTarget={openOverview}
-            onLobbyStarted={(matchId) => {
+            onLobbyStarted={(matchId, steamLobbyLink) => {
               const currentUserId = userId()
               if (!currentUserId) {
                 setState({ status: 'error', message: 'Could not identify your Discord user. Reopen the activity.' })
                 return
               }
-              transitionToDraft(matchId, currentUserId, true)
+              transitionToDraft(matchId, currentUserId, true, steamLobbyLink)
             }}
           />
         </Match>
@@ -417,6 +417,7 @@ export default function App() {
           <DraftWithConnection
             matchId={(state() as Extract<AppState, { status: 'authenticated' }>).matchId}
             autoStart={(state() as Extract<AppState, { status: 'authenticated' }>).autoStart}
+            steamLobbyLink={(state() as Extract<AppState, { status: 'authenticated' }>).steamLobbyLink}
             onSwitchTarget={openOverview}
           />
         </Match>
@@ -436,6 +437,7 @@ function resolvePartySocketTarget(): PartySocketTarget {
 function DraftWithConnection(props: {
   matchId: string
   autoStart: boolean
+  steamLobbyLink: string | null
   onSwitchTarget?: () => void
 }) {
   const hasDraftState = () => draftStore.state != null
@@ -464,6 +466,7 @@ function DraftWithConnection(props: {
           <DraftView
             matchId={props.matchId}
             autoStart={props.autoStart}
+            steamLobbyLink={props.steamLobbyLink}
             onSwitchTarget={props.onSwitchTarget}
           />
           <Show when={connectionStatus() === 'reconnecting'}>
@@ -489,6 +492,7 @@ function DraftWithConnection(props: {
         <DraftView
           matchId={props.matchId}
           autoStart={props.autoStart}
+          steamLobbyLink={props.steamLobbyLink}
           onSwitchTarget={props.onSwitchTarget}
         />
       </Match>

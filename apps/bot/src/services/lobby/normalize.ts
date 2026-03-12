@@ -2,6 +2,7 @@ import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
 import { MAX_LEADER_POOL_SIZE, maxPlayerCount } from '@civup/game'
 import { nanoid } from 'nanoid'
+import { normalizeSteamLobbyLink } from '../steam-link.ts'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 
 export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
@@ -20,6 +21,7 @@ export function normalizeLobby(raw: StoredLobbyState | LobbyState): LobbyState {
     ...raw,
     id: typeof raw.id === 'string' && raw.id.length > 0 ? raw.id : nanoid(10),
     guildId: normalizeGuildId(raw.guildId),
+    steamLobbyLink: normalizeSteamLobbyLink(raw.steamLobbyLink),
     slots: normalizeStoredSlots(raw.mode, raw.slots),
     draftConfig: normalizeDraftConfig(raw.draftConfig),
     minRole: normalizeCompetitiveTier(raw.minRole),
