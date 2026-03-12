@@ -13,6 +13,17 @@ describe('lobby premade helpers', () => {
     expect([...edges]).toEqual([0, 1])
   })
 
+  test('buildActivePremadeEdgeSet keeps adjacent chain links for a quartet', () => {
+    const edges = buildActivePremadeEdgeSet('4v4', ['p1', 'p2', 'p3', 'p4', null, null, null, null], [
+      entry('p1', ['p2', 'p3', 'p4']),
+      entry('p2', ['p1', 'p3', 'p4']),
+      entry('p3', ['p1', 'p2', 'p4']),
+      entry('p4', ['p1', 'p2', 'p3']),
+    ])
+
+    expect([...edges]).toEqual([0, 1, 2])
+  })
+
   test('rebuildQueueEntriesFromPremadeEdgeSet can split a trio into pair plus solo', () => {
     const queueEntries = [
       entry('p1', ['p2', 'p3']),
@@ -147,6 +158,25 @@ describe('lobby premade helpers', () => {
     if ('error' in compacted) return
 
     expect(compacted.slots).toEqual(['host', null, 'p1', 'p2'])
+  })
+
+  test('compactSlottedPremadesForMode keeps a quartet together in 4v4', () => {
+    const compacted = compactSlottedPremadesForMode(
+      '4v4',
+      ['host', 'p1', 'p2', 'p3', 'p4'],
+      [
+        entry('host'),
+        entry('p1', ['p2', 'p3', 'p4']),
+        entry('p2', ['p1', 'p3', 'p4']),
+        entry('p3', ['p1', 'p2', 'p4']),
+        entry('p4', ['p1', 'p2', 'p3']),
+      ],
+    )
+
+    expect('error' in compacted).toBe(false)
+    if ('error' in compacted) return
+
+    expect(compacted.slots).toEqual(['host', null, null, null, 'p1', 'p2', 'p3', 'p4'])
   })
 })
 

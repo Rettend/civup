@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '../src/client/lib/seat-grid'
+import { createCellGridLayout, createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '../src/client/lib/seat-grid'
 
 describe('seat-grid helpers', () => {
   test('builds a two-column mobile-friendly grid for larger FFAs', () => {
@@ -28,5 +28,15 @@ describe('seat-grid helpers', () => {
     expect(findSeatGridPosition(layout, 4)).toEqual({ row: 2, col: 0 })
     expect(getSeatAtGridPosition(layout, 2, 1)).toBe(5)
     expect(getSeatAtGridPosition(layout, 3, 1)).toBeNull()
+  })
+
+  test('builds a 2x2 team block layout for 4v4', () => {
+    const layout = createCellGridLayout([0, 2, 4, 6], 2)
+
+    expect(layout).toEqual({
+      columns: 2,
+      rows: 2,
+      cells: [0, 2, 4, 6],
+    })
   })
 })

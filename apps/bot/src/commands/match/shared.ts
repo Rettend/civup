@@ -26,6 +26,7 @@ export interface MatchVar {
   mode?: string
   teammate?: string
   teammate2?: string
+  teammate3?: string
   player?: string
   match_id?: string
   winner?: string

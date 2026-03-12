@@ -1,6 +1,6 @@
 import { For, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
-import { createSeatGridLayout } from '~/client/lib/seat-grid'
+import { createCellGridLayout, createSeatGridLayout } from '~/client/lib/seat-grid'
 import { draftStore, isMobileLayout, selectedWinningTeam, userId } from '~/client/stores'
 import { PlayerSlot } from './PlayerSlot'
 
@@ -29,9 +29,12 @@ export function SlotStrip() {
     isMobileLayout() ? 2 : Math.ceil(seatCount() / 2),
   )
 
-  const teamWrapperClass = (_team: 0 | 1) => {
-    return ''
-  }
+  const shouldUseTeamGrid = (seatIndices: number[]) => isMobileLayout() || seatIndices.length >= 4
+
+  const teamGridLayout = (seatIndices: number[]) => createCellGridLayout(
+    seatIndices,
+    isMobileLayout() ? 1 : 2,
+  )
 
   const teamWrapperOverlayClass = (team: 0 | 1) => {
     if (!isTeamResultMode()) return 'hidden'
@@ -47,50 +50,70 @@ export function SlotStrip() {
   }
 
   const teamOverlayWidth = (slotCount: number) => {
-    if (isMobileLayout()) return '100%'
     // Each .slot-cell is flex: 1 1 0 with max-width: 400px.
     // Inter-slot borders: (N-1) * 1px (border-r on all but last).
     return `min(${slotCount * 400 + Math.max(0, slotCount - 1)}px, 100%)`
   }
 
-  const teamSeatWrapperClass = (align: 'start' | 'end') => cn(
+  const teamSeatWrapperClass = (align: 'start' | 'end', seatIndices: number[]) => cn(
     'relative h-full w-full overflow-hidden transition-all duration-300',
-    isMobileLayout()
-      ? 'grid gap-0'
+    shouldUseTeamGrid(seatIndices)
+      ? 'grid gap-0 max-w-full'
       : align === 'end'
         ? 'flex items-stretch justify-end'
         : 'flex items-stretch justify-start',
   )
 
   const teamSeatWrapperStyle = (seatIndices: number[]) => {
-    if (!isMobileLayout()) return undefined
+    if (!shouldUseTeamGrid(seatIndices)) return undefined
 
-    return {
-      'grid-template-columns': 'minmax(0, 1fr)',
-      'grid-template-rows': `repeat(${seatIndices.length}, minmax(0, 1fr))`,
+    const layout = teamGridLayout(seatIndices)
+    const style: Record<string, string> = {
+      'grid-template-columns': `repeat(${layout.columns}, minmax(0, 1fr))`,
+      'grid-template-rows': `repeat(${layout.rows}, minmax(0, 1fr))`,
     }
+
+    if (!isMobileLayout()) {
+      style.width = `min(100%, ${layout.columns * 400}px)`
+    }
+
+    return style
+  }
+
+  const teamOverlayClass = (align: 'start' | 'end', seatIndices: number[], zClass: string) => cn(
+    'pointer-events-none absolute',
+    zClass,
+    shouldUseTeamGrid(seatIndices)
+      ? 'inset-0'
+      : align === 'end'
+        ? 'inset-y-0 right-0'
+        : 'inset-y-0 left-0',
+  )
+
+  const teamOverlayStyle = (seatIndices: number[]) => {
+    if (shouldUseTeamGrid(seatIndices)) return undefined
+    return { width: teamOverlayWidth(seatIndices.length) }
   }
 
   const renderTeamSeats = (team: 0 | 1, seatIndices: number[], align: 'start' | 'end') => (
     <div class={cn('flex flex-1 h-full items-stretch', align === 'end' ? 'justify-end' : 'justify-start')}>
-      <div class={cn(teamSeatWrapperClass(align), teamWrapperClass(team))} style={teamSeatWrapperStyle(seatIndices)}>
+      <div class={teamSeatWrapperClass(align, seatIndices)} style={teamSeatWrapperStyle(seatIndices)}>
         <Show when={isTeamResultMode()}>
           <div
             class={cn(
-              'pointer-events-none absolute inset-y-0 z-30',
-              align === 'end' ? 'right-0' : 'left-0',
+              teamOverlayClass(align, seatIndices, 'z-30'),
               teamWrapperOverlayClass(team),
             )}
-            style={{ width: teamOverlayWidth(seatIndices.length) }}
+            style={teamOverlayStyle(seatIndices)}
           />
         </Show>
         <Show when={isTeamResultMode() && selectedWinningTeam() === team}>
           <div
             class={cn(
-              'flex pointer-events-none items-center inset-y-0 justify-center absolute z-40',
-              align === 'end' ? 'right-0' : 'left-0',
+              'flex items-center justify-center',
+              teamOverlayClass(align, seatIndices, 'z-40'),
             )}
-            style={{ width: teamOverlayWidth(seatIndices.length) }}
+            style={teamOverlayStyle(seatIndices)}
           >
             <div class="anim-fade-in border rounded-full bg-accent flex h-16 w-16 shadow-[0_4px_12px_rgba(0,0,0,0.5),0_8px_28px_rgba(0,0,0,0.4),0_16px_48px_rgba(0,0,0,0.25)] items-center justify-center" style={{ 'color': 'var(--badge-gold-text)', 'border-color': 'var(--badge-gold-border)' }}>
               <span class="i-ph:trophy-fill text-[30px]" />
@@ -100,17 +123,22 @@ export function SlotStrip() {
         <Show when={isTeamResultMode() && selectedWinningTeam() === team}>
           <div
             class={cn(
-              'anim-fade-in pointer-events-none inset-y-0 absolute z-20',
-              align === 'end' ? 'right-0' : 'left-0',
+              'anim-fade-in',
+              teamOverlayClass(align, seatIndices, 'z-20'),
             )}
-            style={{ ...winnerGlowStyle, width: teamOverlayWidth(seatIndices.length) }}
+            style={{ ...winnerGlowStyle, ...(teamOverlayStyle(seatIndices) ?? {}) }}
           />
         </Show>
-        <For each={seatIndices}>
+        <For each={shouldUseTeamGrid(seatIndices) ? teamGridLayout(seatIndices).cells : seatIndices}>
           {seatIdx => (
-            <div class={isMobileLayout() ? 'h-full min-h-0 w-full' : 'slot-cell'}>
-              <PlayerSlot seatIndex={seatIdx} />
-            </div>
+            <Show
+              when={seatIdx != null}
+              fallback={<div class="h-full min-h-0 w-full" />}
+            >
+              <div class={shouldUseTeamGrid(seatIndices) ? 'h-full min-h-0 w-full' : 'slot-cell'}>
+                <PlayerSlot seatIndex={seatIdx!} />
+              </div>
+            </Show>
           )}
         </For>
       </div>
