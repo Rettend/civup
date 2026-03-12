@@ -8,7 +8,7 @@ import type {
   PlayerRow,
 } from '~/client/lib/config-screen/helpers'
 import type { LobbyJoinEligibilitySnapshot, LobbySnapshot, LobbyTeamArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
-import { formatModeLabel, GAME_MODE_CHOICES, inferGameMode } from '@civup/game'
+import { formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isTeamMode as isTeamGameMode } from '@civup/game'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, TextInput } from '~/client/components/ui'
 import {
@@ -45,6 +45,7 @@ import {
   draftStore,
   fetchLobbyRankedRoles,
   fillLobbyWithTestPlayers,
+  isMobileLayout,
   isMiniView,
   isSpectator,
   placeLobbySlot,
@@ -59,12 +60,14 @@ import {
   userId,
 } from '~/client/stores'
 import { MiniFrame, MiniSeatGrid } from './MiniLayout'
+import { SteamLobbyButton } from './SteamLobbyButton'
 
 interface ConfigScreenProps {
   lobby?: LobbySnapshot
+  steamLobbyLink?: string | null
   showJoinPending?: boolean
   joinEligibility?: LobbyJoinEligibilitySnapshot
-  onLobbyStarted?: (matchId: string) => void
+  onLobbyStarted?: (matchId: string, steamLobbyLink: string | null) => void
   onSwitchTarget?: () => void
 }
 
@@ -212,6 +215,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     props.joinEligibility,
     pendingPlaceSelfSlot(),
   )
+  const steamLobbyLink = () => currentLobby()?.steamLobbyLink ?? props.steamLobbyLink ?? null
   const isLobbyMode = () => currentLobby() != null
   const hostId = () => currentLobby()?.hostId ?? draftStore.hostId ?? state()?.seats[0]?.playerId ?? null
   const amHost = () => {
@@ -949,7 +953,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         return
       }
 
-      props.onLobbyStarted?.(result.matchId)
+      props.onLobbyStarted?.(result.matchId, lobby.steamLobbyLink)
       showInfoMessage('Draft room created. Opening draft...')
     }
     finally {
@@ -962,7 +966,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const currentUserId = userId()
     if (!lobby || !currentUserId || !amHost()) return
     const mode = inferGameMode(lobby.mode)
-    if (mode !== '2v2' && mode !== '3v3') return
+    if (!isTeamGameMode(mode)) return
     if (lobbyActionPending() || startPending() || cancelPending()) return
 
     setLobbyActionPending(true)
@@ -1000,7 +1004,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const currentUserId = userId()
     if (!lobby || !currentUserId) return
     const mode = inferGameMode(lobby.mode)
-    if (mode !== '2v2' && mode !== '3v3') return
+    if (!isTeamGameMode(mode)) return
     if (lobbyActionPending() || startPending() || cancelPending()) return
     if (!canTogglePremadeLink(leftRow, rightRow)) return
 
@@ -1139,26 +1143,36 @@ export function ConfigScreen(props: ConfigScreenProps) {
     <Show
       when={isMiniView()}
       fallback={(
-        <div class="text-fg font-sans bg-bg overflow-y-auto min-h-dvh">
-          <div class="mx-auto px-6 py-4 flex flex-col gap-6 max-w-5xl w-full">
+        <div class="text-fg font-sans bg-bg overflow-y-auto min-h-dvh relative">
+          <Show when={props.onSwitchTarget}>
+            <button
+              type="button"
+              class={cn(
+                'text-fg-muted border border-border-subtle rounded-md flex h-9 w-9 cursor-pointer transition-colors items-center justify-center z-20 absolute hover:text-fg hover:bg-bg-muted',
+                isMobileLayout() ? 'top-12 right-4' : 'top-4 right-6',
+              )}
+              title="Lobby Overview"
+              aria-label="Lobby Overview"
+              onClick={() => props.onSwitchTarget?.()}
+            >
+              <span class="i-ph-squares-four-bold text-base" />
+            </button>
+          </Show>
+          <SteamLobbyButton
+            steamLobbyLink={steamLobbyLink()}
+            class={cn(
+              'z-20 absolute',
+              isMobileLayout() ? 'top-12 left-4 h-9 w-9' : 'top-4 left-6 h-9 w-9',
+            )}
+          />
+          <div class={cn('mx-auto px-6 py-4 flex flex-col gap-6 max-w-5xl w-full', isMobileLayout() && 'pt-12')}>
             <div class="grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-center">
               <div class="h-9 w-9" />
               <div class="text-center">
                 <h1 class="text-2xl text-heading mb-1">Draft Setup</h1>
                 <span class="text-sm text-accent font-medium">{formatId()}</span>
               </div>
-
-              <Show when={props.onSwitchTarget} fallback={<div class="h-9 w-9" />}>
-                <button
-                  type="button"
-                  class="text-fg-muted border border-border-subtle rounded-md flex shrink-0 h-9 w-9 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:bg-bg-muted"
-                  title="Lobby Overview"
-                  aria-label="Lobby Overview"
-                  onClick={() => props.onSwitchTarget?.()}
-                >
-                  <span class="i-ph-squares-four-bold text-base" />
-                </button>
-              </Show>
+              <div class="h-9 w-9" />
             </div>
 
             <div class="gap-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -1413,7 +1427,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       >
                         {cancelPending() ? 'Cancelling...' : 'Cancel Lobby'}
                       </button>
-                      <Show when={lobbyMode() === '2v2' || lobbyMode() === '3v3'}>
+                      <Show when={isTeamGameMode(lobbyMode())}>
                         <button
                           class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed"
                           title="Randomize"

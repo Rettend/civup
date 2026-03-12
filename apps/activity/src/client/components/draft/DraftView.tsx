@@ -3,6 +3,7 @@ import { cn } from '~/client/lib/css'
 import {
   draftStore,
   gridOpen,
+  isMobileLayout,
   isMiniView,
   isSpectator,
   sendStart,
@@ -15,10 +16,12 @@ import { DraftTimeline } from './DraftTimeline'
 import { LeaderGridOverlay } from './LeaderGridOverlay'
 import { MiniView } from './MiniView'
 import { SlotStrip } from './SlotStrip'
+import { SteamLobbyButton } from './SteamLobbyButton'
 
 interface DraftViewProps {
   matchId: string
   autoStart?: boolean
+  steamLobbyLink?: string | null
   onSwitchTarget?: () => void
 }
 
@@ -36,7 +39,8 @@ export function DraftView(props: DraftViewProps) {
   }
 
   createEffect(() => {
-    if (state()?.status === 'waiting') return
+    const current = state()
+    if (!current || current.status === 'waiting') return
     setShowAutoStartSplash(false)
     if (!autoStartSplashTimeout) return
     clearTimeout(autoStartSplashTimeout)
@@ -85,12 +89,12 @@ export function DraftView(props: DraftViewProps) {
             when={isActiveOrComplete()}
             fallback={showAutoStartSplash()
               ? <AutoStartingDraftScreen />
-              : <ConfigScreen onSwitchTarget={props.onSwitchTarget} />}
-          >
-            {/* Active + Complete draft view */}
-            <div class="text-fg font-sans bg-bg flex flex-col h-screen relative overflow-hidden">
-              <DraftHeader onSwitchTarget={props.onSwitchTarget} />
-              <DraftTimeline />
+              : <ConfigScreen steamLobbyLink={props.steamLobbyLink ?? null} onSwitchTarget={props.onSwitchTarget} />}
+            >
+              {/* Active + Complete draft view */}
+              <div class="text-fg font-sans bg-bg flex flex-col h-screen relative overflow-hidden">
+                <DraftHeader steamLobbyLink={props.steamLobbyLink ?? null} onSwitchTarget={props.onSwitchTarget} />
+                <DraftTimeline />
 
               {/* Main area */}
               <div class="flex flex-1 min-h-0 relative">
@@ -142,7 +146,7 @@ export function DraftView(props: DraftViewProps) {
       )}
     >
       <Show when={!isMiniView()} fallback={<MiniView />}>
-        <CancelledDraftScreen />
+        <CancelledDraftScreen steamLobbyLink={props.steamLobbyLink ?? null} />
       </Show>
     </Show>
   )
@@ -159,7 +163,7 @@ function AutoStartingDraftScreen() {
   )
 }
 
-function CancelledDraftScreen() {
+function CancelledDraftScreen(props: { steamLobbyLink: string | null }) {
   const state = () => draftStore.state
   const reason = () => state()?.cancelReason ?? 'scrub'
 
@@ -176,7 +180,11 @@ function CancelledDraftScreen() {
   }
 
   return (
-    <main class="text-fg font-sans bg-bg h-screen overflow-y-auto">
+    <main class="text-fg font-sans bg-bg h-screen overflow-y-auto relative">
+      <SteamLobbyButton
+        steamLobbyLink={props.steamLobbyLink}
+        class={cn('z-20 absolute', isMobileLayout() ? 'top-12 left-4 h-9 w-9' : 'top-4 left-4 h-9 w-9')}
+      />
       <div class="mx-auto px-4 py-10 flex flex-col gap-4 max-w-3xl md:px-8">
         <section class="p-7 text-center border border-border rounded-lg bg-bg-subtle/70">
           <div class="text-[11px] text-fg-subtle tracking-[0.14em] font-semibold mb-2 uppercase">Session Closed</div>

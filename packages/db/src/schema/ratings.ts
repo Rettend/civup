@@ -3,7 +3,7 @@ import { players } from './players.ts'
 
 /**
  * Per-mode ratings for each player.
- * Leaderboard modes: ffa, duel, teamers (2v2 + 3v3 combined).
+ * Leaderboard modes: ffa, duel, teamers (2v2 + 3v3 + 4v4 combined).
  */
 export const playerRatings = sqliteTable('player_ratings', {
   playerId: text('player_id').notNull().references(() => players.id),

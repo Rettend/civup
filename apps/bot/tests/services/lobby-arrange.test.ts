@@ -88,6 +88,42 @@ describe('lobby arrange helpers', () => {
     expect(togetherOnA || togetherOnB).toBe(true)
   })
 
+  test('auto-balance keeps a full quartet together in 4v4', () => {
+    const result = arrangeTeamLobbySlots({
+      mode: '4v4',
+      strategy: 'balance',
+      slots: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', null],
+      queueEntries: [
+        entry('p1', ['p2', 'p3', 'p4']),
+        entry('p2', ['p1', 'p3', 'p4']),
+        entry('p3', ['p1', 'p2', 'p4']),
+        entry('p4', ['p1', 'p2', 'p3']),
+        entry('p5'),
+        entry('p6'),
+        entry('p7'),
+      ],
+      ratingsByPlayerId: new Map([
+        ['p1', { mu: 34, sigma: 2 }],
+        ['p2', { mu: 33, sigma: 2 }],
+        ['p3', { mu: 32, sigma: 2 }],
+        ['p4', { mu: 31, sigma: 2 }],
+        ['p5', { mu: 28, sigma: 2 }],
+        ['p6', { mu: 27, sigma: 2 }],
+        ['p7', { mu: 26, sigma: 2 }],
+      ]),
+    })
+
+    expect('error' in result).toBe(false)
+    if ('error' in result) return
+
+    const teamA = new Set(result.slots.slice(0, 4).filter((playerId): playerId is string => playerId != null))
+    const teamB = new Set(result.slots.slice(4, 8).filter((playerId): playerId is string => playerId != null))
+
+    const quartetOnA = teamA.has('p1') && teamA.has('p2') && teamA.has('p3') && teamA.has('p4')
+    const quartetOnB = teamB.has('p1') && teamB.has('p2') && teamB.has('p3') && teamB.has('p4')
+    expect(quartetOnA || quartetOnB).toBe(true)
+  })
+
   test('returns an error for unsupported modes', () => {
     const result = arrangeTeamLobbySlots({
       mode: 'ffa',
@@ -98,7 +134,7 @@ describe('lobby arrange helpers', () => {
 
     expect('error' in result).toBe(true)
     if ('error' in result) {
-      expect(result.error).toContain('2v2 and 3v3')
+      expect(result.error).toContain('2v2, 3v3, and 4v4')
     }
   })
 })

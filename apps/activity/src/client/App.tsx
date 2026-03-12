@@ -1,7 +1,8 @@
-import type { ActivityLaunchSelection, ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot, LobbyStateWatch } from './stores'
+import type { ActivityLaunchSelection, ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot, LobbyStateWatch, PartySocketTarget } from './stores'
 import { createSignal, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
 import { activityTargetOptionKey, ActivityTargetPicker, ConfigScreen, DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
+import { cn } from './lib/css'
 import { relayDevLog } from './lib/dev-log'
 import {
   connectionError,
@@ -10,10 +11,12 @@ import {
   disconnect,
   draftStore,
   fetchActivityLaunchSnapshot,
+  isMobileLayout,
   isMiniView,
   resetDraft,
   selectActivityTarget,
   setAuthenticatedUser,
+  setIsMobileLayout,
   setIsMiniView,
   userId,
   watchLobbyState,
@@ -24,13 +27,16 @@ type AppState
     | { status: 'error', message: string }
     | { status: 'overview' }
     | { status: 'lobby-waiting', lobby: LobbySnapshot, joinPending: boolean, joinEligibility: LobbyJoinEligibilitySnapshot }
-    | { status: 'authenticated', matchId: string, autoStart: boolean }
+    | { status: 'authenticated', matchId: string, autoStart: boolean, steamLobbyLink: string | null }
 
 const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
   || (typeof window !== 'undefined' ? window.location.host : 'localhost:5173')
+const PARTY_SOCKET_TARGET = resolvePartySocketTarget()
 const ACTIVITY_SAFETY_POLL_MS = 90_000
-const MINI_VIEW_MAX_WIDTH = 520
-const MINI_VIEW_MAX_HEIGHT = 340
+const MINI_VIEW_MAX_WIDTH = 430
+const MINI_VIEW_MAX_HEIGHT = 260
+const MINI_VIEW_MIN_ASPECT_RATIO = 1.5
+const MOBILE_LAYOUT_BREAKPOINT = 640
 
 export default function App() {
   const [state, setState] = createSignal<AppState>({ status: 'loading' })
@@ -64,8 +70,13 @@ export default function App() {
 
   const shouldHoldAuthenticatedDraftState = () => {
     if (state().status !== 'authenticated') return false
-    if (connectionStatus() === 'connecting' || connectionStatus() === 'connected') return true
+    if (isDraftConnectionInFlight()) return true
     return draftStore.state != null
+  }
+
+  const isDraftConnectionInFlight = () => {
+    const status = connectionStatus()
+    return status === 'connecting' || status === 'reconnecting' || status === 'connected'
   }
 
   onCleanup(() => {
@@ -75,10 +86,30 @@ export default function App() {
   })
 
   onMount(() => {
-    const syncMiniView = () => setIsMiniView(window.innerWidth <= MINI_VIEW_MAX_WIDTH && window.innerHeight <= MINI_VIEW_MAX_HEIGHT)
+    const viewport = window.visualViewport
+    const syncMiniView = () => {
+      const width = viewport?.width ?? window.innerWidth
+      const height = viewport?.height ?? window.innerHeight
+      const isLandscape = width > height
+      const aspectRatio = height > 0 ? width / height : 0
+
+      setIsMobileLayout(width < MOBILE_LAYOUT_BREAKPOINT)
+      setIsMiniView(
+        isLandscape
+        && width <= MINI_VIEW_MAX_WIDTH
+        && height <= MINI_VIEW_MAX_HEIGHT
+        && aspectRatio >= MINI_VIEW_MIN_ASPECT_RATIO,
+      )
+    }
+
     syncMiniView()
     window.addEventListener('resize', syncMiniView)
-    onCleanup(() => window.removeEventListener('resize', syncMiniView))
+    viewport?.addEventListener('resize', syncMiniView)
+
+    onCleanup(() => {
+      window.removeEventListener('resize', syncMiniView)
+      viewport?.removeEventListener('resize', syncMiniView)
+    })
   })
 
   const currentTargetKey = () => {
@@ -107,7 +138,7 @@ export default function App() {
     void refreshActivityState(channelId, currentUserId)
   }
 
-  const transitionToDraft = (matchId: string, currentUserId: string, autoStart: boolean) => {
+  const transitionToDraft = (matchId: string, currentUserId: string, autoStart: boolean, steamLobbyLink: string | null) => {
     setPickerError(null)
 
     const current = state()
@@ -117,11 +148,11 @@ export default function App() {
     const isSameMatch = current.status === 'authenticated' && current.matchId === matchId
     const hasTerminalDraft = draftStore.state?.status === 'complete' || draftStore.state?.status === 'cancelled'
 
-    setState({ status: 'authenticated', matchId, autoStart: nextAutoStart })
-    if (isSameMatch && (connectionStatus() === 'connected' || hasTerminalDraft)) return
+    setState({ status: 'authenticated', matchId, autoStart: nextAutoStart, steamLobbyLink })
+    if (isSameMatch && (isDraftConnectionInFlight() || hasTerminalDraft)) return
 
     resetDraft()
-    connectToRoom(ACTIVITY_HOST, matchId, currentUserId)
+    connectToRoom(PARTY_SOCKET_TARGET, matchId, currentUserId)
   }
 
   const applyLaunchSnapshot = (
@@ -183,7 +214,7 @@ export default function App() {
       return
     }
 
-    transitionToDraft(snapshot.selection.matchId, currentUserId, autoStart)
+    transitionToDraft(snapshot.selection.matchId, currentUserId, autoStart, snapshot.selection.steamLobbyLink)
   }
 
   const refreshActivityState = async (channelId: string, currentUserId: string) => {
@@ -223,7 +254,7 @@ export default function App() {
     stopActivityWatch()
     stopActivitySafetyPoll()
 
-    activityWatch = watchLobbyState(ACTIVITY_HOST, {
+    activityWatch = watchLobbyState(PARTY_SOCKET_TARGET, {
       channelId,
       userId: currentUserId,
       onConnected: () => {
@@ -325,7 +356,21 @@ export default function App() {
           <Show
             when={isMiniView()}
             fallback={(
-              <main class="text-text-primary bg-bg-primary font-sans min-h-screen overflow-y-auto">
+              <main class="text-text-primary bg-bg-primary font-sans min-h-screen overflow-y-auto relative">
+                <Show when={lastResolvedSelection()}>
+                  <button
+                    type="button"
+                    class={cn(
+                      'text-fg-muted border border-border-subtle rounded-md flex h-9 w-9 cursor-pointer transition-colors items-center justify-center z-20 absolute hover:text-fg hover:bg-bg-muted',
+                      isMobileLayout() ? 'top-12 right-4' : 'top-4 right-6',
+                    )}
+                    title="Return"
+                    aria-label="Return"
+                    onClick={() => void restoreLastSelection()}
+                  >
+                    <span class="i-ph-arrow-right-bold text-base" />
+                  </button>
+                </Show>
                 <div class="mx-auto px-6 py-4 max-w-5xl">
                   <TargetPickerPanel
                     options={availableTargets()}
@@ -357,13 +402,13 @@ export default function App() {
             showJoinPending={(state() as Extract<AppState, { status: 'lobby-waiting' }>).joinPending}
             joinEligibility={(state() as Extract<AppState, { status: 'lobby-waiting' }>).joinEligibility}
             onSwitchTarget={openOverview}
-            onLobbyStarted={(matchId) => {
+            onLobbyStarted={(matchId, steamLobbyLink) => {
               const currentUserId = userId()
               if (!currentUserId) {
                 setState({ status: 'error', message: 'Could not identify your Discord user. Reopen the activity.' })
                 return
               }
-              transitionToDraft(matchId, currentUserId, true)
+              transitionToDraft(matchId, currentUserId, true, steamLobbyLink)
             }}
           />
         </Match>
@@ -372,6 +417,7 @@ export default function App() {
           <DraftWithConnection
             matchId={(state() as Extract<AppState, { status: 'authenticated' }>).matchId}
             autoStart={(state() as Extract<AppState, { status: 'authenticated' }>).autoStart}
+            steamLobbyLink={(state() as Extract<AppState, { status: 'authenticated' }>).steamLobbyLink}
             onSwitchTarget={openOverview}
           />
         </Match>
@@ -380,14 +426,28 @@ export default function App() {
   )
 }
 
+function resolvePartySocketTarget(): PartySocketTarget {
+  return {
+    host: typeof window !== 'undefined' ? window.location.host : ACTIVITY_HOST,
+    prefix: 'api/parties',
+    label: 'activity-origin',
+  }
+}
+
 function DraftWithConnection(props: {
   matchId: string
   autoStart: boolean
+  steamLobbyLink: string | null
   onSwitchTarget?: () => void
 }) {
+  const hasDraftState = () => draftStore.state != null
   const hasTerminalState = () => {
     const status = draftStore.state?.status
     return status === 'complete' || status === 'cancelled'
+  }
+  const shouldRenderDraftView = () => {
+    const status = connectionStatus()
+    return status === 'connected' || (status === 'reconnecting' && hasDraftState())
   }
 
   return (
@@ -401,10 +461,38 @@ function DraftWithConnection(props: {
         </main>
       </Match>
 
+      <Match when={shouldRenderDraftView()}>
+        <>
+          <DraftView
+            matchId={props.matchId}
+            autoStart={props.autoStart}
+            steamLobbyLink={props.steamLobbyLink}
+            onSwitchTarget={props.onSwitchTarget}
+          />
+          <Show when={connectionStatus() === 'reconnecting'}>
+            <div class="pointer-events-none fixed bottom-3 left-3 z-50 sm:bottom-4 sm:left-4">
+              <div class="text-xs text-fg px-3 py-1.5 border border-border rounded-full bg-bg-subtle/90 shadow-2xl shadow-black/30 backdrop-blur-sm">
+                Reconnecting...
+              </div>
+            </div>
+          </Show>
+        </>
+      </Match>
+
+      <Match when={connectionStatus() === 'reconnecting'}>
+        <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
+          <div class="text-center">
+            <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
+            <div class="text-sm text-fg-muted">Reconnecting to draft room...</div>
+          </div>
+        </main>
+      </Match>
+
       <Match when={hasTerminalState() && (connectionStatus() === 'error' || connectionStatus() === 'disconnected')}>
         <DraftView
           matchId={props.matchId}
           autoStart={props.autoStart}
+          steamLobbyLink={props.steamLobbyLink}
           onSwitchTarget={props.onSwitchTarget}
         />
       </Match>
@@ -418,14 +506,6 @@ function DraftWithConnection(props: {
             </div>
           </div>
         </main>
-      </Match>
-
-      <Match when={connectionStatus() === 'connected'}>
-        <DraftView
-          matchId={props.matchId}
-          autoStart={props.autoStart}
-          onSwitchTarget={props.onSwitchTarget}
-        />
       </Match>
 
       <Match when={connectionStatus() === 'disconnected'}>

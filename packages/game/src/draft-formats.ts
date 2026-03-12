@@ -1,10 +1,47 @@
-import type { DraftFormat, DraftSeat, DraftStep } from './types.ts'
+import type { DraftFormat, DraftSeat, DraftStep, GameMode } from './types.ts'
 
 const FULL_ROSTER_2V2_PICK_ORDER = [0, 1, 3, 2] as const
 const FULL_ROSTER_3V3_PICK_ORDER = [0, 1, 3, 2, 5, 4] as const
+const FULL_ROSTER_4V4_PICK_ORDER = [0, 1, 3, 2, 5, 4, 7, 6] as const
+const TEAM_BAN_STEP: DraftStep = { action: 'ban', seats: [0, 1], count: 3, timer: 120 }
 
 function createSinglePickStep(seat: number): DraftStep {
   return { action: 'pick', seats: [seat], count: 1, timer: 60 }
+}
+
+function createCaptainPickSteps(counts: readonly number[]): DraftStep[] {
+  return counts.map((count, index) => ({
+    action: 'pick',
+    seats: [index % 2],
+    count,
+    timer: count > 1 ? 90 : 60,
+  }))
+}
+
+function createTeamFormat(config: {
+  id: string
+  name: string
+  gameMode: Extract<GameMode, '2v2' | '3v3' | '4v4'>
+  fullRosterPickOrder: readonly number[]
+  captainPickCounts: readonly number[]
+}): DraftFormat {
+  return {
+    id: config.id,
+    name: config.name,
+    gameMode: config.gameMode,
+    blindBans: true,
+    getSteps(seatCount: number): DraftStep[] {
+      const steps: DraftStep[] = [TEAM_BAN_STEP]
+
+      if (seatCount >= config.fullRosterPickOrder.length) {
+        steps.push(...config.fullRosterPickOrder.map(createSinglePickStep))
+        return steps
+      }
+
+      steps.push(...createCaptainPickSteps(config.captainPickCounts))
+      return steps
+    },
+  }
 }
 
 /**
@@ -14,29 +51,13 @@ function createSinglePickStep(seat: number): DraftStep {
  * - Full rosters pick individually in snake order: A1, B1, B2, A2
  * - Legacy 2-seat rooms keep captain-only pick ownership
  */
-export const default2v2: DraftFormat = {
+export const default2v2 = createTeamFormat({
   id: 'default-2v2',
   name: '2v2',
   gameMode: '2v2',
-  blindBans: true,
-  getSteps(seatCount: number): DraftStep[] {
-    const steps: DraftStep[] = [
-      { action: 'ban', seats: [0, 1], count: 3, timer: 120 },
-    ]
-
-    if (seatCount >= 4) {
-      steps.push(...FULL_ROSTER_2V2_PICK_ORDER.map(createSinglePickStep))
-      return steps
-    }
-
-    steps.push(
-      { action: 'pick', seats: [0], count: 1, timer: 60 },
-      { action: 'pick', seats: [1], count: 2, timer: 90 },
-      { action: 'pick', seats: [0], count: 1, timer: 60 },
-    )
-    return steps
-  },
-}
+  fullRosterPickOrder: FULL_ROSTER_2V2_PICK_ORDER,
+  captainPickCounts: [1, 2, 1],
+})
 
 /**
  * 3v3 Format:
@@ -46,31 +67,29 @@ export const default2v2: DraftFormat = {
  * - Legacy 2-seat rooms keep captain-only pick ownership
  * - Pick order: 1-2-2-1-2-1
  */
-export const default3v3: DraftFormat = {
+export const default3v3 = createTeamFormat({
   id: 'default-3v3',
   name: '3v3',
   gameMode: '3v3',
-  blindBans: true,
-  getSteps(seatCount: number): DraftStep[] {
-    const steps: DraftStep[] = [
-      { action: 'ban', seats: [0, 1], count: 3, timer: 120 },
-    ]
+  fullRosterPickOrder: FULL_ROSTER_3V3_PICK_ORDER,
+  captainPickCounts: [1, 2, 1, 1, 1],
+})
 
-    if (seatCount >= 6) {
-      steps.push(...FULL_ROSTER_3V3_PICK_ORDER.map(createSinglePickStep))
-      return steps
-    }
-
-    steps.push(
-      { action: 'pick', seats: [0], count: 1, timer: 60 },
-      { action: 'pick', seats: [1], count: 2, timer: 90 },
-      { action: 'pick', seats: [0], count: 1, timer: 60 },
-      { action: 'pick', seats: [1], count: 1, timer: 60 },
-      { action: 'pick', seats: [0], count: 1, timer: 60 },
-    )
-    return steps
-  },
-}
+/**
+ * 4v4 Format:
+ * - 3 blind bans per team (simultaneous)
+ * - Captains submit bans (seat 0 = Team A captain, seat 1 = Team B captain)
+ * - Full rosters pick individually in snake order: A1, B1, B2, A2, B3, A3, B4, A4
+ * - Legacy 2-seat rooms keep captain-only pick ownership
+ * - Pick order: 1-2-2-1-2-1-2-1
+ */
+export const default4v4 = createTeamFormat({
+  id: 'default-4v4',
+  name: '4v4',
+  gameMode: '4v4',
+  fullRosterPickOrder: FULL_ROSTER_4V4_PICK_ORDER,
+  captainPickCounts: [1, 2, 1, 1, 1, 1, 1],
+})
 
 /**
  * 1v1 Format:
@@ -124,6 +143,7 @@ export const draftFormats: DraftFormat[] = [
   default1v1,
   default2v2,
   default3v3,
+  default4v4,
 ]
 
 /** Map of format ID to format */
