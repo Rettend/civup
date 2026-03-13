@@ -37,7 +37,8 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
       })
     }
 
-    const providedSecret = resolveHeader(init?.headers, 'X-CivUp-State-Secret')
+    const providedSecret = resolveHeader(init?.headers, 'X-CivUp-Internal-Secret')
+      ?? resolveHeader(init?.headers, 'X-CivUp-State-Secret')
     if (providedSecret !== secret) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,

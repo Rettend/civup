@@ -67,7 +67,7 @@ interface ConfigScreenProps {
   steamLobbyLink?: string | null
   showJoinPending?: boolean
   joinEligibility?: LobbyJoinEligibilitySnapshot
-  onLobbyStarted?: (matchId: string, steamLobbyLink: string | null) => void
+  onLobbyStarted?: (matchId: string, steamLobbyLink: string | null, roomAccessToken: string | null) => void
   onSwitchTarget?: () => void
 }
 
@@ -84,7 +84,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const [banMinutes, setBanMinutes] = createSignal('')
   const [pickMinutes, setPickMinutes] = createSignal('')
   const [leaderPoolInput, setLeaderPoolInput] = createSignal('')
-  const [editingField, setEditingField] = createSignal<'ban' | 'pick' | 'leaderPool' | null>(null)
+  const [steamLobbyInput, setSteamLobbyInput] = createSignal('')
+  const [editingField, setEditingField] = createSignal<'ban' | 'pick' | 'leaderPool' | 'steamLobby' | null>(null)
   const [configMessage, setConfigMessage] = createSignal<string | null>(null)
   const [configMessageTone, setConfigMessageTone] = createSignal<'error' | 'info' | null>(null)
   const [cancelPending, setCancelPending] = createSignal(false)
@@ -444,6 +445,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (editingField() !== 'ban') setBanMinutes(timerSecondsToMinutesInput(config.banTimerSeconds))
     if (editingField() !== 'pick') setPickMinutes(timerSecondsToMinutesInput(config.pickTimerSeconds))
     if (editingField() !== 'leaderPool') setLeaderPoolInput(leaderPoolSizeToInput(config.leaderPoolSize))
+    if (editingField() !== 'steamLobby') setSteamLobbyInput(currentLobby()?.steamLobbyLink ?? '')
   })
 
   createEffect(() => {
@@ -582,14 +584,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const id = userId()
     if (!id) return false
     return currentLobby()?.entries.some(entry => entry?.playerId === id) ?? false
-  }
-
-  const viewerJoinBlockedReason = () => {
-    const currentUserId = userId()
-    const eligibility = props.joinEligibility
-    if (!currentUserId || !eligibility || eligibility.canJoin) return null
-    if (isCurrentUserSlotted()) return null
-    return eligibility.blockedReason ?? 'You cannot join this lobby right now.'
   }
 
   const currentUserLinkedPartySize = () => {
@@ -776,6 +770,43 @@ export function ConfigScreen(props: ConfigScreenProps) {
     }
   }
 
+  const saveSteamLobbyLinkOnBlur = async () => {
+    try {
+      const lobby = currentLobby()
+      const currentUserId = userId()
+      if (!lobby || !currentUserId || !amHost()) return
+      if (lobbyActionPending()) return
+
+      const nextSteamLobbyLink = steamLobbyInput().trim()
+      const normalizedSteamLobbyLink = nextSteamLobbyLink.length > 0 ? nextSteamLobbyLink : null
+      if (normalizedSteamLobbyLink === lobby.steamLobbyLink) {
+        clearConfigMessage()
+        return
+      }
+
+      setLobbyActionPending(true)
+      clearConfigMessage()
+      const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, {
+        banTimerSeconds: timerConfig().banTimerSeconds,
+        pickTimerSeconds: timerConfig().pickTimerSeconds,
+        leaderPoolSize: draftConfig().leaderPoolSize,
+        steamLobbyLink: normalizedSteamLobbyLink,
+        minRole: lobby.minRole,
+      })
+      if (!result.ok) {
+        showErrorMessage(result.error)
+        return
+      }
+
+      applyLobbySnapshot(result.lobby)
+      showInfoMessage(normalizedSteamLobbyLink ? 'Steam lobby link updated.' : 'Steam lobby link cleared.')
+    }
+    finally {
+      setEditingField(null)
+      setLobbyActionPending(false)
+    }
+  }
+
   const handleFillTestPlayers = async () => {
     const lobby = currentLobby()
     const currentUserId = userId()
@@ -953,7 +984,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         return
       }
 
-      props.onLobbyStarted?.(result.matchId, lobby.steamLobbyLink)
+      props.onLobbyStarted?.(result.matchId, lobby.steamLobbyLink, result.roomAccessToken)
       showInfoMessage('Draft room created. Opening draft...')
     }
     finally {
@@ -1179,14 +1210,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
               <div class="p-4 rounded-lg bg-bg-subtle">
                 <div class="text-xs text-fg-subtle tracking-widest font-bold mb-3 uppercase">Players</div>
 
-                <Show when={viewerJoinBlockedReason()}>
-                  {reason => (
-                    <div class="text-sm text-danger mb-3 px-3 py-2 border border-danger/25 rounded-md bg-danger/10">
-                      {reason()}
-                    </div>
-                  )}
-                </Show>
-
                 <Show
                   when={isTeamMode()}
                   fallback={(
@@ -1338,10 +1361,24 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       />
                     </Show>
 
-                    <TextInput
-                      type="number"
-                      label="Ban Timer (minutes)"
-                      min="0"
+                      <TextInput
+                        type="text"
+                        label="Steam Lobby Link"
+                        value={steamLobbyInput()}
+                        placeholder="steam://joinlobby/289070/..."
+                        disabled={lobbyActionPending()}
+                        onFocus={() => setEditingField('steamLobby')}
+                        onInput={(event) => {
+                          clearConfigMessage()
+                          setSteamLobbyInput(event.currentTarget.value)
+                        }}
+                        onBlur={() => void saveSteamLobbyLinkOnBlur()}
+                      />
+
+                      <TextInput
+                        type="number"
+                        label="Ban Timer (minutes)"
+                        min="0"
                       max={String(MAX_TIMER_MINUTES)}
                       step="1"
                       value={banMinutes()}

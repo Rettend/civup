@@ -1,6 +1,7 @@
 import type { DraftWebhookPayload } from '@civup/game'
 import type { Hono } from 'hono'
 import type { Env } from '../env.ts'
+import { verifySignedWebhookRequest } from '@civup/utils'
 import { createDb } from '@civup/db'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed } from '../embeds/match.ts'
 import { clearLobbyMappings } from '../services/activity/index.ts'
@@ -12,17 +13,19 @@ import { createStateStore } from '../services/state/store.ts'
 export function registerWebhookRoutes(app: Hono<Env>) {
   app.post('/api/webhooks/draft-complete', async (c) => {
     const kv = createStateStore(c.env)
-    const expectedSecret = c.env.CIVUP_SECRET
-    if (expectedSecret) {
-      const providedSecret = c.req.header('X-CivUp-Webhook-Secret')
-      if (providedSecret !== expectedSecret) {
-        return c.json({ error: 'Unauthorized webhook' }, 401)
-      }
+    const expectedSecret = c.env.CIVUP_SECRET?.trim() ?? ''
+    if (expectedSecret.length === 0) {
+      return c.json({ error: 'Webhook auth is not configured' }, 503)
+    }
+
+    const payloadText = await c.req.text()
+    if (!(await verifySignedWebhookRequest(c.req.raw.headers, expectedSecret, payloadText))) {
+      return c.json({ error: 'Unauthorized webhook' }, 401)
     }
 
     let payload: unknown
     try {
-      payload = await c.req.json()
+      payload = JSON.parse(payloadText)
     }
     catch {
       return c.json({ error: 'Invalid JSON payload' }, 400)

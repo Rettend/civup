@@ -70,7 +70,7 @@ describe('lobby routes', () => {
 
     const removeResponse = await app.request('/api/lobby/2v2/remove', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthHeaders('host', 'Host'),
       body: JSON.stringify({ userId: 'host', slot: 1, lobbyId: lobby.id }),
     }, buildEnv(kv))
     expect(removeResponse.status).toBe(200)
@@ -80,7 +80,7 @@ describe('lobby routes', () => {
 
     const configResponse = await app.request('/api/lobby/2v2/config', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthHeaders('host', 'Host'),
       body: JSON.stringify({
         userId: 'host',
         lobbyId: lobby.id,
@@ -130,7 +130,7 @@ describe('lobby routes', () => {
 
     const joinResponse = await app.request('/api/lobby/2v2/place', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthHeaders('pleb', 'Pleb'),
       body: JSON.stringify({
         userId: 'pleb',
         lobbyId: lobby.id,
@@ -143,6 +143,73 @@ describe('lobby routes', () => {
     expect(joinResponse.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
     expect(updatedLobby?.memberPlayerIds).toEqual(['host', 'pleb'])
+  })
+
+  test('config route rejects spoofed activity user IDs', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    const response = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('attacker', 'Attacker'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        banTimerSeconds: null,
+        pickTimerSeconds: null,
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(403)
+  })
+
+  test('config route updates the Steam lobby link for the authenticated host', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        banTimerSeconds: null,
+        pickTimerSeconds: null,
+        steamLobbyLink: 'steam://joinlobby/289070/12345678901234567/76561198000000000',
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
   })
 
   test('removing yourself from a slot clears queue state so you can rejoin', async () => {
@@ -184,7 +251,7 @@ describe('lobby routes', () => {
 
     const removeResponse = await app.request('/api/lobby/1v1/remove', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthHeaders('pleb', 'Pleb'),
       body: JSON.stringify({ userId: 'pleb', slot: 1, lobbyId: lobby.id }),
     }, buildEnv(kv))
     expect(removeResponse.status).toBe(200)
@@ -194,7 +261,7 @@ describe('lobby routes', () => {
 
     const rejoinResponse = await app.request('/api/lobby/1v1/place', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthHeaders('pleb', 'Pleb'),
       body: JSON.stringify({
         userId: 'pleb',
         lobbyId: lobby.id,
@@ -248,12 +315,12 @@ describe('lobby routes', () => {
 
     const removeResponse = await app.request('/api/lobby/1v1/remove', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthHeaders('pleb', 'Pleb'),
       body: JSON.stringify({ userId: 'pleb', slot: 1, lobbyId: lobby.id }),
     }, buildEnv(kv))
     expect(removeResponse.status).toBe(200)
 
-    const snapshot = await buildActivityLaunchSnapshot('token', kv, lobby.channelId, 'pleb')
+    const snapshot = await buildActivityLaunchSnapshot('token', 'secret', kv, lobby.channelId, 'pleb')
     expect(snapshot.selection?.kind).toBe('lobby')
     if (snapshot.selection?.kind !== 'lobby') return
     expect(snapshot.selection.lobby.id).toBe(lobby.id)
@@ -268,5 +335,15 @@ function buildEnv(kv: KVNamespace) {
     DISCORD_APPLICATION_ID: 'app',
     DISCORD_PUBLIC_KEY: 'key',
     DISCORD_TOKEN: 'token',
+    CIVUP_SECRET: 'secret',
   } as any
+}
+
+function buildAuthHeaders(userId: string, displayName = userId): HeadersInit {
+  return {
+    'Content-Type': 'application/json',
+    'X-CivUp-Internal-Secret': 'secret',
+    'X-CivUp-Activity-User-Id': userId,
+    'X-CivUp-Activity-Display-Name': displayName,
+  }
 }
