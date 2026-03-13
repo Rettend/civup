@@ -469,9 +469,9 @@ export async function updateLobbyConfig(
   lobbyId: string,
   userId: string,
   draftConfig: {
-    banTimerSeconds: number | null
-    pickTimerSeconds: number | null
-    leaderPoolSize: number | null
+    banTimerSeconds?: number | null
+    pickTimerSeconds?: number | null
+    leaderPoolSize?: number | null
     steamLobbyLink?: string | null
     minRole?: CompetitiveTier | null
   },

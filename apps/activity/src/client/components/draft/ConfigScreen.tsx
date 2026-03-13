@@ -84,8 +84,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const [banMinutes, setBanMinutes] = createSignal('')
   const [pickMinutes, setPickMinutes] = createSignal('')
   const [leaderPoolInput, setLeaderPoolInput] = createSignal('')
-  const [steamLobbyInput, setSteamLobbyInput] = createSignal('')
-  const [editingField, setEditingField] = createSignal<'ban' | 'pick' | 'leaderPool' | 'steamLobby' | null>(null)
+  const [editingField, setEditingField] = createSignal<'ban' | 'pick' | 'leaderPool' | null>(null)
   const [configMessage, setConfigMessage] = createSignal<string | null>(null)
   const [configMessageTone, setConfigMessageTone] = createSignal<'error' | 'info' | null>(null)
   const [cancelPending, setCancelPending] = createSignal(false)
@@ -445,7 +444,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (editingField() !== 'ban') setBanMinutes(timerSecondsToMinutesInput(config.banTimerSeconds))
     if (editingField() !== 'pick') setPickMinutes(timerSecondsToMinutesInput(config.pickTimerSeconds))
     if (editingField() !== 'leaderPool') setLeaderPoolInput(leaderPoolSizeToInput(config.leaderPoolSize))
-    if (editingField() !== 'steamLobby') setSteamLobbyInput(currentLobby()?.steamLobbyLink ?? '')
   })
 
   createEffect(() => {
@@ -770,27 +768,21 @@ export function ConfigScreen(props: ConfigScreenProps) {
     }
   }
 
-  const saveSteamLobbyLinkOnBlur = async () => {
+  const handleSaveSteamLink = async (link: string | null) => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || !amHost()) return
+    if (lobbyActionPending()) return
+    if (link === lobby.steamLobbyLink) return
+
+    setLobbyActionPending(true)
+    clearConfigMessage()
     try {
-      const lobby = currentLobby()
-      const currentUserId = userId()
-      if (!lobby || !currentUserId || !amHost()) return
-      if (lobbyActionPending()) return
-
-      const nextSteamLobbyLink = steamLobbyInput().trim()
-      const normalizedSteamLobbyLink = nextSteamLobbyLink.length > 0 ? nextSteamLobbyLink : null
-      if (normalizedSteamLobbyLink === lobby.steamLobbyLink) {
-        clearConfigMessage()
-        return
-      }
-
-      setLobbyActionPending(true)
-      clearConfigMessage()
       const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, {
         banTimerSeconds: timerConfig().banTimerSeconds,
         pickTimerSeconds: timerConfig().pickTimerSeconds,
         leaderPoolSize: draftConfig().leaderPoolSize,
-        steamLobbyLink: normalizedSteamLobbyLink,
+        steamLobbyLink: link,
         minRole: lobby.minRole,
       })
       if (!result.ok) {
@@ -799,10 +791,9 @@ export function ConfigScreen(props: ConfigScreenProps) {
       }
 
       applyLobbySnapshot(result.lobby)
-      showInfoMessage(normalizedSteamLobbyLink ? 'Steam lobby link updated.' : 'Steam lobby link cleared.')
+      showInfoMessage(link ? 'Steam lobby link updated.' : 'Steam lobby link cleared.')
     }
     finally {
-      setEditingField(null)
       setLobbyActionPending(false)
     }
   }
@@ -1191,6 +1182,9 @@ export function ConfigScreen(props: ConfigScreenProps) {
           </Show>
           <SteamLobbyButton
             steamLobbyLink={steamLobbyLink()}
+            isHost={amHost()}
+            onSaveSteamLink={isLobbyMode() ? handleSaveSteamLink : undefined}
+            savePending={lobbyActionPending()}
             class={cn(
               'z-20 absolute',
               isMobileLayout() ? 'top-12 left-4 h-9 w-9' : 'top-4 left-6 h-9 w-9',
@@ -1360,20 +1354,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
                         onBlur={() => void saveConfigOnBlur()}
                       />
                     </Show>
-
-                      <TextInput
-                        type="text"
-                        label="Steam Lobby Link"
-                        value={steamLobbyInput()}
-                        placeholder="steam://joinlobby/289070/..."
-                        disabled={lobbyActionPending()}
-                        onFocus={() => setEditingField('steamLobby')}
-                        onInput={(event) => {
-                          clearConfigMessage()
-                          setSteamLobbyInput(event.currentTarget.value)
-                        }}
-                        onBlur={() => void saveSteamLobbyLinkOnBlur()}
-                      />
 
                       <TextInput
                         type="number"
