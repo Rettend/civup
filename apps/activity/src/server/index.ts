@@ -1,6 +1,19 @@
-import { isDev, normalizeHost } from '@civup/utils'
+import {
+  buildDiscordAvatarUrl,
+  CIVUP_ACTIVITY_AVATAR_URL_HEADER,
+  CIVUP_ACTIVITY_SESSION_HEADER,
+  CIVUP_ACTIVITY_SESSION_QUERY_PARAM,
+  CIVUP_ACTIVITY_DISPLAY_NAME_HEADER,
+  CIVUP_ACTIVITY_USER_ID_HEADER,
+  CIVUP_INTERNAL_SECRET_HEADER,
+  createActivitySession,
+  isDev,
+  normalizeHost,
+  verifyActivitySession,
+} from '@civup/utils'
 
 interface Env {
+  CIVUP_SECRET?: string
   DISCORD_CLIENT_ID: string
   DISCORD_CLIENT_SECRET: string
   BOT?: Fetcher
@@ -25,6 +38,19 @@ interface DiscordTokenSuccessResponse {
 interface DiscordTokenErrorResponse {
   error?: string
   error_description?: string
+}
+
+interface DiscordUserResponse {
+  id?: string
+  username?: string
+  global_name?: string | null
+  avatar?: string | null
+}
+
+interface ActivityProxySession {
+  userId: string
+  displayName: string | null
+  avatarUrl: string | null
 }
 
 export default {
@@ -91,18 +117,21 @@ async function handleDevLog(request: Request): Promise<Response> {
 async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<Response> {
   let targetUrl = ''
   try {
-    const targetPath = `${url.pathname}${url.search}`
+    const session = await requireActivitySession(request, env)
+    if (session instanceof Response) return session
+
+    const targetPath = buildTargetPath(url)
     let response: Response
     const botService = env.BOT
 
     if (botService && shouldUseBotServiceBinding(request, env)) {
       targetUrl = `service:civup-bot${targetPath}`
-      response = await botService.fetch(buildProxyRequest(`https://civup-bot.internal${targetPath}`, request))
+      response = await botService.fetch(buildProxyRequest(`https://civup-bot.internal${targetPath}`, request, env, session))
     }
     else {
       const botHost = normalizeHost(env.BOT_HOST, 'http://localhost:8787')
       targetUrl = `${botHost}${targetPath}`
-      response = await fetch(buildProxyRequest(targetUrl, request))
+      response = await fetch(buildProxyRequest(targetUrl, request, env, session))
     }
 
     const body = await response.text()
@@ -140,10 +169,13 @@ function shouldUseBotServiceBinding(request: Request, env: Env): boolean {
 async function handlePartyProxy(request: Request, url: URL, env: Env): Promise<Response> {
   let targetUrl = ''
   try {
+    const session = await requireActivitySession(request, env)
+    if (session instanceof Response) return session
+
     const partyHost = normalizeHost(env.PARTY_HOST, 'http://localhost:1999')
     const targetPath = url.pathname.replace(/^\/api\/parties/, '/parties')
-    targetUrl = `${partyHost}${targetPath}${url.search}`
-    return fetch(buildProxyRequest(targetUrl, request))
+    targetUrl = `${partyHost}${buildTargetPath(url, targetPath)}`
+    return fetch(buildProxyRequest(targetUrl, request, env, session))
   }
   catch (err) {
     console.error('Party proxy error:', { targetUrl, err })
@@ -151,14 +183,20 @@ async function handlePartyProxy(request: Request, url: URL, env: Env): Promise<R
   }
 }
 
-function buildProxyRequest(targetUrl: string, request: Request): Request {
+function buildProxyRequest(targetUrl: string, request: Request, env: Env, session: ActivityProxySession): Request {
   const method = request.method.toUpperCase()
+  const internalSecret = env.CIVUP_SECRET?.trim() ?? ''
 
   const headers = new Headers()
-  for (const name of ['accept', 'accept-language', 'authorization', 'content-type', 'user-agent']) {
+  for (const name of ['accept', 'accept-language', 'content-type', 'user-agent']) {
     const value = request.headers.get(name)
     if (value) headers.set(name, value)
   }
+
+  headers.set(CIVUP_INTERNAL_SECRET_HEADER, internalSecret)
+  headers.set(CIVUP_ACTIVITY_USER_ID_HEADER, session.userId)
+  if (session.displayName) headers.set(CIVUP_ACTIVITY_DISPLAY_NAME_HEADER, encodeURIComponent(session.displayName))
+  if (session.avatarUrl) headers.set(CIVUP_ACTIVITY_AVATAR_URL_HEADER, session.avatarUrl)
 
   const upgrade = request.headers.get('upgrade')
   if (upgrade) {
@@ -205,9 +243,13 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
     }
 
     const requestUrl = new URL(request.url)
-    const redirectUri = typeof body.redirectUri === 'string' && body.redirectUri.trim().length > 0
-      ? body.redirectUri.trim()
-      : requestUrl.origin
+    const redirectUri = requestUrl.origin
+
+    const internalSecret = env.CIVUP_SECRET?.trim() ?? ''
+    if (internalSecret.length === 0) {
+      console.error('Activity token exchange blocked because CIVUP_SECRET is missing')
+      return json({ error: 'Activity auth is not configured' }, 503)
+    }
 
     const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
       method: 'POST',
@@ -268,15 +310,72 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
       return json({ error: 'Token exchange returned no access token' }, 502)
     }
 
-    return json({
+    const userResponse = await fetch('https://discord.com/api/v10/users/@me', {
+      headers: {
+        Authorization: `Bearer ${payload.access_token}`,
+      },
+    })
+
+    if (!userResponse.ok) {
+      const detail = await userResponse.text()
+      console.error('Discord user lookup failed:', {
+        status: userResponse.status,
+        detail,
+      })
+      return json({ error: 'Failed to verify Discord user' }, 502)
+    }
+
+    const discordUser = await userResponse.json<DiscordUserResponse>()
+    const userId = typeof discordUser.id === 'string' ? discordUser.id.trim() : ''
+    if (!userId) {
+      console.error('Discord user lookup returned no user ID')
+      return json({ error: 'Failed to verify Discord user' }, 502)
+    }
+
+    const sessionToken = await createActivitySession(internalSecret, {
+      userId,
+      displayName: discordUser.global_name ?? discordUser.username ?? null,
+      avatarUrl: buildDiscordAvatarUrl(userId, discordUser.avatar ?? null),
+    })
+
+    const response = json({
       access_token: payload.access_token,
       expires_in: payload.expires_in,
+      activity_session_token: sessionToken,
+      activity_session_expires_in: 8 * 60 * 60,
     })
+    response.headers.set('Cache-Control', 'no-store')
+    return response
   }
   catch (err) {
     console.error('Token exchange error:', err)
     return json({ error: 'Internal server error' }, 500)
   }
+}
+
+async function requireActivitySession(request: Request, env: Env): Promise<ActivityProxySession | Response> {
+  const requestUrl = new URL(request.url)
+  const token = request.headers.get(CIVUP_ACTIVITY_SESSION_HEADER)
+    ?? requestUrl.searchParams.get(CIVUP_ACTIVITY_SESSION_QUERY_PARAM)
+  const session = await verifyActivitySession(env.CIVUP_SECRET, token)
+  if (!session) {
+    const response = json({ error: 'Unauthorized activity session' }, 401)
+    response.headers.set('Cache-Control', 'no-store')
+    return response
+  }
+
+  return {
+    userId: session.sub,
+    displayName: session.name || null,
+    avatarUrl: session.avatarUrl,
+  }
+}
+
+function buildTargetPath(url: URL, pathname = url.pathname): string {
+  const searchParams = new URLSearchParams(url.search)
+  searchParams.delete(CIVUP_ACTIVITY_SESSION_QUERY_PARAM)
+  const search = searchParams.toString()
+  return `${pathname}${search ? `?${search}` : ''}`
 }
 
 function json(data: unknown, status = 200): Response {

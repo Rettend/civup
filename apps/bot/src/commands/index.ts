@@ -6,4 +6,5 @@ export { command_match, component_draft_activity, component_match_join } from '.
 export { command_mod } from './mod.ts'
 export { command_ping } from './ping.ts'
 export { command_rank } from './rank.ts'
+export { command_ranked } from './ranked.ts'
 export { command_stats } from './stats.ts'

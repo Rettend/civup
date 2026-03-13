@@ -28,38 +28,38 @@ export default defineConfig({
       mono: '\'JetBrains Mono\', \'Fira Code\', monospace',
     },
     colors: {
-      // ── Surface / Background ─────────────────────────────
+      // ── Background ───────────────────────────────────────
       bg: {
         DEFAULT: 'var(--bg)',
         subtle: 'var(--bg-subtle)',
         muted: 'var(--bg-muted)',
         elevated: 'var(--bg-elevated)',
       },
-      // ── Foreground / Text ────────────────────────────────
+      // ── Foreground / Text ───────────────────────────────
       fg: {
         DEFAULT: 'var(--fg)',
         muted: 'var(--fg-muted)',
         subtle: 'var(--fg-subtle)',
       },
-      // ── Border ───────────────────────────────────────────
+      // ── Border ────────────────────────────────────────────
       border: {
         DEFAULT: 'var(--border)',
         subtle: 'var(--border-subtle)',
         hover: 'var(--border-hover)',
       },
-      // ── Accent: Gold ─────────────────────────────────────
+      // ── Accent: Gold ──────────────────────────────────────
       accent: {
         DEFAULT: 'var(--accent)',
         muted: 'var(--accent-muted)',
         subtle: 'var(--accent-subtle)',
       },
-      // ── Semantic: Danger / Ban ───────────────────────────
+      // ── Danger / Ban ──────────────────────────────────────
       danger: {
         DEFAULT: 'var(--danger)',
         muted: 'var(--danger-muted)',
         subtle: 'var(--danger-subtle)',
       },
-      // ── Semantic: Info / Teal ────────────────────────────
+      // ── Info / Teal ───────────────────────────────────────
       info: {
         DEFAULT: 'var(--info)',
         muted: 'var(--info-muted)',
@@ -99,17 +99,11 @@ export default defineConfig({
     },
   } satisfies PresetWind4Theme,
   shortcuts: {
-    // ── Headings ─────────────────────────────────────────
     'text-heading': 'font-bold uppercase tracking-wider',
-
-    // ── Focus states ─────────────────────────────────────
     'focus-ring': 'outline-none focus-visible:(ring-2 ring-accent/50 ring-offset-2 ring-offset-bg)',
-
-    // ── Panel glow (cards, overlays) ─────────────────────
     'panel-glow': 'shadow-[0_0_20px_var(--accent-subtle),0_0_40px_var(--accent-subtle),inset_0_1px_0_var(--accent-muted)]',
   },
   rules: [
-    // Fill mode for animations
     ['animate-fill-both', { 'animation-fill-mode': 'both' }],
     ['animate-fill-forwards', { 'animation-fill-mode': 'forwards' }],
   ],
@@ -117,62 +111,42 @@ export default defineConfig({
     {
       getCSS: () => {
         return minify`
-          /* ────────────────────────────────────────────────────
-             CivUp Design Tokens — Dark Theme
-             
-             Inspired by npmx.dev's minimal black & white palette,
-             with a gold accent for competitive gaming warmth.
-             
-             All colors flow through CSS custom properties so the
-             entire palette can be swapped by overriding :root.
-             ──────────────────────────────────────────────────── */
-
           :root {
-            /* ── Surface / Background ────────────────────── */
             --bg:           #09090b;
             --bg-subtle:    #161619;
             --bg-muted:     #18181b;
             --bg-elevated:  #1e1e22;
 
-            /* ── Foreground / Text ───────────────────────── */
             --fg:           #fafafa;
             --fg-muted:     #a1a1aa;
             --fg-subtle:    #71717a;
 
-            /* ── Border ──────────────────────────────────── */
             --border:        rgba(255, 255, 255, 0.14);
             --border-subtle: rgba(255, 255, 255, 0.08);
             --border-hover:  rgba(255, 255, 255, 0.22);
 
-            /* ── Accent: Gold ────────────────────────────── */
             --accent:        #c8aa6e;
             --accent-muted:  rgba(200, 170, 110, 0.25);
             --accent-subtle: rgba(200, 170, 110, 0.08);
 
-            /* ── Semantic: Danger / Ban ───────────────────── */
             --danger:        #e84057;
             --danger-muted:  rgba(232, 64, 87, 0.25);
             --danger-subtle: rgba(232, 64, 87, 0.08);
 
-            /* ── Semantic: Info / Teal ───────────────────── */
             --info:          #0ac8b9;
             --info-muted:    rgba(10, 200, 185, 0.25);
 
-            /* ── Phase-specific backgrounds ──────────────── */
             --phase-ban-bg:  #1a0a0e;
             --phase-pick-bg: var(--bg-subtle);
 
-            /* ── Glow / FX accents ───────────────────────── */
             --glow-gold:     rgba(200, 170, 110, 0.55);
             --glow-gold-dim: rgba(200, 170, 110, 0.14);
             --glow-red:      rgba(232, 64, 87, 0.30);
             --glow-red-dim:  rgba(232, 64, 87, 0.14);
 
-            /* ── Placement badge ─────────────────────────── */
             --badge-gold-border: rgba(244, 220, 168, 0.45);
             --badge-gold-text:   #17130d;
 
-            /* ── Slot glow (set per-slot via classList) ──── */
             --slot-glow: var(--accent);
           }
 
@@ -196,10 +170,7 @@ export default defineConfig({
           ::-webkit-scrollbar-thumb { background: var(--fg-subtle); border-radius: 2px; }
           ::-webkit-scrollbar-thumb:hover { background: var(--fg-muted); }
 
-          /* ── Legacy animation classes ──────────────────── */
-          /* These are gradually being replaced by theme animations  
-             but we keep them for backward compatibility during migration. */
-
+          /* TODO: remove these and use theme animations */
           @keyframes civup-fade-in {
             from { opacity: 0; }
             to { opacity: 1; }

@@ -74,6 +74,42 @@ export interface RankedRoleSyncResult extends RankedRolePreview {
   appliedDiscordChanges: number
 }
 
+export interface RankedPreviewBandSummary {
+  tier: CompetitiveTier
+  roleId: string | null
+  isFallback: boolean
+  earnPercent: number | null
+  cumulativeEarnPercent: number
+  keepOverallPercent: number | null
+}
+
+export interface RankedPreviewModeTierSummary {
+  tier: CompetitiveTier
+  roleId: string | null
+  isFallback: boolean
+  locked: boolean
+  unlockMinPlayers: number | null
+  playersNeededToUnlock: number | null
+  cutoffRank: number | null
+  cutoffScore: number | null
+}
+
+export interface RankedPreviewModeSummary {
+  mode: LeaderboardMode
+  rankedCount: number
+  tiers: RankedPreviewModeTierSummary[]
+}
+
+export interface RankedPreviewSummary {
+  guildId: string
+  evaluatedAt: number
+  config: RankedRoleConfig
+  bands: RankedPreviewBandSummary[]
+  modes: RankedPreviewModeSummary[]
+  unrankedCount: number
+  dirty: boolean
+}
+
 interface RankedRoleSyncOptions {
   db: Database
   kv: KVNamespace
@@ -125,6 +161,8 @@ interface LadderSnapshots {
 interface RankedRolePreviewState {
   preview: RankedRolePreview
   ratings: RatingSnapshotRow[]
+  config: RankedRoleConfig
+  laddersByMode: Map<LeaderboardMode, LadderSnapshots>
 }
 
 interface RankedTierThreshold {
@@ -166,6 +204,98 @@ function buildRankedTierThresholds(config: RankedRoleConfig): RankedTierThreshol
   })
 }
 
+function buildRankedPreviewBands(config: RankedRoleConfig): RankedPreviewBandSummary[] {
+  const tierCount = getRankedRoleTierCount(config)
+  if (tierCount <= 0) return []
+
+  const bands: RankedPreviewBandSummary[] = []
+  let cumulativeEarnPercent = 0
+
+  for (const threshold of buildRankedTierThresholds(config)) {
+    cumulativeEarnPercent += threshold.earnPercent
+    bands.push({
+      tier: threshold.tier,
+      roleId: getConfiguredRankedRoleId(config, threshold.tier),
+      isFallback: false,
+      earnPercent: threshold.earnPercent,
+      cumulativeEarnPercent,
+      keepOverallPercent: threshold.keepOverallPercent,
+    })
+  }
+
+  const fallbackTier = getLowestRankedRoleTier(config) ?? createRankedRoleTierId(tierCount)
+  bands.push({
+    tier: fallbackTier,
+    roleId: getConfiguredRankedRoleId(config, fallbackTier),
+    isFallback: true,
+    earnPercent: null,
+    cumulativeEarnPercent: 1,
+    keepOverallPercent: null,
+  })
+
+  return bands
+}
+
+function buildRankedPreviewModeSummary(
+  mode: LeaderboardMode,
+  config: RankedRoleConfig,
+  ladders: LadderSnapshots | undefined,
+): RankedPreviewModeSummary {
+  const rankedCount = ladders?.scores.size ?? 0
+  if (rankedCount <= 0) {
+    return {
+      mode,
+      rankedCount: 0,
+      tiers: [],
+    }
+  }
+
+  const cutoffByTier = new Map<CompetitiveTier, { rank: number, score: number }>()
+  for (const assignment of ladders?.earn.values() ?? []) {
+    const current = cutoffByTier.get(assignment.tier)
+    if (!current || assignment.overallRank > current.rank) {
+      cutoffByTier.set(assignment.tier, {
+        rank: assignment.overallRank,
+        score: assignment.score,
+      })
+    }
+  }
+
+  const tiers: RankedPreviewModeTierSummary[] = []
+  for (const threshold of buildRankedTierThresholds(config)) {
+    const locked = rankedCount < threshold.unlockMinPlayers
+    const cutoff = locked ? null : cutoffByTier.get(threshold.tier)
+    tiers.push({
+      tier: threshold.tier,
+      roleId: getConfiguredRankedRoleId(config, threshold.tier),
+      isFallback: false,
+      locked,
+      unlockMinPlayers: threshold.unlockMinPlayers,
+      playersNeededToUnlock: locked ? threshold.unlockMinPlayers - rankedCount : null,
+      cutoffRank: cutoff?.rank ?? null,
+      cutoffScore: cutoff?.score ?? null,
+    })
+  }
+
+  const fallbackTier = getLowestRankedRoleTier(config) ?? createRankedRoleTierId(getRankedRoleTierCount(config))
+  tiers.push({
+    tier: fallbackTier,
+    roleId: getConfiguredRankedRoleId(config, fallbackTier),
+    isFallback: true,
+    locked: false,
+    unlockMinPlayers: null,
+    playersNeededToUnlock: null,
+    cutoffRank: null,
+    cutoffScore: null,
+  })
+
+  return {
+    mode,
+    rankedCount,
+    tiers,
+  }
+}
+
 function interpolatePositiveAnchors(values: readonly number[], progress: number): number {
   if (values.length === 0) return 0
   if (values.length === 1) return values[0] ?? 0
@@ -183,6 +313,27 @@ function interpolatePositiveAnchors(values: readonly number[], progress: number)
 
 export async function previewRankedRoles(options: RankedRoleSyncOptions): Promise<RankedRolePreview> {
   return await buildRankedRolePreview(options)
+}
+
+export async function summarizeRankedPreview(options: RankedRoleSyncOptions & {
+  mode?: LeaderboardMode
+}): Promise<RankedPreviewSummary> {
+  const state = await buildRankedRolePreviewState({
+    ...options,
+    includePlayerIdentities: false,
+  })
+  const dirtyState = await getRankedRolesDirtyState(options.kv)
+  const modes = options.mode ? [options.mode] : LEADERBOARD_MODES
+
+  return {
+    guildId: options.guildId,
+    evaluatedAt: state.preview.evaluatedAt,
+    config: state.config,
+    bands: buildRankedPreviewBands(state.config),
+    modes: modes.map(mode => buildRankedPreviewModeSummary(mode, state.config, state.laddersByMode.get(mode))),
+    unrankedCount: state.preview.unrankedCount,
+    dirty: dirtyState != null,
+  }
 }
 
 export async function syncRankedRoles(options: RankedRoleSyncOptions): Promise<RankedRoleSyncResult> {
@@ -502,6 +653,8 @@ async function buildRankedRolePreviewState({
       distribution,
     },
     ratings,
+    config,
+    laddersByMode,
   }
 }
 
