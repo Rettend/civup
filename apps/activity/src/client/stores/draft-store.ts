@@ -1,5 +1,10 @@
-import type { DraftEvent, DraftState, DraftStep } from '@civup/game'
+import type { DraftEvent, DraftPreviewState, DraftState, DraftStep } from '@civup/game'
 import { createStore, produce } from 'solid-js/store'
+
+const EMPTY_DRAFT_PREVIEWS: DraftPreviewState = {
+  bans: {},
+  picks: {},
+}
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -18,6 +23,10 @@ export interface DraftStore {
   lastEvents: DraftEvent[]
   /** Local optimistic picks keyed by seat index */
   optimisticSeatPicks: Record<number, string>
+  /** Server-authoritative tentative selections visible to this client */
+  previews: DraftPreviewState
+  /** Increments whenever the socket receives a fresh init payload. */
+  initVersion: number
 }
 
 // ── Store ──────────────────────────────────────────────────
@@ -30,6 +39,8 @@ const [draftStore, setDraftStore] = createStore<DraftStore>({
   completedAt: null,
   lastEvents: [],
   optimisticSeatPicks: {},
+  previews: EMPTY_DRAFT_PREVIEWS,
+  initVersion: 0,
 })
 
 export { draftStore }
@@ -42,7 +53,9 @@ export function initDraft(
   seatIndex: number | null,
   timerEndsAt: number | null,
   completedAt: number | null,
+  previews: DraftPreviewState,
 ) {
+  const nextInitVersion = draftStore.initVersion + 1
   setDraftStore({
     state,
     hostId,
@@ -51,6 +64,8 @@ export function initDraft(
     completedAt,
     lastEvents: [],
     optimisticSeatPicks: {},
+    previews,
+    initVersion: nextInitVersion,
   })
 }
 
@@ -63,6 +78,8 @@ export function resetDraft() {
     completedAt: null,
     lastEvents: [],
     optimisticSeatPicks: {},
+    previews: EMPTY_DRAFT_PREVIEWS,
+    initVersion: 0,
   })
 }
 
@@ -72,6 +89,7 @@ export function updateDraft(
   events: DraftEvent[],
   timerEndsAt: number | null,
   completedAt: number | null,
+  previews: DraftPreviewState,
 ) {
   setDraftStore(produce((s) => {
     s.state = state
@@ -80,7 +98,12 @@ export function updateDraft(
     s.completedAt = completedAt
     s.lastEvents = events
     s.optimisticSeatPicks = {}
+    s.previews = previews
   }))
+}
+
+export function updateDraftPreviews(previews: DraftPreviewState) {
+  setDraftStore('previews', previews)
 }
 
 /** Optimistically show a pick for this client's seat until server update arrives. */
@@ -105,6 +128,28 @@ export function setOptimisticSeatPick(civId: string): void {
 
 export function getOptimisticSeatPick(seatIndex: number): string | null {
   return draftStore.optimisticSeatPicks[seatIndex] ?? null
+}
+
+export function getPreviewPicksForSeat(seatIndex: number): string[] {
+  return draftStore.previews.picks[seatIndex] ?? []
+}
+
+export function getPreviewPickForSeat(seatIndex: number): string | null {
+  return getPreviewPicksForSeat(seatIndex)[0] ?? null
+}
+
+export function seatHasLockedPick(seatIndex: number): boolean {
+  return draftStore.state?.picks.some(pick => pick.seatIndex === seatIndex) ?? false
+}
+
+export function canManagePickQueue(): boolean {
+  const s = draftStore.state
+  const seat = draftStore.seatIndex
+  if (!s || s.status !== 'active' || seat == null) return false
+
+  const step = s.steps[s.currentStepIndex]
+  if (!step || step.action !== 'pick') return false
+  return !seatHasLockedPick(seat)
 }
 
 // ── Derived Helpers ────────────────────────────────────────

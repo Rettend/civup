@@ -165,6 +165,12 @@ export interface DraftState {
   pendingBlindBans: DraftSelection[]
 }
 
+/** Server-authoritative tentative selections used for timeout fallback and teammate previews. */
+export interface DraftPreviewState {
+  bans: Record<number, string[]>
+  picks: Record<number, string[]>
+}
+
 /** Actions that can be applied to a draft */
 export type DraftInput
   = | { type: 'START' }
