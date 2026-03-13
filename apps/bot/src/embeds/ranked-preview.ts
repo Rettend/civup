@@ -5,24 +5,33 @@ import { formatRankedRoleSlotLabel } from '../services/ranked/roles.ts'
 
 const RANKED_PREVIEW_COLOR = 0xC8AA6E
 
-export function rankedPreviewEmbed(summary: RankedPreviewSummary): Embed {
-  const embed = new Embed()
-    .title('Ranked Roles')
-    .color(RANKED_PREVIEW_COLOR)
-    .footer({ text: summary.dirty ? 'Pending ranked sync' : 'Up to date' })
+export function rankedPreviewEmbeds(summary: RankedPreviewSummary): Embed[] {
+  const embeds: Embed[] = [
+    new Embed()
+      .title('Ranked Roles')
+      .color(RANKED_PREVIEW_COLOR)
+      .fields(...buildConfiguredBandFields(summary)),
+  ]
 
-  const fields: Array<{ name: string, value: string, inline?: boolean }> = []
+  const modeEmbeds = summary.modes.map((mode) => {
+    const embed = new Embed()
+      .title(`${formatLeaderboardModeLabel(mode.mode, mode.mode)} - ${mode.rankedCount} ranked`)
+      .color(RANKED_PREVIEW_COLOR)
 
-  fields.push(...buildConfiguredBandFields(summary))
-
-  if (summary.modes.length > 0) {
-    for (const mode of summary.modes) {
-      fields.push(...buildModeCutoffFields(mode))
+    if (mode.rankedCount <= 0 || mode.tiers.length === 0) {
+      embed.description('No ranked players yet.')
+      return embed
     }
-  }
 
-  embed.fields(...fields)
-  return embed
+    embed.fields(...buildModeCutoffFields(mode))
+    return embed
+  })
+
+  const lastEmbed = modeEmbeds[modeEmbeds.length - 1] ?? embeds[0]
+  lastEmbed?.footer({ text: summary.dirty ? 'Pending ranked sync' : 'Up to date' })
+
+  embeds.push(...modeEmbeds)
+  return embeds
 }
 
 function buildConfiguredBandFields(summary: RankedPreviewSummary): Array<{ name: string, value: string, inline?: boolean }> {
@@ -51,20 +60,7 @@ function buildConfiguredBandFields(summary: RankedPreviewSummary): Array<{ name:
 }
 
 function buildModeCutoffFields(mode: RankedPreviewModeSummary): Array<{ name: string, value: string, inline?: boolean }> {
-  if (mode.rankedCount <= 0 || mode.tiers.length === 0) {
-    return [{
-      name: `${formatLeaderboardModeLabel(mode.mode, mode.mode)} (${mode.rankedCount} ranked)`,
-      value: 'No ranked players yet.',
-      inline: false,
-    }]
-  }
-
   return [
-    {
-      name: `${formatLeaderboardModeLabel(mode.mode, mode.mode)} (${mode.rankedCount} ranked)`,
-      value: '\u200B',
-      inline: false,
-    },
     {
       name: 'Role',
       value: mode.tiers.map(tier => formatRoleReference(tier.roleId, tier.tier)).join('\n'),
@@ -108,7 +104,7 @@ function formatTierCutoffValue(tier: RankedPreviewModeSummary['tiers'][number]):
 
 function formatTierScoreValue(tier: RankedPreviewModeSummary['tiers'][number]): string {
   if (tier.isFallback) return '-'
-  if (tier.locked) return `${tier.unlockMinPlayers} players (${tier.playersNeededToUnlock} more)`
+  if (tier.locked) return `needs ${tier.unlockMinPlayers} players (${tier.playersNeededToUnlock} more)`
   if (tier.cutoffScore == null) return '-'
   return String(Math.round(tier.cutoffScore))
 }
