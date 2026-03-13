@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { verifyDraftRoomAccessToken } from '@civup/utils'
 import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility } from '../../src/routes/activity.ts'
 import { buildOpenLobbySnapshot } from '../../src/routes/lobby/snapshot.ts'
@@ -102,7 +103,7 @@ describe('activity target selection', () => {
 
     const response = await app.request('/api/activity/target', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthHeaders('spectator-1'),
       body: JSON.stringify({
         channelId: 'channel-1',
         userId: 'spectator-1',
@@ -113,11 +114,17 @@ describe('activity target selection', () => {
 
     expect(response.status).toBe(200)
     const snapshot = await response.json() as {
-      selection: null
+      selection: { kind: string, option: { kind: string, status: string, id: string } } | null
       options: Array<{ kind: string, status: string, id: string }>
     }
 
-    expect(snapshot.selection).toBeNull()
+    expect(snapshot.selection).toEqual(expect.objectContaining({
+      kind: 'lobby',
+      option: expect.objectContaining({
+        kind: 'lobby',
+        status: 'open',
+      }),
+    }))
     expect(snapshot.options).toEqual([
       expect.objectContaining({
         kind: 'lobby',
@@ -160,11 +167,45 @@ describe('activity target selection', () => {
 
     await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, kv, lobby.channelId, 'host-1')
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'host-1')
     expect(snapshot.selection?.kind).toBe('match')
     if (snapshot.selection?.kind !== 'match') return
     expect(snapshot.selection.matchId).toBe('match-1')
     expect(snapshot.selection.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
+    expect(snapshot.selection.roomAccessToken).not.toBeNull()
+    await expect(verifyDraftRoomAccessToken('secret', snapshot.selection.roomAccessToken, {
+      roomId: 'match-1',
+      userId: 'host-1',
+    })).resolves.not.toBeNull()
+  })
+
+  test('allows authenticated spectators to open live match targets read-only', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1')
+    expect(snapshot.selection?.kind).toBe('match')
+    if (snapshot.selection?.kind !== 'match') return
+    expect(snapshot.selection.matchId).toBe('match-1')
+    expect(snapshot.selection.roomAccessToken).not.toBeNull()
+    await expect(verifyDraftRoomAccessToken('secret', snapshot.selection.roomAccessToken, {
+      roomId: 'match-1',
+      userId: 'spectator-1',
+    })).resolves.not.toBeNull()
   })
 })
 
@@ -175,5 +216,15 @@ function buildEnv(kv: KVNamespace) {
     DISCORD_APPLICATION_ID: 'app',
     DISCORD_PUBLIC_KEY: 'key',
     DISCORD_TOKEN: 'token',
+    CIVUP_SECRET: 'secret',
   } as any
+}
+
+function buildAuthHeaders(userId: string): HeadersInit {
+  return {
+    'Content-Type': 'application/json',
+    'X-CivUp-Internal-Secret': 'secret',
+    'X-CivUp-Activity-User-Id': userId,
+    'X-CivUp-Activity-Display-Name': userId,
+  }
 }

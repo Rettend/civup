@@ -1,13 +1,14 @@
 import type { GameMode } from '@civup/game'
 import type { Hono } from 'hono'
 import type { Env } from '../../env.ts'
+import { createDraftRoomAccessToken } from '@civup/utils'
 import { createDb, playerRatings } from '@civup/db'
 import { formatModeLabel, getMinimumLeaderPoolSize, isTeamMode, MAX_LEADER_POOL_SIZE, maxPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
 import { isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
 import { clearLobbyMappings, clearUserLobbyMappings, createDraftRoom, storeMatchMapping, storeUserActivityTarget, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity/index.ts'
-import { MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from '../../services/config/index.ts'
+import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from '../../services/config/index.ts'
 import {
   arrangeTeamLobbySlots,
   attachLobbyMatch,
@@ -26,6 +27,7 @@ import {
   setLobbyMemberPlayerIds,
   setLobbyMinRole,
   setLobbySlots,
+  setLobbySteamLobbyLink,
   touchLobby,
   upsertLobby,
   upsertLobbyMessage,
@@ -36,6 +38,8 @@ import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { addToQueue, clearQueue, getQueueState, moveQueueEntriesBetweenModes, removeFromQueueAndUnlinkParty, setQueueEntries } from '../../services/queue/index.ts'
 import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
 import { createStateStore } from '../../services/state/store.ts'
+import { parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
+import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from '../auth.ts'
 import {
   buildLobbyQueueEntries,
   buildOpenLobbySnapshot,
@@ -54,6 +58,9 @@ const DEBUG_TEST_PLAYER_ID_PREFIX = 'debug-active-lobby-bot:'
 
 export function registerLobbyRoutes(app: Hono<Env>) {
   app.get('/api/lobby/:mode/fill-test', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
     const mode = parseGameMode(c.req.param('mode'))
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
     if (!isDebugLobbyFillEnabled(c.req.url, c.env.BOT_HOST)) return c.json({ error: 'Not found' }, 404)
@@ -61,6 +68,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
   })
 
   app.get('/api/lobby-ranks/:mode/:lobbyId', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
     const mode = parseGameMode(c.req.param('mode'))
     const lobbyId = c.req.param('lobbyId')
     const kv = createStateStore(c.env)
@@ -81,6 +91,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
   })
 
   app.post('/api/lobby/:mode/config', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
     const mode = parseGameMode(c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) {
@@ -99,12 +112,13 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, minRole: minRoleRaw, lobbyId } = body as {
+    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, minRole: minRoleRaw, steamLobbyLink: steamLobbyLinkRaw, lobbyId } = body as {
       userId?: string
       banTimerSeconds?: unknown
       pickTimerSeconds?: unknown
       leaderPoolSize?: unknown
       minRole?: unknown
+      steamLobbyLink?: unknown
       lobbyId?: unknown
     }
 
@@ -112,22 +126,44 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'userId is required' }, 400)
     }
 
-    const normalizedBan = parseLobbyTimerSeconds(banTimerSeconds)
-    const normalizedPick = parseLobbyTimerSeconds(pickTimerSeconds)
+    const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
+    if (mismatch) return mismatch
+
+    const hasBanTimerSeconds = Object.prototype.hasOwnProperty.call(body, 'banTimerSeconds')
+    const hasPickTimerSeconds = Object.prototype.hasOwnProperty.call(body, 'pickTimerSeconds')
+    const hasMinRole = Object.prototype.hasOwnProperty.call(body, 'minRole')
+    const normalizedBan = hasBanTimerSeconds
+      ? parseLobbyTimerSeconds(banTimerSeconds)
+      : undefined
+    const normalizedPick = hasPickTimerSeconds
+      ? parseLobbyTimerSeconds(pickTimerSeconds)
+      : undefined
     const hasLeaderPoolSize = Object.prototype.hasOwnProperty.call(body, 'leaderPoolSize')
     const parsedLeaderPoolSize = hasLeaderPoolSize
       ? parseLobbyLeaderPoolSize(leaderPoolSizeRaw)
       : undefined
-    if (normalizedBan === undefined || normalizedPick === undefined) {
+    if ((hasBanTimerSeconds && normalizedBan === undefined) || (hasPickTimerSeconds && normalizedPick === undefined)) {
       return c.json({ error: `Timers must be numbers between 0 and ${MAX_CONFIG_TIMER_SECONDS}` }, 400)
     }
     if (hasLeaderPoolSize && parsedLeaderPoolSize === undefined) {
       return c.json({ error: `leaderPoolSize must be an integer between 1 and ${MAX_LEADER_POOL_SIZE}, or null` }, 400)
     }
+    const hasSteamLobbyLink = Object.prototype.hasOwnProperty.call(body, 'steamLobbyLink')
+    const parsedSteamLobbyLink = hasSteamLobbyLink
+      ? parseSteamLobbyLink(steamLobbyLinkRaw)
+      : undefined
+    if (hasSteamLobbyLink && parsedSteamLobbyLink === undefined) {
+      return c.json({ error: STEAM_LOBBY_LINK_ERROR }, 400)
+    }
 
-    const resolvedLobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
+    const resolvedLobby = typeof lobbyId === 'string' && lobbyId.length > 0
+      ? await getLobbyById(kv, lobbyId)
+      : await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
     if (!resolvedLobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
+    }
+    if (resolvedLobby.mode !== mode) {
+      return c.json({ error: 'No lobby for this mode' }, 404)
     }
     let lobby = resolvedLobby
 
@@ -137,14 +173,35 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (parsedMinRole === undefined) {
       return c.json({ error: 'minRole must be a ranked tier id like tier1, or null' }, 400)
     }
+    const resolvedBanTimerSeconds = hasBanTimerSeconds
+      ? normalizedBan ?? null
+      : lobby.draftConfig.banTimerSeconds
+    const resolvedPickTimerSeconds = hasPickTimerSeconds
+      ? normalizedPick ?? null
+      : lobby.draftConfig.pickTimerSeconds
     const normalizedMinRole = parsedMinRole
     const normalizedLeaderPoolSize: number | null = hasLeaderPoolSize
       ? parsedLeaderPoolSize ?? null
       : lobby.draftConfig.leaderPoolSize
     const minRoleChanged = normalizedMinRole !== lobby.minRole
 
-    if (lobby.hostId !== userId) {
+    if (lobby.hostId !== auth.identity.userId) {
       return c.json({ error: 'Only the lobby host can update draft config' }, 403)
+    }
+
+    if (lobby.status !== 'open') {
+      if (!isSteamLobbyEditableStatus(lobby.status)) {
+        return c.json({ error: 'Steam lobby links can only be managed while the lobby is open or the match is live.' }, 409)
+      }
+      if (!hasSteamLobbyLink) {
+        return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
+      }
+      if (hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasMinRole) {
+        return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
+      }
+
+      const updated = await setLobbySteamLobbyLink(kv, lobby.id, parsedSteamLobbyLink ?? null, lobby) ?? lobby
+      return c.json(await buildStoredLobbySnapshot(kv, mode, updated))
     }
 
     if (minRoleChanged && normalizedMinRole && !lobby.guildId) {
@@ -171,14 +228,17 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const draftUpdated = await setLobbyDraftConfig(kv, lobby.id, {
-      banTimerSeconds: normalizedBan,
-      pickTimerSeconds: normalizedPick,
+      banTimerSeconds: resolvedBanTimerSeconds,
+      pickTimerSeconds: resolvedPickTimerSeconds,
       leaderPoolSize: normalizedLeaderPoolSize,
     }, lobby)
 
     lobby = draftUpdated ?? lobby
     const minRoleUpdated = await setLobbyMinRole(kv, lobby.id, normalizedMinRole, lobby)
-    const updated = minRoleUpdated ?? lobby
+    lobby = minRoleUpdated ?? lobby
+    const updated = hasSteamLobbyLink
+      ? (await setLobbySteamLobbyLink(kv, lobby.id, parsedSteamLobbyLink ?? null, lobby) ?? lobby)
+      : lobby
 
     if (!updated) {
       return c.json({ error: 'Lobby not found' }, 404)
@@ -203,6 +263,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
   })
 
   app.post('/api/lobby/:mode/mode', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
     const mode = parseGameMode(c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
@@ -229,6 +292,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'userId is required' }, 400)
     }
 
+    const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
+    if (mismatch) return mismatch
+
     const nextMode = typeof nextModeRaw === 'string' ? parseGameMode(nextModeRaw) : null
     if (!nextMode) {
       return c.json({ error: 'nextMode must be one of ffa, 1v1, 2v2, 3v3, 4v4' }, 400)
@@ -240,7 +306,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     const lobby = resolvedLobby
 
-    if (lobby.hostId !== userId) {
+    if (lobby.hostId !== auth.identity.userId) {
       return c.json({ error: 'Only the lobby host can change game mode' }, 403)
     }
 
@@ -311,6 +377,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
   })
 
   app.post('/api/lobby/:mode/place', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
     const mode = parseGameMode(c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
@@ -331,21 +400,20 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       userId,
       targetSlot: targetSlotRaw,
       playerId: requestedPlayerId,
-      displayName,
-      avatarUrl,
       lobbyId,
     } = body as {
       userId?: string
       targetSlot?: unknown
       playerId?: unknown
-      displayName?: unknown
-      avatarUrl?: unknown
       lobbyId?: unknown
     }
 
     if (typeof userId !== 'string' || userId.length === 0) {
       return c.json({ error: 'userId is required' }, 400)
     }
+
+    const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
+    if (mismatch) return mismatch
 
     const targetSlot = parseSlotIndex(targetSlotRaw)
     if (targetSlot == null || targetSlot >= maxPlayerCount(mode)) {
@@ -358,12 +426,12 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     let lobby = resolvedLobby
 
-    const isHost = lobby.hostId === userId
+    const isHost = lobby.hostId === auth.identity.userId
     const movingPlayerId = typeof requestedPlayerId === 'string' && requestedPlayerId.length > 0
       ? requestedPlayerId
-      : userId
+      : auth.identity.userId
 
-    if (!isHost && movingPlayerId !== userId) {
+    if (!isHost && movingPlayerId !== auth.identity.userId) {
       return c.json({ error: 'You can only move yourself' }, 403)
     }
 
@@ -378,18 +446,19 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const movingEntry = lobbyQueueEntries.find(entry => entry.playerId === movingPlayerId)
     if (!movingEntry) {
-      if (movingPlayerId !== userId) {
+      if (movingPlayerId !== auth.identity.userId) {
         return c.json({ error: 'Target player is not available as a spectator.' }, 400)
       }
 
-      if (typeof displayName !== 'string' || displayName.trim().length === 0) {
+      const resolvedDisplayName = auth.identity.displayName?.trim() ?? ''
+      if (resolvedDisplayName.length === 0) {
         return c.json({ error: 'displayName is required when joining as spectator.' }, 400)
       }
 
       const joinResult = await addToQueue(kv, mode, {
         playerId: movingPlayerId,
-        displayName,
-        avatarUrl: typeof avatarUrl === 'string' ? avatarUrl : null,
+        displayName: resolvedDisplayName,
+        avatarUrl: auth.identity.avatarUrl,
         joinedAt: Date.now(),
       })
 
@@ -473,6 +542,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
   })
 
   app.post('/api/lobby/:mode/remove', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
     const mode = parseGameMode(c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
@@ -494,6 +566,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (typeof userId !== 'string' || userId.length === 0) {
       return c.json({ error: 'userId is required' }, 400)
     }
+
+    const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
+    if (mismatch) return mismatch
 
     const slot = parseSlotIndex(slotRaw)
     if (slot == null || slot >= maxPlayerCount(mode)) {
@@ -518,8 +593,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Host cannot leave the lobby.' }, 400)
     }
 
-    const isHost = userId === lobby.hostId
-    if (!isHost && userId !== targetPlayerId) {
+    const isHost = auth.identity.userId === lobby.hostId
+    if (!isHost && auth.identity.userId !== targetPlayerId) {
       return c.json({ error: 'You can only remove yourself from a slot.' }, 403)
     }
 
@@ -560,6 +635,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
   })
 
   app.post('/api/lobby/:mode/link', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
     const mode = parseGameMode(c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
@@ -589,6 +667,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'userId is required' }, 400)
     }
 
+    const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
+    if (mismatch) return mismatch
+
     const leftSlot = parseSlotIndex(leftSlotRaw)
     const rightSlot = leftSlot == null ? null : leftSlot + 1
     if (leftSlot == null || rightSlot == null || rightSlot >= maxPlayerCount(mode)) {
@@ -613,8 +694,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Both slots must be occupied.' }, 400)
     }
 
-    const isHost = lobby.hostId === userId
-    if (!isHost && userId !== leftPlayerId && userId !== rightPlayerId) {
+    const isHost = lobby.hostId === auth.identity.userId
+    if (!isHost && auth.identity.userId !== leftPlayerId && auth.identity.userId !== rightPlayerId) {
       return c.json({ error: 'You can only link yourself with a neighbor.' }, 403)
     }
 
@@ -636,6 +717,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
   })
 
   app.post('/api/lobby/:mode/arrange', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
     const mode = parseGameMode(c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
@@ -665,6 +749,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'userId is required' }, 400)
     }
 
+    const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
+    if (mismatch) return mismatch
+
     if (strategyRaw !== 'randomize' && strategyRaw !== 'balance') {
       return c.json({ error: 'strategy must be one of randomize or balance' }, 400)
     }
@@ -674,7 +761,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
 
-    if (lobby.hostId !== userId) {
+    if (lobby.hostId !== auth.identity.userId) {
       return c.json({ error: 'Only the lobby host can arrange teams' }, 403)
     }
 
@@ -732,6 +819,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
   })
 
   app.post('/api/lobby/:mode/fill-test', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
     if (!isDebugLobbyFillEnabled(c.req.url, c.env.BOT_HOST)) {
       return c.json({ error: 'Not found' }, 404)
     }
@@ -757,12 +847,15 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'userId is required' }, 400)
     }
 
+    const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
+    if (mismatch) return mismatch
+
     const lobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
     if (!lobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
 
-    if (lobby.hostId !== userId) {
+    if (lobby.hostId !== auth.identity.userId) {
       return c.json({ error: 'Only the lobby host can fill test players' }, 403)
     }
 
@@ -821,6 +914,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
   })
 
   app.post('/api/lobby/:mode/start', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
     const mode = parseGameMode(c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
@@ -842,22 +938,39 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'userId is required' }, 400)
     }
 
+    const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
+    if (mismatch) return mismatch
+
+    const internalSecret = c.env.CIVUP_SECRET?.trim() ?? ''
+    if (internalSecret.length === 0) {
+      return c.json({ error: 'Draft auth is not configured.' }, 503)
+    }
+
     const lobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId }) ?? await getLobbyById(kv, typeof lobbyId === 'string' ? lobbyId : '')
     if (!lobby) return c.json({ error: 'No lobby for this mode' }, 404)
 
-    if (lobby.hostId !== userId) {
+    if (lobby.hostId !== auth.identity.userId) {
       return c.json({ error: 'Only the lobby host can start the draft' }, 403)
     }
 
     if (lobby.status === 'drafting' && lobby.matchId) {
-      console.log('[idempotency] duplicate lobby start request', {
-        mode,
-        hostId: userId,
-        matchId: lobby.matchId,
-        revision: lobby.revision,
-      })
-      return c.json({ ok: true, matchId: lobby.matchId, idempotent: true })
-    }
+        console.log('[idempotency] duplicate lobby start request', {
+          mode,
+          hostId: auth.identity.userId,
+          matchId: lobby.matchId,
+          revision: lobby.revision,
+        })
+       return c.json({
+         ok: true,
+         matchId: lobby.matchId,
+         idempotent: true,
+         roomAccessToken: await createDraftRoomAccessToken(internalSecret, {
+           userId: auth.identity.userId,
+           roomId: lobby.matchId,
+           channelId: lobby.channelId,
+         }),
+       })
+     }
 
     if (lobby.status !== 'open') {
       return c.json({ error: `Lobby is not open (status: ${lobby.status}).` }, 409)
@@ -891,7 +1004,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         hostId: lobby.hostId,
         partyHost: c.env.PARTY_HOST,
         botHost: c.env.BOT_HOST,
-        webhookSecret: c.env.CIVUP_SECRET,
+        webhookSecret: internalSecret,
         timerConfig,
         leaderPoolSize: lobby.draftConfig.leaderPoolSize,
       })
@@ -912,16 +1025,25 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         if (currentLobby?.status === 'drafting' && currentLobby.matchId) {
           console.warn('[idempotency] lobby start transitioned concurrently', {
             mode,
-            hostId: userId,
+            hostId: auth.identity.userId,
             requestedMatchId: matchId,
             activeMatchId: currentLobby.matchId,
             revision: currentLobby.revision,
           })
-          return c.json({ ok: true, matchId: currentLobby.matchId, idempotent: true })
-        }
+           return c.json({
+             ok: true,
+             matchId: currentLobby.matchId,
+             idempotent: true,
+             roomAccessToken: await createDraftRoomAccessToken(internalSecret, {
+               userId: auth.identity.userId,
+               roomId: currentLobby.matchId,
+               channelId: currentLobby.channelId,
+             }),
+           })
+         }
         console.warn('[lobby-transition] failed to attach match to lobby', {
           mode,
-          hostId: userId,
+          hostId: auth.identity.userId,
           requestedMatchId: matchId,
         })
         return c.json({ error: 'Lobby state changed while starting. Please retry.' }, 409)
@@ -943,7 +1065,15 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         console.error(`Failed to update drafting lobby embed for mode ${mode}:`, error)
       }
 
-      return c.json({ ok: true, matchId })
+      return c.json({
+        ok: true,
+        matchId,
+        roomAccessToken: await createDraftRoomAccessToken(internalSecret, {
+          userId: auth.identity.userId,
+          roomId: matchId,
+          channelId: lobbyForMessage.channelId,
+        }),
+      })
     }
     catch (error) {
       console.error(`Failed to start lobby draft for mode ${mode}:`, error)
@@ -952,6 +1082,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
   })
 
   app.post('/api/lobby/:mode/cancel', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
     const mode = parseGameMode(c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) {
@@ -975,6 +1108,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'userId is required' }, 400)
     }
 
+    const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
+    if (mismatch) return mismatch
+
     const lobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
     if (!lobby) {
       return c.json({ error: 'No lobby for this mode' }, 404)
@@ -984,7 +1120,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Lobby can only be cancelled before draft start' }, 400)
     }
 
-    if (lobby.hostId !== userId) {
+    if (lobby.hostId !== auth.identity.userId) {
       return c.json({ error: 'Only the lobby host can cancel this lobby' }, 403)
     }
 
@@ -1013,6 +1149,32 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     await clearLobbyById(kv, lobby.id)
     return c.json({ ok: true })
   })
+}
+
+async function buildStoredLobbySnapshot(
+  kv: KVNamespace,
+  mode: GameMode,
+  lobby: Awaited<ReturnType<typeof getLobbyById>> extends infer T ? Exclude<T, null> : never,
+) {
+  const serverDefaults = await getServerDraftTimerDefaults(kv)
+  return {
+    id: lobby.id,
+    revision: lobby.revision,
+    mode,
+    hostId: lobby.hostId,
+    status: lobby.status,
+    steamLobbyLink: lobby.steamLobbyLink,
+    minRole: lobby.minRole,
+    entries: lobby.slots.map(() => null),
+    minPlayers: lobbyMinPlayerCount(mode),
+    targetSize: maxPlayerCount(mode),
+    draftConfig: lobby.draftConfig,
+    serverDefaults,
+  }
+}
+
+function isSteamLobbyEditableStatus(status: 'open' | 'drafting' | 'active' | 'completed' | 'cancelled' | 'scrubbed'): boolean {
+  return status === 'open' || status === 'drafting' || status === 'active'
 }
 
 function getLeaderPoolSizeError(

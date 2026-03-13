@@ -87,7 +87,6 @@ export type DraftCancelReason = 'cancel' | 'scrub' | 'timeout'
  * A single step in a draft sequence.
  *
  * Seats are always player slot indices (0 through N-1).
- * Team formats can target captain slots only (default: Team A captain = 0, Team B captain = 1).
  */
 export interface DraftStep {
   action: DraftAction

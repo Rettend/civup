@@ -1,7 +1,8 @@
 import type { ClientMessage, CompetitiveTier, ServerMessage } from '@civup/game'
-import { api, ApiError } from '@civup/utils'
+import { api, ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import PartySocket from 'partysocket'
 import { createSignal } from 'solid-js'
+import { buildActivitySessionHeaders, getActivitySessionToken } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
 import { initDraft, setOptimisticSeatPick, updateDraft } from './draft-store'
 
@@ -120,6 +121,7 @@ export type ActivityLaunchSelection
     option: ActivityTargetOption
     matchId: string
     steamLobbyLink: string | null
+    roomAccessToken: string | null
   }
 
 export interface ActivityLaunchSnapshot {
@@ -153,7 +155,7 @@ let pendingConfigAck:
   | null = null
 
 /** Connect to PartyKit draft room using host and match ID */
-export function connectToRoom(target: PartySocketTarget, roomId: string, playerId: string) {
+export function connectToRoom(target: PartySocketTarget, roomId: string, roomAccessToken: string | null) {
   const previousSocket = socket
   socket = null
   previousSocket?.close()
@@ -161,13 +163,28 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, playerI
   setConnectionStatus('connecting')
   setConnectionError(null)
 
+  const activitySessionToken = getActivitySessionToken()
+  if (!activitySessionToken) {
+    setConnectionStatus('error')
+    setConnectionError('Missing activity session. Reopen the activity.')
+    return
+  }
+
+  if (!roomAccessToken) {
+    setConnectionStatus('error')
+    setConnectionError('Missing draft access token. Reopen the activity.')
+    return
+  }
+
   const nextSocket = new PartySocket({
     host: target.host,
     party: 'main',
     prefix: target.prefix ?? 'api/parties',
     room: roomId,
-    id: playerId,
-    query: { playerId },
+    query: {
+      accessToken: roomAccessToken,
+      [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken,
+    },
     maxRetries: Infinity,
   })
   socket = nextSocket
@@ -231,7 +248,6 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, playerI
     if (shouldRetryDraftSocket(nextSocket)) {
       relayDevLog('warn', 'Draft socket connection interrupted', {
         roomId,
-        playerId,
         retryCount: nextSocket.retryCount,
         target: describePartySocketTarget(target),
       })
@@ -241,10 +257,9 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, playerI
     }
 
     relayDevLog('error', 'Draft socket connection failed', {
-      roomId,
-      playerId,
-      target: describePartySocketTarget(target),
-    })
+        roomId,
+        target: describePartySocketTarget(target),
+      })
     socket = null
     setConnectionStatus('error')
     setConnectionError('WebSocket connection failed')
@@ -267,6 +282,7 @@ export function watchLobbyState(target: PartySocketTarget, options: LobbyStateWa
   let closed = false
 
   const socketId = `lobby-watch:${options.userId}:${Math.random().toString(36).slice(2, 10)}`
+  const activitySessionToken = getActivitySessionToken()
 
   const stateSocket = new PartySocket({
     host: target.host,
@@ -274,6 +290,9 @@ export function watchLobbyState(target: PartySocketTarget, options: LobbyStateWa
     prefix: target.prefix ?? 'api/parties',
     room: 'global',
     id: socketId,
+    query: activitySessionToken
+      ? { [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken }
+      : undefined,
     maxRetries: 2,
   })
 
@@ -388,12 +407,27 @@ export function sendConfig(banTimerSeconds: number | null, pickTimerSeconds: num
 
 // ── Bot API ────────────────────────────────────────────────
 
+function activityApiGet<T>(url: string): Promise<T> {
+  return api.get<T>(url, { headers: buildActivitySessionHeaders() })
+}
+
+function activityApiPost<T>(url: string, body: unknown): Promise<T> {
+  return api.post<T>(url, body, { headers: buildActivitySessionHeaders() })
+}
+
+function activityFetch(url: string, init?: RequestInit): Promise<Response> {
+  return fetch(url, {
+    ...init,
+    headers: buildActivitySessionHeaders(init?.headers),
+  })
+}
+
 /** Fetch match ID for a channel from the bot API */
 export async function fetchMatchForChannel(
   channelId: string,
 ): Promise<string | null> {
   try {
-    const data = await api.get<{ matchId?: string }>(`/api/match/${channelId}`)
+    const data = await activityApiGet<{ matchId?: string }>(`/api/match/${channelId}`)
     return data.matchId ?? null
   }
   catch (err) {
@@ -408,7 +442,7 @@ export async function fetchLobbyForChannel(
   channelId: string,
 ): Promise<LobbySnapshot | null> {
   try {
-    return await api.get<LobbySnapshot>(`/api/lobby/${channelId}`)
+    return await activityApiGet<LobbySnapshot>(`/api/lobby/${channelId}`)
   }
   catch (err) {
     console.error('Failed to fetch lobby for channel:', err)
@@ -421,7 +455,7 @@ export async function fetchLobbyForUser(
   userId: string,
 ): Promise<LobbySnapshot | null> {
   try {
-    return await api.get<LobbySnapshot>(`/api/lobby/user/${userId}`)
+    return await activityApiGet<LobbySnapshot>(`/api/lobby/user/${userId}`)
   }
   catch (err) {
     console.error('Failed to fetch lobby for user:', err)
@@ -435,21 +469,23 @@ export async function updateLobbyConfig(
   lobbyId: string,
   userId: string,
   draftConfig: {
-    banTimerSeconds: number | null
-    pickTimerSeconds: number | null
-    leaderPoolSize: number | null
+    banTimerSeconds?: number | null
+    pickTimerSeconds?: number | null
+    leaderPoolSize?: number | null
+    steamLobbyLink?: string | null
     minRole?: CompetitiveTier | null
   },
 ): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
-    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/config`, {
+    const lobby = await activityApiPost<LobbySnapshot>(`/api/lobby/${mode}/config`, {
       lobbyId,
       userId,
       banTimerSeconds: draftConfig.banTimerSeconds,
-      pickTimerSeconds: draftConfig.pickTimerSeconds,
-      leaderPoolSize: draftConfig.leaderPoolSize,
-      minRole: draftConfig.minRole,
-    })
+        pickTimerSeconds: draftConfig.pickTimerSeconds,
+        leaderPoolSize: draftConfig.leaderPoolSize,
+        steamLobbyLink: draftConfig.steamLobbyLink,
+        minRole: draftConfig.minRole,
+      })
     return { ok: true, lobby }
   }
   catch (err) {
@@ -465,7 +501,7 @@ export async function fetchLobbyRankedRoles(
   lobbyId: string,
 ): Promise<LobbyRankedRolesSnapshot | null> {
   try {
-    return await api.get<LobbyRankedRolesSnapshot>(`/api/lobby-ranks/${mode}/${lobbyId}`)
+    return await activityApiGet<LobbyRankedRolesSnapshot>(`/api/lobby-ranks/${mode}/${lobbyId}`)
   }
   catch (err) {
     console.error('Failed to fetch lobby ranked roles:', err)
@@ -507,7 +543,7 @@ export async function updateLobbyMode(
   nextMode: string,
 ): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
-    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/mode`, { lobbyId, userId, nextMode })
+    const lobby = await activityApiPost<LobbySnapshot>(`/api/lobby/${mode}/mode`, { lobbyId, userId, nextMode })
     return { ok: true, lobby }
   }
   catch (err) {
@@ -530,7 +566,7 @@ export async function placeLobbySlot(
   },
 ): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
-    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/place`, payload)
+    const lobby = await activityApiPost<LobbySnapshot>(`/api/lobby/${mode}/place`, payload)
     return { ok: true, lobby }
   }
   catch (err) {
@@ -550,7 +586,7 @@ export async function removeLobbySlot(
   },
 ): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
-    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/remove`, payload)
+    const lobby = await activityApiPost<LobbySnapshot>(`/api/lobby/${mode}/remove`, payload)
     return { ok: true, lobby }
   }
   catch (err) {
@@ -568,7 +604,7 @@ export async function arrangeLobbyTeams(
   strategy: LobbyTeamArrangeStrategy,
 ): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
-    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/arrange`, { lobbyId, userId, strategy })
+    const lobby = await activityApiPost<LobbySnapshot>(`/api/lobby/${mode}/arrange`, { lobbyId, userId, strategy })
     return { ok: true, lobby }
   }
   catch (err) {
@@ -586,7 +622,7 @@ export async function toggleLobbyPremadeLink(
   leftSlot: number,
 ): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
-    const lobby = await api.post<LobbySnapshot>(`/api/lobby/${mode}/link`, { lobbyId, userId, leftSlot })
+    const lobby = await activityApiPost<LobbySnapshot>(`/api/lobby/${mode}/link`, { lobbyId, userId, leftSlot })
     return { ok: true, lobby }
   }
   catch (err) {
@@ -601,11 +637,11 @@ export async function startLobbyDraft(
   mode: string,
   lobbyId: string,
   userId: string,
-): Promise<{ ok: true, matchId: string } | { ok: false, error: string }> {
+): Promise<{ ok: true, matchId: string, roomAccessToken: string | null } | { ok: false, error: string }> {
   try {
-    const data = await api.post<{ matchId?: string }>(`/api/lobby/${mode}/start`, { lobbyId, userId })
+    const data = await activityApiPost<{ matchId?: string, roomAccessToken?: string | null }>(`/api/lobby/${mode}/start`, { lobbyId, userId })
     if (!data.matchId) return { ok: false, error: 'Draft started but no match ID was returned' }
-    return { ok: true, matchId: data.matchId }
+    return { ok: true, matchId: data.matchId, roomAccessToken: data.roomAccessToken ?? null }
   }
   catch (err) {
     console.error('Failed to start lobby draft:', err)
@@ -621,7 +657,7 @@ export async function cancelLobby(
   userId: string,
 ): Promise<{ ok: true } | { ok: false, error: string }> {
   try {
-    await api.post(`/api/lobby/${mode}/cancel`, { lobbyId, userId })
+    await activityApiPost(`/api/lobby/${mode}/cancel`, { lobbyId, userId })
     return { ok: true }
   }
   catch (err) {
@@ -636,7 +672,7 @@ export async function fetchMatchForUser(
   userId: string,
 ): Promise<string | null> {
   try {
-    const data = await api.get<{ matchId?: string }>(`/api/match/user/${userId}`)
+    const data = await activityApiGet<{ matchId?: string }>(`/api/match/user/${userId}`)
     return data.matchId ?? null
   }
   catch (err) {
@@ -651,7 +687,7 @@ export async function fetchActivityLaunchSnapshot(
   userId: string,
 ): Promise<ActivityLaunchSnapshot | null> {
   try {
-    return await api.get<ActivityLaunchSnapshot>(`/api/activity/launch/${channelId}/${userId}`)
+    return await activityApiGet<ActivityLaunchSnapshot>(`/api/activity/launch/${channelId}/${userId}`)
   }
   catch (err) {
     console.error('Failed to fetch activity launch snapshot:', err)
@@ -666,7 +702,7 @@ export async function selectActivityTarget(
   target: Pick<ActivityTargetOption, 'kind' | 'id'>,
 ): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string }> {
   try {
-    const snapshot = await api.post<ActivityLaunchSnapshot>('/api/activity/target', {
+    const snapshot = await activityApiPost<ActivityLaunchSnapshot>('/api/activity/target', {
       channelId,
       userId,
       kind: target.kind,
@@ -684,7 +720,7 @@ export async function selectActivityTarget(
 /** Fetch full match state snapshot from bot API */
 export async function fetchMatchState(matchId: string): Promise<MatchStateSnapshot | null> {
   try {
-    return await api.get<MatchStateSnapshot>(`/api/match/state/${matchId}`)
+    return await activityApiGet<MatchStateSnapshot>(`/api/match/state/${matchId}`)
   }
   catch (err) {
     console.error('Failed to fetch match state:', err)
@@ -699,7 +735,7 @@ export async function reportMatchResult(
   placements: string,
 ): Promise<{ ok: true } | { ok: false, error: string }> {
   try {
-    await api.post(`/api/match/${matchId}/report`, { reporterId, placements })
+    await activityApiPost(`/api/match/${matchId}/report`, { reporterId, placements })
     return { ok: true }
   }
   catch (err) {
@@ -715,7 +751,7 @@ export async function scrubMatchResult(
   reporterId: string,
 ): Promise<{ ok: true } | { ok: false, error: string }> {
   try {
-    await api.post(`/api/match/${matchId}/scrub`, { reporterId })
+    await activityApiPost(`/api/match/${matchId}/scrub`, { reporterId })
     return { ok: true }
   }
   catch (err) {
@@ -728,7 +764,7 @@ export async function scrubMatchResult(
 /** Fill empty lobby slots with active test players (host-only, dev-only). */
 export async function canFillLobbyWithTestPlayers(mode: string): Promise<boolean> {
   try {
-    const res = await fetch(`/api/lobby/${mode}/fill-test`, {
+    const res = await activityFetch(`/api/lobby/${mode}/fill-test`, {
       method: 'GET',
       headers: { 'Cache-Control': 'no-store' },
     })
@@ -747,7 +783,7 @@ export async function fillLobbyWithTestPlayers(
   userId: string,
 ): Promise<{ ok: true, lobby: LobbySnapshot, addedCount: number } | { ok: false, error: string }> {
   try {
-    const res = await fetch(`/api/lobby/${mode}/fill-test`, {
+    const res = await activityFetch(`/api/lobby/${mode}/fill-test`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ lobbyId, userId }),

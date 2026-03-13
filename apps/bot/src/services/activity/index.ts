@@ -1,6 +1,6 @@
 import type { DraftSeat, DraftTimerConfig, GameMode, QueueEntry, RoomConfig } from '@civup/game'
 import { getDefaultFormat, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamSize } from '@civup/game'
-import { api, isLocalHost, normalizeHost } from '@civup/utils'
+import { api, CIVUP_INTERNAL_SECRET_HEADER, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
 import { getLobbiesByChannel } from '../lobby/index.ts'
 import { stateStoreMdelete, stateStoreMput } from '../state/store.ts'
@@ -66,7 +66,11 @@ export async function createDraftRoom(
   const normalizedHost = normalizeHost(options.partyHost, DEFAULT_PARTY_HOST)
   const url = `${normalizedHost}/parties/main/${matchId}`
 
-  await api.post(url, config)
+  await api.post(url, config, {
+    headers: options.webhookSecret
+      ? { [CIVUP_INTERNAL_SECRET_HEADER]: options.webhookSecret }
+      : undefined,
+  })
 
   return { matchId, formatId: format.id, seats }
 }

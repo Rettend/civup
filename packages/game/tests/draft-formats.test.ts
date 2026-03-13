@@ -38,24 +38,12 @@ describe('draft formats', () => {
     expect(default2v2.getSteps(4).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2]])
   })
 
-  test('3v3 full roster order stays A1, B1, B2, A2, B3, A3', () => {
-    expect(default3v3.getSteps(6).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4]])
+  test('3v3 full roster order stays A1, B1, B2, A2, A3, B3', () => {
+    expect(default3v3.getSteps(6).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [4], [5]])
   })
 
-  test('4v4 full roster order stays A1, B1, B2, A2, B3, A3, B4, A4', () => {
-    expect(default4v4.getSteps(8).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [7], [6]])
-  })
-
-  test('4v4 captain fallback preserves the 12212121 team sequence', () => {
-    expect(default4v4.getSteps(2).slice(1).map(step => ({ seats: step.seats, count: step.count }))).toEqual([
-      { seats: [0], count: 1 },
-      { seats: [1], count: 2 },
-      { seats: [0], count: 1 },
-      { seats: [1], count: 1 },
-      { seats: [0], count: 1 },
-      { seats: [1], count: 1 },
-      { seats: [0], count: 1 },
-    ])
+  test('4v4 full roster order stays A1, B1, B2, A2, B3, A3, A4, B4', () => {
+    expect(default4v4.getSteps(8).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7]])
   })
 
   test('FFA opens with one blind ban each', () => {
@@ -77,8 +65,8 @@ describe('formatDraftStepLabel', () => {
       'PICK T2',
       'PICK T2',
       'PICK T1',
-      'PICK T2',
       'PICK T1',
+      'PICK T2',
     ])
   })
 
@@ -91,8 +79,8 @@ describe('formatDraftStepLabel', () => {
       'PICK T1',
       'PICK T2',
       'PICK T1',
-      'PICK T2',
       'PICK T1',
+      'PICK T2',
     ])
   })
 

@@ -1,6 +1,5 @@
 import type { Env } from './env.ts'
 import { Hono } from 'hono'
-import { cors } from 'hono/cors'
 import * as commands from './commands/index.ts'
 import * as cron from './cron/cleanup.ts'
 import { registerApiRoutes } from './routes/index.ts'
@@ -18,7 +17,6 @@ app.onError((error, c) => {
   return c.json({ error: 'Internal Server Error' }, 500)
 })
 
-app.use('/api/*', cors())
 registerApiRoutes(app)
 
 app.mount('/', discordApp.fetch)
