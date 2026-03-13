@@ -6,7 +6,7 @@ import { factory } from '../../setup.ts'
 import { component_admin_show_response } from './components.ts'
 import { handleConfig } from './config.ts'
 import { handlePermissionAdd, handlePermissionList, handlePermissionRemove } from './permission.ts'
-import { handleRankedPreview, handleRankedRoles, handleRankedRolesSet, handleRankedRolesUnset, handleRankedSync, handleReset } from './ranked.ts'
+import { handleRankedRoles, handleRankedRolesSet, handleRankedRolesUnset, handleRankedSync, handleReset } from './ranked.ts'
 import { component_admin_season_cancel, component_admin_season_confirm, handleSeasonEnd, handleSeasonStart } from './season.ts'
 import { handleSetup } from './setup.ts'
 import { sendTransientEphemeralResponse } from './shared.ts'
@@ -54,7 +54,6 @@ export const command_admin = factory.command<AdminVar>(
           { name: '10', value: '10' },
         ).required(),
       ),
-      new SubCommand('preview', 'Preview current ranked role assignments'),
       new SubCommand('sync', 'Compute and apply current ranked role assignments'),
     ),
     new SubCommand('setup', 'View or toggle system channels').options(
@@ -92,7 +91,6 @@ export const command_admin = factory.command<AdminVar>(
     if (c.sub.string === 'ranked roles') return handleRankedRoles(c)
     if (c.sub.string === 'ranked set') return handleRankedRolesSet(c)
     if (c.sub.string === 'ranked unset') return handleRankedRolesUnset(c)
-    if (c.sub.string === 'ranked preview') return handleRankedPreview(c)
     if (c.sub.string === 'ranked sync') return handleRankedSync(c)
     if (c.sub.string === 'setup') return handleSetup(c)
     if (c.sub.string === 'config') return handleConfig(c)

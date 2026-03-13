@@ -18,8 +18,10 @@ function resolveDraftState(result: ReturnType<typeof processDraftInput>): DraftS
 
 function create2v2Seats() {
   return [
-    { playerId: 'team-a', displayName: 'Team A', team: 0 },
-    { playerId: 'team-b', displayName: 'Team B', team: 1 },
+    { playerId: 'a1', displayName: 'A1', team: 0 },
+    { playerId: 'b1', displayName: 'B1', team: 1 },
+    { playerId: 'a2', displayName: 'A2', team: 0 },
+    { playerId: 'b2', displayName: 'B2', team: 1 },
   ]
 }
 
@@ -35,26 +37,26 @@ function createActiveBanState() {
 
 describe('draft-store helpers', () => {
   test('phaseLabel returns WAITING before draft starts', () => {
-    initDraft(createWaitingState(), 'team-a', 0, null, null)
+    initDraft(createWaitingState(), 'a1', 0, null, null)
     expect(phaseLabel()).toBe('WAITING')
     expect(currentStep()).toBeNull()
   })
 
   test('tracks active step label, duration, and turn ownership', () => {
     const active = createActiveBanState()
-    initDraft(active, 'team-a', 0, null, null)
+    initDraft(active, 'a1', 0, null, null)
 
     expect(phaseLabel()).toBe('BAN PHASE')
     expect(isMyTurn()).toBe(true)
     expect(currentStepDuration()).toBe(active.steps[0]!.timer ?? 0)
 
-    initDraft(active, 'team-a', null, null, null)
+    initDraft(active, 'a1', null, null, null)
     expect(isMyTurn()).toBe(false)
   })
 
   test('hasSubmitted flips true once seat reaches required submission count', () => {
     const active = createActiveBanState()
-    initDraft(active, 'team-a', 0, null, null)
+    initDraft(active, 'a1', 0, null, null)
 
     expect(hasSubmitted()).toBe(false)
 
@@ -66,7 +68,7 @@ describe('draft-store helpers', () => {
       },
     }
 
-    updateDraft(withSubmission, 'team-a', [], null, null)
+    updateDraft(withSubmission, 'a1', [], null, null)
     expect(hasSubmitted()).toBe(true)
   })
 
@@ -74,7 +76,7 @@ describe('draft-store helpers', () => {
     const waiting = createWaitingState()
     const cancelled = resolveDraftState(processDraftInput(waiting, { type: 'CANCEL', reason: 'cancel' }))
 
-    initDraft(cancelled, 'team-a', 0, null, null)
+    initDraft(cancelled, 'a1', 0, null, null)
     expect(phaseLabel()).toBe('DRAFT CANCELLED')
   })
 
@@ -82,7 +84,7 @@ describe('draft-store helpers', () => {
     const active = createActiveBanState()
     const scrubbed = resolveDraftState(processDraftInput(active, { type: 'CANCEL', reason: 'cancel' }))
 
-    initDraft(scrubbed, 'team-a', 0, null, null)
+    initDraft(scrubbed, 'a1', 0, null, null)
     expect(phaseLabel()).toBe('MATCH SCRUBBED')
   })
 })

@@ -1,6 +1,7 @@
 import type { CommandResponse } from '@discord/embedded-app-sdk'
 import { api, ApiError } from '@civup/utils'
 import { DiscordSDK } from '@discord/embedded-app-sdk'
+import { cacheActivitySessionToken, clearActivitySessionToken, getActivitySessionToken } from './lib/activity-session'
 import { relayDevLog } from './lib/dev-log'
 
 export type Auth = CommandResponse<'authenticate'>
@@ -13,6 +14,8 @@ const FALLBACK_TOKEN_LIFETIME_MS = 5 * 60 * 1000
 interface TokenExchangeResponse {
   access_token?: string
   expires_in?: number
+  activity_session_token?: string
+  activity_session_expires_in?: number
   detail?: string
   retry_after?: string
   rate_limited?: boolean
@@ -32,11 +35,11 @@ interface AuthorizeErrorPayload {
 export const discordSdk = new DiscordSDK(CLIENT_ID)
 let setupInFlight: Promise<Auth> | null = null
 
-function getStorage(type: 'local' | 'session'): Storage | null {
+function getSessionStorage(): Storage | null {
   if (typeof window === 'undefined') return null
 
   try {
-    return type === 'local' ? window.localStorage : window.sessionStorage
+    return window.sessionStorage
   }
   catch {
     return null
@@ -88,14 +91,10 @@ function clearCachedTokenFromStorage(storage: Storage | null) {
 }
 
 function readCachedToken(): string | null {
-  const sessionToken = readCachedTokenFromStorage(getStorage('session'))
+  const sessionToken = readCachedTokenFromStorage(getSessionStorage())
   if (sessionToken) return sessionToken.accessToken
 
-  const localToken = readCachedTokenFromStorage(getStorage('local'))
-  if (!localToken) return null
-
-  writeCachedTokenToStorage(getStorage('session'), localToken)
-  return localToken.accessToken
+  return null
 }
 
 function cacheToken(accessToken: string, expiresIn?: number) {
@@ -106,13 +105,11 @@ function cacheToken(accessToken: string, expiresIn?: number) {
   )
 
   const payload: CachedToken = { accessToken, expiresAt }
-  writeCachedTokenToStorage(getStorage('session'), payload)
-  writeCachedTokenToStorage(getStorage('local'), payload)
+  writeCachedTokenToStorage(getSessionStorage(), payload)
 }
 
 function clearCachedToken() {
-  clearCachedTokenFromStorage(getStorage('session'))
-  clearCachedTokenFromStorage(getStorage('local'))
+  clearCachedTokenFromStorage(getSessionStorage())
 }
 
 async function authenticateWithToken(accessToken: string): Promise<Auth> {
@@ -148,7 +145,8 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
   })
 
   const cachedToken = readCachedToken()
-  if (cachedToken) {
+  const cachedActivitySession = getActivitySessionToken()
+  if (cachedToken && cachedActivitySession) {
     try {
       relayDevLog('info', 'Using cached Discord access token')
       return await authenticateWithToken(cachedToken)
@@ -156,7 +154,13 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
     catch (error) {
       relayDevLog('warn', 'Cached Discord access token failed, clearing it', error)
       clearCachedToken()
+      clearActivitySessionToken()
     }
+  }
+  else if (cachedToken) {
+    relayDevLog('info', 'Cached Discord token missing paired activity session, refreshing token exchange')
+    clearCachedToken()
+    clearActivitySessionToken()
   }
 
   relayDevLog('info', 'Requesting Discord authorization code')
@@ -219,13 +223,21 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
   }
 
   if (!payload.access_token) {
+    clearActivitySessionToken()
     throw new Error('Token exchange succeeded but access_token was missing')
+  }
+  if (!payload.activity_session_token) {
+    clearCachedToken()
+    clearActivitySessionToken()
+    throw new Error('Token exchange succeeded but activity session was missing')
   }
 
   relayDevLog('info', 'Received Discord access token payload', {
     expiresIn: payload.expires_in ?? null,
+    hasActivitySession: true,
   })
   cacheToken(payload.access_token, payload.expires_in)
+  cacheActivitySessionToken(payload.activity_session_token, payload.activity_session_expires_in)
 
   return authenticateWithToken(payload.access_token)
 }

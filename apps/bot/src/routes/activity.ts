@@ -3,6 +3,7 @@ import type { Hono } from 'hono'
 import type { Env } from '../env.ts'
 import type { LobbyState } from '../services/lobby/index.ts'
 import type { getQueueState } from '../services/queue/index.ts'
+import { createDraftRoomAccessToken } from '@civup/utils'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel, maxPlayerCount } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
@@ -10,6 +11,7 @@ import { clearUserActivityTargets, getLobbyForUser, getMatchForChannel, getMatch
 import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbyById, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
 import { getPlayerQueueMode, getPlayerQueueModeFromStates, getQueueStates } from '../services/queue/index.ts'
 import { createStateStore } from '../services/state/store.ts'
+import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
 import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, getUniqueOpenLobbyForChannel } from './lobby/snapshot.ts'
 
 export interface LobbyJoinEligibility {
@@ -46,6 +48,7 @@ type ActivityLaunchSelection
     option: ActivityTargetOption
     matchId: string
     steamLobbyLink: string | null
+    roomAccessToken: string | null
   }
 
 interface ActivityLaunchSnapshot {
@@ -73,6 +76,9 @@ interface ActivityLaunchContext {
 
 export function registerActivityRoutes(app: Hono<Env>) {
   app.get('/api/match/:channelId', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
     const channelId = c.req.param('channelId')
     const kv = createStateStore(c.env)
     const matchId = await getMatchForChannel(kv, channelId)
@@ -85,7 +91,13 @@ export function registerActivityRoutes(app: Hono<Env>) {
   })
 
   app.get('/api/match/user/:userId', async (c) => {
-    const userId = c.req.param('userId')
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
+    const mismatch = rejectMismatchedActivityParam(c, auth.identity.userId)
+    if (mismatch) return mismatch
+
+    const userId = auth.identity.userId
     const kv = createStateStore(c.env)
     const matchId = await getMatchForUser(kv, userId)
 
@@ -116,6 +128,9 @@ export function registerActivityRoutes(app: Hono<Env>) {
   })
 
   app.get('/api/lobby/:channelId', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
     const channelId = c.req.param('channelId')
     const kv = createStateStore(c.env)
 
@@ -128,7 +143,13 @@ export function registerActivityRoutes(app: Hono<Env>) {
   })
 
   app.get('/api/lobby/user/:userId', async (c) => {
-    const userId = c.req.param('userId')
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
+    const mismatch = rejectMismatchedActivityParam(c, auth.identity.userId)
+    if (mismatch) return mismatch
+
+    const userId = auth.identity.userId
     const kv = createStateStore(c.env)
     const mappedLobbyId = await getLobbyForUser(kv, userId)
     if (mappedLobbyId) {
@@ -152,14 +173,23 @@ export function registerActivityRoutes(app: Hono<Env>) {
   })
 
   app.get('/api/activity/launch/:channelId/:userId', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
+    const mismatch = rejectMismatchedActivityParam(c, auth.identity.userId)
+    if (mismatch) return mismatch
+
     const channelId = c.req.param('channelId')
-    const userId = c.req.param('userId')
+    const userId = auth.identity.userId
     const kv = createStateStore(c.env)
 
-    return c.json(await buildActivityLaunchSnapshot(c.env.DISCORD_TOKEN, kv, channelId, userId))
+    return c.json(await buildActivityLaunchSnapshot(c.env.DISCORD_TOKEN, c.env.CIVUP_SECRET, kv, channelId, userId))
   })
 
   app.post('/api/activity/target', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
     let body: unknown
     try {
       body = await c.req.json()
@@ -187,43 +217,50 @@ export function registerActivityRoutes(app: Hono<Env>) {
       return c.json({ error: 'userId is required' }, 400)
     }
 
+    if (userId !== auth.identity.userId) {
+      return c.json({ error: 'Authenticated activity user mismatch' }, 403)
+    }
+
     if ((kind !== 'lobby' && kind !== 'match') || typeof id !== 'string' || id.length === 0) {
       return c.json({ error: 'A valid target kind and id are required' }, 400)
     }
 
     const kv = createStateStore(c.env)
-    const context = await loadActivityLaunchContext(kv, channelId, userId)
+    const actualUserId = auth.identity.userId
+    const context = await loadActivityLaunchContext(kv, channelId, actualUserId)
     const target = context.targets.find(candidate => candidate.option.kind === kind && candidate.option.id === id)
     if (!target) {
-      const selection = await resolveActivityLaunchSelection(kv, channelId, userId, context.targets)
-      return c.json(await buildActivityLaunchSnapshotFromTargets(c.env.DISCORD_TOKEN, kv, userId, context, selection))
+      const selection = await resolveActivityLaunchSelection(kv, channelId, actualUserId, context.targets)
+      return c.json(await buildActivityLaunchSnapshotFromTargets(c.env.DISCORD_TOKEN, c.env.CIVUP_SECRET, kv, actualUserId, context, selection))
     }
 
-    await storeUserActivityTarget(kv, channelId, [userId], { kind, id })
-    return c.json(await buildActivityLaunchSnapshotFromTargets(c.env.DISCORD_TOKEN, kv, userId, context, { target, pendingJoin: false }))
+    await storeUserActivityTarget(kv, channelId, [actualUserId], { kind, id })
+    return c.json(await buildActivityLaunchSnapshotFromTargets(c.env.DISCORD_TOKEN, c.env.CIVUP_SECRET, kv, actualUserId, context, { target, pendingJoin: false }))
   })
 }
 
 export async function buildActivityLaunchSnapshot(
   token: string | undefined,
+  activitySecret: string | undefined,
   kv: KVNamespace,
   channelId: string,
   userId: string,
 ): Promise<ActivityLaunchSnapshot> {
   const context = await loadActivityLaunchContext(kv, channelId, userId)
   const selection = await resolveActivityLaunchSelection(kv, channelId, userId, context.targets)
-  return buildActivityLaunchSnapshotFromTargets(token, kv, userId, context, selection)
+  return buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, selection)
 }
 
 async function buildActivityLaunchSnapshotFromTargets(
   token: string | undefined,
+  activitySecret: string | undefined,
   kv: KVNamespace,
   userId: string,
   context: ActivityLaunchContext,
   selection: ResolvedActivitySelection | null,
 ): Promise<ActivityLaunchSnapshot> {
   return {
-    selection: selection ? await serializeActivityLaunchSelection(token, kv, userId, context, selection) : null,
+    selection: selection ? await serializeActivityLaunchSelection(token, activitySecret, kv, userId, context, selection) : null,
     options: context.targets.map(target => target.option),
   }
 }
@@ -245,9 +282,9 @@ async function resolveActivityLaunchSelection(
     }
 
     const fallbackSelection = pickDefaultActivityLaunchSelection(targets)
+    await clearUserActivityTargets(kv, channelId, [userId])
     if (fallbackSelection) return fallbackSelection
 
-    await clearUserActivityTargets(kv, channelId, [userId])
     return null
   }
 
@@ -256,6 +293,7 @@ async function resolveActivityLaunchSelection(
 
 async function serializeActivityLaunchSelection(
   token: string | undefined,
+  activitySecret: string | undefined,
   kv: KVNamespace,
   userId: string,
   context: ActivityLaunchContext,
@@ -289,6 +327,7 @@ async function serializeActivityLaunchSelection(
     option: selection.target.option,
     matchId: selection.target.option.id,
     steamLobbyLink: selection.target.lobby.steamLobbyLink,
+    roomAccessToken: await issueDraftRoomAccessToken(activitySecret, userId, selection.target.option.id, selection.target.option.channelId),
   }
 }
 
@@ -461,10 +500,27 @@ function activityTargetPriority(option: ActivityTargetOption): number {
 function pickDefaultActivityLaunchSelection(targets: ChannelActivityTarget[]): ResolvedActivitySelection | null {
   const preferredTarget = targets.find(target => (target.option.isHost || target.option.isMember) && target.option.kind === 'match')
     ?? targets.find(target => target.option.isHost || target.option.isMember)
+    ?? targets.find(target => target.option.kind === 'match')
+    ?? targets.find(target => target.option.kind === 'lobby')
   if (!preferredTarget) return null
 
   return {
     target: preferredTarget,
     pendingJoin: false,
   }
+}
+
+async function issueDraftRoomAccessToken(
+  activitySecret: string | undefined,
+  userId: string,
+  matchId: string,
+  channelId: string,
+): Promise<string | null> {
+  const secret = activitySecret?.trim() ?? ''
+  if (secret.length === 0) return null
+  return createDraftRoomAccessToken(secret, {
+    userId,
+    roomId: matchId,
+    channelId,
+  })
 }

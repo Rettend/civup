@@ -8,8 +8,19 @@ import type {
 } from '@civup/game'
 import type { Connection, ConnectionContext, WSMessage } from 'partyserver'
 import { createDraft, draftFormatMap, getCurrentStep, isDraftError, MAX_TIMER_SECONDS, processDraftInput } from '@civup/game'
-import { api, ApiError } from '@civup/utils'
+import {
+  api,
+  ApiError,
+  CIVUP_ACTIVITY_USER_ID_HEADER,
+  createSignedWebhookHeaders,
+  isAuthorizedInternalRequest,
+  verifyDraftRoomAccessToken,
+} from '@civup/utils'
 import { Server } from 'partyserver'
+
+interface PartyEnv extends Cloudflare.Env {
+  CIVUP_SECRET?: string
+}
 
 // ── Connection State ─────────────────────────────────────────
 
@@ -26,7 +37,7 @@ const DEBUG_ACTIVE_BOT_STAGGER_MS = 150
 
 // ── Draft Room Server ────────────────────────────────────────
 
-export class Main extends Server {
+export class Main extends Server<PartyEnv> {
   static override options = {
     hibernate: true,
   }
@@ -38,12 +49,16 @@ export class Main extends Server {
       return this.handleCreate(req)
     }
     if (req.method === 'GET') {
-      return this.handleStatus()
+      return this.handleStatus(req)
     }
     return new Response('Method not allowed', { status: 405 })
   }
 
   private async handleCreate(req: Request): Promise<Response> {
+    if (!isAuthorizedRequest(req, this.env.CIVUP_SECRET)) {
+      return json({ error: 'Unauthorized' }, 401)
+    }
+
     const existing = await this.ctx.storage.get<DraftState>('state')
     if (existing) {
       return json({ error: 'Room already initialized' }, 409)
@@ -79,22 +94,51 @@ export class Main extends Server {
     return json({ ok: true, matchId: config.matchId }, 201)
   }
 
-  private async handleStatus(): Promise<Response> {
+  private async handleStatus(req: Request): Promise<Response> {
     const state = await this.ctx.storage.get<DraftState>('state')
     if (!state) {
       return json({ error: 'Room not initialized' }, 404)
     }
+
+    const activityUserId = readActivityUserId(req.headers)
+    if (!isAuthorizedRequest(req, this.env.CIVUP_SECRET) || !activityUserId) {
+      return json({ error: 'Unauthorized' }, 401)
+    }
+
+    const requestUrl = new URL(req.url)
+    const hasAccess = await verifyDraftRoomAccessToken(this.env.CIVUP_SECRET, requestUrl.searchParams.get('accessToken'), {
+      roomId: state.matchId,
+      userId: activityUserId,
+    })
+    if (!hasAccess) {
+      return json({ error: 'Forbidden' }, 403)
+    }
+
     const timerEndsAt = await this.ctx.storage.get<number | null>('timerEndsAt')
     const completedAt = await this.ctx.storage.get<number | null>('completedAt')
     const cancelledAt = await this.ctx.storage.get<number | null>('cancelledAt')
-    return json({ state, timerEndsAt, completedAt, cancelledAt })
+    const seatIndex = state.seats.findIndex(seat => seat.playerId === activityUserId)
+    return json({
+      state: this.censorState(state, seatIndex),
+      timerEndsAt,
+      completedAt,
+      cancelledAt,
+    })
   }
 
   // ── WebSocket: Connection ──────────────────────────────────
 
   override async onConnect(connection: Connection, ctx: ConnectionContext) {
-    const url = new URL(ctx.request.url)
-    const playerId = url.searchParams.get('playerId')
+    if (!isAuthorizedRequest(ctx.request, this.env.CIVUP_SECRET)) {
+      connection.close(4401, 'Unauthorized')
+      return
+    }
+
+    const playerId = readActivityUserId(ctx.request.headers)
+    if (!playerId) {
+      connection.close(4401, 'Unauthorized')
+      return
+    }
 
     connection.setState({ playerId } satisfies ConnectionState)
 
@@ -102,6 +146,17 @@ export class Main extends Server {
     if (!state) {
       this.send(connection, { type: 'error', message: 'Room not initialized' })
       connection.close(4000, 'Room not initialized')
+      return
+    }
+
+    const requestUrl = new URL(ctx.request.url)
+    const hasAccess = await verifyDraftRoomAccessToken(this.env.CIVUP_SECRET, requestUrl.searchParams.get('accessToken'), {
+      roomId: state.matchId,
+      userId: playerId,
+    })
+    if (!hasAccess) {
+      this.send(connection, { type: 'error', message: 'Draft access token is invalid or expired' })
+      connection.close(4403, 'Forbidden')
       return
     }
 
@@ -163,7 +218,7 @@ export class Main extends Server {
     const connState = sender.state as ConnectionState | null
     const playerId = connState?.playerId
     if (!playerId) {
-      this.send(sender, { type: 'error', message: 'Not identified — reconnect with ?playerId' })
+      this.send(sender, { type: 'error', message: 'Not identified — reconnect through the activity' })
       return
     }
 
@@ -598,17 +653,16 @@ export class Main extends Server {
     }
 
     console.log(`Sending draft webhook (${payload.outcome}) for match ${matchId} -> ${config.webhookUrl}`)
+    const body = JSON.stringify(payload)
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-    }
-    if (config.webhookSecret) {
-      headers['X-CivUp-Webhook-Secret'] = config.webhookSecret
+      ...(config.webhookSecret ? await createSignedWebhookHeaders(config.webhookSecret, body) : {}),
     }
 
     for (let attempt = 1; attempt <= WEBHOOK_MAX_ATTEMPTS; attempt++) {
       try {
-        await api.post(config.webhookUrl, payload, { headers })
+        await api.post(config.webhookUrl, body, { headers })
         console.log(`Draft webhook delivered (${payload.outcome}) for match ${matchId} on attempt ${attempt}`)
         return
       }
@@ -704,4 +758,13 @@ function parseConfigTimer(value: unknown): number | null | undefined {
 
 function wait(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function isAuthorizedRequest(request: Request, expectedSecret: string | undefined): boolean {
+  return isAuthorizedInternalRequest(request.headers, expectedSecret)
+}
+
+function readActivityUserId(headers: Headers): string | null {
+  const userId = headers.get(CIVUP_ACTIVITY_USER_ID_HEADER)?.trim() ?? ''
+  return userId.length > 0 ? userId : null
 }

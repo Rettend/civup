@@ -1,4 +1,4 @@
-import { normalizeHost } from '@civup/utils'
+import { CIVUP_INTERNAL_SECRET_HEADER, normalizeHost } from '@civup/utils'
 
 interface StateStoreEnv {
   KV: KVNamespace
@@ -332,7 +332,7 @@ async function stateKvRequest<T = unknown>(
     'Content-Type': 'application/json',
   })
   if (secret) {
-    headers.set('X-CivUp-State-Secret', secret)
+    headers.set(CIVUP_INTERNAL_SECRET_HEADER, secret)
   }
 
   const response = await fetch(endpoint, {
