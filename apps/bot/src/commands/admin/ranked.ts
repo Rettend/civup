@@ -2,7 +2,7 @@ import type { CompetitiveTier } from '@civup/game'
 import type { AdminCommandContext, AdminVar } from './types.ts'
 import { createDb } from '@civup/db'
 import { formatLeaderboardModeLabel, parseLeaderboardMode } from '@civup/game'
-import { previewRankedRoles, syncRankedRoles } from '../../services/ranked/role-sync.ts'
+import { syncRankedRoles } from '../../services/ranked/role-sync.ts'
 import {
   createRankedRoleTierId,
   fetchGuildRoles,
@@ -99,23 +99,6 @@ ${formatRankedRoleConfig(config)}`, 'success')
   })
 }
 
-export function handleRankedPreview(c: AdminCommandContext) {
-  const guildId = c.interaction.guild_id
-  if (!guildId) {
-    return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
-      await sendTransientEphemeralResponse(c, 'This command can only be used in a server.', 'error')
-    })
-  }
-
-  return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
-    const kv = createStateStore(c.env)
-    const db = createDb(c.env.DB)
-    const preview = await previewRankedRoles({ db, kv, guildId })
-    const config = await getRankedRoleConfig(kv, guildId)
-    await sendEphemeralResponse(c, formatRankedRolePreview(preview, config), 'info')
-  })
-}
-
 export function handleRankedSync(c: AdminCommandContext) {
   const guildId = c.interaction.guild_id
   if (!guildId) {
@@ -189,31 +172,6 @@ function formatRankedRoleConfig(config: Awaited<ReturnType<typeof getRankedRoleC
   return lines.length > 0 ? lines.join('\n') : 'No ranked roles configured yet.'
 }
 
-function formatRankedRolePreview(
-  preview: Awaited<ReturnType<typeof previewRankedRoles>>,
-  config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
-): string {
-  const lines = [
-    '**Ranked role preview**',
-    formatRankedRoleDistribution(preview.distribution, config),
-    `Unranked: ${preview.unrankedCount}`,
-  ]
-
-  if (preview.missingConfigTiers.length > 0) {
-    lines.push(`Missing current role mappings: ${preview.missingConfigTiers.map(tier => formatRankedRoleSlotLabel(tier)).join(', ')}`)
-  }
-
-  const changes = preview.playerPreviews.filter(player => player.status !== 'kept')
-  if (changes.length === 0) return lines.join('\n')
-
-  lines.push('', '**Changes**')
-  for (const player of changes.slice(0, 12)) {
-    lines.push(formatRankedRoleChangeLine(player, config))
-  }
-  if (changes.length > 12) lines.push(`...and ${changes.length - 12} more`)
-  return lines.join('\n')
-}
-
 function formatRankedRoleSyncResult(
   result: Awaited<ReturnType<typeof syncRankedRoles>>,
   config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
@@ -232,20 +190,8 @@ function formatRankedRoleSyncResult(
   return lines.join('\n')
 }
 
-function formatRankedRoleChangeLine(
-  player: Awaited<ReturnType<typeof previewRankedRoles>>['playerPreviews'][number],
-  config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
-): string {
-  const previous = player.previousAssignment
-    ? `${formatRankedRoleReference(config, player.previousAssignment.tier)}${player.previousAssignment.sourceMode ? ` (${formatLeaderboardModeLabel(player.previousAssignment.sourceMode, player.previousAssignment.sourceMode)})` : ''}`
-    : 'none'
-  const next = `${formatRankedRoleReference(config, player.assignment.tier)}${player.assignment.sourceMode ? ` (${formatLeaderboardModeLabel(player.assignment.sourceMode, player.assignment.sourceMode)})` : ''}`
-  const pending = player.pendingDemotion ? ` - demotion hold ${player.pendingDemotion.belowKeepSyncs}/7` : ''
-  return `- ${player.displayName}: ${previous} -> ${next}${pending}`
-}
-
 function formatRankedRoleDistribution(
-  distribution: Awaited<ReturnType<typeof previewRankedRoles>>['distribution'],
+  distribution: Awaited<ReturnType<typeof syncRankedRoles>>['distribution'],
   config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
 ): string {
   const parts: string[] = []
