@@ -24,6 +24,8 @@ import { SteamLobbyButton } from './SteamLobbyButton'
 
 interface DraftHeaderProps {
   steamLobbyLink?: string | null
+  onSaveSteamLink?: (link: string | null) => void
+  savePending?: boolean
   onSwitchTarget?: () => void
 }
 
@@ -182,9 +184,9 @@ export function DraftHeader(props: DraftHeaderProps) {
   const showMobileActionRow = () => isMobileLayout() && amHost() && (state()?.status === 'active' || isComplete())
   const showLeftNoBans = () => state()?.status !== 'waiting' && (isTeamMode() ? leftBans().length === 0 : allBans().length === 0)
   const showRightNoBans = () => state()?.status !== 'waiting' && isTeamMode() && rightBans().length === 0
-  const hasSteamLobbyLink = () => Boolean(props.steamLobbyLink)
+  const hasSteamLobbyButton = () => (amHost() && Boolean(props.onSaveSteamLink)) || Boolean(props.steamLobbyLink)
   const hasOverviewButton = () => Boolean(props.onSwitchTarget)
-  const mobileRailInsetCount = () => Number(hasSteamLobbyLink()) + Number(hasOverviewButton())
+  const mobileRailInsetCount = () => Number(hasSteamLobbyButton()) + Number(hasOverviewButton())
 
   const renderOverviewButton = () => (
     <Show when={props.onSwitchTarget}>
@@ -203,6 +205,9 @@ export function DraftHeader(props: DraftHeaderProps) {
   const renderSteamLobbyButton = (sizeClass: string) => (
     <SteamLobbyButton
       steamLobbyLink={props.steamLobbyLink ?? null}
+      isHost={amHost()}
+      onSaveSteamLink={props.onSaveSteamLink}
+      savePending={props.savePending}
       class={sizeClass}
     />
   )
@@ -365,7 +370,7 @@ export function DraftHeader(props: DraftHeaderProps) {
 
           <div class={cn(
             'grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4',
-            hasSteamLobbyLink() && 'pl-12',
+            hasSteamLobbyButton() && 'pl-12',
             hasOverviewButton() && 'pr-12',
           )}
           >

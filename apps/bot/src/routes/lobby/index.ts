@@ -8,7 +8,7 @@ import { isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
 import { clearLobbyMappings, clearUserLobbyMappings, createDraftRoom, storeMatchMapping, storeUserActivityTarget, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity/index.ts'
-import { MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from '../../services/config/index.ts'
+import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from '../../services/config/index.ts'
 import {
   arrangeTeamLobbySlots,
   attachLobbyMatch,
@@ -129,13 +129,20 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
     if (mismatch) return mismatch
 
-    const normalizedBan = parseLobbyTimerSeconds(banTimerSeconds)
-    const normalizedPick = parseLobbyTimerSeconds(pickTimerSeconds)
+    const hasBanTimerSeconds = Object.prototype.hasOwnProperty.call(body, 'banTimerSeconds')
+    const hasPickTimerSeconds = Object.prototype.hasOwnProperty.call(body, 'pickTimerSeconds')
+    const hasMinRole = Object.prototype.hasOwnProperty.call(body, 'minRole')
+    const normalizedBan = hasBanTimerSeconds
+      ? parseLobbyTimerSeconds(banTimerSeconds)
+      : undefined
+    const normalizedPick = hasPickTimerSeconds
+      ? parseLobbyTimerSeconds(pickTimerSeconds)
+      : undefined
     const hasLeaderPoolSize = Object.prototype.hasOwnProperty.call(body, 'leaderPoolSize')
     const parsedLeaderPoolSize = hasLeaderPoolSize
       ? parseLobbyLeaderPoolSize(leaderPoolSizeRaw)
       : undefined
-    if (normalizedBan === undefined || normalizedPick === undefined) {
+    if ((hasBanTimerSeconds && normalizedBan === undefined) || (hasPickTimerSeconds && normalizedPick === undefined)) {
       return c.json({ error: `Timers must be numbers between 0 and ${MAX_CONFIG_TIMER_SECONDS}` }, 400)
     }
     if (hasLeaderPoolSize && parsedLeaderPoolSize === undefined) {
@@ -149,9 +156,14 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: STEAM_LOBBY_LINK_ERROR }, 400)
     }
 
-    const resolvedLobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
+    const resolvedLobby = typeof lobbyId === 'string' && lobbyId.length > 0
+      ? await getLobbyById(kv, lobbyId)
+      : await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
     if (!resolvedLobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
+    }
+    if (resolvedLobby.mode !== mode) {
+      return c.json({ error: 'No lobby for this mode' }, 404)
     }
     let lobby = resolvedLobby
 
@@ -161,6 +173,12 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (parsedMinRole === undefined) {
       return c.json({ error: 'minRole must be a ranked tier id like tier1, or null' }, 400)
     }
+    const resolvedBanTimerSeconds = hasBanTimerSeconds
+      ? normalizedBan ?? null
+      : lobby.draftConfig.banTimerSeconds
+    const resolvedPickTimerSeconds = hasPickTimerSeconds
+      ? normalizedPick ?? null
+      : lobby.draftConfig.pickTimerSeconds
     const normalizedMinRole = parsedMinRole
     const normalizedLeaderPoolSize: number | null = hasLeaderPoolSize
       ? parsedLeaderPoolSize ?? null
@@ -169,6 +187,21 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     if (lobby.hostId !== auth.identity.userId) {
       return c.json({ error: 'Only the lobby host can update draft config' }, 403)
+    }
+
+    if (lobby.status !== 'open') {
+      if (!isSteamLobbyEditableStatus(lobby.status)) {
+        return c.json({ error: 'Steam lobby links can only be managed while the lobby is open or the match is live.' }, 409)
+      }
+      if (!hasSteamLobbyLink) {
+        return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
+      }
+      if (hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasMinRole) {
+        return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
+      }
+
+      const updated = await setLobbySteamLobbyLink(kv, lobby.id, parsedSteamLobbyLink ?? null, lobby) ?? lobby
+      return c.json(await buildStoredLobbySnapshot(kv, mode, updated))
     }
 
     if (minRoleChanged && normalizedMinRole && !lobby.guildId) {
@@ -195,8 +228,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const draftUpdated = await setLobbyDraftConfig(kv, lobby.id, {
-      banTimerSeconds: normalizedBan,
-      pickTimerSeconds: normalizedPick,
+      banTimerSeconds: resolvedBanTimerSeconds,
+      pickTimerSeconds: resolvedPickTimerSeconds,
       leaderPoolSize: normalizedLeaderPoolSize,
     }, lobby)
 
@@ -1116,6 +1149,32 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     await clearLobbyById(kv, lobby.id)
     return c.json({ ok: true })
   })
+}
+
+async function buildStoredLobbySnapshot(
+  kv: KVNamespace,
+  mode: GameMode,
+  lobby: Awaited<ReturnType<typeof getLobbyById>> extends infer T ? Exclude<T, null> : never,
+) {
+  const serverDefaults = await getServerDraftTimerDefaults(kv)
+  return {
+    id: lobby.id,
+    revision: lobby.revision,
+    mode,
+    hostId: lobby.hostId,
+    status: lobby.status,
+    steamLobbyLink: lobby.steamLobbyLink,
+    minRole: lobby.minRole,
+    entries: lobby.slots.map(() => null),
+    minPlayers: lobbyMinPlayerCount(mode),
+    targetSize: maxPlayerCount(mode),
+    draftConfig: lobby.draftConfig,
+    serverDefaults,
+  }
+}
+
+function isSteamLobbyEditableStatus(status: 'open' | 'drafting' | 'active' | 'completed' | 'cancelled' | 'scrubbed'): boolean {
+  return status === 'open' || status === 'drafting' || status === 'active'
 }
 
 function getLeaderPoolSizeError(
