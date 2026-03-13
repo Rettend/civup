@@ -212,6 +212,19 @@ export default defineConfig({
             to { opacity: 0; }
           }
           .anim-glow-fade-out { animation: civup-glow-fade-out 400ms ease-out forwards; }
+
+          @keyframes civup-bar-breathe {
+            0%, 100% { width: 30%; opacity: 0.9; }
+            50% { width: 55%; opacity: 0.5; }
+          }
+          .anim-bar-breathe { animation: civup-bar-breathe 3s ease-in-out infinite; }
+
+          @keyframes civup-bar-fade-out {
+            from { width: 30%; opacity: 0.9; }
+            to { width: 20%; opacity: 0; }
+          }
+          .anim-bar-fade-out { animation: civup-bar-fade-out 400ms ease-out forwards; }
+
           .slot-accent-gold { --slot-glow: var(--accent); }
           .slot-accent-red  { --slot-glow: var(--danger); }
 

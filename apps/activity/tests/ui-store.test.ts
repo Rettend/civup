@@ -7,17 +7,20 @@ import {
   clearTagFilters,
   detailLeaderId,
   ffaPlacementOrder,
+  pickSelections,
   searchQuery,
   selectedLeader,
   selectedWinningTeam,
   selectWinningTeam,
   setBanSelections,
   setDetailLeaderId,
+  setPickSelections,
   setSearchQuery,
   setSelectedLeader,
   tagFilters,
   toggleBanSelection,
   toggleFfaPlacement,
+  togglePickSelection,
   toggleTagFilter,
 } from '../src/client/stores/ui-store'
 
@@ -42,6 +45,7 @@ describe('ui-store helpers', () => {
 
   test('clearSelections resets all transient selection state', () => {
     setSelectedLeader('civ-9')
+    setPickSelections(['civ-9', 'civ-10'])
     setBanSelections(['civ-1', 'civ-2'])
     setSearchQuery('rome')
     setDetailLeaderId('civ-9')
@@ -53,6 +57,7 @@ describe('ui-store helpers', () => {
     clearSelections()
 
     expect(selectedLeader()).toBeNull()
+    expect(pickSelections()).toEqual([])
     expect(banSelections()).toEqual([])
     expect(searchQuery()).toBe('')
     expect(detailLeaderId()).toBeNull()
@@ -115,5 +120,20 @@ describe('ui-store helpers', () => {
 
     expect(ffaPlacementOrder()).toEqual([])
     expect(selectedWinningTeam()).toBeNull()
+  })
+
+  test('togglePickSelection keeps an ordered fallback queue for shift selection', () => {
+    togglePickSelection('civ-9', false)
+    togglePickSelection('civ-10', true)
+    togglePickSelection('civ-11', true)
+    expect(pickSelections()).toEqual(['civ-9', 'civ-10', 'civ-11'])
+    expect(selectedLeader()).toBe('civ-9')
+
+    togglePickSelection('civ-10', true)
+    expect(pickSelections()).toEqual(['civ-9', 'civ-11'])
+
+    togglePickSelection('civ-12', false)
+    expect(pickSelections()).toEqual(['civ-12'])
+    expect(selectedLeader()).toBe('civ-12')
   })
 })
