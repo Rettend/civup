@@ -8,6 +8,7 @@ import {
   isSpectator,
   sendStart,
   setGridOpen,
+  updateLobbyConfig,
   userId,
 } from '~/client/stores'
 import { ConfigScreen } from './ConfigScreen'
@@ -22,6 +23,8 @@ interface DraftViewProps {
   matchId: string
   autoStart?: boolean
   steamLobbyLink?: string | null
+  lobbyId?: string | null
+  lobbyMode?: string | null
   onSwitchTarget?: () => void
 }
 
@@ -30,6 +33,8 @@ export function DraftView(props: DraftViewProps) {
   const state = () => draftStore.state
   const [autoStartSent, setAutoStartSent] = createSignal(false)
   const [showAutoStartSplash, setShowAutoStartSplash] = createSignal(Boolean(props.autoStart))
+  const [steamLobbyLink, setSteamLobbyLink] = createSignal<string | null>(props.steamLobbyLink ?? null)
+  const [steamLobbySavePending, setSteamLobbySavePending] = createSignal(false)
   let autoStartSplashTimeout: ReturnType<typeof setTimeout> | null = null
   const hostId = () => draftStore.hostId
   const amHost = () => {
@@ -37,6 +42,10 @@ export function DraftView(props: DraftViewProps) {
     if (!currentUserId) return false
     return currentUserId === hostId()
   }
+
+  createEffect(() => {
+    setSteamLobbyLink(props.steamLobbyLink ?? null)
+  })
 
   createEffect(() => {
     const current = state()
@@ -76,6 +85,29 @@ export function DraftView(props: DraftViewProps) {
   })
 
   const isActiveOrComplete = () => state()?.status === 'active' || state()?.status === 'complete'
+  const canSaveSteamLobbyLink = () => amHost() && Boolean(props.lobbyId) && Boolean(props.lobbyMode)
+
+  const handleSaveSteamLink = async (link: string | null) => {
+    const currentUserId = userId()
+    if (!canSaveSteamLobbyLink() || !currentUserId || steamLobbySavePending()) return
+    if (link === steamLobbyLink()) return
+
+    setSteamLobbySavePending(true)
+    try {
+      const result = await updateLobbyConfig(props.lobbyMode!, props.lobbyId!, currentUserId, {
+        steamLobbyLink: link,
+      })
+      if (!result.ok) {
+        console.error('Failed to update Steam lobby link:', result.error)
+        return
+      }
+
+      setSteamLobbyLink(result.lobby.steamLobbyLink)
+    }
+    finally {
+      setSteamLobbySavePending(false)
+    }
+  }
 
   return (
     <Show
@@ -93,7 +125,12 @@ export function DraftView(props: DraftViewProps) {
             >
               {/* Active + Complete draft view */}
               <div class="text-fg font-sans bg-bg flex flex-col h-screen relative overflow-hidden">
-                <DraftHeader steamLobbyLink={props.steamLobbyLink ?? null} onSwitchTarget={props.onSwitchTarget} />
+                <DraftHeader
+                  steamLobbyLink={steamLobbyLink()}
+                  onSaveSteamLink={canSaveSteamLobbyLink() ? handleSaveSteamLink : undefined}
+                  savePending={steamLobbySavePending()}
+                  onSwitchTarget={props.onSwitchTarget}
+                />
                 <DraftTimeline />
 
               {/* Main area */}
@@ -146,7 +183,10 @@ export function DraftView(props: DraftViewProps) {
       )}
     >
       <Show when={!isMiniView()} fallback={<MiniView />}>
-        <CancelledDraftScreen steamLobbyLink={props.steamLobbyLink ?? null} />
+        <CancelledDraftScreen
+          steamLobbyLink={steamLobbyLink()}
+          isHost={amHost()}
+        />
       </Show>
     </Show>
   )
@@ -163,7 +203,10 @@ function AutoStartingDraftScreen() {
   )
 }
 
-function CancelledDraftScreen(props: { steamLobbyLink: string | null }) {
+function CancelledDraftScreen(props: {
+  steamLobbyLink: string | null
+  isHost: boolean
+}) {
   const state = () => draftStore.state
   const reason = () => state()?.cancelReason ?? 'scrub'
 
@@ -181,10 +224,13 @@ function CancelledDraftScreen(props: { steamLobbyLink: string | null }) {
 
   return (
     <main class="text-fg font-sans bg-bg h-screen overflow-y-auto relative">
-      <SteamLobbyButton
-        steamLobbyLink={props.steamLobbyLink}
-        class={cn('z-20 absolute', isMobileLayout() ? 'top-12 left-4 h-9 w-9' : 'top-4 left-4 h-9 w-9')}
-      />
+      <Show when={reason() !== 'scrub'}>
+        <SteamLobbyButton
+          steamLobbyLink={props.steamLobbyLink}
+          isHost={props.isHost}
+          class={cn('z-20 absolute', isMobileLayout() ? 'top-12 left-4 h-9 w-9' : 'top-4 left-4 h-9 w-9')}
+        />
+      </Show>
       <div class="mx-auto px-4 py-10 flex flex-col gap-4 max-w-3xl md:px-8">
         <section class="p-7 text-center border border-border rounded-lg bg-bg-subtle/70">
           <div class="text-[11px] text-fg-subtle tracking-[0.14em] font-semibold mb-2 uppercase">Session Closed</div>

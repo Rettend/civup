@@ -27,7 +27,15 @@ type AppState
     | { status: 'error', message: string }
     | { status: 'overview' }
     | { status: 'lobby-waiting', lobby: LobbySnapshot, joinPending: boolean, joinEligibility: LobbyJoinEligibilitySnapshot }
-    | { status: 'authenticated', matchId: string, autoStart: boolean, steamLobbyLink: string | null, roomAccessToken: string | null }
+    | {
+      status: 'authenticated'
+      matchId: string
+      autoStart: boolean
+      steamLobbyLink: string | null
+      roomAccessToken: string | null
+      lobbyId: string | null
+      lobbyMode: string | null
+    }
 
 const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
   || (typeof window !== 'undefined' ? window.location.host : 'localhost:5173')
@@ -138,7 +146,16 @@ export default function App() {
     void refreshActivityState(channelId, currentUserId)
   }
 
-  const transitionToDraft = (matchId: string, autoStart: boolean, steamLobbyLink: string | null, roomAccessToken: string | null) => {
+  const transitionToDraft = (
+    matchId: string,
+    autoStart: boolean,
+    steamLobbyLink: string | null,
+    roomAccessToken: string | null,
+    lobbyContext?: {
+      lobbyId: string | null
+      lobbyMode: string | null
+    },
+  ) => {
     setPickerError(null)
 
     const current = state()
@@ -147,8 +164,20 @@ export default function App() {
       : autoStart
     const isSameMatch = current.status === 'authenticated' && current.matchId === matchId
     const hasTerminalDraft = draftStore.state?.status === 'complete' || draftStore.state?.status === 'cancelled'
+    const nextLobbyId = lobbyContext?.lobbyId
+      ?? (current.status === 'lobby-waiting'
+        ? current.lobby.id
+        : current.status === 'authenticated'
+          ? current.lobbyId
+          : null)
+    const nextLobbyMode = lobbyContext?.lobbyMode
+      ?? (current.status === 'lobby-waiting'
+        ? current.lobby.mode
+        : current.status === 'authenticated'
+          ? current.lobbyMode
+          : null)
 
-    setState({ status: 'authenticated', matchId, autoStart: nextAutoStart, steamLobbyLink, roomAccessToken })
+    setState({ status: 'authenticated', matchId, autoStart: nextAutoStart, steamLobbyLink, roomAccessToken, lobbyId: nextLobbyId, lobbyMode: nextLobbyMode })
     if (isSameMatch && (isDraftConnectionInFlight() || hasTerminalDraft)) return
 
     resetDraft()
@@ -212,7 +241,10 @@ export default function App() {
       return
     }
 
-    transitionToDraft(snapshot.selection.matchId, autoStart, snapshot.selection.steamLobbyLink, snapshot.selection.roomAccessToken)
+    transitionToDraft(snapshot.selection.matchId, autoStart, snapshot.selection.steamLobbyLink, snapshot.selection.roomAccessToken, {
+      lobbyId: snapshot.selection.option.lobbyId,
+      lobbyMode: snapshot.selection.option.mode,
+    })
   }
 
   const refreshActivityState = async (channelId: string, currentUserId: string) => {
@@ -411,6 +443,8 @@ export default function App() {
             matchId={(state() as Extract<AppState, { status: 'authenticated' }>).matchId}
             autoStart={(state() as Extract<AppState, { status: 'authenticated' }>).autoStart}
             steamLobbyLink={(state() as Extract<AppState, { status: 'authenticated' }>).steamLobbyLink}
+            lobbyId={(state() as Extract<AppState, { status: 'authenticated' }>).lobbyId}
+            lobbyMode={(state() as Extract<AppState, { status: 'authenticated' }>).lobbyMode}
             onSwitchTarget={openOverview}
           />
         </Match>
@@ -431,6 +465,8 @@ function DraftWithConnection(props: {
   matchId: string
   autoStart: boolean
   steamLobbyLink: string | null
+  lobbyId: string | null
+  lobbyMode: string | null
   onSwitchTarget?: () => void
 }) {
   const hasDraftState = () => draftStore.state != null
@@ -460,6 +496,8 @@ function DraftWithConnection(props: {
             matchId={props.matchId}
             autoStart={props.autoStart}
             steamLobbyLink={props.steamLobbyLink}
+            lobbyId={props.lobbyId}
+            lobbyMode={props.lobbyMode}
             onSwitchTarget={props.onSwitchTarget}
           />
           <Show when={connectionStatus() === 'reconnecting'}>
@@ -486,6 +524,8 @@ function DraftWithConnection(props: {
           matchId={props.matchId}
           autoStart={props.autoStart}
           steamLobbyLink={props.steamLobbyLink}
+          lobbyId={props.lobbyId}
+          lobbyMode={props.lobbyMode}
           onSwitchTarget={props.onSwitchTarget}
         />
       </Match>
