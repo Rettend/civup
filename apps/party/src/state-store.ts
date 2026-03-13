@@ -1,4 +1,6 @@
 import type { Connection, WSMessage } from 'partyserver'
+import type { ConnectionContext } from 'partyserver'
+import { isAuthorizedInternalRequest } from '@civup/utils'
 import { Server } from 'partyserver'
 
 interface StateStoreEnv extends Cloudflare.Env {
@@ -205,7 +207,12 @@ export class State extends Server<StateStoreEnv> {
     }
   }
 
-  override async onConnect(connection: Connection<StateConnectionState>): Promise<void> {
+  override async onConnect(connection: Connection<StateConnectionState>, ctx: ConnectionContext): Promise<void> {
+    if (!isAuthorizedRequest(ctx.request, this.env.CIVUP_SECRET)) {
+      connection.close(4401, 'Unauthorized')
+      return
+    }
+
     connection.setState({
       keySubscriptions: [],
       prefixSubscriptions: [],
@@ -375,9 +382,7 @@ function storageKey(key: string): string {
 }
 
 function isAuthorizedRequest(req: Request, expectedSecret: string | undefined): boolean {
-  if (!expectedSecret || expectedSecret.trim().length === 0) return true
-  const providedSecret = req.headers.get('X-CivUp-State-Secret')
-  return providedSecret === expectedSecret
+  return isAuthorizedInternalRequest(req.headers, expectedSecret)
 }
 
 function isValidKey(key: string): boolean {

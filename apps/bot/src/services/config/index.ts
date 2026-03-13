@@ -30,7 +30,7 @@ export const SERVER_CONFIG_DESCRIPTIONS: Record<ServerConfigKey, string> = {
 export const MAX_CONFIG_TIMER_SECONDS = 30 * 60
 export const DEFAULT_QUEUE_TIMEOUT_MINUTES = 30
 export const DEFAULT_BAN_TIMER_SECONDS = 120
-export const DEFAULT_PICK_TIMER_SECONDS = 60
+export const DEFAULT_PICK_TIMER_SECONDS = 120
 const MAX_QUEUE_TIMEOUT_MINUTES = 24 * 60
 const RESET_VALUES = new Set(['null', 'default'])
 

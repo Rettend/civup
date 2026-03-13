@@ -14,9 +14,13 @@ import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRole
 import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
+import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from './auth.ts'
 
 export function registerMatchRoutes(app: Hono<Env>) {
   app.get('/api/match/state/:matchId', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
     const matchId = c.req.param('matchId')
     const db = createDb(c.env.DB)
 
@@ -35,10 +39,17 @@ export function registerMatchRoutes(app: Hono<Env>) {
       .from(matchParticipants)
       .where(eq(matchParticipants.matchId, matchId))
 
+    if (!participants.some(participant => participant.playerId === auth.identity.userId)) {
+      return c.json({ error: 'Only match participants can view this match.' }, 403)
+    }
+
     return c.json({ match, participants })
   })
 
   app.post('/api/match/:matchId/report', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
     const kv = createStateStore(c.env)
     let body: unknown
     try {
@@ -57,10 +68,13 @@ export function registerMatchRoutes(app: Hono<Env>) {
       return c.json({ error: 'reporterId and placements are required strings' }, 400)
     }
 
+    const mismatch = rejectMismatchedActivityUser(c, reporterId, auth.identity.userId)
+    if (mismatch) return mismatch
+
     const db = createDb(c.env.DB)
     const result = await reportMatch(db, kv, {
       matchId: c.req.param('matchId'),
-      reporterId,
+      reporterId: auth.identity.userId,
       placements,
     })
 
@@ -154,6 +168,9 @@ export function registerMatchRoutes(app: Hono<Env>) {
   })
 
   app.post('/api/match/:matchId/scrub', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
     const kv = createStateStore(c.env)
     let body: unknown
     try {
@@ -171,6 +188,9 @@ export function registerMatchRoutes(app: Hono<Env>) {
     if (typeof reporterId !== 'string' || reporterId.length === 0) {
       return c.json({ error: 'reporterId is required' }, 400)
     }
+
+    const mismatch = rejectMismatchedActivityUser(c, reporterId, auth.identity.userId)
+    if (mismatch) return mismatch
 
     const matchId = c.req.param('matchId')
     const db = createDb(c.env.DB)
@@ -194,13 +214,13 @@ export function registerMatchRoutes(app: Hono<Env>) {
       .from(matchParticipants)
       .where(eq(matchParticipants.matchId, matchId))
 
-    if (!participants.some(participant => participant.playerId === reporterId)) {
+    if (!participants.some(participant => participant.playerId === auth.identity.userId)) {
       return c.json({ error: 'Only match participants can scrub this match.' }, 403)
     }
 
     const lobby = await getLobbyByMatch(kv, matchId)
     const hostId = lobby?.hostId ?? getHostIdFromDraftData(match.draftData)
-    if (hostId && hostId !== reporterId) {
+    if (hostId && hostId !== auth.identity.userId) {
       return c.json({ error: 'Only the match host can scrub this match.' }, 403)
     }
 

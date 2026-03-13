@@ -83,6 +83,7 @@ interface CapacityScenario {
   label: string
   mode: GameMode
   joinGroups: string[][]
+  spectatorIds?: string[]
 }
 
 interface ScenarioReport {
@@ -107,6 +108,13 @@ const CAPACITY_SCENARIOS: CapacityScenario[] = [
     label: '1v1',
     mode: '1v1',
     joinGroups: [['p2']],
+  },
+  {
+    id: 'duel-ranked-plus-spectators',
+    label: '1v1+2spec',
+    mode: '1v1',
+    joinGroups: [['p2']],
+    spectatorIds: ['spec-1', 'spec-2'],
   },
   {
     id: 'teamers-2v2',
@@ -376,10 +384,11 @@ async function simulateScenarioLifecycle(input: {
     }
 
     const playerIds = scenarioPlayerIds(input.mode)
-    activityRequests += playerIds.length
-    for (const playerId of playerIds) {
+    const viewerIds = scenarioViewerIds(input.mode)
+    activityRequests += viewerIds.length
+    for (const playerId of viewerIds) {
       botRequests += 1
-      await simulateActivityLaunchSnapshot(kv, CHANNEL_ID, playerId)
+      await simulateActivityLaunchSnapshot(kv, stateCoordinator.secret, CHANNEL_ID, playerId)
     }
 
     botRequests += 1
@@ -402,7 +411,7 @@ async function simulateScenarioLifecycle(input: {
     const kvLists = operations.filter(op => op.type === 'list').length
     const doRequests = estimateDoBilledRequestUnits({
       stateCoordinatorRequests: stateCoordinator.requests(),
-      playersPerDraft: scenarioPlayersPerDraft(input.mode),
+      viewerCount: scenarioViewerIds(input.mode).length,
       draftRoomIncomingMessages: started.draftRoomIncomingMessages,
       lobbyWatchSubscribeMessagesPerConnection: LOBBY_WATCH_SUBSCRIBE_MESSAGES_PER_CONNECTION,
     })
@@ -471,10 +480,11 @@ async function simulateMatchJoin(
 
 async function simulateActivityLaunchSnapshot(
   kv: KVNamespace,
+  activitySecret: string,
   channelId: string,
   userId: string,
 ): Promise<void> {
-  await buildActivityLaunchSnapshot(undefined, kv, channelId, userId)
+  await buildActivityLaunchSnapshot(undefined, activitySecret, kv, channelId, userId)
 }
 
 async function startDraftFromOpenLobby(
@@ -761,6 +771,10 @@ function scenarioPlayerIds(mode: CapacityScenario): string[] {
   return [...new Set([HOST_ID, ...mode.joinGroups.flat()])]
 }
 
+function scenarioViewerIds(mode: CapacityScenario): string[] {
+  return [...new Set([...scenarioPlayerIds(mode), ...(mode.spectatorIds ?? [])])]
+}
+
 function scenarioPlayersPerDraft(mode: CapacityScenario): number {
   return scenarioPlayerIds(mode).length
 }
@@ -772,6 +786,7 @@ function printReports(reports: ScenarioReport[]): void {
   console.table(reports.map(report => ({
     mode: report.mode.label,
     players: scenarioPlayersPerDraft(report.mode),
+    viewers: scenarioViewerIds(report.mode).length,
     draftMsgs: report.draftRoomIncomingMessages,
   })))
   console.log('[capacity] globals', {
@@ -901,13 +916,13 @@ function roundForReport(value: number): number {
 
 function estimateDoBilledRequestUnits(input: {
   stateCoordinatorRequests: number
-  playersPerDraft: number
+  viewerCount: number
   draftRoomIncomingMessages: number
   lobbyWatchSubscribeMessagesPerConnection: number
 }): number {
-  const draftRoomWebsocketConnects = input.playersPerDraft
-  const lobbyWatchWebsocketConnects = input.playersPerDraft
-  const lobbyWatchIncomingMessages = input.playersPerDraft * input.lobbyWatchSubscribeMessagesPerConnection
+  const draftRoomWebsocketConnects = input.viewerCount
+  const lobbyWatchWebsocketConnects = input.viewerCount
+  const lobbyWatchIncomingMessages = input.viewerCount * input.lobbyWatchSubscribeMessagesPerConnection
 
   const billedDraftMessages = Math.ceil(input.draftRoomIncomingMessages / DO_WEBSOCKET_BILLING_RATIO)
   const billedLobbyWatchMessages = Math.ceil(lobbyWatchIncomingMessages / DO_WEBSOCKET_BILLING_RATIO)
