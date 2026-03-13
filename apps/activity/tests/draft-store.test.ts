@@ -2,6 +2,7 @@ import type { DraftState } from '@civup/game'
 import { createDraft, default2v2, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import {
+  getPreviewPickForSeat,
   currentStep,
   currentStepDuration,
   hasSubmitted,
@@ -37,26 +38,26 @@ function createActiveBanState() {
 
 describe('draft-store helpers', () => {
   test('phaseLabel returns WAITING before draft starts', () => {
-    initDraft(createWaitingState(), 'a1', 0, null, null)
+    initDraft(createWaitingState(), 'a1', 0, null, null, { bans: {}, picks: {} })
     expect(phaseLabel()).toBe('WAITING')
     expect(currentStep()).toBeNull()
   })
 
   test('tracks active step label, duration, and turn ownership', () => {
     const active = createActiveBanState()
-    initDraft(active, 'a1', 0, null, null)
+    initDraft(active, 'a1', 0, null, null, { bans: {}, picks: {} })
 
     expect(phaseLabel()).toBe('BAN PHASE')
     expect(isMyTurn()).toBe(true)
     expect(currentStepDuration()).toBe(active.steps[0]!.timer ?? 0)
 
-    initDraft(active, 'a1', null, null, null)
+    initDraft(active, 'a1', null, null, null, { bans: {}, picks: {} })
     expect(isMyTurn()).toBe(false)
   })
 
   test('hasSubmitted flips true once seat reaches required submission count', () => {
     const active = createActiveBanState()
-    initDraft(active, 'a1', 0, null, null)
+    initDraft(active, 'a1', 0, null, null, { bans: {}, picks: {} })
 
     expect(hasSubmitted()).toBe(false)
 
@@ -68,7 +69,7 @@ describe('draft-store helpers', () => {
       },
     }
 
-    updateDraft(withSubmission, 'a1', [], null, null)
+    updateDraft(withSubmission, 'a1', [], null, null, { bans: {}, picks: {} })
     expect(hasSubmitted()).toBe(true)
   })
 
@@ -76,7 +77,7 @@ describe('draft-store helpers', () => {
     const waiting = createWaitingState()
     const cancelled = resolveDraftState(processDraftInput(waiting, { type: 'CANCEL', reason: 'cancel' }))
 
-    initDraft(cancelled, 'a1', 0, null, null)
+    initDraft(cancelled, 'a1', 0, null, null, { bans: {}, picks: {} })
     expect(phaseLabel()).toBe('DRAFT CANCELLED')
   })
 
@@ -84,7 +85,14 @@ describe('draft-store helpers', () => {
     const active = createActiveBanState()
     const scrubbed = resolveDraftState(processDraftInput(active, { type: 'CANCEL', reason: 'cancel' }))
 
-    initDraft(scrubbed, 'a1', 0, null, null)
+    initDraft(scrubbed, 'a1', 0, null, null, { bans: {}, picks: {} })
     expect(phaseLabel()).toBe('MATCH SCRUBBED')
+  })
+
+  test('stores preview picks alongside the draft state', () => {
+    const active = resolveDraftState(processDraftInput(createActiveBanState(), { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true))
+    initDraft(active, 'a1', 0, null, null, { bans: {}, picks: { 2: ['civ-9', 'civ-10'] } })
+
+    expect(getPreviewPickForSeat(2)).toBe('civ-9')
   })
 })

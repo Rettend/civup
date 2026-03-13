@@ -218,7 +218,7 @@ function CancelledDraftScreen(props: {
 
   const detail = () => {
     if (reason() === 'cancel') return 'Host cancelled this draft before lock-in.'
-    if (reason() === 'timeout') return 'A player timed out picking a leader.'
+    if (reason() === 'timeout') return 'A player timed out without a valid leader queued.'
     return 'Host scrubbed this match.'
   }
 

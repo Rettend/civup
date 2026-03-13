@@ -5,7 +5,10 @@ import { currentStep } from './draft-store'
 
 // ── UI State ───────────────────────────────────────────────
 
-export const [selectedLeader, setSelectedLeader] = createSignal<string | null>(null)
+const [pickSelectionsSignal, setPickSelectionsSignal] = createSignal<string[]>([])
+const [selectedLeaderSignal, setSelectedLeaderSignal] = createSignal<string | null>(null)
+export const pickSelections = pickSelectionsSignal
+export const selectedLeader = selectedLeaderSignal
 export const [searchQuery, setSearchQuery] = createSignal('')
 export const [tagFilters, setTagFilters] = createSignal<TagFilterState>(createEmptyTagFilters())
 export const activeTagFilterCount = createMemo(() => countActiveTagFilters(tagFilters()))
@@ -55,13 +58,47 @@ export function toggleBanSelection(civId: string, maxBans: number) {
 
 /** Clear all UI selection state (called on step advance) */
 export function clearSelections() {
-  setSelectedLeader(null)
+  setPickSelections([])
   setBanSelections([])
   setIsRandomSelected(false)
   setSearchQuery('')
   setTagFilters(createEmptyTagFilters())
   setDetailLeaderId(null)
   clearResultSelections()
+}
+
+/** Replace the primary pick and clear any queued fallback picks. */
+export function setSelectedLeader(next: string | null | ((prev: string | null) => string | null)) {
+  const resolved = typeof next === 'function' ? next(selectedLeader()) : next
+  setPickSelections(resolved ? [resolved] : [])
+}
+
+/** Replace the full ordered pick queue and keep the primary pick signal in sync. */
+export function setPickSelections(next: string[] | ((prev: string[]) => string[])) {
+  const resolved = typeof next === 'function' ? next(pickSelections()) : next
+  const normalized = normalizePickSelections(resolved)
+  setPickSelectionsSignal(normalized)
+  setSelectedLeaderSignal(normalized[0] ?? null)
+}
+
+/** Shift/long-press toggles an ordered fallback pick queue. */
+export function togglePickSelection(civId: string, extendQueue: boolean) {
+  setPickSelections((prev) => {
+    if (!extendQueue) {
+      if (prev.length === 1 && prev[0] === civId) return []
+      if (prev[0] === civId) return [civId]
+      return [civId]
+    }
+
+    const index = prev.indexOf(civId)
+    if (index >= 0) return prev.filter(id => id !== civId)
+    return [...prev, civId]
+  })
+}
+
+/** Position of a queued pick, or -1 if absent. */
+export function pickSelectionIndex(civId: string): number {
+  return pickSelections().indexOf(civId)
 }
 
 /** Toggle a single leader tag within its category filter set */
@@ -118,4 +155,17 @@ export function clearResultSelections() {
   setFfaPlacementOrder([])
   setSelectedWinningTeam(null)
   setResultSelectionsLocked(false)
+}
+
+function normalizePickSelections(civIds: string[]): string[] {
+  const normalized: string[] = []
+  const seen = new Set<string>()
+
+  for (const civId of civIds) {
+    if (typeof civId !== 'string' || seen.has(civId)) continue
+    normalized.push(civId)
+    seen.add(civId)
+  }
+
+  return normalized
 }
