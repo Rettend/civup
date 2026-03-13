@@ -36,6 +36,7 @@ export type {
   DraftEvent,
   DraftFormat,
   DraftInput,
+  DraftPreviewState,
   DraftResult,
   DraftSeat,
   DraftSelection,

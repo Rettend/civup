@@ -76,6 +76,8 @@ interface UsageSample {
 interface SimulationResult {
   usage: UsageSample
   draftRoomIncomingMessages: number
+  draftRoomIncomingMessagesWithSelectionPreviews: number
+  draftRoomIncomingMessagesWithTeamPickPreviews: number
 }
 
 interface CapacityScenario {
@@ -90,6 +92,8 @@ interface ScenarioReport {
   mode: CapacityScenario
   model: CapacityModel
   draftRoomIncomingMessages: number
+  draftRoomIncomingMessagesWithSelectionPreviews: number
+  draftRoomIncomingMessagesWithTeamPickPreviews: number
   freeCapacityPlaysPerDay: number
   paidIncludedCapacityPlaysPerDay: number
   paidTenDollarCapacityPlaysPerDay: number
@@ -207,6 +211,8 @@ describe('capacity models', () => {
     for (const report of reports) {
       expect(report.model.perDraft.workersRequests).toBeGreaterThan(0)
       expect(report.model.perDraft.d1RowsWritten).toBeGreaterThan(0)
+      expect(report.draftRoomIncomingMessagesWithSelectionPreviews).toBeGreaterThanOrEqual(report.draftRoomIncomingMessages)
+      expect(report.draftRoomIncomingMessagesWithTeamPickPreviews).toBe(report.draftRoomIncomingMessagesWithSelectionPreviews)
       expect(report.freeCapacityPlaysPerDay).toBeGreaterThan(0)
       expect(report.paidIncludedCapacityPlaysPerDay).toBeGreaterThan(0)
       expect(report.paidTenDollarCapacityPlaysPerDay).toBeGreaterThanOrEqual(report.paidIncludedCapacityPlaysPerDay)
@@ -274,6 +280,8 @@ async function buildScenarioReport(
     mode,
     model,
     draftRoomIncomingMessages: baseline.draftRoomIncomingMessages,
+    draftRoomIncomingMessagesWithSelectionPreviews: baseline.draftRoomIncomingMessagesWithSelectionPreviews,
+    draftRoomIncomingMessagesWithTeamPickPreviews: baseline.draftRoomIncomingMessagesWithTeamPickPreviews,
     freeCapacityPlaysPerDay,
     paidIncludedCapacityPlaysPerDay,
     paidTenDollarCapacityPlaysPerDay,
@@ -418,6 +426,8 @@ async function simulateScenarioLifecycle(input: {
 
     return {
       draftRoomIncomingMessages: started.draftRoomIncomingMessages,
+      draftRoomIncomingMessagesWithSelectionPreviews: started.draftRoomIncomingMessagesWithSelectionPreviews,
+      draftRoomIncomingMessagesWithTeamPickPreviews: started.draftRoomIncomingMessagesWithTeamPickPreviews,
       usage: {
         workersRequests: botRequests + activityRequests,
         d1RowsRead: sqlTracker.counts.rowsRead,
@@ -495,6 +505,8 @@ async function startDraftFromOpenLobby(
   matchId: string
   completedDraftState: DraftState
   draftRoomIncomingMessages: number
+  draftRoomIncomingMessagesWithSelectionPreviews: number
+  draftRoomIncomingMessagesWithTeamPickPreviews: number
 }> {
   const lobby = await getLobby(kv, mode.mode)
   if (!lobby || lobby.status !== 'open') throw new Error(`Expected open ${mode.mode} lobby before start`)
@@ -531,6 +543,8 @@ async function startDraftFromOpenLobby(
     matchId,
     completedDraftState: completedDraft.state,
     draftRoomIncomingMessages: completedDraft.inputCount,
+    draftRoomIncomingMessagesWithSelectionPreviews: completedDraft.inputCountWithSelectionPreviews,
+    draftRoomIncomingMessagesWithTeamPickPreviews: completedDraft.inputCountWithTeamPickPreviews,
   }
 }
 
@@ -621,10 +635,16 @@ function buildCompletedDraftState(
   matchId: string,
   mode: GameMode,
   seats: DraftSeat[],
-): { state: DraftState, inputCount: number } {
+): {
+  state: DraftState
+  inputCount: number
+  inputCountWithSelectionPreviews: number
+  inputCountWithTeamPickPreviews: number
+} {
   const format = getDefaultFormat(mode)
   let state = createDraft(matchId, format, seats, allLeaderIds)
   let inputCount = 0
+  let selectionPreviewInputCount = 0
 
   state = applyDraftInput(state, { type: 'START' }, format.blindBans)
   inputCount += 1
@@ -643,6 +663,7 @@ function buildCompletedDraftState(
         if (state.submissions[seatIndex]) continue
         const civIds = pickAvailableCivs(state.availableCivIds, step.count, reserved)
         for (const civId of civIds) reserved.add(civId)
+        selectionPreviewInputCount += 1
         state = applyDraftInput(state, { type: 'BAN', seatIndex, civIds }, format.blindBans)
         inputCount += 1
       }
@@ -658,13 +679,19 @@ function buildCompletedDraftState(
       const [civId] = pickAvailableCivs(state.availableCivIds, 1, alreadyChosen)
       if (!civId) throw new Error('Expected a civ to be available for the next pick')
 
+      selectionPreviewInputCount += 1
       state = applyDraftInput(state, { type: 'PICK', seatIndex, civId }, format.blindBans)
       inputCount += 1
       if (state.status === 'complete' || state.currentStepIndex !== currentStepIndex) break
     }
   }
 
-  return { state, inputCount }
+  return {
+    state,
+    inputCount,
+    inputCountWithSelectionPreviews: inputCount + selectionPreviewInputCount,
+    inputCountWithTeamPickPreviews: inputCount + selectionPreviewInputCount,
+  }
 }
 
 function applyDraftInput(
@@ -788,6 +815,8 @@ function printReports(reports: ScenarioReport[]): void {
     players: scenarioPlayersPerDraft(report.mode),
     viewers: scenarioViewerIds(report.mode).length,
     draftMsgs: report.draftRoomIncomingMessages,
+    previewMsgs: report.draftRoomIncomingMessagesWithSelectionPreviews,
+    teamPreviewMsgs: report.draftRoomIncomingMessagesWithTeamPickPreviews,
   })))
   console.log('[capacity] globals', {
     leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,

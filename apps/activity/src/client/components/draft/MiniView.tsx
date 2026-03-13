@@ -74,6 +74,7 @@ export function MiniView() {
     if (!current) return []
 
     const picksBySeat = new Map(current.picks.map(pick => [pick.seatIndex, pick.civId]))
+    const previewPicksBySeat = new Map(Object.entries(draftStore.previews.picks).map(([seatIndex, civIds]) => [Number(seatIndex), civIds[0] ?? null]))
     const activeSeats = activeSeatSet()
 
     return current.seats.map((seat, seatIndex) => ({
@@ -81,6 +82,7 @@ export function MiniView() {
       name: seat.displayName,
       avatarUrl: seat.avatarUrl ?? null,
       leaderId: picksBySeat.get(seatIndex) ?? null,
+      previewLeaderId: picksBySeat.get(seatIndex) ? null : (previewPicksBySeat.get(seatIndex) ?? null),
       team: seat.team ?? null,
       active: activeSeats.has(seatIndex),
     }))

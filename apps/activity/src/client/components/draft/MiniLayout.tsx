@@ -13,6 +13,7 @@ export interface MiniSeatItem {
   name: string
   avatarUrl?: string | null
   leaderId?: string | null
+  previewLeaderId?: string | null
   team?: number | null
   active?: boolean
   empty?: boolean
@@ -106,7 +107,7 @@ export function MiniSeatGrid(props: MiniSeatGridProps) {
 
 function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' }) {
   const leaderPortraitUrl = () => {
-    const leaderId = props.item.leaderId
+    const leaderId = props.item.leaderId ?? props.item.previewLeaderId
     if (!leaderId) return null
 
     try {
@@ -116,6 +117,8 @@ function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' }) 
       return null
     }
   }
+
+  const showingPreview = () => !props.item.leaderId && !!props.item.previewLeaderId
 
   const backgroundClass = () => {
     if (props.item.empty) return 'border border-dashed border-border-subtle bg-bg/26'
@@ -191,7 +194,10 @@ function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' }) 
             <img
               src={portraitUrl()}
               alt=""
-              class="border border-border rounded-full h-5 w-5 object-cover"
+              class={cn(
+                'border border-border rounded-full h-5 w-5 object-cover',
+                showingPreview() && 'opacity-55 saturate-80',
+              )}
             />
           )}
         </Show>
