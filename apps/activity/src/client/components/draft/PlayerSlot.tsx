@@ -232,6 +232,16 @@ export function PlayerSlot(props: PlayerSlotProps) {
         }}
       />
 
+      {/* Top accent bar */}
+      <div
+        class="h-[2px] rounded-full pointer-events-none left-1/2 top-2 absolute z-10 -translate-x-1/2 bg-[var(--slot-glow)]"
+        classList={{
+          'anim-bar-breathe': isActive(),
+          'anim-bar-fade-out': wasEverActive() && !isActive(),
+          'opacity-0 w-0': !wasEverActive(),
+        }}
+      />
+
       {/* FFA placement overlay */}
       <Show when={isFfaPlacementMode()}>
         {/* Bottom radial glow on selected slots */}
@@ -293,15 +303,17 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
       <Show when={!filled() && previewLeader()} keyed>
         {l => (
-          <img
-            src={`/assets/leaders-full/${l.id}.webp`}
-            alt={l.name}
-            class={cn(
-              'absolute inset-0 h-full w-full object-cover opacity-45 saturate-80',
-              props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
-              'anim-portrait-in',
-            )}
-          />
+          <div class="absolute inset-0 opacity-50 saturate-85">
+            <img
+              src={`/assets/leaders-full/${l.id}.webp`}
+              alt={l.name}
+              class={cn(
+                'absolute inset-0 h-full w-full object-cover',
+                props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
+                'anim-portrait-in',
+              )}
+            />
+          </div>
         )}
       </Show>
 

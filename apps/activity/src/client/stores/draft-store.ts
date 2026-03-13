@@ -25,6 +25,8 @@ export interface DraftStore {
   optimisticSeatPicks: Record<number, string>
   /** Server-authoritative tentative selections visible to this client */
   previews: DraftPreviewState
+  /** Increments whenever the socket receives a fresh init payload. */
+  initVersion: number
 }
 
 // ── Store ──────────────────────────────────────────────────
@@ -38,6 +40,7 @@ const [draftStore, setDraftStore] = createStore<DraftStore>({
   lastEvents: [],
   optimisticSeatPicks: {},
   previews: EMPTY_DRAFT_PREVIEWS,
+  initVersion: 0,
 })
 
 export { draftStore }
@@ -52,6 +55,7 @@ export function initDraft(
   completedAt: number | null,
   previews: DraftPreviewState,
 ) {
+  const nextInitVersion = draftStore.initVersion + 1
   setDraftStore({
     state,
     hostId,
@@ -61,6 +65,7 @@ export function initDraft(
     lastEvents: [],
     optimisticSeatPicks: {},
     previews,
+    initVersion: nextInitVersion,
   })
 }
 
@@ -74,6 +79,7 @@ export function resetDraft() {
     lastEvents: [],
     optimisticSeatPicks: {},
     previews: EMPTY_DRAFT_PREVIEWS,
+    initVersion: 0,
   })
 }
 

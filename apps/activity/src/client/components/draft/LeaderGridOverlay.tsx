@@ -1,6 +1,7 @@
 import type { Leader } from '@civup/game'
 import type { LeaderTagCategory } from '~/client/lib/leader-tags'
 import { leaders, searchLeaders } from '@civup/game'
+import { throttle } from '@solid-primitives/scheduled'
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import {
@@ -45,6 +46,7 @@ import { LeaderDetailPanel } from './LeaderDetailPanel'
 
 const FILTER_TAG_OPTIONS = getFilterTagOptions(leaders)
 const DOCKED_PANEL_MIN_WIDTH = 1280
+const PREVIEW_THROTTLE_MS = 60
 
 interface HoverTooltip {
   name: string
@@ -90,7 +92,16 @@ export function LeaderGridOverlay() {
   const [gridExpanded, setGridExpanded] = createSignal(false)
   const [panelsDocked, setPanelsDocked] = createSignal(false)
   const [tooltipSize, setTooltipSize] = createSignal({ width: 224, height: 96 })
+  const [hydratedPickPreviewToken, setHydratedPickPreviewToken] = createSignal<string | null>(null)
+  const [hydratedBanPreviewToken, setHydratedBanPreviewToken] = createSignal<string | null>(null)
+  const sendThrottledBanPreview = throttle((civIds: string[]) => sendPreview('ban', civIds), PREVIEW_THROTTLE_MS)
+  const sendThrottledPickPreview = throttle((civIds: string[]) => sendPreview('pick', civIds), PREVIEW_THROTTLE_MS)
   let tooltipRef: HTMLDivElement | undefined
+
+  onCleanup(() => {
+    sendThrottledBanPreview.clear()
+    sendThrottledPickPreview.clear()
+  })
   let restoreFiltersAfterCollapse = false
   let restoreDetailLeaderId: string | null = null
   let restoreSelectedLeaderId: string | null = null
@@ -136,6 +147,7 @@ export function LeaderGridOverlay() {
     const current = state()
     const seatIndex = ownSeatIndex()
     const currentStep = step()
+    const hydrationToken = current && seatIndex != null ? `${draftStore.initVersion}:${current.currentStepIndex}:${seatIndex}` : null
 
     if (!current || current.status !== 'active' || seatIndex == null) {
       if (banSelections().length > 0) setBanSelections([])
@@ -145,8 +157,9 @@ export function LeaderGridOverlay() {
 
     if (currentStep?.action === 'ban') {
       const serverBanPreview = draftStore.previews.bans[seatIndex] ?? []
-      if (banSelections().length === 0 && serverBanPreview.length > 0) {
+      if (banSelections().length === 0 && serverBanPreview.length > 0 && hydratedBanPreviewToken() !== hydrationToken) {
         setBanSelections([...serverBanPreview])
+        setHydratedBanPreviewToken(hydrationToken)
       }
     }
     else if (banSelections().length > 0) {
@@ -172,8 +185,9 @@ export function LeaderGridOverlay() {
     }
 
     const serverPickPreview = (draftStore.previews.picks[seatIndex] ?? []).filter(civId => available.has(civId))
-    if (localPickSelections.length === 0 && serverPickPreview.length > 0) {
+    if (localPickSelections.length === 0 && serverPickPreview.length > 0 && hydratedPickPreviewToken() !== hydrationToken) {
       setPickSelections([...serverPickPreview])
+      setHydratedPickPreviewToken(hydrationToken)
     }
   })
 
@@ -181,14 +195,20 @@ export function LeaderGridOverlay() {
     const current = state()
     const currentStep = step()
     const seatIndex = ownSeatIndex()
-    if (!current || current.status !== 'active' || seatIndex == null || !currentStep) return
-
-    if (currentStep.action === 'ban') {
-      sendPreview('ban', isMyTurn() && !hasSubmitted() ? banSelections() : [])
+    if (!current || current.status !== 'active' || seatIndex == null || !currentStep) {
+      sendThrottledBanPreview.clear()
+      sendThrottledPickPreview.clear()
       return
     }
 
-    sendPreview('pick', canManagePickQueue() ? pickSelections() : [])
+    if (currentStep.action === 'ban') {
+      sendThrottledPickPreview.clear()
+      sendThrottledBanPreview(isMyTurn() && !hasSubmitted() ? banSelections() : [])
+      return
+    }
+
+    sendThrottledBanPreview.clear()
+    sendThrottledPickPreview(canManagePickQueue() ? pickSelections() : [])
   })
 
   const draftLeaderPoolIds = createMemo(() => {

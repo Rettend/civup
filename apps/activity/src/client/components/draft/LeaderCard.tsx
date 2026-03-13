@@ -5,16 +5,11 @@ import {
   canManagePickQueue,
   banSelections,
   currentStep,
-  detailLeaderId,
   draftStore,
   isMyTurn,
   isRandomSelected,
   pickSelectionIndex,
-  pickSelections,
-  setBanSelections,
-  setDetailLeaderId,
   setIsRandomSelected,
-  setPickSelections,
   toggleBanSelection,
   toggleDetail,
   togglePickSelection,
@@ -32,7 +27,6 @@ const ZOOMED_LEADERS = [
 const SLIGHTLY_ZOOMED_LEADERS = [
   'Te\' K\'inich II',
 ]
-const DOUBLE_TAP_DETAIL_WINDOW_MS = 280
 const PICK_QUEUE_LONG_PRESS_MS = 350
 
 interface LeaderCardProps {
@@ -44,19 +38,10 @@ interface LeaderCardProps {
   onHoverLeave?: () => void
 }
 
-interface ClickSnapshot {
-  pickSelectionIds: string[]
-  banSelectionIds: string[]
-  detailLeaderId: string | null
-  randomSelected: boolean
-}
-
 /** Icon-only leader card for the grid overlay */
 export function LeaderCard(props: LeaderCardProps) {
   const state = () => draftStore.state
   const step = currentStep
-  let pendingClickTimeout: ReturnType<typeof setTimeout> | null = null
-  let pendingClickSnapshot: ClickSnapshot | null = null
 
   const isBanned = (): boolean => state()?.bans.some(b => b.civId === props.leader.id) ?? false
   const isPicked = (): boolean => state()?.picks.some(p => p.civId === props.leader.id) ?? false
@@ -85,27 +70,6 @@ export function LeaderCard(props: LeaderCardProps) {
 
   const isInteractive = (): boolean => {
     return canToggleBanSelection() || canTogglePickSelection()
-  }
-
-  const captureClickSnapshot = (): ClickSnapshot => ({
-    pickSelectionIds: [...pickSelections()],
-    banSelectionIds: [...banSelections()],
-    detailLeaderId: detailLeaderId(),
-    randomSelected: isRandomSelected(),
-  })
-
-  const restoreClickSnapshot = (snapshot: ClickSnapshot) => {
-    setPickSelections(snapshot.pickSelectionIds)
-    setBanSelections(snapshot.banSelectionIds)
-    setDetailLeaderId(snapshot.detailLeaderId)
-    setIsRandomSelected(snapshot.randomSelected)
-  }
-
-  const clearPendingClick = () => {
-    if (!pendingClickTimeout) return
-    clearTimeout(pendingClickTimeout)
-    pendingClickTimeout = null
-    pendingClickSnapshot = null
   }
 
   const clearLongPress = () => {
@@ -139,13 +103,7 @@ export function LeaderCard(props: LeaderCardProps) {
   }
 
   const handleQueuedClick = () => {
-    clearPendingClick()
     handlePickSelection(true)
-  }
-
-  const handleDoubleClick = () => {
-    clearPendingClick()
-    toggleDetail(props.leader.id)
   }
 
   const handleClick = (event: MouseEvent) => {
@@ -160,23 +118,13 @@ export function LeaderCard(props: LeaderCardProps) {
       handleQueuedClick()
       return
     }
-
-    if (pendingClickTimeout) {
-      clearTimeout(pendingClickTimeout)
-      pendingClickTimeout = null
-
-      if (pendingClickSnapshot) restoreClickSnapshot(pendingClickSnapshot)
-      pendingClickSnapshot = null
-      handleDoubleClick()
-      return
-    }
-
-    pendingClickSnapshot = captureClickSnapshot()
     handleSingleClick()
-    pendingClickTimeout = setTimeout(() => {
-      pendingClickTimeout = null
-      pendingClickSnapshot = null
-    }, DOUBLE_TAP_DETAIL_WINDOW_MS)
+  }
+
+  const handleContextMenu = (event: MouseEvent) => {
+    event.preventDefault()
+    props.onHoverLeave?.()
+    toggleDetail(props.leader.id)
   }
 
   const handlePointerDown = (event: PointerEvent) => {
@@ -216,6 +164,7 @@ export function LeaderCard(props: LeaderCardProps) {
         !isInteractive() && !isUnavailable() && 'cursor-pointer',
       )}
       onClick={handleClick}
+      onContextMenu={handleContextMenu}
       onMouseEnter={handleHoverMove}
       onMouseMove={handleHoverMove}
       onMouseLeave={handleHoverLeave}
@@ -289,13 +238,13 @@ export function LeaderCard(props: LeaderCardProps) {
             <span class="text-2xl text-danger font-bold">✕</span>
           </div>
         </Show>
-
-        <Show when={isQueuedPick()}>
-          <span class="text-[10px] text-[var(--badge-gold-text)] font-semibold px-1 py-0.5 rounded-full bg-bg-subtle min-w-4 right-0 top-0 absolute translate-x-1/4 -translate-y-1/4 text-center">
-            {pickQueueIndex() + 1}
-          </span>
-        </Show>
       </div>
+
+      <Show when={isQueuedPick()}>
+        <span class="text-[10px] text-accent font-semibold px-1 py-0.5 rounded-full bg-bg-subtle min-w-4 right-1 top-1 absolute text-center z-10">
+          {pickQueueIndex() + 1}
+        </span>
+      </Show>
     </button>
   )
 }
