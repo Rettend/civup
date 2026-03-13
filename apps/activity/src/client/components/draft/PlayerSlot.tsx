@@ -3,7 +3,7 @@ import { getLeader } from '@civup/game'
 import { createEffect, createSignal, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
-import { draftStore, ffaPlacementOrder, getOptimisticSeatPick, isMobileLayout, phaseAccent, resultSelectionsLocked, selectedWinningTeam, selectWinningTeam, toggleFfaPlacement, userId } from '~/client/stores'
+import { draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, isMobileLayout, phaseAccent, resultSelectionsLocked, selectedWinningTeam, selectWinningTeam, toggleFfaPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -36,6 +36,17 @@ export function PlayerSlot(props: PlayerSlotProps) {
     try { return getLeader(p.civId) }
     catch { return null }
   }
+
+  const previewLeader = (): Leader | null => {
+    if (filled()) return null
+    const civId = getPreviewPickForSeat(props.seatIndex)
+    if (!civId) return null
+    try { return getLeader(civId) }
+    catch { return null }
+  }
+
+  const hasPreview = (): boolean => previewLeader() != null
+  const displayLeader = (): Leader | null => leader() ?? previewLeader()
 
   const isActive = (): boolean => {
     const s = state()
@@ -280,8 +291,22 @@ export function PlayerSlot(props: PlayerSlotProps) {
         )}
       </Show>
 
+      <Show when={!filled() && previewLeader()} keyed>
+        {l => (
+          <img
+            src={`/assets/leaders-full/${l.id}.webp`}
+            alt={l.name}
+            class={cn(
+              'absolute inset-0 h-full w-full object-cover opacity-45 saturate-80',
+              props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
+              'anim-portrait-in',
+            )}
+          />
+        )}
+      </Show>
+
       {/* Empty state icon */}
-      <Show when={!filled()}>
+      <Show when={!filled() && !hasPreview()}>
         <div class="flex flex-1 items-center justify-center">
           <div class={cn(
             'i-ph-user-bold text-3xl',
@@ -294,15 +319,19 @@ export function PlayerSlot(props: PlayerSlotProps) {
       {/* Bottom gradient overlay */}
       <div class={cn(
         'absolute inset-x-0 bottom-0 px-2 pb-2 pt-8 z-20',
-        filled() ? 'bg-gradient-to-t from-black/80 to-transparent' : 'bg-gradient-to-t from-bg/40 to-transparent',
+        filled() || hasPreview() ? 'bg-gradient-to-t from-black/80 to-transparent' : 'bg-gradient-to-t from-bg/40 to-transparent',
       )}
       >
         {/* Leader name (when picked) */}
-        <Show when={leader()} keyed>
+        <Show when={displayLeader()} keyed>
           {l => (
             <div class="mb-1">
-              <div class="text-base text-fg leading-tight font-semibold truncate">{l.name}</div>
-              <div class="text-sm text-fg-muted/80 leading-tight truncate">{l.civilization}</div>
+              <div class={cn('text-base leading-tight font-semibold truncate', filled() ? 'text-fg' : 'text-fg/72')}>
+                {l.name}
+              </div>
+              <div class={cn('text-sm leading-tight truncate', filled() ? 'text-fg-muted/80' : 'text-fg-muted/65')}>
+                {l.civilization}
+              </div>
             </div>
           )}
         </Show>

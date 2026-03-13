@@ -1,6 +1,8 @@
 import type {
+  DraftAction,
   DraftCancelReason,
   DraftEvent,
+  DraftPreviewState,
   DraftSeat,
   DraftState,
   DraftTimerConfig,
@@ -45,6 +47,7 @@ export type ClientMessage
   = | { type: 'start' }
     | { type: 'ban', civIds: string[] }
     | { type: 'pick', civId: string }
+    | { type: 'preview', action: DraftAction, civIds: string[] }
     | { type: 'cancel', reason: 'cancel' | 'scrub' }
     | {
       type: 'config'
@@ -62,6 +65,7 @@ export type ServerMessage
     seatIndex: number | null
     timerEndsAt: number | null
     completedAt: number | null
+    previews: DraftPreviewState
   }
   | {
     type: 'update'
@@ -70,5 +74,7 @@ export type ServerMessage
     events: DraftEvent[]
     timerEndsAt: number | null
     completedAt: number | null
+    previews: DraftPreviewState
   }
+  | { type: 'preview', previews: DraftPreviewState }
   | { type: 'error', message: string }

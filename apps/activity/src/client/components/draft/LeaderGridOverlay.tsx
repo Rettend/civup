@@ -13,6 +13,7 @@ import {
 import {
   activeTagFilterCount,
   banSelections,
+  canManagePickQueue,
   clearSelections,
   clearTagFilters,
   currentStep,
@@ -22,15 +23,18 @@ import {
   hasSubmitted,
   isMyTurn,
   isRandomSelected,
+  pickSelections,
   phaseAccent,
   searchQuery,
   selectedLeader,
   sendBan,
   sendPick,
+  sendPreview,
   setBanSelections,
   setDetailLeaderId,
   setGridOpen,
   setIsRandomSelected,
+  setPickSelections,
   setSearchQuery,
   setSelectedLeader,
   tagFilters,
@@ -80,6 +84,7 @@ export function LeaderGridOverlay() {
   const state = () => draftStore.state
   const step = currentStep
   const accent = () => phaseAccent()
+  const ownSeatIndex = () => draftStore.seatIndex
   const [hoverTooltip, setHoverTooltip] = createSignal<HoverTooltip | null>(null)
   const [filtersOpen, setFiltersOpen] = createSignal(false)
   const [gridExpanded, setGridExpanded] = createSignal(false)
@@ -125,6 +130,65 @@ export function LeaderGridOverlay() {
   // Auto-open grid when it's your turn
   createEffect(() => {
     if (isMyTurn() && !hasSubmitted()) setGridOpen(true)
+  })
+
+  createEffect(() => {
+    const current = state()
+    const seatIndex = ownSeatIndex()
+    const currentStep = step()
+
+    if (!current || current.status !== 'active' || seatIndex == null) {
+      if (banSelections().length > 0) setBanSelections([])
+      if (pickSelections().length > 0) setPickSelections([])
+      return
+    }
+
+    if (currentStep?.action === 'ban') {
+      const serverBanPreview = draftStore.previews.bans[seatIndex] ?? []
+      if (banSelections().length === 0 && serverBanPreview.length > 0) {
+        setBanSelections([...serverBanPreview])
+      }
+    }
+    else if (banSelections().length > 0) {
+      setBanSelections([])
+    }
+
+    if (currentStep?.action !== 'pick') {
+      if (pickSelections().length > 0) setPickSelections([])
+      return
+    }
+
+    if (current.picks.some(pick => pick.seatIndex === seatIndex)) {
+      if (pickSelections().length > 0) setPickSelections([])
+      return
+    }
+
+    const available = new Set(current.availableCivIds)
+    const localPickSelections = pickSelections()
+    const prunedLocalSelections = localPickSelections.filter(civId => available.has(civId))
+    if (!sameCivIdList(localPickSelections, prunedLocalSelections)) {
+      setPickSelections(prunedLocalSelections)
+      return
+    }
+
+    const serverPickPreview = (draftStore.previews.picks[seatIndex] ?? []).filter(civId => available.has(civId))
+    if (localPickSelections.length === 0 && serverPickPreview.length > 0) {
+      setPickSelections([...serverPickPreview])
+    }
+  })
+
+  createEffect(() => {
+    const current = state()
+    const currentStep = step()
+    const seatIndex = ownSeatIndex()
+    if (!current || current.status !== 'active' || seatIndex == null || !currentStep) return
+
+    if (currentStep.action === 'ban') {
+      sendPreview('ban', isMyTurn() && !hasSubmitted() ? banSelections() : [])
+      return
+    }
+
+    sendPreview('pick', canManagePickQueue() ? pickSelections() : [])
   })
 
   const draftLeaderPoolIds = createMemo(() => {
@@ -686,6 +750,14 @@ function pickRandomLeaderIds(pool: Leader[], count: number): string[] {
   }
 
   return selectedIds
+}
+
+function sameCivIdList(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false
+  for (let index = 0; index < a.length; index++) {
+    if (a[index] !== b[index]) return false
+  }
+  return true
 }
 
 function TagPill(props: { tag: string, compact?: boolean, active?: boolean }) {

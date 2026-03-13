@@ -1,6 +1,7 @@
 import type {
   ClientMessage,
   DraftEvent,
+  DraftPreviewState,
   DraftState,
   DraftWebhookPayload,
   RoomConfig,
@@ -17,6 +18,14 @@ import {
   verifyDraftRoomAccessToken,
 } from '@civup/utils'
 import { Server } from 'partyserver'
+import {
+  applyDraftPreview,
+  censorDraftPreviews,
+  createEmptyDraftPreviews,
+  draftPreviewsEqual,
+  resolveTimeoutWithPreviews,
+  sanitizeDraftPreviews,
+} from './draft-previews.ts'
 
 interface PartyEnv extends Cloudflare.Env {
   CIVUP_SECRET?: string
@@ -90,6 +99,7 @@ export class Main extends Server<PartyEnv> {
     await this.ctx.storage.put('alarmStepIndex', -1)
     await this.ctx.storage.put('completedAt', null)
     await this.ctx.storage.put('cancelledAt', null)
+    await this.ctx.storage.put('previews', createEmptyDraftPreviews())
 
     return json({ ok: true, matchId: config.matchId }, 201)
   }
@@ -118,11 +128,16 @@ export class Main extends Server<PartyEnv> {
     const completedAt = await this.ctx.storage.get<number | null>('completedAt')
     const cancelledAt = await this.ctx.storage.get<number | null>('cancelledAt')
     const seatIndex = state.seats.findIndex(seat => seat.playerId === activityUserId)
+    const previews = sanitizeDraftPreviews(
+      state,
+      await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
+    )
     return json({
       state: this.censorState(state, seatIndex),
       timerEndsAt,
       completedAt,
       cancelledAt,
+      previews: censorDraftPreviews(state, previews, seatIndex),
     })
   }
 
@@ -165,6 +180,10 @@ export class Main extends Server<PartyEnv> {
 
     const timerEndsAt = await this.ctx.storage.get<number | null>('timerEndsAt')
     const completedAt = await this.ctx.storage.get<number | null>('completedAt')
+    const previews = sanitizeDraftPreviews(
+      state,
+      await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
+    )
     const seatIndex = playerId
       ? state.seats.findIndex(s => s.playerId === playerId)
       : -1
@@ -176,6 +195,7 @@ export class Main extends Server<PartyEnv> {
       seatIndex: seatIndex >= 0 ? seatIndex : null,
       timerEndsAt: timerEndsAt ?? null,
       completedAt: completedAt ?? null,
+      previews: censorDraftPreviews(state, previews, seatIndex),
     })
 
     if (state.status === 'complete' || state.status === 'cancelled') {
@@ -283,6 +303,28 @@ export class Main extends Server<PartyEnv> {
         break
       }
 
+      case 'preview': {
+        if (seatIndex < 0) {
+          this.send(sender, { type: 'error', message: 'Not a participant' })
+          return
+        }
+
+        const previews = sanitizeDraftPreviews(
+          state,
+          await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
+        )
+        const nextPreviews = applyDraftPreview(state, previews, seatIndex, msg.action, msg.civIds)
+        if ('error' in nextPreviews) {
+          this.send(sender, { type: 'error', message: nextPreviews.error })
+          return
+        }
+        if (draftPreviewsEqual(previews, nextPreviews)) return
+
+        await this.ctx.storage.put('previews', nextPreviews)
+        this.broadcastPreviewUpdate(state, nextPreviews)
+        break
+      }
+
       case 'cancel': {
         if (playerId !== config.hostId) {
           this.send(sender, { type: 'error', message: 'Only the host can cancel or scrub the draft' })
@@ -334,7 +376,12 @@ export class Main extends Server<PartyEnv> {
 
         const timerEndsAt = await this.ctx.storage.get<number | null>('timerEndsAt')
         const completedAt = await this.ctx.storage.get<number | null>('completedAt')
-        this.broadcastUpdate(nextState, config.hostId, [], timerEndsAt ?? null, completedAt ?? null)
+        const previews = sanitizeDraftPreviews(
+          nextState,
+          await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
+        )
+        await this.ctx.storage.put('previews', previews)
+        this.broadcastUpdate(nextState, config.hostId, [], timerEndsAt ?? null, completedAt ?? null, previews)
         break
       }
 
@@ -370,7 +417,11 @@ export class Main extends Server<PartyEnv> {
     const format = draftFormatMap.get(config.formatId)
     if (!format) return
 
-    const result = processDraftInput(state, { type: 'TIMEOUT' }, format.blindBans)
+    const previews = sanitizeDraftPreviews(
+      state,
+      await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
+    )
+    const result = resolveTimeoutWithPreviews(state, format.blindBans, previews)
     if (isDraftError(result)) return
 
     await this.applyResult(result.state, result.events)
@@ -383,6 +434,11 @@ export class Main extends Server<PartyEnv> {
     const config = await this.ctx.storage.get<RoomConfig>('config')
     const format = config ? draftFormatMap.get(config.formatId) : null
     let webhookTask: Promise<void> | null = null
+    const previews = sanitizeDraftPreviews(
+      newState,
+      await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
+    )
+    await this.ctx.storage.put('previews', previews)
 
     // Set timer when a new step starts
     const stepAdvanced = events.some(
@@ -439,7 +495,7 @@ export class Main extends Server<PartyEnv> {
     }
 
     const hostId = config?.hostId ?? newState.seats[0]?.playerId ?? ''
-    this.broadcastUpdate(newState, hostId, events, timerEndsAt ?? null, completedAt ?? null)
+    this.broadcastUpdate(newState, hostId, events, timerEndsAt ?? null, completedAt ?? null, previews)
 
     if (newState.status === 'complete' || newState.status === 'cancelled') {
       this.closeAllConnections('Draft closed')
@@ -549,36 +605,39 @@ export class Main extends Server<PartyEnv> {
     events: DraftEvent[],
     timerEndsAt: number | null,
     completedAt: number | null,
+    previews: DraftPreviewState,
   ) {
-    // During blind ban phases, each player sees only their own pending bans
-    if (state.pendingBlindBans.length > 0) {
-      for (const conn of this.getConnections()) {
-        const connState = conn.state as ConnectionState | null
-        const playerId = connState?.playerId
-        const seatIndex = playerId
-          ? state.seats.findIndex(s => s.playerId === playerId)
-          : -1
+    for (const conn of this.getConnections()) {
+      const connState = conn.state as ConnectionState | null
+      const playerId = connState?.playerId
+      const seatIndex = playerId
+        ? state.seats.findIndex(s => s.playerId === playerId)
+        : -1
 
-        this.send(conn, {
-          type: 'update',
-          state: this.censorState(state, seatIndex),
-          hostId,
-          events: this.censorEvents(events, seatIndex),
-          timerEndsAt,
-          completedAt,
-        })
-      }
-    }
-    else {
-      // No censoring needed — broadcast identical state to everyone
-      this.broadcast(JSON.stringify({
+      this.send(conn, {
         type: 'update',
-        state,
+        state: this.censorState(state, seatIndex),
         hostId,
-        events,
+        events: this.censorEvents(events, seatIndex),
         timerEndsAt,
         completedAt,
-      } satisfies ServerMessage))
+        previews: censorDraftPreviews(state, previews, seatIndex),
+      })
+    }
+  }
+
+  private broadcastPreviewUpdate(state: DraftState, previews: DraftPreviewState) {
+    for (const conn of this.getConnections()) {
+      const connState = conn.state as ConnectionState | null
+      const playerId = connState?.playerId
+      const seatIndex = playerId
+        ? state.seats.findIndex(s => s.playerId === playerId)
+        : -1
+
+      this.send(conn, {
+        type: 'preview',
+        previews: censorDraftPreviews(state, previews, seatIndex),
+      })
     }
   }
 

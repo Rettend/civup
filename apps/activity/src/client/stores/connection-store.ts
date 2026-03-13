@@ -1,10 +1,10 @@
-import type { ClientMessage, CompetitiveTier, ServerMessage } from '@civup/game'
+import type { ClientMessage, CompetitiveTier, DraftAction, ServerMessage } from '@civup/game'
 import { api, ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import PartySocket from 'partysocket'
 import { createSignal } from 'solid-js'
 import { buildActivitySessionHeaders, getActivitySessionToken } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
-import { initDraft, setOptimisticSeatPick, updateDraft } from './draft-store'
+import { draftStore, initDraft, setOptimisticSeatPick, updateDraft, updateDraftPreviews } from './draft-store'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -153,12 +153,14 @@ let pendingConfigAck:
     timeout: ReturnType<typeof setTimeout>
   }
   | null = null
+let lastSentPreviewKeys: Partial<Record<DraftAction, string>> = {}
 
 /** Connect to PartyKit draft room using host and match ID */
 export function connectToRoom(target: PartySocketTarget, roomId: string, roomAccessToken: string | null) {
   const previousSocket = socket
   socket = null
   previousSocket?.close()
+  lastSentPreviewKeys = {}
 
   setConnectionStatus('connecting')
   setConnectionError(null)
@@ -269,6 +271,7 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
 export function disconnect() {
   socket?.close()
   socket = null
+  lastSentPreviewKeys = {}
   if (pendingConfigAck) {
     clearTimeout(pendingConfigAck.timeout)
     pendingConfigAck.reject(new Error('Disconnected before config update was acknowledged.'))
@@ -367,6 +370,15 @@ export function sendPick(civId: string) {
   if (sent) {
     setOptimisticSeatPick(civId)
   }
+}
+
+export function sendPreview(action: DraftAction, civIds: string[]) {
+  const key = `${action}:${civIds.join(',')}`
+  if (lastSentPreviewKeys[action] === key) return true
+
+  const sent = sendMessage({ type: 'preview', action, civIds })
+  if (sent) lastSentPreviewKeys[action] = key
+  return sent
 }
 
 export function sendCancel(reason: 'cancel' | 'scrub') {
@@ -808,13 +820,15 @@ export async function fillLobbyWithTestPlayers(
 function handleServerMessage(msg: ServerMessage) {
   switch (msg.type) {
     case 'init':
-      initDraft(msg.state, msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt)
+      syncPreviewCache(msg.previews, msg.seatIndex)
+      initDraft(msg.state, msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews)
       if (isTerminalDraftStatus(msg.state.status)) {
         disconnect()
       }
       break
     case 'update':
-      updateDraft(msg.state, msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt)
+      syncPreviewCache(msg.previews)
+      updateDraft(msg.state, msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews)
       if (pendingConfigAck) {
         clearTimeout(pendingConfigAck.timeout)
         pendingConfigAck.resolve()
@@ -823,6 +837,10 @@ function handleServerMessage(msg: ServerMessage) {
       if (isTerminalDraftStatus(msg.state.status)) {
         disconnect()
       }
+      break
+    case 'preview':
+      syncPreviewCache(msg.previews)
+      updateDraftPreviews(msg.previews)
       break
     case 'error':
       if (pendingConfigAck) {
@@ -844,6 +862,18 @@ function formatConfigAckError(message: string): Error {
     return new Error('Draft room server is outdated (missing config support). Redeploy/restart party server and create a new lobby.')
   }
   return new Error(message)
+}
+
+function syncPreviewCache(previews: { bans: Record<number, string[]>, picks: Record<number, string[]> }, seatIndex: number | null = draftStore.seatIndex) {
+  if (seatIndex == null) {
+    lastSentPreviewKeys = {}
+    return
+  }
+
+  lastSentPreviewKeys = {
+    ban: `ban:${(previews.bans[seatIndex] ?? []).join(',')}`,
+    pick: `pick:${(previews.picks[seatIndex] ?? []).join(',')}`,
+  }
 }
 
 function describePartySocketTarget(target: PartySocketTarget): string {
