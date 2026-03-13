@@ -1,7 +1,7 @@
 import { createDb } from '@civup/db'
 import { LEADERBOARD_MODE_CHOICES, parseLeaderboardMode } from '@civup/game'
 import { Command, Option, SubCommand } from 'discord-hono'
-import { rankedPreviewEmbed } from '../embeds/ranked-preview.ts'
+import { rankedPreviewEmbeds } from '../embeds/ranked-preview.ts'
 import { summarizeRankedPreview } from '../services/ranked/role-sync.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { factory } from '../setup.ts'
@@ -38,7 +38,7 @@ export const command_ranked = factory.command<Var>(
         mode: mode ?? undefined,
       })
 
-      await c.followup({ embeds: [rankedPreviewEmbed(summary)] })
+      await c.followup({ embeds: rankedPreviewEmbeds(summary) })
     })
   },
 )

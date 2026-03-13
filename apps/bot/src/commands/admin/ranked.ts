@@ -2,7 +2,7 @@ import type { CompetitiveTier } from '@civup/game'
 import type { AdminCommandContext, AdminVar } from './types.ts'
 import { createDb } from '@civup/db'
 import { formatLeaderboardModeLabel, parseLeaderboardMode } from '@civup/game'
-import { syncRankedRoles } from '../../services/ranked/role-sync.ts'
+import { clearRankedRolesDirtyState, syncRankedRoles } from '../../services/ranked/role-sync.ts'
 import {
   createRankedRoleTierId,
   fetchGuildRoles,
@@ -118,6 +118,7 @@ export function handleRankedSync(c: AdminCommandContext) {
         token: c.env.DISCORD_TOKEN,
         applyDiscord: true,
       })
+      await clearRankedRolesDirtyState(kv)
       const config = await getRankedRoleConfig(kv, guildId)
       await sendEphemeralResponse(c, formatRankedRoleSyncResult(result, config), 'success')
     }

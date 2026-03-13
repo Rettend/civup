@@ -1,6 +1,6 @@
 import { playerRatings, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
-import { rankedPreviewEmbed } from '../../src/embeds/ranked-preview.ts'
+import { rankedPreviewEmbeds } from '../../src/embeds/ranked-preview.ts'
 import { markRankedRolesDirty, summarizeRankedPreview } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
@@ -77,7 +77,7 @@ describe('ranked preview summary', () => {
     sqlite.close()
   })
 
-  test('renders the ranked preview embed with mentions and dirty footer', async () => {
+  test('renders ranked preview as separate summary and mode embeds', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedConfiguredRoles(kv)
@@ -92,26 +92,29 @@ describe('ranked preview summary', () => {
       mode: 'duel',
     })
 
-    const embed = rankedPreviewEmbed(summary).toJSON()
-    const fields = JSON.stringify(embed.fields)
+    const embeds = rankedPreviewEmbeds(summary).map(embed => embed.toJSON())
+    expect(embeds).toHaveLength(2)
 
-    expect(embed.title).toBe('Ranked Roles')
-    expect(embed.footer?.text).toBe('Pending ranked sync')
-    expect(fields).toContain('Configured Bands')
-    expect(fields).toContain('Ranked role')
-    expect(fields).toContain('Earn')
-    expect(fields).toContain('Keep')
-    expect(fields).toContain('<@&55555555555555555>')
-    expect(fields).toContain('1.5% (Top 1.5%)')
-    expect(fields).toContain('2.5% (Top 2.5%)')
-    expect(fields).toContain('Unranked')
-    expect(fields).toContain('Live Cutoffs')
-    expect(fields).toContain('Duel (10 ranked)')
-    expect(fields).toContain('Cutoff')
-    expect(fields).toContain('Score')
-    expect(fields).toContain('Locked')
-    expect(fields).toContain('80 players (70 more)')
-    expect(fields).toContain('The rest')
+    const [summaryEmbed, modeEmbed] = embeds
+    const summaryFields = JSON.stringify(summaryEmbed?.fields)
+    const modeFields = JSON.stringify(modeEmbed?.fields)
+
+    expect(summaryEmbed?.title).toBe('Ranked Roles')
+    expect(summaryFields).toContain('Role')
+    expect(summaryFields).toContain('Earn')
+    expect(summaryFields).toContain('Keep')
+    expect(summaryFields).toContain('<@&55555555555555555>')
+    expect(summaryFields).toContain('1.5% (Top 1.5%)')
+    expect(summaryFields).toContain('2.5% (Top 2.5%)')
+    expect(summaryFields).toContain('Unranked')
+
+    expect(modeEmbed?.title).toBe('Duel - 10 ranked')
+    expect(modeEmbed?.footer?.text).toBe('Pending ranked sync')
+    expect(modeFields).toContain('Cutoff')
+    expect(modeFields).toContain('Score')
+    expect(modeFields).toContain('Locked')
+    expect(modeFields).toContain('needs 80 players (70 more)')
+    expect(modeFields).toContain('The rest')
 
     sqlite.close()
   })
