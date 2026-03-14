@@ -30,7 +30,14 @@ describe('ranked preview summary', () => {
     })
     expect(summary.bands[0]?.earnPercent).toBeCloseTo(0.015, 6)
     expect(summary.bands[0]?.cumulativeEarnPercent).toBeCloseTo(0.015, 6)
-    expect(summary.bands[0]?.keepOverallPercent).toBeCloseTo(0.025, 6)
+    expect(summary.bands[0]?.keepPercent).toBeCloseTo(0.02, 6)
+    expect(summary.bands[0]?.cumulativeKeepPercent).toBeCloseTo(0.02, 6)
+    expect(summary.bands[1]?.keepPercent).toBeCloseTo(0.045, 6)
+    expect(summary.bands[1]?.cumulativeKeepPercent).toBeCloseTo(0.065, 6)
+    expect(summary.bands[2]?.keepPercent).toBeCloseTo(0.105, 6)
+    expect(summary.bands[2]?.cumulativeKeepPercent).toBeCloseTo(0.17, 6)
+    expect(summary.bands[3]?.keepPercent).toBeCloseTo(0.205, 6)
+    expect(summary.bands[3]?.cumulativeKeepPercent).toBeCloseTo(0.375, 6)
     expect(summary.bands[4]).toMatchObject({
       tier: 'tier5',
       roleId: '11111111111111111',
@@ -105,7 +112,10 @@ describe('ranked preview summary', () => {
     expect(summaryFields).toContain('Keep')
     expect(summaryFields).toContain('<@&55555555555555555>')
     expect(summaryFields).toContain('1.5% (Top 1.5%)')
-    expect(summaryFields).toContain('2.5% (Top 2.5%)')
+    expect(summaryFields).toContain('2.0% (Top 2.0%)')
+    expect(summaryFields).toContain('4.5% (Top 6.5%)')
+    expect(summaryFields).toContain('10.5% (Top 17.0%)')
+    expect(summaryFields).toContain('20.5% (Top 37.5%)')
     expect(summaryFields).toContain('Unranked')
 
     expect(modeEmbed?.title).toBe('Duel - 10 ranked')

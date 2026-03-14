@@ -209,8 +209,8 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
 
         {/* Host dropdown with steam link input */}
         <Show when={dropdownOpen()}>
-          <div class="absolute left-0 top-full mt-1.5 z-50">
-            <div class="p-2 rounded-lg bg-bg-subtle border border-border shadow-xl shadow-black/25">
+          <div class="mt-1.5 left-0 top-full absolute z-50">
+            <div class="p-2 border border-border rounded-lg bg-bg-subtle shadow-black/25 shadow-xl">
               <input
                 ref={inputRef}
                 type="text"

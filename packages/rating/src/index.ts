@@ -10,6 +10,9 @@ export const DEFAULT_MU = 25.0
 /** Default sigma for new players (how unsure the system is about your skill) */
 export const DEFAULT_SIGMA = 25 / 3 // ~8.333
 
+/** Default share of uncertainty restored between seasons */
+export const DEFAULT_SEASON_RESET_FACTOR = 0.5
+
 /** Starting elo for display */
 export const DISPLAY_RATING_BASE = 1000
 
@@ -263,34 +266,6 @@ export function buildLeaderboard(
     .sort((a, b) => b.displayRating - a.displayRating)
 }
 
-// ── Inactivity Decay ──────────────────────────────────────────
-
-/**
- * Apply sigma inflation based on days of inactivity.
- * This naturally lowers their display rating and allows for faster movement when they return.
- *
- * @param mu - Current mu
- * @param sigma - Current sigma
- * @param daysInactive - Total days since last played
- * @param gracePeriodDays - Days before penalty starts (default 14)
- * @param penaltyPerDay - Sigma increase per day after grace period (default 0.1)
- */
-export function applyInactivityDecay(
-  mu: number,
-  sigma: number,
-  daysInactive: number,
-  gracePeriodDays: number = 14,
-  penaltyPerDay: number = 0.1,
-): { mu: number, sigma: number } {
-  if (daysInactive <= gracePeriodDays) {
-    return { mu, sigma }
-  }
-  const penaltyDays = daysInactive - gracePeriodDays
-  // Cap sigma at the default starting sigma so they don't become *more* uncertain than a new player
-  const newSigma = Math.min(DEFAULT_SIGMA, sigma + (penaltyDays * penaltyPerDay))
-  return { mu, sigma: newSigma }
-}
-
 // ── Season Reset ────────────────────────────────────────────
 
 /**
@@ -307,7 +282,7 @@ export function applyInactivityDecay(
 export function seasonReset(
   mu: number,
   sigma: number,
-  resetFactor: number = 0.5,
+  resetFactor: number = DEFAULT_SEASON_RESET_FACTOR,
 ): { mu: number, sigma: number } {
   const newSigma = sigma + (DEFAULT_SIGMA - sigma) * resetFactor
   return { mu, sigma: newSigma }

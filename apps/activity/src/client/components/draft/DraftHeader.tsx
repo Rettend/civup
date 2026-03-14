@@ -225,7 +225,7 @@ export function DraftHeader(props: DraftHeaderProps) {
     <Show
       when={resultStatus() !== 'done'}
       fallback={(
-        <span class="text-sm sm:text-lg text-accent tracking-widest font-bold uppercase">Result reported</span>
+        <span class="text-sm text-accent tracking-widest font-bold uppercase sm:text-lg">Result reported</span>
       )}
     >
       <div class="flex flex-wrap gap-2 items-center justify-center">
@@ -264,7 +264,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   const renderBanRail = (side: 'left' | 'right', bans: string[], showPlaceholder: boolean) => (
     <div class={cn('flex min-w-0 flex-1 overflow-hidden', side === 'left' ? 'justify-start' : 'justify-end')}>
       <HorizontalScroller
-        class="w-fit max-w-full"
+        class="max-w-full w-fit"
         contentClass="flex flex-nowrap items-center gap-1.5 whitespace-nowrap"
       >
         {renderBanItems(bans, showPlaceholder)}
@@ -286,11 +286,11 @@ export function DraftHeader(props: DraftHeaderProps) {
         fallback={renderBanItems(allBans(), state()?.status !== 'waiting' && allBans().length === 0)}
       >
         <>
-          <div class="flex items-center gap-1.5 whitespace-nowrap">
+          <div class="flex gap-1.5 whitespace-nowrap items-center">
             {renderBanItems(leftBans(), state()?.status !== 'waiting' && leftBans().length === 0)}
           </div>
-          <div class="h-8 w-8 shrink-0" />
-          <div class="flex items-center gap-1.5 whitespace-nowrap">
+          <div class="shrink-0 h-8 w-8" />
+          <div class="flex gap-1.5 whitespace-nowrap items-center">
             {renderBanItems(rightBans(), state()?.status !== 'waiting' && rightBans().length === 0)}
           </div>
         </>
@@ -309,8 +309,8 @@ export function DraftHeader(props: DraftHeaderProps) {
       </Show>
 
       <Show when={isMobileLayout()}>
-        <div class="relative z-10 flex flex-col">
-          <div class="pointer-events-none px-12 pt-2 pb-1.5 flex flex-col items-center justify-center text-center">
+        <div class="flex flex-col relative z-10">
+          <div class="px-12 pb-1.5 pt-2 text-center flex flex-col pointer-events-none items-center justify-center">
             <div class="flex min-h-4 items-center justify-center">
               <span class={cn(
                 'text-xs font-bold tracking-widest uppercase',
@@ -338,18 +338,18 @@ export function DraftHeader(props: DraftHeaderProps) {
             </div>
           </div>
 
-          <div class="relative px-3 pb-2 min-h-8">
+          <div class="px-3 pb-2 min-h-8 relative">
             {renderMobileBanRail()}
-            <div class="left-3 top-1/2 absolute z-20 flex -translate-y-1/2 items-center justify-start">
+            <div class="flex items-center left-3 top-1/2 justify-start absolute z-20 -translate-y-1/2">
               {renderSteamLobbyButton('h-8 w-8')}
             </div>
-            <div class="right-3 top-1/2 absolute z-20 flex -translate-y-1/2 items-center justify-end">
+            <div class="flex items-center right-3 top-1/2 justify-end absolute z-20 -translate-y-1/2">
               {renderOverviewButton()}
             </div>
           </div>
 
           <Show when={showMobileActionRow()}>
-            <div class="flex px-3 pb-2 justify-center">
+            <div class="px-3 pb-2 flex justify-center">
               <Show when={state()?.status === 'active'} fallback={renderResultActions()}>
                 {renderScrubButton()}
               </Show>

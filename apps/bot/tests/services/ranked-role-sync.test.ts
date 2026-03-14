@@ -69,7 +69,7 @@ describe('ranked role sync service', () => {
     await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
     const oldSquireId = playerIdFor('old-squire', 1)
     await seedPlayerIdentity(db, oldSquireId)
-    await seedRating(db, { playerId: oldSquireId, mode: 'ffa', mu: 26, sigma: 8.333, gamesPlayed: 6, lastPlayedAt: NOW - 120 * DAY_MS })
+    await seedRating(db, { playerId: oldSquireId, mode: 'ffa', mu: 26, sigma: 8.333, gamesPlayed: 6, lastPlayedAt: NOW })
 
     await setRankedRoleCurrentRoles(kv, 'guild-1', {
       tier5: '11111111111111111',
