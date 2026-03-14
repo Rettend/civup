@@ -20,7 +20,7 @@ export const command_match_id = factory.command(
       if (!matchId) {
         await sendTransientEphemeralResponse(
           c,
-          'No stored match ID for this message. Try a CivUp result/draft message from the last 180 days.',
+          'No stored match ID for this one.',
           'error',
         )
         return

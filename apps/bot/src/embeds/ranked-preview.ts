@@ -91,8 +91,8 @@ function formatBandEarnValue(band: RankedPreviewBandSummary): string {
 }
 
 function formatBandKeepValue(band: RankedPreviewBandSummary): string {
-  if (band.isFallback || band.keepOverallPercent == null) return '-'
-  return `${formatPercent(band.keepOverallPercent)}% (Top ${formatPercent(band.keepOverallPercent)}%)`
+  if (band.isFallback || band.keepPercent == null || band.cumulativeKeepPercent == null) return '-'
+  return `${formatPercent(band.keepPercent)}% (Top ${formatPercent(band.cumulativeKeepPercent)}%)`
 }
 
 function formatTierCutoffValue(tier: RankedPreviewModeSummary['tiers'][number]): string {

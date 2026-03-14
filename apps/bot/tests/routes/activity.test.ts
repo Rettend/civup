@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, test } from 'bun:test'
 import { verifyDraftRoomAccessToken } from '@civup/utils'
+import { afterEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility } from '../../src/routes/activity.ts'
 import { buildOpenLobbySnapshot } from '../../src/routes/lobby/snapshot.ts'

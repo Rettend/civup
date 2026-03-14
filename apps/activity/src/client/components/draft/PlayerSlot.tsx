@@ -234,7 +234,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
       {/* Top accent bar */}
       <div
-        class="h-[2px] rounded-full pointer-events-none left-1/2 top-2 absolute z-10 -translate-x-1/2 bg-[var(--slot-glow)]"
+        class="rounded-full bg-[var(--slot-glow)] h-[2px] pointer-events-none left-1/2 top-2 absolute z-10 -translate-x-1/2"
         classList={{
           'anim-bar-breathe': isActive(),
           'anim-bar-fade-out': wasEverActive() && !isActive(),
@@ -303,7 +303,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
       <Show when={!filled() && previewLeader()} keyed>
         {l => (
-          <div class="absolute inset-0 opacity-50 saturate-85">
+          <div class="opacity-50 inset-0 absolute saturate-85">
             <img
               src={`/assets/leaders-full/${l.id}.webp`}
               alt={l.name}

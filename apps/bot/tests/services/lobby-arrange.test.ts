@@ -1,10 +1,10 @@
 import type { QueueEntry } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
-import { arrangeTeamLobbySlots } from '../../src/services/lobby/arrange.ts'
+import { arrangeLobbySlots } from '../../src/services/lobby/arrange.ts'
 
 describe('lobby arrange helpers', () => {
   test('randomize keeps premades together and can repair split layouts', () => {
-    const result = arrangeTeamLobbySlots({
+    const result = arrangeLobbySlots({
       mode: '2v2',
       strategy: 'randomize',
       slots: ['p1', 'p3', 'p2', 'p4'],
@@ -33,7 +33,7 @@ describe('lobby arrange helpers', () => {
   })
 
   test('auto-balance keeps teams even for partial lobbies', () => {
-    const result = arrangeTeamLobbySlots({
+    const result = arrangeLobbySlots({
       mode: '3v3',
       strategy: 'balance',
       slots: ['a', 'b', 'c', 'd', null, null],
@@ -57,7 +57,7 @@ describe('lobby arrange helpers', () => {
   })
 
   test('auto-balance never splits premades', () => {
-    const result = arrangeTeamLobbySlots({
+    const result = arrangeLobbySlots({
       mode: '3v3',
       strategy: 'balance',
       slots: ['p1', 'p2', 'p3', 'p4', 'p5', null],
@@ -89,7 +89,7 @@ describe('lobby arrange helpers', () => {
   })
 
   test('auto-balance keeps a full quartet together in 4v4', () => {
-    const result = arrangeTeamLobbySlots({
+    const result = arrangeLobbySlots({
       mode: '4v4',
       strategy: 'balance',
       slots: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', null],
@@ -124,18 +124,56 @@ describe('lobby arrange helpers', () => {
     expect(quartetOnA || quartetOnB).toBe(true)
   })
 
-  test('returns an error for unsupported modes', () => {
-    const result = arrangeTeamLobbySlots({
+  test('randomize shuffles occupied FFA seats and compacts gaps', () => {
+    const result = arrangeLobbySlots({
       mode: 'ffa',
       strategy: 'randomize',
-      slots: ['p1', 'p2', null],
-      queueEntries: [entry('p1'), entry('p2')],
+      slots: ['p1', null, 'p2', 'p3', null],
+      queueEntries: [entry('p1'), entry('p2'), entry('p3')],
+      random: () => 0,
     })
 
-    expect('error' in result).toBe(true)
-    if ('error' in result) {
-      expect(result.error).toContain('2v2, 3v3, and 4v4')
-    }
+    expect('error' in result).toBe(false)
+    if ('error' in result) return
+
+    expect(result.slots).toEqual(['p2', 'p3', 'p1', null, null])
+  })
+
+  test('auto-balance orders FFA seats weakest first and strongest last', () => {
+    const result = arrangeLobbySlots({
+      mode: 'ffa',
+      strategy: 'balance',
+      slots: ['strong', null, 'weak', 'mid', null],
+      queueEntries: [entry('strong'), entry('weak'), entry('mid')],
+      ratingsByPlayerId: new Map([
+        ['strong', { mu: 40, sigma: 2 }],
+        ['mid', { mu: 28, sigma: 2 }],
+        ['weak', { mu: 20, sigma: 2 }],
+      ]),
+    })
+
+    expect('error' in result).toBe(false)
+    if ('error' in result) return
+
+    expect(result.slots).toEqual(['weak', 'mid', 'strong', null, null])
+  })
+
+  test('auto-balance orders duel seats weakest first', () => {
+    const result = arrangeLobbySlots({
+      mode: '1v1',
+      strategy: 'balance',
+      slots: ['strong', 'weak'],
+      queueEntries: [entry('strong'), entry('weak')],
+      ratingsByPlayerId: new Map([
+        ['strong', { mu: 35, sigma: 2 }],
+        ['weak', { mu: 18, sigma: 2 }],
+      ]),
+    })
+
+    expect('error' in result).toBe(false)
+    if ('error' in result) return
+
+    expect(result.slots).toEqual(['weak', 'strong'])
   })
 })
 
