@@ -3,8 +3,8 @@ import { cn } from '~/client/lib/css'
 import {
   draftStore,
   gridOpen,
-  isMobileLayout,
   isMiniView,
+  isMobileLayout,
   isSpectator,
   sendStart,
   setGridOpen,
@@ -122,16 +122,16 @@ export function DraftView(props: DraftViewProps) {
             fallback={showAutoStartSplash()
               ? <AutoStartingDraftScreen />
               : <ConfigScreen steamLobbyLink={props.steamLobbyLink ?? null} onSwitchTarget={props.onSwitchTarget} />}
-            >
-              {/* Active + Complete draft view */}
-              <div class="text-fg font-sans bg-bg flex flex-col h-screen relative overflow-hidden">
-                <DraftHeader
-                  steamLobbyLink={steamLobbyLink()}
-                  onSaveSteamLink={canSaveSteamLobbyLink() ? handleSaveSteamLink : undefined}
-                  savePending={steamLobbySavePending()}
-                  onSwitchTarget={props.onSwitchTarget}
-                />
-                <DraftTimeline />
+          >
+            {/* Active + Complete draft view */}
+            <div class="text-fg font-sans bg-bg flex flex-col h-screen relative overflow-hidden">
+              <DraftHeader
+                steamLobbyLink={steamLobbyLink()}
+                onSaveSteamLink={canSaveSteamLobbyLink() ? handleSaveSteamLink : undefined}
+                savePending={steamLobbySavePending()}
+                onSwitchTarget={props.onSwitchTarget}
+              />
+              <DraftTimeline />
 
               {/* Main area */}
               <div class="flex flex-1 min-h-0 relative">
@@ -223,7 +223,7 @@ function CancelledDraftScreen(props: {
   }
 
   return (
-    <main class="text-fg font-sans bg-bg h-screen overflow-y-auto relative">
+    <main class="text-fg font-sans bg-bg h-screen relative overflow-y-auto">
       <Show when={reason() !== 'scrub'}>
         <SteamLobbyButton
           steamLobbyLink={props.steamLobbyLink}
