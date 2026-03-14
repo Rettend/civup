@@ -3,7 +3,7 @@ import type { PlayerRating } from '@civup/rating'
 import { isTeamMode, teamSize } from '@civup/game'
 import { createRating, predictWinProbabilities } from '@civup/rating'
 
-export type TeamArrangeStrategy = 'randomize' | 'balance'
+export type LobbyArrangeStrategy = 'randomize' | 'balance'
 
 interface RatingSnapshot {
   mu: number
@@ -27,17 +27,50 @@ interface ArrangementCandidate {
   key: string
 }
 
-export interface ArrangeTeamLobbySlotsInput {
+export interface ArrangeLobbySlotsInput {
   mode: GameMode
   slots: (string | null)[]
   queueEntries: QueueEntry[]
-  strategy: TeamArrangeStrategy
+  strategy: LobbyArrangeStrategy
   ratingsByPlayerId?: Map<string, RatingSnapshot>
   random?: () => number
 }
 
-export function arrangeTeamLobbySlots(
-  input: ArrangeTeamLobbySlotsInput,
+export function arrangeLobbySlots(
+  input: ArrangeLobbySlotsInput,
+): { slots: (string | null)[] } | { error: string } {
+  if (isTeamMode(input.mode)) return arrangeTeamLobbySlots(input)
+  return arrangeSeatLobbySlots(input)
+}
+
+function arrangeSeatLobbySlots(
+  input: ArrangeLobbySlotsInput,
+): { slots: (string | null)[] } | { error: string } {
+  const slottedPlayerIds = input.slots.filter((playerId): playerId is string => playerId != null)
+  if (slottedPlayerIds.length === 0) return { slots: Array.from({ length: input.slots.length }, () => null as string | null) }
+
+  if (input.strategy === 'randomize') {
+    const random = input.random ?? Math.random
+    return { slots: buildSeatSlots(input.slots.length, shuffle(slottedPlayerIds, random)) }
+  }
+
+  const ratingsByPlayerId = input.ratingsByPlayerId ?? new Map<string, RatingSnapshot>()
+  const slotOrderByPlayerId = buildSlotOrderByPlayerId(input.slots)
+  const balancedPlayerIds = [...slottedPlayerIds].sort((left, right) => {
+    const ratingDiff = getArrangeSkill(ratingsByPlayerId, left) - getArrangeSkill(ratingsByPlayerId, right)
+    if (ratingDiff !== 0) return ratingDiff
+
+    const leftOrder = slotOrderByPlayerId.get(left) ?? Number.MAX_SAFE_INTEGER
+    const rightOrder = slotOrderByPlayerId.get(right) ?? Number.MAX_SAFE_INTEGER
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder
+    return left.localeCompare(right)
+  })
+
+  return { slots: buildSeatSlots(input.slots.length, balancedPlayerIds) }
+}
+
+function arrangeTeamLobbySlots(
+  input: ArrangeLobbySlotsInput,
 ): { slots: (string | null)[] } | { error: string } {
   if (!isTeamMode(input.mode)) {
     return { error: 'Team arrange actions are only available in 2v2, 3v3, and 4v4 lobbies.' }
@@ -54,12 +87,7 @@ export function arrangeTeamLobbySlots(
     return { slots: Array.from({ length: teamSlotCount * 2 }, () => null as string | null) }
   }
 
-  const slotOrderByPlayerId = new Map<string, number>()
-  for (let index = 0; index < input.slots.length; index++) {
-    const playerId = input.slots[index]
-    if (!playerId || slotOrderByPlayerId.has(playerId)) continue
-    slotOrderByPlayerId.set(playerId, index)
-  }
+  const slotOrderByPlayerId = buildSlotOrderByPlayerId(input.slots)
 
   const groups = buildPremadeGroups(slottedPlayerIds, queueByPlayerId, slotOrderByPlayerId)
   for (const group of groups) {
@@ -113,6 +141,16 @@ export function arrangeTeamLobbySlots(
 
   const { teamAIds, teamBIds } = assignmentToTeams(chosen.assignment, groups)
   return { slots: buildTeamSlots(teamSlotCount, teamAIds, teamBIds) }
+}
+
+function buildSlotOrderByPlayerId(slots: readonly (string | null)[]): Map<string, number> {
+  const slotOrderByPlayerId = new Map<string, number>()
+  for (let index = 0; index < slots.length; index++) {
+    const playerId = slots[index]
+    if (!playerId || slotOrderByPlayerId.has(playerId)) continue
+    slotOrderByPlayerId.set(playerId, index)
+  }
+  return slotOrderByPlayerId
 }
 
 function buildPremadeGroups(
@@ -282,6 +320,10 @@ function toPlayerRating(
   }
 }
 
+function getArrangeSkill(ratingsByPlayerId: Map<string, RatingSnapshot>, playerId: string): number {
+  return toPlayerRating(playerId, ratingsByPlayerId).mu
+}
+
 function randomizeTeamOrder(
   teamIds: string[],
   groups: PremadeGroup[],
@@ -317,5 +359,11 @@ function buildTeamSlots(teamSize: number, teamAIds: string[], teamBIds: string[]
     slots[teamSize + index] = teamBIds[index] ?? null
   }
 
+  return slots
+}
+
+function buildSeatSlots(slotCount: number, playerIds: string[]): (string | null)[] {
+  const slots = Array.from({ length: slotCount }, () => null as string | null)
+  for (let index = 0; index < slotCount; index++) slots[index] = playerIds[index] ?? null
   return slots
 }

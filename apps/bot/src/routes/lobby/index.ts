@@ -2,14 +2,14 @@ import type { GameMode } from '@civup/game'
 import type { Hono } from 'hono'
 import type { Env } from '../../env.ts'
 import { createDb, playerRatings } from '@civup/db'
-import { formatModeLabel, getMinimumLeaderPoolSize, isTeamMode, MAX_LEADER_POOL_SIZE, maxPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
+import { formatModeLabel, getMinimumLeaderPoolSize, isTeamMode, MAX_LEADER_POOL_SIZE, maxPlayerCount, parseGameMode, slotToTeamIndex, toLeaderboardMode } from '@civup/game'
 import { createDraftRoomAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
 import { clearLobbyMappings, clearUserLobbyMappings, createDraftRoom, storeMatchMapping, storeUserActivityTarget, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from '../../services/config/index.ts'
 import {
-  arrangeTeamLobbySlots,
+  arrangeLobbySlots,
   attachLobbyMatch,
   buildActivePremadeEdgeSet,
   buildOpenLobbyRenderPayload,
@@ -722,9 +722,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const mode = parseGameMode(c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
-    if (!isTeamMode(mode)) {
-      return c.json({ error: 'Team arrange actions are only available in 2v2, 3v3, and 4v4 lobbies.' }, 400)
-    }
 
     let body: unknown
     try {
@@ -761,7 +758,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     if (lobby.hostId !== auth.identity.userId) {
-      return c.json({ error: 'Only the lobby host can arrange teams' }, 403)
+      return c.json({ error: 'Only the lobby host can arrange the lobby' }, 403)
     }
 
     const queue = await getQueueState(kv, mode)
@@ -771,6 +768,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     let ratingsByPlayerId = new Map<string, { mu: number, sigma: number }>()
     if (strategyRaw === 'balance' && slottedPlayerIds.length > 0) {
+      const leaderboardMode = toLeaderboardMode(mode)
       const db = createDb(c.env.DB)
       const rows = await db
         .select({
@@ -780,14 +778,14 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         })
         .from(playerRatings)
         .where(and(
-          eq(playerRatings.mode, 'teamers'),
+          eq(playerRatings.mode, leaderboardMode),
           inArray(playerRatings.playerId, slottedPlayerIds),
         ))
 
       ratingsByPlayerId = new Map(rows.map(row => [row.playerId, { mu: row.mu, sigma: row.sigma }]))
     }
 
-    const arranged = arrangeTeamLobbySlots({
+    const arranged = arrangeLobbySlots({
       mode,
       slots,
       queueEntries: lobbyQueueEntries,

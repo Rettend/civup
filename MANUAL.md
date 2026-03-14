@@ -248,20 +248,20 @@ Filter logic:
 
 ## Result Reporting
 
-Only host can report the result or scrub it.
+Only host can report the result or scrub the match.
 
 ### Reporting a result
 
-Two ways to report a game result:
+Two ways:
 
-- inside the **Activity**: host can click on the team that won and then the `Confirm Result` button in the header, for FFA the host needs to select the players in order
+- inside the **Activity**: host can click on the team that won and then the `Confirm Result` button in the header, for FFA the host needs to select the players in the placement order
 - using **Commands**: `/match report winner:...` for duels and teamers, `/match report [...placements]` for FFA
 
 ### What a successful report does
 
 - marks the lobby embed as completed, and posts it in the Archive channel too
 - calculates placements and ratings, saves match data
-- marks leaderboard and ranked roles dirty
+- marks leaderboard and ranked roles dirty for the next sync
 - Scrubs won't be logged to the Archive channel, nor affect ratings
 
 ## Ranked
@@ -276,7 +276,7 @@ Two ways to report a game result:
 
 Commands to view rating:
 
-- `/leaderboard`: sends the Leaderboard embeds again
+- `/leaderboard`: sends non-updating Leaderboard embeds
 - `/stats`: the player's stats per game mode, top leaders, and recent games
 - `/rank`: the player's stats per game mode, and the same for past seasons
 - `/tiers`: live cutoffs and player distribution
@@ -284,13 +284,13 @@ Commands to view rating:
 ### Elo system
 
 - uses **OpenSkill** with parameters tuned for Civ 6: games are less frequent so it uses more uncertainty
-- the **first ~10-20 games** are pretty volatile, but after that it gets very accurate
+- the **first ~10-20 games** are pretty volatile, but after that it gets very accurate for the player's skill level
 - new player **display elo** starts at `1000` and they are Unranked
 - a player needs **3 games** in a game mode to get the first Ranked role and appear on the leaderboard
 
 ### Ranked roles
 
-A player's overall role comes from their **best current role** in one of the modes, not an average of all modes
+A player's overall role comes from their **best current role** in one of the modes, so not an average of all modes
 
 Example with 5 configured Ranked roles:
 
@@ -306,11 +306,11 @@ There is a compounding 0.5% buffer for each tier, players earn the role when the
 
 > [!IMPORTANT]
 >
-> Demotion protection: players must stay below the Keep threshold for **7 days** before they lose the role.
+> Demotion protection: players need to stay below the Keep threshold for **7 days** before they lose the role.
 
 ### Tier unlocking
 
-Higher tiers stay locked until enough players are ranked.
+Higher tiers stay locked until enough players are ranked. This is to prevent the first 3 ranked players from getting the top tier role instantly.
 
 Example with 5 configured Ranked roles:
 
@@ -323,7 +323,7 @@ Until a tier unlocks, nobody earns it in that game mode.
 
 ### Sync
 
-Ranked roles and the leaderboard are not updated after every single report. Instead they are updated periodically.
+Ranked roles and leaderboards are not updated after every single report. Instead the bot periodically checks if it needs to make updates.
 
 - **Leaderboard embeds**: every 2 minutes
 - **Ranked roles**: every day at 9:00 UTC, or when `/admin ranked sync` is used
@@ -333,20 +333,22 @@ Ranked roles and the leaderboard are not updated after every single report. Inst
 
 Seasons are basically groups for reported games, ratings, and ranked roles.
 
-Ending a season will rotate the Leaderboard embeds, and give past season roles to everyone prefixed with the season number, for example `@Role1` becomes `@S1 Role1`.
+Ending a season will rotate the Leaderboard embeds, and give past season roles to everyone.
 
-Starting the next season soft-resets ratings instead of wiping them, so returning players keep their skill estimate but their uncertainty is increased. They also must play 3 games again before they reappear on leaderboards and re-earn roles.
+**Season roles** are Ranked roles prefixed with the season number, for example `@Role1` becomes `@S1 Role1`. These are only kept for the past 4 seasons, ratings after that can only be viewed with the `/rank` command.
+
+Starting the next season soft-resets ratings instead of wiping them: players keep their skill estimate but their uncertainty is increased. They also must play 3 games before they reappear on leaderboards and re-earn roles.
 
 ## Correction tools for Mods
 
 ### `/mod`
 
-- `/mod match cancel match_id:...` cancels an open lobby, live match, or completed result
-- `/mod match resolve match_id:...` corrects the final result of a completed match
+- `/mod match cancel match_id:...` cancels an open lobby, live match, or completed result; can be used to remove stuck lobbies
+- `/mod match resolve match_id:...` corrects the final result of a completed match; can be used to fix reporting mistakes
 
 For completed matches, the bot recalculates the affected ratings.
 
 ### Getting Match ID
 
-- `/match status` - lists active lobbies and match IDs
+- `/match status` - lists active lobbies and their match IDs
 - right click on a lobby embed or result report embed, then `Apps > CivUp > Match ID` will show the match ID
