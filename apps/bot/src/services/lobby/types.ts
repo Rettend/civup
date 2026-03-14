@@ -19,6 +19,7 @@ export interface LobbyState {
   matchId: string | null
   steamLobbyLink: string | null
   minRole: CompetitiveTier | null
+  maxRole: CompetitiveTier | null
   /** Player IDs currently attached to this lobby (slotted or spectator). */
   memberPlayerIds: string[]
   /** Slot player IDs for open lobby ordering (null = empty slot) */

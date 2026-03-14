@@ -36,6 +36,37 @@ export function competitiveTierMeetsMinimum(current: CompetitiveTier | null, min
   return competitiveTierRank(current) >= competitiveTierRank(minimum)
 }
 
+/** Whether one competitive tier stays within another tier's maximum gate. */
+export function competitiveTierMeetsMaximum(current: CompetitiveTier | null, maximum: CompetitiveTier | null): boolean {
+  if (maximum == null) return true
+  if (current == null) return true
+  return competitiveTierRank(current) <= competitiveTierRank(maximum)
+}
+
+/** Normalize min/max tier bounds, swapping them when they are inverted. */
+export function normalizeCompetitiveTierBounds(
+  minimum: CompetitiveTier | null,
+  maximum: CompetitiveTier | null,
+): {
+  minimum: CompetitiveTier | null
+  maximum: CompetitiveTier | null
+  swapped: boolean
+} {
+  if (minimum && maximum && competitiveTierRank(minimum) > competitiveTierRank(maximum)) {
+    return {
+      minimum: maximum,
+      maximum: minimum,
+      swapped: true,
+    }
+  }
+
+  return {
+    minimum,
+    maximum,
+    swapped: false,
+  }
+}
+
 /** Numeric order for comparing competitive tier prestige. */
 export function competitiveTierRank(tier: CompetitiveTier): number {
   const number = competitiveTierNumber(tier)
