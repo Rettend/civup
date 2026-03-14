@@ -326,7 +326,7 @@ Until a tier unlocks, nobody earns it in that game mode.
 Ranked roles and leaderboards are not updated after every single report. Instead the bot periodically checks if it needs to make updates.
 
 - **Leaderboard embeds**: every 2 minutes
-- **Ranked roles**: every day at 9:00 UTC, or when `/admin ranked sync` is used
+- **Ranked roles**: every day at 0:00 UTC, or when `/admin ranked sync` is used
 - **Inactive queue cleanup**: every hour on the hour
 
 ## Seasons

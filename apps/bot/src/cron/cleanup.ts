@@ -48,7 +48,7 @@ export const cron_leaderboards = factory.cron(
 )
 
 export const cron_ranked_roles = factory.cron(
-  '0 9 * * *', // every day at 9:00 UTC
+  '0 0 * * *', // every day at 0:00 UTC
   async (c) => {
     const db = createDb(c.env.DB)
     const kv = createStateStore(c.env)
