@@ -33,9 +33,9 @@ export async function rankEmbed(
   const fields: Array<{ name: string, value: string, inline?: boolean }> = []
   if (activeSeason) {
     pushSeasonFields(fields, formatSeasonShortName(activeSeason.seasonNumber), {
-      ffa: rankProfile.modes.ffa.gamesPlayed > 0 ? rankProfile.modes.ffa : undefined,
-      duel: rankProfile.modes.duel.gamesPlayed > 0 ? rankProfile.modes.duel : undefined,
-      teamers: rankProfile.modes.teamers.gamesPlayed > 0 ? rankProfile.modes.teamers : undefined,
+      ffa: rankProfile.modes.ffa.rating != null ? rankProfile.modes.ffa : undefined,
+      duel: rankProfile.modes.duel.rating != null ? rankProfile.modes.duel : undefined,
+      teamers: rankProfile.modes.teamers.rating != null ? rankProfile.modes.teamers : undefined,
     }, { emptyValue: 'No ranked games yet.' })
   }
 
@@ -68,7 +68,7 @@ function buildRankDescription(playerId: string, rankProfile: PlayerRankProfile):
 }
 
 function formatModeSummary(mode: PlayerRankModeSummary | SeasonRankHistoryModeSummary): string {
-  if (mode.rating == null || mode.gamesPlayed <= 0) return 'No ranked games yet.'
+  if (mode.rating == null) return 'No ranked games yet.'
 
   const winRate = mode.gamesPlayed > 0
     ? Math.round((mode.wins / mode.gamesPlayed) * 100)
@@ -95,7 +95,7 @@ function pushSeasonFields(
   const visibleModes = LEADERBOARD_MODES
     .map(mode => ({ mode, summary: modes[mode] }))
     .filter((entry): entry is { mode: LeaderboardMode, summary: PlayerRankModeSummary | SeasonRankHistoryModeSummary } => {
-      return !!entry.summary && entry.summary.gamesPlayed > 0
+      return !!entry.summary && entry.summary.rating != null
     })
 
   if (visibleModes.length === 0) {
