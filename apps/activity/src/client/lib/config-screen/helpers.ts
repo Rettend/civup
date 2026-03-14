@@ -30,7 +30,8 @@ export interface MinRoleMismatchDetail {
   roleColor: string | null
 }
 
-export interface MinRoleSetDetail {
+export interface RankRoleSetDetail {
+  boundLabel: string
   roleLabel: string
   roleColor: string | null
 }
@@ -175,7 +176,7 @@ export function formatLeaderPoolValue(
   return String(leaderPoolSize ?? getDefaultLeaderPoolSize(mode, playerCount))
 }
 
-export function normalizeLobbyMinRoleValue(value: string): CompetitiveTier | null {
+export function normalizeLobbyRankRoleValue(value: string): CompetitiveTier | null {
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : null
 }
@@ -190,6 +191,11 @@ export function findRankedRoleOptionByTier(
 export function formatLobbyMinRole(minRole: CompetitiveTier | null, options: RankedRoleOptionSnapshot[]): string {
   if (!minRole) return 'Anyone'
   return findRankedRoleOptionByTier(options, minRole)?.label ?? 'Unranked'
+}
+
+export function formatLobbyMaxRole(maxRole: CompetitiveTier | null, options: RankedRoleOptionSnapshot[]): string {
+  if (!maxRole) return 'Anyone'
+  return findRankedRoleOptionByTier(options, maxRole)?.label ?? 'Unranked'
 }
 
 export function buildRankDotStyle(color: string | null): Record<string, string> {
