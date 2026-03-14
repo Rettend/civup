@@ -63,6 +63,9 @@ Useful commands:
 
 ### 3. Mod command access
 
+> [!TIP]
+> Use `/help` to see all commands that you can use
+
 There are 3 levels of access:
 
 - **General**: commands that everyone can use
@@ -282,6 +285,7 @@ Commands to view rating:
 ### Elo system
 
 - uses **OpenSkill** with parameters tuned for Civ 6: games are less frequent so it uses more uncertainty
+- the **first ~10-20 games** are pretty volatile, but after that it gets very accurate
 - new player **display elo** starts at `1000` and they are Unranked
 - a player needs **3 games** in a game mode to get the first Ranked role and appear on the leaderboard
 
@@ -293,15 +297,19 @@ Example with 5 configured Ranked roles:
 
 | Role | Earn | Keep |
 | --- | --- | --- |
-| `tier1` | 1.5% (top 1.5%) | 2.5% (Top 2.5%) |
-| `tier2` | 4.0% (top 5.5%) | 8.0% (Top 8.0%) |
-| `tier3` | 10.0% (top 15.5%) | 22.0% (Top 22.0%) |
-| `tier4` | 20.0% (top 35.5%) | 45.0% (Top 45.0%) |
+| `tier1` | 1.5% (top 1.5%) | 2.0% (Top 2.0%) |
+| `tier2` | 4.0% (top 5.5%) | 4.5% (Top 6.5%) |
+| `tier3` | 10.0% (top 15.5%) | 10.5% (Top 17.0%) |
+| `tier4` | 20.0% (top 35.5%) | 20.5% (Top 37.5%) |
 | `tier5` | everyone else (top 100.0%) | - |
 
-Demote protection: players keep their role until they drop below the wider cutoff.
+There is a compounding 0.5% buffer for each tier, players earn the role when they reach the Earn threshold, and keep it until they drop below the Keep threshold.
 
-### Tier unlocks
+> [!IMPORTANT]
+>
+> Demotion protection: players must stay below the Keep threshold for **7 days** before they lose the role.
+
+### Tier unlocking
 
 Higher tiers stay locked until enough players are ranked.
 
@@ -314,82 +322,32 @@ Example with 5 configured Ranked roles:
 
 Until a tier unlocks, nobody earns it in that game mode.
 
-### Promotion, retention, and demotion
+### Sync
 
-Promotions and demotions do not use the same cutoffs.
+Ranked roles and the leaderboard are not updated after every single report. Instead they are updated periodically.
 
-- players earn a higher role from the smaller **earn** band
-- players keep that role while they remain inside the wider **keep** band
-
-This is deliberate. It reduces churn at the cut line.
-
-Demotions are also delayed:
-
-- a player must stay below the keep line across **7 demotion-window syncs** before the lower role is applied
-
-### Sync timing
-
-Ranked Discord roles are not rewritten on every single report.
-
-Instead:
-
-- match reports mark the ranked-role state dirty
-- the scheduled ranked sync applies the actual Discord role updates later and advances demotion windows
-- `/admin ranked sync` forces the current state immediately
-
-### Inactivity
-
-Ranked-role calculations apply an inactivity penalty after 21 days without games, capped at 90 rating points.
-
-That means:
-
-- the public leaderboard can be simpler than the role engine
-- a role cutoff and a raw leaderboard rank will usually line up, but not always exactly
+- **Leaderboard embeds**: every 2 minutes
+- **Ranked roles**: every day at 9:00 UTC, or when `/admin ranked sync` is used
+- **Inactive queue cleanup**: every hour on the hour
 
 ## Seasons
 
-Seasons are the ranked-history frame for the server.
+Seasons are basically groups for reported games, ratings, and ranked roles.
 
-- `/admin season start` creates the new active season and resets current ratings
-- `/admin season end` closes it, archives the season leaderboard posts, and finalizes the season snapshots
-- `/rank` shows the current season and past-season summaries by track
-- `/stats` uses the active season when one exists, or the latest ended season otherwise
+Ending a season will rotate the Leaderboard embeds, and give past season roles to everyone prefixed with the season number, for example `@Role1` becomes `@S1 Role1`.
 
-If you care about clean season history, start the season before ranked games begin.
+Ending a season currently does a hard reset of all ratings.
 
-## Staff Correction Tools
+## Correction tools for Mods
 
 ### `/mod`
 
-`/mod` exists for disputes, bad reports, remakes, and admin correction.
-
 - `/mod match cancel match_id:...` cancels an open lobby, live match, or completed result
-- `/mod match resolve match_id:...` resolves or corrects the final result
+- `/mod match resolve match_id:...` corrects the final result of a completed match
 
-For completed matches, CivUp recalculates the affected ladder history after the correction.
+For completed matches, the bot recalculates the affected ratings.
 
-### Getting the right match ID
-
-Useful tools:
+### Getting Match ID
 
 - `/match status` - lists active lobbies and match IDs
-- message command `Match ID` - gets the match ID from a CivUp draft/result message
-
-## Owner-Level Gotchas
-
-- The Draft channel is mandatory. Without it, `/match create` fails.
-- Matchmaking Min Rank is a workflow gate, not a hard permission wall. Slash and button joins respect it; direct slot placement inside the Activity can bypass it.
-- Once the draft starts, mode, min rank, timers, and leader count lock. Only the Steam lobby link stays editable.
-- Pick timeouts cancel the draft. Ban timeouts auto-fill.
-- Archive is optional, but if your server ever handles disputes, you almost certainly want it.
-- Running `/admin setup` in the same channel for the same target toggles that target off.
-- If ranked roles look stale, check `/tiers` and then run `/admin ranked sync`.
-
-## Command Shortlist
-
-These are the commands a server owner or tournament admin will actually reach for most often:
-
-- `/match create`, `/match status`, `/match report`, `/match steam set`, `/match steam clear`
-- `/leaderboard`, `/stats`, `/rank`, `/tiers`, `/help`
-- `/admin setup`, `/admin ranked set`, `/admin ranked sync`, `/admin config`, `/admin permission add`, `/admin season start`, `/admin season end`
-- `/mod match cancel`, `/mod match resolve`
+- right click on a lobby embed or result report embed, then `Apps > CivUp > Match ID` will show the match ID

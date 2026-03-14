@@ -8,7 +8,7 @@ import { createStateStore } from '../services/state/store.ts'
 import { factory } from '../setup.ts'
 
 export const cron_cleanup = factory.cron(
-  '0 * * * *',
+  '0 * * * *', // every hour on the hour
   async (c) => {
     const kv = createStateStore(c.env)
     const db = createDb(c.env.DB)
@@ -30,7 +30,7 @@ export const cron_cleanup = factory.cron(
 )
 
 export const cron_leaderboards = factory.cron(
-  '*/2 * * * *',
+  '*/2 * * * *', // every 2 minutes
   async (c) => {
     const db = createDb(c.env.DB)
     const kv = createStateStore(c.env)
@@ -48,7 +48,7 @@ export const cron_leaderboards = factory.cron(
 )
 
 export const cron_ranked_roles = factory.cron(
-  '0 9 * * *',
+  '0 9 * * *', // every day at 9:00 UTC
   async (c) => {
     const db = createDb(c.env.DB)
     const kv = createStateStore(c.env)
