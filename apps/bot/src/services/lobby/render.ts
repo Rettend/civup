@@ -9,16 +9,25 @@ export async function buildOpenLobbyRenderPayload(
   lobby: LobbyState,
   entries: (QueueEntry | null)[],
 ): Promise<{ embeds: [ReturnType<typeof lobbyOpenEmbed>], components: ReturnType<typeof lobbyComponents> }> {
-  const minRoleId = await resolveLobbyMinRoleId(kv, lobby)
+  const { minRoleId, maxRoleId } = await resolveLobbyRankRoleIds(kv, lobby)
 
   return {
-    embeds: [lobbyOpenEmbed(lobby.mode, entries, maxPlayerCount(lobby.mode), minRoleId)],
+    embeds: [lobbyOpenEmbed(lobby.mode, entries, maxPlayerCount(lobby.mode), minRoleId, maxRoleId)],
     components: lobbyComponents(lobby.mode, lobby.id),
   }
 }
 
-async function resolveLobbyMinRoleId(kv: KVNamespace, lobby: LobbyState): Promise<string | null> {
-  if (!lobby.guildId || !lobby.minRole) return null
+async function resolveLobbyRankRoleIds(
+  kv: KVNamespace,
+  lobby: LobbyState,
+): Promise<{ minRoleId: string | null, maxRoleId: string | null }> {
+  if (!lobby.guildId || (!lobby.minRole && !lobby.maxRole)) {
+    return { minRoleId: null, maxRoleId: null }
+  }
+
   const config = await getRankedRoleConfig(kv, lobby.guildId)
-  return getConfiguredRankedRoleId(config, lobby.minRole)
+  return {
+    minRoleId: lobby.minRole ? getConfiguredRankedRoleId(config, lobby.minRole) : null,
+    maxRoleId: lobby.maxRole ? getConfiguredRankedRoleId(config, lobby.maxRole) : null,
+  }
 }

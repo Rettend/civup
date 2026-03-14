@@ -48,6 +48,7 @@ export async function buildOpenLobbySnapshotFromParts(
     status: lobby.status,
     steamLobbyLink: lobby.steamLobbyLink,
     minRole: lobby.minRole,
+    maxRole: lobby.maxRole,
     entries: slotEntries.map((entry) => {
       if (!entry) return null
       return {
@@ -141,6 +142,12 @@ export function parseLobbyLeaderPoolSize(value: unknown): number | null | undefi
 }
 
 export function parseLobbyMinRole(value: unknown): CompetitiveTier | null | undefined {
+  if (value == null) return null
+  if (typeof value === 'string' && value.trim().length === 0) return null
+  return normalizeRankedRoleTierId(value) ?? undefined
+}
+
+export function parseLobbyMaxRole(value: unknown): CompetitiveTier | null | undefined {
   if (value == null) return null
   if (typeof value === 'string' && value.trim().length === 0) return null
   return normalizeRankedRoleTierId(value) ?? undefined

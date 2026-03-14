@@ -25,6 +25,7 @@ export function normalizeLobby(raw: StoredLobbyState | LobbyState): LobbyState {
     slots: normalizeStoredSlots(raw.mode, raw.slots),
     draftConfig: normalizeDraftConfig(raw.draftConfig),
     minRole: normalizeCompetitiveTier(raw.minRole),
+    maxRole: normalizeCompetitiveTier(raw.maxRole),
     memberPlayerIds: normalizeMemberPlayerIds(raw.memberPlayerIds),
     revision: normalizeLobbyRevision(raw.revision),
   }

@@ -2,12 +2,12 @@ import type { GameMode, QueueEntry } from '@civup/game'
 import type { Embed } from 'discord-hono'
 import type { lobbyComponents } from '../../embeds/match.ts'
 import type { LobbyState } from '../../services/lobby/index.ts'
-import { formatModeLabel, isTeamMode, maxPlayerCount, teamSize as modeTeamSize } from '@civup/game'
+import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode, maxPlayerCount, teamSize as modeTeamSize } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { filterQueueEntriesForLobby, getLobbiesByMode, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby/index.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { getQueueStates, MAX_QUEUE_ENTRIES, setQueueEntries } from '../../services/queue/index.ts'
-import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, memberMeetsRankedRoleGate } from '../../services/ranked/roles.ts'
+import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds } from '../../services/ranked/roles.ts'
 import { createStateStore } from '../../services/state/store.ts'
 
 export const FFA_PLACEMENT_KEYS = ['second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'] as const
@@ -135,7 +135,7 @@ export async function joinLobbyAndMaybeStartMatch(
   requestedEntries: MatchJoinEntry[],
   options?: {
     preferredLobbyId?: string
-    skipMatchmakingMinRole?: boolean
+    skipMatchmakingRankGate?: boolean
   },
 ): Promise<
   | {
@@ -269,7 +269,7 @@ export async function joinLobbyAndMaybeStartMatch(
         requestedEntries,
         rankedRoleConfigByGuildId,
         memberRoleIdsByKey,
-        options?.skipMatchmakingMinRole === true,
+        options?.skipMatchmakingRankGate === true,
       )
       if (gateError) {
         return { gateError }
@@ -337,10 +337,10 @@ async function getRoleGateErrorForLobby(
   requestedEntries: MatchJoinEntry[],
   rankedRoleConfigByGuildId: Map<string, Awaited<ReturnType<typeof getRankedRoleConfig>>>,
   memberRoleIdsByKey: Map<string, string[]>,
-  skipMatchmakingMinRole: boolean,
+  skipMatchmakingRankGate: boolean,
 ): Promise<string | null> {
-  if (skipMatchmakingMinRole) return null
-  if (!lobby.minRole) return null
+  if (skipMatchmakingRankGate) return null
+  if (!lobby.minRole && !lobby.maxRole) return null
   if (!lobby.guildId) return 'This lobby is missing guild context, so rank gating is unavailable.'
   if (!token) return 'Rank-gated lobbies are unavailable because the bot token is missing.'
 
@@ -350,7 +350,13 @@ async function getRoleGateErrorForLobby(
     rankedRoleConfigByGuildId.set(lobby.guildId, config)
   }
 
-  const gateLabel = buildRankedRoleVisuals(config).find(option => option.tier === lobby.minRole)?.label ?? 'that ranked role'
+  const visuals = buildRankedRoleVisuals(config)
+  const minGateLabel = lobby.minRole
+    ? (visuals.find(option => option.tier === lobby.minRole)?.label ?? 'that ranked role')
+    : null
+  const maxGateLabel = lobby.maxRole
+    ? (visuals.find(option => option.tier === lobby.maxRole)?.label ?? 'that ranked role')
+    : null
 
   for (const entry of requestedEntries) {
     if (lobby.memberPlayerIds.includes(entry.playerId)) continue
@@ -362,9 +368,9 @@ async function getRoleGateErrorForLobby(
       memberRoleIdsByKey.set(memberKey, roleIds)
     }
 
-    if (!memberMeetsRankedRoleGate(roleIds, lobby.minRole, config)) {
-      return `This lobby requires at least ${gateLabel}.`
-    }
+    const currentTier = resolveCurrentCompetitiveTierFromRoleIds(roleIds, config)
+    if (!competitiveTierMeetsMinimum(currentTier, lobby.minRole)) return `This lobby requires at least ${minGateLabel}.`
+    if (!competitiveTierMeetsMaximum(currentTier, lobby.maxRole)) return `This lobby allows up to ${maxGateLabel}.`
   }
 
   return null

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createLobby, getLobbyByChannel, getLobbyById, setLobbyMinRole, setLobbySlots, setLobbyStatus } from '../../src/services/lobby/index.ts'
+import { createLobby, getLobbyByChannel, getLobbyById, setLobbyMaxRole, setLobbyMinRole, setLobbySlots, setLobbyStatus } from '../../src/services/lobby/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 describe('lobby service KV write behavior', () => {
@@ -123,6 +123,23 @@ describe('lobby service KV write behavior', () => {
     const stored = await getLobbyById(kv, lobby.id)
 
     expect(stored?.minRole).toBe('tier3')
+    expect(stored?.guildId).toBe('guild-1')
+  })
+
+  test('setLobbyMaxRole persists the configured cap', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      guildId: 'guild-1',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await setLobbyMaxRole(kv, lobby.id, 'tier2')
+    const stored = await getLobbyById(kv, lobby.id)
+
+    expect(stored?.maxRole).toBe('tier2')
     expect(stored?.guildId).toBe('guild-1')
   })
 })

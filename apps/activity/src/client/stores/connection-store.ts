@@ -35,6 +35,7 @@ export interface LobbySnapshot {
   status: string
   steamLobbyLink: string | null
   minRole: CompetitiveTier | null
+  maxRole: CompetitiveTier | null
   entries: ({
     playerId: string
     displayName: string
@@ -486,6 +487,7 @@ export async function updateLobbyConfig(
     leaderPoolSize?: number | null
     steamLobbyLink?: string | null
     minRole?: CompetitiveTier | null
+    maxRole?: CompetitiveTier | null
   },
 ): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
@@ -497,6 +499,7 @@ export async function updateLobbyConfig(
       leaderPoolSize: draftConfig.leaderPoolSize,
       steamLobbyLink: draftConfig.steamLobbyLink,
       minRole: draftConfig.minRole,
+      maxRole: draftConfig.maxRole,
     })
     return { ok: true, lobby }
   }
