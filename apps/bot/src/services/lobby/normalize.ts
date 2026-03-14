@@ -2,8 +2,8 @@ import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
 import { MAX_LEADER_POOL_SIZE, maxPlayerCount } from '@civup/game'
 import { nanoid } from 'nanoid'
-import { normalizeSteamLobbyLink } from '../steam-link.ts'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
+import { normalizeSteamLobbyLink } from '../steam-link.ts'
 
 export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   banTimerSeconds: null,

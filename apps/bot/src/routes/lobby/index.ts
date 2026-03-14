@@ -1,10 +1,9 @@
 import type { GameMode } from '@civup/game'
 import type { Hono } from 'hono'
 import type { Env } from '../../env.ts'
-import { createDraftRoomAccessToken } from '@civup/utils'
 import { createDb, playerRatings } from '@civup/db'
 import { formatModeLabel, getMinimumLeaderPoolSize, isTeamMode, MAX_LEADER_POOL_SIZE, maxPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
-import { isDev } from '@civup/utils'
+import { createDraftRoomAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
 import { clearLobbyMappings, clearUserLobbyMappings, createDraftRoom, storeMatchMapping, storeUserActivityTarget, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity/index.ts'
@@ -954,23 +953,23 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     if (lobby.status === 'drafting' && lobby.matchId) {
-        console.log('[idempotency] duplicate lobby start request', {
-          mode,
-          hostId: auth.identity.userId,
-          matchId: lobby.matchId,
-          revision: lobby.revision,
-        })
-       return c.json({
-         ok: true,
-         matchId: lobby.matchId,
-         idempotent: true,
-         roomAccessToken: await createDraftRoomAccessToken(internalSecret, {
-           userId: auth.identity.userId,
-           roomId: lobby.matchId,
-           channelId: lobby.channelId,
-         }),
-       })
-     }
+      console.log('[idempotency] duplicate lobby start request', {
+        mode,
+        hostId: auth.identity.userId,
+        matchId: lobby.matchId,
+        revision: lobby.revision,
+      })
+      return c.json({
+        ok: true,
+        matchId: lobby.matchId,
+        idempotent: true,
+        roomAccessToken: await createDraftRoomAccessToken(internalSecret, {
+          userId: auth.identity.userId,
+          roomId: lobby.matchId,
+          channelId: lobby.channelId,
+        }),
+      })
+    }
 
     if (lobby.status !== 'open') {
       return c.json({ error: `Lobby is not open (status: ${lobby.status}).` }, 409)
@@ -1030,17 +1029,17 @@ export function registerLobbyRoutes(app: Hono<Env>) {
             activeMatchId: currentLobby.matchId,
             revision: currentLobby.revision,
           })
-           return c.json({
-             ok: true,
-             matchId: currentLobby.matchId,
-             idempotent: true,
-             roomAccessToken: await createDraftRoomAccessToken(internalSecret, {
-               userId: auth.identity.userId,
-               roomId: currentLobby.matchId,
-               channelId: currentLobby.channelId,
-             }),
-           })
-         }
+          return c.json({
+            ok: true,
+            matchId: currentLobby.matchId,
+            idempotent: true,
+            roomAccessToken: await createDraftRoomAccessToken(internalSecret, {
+              userId: auth.identity.userId,
+              roomId: currentLobby.matchId,
+              channelId: currentLobby.channelId,
+            }),
+          })
+        }
         console.warn('[lobby-transition] failed to attach match to lobby', {
           mode,
           hostId: auth.identity.userId,
