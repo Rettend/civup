@@ -7,7 +7,7 @@ import type {
   PendingOptimisticLobbyAction,
   PlayerRow,
 } from '~/client/lib/config-screen/helpers'
-import type { LobbyJoinEligibilitySnapshot, LobbySnapshot, LobbyTeamArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
+import type { LobbyArrangeStrategy, LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
 import { formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isTeamMode as isTeamGameMode } from '@civup/game'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, TextInput } from '~/client/components/ui'
@@ -37,7 +37,7 @@ import { MinRoleSetNotice, PlayerChip, PremadeLinkButton, ReadonlyTimerRow } fro
 import { cn } from '~/client/lib/css'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
 import {
-  arrangeLobbyTeams,
+  arrangeLobbySlots,
   cancelLobby,
   canFillLobbyWithTestPlayers,
   avatarUrl as currentAvatarUrl,
@@ -562,6 +562,9 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return inferGameMode(currentLobby()?.mode ?? state()?.formatId)
   }
 
+  const arrangeTargetLabel = (mode: LobbyModeValue) => isTeamGameMode(mode) ? 'teams' : 'seat order'
+  const arrangeTargetTitle = (mode: LobbyModeValue) => isTeamGameMode(mode) ? 'Teams' : 'Seat order'
+
   const filledSlots = () => {
     const lobby = currentLobby()
     if (!lobby) return 0
@@ -983,25 +986,25 @@ export function ConfigScreen(props: ConfigScreenProps) {
     }
   }
 
-  const handleArrangeTeams = async (strategy: LobbyTeamArrangeStrategy) => {
+  const handleArrangeLobby = async (strategy: LobbyArrangeStrategy) => {
     const lobby = currentLobby()
     const currentUserId = userId()
     if (!lobby || !currentUserId || !amHost()) return
     const mode = inferGameMode(lobby.mode)
-    if (!isTeamGameMode(mode)) return
     if (lobbyActionPending() || startPending() || cancelPending()) return
 
     setLobbyActionPending(true)
     clearConfigMessage()
     try {
-      const result = await arrangeLobbyTeams(lobby.mode, lobby.id, currentUserId, strategy)
+      const result = await arrangeLobbySlots(lobby.mode, lobby.id, currentUserId, strategy)
       if (!result.ok) {
         showErrorMessage(result.error)
         return
       }
 
       applyLobbySnapshot(result.lobby)
-      showInfoMessage(strategy === 'randomize' ? 'Teams randomized.' : 'Teams auto-balanced.')
+      const target = arrangeTargetTitle(mode)
+      showInfoMessage(strategy === 'randomize' ? `${target} randomized.` : `${target} auto-balanced.`)
     }
     finally {
       setLobbyActionPending(false)
@@ -1444,26 +1447,24 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       >
                         {cancelPending() ? 'Cancelling...' : 'Cancel Lobby'}
                       </button>
-                      <Show when={isTeamGameMode(lobbyMode())}>
-                        <button
-                          class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed"
-                          title="Randomize"
-                          aria-label="Randomize teams"
-                          disabled={cancelPending() || startPending() || lobbyActionPending()}
-                          onClick={() => void handleArrangeTeams('randomize')}
-                        >
-                          <span class="i-ph:shuffle-simple-bold text-lg" />
-                        </button>
-                        <button
-                          class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed"
-                          title="Auto-balance"
-                          aria-label="Auto-balance teams"
-                          disabled={cancelPending() || startPending() || lobbyActionPending()}
-                          onClick={() => void handleArrangeTeams('balance')}
-                        >
-                          <span class="i-ph:scales-bold text-lg" />
-                        </button>
-                      </Show>
+                      <button
+                        class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed"
+                        title={`Randomize ${arrangeTargetLabel(lobbyMode())}`}
+                        aria-label={`Randomize ${arrangeTargetLabel(lobbyMode())}`}
+                        disabled={cancelPending() || startPending() || lobbyActionPending()}
+                        onClick={() => void handleArrangeLobby('randomize')}
+                      >
+                        <span class="i-ph:shuffle-simple-bold text-lg" />
+                      </button>
+                      <button
+                        class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed"
+                        title={`Auto-balance ${arrangeTargetLabel(lobbyMode())}`}
+                        aria-label={`Auto-balance ${arrangeTargetLabel(lobbyMode())}`}
+                        disabled={cancelPending() || startPending() || lobbyActionPending()}
+                        onClick={() => void handleArrangeLobby('balance')}
+                      >
+                        <span class="i-ph:scales-bold text-lg" />
+                      </button>
                       <Show when={fillTestPlayersAvailable()}>
                         <button
                           class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed"

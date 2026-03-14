@@ -66,7 +66,7 @@ export interface LobbyRankedRolesSnapshot {
   options: RankedRoleOptionSnapshot[]
 }
 
-export type LobbyTeamArrangeStrategy = 'randomize' | 'balance'
+export type LobbyArrangeStrategy = 'randomize' | 'balance'
 
 interface StateWatchMessage {
   type: 'state-changed' | 'error'
@@ -608,21 +608,21 @@ export async function removeLobbySlot(
   }
 }
 
-/** Arrange team lobby slots while keeping premades intact (host-only). */
-export async function arrangeLobbyTeams(
+/** Arrange lobby slots for team or seat-order drafts (host-only). */
+export async function arrangeLobbySlots(
   mode: string,
   lobbyId: string,
   userId: string,
-  strategy: LobbyTeamArrangeStrategy,
+  strategy: LobbyArrangeStrategy,
 ): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
     const lobby = await activityApiPost<LobbySnapshot>(`/api/lobby/${mode}/arrange`, { lobbyId, userId, strategy })
     return { ok: true, lobby }
   }
   catch (err) {
-    console.error('Failed to arrange lobby teams:', err)
+    console.error('Failed to arrange lobby slots:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
-    return { ok: false, error: 'Network error while arranging teams' }
+    return { ok: false, error: 'Network error while arranging lobby slots' }
   }
 }
 
