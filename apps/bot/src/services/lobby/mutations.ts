@@ -46,6 +46,7 @@ export async function createLobby(
     matchId: null,
     steamLobbyLink: input.steamLobbyLink ?? null,
     minRole: null,
+    maxRole: null,
     memberPlayerIds: [input.hostId],
     slots,
     draftConfig: { ...DEFAULT_DRAFT_CONFIG },
@@ -184,6 +185,28 @@ export async function setLobbyMinRole(
   const updated: LobbyState = {
     ...lobby,
     minRole: normalizedMinRole,
+    updatedAt: Date.now(),
+    revision: lobby.revision + 1,
+  }
+  await putLobby(kv, updated)
+  return updated
+}
+
+export async function setLobbyMaxRole(
+  kv: KVNamespace,
+  lobbyId: string,
+  maxRole: CompetitiveTier | null,
+  currentLobby?: LobbyState,
+): Promise<LobbyState | null> {
+  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
+  if (!lobby) return null
+
+  const normalizedMaxRole = normalizeCompetitiveTier(maxRole)
+  if (lobby.maxRole === normalizedMaxRole) return lobby
+
+  const updated: LobbyState = {
+    ...lobby,
+    maxRole: normalizedMaxRole,
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }

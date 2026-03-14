@@ -43,9 +43,24 @@ const STAGE_COLORS: Record<LobbyStage, number> = {
   'scrubbed': 0xA8B1BD,
 }
 
-export function lobbyOpenEmbed(mode: GameMode, entries: (QueueEntry | null)[], targetSize: number, minRoleId?: string | null): Embed {
+export function lobbyOpenEmbed(
+  mode: GameMode,
+  entries: (QueueEntry | null)[],
+  targetSize: number,
+  minRoleId?: string | null,
+  maxRoleId?: string | null,
+): Embed {
   const embed = baseLobbyEmbed(mode, 'open')
-  const minRoleField = minRoleId ? { name: 'Min Rank', value: `<@&${minRoleId}>`, inline: false } : null
+  const rankFields = [
+    minRoleId ? { name: 'Min Rank', value: `<@&${minRoleId}>`, inline: true } : null,
+    maxRoleId ? { name: 'Max Rank', value: `<@&${maxRoleId}>`, inline: true } : null,
+  ].flatMap(field => field ? [field] : [])
+
+  // When both rank fields are present, pad to 3 inline fields to complete the
+  // row so the team fields start on a new line (same pattern as rank.ts:126).
+  if (rankFields.length === 2) {
+    rankFields.push({ name: '\u200B', value: '\u200B', inline: true })
+  }
 
   if (mode === '1v1') {
     const p1 = entries[0]?.playerId
@@ -62,7 +77,7 @@ export function lobbyOpenEmbed(mode: GameMode, entries: (QueueEntry | null)[], t
         inline: true,
       },
     ]
-    return minRoleField ? embed.fields(minRoleField, ...fields) : embed.fields(...fields)
+    return rankFields.length > 0 ? embed.fields(...rankFields, ...fields) : embed.fields(...fields)
   }
 
   if (isTeamMode(mode)) {
@@ -80,7 +95,7 @@ export function lobbyOpenEmbed(mode: GameMode, entries: (QueueEntry | null)[], t
       { name: 'Team A', value: teamALines, inline: true },
       { name: 'Team B', value: teamBLines, inline: true },
     ]
-    return minRoleField ? embed.fields(minRoleField, ...fields) : embed.fields(...fields)
+    return rankFields.length > 0 ? embed.fields(...rankFields, ...fields) : embed.fields(...fields)
   }
 
   const half = Math.ceil(targetSize / 2)
@@ -98,7 +113,7 @@ export function lobbyOpenEmbed(mode: GameMode, entries: (QueueEntry | null)[], t
     { name: 'Slots', value: firstColumn, inline: true },
     { name: 'Slots', value: secondColumn || '\u200B', inline: true },
   ]
-  return minRoleField ? embed.fields(minRoleField, ...fields) : embed.fields(...fields)
+  return rankFields.length > 0 ? embed.fields(...rankFields, ...fields) : embed.fields(...fields)
 }
 
 export function lobbyDraftingEmbed(mode: GameMode, seats: DraftSeat[]): Embed {
