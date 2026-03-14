@@ -145,13 +145,3 @@ curl.exe "http://127.0.0.1:8787/cdn-cgi/handler/scheduled?cron=%2A%2F2+%2A+%2A+%
    ```bash
    bun run deploy:prod:full
    ```
-
-## Project layout
-
-- `apps/bot`: Discord interactions worker
-- `apps/activity`: Discord Activity frontend
-- `apps/party`: realtime draft partyserver
-- `packages/db`: Drizzle schema and migrations
-- `packages/game`: shared game data and draft logic
-- `packages/rating`: elo system
-- `packages/utils`: shared utils
