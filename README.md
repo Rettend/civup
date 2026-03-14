@@ -2,6 +2,8 @@
 
 Draft bot for Civ VI that uses Discord Activities
 
+This is a deployment guide, check out the [Manual](MANUAL.md) to see how the bot works on a high level.
+
 ## Requirements
 
 - Bun
