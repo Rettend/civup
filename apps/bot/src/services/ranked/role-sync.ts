@@ -80,7 +80,8 @@ export interface RankedPreviewBandSummary {
   isFallback: boolean
   earnPercent: number | null
   cumulativeEarnPercent: number
-  keepOverallPercent: number | null
+  keepPercent: number | null
+  cumulativeKeepPercent: number | null
 }
 
 export interface RankedPreviewModeTierSummary {
@@ -168,7 +169,7 @@ interface RankedRolePreviewState {
 interface RankedTierThreshold {
   tier: CompetitiveTier
   earnPercent: number
-  keepOverallPercent: number
+  keepCumulativePercent: number
   unlockMinPlayers: number
   minimumCountWhenUnlocked: number
 }
@@ -178,11 +179,10 @@ const DEMOTION_CANDIDATES_KEY_PREFIX = 'ranked-roles:demotion-candidates:'
 const RANKED_ROLES_DIRTY_STATE_KEY = 'ranked-roles:dirty'
 
 const EARN_CUMULATIVE_PERCENT_ANCHORS = [0.015, 0.055, 0.155, 0.355] as const
-const KEEP_CUMULATIVE_PERCENT_ANCHORS = [0.025, 0.08, 0.22, 0.45] as const
+const KEEP_CUMULATIVE_PERCENT_BUFFER_PER_TIER = 0.005
 const TIER_UNLOCK_MIN_PLAYER_ANCHORS = [80, 40, 20, 8] as const
 
 const DEMOTION_DELAY_SYNCS = 7
-const MAX_INACTIVITY_PENALTY = 90
 
 function buildRankedTierThresholds(config: RankedRoleConfig): RankedTierThreshold[] {
   const prestigeTierCount = Math.max(0, getRankedRoleTierCount(config) - 1)
@@ -195,7 +195,7 @@ function buildRankedTierThresholds(config: RankedRoleConfig): RankedTierThreshol
     const threshold: RankedTierThreshold = {
       tier: createRankedRoleTierId(index + 1),
       earnPercent: Math.max(0, cumulativeEarnPercent - previousEarnPercent),
-      keepOverallPercent: interpolatePositiveAnchors(KEEP_CUMULATIVE_PERCENT_ANCHORS, progress),
+      keepCumulativePercent: Math.min(1, cumulativeEarnPercent + (KEEP_CUMULATIVE_PERCENT_BUFFER_PER_TIER * (index + 1))),
       unlockMinPlayers: Math.max(0, Math.round(interpolatePositiveAnchors(TIER_UNLOCK_MIN_PLAYER_ANCHORS, progress))),
       minimumCountWhenUnlocked: index < Math.min(2, prestigeTierCount) ? 1 : 0,
     }
@@ -210,6 +210,7 @@ function buildRankedPreviewBands(config: RankedRoleConfig): RankedPreviewBandSum
 
   const bands: RankedPreviewBandSummary[] = []
   let cumulativeEarnPercent = 0
+  let previousKeepCumulativePercent = 0
 
   for (const threshold of buildRankedTierThresholds(config)) {
     cumulativeEarnPercent += threshold.earnPercent
@@ -219,8 +220,10 @@ function buildRankedPreviewBands(config: RankedRoleConfig): RankedPreviewBandSum
       isFallback: false,
       earnPercent: threshold.earnPercent,
       cumulativeEarnPercent,
-      keepOverallPercent: threshold.keepOverallPercent,
+      keepPercent: Math.max(0, threshold.keepCumulativePercent - previousKeepCumulativePercent),
+      cumulativeKeepPercent: threshold.keepCumulativePercent,
     })
+    previousKeepCumulativePercent = threshold.keepCumulativePercent
   }
 
   const fallbackTier = getLowestRankedRoleTier(config) ?? createRankedRoleTierId(tierCount)
@@ -230,7 +233,8 @@ function buildRankedPreviewBands(config: RankedRoleConfig): RankedPreviewBandSum
     isFallback: true,
     earnPercent: null,
     cumulativeEarnPercent: 1,
-    keepOverallPercent: null,
+    keepPercent: null,
+    cumulativeKeepPercent: null,
   })
 
   return bands
@@ -574,7 +578,7 @@ async function buildRankedRolePreviewState({
 
   const laddersByMode = new Map<LeaderboardMode, LadderSnapshots>()
   for (const mode of LEADERBOARD_MODES) {
-    laddersByMode.set(mode, buildLadderSnapshots(ratings.filter(row => row.mode === mode), mode, now, config))
+    laddersByMode.set(mode, buildLadderSnapshots(ratings.filter(row => row.mode === mode), mode, config))
   }
 
   const knownPlayerIds = new Set<string>()
@@ -717,12 +721,12 @@ function buildSeasonModePeakCandidates(
   })
 }
 
-function buildLadderSnapshots(rows: RatingSnapshotRow[], mode: LeaderboardMode, now: number, config: RankedRoleConfig): LadderSnapshots {
+function buildLadderSnapshots(rows: RatingSnapshotRow[], mode: LeaderboardMode, config: RankedRoleConfig): LadderSnapshots {
   const eligible = rows
     .filter(row => row.gamesPlayed >= LEADERBOARD_MIN_GAMES)
     .map(row => ({
       playerId: row.playerId,
-      score: displayRating(row.mu, row.sigma) - getInactivityPenalty(row.lastPlayedAt, now),
+      score: displayRating(row.mu, row.sigma),
       lastPlayedAt: row.lastPlayedAt,
     }))
     .sort(compareLadderEntry)
@@ -763,7 +767,7 @@ function buildKeepAssignments(entries: LadderEntry[], mode: LeaderboardMode, con
   let previousCount = 0
   for (const threshold of buildRankedTierThresholds(config)) {
     const nextCount = n >= threshold.unlockMinPlayers
-      ? Math.max(previousCount, threshold.minimumCountWhenUnlocked, Math.round(n * threshold.keepOverallPercent))
+      ? Math.max(previousCount, threshold.minimumCountWhenUnlocked, Math.round(n * threshold.keepCumulativePercent))
       : previousCount
     const boundedCount = Math.max(0, Math.min(nextCount, n))
     assignTierSlice(assignmentByPlayerId, entries, threshold.tier, mode, previousCount, boundedCount - previousCount)
@@ -981,18 +985,6 @@ function formatRankAnnouncementRole(
 ): string {
   const roleId = getConfiguredRankedRoleId(config, tier)
   return roleId ? `<@&${roleId}>` : `**${formatRankedRoleSlotLabel(tier)}**`
-}
-
-function getInactivityPenalty(lastPlayedAt: number | null, now: number): number {
-  if (!lastPlayedAt || lastPlayedAt >= now) return 0
-  const inactiveDays = Math.floor((now - lastPlayedAt) / 86_400_000)
-  if (inactiveDays <= 21) return 0
-
-  let penalty = 0
-  penalty += Math.max(0, Math.min(inactiveDays, 42) - 21) * 0.5
-  penalty += Math.max(0, Math.min(inactiveDays, 70) - 42) * 0.75
-  penalty += Math.max(0, inactiveDays - 70) * 1.0
-  return Math.min(MAX_INACTIVITY_PENALTY, penalty)
 }
 
 function compareLadderEntry(left: LadderEntry, right: LadderEntry): number {
