@@ -10,6 +10,9 @@ export const DEFAULT_MU = 25.0
 /** Default sigma for new players (how unsure the system is about your skill) */
 export const DEFAULT_SIGMA = 25 / 3 // ~8.333
 
+/** Default share of uncertainty restored between seasons */
+export const DEFAULT_SEASON_RESET_FACTOR = 0.5
+
 /** Starting elo for display */
 export const DISPLAY_RATING_BASE = 1000
 
@@ -279,7 +282,7 @@ export function buildLeaderboard(
 export function seasonReset(
   mu: number,
   sigma: number,
-  resetFactor: number = 0.5,
+  resetFactor: number = DEFAULT_SEASON_RESET_FACTOR,
 ): { mu: number, sigma: number } {
   const newSigma = sigma + (DEFAULT_SIGMA - sigma) * resetFactor
   return { mu, sigma: newSigma }
