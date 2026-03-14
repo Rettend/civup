@@ -10,6 +10,7 @@ const baseLobby: LobbySnapshot = {
   status: 'open',
   steamLobbyLink: null,
   minRole: null,
+  maxRole: null,
   entries: [
     { playerId: 'host-1', displayName: 'Host', avatarUrl: null, partyIds: [] },
     null,

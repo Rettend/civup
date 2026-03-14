@@ -152,7 +152,7 @@ The host can:
 - place and remove players from slots
 - link or unlink premades in team modes
 - randomize or auto-balance teams // TODO explain shuffle and auto-balance per game mode
-- set Matchmaking Min Rank (only affects `/match join`, any player can directly join any lobby)
+- set Matchmaking Min and Max Rank (only affects `/match join`, any player can directly join any lobby)
 - set the leader pool size
 - set ban and pick timers
 - set or update the Steam lobby link

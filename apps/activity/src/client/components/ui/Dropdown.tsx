@@ -10,6 +10,7 @@ interface DropdownOption {
 
 interface DropdownProps {
   label?: string
+  ariaLabel?: string
   value?: string
   options: DropdownOption[]
   disabled?: boolean
@@ -92,6 +93,7 @@ export function Dropdown(props: DropdownProps) {
         <button
           type="button"
           tabIndex={0}
+          aria-label={props.ariaLabel ?? props.label}
           disabled={props.disabled}
           onClick={() => { if (!props.disabled) setOpen(prev => !prev) }}
           class={cn(

@@ -2,7 +2,7 @@ import type { GameMode } from '@civup/game'
 import type { Hono } from 'hono'
 import type { Env } from '../../env.ts'
 import { createDb, playerRatings } from '@civup/db'
-import { formatModeLabel, getMinimumLeaderPoolSize, isTeamMode, MAX_LEADER_POOL_SIZE, maxPlayerCount, parseGameMode, slotToTeamIndex, toLeaderboardMode } from '@civup/game'
+import { formatModeLabel, getMinimumLeaderPoolSize, isTeamMode, MAX_LEADER_POOL_SIZE, maxPlayerCount, normalizeCompetitiveTierBounds, parseGameMode, slotToTeamIndex, toLeaderboardMode } from '@civup/game'
 import { createDraftRoomAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
@@ -20,12 +20,13 @@ import {
   getOpenLobbyForPlayer,
   mapLobbySlotsToEntries,
   moveSlottedPremadeGroup,
-  normalizeLobbySlots,
-  rebuildQueueEntriesFromPremadeEdgeSet,
-  setLobbyDraftConfig,
-  setLobbyMemberPlayerIds,
-  setLobbyMinRole,
-  setLobbySlots,
+    normalizeLobbySlots,
+    rebuildQueueEntriesFromPremadeEdgeSet,
+    setLobbyDraftConfig,
+    setLobbyMaxRole,
+    setLobbyMemberPlayerIds,
+    setLobbyMinRole,
+    setLobbySlots,
   setLobbySteamLobbyLink,
   touchLobby,
   upsertLobby,
@@ -45,11 +46,12 @@ import {
   buildOpenLobbySnapshotFromParts,
   canStartLobbyWithPlayerCount,
   emptyRankedRoleConfig,
-  lobbyMinPlayerCount,
-  parseLobbyLeaderPoolSize,
-  parseLobbyMinRole,
-  parseLobbyTimerSeconds,
-  parseSlotIndex,
+    lobbyMinPlayerCount,
+    parseLobbyLeaderPoolSize,
+    parseLobbyMaxRole,
+    parseLobbyMinRole,
+    parseLobbyTimerSeconds,
+    parseSlotIndex,
   resolveOpenLobbyFromBody,
 } from './snapshot.ts'
 
@@ -111,12 +113,13 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, minRole: minRoleRaw, steamLobbyLink: steamLobbyLinkRaw, lobbyId } = body as {
+    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, lobbyId } = body as {
       userId?: string
       banTimerSeconds?: unknown
       pickTimerSeconds?: unknown
       leaderPoolSize?: unknown
       minRole?: unknown
+      maxRole?: unknown
       steamLobbyLink?: unknown
       lobbyId?: unknown
     }
@@ -131,6 +134,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const hasBanTimerSeconds = Object.prototype.hasOwnProperty.call(body, 'banTimerSeconds')
     const hasPickTimerSeconds = Object.prototype.hasOwnProperty.call(body, 'pickTimerSeconds')
     const hasMinRole = Object.prototype.hasOwnProperty.call(body, 'minRole')
+    const hasMaxRole = Object.prototype.hasOwnProperty.call(body, 'maxRole')
     const normalizedBan = hasBanTimerSeconds
       ? parseLobbyTimerSeconds(banTimerSeconds)
       : undefined
@@ -172,17 +176,27 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (parsedMinRole === undefined) {
       return c.json({ error: 'minRole must be a ranked tier id like tier1, or null' }, 400)
     }
+    const parsedMaxRole = Object.prototype.hasOwnProperty.call(body, 'maxRole')
+      ? parseLobbyMaxRole(maxRoleRaw)
+      : lobby.maxRole
+    if (parsedMaxRole === undefined) {
+      return c.json({ error: 'maxRole must be a ranked tier id like tier1, or null' }, 400)
+    }
+    const normalizedRankBounds = normalizeCompetitiveTierBounds(parsedMinRole, parsedMaxRole)
+
     const resolvedBanTimerSeconds = hasBanTimerSeconds
       ? normalizedBan ?? null
       : lobby.draftConfig.banTimerSeconds
     const resolvedPickTimerSeconds = hasPickTimerSeconds
       ? normalizedPick ?? null
       : lobby.draftConfig.pickTimerSeconds
-    const normalizedMinRole = parsedMinRole
+    const normalizedMinRole = normalizedRankBounds.minimum
+    const normalizedMaxRole = normalizedRankBounds.maximum
     const normalizedLeaderPoolSize: number | null = hasLeaderPoolSize
       ? parsedLeaderPoolSize ?? null
       : lobby.draftConfig.leaderPoolSize
     const minRoleChanged = normalizedMinRole !== lobby.minRole
+    const maxRoleChanged = normalizedMaxRole !== lobby.maxRole
 
     if (lobby.hostId !== auth.identity.userId) {
       return c.json({ error: 'Only the lobby host can update draft config' }, 403)
@@ -195,7 +209,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       if (!hasSteamLobbyLink) {
         return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
       }
-      if (hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasMinRole) {
+      if (hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasMinRole || hasMaxRole) {
         return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
       }
 
@@ -205,6 +219,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     if (minRoleChanged && normalizedMinRole && !lobby.guildId) {
       return c.json({ error: 'This lobby is missing guild context, so min rank cannot be set.' }, 400)
+    }
+    if (maxRoleChanged && normalizedMaxRole && !lobby.guildId) {
+      return c.json({ error: 'This lobby is missing guild context, so max rank cannot be set.' }, 400)
     }
 
     const queue = await getQueueState(kv, mode)
@@ -222,7 +239,11 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const rankedRoleConfig = lobby.guildId ? await getRankedRoleConfig(kv, lobby.guildId) : null
     if (minRoleChanged && normalizedMinRole && rankedRoleConfig) {
-      const gateError = getRankedRoleGateError(rankedRoleConfig, normalizedMinRole)
+      const gateError = getRankedRoleGateError(rankedRoleConfig, normalizedMinRole, 'min')
+      if (gateError) return c.json({ error: gateError }, 400)
+    }
+    if (maxRoleChanged && normalizedMaxRole && rankedRoleConfig) {
+      const gateError = getRankedRoleGateError(rankedRoleConfig, normalizedMaxRole, 'max')
       if (gateError) return c.json({ error: gateError }, 400)
     }
 
@@ -235,6 +256,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     lobby = draftUpdated ?? lobby
     const minRoleUpdated = await setLobbyMinRole(kv, lobby.id, normalizedMinRole, lobby)
     lobby = minRoleUpdated ?? lobby
+    const maxRoleUpdated = await setLobbyMaxRole(kv, lobby.id, normalizedMaxRole, lobby)
+    lobby = maxRoleUpdated ?? lobby
     const updated = hasSteamLobbyLink
       ? (await setLobbySteamLobbyLink(kv, lobby.id, parsedSteamLobbyLink ?? null, lobby) ?? lobby)
       : lobby
@@ -1162,6 +1185,7 @@ async function buildStoredLobbySnapshot(
     status: lobby.status,
     steamLobbyLink: lobby.steamLobbyLink,
     minRole: lobby.minRole,
+    maxRole: lobby.maxRole,
     entries: lobby.slots.map(() => null),
     minPlayers: lobbyMinPlayerCount(mode),
     targetSize: maxPlayerCount(mode),

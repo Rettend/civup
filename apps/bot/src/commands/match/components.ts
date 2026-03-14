@@ -83,7 +83,7 @@ export const component_match_join = factory.component(
         }],
         {
           preferredLobbyId: lobby.id,
-          skipMatchmakingMinRole: true,
+          skipMatchmakingRankGate: true,
         },
       )
       if ('error' in outcome) {
