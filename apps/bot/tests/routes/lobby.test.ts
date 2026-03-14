@@ -3,12 +3,13 @@ import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
 import { registerLobbyRoutes } from '../../src/routes/lobby/index.ts'
 import { getLobbyForUser, storeUserActivityTarget, storeUserLobbyMappings } from '../../src/services/activity/index.ts'
-import { attachLobbyMatch, createLobby, getLobbyById, setLobbyDraftConfig, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus } from '../../src/services/lobby/index.ts'
+import { attachLobbyMatch, createLobby, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus } from '../../src/services/lobby/index.ts'
 import { addToQueue, getPlayerQueueMode } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
+const TITAN_ROLE_ID = '99999999999999999'
 const GLADIATOR_ROLE_ID = '11111111111111111'
 
 afterEach(() => {
@@ -143,6 +144,152 @@ describe('lobby routes', () => {
     expect(joinResponse.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
     expect(updatedLobby?.memberPlayerIds).toEqual(['host', 'pleb'])
+  })
+
+  test('direct lobby joins ignore matchmaking max rank', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      guildId: 'guild-1',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier1: TITAN_ROLE_ID,
+      tier2: GLADIATOR_ROLE_ID,
+    })
+
+    const gatedLobby = await getLobbyById(kv, lobby.id)
+    expect(gatedLobby).not.toBeNull()
+    await setLobbyMaxRole(kv, lobby.id, 'tier2', gatedLobby!)
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const joinResponse = await app.request('/api/lobby/2v2/place', {
+      method: 'POST',
+      headers: buildAuthHeaders('titan', 'Titan'),
+      body: JSON.stringify({
+        userId: 'titan',
+        lobbyId: lobby.id,
+        targetSlot: 1,
+        displayName: 'Titan',
+        avatarUrl: null,
+      }),
+    }, buildEnv(kv))
+
+    expect(joinResponse.status).toBe(200)
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.memberPlayerIds).toEqual(['host', 'titan'])
+  })
+
+  test('config route stores matchmaking max rank', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      guildId: 'guild-1',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier2: GLADIATOR_ROLE_ID,
+    })
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        maxRole: 'tier2',
+        banTimerSeconds: null,
+        pickTimerSeconds: null,
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    const configuredLobby = await response.json()
+    expect(configuredLobby.maxRole).toBe('tier2')
+  })
+
+  test('config route swaps inverted matchmaking rank bounds', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      guildId: 'guild-1',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier2: GLADIATOR_ROLE_ID,
+      tier3: '22222222222222222',
+    })
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        minRole: 'tier2',
+        maxRole: 'tier3',
+        banTimerSeconds: null,
+        pickTimerSeconds: null,
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    const configuredLobby = await response.json()
+    expect(configuredLobby.minRole).toBe('tier3')
+    expect(configuredLobby.maxRole).toBe('tier2')
   })
 
   test('config route rejects spoofed activity user IDs', async () => {

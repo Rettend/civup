@@ -152,7 +152,7 @@ The host can:
 - place and remove players from slots
 - link or unlink premades in team modes
 - randomize or auto-balance teams // TODO explain shuffle and auto-balance per game mode
-- set Matchmaking Min Rank (only affects `/match join`, any player can directly join any lobby)
+- set Matchmaking Min and Max Rank (only affects `/match join`, any player can directly join any lobby)
 - set the leader pool size
 - set ban and pick timers
 - set or update the Steam lobby link
@@ -326,7 +326,7 @@ Until a tier unlocks, nobody earns it in that game mode.
 Ranked roles and leaderboards are not updated after every single report. Instead the bot periodically checks if it needs to make updates.
 
 - **Leaderboard embeds**: every 2 minutes
-- **Ranked roles**: every day at 9:00 UTC, or when `/admin ranked sync` is used
+- **Ranked roles**: every day at 0:00 UTC, or when `/admin ranked sync` is used
 - **Inactive queue cleanup**: every hour on the hour
 
 ## Seasons

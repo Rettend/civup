@@ -1,4 +1,4 @@
-import type { MinRoleMismatchDetail, MinRoleSetDetail, PlayerRow } from './helpers'
+import type { MinRoleMismatchDetail, PlayerRow, RankRoleSetDetail } from './helpers'
 import { Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import { buildRolePillStyle } from './helpers'
@@ -169,10 +169,12 @@ export function MinRoleMismatchNotice(props: { detail: MinRoleMismatchDetail }) 
   )
 }
 
-export function MinRoleSetNotice(props: { detail: MinRoleSetDetail }) {
+export function RankRoleSetNotice(props: { detail: RankRoleSetDetail }) {
   return (
     <span class="leading-relaxed">
-      Min rank set to
+      {props.detail.boundLabel}
+      {' '}
+      set to
       {' '}
       <span
         class="font-semibold px-1.5 py-0.5 border rounded-sm inline-flex items-center"

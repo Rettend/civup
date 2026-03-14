@@ -2,13 +2,13 @@ import type { MiniSeatItem } from './MiniLayout'
 import type {
   DraftTimerConfig,
   LobbyModeValue,
-  MinRoleSetDetail,
   OptimisticLobbyAction,
   PendingOptimisticLobbyAction,
   PlayerRow,
+  RankRoleSetDetail,
 } from '~/client/lib/config-screen/helpers'
 import type { LobbyArrangeStrategy, LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
-import { formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isTeamMode as isTeamGameMode } from '@civup/game'
+import { formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isTeamMode as isTeamGameMode, normalizeCompetitiveTierBounds } from '@civup/game'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, TextInput } from '~/client/components/ui'
 import {
@@ -16,6 +16,7 @@ import {
   buildRankDotStyle,
   findRankedRoleOptionByTier,
   formatLeaderPoolValue,
+  formatLobbyMaxRole,
   formatLobbyMinRole,
   formatTimerValue,
   getLeaderPoolSizeMinimum,
@@ -25,7 +26,7 @@ import {
   MAX_LEADER_POOL_INPUT,
   MAX_TIMER_MINUTES,
   normalizeLeaderPoolSizeInput,
-  normalizeLobbyMinRoleValue,
+  normalizeLobbyRankRoleValue,
   normalizeTimerMinutesInput,
   parseLeaderPoolSizeInput,
   parseTimerMinutesInput,
@@ -33,7 +34,7 @@ import {
   timerSecondsToMinutesInput,
   timerSecondsToMinutesPlaceholder,
 } from '~/client/lib/config-screen/helpers'
-import { MinRoleSetNotice, PlayerChip, PremadeLinkButton, ReadonlyTimerRow } from '~/client/lib/config-screen/parts'
+import { PlayerChip, PremadeLinkButton, RankRoleSetNotice, ReadonlyTimerRow } from '~/client/lib/config-screen/parts'
 import { cn } from '~/client/lib/css'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
 import {
@@ -107,7 +108,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   )
   const [rankedRoleOptions, setRankedRoleOptions] = createSignal<RankedRoleOptionSnapshot[]>([])
   const [fillTestPlayersAvailable, setFillTestPlayersAvailable] = createSignal(false)
-  const [minRoleSetDetail, setMinRoleSetDetail] = createSignal<MinRoleSetDetail | null>(null)
+  const [rankRoleSetDetail, setRankRoleSetDetail] = createSignal<RankRoleSetDetail | null>(null)
   let fillTestPlayersAvailabilityKey: string | null = null
   let rankedRoleOptionsFetchKey: string | null = null
 
@@ -339,6 +340,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
   const lobbyMinRoleValue = () => currentLobby()?.minRole ?? ''
   const formattedLobbyMinRole = () => formatLobbyMinRole(currentLobby()?.minRole ?? null, rankedRoleOptions())
+  const lobbyMaxRoleValue = () => currentLobby()?.maxRole ?? ''
+  const formattedLobbyMaxRole = () => formatLobbyMaxRole(currentLobby()?.maxRole ?? null, rankedRoleOptions())
   const leaderPoolPlayerCount = () => {
     const lobby = currentLobby()
     if (lobby) return lobby.entries.filter(entry => entry != null).length
@@ -366,14 +369,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const size = currentDraftLeaderPoolSize()
     return size == null ? 'Unknown' : String(size)
   }
-  const minRoleDropdownOptions = () => [
+  const buildRoleDropdownOptions = (clearLabel: string) => [
     {
       value: '',
-      label: 'Anyone',
+      label: clearLabel,
       render: () => (
         <span class="flex gap-2 items-center">
           <span class="rounded-full bg-white/25 h-2.5 w-2.5" />
-          Anyone
+          {clearLabel}
         </span>
       ),
     },
@@ -388,6 +391,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
       ),
     })),
   ]
+  const minRoleDropdownOptions = () => buildRoleDropdownOptions('Anyone')
+  const maxRoleDropdownOptions = () => buildRoleDropdownOptions('Anyone')
 
   const banTimerPlaceholder = () => timerSecondsToMinutesPlaceholder(serverDefaultTimerConfig().banTimerSeconds)
   const pickTimerPlaceholder = () => timerSecondsToMinutesPlaceholder(serverDefaultTimerConfig().pickTimerSeconds)
@@ -403,7 +408,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     }
     setConfigMessage(null)
     setConfigMessageTone(null)
-    setMinRoleSetDetail(null)
+    setRankRoleSetDetail(null)
   }
 
   const scheduleConfigMessageClear = () => {
@@ -417,21 +422,21 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const showErrorMessage = (message: string) => {
     setConfigMessage(message)
     setConfigMessageTone('error')
-    setMinRoleSetDetail(null)
+    setRankRoleSetDetail(null)
     scheduleConfigMessageClear()
   }
 
   const showInfoMessage = (message: string) => {
     setConfigMessage(message)
     setConfigMessageTone('info')
-    setMinRoleSetDetail(null)
+    setRankRoleSetDetail(null)
     scheduleConfigMessageClear()
   }
 
-  const showMinRoleSetMessage = (detail: MinRoleSetDetail) => {
-    setConfigMessage(`Min rank set to ${detail.roleLabel}`)
+  const showRankRoleSetMessage = (detail: RankRoleSetDetail) => {
+    setConfigMessage(`${detail.boundLabel} set to ${detail.roleLabel}`)
     setConfigMessageTone('info')
-    setMinRoleSetDetail(detail)
+    setRankRoleSetDetail(detail)
     scheduleConfigMessageClear()
   }
 
@@ -688,6 +693,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
             pickTimerSeconds,
             leaderPoolSize,
             minRole: lobby.minRole,
+            maxRole: lobby.maxRole,
           })
           if (!result.ok) throw new Error(result.error)
           applyLobbySnapshot(result.lobby)
@@ -734,8 +740,9 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (!lobby || !currentUserId || !amHost()) return
     if (lobbyActionPending()) return
 
-    const nextMinRole = normalizeLobbyMinRoleValue(value)
-    if (lobby.minRole === nextMinRole) return
+    const nextMinRole = normalizeLobbyRankRoleValue(value)
+    const nextBounds = normalizeCompetitiveTierBounds(nextMinRole, lobby.maxRole)
+    if (lobby.minRole === nextBounds.minimum && lobby.maxRole === nextBounds.maximum) return
 
     setLobbyActionPending(true)
     clearConfigMessage()
@@ -744,7 +751,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
         banTimerSeconds: timerConfig().banTimerSeconds,
         pickTimerSeconds: timerConfig().pickTimerSeconds,
         leaderPoolSize: draftConfig().leaderPoolSize,
-        minRole: nextMinRole,
+        minRole: nextBounds.minimum,
+        maxRole: nextBounds.maximum,
       })
       if (!result.ok) {
         showErrorMessage(result.error)
@@ -755,15 +763,68 @@ export function ConfigScreen(props: ConfigScreenProps) {
       const refreshedOptions = await fetchLobbyRankedRoles(result.lobby.mode, result.lobby.id)
       if (refreshedOptions?.options?.length) setRankedRoleOptions(refreshedOptions.options)
       const optionSource = refreshedOptions?.options?.length ? refreshedOptions.options : rankedRoleOptions()
-      const selectedMinRole = nextMinRole ? findRankedRoleOptionByTier(optionSource, nextMinRole) : null
-      if (nextMinRole) {
-        showMinRoleSetMessage({
+      const selectedMinRole = result.lobby.minRole ? findRankedRoleOptionByTier(optionSource, result.lobby.minRole) : null
+      if (nextBounds.swapped) {
+        showInfoMessage('Min and max ranks swapped to keep the range valid.')
+      }
+      else if (result.lobby.minRole) {
+        showRankRoleSetMessage({
+          boundLabel: 'Min rank',
           roleLabel: selectedMinRole?.label ?? 'Unranked',
           roleColor: selectedMinRole?.color ?? null,
         })
       }
       else {
         showInfoMessage('Min rank cleared')
+      }
+    }
+    finally {
+      setLobbyActionPending(false)
+    }
+  }
+
+  const handleLobbyMaxRoleChange = async (value: string) => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || !amHost()) return
+    if (lobbyActionPending()) return
+
+    const nextMaxRole = normalizeLobbyRankRoleValue(value)
+    const nextBounds = normalizeCompetitiveTierBounds(lobby.minRole, nextMaxRole)
+    if (lobby.minRole === nextBounds.minimum && lobby.maxRole === nextBounds.maximum) return
+
+    setLobbyActionPending(true)
+    clearConfigMessage()
+    try {
+      const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, {
+        banTimerSeconds: timerConfig().banTimerSeconds,
+        pickTimerSeconds: timerConfig().pickTimerSeconds,
+        leaderPoolSize: draftConfig().leaderPoolSize,
+        minRole: nextBounds.minimum,
+        maxRole: nextBounds.maximum,
+      })
+      if (!result.ok) {
+        showErrorMessage(result.error)
+        return
+      }
+
+      applyLobbySnapshot(result.lobby)
+      const refreshedOptions = await fetchLobbyRankedRoles(result.lobby.mode, result.lobby.id)
+      if (refreshedOptions?.options?.length) setRankedRoleOptions(refreshedOptions.options)
+      const optionSource = refreshedOptions?.options?.length ? refreshedOptions.options : rankedRoleOptions()
+      const selectedMaxRole = result.lobby.maxRole ? findRankedRoleOptionByTier(optionSource, result.lobby.maxRole) : null
+      if (nextBounds.swapped) {
+        showInfoMessage('Min and max ranks swapped to keep the range valid.')
+      }
+      else if (result.lobby.maxRole) {
+        showRankRoleSetMessage({
+          boundLabel: 'Max rank',
+          roleLabel: selectedMaxRole?.label ?? 'Unranked',
+          roleColor: selectedMaxRole?.color ?? null,
+        })
+      }
+      else {
+        showInfoMessage('Max rank cleared')
       }
     }
     finally {
@@ -787,6 +848,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         leaderPoolSize: draftConfig().leaderPoolSize,
         steamLobbyLink: link,
         minRole: lobby.minRole,
+        maxRole: lobby.maxRole,
       })
       if (!result.ok) {
         showErrorMessage(result.error)
@@ -1308,10 +1370,19 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   fallback={(
                     <div class="flex flex-col gap-2">
                       <Show when={isLobbyMode()}>
-                        <ReadonlyTimerRow
-                          label="Matchmaking min rank"
-                          value={formattedLobbyMinRole()}
-                        />
+                        <div class="flex flex-col gap-1.5">
+                          <div class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">Min and max matchmaking rank</div>
+                          <div class="flex flex-col gap-2">
+                            <ReadonlyTimerRow
+                              label="Min rank"
+                              value={formattedLobbyMinRole()}
+                            />
+                            <ReadonlyTimerRow
+                              label="Max rank"
+                              value={formattedLobbyMaxRole()}
+                            />
+                          </div>
+                        </div>
                       </Show>
                       <ReadonlyTimerRow
                         label="Leaders"
@@ -1330,13 +1401,25 @@ export function ConfigScreen(props: ConfigScreenProps) {
                 >
                   <div class="flex flex-col gap-2">
                     <Show when={isLobbyMode()}>
-                      <Dropdown
-                        label="Matchmaking Min Rank"
-                        value={lobbyMinRoleValue()}
-                        disabled={lobbyActionPending()}
-                        options={minRoleDropdownOptions()}
-                        onChange={value => void handleLobbyMinRoleChange(value)}
-                      />
+                      <div class="flex flex-col gap-1.5">
+                        <div class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">Min and max matchmaking rank</div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <Dropdown
+                            ariaLabel="Minimum matchmaking rank"
+                            value={lobbyMinRoleValue()}
+                            disabled={lobbyActionPending()}
+                            options={minRoleDropdownOptions()}
+                            onChange={value => void handleLobbyMinRoleChange(value)}
+                          />
+                          <Dropdown
+                            ariaLabel="Maximum matchmaking rank"
+                            value={lobbyMaxRoleValue()}
+                            disabled={lobbyActionPending()}
+                            options={maxRoleDropdownOptions()}
+                            onChange={value => void handleLobbyMaxRoleChange(value)}
+                          />
+                        </div>
+                      </div>
 
                       <TextInput
                         type="number"
@@ -1409,10 +1492,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       )}
                       />
                       <Show
-                        when={configMessageTone() === 'info' && minRoleSetDetail()}
+                        when={configMessageTone() === 'info' && rankRoleSetDetail()}
                         fallback={<span class="leading-relaxed">{configMessage()}</span>}
                       >
-                        <MinRoleSetNotice detail={minRoleSetDetail()!} />
+                        <RankRoleSetNotice detail={rankRoleSetDetail()!} />
                       </Show>
                     </div>
                   </Show>

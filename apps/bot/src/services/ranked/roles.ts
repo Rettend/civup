@@ -1,5 +1,5 @@
 import type { CompetitiveTier } from '@civup/game'
-import { competitiveTierMeetsMinimum, competitiveTierNumber, competitiveTierRank, isCompetitiveTier } from '@civup/game'
+import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, competitiveTierNumber, competitiveTierRank, isCompetitiveTier } from '@civup/game'
 import { DiscordApiError } from '../discord/index.ts'
 
 export interface RankedRoleTierConfig {
@@ -190,10 +190,10 @@ export async function resolveMemberCurrentCompetitiveTier(
   return resolveCurrentCompetitiveTierFromRoleIds(roleIds, config)
 }
 
-export function getRankedRoleGateError(config: RankedRoleConfig, minRole: CompetitiveTier): string | null {
-  return getConfiguredRankedRoleId(config, minRole)
+export function getRankedRoleGateError(config: RankedRoleConfig, tier: CompetitiveTier, bound: 'min' | 'max' = 'min'): string | null {
+  return getConfiguredRankedRoleId(config, tier)
     ? null
-    : 'This min rank is not configured yet. Ask an admin to run /admin ranked roles.'
+    : `This ${bound} rank is not configured yet. Ask an admin to run /admin ranked roles.`
 }
 
 export function buildRankedRoleVisuals(
@@ -252,9 +252,11 @@ export function memberMeetsRankedRoleGate(
   roleIds: string[],
   minRole: CompetitiveTier | null,
   config: RankedRoleConfig,
+  maxRole: CompetitiveTier | null = null,
 ): boolean {
   const currentTier = resolveCurrentCompetitiveTierFromRoleIds(roleIds, config)
   return competitiveTierMeetsMinimum(currentTier, minRole)
+    && competitiveTierMeetsMaximum(currentTier, maxRole)
 }
 
 export async function fetchGuildMemberRoleIds(token: string, guildId: string, userId: string): Promise<string[]> {

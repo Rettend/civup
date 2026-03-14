@@ -53,8 +53,10 @@ export type {
   QueueState,
 } from './types.ts'
 export {
+  competitiveTierMeetsMaximum,
   COMPETITIVE_TIERS,
   competitiveTierMeetsMinimum,
+  normalizeCompetitiveTierBounds,
   competitiveTierNumber,
   competitiveTierRank,
   GAME_MODES,

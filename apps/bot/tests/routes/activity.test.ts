@@ -4,12 +4,13 @@ import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility } from '../../src/routes/activity.ts'
 import { buildOpenLobbySnapshot } from '../../src/routes/lobby/snapshot.ts'
 import { getUserActivityTarget, storeUserActivityTarget } from '../../src/services/activity/index.ts'
-import { attachLobbyMatch, createLobby, getLobbyById, setLobbyMinRole } from '../../src/services/lobby/index.ts'
+import { attachLobbyMatch, createLobby, getLobbyById, setLobbyMaxRole, setLobbyMinRole } from '../../src/services/lobby/index.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
+const TITAN_ROLE_ID = '99999999999999999'
 
 afterEach(() => {
   globalThis.fetch = originalFetch
@@ -63,6 +64,46 @@ describe('activity lobby join eligibility', () => {
     })
 
     globalThis.fetch = (async () => new Response(JSON.stringify({ roles: [] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const storedLobby = await getLobbyById(kv, lobby.id)
+    expect(storedLobby).not.toBeNull()
+
+    const gatedLobby = await buildOpenLobbySnapshot(kv, '2v2', storedLobby!)
+    const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-2', storedLobby!, gatedLobby)
+
+    expect(eligibility).toEqual({
+      canJoin: true,
+      blockedReason: null,
+      pendingSlot: 1,
+    })
+  })
+
+  test('allows direct activity joins even when the viewer exceeds the matchmaking max rank', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      guildId: 'guild-1',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    await setLobbyMaxRole(kv, lobby.id, 'tier2')
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier1: TITAN_ROLE_ID,
+      tier2: '11111111111111111',
+    })
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ roles: [TITAN_ROLE_ID] }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     })) as typeof fetch
