@@ -259,9 +259,9 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
     }
 
     relayDevLog('error', 'Draft socket connection failed', {
-        roomId,
-        target: describePartySocketTarget(target),
-      })
+      roomId,
+      target: describePartySocketTarget(target),
+    })
     socket = null
     setConnectionStatus('error')
     setConnectionError('WebSocket connection failed')
@@ -493,11 +493,11 @@ export async function updateLobbyConfig(
       lobbyId,
       userId,
       banTimerSeconds: draftConfig.banTimerSeconds,
-        pickTimerSeconds: draftConfig.pickTimerSeconds,
-        leaderPoolSize: draftConfig.leaderPoolSize,
-        steamLobbyLink: draftConfig.steamLobbyLink,
-        minRole: draftConfig.minRole,
-      })
+      pickTimerSeconds: draftConfig.pickTimerSeconds,
+      leaderPoolSize: draftConfig.leaderPoolSize,
+      steamLobbyLink: draftConfig.steamLobbyLink,
+      minRole: draftConfig.minRole,
+    })
     return { ok: true, lobby }
   }
   catch (err) {

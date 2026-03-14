@@ -1,5 +1,4 @@
-import type { Connection, WSMessage } from 'partyserver'
-import type { ConnectionContext } from 'partyserver'
+import type { Connection, ConnectionContext, WSMessage } from 'partyserver'
 import { isAuthorizedInternalRequest } from '@civup/utils'
 import { Server } from 'partyserver'
 

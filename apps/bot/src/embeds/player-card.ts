@@ -247,7 +247,7 @@ function formatGameModeLabel(gameMode: string): string {
 }
 
 function formatLeaderName(civId: string | null): string {
-  if (!civId) return '`[pending]`'
+  if (!civId) return '`[empty]`'
   try {
     const leader = getLeader(civId)
     const emoji = leaderEmojiMention(civId)

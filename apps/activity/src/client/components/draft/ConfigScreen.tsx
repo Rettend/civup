@@ -45,8 +45,8 @@ import {
   draftStore,
   fetchLobbyRankedRoles,
   fillLobbyWithTestPlayers,
-  isMobileLayout,
   isMiniView,
+  isMobileLayout,
   isSpectator,
   placeLobbySlot,
   removeLobbySlot,
@@ -1131,7 +1131,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
   const toMiniSeatItem = (row: PlayerRow, team: number | null): MiniSeatItem => ({
     key: row.key,
-    name: row.empty ? 'Empty' : row.name,
+    name: row.empty ? '[empty]' : row.name,
     avatarUrl: row.avatarUrl ?? null,
     team,
     empty: row.empty,
@@ -1165,7 +1165,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     <Show
       when={isMiniView()}
       fallback={(
-        <div class="text-fg font-sans bg-bg overflow-y-auto min-h-dvh relative">
+        <div class="text-fg font-sans bg-bg relative overflow-y-auto min-h-dvh">
           <Show when={props.onSwitchTarget}>
             <button
               type="button"
@@ -1355,10 +1355,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       />
                     </Show>
 
-                      <TextInput
-                        type="number"
-                        label="Ban Timer (minutes)"
-                        min="0"
+                    <TextInput
+                      type="number"
+                      label="Ban Timer (minutes)"
+                      min="0"
                       max={String(MAX_TIMER_MINUTES)}
                       step="1"
                       value={banMinutes()}

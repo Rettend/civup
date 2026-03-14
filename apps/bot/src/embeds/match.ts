@@ -382,7 +382,7 @@ function formatRankedRoleUpdate(lines: string[] | undefined): string | null {
 }
 
 function formatLeaderName(civId: string | null): string {
-  if (!civId) return '`[pending]`'
+  if (!civId) return '`[empty]`'
   try {
     const name = getLeader(civId).name
     const emoji = leaderEmojiMention(civId)

@@ -24,8 +24,8 @@ import {
   hasSubmitted,
   isMyTurn,
   isRandomSelected,
-  pickSelections,
   phaseAccent,
+  pickSelections,
   searchQuery,
   selectedLeader,
   sendBan,
@@ -401,11 +401,11 @@ export function LeaderGridOverlay() {
   const renderFilterPanel = (className: string) => (
     <div class={cn('grid-panel-glow border border-border rounded-lg bg-bg-subtle flex min-h-0 flex-col shadow-2xl overflow-hidden', className)}>
       <div class="p-3 flex-1 overflow-y-auto">
-        <div class="mb-2 flex shrink-0 items-center justify-between gap-2">
+        <div class="mb-2 flex shrink-0 gap-2 items-center justify-between">
           <span class="text-xs text-fg-muted font-semibold">Filters</span>
-          <div class="flex items-center gap-2">
+          <div class="flex gap-2 items-center">
             <button
-              class="text-[10px] text-fg px-2.5 py-1 border border-border-hover rounded bg-bg-muted/70 transition-colors hover:bg-bg hover:border-fg-subtle disabled:opacity-40 disabled:cursor-not-allowed"
+              class="text-[10px] text-fg px-2.5 py-1 border border-border-hover rounded bg-bg-muted/70 transition-colors hover:border-fg-subtle hover:bg-bg disabled:opacity-40 disabled:cursor-not-allowed"
               disabled={activeTagFilterCount() === 0}
               onClick={clearTagFilters}
             >
@@ -461,7 +461,7 @@ export function LeaderGridOverlay() {
         className,
       )}
     >
-      <div class="px-3 py-2 border-b border-border-subtle flex gap-2 items-center min-w-0">
+      <div class="px-3 py-2 border-b border-border-subtle flex gap-2 min-w-0 items-center">
         <button
           class="text-fg-subtle shrink-0 cursor-pointer hover:text-fg-muted"
           title={gridExpanded() ? 'Restore side panels' : 'Expand leader grid'}
@@ -473,7 +473,7 @@ export function LeaderGridOverlay() {
           </Show>
         </button>
 
-        <div class="relative min-w-0 flex-1 max-w-72">
+        <div class="flex-1 max-w-72 min-w-0 relative">
           <div class="i-ph-magnifying-glass-bold text-sm text-fg-subtle left-3 top-1/2 absolute -translate-y-1/2" />
           <input
             type="text"
@@ -503,7 +503,7 @@ export function LeaderGridOverlay() {
         >
           <div class="i-ph-funnel-bold text-sm" />
           <Show when={activeTagFilterCount() > 0}>
-            <span class="text-[10px] text-accent font-semibold px-1 py-0.5 rounded-full bg-bg-subtle min-w-4 right-0 top-0 absolute translate-x-1/4 -translate-y-1/4">
+            <span class="text-[10px] text-accent font-semibold px-1 py-0.5 rounded-full bg-bg-subtle min-w-4 translate-x-1/4 right-0 top-0 absolute -translate-y-1/4">
               {activeTagFilterCount()}
             </span>
           </Show>
@@ -518,7 +518,7 @@ export function LeaderGridOverlay() {
           </button>
         </Show>
 
-        <div class="flex shrink-0 items-center gap-2 ml-auto">
+        <div class="ml-auto flex shrink-0 gap-2 items-center">
           <div class="text-[11px] text-fg-subtle">
             {filteredLeaders().length}
             /
@@ -619,21 +619,21 @@ export function LeaderGridOverlay() {
               )}
             >
               <Show when={showDockedPanels() && filtersOpen()}>
-                <div class="anim-detail-in absolute z-10 right-full top-0 bottom-0 w-56">
+                <div class="anim-detail-in w-56 bottom-0 right-full top-0 absolute z-10">
                   {renderFilterPanel('h-full rounded-l-lg rounded-r-none border-r-0')}
                 </div>
               </Show>
 
               <Show when={showDockedPanels() && hasDetail()}>
-                <div class="anim-detail-in absolute z-10 left-full top-0 bottom-0 w-64 xl:w-72 2xl:w-80">
-                  <div class="grid-panel-glow border border-border border-l-0 rounded-r-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
+                <div class="anim-detail-in w-64 bottom-0 left-full top-0 absolute z-10 2xl:w-80 xl:w-72">
+                  <div class="grid-panel-glow border border-l-0 border-border rounded-r-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
                     <LeaderDetailPanel />
                   </div>
                 </div>
               </Show>
 
               <Show when={showFocusPanelStrip()}>
-                <div class="absolute inset-0 z-30 pointer-events-none overflow-hidden">
+                <div class="pointer-events-none inset-0 absolute z-30 overflow-hidden">
                   <Show when={filtersOpen()}>
                     <div class="h-full min-h-0 w-full pointer-events-auto overflow-hidden">
                       {renderFilterPanel('h-full')}
@@ -655,7 +655,7 @@ export function LeaderGridOverlay() {
         >
           <div class={cn(overlayEntranceClass(), 'pointer-events-auto relative z-30 h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]')}>
             <Show when={filtersOpen() || hasDetail()}>
-              <div class="grid absolute inset-x-0 top-0 z-30 grid-cols-2 gap-2 pointer-events-none overflow-hidden" style={{ height: '35%' }}>
+              <div class="gap-2 grid grid-cols-2 pointer-events-none inset-x-0 top-0 absolute z-30 overflow-hidden" style={{ height: '35%' }}>
                 <div class={cn('h-full min-h-0 overflow-hidden', filtersOpen() ? 'pointer-events-auto' : 'pointer-events-none')}>
                   <Show when={filtersOpen()}>
                     {renderFilterPanel('h-full')}
@@ -672,13 +672,13 @@ export function LeaderGridOverlay() {
               </div>
             </Show>
 
-            <div class="flex h-full flex-col gap-2">
-              <div class="grid grid-cols-2 gap-2 shrink-0" style={{ height: '35%' }}>
+            <div class="flex flex-col gap-2 h-full">
+              <div class="shrink-0 gap-2 grid grid-cols-2" style={{ height: '35%' }}>
                 <div />
                 <div />
               </div>
 
-              <div class="min-h-0 flex-1">
+              <div class="flex-1 min-h-0">
                 {renderGridPanel('h-full')}
               </div>
             </div>
