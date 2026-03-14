@@ -1,5 +1,5 @@
-export type { ArrangeTeamLobbySlotsInput, TeamArrangeStrategy } from './arrange.ts'
-export { arrangeTeamLobbySlots } from './arrange.ts'
+export type { ArrangeLobbySlotsInput, LobbyArrangeStrategy } from './arrange.ts'
+export { arrangeLobbySlots } from './arrange.ts'
 export { upsertLobbyMessage } from './message.ts'
 export { attachLobbyMatch, canTransitionLobbyStatus, createLobby, setLobbyDraftConfig, setLobbyMemberPlayerIds, setLobbyMessage, setLobbyMinRole, setLobbySlots, setLobbyStatus, setLobbySteamLobbyLink, touchLobby } from './mutations.ts'
 export { parseLobbyState } from './normalize.ts'

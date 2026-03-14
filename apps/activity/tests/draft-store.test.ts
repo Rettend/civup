@@ -2,9 +2,9 @@ import type { DraftState } from '@civup/game'
 import { createDraft, default2v2, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import {
-  getPreviewPickForSeat,
   currentStep,
   currentStepDuration,
+  getPreviewPickForSeat,
   hasSubmitted,
   initDraft,
   isMyTurn,

@@ -1,4 +1,5 @@
 import { matches, playerRatings, players, seasonPeakModeRanks, seasonPeakRanks } from '@civup/db'
+import { seasonReset } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { createDraftMatch } from '../../src/services/match/index.ts'
@@ -39,22 +40,47 @@ describe('season services', () => {
     sqlite.close()
   })
 
-  test('startSeason clears current ratings for the new season', async () => {
+  test('startSeason soft-resets current ratings for the new season', async () => {
     const { db, sqlite } = await createTestDatabase()
     await seedPlayerIdentity(db, PLAYER_ID)
+    await seedPlayerIdentity(db, HERO_ID)
     await seedRating(db, {
       playerId: PLAYER_ID,
       mode: 'duel',
       mu: 40,
       sigma: 6,
       gamesPlayed: 6,
+      wins: 4,
       lastPlayedAt: NOW - DAY_MS,
+    })
+    await seedRating(db, {
+      playerId: HERO_ID,
+      mode: 'ffa',
+      mu: 31,
+      sigma: 3,
+      gamesPlayed: 11,
+      wins: 7,
+      lastPlayedAt: NOW - 2 * DAY_MS,
     })
 
     await startSeason(db, { now: NOW })
 
     const ratings = await db.select().from(playerRatings)
-    expect(ratings).toHaveLength(0)
+    expect(ratings).toHaveLength(2)
+
+    const duelRating = ratings.find(row => row.playerId === PLAYER_ID && row.mode === 'duel')
+    expect(duelRating?.mu).toBe(40)
+    expect(duelRating?.sigma).toBeCloseTo(seasonReset(40, 6).sigma, 10)
+    expect(duelRating?.gamesPlayed).toBe(0)
+    expect(duelRating?.wins).toBe(0)
+    expect(duelRating?.lastPlayedAt).toBe(NOW - DAY_MS)
+
+    const ffaRating = ratings.find(row => row.playerId === HERO_ID && row.mode === 'ffa')
+    expect(ffaRating?.mu).toBe(31)
+    expect(ffaRating?.sigma).toBeCloseTo(seasonReset(31, 3).sigma, 10)
+    expect(ffaRating?.gamesPlayed).toBe(0)
+    expect(ffaRating?.wins).toBe(0)
+    expect(ffaRating?.lastPlayedAt).toBe(NOW - 2 * DAY_MS)
 
     sqlite.close()
   })
@@ -290,12 +316,18 @@ async function seedRating(
     mu: number
     sigma: number
     gamesPlayed: number
+    wins?: number
     lastPlayedAt: number
   },
 ): Promise<void> {
-  await db.insert(playerRatings).values(row).onConflictDoUpdate({
+  const values = {
+    ...row,
+    wins: row.wins ?? 0,
+  }
+
+  await db.insert(playerRatings).values(values).onConflictDoUpdate({
     target: [playerRatings.playerId, playerRatings.mode],
-    set: row,
+    set: values,
   })
 }
 

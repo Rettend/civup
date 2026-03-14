@@ -2,8 +2,8 @@ import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import { playerRatings, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
 import { competitiveTierRank } from '@civup/game'
-import { displayRating } from '@civup/rating'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { DEFAULT_SEASON_RESET_FACTOR, DEFAULT_SIGMA, displayRating } from '@civup/rating'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { clearAllLeaderboardModeSnapshots } from '../leaderboard/snapshot.ts'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 
@@ -92,7 +92,11 @@ export async function startSeason(db: Database, input: { now?: number, kv?: KVNa
   } as const
 
   await db.insert(seasons).values(season)
-  await db.delete(playerRatings)
+  await db.update(playerRatings).set({
+    sigma: sql<number>`${playerRatings.sigma} + (${DEFAULT_SIGMA} - ${playerRatings.sigma}) * ${DEFAULT_SEASON_RESET_FACTOR}`,
+    gamesPlayed: 0,
+    wins: 0,
+  })
   if (input.kv) await clearAllLeaderboardModeSnapshots(input.kv)
   return season
 }

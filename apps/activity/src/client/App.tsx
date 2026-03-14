@@ -11,14 +11,13 @@ import {
   disconnect,
   draftStore,
   fetchActivityLaunchSnapshot,
-  isMobileLayout,
   isMiniView,
+  isMobileLayout,
   resetDraft,
   selectActivityTarget,
   setAuthenticatedUser,
-  setIsMobileLayout,
   setIsMiniView,
-  userId,
+  setIsMobileLayout,
   watchLobbyState,
 } from './stores'
 
@@ -386,7 +385,7 @@ export default function App() {
           <Show
             when={isMiniView()}
             fallback={(
-              <main class="text-text-primary bg-bg-primary font-sans min-h-screen overflow-y-auto relative">
+              <main class="text-text-primary bg-bg-primary font-sans min-h-screen relative overflow-y-auto">
                 <Show when={lastResolvedSelection()}>
                   <button
                     type="button"
@@ -501,7 +500,7 @@ function DraftWithConnection(props: {
             onSwitchTarget={props.onSwitchTarget}
           />
           <Show when={connectionStatus() === 'reconnecting'}>
-            <div class="pointer-events-none fixed bottom-3 left-3 z-50 sm:bottom-4 sm:left-4">
+            <div class="pointer-events-none bottom-3 left-3 fixed z-50 sm:bottom-4 sm:left-4">
               <div class="text-xs text-fg px-3 py-1.5 border border-border rounded-full bg-bg-subtle/90 shadow-2xl shadow-black/30 backdrop-blur-sm">
                 Reconnecting...
               </div>

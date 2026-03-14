@@ -2,8 +2,8 @@ import type { Leader } from '@civup/game'
 import { Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import {
-  canManagePickQueue,
   banSelections,
+  canManagePickQueue,
   currentStep,
   draftStore,
   isMyTurn,
@@ -241,7 +241,7 @@ export function LeaderCard(props: LeaderCardProps) {
       </div>
 
       <Show when={isQueuedPick()}>
-        <span class="text-[10px] text-accent font-semibold px-1 py-0.5 rounded-full bg-bg-subtle min-w-4 right-1 top-1 absolute text-center z-10">
+        <span class="text-[10px] text-accent font-semibold px-1 py-0.5 text-center rounded-full bg-bg-subtle min-w-4 right-1 top-1 absolute z-10">
           {pickQueueIndex() + 1}
         </span>
       </Show>

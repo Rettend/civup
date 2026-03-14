@@ -1,7 +1,6 @@
 import type { PlayerRating } from '../src/index.ts'
 import { describe, expect, test } from 'bun:test'
 import {
-  applyInactivityDecay,
   buildLeaderboard,
   calculateFfaRatings,
   calculateRatings,
@@ -274,27 +273,6 @@ describe('buildLeaderboard', () => {
 
     expect(buildLeaderboard(players, 3)).toHaveLength(1)
     expect(buildLeaderboard(players, 5)).toHaveLength(0)
-  })
-})
-
-// ── applyInactivityDecay ──────────────────────────────────────
-
-describe('applyInactivityDecay', () => {
-  test('does nothing before grace period', () => {
-    const result = applyInactivityDecay(30, 2, 10, 14, 0.1)
-    expect(result.mu).toBe(30)
-    expect(result.sigma).toBe(2)
-  })
-
-  test('inflates sigma after grace period', () => {
-    const result = applyInactivityDecay(30, 2, 24, 14, 0.1) // 10 days over grace period
-    expect(result.mu).toBe(30)
-    expect(result.sigma).toBeCloseTo(3.0) // 2 + 1.0
-  })
-
-  test('caps inflated sigma at default', () => {
-    const result = applyInactivityDecay(30, 8, 100, 14, 0.1)
-    expect(result.sigma).toBeCloseTo(DEFAULT_SIGMA)
   })
 })
 

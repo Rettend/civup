@@ -2,6 +2,8 @@
 
 Draft bot for Civ VI that uses Discord Activities
 
+This is a deployment guide, check out the [Manual](MANUAL.md) to see how the bot works on a high level.
+
 ## Requirements
 
 - Bun
@@ -107,10 +109,10 @@ curl.exe "http://127.0.0.1:8787/cdn-cgi/handler/scheduled?cron=%2A%2F2+%2A+%2A+%
    - `apps/party/wrangler.jsonc`
 
    At minimum:
-    - set `BOT_HOST` to your deployed bot worker URL
-    - set `PARTY_HOST` to your deployed party worker URL
-    - set `VITE_ACTIVITY_HOST` to your deployed activity host without protocol
-    - replace account IDs, database IDs, KV IDs, and route/domain values that still point at a different account
+   - set `BOT_HOST` to your deployed bot worker URL
+   - set `PARTY_HOST` to your deployed party worker URL
+   - set `VITE_ACTIVITY_HOST` to your deployed activity host without protocol
+   - replace account IDs, database IDs, KV IDs, and route/domain values that still point at a different account
 
 4. Upload secrets:
 

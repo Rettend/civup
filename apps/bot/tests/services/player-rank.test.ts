@@ -208,6 +208,46 @@ describe('player rank views', () => {
 
     sqlite.close()
   })
+
+  test('shows seeded current-season ratings immediately in stats and rank', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
+    })
+
+    await seedPlayerIdentity(db, HERO_ID)
+    await seedSeason(db, { id: 'season-2', seasonNumber: 2, name: 'Season 2', startsAt: NOW - 1_000, endsAt: null, active: true })
+    await seedRating(db, { playerId: HERO_ID, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 0, lastPlayedAt: NOW - 10_000 })
+
+    const profile = await getPlayerRankProfile(db, kv, 'guild-1', HERO_ID, NOW)
+    const history = await listPlayerSeasonSnapshotHistory(db, kv, 'guild-1', HERO_ID)
+    const stats = (await playerCardEmbed(db, HERO_ID, 'all', { rankProfile: profile })).toJSON()
+    const rank = (await rankEmbed(db, HERO_ID, profile, {
+      activeSeason: { id: 'season-2', seasonNumber: 2, name: 'Season 2' },
+      seasonHistory: history,
+    })).toJSON()
+
+    expect(JSON.stringify(stats.fields)).toContain('Rating: Unranked (1270)')
+    expect(JSON.stringify(stats.fields)).toContain('Games: 0')
+    expect(JSON.stringify(stats.fields)).toContain('Wins: 0 (0%)')
+    expect(JSON.stringify(stats.fields)).not.toContain('Recent Matches')
+    expect(JSON.stringify(stats.fields)).not.toContain('Top Leaders')
+
+    expect(rank.fields?.[0]?.name).toBe('S2')
+    expect(JSON.stringify(rank.fields)).toContain('Duel')
+    expect(JSON.stringify(rank.fields)).toContain('Rating: Unranked (1270)')
+    expect(JSON.stringify(rank.fields)).toContain('Games: 0')
+    expect(JSON.stringify(rank.fields)).toContain('Wins: 0 (0%)')
+    expect(JSON.stringify(rank.fields)).not.toContain('No ranked games yet.')
+
+    sqlite.close()
+  })
 })
 
 async function seedPlayers(
