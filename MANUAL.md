@@ -1,20 +1,20 @@
 # Manual
 
-## What it does
+## What the bot does
 
-- live lobby embeds in a Draft text channel
+- live lobby embeds
 - the draft inside a Discord Activity
-- result reporting and scrubs
+- result reporting
 - elo rating calculation
 - ranked Discord roles
 - leaderboard embeds
 
 ### Terms
 
-- **Lobby**: an open queue before the draft starts
-- **Draft**: the Activity phase where bans and picks happen
-- **Match**: the game after the draft is completed
-- **Reported match**: a finished match with placements, rating changes, and history
+- **Lobby**: an open queue before the draft is started, this allows joining, leaving and changing configs
+- **Draft**: the phase where bans and picks happen in the Activity
+- **Match**: the game after the draft is completed, this one's result can be reported
+- **Reported match**: a finished match with placements and rating changes
 
 ### Match flow overview
 
@@ -23,6 +23,7 @@
 
     - directly, by clicking on the embed's Join button, or
     - using `/match join`, which does a little matchmaking and finds the best lobby
+    - of if they are inside the Activity, they can join through the Lobby Overview page
 
 3. Optional: the **host can change configs** in the Activity, including the **Steam lobby link**
 4. the host **starts the draft**
@@ -38,9 +39,9 @@ See more: [Match Flow](#match-flow)
 
 Run these in the channels you want the bot to use:
 
-- `/admin setup target:Draft` - required; this is where lobby embeds live
+- `/admin setup target:Draft` - required; this is where lobby embeds are posted
 - `/admin setup target:Archive` - optional; the bot posts match results here
-- `/admin setup target:Leaderboard` - optional; the bot sends an updating leaderboard
+- `/admin setup target:Leaderboard` - optional; the bot sends an updating leaderboard embed
 
 > [!IMPORTANT]
 >
@@ -49,13 +50,13 @@ Run these in the channels you want the bot to use:
 
 ### 2. Configure ranked roles
 
-Use `/admin ranked set` to map your Discord roles to tiers:
+Use `/admin ranked set` to map Discord roles to tiers:
 
 - `tier1` is the highest role
-- the last configured tier is the base role that players get after playing 3 games, otherwise they are Unranked
+- the last configured tier is the base role that players get after playing 3 games, before that they are Unranked
 - bot supports 3 to 10 tiers
 
-Useful commands:
+Commands:
 
 - `/admin ranked roles` - show current mappings
 - `/admin ranked set role1:@Role ...` - set mappings
@@ -64,13 +65,13 @@ Useful commands:
 ### 3. Mod command access
 
 > [!TIP]
-> Use `/help` to see all commands that you can use
+> Use `/help` to see all the commands that you can use
 
 There are 3 levels of access:
 
 - **General**: commands that everyone can use
-- **Mod**: can also use `/mod` commands
-- **Admin**: can also use `/admin` commands
+- **Mod**: can also use `/mod` commands, requires to have a configured Mod role
+- **Admin**: can also use `/admin` commands, requires Admin permissions in the discord server
 
 > [!NOTE]
 >
@@ -88,7 +89,7 @@ Use `/admin config` to inspect and change the global default configs.
 | --- | --- | --- |
 | `ban_timer` | time in seconds for the ban phase | `180` |
 | `pick_timer` | time in seconds for a single player to pick a leader | `180` |
-| `queue_timeout` | time in minutes before a queue is closed due to inactivity | `30` |
+| `queue_timeout` | time in minutes before a lobby is marked as inactive | `30` |
 
 > [!NOTE]
 >
@@ -96,25 +97,22 @@ Use `/admin config` to inspect and change the global default configs.
 > - hosts can override timers and leader pool size for their lobby before the draft starts
 > - leaving a timer blank means "use the server default"
 > - setting a timer to `0` means unlimited
-> - if the last join was more than `queue_timeout` minutes ago a lobby is simply marked as inactive, but inactive lobbies are only cleaned up hourly
+> - if the last join was more than `queue_timeout` minutes ago a lobby is simply marked as inactive, but inactive lobbies are only cleaned up hourly, see [Sync](#sync) below
 
-### 5. Start a season when ranked play should count
+### 5. Start a season when ranked games should count
 
 The bot can be used without an active season, but games will not be saved to a season in that case.
 
-This matters because season start is a hard reset of:
+This matters because season start will:
 
-- current ratings
-- current ranked roles
-- current leaderboard embeds
+- soft-reset current ratings
+- clear current ranked roles
+- rotate leaderboard embeds
 
-Use `/admin season start` to start a season, the name format is "Season {i}" and "S{i}" where i=1..n
-Use `/admin season end` when the season is over
+Commands:
 
-Both actions:
-
-- require confirmation
-- are not recoverable
+- `/admin season start` to start a season, the name is automatically created in this format: `Season {i}` and `S{i}` where `i=1..n`
+- `/admin season end` when the season is over
 
 ## Match Flow
 
@@ -122,9 +120,9 @@ Both actions:
 
 > [!TIP]
 >
-> The only command players have to use is `/match create` (host only), it's easier to click on the lobby embed's Join button, or simply join the activity and then browse the Lobby Overview page.
+> The only command players have to use is `/match create` (host only), then others just click on the lobby embed's Join button, or simply join the activity and then browse the Lobby Overview page.
 
-The `/match` command group manages the lobby.
+The `/match` command group manages the lobby:
 
 - `/match create mode:... [steam_link]` creates an open lobby and auto-joins as host
 - `/match join mode:... [teammates]` joins the best open lobby for that mode, specifying teammates will treat them as premades
@@ -153,7 +151,7 @@ The host can:
 - change game mode anytime before the draft has started
 - place and remove players from slots
 - link or unlink premades in team modes
-- randomize or auto-balance teams
+- randomize or auto-balance teams // TODO explain shuffle and auto-balance per game mode
 - set Matchmaking Min Rank (only affects `/match join`, any player can directly join any lobby)
 - set the leader pool size
 - set ban and pick timers
@@ -167,10 +165,11 @@ Players can:
 - link themselves as premades to others
 - see the current config and draft state
 
-Team arrange notes:
+#### Spectators
 
-- randomize keeps premades legal and shuffles the valid team layout
-- auto-balance preserves premades and uses current ratings to choose the split closest to a 50/50 prediction
+Users who join the Activity but don't take a lobby seat are Spectators, they can see the draft happening but can't interact with it.
+
+It's possible to spectate another lobby while being a player in a different lobby.
 
 ### Steam lobby links
 
@@ -185,7 +184,7 @@ Using commands:
 - for a new lobby: `/match create` `steam_link` parameter
 - existing lobby: `/match steam set` and `/match steam clear`
 
-When the Steam lobby link is set, other players see a gold Steam button top left, clicking that will open Civ and join the lobby.
+When the Steam lobby link is set, other players see a gold Steam button top left, clicking that will open Civ and join the Civ lobby.
 
 ## Draft Rules
 
@@ -210,12 +209,12 @@ When the Steam lobby link is set, other players see a gold Steam button top left
 
 #### Leader grid
 
-- **The leader grid** can be opened by a small up arrow button at the bottom center
+- **The leader grid** can be opened by a small up arrow button in the bottom center
 - **Search** by leader and civ name
-- **Tag filters**, see [Tag filters](#tag-filters) below
-- `left click` on a leader selects them, shows the leader details, and an during pick phase it shows the leader to teammates
+- **Filters by tags**, see [Tag filters](#tag-filters) below
+- `left click` on a leader selects them, shows the leader details, and during pick phase it shows the leader to teammates
 - `right click` only opens the leader details panel
-- `shift + left click` or holding `left click` selects additional leaders: when the timer runs out without confirming a pick it will pick the selected leader, if that was picked, it will select the next valid selected additional leader
+- `shift + left click` or holding `left click` selects **additional leaders**: when the timer runs out without confirming a pick it will pick the selected leader, if that was picked by someone else, it will choose the next valid selected additional leader
 - **Random** will chose a random leader when confirmed (no way to know beforehand)
 
 ### Leader pool size
@@ -245,7 +244,7 @@ Tag categories:
 Filter logic:
 
 - AND between categories, example: `Role = backline` and `Win Path = science` means backline science leaders
-- OR within a category, example: `Other = cavalry` and `Other = naval` means cavalry OR naval
+- OR within a category, example: `Other = cavalry` and `Other = naval` means cavalry or naval leaders
 
 ## Result Reporting
 
@@ -336,7 +335,7 @@ Seasons are basically groups for reported games, ratings, and ranked roles.
 
 Ending a season will rotate the Leaderboard embeds, and give past season roles to everyone prefixed with the season number, for example `@Role1` becomes `@S1 Role1`.
 
-Ending a season currently does a hard reset of all ratings.
+Starting the next season soft-resets ratings instead of wiping them, so returning players keep their skill estimate but their uncertainty is increased. They also must play 3 games again before they reappear on leaderboards and re-earn roles.
 
 ## Correction tools for Mods
 
