@@ -250,14 +250,18 @@ export class State extends Server<StateStoreEnv> {
         })
 
         const currentValue = await this.getValue(payload.key)
-        if (typeof currentValue === 'string') {
-          this.sendSocketMessage(connection, {
-            type: 'state-changed',
-            key: payload.key,
-            op: 'put',
-            value: currentValue,
-          })
-        }
+        this.sendSocketMessage(connection, typeof currentValue === 'string'
+          ? {
+              type: 'state-changed',
+              key: payload.key,
+              op: 'put',
+              value: currentValue,
+            }
+          : {
+              type: 'state-changed',
+              key: payload.key,
+              op: 'delete',
+            })
         return
       }
 

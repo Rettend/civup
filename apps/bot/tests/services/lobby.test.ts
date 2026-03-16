@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { activityOverviewKey } from '../../src/services/activity/live-state.ts'
 import { createLobby, getLobbyByChannel, getLobbyById, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus } from '../../src/services/lobby/index.ts'
 import { lobbySnapshotKey } from '../../src/services/lobby/live-snapshot.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
@@ -206,5 +207,31 @@ describe('lobby service KV write behavior', () => {
     await setLobbyStatus(kv, lobby.id, 'drafting')
 
     expect(await kv.get(lobbySnapshotKey(lobby.id), 'json')).toBeNull()
+  })
+
+  test('publishes and clears activity overview snapshots for the channel', async () => {
+    const { kv } = createTrackedKv()
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    const overview = await kv.get(activityOverviewKey('channel-1'), 'json') as {
+      options?: Array<{ kind?: unknown, id?: unknown, hostId?: unknown }>
+    } | null
+    expect(overview?.options).toEqual([
+      expect.objectContaining({
+        kind: 'lobby',
+        id: lobby.id,
+        hostId: 'host-1',
+      }),
+    ])
+
+    await setLobbyStatus(kv, lobby.id, 'cancelled')
+
+    expect(await kv.get(activityOverviewKey('channel-1'), 'json')).toBeNull()
   })
 })

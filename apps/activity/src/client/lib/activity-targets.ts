@@ -1,0 +1,30 @@
+import type { ActivityTargetOption } from '~/client/stores'
+
+export type ActivityTargetDescriptor = Pick<ActivityTargetOption, 'kind' | 'id'> | null | undefined
+
+/** Returns true when a previously resolved target was explicitly cleared. */
+export function didClearResolvedActivityTarget(
+  previous: ActivityTargetDescriptor,
+  next: ActivityTargetDescriptor,
+): boolean {
+  return previous != null && next == null
+}
+
+/** Chooses a default target only when it is still safe to auto-select one. */
+export function resolveAutoSelectedActivityTarget(input: {
+  options: readonly ActivityTargetOption[]
+  target: ActivityTargetDescriptor
+  overviewPinned: boolean
+  suppressAutoSelection: boolean
+}): ActivityTargetOption | null {
+  const hasResolvedTarget = input.target != null
+    && input.options.some(option => option.kind === input.target?.kind && option.id === input.target?.id)
+
+  if (hasResolvedTarget || input.overviewPinned || input.suppressAutoSelection) return null
+
+  return input.options.find(option => (option.isHost || option.isMember) && option.kind === 'match')
+    ?? input.options.find(option => option.isHost || option.isMember)
+    ?? input.options.find(option => option.kind === 'match')
+    ?? input.options.find(option => option.kind === 'lobby')
+    ?? null
+}

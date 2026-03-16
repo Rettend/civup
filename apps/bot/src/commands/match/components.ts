@@ -46,7 +46,11 @@ export const component_match_join = factory.component(
       if (userMatchId) {
         const interactionChannelId = c.interaction.channel_id ?? null
         if (interactionChannelId) {
-          await storeUserActivityTarget(kv, interactionChannelId, [identity.userId], { kind: 'match', id: userMatchId })
+          await storeUserActivityTarget(kv, interactionChannelId, [identity.userId], {
+            kind: 'match',
+            id: userMatchId,
+            activitySecret: c.env.CIVUP_SECRET,
+          })
         }
         c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], userMatchId))
         return c.resActivity()
@@ -63,7 +67,14 @@ export const component_match_join = factory.component(
           await sendTransientEphemeralResponse(c, 'This lobby was stale and has been cleared. Use `/match create` to start a fresh lobby.', 'error')
         })
       }
-      await storeUserActivityTarget(kv, lobby.channelId, [identity.userId], { kind: 'match', id: lobby.matchId })
+      await storeUserActivityTarget(kv, lobby.channelId, [identity.userId], {
+        kind: 'match',
+        id: lobby.matchId,
+        lobbyId: lobby.id,
+        mode: lobby.mode,
+        steamLobbyLink: lobby.steamLobbyLink,
+        activitySecret: c.env.CIVUP_SECRET,
+      })
       c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], lobby.matchId))
       return c.resActivity()
     }

@@ -272,16 +272,13 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const slots = normalizeLobbySlots(mode, updated.slots, nextLobbyQueueEntries)
     const slottedEntries = mapLobbySlotsToEntries(slots, nextLobbyQueueEntries)
 
-    try {
+    queueBackgroundTask(c, async () => {
       const renderPayload = await buildOpenLobbyRenderPayload(kv, updated, slottedEntries)
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, updated, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
       })
-    }
-    catch (error) {
-      console.error(`Failed to update lobby embed after config change in ${mode}:`, error)
-    }
+    }, `Failed to update lobby embed after config change in ${mode}:`)
 
     return c.json(await buildOpenLobbySnapshot(kv, mode, updated))
   })
@@ -381,16 +378,13 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     await storeUserLobbyMappings(kv, finalizedLobby.memberPlayerIds, finalizedLobby.id)
     const slottedEntries = mapLobbySlotsToEntries(normalizedNextSlots, movedLobbyQueueEntries)
 
-    try {
+    queueBackgroundTask(c, async () => {
       const renderPayload = await buildOpenLobbyRenderPayload(kv, finalizedLobby, slottedEntries)
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, finalizedLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
       })
-    }
-    catch (error) {
-      console.error(`Failed to update lobby embed after mode change ${mode} -> ${nextMode}:`, error)
-    }
+    }, `Failed to update lobby embed after mode change ${mode} -> ${nextMode}:`)
 
     return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(
       kv,
@@ -552,16 +546,13 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
 
     const slottedEntries = mapLobbySlotsToEntries(slots, lobbyQueueEntries)
-    try {
+    queueBackgroundTask(c, async () => {
       const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
       })
-    }
-    catch (error) {
-      console.error(`Failed to update lobby embed after slot placement in ${mode}:`, error)
-    }
+    }, `Failed to update lobby embed after slot placement in ${mode}:`)
 
     return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, lobbyQueueEntries, slots))
   })
@@ -645,16 +636,13 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     await clearUserLobbyMappings(kv, [targetPlayerId])
 
-    try {
+    queueBackgroundTask(c, async () => {
       const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
       })
-    }
-    catch (error) {
-      console.error(`Failed to update lobby embed after slot removal in ${mode}:`, error)
-    }
+    }, `Failed to update lobby embed after slot removal in ${mode}:`)
 
     return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextLobbyQueueEntries, slots))
   })
@@ -827,16 +815,13 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const nextLobby = updatedLobby ?? { ...lobby, slots: arranged.slots, updatedAt: Date.now() }
     const slottedEntries = mapLobbySlotsToEntries(arranged.slots, lobbyQueueEntries)
 
-    try {
+    queueBackgroundTask(c, async () => {
       const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
       })
-    }
-    catch (error) {
-      console.error(`Failed to update lobby embed after ${strategyRaw} arrange in ${mode}:`, error)
-    }
+    }, `Failed to update lobby embed after ${strategyRaw} arrange in ${mode}:`)
 
     return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, lobbyQueueEntries, arranged.slots))
   })
@@ -921,16 +906,13 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     nextLobby = updatedLobby ?? { ...nextLobby, slots, updatedAt: Date.now() }
     const slottedEntries = mapLobbySlotsToEntries(slots, buildLobbyQueueEntries(nextLobby, nextEntries))
 
-    try {
+    queueBackgroundTask(c, async () => {
       const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
       })
-    }
-    catch (error) {
-      console.error(`Failed to update lobby embed after test fill in ${mode}:`, error)
-    }
+    }, `Failed to update lobby embed after test fill in ${mode}:`)
 
     const snapshot = await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, buildLobbyQueueEntries(nextLobby, nextEntries), slots)
     return c.json({ ...snapshot, addedCount })
@@ -1075,18 +1057,22 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       await clearLobbyMappings(kv, lobbyForMessage.memberPlayerIds, lobbyForMessage.channelId)
       await storeMatchMapping(kv, lobbyForMessage.channelId, matchId)
       await storeUserMatchMappings(kv, lobbyForMessage.memberPlayerIds, matchId)
-      await storeUserActivityTarget(kv, lobbyForMessage.channelId, lobbyForMessage.memberPlayerIds, { kind: 'match', id: matchId })
+      await storeUserActivityTarget(kv, lobbyForMessage.channelId, lobbyForMessage.memberPlayerIds, {
+        kind: 'match',
+        id: matchId,
+        lobbyId: lobbyForMessage.id,
+        mode: lobbyForMessage.mode,
+        steamLobbyLink: lobbyForMessage.steamLobbyLink,
+        activitySecret: internalSecret,
+      })
 
-      try {
+      queueBackgroundTask(c, async () => {
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobbyForMessage, {
           embeds: [lobbyDraftingEmbed(mode, seats)],
           components: lobbyComponents(mode, lobbyForMessage.id),
         })
         await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
-      }
-      catch (error) {
-        console.error(`Failed to update drafting lobby embed for mode ${mode}:`, error)
-      }
+      }, `Failed to update drafting lobby embed for mode ${mode}:`)
 
       return c.json({
         ok: true,
@@ -1154,7 +1140,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       })
     }
 
-    try {
+    queueBackgroundTask(c, async () => {
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
         embeds: [{
           title: `LOBBY CANCELLED  -  ${formatModeLabel(mode)}`,
@@ -1163,10 +1149,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         }],
         components: [],
       })
-    }
-    catch (error) {
-      console.error(`Failed to update cancelled lobby embed for mode ${mode}:`, error)
-    }
+    }, `Failed to update cancelled lobby embed for mode ${mode}:`)
 
     await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
     await clearLobbyById(kv, lobby.id)
@@ -1231,4 +1214,22 @@ function buildDebugFillPlayerId(prefix: string, mode: GameMode, slot: number, ex
 
 function isDebugLobbyFillEnabled(requestUrl: string, botHost: string | undefined): boolean {
   return isDev({ host: requestUrl, configuredHosts: [botHost] })
+}
+
+function queueBackgroundTask(context: { executionCtx: ExecutionContext }, run: () => Promise<void>, errorMessage: string): void {
+  const task = (async () => {
+    try {
+      await run()
+    }
+    catch (error) {
+      console.error(errorMessage, error)
+    }
+  })()
+
+  try {
+    context.executionCtx.waitUntil(task)
+  }
+  catch {
+    void task
+  }
 }
