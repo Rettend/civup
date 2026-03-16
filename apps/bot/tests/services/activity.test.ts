@@ -1,3 +1,4 @@
+import { verifyDraftRoomAccessToken } from '@civup/utils'
 import { describe, expect, test } from 'bun:test'
 import {
   clearActivityMappings,
@@ -36,6 +37,41 @@ describe('activity mapping behavior', () => {
       pendingJoin: true,
       selectedAt: expect.any(Number),
     })
+  })
+
+  test('match activity targets store room access tokens and match context', async () => {
+    const { kv } = createTrackedKv()
+
+    await storeUserActivityTarget(kv, 'channel-1', ['user-1'], {
+      kind: 'match',
+      id: 'match-1',
+      lobbyId: 'lobby-1',
+      mode: '2v2',
+      steamLobbyLink: 'steam://joinlobby/289070/12345678901234567/76561198000000000',
+      activitySecret: 'secret',
+    })
+
+    const stored = await kv.get('activity-target-user:user-1:channel-1', 'json') as {
+      kind?: unknown
+      id?: unknown
+      roomAccessToken?: unknown
+      lobbyId?: unknown
+      mode?: unknown
+      steamLobbyLink?: unknown
+    } | null
+
+    expect(stored).toEqual(expect.objectContaining({
+      kind: 'match',
+      id: 'match-1',
+      lobbyId: 'lobby-1',
+      mode: '2v2',
+      steamLobbyLink: 'steam://joinlobby/289070/12345678901234567/76561198000000000',
+      roomAccessToken: expect.any(String),
+    }))
+    await expect(verifyDraftRoomAccessToken('secret', stored?.roomAccessToken as string, {
+      roomId: 'match-1',
+      userId: 'user-1',
+    })).resolves.not.toBeNull()
   })
 
   test('getMatchForUser resolves active mapping', async () => {

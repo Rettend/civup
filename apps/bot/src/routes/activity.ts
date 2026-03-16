@@ -230,12 +230,21 @@ export function registerActivityRoutes(app: Hono<Env>) {
     const context = await loadActivityLaunchContext(kv, channelId, actualUserId)
     const target = context.targets.find(candidate => candidate.option.kind === kind && candidate.option.id === id)
     if (!target) {
-      const selection = await resolveActivityLaunchSelection(kv, channelId, actualUserId, context.targets)
-      return c.json(await buildActivityLaunchSnapshotFromTargets(c.env.DISCORD_TOKEN, c.env.CIVUP_SECRET, kv, actualUserId, context, selection))
+      await clearUserActivityTargets(kv, channelId, [actualUserId])
+      return c.json({ error: 'That target is no longer available.' }, 409)
     }
 
-    await storeUserActivityTarget(kv, channelId, [actualUserId], { kind, id })
-    return c.json(await buildActivityLaunchSnapshotFromTargets(c.env.DISCORD_TOKEN, c.env.CIVUP_SECRET, kv, actualUserId, context, { target, pendingJoin: false }))
+    await storeUserActivityTarget(kv, channelId, [actualUserId], kind === 'match'
+      ? {
+          kind: 'match',
+          id,
+          lobbyId: target.lobby.id,
+          mode: target.option.mode,
+          steamLobbyLink: target.lobby.steamLobbyLink,
+          activitySecret: c.env.CIVUP_SECRET,
+        }
+      : { kind: 'lobby', id })
+    return c.json({ ok: true })
   })
 }
 

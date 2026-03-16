@@ -1,6 +1,8 @@
 export {
   type ActivityLaunchSelection,
   type ActivityLaunchSnapshot,
+  type ActivityOverviewOptionSnapshot,
+  type ActivityOverviewSnapshot,
   type ActivityTargetOption,
   arrangeLobbySlots,
   cancelLobby,
