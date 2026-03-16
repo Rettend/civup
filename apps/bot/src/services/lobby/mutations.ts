@@ -1,9 +1,12 @@
 import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { LobbyDraftConfig, LobbyState, LobbyStatus } from './types.ts'
 import { nanoid } from 'nanoid'
+import { getQueueState } from '../queue/index.ts'
 import { stateStoreMdelete } from '../state/store.ts'
 import { channelIndexKey } from './keys.ts'
+import { filterLobbySnapshotQueueEntries, storeLobbyLiveSnapshot } from './live-snapshot.ts'
 import { createEmptySlots, DEFAULT_DRAFT_CONFIG, normalizeCompetitiveTier, normalizeDraftConfig, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from './normalize.ts'
+import { normalizeLobbySlots } from './slots.ts'
 import { getLobbyById, putLobby } from './store.ts'
 
 const LOBBY_STATUS_TRANSITIONS: Record<LobbyStatus, LobbyStatus[]> = {
@@ -55,6 +58,7 @@ export async function createLobby(
     revision: 1,
   }
   await putLobby(kv, lobby)
+  await syncLobbyLiveSnapshot(kv, lobby)
   return lobby
 }
 
@@ -88,6 +92,7 @@ export async function attachLobbyMatch(
     revision: lobby.revision + 1,
   }
   await putLobby(kv, updated)
+  await syncLobbyLiveSnapshot(kv, updated)
   return updated
 }
 
@@ -120,6 +125,7 @@ export async function setLobbyStatus(
     revision: lobby.revision + 1,
   }
   await putLobby(kv, updated)
+  await syncLobbyLiveSnapshot(kv, updated)
   return updated
 }
 
@@ -145,6 +151,7 @@ export async function setLobbyMessage(
     await stateStoreMdelete(kv, [channelIndexKey(lobby.channelId, lobby.id)])
   }
   await putLobby(kv, updated)
+  await syncLobbyLiveSnapshot(kv, updated)
   return updated
 }
 
@@ -167,6 +174,7 @@ export async function setLobbyDraftConfig(
     revision: lobby.revision + 1,
   }
   await putLobby(kv, updated)
+  await syncLobbyLiveSnapshot(kv, updated)
   return updated
 }
 
@@ -189,6 +197,7 @@ export async function setLobbyMinRole(
     revision: lobby.revision + 1,
   }
   await putLobby(kv, updated)
+  await syncLobbyLiveSnapshot(kv, updated)
   return updated
 }
 
@@ -211,6 +220,7 @@ export async function setLobbyMaxRole(
     revision: lobby.revision + 1,
   }
   await putLobby(kv, updated)
+  await syncLobbyLiveSnapshot(kv, updated)
   return updated
 }
 
@@ -232,6 +242,7 @@ export async function setLobbySteamLobbyLink(
     revision: lobby.revision + 1,
   }
   await putLobby(kv, updated)
+  await syncLobbyLiveSnapshot(kv, updated)
   return updated
 }
 
@@ -254,6 +265,7 @@ export async function setLobbySlots(
     revision: lobby.revision + 1,
   }
   await putLobby(kv, updated)
+  await syncLobbyLiveSnapshot(kv, updated)
   return updated
 }
 
@@ -276,6 +288,7 @@ export async function setLobbyMemberPlayerIds(
     revision: lobby.revision + 1,
   }
   await putLobby(kv, updated)
+  await syncLobbyLiveSnapshot(kv, updated)
   return updated
 }
 
@@ -293,5 +306,13 @@ export async function touchLobby(
     revision: lobby.revision + 1,
   }
   await putLobby(kv, updated)
+  await syncLobbyLiveSnapshot(kv, updated)
   return updated
+}
+
+async function syncLobbyLiveSnapshot(kv: KVNamespace, lobby: LobbyState): Promise<void> {
+  const queue = await getQueueState(kv, lobby.mode)
+  const queueEntries = filterLobbySnapshotQueueEntries(lobby, queue.entries)
+  const slots = normalizeLobbySlots(lobby.mode, lobby.slots, queueEntries)
+  await storeLobbyLiveSnapshot(kv, lobby.mode, lobby, queueEntries, slots)
 }

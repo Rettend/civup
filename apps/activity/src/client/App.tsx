@@ -1,5 +1,5 @@
 import type { ActivityLaunchSelection, ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot, LobbyStateWatch, PartySocketTarget } from './stores'
-import { createSignal, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
+import { createEffect, createSignal, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
 import { activityTargetOptionKey, ActivityTargetPicker, ConfigScreen, DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
 import { cn } from './lib/css'
@@ -40,6 +40,7 @@ const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
   || (typeof window !== 'undefined' ? window.location.host : 'localhost:5173')
 const PARTY_SOCKET_TARGET = resolvePartySocketTarget()
 const ACTIVITY_SAFETY_POLL_MS = 90_000
+const LOBBY_MODE_STATE_PREFIX = 'lobby:mode:'
 const MINI_VIEW_MAX_WIDTH = 430
 const MINI_VIEW_MAX_HEIGHT = 260
 const MINI_VIEW_MIN_ASPECT_RATIO = 1.5
@@ -57,11 +58,15 @@ export default function App() {
   let activityRefreshPending = false
   let activeChannelId: string | null = null
   let activeUserId: string | null = null
+  let subscribedLobbySnapshotKey: string | null = null
+  let overviewPrefixSubscribed = false
 
   const stopActivityWatch = () => {
     if (!activityWatch) return
     activityWatch.close()
     activityWatch = null
+    subscribedLobbySnapshotKey = null
+    overviewPrefixSubscribed = false
   }
 
   const stopActivitySafetyPoll = () => {
@@ -144,6 +149,126 @@ export default function App() {
     if (!channelId || !currentUserId) return
     void refreshActivityState(channelId, currentUserId)
   }
+
+  const syncActivityWatchSubscriptions = () => {
+    if (!activityWatch || !activeChannelId || !activeUserId) return
+
+    const current = state()
+    activityWatch.subscribeKey(activityTargetStateKey(activeUserId, activeChannelId))
+
+    const shouldSubscribeOverviewPrefix = current.status === 'overview'
+      || current.status === 'loading'
+      || current.status === 'error'
+
+    if (shouldSubscribeOverviewPrefix && !overviewPrefixSubscribed) {
+      activityWatch.subscribePrefix(LOBBY_MODE_STATE_PREFIX)
+      overviewPrefixSubscribed = true
+    }
+    else if (!shouldSubscribeOverviewPrefix && overviewPrefixSubscribed) {
+      activityWatch.unsubscribePrefix(LOBBY_MODE_STATE_PREFIX)
+      overviewPrefixSubscribed = false
+    }
+
+    const nextLobbySnapshotKey = current.status === 'lobby-waiting'
+      ? lobbySnapshotStateKey(current.lobby.id)
+      : null
+
+    if (subscribedLobbySnapshotKey && subscribedLobbySnapshotKey !== nextLobbySnapshotKey) {
+      activityWatch.unsubscribeKey(subscribedLobbySnapshotKey)
+    }
+
+    if (nextLobbySnapshotKey && subscribedLobbySnapshotKey !== nextLobbySnapshotKey) {
+      activityWatch.subscribeKey(nextLobbySnapshotKey)
+    }
+
+    subscribedLobbySnapshotKey = nextLobbySnapshotKey
+  }
+
+  const applyLiveLobbySnapshot = (lobby: LobbySnapshot) => {
+    setState((previous) => {
+      if (previous.status !== 'lobby-waiting') return previous
+      if (previous.lobby.id !== lobby.id) return previous
+      if (lobby.revision < previous.lobby.revision) return previous
+
+      const currentUserId = activeUserId
+      const isCurrentUserInLobby = currentUserId != null
+        && lobby.entries.some(entry => entry?.playerId === currentUserId)
+      const nextJoinEligibility = resolveLiveJoinEligibility(previous.joinEligibility, lobby, currentUserId)
+      const nextJoinPending = isCurrentUserInLobby ? false : previous.joinPending
+
+      if (
+        isSameLobbySnapshot(previous.lobby, lobby)
+        && previous.joinPending === nextJoinPending
+        && previous.joinEligibility.canJoin === nextJoinEligibility.canJoin
+        && previous.joinEligibility.blockedReason === nextJoinEligibility.blockedReason
+        && previous.joinEligibility.pendingSlot === nextJoinEligibility.pendingSlot
+      ) {
+        return previous
+      }
+
+      return {
+        status: 'lobby-waiting',
+        lobby,
+        joinPending: nextJoinPending,
+        joinEligibility: nextJoinEligibility,
+      }
+    })
+  }
+
+  const handleActivityStateChange = (channelId: string, currentUserId: string, key: string, value?: string) => {
+    const targetKey = activityTargetStateKey(currentUserId, channelId)
+    if (key === targetKey) {
+      const selection = parseActivityTargetState(value)
+      const current = state()
+
+      if (selection) {
+        if (current.status === 'lobby-waiting' && selection.kind === 'lobby' && selection.id === current.lobby.id) {
+          if (current.joinPending !== selection.pendingJoin) {
+            setState({
+              status: 'lobby-waiting',
+              lobby: current.lobby,
+              joinPending: selection.pendingJoin,
+              joinEligibility: current.joinEligibility,
+            })
+          }
+          return
+        }
+
+        if (current.status === 'authenticated' && selection.kind === 'match' && selection.id === current.matchId) {
+          return
+        }
+
+        const nextSelectionKey = activityTargetOptionKey({ kind: selection.kind, id: selection.id })
+        if (currentTargetKey() === nextSelectionKey) {
+          return
+        }
+      }
+
+      void refreshActivityState(channelId, currentUserId)
+      return
+    }
+
+    const current = state()
+    if (current.status === 'lobby-waiting' && key === lobbySnapshotStateKey(current.lobby.id)) {
+      const snapshot = parseLobbySnapshotValue(value)
+      if (!snapshot) {
+        void refreshActivityState(channelId, currentUserId)
+        return
+      }
+
+      applyLiveLobbySnapshot(snapshot)
+      return
+    }
+
+    if (key.startsWith(LOBBY_MODE_STATE_PREFIX)) {
+      void refreshActivityState(channelId, currentUserId)
+    }
+  }
+
+  createEffect(() => {
+    state()
+    syncActivityWatchSubscriptions()
+  })
 
   const transitionToDraft = (
     matchId: string,
@@ -288,9 +413,11 @@ export default function App() {
       userId: currentUserId,
       onConnected: () => {
         stopActivitySafetyPoll()
+        syncActivityWatchSubscriptions()
       },
-      onInvalidation: () => {
-        void refreshActivityState(channelId, currentUserId)
+      onStateChanged: ({ key, op, value }) => {
+        if (op !== 'put' && op !== 'delete') return
+        handleActivityStateChange(channelId, currentUserId, key, value)
       },
       onDisconnected: () => {
         startActivitySafetyPoll(channelId, currentUserId)
@@ -299,6 +426,8 @@ export default function App() {
         startActivitySafetyPoll(channelId, currentUserId)
       },
     })
+
+    syncActivityWatchSubscriptions()
   }
 
   const handleTargetSelection = async (option: ActivityTargetOption) => {
@@ -457,6 +586,108 @@ function resolvePartySocketTarget(): PartySocketTarget {
     host: typeof window !== 'undefined' ? window.location.host : ACTIVITY_HOST,
     prefix: 'api/parties',
     label: 'activity-origin',
+  }
+}
+
+function activityTargetStateKey(userId: string, channelId: string): string {
+  return `activity-target-user:${userId}:${channelId}`
+}
+
+function lobbySnapshotStateKey(lobbyId: string): string {
+  return `lobby:snapshot:${lobbyId}`
+}
+
+function parseActivityTargetState(value: string | undefined): {
+  kind: 'lobby' | 'match'
+  id: string
+  pendingJoin: boolean
+} | null {
+  if (!value) return null
+
+  try {
+    const parsed = JSON.parse(value) as {
+      kind?: unknown
+      id?: unknown
+      pendingJoin?: unknown
+    }
+
+    if ((parsed.kind !== 'lobby' && parsed.kind !== 'match') || typeof parsed.id !== 'string' || parsed.id.length === 0) {
+      return null
+    }
+
+    return {
+      kind: parsed.kind,
+      id: parsed.id,
+      pendingJoin: parsed.pendingJoin === true,
+    }
+  }
+  catch {
+    return null
+  }
+}
+
+function parseLobbySnapshotValue(value: string | undefined): LobbySnapshot | null {
+  if (!value) return null
+
+  try {
+    const parsed = JSON.parse(value) as Partial<LobbySnapshot>
+    if (typeof parsed.id !== 'string' || typeof parsed.revision !== 'number' || !Array.isArray(parsed.entries)) {
+      return null
+    }
+    return parsed as LobbySnapshot
+  }
+  catch {
+    return null
+  }
+}
+
+function resolveLiveJoinEligibility(
+  current: LobbyJoinEligibilitySnapshot,
+  lobby: LobbySnapshot,
+  currentUserId: string | null,
+): LobbyJoinEligibilitySnapshot {
+  if (currentUserId && lobby.entries.some(entry => entry?.playerId === currentUserId)) {
+    return {
+      canJoin: true,
+      blockedReason: null,
+      pendingSlot: null,
+    }
+  }
+
+  if (lobby.status !== 'open') {
+    return {
+      canJoin: false,
+      blockedReason: 'This lobby is no longer open.',
+      pendingSlot: null,
+    }
+  }
+
+  const pendingSlot = lobby.entries.findIndex(entry => entry == null)
+  if (pendingSlot < 0) {
+    return {
+      canJoin: false,
+      blockedReason: 'This lobby is full.',
+      pendingSlot: null,
+    }
+  }
+
+  if (
+    current.canJoin === false
+    && current.blockedReason
+    && current.blockedReason !== 'This lobby is full.'
+    && current.blockedReason !== 'This lobby is no longer open.'
+  ) {
+    return {
+      canJoin: false,
+      blockedReason: current.blockedReason,
+      pendingSlot: null,
+    }
+  }
+
+  return {
+    canJoin: true,
+    blockedReason: null,
+    pendingSlot,
   }
 }
 

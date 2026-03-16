@@ -32,12 +32,14 @@ import {
   upsertLobby,
   upsertLobbyMessage,
 } from '../../services/lobby/index.ts'
+import { modeIndexKey } from '../../services/lobby/keys.ts'
+import { storeLobbyLiveSnapshot } from '../../services/lobby/live-snapshot.ts'
 import { arePremadeGroupsAdjacent } from '../../services/lobby/premades.ts'
 import { createDraftMatch } from '../../services/match/index.ts'
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { addToQueue, clearQueue, getQueueState, moveQueueEntriesBetweenModes, removeFromQueueAndUnlinkParty, setQueueEntries } from '../../services/queue/index.ts'
 import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
-import { createStateStore } from '../../services/state/store.ts'
+import { createStateStore, stateStoreMdelete } from '../../services/state/store.ts'
 import { parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from '../auth.ts'
 import {
@@ -373,8 +375,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       slots: normalizedNextSlots,
     }
 
-    await clearLobbyById(kv, lobby.id)
+    await stateStoreMdelete(kv, [modeIndexKey(mode, lobby.id)])
     await upsertLobby(kv, finalizedLobby)
+    const snapshot = await storeLobbyLiveSnapshot(kv, nextMode, finalizedLobby, movedLobbyQueueEntries, normalizedNextSlots)
     await storeUserLobbyMappings(kv, finalizedLobby.memberPlayerIds, finalizedLobby.id)
     const slottedEntries = mapLobbySlotsToEntries(normalizedNextSlots, movedLobbyQueueEntries)
 
@@ -389,7 +392,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       console.error(`Failed to update lobby embed after mode change ${mode} -> ${nextMode}:`, error)
     }
 
-    return c.json(await buildOpenLobbySnapshotFromParts(
+    return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(
       kv,
       nextMode,
       finalizedLobby,
