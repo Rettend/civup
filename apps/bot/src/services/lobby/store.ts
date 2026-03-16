@@ -1,6 +1,7 @@
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from './types.ts'
 import { GAME_MODES } from '@civup/game'
+import { lobbySnapshotKey } from './live-snapshot.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
 import { channelIndexKey, channelPrefix, idKey, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
 import { normalizeLobby, parseLobbyState } from './normalize.ts'
@@ -89,7 +90,7 @@ export async function upsertLobby(kv: KVNamespace, lobby: LobbyState): Promise<v
 
 export async function clearLobbyById(kv: KVNamespace, lobbyId: string): Promise<void> {
   const lobby = await getLobbyById(kv, lobbyId)
-  const keys = [idKey(lobbyId)]
+  const keys = [idKey(lobbyId), lobbySnapshotKey(lobbyId)]
   if (lobby) {
     keys.push(modeIndexKey(lobby.mode, lobby.id))
     keys.push(channelIndexKey(lobby.channelId, lobby.id))
@@ -102,7 +103,7 @@ export async function clearLobbiesByMode(kv: KVNamespace, mode: GameMode): Promi
   const lobbies = await getLobbiesByMode(kv, mode)
   if (lobbies.length === 0) return
   await stateStoreMdelete(kv, lobbies.flatMap((lobby) => {
-    const keys = [idKey(lobby.id), modeIndexKey(mode, lobby.id), channelIndexKey(lobby.channelId, lobby.id)]
+    const keys = [idKey(lobby.id), lobbySnapshotKey(lobby.id), modeIndexKey(mode, lobby.id), channelIndexKey(lobby.channelId, lobby.id)]
     if (lobby.matchId) keys.push(matchKey(lobby.matchId))
     return keys
   }))
