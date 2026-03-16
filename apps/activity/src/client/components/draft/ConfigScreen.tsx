@@ -30,6 +30,7 @@ import {
   normalizeTimerMinutesInput,
   parseLeaderPoolSizeInput,
   parseTimerMinutesInput,
+  resolveOptimisticLobbyPlacementAction,
   resolvePendingJoinGhostSlot,
   timerSecondsToMinutesInput,
   timerSecondsToMinutesPlaceholder,
@@ -877,8 +878,21 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const currentUserId = userId()
     if (!lobby || !currentUserId) return
     if (lobbyActionPending()) return
+
+    const optimisticAction = resolveOptimisticLobbyPlacementAction(
+      lobby,
+      currentUserId,
+      currentUserId,
+      slot,
+      amHost(),
+    )
+
     if (!isCurrentUserSlotted() && props.joinEligibility?.canJoin !== false) {
       setPendingPlaceSelfSlot(slot)
+    }
+
+    if (optimisticAction) {
+      startOptimisticLobbyAction(optimisticAction)
     }
 
     setLobbyActionPending(true)
@@ -893,6 +907,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       })
       if (!result.ok) {
         setPendingPlaceSelfSlot(null)
+        if (optimisticAction) clearOptimisticLobbyAction()
         showErrorMessage(result.error)
         return
       }
@@ -928,19 +943,13 @@ export function ConfigScreen(props: ConfigScreenProps) {
       payload.playerId = draggedPlayerId
     }
 
-    const draggedEntry = lobby.entries.find(entry => entry?.playerId === draggedPlayerId) ?? null
-    const isLinkedDrag = isTeamMode() && (draggedEntry?.partyIds?.length ?? 0) > 0
-    const currentUserSlot = draggedPlayerId === currentUserId
-      ? lobby.entries.findIndex(entry => entry?.playerId === currentUserId)
-      : -1
-
-    let optimisticAction: PendingOptimisticLobbyAction | null = null
-    if (draggedPlayerId === currentUserId && !isLinkedDrag && currentUserSlot >= 0) {
-      optimisticAction = { kind: 'place-self', targetSlot: slot }
-    }
-    else if (amHost() && !isLinkedDrag) {
-      optimisticAction = { kind: 'move-player', playerId: draggedPlayerId, targetSlot: slot }
-    }
+    const optimisticAction = resolveOptimisticLobbyPlacementAction(
+      lobby,
+      currentUserId,
+      draggedPlayerId,
+      slot,
+      amHost(),
+    )
 
     if (optimisticAction) {
       startOptimisticLobbyAction(optimisticAction)

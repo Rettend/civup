@@ -266,7 +266,11 @@ export const command_match = factory.command<MatchVar>(
           if (userMatchId) {
             const interactionChannelId = c.interaction.channel_id ?? null
             if (interactionChannelId) {
-              await storeUserActivityTarget(kv, interactionChannelId, [identity.userId], { kind: 'match', id: userMatchId })
+              await storeUserActivityTarget(kv, interactionChannelId, [identity.userId], {
+                kind: 'match',
+                id: userMatchId,
+                activitySecret: c.env.CIVUP_SECRET,
+              })
             }
             c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], userMatchId))
             return c.resActivity()

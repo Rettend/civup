@@ -115,6 +115,26 @@ export interface ActivityTargetOption {
   updatedAt: number
 }
 
+export interface ActivityOverviewOptionSnapshot {
+  kind: 'lobby' | 'match'
+  id: string
+  lobbyId: string
+  matchId: string | null
+  channelId: string
+  mode: string
+  status: 'open' | 'drafting' | 'active'
+  participantCount: number
+  targetSize: number
+  hostId: string
+  memberPlayerIds: string[]
+  updatedAt: number
+}
+
+export interface ActivityOverviewSnapshot {
+  channelId: string
+  options: ActivityOverviewOptionSnapshot[]
+}
+
 export interface LobbyJoinEligibilitySnapshot {
   canJoin: boolean
   blockedReason: string | null
@@ -135,6 +155,8 @@ export type ActivityLaunchSelection
     matchId: string
     steamLobbyLink: string | null
     roomAccessToken: string | null
+    lobbyId?: string | null
+    mode?: string | null
   }
 
 export interface ActivityLaunchSnapshot {
@@ -311,7 +333,7 @@ export function watchLobbyState(target: PartySocketTarget, options: LobbyStateWa
     query: activitySessionToken
       ? { [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken }
       : undefined,
-    maxRetries: 2,
+    maxRetries: Infinity,
   })
 
   const isSocketOpen = () => stateSocket.readyState === WebSocket.OPEN
@@ -769,15 +791,15 @@ export async function selectActivityTarget(
   channelId: string,
   userId: string,
   target: Pick<ActivityTargetOption, 'kind' | 'id'>,
-): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string }> {
+): Promise<{ ok: true } | { ok: false, error: string }> {
   try {
-    const snapshot = await activityApiPost<ActivityLaunchSnapshot>('/api/activity/target', {
+    await activityApiPost('/api/activity/target', {
       channelId,
       userId,
       kind: target.kind,
       id: target.id,
     })
-    return { ok: true, snapshot }
+    return { ok: true }
   }
   catch (err) {
     console.error('Failed to select activity target:', err)
