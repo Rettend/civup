@@ -72,18 +72,30 @@ export type LobbyArrangeStrategy = 'randomize' | 'balance'
 interface StateWatchMessage {
   type: 'state-changed' | 'error'
   key?: string
+  op?: 'put' | 'delete'
+  value?: string
   message?: string
+}
+
+export interface StateWatchChange {
+  key: string
+  op: 'put' | 'delete'
+  value?: string
 }
 
 export interface LobbyStateWatch {
   close: () => void
+  subscribeKey: (key: string) => void
+  unsubscribeKey: (key: string) => void
+  subscribePrefix: (prefix: string) => void
+  unsubscribePrefix: (prefix: string) => void
 }
 
 export interface LobbyStateWatchOptions {
   channelId: string
   userId: string
   onConnected?: () => void
-  onInvalidation: (key: string) => void
+  onStateChanged: (change: StateWatchChange) => void
   onDisconnected?: () => void
   onError?: (message: string) => void
 }
@@ -284,6 +296,8 @@ export function disconnect() {
 /** Subscribe to lobby/match invalidation events from state coordinator room. */
 export function watchLobbyState(target: PartySocketTarget, options: LobbyStateWatchOptions): LobbyStateWatch {
   let closed = false
+  const keySubscriptions = new Set<string>()
+  const prefixSubscriptions = new Set<string>()
 
   const socketId = `lobby-watch:${options.userId}:${Math.random().toString(36).slice(2, 10)}`
   const activitySessionToken = getActivitySessionToken()
@@ -300,19 +314,55 @@ export function watchLobbyState(target: PartySocketTarget, options: LobbyStateWa
     maxRetries: 2,
   })
 
+  const isSocketOpen = () => stateSocket.readyState === WebSocket.OPEN
+  const sendStateSocketMessage = (message: unknown) => {
+    if (closed || !isSocketOpen()) return
+    stateSocket.send(JSON.stringify(message))
+  }
+  const subscribeKey = (key: string) => {
+    if (keySubscriptions.has(key)) return
+    keySubscriptions.add(key)
+    sendStateSocketMessage({ type: 'subscribe-key', key })
+  }
+  const unsubscribeKey = (key: string) => {
+    if (!keySubscriptions.delete(key)) return
+    sendStateSocketMessage({ type: 'unsubscribe-key', key })
+  }
+  const subscribePrefix = (prefix: string) => {
+    if (prefixSubscriptions.has(prefix)) return
+    prefixSubscriptions.add(prefix)
+    sendStateSocketMessage({ type: 'subscribe-prefix', prefix })
+  }
+  const unsubscribePrefix = (prefix: string) => {
+    if (!prefixSubscriptions.delete(prefix)) return
+    sendStateSocketMessage({ type: 'unsubscribe-prefix', prefix })
+  }
+
   stateSocket.addEventListener('open', () => {
     if (closed) return
     options.onConnected?.()
-    stateSocket.send(JSON.stringify({ type: 'subscribe-prefix', prefix: 'lobby:mode:' }))
-    stateSocket.send(JSON.stringify({ type: 'subscribe-key', key: `activity-target-user:${options.userId}:${options.channelId}` }))
+    for (const key of keySubscriptions) {
+      sendStateSocketMessage({ type: 'subscribe-key', key })
+    }
+    for (const prefix of prefixSubscriptions) {
+      sendStateSocketMessage({ type: 'subscribe-prefix', prefix })
+    }
   })
 
   stateSocket.addEventListener('message', (event) => {
     if (closed) return
     try {
       const msg = JSON.parse(event.data as string) as StateWatchMessage
-      if (msg.type === 'state-changed' && typeof msg.key === 'string') {
-        options.onInvalidation(msg.key)
+      if (
+        msg.type === 'state-changed'
+        && typeof msg.key === 'string'
+        && (msg.op === 'put' || msg.op === 'delete')
+      ) {
+        options.onStateChanged({
+          key: msg.key,
+          op: msg.op,
+          value: typeof msg.value === 'string' ? msg.value : undefined,
+        })
         return
       }
 
@@ -339,6 +389,10 @@ export function watchLobbyState(target: PartySocketTarget, options: LobbyStateWa
   })
 
   return {
+    subscribeKey,
+    unsubscribeKey,
+    subscribePrefix,
+    unsubscribePrefix,
     close: () => {
       if (closed) return
       closed = true
