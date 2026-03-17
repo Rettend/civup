@@ -66,7 +66,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const mode = parseGameMode(c.req.param('mode'))
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
-    if (!isDebugLobbyFillEnabled(c.req.url, c.env.BOT_HOST)) return c.json({ error: 'Not found' }, 404)
+    if (!isDebugLobbyFillEnabled(c.req.url, c.env.BOT_HOST, c.env.ENABLE_DEBUG_LOBBY_FILL)) return c.json({ error: 'Not found' }, 404)
     return c.body(null, 204)
   })
 
@@ -856,7 +856,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    if (!isDebugLobbyFillEnabled(c.req.url, c.env.BOT_HOST)) {
+    if (!isDebugLobbyFillEnabled(c.req.url, c.env.BOT_HOST, c.env.ENABLE_DEBUG_LOBBY_FILL)) {
       return c.json({ error: 'Not found' }, 404)
     }
 
@@ -1243,8 +1243,17 @@ function buildDebugFillPlayerId(prefix: string, mode: GameMode, slot: number, ex
   return `${base}:${suffix}`
 }
 
-function isDebugLobbyFillEnabled(requestUrl: string, botHost: string | undefined): boolean {
-  return isDev({ host: requestUrl, configuredHosts: [botHost] })
+function isDebugLobbyFillEnabled(
+  requestUrl: string,
+  botHost: string | undefined,
+  forceEnabled: string | undefined,
+): boolean {
+  return isTruthyEnvFlag(forceEnabled) || isDev({ host: requestUrl, configuredHosts: [botHost] })
+}
+
+function isTruthyEnvFlag(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
 }
 
 function queueBackgroundTask(context: { executionCtx: ExecutionContext }, run: () => Promise<void>, errorMessage: string): void {
