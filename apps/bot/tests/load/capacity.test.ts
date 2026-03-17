@@ -102,6 +102,8 @@ interface ScenarioReport {
   legacySelectedLobbyRefetchRequests: number
   freeCapacityPlaysPerDay: number
   paidIncludedCapacityPlaysPerDay: number
+  paidSixDollarCapacityPlaysPerDay: number
+  paidSixDollarOverageUsd: number
   paidTenDollarCapacityPlaysPerDay: number
   paidTenDollarOverageUsd: number
   freeBreakpoints: ReturnType<typeof findMetricBreakpoints>
@@ -195,7 +197,9 @@ const PAID_OVERAGE_RATES_PER_MILLION: OverageRatesPerMillion = {
 }
 
 const PAID_BASE_MONTHLY_PRICE_USD = 5
+const PAID_SIX_DOLLAR_TARGET_MONTHLY_PRICE_USD = 6
 const PAID_TARGET_MONTHLY_PRICE_USD = 10
+const PAID_SIX_DOLLAR_EXTRA_OVERAGE_BUDGET_USD = PAID_SIX_DOLLAR_TARGET_MONTHLY_PRICE_USD - PAID_BASE_MONTHLY_PRICE_USD
 const PAID_EXTRA_OVERAGE_BUDGET_USD = PAID_TARGET_MONTHLY_PRICE_USD - PAID_BASE_MONTHLY_PRICE_USD
 
 const DAYS_PER_MONTH = 30
@@ -221,6 +225,8 @@ describe('capacity models', () => {
       expect(report.draftRoomIncomingMessagesWithTeamPickPreviews).toBe(report.draftRoomIncomingMessagesWithSelectionPreviews)
       expect(report.freeCapacityPlaysPerDay).toBeGreaterThan(0)
       expect(report.paidIncludedCapacityPlaysPerDay).toBeGreaterThan(0)
+      expect(report.paidSixDollarCapacityPlaysPerDay).toBeGreaterThanOrEqual(report.paidIncludedCapacityPlaysPerDay)
+      expect(report.paidSixDollarOverageUsd).toBeLessThanOrEqual(PAID_SIX_DOLLAR_EXTRA_OVERAGE_BUDGET_USD)
       expect(report.paidTenDollarCapacityPlaysPerDay).toBeGreaterThanOrEqual(report.paidIncludedCapacityPlaysPerDay)
       expect(report.paidTenDollarOverageUsd).toBeLessThanOrEqual(PAID_EXTRA_OVERAGE_BUDGET_USD)
     }
@@ -278,6 +284,22 @@ async function buildScenarioReport(
     periodDays: DAYS_PER_MONTH,
     playersPerDraft,
   })
+  const paidSixDollarCapacityPlaysPerDay = findMaxPlaysPerDayForOverageBudget({
+    model,
+    limits: PAID_MONTHLY_LIMITS,
+    periodDays: DAYS_PER_MONTH,
+    playersPerDraft,
+    overageRatesPerMillion: PAID_OVERAGE_RATES_PER_MILLION,
+    overageBudgetUsd: PAID_SIX_DOLLAR_EXTRA_OVERAGE_BUDGET_USD,
+  })
+  const paidSixDollarOverageUsd = estimateOverageUsd({
+    model,
+    playsPerDay: paidSixDollarCapacityPlaysPerDay,
+    limits: PAID_MONTHLY_LIMITS,
+    periodDays: DAYS_PER_MONTH,
+    playersPerDraft,
+    overageRatesPerMillion: PAID_OVERAGE_RATES_PER_MILLION,
+  })
   const paidTenDollarCapacityPlaysPerDay = findMaxPlaysPerDayForOverageBudget({
     model,
     limits: PAID_MONTHLY_LIMITS,
@@ -307,6 +329,8 @@ async function buildScenarioReport(
     legacySelectedLobbyRefetchRequests: baseline.legacySelectedLobbyRefetchRequests,
     freeCapacityPlaysPerDay,
     paidIncludedCapacityPlaysPerDay,
+    paidSixDollarCapacityPlaysPerDay,
+    paidSixDollarOverageUsd,
     paidTenDollarCapacityPlaysPerDay,
     paidTenDollarOverageUsd,
     freeBreakpoints: findMetricBreakpoints({
@@ -943,6 +967,13 @@ function printReports(reports: ScenarioReport[]): void {
       },
       {
         mode: report.mode.label,
+        plan: '$6 target',
+        playsPerDay: report.paidSixDollarCapacityPlaysPerDay,
+        draftsPerDay: roundForReport(report.paidSixDollarCapacityPlaysPerDay / playersPerDraft),
+        bottleneck: '',
+      },
+      {
+        mode: report.mode.label,
         plan: '$10 target',
         playsPerDay: report.paidTenDollarCapacityPlaysPerDay,
         draftsPerDay: roundForReport(report.paidTenDollarCapacityPlaysPerDay / playersPerDraft),
@@ -955,6 +986,8 @@ function printReports(reports: ScenarioReport[]): void {
   console.table(reports.flatMap((report) => {
     const freeUsage = projectUsageAtCapacity(report, report.freeCapacityPlaysPerDay, 1)
     const paidUsage = projectUsageAtCapacity(report, report.paidIncludedCapacityPlaysPerDay, DAYS_PER_MONTH)
+    const paidSixDollarUsage = projectUsageAtCapacity(report, report.paidSixDollarCapacityPlaysPerDay, DAYS_PER_MONTH)
+    const paidTenDollarUsage = projectUsageAtCapacity(report, report.paidTenDollarCapacityPlaysPerDay, DAYS_PER_MONTH)
 
     return [
       {
@@ -976,6 +1009,26 @@ function printReports(reports: ScenarioReport[]): void {
         doSqliteRowsWritten: paidUsage.doSqliteRowsWritten,
         doRequests: paidUsage.doRequests,
         doDurationGbSeconds: roundForReport(paidUsage.doDurationGbSeconds),
+      },
+      {
+        mode: report.mode.label,
+        plan: '$6 target',
+        playsPerDay: report.paidSixDollarCapacityPlaysPerDay,
+        d1RowsRead: paidSixDollarUsage.d1RowsRead,
+        doSqliteRowsRead: paidSixDollarUsage.doSqliteRowsRead,
+        doSqliteRowsWritten: paidSixDollarUsage.doSqliteRowsWritten,
+        doRequests: paidSixDollarUsage.doRequests,
+        doDurationGbSeconds: roundForReport(paidSixDollarUsage.doDurationGbSeconds),
+      },
+      {
+        mode: report.mode.label,
+        plan: '$10 target',
+        playsPerDay: report.paidTenDollarCapacityPlaysPerDay,
+        d1RowsRead: paidTenDollarUsage.d1RowsRead,
+        doSqliteRowsRead: paidTenDollarUsage.doSqliteRowsRead,
+        doSqliteRowsWritten: paidTenDollarUsage.doSqliteRowsWritten,
+        doRequests: paidTenDollarUsage.doRequests,
+        doDurationGbSeconds: roundForReport(paidTenDollarUsage.doDurationGbSeconds),
       },
     ]
   }))
