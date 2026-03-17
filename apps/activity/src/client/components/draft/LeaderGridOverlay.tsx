@@ -87,6 +87,11 @@ export function LeaderGridOverlay() {
   const step = currentStep
   const accent = () => phaseAccent()
   const ownSeatIndex = () => draftStore.seatIndex
+  const currentHydrationToken = () => {
+    const current = state()
+    const seatIndex = ownSeatIndex()
+    return current && seatIndex != null ? `${draftStore.initVersion}:${current.currentStepIndex}:${seatIndex}` : null
+  }
   const [hoverTooltip, setHoverTooltip] = createSignal<HoverTooltip | null>(null)
   const [filtersOpen, setFiltersOpen] = createSignal(false)
   const [gridExpanded, setGridExpanded] = createSignal(false)
@@ -274,6 +279,14 @@ export function LeaderGridOverlay() {
     if (isRandomSelected()) {
       setIsRandomSelected(false)
       return
+    }
+
+    const hydrationToken = currentHydrationToken()
+    if (step()?.action === 'ban' && hydrationToken) {
+      setHydratedBanPreviewToken(hydrationToken)
+    }
+    if (step()?.action === 'pick' && hydrationToken) {
+      setHydratedPickPreviewToken(hydrationToken)
     }
 
     setSelectedLeader(null)

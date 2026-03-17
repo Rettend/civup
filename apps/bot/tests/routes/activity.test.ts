@@ -123,7 +123,7 @@ describe('activity lobby join eligibility', () => {
 })
 
 describe('activity target selection', () => {
-  test('returns a fresh snapshot when a clicked target is already gone', async () => {
+  test('rejects a clicked target when it is already gone and clears the stale selection', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerActivityRoutes(app as any)
@@ -153,26 +153,8 @@ describe('activity target selection', () => {
       }),
     }, buildEnv(kv))
 
-    expect(response.status).toBe(200)
-    const snapshot = await response.json() as {
-      selection: { kind: string, option: { kind: string, status: string, id: string } } | null
-      options: Array<{ kind: string, status: string, id: string }>
-    }
-
-    expect(snapshot.selection).toEqual(expect.objectContaining({
-      kind: 'lobby',
-      option: expect.objectContaining({
-        kind: 'lobby',
-        status: 'open',
-      }),
-    }))
-    expect(snapshot.options).toEqual([
-      expect.objectContaining({
-        kind: 'lobby',
-        id: expect.any(String),
-        status: 'open',
-      }),
-    ])
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({ error: 'That target is no longer available.' })
     await expect(getUserActivityTarget(kv, 'channel-1', 'spectator-1')).resolves.toBeNull()
   })
 

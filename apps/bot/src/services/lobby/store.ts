@@ -1,9 +1,16 @@
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from './types.ts'
 import { GAME_MODES } from '@civup/game'
+import { lobbySnapshotKey } from './live-snapshot.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
 import { channelIndexKey, channelPrefix, idKey, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
 import { normalizeLobby, parseLobbyState } from './normalize.ts'
+
+interface LobbyStoreEntry {
+  key: string
+  value: string
+  expirationTtl: number
+}
 
 export async function getLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise<LobbyState[]> {
   const listed = await kv.list({ prefix: modePrefix(mode) })
@@ -87,9 +94,13 @@ export async function upsertLobby(kv: KVNamespace, lobby: LobbyState): Promise<v
   await putLobby(kv, normalizedLobby)
 }
 
-export async function clearLobbyById(kv: KVNamespace, lobbyId: string): Promise<void> {
-  const lobby = await getLobbyById(kv, lobbyId)
-  const keys = [idKey(lobbyId)]
+export async function clearLobbyById(
+  kv: KVNamespace,
+  lobbyId: string,
+  currentLobby?: LobbyState | null,
+): Promise<void> {
+  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
+  const keys = [idKey(lobbyId), lobbySnapshotKey(lobbyId)]
   if (lobby) {
     keys.push(modeIndexKey(lobby.mode, lobby.id))
     keys.push(channelIndexKey(lobby.channelId, lobby.id))
@@ -102,7 +113,7 @@ export async function clearLobbiesByMode(kv: KVNamespace, mode: GameMode): Promi
   const lobbies = await getLobbiesByMode(kv, mode)
   if (lobbies.length === 0) return
   await stateStoreMdelete(kv, lobbies.flatMap((lobby) => {
-    const keys = [idKey(lobby.id), modeIndexKey(mode, lobby.id), channelIndexKey(lobby.channelId, lobby.id)]
+    const keys = [idKey(lobby.id), lobbySnapshotKey(lobby.id), modeIndexKey(mode, lobby.id), channelIndexKey(lobby.channelId, lobby.id)]
     if (lobby.matchId) keys.push(matchKey(lobby.matchId))
     return keys
   }))
@@ -118,7 +129,15 @@ export async function clearLobbyByMatch(kv: KVNamespace, matchId: string): Promi
 }
 
 export async function putLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
-  const entries = [
+  await putLobbyEntries(kv, lobby)
+}
+
+export async function putLobbyEntries(
+  kv: KVNamespace,
+  lobby: LobbyState,
+  additionalEntries: LobbyStoreEntry[] = [],
+): Promise<void> {
+  const entries: LobbyStoreEntry[] = [
     {
       key: idKey(lobby.id),
       value: JSON.stringify(lobby),
@@ -142,6 +161,7 @@ export async function putLobby(kv: KVNamespace, lobby: LobbyState): Promise<void
       expirationTtl: LOBBY_TTL,
     })
   }
+  entries.push(...additionalEntries)
   await stateStoreMput(kv, entries)
 }
 

@@ -1,10 +1,12 @@
-import type { CompetitiveTier, GameMode } from '@civup/game'
+import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
 import type { LobbyDraftConfig, LobbyState, LobbyStatus } from './types.ts'
 import { nanoid } from 'nanoid'
 import { stateStoreMdelete } from '../state/store.ts'
-import { channelIndexKey } from './keys.ts'
+import { channelIndexKey, LOBBY_TTL } from './keys.ts'
+import { getQueueState } from '../queue/index.ts'
+import { buildLobbyLiveSnapshotFromParts, lobbySnapshotKey } from './live-snapshot.ts'
 import { createEmptySlots, DEFAULT_DRAFT_CONFIG, normalizeCompetitiveTier, normalizeDraftConfig, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from './normalize.ts'
-import { getLobbyById, putLobby } from './store.ts'
+import { getLobbyById, putLobby, putLobbyEntries } from './store.ts'
 
 const LOBBY_STATUS_TRANSITIONS: Record<LobbyStatus, LobbyStatus[]> = {
   open: ['drafting', 'cancelled'],
@@ -29,6 +31,7 @@ export async function createLobby(
     channelId: string
     messageId: string
     steamLobbyLink?: string | null
+    queueEntries?: QueueEntry[]
   },
 ): Promise<LobbyState> {
   const now = Date.now()
@@ -54,7 +57,13 @@ export async function createLobby(
     updatedAt: now,
     revision: 1,
   }
-  await putLobby(kv, lobby)
+  const queueEntries = input.queueEntries ?? (await getQueueState(kv, lobby.mode)).entries
+  const snapshot = await buildLobbyLiveSnapshotFromParts(kv, lobby.mode, lobby, queueEntries, slots)
+  await putLobbyEntries(kv, lobby, [{
+    key: lobbySnapshotKey(lobby.id),
+    value: JSON.stringify(snapshot),
+    expirationTtl: LOBBY_TTL,
+  }])
   return lobby
 }
 

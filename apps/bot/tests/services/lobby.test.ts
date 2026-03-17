@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { createLobby, getLobbyByChannel, getLobbyById, setLobbyMaxRole, setLobbyMinRole, setLobbySlots, setLobbyStatus } from '../../src/services/lobby/index.ts'
+import { activityOverviewKey, syncActivityOverviewSnapshot } from '../../src/services/activity/live-state.ts'
+import { createLobby, getLobbyByChannel, getLobbyById, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus } from '../../src/services/lobby/index.ts'
+import { lobbySnapshotKey, syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
+import { addToQueue } from '../../src/services/queue/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 describe('lobby service KV write behavior', () => {
@@ -141,5 +144,99 @@ describe('lobby service KV write behavior', () => {
 
     expect(stored?.maxRole).toBe('tier2')
     expect(stored?.guildId).toBe('guild-1')
+  })
+
+  test('publishes live snapshots for open lobby changes', async () => {
+    const { kv } = createTrackedKv()
+
+    await addToQueue(kv, 'ffa', {
+      playerId: 'host-1',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, 'ffa', {
+      playerId: 'player-2',
+      displayName: 'Player 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host-1', 'player-2'], lobby)
+    const nextSlots = [...(withMembers?.slots ?? lobby.slots)]
+    nextSlots[1] = 'player-2'
+    const updated = await setLobbySlots(kv, lobby.id, nextSlots, withMembers ?? lobby)
+    await syncLobbyDerivedState(kv, updated ?? withMembers ?? lobby)
+
+    expect(updated).not.toBeNull()
+    const snapshot = await kv.get(lobbySnapshotKey(lobby.id), 'json') as {
+      revision?: unknown
+      entries?: Array<{ playerId?: unknown, displayName?: unknown } | null>
+    } | null
+
+    expect(snapshot?.revision).toBe(updated?.revision)
+    expect(snapshot?.entries?.[0]).toEqual({ playerId: 'host-1', displayName: 'Host', avatarUrl: null, partyIds: [] })
+    expect(snapshot?.entries?.[1]).toEqual({ playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, partyIds: [] })
+  })
+
+  test('removes live snapshots when a lobby stops being open', async () => {
+    const { kv } = createTrackedKv()
+
+    await addToQueue(kv, 'ffa', {
+      playerId: 'host-1',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    expect(await kv.get(lobbySnapshotKey(lobby.id), 'json')).not.toBeNull()
+
+    const updated = await setLobbyStatus(kv, lobby.id, 'drafting')
+    await syncLobbyDerivedState(kv, updated ?? lobby)
+
+    expect(await kv.get(lobbySnapshotKey(lobby.id), 'json')).toBeNull()
+  })
+
+  test('builds and clears activity overview snapshots on demand for the channel', async () => {
+    const { kv } = createTrackedKv()
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await syncActivityOverviewSnapshot(kv, 'channel-1')
+    const overview = await kv.get(activityOverviewKey('channel-1'), 'json') as {
+      options?: Array<{ kind?: unknown, id?: unknown, hostId?: unknown }>
+    } | null
+    expect(overview?.options).toEqual([
+      expect.objectContaining({
+        kind: 'lobby',
+        id: lobby.id,
+        hostId: 'host-1',
+      }),
+    ])
+
+    const updated = await setLobbyStatus(kv, lobby.id, 'cancelled')
+    await syncLobbyDerivedState(kv, updated ?? lobby)
+    await syncActivityOverviewSnapshot(kv, 'channel-1')
+
+    expect(await kv.get(activityOverviewKey('channel-1'), 'json')).toBeNull()
   })
 })

@@ -42,7 +42,7 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
                       <span class={cn(
                         'text-[6px] font-semibold uppercase shrink-0',
                         option.kind === 'lobby'
-                          ? 'text-info'
+                           ? 'text-note'
                           : option.status === 'drafting'
                             ? 'text-info'
                             : 'text-accent',
@@ -143,7 +143,7 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
                     <span class={cn(
                       'px-2 py-1 rounded-full text-[8px] tracking-[0.12em] font-semibold uppercase shrink-0',
                       option.kind === 'lobby'
-                        ? 'bg-info/15 text-info'
+                        ? 'bg-note/15 text-note'
                         : option.status === 'drafting'
                           ? 'bg-info/15 text-info'
                           : 'bg-accent/15 text-accent',

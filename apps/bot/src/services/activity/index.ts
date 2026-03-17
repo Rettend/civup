@@ -1,8 +1,11 @@
 import type { DraftSeat, DraftTimerConfig, GameMode, QueueEntry, RoomConfig } from '@civup/game'
 import { getDefaultFormat, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamSize } from '@civup/game'
-import { api, CIVUP_INTERNAL_SECRET_HEADER, isLocalHost, normalizeHost } from '@civup/utils'
+import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
 import { getLobbiesByChannel } from '../lobby/index.ts'
+import { channelIndexKey, idKey, matchKey, modeIndexKey } from '../lobby/keys.ts'
+import { lobbySnapshotKey } from '../lobby/live-snapshot.ts'
+import type { LobbyState } from '../lobby/types.ts'
 import { stateStoreMdelete, stateStoreMput } from '../state/store.ts'
 
 // ── Types ───────────────────────────────────────────────────
@@ -28,6 +31,16 @@ export interface ActivityTargetSelection {
   selectedAt: number
   pendingJoin: boolean
 }
+
+export interface MatchActivityTargetSelection extends ActivityTargetSelection {
+  kind: 'match'
+  lobbyId: string | null
+  mode: GameMode | null
+  steamLobbyLink: string | null
+  roomAccessToken: string | null
+}
+
+type StoredActivityTargetSelection = ActivityTargetSelection | MatchActivityTargetSelection
 
 // ── Configuration ──────────────────────────────────────────
 
@@ -171,18 +184,105 @@ export async function storeUserActivityTarget(
   kv: KVNamespace,
   channelId: string,
   userIds: string[],
-  target: Pick<ActivityTargetSelection, 'kind' | 'id'> & { pendingJoin?: boolean },
+  target:
+    | ({ kind: 'lobby', id: string, pendingJoin?: boolean })
+    | {
+      kind: 'match'
+      id: string
+      lobbyId?: string | null
+      mode?: GameMode | null
+      steamLobbyLink?: string | null
+      activitySecret?: string | undefined
+    },
 ): Promise<void> {
   const selectedAt = Date.now()
   const pendingJoin = target.kind === 'lobby' && target.pendingJoin === true
-  await stateStoreMput(
-    kv,
-    userIds.map(userId => ({
+  const entries = await Promise.all(
+    userIds.map(async (userId) => ({
       key: targetUserKey(userId, channelId),
-      value: JSON.stringify({ kind: target.kind, id: target.id, selectedAt, pendingJoin } satisfies ActivityTargetSelection),
+      value: JSON.stringify(await serializeActivityTargetSelection(channelId, userId, target, selectedAt, pendingJoin)),
       expirationTtl: ACTIVITY_MAPPING_TTL,
     })),
   )
+  await stateStoreMput(
+    kv,
+    entries,
+  )
+}
+
+export async function storeUserLobbyState(
+  kv: KVNamespace,
+  channelId: string,
+  userIds: string[],
+  lobbyId: string,
+  options?: {
+    pendingJoin?: boolean
+  },
+): Promise<void> {
+  if (userIds.length === 0) return
+
+  const selectedAt = Date.now()
+  const pendingJoin = options?.pendingJoin === true
+  const target = { kind: 'lobby' as const, id: lobbyId, pendingJoin }
+  const targetEntries = await Promise.all(
+    userIds.map(async (userId) => ({
+      key: targetUserKey(userId, channelId),
+      value: JSON.stringify(await serializeActivityTargetSelection(channelId, userId, target, selectedAt, pendingJoin)),
+      expirationTtl: ACTIVITY_MAPPING_TTL,
+    })),
+  )
+
+  await stateStoreMput(kv, [
+    ...userIds.map(userId => ({
+      key: `activity-lobby-user:${userId}`,
+      value: lobbyId,
+      expirationTtl: ACTIVITY_MAPPING_TTL,
+    })),
+    ...targetEntries,
+  ])
+}
+
+export async function storeMatchActivityState(
+  kv: KVNamespace,
+  channelId: string,
+  userIds: string[],
+  target: {
+    matchId: string
+    lobbyId?: string | null
+    mode?: GameMode | null
+    steamLobbyLink?: string | null
+    activitySecret?: string | undefined
+  },
+): Promise<void> {
+  const selectedAt = Date.now()
+  const targetEntries = await Promise.all(
+    userIds.map(async (userId) => ({
+      key: targetUserKey(userId, channelId),
+      value: JSON.stringify(await serializeActivityTargetSelection(channelId, userId, {
+        kind: 'match',
+        id: target.matchId,
+        lobbyId: target.lobbyId,
+        mode: target.mode,
+        steamLobbyLink: target.steamLobbyLink,
+        activitySecret: target.activitySecret,
+      }, selectedAt, false)),
+      expirationTtl: ACTIVITY_MAPPING_TTL,
+    })),
+  )
+
+  await stateStoreMput(kv, [
+    {
+      key: `activity-match:${target.matchId}`,
+      value: channelId,
+      expirationTtl: ACTIVITY_MAPPING_TTL,
+    },
+    ...userIds.map(userId => ({
+      key: `activity-user:${userId}`,
+      value: target.matchId,
+      expirationTtl: ACTIVITY_MAPPING_TTL,
+    })),
+    ...targetEntries,
+  ])
 }
 
 /** Get the currently selected activity target for one channel/user pair. */
@@ -302,6 +402,22 @@ export async function clearLobbyMappings(
   await stateStoreMdelete(kv, keys)
 }
 
+export async function clearLobbyAndActivityMappings(
+  kv: KVNamespace,
+  lobby: Pick<LobbyState, 'id' | 'mode' | 'channelId' | 'matchId' | 'memberPlayerIds'>,
+): Promise<void> {
+  const keys = [
+    idKey(lobby.id),
+    lobbySnapshotKey(lobby.id),
+    modeIndexKey(lobby.mode, lobby.id),
+    channelIndexKey(lobby.channelId, lobby.id),
+    ...lobby.memberPlayerIds.map(userId => `activity-lobby-user:${userId}`),
+    ...lobby.memberPlayerIds.map(userId => targetUserKey(userId, lobby.channelId)),
+  ]
+  if (lobby.matchId) keys.push(matchKey(lobby.matchId))
+  await stateStoreMdelete(kv, keys)
+}
+
 /** Remove only the user -> open-lobby mapping while keeping the current channel target. */
 export async function clearUserLobbyMappings(
   kv: KVNamespace,
@@ -311,7 +427,7 @@ export async function clearUserLobbyMappings(
   await stateStoreMdelete(kv, userIds.map(userId => `activity-lobby-user:${userId}`))
 }
 
-function parseActivityTargetSelection(raw: unknown): ActivityTargetSelection | null {
+function parseActivityTargetSelection(raw: unknown): StoredActivityTargetSelection | null {
   if (!raw || typeof raw !== 'object') return null
 
   const parsed = raw as {
@@ -319,11 +435,28 @@ function parseActivityTargetSelection(raw: unknown): ActivityTargetSelection | n
     id?: unknown
     selectedAt?: unknown
     pendingJoin?: unknown
+    lobbyId?: unknown
+    mode?: unknown
+    steamLobbyLink?: unknown
+    roomAccessToken?: unknown
   }
 
   if (parsed.kind !== 'lobby' && parsed.kind !== 'match') return null
   if (typeof parsed.id !== 'string' || parsed.id.length === 0) return null
   if (typeof parsed.selectedAt !== 'number' || !Number.isFinite(parsed.selectedAt)) return null
+
+  if (parsed.kind === 'match') {
+    return {
+      kind: 'match',
+      id: parsed.id,
+      selectedAt: parsed.selectedAt,
+      pendingJoin: false,
+      lobbyId: typeof parsed.lobbyId === 'string' && parsed.lobbyId.length > 0 ? parsed.lobbyId : null,
+      mode: typeof parsed.mode === 'string' && parsed.mode.length > 0 ? parsed.mode as GameMode : null,
+      steamLobbyLink: typeof parsed.steamLobbyLink === 'string' && parsed.steamLobbyLink.length > 0 ? parsed.steamLobbyLink : null,
+      roomAccessToken: typeof parsed.roomAccessToken === 'string' && parsed.roomAccessToken.length > 0 ? parsed.roomAccessToken : null,
+    }
+  }
 
   return {
     kind: parsed.kind,
@@ -331,4 +464,56 @@ function parseActivityTargetSelection(raw: unknown): ActivityTargetSelection | n
     selectedAt: parsed.selectedAt,
     pendingJoin: parsed.pendingJoin === true,
   }
+}
+
+async function serializeActivityTargetSelection(
+  channelId: string,
+  userId: string,
+  target:
+    | ({ kind: 'lobby', id: string, pendingJoin?: boolean })
+    | {
+      kind: 'match'
+      id: string
+      lobbyId?: string | null
+      mode?: GameMode | null
+      steamLobbyLink?: string | null
+      activitySecret?: string | undefined
+    },
+  selectedAt: number,
+  pendingJoin: boolean,
+): Promise<StoredActivityTargetSelection> {
+  if (target.kind === 'match') {
+    return {
+      kind: 'match',
+      id: target.id,
+      selectedAt,
+      pendingJoin: false,
+      lobbyId: target.lobbyId ?? null,
+      mode: target.mode ?? null,
+      steamLobbyLink: target.steamLobbyLink ?? null,
+      roomAccessToken: await buildDraftRoomAccessToken(target.activitySecret, userId, target.id, channelId),
+    }
+  }
+
+  return {
+    kind: 'lobby',
+    id: target.id,
+    selectedAt,
+    pendingJoin,
+  }
+}
+
+async function buildDraftRoomAccessToken(
+  activitySecret: string | undefined,
+  userId: string,
+  matchId: string,
+  channelId: string,
+): Promise<string | null> {
+  const secret = activitySecret?.trim() ?? ''
+  if (secret.length === 0) return null
+  return createDraftRoomAccessToken(secret, {
+    userId,
+    roomId: matchId,
+    channelId,
+  })
 }
