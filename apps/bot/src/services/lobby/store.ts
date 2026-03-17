@@ -1,11 +1,16 @@
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from './types.ts'
 import { GAME_MODES } from '@civup/game'
-import { syncActivityOverviewSnapshot } from '../activity/live-state.ts'
 import { lobbySnapshotKey } from './live-snapshot.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
 import { channelIndexKey, channelPrefix, idKey, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
 import { normalizeLobby, parseLobbyState } from './normalize.ts'
+
+interface LobbyStoreEntry {
+  key: string
+  value: string
+  expirationTtl: number
+}
 
 export async function getLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise<LobbyState[]> {
   const listed = await kv.list({ prefix: modePrefix(mode) })
@@ -89,8 +94,12 @@ export async function upsertLobby(kv: KVNamespace, lobby: LobbyState): Promise<v
   await putLobby(kv, normalizedLobby)
 }
 
-export async function clearLobbyById(kv: KVNamespace, lobbyId: string): Promise<void> {
-  const lobby = await getLobbyById(kv, lobbyId)
+export async function clearLobbyById(
+  kv: KVNamespace,
+  lobbyId: string,
+  currentLobby?: LobbyState | null,
+): Promise<void> {
+  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
   const keys = [idKey(lobbyId), lobbySnapshotKey(lobbyId)]
   if (lobby) {
     keys.push(modeIndexKey(lobby.mode, lobby.id))
@@ -98,9 +107,6 @@ export async function clearLobbyById(kv: KVNamespace, lobbyId: string): Promise<
     if (lobby.matchId) keys.push(matchKey(lobby.matchId))
   }
   await stateStoreMdelete(kv, keys)
-  if (lobby) {
-    await syncActivityOverviewSnapshot(kv, lobby.channelId)
-  }
 }
 
 export async function clearLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise<void> {
@@ -111,8 +117,6 @@ export async function clearLobbiesByMode(kv: KVNamespace, mode: GameMode): Promi
     if (lobby.matchId) keys.push(matchKey(lobby.matchId))
     return keys
   }))
-  const channelIds = [...new Set(lobbies.map(lobby => lobby.channelId))]
-  await Promise.all(channelIds.map(channelId => syncActivityOverviewSnapshot(kv, channelId)))
 }
 
 export async function clearLobbyByMatch(kv: KVNamespace, matchId: string): Promise<void> {
@@ -125,7 +129,15 @@ export async function clearLobbyByMatch(kv: KVNamespace, matchId: string): Promi
 }
 
 export async function putLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
-  const entries = [
+  await putLobbyEntries(kv, lobby)
+}
+
+export async function putLobbyEntries(
+  kv: KVNamespace,
+  lobby: LobbyState,
+  additionalEntries: LobbyStoreEntry[] = [],
+): Promise<void> {
+  const entries: LobbyStoreEntry[] = [
     {
       key: idKey(lobby.id),
       value: JSON.stringify(lobby),
@@ -149,8 +161,8 @@ export async function putLobby(kv: KVNamespace, lobby: LobbyState): Promise<void
       expirationTtl: LOBBY_TTL,
     })
   }
+  entries.push(...additionalEntries)
   await stateStoreMput(kv, entries)
-  await syncActivityOverviewSnapshot(kv, lobby.channelId)
 }
 
 async function getAllLobbies(kv: KVNamespace): Promise<LobbyState[]> {
