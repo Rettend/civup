@@ -30,6 +30,7 @@ import {
   normalizeTimerMinutesInput,
   parseLeaderPoolSizeInput,
   parseTimerMinutesInput,
+  resolveOptimisticLobbyPlacementAction,
   resolvePendingJoinGhostSlot,
   timerSecondsToMinutesInput,
   timerSecondsToMinutesPlaceholder,
@@ -458,20 +459,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
     }
   })
 
-  const applyLobbySnapshot = (lobby: LobbySnapshot) => {
-    setLobbyState((current) => {
-      if (current && lobby.revision < current.revision) return current
-      return lobby
-    })
-    const resolvedLobby = lobbyState()
-    if (!resolvedLobby) return
-    setLobbyTimerConfig({
-      banTimerSeconds: resolvedLobby.draftConfig.banTimerSeconds,
-      pickTimerSeconds: resolvedLobby.draftConfig.pickTimerSeconds,
-      leaderPoolSize: resolvedLobby.draftConfig.leaderPoolSize,
-    })
-  }
-
   const buildLobbyRow = (slot: number, entry: LobbySnapshot['entries'][number] | null, key: string): PlayerRow => {
     const pendingSelf = pendingSelfJoinSlot() === slot
     const currentUserId = userId()
@@ -645,6 +632,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const isHostUser = amHost()
     const nextBanMinutes = banMinutes()
     const nextPickMinutes = pickMinutes()
+    const activeField = editingField()
 
     try {
       if (!isHostUser) return
@@ -688,17 +676,16 @@ export function ConfigScreen(props: ConfigScreenProps) {
       await optimisticTimerConfig.commit({ banTimerSeconds, pickTimerSeconds, leaderPoolSize }, async () => {
         const lobby = currentLobby()
         if (lobby) {
-          const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, {
-            banTimerSeconds,
-            pickTimerSeconds,
-            leaderPoolSize,
-            minRole: lobby.minRole,
-            maxRole: lobby.maxRole,
-          })
-          if (!result.ok) throw new Error(result.error)
-          applyLobbySnapshot(result.lobby)
-          return
-        }
+            const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, {
+              banTimerSeconds,
+              pickTimerSeconds,
+              leaderPoolSize,
+              minRole: lobby.minRole,
+              maxRole: lobby.maxRole,
+            })
+            if (!result.ok) throw new Error(result.error)
+            return
+          }
 
         await sendConfig(banTimerSeconds, pickTimerSeconds)
       }, {
@@ -707,7 +694,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       })
     }
     finally {
-      setEditingField(null)
+      setEditingField(current => current === activeField ? null : current)
     }
   }
 
@@ -726,8 +713,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         showErrorMessage(result.error)
         return
       }
-      applyLobbySnapshot(result.lobby)
-      showInfoMessage(`Game mode changed to ${formatModeLabel(result.lobby.mode, result.lobby.mode)}.`)
+      showInfoMessage(`Game mode changed to ${formatModeLabel(nextMode, nextMode)}.`)
     }
     finally {
       setLobbyActionPending(false)
@@ -759,15 +745,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
         return
       }
 
-      applyLobbySnapshot(result.lobby)
-      const refreshedOptions = await fetchLobbyRankedRoles(result.lobby.mode, result.lobby.id)
+      const refreshedOptions = await fetchLobbyRankedRoles(lobby.mode, lobby.id)
       if (refreshedOptions?.options?.length) setRankedRoleOptions(refreshedOptions.options)
       const optionSource = refreshedOptions?.options?.length ? refreshedOptions.options : rankedRoleOptions()
-      const selectedMinRole = result.lobby.minRole ? findRankedRoleOptionByTier(optionSource, result.lobby.minRole) : null
+      const selectedMinRole = nextBounds.minimum ? findRankedRoleOptionByTier(optionSource, nextBounds.minimum) : null
       if (nextBounds.swapped) {
         showInfoMessage('Min and max ranks swapped to keep the range valid.')
       }
-      else if (result.lobby.minRole) {
+      else if (nextBounds.minimum) {
         showRankRoleSetMessage({
           boundLabel: 'Min rank',
           roleLabel: selectedMinRole?.label ?? 'Unranked',
@@ -808,15 +793,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
         return
       }
 
-      applyLobbySnapshot(result.lobby)
-      const refreshedOptions = await fetchLobbyRankedRoles(result.lobby.mode, result.lobby.id)
+      const refreshedOptions = await fetchLobbyRankedRoles(lobby.mode, lobby.id)
       if (refreshedOptions?.options?.length) setRankedRoleOptions(refreshedOptions.options)
       const optionSource = refreshedOptions?.options?.length ? refreshedOptions.options : rankedRoleOptions()
-      const selectedMaxRole = result.lobby.maxRole ? findRankedRoleOptionByTier(optionSource, result.lobby.maxRole) : null
+      const selectedMaxRole = nextBounds.maximum ? findRankedRoleOptionByTier(optionSource, nextBounds.maximum) : null
       if (nextBounds.swapped) {
         showInfoMessage('Min and max ranks swapped to keep the range valid.')
       }
-      else if (result.lobby.maxRole) {
+      else if (nextBounds.maximum) {
         showRankRoleSetMessage({
           boundLabel: 'Max rank',
           roleLabel: selectedMaxRole?.label ?? 'Unranked',
@@ -855,7 +839,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
         return
       }
 
-      applyLobbySnapshot(result.lobby)
       showInfoMessage(link ? 'Steam lobby link updated.' : 'Steam lobby link cleared.')
     }
     finally {
@@ -878,7 +861,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
         return
       }
 
-      applyLobbySnapshot(result.lobby)
       if (result.addedCount > 0) {
         showInfoMessage(`Added ${result.addedCount} test player${result.addedCount === 1 ? '' : 's'} to empty slots.`)
       }
@@ -896,8 +878,21 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const currentUserId = userId()
     if (!lobby || !currentUserId) return
     if (lobbyActionPending()) return
+
+    const optimisticAction = resolveOptimisticLobbyPlacementAction(
+      lobby,
+      currentUserId,
+      currentUserId,
+      slot,
+      amHost(),
+    )
+
     if (!isCurrentUserSlotted() && props.joinEligibility?.canJoin !== false) {
       setPendingPlaceSelfSlot(slot)
+    }
+
+    if (optimisticAction) {
+      startOptimisticLobbyAction(optimisticAction)
     }
 
     setLobbyActionPending(true)
@@ -911,13 +906,13 @@ export function ConfigScreen(props: ConfigScreenProps) {
         avatarUrl: currentAvatarUrl(),
       })
       if (!result.ok) {
+        setPendingPlaceSelfSlot(null)
+        if (optimisticAction) clearOptimisticLobbyAction()
         showErrorMessage(result.error)
         return
       }
-      applyLobbySnapshot(result.lobby)
     }
     finally {
-      setPendingPlaceSelfSlot(null)
       setLobbyActionPending(false)
     }
   }
@@ -948,19 +943,13 @@ export function ConfigScreen(props: ConfigScreenProps) {
       payload.playerId = draggedPlayerId
     }
 
-    const draggedEntry = lobby.entries.find(entry => entry?.playerId === draggedPlayerId) ?? null
-    const isLinkedDrag = isTeamMode() && (draggedEntry?.partyIds?.length ?? 0) > 0
-    const currentUserSlot = draggedPlayerId === currentUserId
-      ? lobby.entries.findIndex(entry => entry?.playerId === currentUserId)
-      : -1
-
-    let optimisticAction: PendingOptimisticLobbyAction | null = null
-    if (draggedPlayerId === currentUserId && !isLinkedDrag && currentUserSlot >= 0) {
-      optimisticAction = { kind: 'place-self', targetSlot: slot }
-    }
-    else if (amHost() && !isLinkedDrag) {
-      optimisticAction = { kind: 'move-player', playerId: draggedPlayerId, targetSlot: slot }
-    }
+    const optimisticAction = resolveOptimisticLobbyPlacementAction(
+      lobby,
+      currentUserId,
+      draggedPlayerId,
+      slot,
+      amHost(),
+    )
 
     if (optimisticAction) {
       startOptimisticLobbyAction(optimisticAction)
@@ -975,8 +964,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
         showErrorMessage(result.error)
         return
       }
-      applyLobbySnapshot(result.lobby)
-      if (optimisticAction) clearOptimisticLobbyAction()
     }
     finally {
       setLobbyActionPending(false)
@@ -1017,8 +1004,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
         showErrorMessage(result.error)
         return
       }
-      applyLobbySnapshot(result.lobby)
-      if (optimisticAction) clearOptimisticLobbyAction()
     }
     finally {
       setLobbyActionPending(false)
@@ -1064,7 +1049,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
         return
       }
 
-      applyLobbySnapshot(result.lobby)
       const target = arrangeTargetTitle(mode)
       showInfoMessage(strategy === 'randomize' ? `${target} randomized.` : `${target} auto-balanced.`)
     }
@@ -1105,7 +1089,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
         return
       }
 
-      applyLobbySnapshot(result.lobby)
       showInfoMessage(currentlyLinked ? 'Premade link removed.' : 'Premade link added.')
     }
     finally {

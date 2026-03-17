@@ -114,7 +114,7 @@ export const command_mod = factory.command<ModVar>(
               console.error(`Failed to update cancelled embed for lobby ${directLobby.id}:`, error)
             }
 
-            await clearLobbyById(kv, directLobby.id)
+            await clearLobbyById(kv, directLobby.id, directLobby)
             await sendTransientEphemeralResponse(c, `Cancelled open lobby **${directLobby.id}**.`, 'success')
             return
           }

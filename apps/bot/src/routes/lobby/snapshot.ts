@@ -1,9 +1,10 @@
 import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { getRankedRoleConfig } from '../../services/ranked/roles.ts'
+import { buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
 import { MAX_LEADER_POOL_SIZE, maxPlayerCount, minPlayerCount } from '@civup/game'
-import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
-import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, getLobbyById, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
+import { MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
+import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, getLobbyById, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
 import { getQueueState } from '../../services/queue/index.ts'
 import { normalizeRankedRoleTierId } from '../../services/ranked/roles.ts'
 
@@ -37,32 +38,7 @@ export async function buildOpenLobbySnapshotFromParts(
   queueEntries: Awaited<ReturnType<typeof getQueueState>>['entries'],
   slots: (string | null)[],
 ) {
-  const slotEntries = mapLobbySlotsToEntries(slots, queueEntries)
-  const serverDefaults = await getServerDraftTimerDefaults(kv)
-
-  return {
-    id: lobby.id,
-    revision: lobby.revision,
-    mode,
-    hostId: lobby.hostId,
-    status: lobby.status,
-    steamLobbyLink: lobby.steamLobbyLink,
-    minRole: lobby.minRole,
-    maxRole: lobby.maxRole,
-    entries: slotEntries.map((entry) => {
-      if (!entry) return null
-      return {
-        playerId: entry.playerId,
-        displayName: entry.displayName,
-        avatarUrl: entry.avatarUrl ?? null,
-        partyIds: entry.partyIds ?? [],
-      }
-    }),
-    minPlayers: lobbyMinPlayerCount(mode),
-    targetSize: maxPlayerCount(mode),
-    draftConfig: lobby.draftConfig,
-    serverDefaults,
-  }
+  return buildLobbyLiveSnapshotFromParts(kv, mode, lobby, queueEntries, slots)
 }
 
 export function lobbyMinPlayerCount(mode: GameMode): number {
