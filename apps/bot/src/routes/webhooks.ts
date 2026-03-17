@@ -6,6 +6,7 @@ import { verifySignedWebhookRequest } from '@civup/utils'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed } from '../embeds/match.ts'
 import { clearLobbyMappings } from '../services/activity/index.ts'
 import { clearLobbyById, getLobbyByMatch, setLobbyStatus, upsertLobbyMessage } from '../services/lobby/index.ts'
+import { syncLobbyDerivedState } from '../services/lobby/live-snapshot.ts'
 import { activateDraftMatch, cancelDraftMatch } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { createStateStore } from '../services/state/store.ts'
@@ -59,11 +60,12 @@ export function registerWebhookRoutes(app: Hono<Env>) {
         return c.json({ ok: true })
       }
 
-      await setLobbyStatus(kv, lobby.id, 'active', lobby)
+      const activeLobby = await setLobbyStatus(kv, lobby.id, 'active', lobby) ?? lobby
+      await syncLobbyDerivedState(kv, activeLobby)
       try {
-        const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
+        const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, activeLobby, {
           embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants)],
-          components: lobbyComponents(lobby.mode, lobby.id),
+          components: lobbyComponents(activeLobby.mode, activeLobby.id),
         })
         await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
       }
@@ -107,7 +109,7 @@ export function registerWebhookRoutes(app: Hono<Env>) {
     }
 
     await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
-    await clearLobbyById(kv, lobby.id)
+    await clearLobbyById(kv, lobby.id, lobby)
     return c.json({ ok: true })
   })
 }

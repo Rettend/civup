@@ -64,6 +64,11 @@ export default defineConfig({
         DEFAULT: 'var(--info)',
         muted: 'var(--info-muted)',
       },
+      // ── Note / Sky ────────────────────────────────────────
+      note: {
+        DEFAULT: 'var(--note)',
+        muted: 'var(--note-muted)',
+      },
     },
     animation: {
       keyframes: {
@@ -135,6 +140,9 @@ export default defineConfig({
 
             --info:          #0ac8b9;
             --info-muted:    rgba(10, 200, 185, 0.25);
+
+            --note:          #38bdf8;
+            --note-muted:    rgba(56, 189, 248, 0.25);
 
             --phase-ban-bg:  #1a0a0e;
             --phase-pick-bg: var(--bg-subtle);

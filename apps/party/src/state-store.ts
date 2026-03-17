@@ -79,6 +79,7 @@ type StateSocketResponse
     type: 'state-changed'
     key: string
     op: 'put' | 'delete'
+    value?: string
   }
   | {
     type: 'error'
@@ -86,7 +87,7 @@ type StateSocketResponse
   }
 
 const STORAGE_PREFIX = 'kv:'
-const ALLOWED_SUBSCRIPTION_KEY_PREFIXES = ['activity:', 'activity-user:', 'activity-target-user:']
+const ALLOWED_SUBSCRIPTION_KEY_PREFIXES = ['activity:', 'activity-user:', 'activity-target-user:', 'lobby:snapshot:']
 const ALLOWED_SUBSCRIPTION_PREFIXES = ['lobby:mode:']
 
 export class State extends Server<StateStoreEnv> {
@@ -127,7 +128,7 @@ export class State extends Server<StateStoreEnv> {
         const previous = await this.ensureFreshValue(payload.key, existing)
         await this.putValue(payload.key, payload.value, ttlSeconds)
         if (!previous || previous.value !== payload.value) {
-          this.broadcastStateChanged(payload.key, 'put')
+          this.broadcastStateChanged(payload.key, 'put', payload.value)
         }
         return json({ ok: true })
       }
@@ -177,7 +178,7 @@ export class State extends Server<StateStoreEnv> {
           const previous = await this.ensureFreshValue(entry.key, existing)
           await this.putValue(entry.key, entry.value, ttlSeconds)
           if (!previous || previous.value !== entry.value) {
-            this.broadcastStateChanged(entry.key, 'put')
+            this.broadcastStateChanged(entry.key, 'put', entry.value)
           }
         }
 
@@ -247,6 +248,20 @@ export class State extends Server<StateStoreEnv> {
           keySubscriptions: [...state.keySubscriptions, payload.key],
           prefixSubscriptions: state.prefixSubscriptions,
         })
+
+        const currentValue = await this.getValue(payload.key)
+        this.sendSocketMessage(connection, typeof currentValue === 'string'
+          ? {
+              type: 'state-changed',
+              key: payload.key,
+              op: 'put',
+              value: currentValue,
+            }
+          : {
+              type: 'state-changed',
+              key: payload.key,
+              op: 'delete',
+            })
         return
       }
 
@@ -359,7 +374,7 @@ export class State extends Server<StateStoreEnv> {
     return stored
   }
 
-  private broadcastStateChanged(key: string, op: 'put' | 'delete'): void {
+  private broadcastStateChanged(key: string, op: 'put' | 'delete', value?: string): void {
     for (const connection of this.getConnections<StateConnectionState>()) {
       const state = connection.state
       if (!state) continue
@@ -367,7 +382,7 @@ export class State extends Server<StateStoreEnv> {
       if (!state.keySubscriptions.includes(key)
         && !state.prefixSubscriptions.some(prefix => key.startsWith(prefix))) { continue }
 
-      this.sendSocketMessage(connection, { type: 'state-changed', key, op })
+      this.sendSocketMessage(connection, { type: 'state-changed', key, op, value })
     }
   }
 
