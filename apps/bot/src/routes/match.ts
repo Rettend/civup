@@ -4,10 +4,10 @@ import type { Env } from '../env.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match.ts'
-import { clearLobbyMappings } from '../services/activity/index.ts'
+import { clearLobbyAndActivityMappings } from '../services/activity/index.ts'
 import { createChannelMessage } from '../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
-import { clearLobbyById, getLobbyByMatch, setLobbyStatus, upsertLobbyMessage } from '../services/lobby/index.ts'
+import { getLobbyByMatch, upsertLobbyMessage } from '../services/lobby/index.ts'
 import { cancelMatchByModerator, getHostIdFromDraftData, reportMatch } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../services/ranked/role-sync.ts'
@@ -122,7 +122,6 @@ export function registerMatchRoutes(app: Hono<Env>) {
     }
 
     if (lobby) {
-      await setLobbyStatus(kv, lobby.id, 'completed', lobby)
       try {
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
           embeds: [lobbyResultEmbed(lobby.mode, result.participants, undefined, { rankedRoleLines })],
@@ -133,8 +132,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       catch (error) {
         console.error(`Failed to update lobby result embed for match ${result.match.id}:`, error)
       }
-      await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
-      await clearLobbyById(kv, lobby.id)
+      await clearLobbyAndActivityMappings(kv, lobby)
     }
 
     const archiveChannelId = await getSystemChannel(kv, 'archive')

@@ -21,6 +21,7 @@ import {
   connectToRoom,
   disconnect,
   draftStore,
+  fetchActivityLaunchSnapshot,
   isMiniView,
   isMobileLayout,
   resetDraft,
@@ -76,6 +77,7 @@ export default function App() {
   const [pickerBusy, setPickerBusy] = createSignal(false)
   const [pickerError, setPickerError] = createSignal<string | null>(null)
   const [lastResolvedSelection, setLastResolvedSelection] = createSignal<ActivityLaunchSelection | null>(null)
+  const [fallbackOptions, setFallbackOptions] = createSignal<ActivityTargetOption[]>([])
   const [overviewPinned, setOverviewPinned] = createSignal(false)
   const [liveOverviewSnapshot, setLiveOverviewSnapshot] = createSignal<ActivityOverviewSnapshot | null | undefined>(undefined)
   const [liveTargetState, setLiveTargetState] = createSignal<LiveActivityTargetState | null | undefined>(undefined)
@@ -84,16 +86,17 @@ export default function App() {
   let activeChannelId: string | null = null
   let activeUserId: string | null = null
   let pendingTargetSelectionKey: string | null = null
-  let subscribedLobbySnapshotKey: string | null = null
+  const subscribedLobbySnapshotKeys = new Set<string>()
   let selectionRequestVersion = 0
   let suppressAutoSelection = false
+  let refreshInFlight = false
   const liveLobbySnapshots = new Map<string, LobbySnapshot>()
 
   const stopActivityWatch = () => {
     if (!activityWatch) return
     activityWatch.close()
     activityWatch = null
-    subscribedLobbySnapshotKey = null
+    subscribedLobbySnapshotKeys.clear()
   }
 
   const clearDraftConnection = () => {
@@ -165,6 +168,7 @@ export default function App() {
     setOverviewPinned(true)
     setState({ status: 'overview' })
     applyLiveActivityState()
+    void requestActivityLaunchSnapshotRefresh()
   }
 
   const syncActivityWatchSubscriptions = () => {
@@ -174,19 +178,26 @@ export default function App() {
     activityWatch.subscribeKey(activityOverviewStateKey(activeChannelId))
     activityWatch.subscribeKey(activityTargetStateKey(activeUserId, activeChannelId))
 
-    const nextLobbySnapshotKey = target?.kind === 'lobby'
-      ? lobbySnapshotStateKey(target.id)
-      : null
-
-    if (subscribedLobbySnapshotKey && subscribedLobbySnapshotKey !== nextLobbySnapshotKey) {
-      activityWatch.unsubscribeKey(subscribedLobbySnapshotKey)
+    const nextLobbySnapshotKeys = new Set(
+      availableTargets()
+        .filter((option): option is ActivityTargetOption & { kind: 'lobby' } => option.kind === 'lobby')
+        .map(option => lobbySnapshotStateKey(option.id)),
+    )
+    if (target?.kind === 'lobby') {
+      nextLobbySnapshotKeys.add(lobbySnapshotStateKey(target.id))
     }
 
-    if (nextLobbySnapshotKey && subscribedLobbySnapshotKey !== nextLobbySnapshotKey) {
-      activityWatch.subscribeKey(nextLobbySnapshotKey)
+    for (const key of subscribedLobbySnapshotKeys) {
+      if (nextLobbySnapshotKeys.has(key)) continue
+      activityWatch.unsubscribeKey(key)
+      subscribedLobbySnapshotKeys.delete(key)
     }
 
-    subscribedLobbySnapshotKey = nextLobbySnapshotKey
+    for (const key of nextLobbySnapshotKeys) {
+      if (subscribedLobbySnapshotKeys.has(key)) continue
+      activityWatch.subscribeKey(key)
+      subscribedLobbySnapshotKeys.add(key)
+    }
   }
 
   const requestTargetSelection = async (option: ActivityTargetOption, auto = false) => {
@@ -211,6 +222,7 @@ export default function App() {
     }
     setPickerBusy(false)
     setPickerError(result.error)
+    void requestActivityLaunchSnapshotRefresh()
     if (auto && state().status === 'loading') {
       setState({ status: 'error', message: result.error })
     }
@@ -222,7 +234,9 @@ export default function App() {
     const targetState = liveTargetState()
     if (!currentUserId || overviewSnapshot === undefined || targetState === undefined) return
 
-    const options = materializeOverviewOptions(overviewSnapshot, currentUserId)
+    const options = overviewSnapshot
+      ? materializeOverviewOptions(overviewSnapshot, currentUserId)
+      : fallbackOptions()
     const resolvedSnapshot = buildLiveActivityLaunchSnapshot(options, targetState, liveLobbySnapshots, currentUserId)
     const targetOption = targetState
       ? options.find(option => activityTargetOptionKey(option) === activityTargetOptionKey(targetState)) ?? null
@@ -237,6 +251,10 @@ export default function App() {
     })
 
     setAvailableTargets(options)
+
+    if (targetState && !targetOption && overviewSnapshot === null) {
+      void requestActivityLaunchSnapshotRefresh()
+    }
 
     if (resolvedSnapshot?.selection) {
       const resolvedKey = activityTargetOptionKey(resolvedSnapshot.selection.option)
@@ -296,7 +314,7 @@ export default function App() {
       return
     }
 
-    if (key === subscribedLobbySnapshotKey) {
+    if (key.startsWith('lobby:snapshot:')) {
       if (op === 'put') {
         const snapshot = parseLobbySnapshotValue(value)
         if (!snapshot) return
@@ -309,14 +327,19 @@ export default function App() {
       else {
         const lobbyId = key.slice('lobby:snapshot:'.length)
         liveLobbySnapshots.delete(lobbyId)
+        if (liveOverviewSnapshot() === null) {
+          void requestActivityLaunchSnapshotRefresh()
+        }
       }
       setLiveLobbySnapshotVersion(version => version + 1)
       applyLiveActivityState()
+      return
     }
   }
 
   createEffect(() => {
     liveTargetState()
+    availableTargets()
     syncActivityWatchSubscriptions()
   })
 
@@ -324,9 +347,65 @@ export default function App() {
     liveOverviewSnapshot()
     liveTargetState()
     liveLobbySnapshotVersion()
+    fallbackOptions()
     overviewPinned()
     untrack(applyLiveActivityState)
   })
+
+  const hydrateActivityLaunchSnapshot = (snapshot: ActivityLaunchSnapshot) => {
+    setFallbackOptions(snapshot.options)
+    if (snapshot.selection?.kind === 'lobby') {
+      liveLobbySnapshots.set(snapshot.selection.lobby.id, snapshot.selection.lobby)
+      setLiveLobbySnapshotVersion(version => version + 1)
+    }
+    applyLaunchSnapshot(snapshot)
+  }
+
+  const refreshActivityLaunchSnapshot = async (channelId: string, userId: string) => {
+    const snapshot = await fetchActivityLaunchSnapshot(channelId, userId)
+    if (!snapshot) return
+    hydrateActivityLaunchSnapshot(snapshot)
+  }
+
+  const resolveMatchSelectionOption = (matchId: string, lobbyId: string | null, lobbyMode: string | null): ActivityTargetOption => {
+    const resolved = availableTargets().find(option => option.kind === 'match' && option.id === matchId)
+      ?? fallbackOptions().find(option => option.kind === 'match' && option.id === matchId)
+    if (resolved) return resolved
+
+    const lastSelection = lastResolvedSelection()
+    if (lastSelection?.kind === 'match' && lastSelection.matchId === matchId) {
+      return lastSelection.option
+    }
+
+    return {
+      kind: 'match',
+      id: matchId,
+      lobbyId: lobbyId ?? '',
+      matchId,
+      channelId: activeChannelId ?? '',
+      mode: lobbyMode ?? '1v1',
+      status: 'drafting',
+      participantCount: 0,
+      targetSize: 0,
+      isMember: true,
+      isHost: false,
+      updatedAt: Date.now(),
+    }
+  }
+
+  const requestActivityLaunchSnapshotRefresh = async () => {
+    const channelId = activeChannelId
+    const userId = activeUserId
+    if (!channelId || !userId || refreshInFlight) return
+
+    refreshInFlight = true
+    try {
+      await refreshActivityLaunchSnapshot(channelId, userId)
+    }
+    finally {
+      refreshInFlight = false
+    }
+  }
 
   const transitionToDraft = (
     matchId: string,
@@ -358,6 +437,19 @@ export default function App() {
         : current.status === 'authenticated'
           ? current.lobbyMode
           : null)
+
+    const previousSelection = lastResolvedSelection()
+    if (previousSelection?.kind !== 'match' || previousSelection.matchId !== matchId) {
+      setLastResolvedSelection({
+        kind: 'match',
+        option: resolveMatchSelectionOption(matchId, nextLobbyId, nextLobbyMode),
+        matchId,
+        steamLobbyLink,
+        roomAccessToken,
+        lobbyId: nextLobbyId,
+        mode: nextLobbyMode,
+      })
+    }
 
     setState({ status: 'authenticated', matchId, autoStart: nextAutoStart, steamLobbyLink, roomAccessToken, lobbyId: nextLobbyId, lobbyMode: nextLobbyMode })
     if (isSameMatch && (isDraftConnectionInFlight() || hasTerminalDraft)) return
@@ -435,6 +527,7 @@ export default function App() {
     selectionRequestVersion += 1
     suppressAutoSelection = false
     setPickerBusy(false)
+    setFallbackOptions([])
     setLiveOverviewSnapshot(undefined)
     setLiveTargetState(undefined)
     liveLobbySnapshots.clear()
@@ -457,6 +550,7 @@ export default function App() {
     })
 
     syncActivityWatchSubscriptions()
+    void refreshActivityLaunchSnapshot(channelId, currentUserId)
   }
 
   const handleTargetSelection = async (option: ActivityTargetOption) => {

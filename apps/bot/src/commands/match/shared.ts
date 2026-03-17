@@ -5,7 +5,7 @@ import type { LobbyState } from '../../services/lobby/index.ts'
 import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode, maxPlayerCount, teamSize as modeTeamSize } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { filterQueueEntriesForLobby, getLobbiesByMode, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby/index.ts'
-import { storeLobbyLiveSnapshot } from '../../services/lobby/live-snapshot.ts'
+import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { getQueueStates, MAX_QUEUE_ENTRIES, setQueueEntries } from '../../services/queue/index.ts'
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds } from '../../services/ranked/roles.ts'
@@ -322,7 +322,10 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   const finalQueueEntries = filterQueueEntriesForLobby(nextLobby, queue.entries)
-  await storeLobbyLiveSnapshot(kv, mode, nextLobby, finalQueueEntries, nextSlots)
+  await syncLobbyDerivedState(kv, nextLobby, {
+    queueEntries: finalQueueEntries,
+    slots: nextSlots,
+  })
 
   const slottedEntries = mapLobbySlotsToEntries(nextSlots, finalQueueEntries)
   const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)

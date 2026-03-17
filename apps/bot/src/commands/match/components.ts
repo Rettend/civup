@@ -3,7 +3,7 @@ import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel } from '@civup/game'
 import { Button } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { getMatchForUser, storeUserActivityTarget, storeUserLobbyMappings, storeUserMatchMappings } from '../../services/activity/index.ts'
+import { getMatchForUser, storeMatchActivityState, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { clearLobbyById, getLobbyById } from '../../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
@@ -62,25 +62,22 @@ export const component_match_join = factory.component(
 
     if (lobby.status !== 'open') {
       if (!lobby.matchId) {
-        await clearLobbyById(kv, lobby.id)
+        await clearLobbyById(kv, lobby.id, lobby)
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           await sendTransientEphemeralResponse(c, 'This lobby was stale and has been cleared. Use `/match create` to start a fresh lobby.', 'error')
         })
       }
-      await storeUserActivityTarget(kv, lobby.channelId, [identity.userId], {
-        kind: 'match',
-        id: lobby.matchId,
+      await storeMatchActivityState(kv, lobby.channelId, [identity.userId], {
+        matchId: lobby.matchId,
         lobbyId: lobby.id,
         mode: lobby.mode,
         steamLobbyLink: lobby.steamLobbyLink,
         activitySecret: c.env.CIVUP_SECRET,
       })
-      c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], lobby.matchId))
       return c.resActivity()
     }
 
-    await storeUserActivityTarget(kv, lobby.channelId, [identity.userId], { kind: 'lobby', id: lobby.id, pendingJoin: true })
-    c.executionCtx.waitUntil(storeUserLobbyMappings(kv, [identity.userId], lobby.id))
+    await storeUserLobbyState(kv, lobby.channelId, [identity.userId], lobby.id, { pendingJoin: true })
 
     // Keep component response fast so Discord doesn't time out launch-activity interactions.
     c.executionCtx.waitUntil((async () => {
@@ -98,7 +95,7 @@ export const component_match_join = factory.component(
         },
       )
       if ('error' in outcome) {
-        await storeUserActivityTarget(kv, lobby.channelId, [identity.userId], { kind: 'lobby', id: lobby.id })
+        await storeUserLobbyState(kv, lobby.channelId, [identity.userId], lobby.id)
         console.warn('[match-join] join failed after activity launch', {
           mode,
           userId: identity.userId,
@@ -108,7 +105,7 @@ export const component_match_join = factory.component(
       }
 
       try {
-        await storeUserActivityTarget(kv, outcome.lobby.channelId, [identity.userId], { kind: 'lobby', id: outcome.lobby.id })
+        await storeUserLobbyState(kv, outcome.lobby.channelId, [identity.userId], outcome.lobby.id)
         await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, outcome.lobby, {
           embeds: outcome.embeds,
           components: outcome.components,

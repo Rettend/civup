@@ -3,6 +3,9 @@ import { getDefaultFormat, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, 
 import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
 import { getLobbiesByChannel } from '../lobby/index.ts'
+import { channelIndexKey, idKey, matchKey, modeIndexKey } from '../lobby/keys.ts'
+import { lobbySnapshotKey } from '../lobby/live-snapshot.ts'
+import type { LobbyState } from '../lobby/types.ts'
 import { stateStoreMdelete, stateStoreMput } from '../state/store.ts'
 
 // ── Types ───────────────────────────────────────────────────
@@ -207,6 +210,81 @@ export async function storeUserActivityTarget(
   )
 }
 
+export async function storeUserLobbyState(
+  kv: KVNamespace,
+  channelId: string,
+  userIds: string[],
+  lobbyId: string,
+  options?: {
+    pendingJoin?: boolean
+  },
+): Promise<void> {
+  if (userIds.length === 0) return
+
+  const selectedAt = Date.now()
+  const pendingJoin = options?.pendingJoin === true
+  const target = { kind: 'lobby' as const, id: lobbyId, pendingJoin }
+  const targetEntries = await Promise.all(
+    userIds.map(async (userId) => ({
+      key: targetUserKey(userId, channelId),
+      value: JSON.stringify(await serializeActivityTargetSelection(channelId, userId, target, selectedAt, pendingJoin)),
+      expirationTtl: ACTIVITY_MAPPING_TTL,
+    })),
+  )
+
+  await stateStoreMput(kv, [
+    ...userIds.map(userId => ({
+      key: `activity-lobby-user:${userId}`,
+      value: lobbyId,
+      expirationTtl: ACTIVITY_MAPPING_TTL,
+    })),
+    ...targetEntries,
+  ])
+}
+
+export async function storeMatchActivityState(
+  kv: KVNamespace,
+  channelId: string,
+  userIds: string[],
+  target: {
+    matchId: string
+    lobbyId?: string | null
+    mode?: GameMode | null
+    steamLobbyLink?: string | null
+    activitySecret?: string | undefined
+  },
+): Promise<void> {
+  const selectedAt = Date.now()
+  const targetEntries = await Promise.all(
+    userIds.map(async (userId) => ({
+      key: targetUserKey(userId, channelId),
+      value: JSON.stringify(await serializeActivityTargetSelection(channelId, userId, {
+        kind: 'match',
+        id: target.matchId,
+        lobbyId: target.lobbyId,
+        mode: target.mode,
+        steamLobbyLink: target.steamLobbyLink,
+        activitySecret: target.activitySecret,
+      }, selectedAt, false)),
+      expirationTtl: ACTIVITY_MAPPING_TTL,
+    })),
+  )
+
+  await stateStoreMput(kv, [
+    {
+      key: `activity-match:${target.matchId}`,
+      value: channelId,
+      expirationTtl: ACTIVITY_MAPPING_TTL,
+    },
+    ...userIds.map(userId => ({
+      key: `activity-user:${userId}`,
+      value: target.matchId,
+      expirationTtl: ACTIVITY_MAPPING_TTL,
+    })),
+    ...targetEntries,
+  ])
+}
+
 /** Get the currently selected activity target for one channel/user pair. */
 export async function getUserActivityTarget(
   kv: KVNamespace,
@@ -321,6 +399,22 @@ export async function clearLobbyMappings(
   if (channelId) {
     keys.push(...userIds.map(userId => targetUserKey(userId, channelId)))
   }
+  await stateStoreMdelete(kv, keys)
+}
+
+export async function clearLobbyAndActivityMappings(
+  kv: KVNamespace,
+  lobby: Pick<LobbyState, 'id' | 'mode' | 'channelId' | 'matchId' | 'memberPlayerIds'>,
+): Promise<void> {
+  const keys = [
+    idKey(lobby.id),
+    lobbySnapshotKey(lobby.id),
+    modeIndexKey(lobby.mode, lobby.id),
+    channelIndexKey(lobby.channelId, lobby.id),
+    ...lobby.memberPlayerIds.map(userId => `activity-lobby-user:${userId}`),
+    ...lobby.memberPlayerIds.map(userId => targetUserKey(userId, lobby.channelId)),
+  ]
+  if (lobby.matchId) keys.push(matchKey(lobby.matchId))
   await stateStoreMdelete(kv, keys)
 }
 

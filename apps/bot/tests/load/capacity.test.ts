@@ -17,17 +17,15 @@ import { eq } from 'drizzle-orm'
 import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
 import {
+  clearLobbyAndActivityMappings,
   clearLobbyMappings,
-  storeMatchMapping,
-  storeUserActivityTarget,
-  storeUserLobbyMappings,
-  storeUserMatchMappings,
+  storeMatchActivityState,
+  storeUserLobbyState,
 } from '../../src/services/activity/index.ts'
 import { resolveDraftTimerConfig } from '../../src/services/config/index.ts'
 import { markLeaderboardsDirty, refreshDirtyLeaderboards } from '../../src/services/leaderboard/message.ts'
 import {
   attachLobbyMatch,
-  clearLobbyById,
   createLobby,
   filterQueueEntriesForLobby,
   getLobbiesByMode,
@@ -35,9 +33,11 @@ import {
   getLobbyByMatch,
   mapLobbySlotsToEntries,
   normalizeLobbySlots,
+  setLobbyDraftConfig,
   setLobbySlots,
   setLobbyStatus,
 } from '../../src/services/lobby/index.ts'
+import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { activateDraftMatch, createDraftMatch, reportMatch } from '../../src/services/match/index.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
 import { addToQueue, clearQueue, getQueueState } from '../../src/services/queue/index.ts'
@@ -78,6 +78,8 @@ interface SimulationResult {
   draftRoomIncomingMessages: number
   draftRoomIncomingMessagesWithSelectionPreviews: number
   draftRoomIncomingMessagesWithTeamPickPreviews: number
+  openLobbyMutationRequests: number
+  legacySelectedLobbyRefetchRequests: number
 }
 
 interface CapacityScenario {
@@ -91,9 +93,13 @@ interface CapacityScenario {
 interface ScenarioReport {
   mode: CapacityScenario
   model: CapacityModel
+  corePerDraft: UsageSample
+  openLobbyChurnPerDraft: UsageSample
   draftRoomIncomingMessages: number
   draftRoomIncomingMessagesWithSelectionPreviews: number
   draftRoomIncomingMessagesWithTeamPickPreviews: number
+  openLobbyMutationRequests: number
+  legacySelectedLobbyRefetchRequests: number
   freeCapacityPlaysPerDay: number
   paidIncludedCapacityPlaysPerDay: number
   paidTenDollarCapacityPlaysPerDay: number
@@ -142,7 +148,7 @@ const CAPACITY_SCENARIOS: CapacityScenario[] = [
 
 const DO_WEBSOCKET_BILLING_RATIO = 20
 const DO_CREATE_ROOM_REQUESTS_PER_DRAFT = 1
-const LOBBY_WATCH_SUBSCRIBE_MESSAGES_PER_CONNECTION = 2
+const LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION = 4
 const ESTIMATED_DO_GB_SECONDS_PER_REQUEST = 0.0025
 const LEADERBOARD_CRON_RUNS_PER_DAY = 24 * 60 / 2
 
@@ -225,8 +231,21 @@ async function buildScenarioReport(
   mode: CapacityScenario,
   leaderboardCronBackgroundUsage: DailyUsage,
 ): Promise<ScenarioReport> {
-  const baseline = await simulateScenarioLifecycle({ mode, backgroundRatedPlayers: 0 })
-  const withOneBackgroundPlayer = await simulateScenarioLifecycle({ mode, backgroundRatedPlayers: 1 })
+  const coreBaseline = await simulateScenarioLifecycle({
+    mode,
+    backgroundRatedPlayers: 0,
+    includeOpenLobbyChurn: false,
+  })
+  const baseline = await simulateScenarioLifecycle({
+    mode,
+    backgroundRatedPlayers: 0,
+    includeOpenLobbyChurn: true,
+  })
+  const withOneBackgroundPlayer = await simulateScenarioLifecycle({
+    mode,
+    backgroundRatedPlayers: 1,
+    includeOpenLobbyChurn: true,
+  })
 
   const model: CapacityModel = {
     perDraft: {
@@ -279,9 +298,13 @@ async function buildScenarioReport(
   return {
     mode,
     model,
+    corePerDraft: coreBaseline.usage,
+    openLobbyChurnPerDraft: subtractUsage(baseline.usage, coreBaseline.usage),
     draftRoomIncomingMessages: baseline.draftRoomIncomingMessages,
     draftRoomIncomingMessagesWithSelectionPreviews: baseline.draftRoomIncomingMessagesWithSelectionPreviews,
     draftRoomIncomingMessagesWithTeamPickPreviews: baseline.draftRoomIncomingMessagesWithTeamPickPreviews,
+    openLobbyMutationRequests: baseline.openLobbyMutationRequests,
+    legacySelectedLobbyRefetchRequests: baseline.legacySelectedLobbyRefetchRequests,
     freeCapacityPlaysPerDay,
     paidIncludedCapacityPlaysPerDay,
     paidTenDollarCapacityPlaysPerDay,
@@ -349,6 +372,7 @@ async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
 async function simulateScenarioLifecycle(input: {
   mode: CapacityScenario
   backgroundRatedPlayers: number
+  includeOpenLobbyChurn: boolean
 }): Promise<SimulationResult> {
   const { db, sqlite } = await createTestDatabase()
   const sqlTracker = trackSqlite(sqlite)
@@ -399,6 +423,12 @@ async function simulateScenarioLifecycle(input: {
       await simulateActivityLaunchSnapshot(kv, stateCoordinator.secret, CHANNEL_ID, playerId)
     }
 
+    const openLobbyMutationRequests = input.includeOpenLobbyChurn
+      ? await simulateOpenLobbyChurn(kv, input.mode)
+      : 0
+    botRequests += openLobbyMutationRequests
+    const legacySelectedLobbyRefetchRequests = viewerIds.length * openLobbyMutationRequests
+
     botRequests += 1
     const started = await startDraftFromOpenLobby(db, kv, input.mode)
 
@@ -421,13 +451,15 @@ async function simulateScenarioLifecycle(input: {
       stateCoordinatorRequests: stateCoordinator.requests(),
       viewerCount: scenarioViewerIds(input.mode).length,
       draftRoomIncomingMessages: started.draftRoomIncomingMessages,
-      lobbyWatchSubscribeMessagesPerConnection: LOBBY_WATCH_SUBSCRIBE_MESSAGES_PER_CONNECTION,
+      lobbyWatchIncomingMessagesPerConnection: LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION,
     })
 
     return {
       draftRoomIncomingMessages: started.draftRoomIncomingMessages,
       draftRoomIncomingMessagesWithSelectionPreviews: started.draftRoomIncomingMessagesWithSelectionPreviews,
       draftRoomIncomingMessagesWithTeamPickPreviews: started.draftRoomIncomingMessagesWithTeamPickPreviews,
+      openLobbyMutationRequests,
+      legacySelectedLobbyRefetchRequests,
       usage: {
         workersRequests: botRequests + activityRequests,
         d1RowsRead: sqlTracker.counts.rowsRead,
@@ -460,6 +492,7 @@ async function simulateMatchCreate(kv: KVNamespace, mode: CapacityScenario): Pro
   const hostEntry = buildQueueEntry(HOST_ID, 1)
   const addResult = await addToQueue(kv, mode.mode, hostEntry, { currentState: queue })
   if (addResult.error) throw new Error(addResult.error)
+  const nextQueue = addResult.state ?? queue
 
   const lobby = await createLobby(kv, {
     mode: mode.mode,
@@ -467,9 +500,9 @@ async function simulateMatchCreate(kv: KVNamespace, mode: CapacityScenario): Pro
     hostId: HOST_ID,
     channelId: draftChannelId,
     messageId: `message-lobby-open-${mode.id}`,
+    queueEntries: nextQueue.entries,
   })
-  await storeUserLobbyMappings(kv, [HOST_ID], lobby.id)
-  await storeUserActivityTarget(kv, draftChannelId, [HOST_ID], { kind: 'lobby', id: lobby.id })
+  await storeUserLobbyState(kv, draftChannelId, [HOST_ID], lobby.id)
 }
 
 async function simulateMatchJoin(
@@ -484,8 +517,7 @@ async function simulateMatchJoin(
   )
   if ('error' in outcome) throw new Error(outcome.error)
 
-  await storeUserLobbyMappings(kv, group, outcome.lobby.id)
-  await storeUserActivityTarget(kv, outcome.lobby.channelId, group, { kind: 'lobby', id: outcome.lobby.id })
+  await storeUserLobbyState(kv, outcome.lobby.channelId, group, outcome.lobby.id)
 }
 
 async function simulateActivityLaunchSnapshot(
@@ -495,6 +527,33 @@ async function simulateActivityLaunchSnapshot(
   userId: string,
 ): Promise<void> {
   await buildActivityLaunchSnapshot(undefined, activitySecret, kv, channelId, userId)
+}
+
+async function simulateOpenLobbyChurn(kv: KVNamespace, mode: CapacityScenario): Promise<number> {
+  let botRequests = 0
+
+  botRequests += 1
+  await simulateOpenLobbyConfigEdit(kv, mode)
+
+  botRequests += 1
+  await simulateOpenLobbyConfigEdit(kv, mode)
+
+  return botRequests
+}
+
+async function simulateOpenLobbyConfigEdit(kv: KVNamespace, mode: CapacityScenario): Promise<void> {
+  const lobby = await getLobby(kv, mode.mode)
+  if (!lobby || lobby.status !== 'open') throw new Error(`Expected open ${mode.mode} lobby before config edit`)
+
+  const updatedLobby = await setLobbyDraftConfig(kv, lobby.id, {
+    ...lobby.draftConfig,
+    banTimerSeconds: (lobby.draftConfig.banTimerSeconds ?? 30) + 1,
+  }, lobby) ?? lobby
+
+  const queue = await getQueueState(kv, mode.mode)
+  const queueEntries = filterQueueEntriesForLobby(updatedLobby, queue.entries)
+  const slots = normalizeLobbySlots(mode.mode, updatedLobby.slots, queueEntries)
+  await syncLobbyDerivedState(kv, updatedLobby, { queueEntries, slots })
 }
 
 async function startDraftFromOpenLobby(
@@ -530,12 +589,12 @@ async function startDraftFromOpenLobby(
   }
 
   await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
-  await storeMatchMapping(kv, lobby.channelId, matchId)
-  await storeUserMatchMappings(kv, lobby.memberPlayerIds, matchId)
-  await storeUserActivityTarget(kv, lobby.channelId, lobby.memberPlayerIds, { kind: 'match', id: matchId })
+  await storeMatchActivityState(kv, lobby.channelId, lobby.memberPlayerIds, { matchId })
 
   const slottedLobby = await setLobbySlots(kv, lobby.id, slots, lobby) ?? { ...lobby, slots }
-  await attachLobbyMatch(kv, lobby.id, matchId, slottedLobby)
+  const draftingLobby = await attachLobbyMatch(kv, lobby.id, matchId, slottedLobby)
+  if (!draftingLobby) throw new Error('Expected lobby to transition to drafting during capacity simulation')
+  await syncLobbyDerivedState(kv, draftingLobby)
   await storeMatchMessageMapping(db, `message-lobby-drafting-${mode.id}`, matchId)
 
   const completedDraft = buildCompletedDraftState(matchId, mode.mode, seats)
@@ -564,7 +623,8 @@ async function handleDraftCompleteWebhook(
   const lobby = await getLobbyByMatch(kv, matchId)
   if (!lobby) throw new Error('Expected lobby mapping during draft-complete simulation')
 
-  await setLobbyStatus(kv, lobby.id, 'active', lobby)
+  const activeLobby = await setLobbyStatus(kv, lobby.id, 'active', lobby) ?? lobby
+  await syncLobbyDerivedState(kv, activeLobby)
   await storeMatchMessageMapping(db, `message-lobby-active-${matchId}`, matchId)
 }
 
@@ -616,10 +676,8 @@ async function handleMatchReport(
   }
 
   if (lobby) {
-    await setLobbyStatus(kv, lobby.id, 'completed', lobby)
     await storeMatchMessageMapping(db, `message-lobby-reported-${mode.id}`, matchId)
-    await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
-    await clearLobbyById(kv, lobby.id)
+    await clearLobbyAndActivityMappings(kv, lobby)
   }
 
   const archiveChannelId = await getSystemChannel(kv, 'archive')
@@ -814,13 +872,15 @@ function printReports(reports: ScenarioReport[]): void {
     mode: report.mode.label,
     players: scenarioPlayersPerDraft(report.mode),
     viewers: scenarioViewerIds(report.mode).length,
+    lobbyMutations: report.openLobbyMutationRequests,
+    legacyRefetchesAvoided: report.legacySelectedLobbyRefetchRequests,
     draftMsgs: report.draftRoomIncomingMessages,
     previewMsgs: report.draftRoomIncomingMessagesWithSelectionPreviews,
     teamPreviewMsgs: report.draftRoomIncomingMessagesWithTeamPickPreviews,
   })))
   console.log('[capacity] globals', {
     leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
-    lobbyWatchMsgsPerConnection: LOBBY_WATCH_SUBSCRIBE_MESSAGES_PER_CONNECTION,
+    lobbyWatchMsgsPerConnection: LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION,
     doWebsocketBillingRatio: DO_WEBSOCKET_BILLING_RATIO,
     estimatedDoGbSecondsPerRequest: ESTIMATED_DO_GB_SECONDS_PER_REQUEST,
   })
@@ -832,6 +892,18 @@ function printReports(reports: ScenarioReport[]): void {
       doDurationGbSeconds: roundForReport(backgroundDailyUsage.doDurationGbSeconds),
     }])
   }
+
+  console.log('\n[capacity] core lifecycle vs modeled lobby churn')
+  console.table(reports.map(report => ({
+    mode: report.mode.label,
+    coreWorkers: report.corePerDraft.workersRequests,
+    churnWorkers: report.openLobbyChurnPerDraft.workersRequests,
+    coreDoRequests: report.corePerDraft.doRequests,
+    churnDoRequests: report.openLobbyChurnPerDraft.doRequests,
+    totalDoRequests: report.model.perDraft.doRequests,
+    churnKvReads: report.openLobbyChurnPerDraft.kvReads,
+    churnDoSqlReads: report.openLobbyChurnPerDraft.doSqliteRowsRead,
+  })))
 
   console.log('\n[capacity] measured per draft usage')
   console.table(reports.map(report => ({
@@ -943,15 +1015,31 @@ function roundForReport(value: number): number {
   return Number.isInteger(value) ? value : Number(value.toFixed(1))
 }
 
+function subtractUsage(total: UsageSample, base: UsageSample): UsageSample {
+  return {
+    workersRequests: total.workersRequests - base.workersRequests,
+    d1RowsRead: total.d1RowsRead - base.d1RowsRead,
+    d1RowsWritten: total.d1RowsWritten - base.d1RowsWritten,
+    doSqliteRowsRead: total.doSqliteRowsRead - base.doSqliteRowsRead,
+    doSqliteRowsWritten: total.doSqliteRowsWritten - base.doSqliteRowsWritten,
+    kvReads: total.kvReads - base.kvReads,
+    kvWrites: total.kvWrites - base.kvWrites,
+    kvDeletes: total.kvDeletes - base.kvDeletes,
+    kvLists: total.kvLists - base.kvLists,
+    doRequests: total.doRequests - base.doRequests,
+    doDurationGbSeconds: Number((total.doDurationGbSeconds - base.doDurationGbSeconds).toFixed(4)),
+  }
+}
+
 function estimateDoBilledRequestUnits(input: {
   stateCoordinatorRequests: number
   viewerCount: number
   draftRoomIncomingMessages: number
-  lobbyWatchSubscribeMessagesPerConnection: number
+  lobbyWatchIncomingMessagesPerConnection: number
 }): number {
   const draftRoomWebsocketConnects = input.viewerCount
   const lobbyWatchWebsocketConnects = input.viewerCount
-  const lobbyWatchIncomingMessages = input.viewerCount * input.lobbyWatchSubscribeMessagesPerConnection
+  const lobbyWatchIncomingMessages = input.viewerCount * input.lobbyWatchIncomingMessagesPerConnection
 
   const billedDraftMessages = Math.ceil(input.draftRoomIncomingMessages / DO_WEBSOCKET_BILLING_RATIO)
   const billedLobbyWatchMessages = Math.ceil(lobbyWatchIncomingMessages / DO_WEBSOCKET_BILLING_RATIO)
