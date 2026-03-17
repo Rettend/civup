@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { activityOverviewKey } from '../../src/services/activity/live-state.ts'
+import { activityOverviewKey, syncActivityOverviewSnapshot } from '../../src/services/activity/live-state.ts'
 import { createLobby, getLobbyByChannel, getLobbyById, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus } from '../../src/services/lobby/index.ts'
-import { lobbySnapshotKey } from '../../src/services/lobby/live-snapshot.ts'
+import { lobbySnapshotKey, syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
@@ -173,6 +173,7 @@ describe('lobby service KV write behavior', () => {
     const nextSlots = [...(withMembers?.slots ?? lobby.slots)]
     nextSlots[1] = 'player-2'
     const updated = await setLobbySlots(kv, lobby.id, nextSlots, withMembers ?? lobby)
+    await syncLobbyDerivedState(kv, updated ?? withMembers ?? lobby)
 
     expect(updated).not.toBeNull()
     const snapshot = await kv.get(lobbySnapshotKey(lobby.id), 'json') as {
@@ -204,12 +205,13 @@ describe('lobby service KV write behavior', () => {
 
     expect(await kv.get(lobbySnapshotKey(lobby.id), 'json')).not.toBeNull()
 
-    await setLobbyStatus(kv, lobby.id, 'drafting')
+    const updated = await setLobbyStatus(kv, lobby.id, 'drafting')
+    await syncLobbyDerivedState(kv, updated ?? lobby)
 
     expect(await kv.get(lobbySnapshotKey(lobby.id), 'json')).toBeNull()
   })
 
-  test('publishes and clears activity overview snapshots for the channel', async () => {
+  test('builds and clears activity overview snapshots on demand for the channel', async () => {
     const { kv } = createTrackedKv()
 
     const lobby = await createLobby(kv, {
@@ -219,6 +221,7 @@ describe('lobby service KV write behavior', () => {
       messageId: 'message-1',
     })
 
+    await syncActivityOverviewSnapshot(kv, 'channel-1')
     const overview = await kv.get(activityOverviewKey('channel-1'), 'json') as {
       options?: Array<{ kind?: unknown, id?: unknown, hostId?: unknown }>
     } | null
@@ -230,7 +233,9 @@ describe('lobby service KV write behavior', () => {
       }),
     ])
 
-    await setLobbyStatus(kv, lobby.id, 'cancelled')
+    const updated = await setLobbyStatus(kv, lobby.id, 'cancelled')
+    await syncLobbyDerivedState(kv, updated ?? lobby)
+    await syncActivityOverviewSnapshot(kv, 'channel-1')
 
     expect(await kv.get(activityOverviewKey('channel-1'), 'json')).toBeNull()
   })
