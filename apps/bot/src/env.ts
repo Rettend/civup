@@ -7,6 +7,7 @@ export interface Env {
     DISCORD_TOKEN: string
     PARTY_HOST?: string
     BOT_HOST?: string
+    ENABLE_DEBUG_LOBBY_FILL?: string
     CIVUP_SECRET?: string
   }
 }
