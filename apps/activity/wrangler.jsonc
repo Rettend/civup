@@ -18,9 +18,6 @@
   "assets": {
     "not_found_handling": "single-page-application"
   },
-  // Secrets (DISCORD_CLIENT_SECRET) set via `wrangler secret put`
-  // Local dev secrets in .dev.vars (gitignored)
-
   "observability": {
     "logs": {
       "enabled": true,
