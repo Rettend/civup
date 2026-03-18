@@ -852,7 +852,7 @@ export async function scrubMatchResult(
   }
 }
 
-/** Fill empty lobby slots with active test players (host-only, dev-only). */
+/** Fill empty lobby slots with active test players (host-only, dev or env-enabled). */
 export async function canFillLobbyWithTestPlayers(mode: string): Promise<boolean> {
   try {
     const res = await activityFetch(`/api/lobby/${mode}/fill-test`, {
@@ -867,7 +867,7 @@ export async function canFillLobbyWithTestPlayers(mode: string): Promise<boolean
   }
 }
 
-/** Fill empty lobby slots with active test players (host-only, dev-only). */
+/** Fill empty lobby slots with active test players (host-only, dev or env-enabled). */
 export async function fillLobbyWithTestPlayers(
   mode: string,
   lobbyId: string,
