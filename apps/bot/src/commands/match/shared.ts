@@ -4,7 +4,7 @@ import type { lobbyComponents } from '../../embeds/match.ts'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode, maxPlayerCount, teamSize as modeTeamSize } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
-import { filterInactiveOpenLobbies, filterQueueEntriesForLobby, getLobbiesByMode, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyLastJoinedAt, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby/index.ts'
+import { filterQueueEntriesForLobby, getLobbiesByMode, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { getQueueStates, MAX_QUEUE_ENTRIES, setQueueEntries } from '../../services/queue/index.ts'
@@ -163,7 +163,7 @@ export async function joinLobbyAndMaybeStartMatch(
   const queueStates = await getQueueStates(kv)
   let queue = queueStates.get(mode)
   if (!queue) throw new Error(`Queue state missing for mode ${mode}`)
-  const openLobbies = (await filterInactiveOpenLobbies(kv, await getLobbiesByMode(kv, mode))).filter(lobby => lobby.status === 'open')
+  const openLobbies = (await getLobbiesByMode(kv, mode)).filter(lobby => lobby.status === 'open')
   const queueByPlayerId = new Map<string, QueueEntry>(queue.entries.map(entry => [entry.playerId, entry]))
   const queueModeByPlayerId = new Map<string, GameMode>()
   const lobbyByPlayerId = new Map<string, LobbyState>()
@@ -323,7 +323,7 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   if (addedNewPlayers) {
-    nextLobby = await setLobbyLastJoinedAt(kv, nextLobby.id, now, nextLobby) ?? nextLobby
+    nextLobby = await setLobbyLastActivityAt(kv, nextLobby.id, now, nextLobby) ?? nextLobby
   }
 
   const finalQueueEntries = filterQueueEntriesForLobby(nextLobby, queue.entries)

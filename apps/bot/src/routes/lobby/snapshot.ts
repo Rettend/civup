@@ -4,7 +4,7 @@ import type { getRankedRoleConfig } from '../../services/ranked/roles.ts'
 import { buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
 import { MAX_LEADER_POOL_SIZE, maxPlayerCount, minPlayerCount } from '@civup/game'
 import { MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
-import { filterInactiveOpenLobbies, filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
+import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
 import { getQueueState } from '../../services/queue/index.ts'
 import { normalizeRankedRoleTierId } from '../../services/ranked/roles.ts'
 
@@ -57,7 +57,7 @@ export async function getUniqueOpenLobbyForChannel(
   kv: KVNamespace,
   channelId: string,
 ): Promise<LobbyState | null> {
-  const openLobbies = (await filterInactiveOpenLobbies(kv, await getLobbiesByChannel(kv, channelId)))
+  const openLobbies = (await getLobbiesByChannel(kv, channelId))
     .filter(lobby => lobby.channelId === channelId && lobby.status === 'open')
     .sort((left, right) => right.updatedAt - left.updatedAt)
 
@@ -70,7 +70,7 @@ export async function resolveOpenLobbyFromBody(
   mode: GameMode,
   body: { lobbyId?: unknown },
 ): Promise<LobbyState | null> {
-  const openLobbies = (await filterInactiveOpenLobbies(kv, await getLobbiesByMode(kv, mode)))
+  const openLobbies = (await getLobbiesByMode(kv, mode))
     .filter(lobby => lobby.status === 'open')
 
   if (typeof body.lobbyId === 'string' && body.lobbyId.length > 0) {

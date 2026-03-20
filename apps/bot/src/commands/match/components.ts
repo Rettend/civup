@@ -4,7 +4,7 @@ import { formatModeLabel } from '@civup/game'
 import { Button } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { getMatchForUser, storeMatchActivityState, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
-import { clearLobbyById, filterInactiveOpenLobbies, getLobbyById, LOBBY_TIMEOUT_MESSAGE } from '../../services/lobby/index.ts'
+import { clearLobbyById, getLobbyById } from '../../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { createStateStore } from '../../services/state/store.ts'
@@ -60,20 +60,11 @@ export const component_match_join = factory.component(
       })
     }
 
-    if (lobby.status === 'open') {
-      const [activeLobby] = await filterInactiveOpenLobbies(kv, [lobby])
-      if (!activeLobby) {
-        return c.flags('EPHEMERAL').resDefer(async (c) => {
-          await sendTransientEphemeralResponse(c, `${LOBBY_TIMEOUT_MESSAGE} The embed will update shortly.`, 'error')
-        })
-      }
-    }
-
     if (lobby.status !== 'open') {
       if (!lobby.matchId) {
         await clearLobbyById(kv, lobby.id, lobby)
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          await sendTransientEphemeralResponse(c, 'This lobby was stale and has been cleared. Use `/match create` to start a fresh lobby.', 'error')
+          await sendTransientEphemeralResponse(c, 'This lobby is no longer open. Use `/match create` to start a fresh lobby.', 'error')
         })
       }
       await storeMatchActivityState(kv, lobby.channelId, [identity.userId], {
