@@ -129,13 +129,13 @@ const CAPACITY_SCENARIOS: CapacityScenario[] = [
     spectatorIds: ['spec-1', 'spec-2'],
   },
   {
-    id: 'teamers-2v2',
+    id: 'duo-ranked',
     label: '2v2',
     mode: '2v2',
     joinGroups: [['p2'], ['p3', 'p4']],
   },
   {
-    id: 'teamers-3v3',
+    id: 'squad-ranked',
     label: '3v3',
     mode: '3v3',
     joinGroups: [['p2', 'p3'], ['p4', 'p5', 'p6']],

@@ -281,7 +281,7 @@ describe('season services', () => {
 
 async function seedPlayers(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
-  mode: 'ffa' | 'duel' | 'teamers',
+  mode: 'duel' | 'duo' | 'squad' | 'ffa',
   count: number,
   options: { prefix: string, lastPlayedAt: number },
 ): Promise<void> {
@@ -312,7 +312,7 @@ async function seedRating(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   row: {
     playerId: string
-    mode: 'ffa' | 'duel' | 'teamers'
+    mode: 'duel' | 'duo' | 'squad' | 'ffa'
     mu: number
     sigma: number
     gamesPlayed: number

@@ -50,7 +50,7 @@ function getFfaRatingOptions(playerCount: number) {
 /** Minimum games required to appear on leaderboard */
 export const LEADERBOARD_MIN_GAMES = 3
 
-export type LeaderboardMode = 'ffa' | 'duel' | 'teamers'
+export type LeaderboardMode = 'duel' | 'duo' | 'squad' | 'ffa'
 
 // ── Player Rating ───────────────────────────────────────────
 

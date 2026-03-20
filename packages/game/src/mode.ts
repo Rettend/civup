@@ -11,19 +11,22 @@ export const GAME_MODE_CHOICES = [
 
 export const LEADERBOARD_MODE_CHOICES = [
   { name: 'Duel', value: 'duel' },
-  { name: 'Teamers', value: 'teamers' },
+  { name: 'Duo', value: 'duo' },
+  { name: 'Squad', value: 'squad' },
   { name: 'FFA', value: 'ffa' },
 ] as const satisfies readonly { name: string, value: LeaderboardMode }[]
 
 export const LEADERBOARD_MODE_LABELS: Record<LeaderboardMode, string> = {
   duel: 'Duel',
-  teamers: 'Teamers',
+  duo: 'Duo',
+  squad: 'Squad',
   ffa: 'FFA',
 }
 
 const LEADERBOARD_MODE_GAME_MODES = {
   duel: ['1v1'],
-  teamers: ['2v2', '3v3', '4v4'],
+  duo: ['2v2'],
+  squad: ['3v3', '4v4'],
   ffa: ['ffa'],
 } as const satisfies Record<LeaderboardMode, readonly GameMode[]>
 
@@ -96,7 +99,8 @@ export function formatLeaderboardModeLabel(mode: string | null | undefined, fall
 
 /** Map game mode to its leaderboard track. */
 export function toLeaderboardMode(mode: GameMode): LeaderboardMode {
-  if (mode === '2v2' || mode === '3v3' || mode === '4v4') return 'teamers'
+  if (mode === '2v2') return 'duo'
+  if (mode === '3v3' || mode === '4v4') return 'squad'
   if (mode === '1v1') return 'duel'
   return 'ffa'
 }

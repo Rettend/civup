@@ -1,7 +1,7 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import { playerRatings, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
-import { competitiveTierRank } from '@civup/game'
+import { competitiveTierRank, parseLeaderboardMode } from '@civup/game'
 import { DEFAULT_SEASON_RESET_FACTOR, DEFAULT_SIGMA, displayRating } from '@civup/rating'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { clearAllLeaderboardModeSnapshots } from '../leaderboard/snapshot.ts'
@@ -335,7 +335,8 @@ export async function syncSeasonPeaksForPlayers(
   const activeModesByPlayerId = new Map<string, Set<LeaderboardMode>>()
 
   for (const row of ratings) {
-    const mode = row.mode as LeaderboardMode
+    const mode = parseLeaderboardMode(row.mode)
+    if (!mode) continue
     const lastPlayedAt = row.lastPlayedAt ?? null
     if (lastPlayedAt == null || lastPlayedAt < activeSeason.startsAt) continue
 
@@ -359,7 +360,8 @@ export async function syncSeasonPeaksForPlayers(
 
   const modeCandidates = ratings
     .map((row) => {
-      const mode = row.mode as LeaderboardMode
+      const mode = parseLeaderboardMode(row.mode)
+      if (!mode) return null
       const preview = previewByPlayerId.get(row.playerId)
       if (!preview) return null
       return {

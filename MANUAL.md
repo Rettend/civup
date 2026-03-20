@@ -255,7 +255,7 @@ Only host can report the result or scrub the match.
 Two ways:
 
 - inside the **Activity**: host can click on the team that won and then the `Confirm Result` button in the header, for FFA the host needs to select the players in the placement order
-- using **Commands**: `/match report winner:...` for duels and teamers, `/match report [...placements]` for FFA
+- using **Commands**: `/match report winner:...` for duel, duo, and squad games, `/match report [...placements]` for FFA
 
 ### What a successful report does
 

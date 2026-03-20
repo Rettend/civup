@@ -1,7 +1,7 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import { playerRatings } from '@civup/db'
-import { LEADERBOARD_MODES } from '@civup/game'
+import { LEADERBOARD_MODES, parseLeaderboardMode } from '@civup/game'
 import { displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'
 import { eq } from 'drizzle-orm'
 import { previewRankedRoles } from '../ranked/role-sync.ts'
@@ -32,14 +32,17 @@ export async function getPlayerRankProfile(
   playerId: string,
   now = Date.now(),
 ): Promise<PlayerRankProfile> {
-  const [ratingRows, preview, config] = await Promise.all([
+  const preview = await previewRankedRoles({ db, kv, guildId, now, playerIds: [playerId], includePlayerIdentities: false })
+  const [ratingRows, config] = await Promise.all([
     db.select().from(playerRatings).where(eq(playerRatings.playerId, playerId)),
-    previewRankedRoles({ db, kv, guildId, now, playerIds: [playerId], includePlayerIdentities: false }),
     getRankedRoleConfig(kv, guildId),
   ])
 
   const previewPlayer = preview.playerPreviews.find(player => player.playerId === playerId) ?? null
-  const ratingByMode = new Map(ratingRows.map(row => [row.mode as LeaderboardMode, row]))
+  const ratingByMode = new Map(ratingRows.flatMap((row) => {
+    const mode = parseLeaderboardMode(row.mode)
+    return mode ? [[mode, row] as const] : []
+  }))
 
   const modes = Object.fromEntries(LEADERBOARD_MODES.map((mode) => {
     const ratingRow = ratingByMode.get(mode)
