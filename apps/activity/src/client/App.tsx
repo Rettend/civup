@@ -12,7 +12,7 @@ import type {
 import { createEffect, createSignal, Match, onCleanup, onMount, Show, Switch, untrack } from 'solid-js'
 import { activityTargetOptionKey, ActivityTargetPicker, ConfigScreen, DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
-import { didClearResolvedActivityTarget, resolveAutoSelectedActivityTarget } from './lib/activity-targets'
+import { didClearResolvedActivityTarget, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection } from './lib/activity-targets'
 import { cn } from './lib/css'
 import { relayDevLog } from './lib/dev-log'
 import {
@@ -259,7 +259,10 @@ export default function App() {
     if (resolvedSnapshot?.selection) {
       const resolvedKey = activityTargetOptionKey(resolvedSnapshot.selection.option)
       const allowSelectionWhileOverview = !overviewPinned() || (pendingSelectionKey != null && pendingSelectionKey === resolvedKey)
-      if (state().status === 'overview' && !allowSelectionWhileOverview) {
+      if (!shouldApplyResolvedActivitySelection({
+        isOverviewVisible: state().status === 'overview',
+        allowSelectionWhileOverview,
+      })) {
         return
       }
 
@@ -464,8 +467,6 @@ export default function App() {
     allowSelectionWhileOverview = false,
   ) => {
     const current = state()
-    const previousSelectionKey = currentTargetKey()
-    const nextSelectionKey = snapshot.selection ? activityTargetOptionKey(snapshot.selection.option) : null
     setAvailableTargets(snapshot.options)
 
     if (!snapshot.selection) {
@@ -486,7 +487,10 @@ export default function App() {
 
     setLastResolvedSelection(snapshot.selection)
 
-    if (current.status === 'overview' && !allowSelectionWhileOverview && previousSelectionKey === nextSelectionKey) return
+    if (!shouldApplyResolvedActivitySelection({
+      isOverviewVisible: current.status === 'overview',
+      allowSelectionWhileOverview,
+    })) return
 
     if (snapshot.selection.kind === 'lobby') {
       const nextLobby = snapshot.selection.lobby
