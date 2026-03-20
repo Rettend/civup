@@ -19,11 +19,12 @@ interface LobbyParticipant {
 }
 
 interface ModerationContext {
-  actorId: string
+  actorId?: string | null
+  actorLabel?: string | null
   reason?: string | null
 }
 
-export type LobbyStage = 'open' | 'drafting' | 'draft-complete' | 'reported' | 'cancelled' | 'scrubbed'
+export type LobbyStage = 'open' | 'drafting' | 'draft-complete' | 'reported' | 'cancelled' | 'scrubbed' | 'timeout'
 
 const STAGE_LABELS: Record<LobbyStage, string> = {
   'open': 'LOBBY OPEN',
@@ -32,6 +33,7 @@ const STAGE_LABELS: Record<LobbyStage, string> = {
   'reported': 'RESULT REPORTED',
   'cancelled': 'DRAFT CANCELLED',
   'scrubbed': 'MATCH SCRUBBED',
+  'timeout': 'LOBBY TIMEOUT',
 }
 
 const STAGE_COLORS: Record<LobbyStage, number> = {
@@ -41,6 +43,7 @@ const STAGE_COLORS: Record<LobbyStage, number> = {
   'reported': 0x475569,
   'cancelled': 0x6B7280,
   'scrubbed': 0xA8B1BD,
+  'timeout': 0x6B7280,
 }
 
 export function lobbyOpenEmbed(
@@ -158,6 +161,13 @@ export function lobbyCancelledEmbed(
   return lobbyDraftCompleteLeaderEmbed(mode, participants, stage, moderation)
 }
 
+export function lobbyTimeoutEmbed(
+  mode: GameMode,
+  participants: LobbyParticipant[],
+): Embed {
+  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'timeout')
+}
+
 export function lobbyResultEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
@@ -183,7 +193,7 @@ function baseLobbyEmbed(mode: GameMode, stage: LobbyStage): Embed {
 function lobbyDraftCompleteLeaderEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
-  stage: Extract<LobbyStage, 'draft-complete' | 'cancelled' | 'scrubbed'> = 'draft-complete',
+  stage: Extract<LobbyStage, 'draft-complete' | 'cancelled' | 'scrubbed' | 'timeout'> = 'draft-complete',
   moderation?: ModerationContext,
 ): Embed {
   const embed = baseLobbyEmbed(mode, stage)
@@ -411,9 +421,12 @@ function formatLeaderName(civId: string | null): string {
 function buildModerationField(moderation?: ModerationContext): { name: string, value: string, inline: false } | null {
   if (!moderation) return null
   const reason = moderation.reason?.trim() || 'No reason.'
+  const actor = moderation.actorId?.trim()
+    ? `<@${moderation.actorId}>`
+    : moderation.actorLabel?.trim() || 'System'
   return {
     name: 'Note',
-    value: `<@${moderation.actorId}> - ${reason}`,
+    value: `${actor} - ${reason}`,
     inline: false,
   }
 }

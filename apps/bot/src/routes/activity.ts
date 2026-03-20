@@ -8,7 +8,7 @@ import { formatModeLabel, maxPlayerCount } from '@civup/game'
 import { createDraftRoomAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { clearUserActivityTargets, getLobbyForUser, getMatchForChannel, getMatchForUser, getUserActivityTarget, storeUserActivityTarget, storeUserMatchMappings } from '../services/activity/index.ts'
-import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbyById, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
+import { filterInactiveOpenLobbies, filterQueueEntriesForLobby, getLobbiesByChannel, getLobbyById, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
 import { getPlayerQueueMode, getPlayerQueueModeFromStates, getQueueStates } from '../services/queue/index.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
@@ -154,8 +154,9 @@ export function registerActivityRoutes(app: Hono<Env>) {
     const mappedLobbyId = await getLobbyForUser(kv, userId)
     if (mappedLobbyId) {
       const mappedLobby = await getLobbyById(kv, mappedLobbyId)
-      if (mappedLobby?.status === 'open') {
-        return c.json(await buildOpenLobbySnapshot(kv, mappedLobby.mode, mappedLobby))
+      const [activeMappedLobby] = mappedLobby ? await filterInactiveOpenLobbies(kv, [mappedLobby]) : []
+      if (activeMappedLobby?.status === 'open') {
+        return c.json(await buildOpenLobbySnapshot(kv, activeMappedLobby.mode, activeMappedLobby))
       }
     }
 
@@ -227,7 +228,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
 
     const kv = createStateStore(c.env)
     const actualUserId = auth.identity.userId
-    const context = await loadActivityLaunchContext(kv, channelId, actualUserId)
+    const context = await loadActivityLaunchContext(c.env.DISCORD_TOKEN, kv, channelId, actualUserId)
     const target = context.targets.find(candidate => candidate.option.kind === kind && candidate.option.id === id)
     if (!target) {
       await clearUserActivityTargets(kv, channelId, [actualUserId])
@@ -255,7 +256,7 @@ export async function buildActivityLaunchSnapshot(
   channelId: string,
   userId: string,
 ): Promise<ActivityLaunchSnapshot> {
-  const context = await loadActivityLaunchContext(kv, channelId, userId)
+  const context = await loadActivityLaunchContext(token, kv, channelId, userId)
   const selection = await resolveActivityLaunchSelection(kv, channelId, userId, context.targets)
   return buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, selection)
 }
@@ -406,6 +407,7 @@ export async function resolveLobbyJoinEligibility(
 }
 
 async function loadActivityLaunchContext(
+  token: string | undefined,
   kv: KVNamespace,
   channelId: string,
   userId: string,
@@ -414,7 +416,7 @@ async function loadActivityLaunchContext(
   const targets: ChannelActivityTarget[] = []
 
   const lobbiesByMode = new Map<GameMode, LobbyState[]>()
-  const channelLobbies = await getLobbiesByChannel(kv, channelId)
+  const channelLobbies = await filterInactiveOpenLobbies(kv, await getLobbiesByChannel(kv, channelId))
   for (const lobby of channelLobbies) {
     const mode = lobby.mode
     const existing = lobbiesByMode.get(mode)

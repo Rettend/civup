@@ -33,15 +33,17 @@ import {
   getLobbyByMatch,
   mapLobbySlotsToEntries,
   normalizeLobbySlots,
+  pruneInactiveOpenLobbies,
   setLobbyDraftConfig,
   setLobbySlots,
   setLobbyStatus,
 } from '../../src/services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
+import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
 import { activateDraftMatch, createDraftMatch, reportMatch } from '../../src/services/match/index.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
 import { addToQueue, clearQueue, getQueueState } from '../../src/services/queue/index.ts'
-import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
+import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
 import { createStateStore } from '../../src/services/state/store.ts'
@@ -51,6 +53,7 @@ import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
 import {
+  addUsage,
   estimateDailyUsage,
   estimateOverageUsd,
   findMaxPlaysPerDay,
@@ -153,6 +156,8 @@ const DO_CREATE_ROOM_REQUESTS_PER_DRAFT = 1
 const LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION = 4
 const ESTIMATED_DO_GB_SECONDS_PER_REQUEST = 0.0025
 const LEADERBOARD_CRON_RUNS_PER_DAY = 24 * 60 / 2
+const INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY = 24 * 60 / 10
+const RANKED_ROLE_CRON_RUNS_PER_DAY = 1
 
 const FREE_DAILY_LIMITS: UsageLimits = {
   workersRequests: 100_000,
@@ -209,10 +214,18 @@ const NOW = 1_700_000_000_000
 describe('capacity models', () => {
   test('prints current ranked lifecycle capacity projections', async () => {
     const leaderboardCronRunUsage = await measureLeaderboardCronRunUsage()
+    const inactiveLobbyCleanupCronRunUsage = await measureInactiveLobbyCleanupCronRunUsage()
+    const rankedRoleCronRunUsage = await measureRankedRoleCronRunUsage()
     const leaderboardCronBackgroundUsage = multiplyUsage(leaderboardCronRunUsage, LEADERBOARD_CRON_RUNS_PER_DAY)
+    const inactiveLobbyCleanupBackgroundUsage = multiplyUsage(inactiveLobbyCleanupCronRunUsage, INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY)
+    const rankedRoleCronBackgroundUsage = multiplyUsage(rankedRoleCronRunUsage, RANKED_ROLE_CRON_RUNS_PER_DAY)
+    const backgroundCronUsage = addUsage(
+      addUsage(leaderboardCronBackgroundUsage, inactiveLobbyCleanupBackgroundUsage),
+      rankedRoleCronBackgroundUsage,
+    )
     const reports: ScenarioReport[] = []
     for (const mode of CAPACITY_SCENARIOS) {
-      reports.push(await buildScenarioReport(mode, leaderboardCronBackgroundUsage))
+      reports.push(await buildScenarioReport(mode, backgroundCronUsage))
     }
 
     if (SHOULD_PRINT_REPORT) printReports(reports)
@@ -223,6 +236,7 @@ describe('capacity models', () => {
       expect(report.model.perDraft.d1RowsWritten).toBeGreaterThan(0)
       expect(report.draftRoomIncomingMessagesWithSelectionPreviews).toBeGreaterThanOrEqual(report.draftRoomIncomingMessages)
       expect(report.draftRoomIncomingMessagesWithTeamPickPreviews).toBe(report.draftRoomIncomingMessagesWithSelectionPreviews)
+      expect(report.model.backgroundDaily?.kvLists ?? 0).toBeGreaterThan(0)
       expect(report.freeCapacityPlaysPerDay).toBeGreaterThan(0)
       expect(report.paidIncludedCapacityPlaysPerDay).toBeGreaterThan(0)
       expect(report.paidSixDollarCapacityPlaysPerDay).toBeGreaterThanOrEqual(report.paidIncludedCapacityPlaysPerDay)
@@ -365,6 +379,108 @@ async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
     stateCoordinator.reset()
 
     await refreshDirtyLeaderboards(db, kv, 'token')
+
+    const kvReads = operations.filter(op => op.type === 'get').length
+    const kvWrites = operations.filter(op => op.type === 'put').length
+    const kvDeletes = operations.filter(op => op.type === 'delete').length
+    const kvLists = operations.filter(op => op.type === 'list').length
+    const doRequests = stateCoordinator.requests()
+
+    return {
+      workersRequests: 1,
+      d1RowsRead: sqlTracker.counts.rowsRead,
+      d1RowsWritten: sqlTracker.counts.rowsWritten,
+      doSqliteRowsRead: stateCoordinator.sqliteRowsRead(),
+      doSqliteRowsWritten: stateCoordinator.sqliteRowsWritten(),
+      kvReads,
+      kvWrites,
+      kvDeletes,
+      kvLists,
+      doRequests,
+      doDurationGbSeconds: estimateDoDurationGbSeconds(doRequests),
+    }
+  }
+  finally {
+    stateCoordinator.restore()
+    sqlTracker.restore()
+    sqlite.close()
+  }
+}
+
+async function measureInactiveLobbyCleanupCronRunUsage(): Promise<DailyUsage> {
+  const { db, sqlite } = await createTestDatabase()
+  const sqlTracker = trackSqlite(sqlite)
+  const { kv: rawKv, operations, resetOperations } = createTrackedKv({ trackReads: true })
+  const stateCoordinator = installStateCoordinatorHarness()
+  const kv = createStateStore({
+    KV: rawKv,
+    PARTY_HOST: stateCoordinator.host,
+    CIVUP_SECRET: stateCoordinator.secret,
+  })
+
+  try {
+    resetOperations()
+    sqlTracker.reset()
+    stateCoordinator.reset()
+
+    await pruneInactiveOpenLobbies(kv, 'token')
+    await pruneAbandonedMatches(db, kv)
+
+    const kvReads = operations.filter(op => op.type === 'get').length
+    const kvWrites = operations.filter(op => op.type === 'put').length
+    const kvDeletes = operations.filter(op => op.type === 'delete').length
+    const kvLists = operations.filter(op => op.type === 'list').length
+    const doRequests = stateCoordinator.requests()
+
+    return {
+      workersRequests: 1,
+      d1RowsRead: sqlTracker.counts.rowsRead,
+      d1RowsWritten: sqlTracker.counts.rowsWritten,
+      doSqliteRowsRead: stateCoordinator.sqliteRowsRead(),
+      doSqliteRowsWritten: stateCoordinator.sqliteRowsWritten(),
+      kvReads,
+      kvWrites,
+      kvDeletes,
+      kvLists,
+      doRequests,
+      doDurationGbSeconds: estimateDoDurationGbSeconds(doRequests),
+    }
+  }
+  finally {
+    stateCoordinator.restore()
+    sqlTracker.restore()
+    sqlite.close()
+  }
+}
+
+async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
+  const { db, sqlite } = await createTestDatabase()
+  const sqlTracker = trackSqlite(sqlite)
+  const { kv: rawKv, operations, resetOperations } = createTrackedKv({ trackReads: true })
+  const stateCoordinator = installStateCoordinatorHarness()
+  const kv = createStateStore({
+    KV: rawKv,
+    PARTY_HOST: stateCoordinator.host,
+    CIVUP_SECRET: stateCoordinator.secret,
+  })
+
+  try {
+    resetOperations()
+    sqlTracker.reset()
+    stateCoordinator.reset()
+
+    const guildIds = await listRankedRoleConfigGuildIds(kv)
+    for (const guildId of guildIds) {
+      await syncRankedRoles({
+        db,
+        kv,
+        guildId,
+        token: 'token',
+        applyDiscord: true,
+        advanceDemotionWindow: true,
+      })
+    }
+    if (await getRankedRolesDirtyState(kv)) await clearRankedRolesDirtyState(kv)
 
     const kvReads = operations.filter(op => op.type === 'get').length
     const kvWrites = operations.filter(op => op.type === 'put').length
@@ -904,6 +1020,8 @@ function printReports(reports: ScenarioReport[]): void {
   })))
   console.log('[capacity] globals', {
     leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
+    inactiveLobbyCleanupCronRunsPerDay: INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY,
+    rankedRoleCronRunsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY,
     lobbyWatchMsgsPerConnection: LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION,
     doWebsocketBillingRatio: DO_WEBSOCKET_BILLING_RATIO,
     estimatedDoGbSecondsPerRequest: ESTIMATED_DO_GB_SECONDS_PER_REQUEST,
@@ -923,11 +1041,12 @@ function printReports(reports: ScenarioReport[]): void {
     coreWorkers: report.corePerDraft.workersRequests,
     churnWorkers: report.openLobbyChurnPerDraft.workersRequests,
     coreDoRequests: report.corePerDraft.doRequests,
-    churnDoRequests: report.openLobbyChurnPerDraft.doRequests,
-    totalDoRequests: report.model.perDraft.doRequests,
-    churnKvReads: report.openLobbyChurnPerDraft.kvReads,
-    churnDoSqlReads: report.openLobbyChurnPerDraft.doSqliteRowsRead,
-  })))
+      churnDoRequests: report.openLobbyChurnPerDraft.doRequests,
+      totalDoRequests: report.model.perDraft.doRequests,
+      churnKvReads: report.openLobbyChurnPerDraft.kvReads,
+      churnKvLists: report.openLobbyChurnPerDraft.kvLists,
+      churnDoSqlReads: report.openLobbyChurnPerDraft.doSqliteRowsRead,
+    })))
 
   console.log('\n[capacity] measured per draft usage')
   console.table(reports.map(report => ({
@@ -936,12 +1055,13 @@ function printReports(reports: ScenarioReport[]): void {
     d1RowsReadBase: report.model.perDraft.d1RowsReadBase,
     d1RowsReadPerRatedPlayer: report.model.perDraft.d1RowsReadPerLeaderboardPlayer,
     d1RowsWritten: report.model.perDraft.d1RowsWritten,
-    doSqliteRowsRead: report.model.perDraft.doSqliteRowsRead,
-    doSqliteRowsWritten: report.model.perDraft.doSqliteRowsWritten,
-    kvReads: report.model.perDraft.kvReads,
-    kvWrites: report.model.perDraft.kvWrites,
-    doRequests: report.model.perDraft.doRequests,
-    doDurationGbSeconds: roundForReport(report.model.perDraft.doDurationGbSeconds),
+      doSqliteRowsRead: report.model.perDraft.doSqliteRowsRead,
+      doSqliteRowsWritten: report.model.perDraft.doSqliteRowsWritten,
+      kvReads: report.model.perDraft.kvReads,
+      kvLists: report.model.perDraft.kvLists,
+      kvWrites: report.model.perDraft.kvWrites,
+      doRequests: report.model.perDraft.doRequests,
+      doDurationGbSeconds: roundForReport(report.model.perDraft.doDurationGbSeconds),
   })))
 
   console.log('\n[capacity] plan ceilings')
