@@ -13,7 +13,8 @@ interface LeaderboardRatingRow {
 
 const MODE_COLORS: Record<LeaderboardMode, number> = {
   duel: 0xEF4444,
-  teamers: 0x8B5CF6,
+  duo: 0x06B6D4,
+  squad: 0x8B5CF6,
   ffa: 0xF59E0B,
 }
 

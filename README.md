@@ -77,10 +77,18 @@ bun run tunnel
 bun run bot:kv:local
 ```
 
-Trigger the leaderboard cron locally:
+## Trigger cron locally
+
+Leaderboard:
 
 ```bash
 curl.exe "http://127.0.0.1:8787/cdn-cgi/handler/scheduled?cron=%2A%2F2+%2A+%2A+%2A+%2A"
+```
+
+Inactivity cleanup:
+
+```bash
+curl.exe "http://127.0.0.1:8787/cdn-cgi/handler/scheduled?cron=0+%2A+%2A+%2A+%2A"
 ```
 
 ## Production setup

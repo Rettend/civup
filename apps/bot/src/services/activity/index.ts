@@ -427,6 +427,38 @@ export async function clearUserLobbyMappings(
   await stateStoreMdelete(kv, userIds.map(userId => `activity-lobby-user:${userId}`))
 }
 
+export async function clearLobbyMappingsIfMatchingLobby(
+  kv: KVNamespace,
+  userIds: string[],
+  lobbyId: string,
+  channelId: string,
+): Promise<void> {
+  if (userIds.length === 0) return
+
+  const [mappedLobbyIds, targets] = await Promise.all([
+    Promise.all(userIds.map(userId => getLobbyForUser(kv, userId))),
+    Promise.all(userIds.map(userId => getUserActivityTarget(kv, channelId, userId))),
+  ])
+
+  const keys = new Set<string>()
+  for (let index = 0; index < userIds.length; index++) {
+    const userId = userIds[index]
+    if (!userId) continue
+
+    if (mappedLobbyIds[index] === lobbyId) {
+      keys.add(`activity-lobby-user:${userId}`)
+    }
+
+    const target = targets[index]
+    if (target?.kind === 'lobby' && target.id === lobbyId) {
+      keys.add(targetUserKey(userId, channelId))
+    }
+  }
+
+  if (keys.size === 0) return
+  await stateStoreMdelete(kv, [...keys])
+}
+
 function parseActivityTargetSelection(raw: unknown): StoredActivityTargetSelection | null {
   if (!raw || typeof raw !== 'object') return null
 

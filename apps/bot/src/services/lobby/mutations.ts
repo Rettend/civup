@@ -50,6 +50,7 @@ export async function createLobby(
     steamLobbyLink: input.steamLobbyLink ?? null,
     minRole: null,
     maxRole: null,
+    lastActivityAt: now,
     memberPlayerIds: [input.hostId],
     slots,
     draftConfig: { ...DEFAULT_DRAFT_CONFIG },
@@ -288,16 +289,21 @@ export async function setLobbyMemberPlayerIds(
   return updated
 }
 
-export async function touchLobby(
+export async function setLobbyLastActivityAt(
   kv: KVNamespace,
   lobbyId: string,
+  lastActivityAt: number,
   currentLobby?: LobbyState,
 ): Promise<LobbyState | null> {
   const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
   if (!lobby) return null
 
+  const normalizedLastActivityAt = Math.max(1, Math.round(lastActivityAt))
+  if (lobby.lastActivityAt === normalizedLastActivityAt) return lobby
+
   const updated: LobbyState = {
     ...lobby,
+    lastActivityAt: normalizedLastActivityAt,
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }

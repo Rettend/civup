@@ -64,7 +64,7 @@ export const component_match_join = factory.component(
       if (!lobby.matchId) {
         await clearLobbyById(kv, lobby.id, lobby)
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          await sendTransientEphemeralResponse(c, 'This lobby was stale and has been cleared. Use `/match create` to start a fresh lobby.', 'error')
+          await sendTransientEphemeralResponse(c, 'This lobby is no longer open. Use `/match create` to start a fresh lobby.', 'error')
         })
       }
       await storeMatchActivityState(kv, lobby.channelId, [identity.userId], {

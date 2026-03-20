@@ -1,9 +1,9 @@
 import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import type { FfaEntry, TeamInput } from '@civup/rating'
-import { matches, matchParticipants, playerRatings } from '@civup/db'
+import { matches, matchParticipants, playerRatings, seasons } from '@civup/db'
 import { isTeamMode, leaderboardModesToGameModes, parseGameMode } from '@civup/game'
-import { calculateRatings, createRating, displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'
+import { calculateRatings, createRating, displayRating, LEADERBOARD_MIN_GAMES, seasonReset } from '@civup/rating'
 import { and, asc, eq, inArray } from 'drizzle-orm'
 
 interface LeaderboardSnapshotRow {
@@ -30,19 +30,28 @@ export async function recalculateLeaderboardMode(
   leaderboardMode: LeaderboardMode,
 ): Promise<{ matchIds: string[] } | { error: string }> {
   const gameModes = leaderboardModesToGameModes(leaderboardMode)
-  const completedMatches = await db
-    .select({
-      id: matches.id,
-      gameMode: matches.gameMode,
-      createdAt: matches.createdAt,
-      completedAt: matches.completedAt,
-    })
-    .from(matches)
-    .where(and(
-      eq(matches.status, 'completed'),
-      inArray(matches.gameMode, gameModes),
-    ))
-    .orderBy(asc(matches.createdAt), asc(matches.id))
+  const [completedMatches, seasonRows] = await Promise.all([
+    db
+      .select({
+        id: matches.id,
+        gameMode: matches.gameMode,
+        createdAt: matches.createdAt,
+        completedAt: matches.completedAt,
+      })
+      .from(matches)
+      .where(and(
+        eq(matches.status, 'completed'),
+        inArray(matches.gameMode, gameModes),
+      ))
+      .orderBy(asc(matches.createdAt), asc(matches.id)),
+    db
+      .select({
+        id: seasons.id,
+        startsAt: seasons.startsAt,
+      })
+      .from(seasons)
+      .orderBy(asc(seasons.startsAt), asc(seasons.id)),
+  ])
 
   const ratingStateByPlayer = new Map<string, {
     mu: number
@@ -51,8 +60,28 @@ export async function recalculateLeaderboardMode(
     wins: number
     lastPlayedAt: number | null
   }>()
+  let seasonIndex = 0
+
+  function applySeasonResetsUntil(timestamp: number): void {
+    while (seasonIndex < seasonRows.length && seasonRows[seasonIndex]!.startsAt <= timestamp) {
+      for (const [playerId, state] of ratingStateByPlayer.entries()) {
+        const reset = seasonReset(state.mu, state.sigma)
+        ratingStateByPlayer.set(playerId, {
+          ...state,
+          mu: reset.mu,
+          sigma: reset.sigma,
+          gamesPlayed: 0,
+          wins: 0,
+        })
+      }
+
+      seasonIndex += 1
+    }
+  }
 
   for (const match of completedMatches) {
+    applySeasonResetsUntil(match.createdAt)
+
     const participantRows = await db
       .select()
       .from(matchParticipants)
@@ -148,6 +177,8 @@ export async function recalculateLeaderboardMode(
       })
     }
   }
+
+  applySeasonResetsUntil(Number.POSITIVE_INFINITY)
 
   await db.delete(playerRatings).where(eq(playerRatings.mode, leaderboardMode))
 

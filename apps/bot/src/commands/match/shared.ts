@@ -4,7 +4,7 @@ import type { lobbyComponents } from '../../embeds/match.ts'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode, maxPlayerCount, teamSize as modeTeamSize } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
-import { filterQueueEntriesForLobby, getLobbiesByMode, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby/index.ts'
+import { filterQueueEntriesForLobby, getLobbiesByMode, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { getQueueStates, MAX_QUEUE_ENTRIES, setQueueEntries } from '../../services/queue/index.ts'
@@ -302,6 +302,7 @@ export async function joinLobbyAndMaybeStartMatch(
   let nextLobby = chosen.lobby
   const nextSlots = chosen.slots
   const nextMemberPlayerIds = [...new Set([...nextLobby.memberPlayerIds, ...requestedEntries.map(entry => entry.playerId)])]
+  const addedNewPlayers = nextMemberPlayerIds.length !== nextLobby.memberPlayerIds.length
 
   if (queueChanged) {
     await setQueueEntries(kv, mode, nextEntries, {
@@ -319,6 +320,10 @@ export async function joinLobbyAndMaybeStartMatch(
 
   if (!sameLobbySlots(nextSlots, nextLobby.slots)) {
     nextLobby = await setLobbySlots(kv, nextLobby.id, nextSlots, nextLobby) ?? nextLobby
+  }
+
+  if (addedNewPlayers) {
+    nextLobby = await setLobbyLastActivityAt(kv, nextLobby.id, now, nextLobby) ?? nextLobby
   }
 
   const finalQueueEntries = filterQueueEntriesForLobby(nextLobby, queue.entries)

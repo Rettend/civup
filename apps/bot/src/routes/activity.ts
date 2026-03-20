@@ -227,7 +227,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
 
     const kv = createStateStore(c.env)
     const actualUserId = auth.identity.userId
-    const context = await loadActivityLaunchContext(kv, channelId, actualUserId)
+    const context = await loadActivityLaunchContext(c.env.DISCORD_TOKEN, kv, channelId, actualUserId)
     const target = context.targets.find(candidate => candidate.option.kind === kind && candidate.option.id === id)
     if (!target) {
       await clearUserActivityTargets(kv, channelId, [actualUserId])
@@ -255,7 +255,7 @@ export async function buildActivityLaunchSnapshot(
   channelId: string,
   userId: string,
 ): Promise<ActivityLaunchSnapshot> {
-  const context = await loadActivityLaunchContext(kv, channelId, userId)
+  const context = await loadActivityLaunchContext(token, kv, channelId, userId)
   const selection = await resolveActivityLaunchSelection(kv, channelId, userId, context.targets)
   return buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, selection)
 }
@@ -406,6 +406,7 @@ export async function resolveLobbyJoinEligibility(
 }
 
 async function loadActivityLaunchContext(
+  token: string | undefined,
   kv: KVNamespace,
   channelId: string,
   userId: string,
@@ -510,7 +511,6 @@ function pickDefaultActivityLaunchSelection(targets: ChannelActivityTarget[]): R
   const preferredTarget = targets.find(target => (target.option.isHost || target.option.isMember) && target.option.kind === 'match')
     ?? targets.find(target => target.option.isHost || target.option.isMember)
     ?? targets.find(target => target.option.kind === 'match')
-    ?? targets.find(target => target.option.kind === 'lobby')
   if (!preferredTarget) return null
 
   return {

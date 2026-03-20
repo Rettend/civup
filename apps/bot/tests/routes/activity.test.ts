@@ -178,6 +178,33 @@ describe('activity target selection', () => {
     expect(snapshot.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
   })
 
+  test('does not auto-select unrelated open lobbies for spectators', async () => {
+    const { kv } = createTrackedKv()
+    await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'spectator-1')
+    expect(snapshot.selection).toBeNull()
+    expect(snapshot.options).toHaveLength(1)
+    expect(snapshot.options[0]).toEqual(expect.objectContaining({
+      kind: 'lobby',
+      channelId: 'channel-1',
+      isHost: false,
+      isMember: false,
+    }))
+  })
+
   test('includes the Steam lobby link in live match activity selections', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {

@@ -20,6 +20,7 @@ export interface LobbyState {
   steamLobbyLink: string | null
   minRole: CompetitiveTier | null
   maxRole: CompetitiveTier | null
+  lastActivityAt: number
   /** Player IDs currently attached to this lobby (slotted or spectator). */
   memberPlayerIds: string[]
   /** Slot player IDs for open lobby ordering (null = empty slot) */
@@ -30,10 +31,12 @@ export interface LobbyState {
   revision: number
 }
 
-export interface StoredLobbyState extends Omit<LobbyState, 'draftConfig' | 'slots' | 'revision' | 'memberPlayerIds' | 'steamLobbyLink'> {
+export interface StoredLobbyState extends Omit<LobbyState, 'draftConfig' | 'slots' | 'revision' | 'memberPlayerIds' | 'steamLobbyLink' | 'lastActivityAt'> {
   steamLobbyLink?: unknown
   draftConfig?: Partial<LobbyDraftConfig> | null
   slots?: unknown
   revision?: unknown
+  lastActivityAt?: unknown
+  lastJoinedAt?: unknown
   memberPlayerIds?: unknown
 }

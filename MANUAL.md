@@ -89,7 +89,6 @@ Use `/admin config` to inspect and change the global default configs.
 | --- | --- | --- |
 | `ban_timer` | time in seconds for the ban phase | `180` |
 | `pick_timer` | time in seconds for a single player to pick a leader | `180` |
-| `queue_timeout` | time in minutes before a lobby is marked as inactive | `30` |
 
 > [!NOTE]
 >
@@ -97,7 +96,6 @@ Use `/admin config` to inspect and change the global default configs.
 > - hosts can override timers and leader pool size for their lobby before the draft starts
 > - leaving a timer blank means "use the server default"
 > - setting a timer to `0` means unlimited
-> - if the last join was more than `queue_timeout` minutes ago a lobby is simply marked as inactive, but inactive lobbies are only cleaned up hourly, see [Sync](#sync) below
 
 ### 5. Start a season when ranked games should count
 
@@ -255,7 +253,7 @@ Only host can report the result or scrub the match.
 Two ways:
 
 - inside the **Activity**: host can click on the team that won and then the `Confirm Result` button in the header, for FFA the host needs to select the players in the placement order
-- using **Commands**: `/match report winner:...` for duels and teamers, `/match report [...placements]` for FFA
+- using **Commands**: `/match report winner:...` for duel, duo, and squad games, `/match report [...placements]` for FFA
 
 ### What a successful report does
 
@@ -327,7 +325,7 @@ Ranked roles and leaderboards are not updated after every single report. Instead
 
 - **Leaderboard embeds**: every 2 minutes
 - **Ranked roles**: every day at 0:00 UTC, or when `/admin ranked sync` is used
-- **Inactive queue cleanup**: every hour on the hour
+- **Inactive lobby cleanup**: every hour
 
 ## Seasons
 
