@@ -17,7 +17,10 @@ export async function playerCardEmbed(
   db: Database,
   playerId: string,
   modeFilter: StatsModeFilter = 'all',
-  options: { rankProfile?: PlayerRankProfile | null } = {},
+  options: {
+    rankProfile?: PlayerRankProfile | null
+    visibleModes?: readonly LeaderboardMode[]
+  } = {},
 ): Promise<Embed> {
   const [player] = await db
     .select()
@@ -35,6 +38,7 @@ export async function playerCardEmbed(
 
   const requestedModeLabel = modeFilter === 'all' ? null : formatModeLabel(modeFilter, modeFilter)
   const rankProfile = options.rankProfile ?? null
+  const visibleModes = options.visibleModes ?? LEADERBOARD_MODES
 
   const embed = new Embed()
     .title('Stats')
@@ -42,7 +46,7 @@ export async function playerCardEmbed(
     .color(0xC8AA6E)
 
   const fields: Array<{ name: string, value: string, inline?: boolean }> = []
-  const ratingModes = getRatingModes(modeFilter)
+  const ratingModes = getRatingModes(modeFilter, visibleModes)
 
   for (const mode of ratingModes) {
     const ratingRow = ratings.find(r => r.mode === mode)
@@ -148,9 +152,10 @@ function formatRankedRoleMention(mode: PlayerRankProfile['modes'][LeaderboardMod
   return label || null
 }
 
-function getRatingModes(modeFilter: StatsModeFilter): readonly LeaderboardMode[] {
-  if (modeFilter === 'all') return LEADERBOARD_MODES
-  return [toLeaderboardMode(modeFilter)]
+function getRatingModes(modeFilter: StatsModeFilter, visibleModes: readonly LeaderboardMode[]): readonly LeaderboardMode[] {
+  if (modeFilter === 'all') return visibleModes
+  const mode = toLeaderboardMode(modeFilter)
+  return visibleModes.includes(mode) ? [mode] : []
 }
 
 function buildCompletedMatchesWhereClause(playerId: string, modeFilter: StatsModeFilter, seasonId: string | null) {

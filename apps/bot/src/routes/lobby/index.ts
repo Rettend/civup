@@ -8,6 +8,7 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
 import { clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, createDraftRoom, storeMatchActivityState, storeUserLobbyState, storeUserLobbyMappings } from '../../services/activity/index.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from '../../services/config/index.ts'
+import { isGameModeEnabled } from '../../services/game-modes.ts'
 import {
   arrangeLobbySlots,
   attachLobbyMatch,
@@ -65,7 +66,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseGameMode(c.req.param('mode'))
+    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
     if (!isDebugLobbyFillEnabled(c.req.url, c.env.BOT_HOST, c.env.ENABLE_DEBUG_LOBBY_FILL)) return c.json({ error: 'Not found' }, 404)
     return c.body(null, 204)
@@ -75,7 +76,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseGameMode(c.req.param('mode'))
+    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
     const lobbyId = c.req.param('lobbyId')
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
@@ -98,7 +99,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseGameMode(c.req.param('mode'))
+    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) {
       return c.json({ error: 'Invalid game mode' }, 400)
@@ -299,7 +300,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseGameMode(c.req.param('mode'))
+    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
@@ -329,7 +330,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (mismatch) return mismatch
 
     const nextMode = typeof nextModeRaw === 'string' ? parseGameMode(nextModeRaw) : null
-    if (!nextMode) {
+    if (!nextMode || !isGameModeEnabled(c.env, nextMode)) {
       return c.json({ error: 'nextMode must be one of ffa, 1v1, 2v2, 3v3, 4v4' }, 400)
     }
 
@@ -416,7 +417,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseGameMode(c.req.param('mode'))
+    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
@@ -583,7 +584,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseGameMode(c.req.param('mode'))
+    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
@@ -678,7 +679,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseGameMode(c.req.param('mode'))
+    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
     if (!isTeamMode(mode)) {
@@ -765,7 +766,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseGameMode(c.req.param('mode'))
+    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
@@ -871,7 +872,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Not found' }, 404)
     }
 
-    const mode = parseGameMode(c.req.param('mode'))
+    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
@@ -967,7 +968,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseGameMode(c.req.param('mode'))
+    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
@@ -1042,7 +1043,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     if (!canStartLobbyWithPlayerCount(mode, selectedEntries.length)) {
       if (mode === 'ffa') {
-        return c.json({ error: `FFA can start with ${lobbyMinPlayerCount(mode)}-${maxPlayerCount(mode)} slotted players.` }, 400)
+        const minPlayers = lobbyMinPlayerCount(mode)
+        const maxPlayers = maxPlayerCount(mode)
+        const requirement = minPlayers === maxPlayers ? String(maxPlayers) : `${minPlayers}-${maxPlayers}`
+        return c.json({ error: `FFA can start with ${requirement} slotted players.` }, 400)
       }
       return c.json({ error: `${formatModeLabel(mode)} requires exactly ${maxPlayerCount(mode)} slotted players.` }, 400)
     }
@@ -1141,7 +1145,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseGameMode(c.req.param('mode'))
+    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) {
       return c.json({ error: 'Invalid game mode' }, 400)
@@ -1259,6 +1263,12 @@ function buildDebugFillPlayerId(prefix: string, mode: GameMode, slot: number, ex
     suffix += 1
   }
   return `${base}:${suffix}`
+}
+
+function parseEnabledRouteGameMode(env: Env['Bindings'], value: string): GameMode | null {
+  const mode = parseGameMode(value)
+  if (!mode || !isGameModeEnabled(env, mode)) return null
+  return mode
 }
 
 function isDebugLobbyFillEnabled(

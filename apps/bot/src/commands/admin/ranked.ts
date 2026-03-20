@@ -2,6 +2,7 @@ import type { CompetitiveTier } from '@civup/game'
 import type { AdminCommandContext, AdminVar } from './types.ts'
 import { createDb } from '@civup/db'
 import { formatLeaderboardModeLabel, parseLeaderboardMode } from '@civup/game'
+import { isLeaderboardModeEnabled } from '../../services/game-modes.ts'
 import { clearRankedRolesDirtyState, syncRankedRoles } from '../../services/ranked/role-sync.ts'
 import {
   createRankedRoleTierId,
@@ -136,6 +137,11 @@ export function handleReset(c: AdminCommandContext) {
   if (!playerId || !mode) {
     return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
       await sendTransientEphemeralResponse(c, 'Please provide player and mode.', 'error')
+    })
+  }
+  if (!isLeaderboardModeEnabled(c.env, mode)) {
+    return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
+      await sendTransientEphemeralResponse(c, 'That leaderboard track is not enabled on this deployment.', 'error')
     })
   }
 

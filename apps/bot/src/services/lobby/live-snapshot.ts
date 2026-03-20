@@ -8,7 +8,6 @@ import { LOBBY_TTL } from './keys.ts'
 import { filterQueueEntriesForLobby, mapLobbySlotsToEntries, normalizeLobbySlots } from './slots.ts'
 
 const LOBBY_SNAPSHOT_KEY_PREFIX = 'lobby:snapshot:'
-const TEMP_LOBBY_START_MIN_PLAYERS_FFA = 1
 
 export interface LobbySnapshot {
   id: string
@@ -145,6 +144,5 @@ export function filterLobbySnapshotQueueEntries(lobby: LobbyState, queueEntries:
 }
 
 function lobbyMinPlayerCount(mode: GameMode): number {
-  if (mode === 'ffa') return TEMP_LOBBY_START_MIN_PLAYERS_FFA
   return minPlayerCount(mode)
 }
