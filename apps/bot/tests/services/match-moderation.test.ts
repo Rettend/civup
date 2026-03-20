@@ -2,7 +2,7 @@ import { matches, matchParticipants, playerRatings, players } from '@civup/db'
 import { buildLeaderboard } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
-import { cancelMatchByModerator, reportMatch, resolveMatchByModerator } from '../../src/services/match/index.ts'
+import { cancelMatchByModerator, recalculateLeaderboardMode, reportMatch, resolveMatchByModerator } from '../../src/services/match/index.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('match moderation recalculation', () => {
@@ -183,6 +183,44 @@ describe('match moderation recalculation', () => {
       sqlite.close()
     }
   })
+
+  test('recalculateLeaderboardMode splits 2v2 into duo and 3v3 into squad', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await seedCompletedTeamMatches(db)
+
+      const duoResult = await recalculateLeaderboardMode(db, 'duo')
+      const squadResult = await recalculateLeaderboardMode(db, 'squad')
+
+      expect('error' in duoResult).toBe(false)
+      expect('error' in squadResult).toBe(false)
+      if ('error' in duoResult || 'error' in squadResult) return
+
+      expect(duoResult.matchIds).toEqual(['duo-1'])
+      expect(squadResult.matchIds).toEqual(['squad-1'])
+
+      const duoRatings = await db
+        .select()
+        .from(playerRatings)
+        .where(eq(playerRatings.mode, 'duo'))
+
+      const squadRatings = await db
+        .select()
+        .from(playerRatings)
+        .where(eq(playerRatings.mode, 'squad'))
+
+      expect(duoRatings).toHaveLength(4)
+      expect(squadRatings).toHaveLength(6)
+      expect(duoRatings.every(row => row.gamesPlayed === 1)).toBe(true)
+      expect(squadRatings.every(row => row.gamesPlayed === 1)).toBe(true)
+      expect(duoRatings.some(row => row.playerId.startsWith('s'))).toBe(false)
+      expect(squadRatings.some(row => row.playerId.startsWith('d'))).toBe(false)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
 })
 
 async function seedThreeCompletedDuels(db: any): Promise<void> {
@@ -244,5 +282,39 @@ async function seedActiveFfaMatch(db: any): Promise<void> {
     { matchId: 'ffa1', playerId: 'p4', team: null, civId: 'china', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
     { matchId: 'ffa1', playerId: 'p5', team: null, civId: 'japan', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
     { matchId: 'ffa1', playerId: 'p6', team: null, civId: 'france', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+  ])
+}
+
+async function seedCompletedTeamMatches(db: any): Promise<void> {
+  await db.insert(players).values([
+    { id: 'd1', displayName: 'D1', avatarUrl: null, createdAt: 1 },
+    { id: 'd2', displayName: 'D2', avatarUrl: null, createdAt: 1 },
+    { id: 'd3', displayName: 'D3', avatarUrl: null, createdAt: 1 },
+    { id: 'd4', displayName: 'D4', avatarUrl: null, createdAt: 1 },
+    { id: 's1', displayName: 'S1', avatarUrl: null, createdAt: 1 },
+    { id: 's2', displayName: 'S2', avatarUrl: null, createdAt: 1 },
+    { id: 's3', displayName: 'S3', avatarUrl: null, createdAt: 1 },
+    { id: 's4', displayName: 'S4', avatarUrl: null, createdAt: 1 },
+    { id: 's5', displayName: 'S5', avatarUrl: null, createdAt: 1 },
+    { id: 's6', displayName: 'S6', avatarUrl: null, createdAt: 1 },
+  ])
+
+  await db.insert(matches).values([
+    { id: 'duo-1', gameMode: '2v2', status: 'completed', createdAt: 1000, completedAt: 2000, seasonId: null, draftData: null },
+    { id: 'squad-1', gameMode: '3v3', status: 'completed', createdAt: 3000, completedAt: 4000, seasonId: null, draftData: null },
+  ])
+
+  await db.insert(matchParticipants).values([
+    { matchId: 'duo-1', playerId: 'd1', team: 0, civId: 'rome', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'duo-1', playerId: 'd2', team: 0, civId: 'greece', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'duo-1', playerId: 'd3', team: 1, civId: 'india', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'duo-1', playerId: 'd4', team: 1, civId: 'china', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+
+    { matchId: 'squad-1', playerId: 's1', team: 0, civId: 'rome', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'squad-1', playerId: 's2', team: 0, civId: 'greece', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'squad-1', playerId: 's3', team: 0, civId: 'india', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'squad-1', playerId: 's4', team: 1, civId: 'china', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'squad-1', playerId: 's5', team: 1, civId: 'japan', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'squad-1', playerId: 's6', team: 1, civId: 'france', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
   ])
 }

@@ -1,7 +1,7 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import { matches, matchParticipants, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
-import { parseGameMode, toLeaderboardMode } from '@civup/game'
+import { parseGameMode, parseLeaderboardMode, toLeaderboardMode } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { createGuildRole, deleteGuildRole, DiscordApiError, editGuildMemberRoles } from '../discord/index.ts'
 import {
@@ -200,7 +200,8 @@ export async function listPlayerSeasonSnapshotHistory(
 
   const historyBySeasonId = new Map<string, SeasonRankHistoryEntry>()
   for (const row of rows) {
-    const mode = row.mode as LeaderboardMode
+    const mode = parseLeaderboardMode(row.mode)
+    if (!mode) continue
     const seasonEntry = historyBySeasonId.get(row.seasonId) ?? {
       seasonId: row.seasonId,
       seasonNumber: row.seasonNumber,

@@ -43,7 +43,8 @@ describe('player rank views', () => {
     expect(profile.modes.duel.tier).toBe(TIER_4)
     expect(profile.modes.duel.tierLabel).toBe('Role 4')
     expect(profile.modes.duel.tierRoleId).toBe('22222222222222222')
-    expect(profile.modes.teamers.rating).toBeNull()
+    expect(profile.modes.duo.rating).toBeNull()
+    expect(profile.modes.squad.rating).toBeNull()
 
     sqlite.close()
   })
@@ -134,7 +135,8 @@ describe('player rank views', () => {
     expect(JSON.stringify(rank.fields)).toContain('S1')
     expect(JSON.stringify(rank.fields)).toContain('Rating: <@&11111111111111111> (631)')
     expect(JSON.stringify(rank.fields)).toContain('Rating: <@&44444444444444444> (711)')
-    expect(JSON.stringify(rank.fields)).not.toContain('Teamers')
+    expect(JSON.stringify(rank.fields)).not.toContain('Duo')
+    expect(JSON.stringify(rank.fields)).not.toContain('Squad')
 
     sqlite.close()
   })
@@ -252,7 +254,7 @@ describe('player rank views', () => {
 
 async function seedPlayers(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
-  mode: 'ffa' | 'duel' | 'teamers',
+  mode: 'duel' | 'duo' | 'squad' | 'ffa',
   count: number,
   options: { prefix: string },
 ): Promise<void> {
@@ -297,7 +299,7 @@ async function seedRating(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   row: {
     playerId: string
-    mode: 'ffa' | 'duel' | 'teamers'
+    mode: 'duel' | 'duo' | 'squad' | 'ffa'
     mu: number
     sigma: number
     gamesPlayed: number
