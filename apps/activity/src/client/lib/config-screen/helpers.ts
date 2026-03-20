@@ -162,8 +162,8 @@ export function leaderPoolSizeToInput(leaderPoolSize: number | null): string {
   return String(leaderPoolSize)
 }
 
-export function leaderPoolSizePlaceholder(mode: GameMode, playerCount: number): string {
-  return String(getDefaultLeaderPoolSize(mode, playerCount))
+export function leaderPoolSizePlaceholder(mode: GameMode, playerCount: number, targetSize?: number): string {
+  return String(getDefaultLeaderPoolSize(mode, resolveLeaderPoolDefaultPlayerCount(mode, playerCount, targetSize)))
 }
 
 export function getLeaderPoolSizeMinimum(mode: GameMode, playerCount: number): number {
@@ -195,8 +195,17 @@ export function formatLeaderPoolValue(
   leaderPoolSize: number | null,
   mode: GameMode,
   playerCount: number,
+  targetSize?: number,
 ): string {
-  return String(leaderPoolSize ?? getDefaultLeaderPoolSize(mode, playerCount))
+  return String(leaderPoolSize ?? getDefaultLeaderPoolSize(mode, resolveLeaderPoolDefaultPlayerCount(mode, playerCount, targetSize)))
+}
+
+function resolveLeaderPoolDefaultPlayerCount(mode: GameMode, playerCount: number, targetSize?: number): number {
+  if (mode === 'ffa' && typeof targetSize === 'number' && Number.isFinite(targetSize) && targetSize > 0) {
+    return targetSize
+  }
+
+  return playerCount
 }
 
 export function normalizeLobbyRankRoleValue(value: string): CompetitiveTier | null {

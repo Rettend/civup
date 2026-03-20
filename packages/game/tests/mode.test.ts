@@ -4,8 +4,11 @@ import {
   formatModeLabel,
   inferGameMode,
   leaderboardModesToGameModes,
+  maxPlayerCount,
   maxTeammatesForMode,
+  minPlayerCount,
   parseGameMode,
+  playerCountOptions,
   slotToTeamIndex,
   teamSize,
   toLeaderboardMode,
@@ -110,5 +113,11 @@ describe('shared mode helpers', () => {
     expect(slotToTeamIndex('2v2', 3)).toBe(1)
     expect(slotToTeamIndex('4v4', 7)).toBe(1)
     expect(slotToTeamIndex('ffa', 0)).toBeNull()
+  })
+
+  test('uses an 8-player FFA by default', () => {
+    expect(playerCountOptions('ffa')).toEqual([8])
+    expect(minPlayerCount('ffa')).toBe(8)
+    expect(maxPlayerCount('ffa')).toBe(8)
   })
 })

@@ -1,4 +1,5 @@
 import type { Database } from '@civup/db'
+import type { LeaderboardMode } from '@civup/game'
 import type { LeaderboardDirtyState, LeaderboardMessageState } from '../system/channels.ts'
 import { leaderboardDirtyStates, leaderboardMessageStates } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
@@ -38,11 +39,14 @@ export async function refreshConfiguredLeaderboards(
   db: Database,
   kv: KVNamespace,
   token: string,
+  options: {
+    modes?: readonly LeaderboardMode[]
+  } = {},
 ): Promise<boolean> {
   const leaderboardChannelId = await getSystemChannel(kv, 'leaderboard')
   if (!leaderboardChannelId) return false
 
-  await upsertLeaderboardMessagesForChannel(db, kv, token, leaderboardChannelId)
+  await upsertLeaderboardMessagesForChannel(db, kv, token, leaderboardChannelId, { modes: options.modes })
   return true
 }
 
@@ -51,12 +55,18 @@ export async function archiveSeasonLeaderboards(
   kv: KVNamespace,
   token: string,
   seasonName: string,
+  options: {
+    modes?: readonly LeaderboardMode[]
+  } = {},
 ): Promise<boolean> {
   const leaderboardChannelId = await getSystemChannel(kv, 'leaderboard')
   if (!leaderboardChannelId) return false
 
   const existing = await getLeaderboardMessageState(db)
-  const archivedEmbeds = await buildLeaderboardEmbeds(db, kv, { titlePrefix: seasonName })
+  const archivedEmbeds = await buildLeaderboardEmbeds(db, kv, {
+    titlePrefix: seasonName,
+    modes: options.modes,
+  })
 
   if (existing?.channelId === leaderboardChannelId) {
     try {
@@ -74,7 +84,10 @@ export async function archiveSeasonLeaderboards(
     await createChannelMessage(token, leaderboardChannelId, { embeds: archivedEmbeds })
   }
 
-  await upsertLeaderboardMessagesForChannel(db, kv, token, leaderboardChannelId, { forceCreate: true })
+  await upsertLeaderboardMessagesForChannel(db, kv, token, leaderboardChannelId, {
+    forceCreate: true,
+    modes: options.modes,
+  })
   return true
 }
 
@@ -82,11 +95,14 @@ export async function refreshDirtyLeaderboards(
   db: Database,
   kv: KVNamespace,
   token: string,
+  options: {
+    modes?: readonly LeaderboardMode[]
+  } = {},
 ): Promise<boolean> {
   const dirtyState = await getLeaderboardDirtyState(db)
   if (!dirtyState) return false
 
-  const refreshed = await refreshConfiguredLeaderboards(db, kv, token)
+  const refreshed = await refreshConfiguredLeaderboards(db, kv, token, { modes: options.modes })
   if (!refreshed) return false
 
   await clearLeaderboardDirtyState(db)
@@ -100,11 +116,12 @@ export async function upsertLeaderboardMessagesForChannel(
   channelId: string,
   options: {
     forceCreate?: boolean
+    modes?: readonly LeaderboardMode[]
   } = {},
 ): Promise<LeaderboardMessageState> {
   const existing = await getLeaderboardMessageState(db)
   const previousMessageId = !options.forceCreate && existing?.channelId === channelId ? existing.messageId : null
-  const embeds = await buildLeaderboardEmbeds(db, kv)
+  const embeds = await buildLeaderboardEmbeds(db, kv, { modes: options.modes })
 
   if (previousMessageId) {
     try {
@@ -144,10 +161,12 @@ async function buildLeaderboardEmbeds(
   kv: KVNamespace,
   options: {
     titlePrefix?: string
+    modes?: readonly LeaderboardMode[]
   } = {},
 ) {
-  const snapshots = await ensureLeaderboardModeSnapshots(db, kv)
-  return LEADERBOARD_MODES.map((mode) => {
+  const modes = options.modes ?? LEADERBOARD_MODES
+  const snapshots = await ensureLeaderboardModeSnapshots(db, kv, modes)
+  return modes.map((mode) => {
     const snapshot = snapshots.get(mode)
     return leaderboardEmbed(mode, snapshot?.rows ?? [], options)
   })

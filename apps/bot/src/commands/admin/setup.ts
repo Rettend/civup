@@ -1,6 +1,7 @@
 import type { AdminCommandContext } from './types.ts'
 import { createDb } from '@civup/db'
 import { upsertLeaderboardMessagesForChannel } from '../../services/leaderboard/message.ts'
+import { getEnabledLeaderboardModes } from '../../services/game-modes.ts'
 import { createStateStore } from '../../services/state/store.ts'
 import { clearLeaderboardDirtyState, clearLeaderboardMessageState, clearSystemChannel, getSystemChannel, setSystemChannel } from '../../services/system/channels.ts'
 import { formatChannelMention, parseSetupTarget, sendEphemeralResponse, sendTransientEphemeralResponse, setupTargetLabel } from './shared.ts'
@@ -59,7 +60,9 @@ export function handleSetup(c: AdminCommandContext) {
     if (target === 'leaderboard') {
       try {
         const db = createDb(c.env.DB)
-        await upsertLeaderboardMessagesForChannel(db, kv, c.env.DISCORD_TOKEN, channelId)
+        await upsertLeaderboardMessagesForChannel(db, kv, c.env.DISCORD_TOKEN, channelId, {
+          modes: getEnabledLeaderboardModes(c.env),
+        })
         await clearLeaderboardDirtyState(kv)
         const movedFrom = previousChannelId && previousChannelId !== channelId ? ` (moved from <#${previousChannelId}>)` : ''
         await sendTransientEphemeralResponse(c, `Leaderboard channel set to <#${channelId}>${movedFrom}.`, 'success')

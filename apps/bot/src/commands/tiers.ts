@@ -1,14 +1,15 @@
 import { createDb } from '@civup/db'
-import { LEADERBOARD_MODE_CHOICES, parseLeaderboardMode } from '@civup/game'
+import { parseLeaderboardMode } from '@civup/game'
 import { Command, Option } from 'discord-hono'
 import { rankedPreviewEmbeds } from '../embeds/ranked-preview.ts'
+import { getEnabledLeaderboardModes, getRegisteredLeaderboardModeChoices, isLeaderboardModeEnabled } from '../services/game-modes.ts'
 import { summarizeRankedPreview } from '../services/ranked/role-sync.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { factory } from '../setup.ts'
 
 const MODE_CHOICES = [
   { name: 'All', value: 'all' },
-  ...LEADERBOARD_MODE_CHOICES,
+  ...getRegisteredLeaderboardModeChoices(),
 ] as const
 
 interface Var {
@@ -22,6 +23,7 @@ export const command_tiers = factory.command<Var>(
   (c) => {
     const guildId = c.interaction.guild_id
     const mode = parseLeaderboardMode(c.var.mode)
+    if (mode && !isLeaderboardModeEnabled(c.env, mode)) return c.res('That leaderboard track is not enabled on this deployment.')
 
     if (!guildId) return c.res('This command can only be used in a server.')
 
@@ -35,7 +37,15 @@ export const command_tiers = factory.command<Var>(
         mode: mode ?? undefined,
       })
 
-      await c.followup({ embeds: rankedPreviewEmbeds(summary) })
+      const visibleModes = new Set(getEnabledLeaderboardModes(c.env))
+      await c.followup({
+        embeds: rankedPreviewEmbeds(mode
+          ? summary
+          : {
+              ...summary,
+              modes: summary.modes.filter(entry => visibleModes.has(entry.mode)),
+            }),
+      })
     })
   },
 )

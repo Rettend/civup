@@ -8,7 +8,7 @@ import type {
   RankRoleSetDetail,
 } from '~/client/lib/config-screen/helpers'
 import type { LobbyArrangeStrategy, LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
-import { formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isTeamMode as isTeamGameMode, normalizeCompetitiveTierBounds } from '@civup/game'
+import { formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isTeamMode as isTeamGameMode, normalizeCompetitiveTierBounds, parseGameMode } from '@civup/game'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, Switch, TextInput } from '~/client/components/ui'
 import {
@@ -79,6 +79,7 @@ interface LobbyEditableDraftConfig extends DraftTimerConfig {
 }
 
 const CONFIG_MESSAGE_TIMEOUT_MS = 4000
+const ENABLED_GAME_MODE_CHOICES = resolveEnabledGameModeChoices(import.meta.env.VITE_ENABLED_GAME_MODES as string | undefined)
 
 /** Pre-draft setup screen (lobby waiting + room waiting). */
 export function ConfigScreen(props: ConfigScreenProps) {
@@ -359,7 +360,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return state()?.seats.length ?? leaderPoolPlayerCount()
   }
   const leaderPoolMinimumValue = () => getLeaderPoolSizeMinimum(lobbyMode(), leaderPoolValidationCount())
-  const leaderPoolPlaceholderValue = () => leaderPoolSizePlaceholder(lobbyMode(), leaderPoolPlayerCount())
+  const leaderPoolPlaceholderValue = () => leaderPoolSizePlaceholder(lobbyMode(), leaderPoolPlayerCount(), currentLobby()?.targetSize)
   const currentDraftLeaderPoolSize = () => {
     const draftState = state()
     if (!draftState) return null
@@ -371,7 +372,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   }
   const formattedLeaderPool = () => {
     const lobby = currentLobby()
-    if (lobby) return formatLeaderPoolValue(draftConfig().leaderPoolSize, inferGameMode(lobby.mode), leaderPoolPlayerCount())
+    if (lobby) return formatLeaderPoolValue(draftConfig().leaderPoolSize, inferGameMode(lobby.mode), leaderPoolPlayerCount(), lobby.targetSize)
     const size = currentDraftLeaderPoolSize()
     return size == null ? 'Unknown' : String(size)
   }
@@ -1371,7 +1372,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                     label="Game Mode"
                     value={lobbyMode()}
                     disabled={lobbyActionPending()}
-                    options={GAME_MODE_CHOICES.map(choice => ({ value: choice.value, label: choice.name }))}
+                    options={ENABLED_GAME_MODE_CHOICES.map(choice => ({ value: choice.value, label: choice.name }))}
                     onChange={value => void handleLobbyModeChange(inferGameMode(value))}
                   />
                 </Show>
@@ -1617,4 +1618,17 @@ export function ConfigScreen(props: ConfigScreenProps) {
       </MiniFrame>
     </Show>
   )
+}
+
+function resolveEnabledGameModeChoices(raw: string | undefined) {
+  const trimmed = raw?.trim()
+  if (!trimmed || trimmed === '*' || trimmed.toLowerCase() === 'all') return GAME_MODE_CHOICES
+  const tokens = trimmed.split(/[\s,]+/)
+
+  const enabled = new Set(GAME_MODE_CHOICES.map(choice => choice.value).filter((mode) => {
+    return tokens.some(token => parseGameMode(token) === mode)
+  }))
+
+  if (enabled.size === 0) return GAME_MODE_CHOICES
+  return GAME_MODE_CHOICES.filter(choice => enabled.has(choice.value))
 }

@@ -1,6 +1,7 @@
 import type { AdminCommandContext, AdminComponentContext } from './types.ts'
 import { createDb } from '@civup/db'
 import { Button, Components } from 'discord-hono'
+import { getEnabledLeaderboardModes } from '../../services/game-modes.ts'
 import { archiveSeasonLeaderboards, refreshConfiguredLeaderboards } from '../../services/leaderboard/message.ts'
 import { hasAdminPermission } from '../../services/permissions/index.ts'
 import { resetCurrentRankedRoleState, syncRankedRoles } from '../../services/ranked/role-sync.ts'
@@ -136,7 +137,9 @@ export const component_admin_season_confirm = factory.component(
           const db = createDb(c.env.DB)
           const season = await startSeason(db, { kv })
           await resetCurrentRankedRoleState({ kv, guildId, token: c.env.DISCORD_TOKEN })
-          await refreshConfiguredLeaderboards(db, kv, c.env.DISCORD_TOKEN)
+          await refreshConfiguredLeaderboards(db, kv, c.env.DISCORD_TOKEN, {
+            modes: getEnabledLeaderboardModes(c.env),
+          })
           await ensureSeasonSnapshotRoles(kv, guildId, c.env.DISCORD_TOKEN, season)
           await updateSeasonActionPrompt(c, `Started **${season.name}**. New matches will now count toward this season.`, 'success')
         }
@@ -151,7 +154,9 @@ export const component_admin_season_confirm = factory.component(
         const db = createDb(c.env.DB)
         await syncRankedRoles({ db, kv, guildId })
         const season = await endSeason(db)
-        await archiveSeasonLeaderboards(db, kv, c.env.DISCORD_TOKEN, season.name)
+        await archiveSeasonLeaderboards(db, kv, c.env.DISCORD_TOKEN, season.name, {
+          modes: getEnabledLeaderboardModes(c.env),
+        })
         await finalizeSeasonSnapshotRoles(db, kv, guildId, c.env.DISCORD_TOKEN, season)
         await updateSeasonActionPrompt(c, `Ended **${season.name}**. Season data is now archived.`, 'success')
       }

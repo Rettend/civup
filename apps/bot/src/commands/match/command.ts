@@ -1,13 +1,15 @@
 import type { GameMode, QueueEntry } from '@civup/game'
+import process from 'node:process'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { MatchJoinEntry, MatchVar } from './shared.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, maxPlayerCount, maxTeammatesForMode, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
+import { formatModeLabel, maxPlayerCount, maxTeammatesForMode, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyOpenEmbed, lobbyResultEmbed } from '../../embeds/match.ts'
 import { clearLobbyAndActivityMappings, clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
+import { getEnabledGameModes, getRegisteredGameModeChoices, isGameModeEnabled } from '../../services/game-modes.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
 import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getLobbiesByMode, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
@@ -23,20 +25,22 @@ import { createStateStore } from '../../services/state/store.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
 import { factory } from '../../setup.ts'
-import { collectFfaPlacementUserIds, getIdentity, getIdentityByUserId, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
+import { buildFfaPlacementOptions, collectFfaPlacementUserIds, getIdentity, getIdentityByUserId, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
+
+const MATCH_MODE_CHOICES = getRegisteredGameModeChoices()
 
 export const command_match = factory.command<MatchVar>(
   new Command('match', 'Looking for game, queue management').options(
     new SubCommand('create', 'Create a lobby and auto-join as host').options(
       new Option('mode', 'Game mode for the lobby')
         .required()
-        .choices(...GAME_MODE_CHOICES),
+        .choices(...MATCH_MODE_CHOICES),
       new Option('steam_link', 'Optional Civ 6 Steam lobby link').max_length(MAX_STEAM_LOBBY_LINK_LENGTH),
     ),
     new SubCommand('join', 'Join the queue for a game mode').options(
       new Option('mode', 'Game mode to queue for')
         .required()
-        .choices(...GAME_MODE_CHOICES),
+        .choices(...MATCH_MODE_CHOICES),
       new Option('teammate', 'Teammate for 2v2/3v3/4v4', 'User'),
       new Option('teammate2', 'Second teammate for 3v3/4v4', 'User'),
       new Option('teammate3', 'Third teammate for 4v4', 'User'),
@@ -49,15 +53,7 @@ export const command_match = factory.command<MatchVar>(
     new SubCommand('report', 'Report your active match result (host only)').options(
       new Option('match_id', 'Optional match ID override'),
       new Option('winner', 'Winner (1v1/team) or 1st place (FFA)', 'User'),
-      new Option('second', 'FFA 2nd place', 'User'),
-      new Option('third', 'FFA 3rd place', 'User'),
-      new Option('fourth', 'FFA 4th place', 'User'),
-      new Option('fifth', 'FFA 5th place', 'User'),
-      new Option('sixth', 'FFA 6th place', 'User'),
-      new Option('seventh', 'FFA 7th place', 'User'),
-      new Option('eighth', 'FFA 8th place', 'User'),
-      new Option('ninth', 'FFA 9th place', 'User'),
-      new Option('tenth', 'FFA 10th place', 'User'),
+      ...buildFfaPlacementOptions(),
     ),
     new SubGroup('steam', 'Manage the Civ 6 Steam lobby link').options(
       new SubCommand('set', 'Set or update the Steam lobby link').options(
@@ -73,10 +69,15 @@ export const command_match = factory.command<MatchVar>(
     switch (c.sub.string) {
       // ── create ──────────────────────────────────────────
       case 'create': {
-        const mode = c.var.mode as GameMode
+        const mode = parseGameMode(c.var.mode)
         const steamLobbyLink = parseSteamLobbyLink(c.var.steam_link)
         const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id
         const identity = getIdentity(c)
+        if (!mode || !isGameModeEnabled(c.env, mode)) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'That game mode is not enabled on this deployment.', 'error')
+          })
+        }
         if (!identity) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
             await sendTransientEphemeralResponse(c, 'Could not identify you.', 'error')
@@ -226,9 +227,14 @@ export const command_match = factory.command<MatchVar>(
 
       // ── join ────────────────────────────────────────────
       case 'join': {
-        const mode = c.var.mode as GameMode
+        const mode = parseGameMode(c.var.mode)
         const kv = createStateStore(c.env)
         const identity = getIdentity(c)
+        if (!mode || !isGameModeEnabled(c.env, mode)) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'That game mode is not enabled on this deployment.', 'error')
+          })
+        }
         if (!identity) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
             await sendTransientEphemeralResponse(c, 'Could not identify you.', 'error')
@@ -526,7 +532,7 @@ export const command_match = factory.command<MatchVar>(
       case 'status': {
         return c.resDefer(async (c) => {
           const kv = createStateStore(c.env)
-          const modes = GAME_MODES
+          const modes = getEnabledGameModes(c.env)
           const lines: string[] = []
           const guildId = c.interaction.guild_id ?? null
 
@@ -542,9 +548,9 @@ export const command_match = factory.command<MatchVar>(
                 const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
                 const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
                 const filled = slots.filter(slot => slot != null).length
-                const target = mode === 'ffa'
-                  ? `${minPlayerCount(mode)}-${maxPlayerCount(mode)}`
-                  : String(maxPlayerCount(mode))
+                const minPlayers = minPlayerCount(mode)
+                const maxPlayers = maxPlayerCount(mode)
+                const target = minPlayers === maxPlayers ? String(maxPlayers) : `${minPlayers}-${maxPlayers}`
                 lines.push(`- ${formatModeLabel(mode)} - ${label} (${filled}/${target}) - ${link} - \`${lobby.id}\``)
                 continue
               }
@@ -876,7 +882,7 @@ async function findHostedOpenLobby(kv: KVNamespace, hostId: string) {
 }
 
 async function findHostedOpenLobbies(kv: KVNamespace, hostId: string) {
-  const modes = GAME_MODES
+  const modes = ['ffa', '1v1', '2v2', '3v3', '4v4'] as const
   const lobbies = [] as Awaited<ReturnType<typeof getLobbiesByMode>>[number][]
   for (const mode of modes) {
     lobbies.push(...(await getLobbiesByMode(kv, mode)).filter(candidate => candidate.status === 'open' && candidate.hostId === hostId))
@@ -888,7 +894,7 @@ async function findHostedOpenLobbies(kv: KVNamespace, hostId: string) {
 }
 
 async function findHostedEditableLobbies(kv: KVNamespace, hostId: string): Promise<LobbyState[]> {
-  const modes = GAME_MODES
+  const modes = ['ffa', '1v1', '2v2', '3v3', '4v4'] as const
   const lobbies: LobbyState[] = []
   for (const mode of modes) {
     lobbies.push(...(await getLobbiesByMode(kv, mode)).filter(candidate => candidate.hostId === hostId && isSteamLobbyEditableStatus(candidate.status)))
