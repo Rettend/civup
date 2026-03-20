@@ -375,35 +375,6 @@ export async function clearQueue(
   }
 }
 
-/**
- * Remove stale entries older than the given timeout.
- * Returns removed entries for notification.
- */
-export async function pruneStaleEntries(
-  kv: KVNamespace,
-  timeoutMs: number = 30 * 60 * 1000, // 30 minutes
-): Promise<{ mode: GameMode, entry: QueueEntry }[]> {
-  const now = Date.now()
-  const removed: { mode: GameMode, entry: QueueEntry }[] = []
-
-  for (const mode of GAME_MODES) {
-    const state = await getQueueState(kv, mode)
-    const stale = state.entries.filter(entry => now - entry.joinedAt > timeoutMs)
-    const remaining = state.entries.filter(entry => now - entry.joinedAt <= timeoutMs)
-
-    if (stale.length > 0) {
-      await setQueueEntries(kv, mode, remaining, {
-        currentState: state,
-      })
-      for (const entry of stale) {
-        removed.push({ mode, entry })
-      }
-    }
-  }
-
-  return removed
-}
-
 function unlinkPlayerFromPremadeEntries(entries: QueueEntry[], playerId: string): QueueEntry[] {
   const nextEntries: QueueEntry[] = []
 

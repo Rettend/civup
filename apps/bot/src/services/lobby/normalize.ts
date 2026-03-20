@@ -17,15 +17,25 @@ export function parseLobbyState(raw: unknown): LobbyState | null {
 }
 
 export function normalizeLobby(raw: StoredLobbyState | LobbyState): LobbyState {
+  const createdAt = typeof raw.createdAt === 'number' && Number.isFinite(raw.createdAt)
+    ? Math.round(raw.createdAt)
+    : Date.now()
+  const updatedAt = typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt)
+    ? Math.round(raw.updatedAt)
+    : createdAt
+
   return {
     ...raw,
     id: typeof raw.id === 'string' && raw.id.length > 0 ? raw.id : nanoid(10),
+    createdAt,
+    updatedAt,
     guildId: normalizeGuildId(raw.guildId),
     steamLobbyLink: normalizeSteamLobbyLink(raw.steamLobbyLink),
     slots: normalizeStoredSlots(raw.mode, raw.slots),
     draftConfig: normalizeDraftConfig(raw.draftConfig),
     minRole: normalizeCompetitiveTier(raw.minRole),
     maxRole: normalizeCompetitiveTier(raw.maxRole),
+    lastJoinedAt: normalizeLobbyLastJoinedAt(raw.lastJoinedAt, updatedAt, createdAt),
     memberPlayerIds: normalizeMemberPlayerIds(raw.memberPlayerIds),
     revision: normalizeLobbyRevision(raw.revision),
   }
@@ -84,6 +94,14 @@ export function normalizeLobbyRevision(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 1
   const rounded = Math.round(value)
   return rounded > 0 ? rounded : 1
+}
+
+export function normalizeLobbyLastJoinedAt(value: unknown, updatedAt: number, createdAt: number): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const rounded = Math.round(value)
+    if (rounded > 0) return rounded
+  }
+  return updatedAt > 0 ? updatedAt : createdAt
 }
 
 export function sameDraftConfig(a: LobbyDraftConfig, b: LobbyDraftConfig): boolean {

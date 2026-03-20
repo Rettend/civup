@@ -97,7 +97,7 @@ Use `/admin config` to inspect and change the global default configs.
 > - hosts can override timers and leader pool size for their lobby before the draft starts
 > - leaving a timer blank means "use the server default"
 > - setting a timer to `0` means unlimited
-> - if the last join was more than `queue_timeout` minutes ago a lobby is simply marked as inactive, but inactive lobbies are only cleaned up hourly, see [Sync](#sync) below
+> - if the last join was more than `queue_timeout` minutes ago the lobby is treated as inactive: it stops showing up as joinable, and the cleanup pass cancels its embed due to inactivity
 
 ### 5. Start a season when ranked games should count
 
@@ -327,7 +327,7 @@ Ranked roles and leaderboards are not updated after every single report. Instead
 
 - **Leaderboard embeds**: every 2 minutes
 - **Ranked roles**: every day at 0:00 UTC, or when `/admin ranked sync` is used
-- **Inactive queue cleanup**: every hour on the hour
+- **Inactive lobby cleanup**: every 10 minutes
 
 ## Seasons
 
