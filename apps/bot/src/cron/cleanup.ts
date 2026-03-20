@@ -1,25 +1,23 @@
 import { createDb } from '@civup/db'
-import { getQueueTimeoutMs } from '../services/config/index.ts'
 import { refreshDirtyLeaderboards } from '../services/leaderboard/message.ts'
+import { pruneInactiveOpenLobbies } from '../services/lobby/index.ts'
 import { pruneAbandonedMatches } from '../services/match/index.ts'
-import { pruneStaleEntries } from '../services/queue/index.ts'
 import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, syncRankedRoles } from '../services/ranked/role-sync.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { factory } from '../setup.ts'
 
 export const cron_cleanup = factory.cron(
-  '0 * * * *', // every hour on the hour
+  '0 * * * *', // every hour
   async (c) => {
     const kv = createStateStore(c.env)
     const db = createDb(c.env.DB)
 
-    const queueTimeoutMs = await getQueueTimeoutMs(kv)
-    const removed = await pruneStaleEntries(kv, queueTimeoutMs)
+    const removed = await pruneInactiveOpenLobbies(kv, c.env.DISCORD_TOKEN)
     const prunedMatches = await pruneAbandonedMatches(db, kv)
 
     if (removed.length > 0) {
       // eslint-disable-next-line no-console
-      console.log(`[cron] Pruned ${removed.length} stale queue entries`)
+      console.log(`[cron] Pruned ${removed.length} inactive open lobbies`)
     }
 
     if (prunedMatches.removedMatchIds.length > 0) {
