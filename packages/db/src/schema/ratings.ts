@@ -3,11 +3,11 @@ import { players } from './players.ts'
 
 /**
  * Per-mode ratings for each player.
- * Leaderboard modes: ffa, duel, teamers (2v2 + 3v3 + 4v4 combined).
+ * Leaderboard modes: duel, duo, squad, ffa.
  */
 export const playerRatings = sqliteTable('player_ratings', {
   playerId: text('player_id').notNull().references(() => players.id),
-  /** Leaderboard mode: 'ffa' | 'duel' | 'teamers' */
+  /** Leaderboard mode: 'duel' | 'duo' | 'squad' | 'ffa' */
   mode: text('mode').notNull(),
   /** OpenSkill mu (mean skill estimate, default 25.0) */
   mu: real('mu').notNull().default(25.0),

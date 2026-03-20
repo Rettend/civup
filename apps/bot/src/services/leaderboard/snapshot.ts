@@ -3,6 +3,7 @@ import type { LeaderboardMode } from '@civup/game'
 import { playerRatings } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
 import { eq } from 'drizzle-orm'
+import { recalculateLeaderboardMode } from '../match/ratings.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
 
 export interface LeaderboardSnapshotRow {
@@ -73,7 +74,12 @@ export async function ensureLeaderboardModeSnapshots(
   if (missingModes.length === 0) return snapshots
 
   const rebuilt = await Promise.all(missingModes.map(async (mode) => {
-    const rows = await listLeaderboardModeRowsFromD1(db, mode)
+    let rows = await listLeaderboardModeRowsFromD1(db, mode)
+    if (rows.length === 0 && (mode === 'duo' || mode === 'squad')) {
+      const recalculated = await recalculateLeaderboardMode(db, mode)
+      if ('error' in recalculated) throw new Error(recalculated.error)
+      rows = await listLeaderboardModeRowsFromD1(db, mode)
+    }
     return buildLeaderboardModeSnapshot(mode, rows, Date.now())
   }))
 
