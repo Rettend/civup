@@ -21,6 +21,7 @@ export {
   minPlayerCount,
   parseGameMode,
   parseLeaderboardMode,
+  playerCountOptions,
   playersPerTeam,
   slotToTeamIndex,
   teamCount,

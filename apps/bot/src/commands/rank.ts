@@ -1,6 +1,7 @@
 import { createDb } from '@civup/db'
 import { Command, Option } from 'discord-hono'
 import { rankEmbed } from '../embeds/rank.ts'
+import { getEnabledLeaderboardModes } from '../services/game-modes.ts'
 import { syncPlayerProfileFromDiscord } from '../services/player/profile.ts'
 import { getPlayerRankProfile } from '../services/player/rank.ts'
 import { getActiveSeason } from '../services/season/index.ts'
@@ -44,6 +45,7 @@ export const command_rank = factory.command<Var>(
       const embed = await rankEmbed(db, targetId, profile, {
         activeSeason,
         seasonHistory,
+        visibleModes: getEnabledLeaderboardModes(c.env),
       })
       await c.followup({ embeds: [embed] })
     })

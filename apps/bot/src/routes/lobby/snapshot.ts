@@ -8,8 +8,6 @@ import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, norm
 import { getQueueState } from '../../services/queue/index.ts'
 import { normalizeRankedRoleTierId } from '../../services/ranked/roles.ts'
 
-const TEMP_LOBBY_START_MIN_PLAYERS_FFA = 1
-
 export async function buildOpenLobbySnapshot(
   kv: KVNamespace,
   mode: GameMode,
@@ -42,15 +40,11 @@ export async function buildOpenLobbySnapshotFromParts(
 }
 
 export function lobbyMinPlayerCount(mode: GameMode): number {
-  if (mode === 'ffa') return TEMP_LOBBY_START_MIN_PLAYERS_FFA
   return minPlayerCount(mode)
 }
 
 export function canStartLobbyWithPlayerCount(mode: GameMode, playerCount: number): boolean {
-  if (mode === 'ffa') {
-    return playerCount >= lobbyMinPlayerCount(mode) && playerCount <= maxPlayerCount(mode)
-  }
-  return playerCount === maxPlayerCount(mode)
+  return playerCount >= lobbyMinPlayerCount(mode) && playerCount <= maxPlayerCount(mode)
 }
 
 export async function getUniqueOpenLobbyForChannel(
