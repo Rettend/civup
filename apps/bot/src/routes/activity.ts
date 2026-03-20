@@ -512,7 +512,6 @@ function pickDefaultActivityLaunchSelection(targets: ChannelActivityTarget[]): R
   const preferredTarget = targets.find(target => (target.option.isHost || target.option.isMember) && target.option.kind === 'match')
     ?? targets.find(target => target.option.isHost || target.option.isMember)
     ?? targets.find(target => target.option.kind === 'match')
-    ?? targets.find(target => target.option.kind === 'lobby')
   if (!preferredTarget) return null
 
   return {
