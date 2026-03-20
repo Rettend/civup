@@ -71,7 +71,8 @@ describe('formatLeaderboardModeLabel', () => {
   test('formats supported leaderboard modes', () => {
     expect(formatLeaderboardModeLabel('ffa')).toBe('FFA')
     expect(formatLeaderboardModeLabel('DUEL')).toBe('Duel')
-    expect(formatLeaderboardModeLabel('teamers')).toBe('Teamers')
+    expect(formatLeaderboardModeLabel('duo')).toBe('Duo')
+    expect(formatLeaderboardModeLabel('squad')).toBe('Squad')
   })
 
   test('uses fallback for unknown modes', () => {
@@ -83,15 +84,16 @@ describe('shared mode helpers', () => {
   test('maps game modes to leaderboard tracks', () => {
     expect(toLeaderboardMode('ffa')).toBe('ffa')
     expect(toLeaderboardMode('1v1')).toBe('duel')
-    expect(toLeaderboardMode('2v2')).toBe('teamers')
-    expect(toLeaderboardMode('3v3')).toBe('teamers')
-    expect(toLeaderboardMode('4v4')).toBe('teamers')
+    expect(toLeaderboardMode('2v2')).toBe('duo')
+    expect(toLeaderboardMode('3v3')).toBe('squad')
+    expect(toLeaderboardMode('4v4')).toBe('squad')
   })
 
   test('expands leaderboard tracks to game modes', () => {
-    expect(leaderboardModesToGameModes('ffa')).toEqual(['ffa'])
     expect(leaderboardModesToGameModes('duel')).toEqual(['1v1'])
-    expect(leaderboardModesToGameModes('teamers')).toEqual(['2v2', '3v3', '4v4'])
+    expect(leaderboardModesToGameModes('duo')).toEqual(['2v2'])
+    expect(leaderboardModesToGameModes('squad')).toEqual(['3v3', '4v4'])
+    expect(leaderboardModesToGameModes('ffa')).toEqual(['ffa'])
   })
 
   test('derives shared team helpers', () => {

@@ -1,6 +1,6 @@
 import type { ActivityTargetOption } from '../src/client/stores'
 import { describe, expect, test } from 'bun:test'
-import { didClearResolvedActivityTarget, resolveAutoSelectedActivityTarget } from '../src/client/lib/activity-targets'
+import { didClearResolvedActivityTarget, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection } from '../src/client/lib/activity-targets'
 
 const joinedMatch: ActivityTargetOption = {
   kind: 'match',
@@ -71,5 +71,30 @@ describe('activity target helpers', () => {
     })
 
     expect(selected).toBeNull()
+  })
+
+  test('does not auto-select spectator lobbies by default', () => {
+    const selected = resolveAutoSelectedActivityTarget({
+      options: [staleLobby],
+      target: null,
+      overviewPinned: false,
+      suppressAutoSelection: false,
+    })
+
+    expect(selected).toBeNull()
+  })
+
+  test('keeps pinned overview from applying background selections', () => {
+    expect(shouldApplyResolvedActivitySelection({
+      isOverviewVisible: true,
+      allowSelectionWhileOverview: false,
+    })).toBe(false)
+  })
+
+  test('allows user-requested selections while overview is pinned', () => {
+    expect(shouldApplyResolvedActivitySelection({
+      isOverviewVisible: true,
+      allowSelectionWhileOverview: true,
+    })).toBe(true)
   })
 })

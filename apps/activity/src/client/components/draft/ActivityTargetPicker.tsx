@@ -107,7 +107,7 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
               {' '}
               <code class="text-accent">/match create</code>
               {' '}
-              in Discord to open a new lobby in this channel.
+              to open a new lobby.
             </div>
           </div>
         )}

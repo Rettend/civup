@@ -260,7 +260,7 @@ describe('ranked role sync service', () => {
 
 async function seedPlayers(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
-  mode: 'ffa' | 'duel' | 'teamers',
+  mode: 'duel' | 'duo' | 'squad' | 'ffa',
   count: number,
   options: { prefix: string },
 ): Promise<void> {
@@ -291,7 +291,7 @@ async function seedRating(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   row: {
     playerId: string
-    mode: 'ffa' | 'duel' | 'teamers'
+    mode: 'duel' | 'duo' | 'squad' | 'ffa'
     mu: number
     sigma: number
     gamesPlayed: number
@@ -308,7 +308,7 @@ async function seedPreviousAssignment(
   kv: KVNamespace,
   guildId: string,
   playerId: string,
-  assignment: { tier: string, sourceMode: 'ffa' | 'duel' | 'teamers' | null },
+  assignment: { tier: string, sourceMode: 'duel' | 'duo' | 'squad' | 'ffa' | null },
 ): Promise<void> {
   await kv.put(`ranked-roles:current-assignments:${guildId}`, JSON.stringify({
     byPlayerId: {

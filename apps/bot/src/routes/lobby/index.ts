@@ -6,7 +6,7 @@ import { formatModeLabel, getMinimumLeaderPoolSize, isTeamMode, MAX_LEADER_POOL_
 import { createDraftRoomAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
-import { clearLobbyMappings, clearUserLobbyMappings, createDraftRoom, storeMatchActivityState, storeUserLobbyState, storeUserLobbyMappings } from '../../services/activity/index.ts'
+import { clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, createDraftRoom, storeMatchActivityState, storeUserLobbyState, storeUserLobbyMappings } from '../../services/activity/index.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from '../../services/config/index.ts'
 import {
   arrangeLobbySlots,
@@ -20,15 +20,15 @@ import {
   getOpenLobbyForPlayer,
   mapLobbySlotsToEntries,
   moveSlottedPremadeGroup,
-    normalizeLobbySlots,
-    rebuildQueueEntriesFromPremadeEdgeSet,
-    setLobbyDraftConfig,
-    setLobbyMaxRole,
-    setLobbyMemberPlayerIds,
-    setLobbyMinRole,
-    setLobbySlots,
+  normalizeLobbySlots,
+  rebuildQueueEntriesFromPremadeEdgeSet,
+  setLobbyDraftConfig,
+  setLobbyLastActivityAt,
+  setLobbyMaxRole,
+  setLobbyMemberPlayerIds,
+  setLobbyMinRole,
+  setLobbySlots,
   setLobbySteamLobbyLink,
-  touchLobby,
   upsertLobby,
   upsertLobbyMessage,
 } from '../../services/lobby/index.ts'
@@ -80,7 +80,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
     if (!lobbyId) return c.json({ error: 'lobbyId is required' }, 400)
 
-    const lobby = await getLobbyById(kv, lobbyId)
+    const lobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
     if (!lobby || lobby.mode !== mode || lobby.status !== 'open') {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -161,9 +161,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: STEAM_LOBBY_LINK_ERROR }, 400)
     }
 
-    const resolvedLobby = typeof lobbyId === 'string' && lobbyId.length > 0
-      ? await getLobbyById(kv, lobbyId)
-      : await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
+    const lobbyById = typeof lobbyId === 'string' && lobbyId.length > 0 ? await getLobbyById(kv, lobbyId) : null
+    const resolvedLobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
+      ?? (lobbyById && lobbyById.status !== 'open' ? lobbyById : null)
     if (!resolvedLobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -263,12 +263,16 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     lobby = minRoleUpdated ?? lobby
     const maxRoleUpdated = await setLobbyMaxRole(kv, lobby.id, normalizedMaxRole, lobby)
     lobby = maxRoleUpdated ?? lobby
-    const updated = hasSteamLobbyLink
+    let updated = hasSteamLobbyLink
       ? (await setLobbySteamLobbyLink(kv, lobby.id, parsedSteamLobbyLink ?? null, lobby) ?? lobby)
       : lobby
 
     if (!updated) {
       return c.json({ error: 'Lobby not found' }, 404)
+    }
+
+    if (updated.revision !== resolvedLobby.revision) {
+      updated = await setLobbyLastActivityAt(kv, updated.id, Date.now(), updated) ?? updated
     }
 
     const nextLobbyQueueEntries = buildLobbyQueueEntries(updated, queue.entries)
@@ -362,12 +366,14 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: nextLayout.error }, 400)
     }
     const nextSlots = nextLayout.slots
+    const changedAt = Date.now()
 
     const nextLobby = {
       ...lobby,
       mode: nextMode,
       slots: nextSlots,
-      updatedAt: Date.now(),
+      lastActivityAt: changedAt,
+      updatedAt: changedAt,
       revision: lobby.revision + 1,
     }
 
@@ -473,6 +479,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'That player is already in another open lobby.' }, 400)
     }
 
+    const actionAt = Date.now()
     const movingEntry = lobbyQueueEntries.find(entry => entry.playerId === movingPlayerId)
     if (!movingEntry) {
       if (movingPlayerId !== auth.identity.userId) {
@@ -488,7 +495,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         playerId: movingPlayerId,
         displayName: resolvedDisplayName,
         avatarUrl: auth.identity.avatarUrl,
-        joinedAt: Date.now(),
+        joinedAt: actionAt,
       })
 
       if (joinResult.error) {
@@ -552,7 +559,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const updatedLobby = await setLobbySlots(kv, lobby.id, slots, lobby)
-    const nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
+    let nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
+    nextLobby = await setLobbyLastActivityAt(kv, nextLobby.id, actionAt, nextLobby) ?? nextLobby
     const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
       queueEntries: lobbyQueueEntries,
       slots,
@@ -644,6 +652,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     let nextLobby = await setLobbyMemberPlayerIds(kv, lobby.id, nextMemberIds, lobby) ?? lobby
     const updatedLobby = await setLobbySlots(kv, nextLobby.id, slots, nextLobby)
     nextLobby = updatedLobby ?? { ...nextLobby, slots, updatedAt: Date.now() }
+    nextLobby = await setLobbyLastActivityAt(kv, nextLobby.id, Date.now(), nextLobby) ?? nextLobby
     const nextLobbyQueueEntries = buildLobbyQueueEntries(nextLobby, nextEntries)
     const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
       queueEntries: nextLobbyQueueEntries,
@@ -741,7 +750,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     await setQueueEntries(kv, mode, nextEntries, {
       currentState: queue,
     })
-    const nextLobby = await touchLobby(kv, lobby.id, lobby) ?? lobby
+    const nextLobby = await setLobbyLastActivityAt(kv, lobby.id, Date.now(), lobby) ?? lobby
     const nextLobbyQueueEntries = buildLobbyQueueEntries(nextLobby, nextEntries)
     const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
       queueEntries: nextLobbyQueueEntries,
@@ -834,7 +843,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const updatedLobby = await setLobbySlots(kv, lobby.id, arranged.slots, lobby)
-    const nextLobby = updatedLobby ?? { ...lobby, slots: arranged.slots, updatedAt: Date.now() }
+    let nextLobby = updatedLobby ?? { ...lobby, slots: arranged.slots, updatedAt: Date.now() }
+    nextLobby = await setLobbyLastActivityAt(kv, nextLobby.id, Date.now(), nextLobby) ?? nextLobby
     const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
       queueEntries: lobbyQueueEntries,
       slots: arranged.slots,
@@ -930,6 +940,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const updatedLobby = await setLobbySlots(kv, nextLobby.id, slots, nextLobby)
     nextLobby = updatedLobby ?? { ...nextLobby, slots, updatedAt: Date.now() }
+    nextLobby = await setLobbyLastActivityAt(kv, nextLobby.id, now, nextLobby) ?? nextLobby
     const nextLobbyQueueEntries = buildLobbyQueueEntries(nextLobby, nextEntries)
     const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
       queueEntries: nextLobbyQueueEntries,
@@ -984,7 +995,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Draft auth is not configured.' }, 503)
     }
 
-    const lobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId }) ?? await getLobbyById(kv, typeof lobbyId === 'string' ? lobbyId : '')
+    const lobbyById = typeof lobbyId === 'string' ? await getLobbyById(kv, lobbyId) : null
+    const lobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
+      ?? (lobbyById && lobbyById.status !== 'open' ? lobbyById : null)
     if (!lobby) return c.json({ error: 'No lobby for this mode' }, 404)
 
     if (lobby.hostId !== auth.identity.userId) {
@@ -1165,8 +1178,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const queue = await getQueueState(kv, mode)
-    if (lobby.memberPlayerIds.length > 0) {
-      await clearQueue(kv, mode, lobby.memberPlayerIds, {
+    const lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
+    const activePlayerIds = lobbyQueueEntries.map(entry => entry.playerId)
+    if (activePlayerIds.length > 0) {
+      await clearQueue(kv, mode, activePlayerIds, {
         currentState: queue,
       })
     }
@@ -1182,7 +1197,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       })
     }, `Failed to update cancelled lobby embed for mode ${mode}:`)
 
-    await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
+    await clearLobbyMappingsIfMatchingLobby(kv, activePlayerIds, lobby.id, lobby.channelId)
     await clearLobbyById(kv, lobby.id, lobby)
     return c.json({ ok: true })
   })

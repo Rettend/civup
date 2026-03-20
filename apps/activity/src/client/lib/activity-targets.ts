@@ -25,6 +25,12 @@ export function resolveAutoSelectedActivityTarget(input: {
   return input.options.find(option => (option.isHost || option.isMember) && option.kind === 'match')
     ?? input.options.find(option => option.isHost || option.isMember)
     ?? input.options.find(option => option.kind === 'match')
-    ?? input.options.find(option => option.kind === 'lobby')
     ?? null
+}
+
+export function shouldApplyResolvedActivitySelection(input: {
+  isOverviewVisible: boolean
+  allowSelectionWhileOverview: boolean
+}): boolean {
+  return !input.isOverviewVisible || input.allowSelectionWhileOverview
 }

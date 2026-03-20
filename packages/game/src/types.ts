@@ -3,15 +3,15 @@
 /** Individual game modes */
 export type GameMode = 'ffa' | '1v1' | '2v2' | '3v3' | '4v4'
 
-/** Leaderboard tracks (teamers combines 2v2 + 3v3 + 4v4) */
-export type LeaderboardMode = 'ffa' | 'duel' | 'teamers'
+/** Leaderboard tracks: duel (1v1), duo (2v2), squad (3v3 + 4v4), ffa */
+export type LeaderboardMode = 'duel' | 'duo' | 'squad' | 'ffa'
 
 /** Live competitive rank tiers used for role gates and ranked roles. */
 export type CompetitiveTier = string
 
 export const GAME_MODES = ['ffa', '1v1', '2v2', '3v3', '4v4'] as const satisfies readonly GameMode[]
 
-export const LEADERBOARD_MODES = ['ffa', 'duel', 'teamers'] as const satisfies readonly LeaderboardMode[]
+export const LEADERBOARD_MODES = ['duel', 'duo', 'squad', 'ffa'] as const satisfies readonly LeaderboardMode[]
 
 export const COMPETITIVE_TIERS = ['tier1', 'tier2', 'tier3', 'tier4', 'tier5'] as const satisfies readonly CompetitiveTier[]
 

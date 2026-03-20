@@ -825,17 +825,19 @@ function mergeLadderAssignments(
 
 function buildLadderTierMap(playerId: string, laddersByMode: Map<LeaderboardMode, LadderSnapshots>): Record<LeaderboardMode, CompetitiveTier | null> {
   return {
-    ffa: laddersByMode.get('ffa')?.earn.get(playerId)?.tier ?? null,
     duel: laddersByMode.get('duel')?.earn.get(playerId)?.tier ?? null,
-    teamers: laddersByMode.get('teamers')?.earn.get(playerId)?.tier ?? null,
+    duo: laddersByMode.get('duo')?.earn.get(playerId)?.tier ?? null,
+    squad: laddersByMode.get('squad')?.earn.get(playerId)?.tier ?? null,
+    ffa: laddersByMode.get('ffa')?.earn.get(playerId)?.tier ?? null,
   }
 }
 
 function buildLadderScoreMap(playerId: string, laddersByMode: Map<LeaderboardMode, LadderSnapshots>): Record<LeaderboardMode, number | null> {
   return {
-    ffa: laddersByMode.get('ffa')?.scores.get(playerId) ?? null,
     duel: laddersByMode.get('duel')?.scores.get(playerId) ?? null,
-    teamers: laddersByMode.get('teamers')?.scores.get(playerId) ?? null,
+    duo: laddersByMode.get('duo')?.scores.get(playerId) ?? null,
+    squad: laddersByMode.get('squad')?.scores.get(playerId) ?? null,
+    ffa: laddersByMode.get('ffa')?.scores.get(playerId) ?? null,
   }
 }
 
