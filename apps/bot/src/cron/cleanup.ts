@@ -7,7 +7,7 @@ import { createStateStore } from '../services/state/store.ts'
 import { factory } from '../setup.ts'
 
 export const cron_cleanup = factory.cron(
-  '*/10 * * * *', // every 10 minutes
+  '0 * * * *', // every hour
   async (c) => {
     const kv = createStateStore(c.env)
     const db = createDb(c.env.DB)

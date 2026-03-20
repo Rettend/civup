@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
-import { createLobby, getLobbyById, setLobbyLastJoinedAt, setLobbyMaxRole, setLobbyMinRole } from '../../src/services/lobby/index.ts'
+import { createLobby, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMinRole } from '../../src/services/lobby/index.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -192,7 +192,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     expect(result.lobby.memberPlayerIds).toContain('titan')
   })
 
-  test('prunes inactive lobbies before matchmaking join', async () => {
+  test('still allows joins before hourly inactivity cleanup runs', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: '2v2',
@@ -205,9 +205,9 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       playerId: 'host',
       displayName: 'Host',
       avatarUrl: null,
-      joinedAt: Date.now() - 31 * 60 * 1000,
+      joinedAt: Date.now() - 61 * 60 * 1000,
     })
-    await setLobbyLastJoinedAt(kv, lobby.id, Date.now() - 31 * 60 * 1000, lobby)
+    await setLobbyLastActivityAt(kv, lobby.id, Date.now() - 61 * 60 * 1000, lobby)
 
     globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch
 
@@ -222,9 +222,9 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       avatarUrl: '',
     }])
 
-    expect('error' in result).toBe(true)
-    if (!('error' in result)) return
-    expect(result.error).toContain('No open')
-    expect(await getLobbyById(kv, lobby.id)).not.toBeNull()
+    expect('stage' in result).toBe(true)
+    if (!('stage' in result)) return
+    expect(result.stage).toBe('open')
+    expect(result.lobby.memberPlayerIds).toContain('pleb')
   })
 })
