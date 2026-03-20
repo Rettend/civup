@@ -4,7 +4,7 @@ import type { getRankedRoleConfig } from '../../services/ranked/roles.ts'
 import { buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
 import { MAX_LEADER_POOL_SIZE, maxPlayerCount, minPlayerCount } from '@civup/game'
 import { MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
-import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, getLobbyById, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
+import { filterInactiveOpenLobbies, filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
 import { getQueueState } from '../../services/queue/index.ts'
 import { normalizeRankedRoleTierId } from '../../services/ranked/roles.ts'
 
@@ -53,8 +53,11 @@ export function canStartLobbyWithPlayerCount(mode: GameMode, playerCount: number
   return playerCount === maxPlayerCount(mode)
 }
 
-export async function getUniqueOpenLobbyForChannel(kv: KVNamespace, channelId: string): Promise<LobbyState | null> {
-  const openLobbies = (await getLobbiesByChannel(kv, channelId))
+export async function getUniqueOpenLobbyForChannel(
+  kv: KVNamespace,
+  channelId: string,
+): Promise<LobbyState | null> {
+  const openLobbies = (await filterInactiveOpenLobbies(kv, await getLobbiesByChannel(kv, channelId)))
     .filter(lobby => lobby.channelId === channelId && lobby.status === 'open')
     .sort((left, right) => right.updatedAt - left.updatedAt)
 
@@ -67,14 +70,13 @@ export async function resolveOpenLobbyFromBody(
   mode: GameMode,
   body: { lobbyId?: unknown },
 ): Promise<LobbyState | null> {
+  const openLobbies = (await filterInactiveOpenLobbies(kv, await getLobbiesByMode(kv, mode)))
+    .filter(lobby => lobby.status === 'open')
+
   if (typeof body.lobbyId === 'string' && body.lobbyId.length > 0) {
-    const lobby = await getLobbyById(kv, body.lobbyId)
-    if (!lobby || lobby.mode !== mode || lobby.status !== 'open') return null
-    return lobby
+    return openLobbies.find(lobby => lobby.id === body.lobbyId) ?? null
   }
 
-  const lobbies = await getLobbiesByMode(kv, mode)
-  const openLobbies = lobbies.filter(lobby => lobby.status === 'open')
   if (openLobbies.length !== 1) return null
   return openLobbies[0] ?? null
 }

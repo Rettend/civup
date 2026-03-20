@@ -9,7 +9,7 @@ import { lobbyCancelledEmbed, lobbyComponents, lobbyOpenEmbed, lobbyResultEmbed 
 import { clearLobbyAndActivityMappings, clearLobbyMappings, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
-import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getLobbiesByMode, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
+import { clearLobbyById, createLobby, filterInactiveOpenLobbies, filterQueueEntriesForLobby, getLobbiesByMode, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
@@ -242,7 +242,7 @@ export const command_match = factory.command<MatchVar>(
           })
         }
 
-        const openLobbies = (await getLobbiesByMode(kv, mode)).filter(lobby => lobby.status === 'open')
+        const openLobbies = (await filterInactiveOpenLobbies(kv, await getLobbiesByMode(kv, mode))).filter(lobby => lobby.status === 'open')
         if (openLobbies.length === 0) {
           if (joinRequest.entries.length > 1) {
             return c.flags('EPHEMERAL').resDefer(async (c) => {
@@ -530,7 +530,7 @@ export const command_match = factory.command<MatchVar>(
           const guildId = c.interaction.guild_id ?? null
 
           for (const mode of modes) {
-            const lobbies = await getLobbiesByMode(kv, mode)
+            const lobbies = await filterInactiveOpenLobbies(kv, await getLobbiesByMode(kv, mode))
             if (lobbies.length === 0) continue
 
             const queue = await getQueueState(kv, mode)
@@ -878,7 +878,7 @@ async function findHostedOpenLobbies(kv: KVNamespace, hostId: string) {
   const modes = GAME_MODES
   const lobbies = [] as Awaited<ReturnType<typeof getLobbiesByMode>>[number][]
   for (const mode of modes) {
-    lobbies.push(...(await getLobbiesByMode(kv, mode)).filter(candidate => candidate.status === 'open' && candidate.hostId === hostId))
+    lobbies.push(...(await filterInactiveOpenLobbies(kv, await getLobbiesByMode(kv, mode))).filter(candidate => candidate.status === 'open' && candidate.hostId === hostId))
   }
   return lobbies.sort((left, right) => {
     if (left.createdAt !== right.createdAt) return left.createdAt - right.createdAt
@@ -890,7 +890,7 @@ async function findHostedEditableLobbies(kv: KVNamespace, hostId: string): Promi
   const modes = GAME_MODES
   const lobbies: LobbyState[] = []
   for (const mode of modes) {
-    lobbies.push(...(await getLobbiesByMode(kv, mode)).filter(candidate => candidate.hostId === hostId && isSteamLobbyEditableStatus(candidate.status)))
+    lobbies.push(...(await filterInactiveOpenLobbies(kv, await getLobbiesByMode(kv, mode))).filter(candidate => candidate.hostId === hostId && isSteamLobbyEditableStatus(candidate.status)))
   }
   return lobbies.sort((left, right) => {
     if (left.updatedAt !== right.updatedAt) return right.updatedAt - left.updatedAt
@@ -907,6 +907,9 @@ async function resolveHostedSteamLobbyTarget(
     const lobbyById = await getLobbyById(kv, targetId)
     const lobby = lobbyById ?? await getLobbyByMatch(kv, targetId)
     if (!lobby) return { error: 'Could not find that hosted lobby or match.' }
+    if (lobby.status === 'open' && !(await filterInactiveOpenLobbies(kv, [lobby])).length) {
+      return { error: 'That hosted lobby timed out due to inactivity.' }
+    }
     if (lobby.hostId !== hostId) return { error: 'You can only update the Steam lobby link on your own hosted lobby or match.' }
     if (!isSteamLobbyEditableStatus(lobby.status)) {
       return { error: 'Steam lobby links can only be managed while the lobby is open or the match is live.' }
