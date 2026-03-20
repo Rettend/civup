@@ -8,7 +8,7 @@ import { formatModeLabel, maxPlayerCount } from '@civup/game'
 import { createDraftRoomAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { clearUserActivityTargets, getLobbyForUser, getMatchForChannel, getMatchForUser, getUserActivityTarget, storeUserActivityTarget, storeUserMatchMappings } from '../services/activity/index.ts'
-import { filterInactiveOpenLobbies, filterQueueEntriesForLobby, getLobbiesByChannel, getLobbyById, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
+import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbyById, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
 import { getPlayerQueueMode, getPlayerQueueModeFromStates, getQueueStates } from '../services/queue/index.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
@@ -154,9 +154,8 @@ export function registerActivityRoutes(app: Hono<Env>) {
     const mappedLobbyId = await getLobbyForUser(kv, userId)
     if (mappedLobbyId) {
       const mappedLobby = await getLobbyById(kv, mappedLobbyId)
-      const [activeMappedLobby] = mappedLobby ? await filterInactiveOpenLobbies(kv, [mappedLobby]) : []
-      if (activeMappedLobby?.status === 'open') {
-        return c.json(await buildOpenLobbySnapshot(kv, activeMappedLobby.mode, activeMappedLobby))
+      if (mappedLobby?.status === 'open') {
+        return c.json(await buildOpenLobbySnapshot(kv, mappedLobby.mode, mappedLobby))
       }
     }
 
@@ -416,7 +415,7 @@ async function loadActivityLaunchContext(
   const targets: ChannelActivityTarget[] = []
 
   const lobbiesByMode = new Map<GameMode, LobbyState[]>()
-  const channelLobbies = await filterInactiveOpenLobbies(kv, await getLobbiesByChannel(kv, channelId))
+  const channelLobbies = await getLobbiesByChannel(kv, channelId)
   for (const lobby of channelLobbies) {
     const mode = lobby.mode
     const existing = lobbiesByMode.get(mode)

@@ -2,7 +2,6 @@ import type { GameMode } from '@civup/game'
 import type { LobbyState } from './types.ts'
 import { GAME_MODES } from '@civup/game'
 import { lobbySnapshotKey } from './live-snapshot.ts'
-import { getQueueTimeoutMs } from '../config/index.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
 import { channelIndexKey, channelPrefix, idKey, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
 import { normalizeLobby, parseLobbyState } from './normalize.ts'
@@ -79,11 +78,7 @@ export async function getOpenLobbyForPlayer(
   mode?: GameMode,
 ): Promise<LobbyState | null> {
   const lobbies = mode ? await getLobbiesByMode(kv, mode) : await getAllLobbies(kv)
-  const queueTimeoutMs = await getQueueTimeoutMs(kv)
-  const now = Date.now()
-  return lobbies.find(lobby => lobby.status === 'open'
-    && lobby.memberPlayerIds.includes(playerId)
-    && now - lobby.lastJoinedAt <= queueTimeoutMs) ?? null
+  return lobbies.find(lobby => lobby.status === 'open' && lobby.memberPlayerIds.includes(playerId)) ?? null
 }
 
 export async function getLobbyByMatch(kv: KVNamespace, matchId: string): Promise<LobbyState | null> {

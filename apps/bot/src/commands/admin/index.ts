@@ -67,7 +67,6 @@ export const command_admin = factory.command<AdminVar>(
       new Option('key', 'Config key').choices(
         { name: 'ban_timer', value: 'ban_timer' },
         { name: 'pick_timer', value: 'pick_timer' },
-        { name: 'queue_timeout', value: 'queue_timeout' },
       ),
       new Option('value', 'New value'),
     ),

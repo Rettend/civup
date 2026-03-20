@@ -2,8 +2,7 @@ import type { GameMode, QueueState } from '@civup/game'
 import type { LobbyState } from './types.ts'
 import { GAME_MODES, slotToTeamIndex } from '@civup/game'
 import { lobbyTimeoutEmbed } from '../../embeds/match.ts'
-import { clearLobbyMappings } from '../activity/index.ts'
-import { getQueueTimeoutMs } from '../config/index.ts'
+import { clearLobbyMappingsIfMatchingLobby } from '../activity/index.ts'
 import { clearQueue, getQueueState } from '../queue/index.ts'
 import { upsertLobbyMessage } from './message.ts'
 import { setLobbyStatus } from './mutations.ts'
@@ -11,6 +10,7 @@ import { filterQueueEntriesForLobby, normalizeLobbySlots } from './slots.ts'
 import { clearLobbyById, getLobbiesByMode } from './store.ts'
 
 export const LOBBY_TIMEOUT_MESSAGE = 'This lobby timed out due to inactivity.'
+export const LOBBY_INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000
 
 export interface PrunedInactiveLobby {
   lobbyId: string
@@ -18,52 +18,20 @@ export interface PrunedInactiveLobby {
   removedPlayerIds: string[]
 }
 
-export async function filterInactiveOpenLobbies(
-  kv: KVNamespace,
-  lobbies: LobbyState[],
-  options: {
-    queueTimeoutMs?: number
-    now?: number
-  } = {},
-): Promise<LobbyState[]> {
-  const queueTimeoutMs = options.queueTimeoutMs ?? await getQueueTimeoutMs(kv)
-  return lobbies.filter(lobby => !isLobbyInactive(lobby, queueTimeoutMs, options.now))
-}
-
 export function isLobbyInactive(
-  lobby: Pick<LobbyState, 'status' | 'lastJoinedAt'>,
-  queueTimeoutMs: number,
+  lobby: Pick<LobbyState, 'status' | 'lastActivityAt'>,
   now: number = Date.now(),
 ): boolean {
-  return lobby.status === 'open' && now - lobby.lastJoinedAt > queueTimeoutMs
-}
-
-export async function expireLobbyIfInactive(
-  kv: KVNamespace,
-  token: string | undefined,
-  lobby: LobbyState,
-  options: {
-    queueTimeoutMs?: number
-    currentQueue?: QueueState
-    now?: number
-  } = {},
-): Promise<PrunedInactiveLobby | null> {
-  const queueTimeoutMs = options.queueTimeoutMs ?? await getQueueTimeoutMs(kv)
-  if (!isLobbyInactive(lobby, queueTimeoutMs, options.now)) return null
-  return expireOpenLobby(kv, token, lobby, {
-    currentQueue: options.currentQueue,
-  })
+  return lobby.status === 'open' && now - lobby.lastActivityAt >= LOBBY_INACTIVITY_TIMEOUT_MS
 }
 
 export async function pruneInactiveOpenLobbies(
   kv: KVNamespace,
   token: string | undefined,
   options: {
-    queueTimeoutMs?: number
     now?: number
   } = {},
 ): Promise<PrunedInactiveLobby[]> {
-  const queueTimeoutMs = options.queueTimeoutMs ?? await getQueueTimeoutMs(kv)
   const now = options.now ?? Date.now()
   const pruned: PrunedInactiveLobby[] = []
 
@@ -72,7 +40,7 @@ export async function pruneInactiveOpenLobbies(
     const lobbies = await getLobbiesByMode(kv, mode)
 
     for (const lobby of lobbies) {
-      if (!isLobbyInactive(lobby, queueTimeoutMs, now)) continue
+      if (!isLobbyInactive(lobby, now)) continue
       const expired = await expireOpenLobby(kv, token, lobby, {
         currentQueue: queue,
       })
@@ -117,9 +85,9 @@ async function expireOpenLobby(
     await clearQueue(kv, lobby.mode, removedPlayerIds, {
       currentState: queue,
     })
+    await clearLobbyMappingsIfMatchingLobby(kv, removedPlayerIds, lobby.id, lobby.channelId)
   }
 
-  await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
   await clearLobbyById(kv, lobby.id, cancelledLobby)
 
   return {
