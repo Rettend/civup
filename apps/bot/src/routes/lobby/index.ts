@@ -13,6 +13,7 @@ import {
   attachLobbyMatch,
   buildActivePremadeEdgeSet,
   buildOpenLobbyRenderPayload,
+  storeLobbyDraftRoster,
   buildSlottedPremadeGroups,
   clearLobbyById,
   compactSlottedPremadesForMode,
@@ -1050,6 +1051,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       const timerConfig = await resolveDraftTimerConfig(kv, lobby.draftConfig)
       const leaderPoolError = getLeaderPoolSizeError(mode, lobby.draftConfig.leaderPoolSize, selectedEntries.length)
       if (leaderPoolError) return c.json({ error: leaderPoolError }, 400)
+
+      await storeLobbyDraftRoster(kv, lobby.id, lobbyQueueEntries)
 
       const { matchId, seats } = await createDraftRoom(mode, selectedEntries, {
         hostId: lobby.hostId,

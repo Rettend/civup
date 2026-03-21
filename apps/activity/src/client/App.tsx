@@ -12,7 +12,7 @@ import type {
 import { createEffect, createSignal, Match, onCleanup, onMount, Show, Switch, untrack } from 'solid-js'
 import { activityTargetOptionKey, ActivityTargetPicker, ConfigScreen, DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
-import { didClearResolvedActivityTarget, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection } from './lib/activity-targets'
+import { didClearResolvedActivityTarget, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from './lib/activity-targets'
 import { cn } from './lib/css'
 import { relayDevLog } from './lib/dev-log'
 import {
@@ -104,10 +104,13 @@ export default function App() {
     resetDraft()
   }
 
-  const shouldHoldAuthenticatedDraftState = () => {
+  const shouldHoldAuthenticatedDraftState = (nextSelectionKind: 'lobby' | 'match' | null = null) => {
     if (state().status !== 'authenticated') return false
-    if (isDraftConnectionInFlight()) return true
-    return draftStore.state != null
+    return shouldHoldAuthenticatedDraftStateForSelection({
+      nextSelectionKind,
+      hasInFlightConnection: isDraftConnectionInFlight(),
+      draftState: draftStore.state,
+    })
   }
 
   const isDraftConnectionInFlight = () => {
@@ -484,7 +487,7 @@ export default function App() {
       return
     }
 
-    if (current.status === 'authenticated' && snapshot.selection.kind === 'lobby' && shouldHoldAuthenticatedDraftState()) return
+    if (current.status === 'authenticated' && snapshot.selection.kind === 'lobby' && shouldHoldAuthenticatedDraftState('lobby')) return
 
     setLastResolvedSelection(snapshot.selection)
 
