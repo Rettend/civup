@@ -49,6 +49,10 @@ describe('draft formats', () => {
   test('FFA opens with one blind ban each', () => {
     expect(defaultFfa.getSteps(8)[0]).toEqual({ action: 'ban', seats: 'all', count: 1, timer: 120 })
   })
+
+  test('FFA uses one shared simultaneous pick step', () => {
+    expect(defaultFfa.getSteps(8)[1]).toEqual({ action: 'pick', seats: 'all', count: 1, timer: 60 })
+  })
 })
 
 describe('formatDraftStepLabel', () => {
@@ -84,12 +88,8 @@ describe('formatDraftStepLabel', () => {
     ])
   })
 
-  test('keeps FFA picks labeled by player order', () => {
+  test('labels the shared FFA pick step once', () => {
     const steps = defaultFfa.getSteps(3)
-    expect(steps.slice(1).map(step => formatDraftStepLabel(step, ffaSeats))).toEqual([
-      'PICK P1',
-      'PICK P2',
-      'PICK P3',
-    ])
+    expect(steps.slice(1).map(step => formatDraftStepLabel(step, ffaSeats))).toEqual(['PICK'])
   })
 })

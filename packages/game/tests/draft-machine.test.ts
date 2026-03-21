@@ -108,15 +108,11 @@ describe('createDraft', () => {
     const seats = createFfaSeats(8)
     const draft = createDraft('match-ffa', defaultFfa, seats, createTestCivPool())
 
-    // Ffa: 1 ban step + 8 pick steps (one per player)
-    expect(draft.steps.length).toBe(9)
+    // Ffa: 1 shared ban step + 1 shared pick step
+    expect(draft.steps.length).toBe(2)
     expect(draft.steps[0]!.action).toBe('ban')
     expect(draft.steps[0]!.seats).toBe('all')
-
-    for (let i = 1; i <= 8; i++) {
-      expect(draft.steps[i]!.action).toBe('pick')
-      expect(draft.steps[i]!.seats).toEqual([i - 1])
-    }
+    expect(draft.steps[1]!).toEqual({ action: 'pick', seats: 'all', count: 1, timer: 60 })
   })
 })
 
@@ -454,6 +450,40 @@ describe('processDraftInput — PICK (sequential)', () => {
   })
 })
 
+describe('processDraftInput — PICK (simultaneous FFA)', () => {
+  function completeFfaBanPhase(state: DraftState, seatCount = 4): DraftState {
+    let nextState = state
+    for (let seatIndex = 0; seatIndex < seatCount; seatIndex++) {
+      const result = processDraftInput(nextState, {
+        type: 'BAN',
+        seatIndex,
+        civIds: [`civ-${seatIndex + 1}`],
+      }, true)
+      if (isDraftError(result)) throw new Error(result.error)
+      nextState = result.state
+    }
+    return nextState
+  }
+
+  test('keeps FFA seats on the same step until everyone locks a pick', () => {
+    let state = startDraft(createDraft('match-ffa-shared-pick', defaultFfa, createFfaSeats(4), createTestCivPool()))
+    state = completeFfaBanPhase(state)
+
+    expect(state.currentStepIndex).toBe(1)
+    expect(state.steps[state.currentStepIndex]!.seats).toBe('all')
+
+    const result = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-20' })
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.state.status).toBe('active')
+    expect(result.state.currentStepIndex).toBe(1)
+    expect(result.state.picks).toContainEqual({ civId: 'civ-20', seatIndex: 0, stepIndex: 1 })
+    expect(result.state.submissions[0]).toEqual(['civ-20'])
+    expect(result.state.availableCivIds).not.toContain('civ-20')
+  })
+})
+
 // ── Full 2v2 Draft Flow ─────────────────────────────────────
 
 describe('full 2v2 draft flow', () => {
@@ -512,8 +542,9 @@ describe('full FFA draft flow', () => {
     // Should have 4 bans total
     expect(state.bans).toHaveLength(4)
     expect(state.currentStepIndex).toBe(1)
+    expect(state.steps[state.currentStepIndex]!.seats).toBe('all')
 
-    // Steps 1-4: Each player picks 1
+    // Step 1: Everyone picks 1 on the same shared step
     for (let i = 0; i < 4; i++) {
       const result = processDraftInput(state, {
         type: 'PICK',
@@ -600,6 +631,31 @@ describe('processDraftInput — TIMEOUT', () => {
     expect(result.state.status).toBe('cancelled')
     expect(result.state.cancelReason).toBe('timeout')
     expect(result.state.picks).toHaveLength(0)
+  })
+
+  test('timeout on simultaneous FFA pick scrubs even after some seats locked picks', () => {
+    let state = startDraft(createDraft('match-ffa-timeout', defaultFfa, createFfaSeats(4), createTestCivPool()))
+
+    for (let seatIndex = 0; seatIndex < 4; seatIndex++) {
+      const result = processDraftInput(state, {
+        type: 'BAN',
+        seatIndex,
+        civIds: [`civ-${seatIndex + 1}`],
+      }, true)
+      if (isDraftError(result)) throw new Error(result.error)
+      state = result.state
+    }
+
+    const picked = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-20' })
+    if (isDraftError(picked)) throw new Error(picked.error)
+
+    const timedOut = processDraftInput(picked.state, { type: 'TIMEOUT' }, true)
+    expect(isDraftError(timedOut)).toBe(false)
+    if (isDraftError(timedOut)) return
+
+    expect(timedOut.state.status).toBe('cancelled')
+    expect(timedOut.state.cancelReason).toBe('timeout')
+    expect(timedOut.state.picks).toContainEqual({ civId: 'civ-20', seatIndex: 0, stepIndex: 1 })
   })
 })
 

@@ -87,23 +87,18 @@ export const default1v1: DraftFormat = {
 /**
  * FFA Format:
  * - 1 blind ban per player (simultaneous)
- * - Players just pick in order (by rating or random)
+ * - Everyone picks at the same time on a shared timer
  */
 export const defaultFfa: DraftFormat = {
   id: 'default-ffa',
   name: 'FFA',
   gameMode: 'ffa',
   blindBans: true,
-  getSteps(seatCount: number): DraftStep[] {
-    const steps: DraftStep[] = [
-      // Everyone bans 1 simultaneously (blind)
+  getSteps(_seatCount: number): DraftStep[] {
+    return [
       { action: 'ban', seats: 'all', count: 1, timer: 120 },
+      { action: 'pick', seats: 'all', count: 1, timer: 60 },
     ]
-    // Each player picks 1 in order (seat 0, 1, 2, ..., n-1)
-    for (let i = 0; i < seatCount; i++) {
-      steps.push({ action: 'pick', seats: [i], count: 1, timer: 60 })
-    }
-    return steps
   },
 }
 
