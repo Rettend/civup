@@ -3,10 +3,14 @@ import { describe, expect, test } from 'bun:test'
 import {
   clearActivityMappings,
   clearLobbyMappings,
+  clearUserLobbyMappings,
+  getLobbyForUser,
   getMatchForUser,
   getUserActivityTarget,
+  storeMatchActivityState,
   storeMatchMapping,
   storeUserActivityTarget,
+  storeUserLobbyState,
   storeUserLobbyMappings,
   storeUserMatchMappings,
 } from '../../src/services/activity/index.ts'
@@ -127,5 +131,26 @@ describe('activity mapping behavior', () => {
     const deleteKeys = operations.filter(op => op.type === 'delete').map(op => op.key)
     expect(deleteKeys).toContain('activity-lobby-user:user-1')
     expect(deleteKeys).toContain('activity-target-user:user-1:channel-1')
+  })
+
+  test('clearUserLobbyMappings keeps the in-activity target during draft handoff', async () => {
+    const { kv } = createTrackedKv()
+
+    await storeUserLobbyState(kv, 'channel-1', ['user-1'], 'lobby-1', { pendingJoin: true })
+    await storeMatchActivityState(kv, 'channel-1', ['user-1'], {
+      matchId: 'match-1',
+      lobbyId: 'lobby-1',
+      mode: '2v2',
+      activitySecret: 'secret',
+    })
+    await clearUserLobbyMappings(kv, ['user-1'])
+
+    await expect(getLobbyForUser(kv, 'user-1')).resolves.toBeNull()
+    await expect(getUserActivityTarget(kv, 'channel-1', 'user-1')).resolves.toEqual(expect.objectContaining({
+      kind: 'match',
+      id: 'match-1',
+      pendingJoin: false,
+      roomAccessToken: expect.any(String),
+    }))
   })
 })
