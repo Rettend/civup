@@ -1,10 +1,11 @@
 import type { DraftPreviewState, DraftState } from '@civup/game'
-import { createDraft, default1v1, default2v2, isDraftError, processDraftInput } from '@civup/game'
+import { createDraft, default1v1, default2v2, defaultFfa, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import {
   applyDraftPreview,
   censorDraftPreviews,
   createEmptyDraftPreviews,
+  resolvePickSubmissionWithPreviews,
   resolveTimeoutWithPreviews,
   sanitizeDraftPreviews,
 } from '../src/draft-previews.ts'
@@ -23,6 +24,13 @@ function createDuelSeats() {
     { playerId: 'p1', displayName: 'P1' },
     { playerId: 'p2', displayName: 'P2' },
   ]
+}
+
+function createFfaSeats(count = 4) {
+  return Array.from({ length: count }, (_, index) => ({
+    playerId: `p${index + 1}`,
+    displayName: `P${index + 1}`,
+  }))
 }
 
 function createTestCivPool(): string[] {
@@ -96,6 +104,30 @@ describe('draft preview helpers', () => {
     expect(result.state.currentStepIndex).toBe(2)
     expect(result.state.picks).toContainEqual(expect.objectContaining({ seatIndex: 0, civId: 'civ-10' }))
     expect(result.events).toContainEqual({ type: 'TIMEOUT_APPLIED', seatIndex: 0, selections: ['civ-10'] })
+  })
+
+  test('pick confirmation falls back to the next queued leader when the primary loses the race', () => {
+    let state = startDraft(createDraft('match-ffa-pick-fallback', defaultFfa, createFfaSeats(), createTestCivPool()))
+
+    for (let seatIndex = 0; seatIndex < 4; seatIndex++) {
+      state = resolveState(processDraftInput(state, {
+        type: 'BAN',
+        seatIndex,
+        civIds: [`civ-${seatIndex + 1}`],
+      }, true))
+    }
+
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' }, true))
+
+    const result = resolvePickSubmissionWithPreviews(state, true, {
+      1: ['civ-10', 'civ-11', 'civ-12'],
+    }, 1, 'civ-10')
+
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.state.picks).toContainEqual(expect.objectContaining({ seatIndex: 1, civId: 'civ-11' }))
+    expect(result.events).toContainEqual({ type: 'PICK_SUBMITTED', seatIndex: 1, civId: 'civ-11' })
   })
 
   test('timeout still scrubs when no queued pick remains valid', () => {
