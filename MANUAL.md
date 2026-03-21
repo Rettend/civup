@@ -194,7 +194,7 @@ When the Steam lobby link is set, other players see a gold Steam button top left
 | `2v2` | captains ban 3 each | 1221 |
 | `3v3` | captains ban 3 each | 122112 |
 | `4v4` | captains ban 3 each | 12212112 |
-| `FFA` | 1 each | seat order |
+| `FFA` | 1 each | simultaneous |
 
 > [!NOTE]
 >
@@ -212,7 +212,7 @@ When the Steam lobby link is set, other players see a gold Steam button top left
 - **Filters by tags**, see [Tag filters](#tag-filters) below
 - `left click` on a leader selects them, shows the leader details, and during pick phase it shows the leader to teammates
 - `right click` only opens the leader details panel
-- `shift + left click` or holding `left click` selects **additional leaders**: when the timer runs out without confirming a pick it will pick the selected leader, if that was picked by someone else, it will choose the next valid selected additional leader
+- `shift + left click` or holding `left click` selects **additional leaders**: they are used as ordered fallbacks if your locked leader becomes unavailable, and also if the timer runs out without confirming a pick
 - **Random** will chose a random leader when confirmed (no way to know beforehand)
 
 ### Leader pool size

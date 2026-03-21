@@ -23,6 +23,7 @@ import {
   censorDraftPreviews,
   createEmptyDraftPreviews,
   draftPreviewsEqual,
+  resolvePickSubmissionWithPreviews,
   resolveTimeoutWithPreviews,
   sanitizeDraftPreviews,
 } from './draft-previews.ts'
@@ -290,10 +291,16 @@ export class Main extends Server<PartyEnv> {
           this.send(sender, { type: 'error', message: 'civId must be a string' })
           return
         }
-        const result = processDraftInput(
+        const previews = sanitizeDraftPreviews(
           state,
-          { type: 'PICK', seatIndex, civId: msg.civId },
+          await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
+        )
+        const result = resolvePickSubmissionWithPreviews(
+          state,
           format.blindBans,
+          previews.picks,
+          seatIndex,
+          msg.civId,
         )
         if (isDraftError(result)) {
           this.send(sender, { type: 'error', message: result.error })
