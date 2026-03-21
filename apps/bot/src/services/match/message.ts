@@ -65,3 +65,10 @@ export async function getMatchIdForMessage(
   await db.delete(matchMessageMappings).where(eq(matchMessageMappings.messageId, messageId))
   return null
 }
+
+export async function clearMatchMessageMapping(
+  db: Database,
+  messageId: string,
+): Promise<void> {
+  await db.delete(matchMessageMappings).where(eq(matchMessageMappings.messageId, messageId))
+}

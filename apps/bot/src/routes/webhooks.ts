@@ -4,11 +4,12 @@ import type { Env } from '../env.ts'
 import { createDb } from '@civup/db'
 import { verifySignedWebhookRequest } from '@civup/utils'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed } from '../embeds/match.ts'
-import { clearLobbyMappings } from '../services/activity/index.ts'
-import { clearLobbyById, getLobbyByMatch, setLobbyStatus, upsertLobbyMessage } from '../services/lobby/index.ts'
+import { clearActivityMappings, clearLobbyMappings, storeUserLobbyState } from '../services/activity/index.ts'
+import { buildOpenLobbyRenderPayload, clearLobbyById, clearLobbyDraftRoster, getLobbyByMatch, getLobbyDraftRoster, mapLobbySlotsToEntries, reopenLobbyAfterTimedOutDraft, setLobbyStatus, upsertLobbyMessage } from '../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../services/lobby/live-snapshot.ts'
 import { activateDraftMatch, cancelDraftMatch } from '../services/match/index.ts'
-import { storeMatchMessageMapping } from '../services/match/message.ts'
+import { clearMatchMessageMapping, storeMatchMessageMapping } from '../services/match/message.ts'
+import { getQueueState, setQueueEntries } from '../services/queue/index.ts'
 import { createStateStore } from '../services/state/store.ts'
 
 export function registerWebhookRoutes(app: Hono<Env>) {
@@ -61,6 +62,7 @@ export function registerWebhookRoutes(app: Hono<Env>) {
       }
 
       const activeLobby = await setLobbyStatus(kv, lobby.id, 'active', lobby) ?? lobby
+      await clearLobbyDraftRoster(kv, lobby.id)
       await syncLobbyDerivedState(kv, activeLobby)
       try {
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, activeLobby, {
@@ -96,9 +98,47 @@ export function registerWebhookRoutes(app: Hono<Env>) {
       return c.json({ ok: true })
     }
 
-    await setLobbyStatus(kv, lobby.id, payload.reason === 'cancel' ? 'cancelled' : 'scrubbed', lobby)
+    await clearActivityMappings(kv, payload.matchId, lobby.memberPlayerIds, lobby.channelId)
+
+    if (payload.reason === 'timeout') {
+      const queue = await getQueueState(kv, lobby.mode)
+      const recovered = await reopenLobbyAfterTimedOutDraft(kv, lobby, payload.state, {
+        draftRoster: await getLobbyDraftRoster(kv, lobby.id),
+      })
+
+      if (recovered) {
+        const removedPlayerIds = new Set(lobby.memberPlayerIds)
+        const nextQueueEntries = [
+          ...queue.entries.filter(entry => !removedPlayerIds.has(entry.playerId)),
+          ...recovered.queueEntries,
+        ]
+
+        await setQueueEntries(kv, lobby.mode, nextQueueEntries, { currentState: queue })
+        await syncLobbyDerivedState(kv, recovered.lobby, {
+          queueEntries: recovered.queueEntries,
+          slots: recovered.lobby.slots,
+        })
+        await storeUserLobbyState(kv, recovered.lobby.channelId, recovered.lobby.memberPlayerIds, recovered.lobby.id)
+        await clearLobbyDraftRoster(kv, recovered.lobby.id)
+
+        try {
+          const slottedEntries = mapLobbySlotsToEntries(recovered.lobby.slots, recovered.queueEntries)
+          const renderPayload = await buildOpenLobbyRenderPayload(kv, recovered.lobby, slottedEntries)
+          const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, recovered.lobby, renderPayload)
+          await clearMatchMessageMapping(db, updatedLobby.messageId)
+        }
+        catch (error) {
+          console.error(`Failed to update reopened lobby embed for timed out match ${payload.matchId}:`, error)
+        }
+
+        return c.json({ ok: true })
+      }
+    }
+
+    const closedLobby = await setLobbyStatus(kv, lobby.id, payload.reason === 'cancel' ? 'cancelled' : 'scrubbed', lobby) ?? lobby
+    await clearLobbyDraftRoster(kv, lobby.id)
     try {
-      const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
+      const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, closedLobby, {
         embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason)],
         components: [],
       })
