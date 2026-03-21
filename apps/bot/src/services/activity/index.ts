@@ -3,7 +3,7 @@ import { getDefaultFormat, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, 
 import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
 import { getLobbiesByChannel } from '../lobby/index.ts'
-import { channelIndexKey, idKey, matchKey, modeIndexKey } from '../lobby/keys.ts'
+import { channelIndexKey, draftRosterKey, idKey, matchKey, modeIndexKey } from '../lobby/keys.ts'
 import { lobbySnapshotKey } from '../lobby/live-snapshot.ts'
 import type { LobbyState } from '../lobby/types.ts'
 import { stateStoreMdelete, stateStoreMput } from '../state/store.ts'
@@ -409,6 +409,7 @@ export async function clearLobbyAndActivityMappings(
   const keys = [
     idKey(lobby.id),
     lobbySnapshotKey(lobby.id),
+    draftRosterKey(lobby.id),
     modeIndexKey(lobby.mode, lobby.id),
     channelIndexKey(lobby.channelId, lobby.id),
     ...lobby.memberPlayerIds.map(userId => `activity-lobby-user:${userId}`),

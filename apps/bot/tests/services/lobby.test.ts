@@ -1,6 +1,8 @@
+import type { DraftState } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { activityOverviewKey, syncActivityOverviewSnapshot } from '../../src/services/activity/live-state.ts'
-import { createLobby, getLobbyByChannel, getLobbyById, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus } from '../../src/services/lobby/index.ts'
+import { attachLobbyMatch, createLobby, getLobbyByChannel, getLobbyById, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
+import { matchKey } from '../../src/services/lobby/keys.ts'
 import { lobbySnapshotKey, syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -238,5 +240,128 @@ describe('lobby service KV write behavior', () => {
     await syncActivityOverviewSnapshot(kv, 'channel-1')
 
     expect(await kv.get(activityOverviewKey('channel-1'), 'json')).toBeNull()
+  })
+
+  test('reopens a timed-out draft lobby without the failed picker', async () => {
+    const { kv } = createTrackedKv()
+    const createdAt = 1_700_000_000_000
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'ally-a', 'ally-b', 'ally-c', 'spectator'], lobby)
+    const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'ally-a', 'ally-b', 'ally-c'], withMembers ?? lobby)
+    const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', withSlots ?? withMembers ?? lobby)
+
+    expect(draftingLobby).not.toBeNull()
+
+    await storeLobbyDraftRoster(kv, lobby.id, [
+      {
+        playerId: 'host',
+        displayName: 'Host',
+        avatarUrl: null,
+        joinedAt: createdAt,
+        partyIds: ['ally-a'],
+      },
+      {
+        playerId: 'ally-a',
+        displayName: 'Ally A',
+        avatarUrl: null,
+        joinedAt: createdAt + 1,
+        partyIds: ['host'],
+      },
+      {
+        playerId: 'ally-b',
+        displayName: 'Ally B',
+        avatarUrl: null,
+        joinedAt: createdAt + 2,
+      },
+      {
+        playerId: 'ally-c',
+        displayName: 'Ally C',
+        avatarUrl: null,
+        joinedAt: createdAt + 3,
+      },
+      {
+        playerId: 'spectator',
+        displayName: 'Spec',
+        avatarUrl: null,
+        joinedAt: createdAt + 4,
+      },
+    ])
+
+    const timeoutState: DraftState = {
+      matchId: 'match-1',
+      formatId: 'default-2v2',
+      seats: [
+        { playerId: 'host', displayName: 'Host', avatarUrl: null, team: 0 },
+        { playerId: 'ally-b', displayName: 'Ally B', avatarUrl: null, team: 1 },
+        { playerId: 'ally-a', displayName: 'Ally A', avatarUrl: null, team: 0 },
+        { playerId: 'ally-c', displayName: 'Ally C', avatarUrl: null, team: 1 },
+      ],
+      steps: [
+        { action: 'ban', seats: [0, 1], count: 3, timer: 180 },
+        { action: 'pick', seats: [0], count: 1, timer: 180 },
+      ],
+      currentStepIndex: 1,
+      submissions: {},
+      bans: [],
+      picks: [],
+      availableCivIds: ['civ-1', 'civ-2'],
+      status: 'cancelled',
+      cancelReason: 'timeout',
+      pendingBlindBans: [],
+    }
+
+    const recovered = await reopenLobbyAfterTimedOutDraft(kv, draftingLobby!, timeoutState, {
+      draftRoster: await getLobbyDraftRoster(kv, lobby.id),
+      now: createdAt + 10,
+    })
+
+    expect(recovered).not.toBeNull()
+    expect(recovered?.timedOutPlayerIds).toEqual(['host'])
+    expect(recovered?.lobby.status).toBe('open')
+    expect(recovered?.lobby.matchId).toBeNull()
+    expect(recovered?.lobby.hostId).toBe('ally-a')
+    expect(recovered?.lobby.memberPlayerIds).toEqual(['ally-a', 'ally-b', 'ally-c', 'spectator'])
+    expect(recovered?.lobby.slots).toEqual([null, 'ally-a', 'ally-b', 'ally-c'])
+    expect(recovered?.queueEntries).toEqual([
+      {
+        playerId: 'ally-a',
+        displayName: 'Ally A',
+        avatarUrl: null,
+        joinedAt: createdAt + 1,
+        partyIds: undefined,
+      },
+      {
+        playerId: 'ally-b',
+        displayName: 'Ally B',
+        avatarUrl: null,
+        joinedAt: createdAt + 2,
+        partyIds: undefined,
+      },
+      {
+        playerId: 'ally-c',
+        displayName: 'Ally C',
+        avatarUrl: null,
+        joinedAt: createdAt + 3,
+        partyIds: undefined,
+      },
+      {
+        playerId: 'spectator',
+        displayName: 'Spec',
+        avatarUrl: null,
+        joinedAt: createdAt + 4,
+        partyIds: undefined,
+      },
+    ])
+
+    const stored = await getLobbyById(kv, lobby.id)
+    expect(stored?.status).toBe('open')
+    expect(stored?.hostId).toBe('ally-a')
+    expect(await kv.get(matchKey('match-1'))).toBeNull()
   })
 })

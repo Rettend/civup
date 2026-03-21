@@ -203,7 +203,7 @@ When the Steam lobby link is set, other players see a gold Steam button top left
 ### Draft behavior
 
 - bans are blind, all teams ban at the same time and bans are only revealed when the ban phase is completed
-- if the time runs out, selected bans will be banned or random, and selected leaders will be picked or the draft is auto-scrubbed
+- if the time runs out, selected bans will be banned or random, and selected leaders will be picked or, when no valid queued pick remains, the draft auto-scrubs and reopens the lobby for everyone except the timed-out player
 
 #### Leader grid
 

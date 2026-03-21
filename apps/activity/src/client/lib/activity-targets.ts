@@ -34,3 +34,22 @@ export function shouldApplyResolvedActivitySelection(input: {
 }): boolean {
   return !input.isOverviewVisible || input.allowSelectionWhileOverview
 }
+
+export function shouldHoldAuthenticatedDraftStateForSelection(input: {
+  nextSelectionKind: 'lobby' | 'match' | null
+  hasInFlightConnection: boolean
+  draftState: { status?: string, cancelReason?: string | null } | null | undefined
+}): boolean {
+  if (input.hasInFlightConnection) return true
+  if (!input.draftState) return false
+
+  if (
+    input.nextSelectionKind === 'lobby'
+    && input.draftState.status === 'cancelled'
+    && input.draftState.cancelReason === 'timeout'
+  ) {
+    return false
+  }
+
+  return true
+}
