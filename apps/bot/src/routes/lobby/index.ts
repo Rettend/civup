@@ -1101,7 +1101,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       }
 
       await syncLobbyDerivedState(kv, lobbyForMessage)
-      await clearLobbyMappings(kv, lobbyForMessage.memberPlayerIds, lobbyForMessage.channelId)
       await storeMatchActivityState(kv, lobbyForMessage.channelId, lobbyForMessage.memberPlayerIds, {
         matchId,
         lobbyId: lobbyForMessage.id,
@@ -1109,6 +1108,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         steamLobbyLink: lobbyForMessage.steamLobbyLink,
         activitySecret: internalSecret,
       })
+      await clearUserLobbyMappings(kv, lobbyForMessage.memberPlayerIds)
 
       queueBackgroundTask(c, async () => {
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobbyForMessage, {

@@ -252,8 +252,9 @@ export default function App() {
 
     setAvailableTargets(options)
 
-    if (targetState && !targetOption && overviewSnapshot === null) {
+    if (targetState && !targetOption) {
       void requestActivityLaunchSnapshotRefresh()
+      return
     }
 
     if (resolvedSnapshot?.selection) {
