@@ -18,7 +18,7 @@ import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
 import {
   clearLobbyAndActivityMappings,
-  clearLobbyMappings,
+  clearUserLobbyMappings,
   storeMatchActivityState,
   storeUserLobbyState,
 } from '../../src/services/activity/index.ts'
@@ -728,13 +728,12 @@ async function startDraftFromOpenLobby(
     await clearQueue(kv, mode.mode, lobby.memberPlayerIds, { currentState: queue })
   }
 
-  await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
-  await storeMatchActivityState(kv, lobby.channelId, lobby.memberPlayerIds, { matchId })
-
   const slottedLobby = await setLobbySlots(kv, lobby.id, slots, lobby) ?? { ...lobby, slots }
   const draftingLobby = await attachLobbyMatch(kv, lobby.id, matchId, slottedLobby)
   if (!draftingLobby) throw new Error('Expected lobby to transition to drafting during capacity simulation')
   await syncLobbyDerivedState(kv, draftingLobby)
+  await storeMatchActivityState(kv, draftingLobby.channelId, draftingLobby.memberPlayerIds, { matchId })
+  await clearUserLobbyMappings(kv, draftingLobby.memberPlayerIds)
   await storeMatchMessageMapping(db, `message-lobby-drafting-${mode.id}`, matchId)
 
   const completedDraft = buildCompletedDraftState(matchId, mode.mode, seats)
