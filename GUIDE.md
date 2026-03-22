@@ -25,13 +25,13 @@ This will create a Lobby and join you as the host. The `Join` button will open t
 
 ![draft setup](images/draft-setup.webp)
 
-Once the Activity is open, you can change the lobby settings and see the players. Drag players to move them around, click on the `X` button next to a player to remove them. The host can move everyone, while players can only move themselves.
+Once the Activity is open, you can see the players and the lobby settings. Drag players to move them around, and click on the `X` button next to a player to remove them. The host can move everyone, while players can only move themselves.
 
 > [!NOTE]
 >
 > #### Steam lobby link
 >
-> Use the **Steam button** (top left) to set the steam lobby link, if set, it will turn golden and other players can click it to open the Civ lobby.
+> Use the **Steam button** (top left) to set the steam lobby link. If set, it will turn golden and other players can click it to open the Civ lobby.
 >
 > ![steam button](images/steam-button.webp) ![steam button active](images/steam-button-active.webp)
 
@@ -92,13 +92,11 @@ Bans are simultaneous and blind: everyone bans at the same time and the banned l
 
 ![ban phase with leaders](images/ban-phase-leaders.webp)
 
-Click on leaders to select them, then use the `Confirm` button at the bottom to lock them in. Clicking on leaders also opens up a side pane with leader details, to open it without selecting use right click.
+Click on leaders to select them, then use the `Confirm` button at the bottom to lock them in. Clicking on leaders also opens up a side pane with leader details, to open it without selecting the leader, use right click.
 
 ![ban phase with leader selected](images/ban-phase-leader-selected.webp)
 
 2. ### Pick phase
-
-![pick phase](images/pick-phase.webp)
 
 During the pick phase, clicking a leader displays it as 'hovered' to your teammates.
 
@@ -106,6 +104,6 @@ During the pick phase, clicking a leader displays it as 'hovered' to your teamma
 
 3. ### Report the result
 
-After the draft is complete, the Activity can be closed. When the game is done, only the host needs to select the winner by clicking on the player's leader and then `Confirm`.
+After the draft is complete, the Activity can be closed. When the game is done, the host needs to select the winner by clicking on the player's leader and then `Confirm`.
 
 ![report result](images/report-result.webp)
