@@ -113,7 +113,7 @@ describe('draft preview helpers', () => {
       state = resolveState(processDraftInput(state, {
         type: 'BAN',
         seatIndex,
-        civIds: [`civ-${seatIndex + 1}`],
+        civIds: [`civ-${seatIndex * 2 + 1}`, `civ-${seatIndex * 2 + 2}`],
       }, true))
     }
 

@@ -86,7 +86,7 @@ export const default1v1: DraftFormat = {
 
 /**
  * FFA Format:
- * - 1 blind ban per player (simultaneous)
+ * - 2 blind bans per player (simultaneous)
  * - Everyone picks at the same time on a shared timer
  */
 export const defaultFfa: DraftFormat = {
@@ -96,7 +96,7 @@ export const defaultFfa: DraftFormat = {
   blindBans: true,
   getSteps(_seatCount: number): DraftStep[] {
     return [
-      { action: 'ban', seats: 'all', count: 1, timer: 120 },
+      { action: 'ban', seats: 'all', count: 2, timer: 120 },
       { action: 'pick', seats: 'all', count: 1, timer: 60 },
     ]
   },

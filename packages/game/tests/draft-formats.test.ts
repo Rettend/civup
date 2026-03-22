@@ -46,8 +46,8 @@ describe('draft formats', () => {
     expect(default4v4.getSteps(8).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7]])
   })
 
-  test('FFA opens with one blind ban each', () => {
-    expect(defaultFfa.getSteps(8)[0]).toEqual({ action: 'ban', seats: 'all', count: 1, timer: 120 })
+  test('FFA opens with two blind bans each', () => {
+    expect(defaultFfa.getSteps(8)[0]).toEqual({ action: 'ban', seats: 'all', count: 2, timer: 120 })
   })
 
   test('FFA uses one shared simultaneous pick step', () => {
