@@ -194,7 +194,7 @@ When the Steam lobby link is set, other players see a gold Steam button top left
 | `2v2` | captains ban 3 each | 1221 |
 | `3v3` | captains ban 3 each | 122112 |
 | `4v4` | captains ban 3 each | 12212112 |
-| `FFA` | 1 each | simultaneous |
+| `FFA` | 2 each | simultaneous |
 
 > [!NOTE]
 >
@@ -225,7 +225,7 @@ Default leader pool sizes (and min allowed override):
 - `2v2`: 32 (min 10)
 - `3v3`: 40 (min 12)
 - `4v4`: 48 (min 14)
-- `FFA`: `4 x player count`: 24-40 for 6-10 players (min `2 x player count` 12-20 for 6-10 players)
+- `FFA`: `5 x player count`: 30-50 for 6-10 players (min `3 x player count` 18-30 for 6-10 players)
 
 Max allowed override is all leaders (85).
 
