@@ -1353,19 +1353,16 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   fallback={(
                     <div class="flex flex-col gap-2">
                       <Show when={isLobbyMode()}>
-                        <div class="flex flex-col gap-1.5">
-                          <div class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">Min and max matchmaking rank</div>
-                          <div class="flex flex-col gap-2">
-                            <ReadonlyTimerRow
-                              label="Min rank"
-                              value={formattedLobbyMinRole()}
-                            />
-                            <ReadonlyTimerRow
-                              label="Max rank"
-                              value={formattedLobbyMaxRole()}
-                            />
-                          </div>
-                        </div>
+                        <>
+                          <ReadonlyTimerRow
+                            label="Min rank"
+                            value={formattedLobbyMinRole()}
+                          />
+                          <ReadonlyTimerRow
+                            label="Max rank"
+                            value={formattedLobbyMaxRole()}
+                          />
+                        </>
                       </Show>
                       <ReadonlyTimerRow
                         label="Leaders"
