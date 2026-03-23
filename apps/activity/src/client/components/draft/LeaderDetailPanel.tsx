@@ -2,7 +2,7 @@ import type { Leader, LeaderUnique } from '@civup/game'
 import { getLeader } from '@civup/game'
 import { For, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
-import { detailLeaderId, setDetailLeaderId } from '~/client/stores'
+import { detailLeaderId, draftStore, setDetailLeaderId } from '~/client/stores'
 import { RichLeaderText } from './RichLeaderText'
 
 /** Click-to-open detail panel beside the grid */
@@ -10,7 +10,7 @@ export function LeaderDetailPanel() {
   const leader = (): Leader | null => {
     const id = detailLeaderId()
     if (!id) return null
-    try { return getLeader(id) }
+    try { return getLeader(id, draftStore.leaderDataVersion) }
     catch { return null }
   }
 

@@ -2,6 +2,7 @@ import type {
   DraftAction,
   DraftCancelReason,
   DraftEvent,
+  LeaderDataVersion,
   DraftPreviewState,
   DraftSeat,
   DraftState,
@@ -17,6 +18,7 @@ export interface RoomConfig {
   formatId: string
   seats: DraftSeat[]
   civPool: string[]
+  leaderDataVersion?: LeaderDataVersion
   timerConfig?: DraftTimerConfig
   webhookUrl?: string
   webhookSecret?: string
@@ -59,22 +61,24 @@ export type ClientMessage
 
 export type ServerMessage
   = | {
-    type: 'init'
-    state: DraftState
-    hostId?: string
-    seatIndex: number | null
-    timerEndsAt: number | null
-    completedAt: number | null
-    previews: DraftPreviewState
+     type: 'init'
+     state: DraftState
+     leaderDataVersion?: LeaderDataVersion
+     hostId?: string
+     seatIndex: number | null
+     timerEndsAt: number | null
+     completedAt: number | null
+     previews: DraftPreviewState
   }
   | {
-    type: 'update'
-    state: DraftState
-    hostId?: string
-    events: DraftEvent[]
-    timerEndsAt: number | null
-    completedAt: number | null
-    previews: DraftPreviewState
+     type: 'update'
+     state: DraftState
+     leaderDataVersion?: LeaderDataVersion
+     hostId?: string
+     events: DraftEvent[]
+     timerEndsAt: number | null
+     completedAt: number | null
+     previews: DraftPreviewState
   }
   | { type: 'preview', previews: DraftPreviewState }
   | { type: 'error', message: string }

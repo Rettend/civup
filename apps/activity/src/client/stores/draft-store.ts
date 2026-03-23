@@ -1,4 +1,4 @@
-import type { DraftEvent, DraftPreviewState, DraftState, DraftStep } from '@civup/game'
+import type { DraftEvent, DraftPreviewState, DraftState, DraftStep, LeaderDataVersion } from '@civup/game'
 import { createStore, produce } from 'solid-js/store'
 
 const EMPTY_DRAFT_PREVIEWS: DraftPreviewState = {
@@ -11,6 +11,8 @@ const EMPTY_DRAFT_PREVIEWS: DraftPreviewState = {
 export interface DraftStore {
   /** Full draft state from the server */
   state: DraftState | null
+  /** Which leader text set the draft uses */
+  leaderDataVersion: LeaderDataVersion
   /** Host Discord user ID */
   hostId: string | null
   /** This client's seat index (null = spectator) */
@@ -33,6 +35,7 @@ export interface DraftStore {
 
 const [draftStore, setDraftStore] = createStore<DraftStore>({
   state: null,
+  leaderDataVersion: 'live',
   hostId: null,
   seatIndex: null,
   timerEndsAt: null,
@@ -49,6 +52,7 @@ export { draftStore }
 
 export function initDraft(
   state: DraftState,
+  leaderDataVersion: LeaderDataVersion,
   hostId: string,
   seatIndex: number | null,
   timerEndsAt: number | null,
@@ -58,6 +62,7 @@ export function initDraft(
   const nextInitVersion = draftStore.initVersion + 1
   setDraftStore({
     state,
+    leaderDataVersion,
     hostId,
     seatIndex,
     timerEndsAt,
@@ -72,6 +77,7 @@ export function initDraft(
 export function resetDraft() {
   setDraftStore({
     state: null,
+    leaderDataVersion: 'live',
     hostId: null,
     seatIndex: null,
     timerEndsAt: null,
@@ -85,6 +91,7 @@ export function resetDraft() {
 
 export function updateDraft(
   state: DraftState,
+  leaderDataVersion: LeaderDataVersion,
   hostId: string,
   events: DraftEvent[],
   timerEndsAt: number | null,
@@ -93,6 +100,7 @@ export function updateDraft(
 ) {
   setDraftStore(produce((s) => {
     s.state = state
+    s.leaderDataVersion = leaderDataVersion
     s.hostId = hostId
     s.timerEndsAt = timerEndsAt
     s.completedAt = completedAt

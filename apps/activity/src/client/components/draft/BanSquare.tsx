@@ -1,6 +1,7 @@
 import type { Leader } from '@civup/game'
 import { getLeader } from '@civup/game'
 import { Show } from 'solid-js'
+import { draftStore } from '~/client/stores'
 
 interface BanSquareProps {
   /** Civ ID of the banned leader */
@@ -10,7 +11,7 @@ interface BanSquareProps {
 /** Small square showing a banned leader's icon */
 export function BanSquare(props: BanSquareProps) {
   const leader = (): Leader | null => {
-    try { return getLeader(props.civId) }
+    try { return getLeader(props.civId, draftStore.leaderDataVersion) }
     catch { return null }
   }
 
