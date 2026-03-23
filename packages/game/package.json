@@ -9,9 +9,9 @@
   },
   "scripts": {
     "check": "tsgo --noEmit",
-    "sync:bbg-icons": "bun ./scripts/sync-bbg-icons.ts",
-    "sync:bbg-leaders": "bun ./scripts/sync-bbg-leaders.ts",
-    "sync:bbg": "bun run sync:bbg-icons && bun run sync:bbg-leaders"
+    "sync:bbg-live": "bun ./scripts/sync-bbg-leaders.ts live",
+    "sync:bbg-beta": "bun ./scripts/sync-bbg-leaders.ts beta",
+    "sync:bbg": "bun run sync:bbg-live && bun run sync:bbg-beta"
   },
   "dependencies": {
     "@civup/utils": "workspace:*"

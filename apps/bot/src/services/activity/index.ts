@@ -1,4 +1,4 @@
-import type { DraftSeat, DraftTimerConfig, GameMode, QueueEntry, RoomConfig } from '@civup/game'
+import type { DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry, RoomConfig } from '@civup/game'
 import { getDefaultFormat, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamSize } from '@civup/game'
 import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
@@ -18,6 +18,7 @@ export interface MatchCreationResult {
 
 export interface CreateDraftRoomOptions {
   hostId: string
+  leaderDataVersion?: LeaderDataVersion
   partyHost?: string
   botHost?: string
   webhookSecret?: string
@@ -70,6 +71,7 @@ export async function createDraftRoom(
     formatId: format.id,
     seats,
     civPool: sampleLeaderPool(leaderPoolSize),
+    leaderDataVersion: options.leaderDataVersion ?? 'live',
     timerConfig: options.timerConfig,
     webhookUrl: buildDraftWebhookUrl(options.botHost, options.partyHost),
     webhookSecret: options.webhookSecret,
