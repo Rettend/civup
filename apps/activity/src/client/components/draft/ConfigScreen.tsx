@@ -410,6 +410,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
       && a.leaderPoolSize === b.leaderPoolSize
       && a.leaderDataVersion === b.leaderDataVersion,
   })
+  const optimisticDraftConfig = () => optimisticTimerConfig.value()
+  const formattedBbgVersion = () => draftConfig().leaderDataVersion === 'beta' ? 'Beta' : 'Live'
 
   const clearConfigMessage = () => {
     if (configMessageTimeout) {
@@ -1238,6 +1240,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return isSpectator() ? 'Spectating' : 'Waiting for host'
   }
 
+  const desktopSetupPanelHeightClass = () => amHost() ? 'lg:h-[432px]' : 'lg:h-[336px]'
+
   return (
     <Show
       when={isMiniView()}
@@ -1277,11 +1281,15 @@ export function ConfigScreen(props: ConfigScreenProps) {
               <div class="h-9 w-9" />
             </div>
 
-            <div class="gap-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div class="p-4 rounded-lg bg-bg-subtle">
+            <div class={cn(
+              'gap-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)]',
+              desktopSetupPanelHeightClass(),
+            )}>
+              <div class="p-4 rounded-lg bg-bg-subtle overflow-hidden flex flex-col min-h-0 lg:h-full">
                 <div class="text-xs text-fg-subtle tracking-widest font-bold mb-3 uppercase">Players</div>
 
-                <Show
+                <div class="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <Show
                   when={isTeamMode()}
                   fallback={(
                     <div class="gap-3 grid grid-cols-2">
@@ -1353,11 +1361,12 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       <div class="text-xs text-accent tracking-wider font-bold mb-2">Team B</div>
                       {renderTeamColumn(teamRows(1))}
                     </div>
-                  </div>
-                </Show>
+                    </div>
+                  </Show>
+                </div>
               </div>
 
-              <div class="p-4 rounded-lg bg-bg-subtle flex flex-col gap-3">
+              <div class="p-4 rounded-lg bg-bg-subtle flex flex-col gap-3 overflow-hidden min-h-0 lg:h-full">
                 <div class="text-xs text-fg-subtle tracking-widest font-bold flex uppercase items-center justify-between">
                   <span>Config</span>
                   <span class="flex h-4 w-4 items-center justify-center">
@@ -1367,159 +1376,169 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   </span>
                 </div>
 
-                <Show when={isLobbyMode() && amHost()}>
-                  <Dropdown
-                    label="Game Mode"
-                    value={lobbyMode()}
-                    disabled={lobbyActionPending()}
-                    options={ENABLED_GAME_MODE_CHOICES.map(choice => ({ value: choice.value, label: choice.name }))}
-                    onChange={value => void handleLobbyModeChange(inferGameMode(value))}
-                  />
-                </Show>
+                <div class="min-h-0 flex-1 overflow-y-auto pr-2 -mr-1 flex flex-col gap-3">
+                  <Show when={isLobbyMode() && amHost()}>
+                    <Dropdown
+                      label="Game Mode"
+                      value={lobbyMode()}
+                      disabled={lobbyActionPending()}
+                      options={ENABLED_GAME_MODE_CHOICES.map(choice => ({ value: choice.value, label: choice.name }))}
+                      onChange={value => void handleLobbyModeChange(inferGameMode(value))}
+                    />
+                  </Show>
 
-                <Show
-                  when={amHost()}
-                  fallback={(
-                    <div class="flex flex-col gap-2">
-                      <Show when={isLobbyMode()}>
-                        <>
-                          <ReadonlyTimerRow
-                            label="Min rank"
-                            value={formattedLobbyMinRole()}
-                          />
-                          <ReadonlyTimerRow
-                            label="Max rank"
-                            value={formattedLobbyMaxRole()}
-                          />
-                        </>
-                      </Show>
-                      <ReadonlyTimerRow
-                        label="Leaders"
-                        value={formattedLeaderPool()}
-                      />
-                      <ReadonlyTimerRow
-                        label="Leader text"
-                        value={draftConfig().leaderDataVersion === 'beta' ? 'Beta' : 'Live'}
-                      />
-                      <ReadonlyTimerRow
-                        label="Ban timer"
-                        value={formatTimerValue(timerConfig().banTimerSeconds, serverDefaultTimerConfig().banTimerSeconds)}
-                      />
-                      <ReadonlyTimerRow
-                        label="Pick timer"
-                        value={formatTimerValue(timerConfig().pickTimerSeconds, serverDefaultTimerConfig().pickTimerSeconds)}
+                  <Show when={isLobbyMode() && amHost()}>
+                    <div class="px-1 flex items-center justify-between gap-3">
+                      <span class={cn('text-sm font-medium', optimisticDraftConfig().leaderDataVersion === 'beta' ? 'text-accent' : 'text-fg-muted')}>
+                        BBG Beta
+                      </span>
+                      <Switch
+                        checked={optimisticDraftConfig().leaderDataVersion === 'beta'}
+                        disabled={lobbyActionPending()}
+                        class="w-auto"
+                        onChange={checked => void handleLeaderDataVersionChange(checked)}
                       />
                     </div>
-                  )}
-                >
-                  <div class="flex flex-col gap-2">
-                    <Show when={isLobbyMode()}>
-                      <div class="flex flex-col gap-1.5">
-                        <div class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">Min and max matchmaking rank</div>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          <Dropdown
-                            ariaLabel="Minimum matchmaking rank"
-                            value={lobbyMinRoleValue()}
-                            disabled={lobbyActionPending()}
-                            options={minRoleDropdownOptions()}
-                            onChange={value => void handleLobbyMinRoleChange(value)}
-                          />
-                          <Dropdown
-                            ariaLabel="Maximum matchmaking rank"
-                            value={lobbyMaxRoleValue()}
-                            disabled={lobbyActionPending()}
-                            options={maxRoleDropdownOptions()}
-                            onChange={value => void handleLobbyMaxRoleChange(value)}
-                          />
-                        </div>
+                  </Show>
+
+                  <Show
+                    when={amHost()}
+                    fallback={(
+                      <div class="flex flex-col gap-2">
+                        <Show when={isLobbyMode()}>
+                          <>
+                            <ReadonlyTimerRow
+                              label="Min rank"
+                              value={formattedLobbyMinRole()}
+                            />
+                            <ReadonlyTimerRow
+                              label="Max rank"
+                              value={formattedLobbyMaxRole()}
+                            />
+                          </>
+                        </Show>
+                        <ReadonlyTimerRow
+                          label="Leaders"
+                          value={formattedLeaderPool()}
+                        />
+                        <ReadonlyTimerRow
+                          label="Ban timer"
+                          value={formatTimerValue(timerConfig().banTimerSeconds, serverDefaultTimerConfig().banTimerSeconds)}
+                        />
+                        <ReadonlyTimerRow
+                          label="Pick timer"
+                          value={formatTimerValue(timerConfig().pickTimerSeconds, serverDefaultTimerConfig().pickTimerSeconds)}
+                        />
+                        <ReadonlyTimerRow
+                          label="BBG"
+                          value={formattedBbgVersion()}
+                          valueClass={draftConfig().leaderDataVersion === 'beta' ? 'text-accent' : undefined}
+                        />
                       </div>
+                    )}
+                  >
+                    <div class="flex flex-col gap-2">
+                      <Show when={isLobbyMode()}>
+                        <div class="flex flex-col gap-1.5">
+                          <div class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">Min and max matchmaking rank</div>
+                          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <Dropdown
+                              ariaLabel="Minimum matchmaking rank"
+                              value={lobbyMinRoleValue()}
+                              disabled={lobbyActionPending()}
+                              options={minRoleDropdownOptions()}
+                              onChange={value => void handleLobbyMinRoleChange(value)}
+                            />
+                            <Dropdown
+                              ariaLabel="Maximum matchmaking rank"
+                              value={lobbyMaxRoleValue()}
+                              disabled={lobbyActionPending()}
+                              options={maxRoleDropdownOptions()}
+                              onChange={value => void handleLobbyMaxRoleChange(value)}
+                            />
+                          </div>
+                        </div>
+
+                        <TextInput
+                          type="number"
+                          label="Leaders"
+                          min={String(leaderPoolMinimumValue())}
+                          max={String(MAX_LEADER_POOL_INPUT)}
+                          step="1"
+                          value={leaderPoolInput()}
+                          placeholder={leaderPoolPlaceholderValue()}
+                          onFocus={() => setEditingField('leaderPool')}
+                          onInput={(event) => {
+                            optimisticTimerConfig.clearError()
+                            clearConfigMessage()
+                            const normalized = normalizeLeaderPoolSizeInput(event.currentTarget.value, leaderPoolMinimumValue())
+                            event.currentTarget.value = normalized
+                            setLeaderPoolInput(normalized)
+                          }}
+                          onBlur={() => void saveConfigOnBlur()}
+                        />
+
+                      </Show>
 
                       <TextInput
                         type="number"
-                        label="Leaders"
-                        min={String(leaderPoolMinimumValue())}
-                        max={String(MAX_LEADER_POOL_INPUT)}
+                        label="Ban Timer (minutes)"
+                        min="0"
+                        max={String(MAX_TIMER_MINUTES)}
                         step="1"
-                        value={leaderPoolInput()}
-                        placeholder={leaderPoolPlaceholderValue()}
-                        onFocus={() => setEditingField('leaderPool')}
+                        value={banMinutes()}
+                        placeholder={banTimerPlaceholder()}
+                        onFocus={() => setEditingField('ban')}
                         onInput={(event) => {
                           optimisticTimerConfig.clearError()
                           clearConfigMessage()
-                          const normalized = normalizeLeaderPoolSizeInput(event.currentTarget.value, leaderPoolMinimumValue())
+                          const normalized = normalizeTimerMinutesInput(event.currentTarget.value)
                           event.currentTarget.value = normalized
-                          setLeaderPoolInput(normalized)
+                          setBanMinutes(normalized)
                         }}
                         onBlur={() => void saveConfigOnBlur()}
                       />
 
-                      <Switch
-                        label="Beta Leader Text"
-                        description="Switch draft leader details between the live BBG text and the current beta text."
-                        checked={draftConfig().leaderDataVersion === 'beta'}
-                        disabled={lobbyActionPending()}
-                        onChange={checked => void handleLeaderDataVersionChange(checked)}
+                      <TextInput
+                        type="number"
+                        label="Pick Timer (minutes)"
+                        min="0"
+                        max={String(MAX_TIMER_MINUTES)}
+                        step="1"
+                        value={pickMinutes()}
+                        placeholder={pickTimerPlaceholder()}
+                        onFocus={() => setEditingField('pick')}
+                        onInput={(event) => {
+                          optimisticTimerConfig.clearError()
+                          clearConfigMessage()
+                          const normalized = normalizeTimerMinutesInput(event.currentTarget.value)
+                          event.currentTarget.value = normalized
+                          setPickMinutes(normalized)
+                        }}
+                        onBlur={() => void saveConfigOnBlur()}
                       />
-                    </Show>
-
-                    <TextInput
-                      type="number"
-                      label="Ban Timer (minutes)"
-                      min="0"
-                      max={String(MAX_TIMER_MINUTES)}
-                      step="1"
-                      value={banMinutes()}
-                      placeholder={banTimerPlaceholder()}
-                      onFocus={() => setEditingField('ban')}
-                      onInput={(event) => {
-                        optimisticTimerConfig.clearError()
-                        clearConfigMessage()
-                        const normalized = normalizeTimerMinutesInput(event.currentTarget.value)
-                        event.currentTarget.value = normalized
-                        setBanMinutes(normalized)
-                      }}
-                      onBlur={() => void saveConfigOnBlur()}
-                    />
-
-                    <TextInput
-                      type="number"
-                      label="Pick Timer (minutes)"
-                      min="0"
-                      max={String(MAX_TIMER_MINUTES)}
-                      step="1"
-                      value={pickMinutes()}
-                      placeholder={pickTimerPlaceholder()}
-                      onFocus={() => setEditingField('pick')}
-                      onInput={(event) => {
-                        optimisticTimerConfig.clearError()
-                        clearConfigMessage()
-                        const normalized = normalizeTimerMinutesInput(event.currentTarget.value)
-                        event.currentTarget.value = normalized
-                        setPickMinutes(normalized)
-                      }}
-                      onBlur={() => void saveConfigOnBlur()}
-                    />
-                  </div>
-                </Show>
-
-                <div class="min-h-5">
-                  <Show when={configMessage()}>
-                    <div class="text-xs text-fg flex gap-1.5 items-center">
-                      <span class={cn(
-                        'text-base shrink-0 self-center',
-                        configMessageTone() === 'error'
-                          ? 'i-ph-x-bold text-danger'
-                          : 'i-ph-check-bold text-accent',
-                      )}
-                      />
-                      <Show
-                        when={configMessageTone() === 'info' && rankRoleSetDetail()}
-                        fallback={<span class="leading-relaxed">{configMessage()}</span>}
-                      >
-                        <RankRoleSetNotice detail={rankRoleSetDetail()!} />
-                      </Show>
                     </div>
                   </Show>
+
+                  <div class="min-h-5">
+                    <Show when={configMessage()}>
+                      <div class="text-xs text-fg flex gap-1.5 items-center">
+                        <span class={cn(
+                          'text-base shrink-0 self-center',
+                          configMessageTone() === 'error'
+                            ? 'i-ph-x-bold text-danger'
+                            : 'i-ph-check-bold text-accent',
+                        )}
+                        />
+                        <Show
+                          when={configMessageTone() === 'info' && rankRoleSetDetail()}
+                          fallback={<span class="leading-relaxed">{configMessage()}</span>}
+                        >
+                          <RankRoleSetNotice detail={rankRoleSetDetail()!} />
+                        </Show>
+                      </div>
+                    </Show>
+                  </div>
                 </div>
               </div>
             </div>
