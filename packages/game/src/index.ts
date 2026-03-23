@@ -2,7 +2,7 @@ export { MAX_TIMER_SECONDS } from './constants.ts'
 export { default1v1, default2v2, default3v3, default4v4, defaultFfa, draftFormatMap, draftFormats, formatDraftStepLabel, getDefaultFormat } from './draft-formats.ts'
 export { createDraft, getBansForSeat, getCurrentStep, getPendingSeats, getPicksForSeat, isDraftError, isPlayerTurn, processDraftInput } from './draft-machine.ts'
 export { getDefaultLeaderPoolSize, getMinimumLeaderPoolSize, MAX_LEADER_POOL_SIZE, resolveLeaderPoolSize, sampleLeaderPool } from './leader-pool.ts'
-export { allLeaderIds, getLeader, leaderMap, leaders, searchLeaders } from './leaders.ts'
+export { allLeaderIds, getLeader, getLeaderMap, getLeaders, leaderBetaMap, leaderMap, leaders, leadersBeta, searchLeaders } from './leader-registry.ts'
 export {
   canStartWithPlayerCount,
   defaultPlayerCount,
@@ -46,6 +46,7 @@ export type {
   GameMode,
   Leader,
   LeaderAbility,
+  LeaderDataVersion,
   LeaderboardMode,
   LeaderUnique,
   MatchStatus,
@@ -60,6 +61,8 @@ export {
   competitiveTierNumber,
   competitiveTierRank,
   GAME_MODES,
+  isLeaderDataVersion,
   isCompetitiveTier,
+  LEADER_DATA_VERSIONS,
   LEADERBOARD_MODES,
 } from './types.ts'

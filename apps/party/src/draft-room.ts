@@ -192,6 +192,7 @@ export class Main extends Server<PartyEnv> {
     this.send(connection, {
       type: 'init',
       state: this.censorState(state, seatIndex),
+      leaderDataVersion: config?.leaderDataVersion ?? 'live',
       hostId,
       seatIndex: seatIndex >= 0 ? seatIndex : null,
       timerEndsAt: timerEndsAt ?? null,
@@ -388,7 +389,7 @@ export class Main extends Server<PartyEnv> {
           await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
         )
         await this.ctx.storage.put('previews', previews)
-        this.broadcastUpdate(nextState, config.hostId, [], timerEndsAt ?? null, completedAt ?? null, previews)
+        this.broadcastUpdate(nextState, config.hostId, config.leaderDataVersion ?? 'live', [], timerEndsAt ?? null, completedAt ?? null, previews)
         break
       }
 
@@ -502,7 +503,7 @@ export class Main extends Server<PartyEnv> {
     }
 
     const hostId = config?.hostId ?? newState.seats[0]?.playerId ?? ''
-    this.broadcastUpdate(newState, hostId, events, timerEndsAt ?? null, completedAt ?? null, previews)
+    this.broadcastUpdate(newState, hostId, config?.leaderDataVersion ?? 'live', events, timerEndsAt ?? null, completedAt ?? null, previews)
 
     if (newState.status === 'complete' || newState.status === 'cancelled') {
       this.closeAllConnections('Draft closed')
@@ -609,6 +610,7 @@ export class Main extends Server<PartyEnv> {
   private broadcastUpdate(
     state: DraftState,
     hostId: string,
+    leaderDataVersion: RoomConfig['leaderDataVersion'],
     events: DraftEvent[],
     timerEndsAt: number | null,
     completedAt: number | null,
@@ -624,6 +626,7 @@ export class Main extends Server<PartyEnv> {
       this.send(conn, {
         type: 'update',
         state: this.censorState(state, seatIndex),
+        leaderDataVersion: leaderDataVersion ?? 'live',
         hostId,
         events: this.censorEvents(events, seatIndex),
         timerEndsAt,

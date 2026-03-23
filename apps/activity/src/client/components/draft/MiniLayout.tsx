@@ -2,6 +2,7 @@ import type { JSX } from 'solid-js'
 import { getLeader } from '@civup/game'
 import { For, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
+import { draftStore } from '~/client/stores'
 
 const MINI_NAME_FADE_STYLE = {
   'mask-image': 'linear-gradient(to right, black calc(100% - 2.5rem), transparent calc(100% - 1.2rem))',
@@ -111,7 +112,7 @@ function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' }) 
     if (!leaderId) return null
 
     try {
-      return getLeader(leaderId).portraitUrl ?? null
+      return getLeader(leaderId, draftStore.leaderDataVersion).portraitUrl ?? null
     }
     catch {
       return null

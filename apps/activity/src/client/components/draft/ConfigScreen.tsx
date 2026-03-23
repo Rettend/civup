@@ -10,7 +10,7 @@ import type {
 import type { LobbyArrangeStrategy, LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
 import { formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isTeamMode as isTeamGameMode, normalizeCompetitiveTierBounds } from '@civup/game'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
-import { Dropdown, TextInput } from '~/client/components/ui'
+import { Dropdown, Switch, TextInput } from '~/client/components/ui'
 import {
   applyOptimisticLobbyAction,
   buildRankDotStyle,
@@ -75,6 +75,7 @@ interface ConfigScreenProps {
 
 interface LobbyEditableDraftConfig extends DraftTimerConfig {
   leaderPoolSize: number | null
+  leaderDataVersion: 'live' | 'beta'
 }
 
 const CONFIG_MESSAGE_TIMEOUT_MS = 4000
@@ -104,6 +105,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
           banTimerSeconds: props.lobby.draftConfig.banTimerSeconds,
           pickTimerSeconds: props.lobby.draftConfig.pickTimerSeconds,
           leaderPoolSize: props.lobby.draftConfig.leaderPoolSize,
+          leaderDataVersion: props.lobby.draftConfig.leaderDataVersion,
         }
       : null,
   )
@@ -133,6 +135,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       banTimerSeconds: lobby.draftConfig.banTimerSeconds,
       pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
       leaderPoolSize: lobby.draftConfig.leaderPoolSize,
+      leaderDataVersion: lobby.draftConfig.leaderDataVersion,
     })
   })
 
@@ -314,11 +317,13 @@ export function ConfigScreen(props: ConfigScreenProps) {
         banTimerSeconds: lobby.draftConfig.banTimerSeconds,
         pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
         leaderPoolSize: lobby.draftConfig.leaderPoolSize,
+        leaderDataVersion: lobby.draftConfig.leaderDataVersion,
       }
     }
     return {
       ...getTimerConfigFromDraft(state()),
       leaderPoolSize: null,
+      leaderDataVersion: 'live',
     }
   }
 
@@ -399,7 +404,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const pickTimerPlaceholder = () => timerSecondsToMinutesPlaceholder(serverDefaultTimerConfig().pickTimerSeconds)
 
   const optimisticTimerConfig = createOptimisticState(draftConfig, {
-    equals: (a, b) => a.banTimerSeconds === b.banTimerSeconds && a.pickTimerSeconds === b.pickTimerSeconds && a.leaderPoolSize === b.leaderPoolSize,
+    equals: (a, b) => a.banTimerSeconds === b.banTimerSeconds
+      && a.pickTimerSeconds === b.pickTimerSeconds
+      && a.leaderPoolSize === b.leaderPoolSize
+      && a.leaderDataVersion === b.leaderDataVersion,
   })
 
   const clearConfigMessage = () => {
@@ -628,6 +636,38 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return dragged === id && row.empty
   }
 
+  const commitDraftConfig = async (nextConfig: LobbyEditableDraftConfig) => {
+    const currentUserId = userId()
+    if (!currentUserId) {
+      optimisticTimerConfig.clearError()
+      showErrorMessage('Could not identify your Discord user. Reopen the activity.')
+      return false
+    }
+
+    clearConfigMessage()
+    await optimisticTimerConfig.commit(nextConfig, async () => {
+      const lobby = currentLobby()
+      if (lobby) {
+        const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, {
+          banTimerSeconds: nextConfig.banTimerSeconds,
+          pickTimerSeconds: nextConfig.pickTimerSeconds,
+          leaderPoolSize: nextConfig.leaderPoolSize,
+          leaderDataVersion: nextConfig.leaderDataVersion,
+          minRole: lobby.minRole,
+          maxRole: lobby.maxRole,
+        })
+        if (!result.ok) throw new Error(result.error)
+        return
+      }
+
+      await sendConfig(nextConfig.banTimerSeconds, nextConfig.pickTimerSeconds)
+    }, {
+      syncTimeoutMs: currentLobby() ? 9000 : 5000,
+      syncTimeoutMessage: 'Save not confirmed. Please try again.',
+    })
+    return true
+  }
+
   const saveConfigOnBlur = async () => {
     const isHostUser = amHost()
     const nextBanMinutes = banMinutes()
@@ -655,6 +695,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       const pickTimerSeconds = parsedPick == null ? null : parsedPick * 60
       const leaderPoolSize = parsedLeaderPool
       const current = optimisticTimerConfig.value()
+      const leaderDataVersion = current.leaderDataVersion
 
       if (
         banTimerSeconds === current.banTimerSeconds
@@ -665,37 +706,24 @@ export function ConfigScreen(props: ConfigScreenProps) {
         return
       }
 
-      const currentUserId = userId()
-      if (!currentUserId) {
-        optimisticTimerConfig.clearError()
-        showErrorMessage('Could not identify your Discord user. Reopen the activity.')
-        return
-      }
-
-      clearConfigMessage()
-      await optimisticTimerConfig.commit({ banTimerSeconds, pickTimerSeconds, leaderPoolSize }, async () => {
-        const lobby = currentLobby()
-        if (lobby) {
-            const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, {
-              banTimerSeconds,
-              pickTimerSeconds,
-              leaderPoolSize,
-              minRole: lobby.minRole,
-              maxRole: lobby.maxRole,
-            })
-            if (!result.ok) throw new Error(result.error)
-            return
-          }
-
-        await sendConfig(banTimerSeconds, pickTimerSeconds)
-      }, {
-        syncTimeoutMs: currentLobby() ? 9000 : 5000,
-        syncTimeoutMessage: 'Save not confirmed. Please try again.',
-      })
+      await commitDraftConfig({ banTimerSeconds, pickTimerSeconds, leaderPoolSize, leaderDataVersion })
     }
     finally {
       setEditingField(current => current === activeField ? null : current)
     }
+  }
+
+  const handleLeaderDataVersionChange = async (checked: boolean) => {
+    if (!isLobbyMode() || !amHost() || lobbyActionPending()) return
+    const current = optimisticTimerConfig.value()
+    const leaderDataVersion = checked ? 'beta' : 'live'
+    if (leaderDataVersion === current.leaderDataVersion) return
+    await commitDraftConfig({
+      banTimerSeconds: current.banTimerSeconds,
+      pickTimerSeconds: current.pickTimerSeconds,
+      leaderPoolSize: current.leaderPoolSize,
+      leaderDataVersion,
+    })
   }
 
   const handleLobbyModeChange = async (nextMode: LobbyModeValue) => {
@@ -1369,6 +1397,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
                         value={formattedLeaderPool()}
                       />
                       <ReadonlyTimerRow
+                        label="Leader text"
+                        value={draftConfig().leaderDataVersion === 'beta' ? 'Beta' : 'Live'}
+                      />
+                      <ReadonlyTimerRow
                         label="Ban timer"
                         value={formatTimerValue(timerConfig().banTimerSeconds, serverDefaultTimerConfig().banTimerSeconds)}
                       />
@@ -1418,6 +1450,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
                           setLeaderPoolInput(normalized)
                         }}
                         onBlur={() => void saveConfigOnBlur()}
+                      />
+
+                      <Switch
+                        label="Beta Leader Text"
+                        description="Switch draft leader details between the live BBG text and the current beta text."
+                        checked={draftConfig().leaderDataVersion === 'beta'}
+                        disabled={lobbyActionPending()}
+                        onChange={checked => void handleLeaderDataVersionChange(checked)}
                       />
                     </Show>
 
