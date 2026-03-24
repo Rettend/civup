@@ -8,7 +8,7 @@ import type {
   RankRoleSetDetail,
 } from '~/client/lib/config-screen/helpers'
 import type { LobbyArrangeStrategy, LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
-import { formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isTeamMode as isTeamGameMode, normalizeCompetitiveTierBounds, parseGameMode } from '@civup/game'
+import { formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isTeamMode as isTeamGameMode, normalizeCompetitiveTierBounds } from '@civup/game'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, Switch, TextInput } from '~/client/components/ui'
 import {
@@ -76,10 +76,10 @@ interface ConfigScreenProps {
 interface LobbyEditableDraftConfig extends DraftTimerConfig {
   leaderPoolSize: number | null
   leaderDataVersion: 'live' | 'beta'
+  simultaneousPick: boolean
 }
 
 const CONFIG_MESSAGE_TIMEOUT_MS = 4000
-const ENABLED_GAME_MODE_CHOICES = resolveEnabledGameModeChoices(import.meta.env.VITE_ENABLED_GAME_MODES as string | undefined)
 
 /** Pre-draft setup screen (lobby waiting + room waiting). */
 export function ConfigScreen(props: ConfigScreenProps) {
@@ -107,6 +107,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
           pickTimerSeconds: props.lobby.draftConfig.pickTimerSeconds,
           leaderPoolSize: props.lobby.draftConfig.leaderPoolSize,
           leaderDataVersion: props.lobby.draftConfig.leaderDataVersion,
+          simultaneousPick: props.lobby.draftConfig.simultaneousPick,
         }
       : null,
   )
@@ -137,6 +138,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
       leaderPoolSize: lobby.draftConfig.leaderPoolSize,
       leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+      simultaneousPick: lobby.draftConfig.simultaneousPick,
     })
   })
 
@@ -303,7 +305,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const formatId = () => {
     const lobby = currentLobby()
     if (lobby) return formatModeLabel(lobby.mode, 'DRAFT')
-    return formatModeLabel(state()?.formatId, 'DRAFT')
+    return formatModeLabel(inferGameMode(state()?.formatId), 'DRAFT')
   }
   const isTeamMode = () => {
     const lobby = currentLobby()
@@ -319,12 +321,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
         pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
         leaderPoolSize: lobby.draftConfig.leaderPoolSize,
         leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+        simultaneousPick: lobby.draftConfig.simultaneousPick,
       }
     }
     return {
       ...getTimerConfigFromDraft(state()),
       leaderPoolSize: null,
       leaderDataVersion: 'live',
+      simultaneousPick: state()?.formatId === 'default-ffa-simultaneous',
     }
   }
 
@@ -408,10 +412,12 @@ export function ConfigScreen(props: ConfigScreenProps) {
     equals: (a, b) => a.banTimerSeconds === b.banTimerSeconds
       && a.pickTimerSeconds === b.pickTimerSeconds
       && a.leaderPoolSize === b.leaderPoolSize
-      && a.leaderDataVersion === b.leaderDataVersion,
+      && a.leaderDataVersion === b.leaderDataVersion
+      && a.simultaneousPick === b.simultaneousPick,
   })
   const optimisticDraftConfig = () => optimisticTimerConfig.value()
   const formattedBbgVersion = () => draftConfig().leaderDataVersion === 'beta' ? 'Beta' : 'Live'
+  const formattedSimultaneousPick = () => draftConfig().simultaneousPick ? 'On' : 'Off'
 
   const clearConfigMessage = () => {
     if (configMessageTimeout) {
@@ -656,6 +662,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
           pickTimerSeconds: nextConfig.pickTimerSeconds,
           leaderPoolSize: nextConfig.leaderPoolSize,
           leaderDataVersion: nextConfig.leaderDataVersion,
+          simultaneousPick: nextConfig.simultaneousPick,
           minRole: lobby.minRole,
           maxRole: lobby.maxRole,
         })
@@ -699,6 +706,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       const leaderPoolSize = parsedLeaderPool
       const current = optimisticTimerConfig.value()
       const leaderDataVersion = current.leaderDataVersion
+      const simultaneousPick = current.simultaneousPick
 
       if (
         banTimerSeconds === current.banTimerSeconds
@@ -709,7 +717,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         return
       }
 
-      await commitDraftConfig({ banTimerSeconds, pickTimerSeconds, leaderPoolSize, leaderDataVersion })
+      await commitDraftConfig({ banTimerSeconds, pickTimerSeconds, leaderPoolSize, leaderDataVersion, simultaneousPick })
     }
     finally {
       setEditingField(current => current === activeField ? null : current)
@@ -726,6 +734,20 @@ export function ConfigScreen(props: ConfigScreenProps) {
       pickTimerSeconds: current.pickTimerSeconds,
       leaderPoolSize: current.leaderPoolSize,
       leaderDataVersion,
+      simultaneousPick: current.simultaneousPick,
+    })
+  }
+
+  const handleSimultaneousPickChange = async (checked: boolean) => {
+    if (!isLobbyMode() || !amHost() || lobbyActionPending() || lobbyMode() !== 'ffa') return
+    const current = optimisticTimerConfig.value()
+    if (checked === current.simultaneousPick) return
+    await commitDraftConfig({
+      banTimerSeconds: current.banTimerSeconds,
+      pickTimerSeconds: current.pickTimerSeconds,
+      leaderPoolSize: current.leaderPoolSize,
+      leaderDataVersion: current.leaderDataVersion,
+      simultaneousPick: checked,
     })
   }
 
@@ -940,7 +962,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
         setPendingPlaceSelfSlot(null)
         if (optimisticAction) clearOptimisticLobbyAction()
         showErrorMessage(result.error)
-        return
       }
     }
     finally {
@@ -993,7 +1014,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
       if (!result.ok) {
         if (optimisticAction) clearOptimisticLobbyAction()
         showErrorMessage(result.error)
-        return
       }
     }
     finally {
@@ -1033,7 +1053,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
       if (!result.ok) {
         if (optimisticAction) clearOptimisticLobbyAction()
         showErrorMessage(result.error)
-        return
       }
     }
     finally {
@@ -1284,89 +1303,90 @@ export function ConfigScreen(props: ConfigScreenProps) {
             <div class={cn(
               'gap-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)]',
               desktopSetupPanelHeightClass(),
-            )}>
-              <div class="p-4 rounded-lg bg-bg-subtle overflow-hidden flex flex-col min-h-0 lg:h-full">
+            )}
+            >
+              <div class="p-4 rounded-lg bg-bg-subtle flex flex-col min-h-0 overflow-hidden lg:h-full">
                 <div class="text-xs text-fg-subtle tracking-widest font-bold mb-3 uppercase">Players</div>
 
-                <div class="min-h-0 flex-1 overflow-y-auto pr-1">
+                <div class="pr-1 flex-1 min-h-0 overflow-y-auto">
                   <Show
-                  when={isTeamMode()}
-                  fallback={(
-                    <div class="gap-3 grid grid-cols-2">
-                      <div class="flex flex-col gap-2">
-                        <For each={ffaFirstColumn()}>
-                          {row => (
-                            <PlayerChip
-                              row={row}
-                              pending={lobbyActionPending()}
-                              draggable={canDragRow(row)}
-                              allowDrop={canDropOnRow(row)}
-                              dropActive={canDropOnRow(row) && dragOverSlot() === row.slot}
-                              showJoin={canJoinSlot(row)}
-                              showRemove={canRemoveSlot(row)}
-                              onJoin={() => void handlePlaceSelf(row.slot)}
-                              onRemove={() => void handleRemoveFromSlot(row.slot)}
-                              onDragStart={() => {
-                                if (!row.playerId) return
-                                setDraggingPlayerId(row.playerId)
-                              }}
-                              onDragEnd={() => {
-                                setDraggingPlayerId(null)
-                                setDragOverSlot(null)
-                              }}
-                              onDragEnter={() => setDragOverSlot(row.slot)}
-                              onDragLeave={() => { if (dragOverSlot() === row.slot) setDragOverSlot(null) }}
-                              onDrop={() => void handleDropOnSlot(row.slot)}
-                            />
-                          )}
-                        </For>
+                    when={isTeamMode()}
+                    fallback={(
+                      <div class="gap-3 grid grid-cols-2">
+                        <div class="flex flex-col gap-2">
+                          <For each={ffaFirstColumn()}>
+                            {row => (
+                              <PlayerChip
+                                row={row}
+                                pending={lobbyActionPending()}
+                                draggable={canDragRow(row)}
+                                allowDrop={canDropOnRow(row)}
+                                dropActive={canDropOnRow(row) && dragOverSlot() === row.slot}
+                                showJoin={canJoinSlot(row)}
+                                showRemove={canRemoveSlot(row)}
+                                onJoin={() => void handlePlaceSelf(row.slot)}
+                                onRemove={() => void handleRemoveFromSlot(row.slot)}
+                                onDragStart={() => {
+                                  if (!row.playerId) return
+                                  setDraggingPlayerId(row.playerId)
+                                }}
+                                onDragEnd={() => {
+                                  setDraggingPlayerId(null)
+                                  setDragOverSlot(null)
+                                }}
+                                onDragEnter={() => setDragOverSlot(row.slot)}
+                                onDragLeave={() => { if (dragOverSlot() === row.slot) setDragOverSlot(null) }}
+                                onDrop={() => void handleDropOnSlot(row.slot)}
+                              />
+                            )}
+                          </For>
+                        </div>
+                        <div class="flex flex-col gap-2">
+                          <For each={ffaSecondColumn()}>
+                            {row => (
+                              <PlayerChip
+                                row={row}
+                                pending={lobbyActionPending()}
+                                draggable={canDragRow(row)}
+                                allowDrop={canDropOnRow(row)}
+                                dropActive={canDropOnRow(row) && dragOverSlot() === row.slot}
+                                showJoin={canJoinSlot(row)}
+                                showRemove={canRemoveSlot(row)}
+                                onJoin={() => void handlePlaceSelf(row.slot)}
+                                onRemove={() => void handleRemoveFromSlot(row.slot)}
+                                onDragStart={() => {
+                                  if (!row.playerId) return
+                                  setDraggingPlayerId(row.playerId)
+                                }}
+                                onDragEnd={() => {
+                                  setDraggingPlayerId(null)
+                                  setDragOverSlot(null)
+                                }}
+                                onDragEnter={() => setDragOverSlot(row.slot)}
+                                onDragLeave={() => { if (dragOverSlot() === row.slot) setDragOverSlot(null) }}
+                                onDrop={() => void handleDropOnSlot(row.slot)}
+                              />
+                            )}
+                          </For>
+                        </div>
                       </div>
-                      <div class="flex flex-col gap-2">
-                        <For each={ffaSecondColumn()}>
-                          {row => (
-                            <PlayerChip
-                              row={row}
-                              pending={lobbyActionPending()}
-                              draggable={canDragRow(row)}
-                              allowDrop={canDropOnRow(row)}
-                              dropActive={canDropOnRow(row) && dragOverSlot() === row.slot}
-                              showJoin={canJoinSlot(row)}
-                              showRemove={canRemoveSlot(row)}
-                              onJoin={() => void handlePlaceSelf(row.slot)}
-                              onRemove={() => void handleRemoveFromSlot(row.slot)}
-                              onDragStart={() => {
-                                if (!row.playerId) return
-                                setDraggingPlayerId(row.playerId)
-                              }}
-                              onDragEnd={() => {
-                                setDraggingPlayerId(null)
-                                setDragOverSlot(null)
-                              }}
-                              onDragEnter={() => setDragOverSlot(row.slot)}
-                              onDragLeave={() => { if (dragOverSlot() === row.slot) setDragOverSlot(null) }}
-                              onDrop={() => void handleDropOnSlot(row.slot)}
-                            />
-                          )}
-                        </For>
+                    )}
+                  >
+                    <div class="gap-4 grid grid-cols-2">
+                      <div>
+                        <div class="text-xs text-accent tracking-wider font-bold mb-2">Team A</div>
+                        {renderTeamColumn(teamRows(0))}
                       </div>
-                    </div>
-                  )}
-                >
-                  <div class="gap-4 grid grid-cols-2">
-                    <div>
-                      <div class="text-xs text-accent tracking-wider font-bold mb-2">Team A</div>
-                      {renderTeamColumn(teamRows(0))}
-                    </div>
-                    <div>
-                      <div class="text-xs text-accent tracking-wider font-bold mb-2">Team B</div>
-                      {renderTeamColumn(teamRows(1))}
-                    </div>
+                      <div>
+                        <div class="text-xs text-accent tracking-wider font-bold mb-2">Team B</div>
+                        {renderTeamColumn(teamRows(1))}
+                      </div>
                     </div>
                   </Show>
                 </div>
               </div>
 
-              <div class="p-4 rounded-lg bg-bg-subtle flex flex-col gap-3 overflow-hidden min-h-0 lg:h-full">
+              <div class="p-4 rounded-lg bg-bg-subtle flex flex-col gap-3 min-h-0 overflow-hidden lg:h-full">
                 <div class="text-xs text-fg-subtle tracking-widest font-bold flex uppercase items-center justify-between">
                   <span>Config</span>
                   <span class="flex h-4 w-4 items-center justify-center">
@@ -1376,19 +1396,9 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   </span>
                 </div>
 
-                <div class="min-h-0 flex-1 overflow-y-auto pr-2 -mr-1 flex flex-col gap-3">
+                <div class="pr-2 flex flex-1 flex-col gap-3 min-h-0 overflow-y-auto -mr-1">
                   <Show when={isLobbyMode() && amHost()}>
-                    <Dropdown
-                      label="Game Mode"
-                      value={lobbyMode()}
-                      disabled={lobbyActionPending()}
-                      options={ENABLED_GAME_MODE_CHOICES.map(choice => ({ value: choice.value, label: choice.name }))}
-                      onChange={value => void handleLobbyModeChange(inferGameMode(value))}
-                    />
-                  </Show>
-
-                  <Show when={isLobbyMode() && amHost()}>
-                    <div class="px-1 flex items-center justify-between gap-3">
+                    <div class="px-1 flex gap-3 items-center justify-between">
                       <span class={cn('text-sm font-medium', optimisticDraftConfig().leaderDataVersion === 'beta' ? 'text-accent' : 'text-fg-muted')}>
                         BBG Beta
                       </span>
@@ -1401,10 +1411,46 @@ export function ConfigScreen(props: ConfigScreenProps) {
                     </div>
                   </Show>
 
+                  <Show when={isLobbyMode() && amHost() && lobbyMode() === 'ffa'}>
+                    <div class="px-1 flex gap-3 items-center justify-between">
+                      <span class={cn('text-sm font-medium', optimisticDraftConfig().simultaneousPick ? 'text-accent' : 'text-fg-muted')}>
+                        Simultaneous pick
+                      </span>
+                      <Switch
+                        checked={optimisticDraftConfig().simultaneousPick}
+                        disabled={lobbyActionPending()}
+                        class="w-auto"
+                        onChange={checked => void handleSimultaneousPickChange(checked)}
+                      />
+                    </div>
+                  </Show>
+
+                  <Show when={isLobbyMode() && amHost()}>
+                    <Dropdown
+                      label="Game Mode"
+                      value={lobbyMode()}
+                      disabled={lobbyActionPending()}
+                      options={GAME_MODE_CHOICES.map(choice => ({ value: choice.value, label: choice.name }))}
+                      onChange={value => void handleLobbyModeChange(inferGameMode(value))}
+                    />
+                  </Show>
+
                   <Show
                     when={amHost()}
                     fallback={(
                       <div class="flex flex-col gap-2">
+                        <ReadonlyTimerRow
+                          label="BBG"
+                          value={formattedBbgVersion()}
+                          valueClass={draftConfig().leaderDataVersion === 'beta' ? 'text-accent' : undefined}
+                        />
+                        <Show when={isLobbyMode() && lobbyMode() === 'ffa'}>
+                          <ReadonlyTimerRow
+                            label="Simultaneous pick"
+                            value={formattedSimultaneousPick()}
+                            valueClass={draftConfig().simultaneousPick ? 'text-accent' : undefined}
+                          />
+                        </Show>
                         <Show when={isLobbyMode()}>
                           <>
                             <ReadonlyTimerRow
@@ -1429,11 +1475,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
                           label="Pick timer"
                           value={formatTimerValue(timerConfig().pickTimerSeconds, serverDefaultTimerConfig().pickTimerSeconds)}
                         />
-                        <ReadonlyTimerRow
-                          label="BBG"
-                          value={formattedBbgVersion()}
-                          valueClass={draftConfig().leaderDataVersion === 'beta' ? 'text-accent' : undefined}
-                        />
                       </div>
                     )}
                   >
@@ -1441,7 +1482,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       <Show when={isLobbyMode()}>
                         <div class="flex flex-col gap-1.5">
                           <div class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">Min and max matchmaking rank</div>
-                          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div class="gap-2 grid grid-cols-1 sm:grid-cols-2">
                             <Dropdown
                               ariaLabel="Minimum matchmaking rank"
                               value={lobbyMinRoleValue()}
@@ -1637,17 +1678,4 @@ export function ConfigScreen(props: ConfigScreenProps) {
       </MiniFrame>
     </Show>
   )
-}
-
-function resolveEnabledGameModeChoices(raw: string | undefined) {
-  const trimmed = raw?.trim()
-  if (!trimmed || trimmed === '*' || trimmed.toLowerCase() === 'all') return GAME_MODE_CHOICES
-  const tokens = trimmed.split(/[\s,]+/)
-
-  const enabled = new Set(GAME_MODE_CHOICES.map(choice => choice.value).filter((mode) => {
-    return tokens.some(token => parseGameMode(token) === mode)
-  }))
-
-  if (enabled.size === 0) return GAME_MODE_CHOICES
-  return GAME_MODE_CHOICES.filter(choice => enabled.has(choice.value))
 }

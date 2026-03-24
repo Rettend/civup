@@ -1,5 +1,4 @@
 import { createDb } from '@civup/db'
-import { getEnabledLeaderboardModes } from '../services/game-modes.ts'
 import { refreshDirtyLeaderboards } from '../services/leaderboard/message.ts'
 import { pruneInactiveOpenLobbies } from '../services/lobby/index.ts'
 import { pruneAbandonedMatches } from '../services/match/index.ts'
@@ -34,9 +33,7 @@ export const cron_leaderboards = factory.cron(
     const db = createDb(c.env.DB)
     const kv = createStateStore(c.env)
     try {
-      const refreshed = await refreshDirtyLeaderboards(db, kv, c.env.DISCORD_TOKEN, {
-        modes: getEnabledLeaderboardModes(c.env),
-      })
+      const refreshed = await refreshDirtyLeaderboards(db, kv, c.env.DISCORD_TOKEN)
       if (refreshed) {
         // eslint-disable-next-line no-console
         console.log('[cron] Refreshed dirty leaderboards')
