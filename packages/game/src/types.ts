@@ -87,6 +87,14 @@ export interface LeaderUnique {
   iconUrl?: string
 }
 
+export type LeaderDataVersion = 'live' | 'beta'
+
+export const LEADER_DATA_VERSIONS = ['live', 'beta'] as const satisfies readonly LeaderDataVersion[]
+
+export function isLeaderDataVersion(value: unknown): value is LeaderDataVersion {
+  return value === 'live' || value === 'beta'
+}
+
 export interface Leader {
   /** Stable identifier, e.g. "alexander" */
   id: string

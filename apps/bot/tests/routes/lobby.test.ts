@@ -382,6 +382,8 @@ describe('lobby routes', () => {
       banTimerSeconds: 45,
       pickTimerSeconds: 60,
       leaderPoolSize: 12,
+      leaderDataVersion: 'live',
+      simultaneousPick: false,
     }, lobby)
     expect(configuredLobby).not.toBeNull()
 
@@ -406,8 +408,49 @@ describe('lobby routes', () => {
       banTimerSeconds: 45,
       pickTimerSeconds: 60,
       leaderPoolSize: 12,
+      leaderDataVersion: 'live',
+      simultaneousPick: false,
     })
     expect(updatedLobby?.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
+  })
+
+  test('config route updates the FFA simultaneous pick toggle', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, 'ffa', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/ffa/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        simultaneousPick: true,
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.draftConfig.simultaneousPick).toBe(true)
   })
 
   test('config route updates the Steam lobby link for an active hosted lobby', async () => {

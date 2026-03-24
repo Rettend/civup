@@ -4,6 +4,7 @@ export const LOBBY_ID_KEY_PREFIX = 'lobby:id:'
 export const LOBBY_MODE_KEY_PREFIX = 'lobby:mode:'
 export const LOBBY_CHANNEL_KEY_PREFIX = 'lobby:channel:'
 export const LOBBY_MATCH_KEY_PREFIX = 'lobby:match:'
+export const LOBBY_DRAFT_ROSTER_KEY_PREFIX = 'lobby:draft-roster:'
 export const LOBBY_TTL = 24 * 60 * 60
 
 export function idKey(lobbyId: string): string {
@@ -28,4 +29,8 @@ export function channelPrefix(channelId: string): string {
 
 export function matchKey(matchId: string): string {
   return `${LOBBY_MATCH_KEY_PREFIX}${matchId}`
+}
+
+export function draftRosterKey(lobbyId: string): string {
+  return `${LOBBY_DRAFT_ROSTER_KEY_PREFIX}${lobbyId}`
 }

@@ -257,6 +257,7 @@ function processPick(
 
   const newSeatPicks = [...existingPicks, civId]
   const newSubmissions = { ...state.submissions, [seatIndex]: newSeatPicks }
+  const newPicks = [...state.picks, { civId, seatIndex, stepIndex: state.currentStepIndex }]
   const events: DraftEvent[] = [
     { type: 'PICK_SUBMITTED', seatIndex, civId },
   ]
@@ -265,40 +266,26 @@ function processPick(
   const newAvailable = state.availableCivIds.filter(id => id !== civId)
 
   // Check if step is complete (all active seats have made all their picks)
-  const activeSeatCount = getActiveSeatCount(step, state.seats.length)
-  const fullySubmittedSeats = Object.entries(newSubmissions)
-    .filter(([_, picks]) => picks.length >= step.count)
-    .length
+  const activeSeats = getActiveSeats(step, state.seats.length)
+  const activeSeatCount = activeSeats.length
+  const fullySubmittedSeats = activeSeats.filter(seat => (newSubmissions[seat]?.length ?? 0) >= step.count).length
   const stepComplete = fullySubmittedSeats >= activeSeatCount
 
+  const stateAfterPick: DraftState = {
+    ...state,
+    submissions: newSubmissions,
+    picks: newPicks,
+    availableCivIds: newAvailable,
+  }
+
   if (stepComplete) {
-    // Record picks
-    const newPicks = [...state.picks]
-    for (const [seat, picks] of Object.entries(newSubmissions)) {
-      for (const pick of picks) {
-        newPicks.push({ civId: pick, seatIndex: Number(seat), stepIndex: state.currentStepIndex })
-      }
-    }
-
-    const stateAfterPicks: DraftState = {
-      ...state,
+    return advanceStep({
+      ...stateAfterPick,
       submissions: {},
-      picks: newPicks,
-      availableCivIds: newAvailable,
-    }
-
-    return advanceStep(stateAfterPicks, events)
+    }, events)
   }
 
-  // Step not complete, update state
-  return {
-    state: {
-      ...state,
-      submissions: newSubmissions,
-      availableCivIds: newAvailable,
-    },
-    events,
-  }
+  return { state: stateAfterPick, events }
 }
 
 // ── Timeout ─────────────────────────────────────────────────

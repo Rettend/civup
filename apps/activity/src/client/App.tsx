@@ -1,7 +1,6 @@
 import type {
   ActivityLaunchSelection,
   ActivityLaunchSnapshot,
-  ActivityOverviewOptionSnapshot,
   ActivityOverviewSnapshot,
   ActivityTargetOption,
   LobbyJoinEligibilitySnapshot,
@@ -12,7 +11,7 @@ import type {
 import { createEffect, createSignal, Match, onCleanup, onMount, Show, Switch, untrack } from 'solid-js'
 import { activityTargetOptionKey, ActivityTargetPicker, ConfigScreen, DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
-import { didClearResolvedActivityTarget, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection } from './lib/activity-targets'
+import { didClearResolvedActivityTarget, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from './lib/activity-targets'
 import { cn } from './lib/css'
 import { relayDevLog } from './lib/dev-log'
 import {
@@ -61,15 +60,15 @@ type LiveActivityTargetState
     id: string
     pendingJoin: boolean
   }
-    | {
-      kind: 'match'
-      id: string
-      pendingJoin: boolean
-      roomAccessToken: string | null
-      steamLobbyLink: string | null
-      lobbyId: string | null
-      mode: string | null
-    }
+  | {
+    kind: 'match'
+    id: string
+    pendingJoin: boolean
+    roomAccessToken: string | null
+    steamLobbyLink: string | null
+    lobbyId: string | null
+    mode: string | null
+  }
 
 export default function App() {
   const [state, setState] = createSignal<AppState>({ status: 'loading' })
@@ -104,10 +103,13 @@ export default function App() {
     resetDraft()
   }
 
-  const shouldHoldAuthenticatedDraftState = () => {
+  const shouldHoldAuthenticatedDraftState = (nextSelectionKind: 'lobby' | 'match' | null = null) => {
     if (state().status !== 'authenticated') return false
-    if (isDraftConnectionInFlight()) return true
-    return draftStore.state != null
+    return shouldHoldAuthenticatedDraftStateForSelection({
+      nextSelectionKind,
+      hasInFlightConnection: isDraftConnectionInFlight(),
+      draftState: draftStore.state,
+    })
   }
 
   const isDraftConnectionInFlight = () => {
@@ -263,9 +265,7 @@ export default function App() {
       if (!shouldApplyResolvedActivitySelection({
         isOverviewVisible: state().status === 'overview',
         allowSelectionWhileOverview,
-      })) {
-        return
-      }
+      })) { return }
 
       if (pendingSelectionKey === resolvedKey) {
         pendingTargetSelectionKey = null
@@ -337,7 +337,6 @@ export default function App() {
       }
       setLiveLobbySnapshotVersion(version => version + 1)
       applyLiveActivityState()
-      return
     }
   }
 
@@ -484,14 +483,14 @@ export default function App() {
       return
     }
 
-    if (current.status === 'authenticated' && snapshot.selection.kind === 'lobby' && shouldHoldAuthenticatedDraftState()) return
+    if (current.status === 'authenticated' && snapshot.selection.kind === 'lobby' && shouldHoldAuthenticatedDraftState('lobby')) return
 
     setLastResolvedSelection(snapshot.selection)
 
     if (!shouldApplyResolvedActivitySelection({
       isOverviewVisible: current.status === 'overview',
       allowSelectionWhileOverview,
-    })) return
+    })) { return }
 
     if (snapshot.selection.kind === 'lobby') {
       const nextLobby = snapshot.selection.lobby
@@ -803,7 +802,7 @@ function materializeOverviewOptions(
   if (!snapshot) return []
 
   return snapshot.options
-    .map((option) => ({
+    .map(option => ({
       kind: option.kind,
       id: option.id,
       lobbyId: option.lobbyId,
@@ -1079,6 +1078,8 @@ function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
   if (a.draftConfig.banTimerSeconds !== b.draftConfig.banTimerSeconds) return false
   if (a.draftConfig.pickTimerSeconds !== b.draftConfig.pickTimerSeconds) return false
   if (a.draftConfig.leaderPoolSize !== b.draftConfig.leaderPoolSize) return false
+  if (a.draftConfig.leaderDataVersion !== b.draftConfig.leaderDataVersion) return false
+  if (a.draftConfig.simultaneousPick !== b.draftConfig.simultaneousPick) return false
   if (a.serverDefaults.banTimerSeconds !== b.serverDefaults.banTimerSeconds) return false
   if (a.serverDefaults.pickTimerSeconds !== b.serverDefaults.pickTimerSeconds) return false
   if (a.entries.length !== b.entries.length) return false
