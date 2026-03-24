@@ -1,10 +1,10 @@
 import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { getRankedRoleConfig } from '../../services/ranked/roles.ts'
-import { buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
 import { MAX_LEADER_POOL_SIZE, maxPlayerCount, minPlayerCount } from '@civup/game'
 import { MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
 import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
+import { buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
 import { getQueueState } from '../../services/queue/index.ts'
 import { normalizeRankedRoleTierId } from '../../services/ranked/roles.ts'
 
