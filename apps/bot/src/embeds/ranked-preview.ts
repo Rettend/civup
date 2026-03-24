@@ -13,25 +13,26 @@ export function rankedPreviewEmbeds(summary: RankedPreviewSummary): Embed[] {
       .fields(...buildConfiguredBandFields(summary)),
   ]
 
-  const modeEmbeds = summary.modes.map((mode) => {
-    const embed = new Embed()
-      .title(`${formatLeaderboardModeLabel(mode.mode, mode.mode)} - ${mode.rankedCount} ranked`)
-      .color(RANKED_PREVIEW_COLOR)
+  const modeEmbeds = summary.modes
+    .filter(hasModeCutoffData)
+    .map((mode) => {
+      const embed = new Embed()
+        .title(`${formatLeaderboardModeLabel(mode.mode, mode.mode)} - ${mode.rankedCount} ranked`)
+        .color(RANKED_PREVIEW_COLOR)
 
-    if (mode.rankedCount <= 0 || mode.tiers.length === 0) {
-      embed.description('No ranked players yet.')
+      embed.fields(...buildModeCutoffFields(mode))
       return embed
-    }
-
-    embed.fields(...buildModeCutoffFields(mode))
-    return embed
-  })
+    })
 
   const lastEmbed = modeEmbeds[modeEmbeds.length - 1] ?? embeds[0]
   lastEmbed?.footer({ text: summary.dirty ? 'Pending ranked sync' : 'Up to date' })
 
   embeds.push(...modeEmbeds)
   return embeds
+}
+
+function hasModeCutoffData(mode: RankedPreviewModeSummary): boolean {
+  return mode.rankedCount > 0 && mode.tiers.length > 0
 }
 
 function buildConfiguredBandFields(summary: RankedPreviewSummary): Array<{ name: string, value: string, inline?: boolean }> {
