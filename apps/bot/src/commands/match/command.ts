@@ -1,15 +1,13 @@
 import type { GameMode, QueueEntry } from '@civup/game'
-import process from 'node:process'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { MatchJoinEntry, MatchVar } from './shared.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { formatModeLabel, maxPlayerCount, maxTeammatesForMode, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
+import { formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, maxPlayerCount, maxTeammatesForMode, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyOpenEmbed, lobbyResultEmbed } from '../../embeds/match.ts'
 import { clearLobbyAndActivityMappings, clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
-import { getEnabledGameModes, getRegisteredGameModeChoices, isGameModeEnabled } from '../../services/game-modes.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
 import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getLobbiesByMode, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
@@ -27,7 +25,7 @@ import { getSystemChannel } from '../../services/system/channels.ts'
 import { factory } from '../../setup.ts'
 import { buildFfaPlacementOptions, collectFfaPlacementUserIds, getIdentity, getIdentityByUserId, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
 
-const MATCH_MODE_CHOICES = getRegisteredGameModeChoices()
+const MATCH_MODE_CHOICES = GAME_MODE_CHOICES
 
 export const command_match = factory.command<MatchVar>(
   new Command('match', 'Looking for game, queue management').options(
@@ -73,9 +71,9 @@ export const command_match = factory.command<MatchVar>(
         const steamLobbyLink = parseSteamLobbyLink(c.var.steam_link)
         const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id
         const identity = getIdentity(c)
-        if (!mode || !isGameModeEnabled(c.env, mode)) {
+        if (!mode) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
-            await sendTransientEphemeralResponse(c, 'That game mode is not enabled on this deployment.', 'error')
+            await sendTransientEphemeralResponse(c, 'Please provide a valid game mode.', 'error')
           })
         }
         if (!identity) {
@@ -230,9 +228,9 @@ export const command_match = factory.command<MatchVar>(
         const mode = parseGameMode(c.var.mode)
         const kv = createStateStore(c.env)
         const identity = getIdentity(c)
-        if (!mode || !isGameModeEnabled(c.env, mode)) {
+        if (!mode) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
-            await sendTransientEphemeralResponse(c, 'That game mode is not enabled on this deployment.', 'error')
+            await sendTransientEphemeralResponse(c, 'Please provide a valid game mode.', 'error')
           })
         }
         if (!identity) {
@@ -532,7 +530,7 @@ export const command_match = factory.command<MatchVar>(
       case 'status': {
         return c.resDefer(async (c) => {
           const kv = createStateStore(c.env)
-          const modes = getEnabledGameModes(c.env)
+          const modes = GAME_MODES
           const lines: string[] = []
           const guildId = c.interaction.guild_id ?? null
 
@@ -882,7 +880,7 @@ async function findHostedOpenLobby(kv: KVNamespace, hostId: string) {
 }
 
 async function findHostedOpenLobbies(kv: KVNamespace, hostId: string) {
-  const modes = ['ffa', '1v1', '2v2', '3v3', '4v4'] as const
+  const modes = GAME_MODES
   const lobbies = [] as Awaited<ReturnType<typeof getLobbiesByMode>>[number][]
   for (const mode of modes) {
     lobbies.push(...(await getLobbiesByMode(kv, mode)).filter(candidate => candidate.status === 'open' && candidate.hostId === hostId))
@@ -894,7 +892,7 @@ async function findHostedOpenLobbies(kv: KVNamespace, hostId: string) {
 }
 
 async function findHostedEditableLobbies(kv: KVNamespace, hostId: string): Promise<LobbyState[]> {
-  const modes = ['ffa', '1v1', '2v2', '3v3', '4v4'] as const
+  const modes = GAME_MODES
   const lobbies: LobbyState[] = []
   for (const mode of modes) {
     lobbies.push(...(await getLobbiesByMode(kv, mode)).filter(candidate => candidate.hostId === hostId && isSteamLobbyEditableStatus(candidate.status)))

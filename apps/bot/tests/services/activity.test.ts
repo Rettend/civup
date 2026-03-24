@@ -1,9 +1,11 @@
+import type { QueueEntry } from '@civup/game'
 import { verifyDraftRoomAccessToken } from '@civup/utils'
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import {
   clearActivityMappings,
   clearLobbyMappings,
   clearUserLobbyMappings,
+  createDraftRoom,
   getLobbyForUser,
   getMatchForUser,
   getUserActivityTarget,
@@ -15,6 +17,18 @@ import {
   storeUserMatchMappings,
 } from '../../src/services/activity/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
+
+const originalFetch = globalThis.fetch
+
+afterEach(() => {
+  globalThis.fetch = originalFetch
+})
+
+const baseFfaEntries: QueueEntry[] = Array.from({ length: 4 }, (_, index) => ({
+  playerId: `p${index + 1}`,
+  displayName: `P${index + 1}`,
+  joinedAt: index,
+}))
 
 describe('activity mapping behavior', () => {
   test('channel-scoped activity target resolves for lobby and spectator selection', async () => {
@@ -152,5 +166,42 @@ describe('activity mapping behavior', () => {
       pendingJoin: false,
       roomAccessToken: expect.any(String),
     }))
+  })
+})
+
+describe('draft room creation', () => {
+  test('uses seat-order FFA by default', async () => {
+    let postedConfig: { formatId?: unknown } | null = null
+    globalThis.fetch = (async (_input, init) => {
+      postedConfig = JSON.parse(String(init?.body)) as { formatId?: unknown }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const result = await createDraftRoom('ffa', baseFfaEntries, { hostId: 'p1' })
+
+    expect(postedConfig?.formatId).toBe('default-ffa')
+    expect(result.formatId).toBe('default-ffa')
+  })
+
+  test('uses simultaneous FFA when requested', async () => {
+    let postedConfig: { formatId?: unknown } | null = null
+    globalThis.fetch = (async (_input, init) => {
+      postedConfig = JSON.parse(String(init?.body)) as { formatId?: unknown }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const result = await createDraftRoom('ffa', baseFfaEntries, {
+      hostId: 'p1',
+      simultaneousPick: true,
+    })
+
+    expect(postedConfig?.formatId).toBe('default-ffa-simultaneous')
+    expect(result.formatId).toBe('default-ffa-simultaneous')
   })
 })

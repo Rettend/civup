@@ -1,9 +1,8 @@
 import type { StatsModeFilter } from '../embeds/player-card.ts'
 import { createDb } from '@civup/db'
-import { parseGameMode, toLeaderboardMode } from '@civup/game'
+import { GAME_MODE_CHOICES, parseGameMode } from '@civup/game'
 import { Command, Option } from 'discord-hono'
 import { playerCardEmbed } from '../embeds/player-card.ts'
-import { getEnabledLeaderboardModes, getRegisteredGameModeChoices, isLeaderboardModeEnabled } from '../services/game-modes.ts'
 import { syncPlayerProfileFromDiscord } from '../services/player/profile.ts'
 import { getPlayerRankProfile } from '../services/player/rank.ts'
 import { createStateStore } from '../services/state/store.ts'
@@ -11,7 +10,7 @@ import { factory } from '../setup.ts'
 
 const MODE_CHOICES = [
   { name: 'All', value: 'all' },
-  ...getRegisteredGameModeChoices(),
+  ...GAME_MODE_CHOICES,
 ] as const
 
 interface Var {
@@ -29,12 +28,7 @@ export const command_stats = factory.command<Var>(
     const targetId = c.var.player
       ?? c.interaction.member?.user?.id
       ?? c.interaction.user?.id
-    const parsedMode = parseGameMode(c.var.mode)
-    if (parsedMode && !isLeaderboardModeEnabled(c.env, toLeaderboardMode(parsedMode))) {
-      return c.res('That game mode is not enabled on this deployment.')
-    }
-
-    const mode = (parsedMode ?? 'all') as StatsModeFilter
+    const mode = (parseGameMode(c.var.mode) ?? 'all') as StatsModeFilter
 
     if (!targetId) return c.res('Could not identify the player.')
 
@@ -52,10 +46,7 @@ export const command_stats = factory.command<Var>(
         ? await getPlayerRankProfile(db, kv, guildId, targetId)
         : null
 
-      const embed = await playerCardEmbed(db, targetId, mode, {
-        rankProfile,
-        visibleModes: getEnabledLeaderboardModes(c.env),
-      })
+      const embed = await playerCardEmbed(db, targetId, mode, { rankProfile })
       await c.followup({ embeds: [embed] })
     })
   },

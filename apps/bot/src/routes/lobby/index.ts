@@ -8,7 +8,6 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
 import { clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, createDraftRoom, storeMatchActivityState, storeUserLobbyState, storeUserLobbyMappings } from '../../services/activity/index.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from '../../services/config/index.ts'
-import { isGameModeEnabled } from '../../services/game-modes.ts'
 import {
   arrangeLobbySlots,
   attachLobbyMatch,
@@ -66,7 +65,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
+    const mode = parseGameMode(c.req.param('mode'))
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
     if (!isDebugLobbyFillEnabled(c.req.url, c.env.BOT_HOST, c.env.ENABLE_DEBUG_LOBBY_FILL)) return c.json({ error: 'Not found' }, 404)
     return c.body(null, 204)
@@ -76,7 +75,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
+    const mode = parseGameMode(c.req.param('mode'))
     const lobbyId = c.req.param('lobbyId')
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
@@ -99,7 +98,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
+    const mode = parseGameMode(c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) {
       return c.json({ error: 'Invalid game mode' }, 400)
@@ -117,12 +116,13 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, lobbyId } = body as {
+    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, simultaneousPick: simultaneousPickRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, lobbyId } = body as {
       userId?: string
       banTimerSeconds?: unknown
       pickTimerSeconds?: unknown
       leaderPoolSize?: unknown
       leaderDataVersion?: unknown
+      simultaneousPick?: unknown
       minRole?: unknown
       maxRole?: unknown
       steamLobbyLink?: unknown
@@ -148,6 +148,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       : undefined
     const hasLeaderPoolSize = Object.prototype.hasOwnProperty.call(body, 'leaderPoolSize')
     const hasLeaderDataVersion = Object.prototype.hasOwnProperty.call(body, 'leaderDataVersion')
+    const hasSimultaneousPick = Object.prototype.hasOwnProperty.call(body, 'simultaneousPick')
     const parsedLeaderPoolSize = hasLeaderPoolSize
       ? parseLobbyLeaderPoolSize(leaderPoolSizeRaw)
       : undefined
@@ -160,8 +161,14 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const parsedLeaderDataVersion = hasLeaderDataVersion
       ? parseLobbyLeaderDataVersion(leaderDataVersionRaw)
       : undefined
+    const parsedSimultaneousPick = hasSimultaneousPick
+      ? parseLobbySimultaneousPick(simultaneousPickRaw)
+      : undefined
     if (hasLeaderDataVersion && parsedLeaderDataVersion === undefined) {
       return c.json({ error: 'leaderDataVersion must be "live" or "beta"' }, 400)
+    }
+    if (hasSimultaneousPick && parsedSimultaneousPick === undefined) {
+      return c.json({ error: 'simultaneousPick must be true or false' }, 400)
     }
     const hasSteamLobbyLink = Object.prototype.hasOwnProperty.call(body, 'steamLobbyLink')
     const parsedSteamLobbyLink = hasSteamLobbyLink
@@ -210,6 +217,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const normalizedLeaderDataVersion = hasLeaderDataVersion
       ? parsedLeaderDataVersion ?? 'live'
       : lobby.draftConfig.leaderDataVersion
+    const normalizedSimultaneousPick = hasSimultaneousPick
+      ? parsedSimultaneousPick ?? false
+      : lobby.draftConfig.simultaneousPick
     const minRoleChanged = normalizedMinRole !== lobby.minRole
     const maxRoleChanged = normalizedMaxRole !== lobby.maxRole
 
@@ -224,7 +234,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       if (!hasSteamLobbyLink) {
         return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
       }
-      if (hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasMinRole || hasMaxRole) {
+      if (hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasSimultaneousPick || hasMinRole || hasMaxRole) {
         return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
       }
 
@@ -270,6 +280,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       pickTimerSeconds: resolvedPickTimerSeconds,
       leaderPoolSize: normalizedLeaderPoolSize,
       leaderDataVersion: normalizedLeaderDataVersion,
+      simultaneousPick: normalizedSimultaneousPick,
     }, lobby)
 
     lobby = draftUpdated ?? lobby
@@ -312,7 +323,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
+    const mode = parseGameMode(c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
@@ -342,7 +353,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (mismatch) return mismatch
 
     const nextMode = typeof nextModeRaw === 'string' ? parseGameMode(nextModeRaw) : null
-    if (!nextMode || !isGameModeEnabled(c.env, nextMode)) {
+    if (!nextMode) {
       return c.json({ error: 'nextMode must be one of ffa, 1v1, 2v2, 3v3, 4v4' }, 400)
     }
 
@@ -429,7 +440,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
+    const mode = parseGameMode(c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
@@ -596,7 +607,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
+    const mode = parseGameMode(c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
@@ -691,7 +702,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
+    const mode = parseGameMode(c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
     if (!isTeamMode(mode)) {
@@ -778,7 +789,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
+    const mode = parseGameMode(c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
@@ -884,7 +895,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Not found' }, 404)
     }
 
-    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
+    const mode = parseGameMode(c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
@@ -980,7 +991,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
+    const mode = parseGameMode(c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
@@ -1073,6 +1084,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       const { matchId, seats } = await createDraftRoom(mode, selectedEntries, {
         hostId: lobby.hostId,
         leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+        simultaneousPick: lobby.draftConfig.simultaneousPick,
         partyHost: c.env.PARTY_HOST,
         botHost: c.env.BOT_HOST,
         webhookSecret: internalSecret,
@@ -1158,7 +1170,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const mode = parseEnabledRouteGameMode(c.env, c.req.param('mode'))
+    const mode = parseGameMode(c.req.param('mode'))
     const kv = createStateStore(c.env)
     if (!mode) {
       return c.json({ error: 'Invalid game mode' }, 400)
@@ -1284,10 +1296,8 @@ function parseLobbyLeaderDataVersion(value: unknown): 'live' | 'beta' | undefine
   return isLeaderDataVersion(normalized) ? normalized : undefined
 }
 
-function parseEnabledRouteGameMode(env: Env['Bindings'], value: string): GameMode | null {
-  const mode = parseGameMode(value)
-  if (!mode || !isGameModeEnabled(env, mode)) return null
-  return mode
+function parseLobbySimultaneousPick(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
 }
 
 function isDebugLobbyFillEnabled(
