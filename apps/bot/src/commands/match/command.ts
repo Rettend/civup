@@ -1,20 +1,20 @@
-import type { GameMode, QueueEntry } from '@civup/game'
+import type { DraftSeat, GameMode, QueueEntry } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { MatchJoinEntry, MatchVar } from './shared.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, maxPlayerCount, maxTeammatesForMode, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { lobbyCancelledEmbed, lobbyComponents, lobbyOpenEmbed, lobbyResultEmbed } from '../../embeds/match.ts'
+import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed, lobbyResultEmbed } from '../../embeds/match.ts'
 import { clearLobbyAndActivityMappings, clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
-import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getLobbiesByMode, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
+import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { cancelMatchByModerator, reportMatch } from '../../services/match/index.ts'
-import { storeMatchMessageMapping } from '../../services/match/message.ts'
+import { clearMatchMessageMapping, storeMatchMessageMapping } from '../../services/match/message.ts'
 import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, removeFromQueue, removeFromQueueAndUnlinkParty } from '../../services/queue/index.ts'
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../../services/ranked/role-sync.ts'
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
@@ -26,6 +26,7 @@ import { factory } from '../../setup.ts'
 import { buildFfaPlacementOptions, collectFfaPlacementUserIds, getIdentity, getIdentityByUserId, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
 
 const MATCH_MODE_CHOICES = GAME_MODE_CHOICES
+const MATCH_BUMP_RESPONSE_DELETE_MS = 5_000
 
 export const command_match = factory.command<MatchVar>(
   new Command('match', 'Looking for game, queue management').options(
@@ -47,6 +48,9 @@ export const command_match = factory.command<MatchVar>(
       new Option('match_id', 'Optional match or lobby ID override'),
     ),
     new SubCommand('leave', 'Leave the current queue'),
+    new SubCommand('bump', 'Post a fresh embed for your current lobby or match').options(
+      new Option('match_id', 'Optional match or lobby ID override'),
+    ),
     new SubCommand('status', 'Show all active lobbies'),
     new SubCommand('report', 'Report your active match result (host only)').options(
       new Option('match_id', 'Optional match ID override'),
@@ -470,6 +474,87 @@ export const command_match = factory.command<MatchVar>(
         })
       }
 
+      // ── bump ────────────────────────────────────────────
+      case 'bump': {
+        const identity = getIdentity(c)
+        if (!identity) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendMatchBumpResponse(c, 'Could not identify you.', 'error')
+          })
+        }
+
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          const kv = createStateStore(c.env)
+          const targetId = c.var.match_id?.trim() ?? null
+          const resolvedTarget = await resolveLobbyBumpTarget(kv, identity.userId, targetId)
+          if ('error' in resolvedTarget) {
+            await sendMatchBumpResponse(c, resolvedTarget.error, 'error')
+            return
+          }
+
+          const currentLobby = resolvedTarget.lobby
+          const retryAfterMs = await getLobbyBumpCooldownRemainingMs(kv, currentLobby.id)
+          if (retryAfterMs > 0) {
+            await sendMatchBumpResponse(
+              c,
+              `This ${describeEditableLobbyTarget(currentLobby)} was just bumped. Try again in ${Math.ceil(retryAfterMs / 1000)}s.`,
+              'info',
+            )
+            return
+          }
+
+          try {
+            const db = createDb(c.env.DB)
+            const renderPayload = await buildLobbyBumpRenderPayload(db, kv, currentLobby)
+            if ('error' in renderPayload) {
+              await sendMatchBumpResponse(c, renderPayload.error, 'error')
+              return
+            }
+
+            const reposted = await repostLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, renderPayload)
+            let updatedLobby = reposted.lobby
+            if (updatedLobby.status === 'open') {
+              updatedLobby = await setLobbyLastActivityAt(kv, updatedLobby.id, Date.now(), updatedLobby) ?? updatedLobby
+              await syncLobbyDerivedState(kv, updatedLobby)
+            }
+
+            if (updatedLobby.matchId) {
+              try {
+                await storeMatchMessageMapping(db, updatedLobby.messageId, updatedLobby.matchId)
+                if (reposted.previousMessageId !== updatedLobby.messageId) {
+                  await clearMatchMessageMapping(db, reposted.previousMessageId)
+                }
+              }
+              catch (error) {
+                console.error(`Failed to rebind bumped lobby message mapping for match ${updatedLobby.matchId}:`, error)
+              }
+            }
+
+            if (reposted.previousMessageId !== updatedLobby.messageId) {
+              try {
+                await deleteChannelMessage(c.env.DISCORD_TOKEN, updatedLobby.channelId, reposted.previousMessageId)
+              }
+              catch (error) {
+                console.error(`Failed to delete bumped lobby message ${reposted.previousMessageId}:`, error)
+              }
+            }
+
+            try {
+              await markLobbyBumped(kv, updatedLobby.id)
+            }
+            catch (error) {
+              console.error(`Failed to store bump cooldown for lobby ${updatedLobby.id}:`, error)
+            }
+
+            await clearDeferredEphemeralResponse(c)
+          }
+          catch (error) {
+            console.error(`Failed to bump lobby embed for lobby ${currentLobby.id}:`, error)
+            await sendMatchBumpResponse(c, 'Failed to repost the lobby embed. Please try again.', 'error')
+          }
+        })
+      }
+
       // ── steam set / clear ───────────────────────────────
       case 'steam set':
       case 'steam clear': {
@@ -503,7 +588,7 @@ export const command_match = factory.command<MatchVar>(
           if (updatedLobby.revision !== currentLobby.revision) {
             await syncLobbyDerivedState(kv, updatedLobby)
           }
-          const targetLabel = describeSteamLobbyTarget(updatedLobby)
+          const targetLabel = describeEditableLobbyTarget(updatedLobby)
 
           if (c.sub.string === 'steam clear') {
             if (currentLobby.steamLobbyLink == null) {
@@ -765,6 +850,98 @@ function normalizeMatchMode(mode: string): GameMode {
   return parseGameMode(mode) ?? '1v1'
 }
 
+async function sendMatchBumpResponse(
+  c: Parameters<typeof sendEphemeralResponse>[0],
+  message: string,
+  tone: Parameters<typeof sendEphemeralResponse>[2],
+): Promise<void> {
+  await sendEphemeralResponse(c, message, tone, { autoDeleteMs: MATCH_BUMP_RESPONSE_DELETE_MS })
+}
+
+async function buildLobbyBumpRenderPayload(
+  db: ReturnType<typeof createDb>,
+  kv: KVNamespace,
+  lobby: LobbyState,
+): Promise<{ embeds: unknown[], components?: unknown } | { error: string }> {
+  if (lobby.status === 'open') {
+    const queue = await getQueueState(kv, lobby.mode)
+    const entries = mapLobbySlotsToEntries(lobby.slots, filterQueueEntriesForLobby(lobby, queue.entries))
+    return buildOpenLobbyRenderPayload(kv, lobby, entries)
+  }
+
+  if (lobby.status === 'drafting') {
+    const draftRoster = await getLobbyDraftRoster(kv, lobby.id)
+    return {
+      embeds: [lobbyDraftingEmbed(lobby.mode, buildDraftSeatsFromLobby(lobby, draftRoster))],
+      components: lobbyComponents(lobby.mode, lobby.id),
+    }
+  }
+
+  if (lobby.status === 'active') {
+    if (!lobby.matchId) return { error: 'This match no longer has a tracked lobby message.' }
+
+    const participants = await db
+      .select()
+      .from(matchParticipants)
+      .where(eq(matchParticipants.matchId, lobby.matchId))
+
+    if (participants.length === 0) {
+      return { error: 'Could not load the current match participants for this lobby.' }
+    }
+
+    return {
+      embeds: [lobbyDraftCompleteEmbed(lobby.mode, orderLobbyParticipantsBySlots(lobby, participants))],
+      components: lobbyComponents(lobby.mode, lobby.id),
+    }
+  }
+
+  return { error: 'Only open, drafting, or active lobbies can be bumped.' }
+}
+
+function buildDraftSeatsFromLobby(
+  lobby: LobbyState,
+  draftRoster: QueueEntry[],
+): DraftSeat[] {
+  const rosterByPlayerId = new Map(draftRoster.map(entry => [entry.playerId, entry]))
+  const seats: DraftSeat[] = []
+
+  for (let slot = 0; slot < lobby.slots.length; slot++) {
+    const playerId = lobby.slots[slot]
+    if (!playerId) continue
+
+    const entry = rosterByPlayerId.get(playerId)
+    seats.push({
+      playerId,
+      displayName: entry?.displayName ?? 'Unknown',
+      avatarUrl: entry?.avatarUrl ?? null,
+      team: slotToTeamIndex(lobby.mode, slot) ?? undefined,
+    })
+  }
+
+  return seats
+}
+
+function orderLobbyParticipantsBySlots<T extends { playerId: string }>(
+  lobby: LobbyState,
+  participants: T[],
+): T[] {
+  const slotIndexByPlayerId = new Map<string, number>()
+  for (let slot = 0; slot < lobby.slots.length; slot++) {
+    const playerId = lobby.slots[slot]
+    if (!playerId || slotIndexByPlayerId.has(playerId)) continue
+    slotIndexByPlayerId.set(playerId, slot)
+  }
+
+  return [...participants].sort((left, right) => {
+    const leftSlot = slotIndexByPlayerId.get(left.playerId)
+    const rightSlot = slotIndexByPlayerId.get(right.playerId)
+    if (leftSlot != null && rightSlot != null && leftSlot !== rightSlot) return leftSlot - rightSlot
+    if (leftSlot != null) return -1
+    if (rightSlot != null) return 1
+    return left.playerId.localeCompare(right.playerId)
+  })
+}
+
 function buildMatchJoinRequest(
   c: {
     var: Pick<MatchVar, 'teammate' | 'teammate2' | 'teammate3'>
@@ -893,12 +1070,48 @@ async function findHostedEditableLobbies(kv: KVNamespace, hostId: string): Promi
   const modes = GAME_MODES
   const lobbies: LobbyState[] = []
   for (const mode of modes) {
-    lobbies.push(...(await getLobbiesByMode(kv, mode)).filter(candidate => candidate.hostId === hostId && isSteamLobbyEditableStatus(candidate.status)))
+    lobbies.push(...(await getLobbiesByMode(kv, mode)).filter(candidate => candidate.hostId === hostId && isLiveLobbyStatus(candidate.status)))
   }
   return lobbies.sort((left, right) => {
     if (left.updatedAt !== right.updatedAt) return right.updatedAt - left.updatedAt
     return left.id.localeCompare(right.id)
   })
+}
+
+async function findMemberLiveLobbies(kv: KVNamespace, userId: string): Promise<LobbyState[]> {
+  const modes = GAME_MODES
+  const lobbies: LobbyState[] = []
+  for (const mode of modes) {
+    lobbies.push(...(await getLobbiesByMode(kv, mode)).filter(candidate => candidate.memberPlayerIds.includes(userId) && isLiveLobbyStatus(candidate.status)))
+  }
+  return lobbies.sort((left, right) => {
+    if (left.updatedAt !== right.updatedAt) return right.updatedAt - left.updatedAt
+    return left.id.localeCompare(right.id)
+  })
+}
+
+async function resolveLobbyBumpTarget(
+  kv: KVNamespace,
+  userId: string,
+  targetId: string | null,
+): Promise<{ lobby: LobbyState } | { error: string }> {
+  if (targetId) {
+    const lobbyById = await getLobbyById(kv, targetId)
+    const lobby = lobbyById ?? await getLobbyByMatch(kv, targetId)
+    if (!lobby) return { error: 'Could not find that lobby or match.' }
+    if (!isLiveLobbyStatus(lobby.status)) return { error: 'Only open, drafting, or active lobbies can be bumped.' }
+    if (!lobby.memberPlayerIds.includes(userId)) return { error: 'You can only bump a lobby or match you are currently in.' }
+    return { lobby }
+  }
+
+  const memberLobbies = await findMemberLiveLobbies(kv, userId)
+  if (memberLobbies.length === 0) {
+    return { error: 'You are not in an open or live lobby right now.' }
+  }
+  if (memberLobbies.length > 1) {
+    return { error: 'You are in multiple open or live lobbies. Pass `match_id` to pick the right one.' }
+  }
+  return { lobby: memberLobbies[0]! }
 }
 
 async function resolveHostedSteamLobbyTarget(
@@ -911,7 +1124,7 @@ async function resolveHostedSteamLobbyTarget(
     const lobby = lobbyById ?? await getLobbyByMatch(kv, targetId)
     if (!lobby) return { error: 'Could not find that hosted lobby or match.' }
     if (lobby.hostId !== hostId) return { error: 'You can only update the Steam lobby link on your own hosted lobby or match.' }
-    if (!isSteamLobbyEditableStatus(lobby.status)) {
+    if (!isLiveLobbyStatus(lobby.status)) {
       return { error: 'Steam lobby links can only be managed while the lobby is open or the match is live.' }
     }
     return { lobby }
@@ -927,11 +1140,11 @@ async function resolveHostedSteamLobbyTarget(
   return { lobby: hostedLobbies[0]! }
 }
 
-function isSteamLobbyEditableStatus(status: LobbyState['status']): boolean {
+function isLiveLobbyStatus(status: LobbyState['status']): boolean {
   return status === 'open' || status === 'drafting' || status === 'active'
 }
 
-function describeSteamLobbyTarget(lobby: LobbyState): string {
+function describeEditableLobbyTarget(lobby: LobbyState): string {
   if (lobby.status === 'open') return `${formatModeLabel(lobby.mode)} lobby`
   if (lobby.status === 'drafting') return `${formatModeLabel(lobby.mode)} draft`
   return `${formatModeLabel(lobby.mode)} match`

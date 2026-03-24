@@ -47,7 +47,7 @@ export function TextInput(props: TextInputProps) {
           'outline-none transition-all duration-150',
           'placeholder:text-fg-subtle/60',
           'focus:border-accent/50 focus:bg-bg/80 focus:shadow-[0_0_0_3px_var(--accent-subtle)]',
-          'disabled:opacity-50 disabled:cursor-not-allowed',
+          'disabled:opacity-50',
           props.type === 'number' && '[&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
           props.class,
         )}
