@@ -15,6 +15,7 @@ export async function rankEmbed(
   options: {
     activeSeason: { id: string, seasonNumber: number, name: string } | null
     seasonHistory: SeasonRankHistoryEntry[]
+    visibleModes?: readonly LeaderboardMode[]
   },
 ): Promise<Embed> {
   const [player] = await db
@@ -25,6 +26,7 @@ export async function rankEmbed(
 
   const displayName = player?.displayName ?? `<@${playerId}>`
   const activeSeason = options.activeSeason
+  const visibleModes = options.visibleModes ?? LEADERBOARD_MODES
 
   const pastSeasons = activeSeason
     ? options.seasonHistory.filter(entry => entry.seasonId !== activeSeason.id)
@@ -37,11 +39,11 @@ export async function rankEmbed(
       duo: rankProfile.modes.duo.rating != null ? rankProfile.modes.duo : undefined,
       squad: rankProfile.modes.squad.rating != null ? rankProfile.modes.squad : undefined,
       ffa: rankProfile.modes.ffa.rating != null ? rankProfile.modes.ffa : undefined,
-    }, { emptyValue: 'No ranked games yet.' })
+    }, visibleModes, { emptyValue: 'No ranked games yet.' })
   }
 
   for (const season of pastSeasons) {
-    pushSeasonFields(fields, formatSeasonShortName(season.seasonNumber), season.modes)
+    pushSeasonFields(fields, formatSeasonShortName(season.seasonNumber), season.modes, visibleModes)
   }
 
   if (fields.length === 0) {
@@ -91,9 +93,10 @@ function pushSeasonFields(
   fields: Array<{ name: string, value: string, inline?: boolean }>,
   seasonLabel: string,
   modes: Partial<Record<LeaderboardMode, PlayerRankModeSummary | SeasonRankHistoryModeSummary | undefined>>,
+  visibleModeOrder: readonly LeaderboardMode[],
   options: { emptyValue?: string } = {},
 ): boolean {
-  const visibleModes = LEADERBOARD_MODES
+  const visibleModes = visibleModeOrder
     .map(mode => ({ mode, summary: modes[mode] }))
     .filter((entry): entry is { mode: LeaderboardMode, summary: PlayerRankModeSummary | SeasonRankHistoryModeSummary } => {
       return !!entry.summary && entry.summary.rating != null

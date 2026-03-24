@@ -7,6 +7,7 @@ export interface LobbyDraftConfig {
   pickTimerSeconds: number | null
   leaderPoolSize: number | null
   leaderDataVersion: LeaderDataVersion
+  simultaneousPick: boolean
 }
 
 export interface LobbyState {

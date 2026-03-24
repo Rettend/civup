@@ -4,6 +4,7 @@ import type { lobbyComponents } from '../../embeds/match.ts'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode, maxPlayerCount, teamSize as modeTeamSize } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
+import { Option } from 'discord-hono'
 import { filterQueueEntriesForLobby, getLobbiesByMode, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
@@ -11,7 +12,20 @@ import { getQueueStates, MAX_QUEUE_ENTRIES, setQueueEntries } from '../../servic
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds } from '../../services/ranked/roles.ts'
 import { createStateStore } from '../../services/state/store.ts'
 
-export const FFA_PLACEMENT_KEYS = ['second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'] as const
+const ALL_FFA_PLACEMENT_KEYS = ['second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'] as const
+const FFA_PLACEMENT_LABELS: Record<(typeof ALL_FFA_PLACEMENT_KEYS)[number], string> = {
+  second: 'FFA 2nd place',
+  third: 'FFA 3rd place',
+  fourth: 'FFA 4th place',
+  fifth: 'FFA 5th place',
+  sixth: 'FFA 6th place',
+  seventh: 'FFA 7th place',
+  eighth: 'FFA 8th place',
+  ninth: 'FFA 9th place',
+  tenth: 'FFA 10th place',
+}
+
+export const FFA_PLACEMENT_KEYS = ALL_FFA_PLACEMENT_KEYS.slice(0, Math.max(0, maxPlayerCount('ffa') - 1))
 export type FfaPlacementKey = (typeof FFA_PLACEMENT_KEYS)[number]
 
 export const LOBBY_STATUS_LABELS = {
@@ -48,6 +62,10 @@ export interface MatchJoinEntry {
   displayName: string
   avatarUrl: string
   partyIds?: string[]
+}
+
+export function buildFfaPlacementOptions() {
+  return FFA_PLACEMENT_KEYS.map(key => new Option(key, FFA_PLACEMENT_LABELS[key], 'User'))
 }
 
 interface ResolvedInteractionUser {

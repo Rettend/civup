@@ -84,6 +84,29 @@ describe('ranked preview summary', () => {
     sqlite.close()
   })
 
+  test('omits empty mode embeds when only some ladders have ranked players', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedConfiguredRoles(kv)
+    await seedPlayers(db, 'ffa', 100, { prefix: 'ffa', gamesPlayed: 6 })
+
+    const summary = await summarizeRankedPreview({
+      db,
+      kv,
+      guildId: 'guild-1',
+      now: NOW,
+    })
+
+    const embeds = rankedPreviewEmbeds(summary).map(embed => embed.toJSON())
+
+    expect(embeds).toHaveLength(2)
+    expect(embeds[0]?.title).toBe('Ranked Roles')
+    expect(embeds[1]?.title).toBe('FFA - 100 ranked')
+    expect(JSON.stringify(embeds)).not.toContain('No ranked players yet.')
+
+    sqlite.close()
+  })
+
   test('renders ranked preview as separate summary and mode embeds', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
