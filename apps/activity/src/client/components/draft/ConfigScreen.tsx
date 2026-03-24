@@ -1396,7 +1396,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   </span>
                 </div>
 
-                <div class="pr-2 flex flex-1 flex-col gap-3 min-h-0 overflow-y-auto -mr-1">
+                <div class="pr-4 flex flex-1 flex-col gap-3 min-h-0 overflow-y-auto -mr-3">
                   <Show when={isLobbyMode() && amHost()}>
                     <div class="px-1 flex gap-3 items-center justify-between">
                       <span class={cn('text-sm font-medium', optimisticDraftConfig().leaderDataVersion === 'beta' ? 'text-accent' : 'text-fg-muted')}>
