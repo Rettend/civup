@@ -125,6 +125,7 @@ The `/match` command group manages the lobby:
 - `/match join mode:... [teammates]` joins the best open lobby for that mode, specifying teammates will treat them as premades
 - `/match status` lists active lobbies and IDs
 - `/match leave` leaves the active lobby
+- `/match bump` reposts the current lobby embed again
 - `/match cancel` host cancels their lobby
 
 > [!NOTE]
@@ -148,11 +149,13 @@ The host can:
 - change game mode anytime before the draft has started
 - place and remove players from slots
 - link or unlink premades in team modes
-- randomize or auto-balance teams // TODO explain shuffle and auto-balance per game mode
+- randomize seats, premades will be kept together
+- auto-balance teams, this uses players' ratings
 - set Matchmaking Min and Max Rank (only affects `/match join`, any player can directly join any lobby)
 - set the leader pool size
 - set ban and pick timers
 - set or update the Steam lobby link
+- toggle BBG live and beta, this will change the leader details inside the draft
 - start, cancel, or later scrub the match
 
 Players can:
@@ -187,13 +190,13 @@ When the Steam lobby link is set, other players see a gold Steam button top left
 
 ### Draft format
 
-| Mode  | Bans                | Pick order   |
-| ----- | ------------------- | ------------ |
-| `1v1` | 3 each              | 12           |
-| `2v2` | captains ban 3 each | 1221         |
-| `3v3` | captains ban 3 each | 122112       |
-| `4v4` | captains ban 3 each | 12212112     |
-| `FFA` | 2 each              | simultaneous |
+| Mode  | Bans                | Pick order                |
+| ----- | ------------------- | ------------------------- |
+| `1v1` | 3 each              | 12                        |
+| `2v2` | captains ban 3 each | 1221                      |
+| `3v3` | captains ban 3 each | 122112                    |
+| `4v4` | captains ban 3 each | 12212112                  |
+| `FFA` | 2 each              | seat order / simultaneous |
 
 > [!NOTE]
 >

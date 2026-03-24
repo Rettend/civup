@@ -16,6 +16,9 @@ This is the short version, see the [Manual](MANUAL.md) for a more detailed expla
 
 This will create a Lobby and join you as the host. The `Join` button will open the Activity.
 
+> [!NOTE]
+> The **Steam link** parameter is optional, it can be set inside the Activity too, even while the draft is ongoing, or after it's done. See [Steam lobby link](#steam-lobby-link) below.
+
 ![lobby embed](images/lobby-embed.webp)
 
 > [!IMPORTANT]
