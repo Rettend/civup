@@ -1,6 +1,6 @@
 import type { Leader, LeaderDataVersion } from './types.ts'
-import { allLeaderIds as liveLeaderIds, getLeader as getLiveLeader, leaderMap as liveLeaderMap, leaders as liveLeaders, searchLeaders as searchLiveLeaders } from './leaders.ts'
-import { getLeader as getBetaLeader, leaderMap as betaLeaderMap, leaders as betaLeaders, searchLeaders as searchBetaLeaders } from './leaders-beta.ts'
+import { leaderMap as betaLeaderMap, leaders as betaLeaders, getLeader as getBetaLeader, searchLeaders as searchBetaLeaders } from './leaders-beta.ts'
+import { getLeader as getLiveLeader, allLeaderIds as liveLeaderIds, leaderMap as liveLeaderMap, leaders as liveLeaders, searchLeaders as searchLiveLeaders } from './leaders.ts'
 
 export const leaders = liveLeaders
 export const leaderMap = liveLeaderMap

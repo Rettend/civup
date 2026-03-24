@@ -1,6 +1,6 @@
 import type { DraftSeat, DraftState } from '../src/types.ts'
 import { describe, expect, test } from 'bun:test'
-import { default1v1, default2v2, default3v3, default4v4, defaultFfa } from '../src/draft-formats.ts'
+import { default1v1, default2v2, default3v3, default4v4, defaultFfa, defaultFfaSimultaneous } from '../src/draft-formats.ts'
 import {
   createDraft,
   getBansForSeat,
@@ -108,10 +108,22 @@ describe('createDraft', () => {
     const seats = createFfaSeats(8)
     const draft = createDraft('match-ffa', defaultFfa, seats, createTestCivPool())
 
-    // Ffa: 1 shared ban step + 1 shared pick step
-    expect(draft.steps.length).toBe(2)
+    // Ffa: 1 shared ban step + 8 seat-order pick steps
+    expect(draft.steps.length).toBe(9)
     expect(draft.steps[0]!.action).toBe('ban')
     expect(draft.steps[0]!.seats).toBe('all')
+    expect(draft.steps[0]!).toEqual({ action: 'ban', seats: 'all', count: 2, timer: 120 })
+
+    for (let i = 1; i <= 8; i++) {
+      expect(draft.steps[i]!).toEqual({ action: 'pick', seats: [i - 1], count: 1, timer: 60 })
+    }
+  })
+
+  test('creates draft with simultaneous FFA format and shared pick step', () => {
+    const seats = createFfaSeats(8)
+    const draft = createDraft('match-ffa-simultaneous', defaultFfaSimultaneous, seats, createTestCivPool())
+
+    expect(draft.steps.length).toBe(2)
     expect(draft.steps[0]!).toEqual({ action: 'ban', seats: 'all', count: 2, timer: 120 })
     expect(draft.steps[1]!).toEqual({ action: 'pick', seats: 'all', count: 1, timer: 60 })
   })
@@ -467,7 +479,7 @@ describe('processDraftInput — PICK (simultaneous FFA)', () => {
   }
 
   test('keeps FFA seats on the same step until everyone locks a pick', () => {
-    let state = startDraft(createDraft('match-ffa-shared-pick', defaultFfa, createFfaSeats(4), createTestCivPool()))
+    let state = startDraft(createDraft('match-ffa-shared-pick', defaultFfaSimultaneous, createFfaSeats(4), createTestCivPool()))
     state = completeFfaBanPhase(state)
 
     expect(state.currentStepIndex).toBe(1)
@@ -543,9 +555,9 @@ describe('full FFA draft flow', () => {
     // Should have 8 bans total
     expect(state.bans).toHaveLength(8)
     expect(state.currentStepIndex).toBe(1)
-    expect(state.steps[state.currentStepIndex]!.seats).toBe('all')
+    expect(state.steps[state.currentStepIndex]!.seats).toEqual([0])
 
-    // Step 1: Everyone picks 1 on the same shared step
+    // Steps 1-4: Seat-order picks
     for (let i = 0; i < 4; i++) {
       const result = processDraftInput(state, {
         type: 'PICK',
@@ -635,7 +647,7 @@ describe('processDraftInput — TIMEOUT', () => {
   })
 
   test('timeout on simultaneous FFA pick scrubs even after some seats locked picks', () => {
-    let state = startDraft(createDraft('match-ffa-timeout', defaultFfa, createFfaSeats(4), createTestCivPool()))
+    let state = startDraft(createDraft('match-ffa-timeout', defaultFfaSimultaneous, createFfaSeats(4), createTestCivPool()))
 
     for (let seatIndex = 0; seatIndex < 4; seatIndex++) {
       const result = processDraftInput(state, {

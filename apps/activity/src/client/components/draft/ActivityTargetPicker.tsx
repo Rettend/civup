@@ -42,7 +42,7 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
                       <span class={cn(
                         'text-[6px] font-semibold uppercase shrink-0',
                         option.kind === 'lobby'
-                           ? 'text-note'
+                          ? 'text-note'
                           : option.status === 'drafting'
                             ? 'text-info'
                             : 'text-accent',

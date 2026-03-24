@@ -1,8 +1,8 @@
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from '../lobby/types.ts'
 import { maxPlayerCount } from '@civup/game'
-import { parseLobbyState } from '../lobby/normalize.ts'
 import { channelPrefix, idKey, LOBBY_TTL } from '../lobby/keys.ts'
+import { parseLobbyState } from '../lobby/normalize.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
 
 export interface ActivityOverviewOptionSnapshot {

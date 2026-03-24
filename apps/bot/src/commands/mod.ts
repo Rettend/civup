@@ -18,7 +18,7 @@ import { sendTransientEphemeralResponse } from '../services/response/ephemeral.t
 import { createStateStore } from '../services/state/store.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 import { factory } from '../setup'
-import { collectFfaPlacementUserIds } from './match/shared'
+import { buildFfaPlacementOptions, collectFfaPlacementUserIds } from './match/shared'
 
 interface ModVar extends MatchVar {
   reason?: string
@@ -34,15 +34,7 @@ export const command_mod = factory.command<ModVar>(
       new SubCommand('resolve', 'Resolve or correct a match result').options(
         new Option('match_id', 'Match ID').required(),
         new Option('winner', 'Winner (1v1/team) or 1st place (FFA)', 'User'),
-        new Option('second', 'FFA 2nd place', 'User'),
-        new Option('third', 'FFA 3rd place', 'User'),
-        new Option('fourth', 'FFA 4th place', 'User'),
-        new Option('fifth', 'FFA 5th place', 'User'),
-        new Option('sixth', 'FFA 6th place', 'User'),
-        new Option('seventh', 'FFA 7th place', 'User'),
-        new Option('eighth', 'FFA 8th place', 'User'),
-        new Option('ninth', 'FFA 9th place', 'User'),
-        new Option('tenth', 'FFA 10th place', 'User'),
+        ...buildFfaPlacementOptions(),
         new Option('reason', 'Optional short reason for correction').max_length(140),
       ),
     ),

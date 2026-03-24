@@ -1,6 +1,6 @@
 import type { StatsModeFilter } from '../embeds/player-card.ts'
 import { createDb } from '@civup/db'
-import { GAME_MODE_CHOICES } from '@civup/game'
+import { GAME_MODE_CHOICES, parseGameMode } from '@civup/game'
 import { Command, Option } from 'discord-hono'
 import { playerCardEmbed } from '../embeds/player-card.ts'
 import { syncPlayerProfileFromDiscord } from '../services/player/profile.ts'
@@ -28,7 +28,7 @@ export const command_stats = factory.command<Var>(
     const targetId = c.var.player
       ?? c.interaction.member?.user?.id
       ?? c.interaction.user?.id
-    const mode = (c.var.mode ?? 'all') as StatsModeFilter
+    const mode = (parseGameMode(c.var.mode) ?? 'all') as StatsModeFilter
 
     if (!targetId) return c.res('Could not identify the player.')
 
