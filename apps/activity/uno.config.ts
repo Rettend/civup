@@ -173,6 +173,13 @@ export default defineConfig({
             -webkit-user-select: none;
           }
 
+          button:disabled,
+          input:disabled,
+          select:disabled,
+          textarea:disabled {
+            cursor: default !important;
+          }
+
           ::-webkit-scrollbar { width: 4px; }
           ::-webkit-scrollbar-track { background: transparent; }
           ::-webkit-scrollbar-thumb { background: var(--fg-subtle); border-radius: 2px; }
