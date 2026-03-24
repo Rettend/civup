@@ -103,7 +103,7 @@ export function Dropdown(props: DropdownProps) {
             'outline-none transition-all duration-150 cursor-pointer',
             'hover:border-border hover:bg-bg/75',
             'focus:border-accent/50 focus:bg-bg/80 focus:shadow-[0_0_0_3px_var(--accent-subtle)]',
-            'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border-subtle',
+            'disabled:opacity-50 disabled:hover:border-border-subtle',
             open() && 'border-accent/50 bg-bg/80',
           )}
         >
