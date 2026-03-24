@@ -1,6 +1,6 @@
 import type { DraftSeat } from '../src/types.ts'
 import { describe, expect, test } from 'bun:test'
-import { default1v1, default2v2, default3v3, default4v4, defaultFfa, formatDraftStepLabel } from '../src/draft-formats.ts'
+import { default1v1, default2v2, default3v3, default4v4, defaultFfa, defaultFfaSimultaneous, formatDraftStepLabel, getDraftFormat } from '../src/draft-formats.ts'
 
 const duelSeats: DraftSeat[] = [
   { playerId: 'p1', displayName: 'Player 1', team: 0 },
@@ -50,8 +50,16 @@ describe('draft formats', () => {
     expect(defaultFfa.getSteps(8)[0]).toEqual({ action: 'ban', seats: 'all', count: 2, timer: 120 })
   })
 
-  test('FFA uses one shared simultaneous pick step', () => {
-    expect(defaultFfa.getSteps(8)[1]).toEqual({ action: 'pick', seats: 'all', count: 1, timer: 60 })
+  test('FFA defaults to seat-order picks', () => {
+    expect(defaultFfa.getSteps(4).slice(1).map(step => step.seats)).toEqual([[0], [1], [2], [3]])
+  })
+
+  test('FFA simultaneous format uses one shared pick step', () => {
+    expect(defaultFfaSimultaneous.getSteps(8)[1]).toEqual({ action: 'pick', seats: 'all', count: 1, timer: 60 })
+  })
+
+  test('resolves the simultaneous FFA format when requested', () => {
+    expect(getDraftFormat('ffa', { simultaneousPick: true })).toBe(defaultFfaSimultaneous)
   })
 })
 
@@ -88,8 +96,17 @@ describe('formatDraftStepLabel', () => {
     ])
   })
 
-  test('labels the shared FFA pick step once', () => {
+  test('labels seat-order FFA picks by player order', () => {
     const steps = defaultFfa.getSteps(3)
+    expect(steps.slice(1).map(step => formatDraftStepLabel(step, ffaSeats))).toEqual([
+      'PICK P1',
+      'PICK P2',
+      'PICK P3',
+    ])
+  })
+
+  test('labels the shared simultaneous FFA pick step once', () => {
+    const steps = defaultFfaSimultaneous.getSteps(3)
     expect(steps.slice(1).map(step => formatDraftStepLabel(step, ffaSeats))).toEqual(['PICK'])
   })
 })
