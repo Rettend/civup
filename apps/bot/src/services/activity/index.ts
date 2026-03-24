@@ -1,5 +1,5 @@
 import type { DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry, RoomConfig } from '@civup/game'
-import { getDefaultFormat, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamSize } from '@civup/game'
+import { getDraftFormat, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamSize } from '@civup/game'
 import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
 import { getLobbiesByChannel } from '../lobby/index.ts'
@@ -19,6 +19,7 @@ export interface MatchCreationResult {
 export interface CreateDraftRoomOptions {
   hostId: string
   leaderDataVersion?: LeaderDataVersion
+  simultaneousPick?: boolean
   partyHost?: string
   botHost?: string
   webhookSecret?: string
@@ -62,7 +63,7 @@ export async function createDraftRoom(
   options: CreateDraftRoomOptions,
 ): Promise<MatchCreationResult> {
   const matchId = nanoid(12)
-  const format = getDefaultFormat(mode)
+  const format = getDraftFormat(mode, { simultaneousPick: options.simultaneousPick })
   const seats: DraftSeat[] = buildSeats(mode, entries)
   const leaderPoolSize = resolveLeaderPoolSize(mode, seats.length, options.leaderPoolSize)
   const config: RoomConfig = {

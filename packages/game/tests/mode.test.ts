@@ -58,6 +58,7 @@ describe('parseGameMode', () => {
 describe('inferGameMode', () => {
   test('extracts mode suffixes from format ids', () => {
     expect(inferGameMode('snake-ffa')).toBe('ffa')
+    expect(inferGameMode('default-ffa-simultaneous')).toBe('ffa')
     expect(inferGameMode('draft-1v1')).toBe('1v1')
     expect(inferGameMode('ranked-2v2')).toBe('2v2')
     expect(inferGameMode('blind-3v3')).toBe('3v3')
