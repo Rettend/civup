@@ -1,6 +1,6 @@
 import type { DraftSeat } from '../src/types.ts'
 import { describe, expect, test } from 'bun:test'
-import { default1v1, default2v2, default3v3, default4v4, defaultFfa, defaultFfaSimultaneous, getDraftFormat, formatDraftStepLabel } from '../src/draft-formats.ts'
+import { default1v1, default2v2, default3v3, default4v4, defaultFfa, defaultFfaSimultaneous, formatDraftStepLabel, getDraftFormat } from '../src/draft-formats.ts'
 
 const duelSeats: DraftSeat[] = [
   { playerId: 'p1', displayName: 'Player 1', team: 0 },

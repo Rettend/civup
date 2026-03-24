@@ -1,7 +1,6 @@
 import type {
   ActivityLaunchSelection,
   ActivityLaunchSnapshot,
-  ActivityOverviewOptionSnapshot,
   ActivityOverviewSnapshot,
   ActivityTargetOption,
   LobbyJoinEligibilitySnapshot,
@@ -61,15 +60,15 @@ type LiveActivityTargetState
     id: string
     pendingJoin: boolean
   }
-    | {
-      kind: 'match'
-      id: string
-      pendingJoin: boolean
-      roomAccessToken: string | null
-      steamLobbyLink: string | null
-      lobbyId: string | null
-      mode: string | null
-    }
+  | {
+    kind: 'match'
+    id: string
+    pendingJoin: boolean
+    roomAccessToken: string | null
+    steamLobbyLink: string | null
+    lobbyId: string | null
+    mode: string | null
+  }
 
 export default function App() {
   const [state, setState] = createSignal<AppState>({ status: 'loading' })
@@ -266,9 +265,7 @@ export default function App() {
       if (!shouldApplyResolvedActivitySelection({
         isOverviewVisible: state().status === 'overview',
         allowSelectionWhileOverview,
-      })) {
-        return
-      }
+      })) { return }
 
       if (pendingSelectionKey === resolvedKey) {
         pendingTargetSelectionKey = null
@@ -340,7 +337,6 @@ export default function App() {
       }
       setLiveLobbySnapshotVersion(version => version + 1)
       applyLiveActivityState()
-      return
     }
   }
 
@@ -494,7 +490,7 @@ export default function App() {
     if (!shouldApplyResolvedActivitySelection({
       isOverviewVisible: current.status === 'overview',
       allowSelectionWhileOverview,
-    })) return
+    })) { return }
 
     if (snapshot.selection.kind === 'lobby') {
       const nextLobby = snapshot.selection.lobby
@@ -806,7 +802,7 @@ function materializeOverviewOptions(
   if (!snapshot) return []
 
   return snapshot.options
-    .map((option) => ({
+    .map(option => ({
       kind: option.kind,
       id: option.id,
       lobbyId: option.lobbyId,

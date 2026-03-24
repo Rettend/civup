@@ -6,14 +6,13 @@ import { formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isTeamM
 import { createDraftRoomAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
-import { clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, createDraftRoom, storeMatchActivityState, storeUserLobbyState, storeUserLobbyMappings } from '../../services/activity/index.ts'
+import { clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, createDraftRoom, storeMatchActivityState, storeUserLobbyMappings, storeUserLobbyState } from '../../services/activity/index.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from '../../services/config/index.ts'
 import {
   arrangeLobbySlots,
   attachLobbyMatch,
   buildActivePremadeEdgeSet,
   buildOpenLobbyRenderPayload,
-  storeLobbyDraftRoster,
   buildSlottedPremadeGroups,
   clearLobbyById,
   compactSlottedPremadesForMode,
@@ -30,6 +29,7 @@ import {
   setLobbyMinRole,
   setLobbySlots,
   setLobbySteamLobbyLink,
+  storeLobbyDraftRoster,
   upsertLobby,
   upsertLobbyMessage,
 } from '../../services/lobby/index.ts'
@@ -49,12 +49,12 @@ import {
   buildOpenLobbySnapshotFromParts,
   canStartLobbyWithPlayerCount,
   emptyRankedRoleConfig,
-    lobbyMinPlayerCount,
-    parseLobbyLeaderPoolSize,
-    parseLobbyMaxRole,
-    parseLobbyMinRole,
-    parseLobbyTimerSeconds,
-    parseSlotIndex,
+  lobbyMinPlayerCount,
+  parseLobbyLeaderPoolSize,
+  parseLobbyMaxRole,
+  parseLobbyMinRole,
+  parseLobbyTimerSeconds,
+  parseSlotIndex,
   resolveOpenLobbyFromBody,
 } from './snapshot.ts'
 

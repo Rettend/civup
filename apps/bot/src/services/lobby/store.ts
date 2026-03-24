@@ -1,9 +1,9 @@
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from './types.ts'
 import { GAME_MODES } from '@civup/game'
-import { lobbySnapshotKey } from './live-snapshot.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
 import { channelIndexKey, channelPrefix, draftRosterKey, idKey, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
+import { lobbySnapshotKey } from './live-snapshot.ts'
 import { normalizeLobby, parseLobbyState } from './normalize.ts'
 
 interface LobbyStoreEntry {

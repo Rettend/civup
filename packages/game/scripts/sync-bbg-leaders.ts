@@ -1,9 +1,9 @@
 /* eslint-disable no-console */
+import type { Leader } from '../src/types.ts'
 import { readdir, readFile, writeFile } from 'node:fs/promises'
 import { extname, resolve } from 'node:path'
 import process from 'node:process'
 import { Database } from 'bun:sqlite'
-import type { Leader } from '../src/types.ts'
 import { leaders as existingLiveLeaders } from '../src/leaders.ts'
 
 type Variant = 'live' | 'beta'
@@ -330,7 +330,7 @@ async function seedVariantLocalizations(db: Database, variant: Variant): Promise
 }
 
 async function seedExpandedLocalizations(db: Database): Promise<void> {
-  const files = await collectFiles(BBG_EXPANDED_ROOT, filePath => {
+  const files = await collectFiles(BBG_EXPANDED_ROOT, (filePath) => {
     const extension = extname(filePath).toLowerCase()
     return extension === '.xml' || extension === '.sql'
   })
@@ -478,7 +478,7 @@ function resolveLeaderText(value: string): string {
   return decodeXmlEntities(value)
     .replace(/\[NEWLINE\]/gi, ' ')
     .replace(/\[ICON_BULLET\]/gi, '- ')
-    .replace(/\[ICON_([A-Za-z0-9_]+)\]/g, (_, icon: string) => ` :${icon.toLowerCase().replace(/[^a-z0-9]/g, '')}: `)
+    .replace(/\[ICON_(\w+)\]/g, (_, icon: string) => ` :${icon.toLowerCase().replace(/[^a-z0-9]/g, '')}: `)
     .replace(/\[COLOR_[^\]]+\]/gi, '')
     .replace(/\[ENDCOLOR\]/gi, '')
     .replace(/\s+/g, ' ')
@@ -610,7 +610,7 @@ function decodeXmlEntities(value: string): string {
     .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))
     .replace(/&#(\d+);/g, (_, decimal: string) => String.fromCodePoint(Number.parseInt(decimal, 10)))
     .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
+    .replace(/&apos;/g, '\'')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')

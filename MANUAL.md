@@ -20,10 +20,9 @@
 
 1. **someone runs `/match create`**, this creates the lobby embed and joins them as host
 2. **players join**
-
-    - directly, by clicking on the embed's Join button, or
-    - using `/match join`, which does a little matchmaking and finds the best lobby
-    - of if they are inside the Activity, they can join through the Lobby Overview page
+   - directly, by clicking on the embed's Join button, or
+   - using `/match join`, which does a little matchmaking and finds the best lobby
+   - of if they are inside the Activity, they can join through the Lobby Overview page
 
 3. Optional: the **host can change configs** in the Activity, including the **Steam lobby link**
 4. the host **starts the draft**
@@ -85,10 +84,10 @@ There are 3 levels of access:
 
 Use `/admin config` to inspect and change the global default configs.
 
-| Key | Note | Default |
-| --- | --- | --- |
-| `ban_timer` | time in seconds for the ban phase | `180` |
-| `pick_timer` | time in seconds for a single player to pick a leader | `180` |
+| Key          | Note                                                 | Default |
+| ------------ | ---------------------------------------------------- | ------- |
+| `ban_timer`  | time in seconds for the ban phase                    | `180`   |
+| `pick_timer` | time in seconds for a single player to pick a leader | `180`   |
 
 > [!NOTE]
 >
@@ -188,13 +187,13 @@ When the Steam lobby link is set, other players see a gold Steam button top left
 
 ### Draft format
 
-| Mode | Bans | Pick order |
-| --- | --- | --- |
-| `1v1` | 3 each | 12 |
-| `2v2` | captains ban 3 each | 1221 |
-| `3v3` | captains ban 3 each | 122112 |
-| `4v4` | captains ban 3 each | 12212112 |
-| `FFA` | 2 each | simultaneous |
+| Mode  | Bans                | Pick order   |
+| ----- | ------------------- | ------------ |
+| `1v1` | 3 each              | 12           |
+| `2v2` | captains ban 3 each | 1221         |
+| `3v3` | captains ban 3 each | 122112       |
+| `4v4` | captains ban 3 each | 12212112     |
+| `FFA` | 2 each              | simultaneous |
 
 > [!NOTE]
 >
@@ -292,13 +291,13 @@ A player's overall role comes from their **best current role** in one of the mod
 
 Example with 5 configured Ranked roles:
 
-| Role | Earn | Keep |
-| --- | --- | --- |
-| `tier1` | 1.5% (top 1.5%) | 2.0% (Top 2.0%) |
-| `tier2` | 4.0% (top 5.5%) | 4.5% (Top 6.5%) |
-| `tier3` | 10.0% (top 15.5%) | 10.5% (Top 17.0%) |
-| `tier4` | 20.0% (top 35.5%) | 20.5% (Top 37.5%) |
-| `tier5` | everyone else (top 100.0%) | - |
+| Role    | Earn                       | Keep              |
+| ------- | -------------------------- | ----------------- |
+| `tier1` | 1.5% (top 1.5%)            | 2.0% (Top 2.0%)   |
+| `tier2` | 4.0% (top 5.5%)            | 4.5% (Top 6.5%)   |
+| `tier3` | 10.0% (top 15.5%)          | 10.5% (Top 17.0%) |
+| `tier4` | 20.0% (top 35.5%)          | 20.5% (Top 37.5%) |
+| `tier5` | everyone else (top 100.0%) | -                 |
 
 There is a compounding 0.5% buffer for each tier, players earn the role when they reach the Earn threshold, and keep it until they drop below the Keep threshold.
 

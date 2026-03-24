@@ -12,8 +12,8 @@ import {
   storeMatchActivityState,
   storeMatchMapping,
   storeUserActivityTarget,
-  storeUserLobbyState,
   storeUserLobbyMappings,
+  storeUserLobbyState,
   storeUserMatchMappings,
 } from '../../src/services/activity/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
