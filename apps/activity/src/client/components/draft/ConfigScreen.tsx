@@ -81,6 +81,14 @@ interface LobbyEditableDraftConfig extends DraftTimerConfig {
 
 const CONFIG_MESSAGE_TIMEOUT_MS = 4000
 
+function sameLobbyDraftConfig(a: LobbyEditableDraftConfig, b: LobbyEditableDraftConfig): boolean {
+  return a.banTimerSeconds === b.banTimerSeconds
+    && a.pickTimerSeconds === b.pickTimerSeconds
+    && a.leaderPoolSize === b.leaderPoolSize
+    && a.leaderDataVersion === b.leaderDataVersion
+    && a.simultaneousPick === b.simultaneousPick
+}
+
 /** Pre-draft setup screen (lobby waiting + room waiting). */
 export function ConfigScreen(props: ConfigScreenProps) {
   const state = () => draftStore.state
@@ -94,6 +102,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const [cancelPending, setCancelPending] = createSignal(false)
   const [startPending, setStartPending] = createSignal(false)
   const [lobbyActionPending, setLobbyActionPending] = createSignal(false)
+  const [leaderDataVersionPending, setLeaderDataVersionPending] = createSignal(false)
+  const [simultaneousPickPending, setSimultaneousPickPending] = createSignal(false)
   const [pendingPlaceSelfSlot, setPendingPlaceSelfSlot] = createSignal<number | null>(null)
   const [draggingPlayerId, setDraggingPlayerId] = createSignal<string | null>(null)
   const [dragOverSlot, setDragOverSlot] = createSignal<number | null>(null)
@@ -409,11 +419,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const pickTimerPlaceholder = () => timerSecondsToMinutesPlaceholder(serverDefaultTimerConfig().pickTimerSeconds)
 
   const optimisticTimerConfig = createOptimisticState(draftConfig, {
-    equals: (a, b) => a.banTimerSeconds === b.banTimerSeconds
-      && a.pickTimerSeconds === b.pickTimerSeconds
-      && a.leaderPoolSize === b.leaderPoolSize
-      && a.leaderDataVersion === b.leaderDataVersion
-      && a.simultaneousPick === b.simultaneousPick,
+    equals: sameLobbyDraftConfig,
   })
   const optimisticDraftConfig = () => optimisticTimerConfig.value()
   const formattedBbgVersion = () => draftConfig().leaderDataVersion === 'beta' ? 'Beta' : 'Live'
@@ -725,30 +731,42 @@ export function ConfigScreen(props: ConfigScreenProps) {
   }
 
   const handleLeaderDataVersionChange = async (checked: boolean) => {
-    if (!isLobbyMode() || !amHost() || lobbyActionPending()) return
+    if (!isLobbyMode() || !amHost() || lobbyActionPending() || leaderDataVersionPending()) return
     const current = optimisticTimerConfig.value()
     const leaderDataVersion = checked ? 'beta' : 'live'
     if (leaderDataVersion === current.leaderDataVersion) return
-    await commitDraftConfig({
-      banTimerSeconds: current.banTimerSeconds,
-      pickTimerSeconds: current.pickTimerSeconds,
-      leaderPoolSize: current.leaderPoolSize,
-      leaderDataVersion,
-      simultaneousPick: current.simultaneousPick,
-    })
+    setLeaderDataVersionPending(true)
+    try {
+      await commitDraftConfig({
+        banTimerSeconds: current.banTimerSeconds,
+        pickTimerSeconds: current.pickTimerSeconds,
+        leaderPoolSize: current.leaderPoolSize,
+        leaderDataVersion,
+        simultaneousPick: current.simultaneousPick,
+      })
+    }
+    finally {
+      setLeaderDataVersionPending(false)
+    }
   }
 
   const handleSimultaneousPickChange = async (checked: boolean) => {
-    if (!isLobbyMode() || !amHost() || lobbyActionPending() || lobbyMode() !== 'ffa') return
+    if (!isLobbyMode() || !amHost() || lobbyActionPending() || simultaneousPickPending() || lobbyMode() !== 'ffa') return
     const current = optimisticTimerConfig.value()
     if (checked === current.simultaneousPick) return
-    await commitDraftConfig({
-      banTimerSeconds: current.banTimerSeconds,
-      pickTimerSeconds: current.pickTimerSeconds,
-      leaderPoolSize: current.leaderPoolSize,
-      leaderDataVersion: current.leaderDataVersion,
-      simultaneousPick: checked,
-    })
+    setSimultaneousPickPending(true)
+    try {
+      await commitDraftConfig({
+        banTimerSeconds: current.banTimerSeconds,
+        pickTimerSeconds: current.pickTimerSeconds,
+        leaderPoolSize: current.leaderPoolSize,
+        leaderDataVersion: current.leaderDataVersion,
+        simultaneousPick: checked,
+      })
+    }
+    finally {
+      setSimultaneousPickPending(false)
+    }
   }
 
   const handleLobbyModeChange = async (nextMode: LobbyModeValue) => {
@@ -1404,7 +1422,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       </span>
                       <Switch
                         checked={optimisticDraftConfig().leaderDataVersion === 'beta'}
-                        disabled={lobbyActionPending()}
+                        disabled={lobbyActionPending() || leaderDataVersionPending()}
                         class="w-auto"
                         onChange={checked => void handleLeaderDataVersionChange(checked)}
                       />
@@ -1418,7 +1436,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       </span>
                       <Switch
                         checked={optimisticDraftConfig().simultaneousPick}
-                        disabled={lobbyActionPending()}
+                        disabled={lobbyActionPending() || simultaneousPickPending()}
                         class="w-auto"
                         onChange={checked => void handleSimultaneousPickChange(checked)}
                       />

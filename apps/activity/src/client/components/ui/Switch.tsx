@@ -22,7 +22,7 @@ export function Switch(props: SwitchProps) {
       onClick={() => { if (!local.disabled) local.onChange?.(!local.checked) }}
       class={cn(
         'group flex items-center gap-3 w-full text-left cursor-pointer',
-        'disabled:opacity-50 disabled:cursor-not-allowed',
+        'disabled:opacity-50',
         local.class,
       )}
       {...rest}
