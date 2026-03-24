@@ -1,14 +1,12 @@
 import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { getRankedRoleConfig } from '../../services/ranked/roles.ts'
-import { buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
 import { MAX_LEADER_POOL_SIZE, maxPlayerCount, minPlayerCount } from '@civup/game'
 import { MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
 import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
+import { buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
 import { getQueueState } from '../../services/queue/index.ts'
 import { normalizeRankedRoleTierId } from '../../services/ranked/roles.ts'
-
-const TEMP_LOBBY_START_MIN_PLAYERS_FFA = 1
 
 export async function buildOpenLobbySnapshot(
   kv: KVNamespace,
@@ -42,15 +40,11 @@ export async function buildOpenLobbySnapshotFromParts(
 }
 
 export function lobbyMinPlayerCount(mode: GameMode): number {
-  if (mode === 'ffa') return TEMP_LOBBY_START_MIN_PLAYERS_FFA
   return minPlayerCount(mode)
 }
 
 export function canStartLobbyWithPlayerCount(mode: GameMode, playerCount: number): boolean {
-  if (mode === 'ffa') {
-    return playerCount >= lobbyMinPlayerCount(mode) && playerCount <= maxPlayerCount(mode)
-  }
-  return playerCount === maxPlayerCount(mode)
+  return playerCount >= lobbyMinPlayerCount(mode) && playerCount <= maxPlayerCount(mode)
 }
 
 export async function getUniqueOpenLobbyForChannel(

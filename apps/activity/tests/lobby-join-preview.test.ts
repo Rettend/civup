@@ -23,6 +23,8 @@ const baseLobby: LobbySnapshot = {
     banTimerSeconds: null,
     pickTimerSeconds: null,
     leaderPoolSize: null,
+    leaderDataVersion: 'live',
+    simultaneousPick: false,
   },
   serverDefaults: {
     banTimerSeconds: null,

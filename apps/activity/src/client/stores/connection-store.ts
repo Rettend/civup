@@ -1,4 +1,4 @@
-import type { ClientMessage, CompetitiveTier, DraftAction, ServerMessage } from '@civup/game'
+import type { ClientMessage, CompetitiveTier, DraftAction, LeaderDataVersion, ServerMessage } from '@civup/game'
 import { api, ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import PartySocket from 'partysocket'
 import { createSignal } from 'solid-js'
@@ -48,6 +48,8 @@ export interface LobbySnapshot {
     banTimerSeconds: number | null
     pickTimerSeconds: number | null
     leaderPoolSize: number | null
+    leaderDataVersion: LeaderDataVersion
+    simultaneousPick: boolean
   }
   serverDefaults: {
     banTimerSeconds: number | null
@@ -561,6 +563,8 @@ export async function updateLobbyConfig(
     banTimerSeconds?: number | null
     pickTimerSeconds?: number | null
     leaderPoolSize?: number | null
+    leaderDataVersion?: LeaderDataVersion
+    simultaneousPick?: boolean
     steamLobbyLink?: string | null
     minRole?: CompetitiveTier | null
     maxRole?: CompetitiveTier | null
@@ -573,6 +577,8 @@ export async function updateLobbyConfig(
       banTimerSeconds: draftConfig.banTimerSeconds,
       pickTimerSeconds: draftConfig.pickTimerSeconds,
       leaderPoolSize: draftConfig.leaderPoolSize,
+      leaderDataVersion: draftConfig.leaderDataVersion,
+      simultaneousPick: draftConfig.simultaneousPick,
       steamLobbyLink: draftConfig.steamLobbyLink,
       minRole: draftConfig.minRole,
       maxRole: draftConfig.maxRole,
@@ -900,14 +906,14 @@ function handleServerMessage(msg: ServerMessage) {
   switch (msg.type) {
     case 'init':
       syncPreviewCache(msg.previews, msg.seatIndex)
-      initDraft(msg.state, msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews)
+      initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews)
       if (isTerminalDraftStatus(msg.state.status)) {
         disconnect()
       }
       break
     case 'update':
       syncPreviewCache(msg.previews)
-      updateDraft(msg.state, msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews)
+      updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews)
       if (pendingConfigAck) {
         clearTimeout(pendingConfigAck.timeout)
         pendingConfigAck.resolve()
