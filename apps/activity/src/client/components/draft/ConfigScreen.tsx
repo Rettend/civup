@@ -10,7 +10,7 @@ import type {
 import type { LobbyArrangeStrategy, LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
 import { formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isTeamMode as isTeamGameMode, normalizeCompetitiveTierBounds } from '@civup/game'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
-import { Dropdown, TextInput } from '~/client/components/ui'
+import { Dropdown, Switch, TextInput } from '~/client/components/ui'
 import {
   applyOptimisticLobbyAction,
   buildRankDotStyle,
@@ -75,6 +75,8 @@ interface ConfigScreenProps {
 
 interface LobbyEditableDraftConfig extends DraftTimerConfig {
   leaderPoolSize: number | null
+  leaderDataVersion: 'live' | 'beta'
+  simultaneousPick: boolean
 }
 
 const CONFIG_MESSAGE_TIMEOUT_MS = 4000
@@ -104,6 +106,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
           banTimerSeconds: props.lobby.draftConfig.banTimerSeconds,
           pickTimerSeconds: props.lobby.draftConfig.pickTimerSeconds,
           leaderPoolSize: props.lobby.draftConfig.leaderPoolSize,
+          leaderDataVersion: props.lobby.draftConfig.leaderDataVersion,
+          simultaneousPick: props.lobby.draftConfig.simultaneousPick,
         }
       : null,
   )
@@ -133,6 +137,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
       banTimerSeconds: lobby.draftConfig.banTimerSeconds,
       pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
       leaderPoolSize: lobby.draftConfig.leaderPoolSize,
+      leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+      simultaneousPick: lobby.draftConfig.simultaneousPick,
     })
   })
 
@@ -299,7 +305,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const formatId = () => {
     const lobby = currentLobby()
     if (lobby) return formatModeLabel(lobby.mode, 'DRAFT')
-    return formatModeLabel(state()?.formatId, 'DRAFT')
+    return formatModeLabel(inferGameMode(state()?.formatId), 'DRAFT')
   }
   const isTeamMode = () => {
     const lobby = currentLobby()
@@ -314,11 +320,15 @@ export function ConfigScreen(props: ConfigScreenProps) {
         banTimerSeconds: lobby.draftConfig.banTimerSeconds,
         pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
         leaderPoolSize: lobby.draftConfig.leaderPoolSize,
+        leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+        simultaneousPick: lobby.draftConfig.simultaneousPick,
       }
     }
     return {
       ...getTimerConfigFromDraft(state()),
       leaderPoolSize: null,
+      leaderDataVersion: 'live',
+      simultaneousPick: state()?.formatId === 'default-ffa-simultaneous',
     }
   }
 
@@ -354,7 +364,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return state()?.seats.length ?? leaderPoolPlayerCount()
   }
   const leaderPoolMinimumValue = () => getLeaderPoolSizeMinimum(lobbyMode(), leaderPoolValidationCount())
-  const leaderPoolPlaceholderValue = () => leaderPoolSizePlaceholder(lobbyMode(), leaderPoolPlayerCount())
+  const leaderPoolPlaceholderValue = () => leaderPoolSizePlaceholder(lobbyMode(), leaderPoolPlayerCount(), currentLobby()?.targetSize)
   const currentDraftLeaderPoolSize = () => {
     const draftState = state()
     if (!draftState) return null
@@ -366,7 +376,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   }
   const formattedLeaderPool = () => {
     const lobby = currentLobby()
-    if (lobby) return formatLeaderPoolValue(draftConfig().leaderPoolSize, inferGameMode(lobby.mode), leaderPoolPlayerCount())
+    if (lobby) return formatLeaderPoolValue(draftConfig().leaderPoolSize, inferGameMode(lobby.mode), leaderPoolPlayerCount(), lobby.targetSize)
     const size = currentDraftLeaderPoolSize()
     return size == null ? 'Unknown' : String(size)
   }
@@ -399,8 +409,15 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const pickTimerPlaceholder = () => timerSecondsToMinutesPlaceholder(serverDefaultTimerConfig().pickTimerSeconds)
 
   const optimisticTimerConfig = createOptimisticState(draftConfig, {
-    equals: (a, b) => a.banTimerSeconds === b.banTimerSeconds && a.pickTimerSeconds === b.pickTimerSeconds && a.leaderPoolSize === b.leaderPoolSize,
+    equals: (a, b) => a.banTimerSeconds === b.banTimerSeconds
+      && a.pickTimerSeconds === b.pickTimerSeconds
+      && a.leaderPoolSize === b.leaderPoolSize
+      && a.leaderDataVersion === b.leaderDataVersion
+      && a.simultaneousPick === b.simultaneousPick,
   })
+  const optimisticDraftConfig = () => optimisticTimerConfig.value()
+  const formattedBbgVersion = () => draftConfig().leaderDataVersion === 'beta' ? 'Beta' : 'Live'
+  const formattedSimultaneousPick = () => draftConfig().simultaneousPick ? 'On' : 'Off'
 
   const clearConfigMessage = () => {
     if (configMessageTimeout) {
@@ -628,6 +645,39 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return dragged === id && row.empty
   }
 
+  const commitDraftConfig = async (nextConfig: LobbyEditableDraftConfig) => {
+    const currentUserId = userId()
+    if (!currentUserId) {
+      optimisticTimerConfig.clearError()
+      showErrorMessage('Could not identify your Discord user. Reopen the activity.')
+      return false
+    }
+
+    clearConfigMessage()
+    await optimisticTimerConfig.commit(nextConfig, async () => {
+      const lobby = currentLobby()
+      if (lobby) {
+        const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, {
+          banTimerSeconds: nextConfig.banTimerSeconds,
+          pickTimerSeconds: nextConfig.pickTimerSeconds,
+          leaderPoolSize: nextConfig.leaderPoolSize,
+          leaderDataVersion: nextConfig.leaderDataVersion,
+          simultaneousPick: nextConfig.simultaneousPick,
+          minRole: lobby.minRole,
+          maxRole: lobby.maxRole,
+        })
+        if (!result.ok) throw new Error(result.error)
+        return
+      }
+
+      await sendConfig(nextConfig.banTimerSeconds, nextConfig.pickTimerSeconds)
+    }, {
+      syncTimeoutMs: currentLobby() ? 9000 : 5000,
+      syncTimeoutMessage: 'Save not confirmed. Please try again.',
+    })
+    return true
+  }
+
   const saveConfigOnBlur = async () => {
     const isHostUser = amHost()
     const nextBanMinutes = banMinutes()
@@ -655,6 +705,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
       const pickTimerSeconds = parsedPick == null ? null : parsedPick * 60
       const leaderPoolSize = parsedLeaderPool
       const current = optimisticTimerConfig.value()
+      const leaderDataVersion = current.leaderDataVersion
+      const simultaneousPick = current.simultaneousPick
 
       if (
         banTimerSeconds === current.banTimerSeconds
@@ -665,37 +717,38 @@ export function ConfigScreen(props: ConfigScreenProps) {
         return
       }
 
-      const currentUserId = userId()
-      if (!currentUserId) {
-        optimisticTimerConfig.clearError()
-        showErrorMessage('Could not identify your Discord user. Reopen the activity.')
-        return
-      }
-
-      clearConfigMessage()
-      await optimisticTimerConfig.commit({ banTimerSeconds, pickTimerSeconds, leaderPoolSize }, async () => {
-        const lobby = currentLobby()
-        if (lobby) {
-            const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, {
-              banTimerSeconds,
-              pickTimerSeconds,
-              leaderPoolSize,
-              minRole: lobby.minRole,
-              maxRole: lobby.maxRole,
-            })
-            if (!result.ok) throw new Error(result.error)
-            return
-          }
-
-        await sendConfig(banTimerSeconds, pickTimerSeconds)
-      }, {
-        syncTimeoutMs: currentLobby() ? 9000 : 5000,
-        syncTimeoutMessage: 'Save not confirmed. Please try again.',
-      })
+      await commitDraftConfig({ banTimerSeconds, pickTimerSeconds, leaderPoolSize, leaderDataVersion, simultaneousPick })
     }
     finally {
       setEditingField(current => current === activeField ? null : current)
     }
+  }
+
+  const handleLeaderDataVersionChange = async (checked: boolean) => {
+    if (!isLobbyMode() || !amHost() || lobbyActionPending()) return
+    const current = optimisticTimerConfig.value()
+    const leaderDataVersion = checked ? 'beta' : 'live'
+    if (leaderDataVersion === current.leaderDataVersion) return
+    await commitDraftConfig({
+      banTimerSeconds: current.banTimerSeconds,
+      pickTimerSeconds: current.pickTimerSeconds,
+      leaderPoolSize: current.leaderPoolSize,
+      leaderDataVersion,
+      simultaneousPick: current.simultaneousPick,
+    })
+  }
+
+  const handleSimultaneousPickChange = async (checked: boolean) => {
+    if (!isLobbyMode() || !amHost() || lobbyActionPending() || lobbyMode() !== 'ffa') return
+    const current = optimisticTimerConfig.value()
+    if (checked === current.simultaneousPick) return
+    await commitDraftConfig({
+      banTimerSeconds: current.banTimerSeconds,
+      pickTimerSeconds: current.pickTimerSeconds,
+      leaderPoolSize: current.leaderPoolSize,
+      leaderDataVersion: current.leaderDataVersion,
+      simultaneousPick: checked,
+    })
   }
 
   const handleLobbyModeChange = async (nextMode: LobbyModeValue) => {
@@ -909,7 +962,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
         setPendingPlaceSelfSlot(null)
         if (optimisticAction) clearOptimisticLobbyAction()
         showErrorMessage(result.error)
-        return
       }
     }
     finally {
@@ -962,7 +1014,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
       if (!result.ok) {
         if (optimisticAction) clearOptimisticLobbyAction()
         showErrorMessage(result.error)
-        return
       }
     }
     finally {
@@ -1002,7 +1053,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
       if (!result.ok) {
         if (optimisticAction) clearOptimisticLobbyAction()
         showErrorMessage(result.error)
-        return
       }
     }
     finally {
@@ -1209,6 +1259,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return isSpectator() ? 'Spectating' : 'Waiting for host'
   }
 
+  const desktopSetupPanelHeightClass = () => amHost() ? 'lg:h-[432px]' : 'lg:h-[336px]'
+
   return (
     <Show
       when={isMiniView()}
@@ -1248,87 +1300,93 @@ export function ConfigScreen(props: ConfigScreenProps) {
               <div class="h-9 w-9" />
             </div>
 
-            <div class="gap-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div class="p-4 rounded-lg bg-bg-subtle">
+            <div class={cn(
+              'gap-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)]',
+              desktopSetupPanelHeightClass(),
+            )}
+            >
+              <div class="p-4 rounded-lg bg-bg-subtle flex flex-col min-h-0 overflow-hidden lg:h-full">
                 <div class="text-xs text-fg-subtle tracking-widest font-bold mb-3 uppercase">Players</div>
 
-                <Show
-                  when={isTeamMode()}
-                  fallback={(
-                    <div class="gap-3 grid grid-cols-2">
-                      <div class="flex flex-col gap-2">
-                        <For each={ffaFirstColumn()}>
-                          {row => (
-                            <PlayerChip
-                              row={row}
-                              pending={lobbyActionPending()}
-                              draggable={canDragRow(row)}
-                              allowDrop={canDropOnRow(row)}
-                              dropActive={canDropOnRow(row) && dragOverSlot() === row.slot}
-                              showJoin={canJoinSlot(row)}
-                              showRemove={canRemoveSlot(row)}
-                              onJoin={() => void handlePlaceSelf(row.slot)}
-                              onRemove={() => void handleRemoveFromSlot(row.slot)}
-                              onDragStart={() => {
-                                if (!row.playerId) return
-                                setDraggingPlayerId(row.playerId)
-                              }}
-                              onDragEnd={() => {
-                                setDraggingPlayerId(null)
-                                setDragOverSlot(null)
-                              }}
-                              onDragEnter={() => setDragOverSlot(row.slot)}
-                              onDragLeave={() => { if (dragOverSlot() === row.slot) setDragOverSlot(null) }}
-                              onDrop={() => void handleDropOnSlot(row.slot)}
-                            />
-                          )}
-                        </For>
+                <div class="pr-1 flex-1 min-h-0 overflow-y-auto">
+                  <Show
+                    when={isTeamMode()}
+                    fallback={(
+                      <div class="gap-3 grid grid-cols-2">
+                        <div class="flex flex-col gap-2">
+                          <For each={ffaFirstColumn()}>
+                            {row => (
+                              <PlayerChip
+                                row={row}
+                                pending={lobbyActionPending()}
+                                draggable={canDragRow(row)}
+                                allowDrop={canDropOnRow(row)}
+                                dropActive={canDropOnRow(row) && dragOverSlot() === row.slot}
+                                showJoin={canJoinSlot(row)}
+                                showRemove={canRemoveSlot(row)}
+                                onJoin={() => void handlePlaceSelf(row.slot)}
+                                onRemove={() => void handleRemoveFromSlot(row.slot)}
+                                onDragStart={() => {
+                                  if (!row.playerId) return
+                                  setDraggingPlayerId(row.playerId)
+                                }}
+                                onDragEnd={() => {
+                                  setDraggingPlayerId(null)
+                                  setDragOverSlot(null)
+                                }}
+                                onDragEnter={() => setDragOverSlot(row.slot)}
+                                onDragLeave={() => { if (dragOverSlot() === row.slot) setDragOverSlot(null) }}
+                                onDrop={() => void handleDropOnSlot(row.slot)}
+                              />
+                            )}
+                          </For>
+                        </div>
+                        <div class="flex flex-col gap-2">
+                          <For each={ffaSecondColumn()}>
+                            {row => (
+                              <PlayerChip
+                                row={row}
+                                pending={lobbyActionPending()}
+                                draggable={canDragRow(row)}
+                                allowDrop={canDropOnRow(row)}
+                                dropActive={canDropOnRow(row) && dragOverSlot() === row.slot}
+                                showJoin={canJoinSlot(row)}
+                                showRemove={canRemoveSlot(row)}
+                                onJoin={() => void handlePlaceSelf(row.slot)}
+                                onRemove={() => void handleRemoveFromSlot(row.slot)}
+                                onDragStart={() => {
+                                  if (!row.playerId) return
+                                  setDraggingPlayerId(row.playerId)
+                                }}
+                                onDragEnd={() => {
+                                  setDraggingPlayerId(null)
+                                  setDragOverSlot(null)
+                                }}
+                                onDragEnter={() => setDragOverSlot(row.slot)}
+                                onDragLeave={() => { if (dragOverSlot() === row.slot) setDragOverSlot(null) }}
+                                onDrop={() => void handleDropOnSlot(row.slot)}
+                              />
+                            )}
+                          </For>
+                        </div>
                       </div>
-                      <div class="flex flex-col gap-2">
-                        <For each={ffaSecondColumn()}>
-                          {row => (
-                            <PlayerChip
-                              row={row}
-                              pending={lobbyActionPending()}
-                              draggable={canDragRow(row)}
-                              allowDrop={canDropOnRow(row)}
-                              dropActive={canDropOnRow(row) && dragOverSlot() === row.slot}
-                              showJoin={canJoinSlot(row)}
-                              showRemove={canRemoveSlot(row)}
-                              onJoin={() => void handlePlaceSelf(row.slot)}
-                              onRemove={() => void handleRemoveFromSlot(row.slot)}
-                              onDragStart={() => {
-                                if (!row.playerId) return
-                                setDraggingPlayerId(row.playerId)
-                              }}
-                              onDragEnd={() => {
-                                setDraggingPlayerId(null)
-                                setDragOverSlot(null)
-                              }}
-                              onDragEnter={() => setDragOverSlot(row.slot)}
-                              onDragLeave={() => { if (dragOverSlot() === row.slot) setDragOverSlot(null) }}
-                              onDrop={() => void handleDropOnSlot(row.slot)}
-                            />
-                          )}
-                        </For>
+                    )}
+                  >
+                    <div class="gap-4 grid grid-cols-2">
+                      <div>
+                        <div class="text-xs text-accent tracking-wider font-bold mb-2">Team A</div>
+                        {renderTeamColumn(teamRows(0))}
+                      </div>
+                      <div>
+                        <div class="text-xs text-accent tracking-wider font-bold mb-2">Team B</div>
+                        {renderTeamColumn(teamRows(1))}
                       </div>
                     </div>
-                  )}
-                >
-                  <div class="gap-4 grid grid-cols-2">
-                    <div>
-                      <div class="text-xs text-accent tracking-wider font-bold mb-2">Team A</div>
-                      {renderTeamColumn(teamRows(0))}
-                    </div>
-                    <div>
-                      <div class="text-xs text-accent tracking-wider font-bold mb-2">Team B</div>
-                      {renderTeamColumn(teamRows(1))}
-                    </div>
-                  </div>
-                </Show>
+                  </Show>
+                </div>
               </div>
 
-              <div class="p-4 rounded-lg bg-bg-subtle flex flex-col gap-3">
+              <div class="p-4 rounded-lg bg-bg-subtle flex flex-col gap-3 min-h-0 overflow-hidden lg:h-full">
                 <div class="text-xs text-fg-subtle tracking-widest font-bold flex uppercase items-center justify-between">
                   <span>Config</span>
                   <span class="flex h-4 w-4 items-center justify-center">
@@ -1338,24 +1396,63 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   </span>
                 </div>
 
-                <Show when={isLobbyMode() && amHost()}>
-                  <Dropdown
-                    label="Game Mode"
-                    value={lobbyMode()}
-                    disabled={lobbyActionPending()}
-                    options={GAME_MODE_CHOICES.map(choice => ({ value: choice.value, label: choice.name }))}
-                    onChange={value => void handleLobbyModeChange(inferGameMode(value))}
-                  />
-                </Show>
+                <div class="pr-2 flex flex-1 flex-col gap-3 min-h-0 overflow-y-auto -mr-1">
+                  <Show when={isLobbyMode() && amHost()}>
+                    <div class="px-1 flex gap-3 items-center justify-between">
+                      <span class={cn('text-sm font-medium', optimisticDraftConfig().leaderDataVersion === 'beta' ? 'text-accent' : 'text-fg-muted')}>
+                        BBG Beta
+                      </span>
+                      <Switch
+                        checked={optimisticDraftConfig().leaderDataVersion === 'beta'}
+                        disabled={lobbyActionPending()}
+                        class="w-auto"
+                        onChange={checked => void handleLeaderDataVersionChange(checked)}
+                      />
+                    </div>
+                  </Show>
 
-                <Show
-                  when={amHost()}
-                  fallback={(
-                    <div class="flex flex-col gap-2">
-                      <Show when={isLobbyMode()}>
-                        <div class="flex flex-col gap-1.5">
-                          <div class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">Min and max matchmaking rank</div>
-                          <div class="flex flex-col gap-2">
+                  <Show when={isLobbyMode() && amHost() && lobbyMode() === 'ffa'}>
+                    <div class="px-1 flex gap-3 items-center justify-between">
+                      <span class={cn('text-sm font-medium', optimisticDraftConfig().simultaneousPick ? 'text-accent' : 'text-fg-muted')}>
+                        Simultaneous pick
+                      </span>
+                      <Switch
+                        checked={optimisticDraftConfig().simultaneousPick}
+                        disabled={lobbyActionPending()}
+                        class="w-auto"
+                        onChange={checked => void handleSimultaneousPickChange(checked)}
+                      />
+                    </div>
+                  </Show>
+
+                  <Show when={isLobbyMode() && amHost()}>
+                    <Dropdown
+                      label="Game Mode"
+                      value={lobbyMode()}
+                      disabled={lobbyActionPending()}
+                      options={GAME_MODE_CHOICES.map(choice => ({ value: choice.value, label: choice.name }))}
+                      onChange={value => void handleLobbyModeChange(inferGameMode(value))}
+                    />
+                  </Show>
+
+                  <Show
+                    when={amHost()}
+                    fallback={(
+                      <div class="flex flex-col gap-2">
+                        <ReadonlyTimerRow
+                          label="BBG"
+                          value={formattedBbgVersion()}
+                          valueClass={draftConfig().leaderDataVersion === 'beta' ? 'text-accent' : undefined}
+                        />
+                        <Show when={isLobbyMode() && lobbyMode() === 'ffa'}>
+                          <ReadonlyTimerRow
+                            label="Simultaneous pick"
+                            value={formattedSimultaneousPick()}
+                            valueClass={draftConfig().simultaneousPick ? 'text-accent' : undefined}
+                          />
+                        </Show>
+                        <Show when={isLobbyMode()}>
+                          <>
                             <ReadonlyTimerRow
                               label="Min rank"
                               value={formattedLobbyMinRole()}
@@ -1364,124 +1461,125 @@ export function ConfigScreen(props: ConfigScreenProps) {
                               label="Max rank"
                               value={formattedLobbyMaxRole()}
                             />
+                          </>
+                        </Show>
+                        <ReadonlyTimerRow
+                          label="Leaders"
+                          value={formattedLeaderPool()}
+                        />
+                        <ReadonlyTimerRow
+                          label="Ban timer"
+                          value={formatTimerValue(timerConfig().banTimerSeconds, serverDefaultTimerConfig().banTimerSeconds)}
+                        />
+                        <ReadonlyTimerRow
+                          label="Pick timer"
+                          value={formatTimerValue(timerConfig().pickTimerSeconds, serverDefaultTimerConfig().pickTimerSeconds)}
+                        />
+                      </div>
+                    )}
+                  >
+                    <div class="flex flex-col gap-2">
+                      <Show when={isLobbyMode()}>
+                        <div class="flex flex-col gap-1.5">
+                          <div class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">Min and max matchmaking rank</div>
+                          <div class="gap-2 grid grid-cols-1 sm:grid-cols-2">
+                            <Dropdown
+                              ariaLabel="Minimum matchmaking rank"
+                              value={lobbyMinRoleValue()}
+                              disabled={lobbyActionPending()}
+                              options={minRoleDropdownOptions()}
+                              onChange={value => void handleLobbyMinRoleChange(value)}
+                            />
+                            <Dropdown
+                              ariaLabel="Maximum matchmaking rank"
+                              value={lobbyMaxRoleValue()}
+                              disabled={lobbyActionPending()}
+                              options={maxRoleDropdownOptions()}
+                              onChange={value => void handleLobbyMaxRoleChange(value)}
+                            />
                           </div>
                         </div>
+
+                        <TextInput
+                          type="number"
+                          label="Leaders"
+                          min={String(leaderPoolMinimumValue())}
+                          max={String(MAX_LEADER_POOL_INPUT)}
+                          step="1"
+                          value={leaderPoolInput()}
+                          placeholder={leaderPoolPlaceholderValue()}
+                          onFocus={() => setEditingField('leaderPool')}
+                          onInput={(event) => {
+                            optimisticTimerConfig.clearError()
+                            clearConfigMessage()
+                            const normalized = normalizeLeaderPoolSizeInput(event.currentTarget.value, leaderPoolMinimumValue())
+                            event.currentTarget.value = normalized
+                            setLeaderPoolInput(normalized)
+                          }}
+                          onBlur={() => void saveConfigOnBlur()}
+                        />
+
                       </Show>
-                      <ReadonlyTimerRow
-                        label="Leaders"
-                        value={formattedLeaderPool()}
-                      />
-                      <ReadonlyTimerRow
-                        label="Ban timer"
-                        value={formatTimerValue(timerConfig().banTimerSeconds, serverDefaultTimerConfig().banTimerSeconds)}
-                      />
-                      <ReadonlyTimerRow
-                        label="Pick timer"
-                        value={formatTimerValue(timerConfig().pickTimerSeconds, serverDefaultTimerConfig().pickTimerSeconds)}
-                      />
-                    </div>
-                  )}
-                >
-                  <div class="flex flex-col gap-2">
-                    <Show when={isLobbyMode()}>
-                      <div class="flex flex-col gap-1.5">
-                        <div class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">Min and max matchmaking rank</div>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          <Dropdown
-                            ariaLabel="Minimum matchmaking rank"
-                            value={lobbyMinRoleValue()}
-                            disabled={lobbyActionPending()}
-                            options={minRoleDropdownOptions()}
-                            onChange={value => void handleLobbyMinRoleChange(value)}
-                          />
-                          <Dropdown
-                            ariaLabel="Maximum matchmaking rank"
-                            value={lobbyMaxRoleValue()}
-                            disabled={lobbyActionPending()}
-                            options={maxRoleDropdownOptions()}
-                            onChange={value => void handleLobbyMaxRoleChange(value)}
-                          />
-                        </div>
-                      </div>
 
                       <TextInput
                         type="number"
-                        label="Leaders"
-                        min={String(leaderPoolMinimumValue())}
-                        max={String(MAX_LEADER_POOL_INPUT)}
+                        label="Ban Timer (minutes)"
+                        min="0"
+                        max={String(MAX_TIMER_MINUTES)}
                         step="1"
-                        value={leaderPoolInput()}
-                        placeholder={leaderPoolPlaceholderValue()}
-                        onFocus={() => setEditingField('leaderPool')}
+                        value={banMinutes()}
+                        placeholder={banTimerPlaceholder()}
+                        onFocus={() => setEditingField('ban')}
                         onInput={(event) => {
                           optimisticTimerConfig.clearError()
                           clearConfigMessage()
-                          const normalized = normalizeLeaderPoolSizeInput(event.currentTarget.value, leaderPoolMinimumValue())
+                          const normalized = normalizeTimerMinutesInput(event.currentTarget.value)
                           event.currentTarget.value = normalized
-                          setLeaderPoolInput(normalized)
+                          setBanMinutes(normalized)
                         }}
                         onBlur={() => void saveConfigOnBlur()}
                       />
-                    </Show>
 
-                    <TextInput
-                      type="number"
-                      label="Ban Timer (minutes)"
-                      min="0"
-                      max={String(MAX_TIMER_MINUTES)}
-                      step="1"
-                      value={banMinutes()}
-                      placeholder={banTimerPlaceholder()}
-                      onFocus={() => setEditingField('ban')}
-                      onInput={(event) => {
-                        optimisticTimerConfig.clearError()
-                        clearConfigMessage()
-                        const normalized = normalizeTimerMinutesInput(event.currentTarget.value)
-                        event.currentTarget.value = normalized
-                        setBanMinutes(normalized)
-                      }}
-                      onBlur={() => void saveConfigOnBlur()}
-                    />
-
-                    <TextInput
-                      type="number"
-                      label="Pick Timer (minutes)"
-                      min="0"
-                      max={String(MAX_TIMER_MINUTES)}
-                      step="1"
-                      value={pickMinutes()}
-                      placeholder={pickTimerPlaceholder()}
-                      onFocus={() => setEditingField('pick')}
-                      onInput={(event) => {
-                        optimisticTimerConfig.clearError()
-                        clearConfigMessage()
-                        const normalized = normalizeTimerMinutesInput(event.currentTarget.value)
-                        event.currentTarget.value = normalized
-                        setPickMinutes(normalized)
-                      }}
-                      onBlur={() => void saveConfigOnBlur()}
-                    />
-                  </div>
-                </Show>
-
-                <div class="min-h-5">
-                  <Show when={configMessage()}>
-                    <div class="text-xs text-fg flex gap-1.5 items-center">
-                      <span class={cn(
-                        'text-base shrink-0 self-center',
-                        configMessageTone() === 'error'
-                          ? 'i-ph-x-bold text-danger'
-                          : 'i-ph-check-bold text-accent',
-                      )}
+                      <TextInput
+                        type="number"
+                        label="Pick Timer (minutes)"
+                        min="0"
+                        max={String(MAX_TIMER_MINUTES)}
+                        step="1"
+                        value={pickMinutes()}
+                        placeholder={pickTimerPlaceholder()}
+                        onFocus={() => setEditingField('pick')}
+                        onInput={(event) => {
+                          optimisticTimerConfig.clearError()
+                          clearConfigMessage()
+                          const normalized = normalizeTimerMinutesInput(event.currentTarget.value)
+                          event.currentTarget.value = normalized
+                          setPickMinutes(normalized)
+                        }}
+                        onBlur={() => void saveConfigOnBlur()}
                       />
-                      <Show
-                        when={configMessageTone() === 'info' && rankRoleSetDetail()}
-                        fallback={<span class="leading-relaxed">{configMessage()}</span>}
-                      >
-                        <RankRoleSetNotice detail={rankRoleSetDetail()!} />
-                      </Show>
                     </div>
                   </Show>
+
+                  <div class="min-h-5">
+                    <Show when={configMessage()}>
+                      <div class="text-xs text-fg flex gap-1.5 items-center">
+                        <span class={cn(
+                          'text-base shrink-0 self-center',
+                          configMessageTone() === 'error'
+                            ? 'i-ph-x-bold text-danger'
+                            : 'i-ph-check-bold text-accent',
+                        )}
+                        />
+                        <Show
+                          when={configMessageTone() === 'info' && rankRoleSetDetail()}
+                          fallback={<span class="leading-relaxed">{configMessage()}</span>}
+                        >
+                          <RankRoleSetNotice detail={rankRoleSetDetail()!} />
+                        </Show>
+                      </div>
+                    </Show>
+                  </div>
                 </div>
               </div>
             </div>

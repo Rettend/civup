@@ -80,6 +80,27 @@ export function resolveTimeoutWithPreviews(
     : resolvePickTimeoutWithPreviews(state, step, blindBans, previews.picks)
 }
 
+export function resolvePickSubmissionWithPreviews(
+  state: DraftState,
+  blindBans: boolean,
+  previews: DraftPreviewState['picks'],
+  seatIndex: number,
+  civId: string,
+): DraftResult | DraftError {
+  const directResult = processDraftInput(state, { type: 'PICK', seatIndex, civId }, blindBans)
+  if (!isDraftError(directResult)) return directResult
+  if (!isRetryablePickError(directResult.error)) return directResult
+
+  const fallbackCandidates = buildPickCandidates(civId, previews[seatIndex] ?? []).slice(1)
+  for (const fallbackCivId of fallbackCandidates) {
+    const fallbackResult = processDraftInput(state, { type: 'PICK', seatIndex, civId: fallbackCivId }, blindBans)
+    if (!isDraftError(fallbackResult)) return fallbackResult
+    if (!isRetryablePickError(fallbackResult.error)) return fallbackResult
+  }
+
+  return directResult
+}
+
 export function censorDraftPreviews(
   state: DraftState,
   previews: DraftPreviewState,
@@ -232,7 +253,7 @@ function applyPreviewPickTimeout(
   seatIndex: number,
   civIds: string[],
 ): { civId: string, result: DraftResult } | null {
-  for (const civId of civIds) {
+  for (const civId of buildPickCandidates(null, civIds)) {
     const result = processDraftInput(state, { type: 'PICK', seatIndex, civId }, blindBans)
     if (!isDraftError(result)) return { civId, result }
   }
@@ -326,6 +347,26 @@ function setPreviewSelections(
   if (civIds.length === 0) delete next[seatIndex]
   else next[seatIndex] = civIds
   return next
+}
+
+function buildPickCandidates(primaryCivId: string | null, previewCivIds: string[]): string[] {
+  const candidates: string[] = []
+  const seen = new Set<string>()
+
+  const append = (civId: string | null) => {
+    if (typeof civId !== 'string' || seen.has(civId)) return
+    candidates.push(civId)
+    seen.add(civId)
+  }
+
+  append(primaryCivId)
+  for (const civId of previewCivIds) append(civId)
+
+  return candidates
+}
+
+function isRetryablePickError(error: string): boolean {
+  return error.includes('is not available') || error.includes('was already picked in this step')
 }
 
 function previewMapEqual(a: Record<number, string[]>, b: Record<number, string[]>): boolean {

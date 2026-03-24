@@ -134,6 +134,13 @@ export function playersPerTeam(mode: GameMode): number {
   return teamSize(mode) ?? 1
 }
 
+/** Supported player counts for a mode. */
+export function playerCountOptions(mode: GameMode): readonly number[] {
+  const size = teamSize(mode)
+  if (size == null) return [8]
+  return [size * 2]
+}
+
 /** Maximum teammate mentions accepted by a mode. */
 export function maxTeammatesForMode(mode: GameMode): number {
   const size = teamSize(mode)
@@ -149,24 +156,21 @@ export function slotToTeamIndex(mode: GameMode, slot: number): 0 | 1 | null {
 
 /** Default player count for a mode. */
 export function defaultPlayerCount(mode: GameMode): number {
-  const size = teamSize(mode)
-  return size == null ? 8 : size * 2
+  const options = playerCountOptions(mode)
+  return options[options.length - 1] ?? 0
 }
 
 /** Maximum player count allowed for a lobby mode. */
 export function maxPlayerCount(mode: GameMode): number {
-  if (mode === 'ffa') return 10
-  return defaultPlayerCount(mode)
+  return Math.max(...playerCountOptions(mode))
 }
 
 /** Minimum players required before a lobby can start. */
 export function minPlayerCount(mode: GameMode): number {
-  if (mode === 'ffa') return 6
-  return defaultPlayerCount(mode)
+  return Math.min(...playerCountOptions(mode))
 }
 
 /** Whether a lobby can start with the current player count. */
 export function canStartWithPlayerCount(mode: GameMode, playerCount: number): boolean {
-  if (mode === 'ffa') return playerCount >= minPlayerCount(mode) && playerCount <= maxPlayerCount(mode)
-  return playerCount === defaultPlayerCount(mode)
+  return playerCountOptions(mode).includes(playerCount)
 }

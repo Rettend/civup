@@ -1,6 +1,6 @@
 import type { ActivityTargetOption } from '../src/client/stores'
 import { describe, expect, test } from 'bun:test'
-import { didClearResolvedActivityTarget, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection } from '../src/client/lib/activity-targets'
+import { didClearResolvedActivityTarget, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from '../src/client/lib/activity-targets'
 
 const joinedMatch: ActivityTargetOption = {
   kind: 'match',
@@ -95,6 +95,28 @@ describe('activity target helpers', () => {
     expect(shouldApplyResolvedActivitySelection({
       isOverviewVisible: true,
       allowSelectionWhileOverview: true,
+    })).toBe(true)
+  })
+
+  test('releases a timed-out draft when the target switches back to the lobby', () => {
+    expect(shouldHoldAuthenticatedDraftStateForSelection({
+      nextSelectionKind: 'lobby',
+      hasInFlightConnection: false,
+      draftState: {
+        status: 'cancelled',
+        cancelReason: 'timeout',
+      },
+    })).toBe(false)
+  })
+
+  test('keeps manual scrubs on the draft result screen', () => {
+    expect(shouldHoldAuthenticatedDraftStateForSelection({
+      nextSelectionKind: 'lobby',
+      hasInFlightConnection: false,
+      draftState: {
+        status: 'cancelled',
+        cancelReason: 'scrub',
+      },
     })).toBe(true)
   })
 })

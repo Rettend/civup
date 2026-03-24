@@ -4,6 +4,7 @@ const FULL_ROSTER_2V2_PICK_ORDER = [0, 1, 3, 2] as const
 const FULL_ROSTER_3V3_PICK_ORDER = [0, 1, 3, 2, 4, 5] as const
 const FULL_ROSTER_4V4_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7] as const
 const TEAM_BAN_STEP: DraftStep = { action: 'ban', seats: [0, 1], count: 3, timer: 120 }
+const FFA_BAN_STEP: DraftStep = { action: 'ban', seats: 'all', count: 2, timer: 120 }
 
 function createSinglePickStep(seat: number): DraftStep {
   return { action: 'pick', seats: [seat], count: 1, timer: 60 }
@@ -86,8 +87,8 @@ export const default1v1: DraftFormat = {
 
 /**
  * FFA Format:
- * - 1 blind ban per player (simultaneous)
- * - Players just pick in order (by rating or random)
+ * - 2 blind bans per player (simultaneous)
+ * - Players pick in seat order
  */
 export const defaultFfa: DraftFormat = {
   id: 'default-ffa',
@@ -95,15 +96,28 @@ export const defaultFfa: DraftFormat = {
   gameMode: 'ffa',
   blindBans: true,
   getSteps(seatCount: number): DraftStep[] {
-    const steps: DraftStep[] = [
-      // Everyone bans 1 simultaneously (blind)
-      { action: 'ban', seats: 'all', count: 1, timer: 120 },
+    return [
+      FFA_BAN_STEP,
+      ...Array.from({ length: seatCount }, (_, seatIndex) => createSinglePickStep(seatIndex)),
     ]
-    // Each player picks 1 in order (seat 0, 1, 2, ..., n-1)
-    for (let i = 0; i < seatCount; i++) {
-      steps.push({ action: 'pick', seats: [i], count: 1, timer: 60 })
-    }
-    return steps
+  },
+}
+
+/**
+ * FFA Simultaneous Format:
+ * - 2 blind bans per player (simultaneous)
+ * - Everyone picks at the same time on a shared timer
+ */
+export const defaultFfaSimultaneous: DraftFormat = {
+  id: 'default-ffa-simultaneous',
+  name: 'FFA Simultaneous',
+  gameMode: 'ffa',
+  blindBans: true,
+  getSteps(_seatCount: number): DraftStep[] {
+    return [
+      FFA_BAN_STEP,
+      { action: 'pick', seats: 'all', count: 1, timer: 60 },
+    ]
   },
 }
 
@@ -112,6 +126,7 @@ export const defaultFfa: DraftFormat = {
 /** All available draft formats */
 export const draftFormats: DraftFormat[] = [
   defaultFfa,
+  defaultFfaSimultaneous,
   default1v1,
   default2v2,
   default3v3,
@@ -128,6 +143,11 @@ export function getDefaultFormat(gameMode: string): DraftFormat {
   const format = draftFormats.find(f => f.gameMode === gameMode)
   if (!format) throw new Error(`No format found for game mode: ${gameMode}`)
   return format
+}
+
+export function getDraftFormat(gameMode: string, options: { simultaneousPick?: boolean } = {}): DraftFormat {
+  if (gameMode === 'ffa' && options.simultaneousPick) return defaultFfaSimultaneous
+  return getDefaultFormat(gameMode)
 }
 
 export function formatDraftStepLabel(

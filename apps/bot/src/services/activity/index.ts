@@ -1,11 +1,11 @@
-import type { DraftSeat, DraftTimerConfig, GameMode, QueueEntry, RoomConfig } from '@civup/game'
-import { getDefaultFormat, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamSize } from '@civup/game'
+import type { DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry, RoomConfig } from '@civup/game'
+import type { LobbyState } from '../lobby/types.ts'
+import { getDraftFormat, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamSize } from '@civup/game'
 import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
 import { getLobbiesByChannel } from '../lobby/index.ts'
-import { channelIndexKey, idKey, matchKey, modeIndexKey } from '../lobby/keys.ts'
+import { channelIndexKey, draftRosterKey, idKey, matchKey, modeIndexKey } from '../lobby/keys.ts'
 import { lobbySnapshotKey } from '../lobby/live-snapshot.ts'
-import type { LobbyState } from '../lobby/types.ts'
 import { stateStoreMdelete, stateStoreMput } from '../state/store.ts'
 
 // ── Types ───────────────────────────────────────────────────
@@ -18,6 +18,8 @@ export interface MatchCreationResult {
 
 export interface CreateDraftRoomOptions {
   hostId: string
+  leaderDataVersion?: LeaderDataVersion
+  simultaneousPick?: boolean
   partyHost?: string
   botHost?: string
   webhookSecret?: string
@@ -61,7 +63,7 @@ export async function createDraftRoom(
   options: CreateDraftRoomOptions,
 ): Promise<MatchCreationResult> {
   const matchId = nanoid(12)
-  const format = getDefaultFormat(mode)
+  const format = getDraftFormat(mode, { simultaneousPick: options.simultaneousPick })
   const seats: DraftSeat[] = buildSeats(mode, entries)
   const leaderPoolSize = resolveLeaderPoolSize(mode, seats.length, options.leaderPoolSize)
   const config: RoomConfig = {
@@ -70,6 +72,7 @@ export async function createDraftRoom(
     formatId: format.id,
     seats,
     civPool: sampleLeaderPool(leaderPoolSize),
+    leaderDataVersion: options.leaderDataVersion ?? 'live',
     timerConfig: options.timerConfig,
     webhookUrl: buildDraftWebhookUrl(options.botHost, options.partyHost),
     webhookSecret: options.webhookSecret,
@@ -198,7 +201,7 @@ export async function storeUserActivityTarget(
   const selectedAt = Date.now()
   const pendingJoin = target.kind === 'lobby' && target.pendingJoin === true
   const entries = await Promise.all(
-    userIds.map(async (userId) => ({
+    userIds.map(async userId => ({
       key: targetUserKey(userId, channelId),
       value: JSON.stringify(await serializeActivityTargetSelection(channelId, userId, target, selectedAt, pendingJoin)),
       expirationTtl: ACTIVITY_MAPPING_TTL,
@@ -225,7 +228,7 @@ export async function storeUserLobbyState(
   const pendingJoin = options?.pendingJoin === true
   const target = { kind: 'lobby' as const, id: lobbyId, pendingJoin }
   const targetEntries = await Promise.all(
-    userIds.map(async (userId) => ({
+    userIds.map(async userId => ({
       key: targetUserKey(userId, channelId),
       value: JSON.stringify(await serializeActivityTargetSelection(channelId, userId, target, selectedAt, pendingJoin)),
       expirationTtl: ACTIVITY_MAPPING_TTL,
@@ -256,7 +259,7 @@ export async function storeMatchActivityState(
 ): Promise<void> {
   const selectedAt = Date.now()
   const targetEntries = await Promise.all(
-    userIds.map(async (userId) => ({
+    userIds.map(async userId => ({
       key: targetUserKey(userId, channelId),
       value: JSON.stringify(await serializeActivityTargetSelection(channelId, userId, {
         kind: 'match',
@@ -409,6 +412,7 @@ export async function clearLobbyAndActivityMappings(
   const keys = [
     idKey(lobby.id),
     lobbySnapshotKey(lobby.id),
+    draftRosterKey(lobby.id),
     modeIndexKey(lobby.mode, lobby.id),
     channelIndexKey(lobby.channelId, lobby.id),
     ...lobby.memberPlayerIds.map(userId => `activity-lobby-user:${userId}`),

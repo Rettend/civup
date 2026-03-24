@@ -6,6 +6,7 @@ import type {
   DraftSeat,
   DraftState,
   DraftTimerConfig,
+  LeaderDataVersion,
 } from './types.ts'
 
 // ── Room Configuration (sent by bot via HTTP POST) ──────────
@@ -17,6 +18,7 @@ export interface RoomConfig {
   formatId: string
   seats: DraftSeat[]
   civPool: string[]
+  leaderDataVersion?: LeaderDataVersion
   timerConfig?: DraftTimerConfig
   webhookUrl?: string
   webhookSecret?: string
@@ -61,6 +63,7 @@ export type ServerMessage
   = | {
     type: 'init'
     state: DraftState
+    leaderDataVersion?: LeaderDataVersion
     hostId?: string
     seatIndex: number | null
     timerEndsAt: number | null
@@ -70,6 +73,7 @@ export type ServerMessage
   | {
     type: 'update'
     state: DraftState
+    leaderDataVersion?: LeaderDataVersion
     hostId?: string
     events: DraftEvent[]
     timerEndsAt: number | null

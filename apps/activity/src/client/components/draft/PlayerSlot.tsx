@@ -33,7 +33,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
   const leader = (): Leader | null => {
     const p = pick()
     if (!p) return null
-    try { return getLeader(p.civId) }
+    try { return getLeader(p.civId, draftStore.leaderDataVersion) }
     catch { return null }
   }
 
@@ -41,7 +41,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
     if (filled()) return null
     const civId = getPreviewPickForSeat(props.seatIndex)
     if (!civId) return null
-    try { return getLeader(civId) }
+    try { return getLeader(civId, draftStore.leaderDataVersion) }
     catch { return null }
   }
 

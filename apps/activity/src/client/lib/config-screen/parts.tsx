@@ -143,11 +143,11 @@ export function PremadeLinkButton(props: PremadeLinkButtonProps) {
   )
 }
 
-export function ReadonlyTimerRow(props: { label: string, value: string }) {
+export function ReadonlyTimerRow(props: { label: string, value: string, valueClass?: string }) {
   return (
     <div class="text-sm px-3 py-2 rounded-md bg-bg/35 flex items-center justify-between">
       <span class="text-fg-muted">{props.label}</span>
-      <span class="text-fg font-medium">{props.value}</span>
+      <span class={cn('text-fg font-medium', props.valueClass)}>{props.value}</span>
     </div>
   )
 }

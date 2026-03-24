@@ -1040,12 +1040,12 @@ function printReports(reports: ScenarioReport[]): void {
     coreWorkers: report.corePerDraft.workersRequests,
     churnWorkers: report.openLobbyChurnPerDraft.workersRequests,
     coreDoRequests: report.corePerDraft.doRequests,
-      churnDoRequests: report.openLobbyChurnPerDraft.doRequests,
-      totalDoRequests: report.model.perDraft.doRequests,
-      churnKvReads: report.openLobbyChurnPerDraft.kvReads,
-      churnKvLists: report.openLobbyChurnPerDraft.kvLists,
-      churnDoSqlReads: report.openLobbyChurnPerDraft.doSqliteRowsRead,
-    })))
+    churnDoRequests: report.openLobbyChurnPerDraft.doRequests,
+    totalDoRequests: report.model.perDraft.doRequests,
+    churnKvReads: report.openLobbyChurnPerDraft.kvReads,
+    churnKvLists: report.openLobbyChurnPerDraft.kvLists,
+    churnDoSqlReads: report.openLobbyChurnPerDraft.doSqliteRowsRead,
+  })))
 
   console.log('\n[capacity] measured per draft usage')
   console.table(reports.map(report => ({
@@ -1054,13 +1054,13 @@ function printReports(reports: ScenarioReport[]): void {
     d1RowsReadBase: report.model.perDraft.d1RowsReadBase,
     d1RowsReadPerRatedPlayer: report.model.perDraft.d1RowsReadPerLeaderboardPlayer,
     d1RowsWritten: report.model.perDraft.d1RowsWritten,
-      doSqliteRowsRead: report.model.perDraft.doSqliteRowsRead,
-      doSqliteRowsWritten: report.model.perDraft.doSqliteRowsWritten,
-      kvReads: report.model.perDraft.kvReads,
-      kvLists: report.model.perDraft.kvLists,
-      kvWrites: report.model.perDraft.kvWrites,
-      doRequests: report.model.perDraft.doRequests,
-      doDurationGbSeconds: roundForReport(report.model.perDraft.doDurationGbSeconds),
+    doSqliteRowsRead: report.model.perDraft.doSqliteRowsRead,
+    doSqliteRowsWritten: report.model.perDraft.doSqliteRowsWritten,
+    kvReads: report.model.perDraft.kvReads,
+    kvLists: report.model.perDraft.kvLists,
+    kvWrites: report.model.perDraft.kvWrites,
+    doRequests: report.model.perDraft.doRequests,
+    doDurationGbSeconds: roundForReport(report.model.perDraft.doDurationGbSeconds),
   })))
 
   console.log('\n[capacity] plan ceilings')

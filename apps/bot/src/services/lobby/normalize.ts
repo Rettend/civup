@@ -1,4 +1,4 @@
-import type { CompetitiveTier, GameMode } from '@civup/game'
+import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 import type { LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
 import { MAX_LEADER_POOL_SIZE, maxPlayerCount } from '@civup/game'
 import { nanoid } from 'nanoid'
@@ -9,6 +9,8 @@ export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   banTimerSeconds: null,
   pickTimerSeconds: null,
   leaderPoolSize: null,
+  leaderDataVersion: 'live',
+  simultaneousPick: false,
 }
 
 export function parseLobbyState(raw: unknown): LobbyState | null {
@@ -74,6 +76,8 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
     banTimerSeconds: normalizeTimerSeconds(config?.banTimerSeconds),
     pickTimerSeconds: normalizeTimerSeconds(config?.pickTimerSeconds),
     leaderPoolSize: normalizeLeaderPoolSize(config?.leaderPoolSize),
+    leaderDataVersion: normalizeLeaderDataVersion(config?.leaderDataVersion),
+    simultaneousPick: normalizeSimultaneousPick(config?.simultaneousPick),
   }
 }
 
@@ -119,6 +123,8 @@ export function sameDraftConfig(a: LobbyDraftConfig, b: LobbyDraftConfig): boole
   return a.banTimerSeconds === b.banTimerSeconds
     && a.pickTimerSeconds === b.pickTimerSeconds
     && a.leaderPoolSize === b.leaderPoolSize
+    && a.leaderDataVersion === b.leaderDataVersion
+    && a.simultaneousPick === b.simultaneousPick
 }
 
 export function sameStringArray(a: string[], b: string[]): boolean {
@@ -146,4 +152,12 @@ function normalizeLeaderPoolSize(value: unknown): number | null {
   const rounded = Math.round(value)
   if (rounded < 1 || rounded > MAX_LEADER_POOL_SIZE) return null
   return rounded
+}
+
+function normalizeLeaderDataVersion(value: unknown): LeaderDataVersion {
+  return value === 'beta' ? 'beta' : 'live'
+}
+
+function normalizeSimultaneousPick(value: unknown): boolean {
+  return value === true
 }

@@ -88,13 +88,13 @@ describe('joinLobbyAndMaybeStartMatch', () => {
         DISCORD_TOKEN: 'token',
       },
     }, '2v2', [{
-        playerId: 'pleb',
-        displayName: 'Pleb',
-        avatarUrl: '',
-      }], {
-        preferredLobbyId: lobby.id,
-        skipMatchmakingRankGate: true,
-      })
+      playerId: 'pleb',
+      displayName: 'Pleb',
+      avatarUrl: '',
+    }], {
+      preferredLobbyId: lobby.id,
+      skipMatchmakingRankGate: true,
+    })
 
     expect('stage' in result).toBe(true)
     if (!('stage' in result)) return

@@ -23,20 +23,22 @@ import { createStateStore } from '../../services/state/store.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
 import { factory } from '../../setup.ts'
-import { collectFfaPlacementUserIds, getIdentity, getIdentityByUserId, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
+import { buildFfaPlacementOptions, collectFfaPlacementUserIds, getIdentity, getIdentityByUserId, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
+
+const MATCH_MODE_CHOICES = GAME_MODE_CHOICES
 
 export const command_match = factory.command<MatchVar>(
   new Command('match', 'Looking for game, queue management').options(
     new SubCommand('create', 'Create a lobby and auto-join as host').options(
       new Option('mode', 'Game mode for the lobby')
         .required()
-        .choices(...GAME_MODE_CHOICES),
+        .choices(...MATCH_MODE_CHOICES),
       new Option('steam_link', 'Optional Civ 6 Steam lobby link').max_length(MAX_STEAM_LOBBY_LINK_LENGTH),
     ),
     new SubCommand('join', 'Join the queue for a game mode').options(
       new Option('mode', 'Game mode to queue for')
         .required()
-        .choices(...GAME_MODE_CHOICES),
+        .choices(...MATCH_MODE_CHOICES),
       new Option('teammate', 'Teammate for 2v2/3v3/4v4', 'User'),
       new Option('teammate2', 'Second teammate for 3v3/4v4', 'User'),
       new Option('teammate3', 'Third teammate for 4v4', 'User'),
@@ -49,15 +51,7 @@ export const command_match = factory.command<MatchVar>(
     new SubCommand('report', 'Report your active match result (host only)').options(
       new Option('match_id', 'Optional match ID override'),
       new Option('winner', 'Winner (1v1/team) or 1st place (FFA)', 'User'),
-      new Option('second', 'FFA 2nd place', 'User'),
-      new Option('third', 'FFA 3rd place', 'User'),
-      new Option('fourth', 'FFA 4th place', 'User'),
-      new Option('fifth', 'FFA 5th place', 'User'),
-      new Option('sixth', 'FFA 6th place', 'User'),
-      new Option('seventh', 'FFA 7th place', 'User'),
-      new Option('eighth', 'FFA 8th place', 'User'),
-      new Option('ninth', 'FFA 9th place', 'User'),
-      new Option('tenth', 'FFA 10th place', 'User'),
+      ...buildFfaPlacementOptions(),
     ),
     new SubGroup('steam', 'Manage the Civ 6 Steam lobby link').options(
       new SubCommand('set', 'Set or update the Steam lobby link').options(
@@ -73,10 +67,15 @@ export const command_match = factory.command<MatchVar>(
     switch (c.sub.string) {
       // ── create ──────────────────────────────────────────
       case 'create': {
-        const mode = c.var.mode as GameMode
+        const mode = parseGameMode(c.var.mode)
         const steamLobbyLink = parseSteamLobbyLink(c.var.steam_link)
         const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id
         const identity = getIdentity(c)
+        if (!mode) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'Please provide a valid game mode.', 'error')
+          })
+        }
         if (!identity) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
             await sendTransientEphemeralResponse(c, 'Could not identify you.', 'error')
@@ -164,9 +163,7 @@ export const command_match = factory.command<MatchVar>(
                 ? (await setLobbySteamLobbyLink(kv, reconciledLobby.id, steamLobbyLink, reconciledLobby) ?? reconciledLobby)
                 : reconciledLobby
               if ((lobby.id === createdLobby.id && lobby.revision !== createdLobby.revision)
-                || (lobby.id === reconciledLobby.id && lobby.revision !== reconciledLobby.revision)) {
-                await syncLobbyDerivedState(kv, lobby)
-              }
+                || (lobby.id === reconciledLobby.id && lobby.revision !== reconciledLobby.revision)) { await syncLobbyDerivedState(kv, lobby) }
 
               await storeUserLobbyState(kv, lobby.channelId, [identity.userId], lobby.id)
               if (!reusedExisting) {
@@ -226,9 +223,14 @@ export const command_match = factory.command<MatchVar>(
 
       // ── join ────────────────────────────────────────────
       case 'join': {
-        const mode = c.var.mode as GameMode
+        const mode = parseGameMode(c.var.mode)
         const kv = createStateStore(c.env)
         const identity = getIdentity(c)
+        if (!mode) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'Please provide a valid game mode.', 'error')
+          })
+        }
         if (!identity) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
             await sendTransientEphemeralResponse(c, 'Could not identify you.', 'error')
@@ -542,9 +544,9 @@ export const command_match = factory.command<MatchVar>(
                 const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
                 const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
                 const filled = slots.filter(slot => slot != null).length
-                const target = mode === 'ffa'
-                  ? `${minPlayerCount(mode)}-${maxPlayerCount(mode)}`
-                  : String(maxPlayerCount(mode))
+                const minPlayers = minPlayerCount(mode)
+                const maxPlayers = maxPlayerCount(mode)
+                const target = minPlayers === maxPlayers ? String(maxPlayers) : `${minPlayers}-${maxPlayers}`
                 lines.push(`- ${formatModeLabel(mode)} - ${label} (${filled}/${target}) - ${link} - \`${lobby.id}\``)
                 continue
               }

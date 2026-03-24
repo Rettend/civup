@@ -7,7 +7,8 @@ const VERSUS_DEFAULT_LEADER_POOL_PER_PLAYER = 4
 const VERSUS_MINIMUM_LEADER_POOL_BASE = 6
 
 const FFA_DEFAULT_PLAYER_FLOOR = 6
-const FFA_DEFAULT_POOL_MULTIPLIER = 4
+const FFA_DEFAULT_POOL_MULTIPLIER = 5
+const FFA_MINIMUM_POOL_MULTIPLIER = 3
 
 export const MAX_LEADER_POOL_SIZE = allLeaderIds.length
 
@@ -33,7 +34,7 @@ export function getDefaultLeaderPoolSize(
 export function getMinimumLeaderPoolSize(mode: GameMode, playerCount: number): number {
   const normalizedPlayerCount = Math.max(1, Math.round(playerCount))
 
-  if (mode === 'ffa') return normalizedPlayerCount * 2
+  if (mode === 'ffa') return normalizedPlayerCount * FFA_MINIMUM_POOL_MULTIPLIER
   return VERSUS_MINIMUM_LEADER_POOL_BASE + normalizedPlayerCount
 }
 

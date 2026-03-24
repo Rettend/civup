@@ -1,6 +1,6 @@
 import type { Leader } from '@civup/game'
 import type { LeaderTagCategory } from '~/client/lib/leader-tags'
-import { leaders, searchLeaders } from '@civup/game'
+import { getLeaders, searchLeaders } from '@civup/game'
 import { throttle } from '@solid-primitives/scheduled'
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
@@ -44,7 +44,6 @@ import {
 import { LeaderCard } from './LeaderCard'
 import { LeaderDetailPanel } from './LeaderDetailPanel'
 
-const FILTER_TAG_OPTIONS = getFilterTagOptions(leaders)
 const DOCKED_PANEL_MIN_WIDTH = 1280
 const PREVIEW_THROTTLE_MS = 60
 
@@ -84,6 +83,7 @@ function resolveTooltipPosition(x: number, y: number, width: number, height: num
 /** Collapsible leader grid overlay */
 export function LeaderGridOverlay() {
   const state = () => draftStore.state
+  const leaderDataVersion = () => draftStore.leaderDataVersion
   const step = currentStep
   const accent = () => phaseAccent()
   const ownSeatIndex = () => draftStore.seatIndex
@@ -142,6 +142,9 @@ export function LeaderGridOverlay() {
     const size = tooltipSize()
     return resolveTooltipPosition(tooltip.x, tooltip.y, size.width, size.height)
   })
+
+  const allLeaders = createMemo(() => getLeaders(leaderDataVersion()))
+  const filterTagOptions = createMemo(() => getFilterTagOptions(allLeaders()))
 
   // Auto-open grid when it's your turn
   createEffect(() => {
@@ -218,7 +221,7 @@ export function LeaderGridOverlay() {
 
   const draftLeaderPoolIds = createMemo(() => {
     const draftState = state()
-    if (!draftState) return new Set(leaders.map(leader => leader.id))
+    if (!draftState) return new Set(allLeaders().map(leader => leader.id))
 
     return new Set([
       ...draftState.availableCivIds,
@@ -231,7 +234,7 @@ export function LeaderGridOverlay() {
     const query = searchQuery().trim()
     const filters = tagFilters()
     const leaderPoolIds = draftLeaderPoolIds()
-    let result = query ? searchLeaders(query) : [...leaders]
+    let result = query ? searchLeaders(query, leaderDataVersion()) : [...allLeaders()]
     result = result.filter(leader => leaderPoolIds.has(leader.id) && leaderMatchesTagFilters(leader.tags, filters))
     return result.sort((a, b) => a.name.localeCompare(b.name))
   })
@@ -436,11 +439,11 @@ export function LeaderGridOverlay() {
         <div class="space-y-2">
           <For each={TAG_CATEGORY_ORDER}>
             {category => (
-              <Show when={FILTER_TAG_OPTIONS[category].length > 0}>
+              <Show when={filterTagOptions()[category].length > 0}>
                 <div>
                   <div class="text-[10px] text-fg-subtle tracking-widest font-semibold mb-1 uppercase">{TAG_CATEGORY_LABELS[category]}</div>
                   <div class="flex flex-wrap gap-1.5">
-                    <For each={FILTER_TAG_OPTIONS[category]}>
+                    <For each={filterTagOptions()[category]}>
                       {(option) => {
                         const active = () => isTagActive(category, option.id)
                         return (

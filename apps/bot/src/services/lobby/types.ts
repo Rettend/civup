@@ -1,4 +1,4 @@
-import type { CompetitiveTier, GameMode } from '@civup/game'
+import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 
 export type LobbyStatus = 'open' | 'drafting' | 'active' | 'completed' | 'cancelled' | 'scrubbed'
 
@@ -6,6 +6,8 @@ export interface LobbyDraftConfig {
   banTimerSeconds: number | null
   pickTimerSeconds: number | null
   leaderPoolSize: number | null
+  leaderDataVersion: LeaderDataVersion
+  simultaneousPick: boolean
 }
 
 export interface LobbyState {
