@@ -163,9 +163,7 @@ export const command_match = factory.command<MatchVar>(
                 ? (await setLobbySteamLobbyLink(kv, reconciledLobby.id, steamLobbyLink, reconciledLobby) ?? reconciledLobby)
                 : reconciledLobby
               if ((lobby.id === createdLobby.id && lobby.revision !== createdLobby.revision)
-                || (lobby.id === reconciledLobby.id && lobby.revision !== reconciledLobby.revision)) {
-                await syncLobbyDerivedState(kv, lobby)
-              }
+                || (lobby.id === reconciledLobby.id && lobby.revision !== reconciledLobby.revision)) { await syncLobbyDerivedState(kv, lobby) }
 
               await storeUserLobbyState(kv, lobby.channelId, [identity.userId], lobby.id)
               if (!reusedExisting) {
