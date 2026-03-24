@@ -94,6 +94,7 @@ const HOT_KEY_PREFIXES = [
   'lobby:mode:',
   'lobby:channel:',
   'lobby:match:',
+  'lobby:bump:',
   'lobby:snapshot:',
   'activity:',
   'activity-match:',

@@ -125,6 +125,7 @@ The `/match` command group manages the lobby:
 - `/match join mode:... [teammates]` joins the best open lobby for that mode, specifying teammates will treat them as premades
 - `/match status` lists active lobbies and IDs
 - `/match leave` leaves the active lobby
+- `/match bump` reposts the current lobby embed again
 - `/match cancel` host cancels their lobby
 
 > [!NOTE]
