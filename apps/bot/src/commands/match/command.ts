@@ -9,7 +9,7 @@ import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDra
 import { clearLobbyAndActivityMappings, clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
-import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
+import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getCurrentLobbiesForPlayer, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
@@ -48,7 +48,7 @@ export const command_match = factory.command<MatchVar>(
       new Option('match_id', 'Optional match or lobby ID override'),
     ),
     new SubCommand('leave', 'Leave the current queue'),
-    new SubCommand('bump', 'Post a fresh embed for your current lobby or match').options(
+    new SubCommand('bump', 'Repost the embed for your current lobby').options(
       new Option('match_id', 'Optional match or lobby ID override'),
     ),
     new SubCommand('status', 'Show all active lobbies'),
@@ -104,7 +104,8 @@ export const command_match = factory.command<MatchVar>(
               return
             }
 
-            const existingHostedLobby = await findHostedOpenLobby(kv, identity.userId)
+            const currentLobbies = await getCurrentLobbiesForPlayer(kv, identity.userId)
+            const existingHostedLobby = currentLobbies.find(lobby => lobby.status === 'open' && lobby.hostId === identity.userId) ?? null
             if (existingHostedLobby) {
               const updatedLobby = steamLobbyLink !== null
                 ? (await setLobbySteamLobbyLink(kv, existingHostedLobby.id, steamLobbyLink, existingHostedLobby) ?? existingHostedLobby)
@@ -117,6 +118,18 @@ export const command_match = factory.command<MatchVar>(
                   ? `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>. Updated its Steam lobby link.`
                   : `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>.`,
                 'info',
+              )
+              return
+            }
+
+            const blockingLobby = currentLobbies.find(lobby => lobby.status !== 'open') ?? currentLobbies[0] ?? null
+            if (blockingLobby) {
+              await sendTransientEphemeralResponse(
+                c,
+                blockingLobby.status === 'open'
+                  ? `You are already in an open ${formatModeLabel(blockingLobby.mode)} lobby. Leave it first with \`/match leave\`.`
+                  : 'You are already in a live match. Finish or cancel it before creating a new lobby.',
+                'error',
               )
               return
             }

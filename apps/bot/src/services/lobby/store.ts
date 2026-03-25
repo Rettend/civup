@@ -72,6 +72,28 @@ export async function getLobbiesByChannel(kv: KVNamespace, channelId: string): P
     .sort((left, right) => left.createdAt - right.createdAt)
 }
 
+export function isCurrentLobbyStatus(status: LobbyState['status']): boolean {
+  return status === 'open' || status === 'drafting' || status === 'active'
+}
+
+export async function getCurrentLobbies(kv: KVNamespace, mode?: GameMode): Promise<LobbyState[]> {
+  const lobbies = mode ? await getLobbiesByMode(kv, mode) : await getAllLobbies(kv)
+  return lobbies.filter(lobby => isCurrentLobbyStatus(lobby.status))
+}
+
+export async function getCurrentLobbiesForPlayer(
+  kv: KVNamespace,
+  playerId: string,
+  options?: {
+    mode?: GameMode
+    excludeLobbyIds?: readonly string[]
+  },
+): Promise<LobbyState[]> {
+  const excludedLobbyIds = new Set(options?.excludeLobbyIds ?? [])
+  return (await getCurrentLobbies(kv, options?.mode))
+    .filter(lobby => !excludedLobbyIds.has(lobby.id) && lobby.memberPlayerIds.includes(playerId))
+}
+
 export async function getOpenLobbyForPlayer(
   kv: KVNamespace,
   playerId: string,

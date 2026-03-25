@@ -16,8 +16,8 @@ import {
   buildSlottedPremadeGroups,
   clearLobbyById,
   compactSlottedPremadesForMode,
+  getCurrentLobbiesForPlayer,
   getLobbyById,
-  getOpenLobbyForPlayer,
   mapLobbySlotsToEntries,
   moveSlottedPremadeGroup,
   normalizeLobbySlots,
@@ -499,9 +499,12 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     let lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
     let slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
 
-    const existingLobbyForPlayer = await getOpenLobbyForPlayer(kv, movingPlayerId, mode)
-    if (existingLobbyForPlayer && existingLobbyForPlayer.id !== lobby.id) {
-      return c.json({ error: 'That player is already in another open lobby.' }, 400)
+    const currentLobbiesForPlayer = await getCurrentLobbiesForPlayer(kv, movingPlayerId, {
+      excludeLobbyIds: [lobby.id],
+    })
+    const blockingLobbyForPlayer = currentLobbiesForPlayer.find(candidate => candidate.status !== 'open') ?? currentLobbiesForPlayer[0] ?? null
+    if (blockingLobbyForPlayer) {
+      return c.json({ error: blockingLobbyForPlayer.status === 'open' ? 'That player is already in another open lobby.' : 'That player is already in a live match.' }, 400)
     }
 
     const actionAt = Date.now()
