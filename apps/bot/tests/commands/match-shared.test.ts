@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
-import { createLobby, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMinRole } from '../../src/services/lobby/index.ts'
+import { attachLobbyMatch, createLobby, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMinRole } from '../../src/services/lobby/index.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -226,5 +226,48 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     if (!('stage' in result)) return
     expect(result.stage).toBe('open')
     expect(result.lobby.memberPlayerIds).toContain('pleb')
+  })
+
+  test('rejects joins for players who are already in a live match', async () => {
+    const { kv } = createTrackedKv()
+    const liveLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'player-1',
+      channelId: 'channel-1',
+      messageId: 'message-live',
+    })
+    await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-open',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await attachLobbyMatch(kv, liveLobby.id, 'match-1', liveLobby)
+
+    const result = await joinLobbyAndMaybeStartMatch({
+      env: {
+        KV: kv,
+        DISCORD_TOKEN: 'token',
+      },
+    }, '2v2', [{
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: '',
+    }])
+
+    expect(result).toEqual({ error: '<@player-1> is already in a live match.' })
   })
 })

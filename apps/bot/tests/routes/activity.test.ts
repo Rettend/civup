@@ -42,6 +42,48 @@ describe('activity lobby join eligibility', () => {
     })
   })
 
+  test('blocks joining another lobby after reopening while already in a live match', async () => {
+    const { kv } = createTrackedKv()
+    const liveLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'player-1',
+      channelId: 'channel-1',
+      messageId: 'message-live',
+    })
+    const openLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-2',
+      channelId: 'channel-1',
+      messageId: 'message-open',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-2',
+      displayName: 'Host 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await attachLobbyMatch(kv, liveLobby.id, 'match-1', liveLobby)
+    await storeUserActivityTarget(kv, 'channel-1', ['player-1'], { kind: 'lobby', id: openLobby.id })
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'player-1')
+    expect(snapshot.selection?.kind).toBe('lobby')
+    if (snapshot.selection?.kind !== 'lobby') return
+
+    expect(snapshot.selection.option.id).toBe(openLobby.id)
+    expect(snapshot.selection.joinEligibility).toEqual({
+      canJoin: false,
+      blockedReason: 'You are already in a live match.',
+      pendingSlot: null,
+    })
+  })
+
   test('allows direct activity joins even when the viewer misses the matchmaking min rank', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
