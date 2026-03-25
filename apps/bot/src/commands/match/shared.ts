@@ -1,3 +1,4 @@
+import { createDb, matches, matchParticipants } from '@civup/db'
 import type { GameMode, QueueEntry } from '@civup/game'
 import type { Embed } from 'discord-hono'
 import type { lobbyComponents } from '../../embeds/match.ts'
@@ -5,7 +6,8 @@ import type { LobbyState } from '../../services/lobby/index.ts'
 import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode, maxPlayerCount, teamSize as modeTeamSize } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
-import { filterQueueEntriesForLobby, getCurrentLobbies, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby/index.ts'
+import { and, eq, inArray } from 'drizzle-orm'
+import { filterQueueEntriesForLobby, getLobbiesByMode, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { getQueueStates, MAX_QUEUE_ENTRIES, setQueueEntries } from '../../services/queue/index.ts'
@@ -155,6 +157,7 @@ export async function joinLobbyAndMaybeStartMatch(
   options?: {
     preferredLobbyId?: string
     skipMatchmakingRankGate?: boolean
+    liveMatchPlayerIds?: ReadonlySet<string>
   },
 ): Promise<
   | {
@@ -181,24 +184,14 @@ export async function joinLobbyAndMaybeStartMatch(
   const queueStates = await getQueueStates(kv)
   let queue = queueStates.get(mode)
   if (!queue) throw new Error(`Queue state missing for mode ${mode}`)
-  const currentLobbies = await getCurrentLobbies(kv)
-  const openLobbies = currentLobbies.filter(lobby => lobby.status === 'open' && lobby.mode === mode)
+  const openLobbies = (await getLobbiesByMode(kv, mode)).filter(lobby => lobby.status === 'open')
   const queueByPlayerId = new Map<string, QueueEntry>(queue.entries.map(entry => [entry.playerId, entry]))
   const queueModeByPlayerId = new Map<string, GameMode>()
-  const currentLobbiesByPlayerId = new Map<string, LobbyState[]>()
   const lobbyByPlayerId = new Map<string, LobbyState>()
 
   for (const queueState of queueStates.values()) {
     for (const entry of queueState.entries) {
       if (!queueModeByPlayerId.has(entry.playerId)) queueModeByPlayerId.set(entry.playerId, queueState.mode)
-    }
-  }
-
-  for (const lobby of currentLobbies) {
-    for (const playerId of lobby.memberPlayerIds) {
-      const existing = currentLobbiesByPlayerId.get(playerId)
-      if (existing) existing.push(lobby)
-      else currentLobbiesByPlayerId.set(playerId, [lobby])
     }
   }
 
@@ -209,17 +202,8 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   for (const entry of requestedEntries) {
-    const currentLobbiesForPlayer = currentLobbiesByPlayerId.get(entry.playerId) ?? []
-    const liveLobby = currentLobbiesForPlayer.find(lobby => lobby.status === 'drafting' || lobby.status === 'active')
-    if (liveLobby) {
+    if (options?.liveMatchPlayerIds?.has(entry.playerId)) {
       return { error: `<@${entry.playerId}> is already in a live match.` }
-    }
-
-    const otherModeLobby = currentLobbiesForPlayer.find(lobby => lobby.status === 'open' && lobby.mode !== mode)
-    if (otherModeLobby) {
-      return {
-        error: `<@${entry.playerId}> is already in a ${formatModeLabel(otherModeLobby.mode)} lobby.`,
-      }
     }
 
     const existingMode = queueByPlayerId.has(entry.playerId) ? mode : (queueModeByPlayerId.get(entry.playerId) ?? null)
@@ -230,12 +214,9 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   const existingLobbyIds = [...new Set(
-    requestedEntries.flatMap((entry) => {
-      const currentLobbiesForPlayer = currentLobbiesByPlayerId.get(entry.playerId) ?? []
-      return currentLobbiesForPlayer
-        .filter(lobby => lobby.status === 'open' && lobby.mode === mode)
-        .map(lobby => lobby.id)
-    }),
+    requestedEntries
+      .map(entry => lobbyByPlayerId.get(entry.playerId)?.id ?? null)
+      .filter((lobbyId): lobbyId is string => lobbyId != null),
   )]
 
   if (existingLobbyIds.length > 1) {
@@ -388,6 +369,34 @@ export async function joinLobbyAndMaybeStartMatch(
     embeds: renderPayload.embeds,
     components: renderPayload.components,
   }
+}
+
+export async function findLiveMatchIdsForPlayers(
+  db: ReturnType<typeof createDb>,
+  playerIds: string[],
+): Promise<Map<string, string>> {
+  const uniquePlayerIds = [...new Set(playerIds)]
+  if (uniquePlayerIds.length === 0) return new Map()
+
+  const rows = await db
+    .select({
+      playerId: matchParticipants.playerId,
+      matchId: matchParticipants.matchId,
+    })
+    .from(matchParticipants)
+    .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+    .where(and(
+      inArray(matchParticipants.playerId, uniquePlayerIds),
+      inArray(matches.status, ['drafting', 'active']),
+    ))
+
+  const liveMatchIdByPlayerId = new Map<string, string>()
+  for (const row of rows) {
+    if (!liveMatchIdByPlayerId.has(row.playerId)) {
+      liveMatchIdByPlayerId.set(row.playerId, row.matchId)
+    }
+  }
+  return liveMatchIdByPlayerId
 }
 
 async function getRoleGateErrorForLobby(

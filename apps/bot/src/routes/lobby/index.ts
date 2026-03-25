@@ -6,7 +6,7 @@ import { formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isTeamM
 import { createDraftRoomAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
-import { clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, createDraftRoom, storeMatchActivityState, storeUserLobbyMappings, storeUserLobbyState } from '../../services/activity/index.ts'
+import { clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, createDraftRoom, handoffLobbySpectatorsToMatchActivity, storeMatchActivityState, storeUserLobbyMappings, storeUserLobbyState } from '../../services/activity/index.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from '../../services/config/index.ts'
 import {
   arrangeLobbySlots,
@@ -1137,6 +1137,13 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
       await syncLobbyDerivedState(kv, lobbyForMessage)
       await storeMatchActivityState(kv, lobbyForMessage.channelId, lobbyForMessage.memberPlayerIds, {
+        matchId,
+        lobbyId: lobbyForMessage.id,
+        mode: lobbyForMessage.mode,
+        steamLobbyLink: lobbyForMessage.steamLobbyLink,
+        activitySecret: internalSecret,
+      })
+      await handoffLobbySpectatorsToMatchActivity(kv, lobbyForMessage.channelId, lobbyForMessage.id, lobbyForMessage.memberPlayerIds, {
         matchId,
         lobbyId: lobbyForMessage.id,
         mode: lobbyForMessage.mode,

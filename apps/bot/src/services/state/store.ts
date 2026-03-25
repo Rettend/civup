@@ -101,6 +101,7 @@ const HOT_KEY_PREFIXES = [
   'activity-user:',
   'activity-lobby-user:',
   'activity-target-user:',
+  'activity-target-lobby:',
 ]
 
 export function createStateStore(env: StateStoreEnv): KVNamespace {
