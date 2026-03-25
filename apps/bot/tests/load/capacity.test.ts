@@ -14,12 +14,14 @@ import {
 } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
-import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
+import { findLiveMatchIdsForPlayers, joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
 import {
   clearLobbyAndActivityMappings,
   clearUserLobbyMappings,
+  handoffLobbySpectatorsToMatchActivity,
   storeMatchActivityState,
+  storeUserActivityTarget,
   storeUserLobbyState,
 } from '../../src/services/activity/index.ts'
 import { resolveDraftTimerConfig } from '../../src/services/config/index.ts'
@@ -552,7 +554,7 @@ async function simulateScenarioLifecycle(input: {
 
     for (const group of input.mode.joinGroups) {
       botRequests += 1
-      await simulateMatchJoin(kv, input.mode, group)
+      await simulateMatchJoin(db, kv, input.mode, group)
     }
 
     const playerIds = scenarioPlayerIds(input.mode)
@@ -561,6 +563,13 @@ async function simulateScenarioLifecycle(input: {
     for (const playerId of viewerIds) {
       botRequests += 1
       await simulateActivityLaunchSnapshot(kv, stateCoordinator.secret, CHANNEL_ID, playerId)
+    }
+
+    const spectatorIds = input.mode.spectatorIds ?? []
+    activityRequests += spectatorIds.length
+    for (const spectatorId of spectatorIds) {
+      botRequests += 1
+      await simulateSpectatorLobbySelection(kv, input.mode, spectatorId)
     }
 
     const openLobbyMutationRequests = input.includeOpenLobbyChurn
@@ -646,14 +655,17 @@ async function simulateMatchCreate(kv: KVNamespace, mode: CapacityScenario): Pro
 }
 
 async function simulateMatchJoin(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   kv: KVNamespace,
   mode: CapacityScenario,
   group: string[],
 ): Promise<void> {
+  const liveMatchIdByPlayer = await findLiveMatchIdsForPlayers(db, group)
   const outcome = await joinLobbyAndMaybeStartMatch(
     { env: { KV: kv } },
     mode.mode,
     buildJoinEntries(group),
+    { liveMatchPlayerIds: new Set(liveMatchIdByPlayer.keys()) },
   )
   if ('error' in outcome) throw new Error(outcome.error)
 
@@ -667,6 +679,12 @@ async function simulateActivityLaunchSnapshot(
   userId: string,
 ): Promise<void> {
   await buildActivityLaunchSnapshot(undefined, activitySecret, kv, channelId, userId)
+}
+
+async function simulateSpectatorLobbySelection(kv: KVNamespace, mode: CapacityScenario, spectatorId: string): Promise<void> {
+  const lobby = await getLobby(kv, mode.mode)
+  if (!lobby || lobby.status !== 'open') throw new Error(`Expected open ${mode.mode} lobby before spectator selection`)
+  await storeUserActivityTarget(kv, lobby.channelId, [spectatorId], { kind: 'lobby', id: lobby.id })
 }
 
 async function simulateOpenLobbyChurn(kv: KVNamespace, mode: CapacityScenario): Promise<number> {
@@ -733,6 +751,7 @@ async function startDraftFromOpenLobby(
   if (!draftingLobby) throw new Error('Expected lobby to transition to drafting during capacity simulation')
   await syncLobbyDerivedState(kv, draftingLobby)
   await storeMatchActivityState(kv, draftingLobby.channelId, draftingLobby.memberPlayerIds, { matchId })
+  await handoffLobbySpectatorsToMatchActivity(kv, draftingLobby.channelId, draftingLobby.id, draftingLobby.memberPlayerIds, { matchId })
   await clearUserLobbyMappings(kv, draftingLobby.memberPlayerIds)
   await storeMatchMessageMapping(db, `message-lobby-drafting-${mode.id}`, matchId)
 

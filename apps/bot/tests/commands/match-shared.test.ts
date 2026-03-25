@@ -266,7 +266,9 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       playerId: 'player-1',
       displayName: 'Player 1',
       avatarUrl: '',
-    }])
+    }], {
+      liveMatchPlayerIds: new Set(['player-1']),
+    })
 
     expect(result).toEqual({ error: '<@player-1> is already in a live match.' })
   })
