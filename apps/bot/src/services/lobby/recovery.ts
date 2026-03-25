@@ -29,7 +29,9 @@ export async function getLobbyDraftRoster(kv: KVNamespace, lobbyId: string): Pro
 }
 
 export async function clearLobbyDraftRoster(kv: KVNamespace, lobbyId: string): Promise<void> {
-  await stateStoreMdelete(kv, [draftRosterKey(lobbyId)])
+  // Let draft roster entries expire naturally; explicit deletes hit raw KV limits.
+  void kv
+  void lobbyId
 }
 
 export async function reopenLobbyAfterTimedOutDraft(

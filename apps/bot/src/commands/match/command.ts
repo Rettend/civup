@@ -9,7 +9,7 @@ import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDra
 import { clearLobbyAndActivityMappings, clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
-import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getCurrentLobbiesForPlayer, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
+import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
@@ -104,12 +104,11 @@ export const command_match = factory.command<MatchVar>(
               return
             }
 
-            const currentLobbies = await getCurrentLobbiesForPlayer(kv, identity.userId)
-            const existingHostedLobby = currentLobbies.find(lobby => lobby.status === 'open' && lobby.hostId === identity.userId) ?? null
-            if (existingHostedLobby) {
+            const currentHostedLobby = await getCurrentLobbyHostedBy(kv, identity.userId)
+            if (currentHostedLobby?.status === 'open') {
               const updatedLobby = steamLobbyLink !== null
-                ? (await setLobbySteamLobbyLink(kv, existingHostedLobby.id, steamLobbyLink, existingHostedLobby) ?? existingHostedLobby)
-                : existingHostedLobby
+                ? (await setLobbySteamLobbyLink(kv, currentHostedLobby.id, steamLobbyLink, currentHostedLobby) ?? currentHostedLobby)
+                : currentHostedLobby
 
               await storeUserLobbyState(kv, updatedLobby.channelId, [identity.userId], updatedLobby.id)
               await sendTransientEphemeralResponse(
@@ -122,13 +121,31 @@ export const command_match = factory.command<MatchVar>(
               return
             }
 
-            const blockingLobby = currentLobbies.find(lobby => lobby.status !== 'open') ?? currentLobbies[0] ?? null
-            if (blockingLobby) {
+            if (currentHostedLobby) {
               await sendTransientEphemeralResponse(
                 c,
-                blockingLobby.status === 'open'
-                  ? `You are already in an open ${formatModeLabel(blockingLobby.mode)} lobby. Leave it first with \`/match leave\`.`
-                  : 'You are already in a live match. Finish or cancel it before creating a new lobby.',
+                'You are already in a live match. Finish or cancel it before creating a new lobby.',
+                'error',
+              )
+              return
+            }
+
+            const existingQueueMode = await getPlayerQueueMode(kv, identity.userId)
+            if (existingQueueMode) {
+              await sendTransientEphemeralResponse(
+                c,
+                `You are already in an open ${formatModeLabel(existingQueueMode)} lobby. Leave it first with \`/match leave\`.`,
+                'error',
+              )
+              return
+            }
+
+            const db = createDb(c.env.DB)
+            const liveMatchIdByPlayer = await findLiveMatchIdsForPlayers(db, [identity.userId])
+            if (liveMatchIdByPlayer.has(identity.userId)) {
+              await sendTransientEphemeralResponse(
+                c,
+                'You are already in a live match. Finish or cancel it before creating a new lobby.',
                 'error',
               )
               return
