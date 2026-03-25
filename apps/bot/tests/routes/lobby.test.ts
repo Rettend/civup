@@ -146,6 +146,56 @@ describe('lobby routes', () => {
     expect(updatedLobby?.memberPlayerIds).toEqual(['host', 'pleb'])
   })
 
+  test('direct lobby joins reject players who are already in a live match', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const liveLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'player-1',
+      channelId: 'channel-1',
+      messageId: 'message-live',
+    })
+    const openLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-open',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await attachLobbyMatch(kv, liveLobby.id, 'match-1', liveLobby)
+
+    const joinResponse = await app.request('/api/lobby/2v2/place', {
+      method: 'POST',
+      headers: buildAuthHeaders('player-1', 'Player 1'),
+      body: JSON.stringify({
+        userId: 'player-1',
+        lobbyId: openLobby.id,
+        targetSlot: 1,
+        displayName: 'Player 1',
+        avatarUrl: null,
+      }),
+    }, buildEnv(kv))
+
+    expect(joinResponse.status).toBe(400)
+    await expect(joinResponse.json()).resolves.toEqual({ error: 'That player is already in a live match.' })
+    expect(await getPlayerQueueMode(kv, 'player-1')).toBe('2v2')
+    expect((await getLobbyById(kv, openLobby.id))?.memberPlayerIds).toEqual(['host'])
+  })
+
   test('direct lobby joins ignore matchmaking max rank', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
