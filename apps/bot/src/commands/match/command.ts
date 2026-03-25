@@ -23,7 +23,7 @@ import { createStateStore } from '../../services/state/store.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
 import { factory } from '../../setup.ts'
-import { buildFfaPlacementOptions, collectFfaPlacementUserIds, getIdentity, getIdentityByUserId, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
+import { buildFfaPlacementOptions, collectFfaPlacementUserIds, findLiveMatchIdsForPlayers, getIdentity, getIdentityByUserId, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
 
 const MATCH_MODE_CHOICES = GAME_MODE_CHOICES
 const MATCH_BUMP_RESPONSE_DELETE_MS = 5_000
@@ -303,13 +303,16 @@ export const command_match = factory.command<MatchVar>(
           })
         }
 
-        if (joinRequest.teammateIds.length > 0) {
-          const db = createDb(c.env.DB)
-          const teammatesInLiveMatch = await findPlayersInLiveMatches(db, kv, joinRequest.teammateIds)
-          if (teammatesInLiveMatch.length > 0) {
-            const mentions = teammatesInLiveMatch.map(playerId => `<@${playerId}>`).join(', ')
+        const db = createDb(c.env.DB)
+        const liveMatchIdByPlayer = await findLiveMatchIdsForPlayers(db, joinRequest.entries.map(entry => entry.playerId))
+        if (liveMatchIdByPlayer.size > 0) {
+          const playersInLiveMatch = joinRequest.entries
+            .map(entry => entry.playerId)
+            .filter(playerId => liveMatchIdByPlayer.has(playerId))
+          if (playersInLiveMatch.length > 0) {
+            const mentions = playersInLiveMatch.map(playerId => `<@${playerId}>`).join(', ')
             return c.flags('EPHEMERAL').resDefer(async (c) => {
-              await sendTransientEphemeralResponse(c, `${mentions} ${teammatesInLiveMatch.length === 1 ? 'is' : 'are'} already in a live match.`, 'error')
+              await sendTransientEphemeralResponse(c, `${mentions} ${playersInLiveMatch.length === 1 ? 'is' : 'are'} already in a live match.`, 'error')
             })
           }
         }
@@ -319,6 +322,7 @@ export const command_match = factory.command<MatchVar>(
             c,
             mode,
             joinRequest.entries,
+            { liveMatchPlayerIds: new Set(liveMatchIdByPlayer.keys()) },
           )
           if ('error' in outcome) {
             await sendTransientEphemeralResponse(c, outcome.error, 'error')
@@ -1024,42 +1028,6 @@ function buildMatchJoinRequest(
   }
 
   return { entries, teammateIds }
-}
-
-async function findPlayersInLiveMatches(
-  db: ReturnType<typeof createDb>,
-  kv: KVNamespace,
-  playerIds: string[],
-): Promise<string[]> {
-  const uniquePlayerIds = [...new Set(playerIds)]
-  const livePlayers = new Set<string>()
-  const unresolvedPlayerIds: string[] = []
-
-  for (const playerId of uniquePlayerIds) {
-    const mappedMatchId = await getMatchForUser(kv, playerId)
-    if (mappedMatchId) {
-      livePlayers.add(playerId)
-      continue
-    }
-    unresolvedPlayerIds.push(playerId)
-  }
-
-  if (unresolvedPlayerIds.length > 0) {
-    const rows = await db
-      .select({ playerId: matchParticipants.playerId })
-      .from(matchParticipants)
-      .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-      .where(and(
-        inArray(matchParticipants.playerId, unresolvedPlayerIds),
-        inArray(matches.status, ['drafting', 'active']),
-      ))
-
-    for (const row of rows) {
-      livePlayers.add(row.playerId)
-    }
-  }
-
-  return uniquePlayerIds.filter(playerId => livePlayers.has(playerId))
 }
 
 async function findHostedOpenLobby(kv: KVNamespace, hostId: string) {
