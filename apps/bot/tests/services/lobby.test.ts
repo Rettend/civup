@@ -1,7 +1,7 @@
 import type { DraftState } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { activityOverviewKey, syncActivityOverviewSnapshot } from '../../src/services/activity/live-state.ts'
-import { attachLobbyMatch, createLobby, getLobbyByChannel, getLobbyById, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
+import { attachLobbyMatch, createLobby, getCurrentLobbyHostedBy, getLobbyByChannel, getLobbyById, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
 import { matchKey } from '../../src/services/lobby/keys.ts'
 import { lobbySnapshotKey, syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
@@ -240,6 +240,29 @@ describe('lobby service KV write behavior', () => {
     await syncActivityOverviewSnapshot(kv, 'channel-1')
 
     expect(await kv.get(activityOverviewKey('channel-1'), 'json')).toBeNull()
+  })
+
+  test('tracks the current hosted lobby without scanning all modes', async () => {
+    const { kv } = createTrackedKv()
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(expect.objectContaining({
+      id: lobby.id,
+      status: 'open',
+    }))
+
+    const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    expect(draftingLobby).not.toBeNull()
+    await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(expect.objectContaining({
+      id: lobby.id,
+      status: 'drafting',
+    }))
   })
 
   test('reopens a timed-out draft lobby without the failed picker', async () => {

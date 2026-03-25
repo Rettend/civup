@@ -5,7 +5,6 @@ import { matches, matchParticipants, playerRatings, players } from '@civup/db'
 import {
   allLeaderIds,
   createDraft,
-  GAME_MODES,
   getDefaultFormat,
   isDraftError,
   processDraftInput,
@@ -30,7 +29,7 @@ import {
   attachLobbyMatch,
   createLobby,
   filterQueueEntriesForLobby,
-  getLobbiesByMode,
+  getCurrentLobbyHostedBy,
   getLobby,
   getLobbyByMatch,
   mapLobbySlotsToEntries,
@@ -44,7 +43,7 @@ import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
 import { activateDraftMatch, createDraftMatch, reportMatch } from '../../src/services/match/index.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
-import { addToQueue, clearQueue, getQueueState } from '../../src/services/queue/index.ts'
+import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState } from '../../src/services/queue/index.ts'
 import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
@@ -550,7 +549,7 @@ async function simulateScenarioLifecycle(input: {
     stateCoordinator.reset()
 
     botRequests += 1
-    await simulateMatchCreate(kv, input.mode)
+    await simulateMatchCreate(db, kv, input.mode)
 
     for (const group of input.mode.joinGroups) {
       botRequests += 1
@@ -631,11 +630,17 @@ async function simulateScenarioLifecycle(input: {
   }
 }
 
-async function simulateMatchCreate(kv: KVNamespace, mode: CapacityScenario): Promise<void> {
+async function simulateMatchCreate(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  kv: KVNamespace,
+  mode: CapacityScenario,
+): Promise<void> {
   const draftChannelId = await getSystemChannel(kv, 'draft')
   if (!draftChannelId) throw new Error('Expected draft channel to be configured')
 
-  await Promise.all(GAME_MODES.map(mode => getLobbiesByMode(kv, mode)))
+  await getCurrentLobbyHostedBy(kv, HOST_ID)
+  await getPlayerQueueMode(kv, HOST_ID)
+  await findLiveMatchIdsForPlayers(db, [HOST_ID])
   const queue = await getQueueState(kv, mode.mode)
 
   const hostEntry = buildQueueEntry(HOST_ID, 1)

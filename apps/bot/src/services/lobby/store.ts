@@ -2,7 +2,7 @@ import type { GameMode } from '@civup/game'
 import type { LobbyState } from './types.ts'
 import { GAME_MODES } from '@civup/game'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
-import { bumpCooldownKey, channelIndexKey, channelPrefix, draftRosterKey, idKey, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
+import { bumpCooldownKey, channelIndexKey, channelPrefix, hostKey, idKey, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
 import { lobbySnapshotKey } from './live-snapshot.ts'
 import { normalizeLobby, parseLobbyState } from './normalize.ts'
 
@@ -94,6 +94,19 @@ export async function getCurrentLobbiesForPlayer(
     .filter(lobby => !excludedLobbyIds.has(lobby.id) && lobby.memberPlayerIds.includes(playerId))
 }
 
+export async function getCurrentLobbyHostedBy(kv: KVNamespace, hostId: string): Promise<LobbyState | null> {
+  const lobbyId = await kv.get(hostKey(hostId))
+  if (!lobbyId) return null
+
+  const lobby = await getLobbyById(kv, lobbyId)
+  if (lobby && lobby.hostId === hostId && isCurrentLobbyStatus(lobby.status)) {
+    return lobby
+  }
+
+  await stateStoreMdelete(kv, [hostKey(hostId)])
+  return null
+}
+
 export async function getOpenLobbyForPlayer(
   kv: KVNamespace,
   playerId: string,
@@ -122,8 +135,9 @@ export async function clearLobbyById(
   currentLobby?: LobbyState | null,
 ): Promise<void> {
   const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
-  const keys = [idKey(lobbyId), lobbySnapshotKey(lobbyId), draftRosterKey(lobbyId), bumpCooldownKey(lobbyId)]
+  const keys = [idKey(lobbyId), lobbySnapshotKey(lobbyId), bumpCooldownKey(lobbyId)]
   if (lobby) {
+    keys.push(hostKey(lobby.hostId))
     keys.push(modeIndexKey(lobby.mode, lobby.id))
     keys.push(channelIndexKey(lobby.channelId, lobby.id))
     if (lobby.matchId) keys.push(matchKey(lobby.matchId))
@@ -135,7 +149,7 @@ export async function clearLobbiesByMode(kv: KVNamespace, mode: GameMode): Promi
   const lobbies = await getLobbiesByMode(kv, mode)
   if (lobbies.length === 0) return
   await stateStoreMdelete(kv, lobbies.flatMap((lobby) => {
-    const keys = [idKey(lobby.id), lobbySnapshotKey(lobby.id), draftRosterKey(lobby.id), bumpCooldownKey(lobby.id), modeIndexKey(mode, lobby.id), channelIndexKey(lobby.channelId, lobby.id)]
+    const keys = [idKey(lobby.id), lobbySnapshotKey(lobby.id), hostKey(lobby.hostId), bumpCooldownKey(lobby.id), modeIndexKey(mode, lobby.id), channelIndexKey(lobby.channelId, lobby.id)]
     if (lobby.matchId) keys.push(matchKey(lobby.matchId))
     return keys
   }))
@@ -176,6 +190,13 @@ export async function putLobbyEntries(
       expirationTtl: LOBBY_TTL,
     },
   ]
+  if (isCurrentLobbyStatus(lobby.status)) {
+    entries.push({
+      key: hostKey(lobby.hostId),
+      value: lobby.id,
+      expirationTtl: LOBBY_TTL,
+    })
+  }
   if (lobby.matchId) {
     entries.push({
       key: matchKey(lobby.matchId),
