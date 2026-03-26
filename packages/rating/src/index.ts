@@ -17,7 +17,7 @@ export const DEFAULT_SEASON_RESET_FACTOR = 0.5
 export const DISPLAY_RATING_BASE = 1000
 
 /** Scale multiplier for display rating deltas and spread */
-export const DISPLAY_RATING_SCALE = 18
+export const DISPLAY_RATING_SCALE = 36
 
 /** Visible Elo intentionally ignores sigma; uncertainty stays internal. */
 export const Z_MULTIPLIER = 0
