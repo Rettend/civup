@@ -204,6 +204,18 @@ describe('processDraftInput — CANCEL', () => {
     expect(result.state.status).toBe('cancelled')
     expect(result.state.cancelReason).toBe('scrub')
   })
+
+  test('keeps active revert requests as revert', () => {
+    const state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
+    const result = processDraftInput(state, { type: 'CANCEL', reason: 'revert' })
+
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.state.status).toBe('cancelled')
+    expect(result.state.cancelReason).toBe('revert')
+    expect(result.events).toContainEqual({ type: 'DRAFT_CANCELLED', reason: 'revert' })
+  })
 })
 
 // ── BAN Flow (Blind Bans, Simultaneous) ─────────────────────

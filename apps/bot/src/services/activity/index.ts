@@ -290,13 +290,7 @@ export async function storeUserLobbyState(
   const selectedAt = Date.now()
   const pendingJoin = options?.pendingJoin === true
   const target = { kind: 'lobby' as const, id: lobbyId, pendingJoin }
-  const targetEntries = await Promise.all(
-    userIds.map(async userId => ({
-      key: targetUserKey(userId, channelId),
-      value: JSON.stringify(await serializeActivityTargetSelection(channelId, userId, target, selectedAt, pendingJoin)),
-      expirationTtl: ACTIVITY_MAPPING_TTL,
-    })),
-  )
+  const targetEntries = await buildUserActivityTargetEntries(channelId, userIds, target, selectedAt, pendingJoin)
 
   await stateStoreMput(kv, [
     ...userIds.map(userId => ({
