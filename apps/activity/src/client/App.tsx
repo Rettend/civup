@@ -1,3 +1,4 @@
+import type { ActivityTargetDescriptor } from './lib/activity-targets'
 import type {
   ActivityLaunchSelection,
   ActivityLaunchSnapshot,
@@ -11,7 +12,7 @@ import type {
 import { batch, createEffect, createSignal, Match, onCleanup, onMount, Show, Switch, untrack } from 'solid-js'
 import { activityTargetOptionKey, ActivityTargetPicker, ConfigScreen, DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
-import { activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, type ActivityTargetDescriptor } from './lib/activity-targets'
+import { activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from './lib/activity-targets'
 import { cn } from './lib/css'
 import { relayDevLog } from './lib/dev-log'
 import {
