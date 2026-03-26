@@ -1,0 +1,572 @@
+{
+  "version": 1,
+  "globals": {
+    "stabilitySamples": 3,
+    "leaderboardCronRunsPerDay": 720,
+    "inactiveLobbyCleanupCronRunsPerDay": 24,
+    "rankedRoleCronRunsPerDay": 1,
+    "lobbyWatchMsgsPerConnection": 4,
+    "doWebsocketBillingRatio": 20,
+    "estimatedDoGbSecondsPerRequest": 0.0025
+  },
+  "backgroundDailyUsage": {
+    "workersRequests": 745,
+    "d1RowsRead": 0,
+    "d1RowsWritten": 0,
+    "doSqliteRowsRead": 0,
+    "doSqliteRowsWritten": 0,
+    "kvReads": 1,
+    "kvWrites": 0,
+    "kvDeletes": 0,
+    "kvLists": 1,
+    "doRequests": 240,
+    "doDurationGbSeconds": 0.6
+  },
+  "scenarios": [
+    {
+      "id": "duel-ranked",
+      "label": "1v1",
+      "players": 2,
+      "viewers": 2,
+      "lobbyMutations": 2,
+      "legacyRefetchesAvoided": 4,
+      "draftMessages": 5,
+      "previewMessages": 9,
+      "teamPreviewMessages": 9,
+      "corePerDraft": {
+        "workersRequests": 11,
+        "d1RowsRead": 27,
+        "d1RowsWritten": 32,
+        "doSqliteRowsRead": 61,
+        "doSqliteRowsWritten": 51,
+        "kvReads": 17,
+        "kvWrites": 0,
+        "kvDeletes": 0,
+        "kvLists": 0,
+        "doRequests": 51,
+        "doDurationGbSeconds": 0.1275
+      },
+      "openLobbyChurnPerDraft": {
+        "workersRequests": 2,
+        "d1RowsRead": 0,
+        "d1RowsWritten": 0,
+        "doSqliteRowsRead": 16,
+        "doSqliteRowsWritten": 10,
+        "kvReads": 4,
+        "kvWrites": 0,
+        "kvDeletes": 0,
+        "kvLists": 0,
+        "doRequests": 10,
+        "doDurationGbSeconds": 0.025
+      },
+      "perDraft": {
+        "workersRequests": 13,
+        "d1RowsReadBase": 27,
+        "d1RowsReadPerLeaderboardPlayer": 1,
+        "d1RowsWritten": 32,
+        "doSqliteRowsRead": 77,
+        "doSqliteRowsWritten": 61,
+        "kvReads": 21,
+        "kvWrites": 0,
+        "kvDeletes": 0,
+        "kvLists": 0,
+        "doRequests": 61,
+        "doDurationGbSeconds": 0.1525
+      },
+      "capacity": {
+        "free": {
+          "playsPerDay": 3148,
+          "draftsPerDay": 1574,
+          "bottleneck": "d1RowsRead"
+        },
+        "paidIncluded": {
+          "playsPerDay": 1085,
+          "draftsPerDay": 542.5,
+          "bottleneck": "doRequests"
+        },
+        "paid6": {
+          "playsPerDay": 8370,
+          "draftsPerDay": 4185,
+          "overageUsd": 0.9999
+        },
+        "paid10": {
+          "playsPerDay": 34432,
+          "draftsPerDay": 17216,
+          "overageUsd": 4.9999
+        }
+      },
+      "breakpoints": {
+        "free": [
+          {
+            "metric": "d1RowsRead",
+            "playsPerDay": 3148,
+            "draftsPerDay": 1574
+          },
+          {
+            "metric": "doRequests",
+            "playsPerDay": 3270,
+            "draftsPerDay": 1635
+          },
+          {
+            "metric": "doSqliteRowsWritten",
+            "playsPerDay": 3278,
+            "draftsPerDay": 1639
+          }
+        ],
+        "paidIncluded": [
+          {
+            "metric": "doRequests",
+            "playsPerDay": 1085,
+            "draftsPerDay": 542.5
+          },
+          {
+            "metric": "kvReads",
+            "playsPerDay": 31745,
+            "draftsPerDay": 15872.5
+          },
+          {
+            "metric": "d1RowsRead",
+            "playsPerDay": 40811,
+            "draftsPerDay": 20405.5
+          }
+        ]
+      }
+    },
+    {
+      "id": "duel-ranked-plus-spectators",
+      "label": "1v1+2spec",
+      "players": 2,
+      "viewers": 4,
+      "lobbyMutations": 2,
+      "legacyRefetchesAvoided": 8,
+      "draftMessages": 5,
+      "previewMessages": 9,
+      "teamPreviewMessages": 9,
+      "corePerDraft": {
+        "workersRequests": 19,
+        "d1RowsRead": 27,
+        "d1RowsWritten": 32,
+        "doSqliteRowsRead": 80,
+        "doSqliteRowsWritten": 60,
+        "kvReads": 17,
+        "kvWrites": 0,
+        "kvDeletes": 0,
+        "kvLists": 0,
+        "doRequests": 73,
+        "doDurationGbSeconds": 0.1825
+      },
+      "openLobbyChurnPerDraft": {
+        "workersRequests": 2,
+        "d1RowsRead": 0,
+        "d1RowsWritten": 0,
+        "doSqliteRowsRead": 16,
+        "doSqliteRowsWritten": 10,
+        "kvReads": 4,
+        "kvWrites": 0,
+        "kvDeletes": 0,
+        "kvLists": 0,
+        "doRequests": 10,
+        "doDurationGbSeconds": 0.025
+      },
+      "perDraft": {
+        "workersRequests": 21,
+        "d1RowsReadBase": 27,
+        "d1RowsReadPerLeaderboardPlayer": 1,
+        "d1RowsWritten": 32,
+        "doSqliteRowsRead": 96,
+        "doSqliteRowsWritten": 70,
+        "kvReads": 21,
+        "kvWrites": 0,
+        "kvDeletes": 0,
+        "kvLists": 0,
+        "doRequests": 83,
+        "doDurationGbSeconds": 0.2075
+      },
+      "capacity": {
+        "free": {
+          "playsPerDay": 2403,
+          "draftsPerDay": 1201.5,
+          "bottleneck": "doRequests"
+        },
+        "paidIncluded": {
+          "playsPerDay": 797,
+          "draftsPerDay": 398.5,
+          "bottleneck": "doRequests"
+        },
+        "paid6": {
+          "playsPerDay": 6152,
+          "draftsPerDay": 3076,
+          "overageUsd": 1
+        },
+        "paid10": {
+          "playsPerDay": 27571,
+          "draftsPerDay": 13785.5,
+          "overageUsd": 5
+        }
+      },
+      "breakpoints": {
+        "free": [
+          {
+            "metric": "doRequests",
+            "playsPerDay": 2403,
+            "draftsPerDay": 1201.5
+          },
+          {
+            "metric": "doSqliteRowsWritten",
+            "playsPerDay": 2857,
+            "draftsPerDay": 1428.5
+          },
+          {
+            "metric": "d1RowsRead",
+            "playsPerDay": 3148,
+            "draftsPerDay": 1574
+          }
+        ],
+        "paidIncluded": [
+          {
+            "metric": "doRequests",
+            "playsPerDay": 797,
+            "draftsPerDay": 398.5
+          },
+          {
+            "metric": "workersRequests",
+            "playsPerDay": 31675,
+            "draftsPerDay": 15837.5
+          },
+          {
+            "metric": "kvReads",
+            "playsPerDay": 31745,
+            "draftsPerDay": 15872.5
+          }
+        ]
+      }
+    },
+    {
+      "id": "duo-ranked",
+      "label": "2v2",
+      "players": 4,
+      "viewers": 4,
+      "lobbyMutations": 2,
+      "legacyRefetchesAvoided": 8,
+      "draftMessages": 7,
+      "previewMessages": 13,
+      "teamPreviewMessages": 13,
+      "corePerDraft": {
+        "workersRequests": 18,
+        "d1RowsRead": 55,
+        "d1RowsWritten": 44,
+        "doSqliteRowsRead": 92,
+        "doSqliteRowsWritten": 77,
+        "kvReads": 23,
+        "kvWrites": 0,
+        "kvDeletes": 0,
+        "kvLists": 0,
+        "doRequests": 71,
+        "doDurationGbSeconds": 0.1775
+      },
+      "openLobbyChurnPerDraft": {
+        "workersRequests": 2,
+        "d1RowsRead": 0,
+        "d1RowsWritten": 0,
+        "doSqliteRowsRead": 16,
+        "doSqliteRowsWritten": 10,
+        "kvReads": 4,
+        "kvWrites": 0,
+        "kvDeletes": 0,
+        "kvLists": 0,
+        "doRequests": 10,
+        "doDurationGbSeconds": 0.025
+      },
+      "perDraft": {
+        "workersRequests": 20,
+        "d1RowsReadBase": 55,
+        "d1RowsReadPerLeaderboardPlayer": 1,
+        "d1RowsWritten": 44,
+        "doSqliteRowsRead": 108,
+        "doSqliteRowsWritten": 87,
+        "kvReads": 27,
+        "kvWrites": 0,
+        "kvDeletes": 0,
+        "kvLists": 0,
+        "doRequests": 81,
+        "doDurationGbSeconds": 0.2025
+      },
+      "capacity": {
+        "free": {
+          "playsPerDay": 4444,
+          "draftsPerDay": 1111,
+          "bottleneck": "d1RowsRead"
+        },
+        "paidIncluded": {
+          "playsPerDay": 1634,
+          "draftsPerDay": 408.5,
+          "bottleneck": "doRequests"
+        },
+        "paid6": {
+          "playsPerDay": 12608,
+          "draftsPerDay": 3152,
+          "overageUsd": 1
+        },
+        "paid10": {
+          "playsPerDay": 52755,
+          "draftsPerDay": 13188.75,
+          "overageUsd": 4.9999
+        }
+      },
+      "breakpoints": {
+        "free": [
+          {
+            "metric": "d1RowsRead",
+            "playsPerDay": 4444,
+            "draftsPerDay": 1111
+          },
+          {
+            "metric": "doSqliteRowsWritten",
+            "playsPerDay": 4597,
+            "draftsPerDay": 1149.25
+          },
+          {
+            "metric": "doRequests",
+            "playsPerDay": 4926,
+            "draftsPerDay": 1231.5
+          }
+        ],
+        "paidIncluded": [
+          {
+            "metric": "doRequests",
+            "playsPerDay": 1634,
+            "draftsPerDay": 408.5
+          },
+          {
+            "metric": "kvReads",
+            "playsPerDay": 49382,
+            "draftsPerDay": 12345.5
+          },
+          {
+            "metric": "d1RowsRead",
+            "playsPerDay": 57707,
+            "draftsPerDay": 14426.75
+          }
+        ]
+      }
+    },
+    {
+      "id": "squad-ranked",
+      "label": "3v3",
+      "players": 6,
+      "viewers": 6,
+      "lobbyMutations": 2,
+      "legacyRefetchesAvoided": 12,
+      "draftMessages": 9,
+      "previewMessages": 17,
+      "teamPreviewMessages": 17,
+      "corePerDraft": {
+        "workersRequests": 24,
+        "d1RowsRead": 91,
+        "d1RowsWritten": 56,
+        "doSqliteRowsRead": 110,
+        "doSqliteRowsWritten": 93,
+        "kvReads": 27,
+        "kvWrites": 0,
+        "kvDeletes": 0,
+        "kvLists": 0,
+        "doRequests": 84,
+        "doDurationGbSeconds": 0.21
+      },
+      "openLobbyChurnPerDraft": {
+        "workersRequests": 2,
+        "d1RowsRead": 0,
+        "d1RowsWritten": 0,
+        "doSqliteRowsRead": 16,
+        "doSqliteRowsWritten": 10,
+        "kvReads": 4,
+        "kvWrites": 0,
+        "kvDeletes": 0,
+        "kvLists": 0,
+        "doRequests": 10,
+        "doDurationGbSeconds": 0.025
+      },
+      "perDraft": {
+        "workersRequests": 26,
+        "d1RowsReadBase": 91,
+        "d1RowsReadPerLeaderboardPlayer": 1,
+        "d1RowsWritten": 56,
+        "doSqliteRowsRead": 126,
+        "doSqliteRowsWritten": 103,
+        "kvReads": 31,
+        "kvWrites": 0,
+        "kvDeletes": 0,
+        "kvLists": 0,
+        "doRequests": 94,
+        "doDurationGbSeconds": 0.235
+      },
+      "capacity": {
+        "free": {
+          "playsPerDay": 5431,
+          "draftsPerDay": 905.1667,
+          "bottleneck": "d1RowsRead"
+        },
+        "paidIncluded": {
+          "playsPerDay": 2112,
+          "draftsPerDay": 352,
+          "bottleneck": "doRequests"
+        },
+        "paid6": {
+          "playsPerDay": 16296,
+          "draftsPerDay": 2716,
+          "overageUsd": 0.9999
+        },
+        "paid10": {
+          "playsPerDay": 68573,
+          "draftsPerDay": 11428.8333,
+          "overageUsd": 4.9999
+        }
+      },
+      "breakpoints": {
+        "free": [
+          {
+            "metric": "d1RowsRead",
+            "playsPerDay": 5431,
+            "draftsPerDay": 905.1667
+          },
+          {
+            "metric": "doSqliteRowsWritten",
+            "playsPerDay": 5825,
+            "draftsPerDay": 970.8333
+          },
+          {
+            "metric": "doRequests",
+            "playsPerDay": 6367,
+            "draftsPerDay": 1061.1667
+          }
+        ],
+        "paidIncluded": [
+          {
+            "metric": "doRequests",
+            "playsPerDay": 2112,
+            "draftsPerDay": 352
+          },
+          {
+            "metric": "kvReads",
+            "playsPerDay": 64515,
+            "draftsPerDay": 10752.5
+          },
+          {
+            "metric": "d1RowsRead",
+            "playsPerDay": 70665,
+            "draftsPerDay": 11777.5
+          }
+        ]
+      }
+    },
+    {
+      "id": "ffa-eight-player",
+      "label": "ffa8",
+      "players": 8,
+      "viewers": 8,
+      "lobbyMutations": 2,
+      "legacyRefetchesAvoided": 16,
+      "draftMessages": 17,
+      "previewMessages": 33,
+      "teamPreviewMessages": 33,
+      "corePerDraft": {
+        "workersRequests": 35,
+        "d1RowsRead": 135,
+        "d1RowsWritten": 88,
+        "doSqliteRowsRead": 193,
+        "doSqliteRowsWritten": 159,
+        "kvReads": 41,
+        "kvWrites": 0,
+        "kvDeletes": 0,
+        "kvLists": 0,
+        "doRequests": 136,
+        "doDurationGbSeconds": 0.34
+      },
+      "openLobbyChurnPerDraft": {
+        "workersRequests": 2,
+        "d1RowsRead": 0,
+        "d1RowsWritten": 0,
+        "doSqliteRowsRead": 16,
+        "doSqliteRowsWritten": 10,
+        "kvReads": 4,
+        "kvWrites": 0,
+        "kvDeletes": 0,
+        "kvLists": 0,
+        "doRequests": 10,
+        "doDurationGbSeconds": 0.025
+      },
+      "perDraft": {
+        "workersRequests": 37,
+        "d1RowsReadBase": 135,
+        "d1RowsReadPerLeaderboardPlayer": 1,
+        "d1RowsWritten": 88,
+        "doSqliteRowsRead": 209,
+        "doSqliteRowsWritten": 169,
+        "kvReads": 45,
+        "kvWrites": 0,
+        "kvDeletes": 0,
+        "kvLists": 0,
+        "doRequests": 146,
+        "doDurationGbSeconds": 0.365
+      },
+      "capacity": {
+        "free": {
+          "playsPerDay": 4733,
+          "draftsPerDay": 591.625,
+          "bottleneck": "doSqliteRowsWritten"
+        },
+        "paidIncluded": {
+          "playsPerDay": 1813,
+          "draftsPerDay": 226.625,
+          "bottleneck": "doRequests"
+        },
+        "paid6": {
+          "playsPerDay": 13989,
+          "draftsPerDay": 1748.625,
+          "overageUsd": 0.9999
+        },
+        "paid10": {
+          "playsPerDay": 60954,
+          "draftsPerDay": 7619.25,
+          "overageUsd": 4.9999
+        }
+      },
+      "breakpoints": {
+        "free": [
+          {
+            "metric": "doSqliteRowsWritten",
+            "playsPerDay": 4733,
+            "draftsPerDay": 591.625
+          },
+          {
+            "metric": "doRequests",
+            "playsPerDay": 5466,
+            "draftsPerDay": 683.25
+          },
+          {
+            "metric": "d1RowsRead",
+            "playsPerDay": 6257,
+            "draftsPerDay": 782.125
+          }
+        ],
+        "paidIncluded": [
+          {
+            "metric": "doRequests",
+            "playsPerDay": 1813,
+            "draftsPerDay": 226.625
+          },
+          {
+            "metric": "kvReads",
+            "playsPerDay": 59259,
+            "draftsPerDay": 7407.375
+          },
+          {
+            "metric": "workersRequests",
+            "playsPerDay": 71910,
+            "draftsPerDay": 8988.75
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -184,6 +184,28 @@ describe('match moderation recalculation', () => {
     }
   })
 
+  test('report allows a non-host participant to report an active match', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedActiveFfaMatch(db)
+
+      const result = await reportMatch(db, kv, {
+        matchId: 'ffa1',
+        reporterId: 'p2',
+        placements: '<@p1>\n<@p2>\n<@p3>\n<@p4>\n<@p5>\n<@p6>',
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.match.status).toBe('completed')
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('recalculateLeaderboardMode splits 2v2 into duo and 3v3 into squad', async () => {
     const { db, sqlite } = await createTestDatabase()
 

@@ -9,7 +9,7 @@ import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { createStateStore } from '../../services/state/store.ts'
 import { factory } from '../../setup.ts'
-import { getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
+import { findLiveMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
 
 export const component_match_join = factory.component(
   new Button('match-join', 'Join', 'Primary'),
@@ -77,6 +77,18 @@ export const component_match_join = factory.component(
       return c.resActivity()
     }
 
+    const db = createDb(c.env.DB)
+    const liveMatchIdByPlayer = await findLiveMatchIdsForPlayers(db, [identity.userId])
+    const currentMatchId = liveMatchIdByPlayer.get(identity.userId) ?? null
+    if (currentMatchId) {
+      await storeMatchActivityState(kv, lobby.channelId, [identity.userId], {
+        matchId: currentMatchId,
+        activitySecret: c.env.CIVUP_SECRET,
+      })
+      c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], currentMatchId))
+      return c.resActivity()
+    }
+
     await storeUserLobbyState(kv, lobby.channelId, [identity.userId], lobby.id, { pendingJoin: true })
 
     // Keep component response fast so Discord doesn't time out launch-activity interactions.
@@ -92,6 +104,7 @@ export const component_match_join = factory.component(
         {
           preferredLobbyId: lobby.id,
           skipMatchmakingRankGate: true,
+          liveMatchPlayerIds: new Set(liveMatchIdByPlayer.keys()),
         },
       )
       if ('error' in outcome) {

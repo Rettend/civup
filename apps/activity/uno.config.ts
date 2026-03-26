@@ -240,6 +240,17 @@ export default defineConfig({
           }
           .anim-bar-fade-out { animation: civup-bar-fade-out 400ms ease-out forwards; }
 
+          @keyframes civup-turn-flash {
+            0% { opacity: 0.55; }
+            100% { opacity: 0; }
+          }
+          .anim-turn-flash { animation: civup-turn-flash 550ms ease-out forwards; }
+
+          .screen-glow-mask {
+            -webkit-mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent);
+            mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent);
+          }
+
           .slot-accent-gold { --slot-glow: var(--accent); }
           .slot-accent-red  { --slot-glow: var(--danger); }
 

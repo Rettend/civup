@@ -124,7 +124,9 @@ export function registerMatchRoutes(app: Hono<Env>) {
     if (lobby) {
       try {
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-          embeds: [lobbyResultEmbed(lobby.mode, result.participants, undefined, { rankedRoleLines })],
+          embeds: [lobbyResultEmbed(lobby.mode, result.participants, undefined, {
+            rankedRoleLines,
+          })],
           components: [],
         })
         await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
@@ -139,7 +141,9 @@ export function registerMatchRoutes(app: Hono<Env>) {
     if (archiveChannelId) {
       try {
         const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-          embeds: [lobbyResultEmbed(reportedMode, result.participants, undefined, { rankedRoleLines })],
+          embeds: [lobbyResultEmbed(reportedMode, result.participants, undefined, {
+            rankedRoleLines,
+          })],
         })
         await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
       }
@@ -234,7 +238,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
     if (lobby) {
       try {
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-          embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'scrub')],
+          embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'scrub', undefined, lobby.draftConfig.leaderDataVersion)],
           components: [],
         })
         await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)

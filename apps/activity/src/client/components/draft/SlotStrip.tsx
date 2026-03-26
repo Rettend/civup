@@ -9,8 +9,13 @@ export function SlotStrip() {
   const state = () => draftStore.state
   const isTeamMode = () => state()?.seats.some(s => s.team != null) ?? false
   const seatCount = () => state()?.seats.length ?? 0
-  const amHost = () => userId() === draftStore.hostId
-  const isTeamResultMode = () => state()?.status === 'complete' && isTeamMode() && amHost()
+  const isParticipant = () => {
+    const uid = userId()
+    const s = state()
+    if (!uid || !s) return false
+    return s.seats.some(seat => seat.playerId === uid)
+  }
+  const isTeamResultMode = () => state()?.status === 'complete' && isTeamMode() && isParticipant()
 
   const leftSeats = () => {
     const s = state()

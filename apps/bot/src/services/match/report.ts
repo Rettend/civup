@@ -8,7 +8,6 @@ import { calculateRatings, createRating } from '@civup/rating'
 import { and, eq } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { ensureLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
-import { getHostIdFromDraftData } from './draft-data.ts'
 import { parseOrderedParticipantIds, resolveWinningTeamIndex } from './placements.ts'
 import { buildRankByPlayer } from './ratings.ts'
 
@@ -35,11 +34,6 @@ export async function reportMatch(
   const isParticipant = participantRows.some(p => p.playerId === input.reporterId)
   if (!isParticipant) {
     return { error: 'Only match participants can report results.' }
-  }
-
-  const hostId = getHostIdFromDraftData(match.draftData)
-  if (hostId && input.reporterId !== hostId) {
-    return { error: 'Only the match host can report the result.' }
   }
 
   if (match.status === 'completed') {

@@ -6,7 +6,7 @@ import { formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isTeamM
 import { createDraftRoomAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
-import { clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, createDraftRoom, storeMatchActivityState, storeUserLobbyMappings, storeUserLobbyState } from '../../services/activity/index.ts'
+import { clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, createDraftRoom, handoffLobbySpectatorsToMatchActivity, storeMatchActivityState, storeUserLobbyMappings, storeUserLobbyState } from '../../services/activity/index.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from '../../services/config/index.ts'
 import {
   arrangeLobbySlots,
@@ -16,8 +16,9 @@ import {
   buildSlottedPremadeGroups,
   clearLobbyById,
   compactSlottedPremadesForMode,
+  getCurrentLobbiesForPlayer,
+  getCurrentLobbyForQueuedMessageUpdate,
   getLobbyById,
-  getOpenLobbyForPlayer,
   mapLobbySlotsToEntries,
   moveSlottedPremadeGroup,
   normalizeLobbySlots,
@@ -309,8 +310,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     })
 
     queueBackgroundTask(c, async () => {
+      const currentLobby = await getCurrentLobbyForQueuedMessageUpdate(kv, updated)
+      if (!currentLobby) return
       const renderPayload = await buildOpenLobbyRenderPayload(kv, updated, slottedEntries)
-      await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, updated, {
+      await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
       })
@@ -420,8 +423,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const slottedEntries = mapLobbySlotsToEntries(normalizedNextSlots, movedLobbyQueueEntries)
 
     queueBackgroundTask(c, async () => {
+      const currentLobby = await getCurrentLobbyForQueuedMessageUpdate(kv, finalizedLobby)
+      if (!currentLobby) return
       const renderPayload = await buildOpenLobbyRenderPayload(kv, finalizedLobby, slottedEntries)
-      await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, finalizedLobby, {
+      await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
       })
@@ -499,9 +504,12 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     let lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
     let slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
 
-    const existingLobbyForPlayer = await getOpenLobbyForPlayer(kv, movingPlayerId, mode)
-    if (existingLobbyForPlayer && existingLobbyForPlayer.id !== lobby.id) {
-      return c.json({ error: 'That player is already in another open lobby.' }, 400)
+    const currentLobbiesForPlayer = await getCurrentLobbiesForPlayer(kv, movingPlayerId, {
+      excludeLobbyIds: [lobby.id],
+    })
+    const blockingLobbyForPlayer = currentLobbiesForPlayer.find(candidate => candidate.status !== 'open') ?? currentLobbiesForPlayer[0] ?? null
+    if (blockingLobbyForPlayer) {
+      return c.json({ error: blockingLobbyForPlayer.status === 'open' ? 'That player is already in another open lobby.' : 'That player is already in a live match.' }, 400)
     }
 
     const actionAt = Date.now()
@@ -593,8 +601,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const slottedEntries = mapLobbySlotsToEntries(slots, lobbyQueueEntries)
     queueBackgroundTask(c, async () => {
+      const currentLobby = await getCurrentLobbyForQueuedMessageUpdate(kv, nextLobby)
+      if (!currentLobby) return
       const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
-      await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
+      await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
       })
@@ -688,8 +698,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     await clearUserLobbyMappings(kv, [targetPlayerId])
 
     queueBackgroundTask(c, async () => {
+      const currentLobby = await getCurrentLobbyForQueuedMessageUpdate(kv, nextLobby)
+      if (!currentLobby) return
       const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
-      await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
+      await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
       })
@@ -877,8 +889,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const slottedEntries = mapLobbySlotsToEntries(arranged.slots, lobbyQueueEntries)
 
     queueBackgroundTask(c, async () => {
+      const currentLobby = await getCurrentLobbyForQueuedMessageUpdate(kv, nextLobby)
+      if (!currentLobby) return
       const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
-      await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
+      await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
       })
@@ -974,8 +988,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const slottedEntries = mapLobbySlotsToEntries(slots, nextLobbyQueueEntries)
 
     queueBackgroundTask(c, async () => {
+      const currentLobby = await getCurrentLobbyForQueuedMessageUpdate(kv, nextLobby)
+      if (!currentLobby) return
       const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
-      await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
+      await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
       })
@@ -1140,12 +1156,21 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         steamLobbyLink: lobbyForMessage.steamLobbyLink,
         activitySecret: internalSecret,
       })
+      await handoffLobbySpectatorsToMatchActivity(kv, lobbyForMessage.channelId, lobbyForMessage.id, lobbyForMessage.memberPlayerIds, {
+        matchId,
+        lobbyId: lobbyForMessage.id,
+        mode: lobbyForMessage.mode,
+        steamLobbyLink: lobbyForMessage.steamLobbyLink,
+        activitySecret: internalSecret,
+      })
       await clearUserLobbyMappings(kv, lobbyForMessage.memberPlayerIds)
 
       queueBackgroundTask(c, async () => {
-        const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobbyForMessage, {
-          embeds: [lobbyDraftingEmbed(mode, seats)],
-          components: lobbyComponents(mode, lobbyForMessage.id),
+        const currentLobby = await getCurrentLobbyForQueuedMessageUpdate(kv, lobbyForMessage)
+        if (!currentLobby) return
+        const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
+          embeds: [lobbyDraftingEmbed(mode, seats, lobbyForMessage.draftConfig.leaderDataVersion)],
+          components: lobbyComponents(mode, currentLobby.id),
         })
         await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
       }, `Failed to update drafting lobby embed for mode ${mode}:`)

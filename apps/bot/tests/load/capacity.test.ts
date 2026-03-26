@@ -1,11 +1,10 @@
 /* eslint-disable no-console */
 import type { DraftInput, DraftSeat, DraftState, GameMode, QueueEntry } from '@civup/game'
-import type { CapacityModel, DailyUsage, OverageRatesPerMillion, UsageLimits } from './capacity/model.ts'
+import type { CapacityModel, DailyUsage, MetricBreakpoint, OverageRatesPerMillion, UsageLimits } from './capacity/model.ts'
 import { matches, matchParticipants, playerRatings, players } from '@civup/db'
 import {
   allLeaderIds,
   createDraft,
-  GAME_MODES,
   getDefaultFormat,
   isDraftError,
   processDraftInput,
@@ -14,11 +13,13 @@ import {
 } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
-import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
-import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
+import { readFile as readFileText, writeFile as writeFileText } from 'node:fs/promises'
+import { findLiveMatchIdsForPlayers, joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
+import { buildActivityLaunchSnapshot, selectActivityTargetForUser } from '../../src/routes/activity.ts'
 import {
   clearLobbyAndActivityMappings,
   clearUserLobbyMappings,
+  handoffLobbySpectatorsToMatchActivity,
   storeMatchActivityState,
   storeUserLobbyState,
 } from '../../src/services/activity/index.ts'
@@ -28,7 +29,7 @@ import {
   attachLobbyMatch,
   createLobby,
   filterQueueEntriesForLobby,
-  getLobbiesByMode,
+  getCurrentLobbyHostedBy,
   getLobby,
   getLobbyByMatch,
   mapLobbySlotsToEntries,
@@ -42,7 +43,7 @@ import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
 import { activateDraftMatch, createDraftMatch, reportMatch } from '../../src/services/match/index.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
-import { addToQueue, clearQueue, getQueueState } from '../../src/services/queue/index.ts'
+import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState } from '../../src/services/queue/index.ts'
 import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
@@ -111,6 +112,64 @@ interface ScenarioReport {
   paidTenDollarOverageUsd: number
   freeBreakpoints: ReturnType<typeof findMetricBreakpoints>
   paidBreakpoints: ReturnType<typeof findMetricBreakpoints>
+}
+
+interface CapacitySnapshot {
+  version: 1
+  globals: {
+    stabilitySamples: number
+    leaderboardCronRunsPerDay: number
+    inactiveLobbyCleanupCronRunsPerDay: number
+    rankedRoleCronRunsPerDay: number
+    lobbyWatchMsgsPerConnection: number
+    doWebsocketBillingRatio: number
+    estimatedDoGbSecondsPerRequest: number
+  }
+  backgroundDailyUsage: DailyUsage | null
+  scenarios: CapacitySnapshotScenario[]
+}
+
+interface CapacitySnapshotScenario {
+  id: string
+  label: string
+  players: number
+  viewers: number
+  lobbyMutations: number
+  legacyRefetchesAvoided: number
+  draftMessages: number
+  previewMessages: number
+  teamPreviewMessages: number
+  corePerDraft: UsageSample
+  openLobbyChurnPerDraft: UsageSample
+  perDraft: CapacityModel['perDraft']
+  capacity: {
+    free: CapacitySnapshotPlan
+    paidIncluded: CapacitySnapshotPlan
+    paid6: CapacitySnapshotPlanWithOverage
+    paid10: CapacitySnapshotPlanWithOverage
+  }
+  breakpoints: {
+    free: CapacitySnapshotBreakpoint[]
+    paidIncluded: CapacitySnapshotBreakpoint[]
+  }
+}
+
+interface CapacitySnapshotPlan {
+  playsPerDay: number
+  draftsPerDay: number
+  bottleneck: string
+}
+
+interface CapacitySnapshotPlanWithOverage {
+  playsPerDay: number
+  draftsPerDay: number
+  overageUsd: number
+}
+
+interface CapacitySnapshotBreakpoint {
+  metric: MetricBreakpoint['metric']
+  playsPerDay: number
+  draftsPerDay: number
 }
 
 const CHANNEL_ID = 'channel-draft'
@@ -209,13 +268,16 @@ const PAID_EXTRA_OVERAGE_BUDGET_USD = PAID_TARGET_MONTHLY_PRICE_USD - PAID_BASE_
 
 const DAYS_PER_MONTH = 30
 const SHOULD_PRINT_REPORT = Bun.env.CIVUP_CAPACITY_REPORT === '1'
+const CAPACITY_STABILITY_SAMPLES = 3
+const CAPACITY_SNAPSHOT_FILE = new URL('./capacity.snapshot.json', import.meta.url)
+const CAPACITY_SNAPSHOT_PATH = 'tests/load/capacity.snapshot.json'
 const NOW = 1_700_000_000_000
 
 describe('capacity models', () => {
   test('prints current ranked lifecycle capacity projections', async () => {
-    const leaderboardCronRunUsage = await measureLeaderboardCronRunUsage()
-    const inactiveLobbyCleanupCronRunUsage = await measureInactiveLobbyCleanupCronRunUsage()
-    const rankedRoleCronRunUsage = await measureRankedRoleCronRunUsage()
+    const leaderboardCronRunUsage = await measureStableValue(CAPACITY_STABILITY_SAMPLES, measureLeaderboardCronRunUsage)
+    const inactiveLobbyCleanupCronRunUsage = await measureStableValue(CAPACITY_STABILITY_SAMPLES, measureInactiveLobbyCleanupCronRunUsage)
+    const rankedRoleCronRunUsage = await measureStableValue(CAPACITY_STABILITY_SAMPLES, measureRankedRoleCronRunUsage)
     const leaderboardCronBackgroundUsage = multiplyUsage(leaderboardCronRunUsage, LEADERBOARD_CRON_RUNS_PER_DAY)
     const inactiveLobbyCleanupBackgroundUsage = multiplyUsage(inactiveLobbyCleanupCronRunUsage, INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY)
     const rankedRoleCronBackgroundUsage = multiplyUsage(rankedRoleCronRunUsage, RANKED_ROLE_CRON_RUNS_PER_DAY)
@@ -228,7 +290,10 @@ describe('capacity models', () => {
       reports.push(await buildScenarioReport(mode, backgroundCronUsage))
     }
 
+    const snapshotStatus = await writeCapacitySnapshot(reports)
+
     if (SHOULD_PRINT_REPORT) printReports(reports)
+    if (SHOULD_PRINT_REPORT) console.log(`\n[capacity] snapshot ${snapshotStatus}: ${CAPACITY_SNAPSHOT_PATH}`)
 
     expect(reports).toHaveLength(CAPACITY_SCENARIOS.length)
     for (const report of reports) {
@@ -251,21 +316,21 @@ async function buildScenarioReport(
   mode: CapacityScenario,
   leaderboardCronBackgroundUsage: DailyUsage,
 ): Promise<ScenarioReport> {
-  const coreBaseline = await simulateScenarioLifecycle({
+  const coreBaseline = await measureStableValue(CAPACITY_STABILITY_SAMPLES, () => simulateScenarioLifecycle({
     mode,
     backgroundRatedPlayers: 0,
     includeOpenLobbyChurn: false,
-  })
-  const baseline = await simulateScenarioLifecycle({
+  }))
+  const baseline = await measureStableValue(CAPACITY_STABILITY_SAMPLES, () => simulateScenarioLifecycle({
     mode,
     backgroundRatedPlayers: 0,
     includeOpenLobbyChurn: true,
-  })
-  const withOneBackgroundPlayer = await simulateScenarioLifecycle({
+  }))
+  const withOneBackgroundPlayer = await measureStableValue(CAPACITY_STABILITY_SAMPLES, () => simulateScenarioLifecycle({
     mode,
     backgroundRatedPlayers: 1,
     includeOpenLobbyChurn: true,
-  })
+  }))
 
   const model: CapacityModel = {
     perDraft: {
@@ -548,11 +613,11 @@ async function simulateScenarioLifecycle(input: {
     stateCoordinator.reset()
 
     botRequests += 1
-    await simulateMatchCreate(kv, input.mode)
+    await simulateMatchCreate(db, kv, input.mode)
 
     for (const group of input.mode.joinGroups) {
       botRequests += 1
-      await simulateMatchJoin(kv, input.mode, group)
+      await simulateMatchJoin(db, kv, input.mode, group)
     }
 
     const playerIds = scenarioPlayerIds(input.mode)
@@ -561,6 +626,13 @@ async function simulateScenarioLifecycle(input: {
     for (const playerId of viewerIds) {
       botRequests += 1
       await simulateActivityLaunchSnapshot(kv, stateCoordinator.secret, CHANNEL_ID, playerId)
+    }
+
+    const spectatorIds = input.mode.spectatorIds ?? []
+    activityRequests += spectatorIds.length
+    for (const spectatorId of spectatorIds) {
+      botRequests += 1
+      await simulateSpectatorLobbySelection(kv, input.mode, spectatorId)
     }
 
     const openLobbyMutationRequests = input.includeOpenLobbyChurn
@@ -622,11 +694,17 @@ async function simulateScenarioLifecycle(input: {
   }
 }
 
-async function simulateMatchCreate(kv: KVNamespace, mode: CapacityScenario): Promise<void> {
+async function simulateMatchCreate(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  kv: KVNamespace,
+  mode: CapacityScenario,
+): Promise<void> {
   const draftChannelId = await getSystemChannel(kv, 'draft')
   if (!draftChannelId) throw new Error('Expected draft channel to be configured')
 
-  await Promise.all(GAME_MODES.map(mode => getLobbiesByMode(kv, mode)))
+  await getCurrentLobbyHostedBy(kv, HOST_ID)
+  await getPlayerQueueMode(kv, HOST_ID)
+  await findLiveMatchIdsForPlayers(db, [HOST_ID])
   const queue = await getQueueState(kv, mode.mode)
 
   const hostEntry = buildQueueEntry(HOST_ID, 1)
@@ -646,14 +724,17 @@ async function simulateMatchCreate(kv: KVNamespace, mode: CapacityScenario): Pro
 }
 
 async function simulateMatchJoin(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   kv: KVNamespace,
   mode: CapacityScenario,
   group: string[],
 ): Promise<void> {
+  const liveMatchIdByPlayer = await findLiveMatchIdsForPlayers(db, group)
   const outcome = await joinLobbyAndMaybeStartMatch(
     { env: { KV: kv } },
     mode.mode,
     buildJoinEntries(group),
+    { liveMatchPlayerIds: new Set(liveMatchIdByPlayer.keys()) },
   )
   if ('error' in outcome) throw new Error(outcome.error)
 
@@ -667,6 +748,13 @@ async function simulateActivityLaunchSnapshot(
   userId: string,
 ): Promise<void> {
   await buildActivityLaunchSnapshot(undefined, activitySecret, kv, channelId, userId)
+}
+
+async function simulateSpectatorLobbySelection(kv: KVNamespace, mode: CapacityScenario, spectatorId: string): Promise<void> {
+  const lobby = await getLobby(kv, mode.mode)
+  if (!lobby || lobby.status !== 'open') throw new Error(`Expected open ${mode.mode} lobby before spectator selection`)
+  const result = await selectActivityTargetForUser(kv, lobby.channelId, spectatorId, { kind: 'lobby', id: lobby.id })
+  if (!result.ok) throw new Error(result.error)
 }
 
 async function simulateOpenLobbyChurn(kv: KVNamespace, mode: CapacityScenario): Promise<number> {
@@ -733,6 +821,7 @@ async function startDraftFromOpenLobby(
   if (!draftingLobby) throw new Error('Expected lobby to transition to drafting during capacity simulation')
   await syncLobbyDerivedState(kv, draftingLobby)
   await storeMatchActivityState(kv, draftingLobby.channelId, draftingLobby.memberPlayerIds, { matchId })
+  await handoffLobbySpectatorsToMatchActivity(kv, draftingLobby.channelId, draftingLobby.id, draftingLobby.memberPlayerIds, { matchId })
   await clearUserLobbyMappings(kv, draftingLobby.memberPlayerIds)
   await storeMatchMessageMapping(db, `message-lobby-drafting-${mode.id}`, matchId)
 
@@ -1003,6 +1092,156 @@ function scenarioPlayersPerDraft(mode: CapacityScenario): number {
   return scenarioPlayerIds(mode).length
 }
 
+async function measureStableValue<T>(samples: number, measure: () => Promise<T>): Promise<T> {
+  const values: T[] = []
+
+  for (let index = 0; index < samples; index++) {
+    values.push(await withFixedNow(NOW, measure))
+  }
+
+  return medianSampleValue(values)
+}
+
+async function withFixedNow<T>(now: number, run: () => Promise<T>): Promise<T> {
+  const originalNow = Date.now
+  Date.now = () => now
+
+  try {
+    return await run()
+  }
+  finally {
+    Date.now = originalNow
+  }
+}
+
+function medianSampleValue<T>(values: T[]): T {
+  const first = values[0]
+  if (first == null) throw new Error('Expected at least one capacity measurement sample')
+
+  if (typeof first === 'number') return medianNumber(values as number[]) as T
+  if (typeof first === 'object') {
+    return Object.fromEntries(
+      Object.keys(first as Record<string, unknown>).map(key => [
+        key,
+        medianSampleValue(values.map(value => (value as Record<string, unknown>)[key]) as T[]),
+      ]),
+    ) as T
+  }
+
+  throw new Error(`Unsupported capacity measurement sample type: ${typeof first}`)
+}
+
+function medianNumber(values: number[]): number {
+  const sorted = [...values].sort((left, right) => left - right)
+  const middle = sorted[Math.floor(sorted.length / 2)]
+  if (middle == null) throw new Error('Expected at least one numeric capacity measurement sample')
+  return roundSnapshotNumber(middle)
+}
+
+async function writeCapacitySnapshot(reports: ScenarioReport[]): Promise<'updated' | 'unchanged'> {
+  const snapshot = buildCapacitySnapshot(reports)
+  const nextText = `${JSON.stringify(snapshot, null, 2)}\n`
+  const currentText = await readSnapshotText(readFileText)
+
+  if (currentText === nextText) return 'unchanged'
+
+  await writeFileText(CAPACITY_SNAPSHOT_FILE, nextText, 'utf8')
+  return 'updated'
+}
+
+function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
+  const backgroundDailyUsage = reports[0]?.model.backgroundDaily
+
+  return {
+    version: 1,
+    globals: {
+      stabilitySamples: CAPACITY_STABILITY_SAMPLES,
+      leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
+      inactiveLobbyCleanupCronRunsPerDay: INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY,
+      rankedRoleCronRunsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY,
+      lobbyWatchMsgsPerConnection: LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION,
+      doWebsocketBillingRatio: DO_WEBSOCKET_BILLING_RATIO,
+      estimatedDoGbSecondsPerRequest: ESTIMATED_DO_GB_SECONDS_PER_REQUEST,
+    },
+    backgroundDailyUsage: backgroundDailyUsage ? roundNumericRecord(backgroundDailyUsage) : null,
+    scenarios: reports.map((report) => {
+      const players = scenarioPlayersPerDraft(report.mode)
+
+      return {
+        id: report.mode.id,
+        label: report.mode.label,
+        players,
+        viewers: scenarioViewerIds(report.mode).length,
+        lobbyMutations: report.openLobbyMutationRequests,
+        legacyRefetchesAvoided: report.legacySelectedLobbyRefetchRequests,
+        draftMessages: report.draftRoomIncomingMessages,
+        previewMessages: report.draftRoomIncomingMessagesWithSelectionPreviews,
+        teamPreviewMessages: report.draftRoomIncomingMessagesWithTeamPickPreviews,
+        corePerDraft: roundNumericRecord(report.corePerDraft),
+        openLobbyChurnPerDraft: roundNumericRecord(report.openLobbyChurnPerDraft),
+        perDraft: roundNumericRecord(report.model.perDraft),
+        capacity: {
+          free: {
+            playsPerDay: report.freeCapacityPlaysPerDay,
+            draftsPerDay: roundSnapshotNumber(report.freeCapacityPlaysPerDay / players),
+            bottleneck: report.freeBreakpoints[0]?.metric ?? 'unknown',
+          },
+          paidIncluded: {
+            playsPerDay: report.paidIncludedCapacityPlaysPerDay,
+            draftsPerDay: roundSnapshotNumber(report.paidIncludedCapacityPlaysPerDay / players),
+            bottleneck: report.paidBreakpoints[0]?.metric ?? 'unknown',
+          },
+          paid6: {
+            playsPerDay: report.paidSixDollarCapacityPlaysPerDay,
+            draftsPerDay: roundSnapshotNumber(report.paidSixDollarCapacityPlaysPerDay / players),
+            overageUsd: roundSnapshotNumber(report.paidSixDollarOverageUsd),
+          },
+          paid10: {
+            playsPerDay: report.paidTenDollarCapacityPlaysPerDay,
+            draftsPerDay: roundSnapshotNumber(report.paidTenDollarCapacityPlaysPerDay / players),
+            overageUsd: roundSnapshotNumber(report.paidTenDollarOverageUsd),
+          },
+        },
+        breakpoints: {
+          free: toSnapshotBreakpoints(report.freeBreakpoints, players),
+          paidIncluded: toSnapshotBreakpoints(report.paidBreakpoints, players),
+        },
+      }
+    }),
+  }
+}
+
+function toSnapshotBreakpoints(
+  breakpoints: MetricBreakpoint[],
+  playersPerDraft: number,
+): CapacitySnapshotBreakpoint[] {
+  return breakpoints.slice(0, 3).map(row => ({
+    metric: row.metric,
+    playsPerDay: row.playsPerDay,
+    draftsPerDay: roundSnapshotNumber(row.playsPerDay / playersPerDraft),
+  }))
+}
+
+function roundNumericRecord<T extends object>(record: T): T {
+  return Object.fromEntries(
+    Object.entries(record as Record<string, number>).map(([key, value]) => [key, roundSnapshotNumber(value)]),
+  ) as T
+}
+
+function roundSnapshotNumber(value: number): number {
+  return Number.isInteger(value) ? value : Number(value.toFixed(4))
+}
+
+async function readSnapshotText(read: typeof readFileText): Promise<string | null> {
+  try {
+    return await read(CAPACITY_SNAPSHOT_FILE, 'utf8')
+  }
+  catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return null
+    throw error
+  }
+}
+
 function printReports(reports: ScenarioReport[]): void {
   const backgroundDailyUsage = reports[0]?.model.backgroundDaily
 
@@ -1018,6 +1257,7 @@ function printReports(reports: ScenarioReport[]): void {
     teamPreviewMsgs: report.draftRoomIncomingMessagesWithTeamPickPreviews,
   })))
   console.log('[capacity] globals', {
+    stabilitySamples: CAPACITY_STABILITY_SAMPLES,
     leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
     inactiveLobbyCleanupCronRunsPerDay: INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY,
     rankedRoleCronRunsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY,
