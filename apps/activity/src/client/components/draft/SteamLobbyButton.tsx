@@ -24,22 +24,16 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
   const [copied, setCopied] = createSignal(false)
   const [dropdownOpen, setDropdownOpen] = createSignal(false)
   const [inputValue, setInputValue] = createSignal('')
+  const [missingLinkHintVisible, setMissingLinkHintVisible] = createSignal(false)
   let copiedTimeout: ReturnType<typeof setTimeout> | null = null
   let blurCloseTimeout: ReturnType<typeof setTimeout> | null = null
+  let missingLinkHintTimeout: ReturnType<typeof setTimeout> | null = null
   let inputRef: HTMLInputElement | undefined
 
   const isHost = () => props.isHost === true
   const canSave = () => Boolean(props.onSaveSteamLink)
-
-  // Host with save callback: always show (can set the link).
-  // Otherwise: only when a link exists.
-  const shouldShow = () => {
-    if (isHost() && canSave()) return true
-    return Boolean(props.steamLobbyLink)
-  }
-
-  // Ghost style when host can set the link but none exists yet
-  const isGhost = () => isHost() && !props.steamLobbyLink
+  const isEditableHost = () => isHost() && canSave()
+  const isGhost = () => !props.steamLobbyLink
 
   // ── Copy / flash logic (non-host) ────────────
 
@@ -56,6 +50,21 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
       setCopied(false)
       copiedTimeout = null
     }, COPY_ICON_TIMEOUT_MS)
+  }
+
+  const clearMissingLinkHintTimeout = () => {
+    if (!missingLinkHintTimeout) return
+    clearTimeout(missingLinkHintTimeout)
+    missingLinkHintTimeout = null
+  }
+
+  const flashMissingLinkHint = () => {
+    clearMissingLinkHintTimeout()
+    setMissingLinkHintVisible(true)
+    missingLinkHintTimeout = setTimeout(() => {
+      setMissingLinkHintVisible(false)
+      missingLinkHintTimeout = null
+    }, 4000)
   }
 
   const shouldCopyOnPrimaryAction = () => {
@@ -115,7 +124,11 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
   // ── Event handlers ───────────────────────────
 
   const handleButtonClick: JSX.EventHandler<HTMLButtonElement, MouseEvent> = () => {
-    if (!isHost()) {
+    if (!isEditableHost()) {
+      if (!props.steamLobbyLink) {
+        flashMissingLinkHint()
+        return
+      }
       if (shouldCopyOnPrimaryAction()) void copyLink()
       else void openLink()
       return
@@ -134,8 +147,12 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
   }
 
   const handleContextMenu: JSX.EventHandler<HTMLButtonElement, MouseEvent> = (event) => {
-    if (isHost()) return
+    if (isEditableHost()) return
     event.preventDefault()
+    if (!props.steamLobbyLink) {
+      flashMissingLinkHint()
+      return
+    }
     void copyLink()
   }
 
@@ -159,81 +176,88 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
   }
 
   const buttonTitle = () => {
-    if (isHost()) return props.steamLobbyLink ? 'Edit Steam lobby link' : 'Set Steam lobby link'
+    if (isEditableHost()) return props.steamLobbyLink ? 'Edit Steam lobby link' : 'Set Steam lobby link'
+    if (!props.steamLobbyLink) return 'No Steam link set'
     return shouldCopyOnPrimaryAction() ? 'Copy Steam link' : 'Open Steam link, or right-click to copy'
   }
 
   const buttonAriaLabel = () => {
-    if (isHost()) return props.steamLobbyLink ? 'Edit Steam lobby link' : 'Set Steam lobby link'
+    if (isEditableHost()) return props.steamLobbyLink ? 'Edit Steam lobby link' : 'Set Steam lobby link'
+    if (!props.steamLobbyLink) return 'No Steam link set'
     return shouldCopyOnPrimaryAction() ? 'Copy Steam link' : 'Open Steam link'
   }
 
   onCleanup(() => {
     clearCopiedTimeout()
     clearBlurTimeout()
+    clearMissingLinkHintTimeout()
   })
 
   return (
-    <Show when={shouldShow()}>
-      <div class={props.class}>
-        <button
-          type="button"
-          class={cn(
-            'h-full w-full rounded-md flex shrink-0 cursor-pointer items-center justify-center transition-[filter,background-color,color,opacity] duration-200',
-            isGhost()
-              ? 'bg-transparent text-fg-muted border border-border hover:bg-bg-muted hover:text-fg'
-              : 'bg-accent text-bg hover:brightness-110',
-            props.savePending && 'opacity-60 cursor-not-allowed',
-          )}
-          title={buttonTitle()}
-          aria-label={buttonAriaLabel()}
-          disabled={props.savePending}
-          onClick={handleButtonClick}
-          onContextMenu={handleContextMenu}
-        >
-          <div class="h-[18px] w-[18px] relative">
-            <span
-              class={cn(
-                'i-ph:steam-logo-fill text-[18px] inset-0 absolute flex items-center justify-center transform-gpu transition-[transform,opacity] duration-150',
-                copied() ? 'scale-0 opacity-0' : 'scale-100 opacity-100',
-              )}
-            />
-            <span
-              class={cn(
-                'i-ph-check-bold text-[18px] inset-0 absolute flex items-center justify-center transform-gpu transition-[transform,opacity] duration-150',
-                copied() ? 'scale-100 opacity-100' : 'scale-0 opacity-0',
-              )}
-            />
-          </div>
-        </button>
+    <div class={cn('relative', props.class)}>
+      <button
+        type="button"
+        class={cn(
+          'h-full w-full rounded-md flex shrink-0 cursor-pointer items-center justify-center transition-[filter,background-color,color,opacity] duration-200',
+          isGhost()
+            ? 'bg-transparent text-fg-muted border border-border hover:bg-bg-muted hover:text-fg'
+            : 'bg-accent text-bg hover:brightness-110',
+          props.savePending && 'opacity-60 cursor-not-allowed',
+        )}
+        title={buttonTitle()}
+        aria-label={buttonAriaLabel()}
+        disabled={props.savePending}
+        onClick={handleButtonClick}
+        onContextMenu={handleContextMenu}
+      >
+        <div class="h-[18px] w-[18px] relative">
+          <span
+            class={cn(
+              'i-ph:steam-logo-fill text-[18px] inset-0 absolute flex items-center justify-center transform-gpu transition-[transform,opacity] duration-150',
+              copied() ? 'scale-0 opacity-0' : 'scale-100 opacity-100',
+            )}
+          />
+          <span
+            class={cn(
+              'i-ph-check-bold text-[18px] inset-0 absolute flex items-center justify-center transform-gpu transition-[transform,opacity] duration-150',
+              copied() ? 'scale-100 opacity-100' : 'scale-0 opacity-0',
+            )}
+          />
+        </div>
+      </button>
 
-        {/* Host dropdown with steam link input */}
-        <Show when={dropdownOpen()}>
-          <div class="mt-1.5 left-0 top-full absolute z-50">
-            <div class="p-2 border border-border rounded-lg bg-bg-subtle shadow-black/25 shadow-xl">
-              <input
-                ref={inputRef}
-                type="text"
-                value={inputValue()}
-                placeholder="steam://joinlobby/289070/..."
-                readOnly={!canSave()}
-                disabled={props.savePending}
-                class={cn(
-                  'w-64 text-sm text-fg px-3 py-2 rounded-md',
-                  'bg-bg/60 border border-border-subtle',
-                  'outline-none transition-colors duration-150',
-                  'placeholder:text-fg-subtle/60',
-                  'focus:border-accent/50 focus:bg-bg/80',
-                  'disabled:opacity-50 disabled:cursor-not-allowed',
-                )}
-                onInput={e => setInputValue(e.currentTarget.value)}
-                onBlur={handleInputBlur}
-                onKeyDown={handleInputKeyDown}
-              />
-            </div>
+      <Show when={missingLinkHintVisible()}>
+        <div class="pointer-events-none absolute left-0 top-full z-50 mt-2 whitespace-nowrap rounded-full border border-border bg-bg-subtle/80 px-3 py-1 text-xs text-fg-muted shadow-lg backdrop-blur-sm">
+          No Steam link set
+        </div>
+      </Show>
+
+      {/* Host dropdown with steam link input */}
+      <Show when={dropdownOpen()}>
+        <div class="mt-1.5 left-0 top-full absolute z-50">
+          <div class="p-2 border border-border rounded-lg bg-bg-subtle shadow-black/25 shadow-xl">
+            <input
+              ref={inputRef}
+              type="text"
+              value={inputValue()}
+              placeholder="steam://joinlobby/289070/..."
+              readOnly={!canSave()}
+              disabled={props.savePending}
+              class={cn(
+                'w-64 text-sm text-fg px-3 py-2 rounded-md',
+                'bg-bg/60 border border-border-subtle',
+                'outline-none transition-colors duration-150',
+                'placeholder:text-fg-subtle/60',
+                'focus:border-accent/50 focus:bg-bg/80',
+                'disabled:opacity-50 disabled:cursor-not-allowed',
+              )}
+              onInput={e => setInputValue(e.currentTarget.value)}
+              onBlur={handleInputBlur}
+              onKeyDown={handleInputKeyDown}
+            />
           </div>
-        </Show>
-      </div>
-    </Show>
+        </div>
+      </Show>
+    </div>
   )
 }
