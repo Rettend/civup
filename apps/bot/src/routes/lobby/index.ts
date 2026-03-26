@@ -1148,7 +1148,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         return c.json({ error: 'Lobby state changed while starting. Please retry.' }, 409)
       }
 
-      await syncLobbyDerivedState(kv, lobbyForMessage)
       await storeMatchActivityState(kv, lobbyForMessage.channelId, lobbyForMessage.memberPlayerIds, {
         matchId,
         lobbyId: lobbyForMessage.id,
@@ -1163,6 +1162,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         steamLobbyLink: lobbyForMessage.steamLobbyLink,
         activitySecret: internalSecret,
       })
+      await syncLobbyDerivedState(kv, lobbyForMessage)
       await clearUserLobbyMappings(kv, lobbyForMessage.memberPlayerIds)
 
       queueBackgroundTask(c, async () => {
