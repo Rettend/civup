@@ -1,9 +1,9 @@
 import { verifyDraftRoomAccessToken } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
-import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility } from '../../src/routes/activity.ts'
+import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility, selectActivityTargetForUser } from '../../src/routes/activity.ts'
 import { buildOpenLobbySnapshot } from '../../src/routes/lobby/snapshot.ts'
-import { getUserActivityTarget, storeUserActivityTarget } from '../../src/services/activity/index.ts'
+import { getUserActivityTarget, handoffLobbySpectatorsToMatchActivity, storeUserActivityTarget, storeUserLobbyState } from '../../src/services/activity/index.ts'
 import { attachLobbyMatch, createLobby, getLobbyById, setLobbyMaxRole, setLobbyMinRole } from '../../src/services/lobby/index.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
@@ -39,6 +39,48 @@ describe('activity lobby join eligibility', () => {
       canJoin: true,
       blockedReason: null,
       pendingSlot: 1,
+    })
+  })
+
+  test('blocks joining another lobby after reopening while already in a live match', async () => {
+    const { kv } = createTrackedKv()
+    const liveLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'player-1',
+      channelId: 'channel-1',
+      messageId: 'message-live',
+    })
+    const openLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-2',
+      channelId: 'channel-1',
+      messageId: 'message-open',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-2',
+      displayName: 'Host 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await attachLobbyMatch(kv, liveLobby.id, 'match-1', liveLobby)
+    await storeUserActivityTarget(kv, 'channel-1', ['player-1'], { kind: 'lobby', id: openLobby.id })
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'player-1')
+    expect(snapshot.selection?.kind).toBe('lobby')
+    if (snapshot.selection?.kind !== 'lobby') return
+
+    expect(snapshot.selection.option.id).toBe(openLobby.id)
+    expect(snapshot.selection.joinEligibility).toEqual({
+      canJoin: false,
+      blockedReason: 'You are already in a live match.',
+      pendingSlot: null,
     })
   })
 
@@ -256,6 +298,89 @@ describe('activity target selection', () => {
       roomId: 'match-1',
       userId: 'spectator-1',
     })).resolves.not.toBeNull()
+  })
+
+  test('retargeted lobby spectators launch straight into the draft', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await storeUserActivityTarget(kv, 'channel-1', ['spectator-1'], { kind: 'lobby', id: lobby.id })
+    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    await handoffLobbySpectatorsToMatchActivity(kv, lobby.channelId, lobby.id, lobby.memberPlayerIds, {
+      matchId: 'match-1',
+      lobbyId: lobby.id,
+      mode: lobby.mode,
+      activitySecret: 'secret',
+    })
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1')
+    expect(snapshot.selection?.kind).toBe('match')
+    if (snapshot.selection?.kind !== 'match') return
+    expect(snapshot.selection.matchId).toBe('match-1')
+    expect(snapshot.selection.roomAccessToken).not.toBeNull()
+  })
+
+  test('spectator lobby-state mappings also hand off into the draft', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await storeUserLobbyState(kv, 'channel-1', ['spectator-1'], lobby.id)
+    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    await handoffLobbySpectatorsToMatchActivity(kv, lobby.channelId, lobby.id, lobby.memberPlayerIds, {
+      matchId: 'match-1',
+      lobbyId: lobby.id,
+      mode: lobby.mode,
+      activitySecret: 'secret',
+    })
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1')
+    expect(snapshot.selection?.kind).toBe('match')
+    if (snapshot.selection?.kind !== 'match') return
+    expect(snapshot.selection.matchId).toBe('match-1')
+    expect(snapshot.selection.roomAccessToken).not.toBeNull()
+  })
+
+  test('selectActivityTargetForUser stores a valid spectator lobby target', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await expect(selectActivityTargetForUser(kv, 'channel-1', 'spectator-1', {
+      kind: 'lobby',
+      id: lobby.id,
+      activitySecret: 'secret',
+    })).resolves.toEqual({ ok: true })
+
+    await expect(getUserActivityTarget(kv, 'channel-1', 'spectator-1')).resolves.toEqual(expect.objectContaining({
+      kind: 'lobby',
+      id: lobby.id,
+    }))
   })
 })
 

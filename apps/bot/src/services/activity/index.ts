@@ -4,9 +4,9 @@ import { getDraftFormat, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, sl
 import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
 import { getLobbiesByChannel } from '../lobby/index.ts'
-import { channelIndexKey, draftRosterKey, idKey, matchKey, modeIndexKey } from '../lobby/keys.ts'
+import { channelIndexKey, idKey, matchKey, modeIndexKey } from '../lobby/keys.ts'
 import { lobbySnapshotKey } from '../lobby/live-snapshot.ts'
-import { stateStoreMdelete, stateStoreMput } from '../state/store.ts'
+import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -52,6 +52,79 @@ const ACTIVITY_MAPPING_TTL = 48 * 60 * 60
 
 function targetUserKey(userId: string, channelId: string): string {
   return `activity-target-user:${userId}:${channelId}`
+}
+
+function targetLobbySelectionPrefix(channelId: string, lobbyId: string): string {
+  return `activity-target-lobby:${channelId}:${lobbyId}:`
+}
+
+function targetLobbySelectionKey(channelId: string, lobbyId: string, userId: string): string {
+  return `${targetLobbySelectionPrefix(channelId, lobbyId)}${userId}`
+}
+
+function parseTargetLobbySelectionUserId(key: string, prefix: string): string | null {
+  if (!key.startsWith(prefix)) return null
+  const userId = key.slice(prefix.length)
+  return userId.length > 0 ? userId : null
+}
+
+async function getUserActivityTargets(
+  kv: KVNamespace,
+  channelId: string,
+  userIds: string[],
+): Promise<(StoredActivityTargetSelection | null)[]> {
+  if (userIds.length === 0) return []
+
+  const rawTargets = await stateStoreMget(
+    kv,
+    userIds.map(userId => ({ key: targetUserKey(userId, channelId), type: 'json' })),
+  )
+  return rawTargets.map(raw => parseActivityTargetSelection(raw))
+}
+
+async function buildUserActivityTargetEntries(
+  channelId: string,
+  userIds: string[],
+  target:
+    | ({ kind: 'lobby', id: string, pendingJoin?: boolean })
+    | {
+      kind: 'match'
+      id: string
+      lobbyId?: string | null
+      mode?: GameMode | null
+      steamLobbyLink?: string | null
+      activitySecret?: string | undefined
+    },
+  selectedAt: number,
+  pendingJoin: boolean,
+): Promise<{ key: string, value: string, expirationTtl: number }[]> {
+  const serializedTargets = await Promise.all(userIds.map(
+    userId => serializeActivityTargetSelection(channelId, userId, target, selectedAt, pendingJoin),
+  ))
+
+  const entries: { key: string, value: string, expirationTtl: number }[] = []
+
+  for (let index = 0; index < userIds.length; index++) {
+    const userId = userIds[index]
+    const serializedTarget = serializedTargets[index]
+    if (!userId || !serializedTarget) continue
+
+    entries.push({
+      key: targetUserKey(userId, channelId),
+      value: JSON.stringify(serializedTarget),
+      expirationTtl: ACTIVITY_MAPPING_TTL,
+    })
+
+    if (target.kind === 'lobby') {
+      entries.push({
+        key: targetLobbySelectionKey(channelId, target.id, userId),
+        value: String(selectedAt),
+        expirationTtl: ACTIVITY_MAPPING_TTL,
+      })
+    }
+  }
+
+  return entries
 }
 
 // ── Create a draft room via PartyKit HTTP API ───────────
@@ -200,17 +273,7 @@ export async function storeUserActivityTarget(
 ): Promise<void> {
   const selectedAt = Date.now()
   const pendingJoin = target.kind === 'lobby' && target.pendingJoin === true
-  const entries = await Promise.all(
-    userIds.map(async userId => ({
-      key: targetUserKey(userId, channelId),
-      value: JSON.stringify(await serializeActivityTargetSelection(channelId, userId, target, selectedAt, pendingJoin)),
-      expirationTtl: ACTIVITY_MAPPING_TTL,
-    })),
-  )
-  await stateStoreMput(
-    kv,
-    entries,
-  )
+  await stateStoreMput(kv, await buildUserActivityTargetEntries(channelId, userIds, target, selectedAt, pendingJoin))
 }
 
 export async function storeUserLobbyState(
@@ -227,13 +290,7 @@ export async function storeUserLobbyState(
   const selectedAt = Date.now()
   const pendingJoin = options?.pendingJoin === true
   const target = { kind: 'lobby' as const, id: lobbyId, pendingJoin }
-  const targetEntries = await Promise.all(
-    userIds.map(async userId => ({
-      key: targetUserKey(userId, channelId),
-      value: JSON.stringify(await serializeActivityTargetSelection(channelId, userId, target, selectedAt, pendingJoin)),
-      expirationTtl: ACTIVITY_MAPPING_TTL,
-    })),
-  )
+  const targetEntries = await buildUserActivityTargetEntries(channelId, userIds, target, selectedAt, pendingJoin)
 
   await stateStoreMput(kv, [
     ...userIds.map(userId => ({
@@ -286,6 +343,39 @@ export async function storeMatchActivityState(
     })),
     ...targetEntries,
   ])
+}
+
+export async function handoffLobbySpectatorsToMatchActivity(
+  kv: KVNamespace,
+  channelId: string,
+  lobbyId: string,
+  memberUserIds: string[],
+  target: {
+    matchId: string
+    lobbyId?: string | null
+    mode?: GameMode | null
+    steamLobbyLink?: string | null
+    activitySecret?: string | undefined
+  },
+): Promise<string[]> {
+  const prefix = targetLobbySelectionPrefix(channelId, lobbyId)
+  const listed = await kv.list({ prefix })
+  const memberUserIdSet = new Set(memberUserIds)
+  const candidateUserIds = listed.keys
+    .map(entry => parseTargetLobbySelectionUserId(entry.name, prefix))
+    .filter((userId): userId is string => userId != null && !memberUserIdSet.has(userId))
+
+  if (candidateUserIds.length === 0) return []
+
+  const targets = await getUserActivityTargets(kv, channelId, candidateUserIds)
+  const spectatorUserIds = candidateUserIds.filter((userId, index) => {
+    const selection = targets[index]
+    return selection?.kind === 'lobby' && selection.id === lobbyId
+  })
+  if (spectatorUserIds.length === 0) return []
+
+  await storeMatchActivityState(kv, channelId, spectatorUserIds, target)
+  return spectatorUserIds
 }
 
 /** Get the currently selected activity target for one channel/user pair. */
@@ -383,12 +473,18 @@ export async function clearActivityMappings(
   userIds: string[],
   channelId?: string,
 ): Promise<void> {
-  const keys = [`activity-match:${matchId}`]
+  const keys = new Set<string>([`activity-match:${matchId}`])
   for (const userId of userIds) {
-    keys.push(`activity-user:${userId}`)
-    if (channelId) keys.push(targetUserKey(userId, channelId))
+    keys.add(`activity-user:${userId}`)
   }
-  await stateStoreMdelete(kv, keys)
+  if (channelId) {
+    for (const userId of userIds) {
+      if (!userId) continue
+      keys.add(targetUserKey(userId, channelId))
+    }
+  }
+
+  await stateStoreMdelete(kv, [...keys])
 }
 
 /** Remove open-lobby mappings once a lobby is cancelled or started. */
@@ -398,11 +494,14 @@ export async function clearLobbyMappings(
   channelId?: string,
 ): Promise<void> {
   if (userIds.length === 0) return
-  const keys = userIds.map(userId => `activity-lobby-user:${userId}`)
+  const keys = new Set(userIds.map(userId => `activity-lobby-user:${userId}`))
   if (channelId) {
-    keys.push(...userIds.map(userId => targetUserKey(userId, channelId)))
+    for (const userId of userIds) {
+      if (!userId) continue
+      keys.add(targetUserKey(userId, channelId))
+    }
   }
-  await stateStoreMdelete(kv, keys)
+  await stateStoreMdelete(kv, [...keys])
 }
 
 export async function clearLobbyAndActivityMappings(
@@ -412,7 +511,6 @@ export async function clearLobbyAndActivityMappings(
   const keys = [
     idKey(lobby.id),
     lobbySnapshotKey(lobby.id),
-    draftRosterKey(lobby.id),
     modeIndexKey(lobby.mode, lobby.id),
     channelIndexKey(lobby.channelId, lobby.id),
     ...lobby.memberPlayerIds.map(userId => `activity-lobby-user:${userId}`),

@@ -12,7 +12,7 @@ export async function buildOpenLobbyRenderPayload(
   const { minRoleId, maxRoleId } = await resolveLobbyRankRoleIds(kv, lobby)
 
   return {
-    embeds: [lobbyOpenEmbed(lobby.mode, entries, maxPlayerCount(lobby.mode), minRoleId, maxRoleId)],
+    embeds: [lobbyOpenEmbed(lobby.mode, entries, maxPlayerCount(lobby.mode), minRoleId, maxRoleId, lobby.draftConfig.leaderDataVersion)],
     components: lobbyComponents(lobby.mode, lobby.id),
   }
 }

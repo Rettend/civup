@@ -1620,14 +1620,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
                         disabled={!canStartLobby() || startPending() || lobbyActionPending()}
                         onClick={() => void handleStartLobbyDraftAction()}
                       >
-                        {startPending() ? 'Starting...' : 'Start Draft'}
+                        {startPending() ? 'Starting' : 'Start Draft'}
                       </button>
                       <button
                         class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed"
                         disabled={cancelPending() || startPending() || lobbyActionPending()}
                         onClick={() => void handleCancelAction()}
                       >
-                        {cancelPending() ? 'Cancelling...' : 'Cancel Lobby'}
+                        {cancelPending() ? 'Cancelling' : 'Cancel Lobby'}
                       </button>
                       <button
                         class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed"

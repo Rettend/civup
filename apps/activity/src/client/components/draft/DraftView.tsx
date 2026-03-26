@@ -1,10 +1,13 @@
 import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import {
+  currentStep,
   draftStore,
   gridOpen,
+  hasSubmitted,
   isMiniView,
   isMobileLayout,
+  isMyTurn,
   isSpectator,
   sendStart,
   setGridOpen,
@@ -32,6 +35,7 @@ interface DraftViewProps {
 export function DraftView(props: DraftViewProps) {
   const state = () => draftStore.state
   const [autoStartSent, setAutoStartSent] = createSignal(false)
+  const [autoOpenedGridToken, setAutoOpenedGridToken] = createSignal<string | null>(null)
   const [showAutoStartSplash, setShowAutoStartSplash] = createSignal(Boolean(props.autoStart))
   const [steamLobbyLink, setSteamLobbyLink] = createSignal<string | null>(props.steamLobbyLink ?? null)
   const [steamLobbySavePending, setSteamLobbySavePending] = createSignal(false)
@@ -79,9 +83,56 @@ export function DraftView(props: DraftViewProps) {
     autoStartSplashTimeout = null
   })
 
+  const isMyPickTurn = () => {
+    const step = currentStep()
+    return !!step && step.action === 'pick' && isMyTurn() && !hasSubmitted()
+  }
+
+  const [showTurnFlash, setShowTurnFlash] = createSignal(false)
+  let lastFlashedStep = -1
+  let turnFlashTimeout: ReturnType<typeof setTimeout> | null = null
+
+  createEffect(() => {
+    if (!isMyPickTurn()) return
+    const s = draftStore.state
+    if (!s) return
+    const stepIdx = s.currentStepIndex
+    if (stepIdx === lastFlashedStep) return
+    lastFlashedStep = stepIdx
+    if (turnFlashTimeout) clearTimeout(turnFlashTimeout)
+    setShowTurnFlash(true)
+    turnFlashTimeout = setTimeout(() => {
+      setShowTurnFlash(false)
+      turnFlashTimeout = null
+    }, 550)
+  })
+
+  onCleanup(() => {
+    if (turnFlashTimeout) {
+      clearTimeout(turnFlashTimeout)
+      turnFlashTimeout = null
+    }
+  })
+
   createEffect(() => {
     if (!isMiniView()) return
     setGridOpen(false)
+  })
+
+  createEffect(() => {
+    const current = state()
+    const seatIndex = draftStore.seatIndex
+    if (!current || current.status !== 'active' || seatIndex == null) {
+      setAutoOpenedGridToken(null)
+      return
+    }
+    if (isMiniView()) return
+
+    const nextToken = `${draftStore.initVersion}:${current.matchId}:${seatIndex}`
+    if (autoOpenedGridToken() === nextToken) return
+
+    setGridOpen(true)
+    setAutoOpenedGridToken(nextToken)
   })
 
   const isActiveOrComplete = () => state()?.status === 'active' || state()?.status === 'complete'
@@ -177,6 +228,18 @@ export function DraftView(props: DraftViewProps) {
                   </div>
                 </Show>
               </div>
+
+              <Show when={isMyPickTurn()}>
+                <div class="absolute inset-y-0 left-0 w-14 pointer-events-none z-30 opacity-20 bg-gradient-to-r from-[var(--accent)] to-transparent screen-glow-mask" />
+                <div class="absolute inset-y-0 right-0 w-14 pointer-events-none z-30 opacity-20 bg-gradient-to-l from-[var(--accent)] to-transparent screen-glow-mask" />
+              </Show>
+
+              <Show when={showTurnFlash()}>
+                <div
+                  class="absolute inset-0 pointer-events-none z-0 anim-turn-flash"
+                  style={{ background: 'radial-gradient(ellipse at center, transparent 30%, rgba(200, 170, 110, 0.5) 100%)' }}
+                />
+              </Show>
             </div>
           </Show>
         </Show>
@@ -213,12 +276,14 @@ function CancelledDraftScreen(props: {
   const title = () => {
     if (reason() === 'cancel') return 'Draft Cancelled'
     if (reason() === 'timeout') return 'Draft Auto-Scrubbed'
+    if (reason() === 'revert') return 'Draft Reverted'
     return 'Match Scrubbed'
   }
 
   const detail = () => {
     if (reason() === 'cancel') return 'Host cancelled this draft before lock-in.'
     if (reason() === 'timeout') return 'A player timed out picking a leader.'
+    if (reason() === 'revert') return 'Host returned everyone to draft setup.'
     return 'Host scrubbed this match.'
   }
 

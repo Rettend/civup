@@ -460,12 +460,16 @@ export function sendPreview(action: DraftAction, civIds: string[]) {
   return sent
 }
 
-export function sendCancel(reason: 'cancel' | 'scrub') {
+export function sendCancel(reason: 'cancel' | 'scrub' | 'revert') {
   return sendMessage({ type: 'cancel', reason })
 }
 
 export function sendScrub() {
   return sendCancel('scrub')
+}
+
+export function sendRevert() {
+  return sendCancel('revert')
 }
 
 export function sendConfig(banTimerSeconds: number | null, pickTimerSeconds: number | null): Promise<void> {

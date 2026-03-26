@@ -5,7 +5,7 @@ import { createDb } from '@civup/db'
 import { verifySignedWebhookRequest } from '@civup/utils'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed } from '../embeds/match.ts'
 import { clearActivityMappings, clearLobbyMappings, storeUserLobbyState } from '../services/activity/index.ts'
-import { buildOpenLobbyRenderPayload, clearLobbyById, clearLobbyDraftRoster, getLobbyByMatch, getLobbyDraftRoster, mapLobbySlotsToEntries, reopenLobbyAfterTimedOutDraft, setLobbyStatus, upsertLobbyMessage } from '../services/lobby/index.ts'
+import { buildOpenLobbyRenderPayload, clearLobbyById, getLobbyByMatch, getLobbyDraftRoster, mapLobbySlotsToEntries, reopenLobbyAfterCancelledDraft, reopenLobbyAfterTimedOutDraft, setLobbyStatus, upsertLobbyMessage } from '../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../services/lobby/live-snapshot.ts'
 import { activateDraftMatch, cancelDraftMatch } from '../services/match/index.ts'
 import { clearMatchMessageMapping, storeMatchMessageMapping } from '../services/match/message.ts'
@@ -62,11 +62,10 @@ export function registerWebhookRoutes(app: Hono<Env>) {
       }
 
       const activeLobby = await setLobbyStatus(kv, lobby.id, 'active', lobby) ?? lobby
-      await clearLobbyDraftRoster(kv, lobby.id)
       await syncLobbyDerivedState(kv, activeLobby)
       try {
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, activeLobby, {
-          embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants)],
+          embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants, activeLobby.draftConfig.leaderDataVersion)],
           components: lobbyComponents(activeLobby.mode, activeLobby.id),
         })
         await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
@@ -100,16 +99,17 @@ export function registerWebhookRoutes(app: Hono<Env>) {
 
     await clearActivityMappings(kv, payload.matchId, lobby.memberPlayerIds, lobby.channelId)
 
-    if (payload.reason === 'timeout') {
+    if (payload.reason === 'timeout' || payload.reason === 'revert') {
       const queue = await getQueueState(kv, lobby.mode)
-      const recovered = await reopenLobbyAfterTimedOutDraft(kv, lobby, payload.state, {
-        draftRoster: await getLobbyDraftRoster(kv, lobby.id),
-      })
+      const draftRoster = await getLobbyDraftRoster(kv, lobby.id)
+      const recovered = payload.reason === 'timeout'
+        ? await reopenLobbyAfterTimedOutDraft(kv, lobby, payload.state, { draftRoster })
+        : await reopenLobbyAfterCancelledDraft(kv, lobby, payload.state, { draftRoster })
 
       if (recovered) {
-        const removedPlayerIds = new Set(lobby.memberPlayerIds)
+        const affectedPlayerIds = new Set(lobby.memberPlayerIds)
         const nextQueueEntries = [
-          ...queue.entries.filter(entry => !removedPlayerIds.has(entry.playerId)),
+          ...queue.entries.filter(entry => !affectedPlayerIds.has(entry.playerId)),
           ...recovered.queueEntries,
         ]
 
@@ -119,7 +119,6 @@ export function registerWebhookRoutes(app: Hono<Env>) {
           slots: recovered.lobby.slots,
         })
         await storeUserLobbyState(kv, recovered.lobby.channelId, recovered.lobby.memberPlayerIds, recovered.lobby.id)
-        await clearLobbyDraftRoster(kv, recovered.lobby.id)
 
         try {
           const slottedEntries = mapLobbySlotsToEntries(recovered.lobby.slots, recovered.queueEntries)
@@ -128,7 +127,7 @@ export function registerWebhookRoutes(app: Hono<Env>) {
           await clearMatchMessageMapping(db, updatedLobby.messageId)
         }
         catch (error) {
-          console.error(`Failed to update reopened lobby embed for timed out match ${payload.matchId}:`, error)
+          console.error(`Failed to update reopened lobby embed for cancelled match ${payload.matchId}:`, error)
         }
 
         return c.json({ ok: true })
@@ -136,10 +135,9 @@ export function registerWebhookRoutes(app: Hono<Env>) {
     }
 
     const closedLobby = await setLobbyStatus(kv, lobby.id, payload.reason === 'cancel' ? 'cancelled' : 'scrubbed', lobby) ?? lobby
-    await clearLobbyDraftRoster(kv, lobby.id)
     try {
       const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, closedLobby, {
-        embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason)],
+        embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason, undefined, closedLobby.draftConfig.leaderDataVersion)],
         components: [],
       })
       await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
@@ -171,7 +169,7 @@ function isDraftWebhookPayload(value: unknown): value is DraftWebhookPayload {
 
   if (payload.outcome === 'cancelled') {
     if (typeof payload.cancelledAt !== 'number') return false
-    if (payload.reason !== 'cancel' && payload.reason !== 'scrub' && payload.reason !== 'timeout') return false
+    if (payload.reason !== 'cancel' && payload.reason !== 'scrub' && payload.reason !== 'timeout' && payload.reason !== 'revert') return false
     return payload.state.status === 'cancelled'
   }
 

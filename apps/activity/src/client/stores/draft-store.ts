@@ -211,6 +211,7 @@ export function phaseLabel(): string {
   if (s.status === 'cancelled') {
     if (s.cancelReason === 'cancel') return 'DRAFT CANCELLED'
     if (s.cancelReason === 'timeout') return 'AUTO-SCRUBBED'
+    if (s.cancelReason === 'revert') return 'DRAFT REVERTED'
     return 'MATCH SCRUBBED'
   }
 
