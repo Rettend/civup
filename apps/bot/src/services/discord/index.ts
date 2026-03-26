@@ -23,6 +23,10 @@ interface DiscordGuildRoleResponse {
   id: string
 }
 
+interface DiscordDmChannelResponse {
+  id: string
+}
+
 interface DiscordErrorPayload {
   retry_after?: number
 }
@@ -66,6 +70,26 @@ export async function createChannelMessage(
   )
 
   return await response.json() as DiscordMessageResponse
+}
+
+export async function createDmChannel(
+  token: string,
+  userId: string,
+): Promise<DiscordDmChannelResponse> {
+  const response = await requestDiscord(
+    'create dm channel',
+    'https://discord.com/api/v10/users/@me/channels',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bot ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ recipient_id: userId }),
+    },
+  )
+
+  return await response.json() as DiscordDmChannelResponse
 }
 
 export async function editChannelMessage(

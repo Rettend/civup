@@ -98,7 +98,7 @@ export const command_mod = factory.command<ModVar>(
             await clearLobbyMappings(kv, directLobby.memberPlayerIds, directLobby.channelId)
             try {
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, directLobby, {
-                embeds: [lobbyCancelledEmbed(directLobby.mode, [], 'cancel', { actorId, reason })],
+                embeds: [lobbyCancelledEmbed(directLobby.mode, [], 'cancel', { actorId, reason }, directLobby.draftConfig.leaderDataVersion)],
                 components: [],
               })
             }
@@ -128,7 +128,7 @@ export const command_mod = factory.command<ModVar>(
           if (existingLobby) {
             try {
               const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
-                embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation)],
+                embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation, existingLobby.draftConfig.leaderDataVersion)],
                 components: [],
               })
               await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
@@ -143,7 +143,7 @@ export const command_mod = factory.command<ModVar>(
           if (archiveChannelId && shouldArchiveCancellation) {
             try {
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-                embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation)],
+                embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation, existingLobby?.draftConfig.leaderDataVersion)],
               })
               await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
             }
@@ -243,7 +243,9 @@ export const command_mod = factory.command<ModVar>(
           if (existingLobby) {
             try {
               const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
-                embeds: [lobbyResultEmbed(mode, result.participants, moderation, { rankedRoleLines })],
+                embeds: [lobbyResultEmbed(mode, result.participants, moderation, {
+                  rankedRoleLines,
+                })],
                 components: [],
               })
               await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
@@ -257,7 +259,9 @@ export const command_mod = factory.command<ModVar>(
           if (archiveChannelId) {
             try {
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-                embeds: [lobbyResultEmbed(mode, result.participants, moderation, { rankedRoleLines })],
+                embeds: [lobbyResultEmbed(mode, result.participants, moderation, {
+                  rankedRoleLines,
+                })],
               })
               await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
             }

@@ -10,6 +10,12 @@ export interface LobbyTimeoutRecoveryResult {
   timedOutPlayerIds: string[]
 }
 
+export interface LobbyCancelledRecoveryResult {
+  lobby: LobbyState
+  queueEntries: QueueEntry[]
+  removedPlayerIds: string[]
+}
+
 export async function storeLobbyDraftRoster(
   kv: KVNamespace,
   lobbyId: string,
@@ -28,10 +34,6 @@ export async function getLobbyDraftRoster(kv: KVNamespace, lobbyId: string): Pro
   return normalizeQueueEntries(raw)
 }
 
-export async function clearLobbyDraftRoster(kv: KVNamespace, lobbyId: string): Promise<void> {
-  await stateStoreMdelete(kv, [draftRosterKey(lobbyId)])
-}
-
 export async function reopenLobbyAfterTimedOutDraft(
   kv: KVNamespace,
   lobby: LobbyState,
@@ -44,13 +46,36 @@ export async function reopenLobbyAfterTimedOutDraft(
   const timedOutPlayerIds = getTimedOutDraftPlayerIds(state)
   if (timedOutPlayerIds.length === 0) return null
 
-  const timedOutSet = new Set(timedOutPlayerIds)
-  const remainingMemberIds = lobby.memberPlayerIds.filter(playerId => !timedOutSet.has(playerId))
+  const recovered = await reopenLobbyAfterCancelledDraft(kv, lobby, state, {
+    ...options,
+    removedPlayerIds: timedOutPlayerIds,
+  })
+  if (!recovered) return null
+
+  return {
+    ...recovered,
+    timedOutPlayerIds,
+  }
+}
+
+export async function reopenLobbyAfterCancelledDraft(
+  kv: KVNamespace,
+  lobby: LobbyState,
+  state: DraftState,
+  options?: {
+    removedPlayerIds?: string[]
+    draftRoster?: QueueEntry[]
+    now?: number
+  },
+): Promise<LobbyCancelledRecoveryResult | null> {
+  const removedPlayerIds = normalizeRemovedPlayerIds(options?.removedPlayerIds ?? [], lobby.memberPlayerIds)
+  const removedSet = new Set(removedPlayerIds)
+  const remainingMemberIds = lobby.memberPlayerIds.filter(playerId => !removedSet.has(playerId))
   if (remainingMemberIds.length === 0) return null
 
   const remainingMemberSet = new Set(remainingMemberIds)
   const nextSlots = lobby.slots.map((playerId) => {
-    if (!playerId || timedOutSet.has(playerId)) return null
+    if (!playerId || removedSet.has(playerId)) return null
     return playerId
   })
   const slottedPlayerIds = nextSlots.filter((playerId): playerId is string => playerId != null)
@@ -89,7 +114,7 @@ export async function reopenLobbyAfterTimedOutDraft(
   return {
     lobby: nextLobby,
     queueEntries,
-    timedOutPlayerIds,
+    removedPlayerIds,
   }
 }
 
@@ -189,4 +214,18 @@ function normalizeQueueEntries(value: unknown): QueueEntry[] {
   }
 
   return entries
+}
+
+function normalizeRemovedPlayerIds(playerIds: string[], memberPlayerIds: string[]): string[] {
+  const memberSet = new Set(memberPlayerIds)
+  const normalized: string[] = []
+  const seen = new Set<string>()
+
+  for (const playerId of playerIds) {
+    if (!memberSet.has(playerId) || seen.has(playerId)) continue
+    normalized.push(playerId)
+    seen.add(playerId)
+  }
+
+  return normalized
 }

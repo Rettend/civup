@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { lobbyResultEmbed } from '../../src/embeds/match.ts'
+import { lobbyCancelledEmbed, lobbyOpenEmbed, lobbyResultEmbed } from '../../src/embeds/match.ts'
 
 describe('match result embed', () => {
   test('limits leaderboard movement lines to tracked top ranks while always keeping new entrants', () => {
@@ -53,5 +53,15 @@ describe('match result embed', () => {
     expect(fields).toContain('🆕 <@100010000000000003> entered at `#12`')
     expect(fields).toContain('Rank Roles')
     expect(fields).toContain('<@&1> -> <@&2>')
+  })
+
+  test('shows the BBG data version in the footer when provided', () => {
+    const openEmbed = lobbyOpenEmbed('2v2', [null, null, null, null], 4, null, null, 'beta').toJSON()
+    const resultEmbed = lobbyResultEmbed('ffa', []).toJSON()
+    const cancelledEmbed = lobbyCancelledEmbed('2v2', [], 'scrub', undefined, 'live').toJSON()
+
+    expect(openEmbed.footer?.text).toBe('BBG Beta')
+    expect(resultEmbed.footer).toBeUndefined()
+    expect(cancelledEmbed.footer).toBeUndefined()
   })
 })

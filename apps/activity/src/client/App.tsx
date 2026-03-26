@@ -11,7 +11,7 @@ import type {
 import { createEffect, createSignal, Match, onCleanup, onMount, Show, Switch, untrack } from 'solid-js'
 import { activityTargetOptionKey, ActivityTargetPicker, ConfigScreen, DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
-import { didClearResolvedActivityTarget, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from './lib/activity-targets'
+import { activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, type ActivityTargetDescriptor } from './lib/activity-targets'
 import { cn } from './lib/css'
 import { relayDevLog } from './lib/dev-log'
 import {
@@ -77,6 +77,7 @@ export default function App() {
   const [pickerError, setPickerError] = createSignal<string | null>(null)
   const [lastResolvedSelection, setLastResolvedSelection] = createSignal<ActivityLaunchSelection | null>(null)
   const [fallbackOptions, setFallbackOptions] = createSignal<ActivityTargetOption[]>([])
+  const [clearedTarget, setClearedTarget] = createSignal<ActivityTargetDescriptor>(null)
   const [overviewPinned, setOverviewPinned] = createSignal(false)
   const [liveOverviewSnapshot, setLiveOverviewSnapshot] = createSignal<ActivityOverviewSnapshot | null | undefined>(undefined)
   const [liveTargetState, setLiveTargetState] = createSignal<LiveActivityTargetState | null | undefined>(undefined)
@@ -158,6 +159,17 @@ export default function App() {
     return activityTargetOptionKey(lastSelection.option)
   }
 
+  const currentTargetDescriptor = (): ActivityTargetDescriptor => {
+    const current = state()
+    if (current.status === 'lobby-waiting') return { kind: 'lobby', id: current.lobby.id }
+    if (current.status === 'authenticated') return { kind: 'match', id: current.matchId }
+    const lastSelection = lastResolvedSelection()
+    if (!lastSelection) return null
+    return { kind: lastSelection.option.kind, id: lastSelection.option.id }
+  }
+
+  const visibleTargetOptions = (options: readonly ActivityTargetOption[]) => filterClearedActivityTargetOptions(options, clearedTarget())
+
   const openOverview = () => {
     const current = state()
     const hadTerminalDraft = draftStore.state?.status === 'complete' || draftStore.state?.status === 'cancelled'
@@ -236,9 +248,10 @@ export default function App() {
     const targetState = liveTargetState()
     if (!currentUserId || overviewSnapshot === undefined || targetState === undefined) return
 
-    const options = overviewSnapshot
+    const rawOptions = overviewSnapshot
       ? materializeOverviewOptions(overviewSnapshot, currentUserId)
       : fallbackOptions()
+    const options = visibleTargetOptions(rawOptions)
     const resolvedSnapshot = buildLiveActivityLaunchSnapshot(options, targetState, liveLobbySnapshots, currentUserId)
     const targetOption = targetState
       ? options.find(option => activityTargetOptionKey(option) === activityTargetOptionKey(targetState)) ?? null
@@ -299,16 +312,22 @@ export default function App() {
 
     if (key === activityTargetStateKey(currentUserId, channelId)) {
       const previousTargetState = liveTargetState()
+      const hadAppliedSelection = state().status === 'authenticated' || state().status === 'lobby-waiting'
       const nextTargetState = op === 'put' ? parseActivityTargetState(value) : null
+      const clearedResolvedTarget = didClearResolvedActivityTarget(previousTargetState, nextTargetState)
+        || (nextTargetState == null && hadAppliedSelection)
 
-      if (didClearResolvedActivityTarget(previousTargetState, nextTargetState)) {
+      if (clearedResolvedTarget) {
+        setClearedTarget(previousTargetState ?? currentTargetDescriptor())
         suppressAutoSelection = true
         pendingTargetSelectionKey = null
         selectionRequestVersion += 1
         setPickerBusy(false)
         setPickerError(null)
+        void requestActivityLaunchSnapshotRefresh()
       }
       else if (nextTargetState) {
+        setClearedTarget(null)
         suppressAutoSelection = false
       }
 
@@ -356,12 +375,19 @@ export default function App() {
   })
 
   const hydrateActivityLaunchSnapshot = (snapshot: ActivityLaunchSnapshot) => {
-    setFallbackOptions(snapshot.options)
-    if (snapshot.selection?.kind === 'lobby') {
-      liveLobbySnapshots.set(snapshot.selection.lobby.id, snapshot.selection.lobby)
+    const filteredSnapshot: ActivityLaunchSnapshot = {
+      selection: snapshot.selection && activityTargetsMatch(snapshot.selection.option, clearedTarget())
+        ? null
+        : snapshot.selection,
+      options: visibleTargetOptions(snapshot.options),
+    }
+
+    setFallbackOptions(filteredSnapshot.options)
+    if (filteredSnapshot.selection?.kind === 'lobby') {
+      liveLobbySnapshots.set(filteredSnapshot.selection.lobby.id, filteredSnapshot.selection.lobby)
       setLiveLobbySnapshotVersion(version => version + 1)
     }
-    applyLaunchSnapshot(snapshot)
+    applyLaunchSnapshot(filteredSnapshot)
   }
 
   const refreshActivityLaunchSnapshot = async (channelId: string, userId: string) => {
@@ -466,10 +492,16 @@ export default function App() {
     autoStart = false,
     allowSelectionWhileOverview = false,
   ) => {
+    const filteredSnapshot: ActivityLaunchSnapshot = {
+      selection: snapshot.selection && activityTargetsMatch(snapshot.selection.option, clearedTarget())
+        ? null
+        : snapshot.selection,
+      options: visibleTargetOptions(snapshot.options),
+    }
     const current = state()
-    setAvailableTargets(snapshot.options)
+    setAvailableTargets(filteredSnapshot.options)
 
-    if (!snapshot.selection) {
+    if (!filteredSnapshot.selection) {
       setPickerError(null)
 
       if (shouldHoldAuthenticatedDraftState()) return
@@ -483,19 +515,19 @@ export default function App() {
       return
     }
 
-    if (current.status === 'authenticated' && snapshot.selection.kind === 'lobby' && shouldHoldAuthenticatedDraftState('lobby')) return
+    if (current.status === 'authenticated' && filteredSnapshot.selection.kind === 'lobby' && shouldHoldAuthenticatedDraftState('lobby')) return
 
-    setLastResolvedSelection(snapshot.selection)
+    setLastResolvedSelection(filteredSnapshot.selection)
 
     if (!shouldApplyResolvedActivitySelection({
       isOverviewVisible: current.status === 'overview',
       allowSelectionWhileOverview,
     })) { return }
 
-    if (snapshot.selection.kind === 'lobby') {
-      const nextLobby = snapshot.selection.lobby
-      const joinPending = snapshot.selection.pendingJoin
-      const joinEligibility = snapshot.selection.joinEligibility
+    if (filteredSnapshot.selection.kind === 'lobby') {
+      const nextLobby = filteredSnapshot.selection.lobby
+      const joinPending = filteredSnapshot.selection.pendingJoin
+      const joinEligibility = filteredSnapshot.selection.joinEligibility
       setPickerError(null)
 
       if (current.status === 'authenticated') {
@@ -519,9 +551,9 @@ export default function App() {
       return
     }
 
-    transitionToDraft(snapshot.selection.matchId, autoStart, snapshot.selection.steamLobbyLink, snapshot.selection.roomAccessToken, {
-      lobbyId: snapshot.selection.lobbyId ?? snapshot.selection.option.lobbyId,
-      lobbyMode: snapshot.selection.mode ?? snapshot.selection.option.mode,
+    transitionToDraft(filteredSnapshot.selection.matchId, autoStart, filteredSnapshot.selection.steamLobbyLink, filteredSnapshot.selection.roomAccessToken, {
+      lobbyId: filteredSnapshot.selection.lobbyId ?? filteredSnapshot.selection.option.lobbyId,
+      lobbyMode: filteredSnapshot.selection.mode ?? filteredSnapshot.selection.option.mode,
     })
   }
 

@@ -8,7 +8,7 @@ import { formatModeLabel, maxPlayerCount } from '@civup/game'
 import { createDraftRoomAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { clearUserActivityTargets, getLobbyForUser, getMatchForChannel, getMatchForUser, getUserActivityTarget, storeUserActivityTarget, storeUserMatchMappings } from '../services/activity/index.ts'
-import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbyById, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
+import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
 import { getPlayerQueueMode, getPlayerQueueModeFromStates, getQueueStates } from '../services/queue/index.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
@@ -226,26 +226,55 @@ export function registerActivityRoutes(app: Hono<Env>) {
     }
 
     const kv = createStateStore(c.env)
-    const actualUserId = auth.identity.userId
-    const context = await loadActivityLaunchContext(c.env.DISCORD_TOKEN, kv, channelId, actualUserId)
-    const target = context.targets.find(candidate => candidate.option.kind === kind && candidate.option.id === id)
-    if (!target) {
-      await clearUserActivityTargets(kv, channelId, [actualUserId])
-      return c.json({ error: 'That target is no longer available.' }, 409)
+    const result = await selectActivityTargetForUser(kv, channelId, auth.identity.userId, {
+      kind,
+      id,
+      activitySecret: c.env.CIVUP_SECRET,
+    })
+    if (!result.ok) {
+      return c.json({ error: result.error }, result.status)
     }
 
-    await storeUserActivityTarget(kv, channelId, [actualUserId], kind === 'match'
-      ? {
-          kind: 'match',
-          id,
-          lobbyId: target.lobby.id,
-          mode: target.option.mode,
-          steamLobbyLink: target.lobby.steamLobbyLink,
-          activitySecret: c.env.CIVUP_SECRET,
-        }
-      : { kind: 'lobby', id })
     return c.json({ ok: true })
   })
+}
+
+export async function selectActivityTargetForUser(
+  kv: KVNamespace,
+  channelId: string,
+  userId: string,
+  target: {
+    kind: 'lobby' | 'match'
+    id: string
+    activitySecret?: string | undefined
+  },
+): Promise<{ ok: true } | { ok: false, error: string, status: 409 }> {
+  if (target.kind === 'lobby') {
+    const lobby = await getLobbyById(kv, target.id)
+    if (!lobby || lobby.channelId !== channelId || lobby.status !== 'open') {
+      await clearUserActivityTargets(kv, channelId, [userId])
+      return { ok: false, error: 'That target is no longer available.', status: 409 }
+    }
+
+    await storeUserActivityTarget(kv, channelId, [userId], { kind: 'lobby', id: target.id })
+    return { ok: true }
+  }
+
+  const lobby = await getLobbyByMatch(kv, target.id)
+  if (!lobby || lobby.channelId !== channelId || (lobby.status !== 'drafting' && lobby.status !== 'active')) {
+    await clearUserActivityTargets(kv, channelId, [userId])
+    return { ok: false, error: 'That target is no longer available.', status: 409 }
+  }
+
+  await storeUserActivityTarget(kv, channelId, [userId], {
+    kind: 'match',
+    id: target.id,
+    lobbyId: lobby.id,
+    mode: lobby.mode,
+    steamLobbyLink: lobby.steamLobbyLink,
+    activitySecret: target.activitySecret,
+  })
+  return { ok: true }
 }
 
 export async function buildActivityLaunchSnapshot(
@@ -321,10 +350,6 @@ async function serializeActivityLaunchSelection(
       option: selection.target.option,
       pendingJoin: selection.pendingJoin,
       joinEligibility: await resolveLobbyJoinEligibility(token, kv, userId, selection.target.lobby, lobby, {
-        existingLobby: findOpenLobbyForPlayerInMode(
-          context.lobbiesByMode.get(selection.target.lobby.mode) ?? [],
-          userId,
-        ),
         existingQueueMode: getPlayerQueueModeFromStates(context.queueStates.values(), userId),
       }),
       lobby,
@@ -347,7 +372,6 @@ export async function resolveLobbyJoinEligibility(
   lobby: LobbyState,
   lobbySnapshot: Awaited<ReturnType<typeof buildOpenLobbySnapshot>>,
   options?: {
-    existingLobby?: LobbyState | null
     existingQueueMode?: GameMode | null
   },
 ): Promise<LobbyJoinEligibility> {
@@ -367,13 +391,18 @@ export async function resolveLobbyJoinEligibility(
     }
   }
 
-  const existingLobby = options?.existingLobby !== undefined
-    ? options.existingLobby
-    : await getOpenLobbyForPlayer(kv, userId, lobby.mode)
-  if (existingLobby && existingLobby.id !== lobby.id) {
+  const otherCurrentLobbies = await getCurrentLobbiesForPlayer(kv, userId, {
+    excludeLobbyIds: [lobby.id],
+  })
+  const blockingLobby = otherCurrentLobbies.find(candidate => candidate.status !== 'open') ?? otherCurrentLobbies[0] ?? null
+  if (blockingLobby) {
     return {
       canJoin: false,
-      blockedReason: 'You are already in another open lobby.',
+      blockedReason: blockingLobby.status === 'open'
+        ? blockingLobby.mode === lobby.mode
+          ? 'You are already in another open lobby.'
+          : `You're already in a ${formatModeLabel(blockingLobby.mode)} lobby.`
+        : 'You are already in a live match.',
       pendingSlot: null,
     }
   }
@@ -476,10 +505,6 @@ async function loadActivityLaunchContext(
     queueStates,
     lobbiesByMode,
   }
-}
-
-function findOpenLobbyForPlayerInMode(lobbies: readonly LobbyState[], userId: string): LobbyState | null {
-  return lobbies.find(lobby => lobby.status === 'open' && lobby.memberPlayerIds.includes(userId)) ?? null
 }
 
 function countFilledSlots(slots: (string | null)[]): number {

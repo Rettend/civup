@@ -1,6 +1,6 @@
 import type { ActivityTargetOption } from '../src/client/stores'
 import { describe, expect, test } from 'bun:test'
-import { didClearResolvedActivityTarget, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from '../src/client/lib/activity-targets'
+import { activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from '../src/client/lib/activity-targets'
 
 const joinedMatch: ActivityTargetOption = {
   kind: 'match',
@@ -62,6 +62,15 @@ describe('activity target helpers', () => {
     expect(selected).toBeNull()
   })
 
+  test('matches activity targets by kind and id', () => {
+    expect(activityTargetsMatch(joinedMatch, { kind: 'match', id: 'match-1' })).toBe(true)
+    expect(activityTargetsMatch(joinedMatch, { kind: 'lobby', id: 'match-1' })).toBe(false)
+  })
+
+  test('filters a cleared target out of the available options', () => {
+    expect(filterClearedActivityTargetOptions([staleLobby, joinedMatch], joinedMatch)).toEqual([staleLobby])
+  })
+
   test('does not auto-select while the overview is pinned open', () => {
     const selected = resolveAutoSelectedActivityTarget({
       options: [joinedMatch],
@@ -109,9 +118,42 @@ describe('activity target helpers', () => {
     })).toBe(false)
   })
 
+  test('releases a reverted draft when the target switches back to the lobby', () => {
+    expect(shouldHoldAuthenticatedDraftStateForSelection({
+      nextSelectionKind: 'lobby',
+      hasInFlightConnection: false,
+      draftState: {
+        status: 'cancelled',
+        cancelReason: 'revert',
+      },
+    })).toBe(false)
+  })
+
+  test('releases a completed draft when the target is cleared', () => {
+    expect(shouldHoldAuthenticatedDraftStateForSelection({
+      nextSelectionKind: null,
+      hasInFlightConnection: false,
+      draftState: {
+        status: 'complete',
+        cancelReason: null,
+      },
+    })).toBe(false)
+  })
+
   test('keeps manual scrubs on the draft result screen', () => {
     expect(shouldHoldAuthenticatedDraftStateForSelection({
       nextSelectionKind: 'lobby',
+      hasInFlightConnection: false,
+      draftState: {
+        status: 'cancelled',
+        cancelReason: 'scrub',
+      },
+    })).toBe(true)
+  })
+
+  test('keeps scrubbed drafts on screen when the target is cleared', () => {
+    expect(shouldHoldAuthenticatedDraftStateForSelection({
+      nextSelectionKind: null,
       hasInFlightConnection: false,
       draftState: {
         status: 'cancelled',

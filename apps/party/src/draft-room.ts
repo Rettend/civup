@@ -339,8 +339,13 @@ export class Main extends Server<PartyEnv> {
           return
         }
 
-        if (msg.reason !== 'cancel' && msg.reason !== 'scrub') {
+        if (msg.reason !== 'cancel' && msg.reason !== 'scrub' && msg.reason !== 'revert') {
           this.send(sender, { type: 'error', message: 'Invalid cancel reason' })
+          return
+        }
+
+        if (msg.reason === 'revert' && state.status !== 'active') {
+          this.send(sender, { type: 'error', message: 'Draft can only be reverted during an active draft' })
           return
         }
 

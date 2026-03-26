@@ -9,7 +9,7 @@ import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDra
 import { clearLobbyAndActivityMappings, clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
-import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
+import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
@@ -23,7 +23,7 @@ import { createStateStore } from '../../services/state/store.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
 import { factory } from '../../setup.ts'
-import { buildFfaPlacementOptions, collectFfaPlacementUserIds, getIdentity, getIdentityByUserId, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
+import { buildFfaPlacementOptions, collectFfaPlacementUserIds, findLiveMatchIdsForPlayers, getIdentity, getIdentityByUserId, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
 
 const MATCH_MODE_CHOICES = GAME_MODE_CHOICES
 const MATCH_BUMP_RESPONSE_DELETE_MS = 5_000
@@ -44,11 +44,12 @@ export const command_match = factory.command<MatchVar>(
       new Option('teammate2', 'Second teammate for 3v3/4v4', 'User'),
       new Option('teammate3', 'Third teammate for 4v4', 'User'),
     ),
+    new SubCommand('activity', 'Open the CivUp activity for this channel'),
     new SubCommand('cancel', 'Cancel your hosted open or live lobby').options(
       new Option('match_id', 'Optional match or lobby ID override'),
     ),
     new SubCommand('leave', 'Leave the current queue'),
-    new SubCommand('bump', 'Post a fresh embed for your current lobby or match').options(
+    new SubCommand('bump', 'Repost the embed for your current lobby').options(
       new Option('match_id', 'Optional match or lobby ID override'),
     ),
     new SubCommand('status', 'Show all active lobbies'),
@@ -104,11 +105,11 @@ export const command_match = factory.command<MatchVar>(
               return
             }
 
-            const existingHostedLobby = await findHostedOpenLobby(kv, identity.userId)
-            if (existingHostedLobby) {
+            const currentHostedLobby = await getCurrentLobbyHostedBy(kv, identity.userId)
+            if (currentHostedLobby?.status === 'open') {
               const updatedLobby = steamLobbyLink !== null
-                ? (await setLobbySteamLobbyLink(kv, existingHostedLobby.id, steamLobbyLink, existingHostedLobby) ?? existingHostedLobby)
-                : existingHostedLobby
+                ? (await setLobbySteamLobbyLink(kv, currentHostedLobby.id, steamLobbyLink, currentHostedLobby) ?? currentHostedLobby)
+                : currentHostedLobby
 
               await storeUserLobbyState(kv, updatedLobby.channelId, [identity.userId], updatedLobby.id)
               await sendTransientEphemeralResponse(
@@ -117,6 +118,36 @@ export const command_match = factory.command<MatchVar>(
                   ? `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>. Updated its Steam lobby link.`
                   : `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>.`,
                 'info',
+              )
+              return
+            }
+
+            if (currentHostedLobby) {
+              await sendTransientEphemeralResponse(
+                c,
+                'You are already in a live match. Finish or cancel it before creating a new lobby.',
+                'error',
+              )
+              return
+            }
+
+            const existingQueueMode = await getPlayerQueueMode(kv, identity.userId)
+            if (existingQueueMode) {
+              await sendTransientEphemeralResponse(
+                c,
+                `You are already in an open ${formatModeLabel(existingQueueMode)} lobby. Leave it first with \`/match leave\`.`,
+                'error',
+              )
+              return
+            }
+
+            const db = createDb(c.env.DB)
+            const liveMatchIdByPlayer = await findLiveMatchIdsForPlayers(db, [identity.userId])
+            if (liveMatchIdByPlayer.has(identity.userId)) {
+              await sendTransientEphemeralResponse(
+                c,
+                'You are already in a live match. Finish or cancel it before creating a new lobby.',
+                'error',
               )
               return
             }
@@ -140,7 +171,7 @@ export const command_match = factory.command<MatchVar>(
             const nextQueue = result.state ?? queue
             const previewSlots = Array.from({ length: maxPlayerCount(mode) }, (_, index) => index === 0 ? identity.userId : null)
             const previewEntries = mapLobbySlotsToEntries(previewSlots, nextQueue.entries.filter(entry => entry.playerId === identity.userId))
-            const embed = lobbyOpenEmbed(mode, previewEntries, maxPlayerCount(mode))
+            const embed = lobbyOpenEmbed(mode, previewEntries, maxPlayerCount(mode), undefined, undefined, 'live')
 
             try {
               const message = await createChannelMessage(c.env.DISCORD_TOKEN, draftChannelId, {
@@ -290,13 +321,16 @@ export const command_match = factory.command<MatchVar>(
           })
         }
 
-        if (joinRequest.teammateIds.length > 0) {
-          const db = createDb(c.env.DB)
-          const teammatesInLiveMatch = await findPlayersInLiveMatches(db, kv, joinRequest.teammateIds)
-          if (teammatesInLiveMatch.length > 0) {
-            const mentions = teammatesInLiveMatch.map(playerId => `<@${playerId}>`).join(', ')
+        const db = createDb(c.env.DB)
+        const liveMatchIdByPlayer = await findLiveMatchIdsForPlayers(db, joinRequest.entries.map(entry => entry.playerId))
+        if (liveMatchIdByPlayer.size > 0) {
+          const playersInLiveMatch = joinRequest.entries
+            .map(entry => entry.playerId)
+            .filter(playerId => liveMatchIdByPlayer.has(playerId))
+          if (playersInLiveMatch.length > 0) {
+            const mentions = playersInLiveMatch.map(playerId => `<@${playerId}>`).join(', ')
             return c.flags('EPHEMERAL').resDefer(async (c) => {
-              await sendTransientEphemeralResponse(c, `${mentions} ${teammatesInLiveMatch.length === 1 ? 'is' : 'are'} already in a live match.`, 'error')
+              await sendTransientEphemeralResponse(c, `${mentions} ${playersInLiveMatch.length === 1 ? 'is' : 'are'} already in a live match.`, 'error')
             })
           }
         }
@@ -306,6 +340,7 @@ export const command_match = factory.command<MatchVar>(
             c,
             mode,
             joinRequest.entries,
+            { liveMatchPlayerIds: new Set(liveMatchIdByPlayer.keys()) },
           )
           if ('error' in outcome) {
             await sendTransientEphemeralResponse(c, outcome.error, 'error')
@@ -331,6 +366,11 @@ export const command_match = factory.command<MatchVar>(
             await sendTransientEphemeralResponse(c, 'Joined queue, but failed to update lobby embed.', 'error')
           }
         })
+      }
+
+      // ── activity ────────────────────────────────
+      case 'activity': {
+        return c.resActivity()
       }
 
       // ── cancel ──────────────────────────────────────────
@@ -382,7 +422,7 @@ export const command_match = factory.command<MatchVar>(
 
             try {
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-                embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'cancel')],
+                embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'cancel', undefined, lobby.draftConfig.leaderDataVersion)],
                 components: [],
               })
               await storeMatchMessageMapping(db, lobby.messageId, matchId)
@@ -798,7 +838,9 @@ export const command_match = factory.command<MatchVar>(
           if (lobby) {
             try {
               const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-                embeds: [lobbyResultEmbed(lobby.mode, result.participants, undefined, { rankedRoleLines })],
+                embeds: [lobbyResultEmbed(lobby.mode, result.participants, undefined, {
+                  rankedRoleLines,
+                })],
                 components: [],
               })
               await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
@@ -813,7 +855,9 @@ export const command_match = factory.command<MatchVar>(
           if (archiveChannelId) {
             try {
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-                embeds: [lobbyResultEmbed(reportedMode, result.participants, undefined, { rankedRoleLines })],
+                embeds: [lobbyResultEmbed(reportedMode, result.participants, undefined, {
+                  rankedRoleLines,
+                })],
               })
               await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
             }
@@ -872,7 +916,7 @@ async function buildLobbyBumpRenderPayload(
   if (lobby.status === 'drafting') {
     const draftRoster = await getLobbyDraftRoster(kv, lobby.id)
     return {
-      embeds: [lobbyDraftingEmbed(lobby.mode, buildDraftSeatsFromLobby(lobby, draftRoster))],
+      embeds: [lobbyDraftingEmbed(lobby.mode, buildDraftSeatsFromLobby(lobby, draftRoster), lobby.draftConfig.leaderDataVersion)],
       components: lobbyComponents(lobby.mode, lobby.id),
     }
   }
@@ -890,7 +934,7 @@ async function buildLobbyBumpRenderPayload(
     }
 
     return {
-      embeds: [lobbyDraftCompleteEmbed(lobby.mode, orderLobbyParticipantsBySlots(lobby, participants))],
+      embeds: [lobbyDraftCompleteEmbed(lobby.mode, orderLobbyParticipantsBySlots(lobby, participants), lobby.draftConfig.leaderDataVersion)],
       components: lobbyComponents(lobby.mode, lobby.id),
     }
   }
@@ -1011,42 +1055,6 @@ function buildMatchJoinRequest(
   }
 
   return { entries, teammateIds }
-}
-
-async function findPlayersInLiveMatches(
-  db: ReturnType<typeof createDb>,
-  kv: KVNamespace,
-  playerIds: string[],
-): Promise<string[]> {
-  const uniquePlayerIds = [...new Set(playerIds)]
-  const livePlayers = new Set<string>()
-  const unresolvedPlayerIds: string[] = []
-
-  for (const playerId of uniquePlayerIds) {
-    const mappedMatchId = await getMatchForUser(kv, playerId)
-    if (mappedMatchId) {
-      livePlayers.add(playerId)
-      continue
-    }
-    unresolvedPlayerIds.push(playerId)
-  }
-
-  if (unresolvedPlayerIds.length > 0) {
-    const rows = await db
-      .select({ playerId: matchParticipants.playerId })
-      .from(matchParticipants)
-      .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-      .where(and(
-        inArray(matchParticipants.playerId, unresolvedPlayerIds),
-        inArray(matches.status, ['drafting', 'active']),
-      ))
-
-    for (const row of rows) {
-      livePlayers.add(row.playerId)
-    }
-  }
-
-  return uniquePlayerIds.filter(playerId => livePlayers.has(playerId))
 }
 
 async function findHostedOpenLobby(kv: KVNamespace, hostId: string) {
@@ -1189,7 +1197,7 @@ async function cancelHostedOpenLobby(
   await clearLobbyMappingsIfMatchingLobby(kv, lobbyQueueEntries.map(entry => entry.playerId), lobby.id, lobby.channelId)
   try {
     await upsertLobbyMessage(kv, token, lobby, {
-      embeds: [lobbyCancelledEmbed(lobby.mode, buildCancelledLobbyParticipants(lobby, lobbyQueueEntries), 'cancel')],
+      embeds: [lobbyCancelledEmbed(lobby.mode, buildCancelledLobbyParticipants(lobby, lobbyQueueEntries), 'cancel', undefined, lobby.draftConfig.leaderDataVersion)],
       components: [],
     })
   }

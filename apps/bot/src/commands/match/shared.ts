@@ -1,3 +1,4 @@
+import { createDb, matches, matchParticipants } from '@civup/db'
 import type { GameMode, QueueEntry } from '@civup/game'
 import type { Embed } from 'discord-hono'
 import type { lobbyComponents } from '../../embeds/match.ts'
@@ -5,6 +6,7 @@ import type { LobbyState } from '../../services/lobby/index.ts'
 import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode, maxPlayerCount, teamSize as modeTeamSize } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
+import { and, eq, inArray } from 'drizzle-orm'
 import { filterQueueEntriesForLobby, getLobbiesByMode, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
@@ -30,7 +32,7 @@ export type FfaPlacementKey = (typeof FFA_PLACEMENT_KEYS)[number]
 
 export const LOBBY_STATUS_LABELS = {
   open: 'Lobby Open',
-  drafting: 'Draft Ready',
+  drafting: 'Drafting',
   active: 'Draft Complete',
   completed: 'Result Reported',
   cancelled: 'Draft Cancelled',
@@ -155,6 +157,7 @@ export async function joinLobbyAndMaybeStartMatch(
   options?: {
     preferredLobbyId?: string
     skipMatchmakingRankGate?: boolean
+    liveMatchPlayerIds?: ReadonlySet<string>
   },
 ): Promise<
   | {
@@ -199,6 +202,10 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   for (const entry of requestedEntries) {
+    if (options?.liveMatchPlayerIds?.has(entry.playerId)) {
+      return { error: `<@${entry.playerId}> is already in a live match.` }
+    }
+
     const existingMode = queueByPlayerId.has(entry.playerId) ? mode : (queueModeByPlayerId.get(entry.playerId) ?? null)
     if (!existingMode || existingMode === mode) continue
     return {
@@ -214,6 +221,11 @@ export async function joinLobbyAndMaybeStartMatch(
 
   if (existingLobbyIds.length > 1) {
     return { error: 'This premade is already split across different open lobbies.' }
+  }
+
+  const preferredLobbyId = options?.preferredLobbyId ?? existingLobbyIds[0] ?? null
+  if (preferredLobbyId && existingLobbyIds.length === 1 && existingLobbyIds[0] !== preferredLobbyId) {
+    return { error: 'You are already in another open lobby.' }
   }
 
   const nextEntries = [...queue.entries]
@@ -267,7 +279,6 @@ export async function joinLobbyAndMaybeStartMatch(
     return { error: `No open ${formatModeLabel(mode)} lobby. Use \`/match create\` first.` }
   }
 
-  const preferredLobbyId = options?.preferredLobbyId ?? existingLobbyIds[0] ?? null
   const candidateLobbies = preferredLobbyId
     ? openLobbies.filter(lobby => lobby.id === preferredLobbyId)
     : openLobbies
@@ -358,6 +369,34 @@ export async function joinLobbyAndMaybeStartMatch(
     embeds: renderPayload.embeds,
     components: renderPayload.components,
   }
+}
+
+export async function findLiveMatchIdsForPlayers(
+  db: ReturnType<typeof createDb>,
+  playerIds: string[],
+): Promise<Map<string, string>> {
+  const uniquePlayerIds = [...new Set(playerIds)]
+  if (uniquePlayerIds.length === 0) return new Map()
+
+  const rows = await db
+    .select({
+      playerId: matchParticipants.playerId,
+      matchId: matchParticipants.matchId,
+    })
+    .from(matchParticipants)
+    .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+    .where(and(
+      inArray(matchParticipants.playerId, uniquePlayerIds),
+      inArray(matches.status, ['drafting', 'active']),
+    ))
+
+  const liveMatchIdByPlayerId = new Map<string, string>()
+  for (const row of rows) {
+    if (!liveMatchIdByPlayerId.has(row.playerId)) {
+      liveMatchIdByPlayerId.set(row.playerId, row.matchId)
+    }
+  }
+  return liveMatchIdByPlayerId
 }
 
 async function getRoleGateErrorForLobby(

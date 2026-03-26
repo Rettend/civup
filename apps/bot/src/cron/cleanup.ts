@@ -1,7 +1,7 @@
 import { createDb } from '@civup/db'
 import { refreshDirtyLeaderboards } from '../services/leaderboard/message.ts'
 import { pruneInactiveOpenLobbies } from '../services/lobby/index.ts'
-import { pruneAbandonedMatches } from '../services/match/index.ts'
+import { pruneAbandonedMatches, sendOverdueHostReportReminders } from '../services/match/index.ts'
 import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, syncRankedRoles } from '../services/ranked/role-sync.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { factory } from '../setup.ts'
@@ -14,6 +14,7 @@ export const cron_cleanup = factory.cron(
 
     const removed = await pruneInactiveOpenLobbies(kv, c.env.DISCORD_TOKEN)
     const prunedMatches = await pruneAbandonedMatches(db, kv)
+    const reminderResult = await sendOverdueHostReportReminders(db, kv, c.env.DISCORD_TOKEN)
 
     if (removed.length > 0) {
       // eslint-disable-next-line no-console
@@ -23,6 +24,11 @@ export const cron_cleanup = factory.cron(
     if (prunedMatches.removedMatchIds.length > 0) {
       // eslint-disable-next-line no-console
       console.log(`[cron] Pruned ${prunedMatches.removedMatchIds.length} abandoned matches`)
+    }
+
+    if (reminderResult.sentCount > 0) {
+      // eslint-disable-next-line no-console
+      console.log(`[cron] Sent ${reminderResult.sentCount} host report reminder DM(s)`)
     }
   },
 )
