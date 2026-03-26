@@ -44,6 +44,7 @@ export const command_match = factory.command<MatchVar>(
       new Option('teammate2', 'Second teammate for 3v3/4v4', 'User'),
       new Option('teammate3', 'Third teammate for 4v4', 'User'),
     ),
+    new SubCommand('activity', 'Open the CivUp activity for this channel'),
     new SubCommand('cancel', 'Cancel your hosted open or live lobby').options(
       new Option('match_id', 'Optional match or lobby ID override'),
     ),
@@ -170,7 +171,7 @@ export const command_match = factory.command<MatchVar>(
             const nextQueue = result.state ?? queue
             const previewSlots = Array.from({ length: maxPlayerCount(mode) }, (_, index) => index === 0 ? identity.userId : null)
             const previewEntries = mapLobbySlotsToEntries(previewSlots, nextQueue.entries.filter(entry => entry.playerId === identity.userId))
-            const embed = lobbyOpenEmbed(mode, previewEntries, maxPlayerCount(mode))
+            const embed = lobbyOpenEmbed(mode, previewEntries, maxPlayerCount(mode), undefined, undefined, 'live')
 
             try {
               const message = await createChannelMessage(c.env.DISCORD_TOKEN, draftChannelId, {
@@ -367,6 +368,11 @@ export const command_match = factory.command<MatchVar>(
         })
       }
 
+      // ── activity ────────────────────────────────
+      case 'activity': {
+        return c.resActivity()
+      }
+
       // ── cancel ──────────────────────────────────────────
       case 'cancel': {
         const identity = getIdentity(c)
@@ -416,7 +422,7 @@ export const command_match = factory.command<MatchVar>(
 
             try {
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-                embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'cancel')],
+                embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'cancel', undefined, lobby.draftConfig.leaderDataVersion)],
                 components: [],
               })
               await storeMatchMessageMapping(db, lobby.messageId, matchId)
@@ -832,7 +838,9 @@ export const command_match = factory.command<MatchVar>(
           if (lobby) {
             try {
               const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-                embeds: [lobbyResultEmbed(lobby.mode, result.participants, undefined, { rankedRoleLines })],
+                embeds: [lobbyResultEmbed(lobby.mode, result.participants, undefined, {
+                  rankedRoleLines,
+                })],
                 components: [],
               })
               await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
@@ -847,7 +855,9 @@ export const command_match = factory.command<MatchVar>(
           if (archiveChannelId) {
             try {
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-                embeds: [lobbyResultEmbed(reportedMode, result.participants, undefined, { rankedRoleLines })],
+                embeds: [lobbyResultEmbed(reportedMode, result.participants, undefined, {
+                  rankedRoleLines,
+                })],
               })
               await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
             }
@@ -906,7 +916,7 @@ async function buildLobbyBumpRenderPayload(
   if (lobby.status === 'drafting') {
     const draftRoster = await getLobbyDraftRoster(kv, lobby.id)
     return {
-      embeds: [lobbyDraftingEmbed(lobby.mode, buildDraftSeatsFromLobby(lobby, draftRoster))],
+      embeds: [lobbyDraftingEmbed(lobby.mode, buildDraftSeatsFromLobby(lobby, draftRoster), lobby.draftConfig.leaderDataVersion)],
       components: lobbyComponents(lobby.mode, lobby.id),
     }
   }
@@ -924,7 +934,7 @@ async function buildLobbyBumpRenderPayload(
     }
 
     return {
-      embeds: [lobbyDraftCompleteEmbed(lobby.mode, orderLobbyParticipantsBySlots(lobby, participants))],
+      embeds: [lobbyDraftCompleteEmbed(lobby.mode, orderLobbyParticipantsBySlots(lobby, participants), lobby.draftConfig.leaderDataVersion)],
       components: lobbyComponents(lobby.mode, lobby.id),
     }
   }
@@ -1187,7 +1197,7 @@ async function cancelHostedOpenLobby(
   await clearLobbyMappingsIfMatchingLobby(kv, lobbyQueueEntries.map(entry => entry.playerId), lobby.id, lobby.channelId)
   try {
     await upsertLobbyMessage(kv, token, lobby, {
-      embeds: [lobbyCancelledEmbed(lobby.mode, buildCancelledLobbyParticipants(lobby, lobbyQueueEntries), 'cancel')],
+      embeds: [lobbyCancelledEmbed(lobby.mode, buildCancelledLobbyParticipants(lobby, lobbyQueueEntries), 'cancel', undefined, lobby.draftConfig.leaderDataVersion)],
       components: [],
     })
   }

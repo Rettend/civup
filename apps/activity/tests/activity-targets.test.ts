@@ -109,6 +109,17 @@ describe('activity target helpers', () => {
     })).toBe(false)
   })
 
+  test('releases a reverted draft when the target switches back to the lobby', () => {
+    expect(shouldHoldAuthenticatedDraftStateForSelection({
+      nextSelectionKind: 'lobby',
+      hasInFlightConnection: false,
+      draftState: {
+        status: 'cancelled',
+        cancelReason: 'revert',
+      },
+    })).toBe(false)
+  })
+
   test('keeps manual scrubs on the draft result screen', () => {
     expect(shouldHoldAuthenticatedDraftStateForSelection({
       nextSelectionKind: 'lobby',

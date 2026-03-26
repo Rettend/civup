@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility, selectActivityTargetForUser } from '../../src/routes/activity.ts'
 import { buildOpenLobbySnapshot } from '../../src/routes/lobby/snapshot.ts'
-import { getUserActivityTarget, handoffLobbySpectatorsToMatchActivity, storeUserActivityTarget } from '../../src/services/activity/index.ts'
+import { getUserActivityTarget, handoffLobbySpectatorsToMatchActivity, storeUserActivityTarget, storeUserLobbyState } from '../../src/services/activity/index.ts'
 import { attachLobbyMatch, createLobby, getLobbyById, setLobbyMaxRole, setLobbyMinRole } from '../../src/services/lobby/index.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
@@ -316,6 +316,37 @@ describe('activity target selection', () => {
       joinedAt: Date.now(),
     })
     await storeUserActivityTarget(kv, 'channel-1', ['spectator-1'], { kind: 'lobby', id: lobby.id })
+    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    await handoffLobbySpectatorsToMatchActivity(kv, lobby.channelId, lobby.id, lobby.memberPlayerIds, {
+      matchId: 'match-1',
+      lobbyId: lobby.id,
+      mode: lobby.mode,
+      activitySecret: 'secret',
+    })
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1')
+    expect(snapshot.selection?.kind).toBe('match')
+    if (snapshot.selection?.kind !== 'match') return
+    expect(snapshot.selection.matchId).toBe('match-1')
+    expect(snapshot.selection.roomAccessToken).not.toBeNull()
+  })
+
+  test('spectator lobby-state mappings also hand off into the draft', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await storeUserLobbyState(kv, 'channel-1', ['spectator-1'], lobby.id)
     await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
     await handoffLobbySpectatorsToMatchActivity(kv, lobby.channelId, lobby.id, lobby.memberPlayerIds, {
       matchId: 'match-1',

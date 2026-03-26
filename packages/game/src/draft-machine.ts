@@ -387,7 +387,7 @@ function normalizeCancelReason(
   state: DraftState,
   reason: DraftCancelReason,
 ): DraftCancelReason {
-  if (state.status === 'waiting' && reason === 'scrub') return 'cancel'
+  if (state.status === 'waiting' && (reason === 'scrub' || reason === 'revert')) return 'cancel'
   if (state.status !== 'waiting' && reason === 'cancel') return 'scrub'
   return reason
 }

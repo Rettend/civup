@@ -152,9 +152,8 @@ describe('activity mapping behavior', () => {
     const { kv } = createTrackedKv()
 
     await storeUserLobbyState(kv, 'channel-1', ['host', 'player-1'], 'lobby-1')
-    await storeUserActivityTarget(kv, 'channel-1', ['spectator-1'], { kind: 'lobby', id: 'lobby-1' })
+    await storeUserLobbyState(kv, 'channel-1', ['spectator-1', 'spectator-2'], 'lobby-1')
     await storeUserActivityTarget(kv, 'channel-1', ['spectator-1'], { kind: 'lobby', id: 'lobby-2' })
-    await storeUserActivityTarget(kv, 'channel-1', ['spectator-2'], { kind: 'lobby', id: 'lobby-1' })
 
     await expect(handoffLobbySpectatorsToMatchActivity(kv, 'channel-1', 'lobby-1', ['host', 'player-1'], {
       matchId: 'match-1',

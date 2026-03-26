@@ -32,6 +32,7 @@ interface DraftViewProps {
 export function DraftView(props: DraftViewProps) {
   const state = () => draftStore.state
   const [autoStartSent, setAutoStartSent] = createSignal(false)
+  const [autoOpenedGridToken, setAutoOpenedGridToken] = createSignal<string | null>(null)
   const [showAutoStartSplash, setShowAutoStartSplash] = createSignal(Boolean(props.autoStart))
   const [steamLobbyLink, setSteamLobbyLink] = createSignal<string | null>(props.steamLobbyLink ?? null)
   const [steamLobbySavePending, setSteamLobbySavePending] = createSignal(false)
@@ -82,6 +83,22 @@ export function DraftView(props: DraftViewProps) {
   createEffect(() => {
     if (!isMiniView()) return
     setGridOpen(false)
+  })
+
+  createEffect(() => {
+    const current = state()
+    const seatIndex = draftStore.seatIndex
+    if (!current || current.status !== 'active' || seatIndex == null) {
+      setAutoOpenedGridToken(null)
+      return
+    }
+    if (isMiniView()) return
+
+    const nextToken = `${draftStore.initVersion}:${current.matchId}:${seatIndex}`
+    if (autoOpenedGridToken() === nextToken) return
+
+    setGridOpen(true)
+    setAutoOpenedGridToken(nextToken)
   })
 
   const isActiveOrComplete = () => state()?.status === 'active' || state()?.status === 'complete'
@@ -213,12 +230,14 @@ function CancelledDraftScreen(props: {
   const title = () => {
     if (reason() === 'cancel') return 'Draft Cancelled'
     if (reason() === 'timeout') return 'Draft Auto-Scrubbed'
+    if (reason() === 'revert') return 'Draft Reverted'
     return 'Match Scrubbed'
   }
 
   const detail = () => {
     if (reason() === 'cancel') return 'Host cancelled this draft before lock-in.'
     if (reason() === 'timeout') return 'A player timed out picking a leader.'
+    if (reason() === 'revert') return 'Host returned everyone to draft setup.'
     return 'Host scrubbed this match.'
   }
 

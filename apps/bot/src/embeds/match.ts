@@ -1,4 +1,4 @@
-import type { DraftCancelReason, DraftSeat, GameMode, QueueEntry } from '@civup/game'
+import type { DraftCancelReason, DraftSeat, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
 import { formatModeLabel, getLeader, isTeamMode } from '@civup/game'
 import { displayRating } from '@civup/rating'
 import { Button, Components, Embed } from 'discord-hono'
@@ -28,7 +28,7 @@ export type LobbyStage = 'open' | 'drafting' | 'draft-complete' | 'reported' | '
 
 const STAGE_LABELS: Record<LobbyStage, string> = {
   'open': 'LOBBY OPEN',
-  'drafting': 'DRAFT READY',
+  'drafting': 'DRAFTING',
   'draft-complete': 'DRAFT COMPLETE',
   'reported': 'RESULT REPORTED',
   'cancelled': 'DRAFT CANCELLED',
@@ -52,8 +52,9 @@ export function lobbyOpenEmbed(
   targetSize: number,
   minRoleId?: string | null,
   maxRoleId?: string | null,
+  leaderDataVersion?: LeaderDataVersion | null,
 ): Embed {
-  const embed = baseLobbyEmbed(mode, 'open')
+  const embed = baseLobbyEmbed(mode, 'open', leaderDataVersion)
   const rankFields = [
     minRoleId ? { name: 'Min Rank', value: `<@&${minRoleId}>`, inline: true } : null,
     maxRoleId ? { name: 'Max Rank', value: `<@&${maxRoleId}>`, inline: true } : null,
@@ -119,8 +120,8 @@ export function lobbyOpenEmbed(
   return rankFields.length > 0 ? embed.fields(...rankFields, ...fields) : embed.fields(...fields)
 }
 
-export function lobbyDraftingEmbed(mode: GameMode, seats: DraftSeat[]): Embed {
-  const embed = baseLobbyEmbed(mode, 'drafting')
+export function lobbyDraftingEmbed(mode: GameMode, seats: DraftSeat[], leaderDataVersion?: LeaderDataVersion | null): Embed {
+  const embed = baseLobbyEmbed(mode, 'drafting', leaderDataVersion)
   const hasTeams = seats.some(seat => seat.team != null)
 
   if (hasTeams) {
@@ -147,8 +148,9 @@ export function lobbyDraftingEmbed(mode: GameMode, seats: DraftSeat[]): Embed {
 export function lobbyDraftCompleteEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
+  leaderDataVersion?: LeaderDataVersion | null,
 ): Embed {
-  return lobbyDraftCompleteLeaderEmbed(mode, participants)
+  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'draft-complete', undefined, leaderDataVersion)
 }
 
 export function lobbyCancelledEmbed(
@@ -156,16 +158,24 @@ export function lobbyCancelledEmbed(
   participants: LobbyParticipant[],
   reason: DraftCancelReason,
   moderation?: ModerationContext,
+  leaderDataVersion?: LeaderDataVersion | null,
 ): Embed {
   const stage: 'cancelled' | 'scrubbed' = reason === 'cancel' ? 'cancelled' : 'scrubbed'
-  return lobbyDraftCompleteLeaderEmbed(mode, participants, stage, moderation)
+  return lobbyDraftCompleteLeaderEmbed(
+    mode,
+    participants,
+    stage,
+    moderation,
+    stage === 'scrubbed' ? undefined : leaderDataVersion,
+  )
 }
 
 export function lobbyTimeoutEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
+  leaderDataVersion?: LeaderDataVersion | null,
 ): Embed {
-  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'timeout')
+  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'timeout', undefined, leaderDataVersion)
 }
 
 export function lobbyResultEmbed(
@@ -184,10 +194,13 @@ export function lobbyComponents(mode: GameMode, lobbyId?: string): Components {
   )
 }
 
-function baseLobbyEmbed(mode: GameMode, stage: LobbyStage): Embed {
-  return new Embed()
+function baseLobbyEmbed(mode: GameMode, stage: LobbyStage, leaderDataVersion?: LeaderDataVersion | null): Embed {
+  const embed = new Embed()
     .title(`${STAGE_LABELS[stage]}  -  ${formatModeLabel(mode, mode)}`)
     .color(STAGE_COLORS[stage])
+
+  const footerText = formatLeaderDataVersionFooter(leaderDataVersion)
+  return footerText ? embed.footer({ text: footerText }) : embed
 }
 
 function lobbyDraftCompleteLeaderEmbed(
@@ -195,8 +208,9 @@ function lobbyDraftCompleteLeaderEmbed(
   participants: LobbyParticipant[],
   stage: Extract<LobbyStage, 'draft-complete' | 'cancelled' | 'scrubbed' | 'timeout'> = 'draft-complete',
   moderation?: ModerationContext,
+  leaderDataVersion?: LeaderDataVersion | null,
 ): Embed {
-  const embed = baseLobbyEmbed(mode, stage)
+  const embed = baseLobbyEmbed(mode, stage, leaderDataVersion)
   const hasTeams = participants.some(participant => participant.team != null)
   const moderationField = buildModerationField(moderation)
 
@@ -254,6 +268,11 @@ function lobbyReportedEmbed(
   ].filter((field): field is { name: string, value: string, inline: false } => field !== null)
 
   return fields.length > 0 ? embed.fields(...fields) : embed
+}
+
+function formatLeaderDataVersionFooter(leaderDataVersion?: LeaderDataVersion | null): string | null {
+  if (!leaderDataVersion) return null
+  return leaderDataVersion === 'beta' ? 'BBG Beta' : 'BBG Live'
 }
 
 function formatReportedTeamRows(participants: LobbyParticipant[]): string {

@@ -50,7 +50,7 @@ export type ClientMessage
     | { type: 'ban', civIds: string[] }
     | { type: 'pick', civId: string }
     | { type: 'preview', action: DraftAction, civIds: string[] }
-    | { type: 'cancel', reason: 'cancel' | 'scrub' }
+    | { type: 'cancel', reason: 'cancel' | 'scrub' | 'revert' }
     | {
       type: 'config'
       banTimerSeconds: number | null
