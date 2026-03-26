@@ -14,13 +14,12 @@ import {
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { findLiveMatchIdsForPlayers, joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
-import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
+import { buildActivityLaunchSnapshot, selectActivityTargetForUser } from '../../src/routes/activity.ts'
 import {
   clearLobbyAndActivityMappings,
   clearUserLobbyMappings,
   handoffLobbySpectatorsToMatchActivity,
   storeMatchActivityState,
-  storeUserActivityTarget,
   storeUserLobbyState,
 } from '../../src/services/activity/index.ts'
 import { resolveDraftTimerConfig } from '../../src/services/config/index.ts'
@@ -689,7 +688,8 @@ async function simulateActivityLaunchSnapshot(
 async function simulateSpectatorLobbySelection(kv: KVNamespace, mode: CapacityScenario, spectatorId: string): Promise<void> {
   const lobby = await getLobby(kv, mode.mode)
   if (!lobby || lobby.status !== 'open') throw new Error(`Expected open ${mode.mode} lobby before spectator selection`)
-  await storeUserActivityTarget(kv, lobby.channelId, [spectatorId], { kind: 'lobby', id: lobby.id })
+  const result = await selectActivityTargetForUser(kv, lobby.channelId, spectatorId, { kind: 'lobby', id: lobby.id })
+  if (!result.ok) throw new Error(result.error)
 }
 
 async function simulateOpenLobbyChurn(kv: KVNamespace, mode: CapacityScenario): Promise<number> {

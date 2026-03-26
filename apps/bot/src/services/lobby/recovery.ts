@@ -28,12 +28,6 @@ export async function getLobbyDraftRoster(kv: KVNamespace, lobbyId: string): Pro
   return normalizeQueueEntries(raw)
 }
 
-export async function clearLobbyDraftRoster(kv: KVNamespace, lobbyId: string): Promise<void> {
-  // Let draft roster entries expire naturally; explicit deletes hit raw KV limits.
-  void kv
-  void lobbyId
-}
-
 export async function reopenLobbyAfterTimedOutDraft(
   kv: KVNamespace,
   lobby: LobbyState,

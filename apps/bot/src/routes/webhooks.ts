@@ -5,7 +5,7 @@ import { createDb } from '@civup/db'
 import { verifySignedWebhookRequest } from '@civup/utils'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed } from '../embeds/match.ts'
 import { clearActivityMappings, clearLobbyMappings, storeUserLobbyState } from '../services/activity/index.ts'
-import { buildOpenLobbyRenderPayload, clearLobbyById, clearLobbyDraftRoster, getLobbyByMatch, getLobbyDraftRoster, mapLobbySlotsToEntries, reopenLobbyAfterTimedOutDraft, setLobbyStatus, upsertLobbyMessage } from '../services/lobby/index.ts'
+import { buildOpenLobbyRenderPayload, clearLobbyById, getLobbyByMatch, getLobbyDraftRoster, mapLobbySlotsToEntries, reopenLobbyAfterTimedOutDraft, setLobbyStatus, upsertLobbyMessage } from '../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../services/lobby/live-snapshot.ts'
 import { activateDraftMatch, cancelDraftMatch } from '../services/match/index.ts'
 import { clearMatchMessageMapping, storeMatchMessageMapping } from '../services/match/message.ts'
@@ -62,7 +62,6 @@ export function registerWebhookRoutes(app: Hono<Env>) {
       }
 
       const activeLobby = await setLobbyStatus(kv, lobby.id, 'active', lobby) ?? lobby
-      await clearLobbyDraftRoster(kv, lobby.id)
       await syncLobbyDerivedState(kv, activeLobby)
       try {
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, activeLobby, {
@@ -119,7 +118,6 @@ export function registerWebhookRoutes(app: Hono<Env>) {
           slots: recovered.lobby.slots,
         })
         await storeUserLobbyState(kv, recovered.lobby.channelId, recovered.lobby.memberPlayerIds, recovered.lobby.id)
-        await clearLobbyDraftRoster(kv, recovered.lobby.id)
 
         try {
           const slottedEntries = mapLobbySlotsToEntries(recovered.lobby.slots, recovered.queueEntries)
@@ -136,7 +134,6 @@ export function registerWebhookRoutes(app: Hono<Env>) {
     }
 
     const closedLobby = await setLobbyStatus(kv, lobby.id, payload.reason === 'cancel' ? 'cancelled' : 'scrubbed', lobby) ?? lobby
-    await clearLobbyDraftRoster(kv, lobby.id)
     try {
       const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, closedLobby, {
         embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason)],

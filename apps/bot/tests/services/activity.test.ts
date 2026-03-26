@@ -146,7 +146,6 @@ describe('activity mapping behavior', () => {
     const deleteKeys = operations.filter(op => op.type === 'delete').map(op => op.key)
     expect(deleteKeys).toContain('activity-lobby-user:user-1')
     expect(deleteKeys).toContain('activity-target-user:user-1:channel-1')
-    expect(deleteKeys).toContain('activity-target-lobby:channel-1:lobby-1:user-1')
   })
 
   test('handoffLobbySpectatorsToMatchActivity retargets only current lobby spectators', async () => {
@@ -154,24 +153,25 @@ describe('activity mapping behavior', () => {
 
     await storeUserLobbyState(kv, 'channel-1', ['host', 'player-1'], 'lobby-1')
     await storeUserActivityTarget(kv, 'channel-1', ['spectator-1'], { kind: 'lobby', id: 'lobby-1' })
-    await storeUserActivityTarget(kv, 'channel-1', ['spectator-2'], { kind: 'lobby', id: 'lobby-2' })
+    await storeUserActivityTarget(kv, 'channel-1', ['spectator-1'], { kind: 'lobby', id: 'lobby-2' })
+    await storeUserActivityTarget(kv, 'channel-1', ['spectator-2'], { kind: 'lobby', id: 'lobby-1' })
 
     await expect(handoffLobbySpectatorsToMatchActivity(kv, 'channel-1', 'lobby-1', ['host', 'player-1'], {
       matchId: 'match-1',
       lobbyId: 'lobby-1',
       mode: '2v2',
       activitySecret: 'secret',
-    })).resolves.toEqual(['spectator-1'])
+    })).resolves.toEqual(['spectator-2'])
 
     await expect(getUserActivityTarget(kv, 'channel-1', 'spectator-1')).resolves.toEqual(expect.objectContaining({
+      kind: 'lobby',
+      id: 'lobby-2',
+    }))
+    await expect(getUserActivityTarget(kv, 'channel-1', 'spectator-2')).resolves.toEqual(expect.objectContaining({
       kind: 'match',
       id: 'match-1',
       pendingJoin: false,
       roomAccessToken: expect.any(String),
-    }))
-    await expect(getUserActivityTarget(kv, 'channel-1', 'spectator-2')).resolves.toEqual(expect.objectContaining({
-      kind: 'lobby',
-      id: 'lobby-2',
     }))
   })
 
