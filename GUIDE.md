@@ -107,6 +107,6 @@ During the pick phase, clicking a leader displays it as 'hovered' to your teamma
 
 3. ### Report the result
 
-After the draft is complete, the Activity can be closed. When the game is done, the host needs to select the winner by clicking on the player's leader and then `Confirm`.
+After the draft is complete, the Activity can be closed. When the game is done, any player from the match can select the winner by clicking on the player's leader and then `Confirm`.
 
 ![report result](images/report-result.webp)
