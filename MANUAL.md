@@ -28,7 +28,7 @@
 4. the host **starts the draft**
 5. the players **complete the bans and picks**
 6. they leave the activity and **play the game**
-7. the host comes back and **reports the result** or scrubs the match
+7. a player comes back and **reports the result** or the host scrubs the match
 
 See more: [Match Flow](#match-flow)
 
@@ -121,6 +121,7 @@ Commands:
 
 The `/match` command group manages the lobby:
 
+- `/match activity` opens the Activity showing the Lobby Overview or your previous match
 - `/match create mode:... [steam_link]` creates an open lobby and auto-joins as host
 - `/match join mode:... [teammates]` joins the best open lobby for that mode, specifying teammates will treat them as premades
 - `/match status` lists active lobbies and IDs
@@ -140,7 +141,7 @@ Pages:
 - **Lobby Overview**: shows all lobbies and their status, can be accessed anytime with the top right corner button
 - **Draft Setup**: the page that opens when a lobby is opened and before it's started, it shows the player seats and the lobby config
 - **Draft**: where pick & ban happens
-- **Post-draft**: shows the final draft, the host can report the match result here
+- **Post-draft**: shows the final draft, any player can report the match result here
 
 #### Draft Setup
 
@@ -248,13 +249,15 @@ Filter logic:
 
 ## Result Reporting
 
-Only host can report the result or scrub the match.
+Any player that participated in the draft can report the result. Only the host can scrub the match.
+
+The bot will send reminder DMs to the host roughly 3 and 6 hours after a draft is completed if it hasn't been reported.
 
 ### Reporting a result
 
 Two ways:
 
-- inside the **Activity**: host can click on the team that won and then the `Confirm Result` button in the header, for FFA the host needs to select the players in the placement order
+- inside the **Activity**: any player can click on the team that won and then the `Confirm Result` button in the header, for FFA they need to select the players in the placement order
 - using **Commands**: `/match report winner:...` for duel, duo, and squad games, `/match report [...placements]` for FFA
 
 ### What a successful report does
