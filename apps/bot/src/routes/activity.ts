@@ -319,6 +319,12 @@ async function resolveActivityLaunchSelection(
       }
     }
 
+    const promotedSelection = await promoteLobbySelectionToMatchTarget(
+      storedTarget,
+      targets,
+    )
+    if (promotedSelection) return promotedSelection
+
     const fallbackSelection = pickDefaultActivityLaunchSelection(targets)
     await clearUserActivityTargets(kv, channelId, [userId])
     if (fallbackSelection) return fallbackSelection
@@ -327,6 +333,21 @@ async function resolveActivityLaunchSelection(
   }
 
   return pickDefaultActivityLaunchSelection(targets)
+}
+
+async function promoteLobbySelectionToMatchTarget(
+  storedTarget: Awaited<ReturnType<typeof getUserActivityTarget>>,
+  targets: ChannelActivityTarget[],
+): Promise<ResolvedActivitySelection | null> {
+  if (!storedTarget || storedTarget.kind !== 'lobby') return null
+
+  const promotedTarget = targets.find(target => target.option.kind === 'match' && target.option.lobbyId === storedTarget.id) ?? null
+  if (!promotedTarget) return null
+
+  return {
+    target: promotedTarget,
+    pendingJoin: false,
+  }
 }
 
 async function serializeActivityLaunchSelection(
