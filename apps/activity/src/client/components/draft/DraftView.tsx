@@ -185,7 +185,7 @@ export function DraftView(props: DraftViewProps) {
               <DraftTimeline />
 
               {/* Main area */}
-              <div class="flex flex-1 min-h-0 relative">
+              <div class="relative z-0 flex flex-1 min-h-0">
                 <SlotStrip />
                 <Show when={state()?.status === 'active'}>
                   <LeaderGridOverlay />

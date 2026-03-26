@@ -227,14 +227,14 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
       </button>
 
       <Show when={missingLinkHintVisible()}>
-        <div class="pointer-events-none absolute left-0 top-full z-50 mt-2 whitespace-nowrap rounded-full border border-border bg-bg-subtle/80 px-3 py-1 text-xs text-fg-muted shadow-lg backdrop-blur-sm">
+        <div class="pointer-events-none absolute left-0 top-full z-[100] mt-2 whitespace-nowrap rounded-full border border-border bg-bg-subtle/80 px-3 py-1 text-xs text-fg-muted shadow-lg backdrop-blur-sm">
           No Steam link set
         </div>
       </Show>
 
       {/* Host dropdown with steam link input */}
       <Show when={dropdownOpen()}>
-        <div class="mt-1.5 left-0 top-full absolute z-50">
+        <div class="mt-1.5 left-0 top-full absolute z-[100]">
           <div class="p-2 border border-border rounded-lg bg-bg-subtle shadow-black/25 shadow-xl">
             <input
               ref={inputRef}
