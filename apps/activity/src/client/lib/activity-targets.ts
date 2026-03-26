@@ -2,6 +2,21 @@ import type { ActivityTargetOption } from '~/client/stores'
 
 export type ActivityTargetDescriptor = Pick<ActivityTargetOption, 'kind' | 'id'> | null | undefined
 
+export function activityTargetsMatch(
+  left: ActivityTargetDescriptor,
+  right: ActivityTargetDescriptor,
+): boolean {
+  return left?.kind === right?.kind && left?.id === right?.id
+}
+
+export function filterClearedActivityTargetOptions(
+  options: readonly ActivityTargetOption[],
+  clearedTarget: ActivityTargetDescriptor,
+): ActivityTargetOption[] {
+  if (!clearedTarget) return [...options]
+  return options.filter(option => !activityTargetsMatch(option, clearedTarget))
+}
+
 /** Returns true when a previously resolved target was explicitly cleared. */
 export function didClearResolvedActivityTarget(
   previous: ActivityTargetDescriptor,
@@ -42,6 +57,10 @@ export function shouldHoldAuthenticatedDraftStateForSelection(input: {
 }): boolean {
   if (input.hasInFlightConnection) return true
   if (!input.draftState) return false
+
+  if (input.nextSelectionKind == null && input.draftState.status === 'complete') {
+    return false
+  }
 
   if (
     input.nextSelectionKind === 'lobby'
