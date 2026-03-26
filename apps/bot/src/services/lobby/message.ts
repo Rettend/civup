@@ -1,10 +1,30 @@
 import type { LobbyState } from './types.ts'
 import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
 import { setLobbyMessage } from './mutations.ts'
+import { getLobbyById } from './store.ts'
 
 interface LobbyRenderPayload {
   embeds: unknown[]
   components?: unknown
+}
+
+export function canApplyQueuedLobbyMessageUpdate(
+  expectedLobby: Pick<LobbyState, 'id' | 'revision' | 'status' | 'messageId'>,
+  currentLobby: Pick<LobbyState, 'id' | 'revision' | 'status' | 'messageId'> | null,
+): currentLobby is Pick<LobbyState, 'id' | 'revision' | 'status' | 'messageId'> {
+  if (!currentLobby) return false
+  return currentLobby.id === expectedLobby.id
+    && currentLobby.revision === expectedLobby.revision
+    && currentLobby.status === expectedLobby.status
+    && currentLobby.messageId === expectedLobby.messageId
+}
+
+export async function getCurrentLobbyForQueuedMessageUpdate(
+  kv: KVNamespace,
+  expectedLobby: Pick<LobbyState, 'id' | 'revision' | 'status' | 'messageId'>,
+): Promise<LobbyState | null> {
+  const currentLobby = await getLobbyById(kv, expectedLobby.id)
+  return canApplyQueuedLobbyMessageUpdate(expectedLobby, currentLobby) ? currentLobby : null
 }
 
 /**
