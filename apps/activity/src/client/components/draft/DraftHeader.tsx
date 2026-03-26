@@ -37,6 +37,12 @@ export function DraftHeader(props: DraftHeaderProps) {
   const state = () => draftStore.state
   const accent = () => phaseAccent()
   const amHost = () => userId() === draftStore.hostId
+  const isParticipant = () => {
+    const uid = userId()
+    const s = state()
+    if (!uid || !s) return false
+    return s.seats.some(seat => seat.playerId === uid)
+  }
   const [phaseFlash, setPhaseFlash] = createSignal(false)
   const [armedHostAction, setArmedHostAction] = createSignal<DraftHostAction | null>(null)
   let phaseFlashTimeout: ReturnType<typeof setTimeout> | null = null
@@ -222,7 +228,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   }
 
   const confirmHostAction = (action: DraftHostAction) => {
-    if (!canInteract()) return
+    if (!canManageDraft()) return
     if (armedHostAction() !== action) {
       armHostAction(action)
       return
@@ -236,9 +242,15 @@ export function DraftHeader(props: DraftHeaderProps) {
     void scrubMatch()
   }
 
-  const canInteract = () => amHost() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
+  const canManageDraft = () => amHost() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
+  const canSubmitResult = () => isParticipant() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
   const resultSelectionReady = () => isTeamMode() ? selectedWinningTeam() != null : ffaPlacementOrder().length === seatCount()
-  const showMobileActionRow = () => isMobileLayout() && amHost() && (state()?.status === 'active' || isComplete())
+  const showMobileActionRow = () => {
+    if (!isMobileLayout()) return false
+    if (state()?.status === 'active') return amHost()
+    if (isComplete()) return isParticipant()
+    return false
+  }
   const showLeftNoBans = () => state()?.status !== 'waiting' && (isTeamMode() ? leftBans().length === 0 : allBans().length === 0)
   const showRightNoBans = () => state()?.status !== 'waiting' && isTeamMode() && rightBans().length === 0
   const hasSteamLobbyButton = () => (amHost() && Boolean(props.onSaveSteamLink)) || Boolean(props.steamLobbyLink)
@@ -291,7 +303,7 @@ export function DraftHeader(props: DraftHeaderProps) {
           ? 'border-danger/70 bg-danger/20 text-danger hover:border-danger hover:bg-danger/25'
           : 'border-border text-fg-muted hover:border-border-hover hover:bg-bg-muted/50',
       )}
-      disabled={!canInteract()}
+      disabled={!canManageDraft()}
       title={label}
       aria-label={label}
       onClick={() => confirmHostAction(action)}
@@ -335,19 +347,21 @@ export function DraftHeader(props: DraftHeaderProps) {
       <div class="flex flex-wrap gap-2 items-center justify-center">
         <Button
           size="sm"
-          disabled={!canInteract() || !resultSelectionReady()}
+          disabled={!canSubmitResult() || !resultSelectionReady()}
           onClick={confirmResult}
         >
           {resultStatus() === 'submitting:result' ? 'Submitting' : 'Confirm Result'}
         </Button>
-        <Button
-          size="sm"
-          variant="redOutline"
-          disabled={!canInteract()}
-          onClick={scrubMatch}
-        >
-          {resultStatus() === 'submitting:scrub' ? 'Submitting' : 'Scrub'}
-        </Button>
+        <Show when={amHost()}>
+          <Button
+            size="sm"
+            variant="redOutline"
+            disabled={!canManageDraft()}
+            onClick={scrubMatch}
+          >
+            {resultStatus() === 'submitting:scrub' ? 'Submitting' : 'Scrub'}
+          </Button>
+        </Show>
       </div>
     </Show>
   )
@@ -486,7 +500,7 @@ export function DraftHeader(props: DraftHeaderProps) {
               fallback={(
                 <div class="flex gap-3 items-center relative">
                   <Show
-                    when={amHost()}
+                    when={isParticipant()}
                     fallback={
                       <span class="text-lg text-accent tracking-widest font-bold uppercase">{phaseLabel()}</span>
                     }

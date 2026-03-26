@@ -72,7 +72,7 @@ describe('host report reminders', () => {
         'https://discord.com/api/v10/channels/dm-1/messages',
       ])
       expect(fetchCalls[1]?.body).toEqual(expect.objectContaining({
-        content: "Reminder: you have an unreported game. Don't forget to report it: https://discord.com/channels/guild-1/channel-1/message-1",
+        content: "Reminder: you have an unreported **2v2** game. Don't forget to report it: https://discord.com/channels/guild-1/channel-1/message-1",
       }))
 
       await expect(sendOverdueHostReportReminders(db, kv, 'token', { now })).resolves.toEqual({
@@ -142,7 +142,7 @@ describe('host report reminders', () => {
       })
 
       expect(fetchCalls[1]?.body).toEqual(expect.objectContaining({
-        content: "Reminder: you still have an unreported game. Don't forget to report it: https://discord.com/channels/guild-2/channel-2/message-2",
+        content: "Reminder: you still have an unreported **FFA** game. Don't forget to report it: https://discord.com/channels/guild-2/channel-2/message-2",
       }))
 
       await expect(sendOverdueHostReportReminders(db, kv, 'token', { now })).resolves.toEqual({

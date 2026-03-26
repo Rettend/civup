@@ -1,4 +1,5 @@
 import type { Database } from '@civup/db'
+import { formatModeLabel } from '@civup/game'
 import { matches } from '@civup/db'
 import { eq } from 'drizzle-orm'
 import { createChannelMessage, createDmChannel } from '../discord/index.ts'
@@ -11,12 +12,12 @@ const REPORT_REMINDER_STAGES = [
   {
     key: '3h',
     delayMs: 3 * 60 * 60 * 1000,
-    intro: 'Reminder: you have an unreported game.',
+    introPrefix: 'Reminder: you have an unreported',
   },
   {
     key: '6h',
     delayMs: 6 * 60 * 60 * 1000,
-    intro: 'Reminder: you still have an unreported game.',
+    introPrefix: 'Reminder: you still have an unreported',
   },
 ] as const
 
@@ -37,6 +38,7 @@ export async function sendOverdueHostReportReminders(
   const activeMatches = await db
     .select({
       id: matches.id,
+      gameMode: matches.gameMode,
       draftData: matches.draftData,
     })
     .from(matches)
@@ -58,7 +60,7 @@ export async function sendOverdueHostReportReminders(
 
     try {
       const reportLink = await getMatchReportLink(kv, match.id)
-      await sendReminderDm(token, hostId, buildReminderContent(pendingStage.intro, reportLink))
+      await sendReminderDm(token, hostId, buildReminderContent(pendingStage.introPrefix, match.gameMode, reportLink))
       sentCount += 1
     }
     catch (error) {
@@ -114,7 +116,9 @@ async function getMatchReportLink(kv: KVNamespace, matchId: string): Promise<str
   return `https://discord.com/channels/${lobby.guildId}/${lobby.channelId}/${lobby.messageId}`
 }
 
-function buildReminderContent(intro: string, reportLink: string | null): string {
+function buildReminderContent(introPrefix: string, gameMode: string, reportLink: string | null): string {
+  const modeLabel = formatModeLabel(gameMode, gameMode)
+  const intro = `${introPrefix} **${modeLabel}** game.`
   if (!reportLink) return `${intro} Don't forget to report it.`
   return `${intro} Don't forget to report it: ${reportLink}`
 }
