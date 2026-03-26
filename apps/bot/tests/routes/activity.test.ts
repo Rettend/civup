@@ -1,7 +1,7 @@
 import { verifyDraftRoomAccessToken } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
-import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility } from '../../src/routes/activity.ts'
+import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility, selectActivityTargetForUser } from '../../src/routes/activity.ts'
 import { buildOpenLobbySnapshot } from '../../src/routes/lobby/snapshot.ts'
 import { getUserActivityTarget, handoffLobbySpectatorsToMatchActivity, storeUserActivityTarget } from '../../src/services/activity/index.ts'
 import { attachLobbyMatch, createLobby, getLobbyById, setLobbyMaxRole, setLobbyMinRole } from '../../src/services/lobby/index.ts'
@@ -329,6 +329,27 @@ describe('activity target selection', () => {
     if (snapshot.selection?.kind !== 'match') return
     expect(snapshot.selection.matchId).toBe('match-1')
     expect(snapshot.selection.roomAccessToken).not.toBeNull()
+  })
+
+  test('selectActivityTargetForUser stores a valid spectator lobby target', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await expect(selectActivityTargetForUser(kv, 'channel-1', 'spectator-1', {
+      kind: 'lobby',
+      id: lobby.id,
+      activitySecret: 'secret',
+    })).resolves.toEqual({ ok: true })
+
+    await expect(getUserActivityTarget(kv, 'channel-1', 'spectator-1')).resolves.toEqual(expect.objectContaining({
+      kind: 'lobby',
+      id: lobby.id,
+    }))
   })
 })
 
