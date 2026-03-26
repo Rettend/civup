@@ -417,7 +417,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   )
 
   return (
-    <header class={cn('relative flex flex-col shrink-0 overflow-x-clip', isComplete() ? 'bg-bg-subtle' : phaseHeaderBg(), 'transition-colors duration-200')}>
+    <header class={cn('relative z-30 flex flex-col shrink-0 overflow-x-clip', isComplete() ? 'bg-bg-subtle' : phaseHeaderBg(), 'transition-colors duration-200')}>
       <Show when={phaseFlash()}>
         <div class={cn(
           'pointer-events-none absolute inset-0 z-0 anim-phase-flash',
@@ -548,7 +548,7 @@ export function DraftHeader(props: DraftHeaderProps) {
 
       {/* Shrinking timer line */}
       <Show when={draftStore.timerEndsAt != null && !isExpired()}>
-        <div class="flex h-0.5 w-full items-center justify-center relative z-10">
+        <div class="flex h-0.5 w-full items-center justify-center relative z-0">
           <div
             class={cn(
               'h-full transition-[width] duration-100 ease-linear rounded-full',
