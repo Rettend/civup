@@ -1,5 +1,6 @@
 import { matches } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
+import { attachLobbyMatch, createLobby, setLobbyStatus } from '../../src/services/lobby/index.ts'
 import { sendOverdueHostReportReminders } from '../../src/services/match/reminders.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -37,6 +38,16 @@ describe('host report reminders', () => {
     }) as typeof fetch
 
     try {
+      const lobby = await createLobby(kv, {
+        mode: '2v2',
+        guildId: 'guild-1',
+        hostId: 'host-1',
+        channelId: 'channel-1',
+        messageId: 'message-1',
+      })
+      const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+      await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
+
       await db.insert(matches).values({
         id: 'match-1',
         gameMode: '2v2',
@@ -61,7 +72,7 @@ describe('host report reminders', () => {
         'https://discord.com/api/v10/channels/dm-1/messages',
       ])
       expect(fetchCalls[1]?.body).toEqual(expect.objectContaining({
-        content: "Reminder: you have an unreported game. Don't forget to report it.",
+        content: "Reminder: you have an unreported game. Don't forget to report it: https://discord.com/channels/guild-1/channel-1/message-1",
       }))
 
       await expect(sendOverdueHostReportReminders(db, kv, 'token', { now })).resolves.toEqual({
@@ -101,6 +112,16 @@ describe('host report reminders', () => {
     }) as typeof fetch
 
     try {
+      const lobby = await createLobby(kv, {
+        mode: 'ffa',
+        guildId: 'guild-2',
+        hostId: 'host-2',
+        channelId: 'channel-2',
+        messageId: 'message-2',
+      })
+      const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-2', lobby)
+      await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
+
       await db.insert(matches).values({
         id: 'match-2',
         gameMode: 'ffa',
@@ -121,7 +142,7 @@ describe('host report reminders', () => {
       })
 
       expect(fetchCalls[1]?.body).toEqual(expect.objectContaining({
-        content: "Reminder: you still have an unreported game. Don't forget to report it.",
+        content: "Reminder: you still have an unreported game. Don't forget to report it: https://discord.com/channels/guild-2/channel-2/message-2",
       }))
 
       await expect(sendOverdueHostReportReminders(db, kv, 'token', { now })).resolves.toEqual({
@@ -133,4 +154,5 @@ describe('host report reminders', () => {
       sqlite.close()
     }
   })
+
 })

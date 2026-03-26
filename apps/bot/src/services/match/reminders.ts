@@ -2,6 +2,7 @@ import type { Database } from '@civup/db'
 import { matches } from '@civup/db'
 import { eq } from 'drizzle-orm'
 import { createChannelMessage, createDmChannel } from '../discord/index.ts'
+import { getLobbyByMatch } from '../lobby/index.ts'
 import { getCompletedAtFromDraftData, getHostIdFromDraftData } from './draft-data.ts'
 
 const REPORT_REMINDER_TTL_SECONDS = 3 * 24 * 60 * 60
@@ -10,12 +11,12 @@ const REPORT_REMINDER_STAGES = [
   {
     key: '3h',
     delayMs: 3 * 60 * 60 * 1000,
-    content: "Reminder: you have an unreported game. Don't forget to report it.",
+    intro: 'Reminder: you have an unreported game.',
   },
   {
     key: '6h',
     delayMs: 6 * 60 * 60 * 1000,
-    content: "Reminder: you still have an unreported game. Don't forget to report it.",
+    intro: 'Reminder: you still have an unreported game.',
   },
 ] as const
 
@@ -56,11 +57,8 @@ export async function sendOverdueHostReportReminders(
     await markReminderStagesThrough(kv, match.id, pendingStage.key)
 
     try {
-      const dm = await createDmChannel(token, hostId)
-      await createChannelMessage(token, dm.id, {
-        content: pendingStage.content,
-        allowed_mentions: { parse: [] },
-      })
+      const reportLink = await getMatchReportLink(kv, match.id)
+      await sendReminderDm(token, hostId, buildReminderContent(pendingStage.intro, reportLink))
       sentCount += 1
     }
     catch (error) {
@@ -100,4 +98,23 @@ async function markReminderStagesThrough(
 
 function reminderKey(matchId: string, stage: (typeof REPORT_REMINDER_STAGES)[number]['key']): string {
   return `match-report-reminder:${stage}:${matchId}`
+}
+
+async function sendReminderDm(token: string, hostId: string, content: string): Promise<void> {
+  const dm = await createDmChannel(token, hostId)
+  await createChannelMessage(token, dm.id, {
+    content,
+    allowed_mentions: { parse: [] },
+  })
+}
+
+async function getMatchReportLink(kv: KVNamespace, matchId: string): Promise<string | null> {
+  const lobby = await getLobbyByMatch(kv, matchId)
+  if (!lobby?.guildId) return null
+  return `https://discord.com/channels/${lobby.guildId}/${lobby.channelId}/${lobby.messageId}`
+}
+
+function buildReminderContent(intro: string, reportLink: string | null): string {
+  if (!reportLink) return `${intro} Don't forget to report it.`
+  return `${intro} Don't forget to report it: ${reportLink}`
 }
