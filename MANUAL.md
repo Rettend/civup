@@ -290,6 +290,21 @@ Commands to view rating:
 - the **first ~10-20 games** are pretty volatile, but after that it gets very accurate for the player's skill level
 - new player **display elo** starts at `1000` and they are Unranked
 - a player needs **3 games** in a game mode to get the first Ranked role and appear on the leaderboard
+- in **team modes**, players are **rated individually**, the better player on the team gets less elo for winning and loses more for losing, vice versa for
+
+#### Elo gain examples
+
+New player first game: ±100
+Veteran player (20+ games): ±55
+
+#### Eventual Elo ratings
+
+| Win rate | Elo rating |
+| -------- | ---------- |
+| 50%      | ~1000      |
+| 60%      | ~1118      |
+| 70%      | ~1235      |
+| 80%      | ~1376      |
 
 ### Ranked roles
 

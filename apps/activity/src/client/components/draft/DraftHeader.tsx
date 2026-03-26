@@ -253,7 +253,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   }
   const showLeftNoBans = () => state()?.status !== 'waiting' && (isTeamMode() ? leftBans().length === 0 : allBans().length === 0)
   const showRightNoBans = () => state()?.status !== 'waiting' && isTeamMode() && rightBans().length === 0
-  const hasSteamLobbyButton = () => (amHost() && Boolean(props.onSaveSteamLink)) || Boolean(props.steamLobbyLink)
+  const hasSteamLobbyButton = () => true
   const hasOverviewButton = () => Boolean(props.onSwitchTarget)
   const mobileRailInsetCount = () => Number(hasSteamLobbyButton()) + Number(hasOverviewButton())
 
@@ -392,7 +392,7 @@ export function DraftHeader(props: DraftHeaderProps) {
 
   const renderMobileBanRail = () => (
     <HorizontalScroller
-      class="max-w-full"
+      class="max-w-full mx-auto"
       style={{ width: `calc(100% - ${mobileRailInsetCount() * 2.75}rem)` }}
       contentClass={cn(
         'flex min-w-full items-center whitespace-nowrap',
@@ -417,7 +417,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   )
 
   return (
-    <header class={cn('relative flex flex-col shrink-0 overflow-hidden', isComplete() ? 'bg-bg-subtle' : phaseHeaderBg(), 'transition-colors duration-200')}>
+    <header class={cn('relative z-30 flex flex-col shrink-0 overflow-x-clip', isComplete() ? 'bg-bg-subtle' : phaseHeaderBg(), 'transition-colors duration-200')}>
       <Show when={phaseFlash()}>
         <div class={cn(
           'pointer-events-none absolute inset-0 z-0 anim-phase-flash',
@@ -548,7 +548,7 @@ export function DraftHeader(props: DraftHeaderProps) {
 
       {/* Shrinking timer line */}
       <Show when={draftStore.timerEndsAt != null && !isExpired()}>
-        <div class="flex h-0.5 w-full items-center justify-center relative z-10">
+        <div class="flex h-0.5 w-full items-center justify-center relative z-0">
           <div
             class={cn(
               'h-full transition-[width] duration-100 ease-linear rounded-full',
