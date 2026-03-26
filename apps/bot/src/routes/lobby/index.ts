@@ -1154,7 +1154,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
       queueBackgroundTask(c, async () => {
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobbyForMessage, {
-          embeds: [lobbyDraftingEmbed(mode, seats)],
+          embeds: [lobbyDraftingEmbed(mode, seats, lobbyForMessage.draftConfig.leaderDataVersion)],
           components: lobbyComponents(mode, lobbyForMessage.id),
         })
         await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)

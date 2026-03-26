@@ -38,6 +38,7 @@ export {
   sendMessage,
   sendPick,
   sendPreview,
+  sendRevert,
   sendScrub,
   sendStart,
   startLobbyDraft,

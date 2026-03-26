@@ -40,6 +40,7 @@ export function MiniView() {
     if (current.status === 'cancelled') {
       if (current.cancelReason === 'cancel') return 'Draft Cancelled'
       if (current.cancelReason === 'timeout') return 'Auto-Scrubbed'
+      if (current.cancelReason === 'revert') return 'Draft Reverted'
       return 'Match Scrubbed'
     }
     return phaseLabel()

@@ -120,7 +120,7 @@ export interface Leader {
 
 export type DraftAction = 'ban' | 'pick'
 
-export type DraftCancelReason = 'cancel' | 'scrub' | 'timeout'
+export type DraftCancelReason = 'cancel' | 'scrub' | 'timeout' | 'revert'
 
 /**
  * A single step in a draft sequence.
@@ -195,7 +195,7 @@ export interface DraftState {
   /** Civ IDs still available (not banned or picked) */
   availableCivIds: string[]
   status: 'waiting' | 'active' | 'complete' | 'cancelled'
-  /** Why the draft was cancelled/scrubbed (null unless status is cancelled) */
+  /** Why the draft was cancelled, scrubbed, timed out, or reverted (null unless status is cancelled) */
   cancelReason: DraftCancelReason | null
   /**
    * For blind bans: accumulated bans that haven't been revealed yet.

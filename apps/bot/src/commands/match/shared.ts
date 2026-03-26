@@ -32,7 +32,7 @@ export type FfaPlacementKey = (typeof FFA_PLACEMENT_KEYS)[number]
 
 export const LOBBY_STATUS_LABELS = {
   open: 'Lobby Open',
-  drafting: 'Draft Ready',
+  drafting: 'Drafting',
   active: 'Draft Complete',
   completed: 'Result Reported',
   cancelled: 'Draft Cancelled',
