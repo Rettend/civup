@@ -8,7 +8,7 @@ import type {
   LobbyStateWatch,
   PartySocketTarget,
 } from './stores'
-import { createEffect, createSignal, Match, onCleanup, onMount, Show, Switch, untrack } from 'solid-js'
+import { batch, createEffect, createSignal, Match, onCleanup, onMount, Show, Switch, untrack } from 'solid-js'
 import { activityTargetOptionKey, ActivityTargetPicker, ConfigScreen, DraftView } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
 import { activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, type ActivityTargetDescriptor } from './lib/activity-targets'
@@ -173,15 +173,21 @@ export default function App() {
   const openOverview = () => {
     const current = state()
     const hadTerminalDraft = draftStore.state?.status === 'complete' || draftStore.state?.status === 'cancelled'
+    pendingTargetSelectionKey = null
+    selectionRequestVersion += 1
+    setPickerBusy(false)
+    setPickerError(null)
+    batch(() => {
+      setOverviewPinned(true)
+      setState({ status: 'overview' })
+    })
     if (current.status === 'authenticated') {
       if (hadTerminalDraft) setAvailableTargets([])
       clearDraftConnection()
     }
-    resetDraft()
-    setPickerError(null)
-    setOverviewPinned(true)
-    setState({ status: 'overview' })
-    applyLiveActivityState()
+    else {
+      resetDraft()
+    }
     void requestActivityLaunchSnapshotRefresh()
   }
 
@@ -372,6 +378,10 @@ export default function App() {
     fallbackOptions()
     overviewPinned()
     untrack(applyLiveActivityState)
+  })
+
+  createEffect(() => {
+    if (state().status !== 'overview') setOverviewPinned(false)
   })
 
   const hydrateActivityLaunchSnapshot = (snapshot: ActivityLaunchSnapshot) => {
