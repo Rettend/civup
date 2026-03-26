@@ -300,6 +300,40 @@ describe('activity target selection', () => {
     })).resolves.not.toBeNull()
   })
 
+  test('promotes stale spectator lobby targets into the same lobby draft before handoff', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await storeUserActivityTarget(kv, lobby.channelId, ['spectator-1'], { kind: 'lobby', id: lobby.id })
+    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1')
+    expect(snapshot.selection?.kind).toBe('match')
+    if (snapshot.selection?.kind !== 'match') return
+
+    expect(snapshot.selection.matchId).toBe('match-1')
+    expect(snapshot.selection.roomAccessToken).not.toBeNull()
+    await expect(verifyDraftRoomAccessToken('secret', snapshot.selection.roomAccessToken, {
+      roomId: 'match-1',
+      userId: 'spectator-1',
+    })).resolves.not.toBeNull()
+    await expect(getUserActivityTarget(kv, lobby.channelId, 'spectator-1')).resolves.toEqual(expect.objectContaining({
+      kind: 'lobby',
+      id: lobby.id,
+    }))
+  })
+
   test('retargeted lobby spectators launch straight into the draft', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
