@@ -72,9 +72,14 @@ export function PlayerSlot(props: PlayerSlotProps) {
   // ── FFA Placement ────────────────────────────────────────
   const isComplete = () => state()?.status === 'complete'
   const isFfa = () => !(state()?.seats.some(s => s.team != null) ?? false)
-  const amHost = () => userId() === draftStore.hostId
-  const isFfaPlacementMode = () => isComplete() && isFfa() && amHost()
-  const isTeamResultMode = () => isComplete() && !isFfa() && amHost()
+  const isParticipant = () => {
+    const uid = userId()
+    const s = state()
+    if (!uid || !s) return false
+    return s.seats.some(current => current.playerId === uid)
+  }
+  const isFfaPlacementMode = () => isComplete() && isFfa() && isParticipant()
+  const isTeamResultMode = () => isComplete() && !isFfa() && isParticipant()
   const canSelectResult = () => !resultSelectionsLocked()
 
   const placementRank = () => {
