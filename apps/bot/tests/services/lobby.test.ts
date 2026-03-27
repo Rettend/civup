@@ -2,8 +2,9 @@ import type { DraftState } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { activityOverviewKey, syncActivityOverviewSnapshot } from '../../src/services/activity/live-state.ts'
 import { attachLobbyMatch, createLobby, getCurrentLobbyHostedBy, getLobbyByChannel, getLobbyById, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
-import { matchKey } from '../../src/services/lobby/keys.ts'
+import { LOBBY_TTL, matchKey } from '../../src/services/lobby/keys.ts'
 import { lobbySnapshotKey, syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
+import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../../src/services/match/retention.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
@@ -112,6 +113,10 @@ describe('lobby service KV write behavior', () => {
     expect(byChannel).not.toBeNull()
     expect(byChannel?.mode).toBe(created.mode)
     expect(byChannel?.hostId).toBe(created.hostId)
+  })
+
+  test('retains live lobby state longer than abandoned active matches', () => {
+    expect(LOBBY_TTL * 1000).toBeGreaterThan(STALE_ACTIVE_MATCH_TIMEOUT_MS)
   })
 
   test('setLobbyMinRole persists the configured gate', async () => {
