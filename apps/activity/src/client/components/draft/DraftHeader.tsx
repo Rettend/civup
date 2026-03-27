@@ -282,8 +282,8 @@ export function DraftHeader(props: DraftHeaderProps) {
   )
 
   const confirmationHint = () => {
-    if (armedHostAction() === 'revert') return 'Click Revert again to confirm'
-    if (armedHostAction() === 'scrub') return 'Click Scrub again to confirm'
+    if (armedHostAction() === 'revert') return 'Revert will return everyone to the lobby. Click again to confirm.'
+    if (armedHostAction() === 'scrub') return 'Scrub will cancel the draft completely. Click again to confirm.'
     return null
   }
 
