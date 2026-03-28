@@ -683,6 +683,62 @@ describe('lobby routes', () => {
     expect(snapshot.selection.lobby.id).toBe(lobby.id)
     expect(snapshot.selection.joinEligibility.canJoin).toBe(true)
   })
+
+  test('mode changes keep the host seat order when already slotted', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '4v4',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '4v4', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const otherPlayers = ['p1', 'p2', 'p3', 'p5', 'p6']
+    for (let index = 0; index < otherPlayers.length; index++) {
+      const playerId = otherPlayers[index]
+      await addToQueue(kv, '4v4', {
+        playerId,
+        displayName: playerId,
+        avatarUrl: null,
+        joinedAt: Date.now() + index + 1,
+      })
+    }
+
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', ...otherPlayers], lobby)
+    const withSlots = await setLobbySlots(kv, lobby.id, ['p1', 'p2', 'p3', 'host', 'p5', 'p6', null, null], withMembers ?? lobby)
+    expect(withSlots).not.toBeNull()
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/4v4/mode', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        nextMode: '3v3',
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.mode).toBe('3v3')
+    expect(updatedLobby?.slots).toEqual(['p1', 'p2', 'p3', 'host', 'p5', 'p6'])
+  })
 })
 
 function buildEnv(kv: KVNamespace) {

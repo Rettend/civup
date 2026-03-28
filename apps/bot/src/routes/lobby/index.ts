@@ -405,12 +405,18 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const normalizedSlots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
-    const orderedPlayers: string[] = []
+    const orderedPlayers = normalizedSlots.filter((playerId): playerId is string => playerId != null)
+    const orderedPlayerSet = new Set(orderedPlayers)
 
-    orderedPlayers.push(lobby.hostId)
-    for (const playerId of normalizedSlots) {
-      if (!playerId || orderedPlayers.includes(playerId)) continue
-      orderedPlayers.push(playerId)
+    if (!orderedPlayerSet.has(lobby.hostId)) {
+      orderedPlayers.push(lobby.hostId)
+      orderedPlayerSet.add(lobby.hostId)
+    }
+
+    for (const entry of lobbyQueueEntries) {
+      if (orderedPlayerSet.has(entry.playerId)) continue
+      orderedPlayers.push(entry.playerId)
+      orderedPlayerSet.add(entry.playerId)
     }
 
     const nextLayout = compactSlottedPremadesForMode(nextMode, orderedPlayers, lobbyQueueEntries)
