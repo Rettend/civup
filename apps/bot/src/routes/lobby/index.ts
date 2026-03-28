@@ -182,7 +182,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'simultaneousPick must be true or false' }, 400)
     }
     if (hasDealOptionsSize && parsedDealOptionsSize === undefined) {
-      return c.json({ error: 'dealOptionsSize must be an integer between 2 and 10' }, 400)
+      return c.json({ error: 'dealOptionsSize must be an integer between 2 and 10, or null' }, 400)
     }
     if (hasRandomDraft && parsedRandomDraft === undefined) {
       return c.json({ error: 'randomDraft must be true or false' }, 400)
@@ -238,7 +238,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       ? parsedSimultaneousPick ?? false
       : lobby.draftConfig.simultaneousPick
     const normalizedDealOptionsSize = hasDealOptionsSize
-      ? parsedDealOptionsSize ?? 2
+      ? parsedDealOptionsSize ?? null
       : lobby.draftConfig.dealOptionsSize
     const normalizedRandomDraft = hasRandomDraft
       ? parsedRandomDraft ?? false
@@ -1364,7 +1364,8 @@ function parseLobbySimultaneousPick(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
 }
 
-function parseLobbyDealOptionsSize(value: unknown): number | undefined {
+function parseLobbyDealOptionsSize(value: unknown): number | null | undefined {
+  if (value == null) return null
   const numeric = typeof value === 'number' ? value : Number(value)
   if (!Number.isInteger(numeric)) return undefined
   if (numeric < 2 || numeric > 10) return undefined
