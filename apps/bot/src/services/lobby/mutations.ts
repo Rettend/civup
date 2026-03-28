@@ -5,7 +5,7 @@ import { getQueueState } from '../queue/index.ts'
 import { stateStoreMdelete } from '../state/store.ts'
 import { channelIndexKey, LOBBY_TTL } from './keys.ts'
 import { buildLobbyLiveSnapshotFromParts, lobbySnapshotKey } from './live-snapshot.ts'
-import { createEmptySlots, DEFAULT_DRAFT_CONFIG, normalizeCompetitiveTier, normalizeDraftConfig, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from './normalize.ts'
+import { createEmptySlots, DEFAULT_DRAFT_CONFIG, normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from './normalize.ts'
 import { getLobbyById, putLobby, putLobbyEntries } from './store.ts'
 
 const LOBBY_STATUS_TRANSITIONS: Record<LobbyStatus, LobbyStatus[]> = {
@@ -167,7 +167,7 @@ export async function setLobbyDraftConfig(
   const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
   if (!lobby) return null
 
-  const normalizedDraftConfig = normalizeDraftConfig(draftConfig)
+  const normalizedDraftConfig = normalizeDraftConfigForMode(lobby.mode, draftConfig)
   if (sameDraftConfig(lobby.draftConfig, normalizedDraftConfig)) return lobby
 
   const updated: LobbyState = {

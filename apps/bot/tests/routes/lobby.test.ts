@@ -790,6 +790,110 @@ describe('lobby routes', () => {
     expect(updatedLobby?.slots).toEqual(['p1', 'p2', 'p3', 'host', 'p5', 'p6'])
   })
 
+  test('mode changes clear Red Death random draft when switching to a regular mode', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: 'rd-2p',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, 'rd-2p', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const configuredLobby = await setLobbyDraftConfig(kv, lobby.id, {
+      banTimerSeconds: null,
+      pickTimerSeconds: null,
+      leaderPoolSize: null,
+      leaderDataVersion: 'live',
+      simultaneousPick: false,
+      dealOptionsSize: 4,
+      randomDraft: true,
+    }, lobby)
+    expect(configuredLobby).not.toBeNull()
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/rd-2p/mode', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        nextMode: '1v1',
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.mode).toBe('1v1')
+    expect(updatedLobby?.draftConfig.randomDraft).toBe(false)
+  })
+
+  test('mode changes clear FFA simultaneous pick when switching to another mode', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, 'ffa', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const configuredLobby = await setLobbyDraftConfig(kv, lobby.id, {
+      banTimerSeconds: null,
+      pickTimerSeconds: null,
+      leaderPoolSize: null,
+      leaderDataVersion: 'live',
+      simultaneousPick: true,
+      dealOptionsSize: null,
+      randomDraft: false,
+    }, lobby)
+    expect(configuredLobby).not.toBeNull()
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/ffa/mode', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        nextMode: '1v1',
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.mode).toBe('1v1')
+    expect(updatedLobby?.draftConfig.simultaneousPick).toBe(false)
+  })
+
   test('mode changes preserve the current team split when expanding team size', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()

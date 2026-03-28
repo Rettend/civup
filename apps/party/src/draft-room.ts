@@ -254,7 +254,7 @@ export class Main extends Server<PartyEnv> {
           this.send(sender, { type: 'error', message: 'Only the host can start the draft' })
           return
         }
-        if (config.randomDraft) {
+        if (config.randomDraft && isRedDeathDraftConfig(config)) {
           const result = buildRandomDraftResult(state)
           await this.applyResult(result.state, result.events)
           return

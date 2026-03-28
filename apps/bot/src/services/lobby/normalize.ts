@@ -1,6 +1,6 @@
 import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 import type { LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
-import { MAX_LEADER_POOL_SIZE, maxPlayerCount } from '@civup/game'
+import { isRedDeathMode, MAX_LEADER_POOL_SIZE, maxPlayerCount } from '@civup/game'
 import { nanoid } from 'nanoid'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 import { normalizeSteamLobbyLink } from '../steam-link.ts'
@@ -36,7 +36,7 @@ export function normalizeLobby(raw: StoredLobbyState | LobbyState): LobbyState {
     guildId: normalizeGuildId(raw.guildId),
     steamLobbyLink: normalizeSteamLobbyLink(raw.steamLobbyLink),
     slots: normalizeStoredSlots(raw.mode, raw.slots),
-    draftConfig: normalizeDraftConfig(raw.draftConfig),
+    draftConfig: normalizeDraftConfigForMode(raw.mode, raw.draftConfig),
     minRole: normalizeCompetitiveTier(raw.minRole),
     maxRole: normalizeCompetitiveTier(raw.maxRole),
     lastActivityAt: normalizeLobbyLastActivityAt(
@@ -82,6 +82,25 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
     simultaneousPick: normalizeSimultaneousPick(config?.simultaneousPick),
     dealOptionsSize: normalizeDealOptionsSize(config?.dealOptionsSize),
     randomDraft: normalizeRandomDraft(config?.randomDraft),
+  }
+}
+
+export function normalizeDraftConfigForMode(
+  mode: GameMode,
+  config: Partial<LobbyDraftConfig> | LobbyDraftConfig | null | undefined,
+): LobbyDraftConfig {
+  const normalized = normalizeDraftConfig(config)
+  const simultaneousPick = mode === 'ffa' ? normalized.simultaneousPick : false
+  const randomDraft = isRedDeathMode(mode) ? normalized.randomDraft : false
+
+  if (simultaneousPick === normalized.simultaneousPick && randomDraft === normalized.randomDraft) {
+    return normalized
+  }
+
+  return {
+    ...normalized,
+    simultaneousPick,
+    randomDraft,
   }
 }
 

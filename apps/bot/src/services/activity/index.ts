@@ -138,9 +138,12 @@ export async function createDraftRoom(
   options: CreateDraftRoomOptions,
 ): Promise<MatchCreationResult> {
   const matchId = nanoid(12)
-  const format = getDraftFormat(mode, { simultaneousPick: options.simultaneousPick, randomDraft: options.randomDraft })
+  const redDeathMode = isRedDeathMode(mode)
+  const simultaneousPick = mode === 'ffa' && options.simultaneousPick === true
+  const randomDraft = redDeathMode && options.randomDraft === true
+  const format = getDraftFormat(mode, { simultaneousPick, randomDraft })
   const seats: DraftSeat[] = buildSeats(mode, entries)
-  const civPool = isRedDeathMode(mode)
+  const civPool = redDeathMode
     ? [...allFactionIds]
     : sampleLeaderPool(resolveLeaderPoolSize(mode, seats.length, options.leaderPoolSize))
   const config: RoomConfig = {
@@ -149,8 +152,8 @@ export async function createDraftRoom(
     formatId: format.id,
     seats,
     civPool,
-    dealOptionsSize: options.dealOptionsSize ?? undefined,
-    randomDraft: options.randomDraft ?? false,
+    dealOptionsSize: redDeathMode ? options.dealOptionsSize ?? undefined : undefined,
+    randomDraft,
     leaderDataVersion: options.leaderDataVersion ?? 'live',
     timerConfig: options.timerConfig,
     webhookUrl: buildDraftWebhookUrl(options.botHost, options.partyHost),

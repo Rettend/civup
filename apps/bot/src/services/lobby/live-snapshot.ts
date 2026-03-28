@@ -5,6 +5,7 @@ import { getServerDraftTimerDefaults } from '../config/index.ts'
 import { getQueueState } from '../queue/index.ts'
 import { stateStoreMdelete, stateStoreMput } from '../state/store.ts'
 import { LOBBY_TTL } from './keys.ts'
+import { normalizeDraftConfigForMode } from './normalize.ts'
 import { filterQueueEntriesForLobby, mapLobbySlotsToEntries, normalizeLobbySlots } from './slots.ts'
 
 const LOBBY_SNAPSHOT_KEY_PREFIX = 'lobby:snapshot:'
@@ -77,7 +78,7 @@ export async function buildLobbyLiveSnapshotFromParts(
     }),
     minPlayers: lobbyMinPlayerCount(mode),
     targetSize: maxPlayerCount(mode),
-    draftConfig: lobby.draftConfig,
+    draftConfig: normalizeDraftConfigForMode(mode, lobby.draftConfig),
     serverDefaults,
   }
 }
