@@ -11,7 +11,7 @@ export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   leaderPoolSize: null,
   leaderDataVersion: 'live',
   simultaneousPick: false,
-  dealOptionsSize: 2,
+  dealOptionsSize: null,
   randomDraft: false,
 }
 
@@ -169,9 +169,9 @@ function normalizeSimultaneousPick(value: unknown): boolean {
 }
 
 function normalizeDealOptionsSize(value: unknown): number | null {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_DRAFT_CONFIG.dealOptionsSize
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
   const rounded = Math.round(value)
-  if (rounded < 2 || rounded > 10) return DEFAULT_DRAFT_CONFIG.dealOptionsSize
+  if (rounded < 2 || rounded > 10) return null
   return rounded
 }
 
