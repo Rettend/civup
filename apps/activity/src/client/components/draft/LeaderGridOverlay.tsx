@@ -1,6 +1,6 @@
 import type { Leader } from '@civup/game'
 import type { LeaderTagCategory } from '~/client/lib/leader-tags'
-import { getLeaders, searchLeaders } from '@civup/game'
+import { factions, getLeaders, searchFactions, searchLeaders } from '@civup/game'
 import { throttle } from '@solid-primitives/scheduled'
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
@@ -14,14 +14,17 @@ import {
 import {
   activeTagFilterCount,
   banSelections,
+  canOpenLeaderGrid,
   canManagePickQueue,
   clearSelections,
   clearTagFilters,
   currentStep,
+  dealtCivIds,
   detailLeaderId,
   draftStore,
   gridOpen,
   hasSubmitted,
+  isRedDeathDraft,
   isMyTurn,
   isRandomSelected,
   phaseAccent,
@@ -144,11 +147,17 @@ export function LeaderGridOverlay() {
   })
 
   const allLeaders = createMemo(() => getLeaders(leaderDataVersion()))
+  const allEntries = createMemo(() => isRedDeathDraft() ? factions : allLeaders())
   const filterTagOptions = createMemo(() => getFilterTagOptions(allLeaders()))
 
   // Auto-open grid when it's your turn
   createEffect(() => {
     if (isMyTurn() && !hasSubmitted()) setGridOpen(true)
+  })
+
+  createEffect(() => {
+    if (canOpenLeaderGrid()) return
+    if (gridOpen()) setGridOpen(false)
   })
 
   createEffect(() => {
@@ -220,6 +229,8 @@ export function LeaderGridOverlay() {
   })
 
   const draftLeaderPoolIds = createMemo(() => {
+    if (isRedDeathDraft()) return new Set(dealtCivIds() ?? [])
+
     const draftState = state()
     if (!draftState) return new Set(allLeaders().map(leader => leader.id))
 
@@ -231,11 +242,13 @@ export function LeaderGridOverlay() {
   })
 
   const filteredLeaders = createMemo(() => {
-    const query = searchQuery().trim()
+    const query = isRedDeathDraft() ? '' : searchQuery().trim()
     const filters = tagFilters()
     const leaderPoolIds = draftLeaderPoolIds()
-    let result = query ? searchLeaders(query, leaderDataVersion()) : [...allLeaders()]
-    result = result.filter(leader => leaderPoolIds.has(leader.id) && leaderMatchesTagFilters(leader.tags, filters))
+    let result = query
+      ? (isRedDeathDraft() ? searchFactions(query) : searchLeaders(query, leaderDataVersion()))
+      : [...allEntries()]
+    result = result.filter(leader => leaderPoolIds.has(leader.id) && (isRedDeathDraft() || leaderMatchesTagFilters(leader.tags, filters)))
     return result.sort((a, b) => a.name.localeCompare(b.name))
   })
 
@@ -246,11 +259,13 @@ export function LeaderGridOverlay() {
   }
 
   const randomLeaderPool = createMemo(() => {
+    if (isRedDeathDraft()) return []
     const available = new Set(state()?.availableCivIds ?? [])
     return filteredLeaders().filter(leader => available.has(leader.id))
   })
 
   const canUseRandom = () => {
+    if (isRedDeathDraft()) return false
     if (state()?.status !== 'active') return false
     if (!isMyTurn() || hasSubmitted()) return false
     const s = step()
@@ -344,6 +359,7 @@ export function LeaderGridOverlay() {
   }
 
   const handleToggleFilters = () => {
+    if (isRedDeathDraft()) return
     if (!panelsDocked() && gridExpanded() && !filtersOpen()) setDetailLeaderId(null)
     setFiltersOpen(prev => !prev)
   }
@@ -489,49 +505,53 @@ export function LeaderGridOverlay() {
           </Show>
         </button>
 
-        <div class="flex-1 max-w-72 min-w-0 relative">
-          <div class="i-ph-magnifying-glass-bold text-sm text-fg-subtle left-3 top-1/2 absolute -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Search..."
-            value={searchQuery()}
-            onInput={e => setSearchQuery(e.currentTarget.value)}
-            class={cn(
-              'text-sm text-fg px-3.5 py-2 pl-8 rounded-lg w-full',
-              'bg-bg/60 border border-border',
-              'outline-none transition-all duration-150',
-              'placeholder:text-fg-subtle/60',
-              'focus:border-accent/50 focus:bg-bg/80 focus:shadow-[0_0_0_3px_var(--accent-subtle)]',
-            )}
-          />
-        </div>
+        <Show when={!isRedDeathDraft()} fallback={<div class="flex-1" />}>
+          <>
+            <div class="flex-1 max-w-72 min-w-0 relative">
+              <div class="i-ph-magnifying-glass-bold text-sm text-fg-subtle left-3 top-1/2 absolute -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search..."
+                value={searchQuery()}
+                onInput={e => setSearchQuery(e.currentTarget.value)}
+                class={cn(
+                  'text-sm text-fg px-3.5 py-2 pl-8 rounded-lg w-full',
+                  'bg-bg/60 border border-border',
+                  'outline-none transition-all duration-150',
+                  'placeholder:text-fg-subtle/60',
+                  'focus:border-accent/50 focus:bg-bg/80 focus:shadow-[0_0_0_3px_var(--accent-subtle)]',
+                )}
+              />
+            </div>
 
-        <button
-          class={cn(
-            'relative inline-flex items-center justify-center rounded-lg border h-9 w-9 shrink-0 transition-all duration-150 cursor-pointer',
-            filtersOpen()
-              ? 'border-accent/40 bg-accent/15 text-accent'
-              : 'border-border bg-bg/60 text-fg-muted hover:bg-bg-muted hover:border-border-hover',
-          )}
-          title="Filters"
-          aria-label="Filters"
-          onClick={handleToggleFilters}
-        >
-          <div class="i-ph-funnel-bold text-sm" />
-          <Show when={activeTagFilterCount() > 0}>
-            <span class="text-[10px] text-accent font-semibold px-1 py-0.5 rounded-full bg-bg-subtle min-w-4 translate-x-1/4 right-0 top-0 absolute -translate-y-1/4">
-              {activeTagFilterCount()}
-            </span>
-          </Show>
-        </button>
+            <button
+              class={cn(
+                'relative inline-flex items-center justify-center rounded-lg border h-9 w-9 shrink-0 transition-all duration-150 cursor-pointer',
+                filtersOpen()
+                  ? 'border-accent/40 bg-accent/15 text-accent'
+                  : 'border-border bg-bg/60 text-fg-muted hover:bg-bg-muted hover:border-border-hover',
+              )}
+              title="Filters"
+              aria-label="Filters"
+              onClick={handleToggleFilters}
+            >
+              <div class="i-ph-funnel-bold text-sm" />
+              <Show when={activeTagFilterCount() > 0}>
+                <span class="text-[10px] text-accent font-semibold px-1 py-0.5 rounded-full bg-bg-subtle min-w-4 translate-x-1/4 right-0 top-0 absolute -translate-y-1/4">
+                  {activeTagFilterCount()}
+                </span>
+              </Show>
+            </button>
 
-        <Show when={activeTagFilterCount() > 0}>
-          <button
-            class="text-[11px] text-fg-subtle px-2 py-1 border border-border rounded cursor-pointer transition-colors hover:text-fg-muted hover:bg-bg-muted"
-            onClick={clearTagFilters}
-          >
-            Clear
-          </button>
+            <Show when={activeTagFilterCount() > 0}>
+              <button
+                class="text-[11px] text-fg-subtle px-2 py-1 border border-border rounded cursor-pointer transition-colors hover:text-fg-muted hover:bg-bg-muted"
+                onClick={clearTagFilters}
+              >
+                Clear
+              </button>
+            </Show>
+          </>
         </Show>
 
         <div class="ml-auto flex shrink-0 gap-2 items-center">
@@ -552,12 +572,14 @@ export function LeaderGridOverlay() {
 
       <div class={cn('p-1.5 flex-1 overflow-y-auto', showDockedPanels() ? 'min-h-[calc(3*4.5rem)]' : 'min-h-0')}>
         <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
-          <RandomLeaderCard
-            disabled={!canUseRandom()}
-            active={isRandomSelected()}
-            accent={accent()}
-            onClick={handleToggleRandom}
-          />
+          <Show when={!isRedDeathDraft()}>
+            <RandomLeaderCard
+              disabled={!canUseRandom()}
+              active={isRandomSelected()}
+              accent={accent()}
+              onClick={handleToggleRandom}
+            />
+          </Show>
           <For each={filteredLeaders()}>
             {leader => (
               <LeaderCard

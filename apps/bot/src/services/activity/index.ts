@@ -1,6 +1,6 @@
 import type { DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry, RoomConfig } from '@civup/game'
 import type { LobbyState } from '../lobby/types.ts'
-import { getDraftFormat, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamSize } from '@civup/game'
+import { allFactionIds, getDraftFormat, isRedDeathMode, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
 import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
 import { getLobbiesByChannel } from '../lobby/index.ts'
@@ -20,11 +20,13 @@ export interface CreateDraftRoomOptions {
   hostId: string
   leaderDataVersion?: LeaderDataVersion
   simultaneousPick?: boolean
+  randomDraft?: boolean
   partyHost?: string
   botHost?: string
   webhookSecret?: string
   timerConfig?: DraftTimerConfig
   leaderPoolSize?: number | null
+  dealOptionsSize?: number | null
 }
 
 export interface ActivityTargetSelection {
@@ -136,15 +138,19 @@ export async function createDraftRoom(
   options: CreateDraftRoomOptions,
 ): Promise<MatchCreationResult> {
   const matchId = nanoid(12)
-  const format = getDraftFormat(mode, { simultaneousPick: options.simultaneousPick })
+  const format = getDraftFormat(mode, { simultaneousPick: options.simultaneousPick, randomDraft: options.randomDraft })
   const seats: DraftSeat[] = buildSeats(mode, entries)
-  const leaderPoolSize = resolveLeaderPoolSize(mode, seats.length, options.leaderPoolSize)
+  const civPool = isRedDeathMode(mode)
+    ? [...allFactionIds]
+    : sampleLeaderPool(resolveLeaderPoolSize(mode, seats.length, options.leaderPoolSize))
   const config: RoomConfig = {
     matchId,
     hostId: options.hostId,
     formatId: format.id,
     seats,
-    civPool: sampleLeaderPool(leaderPoolSize),
+    civPool,
+    dealOptionsSize: options.dealOptionsSize ?? undefined,
+    randomDraft: options.randomDraft ?? false,
     leaderDataVersion: options.leaderDataVersion ?? 'live',
     timerConfig: options.timerConfig,
     webhookUrl: buildDraftWebhookUrl(options.botHost, options.partyHost),
@@ -178,28 +184,19 @@ function buildDraftWebhookUrl(botHost: string | undefined, partyHost: string | u
 
 function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
   if (isTeamMode(mode)) {
-    // Team modes: first slot of each team is the captain (A1, B1, A2, B2...)
-    const teamSlotCount = teamSize(mode) ?? 0
+    const playersPerTeam = teamSize(mode) ?? 0
+    const teams = teamCount(mode, entries.length)
     const seats: DraftSeat[] = []
 
-    for (let i = 0; i < teamSlotCount; i++) {
-      const teamAEntry = entries[i]
-      if (teamAEntry) {
+    for (let position = 0; position < playersPerTeam; position++) {
+      for (let team = 0; team < teams; team++) {
+        const entry = entries[team * playersPerTeam + position]
+        if (!entry) continue
         seats.push({
-          playerId: teamAEntry.playerId,
-          displayName: teamAEntry.displayName,
-          avatarUrl: teamAEntry.avatarUrl ?? null,
-          team: 0,
-        })
-      }
-
-      const teamBEntry = entries[teamSlotCount + i]
-      if (teamBEntry) {
-        seats.push({
-          playerId: teamBEntry.playerId,
-          displayName: teamBEntry.displayName,
-          avatarUrl: teamBEntry.avatarUrl ?? null,
-          team: 1,
+          playerId: entry.playerId,
+          displayName: entry.displayName,
+          avatarUrl: entry.avatarUrl ?? null,
+          team,
         })
       }
     }

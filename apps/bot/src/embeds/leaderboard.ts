@@ -16,6 +16,7 @@ const MODE_COLORS: Record<LeaderboardMode, number> = {
   duo: 0x06B6D4,
   squad: 0x8B5CF6,
   ffa: 0xF59E0B,
+  'red-death': 0xDC2626,
 }
 
 export function leaderboardEmbed(

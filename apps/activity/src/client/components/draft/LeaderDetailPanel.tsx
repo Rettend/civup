@@ -56,6 +56,16 @@ export function LeaderDetailPanel() {
             <RichLeaderText text={l().ability.description} class="text-xs text-fg-muted leading-relaxed mt-0.5 block" />
           </div>
 
+          <Show when={l().secondaryAbility}>
+            {ability => (
+              <div class="mb-3">
+                <div class="text-[10px] text-accent tracking-widest font-bold mb-1 uppercase">Secondary Ability</div>
+                <p class="text-sm text-fg font-medium">{ability().name}</p>
+                <RichLeaderText text={ability().description} class="text-xs text-fg-muted leading-relaxed mt-0.5 block" />
+              </div>
+            )}
+          </Show>
+
           {/* Uniques */}
           <For each={allUniques()}>
             {section => (

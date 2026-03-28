@@ -434,6 +434,8 @@ describe('lobby routes', () => {
       leaderPoolSize: 12,
       leaderDataVersion: 'live',
       simultaneousPick: false,
+      dealOptionsSize: 2,
+      randomDraft: false,
     }, lobby)
     expect(configuredLobby).not.toBeNull()
 
@@ -460,6 +462,8 @@ describe('lobby routes', () => {
       leaderPoolSize: 12,
       leaderDataVersion: 'live',
       simultaneousPick: false,
+      dealOptionsSize: 2,
+      randomDraft: false,
     })
     expect(updatedLobby?.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
   })
