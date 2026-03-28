@@ -151,7 +151,7 @@ export function Dropdown(props: DropdownProps) {
                       ? 'bg-accent/12 text-accent font-medium'
                       : option.disabled
                         ? 'text-fg-subtle'
-                      : 'text-fg-muted hover:bg-white/6 hover:text-fg',
+                        : 'text-fg-muted hover:bg-white/6 hover:text-fg',
                   )}
                 >
                   {option.render ? option.render() : option.label}
