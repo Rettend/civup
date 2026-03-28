@@ -238,9 +238,7 @@ export function compactSlottedPremadesForMode(
 
   const teams = Array.from({ length: activeTeamCount }, () => [] as string[])
   for (const group of groups) {
-    const destination = [...teams]
-      .sort((left, right) => left.length - right.length)
-      .find(team => team.length + group.length <= teamSize)
+    const destination = teams.find(team => team.length + group.length <= teamSize)
     if (!destination) {
       return { error: 'Linked premades do not fit this mode.' }
     }
