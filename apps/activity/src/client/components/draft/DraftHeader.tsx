@@ -310,8 +310,8 @@ export function DraftHeader(props: DraftHeaderProps) {
   )
 
   const confirmationHint = () => {
-    if (armedHostAction() === 'revert') return 'Revert will return everyone to the lobby. Click again to confirm.'
-    if (armedHostAction() === 'scrub') return 'Scrub will cancel the draft completely. Click again to confirm.'
+    if (armedHostAction() === 'revert') return { line1: 'Revert will return everyone to the lobby.', line2: 'Click again to confirm.' }
+    if (armedHostAction() === 'scrub') return { line1: 'Scrub will cancel the draft completely.', line2: 'Click again to confirm.' }
     return null
   }
 
@@ -352,13 +352,13 @@ export function DraftHeader(props: DraftHeaderProps) {
         {hint => (
           <div
             class={cn(
-              'pointer-events-none absolute z-20 border border-border rounded-full bg-bg-subtle/80 px-3 py-1 text-xs text-fg-muted shadow-lg backdrop-blur-sm whitespace-nowrap',
+              'pointer-events-none absolute z-20 border border-border rounded-lg bg-bg-subtle/80 px-3 py-1.5 text-xs text-fg-muted shadow-lg backdrop-blur-sm text-center',
               iconOnly
-                ? 'left-1/2 top-full mt-2 -translate-x-1/2'
-                : 'left-full top-1/2 ml-2 -translate-y-1/2',
+                ? 'left-1/2 top-full mt-2 -translate-x-1/2 w-max max-w-[calc(100vw-2rem)]'
+                : 'left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap',
             )}
           >
-            {hint()}
+            {hint().line1}<br />{hint().line2}
           </div>
         )}
       </Show>

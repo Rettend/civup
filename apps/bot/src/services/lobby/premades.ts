@@ -7,6 +7,11 @@ export interface SlottedPremadeGroup {
   teamIndex: number
 }
 
+interface CompactModeChangeOptions {
+  sourceMode?: GameMode
+  sourceSlots?: readonly (string | null)[]
+}
+
 export function buildSlottedPremadeGroups(
   mode: GameMode,
   slots: (string | null)[],
@@ -210,14 +215,17 @@ export function compactSlottedPremadesForMode(
   mode: GameMode,
   orderedPlayerIds: string[],
   queueEntries: QueueEntry[],
+  options?: CompactModeChangeOptions,
 ): { slots: (string | null)[] } | { error: string } {
   const targetSize = maxPlayerCount(mode)
-  const normalizedOrderedPlayers = orderedPlayerIds.slice(0, targetSize)
+  if (orderedPlayerIds.length > targetSize) {
+    return { error: `${mode} only supports ${targetSize} players.` }
+  }
 
   if (mode === 'ffa') {
     const slots = Array.from({ length: targetSize }, () => null as string | null)
     for (let index = 0; index < targetSize; index++) {
-      slots[index] = normalizedOrderedPlayers[index] ?? null
+      slots[index] = orderedPlayerIds[index] ?? null
     }
     return { slots }
   }
@@ -226,33 +234,66 @@ export function compactSlottedPremadesForMode(
   if (!teamSize) {
     return { error: 'Linked premades do not fit this mode.' }
   }
-  const activeTeamCount = modeTeamCount(mode, normalizedOrderedPlayers.length)
+  const preservedTeams = buildCurrentTeamsForModeChange(mode, orderedPlayerIds, options)
+  const teams = preservedTeams ?? Array.from({ length: modeTeamCount(mode, orderedPlayerIds.length) }, () => [] as string[])
 
-  const queueByPlayerId = new Map(queueEntries.map(entry => [entry.playerId, entry]))
-  const orderByPlayerId = new Map(normalizedOrderedPlayers.map((playerId, index) => [playerId, index]))
-  const groups = buildGroupsFromPartyIds(normalizedOrderedPlayers, queueByPlayerId, orderByPlayerId)
+  if (!preservedTeams) {
+    const queueByPlayerId = new Map(queueEntries.map(entry => [entry.playerId, entry]))
+    const orderByPlayerId = new Map(orderedPlayerIds.map((playerId, index) => [playerId, index]))
+    const groups = buildGroupsFromPartyIds(orderedPlayerIds, queueByPlayerId, orderByPlayerId)
 
-  if (groups.some(group => group.length > teamSize)) {
+    if (groups.some(group => group.length > teamSize)) {
+      return { error: 'Linked premades do not fit this mode.' }
+    }
+
+    for (const group of groups) {
+      const destination = teams.find(team => team.length + group.length <= teamSize)
+      if (!destination) {
+        return { error: 'Linked premades do not fit this mode.' }
+      }
+      destination.push(...group)
+    }
+  }
+
+  if (teams.some(team => team.length > teamSize)) {
     return { error: 'Linked premades do not fit this mode.' }
   }
 
-  const teams = Array.from({ length: activeTeamCount }, () => [] as string[])
-  for (const group of groups) {
-    const destination = teams.find(team => team.length + group.length <= teamSize)
-    if (!destination) {
-      return { error: 'Linked premades do not fit this mode.' }
-    }
-    destination.push(...group)
+  return { slots: buildTeamSlots(teamSize, teams, targetSize) }
+}
+
+function buildCurrentTeamsForModeChange(
+  mode: GameMode,
+  orderedPlayerIds: string[],
+  options?: CompactModeChangeOptions,
+): string[][] | null {
+  const sourceMode = options?.sourceMode
+  const sourceSlots = options?.sourceSlots
+  if (!sourceMode || !sourceSlots) return null
+
+  const targetTeamSize = modeTeamSize(mode)
+  if (!targetTeamSize || !modeTeamSize(sourceMode)) return null
+
+  const sourceTeamCount = modeTeamCount(sourceMode, sourceSlots.length)
+  if (sourceTeamCount !== modeTeamCount(mode, orderedPlayerIds.length)) return null
+
+  const orderedPlayerSet = new Set(orderedPlayerIds)
+  const seen = new Set<string>()
+  const teamIdsByTeam = Array.from({ length: sourceTeamCount }, () => [] as string[])
+
+  for (let index = 0; index < sourceSlots.length; index++) {
+    const playerId = sourceSlots[index]
+    if (!playerId || seen.has(playerId) || !orderedPlayerSet.has(playerId)) continue
+
+    const teamIndex = slotToTeamIndex(sourceMode, index, sourceSlots.length)
+    if (teamIndex == null) return null
+
+    teamIdsByTeam[teamIndex]?.push(playerId)
+    seen.add(playerId)
   }
 
-  const slots = Array.from({ length: targetSize }, () => null as string | null)
-  for (let team = 0; team < teams.length; team++) {
-    const teamIds = teams[team] ?? []
-    for (let index = 0; index < teamSize; index++) {
-      slots[team * teamSize + index] = teamIds[index] ?? null
-    }
-  }
-  return { slots }
+  if (teamIdsByTeam.some(teamIds => teamIds.length > targetTeamSize)) return null
+  return seen.size === orderedPlayerIds.length ? teamIdsByTeam : null
 }
 
 function buildContiguousSegments(mode: GameMode, size: number): number[][] {
@@ -343,4 +384,17 @@ function buildSlotOrderMap(slots: (string | null)[]): Map<string, number> {
     orderByPlayerId.set(playerId, index)
   }
   return orderByPlayerId
+}
+
+function buildTeamSlots(teamSize: number, teamIdsByTeam: string[][], slotCount: number): (string | null)[] {
+  const slots = Array.from({ length: slotCount }, () => null as string | null)
+
+  for (let team = 0; team < teamIdsByTeam.length; team++) {
+    const teamIds = teamIdsByTeam[team] ?? []
+    for (let index = 0; index < teamSize; index++) {
+      slots[(team * teamSize) + index] = teamIds[index] ?? null
+    }
+  }
+
+  return slots
 }

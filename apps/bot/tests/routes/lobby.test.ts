@@ -739,6 +739,106 @@ describe('lobby routes', () => {
     expect(updatedLobby?.mode).toBe('3v3')
     expect(updatedLobby?.slots).toEqual(['p1', 'p2', 'p3', 'host', 'p5', 'p6'])
   })
+
+  test('mode changes preserve the current team split when expanding team size', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '3v3',
+      hostId: 'p1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6']
+    for (let index = 0; index < playerIds.length; index++) {
+      const playerId = playerIds[index]
+      await addToQueue(kv, '3v3', {
+        playerId,
+        displayName: playerId,
+        avatarUrl: null,
+        joinedAt: Date.now() + index,
+      })
+    }
+
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, playerIds, lobby)
+    const withSlots = await setLobbySlots(kv, lobby.id, ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'], withMembers ?? lobby)
+    expect(withSlots).not.toBeNull()
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/3v3/mode', {
+      method: 'POST',
+      headers: buildAuthHeaders('p1', 'P1'),
+      body: JSON.stringify({
+        userId: 'p1',
+        lobbyId: lobby.id,
+        nextMode: '4v4',
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.mode).toBe('4v4')
+    expect(updatedLobby?.slots).toEqual(['p1', 'p2', 'p3', null, 'p4', 'p5', 'p6', null])
+  })
+
+  test('mode changes reject shrinking to a smaller lobby than the current player count', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '3v3',
+      hostId: 'p1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6']
+    for (let index = 0; index < playerIds.length; index++) {
+      const playerId = playerIds[index]
+      await addToQueue(kv, '3v3', {
+        playerId,
+        displayName: playerId,
+        avatarUrl: null,
+        joinedAt: Date.now() + index,
+      })
+    }
+
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, playerIds, lobby)
+    const withSlots = await setLobbySlots(kv, lobby.id, ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'], withMembers ?? lobby)
+    expect(withSlots).not.toBeNull()
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/3v3/mode', {
+      method: 'POST',
+      headers: buildAuthHeaders('p1', 'P1'),
+      body: JSON.stringify({
+        userId: 'p1',
+        lobbyId: lobby.id,
+        nextMode: '2v2',
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: '2v2 only supports 4 players.' })
+
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.mode).toBe('3v3')
+    expect(updatedLobby?.slots).toEqual(['p1', 'p2', 'p3', 'p4', 'p5', 'p6'])
+    expect(updatedLobby?.memberPlayerIds).toEqual(playerIds)
+  })
 })
 
 function buildEnv(kv: KVNamespace) {

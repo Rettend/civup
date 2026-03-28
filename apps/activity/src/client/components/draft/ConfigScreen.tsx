@@ -8,7 +8,7 @@ import type {
   RankRoleSetDetail,
 } from '~/client/lib/config-screen/helpers'
 import type { LobbyArrangeStrategy, LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
-import { canStartWithPlayerCount, formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isTeamMode as isTeamGameMode, normalizeCompetitiveTierBounds, slotToTeamIndex } from '@civup/game'
+import { canStartWithPlayerCount, formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isTeamMode as isTeamGameMode, maxPlayerCount, normalizeCompetitiveTierBounds, slotToTeamIndex } from '@civup/game'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, Switch, TextInput } from '~/client/components/ui'
 import {
@@ -617,6 +617,15 @@ export function ConfigScreen(props: ConfigScreenProps) {
     const lobby = currentLobby()
     if (!lobby) return 0
     return lobby.entries.filter(entry => entry != null).length
+  }
+
+  const lobbyModeOptions = () => {
+    const playerCount = filledSlots()
+    return GAME_MODE_CHOICES.map(choice => ({
+      value: choice.value,
+      label: choice.name,
+      disabled: playerCount > maxPlayerCount(choice.value),
+    }))
   }
 
   const canStartLobby = () => {
@@ -1535,7 +1544,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       label="Game Mode"
                       value={lobbyMode()}
                       disabled={lobbyActionPending()}
-                      options={GAME_MODE_CHOICES.map(choice => ({ value: choice.value, label: choice.name }))}
+                      options={lobbyModeOptions()}
                       onChange={value => void handleLobbyModeChange(inferGameMode(value))}
                     />
                   </Show>
@@ -1716,21 +1725,21 @@ export function ConfigScreen(props: ConfigScreenProps) {
                   fallback={(
                     <div class="flex gap-3 items-center">
                       <button
-                        class="text-sm text-bg font-bold px-8 py-2.5 rounded-lg bg-accent cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-not-allowed hover:brightness-110"
+                        class="text-sm text-bg font-bold px-8 py-2.5 rounded-lg bg-accent cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-default hover:brightness-110"
                         disabled={!canStartLobby() || startPending() || lobbyActionPending()}
                         onClick={() => void handleStartLobbyDraftAction()}
                       >
                         {startPending() ? 'Starting' : 'Start Draft'}
                       </button>
                       <button
-                        class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed"
+                        class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
                         disabled={cancelPending() || startPending() || lobbyActionPending()}
                         onClick={() => void handleCancelAction()}
                       >
                         {cancelPending() ? 'Cancelling' : 'Cancel Lobby'}
                       </button>
                       <button
-                        class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed"
+                        class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
                         title={`Randomize ${arrangeTargetLabel(lobbyMode())}`}
                         aria-label={`Randomize ${arrangeTargetLabel(lobbyMode())}`}
                         disabled={cancelPending() || startPending() || lobbyActionPending()}
@@ -1739,7 +1748,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                         <span class="i-ph:shuffle-simple-bold text-lg" />
                       </button>
                       <button
-                        class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed"
+                        class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
                         title={`Auto-balance ${arrangeTargetLabel(lobbyMode())}`}
                         aria-label={`Auto-balance ${arrangeTargetLabel(lobbyMode())}`}
                         disabled={cancelPending() || startPending() || lobbyActionPending()}
@@ -1749,7 +1758,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       </button>
                       <Show when={fillTestPlayersAvailable()}>
                         <button
-                          class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-not-allowed"
+                          class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
                           disabled={cancelPending() || startPending() || lobbyActionPending()}
                           onClick={() => void handleFillTestPlayers()}
                         >

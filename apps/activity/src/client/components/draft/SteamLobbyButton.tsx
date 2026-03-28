@@ -202,7 +202,7 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
           isGhost()
             ? 'bg-transparent text-fg-muted border border-border hover:bg-bg-muted hover:text-fg'
             : 'bg-accent text-bg hover:brightness-110',
-          props.savePending && 'opacity-60 cursor-not-allowed',
+          props.savePending && 'opacity-60 cursor-default',
         )}
         title={buttonTitle()}
         aria-label={buttonAriaLabel()}
@@ -249,7 +249,7 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
                 'outline-none transition-colors duration-150',
                 'placeholder:text-fg-subtle/60',
                 'focus:border-accent/50 focus:bg-bg/80',
-                'disabled:opacity-50 disabled:cursor-not-allowed',
+                'disabled:opacity-50 disabled:cursor-default',
               )}
               onInput={e => setInputValue(e.currentTarget.value)}
               onBlur={handleInputBlur}
