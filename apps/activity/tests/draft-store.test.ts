@@ -1,7 +1,8 @@
 import type { DraftState } from '@civup/game'
-import { createDraft, default2v2, isDraftError, processDraftInput } from '@civup/game'
+import { allFactionIds, createDraft, default2v2, getDraftFormat, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import {
+  canSendPickPreview,
   currentStep,
   currentStepDuration,
   getPreviewPickForSeat,
@@ -31,8 +32,17 @@ function createWaitingState() {
   return createDraft('draft-store-test', default2v2, create2v2Seats(), civPool)
 }
 
+function createRedDeathWaitingState() {
+  return createDraft('draft-store-rd-test', getDraftFormat('rd-2p'), create2v2Seats(), allFactionIds, { dealOptionsSize: 2 })
+}
+
 function createActiveBanState() {
   const waiting = createWaitingState()
+  return resolveDraftState(processDraftInput(waiting, { type: 'START' }))
+}
+
+function createActiveRedDeathState() {
+  const waiting = createRedDeathWaitingState()
   return resolveDraftState(processDraftInput(waiting, { type: 'START' }))
 }
 
@@ -94,5 +104,30 @@ describe('draft-store helpers', () => {
     initDraft(active, 'live', 'a1', 0, null, null, { bans: {}, picks: { 2: ['civ-9', 'civ-10'] } })
 
     expect(getPreviewPickForSeat(2)).toBe('civ-9')
+  })
+
+  test('team drafts still allow teammates to send pick previews', () => {
+    const active = createActiveBanState()
+    const pickState: DraftState = {
+      ...active,
+      currentStepIndex: 1,
+    }
+
+    initDraft(pickState, 'live', 'a1', 2, null, null, { bans: {}, picks: {} })
+    expect(canSendPickPreview()).toBe(true)
+  })
+
+  test('red death only allows the active picker to send pick previews', () => {
+    const active = createActiveRedDeathState()
+    const dealtState: DraftState = {
+      ...active,
+      dealtCivIds: allFactionIds.slice(0, 2),
+    }
+
+    initDraft(dealtState, 'live', 'a1', 0, null, null, { bans: {}, picks: {} })
+    expect(canSendPickPreview()).toBe(true)
+
+    initDraft(dealtState, 'live', 'a1', 2, null, null, { bans: {}, picks: {} })
+    expect(canSendPickPreview()).toBe(false)
   })
 })

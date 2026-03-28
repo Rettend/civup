@@ -15,7 +15,7 @@ import {
   activeTagFilterCount,
   banSelections,
   canOpenLeaderGrid,
-  canManagePickQueue,
+  canSendPickPreview,
   clearSelections,
   clearTagFilters,
   currentStep,
@@ -225,7 +225,7 @@ export function LeaderGridOverlay() {
     }
 
     sendThrottledBanPreview.clear()
-    sendThrottledPickPreview(canManagePickQueue() ? pickSelections() : [])
+    sendThrottledPickPreview(canSendPickPreview() ? pickSelections() : [])
   })
 
   const draftLeaderPoolIds = createMemo(() => {
