@@ -20,18 +20,18 @@ export const LEADERBOARD_MODE_CHOICES = [
 ] as const satisfies readonly { name: string, value: LeaderboardMode }[]
 
 export const LEADERBOARD_MODE_LABELS: Record<LeaderboardMode, string> = {
-  duel: 'Duel',
-  duo: 'Duo',
-  squad: 'Squad',
-  ffa: 'FFA',
+  'duel': 'Duel',
+  'duo': 'Duo',
+  'squad': 'Squad',
+  'ffa': 'FFA',
   'red-death': 'Red Death',
 }
 
 const LEADERBOARD_MODE_GAME_MODES = {
-  duel: ['1v1'],
-  duo: ['2v2'],
-  squad: ['3v3', '4v4'],
-  ffa: ['ffa'],
+  'duel': ['1v1'],
+  'duo': ['2v2'],
+  'squad': ['3v3', '4v4'],
+  'ffa': ['ffa'],
   'red-death': ['rd-2p', 'rd-4p'],
 } as const satisfies Record<LeaderboardMode, readonly GameMode[]>
 

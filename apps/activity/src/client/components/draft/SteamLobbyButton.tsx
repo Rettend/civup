@@ -227,7 +227,7 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
       </button>
 
       <Show when={missingLinkHintVisible()}>
-        <div class="pointer-events-none absolute left-0 top-full z-[100] mt-2 whitespace-nowrap rounded-full border border-border bg-bg-subtle/80 px-3 py-1 text-xs text-fg-muted shadow-lg backdrop-blur-sm">
+        <div class="text-xs text-fg-muted mt-2 px-3 py-1 border border-border rounded-full bg-bg-subtle/80 pointer-events-none whitespace-nowrap shadow-lg left-0 top-full absolute z-[100] backdrop-blur-sm">
           No Steam link set
         </div>
       </Show>

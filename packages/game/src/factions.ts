@@ -1,13 +1,11 @@
 import type { Leader } from './types.ts'
 
-const RD_PORTRAIT_CACHE_BUSTER = '2'
-
 export const factions: Leader[] = [
   {
     id: 'rd-aliens',
     name: 'Aliens',
     civilization: 'Undercover Aliens',
-    portraitUrl: `/assets/rd/leaders/aliens.webp?v=${RD_PORTRAIT_CACHE_BUSTER}`,
+    portraitUrl: '/assets/rd/leaders/aliens.webp',
     fullPortraitUrl: '/assets/rd/leaders-full/aliens.webp',
     ability: {
       name: 'Xenological Camouflage',
@@ -24,7 +22,7 @@ export const factions: Leader[] = [
     id: 'rd-cultists',
     name: 'Cultists',
     civilization: 'Deeply Invested Cultists',
-    portraitUrl: `/assets/rd/leaders/cultists.webp?v=${RD_PORTRAIT_CACHE_BUSTER}`,
+    portraitUrl: '/assets/rd/leaders/cultists.webp',
     fullPortraitUrl: '/assets/rd/leaders-full/cultists.webp',
     ability: {
       name: 'The Undying Eye',
@@ -41,7 +39,7 @@ export const factions: Leader[] = [
     id: 'rd-borderlords',
     name: 'Borderlords',
     civilization: 'Very Goth Borderlords',
-    portraitUrl: `/assets/rd/leaders/borderlords.webp?v=${RD_PORTRAIT_CACHE_BUSTER}`,
+    portraitUrl: '/assets/rd/leaders/borderlords.webp',
     fullPortraitUrl: '/assets/rd/leaders-full/borderlords.webp',
     ability: {
       name: 'Grieving Gift',
@@ -58,7 +56,7 @@ export const factions: Leader[] = [
     id: 'rd-jocks',
     name: 'Jocks',
     civilization: 'Meanest Jocks',
-    portraitUrl: `/assets/rd/leaders/jocks.webp?v=${RD_PORTRAIT_CACHE_BUSTER}`,
+    portraitUrl: '/assets/rd/leaders/jocks.webp',
     fullPortraitUrl: '/assets/rd/leaders-full/jocks.webp',
     ability: {
       name: 'Hail Mary Pass',
@@ -75,7 +73,7 @@ export const factions: Leader[] = [
     id: 'rd-mutants',
     name: 'Mutants',
     civilization: 'Horribly Scarred Mutants',
-    portraitUrl: `/assets/rd/leaders/mutants.webp?v=${RD_PORTRAIT_CACHE_BUSTER}`,
+    portraitUrl: '/assets/rd/leaders/mutants.webp',
     fullPortraitUrl: '/assets/rd/leaders-full/mutants.webp',
     ability: {
       name: 'Radiant Personalities',
@@ -92,7 +90,7 @@ export const factions: Leader[] = [
     id: 'rd-pirates',
     name: 'Pirates',
     civilization: 'Irradiated Pirates',
-    portraitUrl: `/assets/rd/leaders/pirates.webp?v=${RD_PORTRAIT_CACHE_BUSTER}`,
+    portraitUrl: '/assets/rd/leaders/pirates.webp',
     fullPortraitUrl: '/assets/rd/leaders-full/pirates.webp',
     ability: {
       name: 'Buried Treasure',
@@ -109,7 +107,7 @@ export const factions: Leader[] = [
     id: 'rd-preppers',
     name: 'Doomsday Preppers',
     civilization: 'Insane Doomsday Preppers',
-    portraitUrl: `/assets/rd/leaders/preppers.webp?v=${RD_PORTRAIT_CACHE_BUSTER}`,
+    portraitUrl: '/assets/rd/leaders/preppers.webp',
     fullPortraitUrl: '/assets/rd/leaders-full/preppers.webp',
     ability: {
       name: 'Improvised Traps',
@@ -126,7 +124,7 @@ export const factions: Leader[] = [
     id: 'rd-scientists',
     name: 'Mad Scientists',
     civilization: 'Ethically Challenged Scientists',
-    portraitUrl: `/assets/rd/leaders/scientists.webp?v=${RD_PORTRAIT_CACHE_BUSTER}`,
+    portraitUrl: '/assets/rd/leaders/scientists.webp',
     fullPortraitUrl: '/assets/rd/leaders-full/scientists.webp',
     ability: {
       name: 'Defensive Inertial Shielding',
@@ -143,7 +141,7 @@ export const factions: Leader[] = [
     id: 'rd-wanderers',
     name: 'Wanderers',
     civilization: 'Free Willed Wanderers',
-    portraitUrl: `/assets/rd/leaders/wanderers.webp?v=${RD_PORTRAIT_CACHE_BUSTER}`,
+    portraitUrl: '/assets/rd/leaders/wanderers.webp',
     fullPortraitUrl: '/assets/rd/leaders-full/wanderers.webp',
     ability: {
       name: 'Road Vision',
@@ -160,7 +158,7 @@ export const factions: Leader[] = [
     id: 'rd-zombies',
     name: 'Zombies',
     civilization: 'Zombie Beastmasters',
-    portraitUrl: `/assets/rd/leaders/zombies.webp?v=${RD_PORTRAIT_CACHE_BUSTER}`,
+    portraitUrl: '/assets/rd/leaders/zombies.webp',
     fullPortraitUrl: '/assets/rd/leaders-full/zombies.webp',
     ability: {
       name: 'Barely Weaponized Zombies',

@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import type { RankedRoleConfig } from './roles.ts'
 import { players } from '@civup/db'
-import { competitiveTierRank, formatLeaderboardModeLabel, LEADERBOARD_MODES } from '@civup/game'
+import { competitiveTierRank, LEADERBOARD_MODES } from '@civup/game'
 import { displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'
 import { inArray } from 'drizzle-orm'
 import { DiscordApiError, editGuildMemberRoles } from '../discord/index.ts'
@@ -825,20 +825,20 @@ function mergeLadderAssignments(
 
 function buildLadderTierMap(playerId: string, laddersByMode: Map<LeaderboardMode, LadderSnapshots>): Record<LeaderboardMode, CompetitiveTier | null> {
   return {
-    duel: laddersByMode.get('duel')?.earn.get(playerId)?.tier ?? null,
-    duo: laddersByMode.get('duo')?.earn.get(playerId)?.tier ?? null,
-    squad: laddersByMode.get('squad')?.earn.get(playerId)?.tier ?? null,
-    ffa: laddersByMode.get('ffa')?.earn.get(playerId)?.tier ?? null,
+    'duel': laddersByMode.get('duel')?.earn.get(playerId)?.tier ?? null,
+    'duo': laddersByMode.get('duo')?.earn.get(playerId)?.tier ?? null,
+    'squad': laddersByMode.get('squad')?.earn.get(playerId)?.tier ?? null,
+    'ffa': laddersByMode.get('ffa')?.earn.get(playerId)?.tier ?? null,
     'red-death': laddersByMode.get('red-death')?.earn.get(playerId)?.tier ?? null,
   }
 }
 
 function buildLadderScoreMap(playerId: string, laddersByMode: Map<LeaderboardMode, LadderSnapshots>): Record<LeaderboardMode, number | null> {
   return {
-    duel: laddersByMode.get('duel')?.scores.get(playerId) ?? null,
-    duo: laddersByMode.get('duo')?.scores.get(playerId) ?? null,
-    squad: laddersByMode.get('squad')?.scores.get(playerId) ?? null,
-    ffa: laddersByMode.get('ffa')?.scores.get(playerId) ?? null,
+    'duel': laddersByMode.get('duel')?.scores.get(playerId) ?? null,
+    'duo': laddersByMode.get('duo')?.scores.get(playerId) ?? null,
+    'squad': laddersByMode.get('squad')?.scores.get(playerId) ?? null,
+    'ffa': laddersByMode.get('ffa')?.scores.get(playerId) ?? null,
     'red-death': laddersByMode.get('red-death')?.scores.get(playerId) ?? null,
   }
 }

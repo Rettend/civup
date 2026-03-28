@@ -448,4 +448,4 @@ function buildModerationField(moderation?: ModerationContext): { name: string, v
   }
 }
 
-type TeamField = { name: string, value: string, inline: true }
+interface TeamField { name: string, value: string, inline: true }

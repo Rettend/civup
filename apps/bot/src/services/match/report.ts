@@ -81,23 +81,23 @@ export async function reportMatch(
       }
     }
     else {
-    const resolvedTeam = resolveWinningTeamIndex(input.placements, participantRows)
-    if ('error' in resolvedTeam) return resolvedTeam
+      const resolvedTeam = resolveWinningTeamIndex(input.placements, participantRows)
+      if ('error' in resolvedTeam) return resolvedTeam
 
-    const winTeamIdx = resolvedTeam.winningTeamIndex
+      const winTeamIdx = resolvedTeam.winningTeamIndex
 
-    for (const participant of participantRows) {
-      const placement = participant.team === winTeamIdx ? 1 : 2
-      await db
-        .update(matchParticipants)
-        .set({ placement })
-        .where(
-          and(
-            eq(matchParticipants.matchId, input.matchId),
-            eq(matchParticipants.playerId, participant.playerId),
-          ),
-        )
-    }
+      for (const participant of participantRows) {
+        const placement = participant.team === winTeamIdx ? 1 : 2
+        await db
+          .update(matchParticipants)
+          .set({ placement })
+          .where(
+            and(
+              eq(matchParticipants.matchId, input.matchId),
+              eq(matchParticipants.playerId, participant.playerId),
+            ),
+          )
+      }
     }
   }
   else {

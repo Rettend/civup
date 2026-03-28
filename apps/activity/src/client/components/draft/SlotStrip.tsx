@@ -139,7 +139,7 @@ export function SlotStrip() {
 
   const renderTeamSeats = (team: number, seatIndices: number[], align: 'start' | 'end', showLabel = false) => (
     <div class={cn('flex flex-1 h-full items-stretch', align === 'end' ? 'justify-end' : 'justify-start')}>
-      <div class="flex h-full w-full flex-col gap-2">
+      <div class="flex flex-col gap-2 h-full w-full">
         <Show when={showLabel}>
           <div class="text-xs text-accent tracking-wider font-bold uppercase">{teamLabel(team)}</div>
         </Show>
