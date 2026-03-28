@@ -829,6 +829,7 @@ function buildLadderTierMap(playerId: string, laddersByMode: Map<LeaderboardMode
     duo: laddersByMode.get('duo')?.earn.get(playerId)?.tier ?? null,
     squad: laddersByMode.get('squad')?.earn.get(playerId)?.tier ?? null,
     ffa: laddersByMode.get('ffa')?.earn.get(playerId)?.tier ?? null,
+    'red-death': laddersByMode.get('red-death')?.earn.get(playerId)?.tier ?? null,
   }
 }
 
@@ -838,6 +839,7 @@ function buildLadderScoreMap(playerId: string, laddersByMode: Map<LeaderboardMod
     duo: laddersByMode.get('duo')?.scores.get(playerId) ?? null,
     squad: laddersByMode.get('squad')?.scores.get(playerId) ?? null,
     ffa: laddersByMode.get('ffa')?.scores.get(playerId) ?? null,
+    'red-death': laddersByMode.get('red-death')?.scores.get(playerId) ?? null,
   }
 }
 

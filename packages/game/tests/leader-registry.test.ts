@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { allLeaderIds, getLeader, getLeaders } from '../src/index.ts'
+import { allLeaderIds, getFaction, getLeader, getLeaders } from '../src/index.ts'
 
 describe('leader registry', () => {
   test('beta roster keeps the same leader ids and order as live', () => {
@@ -13,5 +13,14 @@ describe('leader registry', () => {
     expect(betaLeader.id).toBe(liveLeader.id)
     expect(betaLeader.name).toBe(liveLeader.name)
     expect(betaLeader.civilization).toBe(liveLeader.civilization)
+  })
+
+  test('red death factions are available through both faction and leader lookup', () => {
+    const faction = getFaction('rd-aliens')
+    const leader = getLeader('rd-aliens')
+
+    expect(faction.id).toBe('rd-aliens')
+    expect(leader.id).toBe('rd-aliens')
+    expect(leader.secondaryAbility?.name).toBe('Xenological Regeneration')
   })
 })

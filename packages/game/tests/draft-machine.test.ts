@@ -1,6 +1,6 @@
 import type { DraftSeat, DraftState } from '../src/types.ts'
 import { describe, expect, test } from 'bun:test'
-import { default1v1, default2v2, default3v3, default4v4, defaultFfa, defaultFfaSimultaneous } from '../src/draft-formats.ts'
+import { default1v1, default2v2, default3v3, default4v4, defaultFfa, defaultFfaSimultaneous, defaultRd2p } from '../src/draft-formats.ts'
 import {
   createDraft,
   getBansForSeat,
@@ -62,6 +62,14 @@ function createFfaSeats(count = 8): DraftSeat[] {
   return Array.from({ length: count }, (_, i) => ({
     playerId: `player${i + 1}`,
     displayName: `Player ${i + 1}`,
+  }))
+}
+
+function createRdSeats(count = 4): DraftSeat[] {
+  return Array.from({ length: count }, (_, i) => ({
+    playerId: `rd${i + 1}`,
+    displayName: `RD ${i + 1}`,
+    team: count === 8 ? Math.floor(i / 2) : Math.floor(i / 2),
   }))
 }
 
@@ -473,6 +481,16 @@ describe('processDraftInput — PICK (sequential)', () => {
     const draft = startDraft(createDraft('match-4v4', default4v4, create4v4PlayerSeats(), createTestCivPool()))
     expect(draft.steps.slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7]])
   })
+
+  test('Red Death picks must come from dealt options', () => {
+    let state = startDraft(createDraft('match-rd', defaultRd2p, createRdSeats(4), ['rd-a', 'rd-b', 'rd-c', 'rd-d'], { dealOptionsSize: 2 }))
+    state = { ...state, dealtCivIds: ['rd-a', 'rd-b'] }
+
+    const invalidPick = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'rd-c' })
+    expect(isDraftError(invalidPick)).toBe(true)
+    if (!isDraftError(invalidPick)) return
+    expect(invalidPick.error).toBe('Civ rd-c is not in the dealt options')
+  })
 })
 
 describe('processDraftInput — PICK (simultaneous FFA)', () => {
@@ -681,6 +699,21 @@ describe('processDraftInput — TIMEOUT', () => {
     expect(timedOut.state.status).toBe('cancelled')
     expect(timedOut.state.cancelReason).toBe('timeout')
     expect(timedOut.state.picks).toContainEqual({ civId: 'civ-20', seatIndex: 0, stepIndex: 1 })
+  })
+
+  test('timeout on Red Death pick selects from dealt options instead of scrubbing', () => {
+    let state = startDraft(createDraft('match-rd-timeout', defaultRd2p, createRdSeats(4), ['rd-a', 'rd-b', 'rd-c', 'rd-d'], { dealOptionsSize: 2 }))
+    state = { ...state, dealtCivIds: ['rd-a', 'rd-b'] }
+
+    const timedOut = processDraftInput(state, { type: 'TIMEOUT' }, false)
+    expect(isDraftError(timedOut)).toBe(false)
+    if (isDraftError(timedOut)) return
+
+    expect(timedOut.state.status).toBe('active')
+    expect(timedOut.state.currentStepIndex).toBe(1)
+    expect(timedOut.state.picks).toHaveLength(1)
+    expect(['rd-a', 'rd-b']).toContain(timedOut.state.picks[0]?.civId)
+    expect(timedOut.events).toContainEqual(expect.objectContaining({ type: 'TIMEOUT_APPLIED', seatIndex: 0 }))
   })
 })
 

@@ -17,6 +17,7 @@ import {
   selectedWinningTeam,
   sendScrub,
   setResultSelectionsLocked,
+  teamPlacementOrder,
   userId,
 } from '~/client/stores'
 import { Button, HorizontalScroller } from '../ui'
@@ -49,6 +50,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   let armedHostActionTimeout: ReturnType<typeof setTimeout> | null = null
 
   const isTeamMode = () => state()?.seats.some(s => s.team != null) ?? false
+  const teamCount = () => new Set((state()?.seats ?? []).flatMap(seat => seat.team == null ? [] : [seat.team])).size
   const isComplete = () => state()?.status === 'complete'
   const seatCount = () => state()?.seats.length ?? 0
 
@@ -173,9 +175,27 @@ export function DraftHeader(props: DraftHeaderProps) {
     if (!uid || team == null) return
 
     setResultStatus('submitting:result')
-    const teamToken = team === 0 ? 'A' : 'B'
+    const teamToken = teamIndexToken(team)
     const res = await reportMatchResult(draftStore.state!.matchId, uid, teamToken)
     setResultStatus(res.ok ? 'done' : 'idle')
+  }
+
+  const reportOrderedTeams = async () => {
+    const uid = userId()
+    const order = teamPlacementOrder()
+    const totalTeams = teamCount()
+    if (!uid || order.length !== totalTeams) return
+
+    setResultStatus('submitting:result')
+    const placements = order.map(teamIndexToken).join('\n')
+    const res = await reportMatchResult(draftStore.state!.matchId, uid, placements)
+    if (res.ok) {
+      setResultStatus('done')
+      return
+    }
+
+    setResultStatus('idle')
+    clearResultSelections()
   }
 
   const reportFfa = async () => {
@@ -195,6 +215,10 @@ export function DraftHeader(props: DraftHeaderProps) {
 
   const confirmResult = async () => {
     if (isTeamMode()) {
+      if (teamCount() > 2) {
+        await reportOrderedTeams()
+        return
+      }
       await reportSelectedTeam()
       return
     }
@@ -244,7 +268,11 @@ export function DraftHeader(props: DraftHeaderProps) {
 
   const canManageDraft = () => amHost() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
   const canSubmitResult = () => isParticipant() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
-  const resultSelectionReady = () => isTeamMode() ? selectedWinningTeam() != null : ffaPlacementOrder().length === seatCount()
+  const resultSelectionReady = () => {
+    if (!isTeamMode()) return ffaPlacementOrder().length === seatCount()
+    if (teamCount() > 2) return teamPlacementOrder().length === teamCount()
+    return selectedWinningTeam() != null
+  }
   const showMobileActionRow = () => {
     if (!isMobileLayout()) return false
     if (state()?.status === 'active') return amHost()
@@ -563,4 +591,8 @@ export function DraftHeader(props: DraftHeaderProps) {
       </Show>
     </header>
   )
+}
+
+function teamIndexToken(team: number): string {
+  return String.fromCharCode(65 + team)
 }

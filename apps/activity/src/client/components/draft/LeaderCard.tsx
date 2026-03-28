@@ -6,6 +6,7 @@ import {
   canManagePickQueue,
   currentStep,
   draftStore,
+  isRedDeathDraft,
   isMyTurn,
   isRandomSelected,
   pickSelectionIndex,
@@ -65,7 +66,14 @@ export function LeaderCard(props: LeaderCardProps) {
     if (isUnavailable()) return false
     if (state()?.status !== 'active') return false
     if (step()?.action !== 'pick') return false
+    if (isRedDeathDraft()) return isMyTurn() && !seatHasLockedPickForCard()
     return canManagePickQueue()
+  }
+
+  const seatHasLockedPickForCard = (): boolean => {
+    const seat = draftStore.seatIndex
+    if (seat == null) return false
+    return state()?.picks.some(pick => pick.seatIndex === seat) ?? false
   }
 
   const isInteractive = (): boolean => {
@@ -114,7 +122,7 @@ export function LeaderCard(props: LeaderCardProps) {
       return
     }
 
-    if (event.shiftKey && canTogglePickSelection()) {
+    if (!isRedDeathDraft() && event.shiftKey && canTogglePickSelection()) {
       handleQueuedClick()
       return
     }
@@ -130,6 +138,7 @@ export function LeaderCard(props: LeaderCardProps) {
   const handlePointerDown = (event: PointerEvent) => {
     if (event.button !== 0) return
     if (!canTogglePickSelection()) return
+    if (isRedDeathDraft()) return
 
     suppressNextClick = false
     clearLongPress()

@@ -1,6 +1,7 @@
 import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import {
+  canOpenLeaderGrid,
   currentStep,
   draftStore,
   gridOpen,
@@ -127,6 +128,7 @@ export function DraftView(props: DraftViewProps) {
       return
     }
     if (isMiniView()) return
+    if (!canOpenLeaderGrid()) return
 
     const nextToken = `${draftStore.initVersion}:${current.matchId}:${seatIndex}`
     if (autoOpenedGridToken() === nextToken) return
@@ -198,9 +200,14 @@ export function DraftView(props: DraftViewProps) {
                       class={cn(
                         'flex items-center gap-1 rounded-full px-5 py-1.5 text-xs font-medium cursor-pointer',
                         'bg-bg-subtle border border-border text-fg-muted',
-                        'hover:bg-bg-muted hover:text-fg transition-colors',
+                        canOpenLeaderGrid() && 'hover:bg-bg-muted hover:text-fg transition-colors',
+                        !canOpenLeaderGrid() && 'cursor-not-allowed opacity-50',
                       )}
-                      onClick={() => setGridOpen(!gridOpen())}
+                      disabled={!canOpenLeaderGrid()}
+                      onClick={() => {
+                        if (!canOpenLeaderGrid()) return
+                        setGridOpen(!gridOpen())
+                      }}
                     >
                       <Show when={gridOpen()} fallback={<div class="i-ph-caret-up-bold anim-fade-in text-sm" />}>
                         <div class="i-ph-caret-down-bold anim-fade-in text-sm" />

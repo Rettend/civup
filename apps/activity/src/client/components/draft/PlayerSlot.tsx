@@ -2,8 +2,9 @@ import type { Leader } from '@civup/game'
 import { getLeader } from '@civup/game'
 import { createEffect, createSignal, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
+import { placementIconClass } from '~/client/lib/placement-icons'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
-import { draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, isMobileLayout, phaseAccent, resultSelectionsLocked, selectedWinningTeam, selectWinningTeam, toggleFfaPlacement, userId } from '~/client/stores'
+import { draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, isMobileLayout, phaseAccent, resultSelectionsLocked, selectWinningTeam, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -72,6 +73,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
   // ── FFA Placement ────────────────────────────────────────
   const isComplete = () => state()?.status === 'complete'
   const isFfa = () => !(state()?.seats.some(s => s.team != null) ?? false)
+  const teamCount = () => new Set((state()?.seats ?? []).flatMap(seat => seat.team == null ? [] : [seat.team])).size
   const isParticipant = () => {
     const uid = userId()
     const s = state()
@@ -79,7 +81,9 @@ export function PlayerSlot(props: PlayerSlotProps) {
     return s.seats.some(current => current.playerId === uid)
   }
   const isFfaPlacementMode = () => isComplete() && isFfa() && isParticipant()
-  const isTeamResultMode = () => isComplete() && !isFfa() && isParticipant()
+  const isTwoTeamResultMode = () => isComplete() && !isFfa() && isParticipant() && teamCount() <= 2
+  const isMultiTeamResultMode = () => isComplete() && !isFfa() && isParticipant() && teamCount() > 2
+  const isTeamResultMode = () => isTwoTeamResultMode() || isMultiTeamResultMode()
   const canSelectResult = () => !resultSelectionsLocked()
 
   const placementRank = () => {
@@ -158,31 +162,8 @@ export function PlayerSlot(props: PlayerSlotProps) {
     ].join(';')
   }
 
-  const digitIconClass = (digit: string) => {
-    switch (digit) {
-      case '0': return 'i-ph:number-zero-bold'
-      case '1': return 'i-ph:number-one-bold'
-      case '2': return 'i-ph:number-two-bold'
-      case '3': return 'i-ph:number-three-bold'
-      case '4': return 'i-ph:number-four-bold'
-      case '5': return 'i-ph:number-five-bold'
-      case '6': return 'i-ph:number-six-bold'
-      case '7': return 'i-ph:number-seven-bold'
-      case '8': return 'i-ph:number-eight-bold'
-      case '9': return 'i-ph:number-nine-bold'
-      case '10': return 'i-custom:number-ten-bold'
-      default: return ''
-    }
-  }
-
   const placementNumber = () => placementRank() + 1
-  const placementIconClass = () => digitIconClass(String(placementNumber()))
   const seatTeam = () => seat()?.team ?? null
-  const isLosingTeamDimmed = () => {
-    const team = seatTeam()
-    const selectedTeam = selectedWinningTeam()
-    return isTeamResultMode() && team != null && selectedTeam != null && selectedTeam !== team
-  }
 
   const handleSlotClick = () => {
     if (!isFfaPlacementMode() || !canSelectResult()) return
@@ -192,7 +173,12 @@ export function PlayerSlot(props: PlayerSlotProps) {
   const handleTeamResultClick = () => {
     if (!isTeamResultMode() || !canSelectResult()) return
     const team = seatTeam()
-    if (team == null || (team !== 0 && team !== 1)) return
+    if (team == null) return
+    if (isMultiTeamResultMode()) {
+      toggleTeamPlacement(team)
+      return
+    }
+    if (team !== 0 && team !== 1) return
     selectWinningTeam(team)
   }
 
@@ -273,7 +259,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
               )}
               style={{ 'color': 'var(--badge-gold-text)', 'font-weight': 900 }}
             >
-              <span class={cn(placementIconClass(), props.compact ? 'text-[28px]' : 'text-[32px]')} />
+              <span class={cn(placementIconClass(placementNumber()), props.compact ? 'text-[28px]' : 'text-[32px]')} />
             </div>
           </div>
         </Show>
@@ -284,18 +270,11 @@ export function PlayerSlot(props: PlayerSlotProps) {
         </Show>
       </Show>
 
-      {/* Team result overlay */}
-      <Show when={isTeamResultMode()}>
-        <Show when={isLosingTeamDimmed()}>
-          <div class="bg-black/40 pointer-events-none transition-all duration-300 inset-0 absolute z-30" />
-        </Show>
-      </Show>
-
       {/* Portrait */}
       <Show when={leader()} keyed>
         {l => (
           <img
-            src={`/assets/leaders-full/${l.id}.webp`}
+            src={l.fullPortraitUrl ?? `/assets/leaders-full/${l.id}.webp`}
             alt={l.name}
             class={cn(
               'absolute inset-0 h-full w-full object-cover',
@@ -310,7 +289,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
         {l => (
           <div class="opacity-50 inset-0 absolute saturate-85">
             <img
-              src={`/assets/leaders-full/${l.id}.webp`}
+              src={l.fullPortraitUrl ?? `/assets/leaders-full/${l.id}.webp`}
               alt={l.name}
               class={cn(
                 'absolute inset-0 h-full w-full object-cover',

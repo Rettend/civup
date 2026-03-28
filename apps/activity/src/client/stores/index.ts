@@ -48,14 +48,18 @@ export {
   watchLobbyState,
 } from './connection-store'
 export {
+  canOpenLeaderGrid,
   canManagePickQueue,
   currentStep,
   currentStepDuration,
+  currentMode,
+  dealtCivIds,
   draftStore,
   getOptimisticSeatPick,
   getPreviewPickForSeat,
   getPreviewPicksForSeat,
   hasSubmitted,
+  isRedDeathDraft,
   isMyTurn,
   isSpectator,
   phaseLabel,
@@ -102,6 +106,8 @@ export {
   toggleDetail,
   toggleFfaPlacement,
   togglePickSelection,
+  toggleTeamPlacement,
   toggleTagFilter,
+  teamPlacementOrder,
 } from './ui-store'
 export { avatarUrl, displayName, setAuthenticatedUser, user, userId } from './user-store'

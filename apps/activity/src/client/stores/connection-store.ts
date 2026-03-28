@@ -50,6 +50,8 @@ export interface LobbySnapshot {
     leaderPoolSize: number | null
     leaderDataVersion: LeaderDataVersion
     simultaneousPick: boolean
+    dealOptionsSize: number | null
+    randomDraft: boolean
   }
   serverDefaults: {
     banTimerSeconds: number | null
@@ -569,6 +571,8 @@ export async function updateLobbyConfig(
     leaderPoolSize?: number | null
     leaderDataVersion?: LeaderDataVersion
     simultaneousPick?: boolean
+    dealOptionsSize?: number | null
+    randomDraft?: boolean
     steamLobbyLink?: string | null
     minRole?: CompetitiveTier | null
     maxRole?: CompetitiveTier | null
@@ -583,6 +587,8 @@ export async function updateLobbyConfig(
       leaderPoolSize: draftConfig.leaderPoolSize,
       leaderDataVersion: draftConfig.leaderDataVersion,
       simultaneousPick: draftConfig.simultaneousPick,
+      dealOptionsSize: draftConfig.dealOptionsSize,
+      randomDraft: draftConfig.randomDraft,
       steamLobbyLink: draftConfig.steamLobbyLink,
       minRole: draftConfig.minRole,
       maxRole: draftConfig.maxRole,

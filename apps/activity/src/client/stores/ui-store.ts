@@ -19,7 +19,8 @@ export const [detailLeaderId, setDetailLeaderId] = createSignal<string | null>(n
 export const [isMiniView, setIsMiniView] = createSignal(false)
 export const [isMobileLayout, setIsMobileLayout] = createSignal(typeof window !== 'undefined' ? window.innerWidth < 640 : false)
 export const [ffaPlacementOrder, setFfaPlacementOrder] = createSignal<number[]>([])
-export const [selectedWinningTeam, setSelectedWinningTeam] = createSignal<0 | 1 | null>(null)
+export const [teamPlacementOrder, setTeamPlacementOrder] = createSignal<number[]>([])
+export const selectedWinningTeam = (): number | null => teamPlacementOrder()[0] ?? null
 export const [resultSelectionsLocked, setResultSelectionsLocked] = createSignal(false)
 
 // ── Phase Accent ───────────────────────────────────────────
@@ -142,18 +143,27 @@ export function clearFfaPlacements() {
 
 /** Select or clear the winning team for team-mode result reporting. */
 export function selectWinningTeam(team: 0 | 1) {
-  setSelectedWinningTeam(prev => (prev === team ? null : team))
+  setTeamPlacementOrder(prev => (prev[0] === team && prev.length === 1 ? [] : [team]))
+}
+
+/** Toggle a team in the ordered result placement list. */
+export function toggleTeamPlacement(team: number) {
+  setTeamPlacementOrder((prev) => {
+    const index = prev.indexOf(team)
+    if (index >= 0) return prev.filter(value => value !== team)
+    return [...prev, team]
+  })
 }
 
 /** Clear the selected winning team. */
 export function clearWinningTeam() {
-  setSelectedWinningTeam(null)
+  setTeamPlacementOrder([])
 }
 
 /** Clear all post-draft result selection state. */
 export function clearResultSelections() {
   setFfaPlacementOrder([])
-  setSelectedWinningTeam(null)
+  setTeamPlacementOrder([])
   setResultSelectionsLocked(false)
 }
 

@@ -1,6 +1,6 @@
 import type { GameMode, QueueEntry } from '@civup/game'
 import type { PlayerRating } from '@civup/rating'
-import { isTeamMode, teamSize } from '@civup/game'
+import { isTeamMode, teamCount as modeTeamCount, teamSize } from '@civup/game'
 import { createRating, predictWinProbabilities } from '@civup/rating'
 
 export type LobbyArrangeStrategy = 'randomize' | 'balance'
@@ -16,9 +16,8 @@ interface PremadeGroup {
 }
 
 interface GroupAssignment {
-  teamByGroup: (0 | 1)[]
-  teamACount: number
-  teamBCount: number
+  teamByGroup: number[]
+  teamCounts: number[]
 }
 
 interface ArrangementCandidate {
@@ -82,9 +81,10 @@ function arrangeTeamLobbySlots(
   }
   const queueByPlayerId = new Map(input.queueEntries.map(entry => [entry.playerId, entry]))
   const slottedPlayerIds = input.slots.filter((playerId): playerId is string => playerId != null)
+  const activeTeamCount = modeTeamCount(input.mode, slottedPlayerIds.length)
 
   if (slottedPlayerIds.length === 0) {
-    return { slots: Array.from({ length: teamSlotCount * 2 }, () => null as string | null) }
+    return { slots: Array.from({ length: input.slots.length }, () => null as string | null) }
   }
 
   const slotOrderByPlayerId = buildSlotOrderByPlayerId(input.slots)
@@ -96,23 +96,29 @@ function arrangeTeamLobbySlots(
     }
   }
 
-  const assignments = enumerateAssignments(groups, teamSlotCount)
+  const assignments = enumerateAssignments(groups, teamSlotCount, activeTeamCount)
   if (assignments.length === 0) {
     return { error: 'Could not find a valid team layout for the current premades.' }
   }
 
-  const minSizeDiff = Math.min(...assignments.map(assignment => Math.abs(assignment.teamACount - assignment.teamBCount)))
-  const candidateAssignments = assignments.filter(
-    assignment => Math.abs(assignment.teamACount - assignment.teamBCount) === minSizeDiff,
-  )
+  const minSizeDiff = Math.min(...assignments.map(assignment => {
+    const minCount = Math.min(...assignment.teamCounts)
+    const maxCount = Math.max(...assignment.teamCounts)
+    return maxCount - minCount
+  }))
+  const candidateAssignments = assignments.filter((assignment) => {
+    const minCount = Math.min(...assignment.teamCounts)
+    const maxCount = Math.max(...assignment.teamCounts)
+    return (maxCount - minCount) === minSizeDiff
+  })
 
   const ratingsByPlayerId = input.ratingsByPlayerId ?? new Map<string, RatingSnapshot>()
   const scoredCandidates = candidateAssignments.map((assignment) => {
-    const { teamAIds, teamBIds } = assignmentToTeams(assignment, groups)
+    const teamIdsByTeam = assignmentToTeams(assignment, groups, activeTeamCount)
     const score = input.strategy === 'balance'
-      ? scoreBalancedCandidate(teamAIds, teamBIds, ratingsByPlayerId)
+      ? scoreBalancedCandidate(teamIdsByTeam, ratingsByPlayerId)
       : 0
-    const key = `${teamAIds.join(',')}|${teamBIds.join(',')}`
+    const key = teamIdsByTeam.map(teamIds => teamIds.join(',')).join('|')
 
     return {
       assignment,
@@ -126,10 +132,9 @@ function arrangeTeamLobbySlots(
     const index = Math.floor(random() * scoredCandidates.length)
     const chosen = scoredCandidates[index] ?? scoredCandidates[0]
     if (!chosen) return { error: 'Could not randomize teams for this lobby.' }
-    const { teamAIds, teamBIds } = assignmentToTeams(chosen.assignment, groups)
-    const randomizedTeamA = randomizeTeamOrder(teamAIds, groups, random)
-    const randomizedTeamB = randomizeTeamOrder(teamBIds, groups, random)
-    return { slots: buildTeamSlots(teamSlotCount, randomizedTeamA, randomizedTeamB) }
+    const teamIdsByTeam = assignmentToTeams(chosen.assignment, groups, activeTeamCount)
+    const randomizedTeams = teamIdsByTeam.map(teamIds => randomizeTeamOrder(teamIds, groups, random))
+    return { slots: buildTeamSlots(teamSlotCount, randomizedTeams, input.slots.length) }
   }
 
   const minScore = Math.min(...scoredCandidates.map(candidate => candidate.score))
@@ -139,8 +144,8 @@ function arrangeTeamLobbySlots(
   const chosen = tied[0]
   if (!chosen) return { error: 'Could not auto-balance teams for this lobby.' }
 
-  const { teamAIds, teamBIds } = assignmentToTeams(chosen.assignment, groups)
-  return { slots: buildTeamSlots(teamSlotCount, teamAIds, teamBIds) }
+  const teamIdsByTeam = assignmentToTeams(chosen.assignment, groups, activeTeamCount)
+  return { slots: buildTeamSlots(teamSlotCount, teamIdsByTeam, input.slots.length) }
 }
 
 function buildSlotOrderByPlayerId(slots: readonly (string | null)[]): Map<string, number> {
@@ -214,23 +219,23 @@ function buildPremadeGroups(
   return groups
 }
 
-function enumerateAssignments(groups: PremadeGroup[], teamSize: number): GroupAssignment[] {
+function enumerateAssignments(groups: PremadeGroup[], teamSize: number, teamTotal: number): GroupAssignment[] {
   if (groups.length === 0) {
-    return [{ teamByGroup: [], teamACount: 0, teamBCount: 0 }]
+    return [{ teamByGroup: [], teamCounts: Array.from({ length: teamTotal }, () => 0) }]
   }
 
   const assignments: GroupAssignment[] = []
   const firstGroupSize = groups[0]?.size ?? 0
   if (firstGroupSize > teamSize) return []
 
-  const teamByGroup: (0 | 1)[] = [0]
+  const teamByGroup: number[] = [0]
+  const teamCounts = Array.from({ length: teamTotal }, (_, index) => index === 0 ? firstGroupSize : 0)
 
-  const walk = (index: number, teamACount: number, teamBCount: number) => {
+  const walk = (index: number) => {
     if (index >= groups.length) {
       assignments.push({
         teamByGroup: [...teamByGroup],
-        teamACount,
-        teamBCount,
+        teamCounts: [...teamCounts],
       })
       return
     }
@@ -238,61 +243,53 @@ function enumerateAssignments(groups: PremadeGroup[], teamSize: number): GroupAs
     const group = groups[index]
     if (!group) return
 
-    if (teamACount + group.size <= teamSize) {
-      teamByGroup[index] = 0
-      walk(index + 1, teamACount + group.size, teamBCount)
-    }
-
-    if (teamBCount + group.size <= teamSize) {
-      teamByGroup[index] = 1
-      walk(index + 1, teamACount, teamBCount + group.size)
+    for (let team = 0; team < teamTotal; team++) {
+      if ((teamCounts[team] ?? 0) + group.size > teamSize) continue
+      teamByGroup[index] = team
+      teamCounts[team] = (teamCounts[team] ?? 0) + group.size
+      walk(index + 1)
+      teamCounts[team] = (teamCounts[team] ?? 0) - group.size
     }
   }
 
-  walk(1, firstGroupSize, 0)
+  walk(1)
   return assignments
 }
 
 function assignmentToTeams(
   assignment: GroupAssignment,
   groups: PremadeGroup[],
-): { teamAIds: string[], teamBIds: string[] } {
-  const teamAIds: string[] = []
-  const teamBIds: string[] = []
+  teamTotal: number,
+): string[][] {
+  const teamIdsByTeam = Array.from({ length: teamTotal }, () => [] as string[])
 
   for (let index = 0; index < groups.length; index++) {
     const group = groups[index]
     if (!group) continue
 
     const team = assignment.teamByGroup[index]
-    if (team === 0) {
-      teamAIds.push(...group.playerIds)
-      continue
-    }
-
-    teamBIds.push(...group.playerIds)
+    if (team == null) continue
+    teamIdsByTeam[team]?.push(...group.playerIds)
   }
 
-  return { teamAIds, teamBIds }
+  return teamIdsByTeam
 }
 
 function scoreBalancedCandidate(
-  teamAIds: string[],
-  teamBIds: string[],
+  teamIdsByTeam: string[][],
   ratingsByPlayerId: Map<string, RatingSnapshot>,
 ): number {
-  if (teamAIds.length === 0 || teamBIds.length === 0) return Number.POSITIVE_INFINITY
+  if (teamIdsByTeam.some(teamIds => teamIds.length === 0)) return Number.POSITIVE_INFINITY
 
-  const teamA = teamAIds.map(playerId => toPlayerRating(playerId, ratingsByPlayerId))
-  const teamB = teamBIds.map(playerId => toPlayerRating(playerId, ratingsByPlayerId))
+  const teams = teamIdsByTeam.map(teamIds => teamIds.map(playerId => toPlayerRating(playerId, ratingsByPlayerId)))
+  const target = 1 / Math.max(1, teams.length)
 
   try {
-    const probabilities = predictWinProbabilities([teamA, teamB])
-    const teamAWinChance = probabilities[0]
-    if (typeof teamAWinChance !== 'number' || !Number.isFinite(teamAWinChance)) {
+    const probabilities = predictWinProbabilities(teams)
+    if (probabilities.some(probability => typeof probability !== 'number' || !Number.isFinite(probability))) {
       return Number.POSITIVE_INFINITY
     }
-    return Math.abs(teamAWinChance - 0.5)
+    return probabilities.reduce((score, probability) => score + Math.abs(probability - target), 0)
   }
   catch {
     return Number.POSITIVE_INFINITY
@@ -351,12 +348,14 @@ function shuffle<T>(values: T[], random: () => number): T[] {
   return next
 }
 
-function buildTeamSlots(teamSize: number, teamAIds: string[], teamBIds: string[]): (string | null)[] {
-  const slots = Array.from({ length: teamSize * 2 }, () => null as string | null)
+function buildTeamSlots(teamSize: number, teamIdsByTeam: string[][], slotCount: number): (string | null)[] {
+  const slots = Array.from({ length: slotCount }, () => null as string | null)
 
-  for (let index = 0; index < teamSize; index++) {
-    slots[index] = teamAIds[index] ?? null
-    slots[teamSize + index] = teamBIds[index] ?? null
+  for (let team = 0; team < teamIdsByTeam.length; team++) {
+    const teamIds = teamIdsByTeam[team] ?? []
+    for (let index = 0; index < teamSize; index++) {
+      slots[team * teamSize + index] = teamIds[index] ?? null
+    }
   }
 
   return slots

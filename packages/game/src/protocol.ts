@@ -18,6 +18,8 @@ export interface RoomConfig {
   formatId: string
   seats: DraftSeat[]
   civPool: string[]
+  dealOptionsSize?: number
+  randomDraft?: boolean
   leaderDataVersion?: LeaderDataVersion
   timerConfig?: DraftTimerConfig
   webhookUrl?: string

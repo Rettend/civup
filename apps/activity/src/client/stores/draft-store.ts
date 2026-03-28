@@ -1,4 +1,5 @@
 import type { DraftEvent, DraftPreviewState, DraftState, DraftStep, LeaderDataVersion } from '@civup/game'
+import { inferGameMode, isRedDeathMode } from '@civup/game'
 import { createStore, produce } from 'solid-js/store'
 
 const EMPTY_DRAFT_PREVIEWS: DraftPreviewState = {
@@ -154,10 +155,31 @@ export function canManagePickQueue(): boolean {
   const s = draftStore.state
   const seat = draftStore.seatIndex
   if (!s || s.status !== 'active' || seat == null) return false
+  if (isRedDeathDraft()) return false
 
   const step = s.steps[s.currentStepIndex]
   if (!step || step.action !== 'pick') return false
   return !seatHasLockedPick(seat)
+}
+
+export function currentMode() {
+  return inferGameMode(draftStore.state?.formatId)
+}
+
+export function isRedDeathDraft(): boolean {
+  const mode = currentMode()
+  return isRedDeathMode(mode)
+}
+
+export function dealtCivIds(): string[] | null {
+  return draftStore.state?.dealtCivIds ?? null
+}
+
+export function canOpenLeaderGrid(): boolean {
+  const s = draftStore.state
+  if (!s || s.status !== 'active') return false
+  if (!isRedDeathDraft()) return true
+  return (s.dealtCivIds?.length ?? 0) > 0
 }
 
 // ── Derived Helpers ────────────────────────────────────────
