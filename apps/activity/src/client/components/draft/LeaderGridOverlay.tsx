@@ -437,7 +437,7 @@ export function LeaderGridOverlay() {
           <span class="text-xs text-fg-muted font-semibold">Filters</span>
           <div class="flex gap-2 items-center">
             <button
-              class="text-[10px] text-fg px-2.5 py-1 border border-border-hover rounded bg-bg-muted/70 transition-colors hover:border-fg-subtle hover:bg-bg disabled:opacity-40 disabled:cursor-not-allowed"
+              class="text-[10px] text-fg px-2.5 py-1 border border-border-hover rounded bg-bg-muted/70 transition-colors hover:border-fg-subtle hover:bg-bg disabled:opacity-40 disabled:cursor-default"
               disabled={activeTagFilterCount() === 0}
               onClick={clearTagFilters}
             >
@@ -604,7 +604,7 @@ export function LeaderGridOverlay() {
                 'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
                 canConfirmBan()
                   ? 'bg-danger text-white cursor-pointer hover:bg-danger/80'
-                  : 'bg-danger/20 text-danger/50 cursor-not-allowed',
+                  : 'bg-danger/20 text-danger/50 cursor-default',
               )}
               disabled={!canConfirmBan()}
               onClick={handleConfirmBan}
@@ -623,7 +623,7 @@ export function LeaderGridOverlay() {
                 'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
                 canConfirmPick()
                   ? 'bg-accent text-black cursor-pointer hover:bg-accent/80'
-                  : 'bg-accent/20 text-accent/50 cursor-not-allowed',
+                  : 'bg-accent/20 text-accent/50 cursor-default',
               )}
               disabled={!canConfirmPick()}
               onClick={handleConfirmPick}
@@ -762,7 +762,7 @@ function RandomLeaderCard(props: { disabled: boolean, active: boolean, accent: '
         'relative aspect-square p-0.5 group',
         'focus:outline-none',
         props.disabled
-          ? 'cursor-not-allowed'
+          ? 'cursor-default'
           : 'cursor-pointer',
       )}
       disabled={props.disabled}

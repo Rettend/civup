@@ -419,7 +419,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       orderedPlayerSet.add(entry.playerId)
     }
 
-    const nextLayout = compactSlottedPremadesForMode(nextMode, orderedPlayers, lobbyQueueEntries)
+    const nextLayout = compactSlottedPremadesForMode(nextMode, orderedPlayers, lobbyQueueEntries, {
+      sourceMode: mode,
+      sourceSlots: normalizedSlots,
+    })
     if ('error' in nextLayout) {
       return c.json({ error: nextLayout.error }, 400)
     }

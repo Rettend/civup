@@ -201,7 +201,7 @@ export function DraftView(props: DraftViewProps) {
                         'flex items-center gap-1 rounded-full px-5 py-1.5 text-xs font-medium cursor-pointer',
                         'bg-bg-subtle border border-border text-fg-muted',
                         canOpenLeaderGrid() && 'hover:bg-bg-muted hover:text-fg transition-colors',
-                        !canOpenLeaderGrid() && 'cursor-not-allowed opacity-50',
+                        !canOpenLeaderGrid() && 'cursor-default opacity-50',
                       )}
                       disabled={!canOpenLeaderGrid()}
                       onClick={() => {
