@@ -63,7 +63,7 @@ export function SlotStrip() {
   const teamSeatWrapperClass = (align: 'start' | 'end', seatIndices: number[]) => cn(
     'relative h-full w-full overflow-hidden transition-all duration-300',
     shouldUseTeamGrid(seatIndices)
-      ? 'grid gap-0 max-w-full'
+      ? cn('grid gap-0 max-w-full', align === 'end' && 'ml-auto')
       : align === 'end'
         ? 'flex items-stretch justify-end'
         : 'flex items-stretch justify-start',
@@ -183,7 +183,7 @@ export function SlotStrip() {
   return (
     <div class="flex flex-1 min-h-0 items-end justify-center">
       {isTeamMode() && !isMultiTeamLayout() && (
-        <div class={cn('slot-strip-team flex h-full w-full justify-center', isMobileLayout() ? 'items-stretch px-2 py-2' : 'items-end')}>
+        <div class={cn('slot-strip-team flex h-full w-full justify-center', isMobileLayout() ? 'items-stretch py-2' : 'items-end')}>
           {renderTeamSeats(0, teamSeats(0), 'end')}
 
           <div class={cn('flex shrink-0 flex-col items-center self-center justify-center', isMobileLayout() ? 'w-7' : 'w-12')}>
@@ -195,7 +195,10 @@ export function SlotStrip() {
       )}
 
       {isMultiTeamLayout() && (
-        <div class={cn('slot-strip-team h-full w-full px-2 py-2', isMobileLayout() ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-2 gap-4')}>
+        <div
+          class={cn('slot-strip-team h-full w-full mx-auto grid grid-cols-2', isMobileLayout() ? 'gap-2 py-2' : 'gap-4')}
+          style={!isMobileLayout() ? { 'max-width': `${Math.max(...teamIndices().map(t => teamSeats(t).length), 1) * 400 * 2 + 16}px` } : undefined}
+        >
           <For each={teamIndices()}>
             {team => renderTeamSeats(team, teamSeats(team), 'start', true)}
           </For>

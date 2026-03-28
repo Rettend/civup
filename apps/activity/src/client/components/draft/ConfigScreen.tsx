@@ -1317,7 +1317,17 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
   const miniColumns = () => {
     if (isTeamMode()) {
-      return teamIndices().map(team => teamRows(team).map(row => toMiniSeatItem(row, team)))
+      const teamCols = teamIndices().map(team => teamRows(team).map(row => toMiniSeatItem(row, team)))
+
+      if (teamCols.length > 2) {
+        const midpoint = Math.ceil(teamCols.length / 2)
+        return [
+          teamCols.slice(0, midpoint).flat(),
+          teamCols.slice(midpoint).flat(),
+        ]
+      }
+
+      return teamCols
     }
 
     return [
