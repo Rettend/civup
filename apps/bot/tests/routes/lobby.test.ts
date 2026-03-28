@@ -468,6 +468,56 @@ describe('lobby routes', () => {
     expect(updatedLobby?.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
   })
 
+  test('config route allows clearing Red Death factions to server default', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: 'rd-2p',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, 'rd-2p', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const configuredLobby = await setLobbyDraftConfig(kv, lobby.id, {
+      banTimerSeconds: null,
+      pickTimerSeconds: null,
+      leaderPoolSize: null,
+      leaderDataVersion: 'live',
+      simultaneousPick: false,
+      dealOptionsSize: 4,
+      randomDraft: false,
+    }, lobby)
+    expect(configuredLobby).not.toBeNull()
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/rd-2p/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        dealOptionsSize: null,
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.draftConfig.dealOptionsSize).toBeNull()
+  })
+
   test('config route updates the FFA simultaneous pick toggle', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()

@@ -25,9 +25,7 @@ import {
   leaderPoolSizeToInput,
   MAX_LEADER_POOL_INPUT,
   MAX_TIMER_MINUTES,
-  normalizeLeaderPoolSizeInput,
   normalizeLobbyRankRoleValue,
-  normalizeTimerMinutesInput,
   parseLeaderPoolSizeInput,
   parseTimerMinutesInput,
   resolveOptimisticLobbyPlacementAction,
@@ -81,6 +79,8 @@ interface LobbyEditableDraftConfig extends DraftTimerConfig {
   randomDraft: boolean
 }
 
+type EditableConfigField = 'ban' | 'pick' | 'leaderPool'
+
 const CONFIG_MESSAGE_TIMEOUT_MS = 4000
 
 function sameLobbyDraftConfig(a: LobbyEditableDraftConfig, b: LobbyEditableDraftConfig): boolean {
@@ -100,7 +100,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const [banMinutes, setBanMinutes] = createSignal('')
   const [pickMinutes, setPickMinutes] = createSignal('')
   const [leaderPoolInput, setLeaderPoolInput] = createSignal('')
-  const [editingField, setEditingField] = createSignal<'ban' | 'pick' | 'leaderPool' | null>(null)
+  const [editingField, setEditingField] = createSignal<EditableConfigField | null>(null)
   const [configMessage, setConfigMessage] = createSignal<string | null>(null)
   const [configMessageTone, setConfigMessageTone] = createSignal<'error' | 'info' | null>(null)
   const [cancelPending, setCancelPending] = createSignal(false)
@@ -115,6 +115,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const [optimisticLobbyAction, setOptimisticLobbyAction] = createSignal<OptimisticLobbyAction | null>(null)
   let optimisticLobbyActionTimeout: ReturnType<typeof setTimeout> | null = null
   let configMessageTimeout: ReturnType<typeof setTimeout> | null = null
+  let clampedField: EditableConfigField | null = null
   const [lobbyTimerConfig, setLobbyTimerConfig] = createSignal<LobbyEditableDraftConfig | null>(
     props.lobby
       ? {
@@ -364,7 +365,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       leaderPoolSize: null,
       leaderDataVersion: 'live',
       simultaneousPick: state()?.formatId === 'default-ffa-simultaneous',
-      dealOptionsSize: 2,
+      dealOptionsSize: null,
       randomDraft: false,
     }
   }
@@ -456,7 +457,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const formattedBbgVersion = () => draftConfig().leaderDataVersion === 'beta' ? 'Beta' : 'Live'
   const formattedSimultaneousPick = () => draftConfig().simultaneousPick ? 'On' : 'Off'
   const formattedRandomDraft = () => draftConfig().randomDraft ? 'On' : 'Off'
-  const poolInputLabel = () => isRedDeathLobbyMode() ? 'Factions per Pick' : 'Leaders'
+  const poolInputLabel = () => isRedDeathLobbyMode() ? 'Factions' : 'Leaders'
 
   const clearConfigMessage = () => {
     if (configMessageTimeout) {
@@ -481,6 +482,23 @@ export function ConfigScreen(props: ConfigScreenProps) {
     setConfigMessageTone('error')
     setRankRoleSetDetail(null)
     scheduleConfigMessageClear()
+  }
+
+  const configFieldRangeMessage = (field: EditableConfigField | null): string => {
+    switch (field) {
+      case 'ban':
+        return `Ban timer can be 0-${MAX_TIMER_MINUTES} minutes, or blank for the server default.`
+      case 'pick':
+        return `Pick timer can be 0-${MAX_TIMER_MINUTES} minutes, or blank for the server default.`
+      case 'leaderPool': {
+        const leaderPoolMinimum = leaderPoolMinimumValue()
+        return isRedDeathLobbyMode()
+          ? 'Factions can be 2-10, or blank for the default.'
+          : `Leaders can be ${leaderPoolMinimum}-${MAX_LEADER_POOL_INPUT}, or blank for the default.`
+      }
+      default:
+        return 'Value is out of range.'
+    }
   }
 
   const showInfoMessage = (message: string) => {
@@ -689,7 +707,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return dragged === id && row.empty
   }
 
-  const commitDraftConfig = async (nextConfig: LobbyEditableDraftConfig) => {
+  const commitDraftConfig = async (
+    nextConfig: LobbyEditableDraftConfig,
+    options: { preserveConfigMessage?: boolean } = {},
+  ) => {
     const currentUserId = userId()
     if (!currentUserId) {
       optimisticTimerConfig.clearError()
@@ -697,7 +718,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       return false
     }
 
-    clearConfigMessage()
+    if (!options.preserveConfigMessage) clearConfigMessage()
     await optimisticTimerConfig.commit(nextConfig, async () => {
       const lobby = currentLobby()
       if (lobby) {
@@ -739,11 +760,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
       const parsedLeaderPool = isRedDeathLobbyMode()
         ? parseLeaderPoolSizeInput(leaderPoolInput(), 2, 10)
         : parseLeaderPoolSizeInput(leaderPoolInput(), leaderPoolMinimum)
+      const preserveClampMessage = activeField != null && clampedField === activeField
       if (parsedBan === undefined || parsedPick === undefined || parsedLeaderPool === undefined) {
         optimisticTimerConfig.clearError()
-        showErrorMessage(isRedDeathLobbyMode()
-          ? 'Factions per pick must be between 2 and 10.'
-          : `Leaders can be ${leaderPoolMinimum}-${MAX_LEADER_POOL_INPUT}, or blank for the default.`)
+        showErrorMessage(configFieldRangeMessage(activeField))
         const current = optimisticTimerConfig.value()
         setBanMinutes(timerSecondsToMinutesInput(current.banTimerSeconds))
         setPickMinutes(timerSecondsToMinutesInput(current.pickTimerSeconds))
@@ -764,14 +784,19 @@ export function ConfigScreen(props: ConfigScreenProps) {
         banTimerSeconds === current.banTimerSeconds
         && pickTimerSeconds === current.pickTimerSeconds
         && leaderPoolSize === current.leaderPoolSize
+        && dealOptionsSize === current.dealOptionsSize
       ) {
         optimisticTimerConfig.clearError()
         return
       }
 
-      await commitDraftConfig({ banTimerSeconds, pickTimerSeconds, leaderPoolSize, leaderDataVersion, simultaneousPick, dealOptionsSize, randomDraft })
+      await commitDraftConfig(
+        { banTimerSeconds, pickTimerSeconds, leaderPoolSize, leaderDataVersion, simultaneousPick, dealOptionsSize, randomDraft },
+        { preserveConfigMessage: preserveClampMessage },
+      )
     }
     finally {
+      if (activeField != null && clampedField === activeField) clampedField = null
       setEditingField(current => current === activeField ? null : current)
     }
   }
@@ -1634,12 +1659,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
                           value={leaderPoolInput()}
                           placeholder={leaderPoolPlaceholderValue()}
                           onFocus={() => setEditingField('leaderPool')}
+                          onClamp={() => {
+                            clampedField = 'leaderPool'
+                            showErrorMessage(configFieldRangeMessage('leaderPool'))
+                          }}
                           onInput={(event) => {
                             optimisticTimerConfig.clearError()
                             clearConfigMessage()
-                            const normalized = normalizeLeaderPoolSizeInput(event.currentTarget.value, leaderPoolMinimumValue())
-                            event.currentTarget.value = normalized
-                            setLeaderPoolInput(normalized)
+                            setLeaderPoolInput(event.currentTarget.value)
                           }}
                           onBlur={() => void saveConfigOnBlur()}
                         />
@@ -1656,12 +1683,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
                           value={banMinutes()}
                           placeholder={banTimerPlaceholder()}
                           onFocus={() => setEditingField('ban')}
+                          onClamp={() => {
+                            clampedField = 'ban'
+                            showErrorMessage(configFieldRangeMessage('ban'))
+                          }}
                           onInput={(event) => {
                             optimisticTimerConfig.clearError()
                             clearConfigMessage()
-                            const normalized = normalizeTimerMinutesInput(event.currentTarget.value)
-                            event.currentTarget.value = normalized
-                            setBanMinutes(normalized)
+                            setBanMinutes(event.currentTarget.value)
                           }}
                           onBlur={() => void saveConfigOnBlur()}
                         />
@@ -1676,12 +1705,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
                         value={pickMinutes()}
                         placeholder={pickTimerPlaceholder()}
                         onFocus={() => setEditingField('pick')}
+                        onClamp={() => {
+                          clampedField = 'pick'
+                          showErrorMessage(configFieldRangeMessage('pick'))
+                        }}
                         onInput={(event) => {
                           optimisticTimerConfig.clearError()
                           clearConfigMessage()
-                          const normalized = normalizeTimerMinutesInput(event.currentTarget.value)
-                          event.currentTarget.value = normalized
-                          setPickMinutes(normalized)
+                          setPickMinutes(event.currentTarget.value)
                         }}
                         onBlur={() => void saveConfigOnBlur()}
                       />
