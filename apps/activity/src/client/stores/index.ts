@@ -48,6 +48,7 @@ export {
   watchLobbyState,
 } from './connection-store'
 export {
+  canSendPickPreview,
   canOpenLeaderGrid,
   canManagePickQueue,
   currentStep,

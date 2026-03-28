@@ -162,6 +162,19 @@ export function canManagePickQueue(): boolean {
   return !seatHasLockedPick(seat)
 }
 
+export function canSendPickPreview(): boolean {
+  const s = draftStore.state
+  const seat = draftStore.seatIndex
+  if (!s || s.status !== 'active' || seat == null) return false
+
+  const step = s.steps[s.currentStepIndex]
+  if (!step || step.action !== 'pick') return false
+  if (seatHasLockedPick(seat)) return false
+  if (!canOpenLeaderGrid()) return false
+
+  return isRedDeathDraft() ? isMyTurn() : true
+}
+
 export function currentMode() {
   return inferGameMode(draftStore.state?.formatId)
 }
