@@ -11,6 +11,8 @@ export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   leaderPoolSize: null,
   leaderDataVersion: 'live',
   simultaneousPick: false,
+  dealOptionsSize: 2,
+  randomDraft: false,
 }
 
 export function parseLobbyState(raw: unknown): LobbyState | null {
@@ -78,6 +80,8 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
     leaderPoolSize: normalizeLeaderPoolSize(config?.leaderPoolSize),
     leaderDataVersion: normalizeLeaderDataVersion(config?.leaderDataVersion),
     simultaneousPick: normalizeSimultaneousPick(config?.simultaneousPick),
+    dealOptionsSize: normalizeDealOptionsSize(config?.dealOptionsSize),
+    randomDraft: normalizeRandomDraft(config?.randomDraft),
   }
 }
 
@@ -125,6 +129,8 @@ export function sameDraftConfig(a: LobbyDraftConfig, b: LobbyDraftConfig): boole
     && a.leaderPoolSize === b.leaderPoolSize
     && a.leaderDataVersion === b.leaderDataVersion
     && a.simultaneousPick === b.simultaneousPick
+    && a.dealOptionsSize === b.dealOptionsSize
+    && a.randomDraft === b.randomDraft
 }
 
 export function sameStringArray(a: string[], b: string[]): boolean {
@@ -159,5 +165,16 @@ function normalizeLeaderDataVersion(value: unknown): LeaderDataVersion {
 }
 
 function normalizeSimultaneousPick(value: unknown): boolean {
+  return value === true
+}
+
+function normalizeDealOptionsSize(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_DRAFT_CONFIG.dealOptionsSize
+  const rounded = Math.round(value)
+  if (rounded < 2 || rounded > 10) return DEFAULT_DRAFT_CONFIG.dealOptionsSize
+  return rounded
+}
+
+function normalizeRandomDraft(value: unknown): boolean {
   return value === true
 }

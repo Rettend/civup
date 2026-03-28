@@ -92,10 +92,8 @@ export function MiniView() {
   const columns = () => {
     const items = seatItems()
     if (items.some(item => item.team != null)) {
-      return [
-        items.filter(item => item.team === 0),
-        items.filter(item => item.team === 1),
-      ]
+      const teamIndices = Array.from(new Set(items.flatMap(item => item.team == null ? [] : [item.team]))).sort((a, b) => a - b)
+      return teamIndices.map(team => items.filter(item => item.team === team))
     }
 
     const midpoint = Math.ceil(items.length / 2)

@@ -1,17 +1,17 @@
 // ── Game Modes ──────────────────────────────────────────────
 
 /** Individual game modes */
-export type GameMode = 'ffa' | '1v1' | '2v2' | '3v3' | '4v4'
+export type GameMode = 'ffa' | '1v1' | '2v2' | '3v3' | '4v4' | 'rd-2p' | 'rd-4p'
 
-/** Leaderboard tracks: duel (1v1), duo (2v2), squad (3v3 + 4v4), ffa */
-export type LeaderboardMode = 'duel' | 'duo' | 'squad' | 'ffa'
+/** Leaderboard tracks: duel (1v1), duo (2v2), squad (3v3 + 4v4), ffa, red death */
+export type LeaderboardMode = 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death'
 
 /** Live competitive rank tiers used for role gates and ranked roles. */
 export type CompetitiveTier = string
 
-export const GAME_MODES = ['ffa', '1v1', '2v2', '3v3', '4v4'] as const satisfies readonly GameMode[]
+export const GAME_MODES = ['ffa', '1v1', '2v2', '3v3', '4v4', 'rd-2p', 'rd-4p'] as const satisfies readonly GameMode[]
 
-export const LEADERBOARD_MODES = ['duel', 'duo', 'squad', 'ffa'] as const satisfies readonly LeaderboardMode[]
+export const LEADERBOARD_MODES = ['duel', 'duo', 'squad', 'ffa', 'red-death'] as const satisfies readonly LeaderboardMode[]
 
 export const COMPETITIVE_TIERS = ['tier1', 'tier2', 'tier3', 'tier4', 'tier5'] as const satisfies readonly CompetitiveTier[]
 
@@ -104,8 +104,12 @@ export interface Leader {
   civilization: string
   /** URL to leader portrait image */
   portraitUrl?: string
+  /** URL to full draft slot portrait image */
+  fullPortraitUrl?: string
   /** Leader/civ unique ability */
   ability: LeaderAbility
+  /** Optional secondary ability; for Red Death */
+  secondaryAbility?: LeaderAbility
   /** Unique unit(s) */
   uniqueUnits: LeaderUnique[]
   /** Unique building/district */
@@ -194,6 +198,10 @@ export interface DraftState {
   picks: DraftSelection[]
   /** Civ IDs still available (not banned or picked) */
   availableCivIds: string[]
+  /** Factions dealt to the active picker this turn (rd modes only). */
+  dealtCivIds?: string[] | null
+  /** How many factions to deal per turn (rd modes only). */
+  dealOptionsSize?: number
   status: 'waiting' | 'active' | 'complete' | 'cancelled'
   /** Why the draft was cancelled, scrubbed, timed out, or reverted (null unless status is cancelled) */
   cancelReason: DraftCancelReason | null

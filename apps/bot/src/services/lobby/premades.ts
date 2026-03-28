@@ -1,10 +1,10 @@
 import type { GameMode, QueueEntry } from '@civup/game'
-import { maxPlayerCount, teamSize as modeTeamSize, slotToTeamIndex } from '@civup/game'
+import { maxPlayerCount, teamCount as modeTeamCount, teamSize as modeTeamSize, slotToTeamIndex } from '@civup/game'
 
 export interface SlottedPremadeGroup {
   playerIds: string[]
   slots: number[]
-  teamIndex: 0 | 1
+  teamIndex: number
 }
 
 export function buildSlottedPremadeGroups(
@@ -37,7 +37,7 @@ export function buildSlottedPremadeGroups(
     return {
       playerIds: group,
       slots: groupSlots,
-      teamIndex: firstSlot < teamSize ? 0 : 1,
+      teamIndex: slotToTeamIndex(mode, firstSlot, slots.length) ?? 0,
     }
   })
 }
@@ -226,6 +226,7 @@ export function compactSlottedPremadesForMode(
   if (!teamSize) {
     return { error: 'Linked premades do not fit this mode.' }
   }
+  const activeTeamCount = modeTeamCount(mode, normalizedOrderedPlayers.length)
 
   const queueByPlayerId = new Map(queueEntries.map(entry => [entry.playerId, entry]))
   const orderByPlayerId = new Map(normalizedOrderedPlayers.map((playerId, index) => [playerId, index]))
@@ -235,12 +236,11 @@ export function compactSlottedPremadesForMode(
     return { error: 'Linked premades do not fit this mode.' }
   }
 
-  const teamA: string[] = []
-  const teamB: string[] = []
+  const teams = Array.from({ length: activeTeamCount }, () => [] as string[])
   for (const group of groups) {
-    const preferTeamA = teamA.length <= teamB.length
-    const candidates = preferTeamA ? [teamA, teamB] : [teamB, teamA]
-    const destination = candidates.find(team => team.length + group.length <= teamSize)
+    const destination = [...teams]
+      .sort((left, right) => left.length - right.length)
+      .find(team => team.length + group.length <= teamSize)
     if (!destination) {
       return { error: 'Linked premades do not fit this mode.' }
     }
@@ -248,9 +248,11 @@ export function compactSlottedPremadesForMode(
   }
 
   const slots = Array.from({ length: targetSize }, () => null as string | null)
-  for (let index = 0; index < teamSize; index++) {
-    slots[index] = teamA[index] ?? null
-    slots[teamSize + index] = teamB[index] ?? null
+  for (let team = 0; team < teams.length; team++) {
+    const teamIds = teams[team] ?? []
+    for (let index = 0; index < teamSize; index++) {
+      slots[team * teamSize + index] = teamIds[index] ?? null
+    }
   }
   return { slots }
 }
@@ -258,9 +260,11 @@ export function compactSlottedPremadesForMode(
 function buildContiguousSegments(mode: GameMode, size: number): number[][] {
   const teamSize = modeTeamSize(mode)
   if (!teamSize || size <= 0 || size > teamSize) return []
+  const totalTeams = modeTeamCount(mode, maxPlayerCount(mode))
 
   const segments: number[][] = []
-  for (const teamStart of [0, teamSize]) {
+  for (let team = 0; team < totalTeams; team++) {
+    const teamStart = team * teamSize
     for (let start = teamStart; start <= teamStart + teamSize - size; start++) {
       segments.push(Array.from({ length: size }, (_, index) => start + index))
     }
