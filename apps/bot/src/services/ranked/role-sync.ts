@@ -965,17 +965,17 @@ function buildRankMatchUpdateLine(
   const fallbackTier = getLowestRankedRoleTier(config)
   if (!previous) {
     if (fallbackTier && competitiveTierRank(next.tier) <= competitiveTierRank(fallbackTier)) return null
-    return `🆕 <@${player.playerId}> qualified for ${formatRankAnnouncementRole(config, next.tier)}${next.sourceMode ? ` (${formatLeaderboardModeLabel(next.sourceMode, next.sourceMode)})` : ''}`
+    return `🆕 <@${player.playerId}> qualified for ${formatRankAnnouncementRole(config, next.tier)}`
   }
 
   const previousRank = competitiveTierRank(previous.tier)
   const nextRank = competitiveTierRank(next.tier)
   if (nextRank > previousRank) {
-    return `⬆️ <@${player.playerId}> ${formatRankAnnouncementRole(config, previous.tier)} -> ${formatRankAnnouncementRole(config, next.tier)}${next.sourceMode ? ` (${formatLeaderboardModeLabel(next.sourceMode, next.sourceMode)})` : ''}`
+    return `⬆️ <@${player.playerId}> ${formatRankAnnouncementRole(config, previous.tier)} -> ${formatRankAnnouncementRole(config, next.tier)}`
   }
 
   if (nextRank < previousRank) {
-    return `⬇️ <@${player.playerId}> ${formatRankAnnouncementRole(config, previous.tier)} -> ${formatRankAnnouncementRole(config, next.tier)}${next.sourceMode ? ` (${formatLeaderboardModeLabel(next.sourceMode, next.sourceMode)})` : ''}`
+    return `⬇️ <@${player.playerId}> ${formatRankAnnouncementRole(config, previous.tier)} -> ${formatRankAnnouncementRole(config, next.tier)}`
   }
 
   return null
