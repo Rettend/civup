@@ -101,7 +101,7 @@ function arrangeTeamLobbySlots(
     return { error: 'Could not find a valid team layout for the current premades.' }
   }
 
-  const minSizeDiff = Math.min(...assignments.map(assignment => {
+  const minSizeDiff = Math.min(...assignments.map((assignment) => {
     const minCount = Math.min(...assignment.teamCounts)
     const maxCount = Math.max(...assignment.teamCounts)
     return maxCount - minCount

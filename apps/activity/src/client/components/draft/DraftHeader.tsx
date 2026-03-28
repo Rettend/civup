@@ -13,8 +13,8 @@ import {
   phaseLabel,
   reportMatchResult,
   scrubMatchResult,
-  sendRevert,
   selectedWinningTeam,
+  sendRevert,
   sendScrub,
   setResultSelectionsLocked,
   teamPlacementOrder,
@@ -343,8 +343,8 @@ export function DraftHeader(props: DraftHeaderProps) {
   )
 
   const renderActiveHostActions = (iconOnly: boolean) => (
-    <div class="relative flex items-center gap-2">
-      <div class="flex items-center gap-2">
+    <div class="flex gap-2 items-center relative">
+      <div class="flex gap-2 items-center">
         {renderHostActionButton('revert', 'Revert', 'i-ph-arrow-u-up-left-bold', iconOnly)}
         {renderHostActionButton('scrub', 'Scrub', 'i-ph-x-bold', iconOnly)}
       </div>
@@ -358,7 +358,9 @@ export function DraftHeader(props: DraftHeaderProps) {
                 : 'left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap',
             )}
           >
-            {hint().line1}<br />{hint().line2}
+            {hint().line1}
+            <br />
+            {hint().line2}
           </div>
         )}
       </Show>
@@ -420,7 +422,7 @@ export function DraftHeader(props: DraftHeaderProps) {
 
   const renderMobileBanRail = () => (
     <HorizontalScroller
-      class="max-w-full mx-auto"
+      class="mx-auto max-w-full"
       style={{ width: `calc(100% - ${mobileRailInsetCount() * 2.75}rem)` }}
       contentClass={cn(
         'flex min-w-full items-center whitespace-nowrap',

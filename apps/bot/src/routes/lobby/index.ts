@@ -1114,13 +1114,13 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     if (!canStartLobbyWithPlayerCount(mode, selectedEntries.length)) {
-        if (mode === 'ffa' || mode === 'rd-2p') {
-          const requirements = playerCountOptions(mode)
-          const requirement = requirements.join(' or ')
-          return c.json({ error: `${formatModeLabel(mode)} can start with ${requirement} slotted players.` }, 400)
-        }
-        return c.json({ error: `${formatModeLabel(mode)} requires exactly ${maxPlayerCount(mode)} slotted players.` }, 400)
+      if (mode === 'ffa' || mode === 'rd-2p') {
+        const requirements = playerCountOptions(mode)
+        const requirement = requirements.join(' or ')
+        return c.json({ error: `${formatModeLabel(mode)} can start with ${requirement} slotted players.` }, 400)
       }
+      return c.json({ error: `${formatModeLabel(mode)} requires exactly ${maxPlayerCount(mode)} slotted players.` }, 400)
+    }
 
     try {
       const timerConfig = await resolveDraftTimerConfig(kv, lobby.draftConfig)

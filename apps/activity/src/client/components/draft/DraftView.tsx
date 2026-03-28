@@ -187,7 +187,7 @@ export function DraftView(props: DraftViewProps) {
               <DraftTimeline />
 
               {/* Main area */}
-              <div class="relative z-0 flex flex-1 min-h-0">
+              <div class="flex flex-1 min-h-0 relative z-0">
                 <SlotStrip />
                 <Show when={state()?.status === 'active'}>
                   <LeaderGridOverlay />
@@ -237,13 +237,13 @@ export function DraftView(props: DraftViewProps) {
               </div>
 
               <Show when={isMyPickTurn()}>
-                <div class="absolute inset-y-0 left-0 w-14 pointer-events-none z-30 opacity-20 bg-gradient-to-r from-[var(--accent)] to-transparent screen-glow-mask" />
-                <div class="absolute inset-y-0 right-0 w-14 pointer-events-none z-30 opacity-20 bg-gradient-to-l from-[var(--accent)] to-transparent screen-glow-mask" />
+                <div class="screen-glow-mask opacity-20 w-14 pointer-events-none inset-y-0 left-0 absolute z-30 from-[var(--accent)] to-transparent bg-gradient-to-r" />
+                <div class="screen-glow-mask opacity-20 w-14 pointer-events-none inset-y-0 right-0 absolute z-30 from-[var(--accent)] to-transparent bg-gradient-to-l" />
               </Show>
 
               <Show when={showTurnFlash()}>
                 <div
-                  class="absolute inset-0 pointer-events-none z-0 anim-turn-flash"
+                  class="anim-turn-flash pointer-events-none inset-0 absolute z-0"
                   style={{ background: 'radial-gradient(ellipse at center, transparent 30%, rgba(200, 170, 110, 0.5) 100%)' }}
                 />
               </Show>
