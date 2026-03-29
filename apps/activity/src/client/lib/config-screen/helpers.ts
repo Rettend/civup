@@ -201,7 +201,7 @@ export function formatLeaderPoolValue(
 }
 
 function resolveLeaderPoolDefaultPlayerCount(mode: GameMode, playerCount: number, targetSize?: number): number {
-  if (mode === 'ffa' && typeof targetSize === 'number' && Number.isFinite(targetSize) && targetSize > 0) {
+  if (typeof targetSize === 'number' && Number.isFinite(targetSize) && targetSize > 0) {
     return targetSize
   }
 

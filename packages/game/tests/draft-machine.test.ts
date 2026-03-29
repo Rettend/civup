@@ -1,6 +1,6 @@
 import type { DraftSeat, DraftState } from '../src/types.ts'
 import { describe, expect, test } from 'bun:test'
-import { default1v1, default2v2, default3v3, default4v4, defaultFfa, defaultFfaSimultaneous, defaultRd2p } from '../src/draft-formats.ts'
+import { default1v1, default2v2, default3v3, default4v4, defaultFfa, defaultFfaSimultaneous, redDeath2v2 } from '../src/draft-formats.ts'
 import {
   createDraft,
   getBansForSeat,
@@ -483,7 +483,7 @@ describe('processDraftInput — PICK (sequential)', () => {
   })
 
   test('Red Death picks must come from dealt options', () => {
-    let state = startDraft(createDraft('match-rd', defaultRd2p, createRdSeats(4), ['rd-a', 'rd-b', 'rd-c', 'rd-d'], { dealOptionsSize: 2 }))
+    let state = startDraft(createDraft('match-rd', redDeath2v2, createRdSeats(4), ['rd-a', 'rd-b', 'rd-c', 'rd-d'], { dealOptionsSize: 2 }))
     state = { ...state, dealtCivIds: ['rd-a', 'rd-b'] }
 
     const invalidPick = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'rd-c' })
@@ -702,7 +702,7 @@ describe('processDraftInput — TIMEOUT', () => {
   })
 
   test('timeout on Red Death pick selects from dealt options instead of scrubbing', () => {
-    let state = startDraft(createDraft('match-rd-timeout', defaultRd2p, createRdSeats(4), ['rd-a', 'rd-b', 'rd-c', 'rd-d'], { dealOptionsSize: 2 }))
+    let state = startDraft(createDraft('match-rd-timeout', redDeath2v2, createRdSeats(4), ['rd-a', 'rd-b', 'rd-c', 'rd-d'], { dealOptionsSize: 2 }))
     state = { ...state, dealtCivIds: ['rd-a', 'rd-b'] }
 
     const timedOut = processDraftInput(state, { type: 'TIMEOUT' }, false)

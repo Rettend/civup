@@ -1,10 +1,9 @@
 import type { Database } from '@civup/db'
 import { matches } from '@civup/db'
-import { formatModeLabel } from '@civup/game'
 import { eq } from 'drizzle-orm'
 import { createChannelMessage, createDmChannel } from '../discord/index.ts'
 import { getLobbyByMatch } from '../lobby/index.ts'
-import { getCompletedAtFromDraftData, getHostIdFromDraftData } from './draft-data.ts'
+import { getCompletedAtFromDraftData, getHostIdFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 
 const REPORT_REMINDER_TTL_SECONDS = 3 * 24 * 60 * 60
 
@@ -52,6 +51,9 @@ export async function sendOverdueHostReportReminders(
     const hostId = getHostIdFromDraftData(match.draftData)
     if (completedAt == null || !hostId) continue
 
+    const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
+    if (!gameContext) continue
+
     const pendingStage = await resolvePendingReminderStage(kv, match.id, now - completedAt)
     if (!pendingStage) continue
 
@@ -60,7 +62,7 @@ export async function sendOverdueHostReportReminders(
 
     try {
       const reportLink = await getMatchReportLink(kv, match.id)
-      await sendReminderDm(token, hostId, buildReminderContent(pendingStage.introPrefix, match.gameMode, reportLink))
+      await sendReminderDm(token, hostId, buildReminderContent(pendingStage.introPrefix, gameContext.label, reportLink))
       sentCount += 1
     }
     catch (error) {
@@ -116,8 +118,7 @@ async function getMatchReportLink(kv: KVNamespace, matchId: string): Promise<str
   return `https://discord.com/channels/${lobby.guildId}/${lobby.channelId}/${lobby.messageId}`
 }
 
-function buildReminderContent(introPrefix: string, gameMode: string, reportLink: string | null): string {
-  const modeLabel = formatModeLabel(gameMode, gameMode)
+function buildReminderContent(introPrefix: string, modeLabel: string, reportLink: string | null): string {
   const intro = `${introPrefix} **${modeLabel}** game.`
   if (!reportLink) return `${intro} Don't forget to report it.`
   return `${intro} Don't forget to report it: ${reportLink}`
