@@ -434,6 +434,8 @@ describe('lobby routes', () => {
       leaderPoolSize: 12,
       leaderDataVersion: 'live',
       simultaneousPick: false,
+      dealOptionsSize: 2,
+      randomDraft: false,
     }, lobby)
     expect(configuredLobby).not.toBeNull()
 
@@ -460,8 +462,60 @@ describe('lobby routes', () => {
       leaderPoolSize: 12,
       leaderDataVersion: 'live',
       simultaneousPick: false,
+      dealOptionsSize: 2,
+      randomDraft: false,
     })
     expect(updatedLobby?.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
+  })
+
+  test('config route allows clearing Red Death factions to server default', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: 'rd-2p',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, 'rd-2p', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const configuredLobby = await setLobbyDraftConfig(kv, lobby.id, {
+      banTimerSeconds: null,
+      pickTimerSeconds: null,
+      leaderPoolSize: null,
+      leaderDataVersion: 'live',
+      simultaneousPick: false,
+      dealOptionsSize: 4,
+      randomDraft: false,
+    }, lobby)
+    expect(configuredLobby).not.toBeNull()
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/rd-2p/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        dealOptionsSize: null,
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.draftConfig.dealOptionsSize).toBeNull()
   })
 
   test('config route updates the FFA simultaneous pick toggle', async () => {
@@ -678,6 +732,266 @@ describe('lobby routes', () => {
     if (snapshot.selection?.kind !== 'lobby') return
     expect(snapshot.selection.lobby.id).toBe(lobby.id)
     expect(snapshot.selection.joinEligibility.canJoin).toBe(true)
+  })
+
+  test('mode changes keep the host seat order when already slotted', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '4v4',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '4v4', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const otherPlayers = ['p1', 'p2', 'p3', 'p5', 'p6']
+    for (let index = 0; index < otherPlayers.length; index++) {
+      const playerId = otherPlayers[index]
+      await addToQueue(kv, '4v4', {
+        playerId,
+        displayName: playerId,
+        avatarUrl: null,
+        joinedAt: Date.now() + index + 1,
+      })
+    }
+
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', ...otherPlayers], lobby)
+    const withSlots = await setLobbySlots(kv, lobby.id, ['p1', 'p2', 'p3', 'host', 'p5', 'p6', null, null], withMembers ?? lobby)
+    expect(withSlots).not.toBeNull()
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/4v4/mode', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        nextMode: '3v3',
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.mode).toBe('3v3')
+    expect(updatedLobby?.slots).toEqual(['p1', 'p2', 'p3', 'host', 'p5', 'p6'])
+  })
+
+  test('mode changes clear Red Death random draft when switching to a regular mode', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: 'rd-2p',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, 'rd-2p', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const configuredLobby = await setLobbyDraftConfig(kv, lobby.id, {
+      banTimerSeconds: null,
+      pickTimerSeconds: null,
+      leaderPoolSize: null,
+      leaderDataVersion: 'live',
+      simultaneousPick: false,
+      dealOptionsSize: 4,
+      randomDraft: true,
+    }, lobby)
+    expect(configuredLobby).not.toBeNull()
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/rd-2p/mode', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        nextMode: '1v1',
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.mode).toBe('1v1')
+    expect(updatedLobby?.draftConfig.randomDraft).toBe(false)
+  })
+
+  test('mode changes clear FFA simultaneous pick when switching to another mode', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, 'ffa', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const configuredLobby = await setLobbyDraftConfig(kv, lobby.id, {
+      banTimerSeconds: null,
+      pickTimerSeconds: null,
+      leaderPoolSize: null,
+      leaderDataVersion: 'live',
+      simultaneousPick: true,
+      dealOptionsSize: null,
+      randomDraft: false,
+    }, lobby)
+    expect(configuredLobby).not.toBeNull()
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/ffa/mode', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        nextMode: '1v1',
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.mode).toBe('1v1')
+    expect(updatedLobby?.draftConfig.simultaneousPick).toBe(false)
+  })
+
+  test('mode changes preserve the current team split when expanding team size', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '3v3',
+      hostId: 'p1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6']
+    for (let index = 0; index < playerIds.length; index++) {
+      const playerId = playerIds[index]
+      await addToQueue(kv, '3v3', {
+        playerId,
+        displayName: playerId,
+        avatarUrl: null,
+        joinedAt: Date.now() + index,
+      })
+    }
+
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, playerIds, lobby)
+    const withSlots = await setLobbySlots(kv, lobby.id, ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'], withMembers ?? lobby)
+    expect(withSlots).not.toBeNull()
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/3v3/mode', {
+      method: 'POST',
+      headers: buildAuthHeaders('p1', 'P1'),
+      body: JSON.stringify({
+        userId: 'p1',
+        lobbyId: lobby.id,
+        nextMode: '4v4',
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.mode).toBe('4v4')
+    expect(updatedLobby?.slots).toEqual(['p1', 'p2', 'p3', null, 'p4', 'p5', 'p6', null])
+  })
+
+  test('mode changes reject shrinking to a smaller lobby than the current player count', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '3v3',
+      hostId: 'p1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6']
+    for (let index = 0; index < playerIds.length; index++) {
+      const playerId = playerIds[index]
+      await addToQueue(kv, '3v3', {
+        playerId,
+        displayName: playerId,
+        avatarUrl: null,
+        joinedAt: Date.now() + index,
+      })
+    }
+
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, playerIds, lobby)
+    const withSlots = await setLobbySlots(kv, lobby.id, ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'], withMembers ?? lobby)
+    expect(withSlots).not.toBeNull()
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/3v3/mode', {
+      method: 'POST',
+      headers: buildAuthHeaders('p1', 'P1'),
+      body: JSON.stringify({
+        userId: 'p1',
+        lobbyId: lobby.id,
+        nextMode: '2v2',
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: '2v2 only supports 4 players.' })
+
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.mode).toBe('3v3')
+    expect(updatedLobby?.slots).toEqual(['p1', 'p2', 'p3', 'p4', 'p5', 'p6'])
+    expect(updatedLobby?.memberPlayerIds).toEqual(playerIds)
   })
 })
 

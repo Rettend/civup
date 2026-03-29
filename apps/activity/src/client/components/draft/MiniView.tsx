@@ -92,10 +92,18 @@ export function MiniView() {
   const columns = () => {
     const items = seatItems()
     if (items.some(item => item.team != null)) {
-      return [
-        items.filter(item => item.team === 0),
-        items.filter(item => item.team === 1),
-      ]
+      const teamIndices = Array.from(new Set(items.flatMap(item => item.team == null ? [] : [item.team]))).sort((a, b) => a - b)
+      const teamColumns = teamIndices.map(team => items.filter(item => item.team === team))
+
+      if (teamColumns.length > 2) {
+        const midpoint = Math.ceil(teamColumns.length / 2)
+        return [
+          teamColumns.slice(0, midpoint).flat(),
+          teamColumns.slice(midpoint).flat(),
+        ]
+      }
+
+      return teamColumns
     }
 
     const midpoint = Math.ceil(items.length / 2)
