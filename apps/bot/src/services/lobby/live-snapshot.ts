@@ -1,6 +1,5 @@
 import type { GameMode, QueueEntry } from '@civup/game'
 import type { LobbyState } from './types.ts'
-import { maxPlayerCount, minPlayerCount } from '@civup/game'
 import { getServerDraftTimerDefaults } from '../config/index.ts'
 import { getQueueState } from '../queue/index.ts'
 import { stateStoreMdelete, stateStoreMput } from '../state/store.ts'
@@ -76,8 +75,8 @@ export async function buildLobbyLiveSnapshotFromParts(
         partyIds: entry.partyIds ?? [],
       }
     }),
-    minPlayers: lobbyMinPlayerCount(mode),
-    targetSize: maxPlayerCount(mode),
+    minPlayers: slots.length,
+    targetSize: slots.length,
     draftConfig: normalizeDraftConfigForMode(mode, lobby.draftConfig),
     serverDefaults,
   }
@@ -142,8 +141,4 @@ export async function syncLobbyDerivedState(
 
 export function filterLobbySnapshotQueueEntries(lobby: LobbyState, queueEntries: QueueEntry[]): QueueEntry[] {
   return filterQueueEntriesForLobby(lobby, queueEntries)
-}
-
-function lobbyMinPlayerCount(mode: GameMode): number {
-  return minPlayerCount(mode)
 }

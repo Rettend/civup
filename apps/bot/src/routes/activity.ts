@@ -4,7 +4,7 @@ import type { Env } from '../env.ts'
 import type { LobbyState } from '../services/lobby/index.ts'
 import type { getQueueState } from '../services/queue/index.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { formatModeLabel, maxPlayerCount } from '@civup/game'
+import { formatModeLabel } from '@civup/game'
 import { createDraftRoomAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { clearUserActivityTargets, getLobbyForUser, getMatchForChannel, getMatchForUser, getUserActivityTarget, storeUserActivityTarget, storeUserMatchMappings } from '../services/activity/index.ts'
@@ -30,6 +30,7 @@ interface ActivityTargetOption {
   status: 'open' | 'drafting' | 'active'
   participantCount: number
   targetSize: number
+  redDeath: boolean
   isMember: boolean
   isHost: boolean
   updatedAt: number
@@ -419,11 +420,11 @@ export async function resolveLobbyJoinEligibility(
   if (blockingLobby) {
     return {
       canJoin: false,
-      blockedReason: blockingLobby.status === 'open'
-        ? blockingLobby.mode === lobby.mode
-          ? 'You are already in another open lobby.'
-          : `You're already in a ${formatModeLabel(blockingLobby.mode)} lobby.`
-        : 'You are already in a live match.',
+        blockedReason: blockingLobby.status === 'open'
+          ? blockingLobby.mode === lobby.mode
+            ? 'You are already in another open lobby.'
+            : `You're already in a ${formatModeLabel(blockingLobby.mode, blockingLobby.mode, { redDeath: blockingLobby.draftConfig.redDeath })} lobby.`
+          : 'You are already in a live match.',
       pendingSlot: null,
     }
   }
@@ -432,11 +433,11 @@ export async function resolveLobbyJoinEligibility(
     ? options.existingQueueMode
     : await getPlayerQueueMode(kv, userId)
   if (existingQueueMode) {
-    return {
-      canJoin: false,
-      blockedReason: `You're already in a ${formatModeLabel(existingQueueMode)} lobby.`,
-      pendingSlot: null,
-    }
+      return {
+        canJoin: false,
+        blockedReason: `You're already in a ${formatModeLabel(existingQueueMode)} lobby.`,
+        pendingSlot: null,
+      }
   }
 
   const pendingSlot = lobbySnapshot.entries.findIndex(entry => entry == null)
@@ -491,7 +492,8 @@ async function loadActivityLaunchContext(
           mode,
           status: 'open',
           participantCount: countFilledSlots(slots),
-          targetSize: maxPlayerCount(mode),
+          targetSize: slots.length,
+          redDeath: lobby.draftConfig.redDeath,
           isMember: lobby.memberPlayerIds.includes(userId),
           isHost: lobby.hostId === userId,
           updatedAt: lobby.updatedAt,
@@ -512,7 +514,8 @@ async function loadActivityLaunchContext(
           mode,
           status: lobby.status,
           participantCount: countFilledSlots(lobby.slots),
-          targetSize: maxPlayerCount(mode),
+          targetSize: lobby.slots.length,
+          redDeath: lobby.draftConfig.redDeath,
           isMember: lobby.memberPlayerIds.includes(userId),
           isHost: lobby.hostId === userId,
           updatedAt: lobby.updatedAt,

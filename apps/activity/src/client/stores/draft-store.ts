@@ -1,5 +1,5 @@
 import type { DraftEvent, DraftPreviewState, DraftState, DraftStep, LeaderDataVersion } from '@civup/game'
-import { inferGameMode, isRedDeathMode } from '@civup/game'
+import { inferGameMode, isRedDeathFormatId } from '@civup/game'
 import { createStore, produce } from 'solid-js/store'
 
 const EMPTY_DRAFT_PREVIEWS: DraftPreviewState = {
@@ -180,8 +180,7 @@ export function currentMode() {
 }
 
 export function isRedDeathDraft(): boolean {
-  const mode = currentMode()
-  return isRedDeathMode(mode)
+  return isRedDeathFormatId(draftStore.state?.formatId)
 }
 
 export function dealtCivIds(): string[] | null {
