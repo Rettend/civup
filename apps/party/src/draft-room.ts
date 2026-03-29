@@ -8,7 +8,7 @@ import type {
   ServerMessage,
 } from '@civup/game'
 import type { Connection, ConnectionContext, WSMessage } from 'partyserver'
-import { createDraft, draftFormatMap, getCurrentStep, isDraftError, MAX_TIMER_SECONDS, processDraftInput } from '@civup/game'
+import { createDraft, draftFormatMap, getCurrentStep, isDraftError, isRedDeathMode, MAX_TIMER_SECONDS, processDraftInput } from '@civup/game'
 import {
   api,
   ApiError,
@@ -91,7 +91,9 @@ export class Main extends Server<PartyEnv> {
       return json({ error: 'Empty civ pool' }, 400)
     }
 
-    const baseState = createDraft(config.matchId, format, config.seats, config.civPool)
+    const baseState = createDraft(config.matchId, format, config.seats, config.civPool, {
+      dealOptionsSize: config.dealOptionsSize,
+    })
     const state = withWaitingTimerConfig(format, baseState, config.timerConfig)
 
     await this.ctx.storage.put('config', config)
@@ -250,6 +252,11 @@ export class Main extends Server<PartyEnv> {
       case 'start': {
         if (playerId !== config.hostId) {
           this.send(sender, { type: 'error', message: 'Only the host can start the draft' })
+          return
+        }
+        if (config.randomDraft && isRedDeathDraftConfig(config)) {
+          const result = buildRandomDraftResult(state)
+          await this.applyResult(result.state, result.events)
           return
         }
         const result = processDraftInput(state, { type: 'START' }, format.blindBans)
@@ -462,6 +469,12 @@ export class Main extends Server<PartyEnv> {
     let completedAt = await this.ctx.storage.get<number | null>('completedAt')
     let cancelledAt = await this.ctx.storage.get<number | null>('cancelledAt')
 
+    const nextState = this.assignDealtCivIds(newState, config ?? null)
+    if (nextState !== newState) {
+      newState = nextState
+      await this.ctx.storage.put('state', newState)
+    }
+
     if (stepAdvanced && newState.status === 'active') {
       const step = getCurrentStep(newState)
       if (step && step.timer > 0) {
@@ -563,7 +576,7 @@ export class Main extends Server<PartyEnv> {
     const submittedCount = state.submissions[seatIndex]?.length ?? 0
     if (submittedCount >= step.count) return
 
-    const availablePool = [...state.availableCivIds]
+    const availablePool = [...(state.dealtCivIds?.length ? state.dealtCivIds : state.availableCivIds)]
     if (availablePool.length === 0) return
 
     let result:
@@ -660,12 +673,24 @@ export class Main extends Server<PartyEnv> {
 
   /** Filters state for blind bans: players only see their own pending bans */
   private censorState(state: DraftState, seatIndex: number): DraftState {
-    if (state.pendingBlindBans.length === 0) return state
+    let nextState = state
+
+    if (state.pendingBlindBans.length > 0) {
+      nextState = {
+        ...nextState,
+        pendingBlindBans: state.pendingBlindBans.filter(
+          b => b.seatIndex === seatIndex,
+        ),
+      }
+    }
+
+    if (seatCanSeeDealtOptions(nextState, seatIndex)) return nextState
+    if (nextState.dealtCivIds == null && !isRedDeathDraftState(nextState)) return nextState
+
     return {
-      ...state,
-      pendingBlindBans: state.pendingBlindBans.filter(
-        b => b.seatIndex === seatIndex,
-      ),
+      ...nextState,
+      dealtCivIds: null,
+      availableCivIds: isRedDeathDraftState(nextState) ? [] : nextState.availableCivIds,
     }
   }
 
@@ -683,6 +708,30 @@ export class Main extends Server<PartyEnv> {
 
   private send(connection: Connection, message: ServerMessage) {
     connection.send(JSON.stringify(message))
+  }
+
+  private assignDealtCivIds(state: DraftState, config: RoomConfig | null): DraftState {
+    if (!config || !isRedDeathDraftConfig(config)) {
+      if (state.dealtCivIds == null) return state
+      return { ...state, dealtCivIds: null }
+    }
+
+    if (state.status !== 'active') {
+      if (state.dealtCivIds == null) return state
+      return { ...state, dealtCivIds: null }
+    }
+
+    const step = getCurrentStep(state)
+    if (!step || step.action !== 'pick') {
+      if (state.dealtCivIds == null) return state
+      return { ...state, dealtCivIds: null }
+    }
+
+    if (state.dealtCivIds?.length) return state
+
+    const dealSize = normalizeDealOptionsSize(config.dealOptionsSize)
+    const dealtCivIds = pickRandomDistinct(state.availableCivIds, Math.min(dealSize, state.availableCivIds.length))
+    return { ...state, dealtCivIds }
   }
 
   private closeAllConnections(reason: string) {
@@ -776,6 +825,63 @@ function pickRandomDistinct<T>(items: T[], count: number): T[] {
     if (next != null) picks.push(next)
   }
   return picks
+}
+
+function normalizeDealOptionsSize(value: number | null | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 2
+  return Math.max(1, Math.round(value))
+}
+
+function isRedDeathDraftConfig(config: Pick<RoomConfig, 'formatId'>): boolean {
+  const format = draftFormatMap.get(config.formatId)
+  return format != null && isRedDeathMode(format.gameMode)
+}
+
+function isRedDeathDraftState(state: DraftState): boolean {
+  const format = draftFormatMap.get(state.formatId)
+  return format != null && isRedDeathMode(format.gameMode)
+}
+
+function seatCanSeeDealtOptions(state: DraftState, seatIndex: number): boolean {
+  if (seatIndex < 0 || state.status !== 'active') return false
+  if (!isRedDeathDraftState(state)) return true
+  const step = getCurrentStep(state)
+  if (!step || step.action !== 'pick' || step.seats === 'all') return false
+
+  const activeSeat = step.seats[0]
+  if (activeSeat == null) return false
+  if (activeSeat === seatIndex) return true
+
+  const activeTeam = state.seats[activeSeat]?.team
+  const viewerTeam = state.seats[seatIndex]?.team
+  if (activeTeam == null || viewerTeam == null) return false
+  return activeTeam === viewerTeam
+}
+
+function buildRandomDraftResult(state: DraftState): { state: DraftState, events: DraftEvent[] } {
+  const shuffledIds = pickRandomDistinct(state.availableCivIds, state.availableCivIds.length)
+  const picks = state.seats.map((_, seatIndex) => ({
+    civId: shuffledIds[seatIndex]!,
+    seatIndex,
+    stepIndex: seatIndex,
+  }))
+
+  return {
+    state: {
+      ...state,
+      currentStepIndex: state.steps.length,
+      submissions: {},
+      picks,
+      availableCivIds: state.availableCivIds.filter(civId => !picks.some(pick => pick.civId === civId)),
+      dealtCivIds: null,
+      status: 'complete',
+      cancelReason: null,
+    },
+    events: [
+      { type: 'DRAFT_STARTED' },
+      { type: 'DRAFT_COMPLETE' },
+    ],
+  }
 }
 
 function json(data: unknown, status = 200): Response {

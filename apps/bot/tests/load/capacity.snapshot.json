@@ -19,8 +19,8 @@
     "kvWrites": 0,
     "kvDeletes": 0,
     "kvLists": 1,
-    "doRequests": 240,
-    "doDurationGbSeconds": 0.6
+    "doRequests": 336,
+    "doDurationGbSeconds": 0.84
   },
   "scenarios": [
     {
@@ -37,7 +37,7 @@
         "workersRequests": 11,
         "d1RowsRead": 27,
         "d1RowsWritten": 32,
-        "doSqliteRowsRead": 61,
+        "doSqliteRowsRead": 62,
         "doSqliteRowsWritten": 51,
         "kvReads": 17,
         "kvWrites": 0,
@@ -64,7 +64,7 @@
         "d1RowsReadBase": 27,
         "d1RowsReadPerLeaderboardPlayer": 1,
         "d1RowsWritten": 32,
-        "doSqliteRowsRead": 77,
+        "doSqliteRowsRead": 78,
         "doSqliteRowsWritten": 61,
         "kvReads": 21,
         "kvWrites": 0,
@@ -80,19 +80,19 @@
           "bottleneck": "d1RowsRead"
         },
         "paidIncluded": {
-          "playsPerDay": 1085,
-          "draftsPerDay": 542.5,
+          "playsPerDay": 1081,
+          "draftsPerDay": 540.5,
           "bottleneck": "doRequests"
         },
         "paid6": {
-          "playsPerDay": 8370,
-          "draftsPerDay": 4185,
+          "playsPerDay": 8367,
+          "draftsPerDay": 4183.5,
           "overageUsd": 0.9999
         },
         "paid10": {
-          "playsPerDay": 34432,
-          "draftsPerDay": 17216,
-          "overageUsd": 4.9999
+          "playsPerDay": 34430,
+          "draftsPerDay": 17215,
+          "overageUsd": 4.9998
         }
       },
       "breakpoints": {
@@ -104,8 +104,8 @@
           },
           {
             "metric": "doRequests",
-            "playsPerDay": 3270,
-            "draftsPerDay": 1635
+            "playsPerDay": 3267,
+            "draftsPerDay": 1633.5
           },
           {
             "metric": "doSqliteRowsWritten",
@@ -116,8 +116,8 @@
         "paidIncluded": [
           {
             "metric": "doRequests",
-            "playsPerDay": 1085,
-            "draftsPerDay": 542.5
+            "playsPerDay": 1081,
+            "draftsPerDay": 540.5
           },
           {
             "metric": "kvReads",
@@ -146,7 +146,7 @@
         "workersRequests": 19,
         "d1RowsRead": 27,
         "d1RowsWritten": 32,
-        "doSqliteRowsRead": 80,
+        "doSqliteRowsRead": 81,
         "doSqliteRowsWritten": 60,
         "kvReads": 17,
         "kvWrites": 0,
@@ -173,7 +173,7 @@
         "d1RowsReadBase": 27,
         "d1RowsReadPerLeaderboardPlayer": 1,
         "d1RowsWritten": 32,
-        "doSqliteRowsRead": 96,
+        "doSqliteRowsRead": 97,
         "doSqliteRowsWritten": 70,
         "kvReads": 21,
         "kvWrites": 0,
@@ -184,32 +184,32 @@
       },
       "capacity": {
         "free": {
-          "playsPerDay": 2403,
-          "draftsPerDay": 1201.5,
+          "playsPerDay": 2401,
+          "draftsPerDay": 1200.5,
           "bottleneck": "doRequests"
         },
         "paidIncluded": {
-          "playsPerDay": 797,
-          "draftsPerDay": 398.5,
+          "playsPerDay": 795,
+          "draftsPerDay": 397.5,
           "bottleneck": "doRequests"
         },
         "paid6": {
-          "playsPerDay": 6152,
-          "draftsPerDay": 3076,
-          "overageUsd": 1
+          "playsPerDay": 6149,
+          "draftsPerDay": 3074.5,
+          "overageUsd": 0.9998
         },
         "paid10": {
-          "playsPerDay": 27571,
-          "draftsPerDay": 13785.5,
-          "overageUsd": 5
+          "playsPerDay": 27568,
+          "draftsPerDay": 13784,
+          "overageUsd": 4.9998
         }
       },
       "breakpoints": {
         "free": [
           {
             "metric": "doRequests",
-            "playsPerDay": 2403,
-            "draftsPerDay": 1201.5
+            "playsPerDay": 2401,
+            "draftsPerDay": 1200.5
           },
           {
             "metric": "doSqliteRowsWritten",
@@ -225,8 +225,8 @@
         "paidIncluded": [
           {
             "metric": "doRequests",
-            "playsPerDay": 797,
-            "draftsPerDay": 398.5
+            "playsPerDay": 795,
+            "draftsPerDay": 397.5
           },
           {
             "metric": "workersRequests",
@@ -255,7 +255,7 @@
         "workersRequests": 18,
         "d1RowsRead": 55,
         "d1RowsWritten": 44,
-        "doSqliteRowsRead": 92,
+        "doSqliteRowsRead": 93,
         "doSqliteRowsWritten": 77,
         "kvReads": 23,
         "kvWrites": 0,
@@ -282,7 +282,7 @@
         "d1RowsReadBase": 55,
         "d1RowsReadPerLeaderboardPlayer": 1,
         "d1RowsWritten": 44,
-        "doSqliteRowsRead": 108,
+        "doSqliteRowsRead": 109,
         "doSqliteRowsWritten": 87,
         "kvReads": 27,
         "kvWrites": 0,
@@ -298,18 +298,18 @@
           "bottleneck": "d1RowsRead"
         },
         "paidIncluded": {
-          "playsPerDay": 1634,
-          "draftsPerDay": 408.5,
+          "playsPerDay": 1629,
+          "draftsPerDay": 407.25,
           "bottleneck": "doRequests"
         },
         "paid6": {
-          "playsPerDay": 12608,
-          "draftsPerDay": 3152,
+          "playsPerDay": 12603,
+          "draftsPerDay": 3150.75,
           "overageUsd": 1
         },
         "paid10": {
-          "playsPerDay": 52755,
-          "draftsPerDay": 13188.75,
+          "playsPerDay": 52753,
+          "draftsPerDay": 13188.25,
           "overageUsd": 4.9999
         }
       },
@@ -327,15 +327,15 @@
           },
           {
             "metric": "doRequests",
-            "playsPerDay": 4926,
-            "draftsPerDay": 1231.5
+            "playsPerDay": 4921,
+            "draftsPerDay": 1230.25
           }
         ],
         "paidIncluded": [
           {
             "metric": "doRequests",
-            "playsPerDay": 1634,
-            "draftsPerDay": 408.5
+            "playsPerDay": 1629,
+            "draftsPerDay": 407.25
           },
           {
             "metric": "kvReads",
@@ -364,7 +364,7 @@
         "workersRequests": 24,
         "d1RowsRead": 91,
         "d1RowsWritten": 56,
-        "doSqliteRowsRead": 110,
+        "doSqliteRowsRead": 111,
         "doSqliteRowsWritten": 93,
         "kvReads": 27,
         "kvWrites": 0,
@@ -391,7 +391,7 @@
         "d1RowsReadBase": 91,
         "d1RowsReadPerLeaderboardPlayer": 1,
         "d1RowsWritten": 56,
-        "doSqliteRowsRead": 126,
+        "doSqliteRowsRead": 127,
         "doSqliteRowsWritten": 103,
         "kvReads": 31,
         "kvWrites": 0,
@@ -407,18 +407,18 @@
           "bottleneck": "d1RowsRead"
         },
         "paidIncluded": {
-          "playsPerDay": 2112,
-          "draftsPerDay": 352,
+          "playsPerDay": 2106,
+          "draftsPerDay": 351,
           "bottleneck": "doRequests"
         },
         "paid6": {
-          "playsPerDay": 16296,
-          "draftsPerDay": 2716,
-          "overageUsd": 0.9999
+          "playsPerDay": 16290,
+          "draftsPerDay": 2715,
+          "overageUsd": 1
         },
         "paid10": {
-          "playsPerDay": 68573,
-          "draftsPerDay": 11428.8333,
+          "playsPerDay": 68570,
+          "draftsPerDay": 11428.3333,
           "overageUsd": 4.9999
         }
       },
@@ -436,15 +436,15 @@
           },
           {
             "metric": "doRequests",
-            "playsPerDay": 6367,
-            "draftsPerDay": 1061.1667
+            "playsPerDay": 6361,
+            "draftsPerDay": 1060.1667
           }
         ],
         "paidIncluded": [
           {
             "metric": "doRequests",
-            "playsPerDay": 2112,
-            "draftsPerDay": 352
+            "playsPerDay": 2106,
+            "draftsPerDay": 351
           },
           {
             "metric": "kvReads",
@@ -473,7 +473,7 @@
         "workersRequests": 35,
         "d1RowsRead": 135,
         "d1RowsWritten": 88,
-        "doSqliteRowsRead": 193,
+        "doSqliteRowsRead": 194,
         "doSqliteRowsWritten": 159,
         "kvReads": 41,
         "kvWrites": 0,
@@ -500,7 +500,7 @@
         "d1RowsReadBase": 135,
         "d1RowsReadPerLeaderboardPlayer": 1,
         "d1RowsWritten": 88,
-        "doSqliteRowsRead": 209,
+        "doSqliteRowsRead": 210,
         "doSqliteRowsWritten": 169,
         "kvReads": 45,
         "kvWrites": 0,
@@ -516,18 +516,18 @@
           "bottleneck": "doSqliteRowsWritten"
         },
         "paidIncluded": {
-          "playsPerDay": 1813,
-          "draftsPerDay": 226.625,
+          "playsPerDay": 1808,
+          "draftsPerDay": 226,
           "bottleneck": "doRequests"
         },
         "paid6": {
-          "playsPerDay": 13989,
-          "draftsPerDay": 1748.625,
+          "playsPerDay": 13984,
+          "draftsPerDay": 1748,
           "overageUsd": 0.9999
         },
         "paid10": {
-          "playsPerDay": 60954,
-          "draftsPerDay": 7619.25,
+          "playsPerDay": 60951,
+          "draftsPerDay": 7618.875,
           "overageUsd": 4.9999
         }
       },
@@ -540,8 +540,8 @@
           },
           {
             "metric": "doRequests",
-            "playsPerDay": 5466,
-            "draftsPerDay": 683.25
+            "playsPerDay": 5461,
+            "draftsPerDay": 682.625
           },
           {
             "metric": "d1RowsRead",
@@ -552,8 +552,8 @@
         "paidIncluded": [
           {
             "metric": "doRequests",
-            "playsPerDay": 1813,
-            "draftsPerDay": 226.625
+            "playsPerDay": 1808,
+            "draftsPerDay": 226
           },
           {
             "metric": "kvReads",

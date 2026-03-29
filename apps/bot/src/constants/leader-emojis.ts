@@ -84,6 +84,16 @@ export const LEADER_EMOJI_IDS: Record<string, string> = {
   'tibet-trisong-detsen': '1470104298024079510',
   'vietnam-ba-trieu': '1470104321483079896',
   'zulu-shaka': '1470104355645554840',
+  'rd-aliens': '1487492020447739924',
+  'rd-borderlords': '1487492022171336735',
+  'rd-cultists': '1487492024528797850',
+  'rd-jocks': '1487492004349743215',
+  'rd-mutants': '1487492008187662377',
+  'rd-pirates': '1487492011807477907',
+  'rd-preppers': '1487492013476806786',
+  'rd-scientists': '1487492015452065882',
+  'rd-wanderers': '1487492017138438224',
+  'rd-zombies': '1487492018757173349',
 }
 
 export function leaderEmojiMention(leaderId: string): string | null {

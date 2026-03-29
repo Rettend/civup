@@ -254,7 +254,7 @@ describe('player rank views', () => {
 
 async function seedPlayers(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
-  mode: 'duel' | 'duo' | 'squad' | 'ffa',
+  mode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death',
   count: number,
   options: { prefix: string },
 ): Promise<void> {
@@ -299,7 +299,7 @@ async function seedRating(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   row: {
     playerId: string
-    mode: 'duel' | 'duo' | 'squad' | 'ffa'
+    mode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death'
     mu: number
     sigma: number
     gamesPlayed: number

@@ -4,6 +4,7 @@ import { matchBans, matches, matchParticipants } from '@civup/db'
 import { and, eq, isNull, lt, or } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { clearLobbyByMatch } from '../lobby/index.ts'
+import { STALE_ACTIVE_MATCH_TIMEOUT_MS, STALE_CANCELLED_MATCH_TIMEOUT_MS, STALE_DRAFTING_MATCH_TIMEOUT_MS } from './retention.ts'
 
 export async function pruneAbandonedMatches(
   db: Database,
@@ -11,9 +12,9 @@ export async function pruneAbandonedMatches(
   options: PruneMatchesOptions = {},
 ): Promise<PruneMatchesResult> {
   const now = Date.now()
-  const staleDraftingMs = options.staleDraftingMs ?? 12 * 60 * 60 * 1000
-  const staleActiveMs = options.staleActiveMs ?? 36 * 60 * 60 * 1000
-  const staleCancelledMs = options.staleCancelledMs ?? 6 * 60 * 60 * 1000
+  const staleDraftingMs = options.staleDraftingMs ?? STALE_DRAFTING_MATCH_TIMEOUT_MS
+  const staleActiveMs = options.staleActiveMs ?? STALE_ACTIVE_MATCH_TIMEOUT_MS
+  const staleCancelledMs = options.staleCancelledMs ?? STALE_CANCELLED_MATCH_TIMEOUT_MS
 
   const staleMatches = await db
     .select({ id: matches.id })

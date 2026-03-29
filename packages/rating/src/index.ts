@@ -28,8 +28,9 @@ export const RATING_OPTIONS = {
   tau: 0.3, // Adds back some uncertainty to prevent stagnation
 }
 
-function getFfaRatingOptions(playerCount: number) {
-  const ffaBetaByPlayerCount: Record<number, number> = {
+/** Openskill options for ranked outcomes with 3+ sides (FFA players or 3+ teams like RD). */
+function getRankedRatingOptions(sides: number) {
+  const betaBySides: Record<number, number> = {
     3: 30,
     4: 40,
     5: 50,
@@ -43,14 +44,14 @@ function getFfaRatingOptions(playerCount: number) {
   return {
     ...RATING_OPTIONS,
     model: bradleyTerryFull,
-    beta: ffaBetaByPlayerCount[playerCount] ?? (1.5 * playerCount * Math.max(1, playerCount - 1)),
+    beta: betaBySides[sides] ?? (1.5 * sides * Math.max(1, sides - 1)),
   }
 }
 
 /** Minimum games required to appear on leaderboard */
 export const LEADERBOARD_MIN_GAMES = 3
 
-export type LeaderboardMode = 'duel' | 'duo' | 'squad' | 'ffa'
+export type LeaderboardMode = 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death'
 
 // ── Player Rating ───────────────────────────────────────────
 
@@ -101,11 +102,14 @@ export interface TeamInput {
 }
 
 /**
- * Calculate rating updates for team-based games (duel, 2v2, 3v3, 4v4).
+ * Calculate rating updates for team-based games (duel, 2v2, 3v3, 4v4, multi-team e.g. RD 2v2v2v2).
  *
- * Teams are ordered by placement: index 0 = 1st place (winner), index 1 = 2nd place (loser).
+ * Teams are ordered by placement: index 0 = 1st place (winner), index 1 = 2nd place, etc.
  * For a duel, each "team" has exactly 1 player.
  * For 2v2, each team has 2 players; for 3v3, each team has 3; for 4v4, each team has 4.
+ *
+ * Two-team matchups use low beta (duel tuning). Three or more teams use the same model and
+ * beta curve as FFA so placements stay balanced.
  *
  * OpenSkill's `rate()` takes teams in placement order by default.
  *
@@ -121,7 +125,11 @@ export function calculateTeamRatings(teams: TeamInput[]): RatingUpdate[] {
   // For multi-team (e.g. 3+ teams), rank corresponds to placement
   const rank = teams.map((_, i) => i + 1)
 
-  const updatedTeams = rate(osTeams, { rank, ...RATING_OPTIONS })
+  const ratingOptions = teams.length > 2
+    ? getRankedRatingOptions(teams.length)
+    : RATING_OPTIONS
+
+  const updatedTeams = rate(osTeams, { rank, ...ratingOptions })
 
   const updates: RatingUpdate[] = []
 
@@ -173,7 +181,7 @@ export function calculateFfaRatings(entries: FfaEntry[]): RatingUpdate[] {
   const osTeams: OSRating[][] = sorted.map(e => [{ mu: e.player.mu, sigma: e.player.sigma }])
   const rank = sorted.map(e => e.placement)
 
-  const updatedTeams = rate(osTeams, { rank, ...getFfaRatingOptions(sorted.length) })
+  const updatedTeams = rate(osTeams, { rank, ...getRankedRatingOptions(sorted.length) })
 
   return sorted.map((entry, i) => {
     const updated = updatedTeams[i]![0]!
@@ -222,7 +230,10 @@ export function predictWinProbabilities(teams: PlayerRating[][]): number[] {
   const osTeams: OSRating[][] = teams.map(t =>
     t.map(p => ({ mu: p.mu, sigma: p.sigma })),
   )
-  return predictWin(osTeams, RATING_OPTIONS)
+  const options = teams.length > 2
+    ? getRankedRatingOptions(teams.length)
+    : RATING_OPTIONS
+  return predictWin(osTeams, options)
 }
 
 // ── Leaderboard Helpers ─────────────────────────────────────
