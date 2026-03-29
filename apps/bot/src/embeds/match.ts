@@ -55,7 +55,7 @@ export function lobbyOpenEmbed(
   leaderDataVersion?: LeaderDataVersion | null,
   redDeath = false,
 ): Embed {
-  const embed = baseLobbyEmbed(mode, 'open', leaderDataVersion, redDeath)
+  const embed = baseLobbyEmbed(mode, 'open', leaderDataVersion, redDeath, targetSize)
   const rankFields = [
     minRoleId ? { name: 'Min Rank', value: `<@&${minRoleId}>`, inline: true } : null,
     maxRoleId ? { name: 'Max Rank', value: `<@&${maxRoleId}>`, inline: true } : null,
@@ -118,7 +118,7 @@ export function lobbyOpenEmbed(
 }
 
 export function lobbyDraftingEmbed(mode: GameMode, seats: DraftSeat[], leaderDataVersion?: LeaderDataVersion | null, redDeath = false): Embed {
-  const embed = baseLobbyEmbed(mode, 'drafting', leaderDataVersion, redDeath)
+  const embed = baseLobbyEmbed(mode, 'drafting', leaderDataVersion, redDeath, seats.length)
   const hasTeams = seats.some(seat => seat.team != null)
 
   if (hasTeams) {
@@ -140,7 +140,7 @@ export function lobbyDraftCompleteEmbed(
   leaderDataVersion?: LeaderDataVersion | null,
   redDeath = false,
 ): Embed {
-  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'draft-complete', undefined, leaderDataVersion, redDeath)
+  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'draft-complete', undefined, leaderDataVersion, redDeath, participants.length)
 }
 
 export function lobbyCancelledEmbed(
@@ -159,6 +159,7 @@ export function lobbyCancelledEmbed(
     moderation,
     stage === 'scrubbed' ? undefined : leaderDataVersion,
     redDeath,
+    participants.length,
   )
 }
 
@@ -168,7 +169,7 @@ export function lobbyTimeoutEmbed(
   leaderDataVersion?: LeaderDataVersion | null,
   redDeath = false,
 ): Embed {
-  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'timeout', undefined, leaderDataVersion, redDeath)
+  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'timeout', undefined, leaderDataVersion, redDeath, participants.length)
 }
 
 export function lobbyResultEmbed(
@@ -178,7 +179,7 @@ export function lobbyResultEmbed(
   options: { rankedRoleLines?: string[] } = {},
   redDeath = false,
 ): Embed {
-  return lobbyReportedEmbed(mode, participants, moderation, options, redDeath)
+  return lobbyReportedEmbed(mode, participants, moderation, options, redDeath, participants.length)
 }
 
 export function lobbyComponents(mode: GameMode, lobbyId?: string): Components {
@@ -188,9 +189,15 @@ export function lobbyComponents(mode: GameMode, lobbyId?: string): Components {
   )
 }
 
-function baseLobbyEmbed(mode: GameMode, stage: LobbyStage, leaderDataVersion?: LeaderDataVersion | null, redDeath = false): Embed {
+function baseLobbyEmbed(
+  mode: GameMode,
+  stage: LobbyStage,
+  leaderDataVersion?: LeaderDataVersion | null,
+  redDeath = false,
+  targetSize?: number,
+): Embed {
   const embed = new Embed()
-    .title(`${STAGE_LABELS[stage]}  -  ${formatModeLabel(mode, mode, { redDeath })}`)
+    .title(`${STAGE_LABELS[stage]}  -  ${formatModeLabel(mode, mode, { redDeath, targetSize })}`)
     .color(STAGE_COLORS[stage])
 
   const footerText = formatLeaderDataVersionFooter(leaderDataVersion, redDeath)
@@ -204,8 +211,9 @@ function lobbyDraftCompleteLeaderEmbed(
   moderation?: ModerationContext,
   leaderDataVersion?: LeaderDataVersion | null,
   redDeath = false,
+  targetSize?: number,
 ): Embed {
-  const embed = baseLobbyEmbed(mode, stage, leaderDataVersion, redDeath)
+  const embed = baseLobbyEmbed(mode, stage, leaderDataVersion, redDeath, targetSize)
   const hasTeams = participants.some(participant => participant.team != null)
   const moderationField = buildModerationField(moderation)
 
@@ -239,8 +247,9 @@ function lobbyReportedEmbed(
   moderation?: ModerationContext,
   options: { rankedRoleLines?: string[] } = {},
   redDeath = false,
+  targetSize?: number,
 ): Embed {
-  const embed = baseLobbyEmbed(mode, 'reported', undefined, redDeath)
+  const embed = baseLobbyEmbed(mode, 'reported', undefined, redDeath, targetSize)
   const usesTeamRows = isTeamMode(mode)
   const description = usesTeamRows
     ? formatReportedTeamRows(participants)

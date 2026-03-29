@@ -61,7 +61,7 @@ import {
   resolveOpenLobbyFromBody,
 } from './snapshot.ts'
 
-const DEBUG_TEST_PLAYER_ID_PREFIX = 'debug-active-lobby-bot:'
+const DEBUG_TEST_PLAYER_ID_PREFIX = 'bot:'
 
 export function registerLobbyRoutes(app: Hono<Env>) {
   app.get('/api/lobby/:mode/fill-test', async (c) => {

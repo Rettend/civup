@@ -73,7 +73,7 @@ export function inferGameMode(value: string | null | undefined, fallback: GameMo
 export function formatModeLabel(
   mode: string | null | undefined,
   fallback = '',
-  options: { redDeath?: boolean } = {},
+  options: { redDeath?: boolean, targetSize?: number } = {},
 ): string {
   if (!mode) return fallback
 
@@ -84,6 +84,7 @@ export function formatModeLabel(
     const parsed = parseGameMode(trimmed)
     if (parsed) {
       if (parsed === 'ffa') return 'FFA'
+      if (parsed === '2v2' && options.targetSize === 8) return '2v2v2v2'
       return parsed
     }
     return trimmed.replace(/^default-/i, '').replace(/-/g, ' ')
