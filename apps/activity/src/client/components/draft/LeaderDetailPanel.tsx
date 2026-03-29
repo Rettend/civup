@@ -1,6 +1,7 @@
 import type { Leader, LeaderUnique } from '@civup/game'
 import { getLeader } from '@civup/game'
 import { For, Show } from 'solid-js'
+import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { detailLeaderId, draftStore, setDetailLeaderId } from '~/client/stores'
 import { RichLeaderText } from './RichLeaderText'
@@ -42,7 +43,7 @@ export function LeaderDetailPanel() {
           <div class="mb-3 flex gap-3 items-center">
             <Show when={l().portraitUrl}>
               {url => (
-                <img src={url()} alt={l().name} class="rounded shrink-0 h-12 w-12 object-cover" />
+                <img src={resolveAssetUrl(url()) ?? url()} alt={l().name} class="rounded shrink-0 h-12 w-12 object-cover" />
               )}
             </Show>
             <div class="min-w-0">
@@ -106,7 +107,7 @@ function UniqueRow(props: { item: LeaderUnique }) {
         <Show when={props.item.iconUrl}>
           {icon => (
             <img
-              src={icon()}
+              src={resolveAssetUrl(icon()) ?? icon()}
               alt={props.item.name}
               class="shrink-0 h-8 w-8 object-contain"
               onError={(event) => { event.currentTarget.style.display = 'none' }}
