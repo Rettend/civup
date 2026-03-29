@@ -1322,7 +1322,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     queueBackgroundTask(c, async () => {
         await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
           embeds: [{
-            title: `LOBBY CANCELLED  -  ${formatModeLabel(mode, mode, { redDeath: lobby.draftConfig.redDeath }).toUpperCase()}`,
+            title: `LOBBY CANCELLED  -  ${formatModeLabel(mode, mode, { redDeath: lobby.draftConfig.redDeath })}`,
             description: 'Host cancelled this lobby before draft start.',
             color: 0x6B7280,
           }],
