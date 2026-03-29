@@ -213,6 +213,6 @@ export function searchFactions(query: string): Leader[] {
     faction.name.toLowerCase().includes(normalizedQuery)
     || faction.civilization.toLowerCase().includes(normalizedQuery)
     || faction.ability.name.toLowerCase().includes(normalizedQuery)
-    || faction.civilizationAbility?.name.toLowerCase().includes(normalizedQuery),
+    || faction.civilizationAbility.name.toLowerCase().includes(normalizedQuery),
   )
 }
