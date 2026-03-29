@@ -321,12 +321,18 @@ function createLocalizationDatabase(): Database {
 
     CREATE TABLE BaseGameText (
       Tag TEXT PRIMARY KEY,
-      Text TEXT
+      Text TEXT,
+      Gender TEXT,
+      Plurality TEXT,
+      Language TEXT
     );
 
     CREATE TABLE EnglishText (
       Tag TEXT PRIMARY KEY,
-      Text TEXT
+      Text TEXT,
+      Gender TEXT,
+      Plurality TEXT,
+      Language TEXT
     );
   `)
   return db
@@ -371,7 +377,7 @@ async function seedExpandedLocalizations(db: Database): Promise<void> {
       continue
     }
 
-    if (!/\bLocalizedText\b/.test(content)) continue
+    if (!/\b(LocalizedText|BaseGameText|EnglishText)\b/.test(content)) continue
     for (const statement of splitSqlStatements(content)) {
       if (!isRelevantLocalizationStatement(statement)) continue
       try {
@@ -445,8 +451,17 @@ function buildLeaderFromRoster(row: SourceRosterRow, localizationDb: Database, i
     }
   }
 
-  const civilizationAbilityName = resolveText(localizationDb, row.player.CivilizationAbilityName) ?? existing?.civilizationAbility?.name ?? row.player.CivilizationAbilityName
-  const civilizationAbilityDescription = resolveText(localizationDb, row.player.CivilizationAbilityDescription) ?? existing?.civilizationAbility?.description ?? row.player.CivilizationAbilityDescription
+  const civilizationAbilityName = resolveText(localizationDb, row.player.CivilizationAbilityName) ?? existing?.civilizationAbility.name ?? row.player.CivilizationAbilityName
+  const civilizationAbilityDescription = resolveText(localizationDb, row.player.CivilizationAbilityDescription) ?? existing?.civilizationAbility.description ?? row.player.CivilizationAbilityDescription
+  if (!civilizationAbilityName || !civilizationAbilityDescription) {
+    throw new Error(`Missing civilization ability for ${row.player.CivilizationType}/${row.player.LeaderType}`)
+  }
+
+  const leaderAbilityName = resolveText(localizationDb, row.player.LeaderAbilityName) ?? existing?.ability.name ?? row.player.LeaderAbilityName
+  const leaderAbilityDescription = resolveText(localizationDb, row.player.LeaderAbilityDescription) ?? existing?.ability.description ?? row.player.LeaderAbilityDescription
+  if (!leaderAbilityName || !leaderAbilityDescription) {
+    throw new Error(`Missing leader ability for ${row.player.CivilizationType}/${row.player.LeaderType}`)
+  }
 
   return {
     id: existing?.id ?? slugify(`${civilization} ${leaderName}`),
@@ -454,15 +469,13 @@ function buildLeaderFromRoster(row: SourceRosterRow, localizationDb: Database, i
     civilization,
     portraitUrl: existing?.portraitUrl,
     fullPortraitUrl: existing?.fullPortraitUrl,
-    civilizationAbility: civilizationAbilityName && civilizationAbilityDescription
-      ? {
-          name: civilizationAbilityName,
-          description: resolveLeaderText(civilizationAbilityDescription),
-        }
-      : undefined,
+    civilizationAbility: {
+      name: civilizationAbilityName,
+      description: resolveLeaderText(civilizationAbilityDescription),
+    },
     ability: {
-      name: resolveText(localizationDb, row.player.LeaderAbilityName) ?? existing?.ability.name ?? row.player.LeaderAbilityName ?? leaderName,
-      description: resolveLeaderText(resolveText(localizationDb, row.player.LeaderAbilityDescription) ?? existing?.ability.description ?? row.player.LeaderAbilityDescription ?? ''),
+      name: leaderAbilityName,
+      description: resolveLeaderText(leaderAbilityDescription),
     },
     secondaryAbility: existing?.secondaryAbility ? { ...existing.secondaryAbility } : undefined,
     uniqueUnits: uniqueUnits.length > 0 ? uniqueUnits : existing?.uniqueUnits.map(cloneUnique) ?? [],
@@ -580,7 +593,7 @@ function resolveLeaderText(value: string): string {
   return decodeXmlEntities(value)
     .replace(/\[NEWLINE\]/gi, ' ')
     .replace(/\[ICON_BULLET\]/gi, '- ')
-    .replace(/\[ICON_(\w+)\]/g, (_, icon: string) => ` :${icon.toLowerCase().replace(/[^a-z0-9]/g, '')}: `)
+    .replace(/\[ICON_(\w+)\]/gi, (_, icon: string) => ` :${icon.toLowerCase().replace(/[^a-z0-9]/g, '')}: `)
     .replace(/\[COLOR_[^\]]+\]/gi, '')
     .replace(/\[ENDCOLOR\]/gi, '')
     .replace(/\s+/g, ' ')
@@ -649,11 +662,78 @@ function extractTagText(value: string): string | null {
 }
 
 function splitSqlStatements(content: string): string[] {
-  const withoutLineComments = content.replace(/^\s*--.*$/gm, '')
-  return withoutLineComments
-    .split(';')
-    .map(statement => statement.trim())
-    .filter(statement => statement.length > 0)
+  const statements: string[] = []
+  let current = ''
+  let inSingleQuote = false
+  let inDoubleQuote = false
+  let inLineComment = false
+  let inBlockComment = false
+
+  for (let index = 0; index < content.length; index++) {
+    const char = content[index]!
+    const next = content[index + 1]
+
+    if (inLineComment) {
+      if (char === '\n') {
+        inLineComment = false
+        current += char
+      }
+      continue
+    }
+
+    if (inBlockComment) {
+      if (char === '*' && next === '/') {
+        inBlockComment = false
+        index += 1
+      }
+      continue
+    }
+
+    if (!inSingleQuote && !inDoubleQuote) {
+      if (char === '-' && next === '-') {
+        inLineComment = true
+        index += 1
+        continue
+      }
+      if (char === '/' && next === '*') {
+        inBlockComment = true
+        index += 1
+        continue
+      }
+    }
+
+    current += char
+
+    if (char === '\'' && !inDoubleQuote) {
+      if (next === '\'') {
+        current += next
+        index += 1
+        continue
+      }
+      inSingleQuote = !inSingleQuote
+      continue
+    }
+
+    if (char === '"' && !inSingleQuote) {
+      if (next === '"') {
+        current += next
+        index += 1
+        continue
+      }
+      inDoubleQuote = !inDoubleQuote
+      continue
+    }
+
+    if (char === ';' && !inSingleQuote && !inDoubleQuote) {
+      const statement = current.slice(0, -1).trim()
+      if (statement.length > 0) statements.push(statement)
+      current = ''
+    }
+  }
+
+  const trailing = current.trim()
+  if (trailing.length > 0) statements.push(trailing)
+  return statements
 }
 
 function isRelevantConfigStatement(statement: string): boolean {
@@ -701,7 +781,7 @@ function cloneLeader(leader: Leader): Leader {
     civilization: leader.civilization,
     portraitUrl: leader.portraitUrl,
     fullPortraitUrl: leader.fullPortraitUrl,
-    civilizationAbility: leader.civilizationAbility ? { ...leader.civilizationAbility } : undefined,
+    civilizationAbility: { ...leader.civilizationAbility },
     ability: { ...leader.ability },
     secondaryAbility: leader.secondaryAbility ? { ...leader.secondaryAbility } : undefined,
     uniqueUnits: leader.uniqueUnits.map(cloneUnique),

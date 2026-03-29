@@ -981,6 +981,10 @@ export const leaders: Leader[] = [
     "name": "Vercingetorix",
     "civilization": "Gaul",
     "portraitUrl": "/assets/bbg/leaders/Gaul%20Vercingetorix.webp",
+    "civilizationAbility": {
+      "name": "Hallstatt Culture",
+      "description": "Quarries grant a standard adjacency bonus for all :district: districts (doubled for the Oppidum) and Mines grant a minor adjacency bonus for all :district: districts. Specialty :district: districts do not receive a minor adjacency for being adjacent to another district and these districts cannot be built adjacent to the City Center. - Bias: T3 Iron, T4 Quarry Resources, T5 Minable Resources."
+    },
     "ability": {
       "name": "Gallic Confederation",
       "description": "+1 :culture: Culture on mines with Bronze Working. +1 :influenceperturn: Influence per turn per Workshop and Recruiting a :greatengineer: Great Engineer grants 1 :envoy: envoy."
@@ -2056,7 +2060,7 @@ export const leaders: Leader[] = [
     },
     "ability": {
       "name": "Grand Vizier",
-      "description": "Exclusive unique Governor with military and diplomatic abilities. Gain the Janissary unique unit and a [Icon_Governor] Governor Title when the Gunpowder technology is researched."
+      "description": "Exclusive unique Governor with military and diplomatic abilities. Gain the Janissary unique unit and a :governor: Governor Title when the Gunpowder technology is researched."
     },
     "uniqueUnits": [
       {
@@ -2538,6 +2542,10 @@ export const leaders: Leader[] = [
     "name": "Al-Hasan ibn Sulaiman",
     "civilization": "Swahili",
     "portraitUrl": "/assets/bbg/leaders/Swahili%20Al-Hasan%20ibn%20Sulaiman.webp",
+    "civilizationAbility": {
+      "name": "Coral Construction",
+      "description": "Coastal cities gain +25% :production: Production toward districts. +1 :production: Production for unimproved reef tiles with Sailing. Bias: T1 Coast."
+    },
     "ability": {
       "name": "Palace of Husuni Kubwa",
       "description": ":traderoute: Trade Route capacity +1 for each Harbor adjacent to a World Wonder."
@@ -2545,7 +2553,7 @@ export const leaders: Leader[] = [
     "uniqueUnits": [
       {
         "name": "Jahazi",
-        "description": "Swahili unique ancient era support naval unit can set up a fishing boat, which will provide +2 :gold: Gold (2 :charges: Charges). Units embarked within 2 tiles gain 1 :movement: Movement Point and ignore terrain costs. Can be captured. Unlocked by Sailing Technology",
+        "description": "Swahili unique ancient era support naval unit can set up a fishing boat, which will provide +2 :gold: Gold (2 :charges: Charges). Units embarked within 2 tiles gain 1 :movement: Movement Point and ignore terrain costs. Can be captured.",
         "iconUrl": "/assets/bbg/items/Jahazi.webp"
       }
     ],
@@ -2584,7 +2592,7 @@ export const leaders: Leader[] = [
     "uniqueBuildings": [
       {
         "name": "Queen's Bibliotheque",
-        "description": "A building unique to Sweden. +6 Great Work slots (any type). This building is not mutually exclusive with other buildings in Government Plaza. Awards +1 [Icon_Governor] Governor Title.",
+        "description": "A building unique to Sweden. +6 Great Work slots (any type). This building is not mutually exclusive with other buildings in Government Plaza. Awards +1 :governor: Governor Title.",
         "iconUrl": "/assets/bbg/items/Queen's%20Bibliotheque.webp"
       }
     ],
@@ -2613,7 +2621,8 @@ export const leaders: Leader[] = [
     "uniqueUnits": [
       {
         "name": "Ehuatl Wearer",
-        "description": "Unique Swordsman unlocked at Political Philosophy, +1 sight range and does not require strategic resources.",
+        "description": "Replaces the Swordsmen. Unlocked at Early Empire. Does not require Iron. When at least one is within 3 tiles of a City-State, Envoys sent to that City-State are doubled.",
+        "replaces": "Swordsmen",
         "iconUrl": "/assets/bbg/items/Ehuatl%20Wearer.webp"
       }
     ],
@@ -2664,6 +2673,10 @@ export const leaders: Leader[] = [
     "name": "Trisong Detsen",
     "civilization": "Tibet",
     "portraitUrl": "/assets/bbg/leaders/Tibet%20Trisong%20Detsen.webp",
+    "civilizationAbility": {
+      "name": "Roof of the World",
+      "description": "Citizens may work mountain tiles. Mountain tiles gain additional yields for each district within 2 tiles: +2 :food: Food per City Center, +1 :production: Production per Industrial Zone, +1 :gold: Gold per Harbor and Commercial Hub, +1 :science: Science per Campus, +1 :culture: Culture per Theater Square, +1 :faith: Faith +1 per Holy Site. Can purchase buildings in specialty districts adjacent to a mountain tile with :faith: Faith, excluding the Government Plaza district. +5% :faith: Faith in cities with a :governor: Governor for each promotion it has. Bias: T3 Mountains (plain, grassland, and tundra)."
+    },
     "ability": {
       "name": "Capture of Chang'an",
       "description": "Land military units trained in a city with an Encampment and a Worship Building start with a :promotion: Promotion."
@@ -2671,7 +2684,7 @@ export const leaders: Leader[] = [
     "uniqueUnits": [
       {
         "name": "Rta Pa",
-        "description": "Tibet unique Renaissance era ranged cavalry unit unlocked at Astronomy. Has a ranged attack with 1 :range: Range, can move after attacking. Unlocked by Astronomy Technology",
+        "description": "Tibet unique Renaissance era ranged cavalry unit unlocked at Astronomy. Has a ranged attack with 1 :range: Range, can move after attacking.",
         "iconUrl": "/assets/bbg/items/Rta%20Pa.webp"
       }
     ],

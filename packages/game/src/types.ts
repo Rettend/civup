@@ -107,7 +107,7 @@ export interface Leader {
   /** URL to full draft slot portrait image */
   fullPortraitUrl?: string
   /** Civilization ability */
-  civilizationAbility?: LeaderAbility
+  civilizationAbility: LeaderAbility
   /** Leader ability */
   ability: LeaderAbility
   /** Optional secondary ability; for Red Death */
