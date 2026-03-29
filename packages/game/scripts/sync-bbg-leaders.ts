@@ -66,13 +66,27 @@ const OUTPUT_PATH_BY_VARIANT: Record<Variant, string> = {
   live: resolve(import.meta.dir, '../src/leaders.ts'),
   beta: resolve(import.meta.dir, '../src/leaders-beta.ts'),
 }
+const ITEM_ASSET_ROOT = resolve(import.meta.dir, '../../../apps/activity/public/assets/bbg/items')
 const NON_SCENARIO_RULESETS = ['RULESET_STANDARD', 'RULESET_EXPANSION_1', 'RULESET_EXPANSION_2']
+const TEXT_OVERRIDES: Record<string, string> = {
+  LOC_IMPROVEMENT_SUK_DUNON_NAME: 'Dūnon',
+  LOC_IMPROVEMENT_SUK_DUNON_REWORK_DESCRIPTION: 'Unlocks the Builder ability to construct a Dūnon, unique to Gaul. +1 :food: Food, +1 :housing: Housing. +1 :production: Production if built on a Hill. Friendly units within 1 tile of a Dūnon receive +5 :strength: Combat Strength. The Dūnon must be built on a Camp or Pasture resource and provides that resource’s yield modifier to adjacent tiles. One per City. Tiles with Dūnons cannot be swapped.',
+}
+const ITEM_ICON_ASSET_NAME_OVERRIDES: Partial<Record<ConfigPlayerItemRow['Type'], string>> = {
+  UNIT_LIME_THULE_DOGSLED: 'Dogsled Hunter',
+  UNIT_MACEDONIAN_HETAIROI: 'Hetairoi',
+  IMPROVEMENT_LIME_THULE_WBH: 'Hunter\'s House',
+}
+const ITEM_ICON_ASSET_NAME_OVERRIDES_BY_NAME: Record<string, string> = {
+  'Whalebone House': 'Hunter\'s House',
+}
 
 async function main(): Promise<void> {
   const variant = parseVariant(process.argv[2])
   const rosterRows = await loadRosterRows()
   const localizationDb = await buildLocalizationDatabase(variant)
-  const leaders = buildLeaders(rosterRows, localizationDb)
+  const itemAssetIndex = await buildItemAssetIndex()
+  const leaders = buildLeaders(rosterRows, localizationDb, itemAssetIndex)
   const outputPath = OUTPUT_PATH_BY_VARIANT[variant]
   const output = renderLeadersTs(leaders, variant)
 
@@ -304,6 +318,16 @@ function createLocalizationDatabase(): Database {
       Plurality TEXT,
       PRIMARY KEY (Language, Tag)
     );
+
+    CREATE TABLE BaseGameText (
+      Tag TEXT PRIMARY KEY,
+      Text TEXT
+    );
+
+    CREATE TABLE EnglishText (
+      Tag TEXT PRIMARY KEY,
+      Text TEXT
+    );
   `)
   return db
 }
@@ -360,7 +384,7 @@ async function seedExpandedLocalizations(db: Database): Promise<void> {
   }
 }
 
-function buildLeaders(rosterRows: SourceRosterRow[], localizationDb: Database): Leader[] {
+function buildLeaders(rosterRows: SourceRosterRow[], localizationDb: Database, itemAssetIndex: Map<string, string>): Leader[] {
   const nextLeaders = existingLiveLeaders.map(cloneLeader)
   const liveLeaderIndexByKey = new Map<string, number>()
   for (let index = 0; index < nextLeaders.length; index++) {
@@ -375,54 +399,75 @@ function buildLeaders(rosterRows: SourceRosterRow[], localizationDb: Database): 
     const existingIndex = liveLeaderIndexByKey.get(key)
     if (existingIndex == null) continue
 
-    const existing = nextLeaders[existingIndex]!
-    const updated = buildLeaderFromRoster(row, localizationDb, existing)
+     const existing = nextLeaders[existingIndex]!
+    const updated = buildLeaderFromRoster(row, localizationDb, itemAssetIndex, existing)
     nextLeaders[existingIndex] = updated
   }
 
   return nextLeaders
 }
 
-function buildLeaderFromRoster(row: SourceRosterRow, localizationDb: Database, existing: Leader | null): Leader {
+function buildLeaderFromRoster(row: SourceRosterRow, localizationDb: Database, itemAssetIndex: Map<string, string>, existing: Leader | null): Leader {
   const leaderName = resolveText(localizationDb, row.player.LeaderName) ?? existing?.name ?? row.player.LeaderName ?? row.player.LeaderType
   const civilization = resolveText(localizationDb, row.player.CivilizationName) ?? existing?.civilization ?? row.player.CivilizationName ?? row.player.CivilizationType
 
   const uniqueUnits: Leader['uniqueUnits'] = []
-  let uniqueBuilding: Leader['uniqueBuilding'] | undefined
-  let uniqueImprovement: Leader['uniqueImprovement'] | undefined
+  const uniqueBuildings: Leader['uniqueBuildings'] = []
+  const uniqueImprovements: Leader['uniqueImprovements'] = []
+  let unitIndex = 0
+  let buildingIndex = 0
+  let improvementIndex = 0
 
-  for (let index = 0; index < row.items.length; index++) {
-    const item = row.items[index]!
-    const normalized = buildUniqueFromItem(item, localizationDb, existing, index)
+  for (const item of row.items) {
+    const categoryIndex = item.Type.startsWith('UNIT_')
+      ? unitIndex
+      : item.Type.startsWith('IMPROVEMENT_')
+          ? improvementIndex
+          : buildingIndex
+    const normalized = buildUniqueFromItem(item, localizationDb, itemAssetIndex, existing, categoryIndex)
     if (!normalized) continue
 
     if (item.Type.startsWith('UNIT_')) {
       uniqueUnits.push(normalized)
+      unitIndex += 1
       continue
     }
 
     if (item.Type.startsWith('BUILDING_') || item.Type.startsWith('DISTRICT_') || item.Type.startsWith('LEADER_BUILDING_')) {
-      if (!uniqueBuilding) uniqueBuilding = normalized
+      uniqueBuildings.push(normalized)
+      buildingIndex += 1
       continue
     }
 
     if (item.Type.startsWith('IMPROVEMENT_')) {
-      if (!uniqueImprovement) uniqueImprovement = normalized
+      uniqueImprovements.push(normalized)
+      improvementIndex += 1
     }
   }
+
+  const civilizationAbilityName = resolveText(localizationDb, row.player.CivilizationAbilityName) ?? existing?.civilizationAbility?.name ?? row.player.CivilizationAbilityName
+  const civilizationAbilityDescription = resolveText(localizationDb, row.player.CivilizationAbilityDescription) ?? existing?.civilizationAbility?.description ?? row.player.CivilizationAbilityDescription
 
   return {
     id: existing?.id ?? slugify(`${civilization} ${leaderName}`),
     name: leaderName,
     civilization,
     portraitUrl: existing?.portraitUrl,
+    fullPortraitUrl: existing?.fullPortraitUrl,
+    civilizationAbility: civilizationAbilityName && civilizationAbilityDescription
+      ? {
+          name: civilizationAbilityName,
+          description: resolveLeaderText(civilizationAbilityDescription),
+        }
+      : undefined,
     ability: {
       name: resolveText(localizationDb, row.player.LeaderAbilityName) ?? existing?.ability.name ?? row.player.LeaderAbilityName ?? leaderName,
       description: resolveLeaderText(resolveText(localizationDb, row.player.LeaderAbilityDescription) ?? existing?.ability.description ?? row.player.LeaderAbilityDescription ?? ''),
     },
+    secondaryAbility: existing?.secondaryAbility ? { ...existing.secondaryAbility } : undefined,
     uniqueUnits: uniqueUnits.length > 0 ? uniqueUnits : existing?.uniqueUnits.map(cloneUnique) ?? [],
-    uniqueBuilding: uniqueBuilding ?? (existing?.uniqueBuilding ? cloneUnique(existing.uniqueBuilding) : undefined),
-    uniqueImprovement: uniqueImprovement ?? (existing?.uniqueImprovement ? cloneUnique(existing.uniqueImprovement) : undefined),
+    uniqueBuildings: uniqueBuildings.length > 0 ? uniqueBuildings : getExistingUniqueBuildings(existing).map(cloneUnique),
+    uniqueImprovements: uniqueImprovements.length > 0 ? uniqueImprovements : getExistingUniqueImprovements(existing).map(cloneUnique),
     tags: [],
   }
 }
@@ -430,6 +475,7 @@ function buildLeaderFromRoster(row: SourceRosterRow, localizationDb: Database, e
 function buildUniqueFromItem(
   item: ConfigPlayerItemRow,
   localizationDb: Database,
+  itemAssetIndex: Map<string, string>,
   existing: Leader | null,
   index: number,
 ): Leader['uniqueUnits'][number] | null {
@@ -441,8 +487,41 @@ function buildUniqueFromItem(
     name,
     description: resolveLeaderText(description),
     replaces: extractReplaces(description) ?? inheritedUniqueReplaces(existing, item.Type, index),
-    iconUrl: inheritedUniqueIconUrl(existing, item.Type, index),
+    iconUrl: resolveUniqueIconUrl(item, name, itemAssetIndex, existing, index),
   }
+}
+
+async function buildItemAssetIndex(): Promise<Map<string, string>> {
+  const assets = new Map<string, string>()
+  const entries = await readdir(ITEM_ASSET_ROOT, { withFileTypes: true })
+
+  for (const entry of entries) {
+    if (!entry.isFile() || extname(entry.name).toLowerCase() !== '.webp') continue
+    const assetName = entry.name.replace(/\.webp$/i, '')
+    assets.set(normalizeCompareText(assetName), itemAssetUrl(assetName))
+  }
+
+  return assets
+}
+
+function resolveUniqueIconUrl(
+  item: ConfigPlayerItemRow,
+  name: string,
+  itemAssetIndex: Map<string, string>,
+  existing: Leader | null,
+  index: number,
+): string | undefined {
+  const overrideAssetName = ITEM_ICON_ASSET_NAME_OVERRIDES[item.Type] ?? ITEM_ICON_ASSET_NAME_OVERRIDES_BY_NAME[name]
+  if (overrideAssetName) return itemAssetUrl(overrideAssetName)
+
+  const iconByName = itemAssetIndex.get(normalizeCompareText(name))
+  if (iconByName) return iconByName
+
+  return inheritedUniqueIconUrl(existing, item.Type, index)
+}
+
+function itemAssetUrl(assetName: string): string {
+  return `/assets/bbg/items/${encodeURIComponent(assetName)}.webp`
 }
 
 function inheritedUniqueName(existing: Leader | null, type: string, index: number): string | undefined {
@@ -461,17 +540,40 @@ function inheritedUniqueIconUrl(existing: Leader | null, type: string, index: nu
   return getExistingUnique(existing, type, index)?.iconUrl
 }
 
-function getExistingUnique(existing: Leader | null, type: string, index: number): Leader['uniqueUnits'][number] | Leader['uniqueBuilding'] | Leader['uniqueImprovement'] | undefined {
+function getExistingUnique(existing: Leader | null, type: string, index: number): Leader['uniqueUnits'][number] | Leader['uniqueBuildings'][number] | Leader['uniqueImprovements'][number] | undefined {
   if (!existing) return undefined
   if (type.startsWith('UNIT_')) return existing.uniqueUnits[index] ?? existing.uniqueUnits.find(unit => normalizeCompareText(unit.name) === normalizeCompareText(type))
-  if (type.startsWith('IMPROVEMENT_')) return existing.uniqueImprovement
-  return existing.uniqueBuilding
+  if (type.startsWith('IMPROVEMENT_')) return getExistingUniqueImprovements(existing)[index]
+  return getExistingUniqueBuildings(existing)[index]
+}
+
+function getExistingUniqueBuildings(existing: Leader | null): Leader['uniqueBuildings'] {
+  if (!existing) return []
+  const leader = existing as Leader & { uniqueBuilding?: Leader['uniqueUnits'][number] }
+  if (Array.isArray(leader.uniqueBuildings)) return leader.uniqueBuildings
+  return leader.uniqueBuilding ? [leader.uniqueBuilding] : []
+}
+
+function getExistingUniqueImprovements(existing: Leader | null): Leader['uniqueImprovements'] {
+  if (!existing) return []
+  const leader = existing as Leader & { uniqueImprovement?: Leader['uniqueUnits'][number] }
+  if (Array.isArray(leader.uniqueImprovements)) return leader.uniqueImprovements
+  return leader.uniqueImprovement ? [leader.uniqueImprovement] : []
 }
 
 function resolveText(localizationDb: Database, tag: string | undefined): string | undefined {
   if (!tag) return undefined
-  const row = localizationDb.query('SELECT Text FROM LocalizedText WHERE Language = ? AND Tag = ?').get(ENGLISH_LANGUAGE, tag) as { Text?: string } | null
-  return row?.Text == null ? undefined : row.Text
+  const overrideText = TEXT_OVERRIDES[tag]
+  if (overrideText != null) return overrideText
+
+  const localizedRow = localizationDb.query('SELECT Text FROM LocalizedText WHERE Language = ? AND Tag = ?').get(ENGLISH_LANGUAGE, tag) as { Text?: string } | null
+  if (localizedRow?.Text != null) return localizedRow.Text
+
+  const baseGameRow = localizationDb.query('SELECT Text FROM BaseGameText WHERE Tag = ?').get(tag) as { Text?: string } | null
+  if (baseGameRow?.Text != null) return baseGameRow.Text
+
+  const englishRow = localizationDb.query('SELECT Text FROM EnglishText WHERE Tag = ?').get(tag) as { Text?: string } | null
+  return englishRow?.Text == null ? undefined : englishRow.Text
 }
 
 function resolveLeaderText(value: string): string {
@@ -563,7 +665,9 @@ function isRelevantConfigStatement(statement: string): boolean {
 }
 
 function isRelevantLocalizationStatement(statement: string): boolean {
-  return /\b(INSERT(?: OR REPLACE)? INTO|UPDATE)\s+LocalizedText\b/i.test(statement)
+  if (/\b(INSERT(?: OR REPLACE)? INTO|UPDATE)\s+(LocalizedText|BaseGameText|EnglishText)\b/i.test(statement)) return true
+  if (/\bWITH\b[\s\S]*\bINSERT(?: OR REPLACE)? INTO\s+(LocalizedText|BaseGameText|EnglishText)\b/i.test(statement)) return true
+  return false
 }
 
 async function collectFiles(root: string, predicate: (filePath: string) => boolean): Promise<string[]> {
@@ -592,16 +696,22 @@ function rosterKey(civilizationType: string, leaderType: string): string {
 
 function cloneLeader(leader: Leader): Leader {
   return {
-    ...leader,
+    id: leader.id,
+    name: leader.name,
+    civilization: leader.civilization,
+    portraitUrl: leader.portraitUrl,
+    fullPortraitUrl: leader.fullPortraitUrl,
+    civilizationAbility: leader.civilizationAbility ? { ...leader.civilizationAbility } : undefined,
     ability: { ...leader.ability },
+    secondaryAbility: leader.secondaryAbility ? { ...leader.secondaryAbility } : undefined,
     uniqueUnits: leader.uniqueUnits.map(cloneUnique),
-    uniqueBuilding: leader.uniqueBuilding ? cloneUnique(leader.uniqueBuilding) : undefined,
-    uniqueImprovement: leader.uniqueImprovement ? cloneUnique(leader.uniqueImprovement) : undefined,
+    uniqueBuildings: getExistingUniqueBuildings(leader).map(cloneUnique),
+    uniqueImprovements: getExistingUniqueImprovements(leader).map(cloneUnique),
     tags: [],
   }
 }
 
-function cloneUnique(unique: NonNullable<Leader['uniqueBuilding']>): NonNullable<Leader['uniqueBuilding']> {
+function cloneUnique(unique: Leader['uniqueUnits'][number]): Leader['uniqueUnits'][number] {
   return { ...unique }
 }
 

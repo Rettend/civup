@@ -106,16 +106,18 @@ export interface Leader {
   portraitUrl?: string
   /** URL to full draft slot portrait image */
   fullPortraitUrl?: string
-  /** Leader/civ unique ability */
+  /** Civilization ability */
+  civilizationAbility?: LeaderAbility
+  /** Leader ability */
   ability: LeaderAbility
   /** Optional secondary ability; for Red Death */
   secondaryAbility?: LeaderAbility
   /** Unique unit(s) */
   uniqueUnits: LeaderUnique[]
-  /** Unique building/district */
-  uniqueBuilding?: LeaderUnique
-  /** Unique improvement */
-  uniqueImprovement?: LeaderUnique
+  /** Unique building(s) and district(s) */
+  uniqueBuildings: LeaderUnique[]
+  /** Unique improvement(s) */
+  uniqueImprovements: LeaderUnique[]
   /** Namespaced filter tags, e.g. "econ:gold", "win:science", "role:frontline" */
   tags: string[]
 }
