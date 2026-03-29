@@ -165,7 +165,7 @@ async function seedConfiguredRoles(kv: KVNamespace): Promise<void> {
 
 async function seedPlayers(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
-  mode: 'duel' | 'duo' | 'squad' | 'ffa',
+  mode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death',
   count: number,
   options: { prefix: string, gamesPlayed: number },
 ): Promise<void> {

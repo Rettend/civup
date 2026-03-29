@@ -64,4 +64,35 @@ describe('match result embed', () => {
     expect(resultEmbed.footer).toBeUndefined()
     expect(cancelledEmbed.footer).toBeUndefined()
   })
+
+  test('pads four-team open lobbies into a 2x2 inline field layout', () => {
+    const embed = lobbyOpenEmbed('rd-2p', Array.from({ length: 8 }, () => null), 8).toJSON()
+
+    expect(embed.fields?.map(field => field.name)).toEqual([
+      'Team A',
+      'Team B',
+      '\u200B',
+      'Team C',
+      'Team D',
+      '\u200B',
+    ])
+  })
+
+  test('pads four-team cancelled lobbies into a 2x2 inline field layout', () => {
+    const participants = Array.from({ length: 8 }, (_, index) => ({
+      playerId: `1000100000000000${String(index + 1).padStart(2, '0')}`,
+      team: Math.floor(index / 2),
+      civId: null,
+    }))
+    const embed = lobbyCancelledEmbed('rd-2p', participants, 'cancel').toJSON()
+
+    expect(embed.fields?.map(field => field.name)).toEqual([
+      'Team A',
+      'Team B',
+      '\u200B',
+      'Team C',
+      'Team D',
+      '\u200B',
+    ])
+  })
 })

@@ -5,6 +5,7 @@ import { cn } from '~/client/lib/css'
 interface DropdownOption {
   value: string
   label: string
+  disabled?: boolean
   render?: () => JSX.Element
 }
 
@@ -33,9 +34,17 @@ export function Dropdown(props: DropdownProps) {
   }
 
   const handleSelect = (value: string) => {
-    if (props.disabled) return
+    const option = props.options.find(candidate => candidate.value === value)
+    if (props.disabled || option?.disabled) return
     setOpen(false)
     props.onChange?.(value)
+  }
+
+  const findEnabledIndex = (startIndex: number, step: -1 | 1) => {
+    for (let index = startIndex; index >= 0 && index < props.options.length; index += step) {
+      if (!props.options[index]?.disabled) return index
+    }
+    return -1
   }
 
   const handleBlur = (event: FocusEvent) => {
@@ -63,14 +72,16 @@ export function Dropdown(props: DropdownProps) {
 
     if (event.key === 'ArrowDown') {
       event.preventDefault()
-      const next = Math.min(currentIndex + 1, props.options.length - 1)
+      const next = findEnabledIndex(Math.max(0, currentIndex + 1), 1)
+      if (next < 0) return
       const option = props.options[next]
       if (option) handleSelect(option.value)
     }
 
     if (event.key === 'ArrowUp') {
       event.preventDefault()
-      const next = Math.max(currentIndex - 1, 0)
+      const next = findEnabledIndex(currentIndex < 0 ? props.options.length - 1 : currentIndex - 1, -1)
+      if (next < 0) return
       const option = props.options[next]
       if (option) handleSelect(option.value)
     }
@@ -130,13 +141,17 @@ export function Dropdown(props: DropdownProps) {
               {option => (
                 <button
                   type="button"
+                  aria-disabled={option.disabled ? 'true' : undefined}
                   onClick={() => handleSelect(option.value)}
                   class={cn(
                     'w-full text-left text-sm px-3.5 py-2.5 cursor-pointer',
                     'transition-colors duration-100',
+                    option.disabled && 'cursor-default opacity-45',
                     option.value === props.value
                       ? 'bg-accent/12 text-accent font-medium'
-                      : 'text-fg-muted hover:bg-white/6 hover:text-fg',
+                      : option.disabled
+                        ? 'text-fg-subtle'
+                        : 'text-fg-muted hover:bg-white/6 hover:text-fg',
                   )}
                 >
                   {option.render ? option.render() : option.label}

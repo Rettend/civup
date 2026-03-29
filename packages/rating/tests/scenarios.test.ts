@@ -326,6 +326,47 @@ describe('teamer rating scenarios', () => {
   })
 })
 
+describe('multi-team placements (e.g. Red Death 2v2v2v2)', () => {
+  test('four equal teams of two use FFA-style spread: symmetric, teammates match', () => {
+    const team = (prefix: string) => ({
+      players: [createRating(`${prefix}a`), createRating(`${prefix}b`)],
+    })
+
+    const updates = calculateTeamRatings([
+      team('t1'),
+      team('t2'),
+      team('t3'),
+      team('t4'),
+    ])
+
+    expect(updates).toHaveLength(8)
+
+    const byId = new Map(updates.map(u => [u.playerId, u]))
+    expect(byId.get('t1a')!.displayDelta).toBeCloseTo(byId.get('t1b')!.displayDelta, 5)
+    expect(byId.get('t4a')!.displayDelta).toBeCloseTo(byId.get('t4b')!.displayDelta, 5)
+
+    const first = byId.get('t1a')!.displayDelta
+    const second = byId.get('t2a')!.displayDelta
+    const third = byId.get('t3a')!.displayDelta
+    const fourth = byId.get('t4a')!.displayDelta
+
+    expect(first).toBeGreaterThan(second)
+    expect(second).toBeGreaterThan(third)
+    expect(third).toBeGreaterThan(fourth)
+    expect(first).toBeCloseTo(-fourth, 2)
+    expect(second).toBeCloseTo(-third, 2)
+  })
+
+  test('predictWin for four equal teams is ~25% each', () => {
+    const t = (id: string) => [createRating(id)]
+    const probs = predictWinProbabilities([t('a'), t('b'), t('c'), t('d')])
+    expect(probs).toHaveLength(4)
+    for (const p of probs) {
+      expect(p).toBeCloseTo(0.25, 2)
+    }
+  })
+})
+
 describe('cross-mode progression sanity', () => {
   test('2v2 and 3v3 stay near 1000 at 50% win rate over 100 games', () => {
     const twoVTwo = averageTeamDisplayAfterGames(2, 0.5, 100)
