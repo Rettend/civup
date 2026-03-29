@@ -1,11 +1,11 @@
 import type { Database } from '@civup/db'
 import type { CancelMatchInput, CancelMatchResult, ResolveMatchInput, ResolveMatchResult } from './types.ts'
 import { matchBans, matches, matchParticipants } from '@civup/db'
-import { parseGameMode, toLeaderboardMode } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { ensureLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearLobbyByMatch } from '../lobby/index.ts'
+import { getStoredGameModeContext } from './draft-data.ts'
 import { parseModerationPlacements } from './placements.ts'
 import { buildRankByPlayer, recalculateLeaderboardMode } from './ratings.ts'
 
@@ -32,9 +32,10 @@ export async function resolveMatchByModerator(
 
   if (participants.length === 0) return { error: `Match **${input.matchId}** has no participants.` }
 
-  const gameMode = parseGameMode(match.gameMode)
-  if (!gameMode) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
-  const parsedPlacements = parseModerationPlacements(gameMode, input.placements, participants)
+  const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
+  if (!gameContext) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
+
+  const parsedPlacements = parseModerationPlacements(gameContext.mode, input.placements, participants)
   if ('error' in parsedPlacements) return parsedPlacements
 
   for (const participant of participants) {
@@ -69,7 +70,7 @@ export async function resolveMatchByModerator(
   )
   await clearLobbyByMatch(kv, input.matchId)
 
-  const leaderboardMode = toLeaderboardMode(gameMode)
+  const leaderboardMode = gameContext.leaderboardMode
   const leaderboardSnapshotBefore = await ensureLeaderboardModeSnapshot(db, kv, leaderboardMode)
   const beforeRankByPlayer = buildRankByPlayer(leaderboardSnapshotBefore.rows)
   const recalculated = await recalculateLeaderboardMode(db, leaderboardMode)
@@ -157,9 +158,10 @@ export async function cancelMatchByModerator(
 
   let recalculatedMatchIds: string[] = []
   if (previousStatus === 'completed') {
-    const gameMode = parseGameMode(match.gameMode)
-    if (!gameMode) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
-    const leaderboardMode = toLeaderboardMode(gameMode)
+    const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
+    if (!gameContext) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
+
+    const leaderboardMode = gameContext.leaderboardMode
     const recalculated = await recalculateLeaderboardMode(db, leaderboardMode)
     if ('error' in recalculated) return recalculated
     await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode)

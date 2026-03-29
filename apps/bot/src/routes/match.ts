@@ -1,4 +1,3 @@
-import type { GameMode } from '@civup/game'
 import type { Hono } from 'hono'
 import type { Env } from '../env.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
@@ -8,7 +7,7 @@ import { clearLobbyAndActivityMappings } from '../services/activity/index.ts'
 import { createChannelMessage } from '../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { getLobbyByMatch, upsertLobbyMessage } from '../services/lobby/index.ts'
-import { cancelMatchByModerator, getHostIdFromDraftData, reportMatch } from '../services/match/index.ts'
+import { cancelMatchByModerator, getHostIdFromDraftData, getStoredGameModeContext, reportMatch } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../services/ranked/role-sync.ts'
 import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
@@ -90,7 +89,10 @@ export function registerMatchRoutes(app: Hono<Env>) {
       return c.json({ ok: true, alreadyReported: true, match: result.match, participants: result.participants })
     }
 
-    const reportedMode = result.match.gameMode as GameMode
+    const reportedContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
+    if (!reportedContext) {
+      return c.json({ error: `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.` }, 400)
+    }
 
     const lobby = await getLobbyByMatch(kv, result.match.id)
     const guildId = lobby?.guildId ?? null
@@ -126,7 +128,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
           embeds: [lobbyResultEmbed(lobby.mode, result.participants, undefined, {
             rankedRoleLines,
-          })],
+          }, lobby.draftConfig.redDeath)],
           components: [],
         })
         await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
@@ -141,9 +143,9 @@ export function registerMatchRoutes(app: Hono<Env>) {
     if (archiveChannelId) {
       try {
         const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-          embeds: [lobbyResultEmbed(reportedMode, result.participants, undefined, {
+          embeds: [lobbyResultEmbed(reportedContext.mode, result.participants, undefined, {
             rankedRoleLines,
-          })],
+          }, reportedContext.redDeath)],
         })
         await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
       }
@@ -238,7 +240,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
     if (lobby) {
       try {
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-          embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'scrub', undefined, lobby.draftConfig.leaderDataVersion)],
+          embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'scrub', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
           components: [],
         })
         await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)

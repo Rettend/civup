@@ -6,6 +6,7 @@ export interface MatchRow {
   status: string
   createdAt: number
   completedAt: number | null
+  draftData: string | null
 }
 
 export interface ParticipantRow {

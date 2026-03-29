@@ -1,6 +1,5 @@
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from '../lobby/types.ts'
-import { maxPlayerCount } from '@civup/game'
 import { channelPrefix, idKey, LOBBY_TTL } from '../lobby/keys.ts'
 import { parseLobbyState } from '../lobby/normalize.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
@@ -15,6 +14,7 @@ export interface ActivityOverviewOptionSnapshot {
   status: 'open' | 'drafting' | 'active'
   participantCount: number
   targetSize: number
+  redDeath: boolean
   hostId: string
   memberPlayerIds: string[]
   updatedAt: number
@@ -89,7 +89,8 @@ function buildOverviewOptions(channelId: string, lobby: LobbyState): ActivityOve
       mode: lobby.mode,
       status: 'open',
       participantCount: countFilledSlots(lobby.slots),
-      targetSize: maxPlayerCount(lobby.mode),
+      targetSize: lobby.slots.length,
+      redDeath: lobby.draftConfig.redDeath,
       hostId: lobby.hostId,
       memberPlayerIds: [...lobby.memberPlayerIds],
       updatedAt: lobby.updatedAt,
@@ -106,7 +107,8 @@ function buildOverviewOptions(channelId: string, lobby: LobbyState): ActivityOve
       mode: lobby.mode,
       status: lobby.status,
       participantCount: countFilledSlots(lobby.slots),
-      targetSize: maxPlayerCount(lobby.mode),
+      targetSize: lobby.slots.length,
+      redDeath: lobby.draftConfig.redDeath,
       hostId: lobby.hostId,
       memberPlayerIds: [...lobby.memberPlayerIds],
       updatedAt: lobby.updatedAt,

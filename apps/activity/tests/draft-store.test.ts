@@ -33,7 +33,7 @@ function createWaitingState() {
 }
 
 function createRedDeathWaitingState() {
-  return createDraft('draft-store-rd-test', getDraftFormat('rd-2p'), create2v2Seats(), allFactionIds, { dealOptionsSize: 2 })
+  return createDraft('draft-store-rd-test', getDraftFormat('2v2', { redDeath: true }), create2v2Seats(), allFactionIds, { dealOptionsSize: 2 })
 }
 
 function createActiveBanState() {

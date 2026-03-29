@@ -1,7 +1,7 @@
 import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { getRankedRoleConfig } from '../../services/ranked/roles.ts'
-import { MAX_LEADER_POOL_SIZE, maxPlayerCount, minPlayerCount } from '@civup/game'
+import { canStartWithPlayerCount, MAX_LEADER_POOL_SIZE, playerCountOptions } from '@civup/game'
 import { MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
 import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
 import { buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
@@ -39,12 +39,12 @@ export async function buildOpenLobbySnapshotFromParts(
   return buildLobbyLiveSnapshotFromParts(kv, mode, lobby, queueEntries, slots)
 }
 
-export function lobbyMinPlayerCount(mode: GameMode): number {
-  return minPlayerCount(mode)
+export function lobbyMinPlayerCount(targetSize: number): number {
+  return targetSize
 }
 
-export function canStartLobbyWithPlayerCount(mode: GameMode, playerCount: number): boolean {
-  return playerCount >= lobbyMinPlayerCount(mode) && playerCount <= maxPlayerCount(mode)
+export function canStartLobbyWithPlayerCount(mode: GameMode, playerCount: number, targetSize: number): boolean {
+  return canStartWithPlayerCount(mode, playerCount, targetSize)
 }
 
 export async function getUniqueOpenLobbyForChannel(
@@ -111,6 +111,14 @@ export function parseLobbyLeaderPoolSize(value: unknown): number | null | undefi
   const rounded = Math.round(numeric)
   if (rounded < 1 || rounded > MAX_LEADER_POOL_SIZE) return undefined
   return rounded
+}
+
+export function parseLobbyTargetSize(mode: GameMode, value: unknown): number | undefined {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(numeric)) return undefined
+
+  const rounded = Math.round(numeric)
+  return playerCountOptions(mode).includes(rounded) ? rounded : undefined
 }
 
 export function parseLobbyMinRole(value: unknown): CompetitiveTier | null | undefined {

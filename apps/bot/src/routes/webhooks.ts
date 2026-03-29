@@ -65,7 +65,7 @@ export function registerWebhookRoutes(app: Hono<Env>) {
       await syncLobbyDerivedState(kv, activeLobby)
       try {
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, activeLobby, {
-          embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants, activeLobby.draftConfig.leaderDataVersion)],
+          embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants, activeLobby.draftConfig.leaderDataVersion, activeLobby.draftConfig.redDeath)],
           components: lobbyComponents(activeLobby.mode, activeLobby.id),
         })
         await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
@@ -137,7 +137,7 @@ export function registerWebhookRoutes(app: Hono<Env>) {
     const closedLobby = await setLobbyStatus(kv, lobby.id, payload.reason === 'cancel' ? 'cancelled' : 'scrubbed', lobby) ?? lobby
     try {
       const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, closedLobby, {
-        embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason, undefined, closedLobby.draftConfig.leaderDataVersion)],
+        embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason, undefined, closedLobby.draftConfig.leaderDataVersion, closedLobby.draftConfig.redDeath)],
         components: [],
       })
       await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)

@@ -1,6 +1,6 @@
 import type { DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry, RoomConfig } from '@civup/game'
 import type { LobbyState } from '../lobby/types.ts'
-import { allFactionIds, getDraftFormat, isRedDeathMode, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
+import { allFactionIds, getDraftFormat, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
 import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
 import { getLobbiesByChannel } from '../lobby/index.ts'
@@ -20,6 +20,7 @@ export interface CreateDraftRoomOptions {
   hostId: string
   leaderDataVersion?: LeaderDataVersion
   simultaneousPick?: boolean
+  redDeath?: boolean
   randomDraft?: boolean
   partyHost?: string
   botHost?: string
@@ -138,10 +139,10 @@ export async function createDraftRoom(
   options: CreateDraftRoomOptions,
 ): Promise<MatchCreationResult> {
   const matchId = nanoid(12)
-  const redDeathMode = isRedDeathMode(mode)
-  const simultaneousPick = mode === 'ffa' && options.simultaneousPick === true
+  const redDeathMode = options.redDeath === true
+  const simultaneousPick = mode === 'ffa' && !redDeathMode && options.simultaneousPick === true
   const randomDraft = redDeathMode && options.randomDraft === true
-  const format = getDraftFormat(mode, { simultaneousPick, randomDraft })
+  const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode })
   const seats: DraftSeat[] = buildSeats(mode, entries)
   const civPool = redDeathMode
     ? [...allFactionIds]

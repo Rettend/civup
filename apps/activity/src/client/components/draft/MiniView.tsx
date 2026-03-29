@@ -1,7 +1,7 @@
 import type { MiniSeatItem } from './MiniLayout'
 import { formatModeLabel, inferGameMode } from '@civup/game'
 import { createEffect, createSignal, onCleanup } from 'solid-js'
-import { draftStore, phaseAccent, phaseLabel } from '~/client/stores'
+import { draftStore, isRedDeathDraft, phaseAccent, phaseLabel } from '~/client/stores'
 import { MiniFrame, MiniSeatGrid } from './MiniLayout'
 
 /** Minimized PiP view */
@@ -23,7 +23,7 @@ export function MiniView() {
     onCleanup(() => clearInterval(interval))
   })
 
-  const modeLabel = () => formatModeLabel(inferGameMode(state()?.formatId))
+  const modeLabel = () => formatModeLabel(inferGameMode(state()?.formatId), '', { redDeath: isRedDeathDraft() })
   const timerLabel = () => {
     if (state()?.status !== 'active' || draftStore.timerEndsAt == null) return null
 

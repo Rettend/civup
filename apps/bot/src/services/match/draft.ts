@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { DraftState, GameMode } from '@civup/game'
 import type { ActivateDraftInput, ActivateDraftResult, CancelDraftInput, CancelDraftResult, CreateDraftMatchInput, ParticipantRow } from './types.ts'
 import { matchBans, matches, matchParticipants, players } from '@civup/db'
-import { isTeamMode } from '@civup/game'
+import { isRedDeathFormatId, isTeamMode } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { getActiveSeason } from '../season/index.ts'
@@ -145,14 +145,15 @@ export async function activateDraftMatch(
 
   await db
     .update(matches)
-    .set({
-      status: 'active',
-      draftData: JSON.stringify({
-        completedAt: input.completedAt,
-        hostId: input.hostId,
-        state: input.state,
-      }),
-    })
+      .set({
+        status: 'active',
+        draftData: JSON.stringify({
+          completedAt: input.completedAt,
+          hostId: input.hostId,
+          redDeath: isRedDeathFormatId(input.state.formatId),
+          state: input.state,
+        }),
+      })
     .where(eq(matches.id, matchId))
 
   const [updatedMatch] = await db
@@ -229,16 +230,17 @@ export async function cancelDraftMatch(
 
   await db
     .update(matches)
-    .set({
-      status: 'cancelled',
-      completedAt: input.cancelledAt,
-      draftData: JSON.stringify({
-        cancelledAt: input.cancelledAt,
-        reason: input.reason,
-        hostId: input.hostId,
-        state: input.state,
-      }),
-    })
+      .set({
+        status: 'cancelled',
+        completedAt: input.cancelledAt,
+        draftData: JSON.stringify({
+          cancelledAt: input.cancelledAt,
+          reason: input.reason,
+          hostId: input.hostId,
+          redDeath: isRedDeathFormatId(input.state.formatId),
+          state: input.state,
+        }),
+      })
     .where(eq(matches.id, matchId))
 
   const channelId = await getChannelForMatch(kv, matchId)

@@ -51,6 +51,7 @@ export interface LobbySnapshot {
     leaderPoolSize: number | null
     leaderDataVersion: LeaderDataVersion
     simultaneousPick: boolean
+    redDeath: boolean
     dealOptionsSize: number | null
     randomDraft: boolean
   }
@@ -115,6 +116,7 @@ export interface ActivityTargetOption {
   status: 'open' | 'drafting' | 'active'
   participantCount: number
   targetSize: number
+  redDeath: boolean
   isMember: boolean
   isHost: boolean
   updatedAt: number
@@ -130,6 +132,7 @@ export interface ActivityOverviewOptionSnapshot {
   status: 'open' | 'drafting' | 'active'
   participantCount: number
   targetSize: number
+  redDeath: boolean
   hostId: string
   memberPlayerIds: string[]
   updatedAt: number
@@ -572,8 +575,10 @@ export async function updateLobbyConfig(
     leaderPoolSize?: number | null
     leaderDataVersion?: LeaderDataVersion
     simultaneousPick?: boolean
+    redDeath?: boolean
     dealOptionsSize?: number | null
     randomDraft?: boolean
+    targetSize?: number
     steamLobbyLink?: string | null
     minRole?: CompetitiveTier | null
     maxRole?: CompetitiveTier | null
@@ -588,8 +593,10 @@ export async function updateLobbyConfig(
       leaderPoolSize: draftConfig.leaderPoolSize,
       leaderDataVersion: draftConfig.leaderDataVersion,
       simultaneousPick: draftConfig.simultaneousPick,
+      redDeath: draftConfig.redDeath,
       dealOptionsSize: draftConfig.dealOptionsSize,
       randomDraft: draftConfig.randomDraft,
+      targetSize: draftConfig.targetSize,
       steamLobbyLink: draftConfig.steamLobbyLink,
       minRole: draftConfig.minRole,
       maxRole: draftConfig.maxRole,

@@ -17,15 +17,15 @@ export function getDefaultLeaderPoolSize(
   mode: GameMode,
   playerCount: number = defaultPlayerCount(mode),
 ): number {
+  const normalizedPlayerCount = Math.max(1, Math.round(playerCount))
+
   if (mode !== 'ffa') {
-    const fullLobbyPlayerCount = Math.max(1, defaultPlayerCount(mode))
     return Math.min(
       MAX_LEADER_POOL_SIZE,
-      VERSUS_DEFAULT_LEADER_POOL_BASE + fullLobbyPlayerCount * VERSUS_DEFAULT_LEADER_POOL_PER_PLAYER,
+      VERSUS_DEFAULT_LEADER_POOL_BASE + normalizedPlayerCount * VERSUS_DEFAULT_LEADER_POOL_PER_PLAYER,
     )
   }
 
-  const normalizedPlayerCount = Math.max(1, Math.round(playerCount))
   const scaledPlayerCount = Math.max(FFA_DEFAULT_PLAYER_FLOOR, normalizedPlayerCount)
   return Math.min(MAX_LEADER_POOL_SIZE, scaledPlayerCount * FFA_DEFAULT_POOL_MULTIPLIER)
 }

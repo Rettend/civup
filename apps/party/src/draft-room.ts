@@ -8,7 +8,7 @@ import type {
   ServerMessage,
 } from '@civup/game'
 import type { Connection, ConnectionContext, WSMessage } from 'partyserver'
-import { createDraft, draftFormatMap, getCurrentStep, isDraftError, isRedDeathMode, MAX_TIMER_SECONDS, processDraftInput } from '@civup/game'
+import { createDraft, draftFormatMap, getCurrentStep, isDraftError, isRedDeathFormatId, MAX_TIMER_SECONDS, processDraftInput } from '@civup/game'
 import {
   api,
   ApiError,
@@ -833,13 +833,11 @@ function normalizeDealOptionsSize(value: number | null | undefined): number {
 }
 
 function isRedDeathDraftConfig(config: Pick<RoomConfig, 'formatId'>): boolean {
-  const format = draftFormatMap.get(config.formatId)
-  return format != null && isRedDeathMode(format.gameMode)
+  return isRedDeathFormatId(config.formatId)
 }
 
 function isRedDeathDraftState(state: DraftState): boolean {
-  const format = draftFormatMap.get(state.formatId)
-  return format != null && isRedDeathMode(format.gameMode)
+  return isRedDeathFormatId(state.formatId)
 }
 
 function seatCanSeeDealtOptions(state: DraftState, seatIndex: number): boolean {

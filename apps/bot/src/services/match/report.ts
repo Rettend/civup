@@ -1,13 +1,13 @@
 import type { Database } from '@civup/db'
-import type { GameMode } from '@civup/game'
 import type { FfaEntry, TeamInput } from '@civup/rating'
 import type { ParticipantRow, ReportInput, ReportResult } from './types.ts'
 import { matchBans, matches, matchParticipants, playerRatings, players } from '@civup/db'
-import { isTeamMode, toLeaderboardMode } from '@civup/game'
+import { isTeamMode } from '@civup/game'
 import { calculateRatings, createRating } from '@civup/rating'
 import { and, eq } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { ensureLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
+import { getStoredGameModeContext } from './draft-data.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
 import { buildRankByPlayer } from './ratings.ts'
 
@@ -44,7 +44,12 @@ export async function reportMatch(
     return { error: `Match **${input.matchId}** is not active (status: ${match.status}).` }
   }
 
-  const gameMode = match.gameMode as GameMode
+  const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
+  if (!gameContext) {
+    return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
+  }
+
+  const gameMode = gameContext.mode
 
   if (isTeamMode(gameMode) || gameMode === '1v1') {
     const uniqueTeams = new Set(participantRows.flatMap(participant => participant.team == null ? [] : [participant.team]))
@@ -154,12 +159,15 @@ export async function reportMatch(
 async function finalizeReportedMatch(
   db: Database,
   kv: KVNamespace,
-  match: { id: string, gameMode: string },
+  match: { id: string, gameMode: string, draftData: string | null },
   participantRows: ParticipantRow[],
 ): Promise<ReportResult> {
   const matchId = match.id
-  const gameMode = match.gameMode as GameMode
-  const leaderboardMode = toLeaderboardMode(gameMode)
+  const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
+  if (!gameContext) return { error: `Match **${match.id}** has unsupported game mode: ${match.gameMode}.` }
+
+  const gameMode = gameContext.mode
+  const leaderboardMode = gameContext.leaderboardMode
   const leaderboardSnapshotBefore = await ensureLeaderboardModeSnapshot(db, kv, leaderboardMode)
   const beforeRankByPlayer = buildRankByPlayer(leaderboardSnapshotBefore.rows)
   const leaderboardSnapshotByPlayerId = new Map(

@@ -2,9 +2,10 @@ import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import type { FfaEntry, TeamInput } from '@civup/rating'
 import { matches, matchParticipants, playerRatings, seasons } from '@civup/db'
-import { isTeamMode, leaderboardModesToGameModes, parseGameMode } from '@civup/game'
+import { isTeamMode, leaderboardModesToGameModes } from '@civup/game'
 import { calculateRatings, createRating, displayRating, LEADERBOARD_MIN_GAMES, seasonReset } from '@civup/rating'
 import { and, asc, eq, inArray } from 'drizzle-orm'
+import { getStoredGameModeContext } from './draft-data.ts'
 
 interface LeaderboardSnapshotRow {
   playerId: string
@@ -35,6 +36,7 @@ export async function recalculateLeaderboardMode(
       .select({
         id: matches.id,
         gameMode: matches.gameMode,
+        draftData: matches.draftData,
         createdAt: matches.createdAt,
         completedAt: matches.completedAt,
       })
@@ -82,6 +84,10 @@ export async function recalculateLeaderboardMode(
   for (const match of completedMatches) {
     applySeasonResetsUntil(match.createdAt)
 
+    const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
+    if (!gameContext) return { error: `Completed match **${match.id}** has unsupported game mode: ${match.gameMode}.` }
+    if (gameContext.leaderboardMode !== leaderboardMode) continue
+
     const participantRows = await db
       .select()
       .from(matchParticipants)
@@ -92,9 +98,8 @@ export async function recalculateLeaderboardMode(
       return { error: `Completed match **${match.id}** has missing placements.` }
     }
 
-    const gameMode = parseGameMode(match.gameMode)
-    if (!gameMode) return { error: `Completed match **${match.id}** has unsupported game mode: ${match.gameMode}.` }
     let ratingUpdates
+    const gameMode = gameContext.mode
 
     if (isTeamMode(gameMode) || gameMode === '1v1') {
       const teams = new Map<number, { playerId: string, mu: number, sigma: number }[]>()

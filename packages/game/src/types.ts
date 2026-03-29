@@ -1,7 +1,7 @@
 // ── Game Modes ──────────────────────────────────────────────
 
 /** Individual game modes */
-export type GameMode = 'ffa' | '1v1' | '2v2' | '3v3' | '4v4' | 'rd-2p' | 'rd-4p'
+export type GameMode = 'ffa' | '1v1' | '2v2' | '3v3' | '4v4'
 
 /** Leaderboard tracks: duel (1v1), duo (2v2), squad (3v3 + 4v4), ffa, red death */
 export type LeaderboardMode = 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death'
@@ -9,7 +9,7 @@ export type LeaderboardMode = 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death'
 /** Live competitive rank tiers used for role gates and ranked roles. */
 export type CompetitiveTier = string
 
-export const GAME_MODES = ['ffa', '1v1', '2v2', '3v3', '4v4', 'rd-2p', 'rd-4p'] as const satisfies readonly GameMode[]
+export const GAME_MODES = ['ffa', '1v1', '2v2', '3v3', '4v4'] as const satisfies readonly GameMode[]
 
 export const LEADERBOARD_MODES = ['duel', 'duo', 'squad', 'ffa', 'red-death'] as const satisfies readonly LeaderboardMode[]
 
@@ -151,6 +151,7 @@ export interface DraftFormat {
   id: string
   name: string
   gameMode: GameMode
+  redDeath: boolean
   /** Whether simultaneous bans are hidden until all submitted */
   blindBans: boolean
   /** Generate concrete steps for a given number of seats */

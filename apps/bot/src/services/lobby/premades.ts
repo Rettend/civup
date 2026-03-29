@@ -1,5 +1,5 @@
 import type { GameMode, QueueEntry } from '@civup/game'
-import { maxPlayerCount, teamCount as modeTeamCount, teamSize as modeTeamSize, slotToTeamIndex } from '@civup/game'
+import { playerCountOptions, teamCount as modeTeamCount, teamSize as modeTeamSize, slotToTeamIndex } from '@civup/game'
 
 export interface SlottedPremadeGroup {
   playerIds: string[]
@@ -58,14 +58,14 @@ export function arePremadeGroupsAdjacent(
 
     const firstSlot = group.slots[0]
     if (firstSlot == null) return false
-    const teamIndex = slotToTeamIndex(mode, firstSlot)
+    const teamIndex = slotToTeamIndex(mode, firstSlot, slots.length)
     if (teamIndex == null) return false
 
     for (let index = 1; index < group.slots.length; index++) {
       const previousSlot = group.slots[index - 1]
       const currentSlot = group.slots[index]
       if (previousSlot == null || currentSlot == null) return false
-      if (slotToTeamIndex(mode, currentSlot) !== teamIndex) return false
+      if (slotToTeamIndex(mode, currentSlot, slots.length) !== teamIndex) return false
       if (currentSlot !== previousSlot + 1) return false
     }
   }
@@ -87,7 +87,7 @@ export function buildActivePremadeEdgeSet(
       const rightSlot = group.slots[index + 1]
       if (leftSlot == null || rightSlot == null) continue
       if (rightSlot !== leftSlot + 1) continue
-      if (slotToTeamIndex(mode, leftSlot) !== slotToTeamIndex(mode, rightSlot)) continue
+      if (slotToTeamIndex(mode, leftSlot, slots.length) !== slotToTeamIndex(mode, rightSlot, slots.length)) continue
       edges.add(leftSlot)
     }
   }
@@ -116,7 +116,7 @@ export function moveSlottedPremadeGroup(
 
   const groupPlayerSet = new Set(group.playerIds)
   const currentStart = Math.min(...group.slots)
-  const candidateSegments = buildContiguousSegments(mode, group.playerIds.length)
+  const candidateSegments = buildContiguousSegments(mode, slots.length, group.playerIds.length)
     .filter(segment => segment.includes(targetSlot))
     .filter((segment) => {
       for (const destination of segment) {
@@ -181,7 +181,7 @@ export function rebuildQueueEntriesFromPremadeEdgeSet(
     const leftPlayerId = slots[leftSlot]
     const rightPlayerId = slots[rightSlot]
     if (!leftPlayerId || !rightPlayerId) continue
-    if (slotToTeamIndex(mode, leftSlot) == null || slotToTeamIndex(mode, leftSlot) !== slotToTeamIndex(mode, rightSlot)) continue
+    if (slotToTeamIndex(mode, leftSlot, slots.length) == null || slotToTeamIndex(mode, leftSlot, slots.length) !== slotToTeamIndex(mode, rightSlot, slots.length)) continue
     slottedAdjacency.get(leftPlayerId)?.add(rightPlayerId)
     slottedAdjacency.get(rightPlayerId)?.add(leftPlayerId)
   }
@@ -217,9 +217,9 @@ export function compactSlottedPremadesForMode(
   queueEntries: QueueEntry[],
   options?: CompactModeChangeOptions,
 ): { slots: (string | null)[] } | { error: string } {
-  const targetSize = maxPlayerCount(mode)
-  if (orderedPlayerIds.length > targetSize) {
-    return { error: `${mode} only supports ${targetSize} players.` }
+  const targetSize = resolveCompactTargetSize(mode, orderedPlayerIds.length)
+  if (targetSize == null) {
+    return { error: `${mode} does not support ${orderedPlayerIds.length} players.` }
   }
 
   if (mode === 'ffa') {
@@ -234,8 +234,8 @@ export function compactSlottedPremadesForMode(
   if (!teamSize) {
     return { error: 'Linked premades do not fit this mode.' }
   }
-  const preservedTeams = buildCurrentTeamsForModeChange(mode, orderedPlayerIds, options)
-  const teams = preservedTeams ?? Array.from({ length: modeTeamCount(mode, orderedPlayerIds.length) }, () => [] as string[])
+  const preservedTeams = buildCurrentTeamsForModeChange(mode, orderedPlayerIds, targetSize, options)
+  const teams = preservedTeams ?? Array.from({ length: modeTeamCount(mode, targetSize) }, () => [] as string[])
 
   if (!preservedTeams) {
     const queueByPlayerId = new Map(queueEntries.map(entry => [entry.playerId, entry]))
@@ -265,6 +265,7 @@ export function compactSlottedPremadesForMode(
 function buildCurrentTeamsForModeChange(
   mode: GameMode,
   orderedPlayerIds: string[],
+  targetSize: number,
   options?: CompactModeChangeOptions,
 ): string[][] | null {
   const sourceMode = options?.sourceMode
@@ -275,7 +276,7 @@ function buildCurrentTeamsForModeChange(
   if (!targetTeamSize || !modeTeamSize(sourceMode)) return null
 
   const sourceTeamCount = modeTeamCount(sourceMode, sourceSlots.length)
-  if (sourceTeamCount !== modeTeamCount(mode, orderedPlayerIds.length)) return null
+  if (sourceTeamCount !== modeTeamCount(mode, targetSize)) return null
 
   const orderedPlayerSet = new Set(orderedPlayerIds)
   const seen = new Set<string>()
@@ -296,10 +297,10 @@ function buildCurrentTeamsForModeChange(
   return seen.size === orderedPlayerIds.length ? teamIdsByTeam : null
 }
 
-function buildContiguousSegments(mode: GameMode, size: number): number[][] {
+function buildContiguousSegments(mode: GameMode, slotCount: number, size: number): number[][] {
   const teamSize = modeTeamSize(mode)
   if (!teamSize || size <= 0 || size > teamSize) return []
-  const totalTeams = modeTeamCount(mode, maxPlayerCount(mode))
+  const totalTeams = modeTeamCount(mode, slotCount)
 
   const segments: number[][] = []
   for (let team = 0; team < totalTeams; team++) {
@@ -397,4 +398,8 @@ function buildTeamSlots(teamSize: number, teamIdsByTeam: string[][], slotCount: 
   }
 
   return slots
+}
+
+function resolveCompactTargetSize(mode: GameMode, playerCount: number): number | null {
+  return playerCountOptions(mode).find(option => playerCount <= option) ?? null
 }

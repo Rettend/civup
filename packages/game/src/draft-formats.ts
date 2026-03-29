@@ -1,11 +1,9 @@
 import type { DraftFormat, DraftSeat, DraftStep, GameMode } from './types.ts'
 
 const FULL_ROSTER_2V2_PICK_ORDER = [0, 1, 3, 2] as const
+const FOUR_TEAM_2V2_PICK_ORDER = [0, 1, 2, 3, 7, 6, 5, 4] as const
 const FULL_ROSTER_3V3_PICK_ORDER = [0, 1, 3, 2, 4, 5] as const
 const FULL_ROSTER_4V4_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7] as const
-const RED_DEATH_2P_4P_PICK_ORDER = [0, 1, 3, 2] as const
-const RED_DEATH_2P_8P_PICK_ORDER = [0, 1, 2, 3, 7, 6, 5, 4] as const
-const RED_DEATH_4P_8P_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7] as const
 const TEAM_BAN_STEP: DraftStep = { action: 'ban', seats: [0, 1], count: 3, timer: 120 }
 const FFA_BAN_STEP: DraftStep = { action: 'ban', seats: 'all', count: 2, timer: 120 }
 
@@ -13,19 +11,51 @@ function createSinglePickStep(seat: number): DraftStep {
   return { action: 'pick', seats: [seat], count: 1, timer: 60 }
 }
 
+function createCaptainBanStep(captainCount: number): DraftStep {
+  return {
+    action: 'ban',
+    seats: Array.from({ length: captainCount }, (_, seatIndex) => seatIndex),
+    count: 3,
+    timer: 120,
+  }
+}
+
 function createTeamFormat(config: {
   id: string
   name: string
   gameMode: Extract<GameMode, '2v2' | '3v3' | '4v4'>
-  fullRosterPickOrder: readonly number[]
+  getPickOrder: (seatCount: number) => readonly number[]
+  getBanStep?: (seatCount: number) => DraftStep
 }): DraftFormat {
   return {
     id: config.id,
     name: config.name,
     gameMode: config.gameMode,
+    redDeath: false,
     blindBans: true,
-    getSteps(_seatCount: number): DraftStep[] {
-      return [TEAM_BAN_STEP, ...config.fullRosterPickOrder.map(createSinglePickStep)]
+    getSteps(seatCount: number): DraftStep[] {
+      return [
+        (config.getBanStep ?? (() => TEAM_BAN_STEP))(seatCount),
+        ...config.getPickOrder(seatCount).map(createSinglePickStep),
+      ]
+    },
+  }
+}
+
+function createRedDeathFormat(config: {
+  id: string
+  name: string
+  gameMode: GameMode
+  getPickOrder: (seatCount: number) => readonly number[]
+}): DraftFormat {
+  return {
+    id: config.id,
+    name: config.name,
+    gameMode: config.gameMode,
+    redDeath: true,
+    blindBans: false,
+    getSteps(seatCount: number): DraftStep[] {
+      return config.getPickOrder(seatCount).map(seat => ({ action: 'pick', seats: [seat], count: 1, timer: 30 }))
     },
   }
 }
@@ -40,7 +70,12 @@ export const default2v2 = createTeamFormat({
   id: 'default-2v2',
   name: '2v2',
   gameMode: '2v2',
-  fullRosterPickOrder: FULL_ROSTER_2V2_PICK_ORDER,
+  getPickOrder(seatCount) {
+    return seatCount <= 4 ? FULL_ROSTER_2V2_PICK_ORDER : FOUR_TEAM_2V2_PICK_ORDER
+  },
+  getBanStep(seatCount) {
+    return seatCount <= 4 ? TEAM_BAN_STEP : createCaptainBanStep(4)
+  },
 })
 
 /**
@@ -53,7 +88,9 @@ export const default3v3 = createTeamFormat({
   id: 'default-3v3',
   name: '3v3',
   gameMode: '3v3',
-  fullRosterPickOrder: FULL_ROSTER_3V3_PICK_ORDER,
+  getPickOrder() {
+    return FULL_ROSTER_3V3_PICK_ORDER
+  },
 })
 
 /**
@@ -66,7 +103,9 @@ export const default4v4 = createTeamFormat({
   id: 'default-4v4',
   name: '4v4',
   gameMode: '4v4',
-  fullRosterPickOrder: FULL_ROSTER_4V4_PICK_ORDER,
+  getPickOrder() {
+    return FULL_ROSTER_4V4_PICK_ORDER
+  },
 })
 
 /**
@@ -78,6 +117,7 @@ export const default1v1: DraftFormat = {
   id: 'default-1v1',
   name: '1v1',
   gameMode: '1v1',
+  redDeath: false,
   blindBans: true,
   getSteps(_seatCount: number): DraftStep[] {
     return [
@@ -97,6 +137,7 @@ export const defaultFfa: DraftFormat = {
   id: 'default-ffa',
   name: 'FFA',
   gameMode: 'ffa',
+  redDeath: false,
   blindBans: true,
   getSteps(seatCount: number): DraftStep[] {
     return [
@@ -115,6 +156,7 @@ export const defaultFfaSimultaneous: DraftFormat = {
   id: 'default-ffa-simultaneous',
   name: 'FFA Simultaneous',
   gameMode: 'ffa',
+  redDeath: false,
   blindBans: true,
   getSteps(_seatCount: number): DraftStep[] {
     return [
@@ -124,28 +166,50 @@ export const defaultFfaSimultaneous: DraftFormat = {
   },
 }
 
-export const defaultRd2p: DraftFormat = {
-  id: 'default-rd-2p',
-  name: 'RD 2p',
-  gameMode: 'rd-2p',
-  blindBans: false,
-  getSteps(seatCount: number): DraftStep[] {
-    const pickOrder = seatCount <= 4
-      ? RED_DEATH_2P_4P_PICK_ORDER
-      : RED_DEATH_2P_8P_PICK_ORDER
-    return pickOrder.map(seat => ({ action: 'pick', seats: [seat], count: 1, timer: 30 }))
+export const redDeath1v1 = createRedDeathFormat({
+  id: 'red-death-1v1',
+  name: 'Red Death 1v1',
+  gameMode: '1v1',
+  getPickOrder() {
+    return [0, 1]
   },
-}
+})
 
-export const defaultRd4p: DraftFormat = {
-  id: 'default-rd-4p',
-  name: 'RD 4p',
-  gameMode: 'rd-4p',
-  blindBans: false,
-  getSteps(_seatCount: number): DraftStep[] {
-    return RED_DEATH_4P_8P_PICK_ORDER.map(seat => ({ action: 'pick', seats: [seat], count: 1, timer: 30 }))
+export const redDeath2v2 = createRedDeathFormat({
+  id: 'red-death-2v2',
+  name: 'Red Death 2v2',
+  gameMode: '2v2',
+  getPickOrder(seatCount) {
+    return seatCount <= 4 ? FULL_ROSTER_2V2_PICK_ORDER : FOUR_TEAM_2V2_PICK_ORDER
   },
-}
+})
+
+export const redDeath3v3 = createRedDeathFormat({
+  id: 'red-death-3v3',
+  name: 'Red Death 3v3',
+  gameMode: '3v3',
+  getPickOrder() {
+    return FULL_ROSTER_3V3_PICK_ORDER
+  },
+})
+
+export const redDeath4v4 = createRedDeathFormat({
+  id: 'red-death-4v4',
+  name: 'Red Death 4v4',
+  gameMode: '4v4',
+  getPickOrder() {
+    return FULL_ROSTER_4V4_PICK_ORDER
+  },
+})
+
+export const redDeathFfa = createRedDeathFormat({
+  id: 'red-death-ffa',
+  name: 'Red Death FFA',
+  gameMode: 'ffa',
+  getPickOrder(seatCount) {
+    return Array.from({ length: seatCount }, (_, seatIndex) => seatIndex)
+  },
+})
 
 // ── Format Registry ──────────────────────────────────────
 
@@ -157,8 +221,11 @@ export const draftFormats: DraftFormat[] = [
   default2v2,
   default3v3,
   default4v4,
-  defaultRd2p,
-  defaultRd4p,
+  redDeathFfa,
+  redDeath1v1,
+  redDeath2v2,
+  redDeath3v3,
+  redDeath4v4,
 ]
 
 /** Map of format ID to format */
@@ -168,14 +235,24 @@ export const draftFormatMap = new Map<string, DraftFormat>(
 
 /** Get default format for a game mode */
 export function getDefaultFormat(gameMode: string): DraftFormat {
-  const format = draftFormats.find(f => f.gameMode === gameMode)
+  const format = draftFormats.find(f => f.gameMode === gameMode && !f.redDeath)
   if (!format) throw new Error(`No format found for game mode: ${gameMode}`)
   return format
 }
 
-export function getDraftFormat(gameMode: string, options: { simultaneousPick?: boolean, randomDraft?: boolean } = {}): DraftFormat {
+export function getDraftFormat(gameMode: string, options: { simultaneousPick?: boolean, randomDraft?: boolean, redDeath?: boolean } = {}): DraftFormat {
+  if (options.redDeath) {
+    const format = draftFormats.find(candidate => candidate.gameMode === gameMode && candidate.redDeath)
+    if (!format) throw new Error(`No Red Death format found for game mode: ${gameMode}`)
+    return format
+  }
   if (gameMode === 'ffa' && options.simultaneousPick) return defaultFfaSimultaneous
   return getDefaultFormat(gameMode)
+}
+
+export function isRedDeathFormatId(formatId: string | null | undefined): boolean {
+  if (!formatId) return false
+  return draftFormatMap.get(formatId)?.redDeath === true
 }
 
 export function formatDraftStepLabel(
