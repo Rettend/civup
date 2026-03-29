@@ -1,5 +1,6 @@
 import type { Leader } from '@civup/game'
 import { Show } from 'solid-js'
+import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import {
   banSelections,
@@ -229,7 +230,7 @@ export function LeaderCard(props: LeaderCardProps) {
         >
           {url => (
             <img
-              src={url()}
+              src={resolveAssetUrl(url()) ?? url()}
               alt={props.leader.name}
               class={cn(
                 'h-full w-full object-cover',

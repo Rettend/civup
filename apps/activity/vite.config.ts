@@ -1,6 +1,8 @@
 import type { Plugin } from 'vite'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { readdirSync } from 'node:fs'
+import { relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { cloudflare } from '@cloudflare/vite-plugin'
 import UnoCSS from 'unocss/vite'
@@ -83,8 +85,36 @@ function firstNonEmpty(...values: Array<string | undefined>): string {
   return ''
 }
 
+function buildAssetRevisionMap(): Record<string, string> {
+  const assetRoot = resolve(import.meta.dirname, 'public/assets')
+  const revisions: Record<string, string> = {}
+  const pending = [assetRoot]
+
+  while (pending.length > 0) {
+    const currentDir = pending.pop()
+    if (!currentDir) continue
+
+    for (const entry of readdirSync(currentDir, { withFileTypes: true })) {
+      const absolutePath = resolve(currentDir, entry.name)
+      if (entry.isDirectory()) {
+        pending.push(absolutePath)
+        continue
+      }
+
+      if (!entry.isFile()) continue
+
+      const assetUrl = `/${relative(resolve(import.meta.dirname, 'public'), absolutePath).split(sep).join('/')}`
+      const revision = createHash('sha1').update(readFileSync(absolutePath)).digest('hex').slice(0, 10)
+      revisions[assetUrl] = revision
+    }
+  }
+
+  return revisions
+}
+
 const viteDiscordClientId = firstNonEmpty(process.env.VITE_DISCORD_CLIENT_ID, process.env.DISCORD_CLIENT_ID, devVars.DISCORD_CLIENT_ID)
 const viteActivityHost = firstNonEmpty(process.env.VITE_ACTIVITY_HOST, devVars.VITE_ACTIVITY_HOST)
+const assetRevisionMap = buildAssetRevisionMap()
 
 export default defineConfig({
   resolve: {
@@ -104,6 +134,7 @@ export default defineConfig({
     },
   },
   define: {
+    '__ASSET_REVISION_MAP__': JSON.stringify(assetRevisionMap),
     'import.meta.env.VITE_DISCORD_CLIENT_ID': JSON.stringify(viteDiscordClientId),
     'import.meta.env.VITE_ACTIVITY_HOST': JSON.stringify(viteActivityHost),
   },
