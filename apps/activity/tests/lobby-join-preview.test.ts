@@ -25,6 +25,8 @@ const baseLobby: LobbySnapshot = {
     leaderPoolSize: null,
     leaderDataVersion: 'live',
     simultaneousPick: false,
+    dealOptionsSize: 2,
+    randomDraft: false,
   },
   serverDefaults: {
     banTimerSeconds: null,

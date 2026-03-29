@@ -1,6 +1,6 @@
 import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 import type { LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
-import { MAX_LEADER_POOL_SIZE, maxPlayerCount } from '@civup/game'
+import { isRedDeathMode, MAX_LEADER_POOL_SIZE, maxPlayerCount } from '@civup/game'
 import { nanoid } from 'nanoid'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 import { normalizeSteamLobbyLink } from '../steam-link.ts'
@@ -11,6 +11,8 @@ export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   leaderPoolSize: null,
   leaderDataVersion: 'live',
   simultaneousPick: false,
+  dealOptionsSize: null,
+  randomDraft: false,
 }
 
 export function parseLobbyState(raw: unknown): LobbyState | null {
@@ -34,7 +36,7 @@ export function normalizeLobby(raw: StoredLobbyState | LobbyState): LobbyState {
     guildId: normalizeGuildId(raw.guildId),
     steamLobbyLink: normalizeSteamLobbyLink(raw.steamLobbyLink),
     slots: normalizeStoredSlots(raw.mode, raw.slots),
-    draftConfig: normalizeDraftConfig(raw.draftConfig),
+    draftConfig: normalizeDraftConfigForMode(raw.mode, raw.draftConfig),
     minRole: normalizeCompetitiveTier(raw.minRole),
     maxRole: normalizeCompetitiveTier(raw.maxRole),
     lastActivityAt: normalizeLobbyLastActivityAt(
@@ -78,6 +80,27 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
     leaderPoolSize: normalizeLeaderPoolSize(config?.leaderPoolSize),
     leaderDataVersion: normalizeLeaderDataVersion(config?.leaderDataVersion),
     simultaneousPick: normalizeSimultaneousPick(config?.simultaneousPick),
+    dealOptionsSize: normalizeDealOptionsSize(config?.dealOptionsSize),
+    randomDraft: normalizeRandomDraft(config?.randomDraft),
+  }
+}
+
+export function normalizeDraftConfigForMode(
+  mode: GameMode,
+  config: Partial<LobbyDraftConfig> | LobbyDraftConfig | null | undefined,
+): LobbyDraftConfig {
+  const normalized = normalizeDraftConfig(config)
+  const simultaneousPick = mode === 'ffa' ? normalized.simultaneousPick : false
+  const randomDraft = isRedDeathMode(mode) ? normalized.randomDraft : false
+
+  if (simultaneousPick === normalized.simultaneousPick && randomDraft === normalized.randomDraft) {
+    return normalized
+  }
+
+  return {
+    ...normalized,
+    simultaneousPick,
+    randomDraft,
   }
 }
 
@@ -125,6 +148,8 @@ export function sameDraftConfig(a: LobbyDraftConfig, b: LobbyDraftConfig): boole
     && a.leaderPoolSize === b.leaderPoolSize
     && a.leaderDataVersion === b.leaderDataVersion
     && a.simultaneousPick === b.simultaneousPick
+    && a.dealOptionsSize === b.dealOptionsSize
+    && a.randomDraft === b.randomDraft
 }
 
 export function sameStringArray(a: string[], b: string[]): boolean {
@@ -159,5 +184,16 @@ function normalizeLeaderDataVersion(value: unknown): LeaderDataVersion {
 }
 
 function normalizeSimultaneousPick(value: unknown): boolean {
+  return value === true
+}
+
+function normalizeDealOptionsSize(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  const rounded = Math.round(value)
+  if (rounded < 2 || rounded > 10) return null
+  return rounded
+}
+
+function normalizeRandomDraft(value: unknown): boolean {
   return value === true
 }

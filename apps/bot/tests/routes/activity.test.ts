@@ -271,6 +271,28 @@ describe('activity target selection', () => {
     })).resolves.not.toBeNull()
   })
 
+  test('keeps live match activity tokens valid for long games', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'host-1')
+    expect(snapshot.selection?.kind).toBe('match')
+    if (snapshot.selection?.kind !== 'match') return
+
+    await expect(verifyDraftRoomAccessToken('secret', snapshot.selection.roomAccessToken, {
+      roomId: 'match-1',
+      userId: 'host-1',
+      nowMs: Date.now() + 5 * 60 * 60 * 1000,
+    })).resolves.not.toBeNull()
+  })
+
   test('allows authenticated spectators to open live match targets read-only', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {

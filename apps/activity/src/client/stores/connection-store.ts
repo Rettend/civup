@@ -5,6 +5,7 @@ import { createSignal } from 'solid-js'
 import { buildActivitySessionHeaders, getActivitySessionToken } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
 import { draftStore, initDraft, setOptimisticSeatPick, updateDraft, updateDraftPreviews } from './draft-store'
+import { clearSelections } from './ui-store'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -50,6 +51,8 @@ export interface LobbySnapshot {
     leaderPoolSize: number | null
     leaderDataVersion: LeaderDataVersion
     simultaneousPick: boolean
+    dealOptionsSize: number | null
+    randomDraft: boolean
   }
   serverDefaults: {
     banTimerSeconds: number | null
@@ -569,6 +572,8 @@ export async function updateLobbyConfig(
     leaderPoolSize?: number | null
     leaderDataVersion?: LeaderDataVersion
     simultaneousPick?: boolean
+    dealOptionsSize?: number | null
+    randomDraft?: boolean
     steamLobbyLink?: string | null
     minRole?: CompetitiveTier | null
     maxRole?: CompetitiveTier | null
@@ -583,6 +588,8 @@ export async function updateLobbyConfig(
       leaderPoolSize: draftConfig.leaderPoolSize,
       leaderDataVersion: draftConfig.leaderDataVersion,
       simultaneousPick: draftConfig.simultaneousPick,
+      dealOptionsSize: draftConfig.dealOptionsSize,
+      randomDraft: draftConfig.randomDraft,
       steamLobbyLink: draftConfig.steamLobbyLink,
       minRole: draftConfig.minRole,
       maxRole: draftConfig.maxRole,
@@ -607,32 +614,6 @@ export async function fetchLobbyRankedRoles(
   catch (err) {
     console.error('Failed to fetch lobby ranked roles:', err)
     return null
-  }
-}
-
-function parseRankedRoleOption(data: unknown): RankedRoleOptionSnapshot | null {
-  if (!data || typeof data !== 'object') return null
-
-  const parsed = data as {
-    tier?: unknown
-    rank?: unknown
-    roleId?: unknown
-    label?: unknown
-    color?: unknown
-  }
-
-  if (typeof parsed.tier !== 'string' || parsed.tier.trim().length === 0) return null
-  if (typeof parsed.rank !== 'number' || !Number.isFinite(parsed.rank)) return null
-  if (parsed.roleId != null && typeof parsed.roleId !== 'string') return null
-  if (typeof parsed.label !== 'string') return null
-  if (parsed.color != null && typeof parsed.color !== 'string') return null
-
-  return {
-    tier: parsed.tier.trim(),
-    rank: Math.round(parsed.rank),
-    roleId: parsed.roleId ?? null,
-    label: parsed.label,
-    color: parsed.color ?? null,
   }
 }
 
@@ -909,6 +890,7 @@ export async function fillLobbyWithTestPlayers(
 function handleServerMessage(msg: ServerMessage) {
   switch (msg.type) {
     case 'init':
+      clearSelections()
       syncPreviewCache(msg.previews, msg.seatIndex)
       initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews)
       if (isTerminalDraftStatus(msg.state.status)) {
@@ -924,6 +906,7 @@ function handleServerMessage(msg: ServerMessage) {
         pendingConfigAck = null
       }
       if (isTerminalDraftStatus(msg.state.status)) {
+        clearSelections()
         disconnect()
       }
       break

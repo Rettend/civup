@@ -49,14 +49,19 @@ export {
 } from './connection-store'
 export {
   canManagePickQueue,
+  canOpenLeaderGrid,
+  canSendPickPreview,
+  currentMode,
   currentStep,
   currentStepDuration,
+  dealtCivIds,
   draftStore,
   getOptimisticSeatPick,
   getPreviewPickForSeat,
   getPreviewPicksForSeat,
   hasSubmitted,
   isMyTurn,
+  isRedDeathDraft,
   isSpectator,
   phaseLabel,
   resetDraft,
@@ -98,10 +103,12 @@ export {
   setSearchQuery,
   setSelectedLeader,
   tagFilters,
+  teamPlacementOrder,
   toggleBanSelection,
   toggleDetail,
   toggleFfaPlacement,
   togglePickSelection,
   toggleTagFilter,
+  toggleTeamPlacement,
 } from './ui-store'
 export { avatarUrl, displayName, setAuthenticatedUser, user, userId } from './user-store'

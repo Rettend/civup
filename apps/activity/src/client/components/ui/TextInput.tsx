@@ -13,10 +13,38 @@ interface TextInputProps {
   onInput?: JSX.EventHandlerUnion<HTMLInputElement, InputEvent>
   onFocus?: JSX.EventHandlerUnion<HTMLInputElement, FocusEvent>
   onBlur?: JSX.EventHandlerUnion<HTMLInputElement, FocusEvent>
+  onClamp?: (detail: { previousValue: string, nextValue: string }) => void
   class?: string
 }
 
 export function TextInput(props: TextInputProps) {
+  const normalizeNumberValue = (value: string): { nextValue: string, adjusted: boolean } => {
+    if (props.type !== 'number') return { nextValue: value, adjusted: false }
+
+    const trimmed = value.trim()
+    if (!trimmed) return { nextValue: '', adjusted: false }
+
+    const numeric = Number(trimmed)
+    if (!Number.isFinite(numeric)) return { nextValue: value, adjusted: false }
+
+    let bounded = Math.round(numeric)
+
+    if (props.min != null) {
+      const minimum = Number(props.min)
+      if (Number.isFinite(minimum)) bounded = Math.max(minimum, bounded)
+    }
+
+    if (props.max != null) {
+      const maximum = Number(props.max)
+      if (Number.isFinite(maximum)) bounded = Math.min(maximum, bounded)
+    }
+
+    return {
+      nextValue: String(bounded),
+      adjusted: bounded !== numeric || !Number.isInteger(numeric),
+    }
+  }
+
   return (
     <div class="flex flex-col gap-1.5">
       {props.label && (
@@ -34,7 +62,16 @@ export function TextInput(props: TextInputProps) {
         disabled={props.disabled}
         onInput={(e) => { if (typeof props.onInput === 'function') props.onInput(e) }}
         onFocus={(e) => { if (typeof props.onFocus === 'function') props.onFocus(e) }}
-        onBlur={(e) => { if (typeof props.onBlur === 'function') props.onBlur(e) }}
+        onBlur={(e) => {
+          const previousValue = e.currentTarget.value
+          const { nextValue, adjusted } = normalizeNumberValue(previousValue)
+          if (nextValue !== previousValue) {
+            e.currentTarget.value = nextValue
+            e.currentTarget.dispatchEvent(new Event('input', { bubbles: true }))
+          }
+          if (adjusted) props.onClamp?.({ previousValue, nextValue })
+          if (typeof props.onBlur === 'function') props.onBlur(e)
+        }}
         style={props.type === 'number'
           ? {
               'appearance': 'textfield',

@@ -3,6 +3,9 @@ import type { DraftFormat, DraftSeat, DraftStep, GameMode } from './types.ts'
 const FULL_ROSTER_2V2_PICK_ORDER = [0, 1, 3, 2] as const
 const FULL_ROSTER_3V3_PICK_ORDER = [0, 1, 3, 2, 4, 5] as const
 const FULL_ROSTER_4V4_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7] as const
+const RED_DEATH_2P_4P_PICK_ORDER = [0, 1, 3, 2] as const
+const RED_DEATH_2P_8P_PICK_ORDER = [0, 1, 2, 3, 7, 6, 5, 4] as const
+const RED_DEATH_4P_8P_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7] as const
 const TEAM_BAN_STEP: DraftStep = { action: 'ban', seats: [0, 1], count: 3, timer: 120 }
 const FFA_BAN_STEP: DraftStep = { action: 'ban', seats: 'all', count: 2, timer: 120 }
 
@@ -121,6 +124,29 @@ export const defaultFfaSimultaneous: DraftFormat = {
   },
 }
 
+export const defaultRd2p: DraftFormat = {
+  id: 'default-rd-2p',
+  name: 'RD 2p',
+  gameMode: 'rd-2p',
+  blindBans: false,
+  getSteps(seatCount: number): DraftStep[] {
+    const pickOrder = seatCount <= 4
+      ? RED_DEATH_2P_4P_PICK_ORDER
+      : RED_DEATH_2P_8P_PICK_ORDER
+    return pickOrder.map(seat => ({ action: 'pick', seats: [seat], count: 1, timer: 30 }))
+  },
+}
+
+export const defaultRd4p: DraftFormat = {
+  id: 'default-rd-4p',
+  name: 'RD 4p',
+  gameMode: 'rd-4p',
+  blindBans: false,
+  getSteps(_seatCount: number): DraftStep[] {
+    return RED_DEATH_4P_8P_PICK_ORDER.map(seat => ({ action: 'pick', seats: [seat], count: 1, timer: 30 }))
+  },
+}
+
 // ── Format Registry ──────────────────────────────────────
 
 /** All available draft formats */
@@ -131,6 +157,8 @@ export const draftFormats: DraftFormat[] = [
   default2v2,
   default3v3,
   default4v4,
+  defaultRd2p,
+  defaultRd4p,
 ]
 
 /** Map of format ID to format */
@@ -145,7 +173,7 @@ export function getDefaultFormat(gameMode: string): DraftFormat {
   return format
 }
 
-export function getDraftFormat(gameMode: string, options: { simultaneousPick?: boolean } = {}): DraftFormat {
+export function getDraftFormat(gameMode: string, options: { simultaneousPick?: boolean, randomDraft?: boolean } = {}): DraftFormat {
   if (gameMode === 'ffa' && options.simultaneousPick) return defaultFfaSimultaneous
   return getDefaultFormat(gameMode)
 }
