@@ -1,6 +1,7 @@
 import type { Leader } from '@civup/game'
 import { getLeader } from '@civup/game'
 import { Show } from 'solid-js'
+import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { draftStore } from '~/client/stores'
 
 interface BanSquareProps {
@@ -32,7 +33,7 @@ export function BanSquare(props: BanSquareProps) {
       >
         {url => (
           <img
-            src={url()}
+            src={resolveAssetUrl(url()) ?? url()}
             alt={leader()?.name}
             class="h-full w-full object-cover grayscale"
           />

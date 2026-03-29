@@ -2,6 +2,10 @@ import type { GameMode } from '@civup/game'
 import type { ParticipantRow } from './types.ts'
 import { isTeamMode } from '@civup/game'
 
+function teamToken(teamIndex: number): string {
+  return String.fromCharCode(65 + teamIndex)
+}
+
 export function resolveWinningTeamIndex(
   placements: string,
   participants: ParticipantRow[],
@@ -62,6 +66,54 @@ export function parseOrderedParticipantIds(
   return { orderedIds }
 }
 
+export function parseOrderedTeamIndexes(
+  placements: string,
+  participants: ParticipantRow[],
+): { orderedTeams: number[] } | { error: string } {
+  const tokens = placements
+    .split(/\r?\n|,/)
+    .map(token => token.trim())
+    .filter(token => token.length > 0)
+
+  if (tokens.length === 0) {
+    return { error: 'For multi-team results, provide the teams in placement order.' }
+  }
+
+  const teamIndexes = new Set(participants.flatMap(participant => participant.team == null ? [] : [participant.team]))
+  const orderedTeams: number[] = []
+
+  for (const token of tokens) {
+    const upper = token.toUpperCase()
+    const tokenMatch = upper.match(/^[A-Z]$/)
+    if (tokenMatch) {
+      const teamIndex = tokenMatch[0]!.charCodeAt(0) - 65
+      if (!teamIndexes.has(teamIndex)) {
+        return { error: `Team ${tokenMatch[0]} is not part of match **${participants[0]?.matchId ?? 'unknown'}**.` }
+      }
+      if (orderedTeams.includes(teamIndex)) {
+        return { error: `Team ${tokenMatch[0]} appears multiple times in the result input.` }
+      }
+      orderedTeams.push(teamIndex)
+      continue
+    }
+
+    const playerId = token.replace(/[<@!>]/g, '')
+    const participant = participants.find(row => row.playerId === playerId)
+    if (!participant) {
+      return { error: `${token} is not part of match **${participants[0]?.matchId ?? 'unknown'}**.` }
+    }
+    if (participant.team == null) {
+      return { error: `Could not map <@${playerId}> to a team for this match.` }
+    }
+    if (orderedTeams.includes(participant.team)) {
+      return { error: `Team ${teamToken(participant.team)} appears multiple times in the result input.` }
+    }
+    orderedTeams.push(participant.team)
+  }
+
+  return { orderedTeams }
+}
+
 export function parseModerationPlacements(
   gameMode: GameMode,
   placements: string,
@@ -70,6 +122,32 @@ export function parseModerationPlacements(
   | { placementsByPlayer: Map<string, number> }
   | { error: string } {
   if (isTeamMode(gameMode) || gameMode === '1v1') {
+    const uniqueTeams = new Set(participants.flatMap(participant => participant.team == null ? [] : [participant.team]))
+    if (uniqueTeams.size > 2) {
+      const parsedTeams = parseOrderedTeamIndexes(placements, participants)
+      if ('error' in parsedTeams) return parsedTeams
+
+      const placementsByPlayer = new Map<string, number>()
+      parsedTeams.orderedTeams.forEach((teamIndex, placementIndex) => {
+        for (const participant of participants) {
+          if (participant.team !== teamIndex) continue
+          placementsByPlayer.set(participant.playerId, placementIndex + 1)
+        }
+      })
+
+      const remainingTeams = [...uniqueTeams].filter(teamIndex => !parsedTeams.orderedTeams.includes(teamIndex))
+      let nextPlacement = parsedTeams.orderedTeams.length + 1
+      for (const teamIndex of remainingTeams) {
+        for (const participant of participants) {
+          if (participant.team !== teamIndex) continue
+          placementsByPlayer.set(participant.playerId, nextPlacement)
+        }
+        nextPlacement += 1
+      }
+
+      return { placementsByPlayer }
+    }
+
     const resolvedTeam = resolveWinningTeamIndex(placements, participants)
     if ('error' in resolvedTeam) return resolvedTeam
 

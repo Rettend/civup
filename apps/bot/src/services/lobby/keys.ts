@@ -1,4 +1,5 @@
 import type { GameMode } from '@civup/game'
+import { LOBBY_STATE_TTL_SECONDS } from '../match/retention.ts'
 
 export const LOBBY_ID_KEY_PREFIX = 'lobby:id:'
 export const LOBBY_MODE_KEY_PREFIX = 'lobby:mode:'
@@ -7,7 +8,7 @@ export const LOBBY_MATCH_KEY_PREFIX = 'lobby:match:'
 export const LOBBY_HOST_KEY_PREFIX = 'lobby:host:'
 export const LOBBY_BUMP_KEY_PREFIX = 'lobby:bump:'
 export const LOBBY_DRAFT_ROSTER_KEY_PREFIX = 'lobby:draft-roster:'
-export const LOBBY_TTL = 24 * 60 * 60
+export const LOBBY_TTL = LOBBY_STATE_TTL_SECONDS
 
 export function idKey(lobbyId: string): string {
   return `${LOBBY_ID_KEY_PREFIX}${lobbyId}`

@@ -1,9 +1,10 @@
-import { createDb, matches, matchParticipants } from '@civup/db'
+import type { createDb } from '@civup/db'
 import type { GameMode, QueueEntry } from '@civup/game'
 import type { Embed } from 'discord-hono'
 import type { lobbyComponents } from '../../embeds/match.ts'
 import type { LobbyState } from '../../services/lobby/index.ts'
-import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode, maxPlayerCount, teamSize as modeTeamSize } from '@civup/game'
+import { matches, matchParticipants } from '@civup/db'
+import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode, maxPlayerCount, teamCount as modeTeamCount, teamSize as modeTeamSize, slotToTeamIndex } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
 import { and, eq, inArray } from 'drizzle-orm'
@@ -521,13 +522,14 @@ function placeRequestedEntries(
   }
 
   const teamSize = modeTeamSize(mode) ?? 0
+  const totalTeams = modeTeamCount(mode, nextSlots.filter(slot => slot != null).length + unslottedPlayerIds.length)
   const slottedTeamIndexes = requestedPlayerIds
     .map((playerId) => {
       const slotIndex = nextSlots.findIndex(slot => slot === playerId)
       if (slotIndex < 0) return null
-      return slotIndex < teamSize ? 0 : 1
+      return slotToTeamIndex(mode, slotIndex, nextSlots.length)
     })
-    .filter((teamIndex): teamIndex is 0 | 1 => teamIndex != null)
+    .filter((teamIndex): teamIndex is Exclude<typeof teamIndex, null> => teamIndex != null)
   const uniqueTeamIndexes = [...new Set(slottedTeamIndexes)]
 
   let targetTeamIndex: number | null = null
@@ -538,7 +540,7 @@ function placeRequestedEntries(
     targetTeamIndex = uniqueTeamIndexes[0]!
   }
   else {
-    targetTeamIndex = chooseBestTeamForPremade(nextSlots, teamSize, unslottedPlayerIds.length)
+    targetTeamIndex = chooseBestTeamForPremade(nextSlots, teamSize, totalTeams, unslottedPlayerIds.length)
   }
 
   if (targetTeamIndex == null) {
@@ -569,9 +571,10 @@ function placeRequestedEntries(
 function chooseBestTeamForPremade(
   slots: (string | null)[],
   teamSize: number,
+  totalTeams: number,
   neededSlots: number,
 ): number | null {
-  const candidates = [0, 1]
+  const candidates = Array.from({ length: totalTeams }, (_, teamIndex) => teamIndex)
     .map((teamIndex) => {
       const start = teamIndex * teamSize
       const end = start + teamSize
