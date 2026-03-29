@@ -15,12 +15,20 @@ describe('leader registry', () => {
     expect(betaLeader.civilization).toBe(liveLeader.civilization)
   })
 
+  test('leaders include civilization abilities and multiple district uniques', () => {
+    const hammurabi = getLeader('babylon-hammurabi')
+    const pedro = getLeader('brazil-pedro-ii')
+
+    expect(hammurabi.civilizationAbility?.name).toBe('Enuma Anu Enlil')
+    expect(pedro.uniqueBuildings.map(unique => unique.name)).toEqual(['Street Carnival', 'Copacabana'])
+  })
+
   test('red death factions are available through both faction and leader lookup', () => {
     const faction = getFaction('rd-aliens')
     const leader = getLeader('rd-aliens')
 
     expect(faction.id).toBe('rd-aliens')
     expect(leader.id).toBe('rd-aliens')
-    expect(leader.secondaryAbility?.name).toBe('Xenological Regeneration')
+    expect(leader.civilizationAbility?.name).toBe('Xenological Regeneration')
   })
 })

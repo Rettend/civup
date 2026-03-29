@@ -10,6 +10,7 @@ import {
   isRandomSelected,
   isRedDeathDraft,
   pickSelectionIndex,
+  setDetailLeaderId,
   setIsRandomSelected,
   toggleBanSelection,
   toggleDetail,
@@ -93,7 +94,7 @@ export function LeaderCard(props: LeaderCardProps) {
   }
 
   const handleSingleClick = () => {
-    if (props.singleClickShowsDetail) toggleDetail(props.leader.id)
+    if (props.singleClickShowsDetail) setDetailLeaderId(props.leader.id)
 
     if (!isInteractive()) return
 
