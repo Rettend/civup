@@ -68,6 +68,7 @@ describe('match result embed', () => {
   test('pads four-team open lobbies into a 2x2 inline field layout', () => {
     const embed = lobbyOpenEmbed('2v2', Array.from({ length: 8 }, () => null), 8).toJSON()
 
+    expect(embed.title).toContain('2v2v2v2')
     expect(embed.fields?.map(field => field.name)).toEqual([
       'Team A',
       'Team B',

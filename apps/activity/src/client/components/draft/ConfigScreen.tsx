@@ -330,7 +330,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
   const formatId = () => {
     const lobby = currentLobby()
-    if (lobby) return formatModeLabel(lobby.mode, 'DRAFT', { redDeath: draftConfig().redDeath })
+    if (lobby) return formatModeLabel(lobby.mode, 'DRAFT', { redDeath: draftConfig().redDeath, targetSize: lobby.targetSize })
     return formatModeLabel(inferGameMode(state()?.formatId), 'DRAFT', { redDeath: isRedDeathDraft() })
   }
   const isTeamMode = () => {
@@ -665,6 +665,11 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const hasExpanded2v2Teams = () => currentLobby()?.targetSize === 8
   const extra2v2SeatsOccupied = () => (currentLobby()?.entries.slice(4) ?? []).some(entry => entry != null)
   const canToggle2v2Teams = () => amHost() && !lobbyActionPending() && (!hasExpanded2v2Teams() || !extra2v2SeatsOccupied())
+  const twoVTwoTeamCountToggleLabel = () => hasExpanded2v2Teams() ? 'Remove extra teams' : 'Add two extra teams'
+  const twoVTwoTeamCountToggleTitle = () => {
+    if (hasExpanded2v2Teams() && extra2v2SeatsOccupied()) return 'Clear Teams C and D before removing them.'
+    return twoVTwoTeamCountToggleLabel()
+  }
 
   const isCurrentUserSlotted = () => {
     const id = userId()
@@ -1588,18 +1593,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
                               : 'border-border-subtle text-fg-subtle/60 cursor-default',
                           )}
                           disabled={!canToggle2v2Teams()}
-                          title={hasExpanded2v2Teams() ? 'Remove extra teams' : 'Add two extra teams'}
-                          aria-label={hasExpanded2v2Teams() ? 'Remove extra teams' : 'Add two extra teams'}
+                          title={twoVTwoTeamCountToggleTitle()}
+                          aria-label={twoVTwoTeamCountToggleLabel()}
                           onClick={() => void handle2v2TeamCountToggle()}
                         >
                           <span class={cn(hasExpanded2v2Teams() ? 'i-ph-minus-bold' : 'i-ph-plus-bold', 'text-sm')} />
                         </button>
                         <div class="h-px flex-1 bg-border-subtle" />
                       </div>
-
-                      <Show when={hasExpanded2v2Teams() && extra2v2SeatsOccupied() && amHost()}>
-                        <span class="text-xs text-fg-muted text-center">Clear Teams C and D before removing them.</span>
-                      </Show>
                     </div>
                   </Show>
                 </div>
