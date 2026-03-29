@@ -1,6 +1,7 @@
 import type { Leader, LeaderUnique } from '@civup/game'
 import { getLeader } from '@civup/game'
 import { For, Show } from 'solid-js'
+import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { detailLeaderId, draftStore, setDetailLeaderId } from '~/client/stores'
 import { RichLeaderText } from './RichLeaderText'
@@ -19,10 +20,12 @@ export function LeaderDetailPanel() {
     if (!l) return []
     const sections: { label: string, items: LeaderUnique[] }[] = []
     if (l.uniqueUnits.length > 0) sections.push({ label: 'Unique Units', items: l.uniqueUnits })
-    if (l.uniqueBuilding) sections.push({ label: 'Unique Building', items: [l.uniqueBuilding] })
-    if (l.uniqueImprovement) sections.push({ label: 'Unique Improvement', items: [l.uniqueImprovement] })
+    if (l.uniqueBuildings.length > 0) sections.push({ label: 'Unique Buildings / Districts', items: l.uniqueBuildings })
+    if (l.uniqueImprovements.length > 0) sections.push({ label: l.uniqueImprovements.length > 1 ? 'Unique Improvements' : 'Unique Improvement', items: l.uniqueImprovements })
     return sections
   }
+
+  const isRedDeathEntry = () => leader()?.id.startsWith('rd-') ?? false
 
   return (
     <Show when={leader()}>
@@ -40,7 +43,7 @@ export function LeaderDetailPanel() {
           <div class="mb-3 flex gap-3 items-center">
             <Show when={l().portraitUrl}>
               {url => (
-                <img src={url()} alt={l().name} class="rounded shrink-0 h-12 w-12 object-cover" />
+                <img src={resolveAssetUrl(url()) ?? url()} alt={l().name} class="rounded shrink-0 h-12 w-12 object-cover" />
               )}
             </Show>
             <div class="min-w-0">
@@ -49,9 +52,19 @@ export function LeaderDetailPanel() {
             </div>
           </div>
 
+          <Show when={l().civilizationAbility}>
+            {ability => (
+              <div class="mb-3">
+                <div class="text-[10px] text-accent tracking-widest font-bold mb-1 uppercase">{isRedDeathEntry() ? 'Additional Ability' : 'Civilization Ability'}</div>
+                <p class="text-sm text-fg font-medium">{ability().name}</p>
+                <RichLeaderText text={ability().description} class="text-xs text-fg-muted leading-relaxed mt-0.5 block" />
+              </div>
+            )}
+          </Show>
+
           {/* Ability */}
           <div class="mb-3">
-            <div class="text-[10px] text-accent tracking-widest font-bold mb-1 uppercase">Ability</div>
+            <div class="text-[10px] text-accent tracking-widest font-bold mb-1 uppercase">{l().civilizationAbility && !isRedDeathEntry() ? 'Leader Ability' : 'Ability'}</div>
             <p class="text-sm text-fg font-medium">{l().ability.name}</p>
             <RichLeaderText text={l().ability.description} class="text-xs text-fg-muted leading-relaxed mt-0.5 block" />
           </div>
@@ -84,7 +97,7 @@ function UniqueRow(props: { item: LeaderUnique }) {
         <Show when={props.item.iconUrl}>
           {icon => (
             <img
-              src={icon()}
+              src={resolveAssetUrl(icon()) ?? icon()}
               alt={props.item.name}
               class="shrink-0 h-8 w-8 object-contain"
               onError={(event) => { event.currentTarget.style.display = 'none' }}

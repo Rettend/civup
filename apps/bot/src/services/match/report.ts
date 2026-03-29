@@ -8,7 +8,7 @@ import { calculateRatings, createRating } from '@civup/rating'
 import { and, eq } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { ensureLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
-import { parseOrderedParticipantIds, resolveWinningTeamIndex } from './placements.ts'
+import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
 import { buildRankByPlayer } from './ratings.ts'
 
 export async function reportMatch(
@@ -47,22 +47,57 @@ export async function reportMatch(
   const gameMode = match.gameMode as GameMode
 
   if (isTeamMode(gameMode) || gameMode === '1v1') {
-    const resolvedTeam = resolveWinningTeamIndex(input.placements, participantRows)
-    if ('error' in resolvedTeam) return resolvedTeam
+    const uniqueTeams = new Set(participantRows.flatMap(participant => participant.team == null ? [] : [participant.team]))
+    if (uniqueTeams.size > 2) {
+      const parsedTeams = parseOrderedTeamIndexes(input.placements, participantRows)
+      if ('error' in parsedTeams) return parsedTeams
 
-    const winTeamIdx = resolvedTeam.winningTeamIndex
+      for (let index = 0; index < parsedTeams.orderedTeams.length; index++) {
+        const teamIndex = parsedTeams.orderedTeams[index]!
+        await db
+          .update(matchParticipants)
+          .set({ placement: index + 1 })
+          .where(
+            and(
+              eq(matchParticipants.matchId, input.matchId),
+              eq(matchParticipants.team, teamIndex),
+            ),
+          )
+      }
 
-    for (const participant of participantRows) {
-      const placement = participant.team === winTeamIdx ? 1 : 2
-      await db
-        .update(matchParticipants)
-        .set({ placement })
-        .where(
-          and(
-            eq(matchParticipants.matchId, input.matchId),
-            eq(matchParticipants.playerId, participant.playerId),
-          ),
-        )
+      const remainingTeams = [...uniqueTeams].filter(teamIndex => !parsedTeams.orderedTeams.includes(teamIndex))
+      let nextPlacement = parsedTeams.orderedTeams.length + 1
+      for (const teamIndex of remainingTeams) {
+        await db
+          .update(matchParticipants)
+          .set({ placement: nextPlacement })
+          .where(
+            and(
+              eq(matchParticipants.matchId, input.matchId),
+              eq(matchParticipants.team, teamIndex),
+            ),
+          )
+        nextPlacement += 1
+      }
+    }
+    else {
+      const resolvedTeam = resolveWinningTeamIndex(input.placements, participantRows)
+      if ('error' in resolvedTeam) return resolvedTeam
+
+      const winTeamIdx = resolvedTeam.winningTeamIndex
+
+      for (const participant of participantRows) {
+        const placement = participant.team === winTeamIdx ? 1 : 2
+        await db
+          .update(matchParticipants)
+          .set({ placement })
+          .where(
+            and(
+              eq(matchParticipants.matchId, input.matchId),
+              eq(matchParticipants.playerId, participant.playerId),
+            ),
+          )
+      }
     }
   }
   else {

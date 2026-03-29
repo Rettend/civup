@@ -231,4 +231,24 @@ describe('draft room creation', () => {
     expect(postedConfig?.formatId).toBe('default-ffa-simultaneous')
     expect(result.formatId).toBe('default-ffa-simultaneous')
   })
+
+  test('ignores random draft outside Red Death rooms', async () => {
+    let postedConfig: { formatId?: unknown, randomDraft?: unknown } | null = null
+    globalThis.fetch = (async (_input, init) => {
+      postedConfig = JSON.parse(String(init?.body)) as { formatId?: unknown, randomDraft?: unknown }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const result = await createDraftRoom('1v1', baseFfaEntries.slice(0, 2), {
+      hostId: 'p1',
+      randomDraft: true,
+    })
+
+    expect(postedConfig?.formatId).toBe('default-1v1')
+    expect(postedConfig?.randomDraft).toBe(false)
+    expect(result.formatId).toBe('default-1v1')
+  })
 })

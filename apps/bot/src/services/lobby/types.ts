@@ -8,6 +8,8 @@ export interface LobbyDraftConfig {
   leaderPoolSize: number | null
   leaderDataVersion: LeaderDataVersion
   simultaneousPick: boolean
+  dealOptionsSize: number | null
+  randomDraft: boolean
 }
 
 export interface LobbyState {

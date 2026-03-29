@@ -1,6 +1,6 @@
 import type { DraftSeat } from '../src/types.ts'
 import { describe, expect, test } from 'bun:test'
-import { default1v1, default2v2, default3v3, default4v4, defaultFfa, defaultFfaSimultaneous, formatDraftStepLabel, getDraftFormat } from '../src/draft-formats.ts'
+import { default1v1, default2v2, default3v3, default4v4, defaultFfa, defaultFfaSimultaneous, defaultRd2p, defaultRd4p, formatDraftStepLabel, getDraftFormat } from '../src/draft-formats.ts'
 
 const duelSeats: DraftSeat[] = [
   { playerId: 'p1', displayName: 'Player 1', team: 0 },
@@ -60,6 +60,18 @@ describe('draft formats', () => {
 
   test('resolves the simultaneous FFA format when requested', () => {
     expect(getDraftFormat('ffa', { simultaneousPick: true })).toBe(defaultFfaSimultaneous)
+  })
+
+  test('Red Death 2p uses no bans and snakes across two teams for 4 players', () => {
+    expect(defaultRd2p.getSteps(4).map(step => step.seats)).toEqual([[0], [1], [3], [2]])
+  })
+
+  test('Red Death 2p uses four-team snake order for 8 players', () => {
+    expect(defaultRd2p.getSteps(8).map(step => step.seats)).toEqual([[0], [1], [2], [3], [7], [6], [5], [4]])
+  })
+
+  test('Red Death 4p removes bans and keeps the 4v4 snake pick order', () => {
+    expect(defaultRd4p.getSteps(8).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7]])
   })
 })
 

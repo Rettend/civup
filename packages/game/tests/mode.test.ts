@@ -31,6 +31,8 @@ describe('formatModeLabel', () => {
     expect(formatModeLabel('default-2V2')).toBe('2v2')
     expect(formatModeLabel('3V3')).toBe('3v3')
     expect(formatModeLabel('4V4')).toBe('4v4')
+    expect(formatModeLabel('rd-2p')).toBe('RD 2p')
+    expect(formatModeLabel('rd-4p')).toBe('RD 4p')
   })
 
   test('replaces dashes with spaces for other modes', () => {
@@ -46,6 +48,8 @@ describe('parseGameMode', () => {
     expect(parseGameMode(' default-2V2 ')).toBe('2v2')
     expect(parseGameMode('3v3')).toBe('3v3')
     expect(parseGameMode('4v4')).toBe('4v4')
+    expect(parseGameMode('rd-2p')).toBe('rd-2p')
+    expect(parseGameMode('rd-4p')).toBe('rd-4p')
   })
 
   test('rejects unknown modes', () => {
@@ -77,6 +81,7 @@ describe('formatLeaderboardModeLabel', () => {
     expect(formatLeaderboardModeLabel('DUEL')).toBe('Duel')
     expect(formatLeaderboardModeLabel('duo')).toBe('Duo')
     expect(formatLeaderboardModeLabel('squad')).toBe('Squad')
+    expect(formatLeaderboardModeLabel('red-death')).toBe('Red Death')
   })
 
   test('uses fallback for unknown modes', () => {
@@ -91,6 +96,8 @@ describe('shared mode helpers', () => {
     expect(toLeaderboardMode('2v2')).toBe('duo')
     expect(toLeaderboardMode('3v3')).toBe('squad')
     expect(toLeaderboardMode('4v4')).toBe('squad')
+    expect(toLeaderboardMode('rd-2p')).toBe('red-death')
+    expect(toLeaderboardMode('rd-4p')).toBe('red-death')
   })
 
   test('expands leaderboard tracks to game modes', () => {
@@ -98,27 +105,36 @@ describe('shared mode helpers', () => {
     expect(leaderboardModesToGameModes('duo')).toEqual(['2v2'])
     expect(leaderboardModesToGameModes('squad')).toEqual(['3v3', '4v4'])
     expect(leaderboardModesToGameModes('ffa')).toEqual(['ffa'])
+    expect(leaderboardModesToGameModes('red-death')).toEqual(['rd-2p', 'rd-4p'])
   })
 
   test('derives shared team helpers', () => {
     expect(teamSize('ffa')).toBeNull()
     expect(teamSize('1v1')).toBe(1)
     expect(teamSize('2v2')).toBe(2)
+    expect(teamSize('rd-2p')).toBe(2)
     expect(teamSize('4v4')).toBe(4)
     expect(maxTeammatesForMode('ffa')).toBe(0)
     expect(maxTeammatesForMode('2v2')).toBe(1)
+    expect(maxTeammatesForMode('rd-2p')).toBe(1)
     expect(maxTeammatesForMode('3v3')).toBe(2)
     expect(maxTeammatesForMode('4v4')).toBe(3)
     expect(slotToTeamIndex('1v1', 0)).toBe(0)
     expect(slotToTeamIndex('1v1', 1)).toBe(1)
     expect(slotToTeamIndex('2v2', 3)).toBe(1)
     expect(slotToTeamIndex('4v4', 7)).toBe(1)
+    expect(slotToTeamIndex('rd-2p', 5, 8)).toBe(2)
+    expect(slotToTeamIndex('rd-2p', 7, 8)).toBe(3)
     expect(slotToTeamIndex('ffa', 0)).toBeNull()
   })
 
   test('uses an 8-player FFA by default', () => {
     expect(playerCountOptions('ffa')).toEqual([8])
+    expect(playerCountOptions('rd-2p')).toEqual([4, 8])
+    expect(playerCountOptions('rd-4p')).toEqual([8])
     expect(minPlayerCount('ffa')).toBe(8)
+    expect(minPlayerCount('rd-2p')).toBe(4)
     expect(maxPlayerCount('ffa')).toBe(8)
+    expect(maxPlayerCount('rd-2p')).toBe(8)
   })
 })

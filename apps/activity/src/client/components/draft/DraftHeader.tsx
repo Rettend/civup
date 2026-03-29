@@ -13,10 +13,11 @@ import {
   phaseLabel,
   reportMatchResult,
   scrubMatchResult,
-  sendRevert,
   selectedWinningTeam,
+  sendRevert,
   sendScrub,
   setResultSelectionsLocked,
+  teamPlacementOrder,
   userId,
 } from '~/client/stores'
 import { Button, HorizontalScroller } from '../ui'
@@ -49,6 +50,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   let armedHostActionTimeout: ReturnType<typeof setTimeout> | null = null
 
   const isTeamMode = () => state()?.seats.some(s => s.team != null) ?? false
+  const teamCount = () => new Set((state()?.seats ?? []).flatMap(seat => seat.team == null ? [] : [seat.team])).size
   const isComplete = () => state()?.status === 'complete'
   const seatCount = () => state()?.seats.length ?? 0
 
@@ -173,9 +175,27 @@ export function DraftHeader(props: DraftHeaderProps) {
     if (!uid || team == null) return
 
     setResultStatus('submitting:result')
-    const teamToken = team === 0 ? 'A' : 'B'
+    const teamToken = teamIndexToken(team)
     const res = await reportMatchResult(draftStore.state!.matchId, uid, teamToken)
     setResultStatus(res.ok ? 'done' : 'idle')
+  }
+
+  const reportOrderedTeams = async () => {
+    const uid = userId()
+    const order = teamPlacementOrder()
+    const totalTeams = teamCount()
+    if (!uid || order.length !== totalTeams) return
+
+    setResultStatus('submitting:result')
+    const placements = order.map(teamIndexToken).join('\n')
+    const res = await reportMatchResult(draftStore.state!.matchId, uid, placements)
+    if (res.ok) {
+      setResultStatus('done')
+      return
+    }
+
+    setResultStatus('idle')
+    clearResultSelections()
   }
 
   const reportFfa = async () => {
@@ -195,6 +215,10 @@ export function DraftHeader(props: DraftHeaderProps) {
 
   const confirmResult = async () => {
     if (isTeamMode()) {
+      if (teamCount() > 2) {
+        await reportOrderedTeams()
+        return
+      }
       await reportSelectedTeam()
       return
     }
@@ -244,7 +268,11 @@ export function DraftHeader(props: DraftHeaderProps) {
 
   const canManageDraft = () => amHost() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
   const canSubmitResult = () => isParticipant() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
-  const resultSelectionReady = () => isTeamMode() ? selectedWinningTeam() != null : ffaPlacementOrder().length === seatCount()
+  const resultSelectionReady = () => {
+    if (!isTeamMode()) return ffaPlacementOrder().length === seatCount()
+    if (teamCount() > 2) return teamPlacementOrder().length === teamCount()
+    return selectedWinningTeam() != null
+  }
   const showMobileActionRow = () => {
     if (!isMobileLayout()) return false
     if (state()?.status === 'active') return amHost()
@@ -282,8 +310,8 @@ export function DraftHeader(props: DraftHeaderProps) {
   )
 
   const confirmationHint = () => {
-    if (armedHostAction() === 'revert') return 'Revert will return everyone to the lobby. Click again to confirm.'
-    if (armedHostAction() === 'scrub') return 'Scrub will cancel the draft completely. Click again to confirm.'
+    if (armedHostAction() === 'revert') return { line1: 'Revert will return everyone to the lobby.', line2: 'Click again to confirm.' }
+    if (armedHostAction() === 'scrub') return { line1: 'Scrub will cancel the draft completely.', line2: 'Click again to confirm.' }
     return null
   }
 
@@ -315,8 +343,8 @@ export function DraftHeader(props: DraftHeaderProps) {
   )
 
   const renderActiveHostActions = (iconOnly: boolean) => (
-    <div class="relative flex items-center gap-2">
-      <div class="flex items-center gap-2">
+    <div class="flex gap-2 items-center relative">
+      <div class="flex gap-2 items-center">
         {renderHostActionButton('revert', 'Revert', 'i-ph-arrow-u-up-left-bold', iconOnly)}
         {renderHostActionButton('scrub', 'Scrub', 'i-ph-x-bold', iconOnly)}
       </div>
@@ -324,13 +352,15 @@ export function DraftHeader(props: DraftHeaderProps) {
         {hint => (
           <div
             class={cn(
-              'pointer-events-none absolute z-20 border border-border rounded-full bg-bg-subtle/80 px-3 py-1 text-xs text-fg-muted shadow-lg backdrop-blur-sm whitespace-nowrap',
+              'pointer-events-none absolute z-20 border border-border rounded-lg bg-bg-subtle/80 px-3 py-1.5 text-xs text-fg-muted shadow-lg backdrop-blur-sm text-center',
               iconOnly
-                ? 'left-1/2 top-full mt-2 -translate-x-1/2'
-                : 'left-full top-1/2 ml-2 -translate-y-1/2',
+                ? 'left-1/2 top-full mt-2 -translate-x-1/2 w-max max-w-[calc(100vw-2rem)]'
+                : 'left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap',
             )}
           >
-            {hint()}
+            {hint().line1}
+            <br />
+            {hint().line2}
           </div>
         )}
       </Show>
@@ -392,7 +422,7 @@ export function DraftHeader(props: DraftHeaderProps) {
 
   const renderMobileBanRail = () => (
     <HorizontalScroller
-      class="max-w-full mx-auto"
+      class="mx-auto max-w-full"
       style={{ width: `calc(100% - ${mobileRailInsetCount() * 2.75}rem)` }}
       contentClass={cn(
         'flex min-w-full items-center whitespace-nowrap',
@@ -563,4 +593,8 @@ export function DraftHeader(props: DraftHeaderProps) {
       </Show>
     </header>
   )
+}
+
+function teamIndexToken(team: number): string {
+  return String.fromCharCode(65 + team)
 }

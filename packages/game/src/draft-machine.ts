@@ -23,6 +23,9 @@ export function createDraft(
   format: DraftFormat,
   seats: DraftSeat[],
   civPool: string[],
+  options: {
+    dealOptionsSize?: number
+  } = {},
 ): DraftState {
   const seatCount = seats.length
   const steps = format.getSteps(seatCount)
@@ -37,6 +40,8 @@ export function createDraft(
     bans: [],
     picks: [],
     availableCivIds: [...civPool],
+    dealtCivIds: null,
+    dealOptionsSize: options.dealOptionsSize,
     status: 'waiting',
     cancelReason: null,
     pendingBlindBans: [],
@@ -125,6 +130,7 @@ function processCancel(
       status: 'cancelled',
       cancelReason: normalizedReason,
       submissions: {},
+      dealtCivIds: null,
       pendingBlindBans: [],
     },
     events: [{ type: 'DRAFT_CANCELLED', reason: normalizedReason }],
@@ -249,6 +255,10 @@ function processPick(
     return { error: `Civ ${civId} is not available` }
   }
 
+  if (state.dealtCivIds && !state.dealtCivIds.includes(civId)) {
+    return { error: `Civ ${civId} is not in the dealt options` }
+  }
+
   // Also check not already picked in current submissions by another seat
   const allCurrentSubmissions = Object.values(state.submissions).flat()
   if (allCurrentSubmissions.includes(civId)) {
@@ -276,6 +286,7 @@ function processPick(
     submissions: newSubmissions,
     picks: newPicks,
     availableCivIds: newAvailable,
+    dealtCivIds: null,
   }
 
   if (stepComplete) {
@@ -304,6 +315,45 @@ function processTimeout(
   const activeSeats = getActiveSeats(step, state.seats.length)
 
   if (step.action === 'pick') {
+    if (state.dealtCivIds && state.dealtCivIds.length > 0) {
+      const timedOutSeat = activeSeats.find((seat) => {
+        const existing = state.submissions[seat]
+        const needed = step.count - (existing?.length ?? 0)
+        return needed > 0
+      })
+
+      if (timedOutSeat == null) {
+        return { error: 'No pending picks to timeout' }
+      }
+
+      const timedOutPool = state.dealtCivIds.filter(civId => state.availableCivIds.includes(civId))
+      if (timedOutPool.length === 0) {
+        return { error: 'No dealt factions available for timeout pick' }
+      }
+
+      const randomPick = timedOutPool[Math.floor(Math.random() * timedOutPool.length)]
+      if (!randomPick) return { error: 'Failed to resolve timeout pick' }
+
+      const timeoutEvents: DraftEvent[] = [{
+        type: 'TIMEOUT_APPLIED',
+        seatIndex: timedOutSeat,
+        selections: [randomPick],
+      }]
+
+      const nextState: DraftState = {
+        ...state,
+        submissions: { ...state.submissions, [timedOutSeat]: [randomPick] },
+        picks: [...state.picks, { civId: randomPick, seatIndex: timedOutSeat, stepIndex: state.currentStepIndex }],
+        availableCivIds: state.availableCivIds.filter(id => id !== randomPick),
+        dealtCivIds: null,
+      }
+
+      return advanceStep({
+        ...nextState,
+        submissions: {},
+      }, timeoutEvents)
+    }
+
     const timedOutSeats = activeSeats.filter((seat) => {
       const existing = state.submissions[seat]
       const needed = step.count - (existing?.length ?? 0)
@@ -478,6 +528,7 @@ function advanceStep(
         currentStepIndex: nextStepIndex,
         status: 'complete',
         cancelReason: null,
+        dealtCivIds: null,
       },
       events: [...events, { type: 'DRAFT_COMPLETE' }],
     }
@@ -489,6 +540,7 @@ function advanceStep(
       ...state,
       currentStepIndex: nextStepIndex,
       submissions: {},
+      dealtCivIds: null,
     },
     events: [...events, { type: 'STEP_ADVANCED', stepIndex: nextStepIndex }],
   }

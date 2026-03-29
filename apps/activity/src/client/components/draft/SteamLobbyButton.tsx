@@ -202,7 +202,7 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
           isGhost()
             ? 'bg-transparent text-fg-muted border border-border hover:bg-bg-muted hover:text-fg'
             : 'bg-accent text-bg hover:brightness-110',
-          props.savePending && 'opacity-60 cursor-not-allowed',
+          props.savePending && 'opacity-60 cursor-default',
         )}
         title={buttonTitle()}
         aria-label={buttonAriaLabel()}
@@ -227,7 +227,7 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
       </button>
 
       <Show when={missingLinkHintVisible()}>
-        <div class="pointer-events-none absolute left-0 top-full z-[100] mt-2 whitespace-nowrap rounded-full border border-border bg-bg-subtle/80 px-3 py-1 text-xs text-fg-muted shadow-lg backdrop-blur-sm">
+        <div class="text-xs text-fg-muted mt-2 px-3 py-1 border border-border rounded-full bg-bg-subtle/80 pointer-events-none whitespace-nowrap shadow-lg left-0 top-full absolute z-[100] backdrop-blur-sm">
           No Steam link set
         </div>
       </Show>
@@ -249,7 +249,7 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
                 'outline-none transition-colors duration-150',
                 'placeholder:text-fg-subtle/60',
                 'focus:border-accent/50 focus:bg-bg/80',
-                'disabled:opacity-50 disabled:cursor-not-allowed',
+                'disabled:opacity-50 disabled:cursor-default',
               )}
               onInput={e => setInputValue(e.currentTarget.value)}
               onBlur={handleInputBlur}

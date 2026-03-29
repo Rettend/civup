@@ -1,6 +1,6 @@
 import type { Database } from '@civup/db'
-import { formatModeLabel } from '@civup/game'
 import { matches } from '@civup/db'
+import { formatModeLabel } from '@civup/game'
 import { eq } from 'drizzle-orm'
 import { createChannelMessage, createDmChannel } from '../discord/index.ts'
 import { getLobbyByMatch } from '../lobby/index.ts'

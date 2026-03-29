@@ -1,5 +1,5 @@
 import type { DraftCancelReason, DraftSeat, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
-import { formatModeLabel, getLeader, isTeamMode } from '@civup/game'
+import { formatModeLabel, getLeader, isRedDeathMode, isTeamMode, teamSize as modeTeamSize } from '@civup/game'
 import { displayRating } from '@civup/rating'
 import { Button, Components, Embed } from 'discord-hono'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
@@ -60,11 +60,7 @@ export function lobbyOpenEmbed(
     maxRoleId ? { name: 'Max Rank', value: `<@&${maxRoleId}>`, inline: true } : null,
   ].flatMap(field => field ? [field] : [])
 
-  // When both rank fields are present, pad to 3 inline fields to complete the
-  // row so the team fields start on a new line (same pattern as rank.ts:126).
-  if (rankFields.length === 2) {
-    rankFields.push({ name: '\u200B', value: '\u200B', inline: true })
-  }
+  while (rankFields.length > 0 && rankFields.length % 3 !== 0) rankFields.push(blankInlineField())
 
   if (mode === '1v1') {
     const p1 = entries[0]?.playerId
@@ -85,20 +81,20 @@ export function lobbyOpenEmbed(
   }
 
   if (isTeamMode(mode)) {
-    const teamSize = targetSize / 2
-    const teamALines = Array.from({ length: teamSize }, (_, i) => {
-      const playerId = entries[i]?.playerId
-      return `${i + 1}. ${playerId ? `<@${playerId}>` : '`[empty]`'}`
-    }).join('\n')
-    const teamBLines = Array.from({ length: teamSize }, (_, i) => {
-      const playerId = entries[teamSize + i]?.playerId
-      return `${i + 1}. ${playerId ? `<@${playerId}>` : '`[empty]`'}`
-    }).join('\n')
+    const teamSize = modeTeamSize(mode) ?? 1
+    const totalTeams = Math.max(1, Math.floor(targetSize / teamSize))
+    const fields = layoutTeamFields(Array.from({ length: totalTeams }, (_, teamIndex) => {
+      const teamLines = Array.from({ length: teamSize }, (_, index) => {
+        const playerId = entries[(teamIndex * teamSize) + index]?.playerId
+        return `${index + 1}. ${playerId ? `<@${playerId}>` : '`[empty]`'}`
+      }).join('\n')
 
-    const fields = [
-      { name: 'Team A', value: teamALines, inline: true },
-      { name: 'Team B', value: teamBLines, inline: true },
-    ]
+      return {
+        name: `Team ${String.fromCharCode(65 + teamIndex)}`,
+        value: teamLines,
+        inline: true,
+      }
+    }))
     return rankFields.length > 0 ? embed.fields(...rankFields, ...fields) : embed.fields(...fields)
   }
 
@@ -125,20 +121,12 @@ export function lobbyDraftingEmbed(mode: GameMode, seats: DraftSeat[], leaderDat
   const hasTeams = seats.some(seat => seat.team != null)
 
   if (hasTeams) {
-    const teamA = seats.filter(seat => seat.team === 0)
-    const teamB = seats.filter(seat => seat.team === 1)
-    return embed.fields(
-      {
-        name: 'Team A',
-        value: teamA.map((seat, i) => `${i + 1}. <@${seat.playerId}>`).join('\n') || '`[empty]`',
-        inline: true,
-      },
-      {
-        name: 'Team B',
-        value: teamB.map((seat, i) => `${i + 1}. <@${seat.playerId}>`).join('\n') || '`[empty]`',
-        inline: true,
-      },
-    )
+    const teamIndexes = Array.from(new Set(seats.flatMap(seat => seat.team == null ? [] : [seat.team]))).sort((a, b) => a - b)
+    return embed.fields(...layoutTeamFields(teamIndexes.map(teamIndex => ({
+      name: `Team ${String.fromCharCode(65 + teamIndex)}`,
+      value: seats.filter(seat => seat.team === teamIndex).map((seat, i) => `${i + 1}. <@${seat.playerId}>`).join('\n') || '`[empty]`',
+      inline: true,
+    }))))
   }
 
   const playerLines = seats.map((seat, i) => `${i + 1}. <@${seat.playerId}>`).join('\n')
@@ -199,7 +187,7 @@ function baseLobbyEmbed(mode: GameMode, stage: LobbyStage, leaderDataVersion?: L
     .title(`${STAGE_LABELS[stage]}  -  ${formatModeLabel(mode, mode)}`)
     .color(STAGE_COLORS[stage])
 
-  const footerText = formatLeaderDataVersionFooter(leaderDataVersion)
+  const footerText = formatLeaderDataVersionFooter(mode, leaderDataVersion)
   return footerText ? embed.footer({ text: footerText }) : embed
 }
 
@@ -215,21 +203,15 @@ function lobbyDraftCompleteLeaderEmbed(
   const moderationField = buildModerationField(moderation)
 
   if (hasTeams) {
-    const teamA = participants.filter(participant => participant.team === 0)
-    const teamB = participants.filter(participant => participant.team === 1)
-
-    const teamFields = [
-      {
-        name: 'Team A',
-        value: teamA.map((participant, index) => `${index + 1}. <@${participant.playerId}> - ${formatLeaderName(participant.civId)}`).join('\n') || '`[empty]`',
+    const teamIndexes = Array.from(new Set(participants.flatMap(participant => participant.team == null ? [] : [participant.team]))).sort((a, b) => a - b)
+    const teamFields = layoutTeamFields(teamIndexes.map((teamIndex) => {
+      const teamParticipants = participants.filter(participant => participant.team === teamIndex)
+      return {
+        name: `Team ${String.fromCharCode(65 + teamIndex)}`,
+        value: teamParticipants.map((participant, index) => `${index + 1}. <@${participant.playerId}> - ${formatLeaderName(participant.civId)}`).join('\n') || '`[empty]`',
         inline: true,
-      },
-      {
-        name: 'Team B',
-        value: teamB.map((participant, index) => `${index + 1}. <@${participant.playerId}> - ${formatLeaderName(participant.civId)}`).join('\n') || '`[empty]`',
-        inline: true,
-      },
-    ]
+      }
+    }))
     return moderationField ? embed.fields(moderationField, ...teamFields) : embed.fields(...teamFields)
   }
 
@@ -270,7 +252,8 @@ function lobbyReportedEmbed(
   return fields.length > 0 ? embed.fields(...fields) : embed
 }
 
-function formatLeaderDataVersionFooter(leaderDataVersion?: LeaderDataVersion | null): string | null {
+function formatLeaderDataVersionFooter(mode: GameMode, leaderDataVersion?: LeaderDataVersion | null): string | null {
+  if (isRedDeathMode(mode)) return null
   if (!leaderDataVersion) return null
   return leaderDataVersion === 'beta' ? 'BBG Beta' : 'BBG Live'
 }
@@ -340,9 +323,7 @@ function getTeamPlacement(participants: LobbyParticipant[]): number | null {
 }
 
 function formatTeamName(team: number): string {
-  if (team === 0) return 'Team A'
-  if (team === 1) return 'Team B'
-  return `Team ${team + 1}`
+  return `Team ${String.fromCharCode(65 + team)}`
 }
 
 function formatPlacementCode(placement: number | null | undefined): string {
@@ -437,6 +418,23 @@ function formatLeaderName(civId: string | null): string {
   }
 }
 
+function layoutTeamFields(fields: TeamField[]): TeamField[] {
+  if (fields.length !== 4) return fields
+
+  return [
+    fields[0]!,
+    fields[1]!,
+    blankInlineField(),
+    fields[2]!,
+    fields[3]!,
+    blankInlineField(),
+  ]
+}
+
+function blankInlineField(): TeamField {
+  return { name: '\u200B', value: '\u200B', inline: true }
+}
+
 function buildModerationField(moderation?: ModerationContext): { name: string, value: string, inline: false } | null {
   if (!moderation) return null
   const reason = moderation.reason?.trim() || 'No reason.'
@@ -449,3 +447,5 @@ function buildModerationField(moderation?: ModerationContext): { name: string, v
     inline: false,
   }
 }
+
+interface TeamField { name: string, value: string, inline: true }
