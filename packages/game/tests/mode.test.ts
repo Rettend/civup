@@ -31,6 +31,8 @@ describe('formatModeLabel', () => {
     expect(formatModeLabel('default-2V2')).toBe('2v2')
     expect(formatModeLabel('3V3')).toBe('3v3')
     expect(formatModeLabel('4V4')).toBe('4v4')
+    expect(formatModeLabel('2v2', '', { targetSize: 8 })).toBe('2v2v2v2')
+    expect(formatModeLabel('2v2', '', { redDeath: true, targetSize: 8 })).toBe('Red Death 2v2v2v2')
     expect(formatModeLabel('4V4', '', { redDeath: true })).toBe('Red Death 4v4')
   })
 
