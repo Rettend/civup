@@ -3,6 +3,7 @@ import type { LeaderTagCategory } from '~/client/lib/leader-tags'
 import { factions, getLeaders, searchFactions, searchLeaders } from '@civup/game'
 import { throttle } from '@solid-primitives/scheduled'
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
+import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import {
   getFilterTagOptions,
@@ -820,6 +821,7 @@ function sameCivIdList(a: string[], b: string[]): boolean {
 
 function TagPill(props: { tag: string, compact?: boolean, active?: boolean }) {
   const meta = () => getLeaderTagMeta(props.tag)
+  const iconUrl = () => resolveAssetUrl(meta().iconUrl ?? `/assets/bbg/icons/ICON_${meta().iconToken!.toUpperCase()}.webp`)
 
   return (
     <span
@@ -836,7 +838,7 @@ function TagPill(props: { tag: string, compact?: boolean, active?: boolean }) {
     >
       <Show when={meta().showIcon}>
         <img
-          src={meta().iconUrl ?? `/assets/bbg/icons/ICON_${meta().iconToken!.toUpperCase()}.webp`}
+          src={iconUrl()}
           alt={meta().label}
           class={cn(props.compact ? 'h-3 w-3' : 'h-3.5 w-3.5')}
         />
@@ -848,6 +850,7 @@ function TagPill(props: { tag: string, compact?: boolean, active?: boolean }) {
 
 function FilterTagButton(props: { tag: string, active: boolean, onClick: () => void }) {
   const meta = () => getLeaderTagMeta(props.tag)
+  const iconUrl = () => resolveAssetUrl(meta().iconUrl ?? `/assets/bbg/icons/ICON_${meta().iconToken!.toUpperCase()}.webp`)
 
   return (
     <button
@@ -863,7 +866,7 @@ function FilterTagButton(props: { tag: string, active: boolean, onClick: () => v
       <div class="bg-white/0 transition-colors inset-0 absolute group-hover:bg-white/8" />
       <Show when={meta().showIcon}>
         <img
-          src={meta().iconUrl ?? `/assets/bbg/icons/ICON_${meta().iconToken!.toUpperCase()}.webp`}
+          src={iconUrl()}
           alt={meta().label}
           class="h-3.5 w-3.5 relative"
         />

@@ -1,6 +1,7 @@
 import type { Leader } from '@civup/game'
 import { getLeader } from '@civup/game'
 import { createEffect, createSignal, Show } from 'solid-js'
+import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { placementIconClass } from '~/client/lib/placement-icons'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
@@ -48,6 +49,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
   const hasPreview = (): boolean => previewLeader() != null
   const displayLeader = (): Leader | null => leader() ?? previewLeader()
+  const leaderFullPortraitUrl = (currentLeader: { id: string, fullPortraitUrl?: string }) => resolveAssetUrl(currentLeader.fullPortraitUrl ?? `/assets/leaders-full/${currentLeader.id}.webp`) ?? (currentLeader.fullPortraitUrl ?? `/assets/leaders-full/${currentLeader.id}.webp`)
 
   const isActive = (): boolean => {
     const s = state()
@@ -274,7 +276,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
       <Show when={leader()} keyed>
         {l => (
           <img
-            src={l.fullPortraitUrl ?? `/assets/leaders-full/${l.id}.webp`}
+            src={leaderFullPortraitUrl(l)}
             alt={l.name}
             class={cn(
               'absolute inset-0 h-full w-full object-cover',
@@ -289,7 +291,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
         {l => (
           <div class="opacity-50 inset-0 absolute saturate-85">
             <img
-              src={l.fullPortraitUrl ?? `/assets/leaders-full/${l.id}.webp`}
+              src={leaderFullPortraitUrl(l)}
               alt={l.name}
               class={cn(
                 'absolute inset-0 h-full w-full object-cover',

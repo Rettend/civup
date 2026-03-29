@@ -1,6 +1,7 @@
 import type { JSX } from 'solid-js'
 import { getLeader } from '@civup/game'
 import { For, Show } from 'solid-js'
+import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { draftStore } from '~/client/stores'
 
@@ -193,7 +194,7 @@ function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' }) 
         >
           {portraitUrl => (
             <img
-              src={portraitUrl()}
+              src={resolveAssetUrl(portraitUrl()) ?? portraitUrl()}
               alt=""
               class={cn(
                 'border border-border rounded-full h-5 w-5 object-cover',

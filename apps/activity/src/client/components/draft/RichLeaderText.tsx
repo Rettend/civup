@@ -1,4 +1,5 @@
 import { For } from 'solid-js'
+import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 
 const ICON_TOKEN_FILENAME_OVERRIDES: Record<string, string> = {
@@ -19,7 +20,7 @@ const ICON_TOKEN_FILENAME_OVERRIDES: Record<string, string> = {
 
 function resolveLeaderIconUrl(token: string): string {
   const fileName = ICON_TOKEN_FILENAME_OVERRIDES[token] ?? `ICON_${token.toUpperCase()}.webp`
-  return `/assets/bbg/icons/${fileName}`
+  return resolveAssetUrl(`/assets/bbg/icons/${fileName}`) ?? `/assets/bbg/icons/${fileName}`
 }
 
 interface RichLeaderTextProps {
