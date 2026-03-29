@@ -64,18 +64,18 @@ export function LeaderCard(props: LeaderCardProps) {
     return state()?.status === 'active' && step()?.action === 'ban'
   }
 
+  const seatHasLockedPickForCard = (): boolean => {
+    const seat = draftStore.seatIndex
+    if (seat == null) return false
+    return state()?.picks.some(pick => pick.seatIndex === seat) ?? false
+  }
+
   const canTogglePickSelection = (): boolean => {
     if (isUnavailable()) return false
     if (state()?.status !== 'active') return false
     if (step()?.action !== 'pick') return false
     if (isRedDeathDraft()) return isMyTurn() && !seatHasLockedPickForCard()
     return canManagePickQueue()
-  }
-
-  const seatHasLockedPickForCard = (): boolean => {
-    const seat = draftStore.seatIndex
-    if (seat == null) return false
-    return state()?.picks.some(pick => pick.seatIndex === seat) ?? false
   }
 
   const isInteractive = (): boolean => {
@@ -95,13 +95,17 @@ export function LeaderCard(props: LeaderCardProps) {
   }
 
   const handleSingleClick = () => {
-    if (props.singleClickShowsDetail) setDetailLeaderId(props.leader.id)
+    const s = step()
+    const willDeselect = s?.action === 'pick' ? hasSelectionVisual() : isBanSelected()
+
+    if (props.singleClickShowsDetail && !willDeselect) {
+      setDetailLeaderId(props.leader.id)
+    }
 
     if (!isInteractive()) return
 
     if (isRandomSelected()) setIsRandomSelected(false)
 
-    const s = step()
     if (!s) return
 
     if (s.action === 'ban') {
