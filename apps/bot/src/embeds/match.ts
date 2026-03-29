@@ -190,7 +190,7 @@ export function lobbyComponents(mode: GameMode, lobbyId?: string): Components {
 
 function baseLobbyEmbed(mode: GameMode, stage: LobbyStage, leaderDataVersion?: LeaderDataVersion | null, redDeath = false): Embed {
   const embed = new Embed()
-    .title(`${STAGE_LABELS[stage]}  -  ${formatModeLabel(mode, mode, { redDeath }).toUpperCase()}`)
+    .title(`${STAGE_LABELS[stage]}  -  ${formatModeLabel(mode, mode, { redDeath })}`)
     .color(STAGE_COLORS[stage])
 
   const footerText = formatLeaderDataVersionFooter(leaderDataVersion, redDeath)
