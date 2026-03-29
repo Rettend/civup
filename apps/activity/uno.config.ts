@@ -213,6 +213,11 @@ export default defineConfig({
             to { opacity: 1; transform: translateX(0); }
           }
 
+          @keyframes civup-slide-left-fade {
+            from { opacity: 0; transform: translateX(-12px); }
+            to { opacity: 1; transform: translateX(0); }
+          }
+
           @keyframes civup-portrait-in {
             from { opacity: 0; transform: scale(1.02); }
             to { opacity: 1; transform: scale(1); }
@@ -226,6 +231,7 @@ export default defineConfig({
           .anim-fade-in { animation: civup-fade-in 200ms ease-out both; }
           .anim-overlay-in { animation: civup-slide-up-fade 250ms ease-out both; }
           .anim-detail-in { animation: civup-slide-right-fade 200ms ease-out both; }
+          .anim-detail-in-right { animation: civup-slide-left-fade 200ms ease-out both; }
           .anim-portrait-in { animation: civup-portrait-in 300ms ease-out both; }
           .anim-phase-flash { animation: civup-phase-flash 200ms ease-out both; }
 

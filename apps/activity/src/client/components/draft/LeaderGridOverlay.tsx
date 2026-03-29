@@ -664,7 +664,7 @@ export function LeaderGridOverlay() {
               </Show>
 
               <Show when={showDockedPanels() && hasDetail()}>
-                <div class="anim-detail-in w-64 bottom-0 left-full top-0 absolute z-10 2xl:w-80 xl:w-72">
+                <div class="anim-detail-in-right w-64 bottom-0 left-full top-0 absolute z-10 2xl:w-80 xl:w-72">
                   <div class="grid-panel-glow border border-l-0 border-border rounded-r-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
                     <LeaderDetailPanel />
                   </div>
