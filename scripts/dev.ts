@@ -1,6 +1,8 @@
+/* eslint-disable no-console */
 import { existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import process from 'node:process'
+import readline from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'bun'
 
@@ -22,7 +24,7 @@ const rebuildActivity = process.argv.includes('--rebuild-activity')
 const activityLive = process.argv.includes('--activity-live')
 
 const activityCommand = activityLive
-  ? ['bun', 'x', 'vite', '--host', '0.0.0.0', '--port', '5173']
+  ? ['bun', 'x', 'vite', '--strictPort', '--host', '0.0.0.0', '--port', '5173']
   : ['bun', 'x', 'wrangler', 'dev', '--config', 'wrangler.json', '--cwd', 'dist/civup_activity', '--port', '5173', '--show-interactive-dev-session=false', '--log-level', 'log']
 
 const services: Service[] = [
@@ -44,8 +46,6 @@ const services: Service[] = [
   { name: 'tunnel', cwd: repoRoot, cmd: ['cloudflared', '--config', 'cloudflared.dev.yml', 'tunnel', 'run', 'civup-dev'] },
 ]
 
-const requiredPorts = [8787, 8788, 5173]
-
 let shuttingDown = false
 
 if (rebuildActivity) {
@@ -53,16 +53,6 @@ if (rebuildActivity) {
 }
 else if (!activityLive && !existsSync(activityPreviewConfig)) {
   console.error('[dev] Activity preview bundle is missing. Run `bun run dev:new` or `bun run a:dev:new` first.')
-  process.exit(1)
-}
-
-const occupiedPorts = findOccupiedPorts(requiredPorts)
-if (occupiedPorts.length > 0) {
-  console.error('[dev] Required dev ports are already in use:')
-  for (const entry of occupiedPorts) {
-    console.error(`[dev]   port ${entry.port} -> pid ${entry.pid}`)
-  }
-  console.error('[dev] Stop the stale processes first, then rerun `bun run dev`.')
   process.exit(1)
 }
 
@@ -123,10 +113,20 @@ for (const svc of services) {
 process.on('SIGINT', () => shutdown(0))
 process.on('SIGTERM', () => shutdown(0))
 
+if (process.platform === 'win32') {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  })
+  rl.on('SIGINT', () => {
+    process.emit('SIGINT')
+  })
+}
+
 await Promise.all(processes.map(({ proc }) => proc.exited))
 
 function runCommand(name: string, cmd: string[], cwd: string) {
-  console.log(`[dev] Running ${name}...`)
+  console.warn(`[dev] Running ${name}...`)
   const result = spawnSync({
     cmd,
     cwd,
@@ -138,40 +138,6 @@ function runCommand(name: string, cmd: string[], cwd: string) {
     console.error(`[dev] ${name} failed with code ${result.exitCode ?? 1}`)
     process.exit(result.exitCode ?? 1)
   }
-}
-
-function findOccupiedPorts(ports: number[]): Array<{ port: number, pid: number }> {
-  if (process.platform !== 'win32') return []
-
-  const lookup = new Set(ports)
-  const result = spawnSync({
-    cmd: ['netstat', '-ano', '-p', 'tcp'],
-    cwd: repoRoot,
-    stdout: 'pipe',
-    stderr: 'ignore',
-  })
-
-  if (result.exitCode !== 0) return []
-
-  const output = result.stdout.toString()
-  const matches = new Map<number, number>()
-  for (const line of output.split(/\r?\n/)) {
-    const parts = line.trim().split(/\s+/)
-    if (parts.length < 5 || parts[0] !== 'TCP') continue
-    const state = parts[3]
-    if (state !== 'LISTENING') continue
-
-    const localAddress = parts[1]
-    const pid = Number(parts[4])
-    const port = Number(localAddress.split(':').at(-1))
-    if (!Number.isInteger(port) || !Number.isInteger(pid)) continue
-    if (!lookup.has(port)) continue
-    matches.set(port, pid)
-  }
-
-  return [...matches.entries()]
-    .sort((left, right) => left[0] - right[0])
-    .map(([port, pid]) => ({ port, pid }))
 }
 
 function pipeProcessOutput(
@@ -214,6 +180,7 @@ function flushOutputBuffer(name: string, buffer: string, isError: boolean, flush
 
 function sanitizeOutput(text: string): string {
   return text
+    // eslint-disable-next-line no-control-regex, regexp/no-obscure-range
     .replace(/\u001B\[[0-9;?]*[ -/]*[@-~]/g, '')
     .replace(/\r/g, '\n')
 }

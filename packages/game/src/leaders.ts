@@ -368,7 +368,7 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/China%20Qin%20(Unifier).webp',
     ability: {
       name: 'Thirty-Six Stratagems',
-      description: 'Melee units receive the Convert Barbarians action, which consumes the melee unit. +50% :production: Production towards Encampment buildings. +1 :greatwriter: Great Writer point from Encampment districts. Barracks and Stable buildings provide 2 slots for :greatworkwriting: Great Works of Writing. Great Works of Writing provide +1 :food: Food. When recruiting a Great General or Great Writer receive a random :techboosted: Eureka and :civicboosted: Inspiration.',
+      description: 'Melee units receive the Convert Barbarians action, which consumes the melee unit. +50% :production: Production towards Encampment buildings. +1 :greatwriter: Great Writer point from Encampment districts. Barracks and Stable buildings provide 2 slots for :greatwork_writing: Great Works of Writing. Great Works of Writing provide +1 :food: Food. When recruiting a Great General or Great Writer receive a random :techboosted: Eureka and :civicboosted: Inspiration.',
     },
     uniqueUnits: [
       {
@@ -532,7 +532,7 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/England%20Eleanor%20of%20Aquitaine%20(England).webp',
     ability: {
       name: 'Court of Love',
-      description: '+100% :production: Production to Theater Square Buildings. Great Works receive additional yields based on the districts built in this city (+1 for :greatworkwriting: Writings and :greatworkrelic: Relics, +2 for :greatworklandscape: Art and :greatworkartifact: Artifacts, +4 for :greatworkmusic: Music): :science: Science for Campus. :culture: Culture for Theater Square. :gold: Gold for Harbor or Commercial Hub. :faith: Faith for Holy Site. :production: Production for Industrial Zone. :food: Food for Neighborhood. (Can\'t receive bonus yields on great works from Anshan) Great Works in Eleanor\'s cities each cause -1 Loyalty per turn in foreign cities within 9 tiles. A city that leaves another civilization due to a loss of Loyalty and is currently receiving the most Loyalty per turn from Eleanor\'s civilization skips the Free City step to join this civilization. Cities with either a Lighthouse or a Temple receive +1 :greatwriter: Great Writer point.',
+      description: '+100% :production: Production to Theater Square Buildings. Great Works receive additional yields based on the districts built in this city (+1 for :greatwork_writing: Writings and :greatwork_relic: Relics, +2 for :greatwork_landscape: Art and :greatwork_artifact: Artifacts, +4 for :greatwork_music: Music): :science: Science for Campus. :culture: Culture for Theater Square. :gold: Gold for Harbor or Commercial Hub. :faith: Faith for Holy Site. :production: Production for Industrial Zone. :food: Food for Neighborhood. (Can\'t receive bonus yields on great works from Anshan) Great Works in Eleanor\'s cities each cause -1 Loyalty per turn in foreign cities within 9 tiles. A city that leaves another civilization due to a loss of Loyalty and is currently receiving the most Loyalty per turn from Eleanor\'s civilization skips the Free City step to join this civilization. Cities with either a Lighthouse or a Temple receive +1 :greatwriter: Great Writer point.',
     },
     uniqueUnits: [
       {
@@ -710,7 +710,7 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/France%20Eleanor%20of%20Aquitaine%20(France).webp',
     ability: {
       name: 'Court of Love',
-      description: '+100% :production: Production to Theater Square Buildings. Great Works receive additional yields based on the districts built in this city (+1 for :greatworkwriting: Writings and :greatworkrelic: Relics, +2 for :greatworklandscape: Art and :greatworkartifact: Artifacts, +4 for :greatworkmusic: Music): :science: Science for Campus. :culture: Culture for Theater Square. :gold: Gold for Harbor or Commercial Hub. :faith: Faith for Holy Site. :production: Production for Industrial Zone. :food: Food for Neighborhood. (Can\'t receive bonus yields on great works from Anshan) Great Works in Eleanor\'s cities each cause -1 Loyalty per turn in foreign cities within 9 tiles. A city that leaves another civilization due to a loss of Loyalty and is currently receiving the most Loyalty per turn from Eleanor\'s civilization skips the Free City step to join this civilization. Cities with either a Lighthouse or a Temple receive +1 :greatwriter: Great Writer point.',
+      description: '+100% :production: Production to Theater Square Buildings. Great Works receive additional yields based on the districts built in this city (+1 for :greatwork_writing: Writings and :greatwork_relic: Relics, +2 for :greatwork_landscape: Art and :greatwork_artifact: Artifacts, +4 for :greatwork_music: Music): :science: Science for Campus. :culture: Culture for Theater Square. :gold: Gold for Harbor or Commercial Hub. :faith: Faith for Holy Site. :production: Production for Industrial Zone. :food: Food for Neighborhood. (Can\'t receive bonus yields on great works from Anshan) Great Works in Eleanor\'s cities each cause -1 Loyalty per turn in foreign cities within 9 tiles. A city that leaves another civilization due to a loss of Loyalty and is currently receiving the most Loyalty per turn from Eleanor\'s civilization skips the Free City step to join this civilization. Cities with either a Lighthouse or a Temple receive +1 :greatwriter: Great Writer point.',
     },
     uniqueUnits: [
       {
@@ -1316,7 +1316,7 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/Mali%20Sundiata%20Keita.webp',
     ability: {
       name: 'Sogolon',
-      description: 'Patronage of :greatperson: Great People costs 30% less :gold: Gold. Cities with a Theater Square and Suguba receive +1 :greatwriter: Great Writer point. Markets gain 2 slots for :greatworkwriting: Great Works of Writing in cities founded by Sundiata. :greatworkwriting: Great Works of Writing grant +2 :culture: Culture and +4 :gold: Gold.',
+      description: 'Patronage of :greatperson: Great People costs 30% less :gold: Gold. Cities with a Theater Square and Suguba receive +1 :greatwriter: Great Writer point. Markets gain 2 slots for :greatwork_writing: Great Works of Writing in cities founded by Sundiata. :greatwork_writing: Great Works of Writing grant +2 :culture: Culture and +4 :gold: Gold.',
     },
     uniqueUnits: [
       {
@@ -1736,7 +1736,7 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/Poland%20Jadwiga.webp',
     ability: {
       name: 'Lithuanian Union',
-      description: 'Holy Sites gain standard Faith adjacency from adjacent :district: Districts. All :greatworkrelic: Relics generate an additional +2 :faith: Faith, +2 :culture: Culture, and +4 :gold: Gold. Receive a :greatworkrelic: Relic when founding and when completing a Religion. The Religion founded by Poland becomes the majority in an adjacent city that loses a tile to a Polish Culture Bomb.',
+      description: 'Holy Sites gain standard Faith adjacency from adjacent :district: Districts. All :greatwork_relic: Relics generate an additional +2 :faith: Faith, +2 :culture: Culture, and +4 :gold: Gold. Receive a :greatwork_relic: Relic when founding and when completing a Religion. The Religion founded by Poland becomes the majority in an adjacent city that loses a tile to a Polish Culture Bomb.',
     },
     uniqueUnits: [
       {
