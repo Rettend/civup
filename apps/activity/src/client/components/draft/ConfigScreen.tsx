@@ -1646,14 +1646,13 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
                   <Show when={isLobbyMode() && amHost() && isRedDeathLobbyMode()}>
                     <div class="px-1 flex gap-3 items-center justify-between">
-                      <span class={cn('text-sm font-medium', optimisticDraftConfig().randomDraft ? 'text-[#f97316]' : 'text-fg-muted')}>
+                      <span class={cn('text-sm font-medium', optimisticDraftConfig().randomDraft ? 'text-accent' : 'text-fg-muted')}>
                         Random draft
                       </span>
                       <Switch
                         checked={optimisticDraftConfig().randomDraft}
                         disabled={lobbyActionPending() || randomDraftPending()}
                         class="w-auto"
-                        tone="orange"
                         onChange={checked => void handleRandomDraftChange(checked)}
                       />
                     </div>
@@ -1814,12 +1813,9 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
                         <Show when={isLobbyMode()}>
                           <div class="mt-1 pt-3 border-t border-border-subtle px-1 flex gap-3 items-center justify-between">
-                            <div class="flex flex-col gap-0.5">
-                              <span class={cn('text-sm font-medium', optimisticDraftConfig().redDeath ? 'text-[#f97316]' : 'text-fg-muted')}>
-                                Red Death
-                              </span>
-                              <span class="text-xs text-fg-subtle/80 leading-snug">10 factions, no bans, just-in-time leader pool.</span>
-                            </div>
+                            <span class={cn('text-sm font-medium', optimisticDraftConfig().redDeath ? 'text-[#f97316]' : 'text-fg-muted')}>
+                              Red Death
+                            </span>
                             <Switch
                               checked={optimisticDraftConfig().redDeath}
                               disabled={lobbyActionPending() || redDeathPending()}
@@ -1831,26 +1827,26 @@ export function ConfigScreen(props: ConfigScreenProps) {
                         </Show>
                       </div>
                     </Show>
+                </div>
 
-                  <div class="min-h-5">
-                    <Show when={configMessage()}>
-                      <div class="text-xs text-fg flex gap-1.5 items-center">
-                        <span class={cn(
-                          'text-base shrink-0 self-center',
-                          configMessageTone() === 'error'
-                            ? 'i-ph-x-bold text-danger'
-                            : 'i-ph-check-bold text-accent',
-                        )}
-                        />
-                        <Show
-                          when={configMessageTone() === 'info' && rankRoleSetDetail()}
-                          fallback={<span class="leading-relaxed">{configMessage()}</span>}
-                        >
-                          <RankRoleSetNotice detail={rankRoleSetDetail()!} />
-                        </Show>
-                      </div>
-                    </Show>
-                  </div>
+                <div class="min-h-5 shrink-0">
+                  <Show when={configMessage()}>
+                    <div class="text-xs text-fg flex gap-1.5 items-center">
+                      <span class={cn(
+                        'text-base shrink-0 self-center',
+                        configMessageTone() === 'error'
+                          ? 'i-ph-x-bold text-danger'
+                          : 'i-ph-check-bold text-accent',
+                      )}
+                      />
+                      <Show
+                        when={configMessageTone() === 'info' && rankRoleSetDetail()}
+                        fallback={<span class="leading-relaxed">{configMessage()}</span>}
+                      >
+                        <RankRoleSetNotice detail={rankRoleSetDetail()!} />
+                      </Show>
+                    </div>
+                  </Show>
                 </div>
               </div>
             </div>
