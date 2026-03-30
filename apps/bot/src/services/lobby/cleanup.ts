@@ -10,7 +10,7 @@ import { filterQueueEntriesForLobby, normalizeLobbySlots } from './slots.ts'
 import { clearLobbyById, getLobbiesByMode } from './store.ts'
 
 export const LOBBY_TIMEOUT_MESSAGE = 'This lobby timed out due to inactivity.'
-export const LOBBY_INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000
+export const LOBBY_INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000 // 1 hour
 
 export interface PrunedInactiveLobby {
   lobbyId: string
