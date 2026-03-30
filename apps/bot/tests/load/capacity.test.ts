@@ -8,8 +8,10 @@ import {
   createDraft,
   getDefaultFormat,
   isDraftError,
+  isTeamMode,
   processDraftInput,
   slotToTeamIndex,
+  swapSeatPicks,
   toLeaderboardMode,
 } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
@@ -124,6 +126,7 @@ interface CapacitySnapshot {
     lobbyWatchMsgsPerConnection: number
     doWebsocketBillingRatio: number
     estimatedDoGbSecondsPerRequest: number
+    averageAcceptedSwapsPerTeamDraft: number
   }
   backgroundDailyUsage: DailyUsage | null
   scenarios: CapacitySnapshotScenario[]
@@ -203,6 +206,12 @@ const CAPACITY_SCENARIOS: CapacityScenario[] = [
     joinGroups: [['p2', 'p3'], ['p4', 'p5', 'p6']],
   },
   {
+    id: 'teamer-ranked',
+    label: '4v4',
+    mode: '4v4',
+    joinGroups: [['p2', 'p3', 'p4'], ['p5', 'p6', 'p7', 'p8']],
+  },
+  {
     id: 'ffa-eight-player',
     label: 'ffa8',
     mode: 'ffa',
@@ -214,6 +223,8 @@ const DO_WEBSOCKET_BILLING_RATIO = 20
 const DO_CREATE_ROOM_REQUESTS_PER_DRAFT = 1
 const LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION = 4
 const ESTIMATED_DO_GB_SECONDS_PER_REQUEST = 0.0025
+const AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT = 0.5
+const ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES = 2
 const LEADERBOARD_CRON_RUNS_PER_DAY = 24 * 60 / 2
 const INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY = 24
 const RANKED_ROLE_CRON_RUNS_PER_DAY = 1
@@ -326,26 +337,36 @@ async function buildScenarioReport(
     backgroundRatedPlayers: 0,
     includeOpenLobbyChurn: true,
   }))
+  const modeledBaseline = await applyTeamSwapBlend(mode, baseline, {
+    backgroundRatedPlayers: 0,
+    includeOpenLobbyChurn: true,
+  })
   const withOneBackgroundPlayer = await measureStableValue(CAPACITY_STABILITY_SAMPLES, () => simulateScenarioLifecycle({
     mode,
     backgroundRatedPlayers: 1,
     includeOpenLobbyChurn: true,
   }))
+  const modeledWithOneBackgroundPlayer = await applyTeamSwapBlend(mode, withOneBackgroundPlayer, {
+    backgroundRatedPlayers: 1,
+    includeOpenLobbyChurn: true,
+  })
+  const openLobbyChurnPerDraft = subtractUsage(baseline.usage, coreBaseline.usage)
+  const corePerDraft = subtractUsage(modeledBaseline.usage, openLobbyChurnPerDraft)
 
   const model: CapacityModel = {
     perDraft: {
-      workersRequests: baseline.usage.workersRequests,
-      d1RowsReadBase: baseline.usage.d1RowsRead,
-      d1RowsReadPerLeaderboardPlayer: withOneBackgroundPlayer.usage.d1RowsRead - baseline.usage.d1RowsRead,
-      d1RowsWritten: baseline.usage.d1RowsWritten,
-      doSqliteRowsRead: baseline.usage.doSqliteRowsRead,
-      doSqliteRowsWritten: baseline.usage.doSqliteRowsWritten,
-      kvReads: baseline.usage.kvReads,
-      kvWrites: baseline.usage.kvWrites,
-      kvDeletes: baseline.usage.kvDeletes,
-      kvLists: baseline.usage.kvLists,
-      doRequests: baseline.usage.doRequests,
-      doDurationGbSeconds: baseline.usage.doDurationGbSeconds,
+      workersRequests: modeledBaseline.usage.workersRequests,
+      d1RowsReadBase: modeledBaseline.usage.d1RowsRead,
+      d1RowsReadPerLeaderboardPlayer: modeledWithOneBackgroundPlayer.usage.d1RowsRead - modeledBaseline.usage.d1RowsRead,
+      d1RowsWritten: modeledBaseline.usage.d1RowsWritten,
+      doSqliteRowsRead: modeledBaseline.usage.doSqliteRowsRead,
+      doSqliteRowsWritten: modeledBaseline.usage.doSqliteRowsWritten,
+      kvReads: modeledBaseline.usage.kvReads,
+      kvWrites: modeledBaseline.usage.kvWrites,
+      kvDeletes: modeledBaseline.usage.kvDeletes,
+      kvLists: modeledBaseline.usage.kvLists,
+      doRequests: modeledBaseline.usage.doRequests,
+      doDurationGbSeconds: modeledBaseline.usage.doDurationGbSeconds,
     },
     backgroundDaily: leaderboardCronBackgroundUsage,
   }
@@ -399,13 +420,13 @@ async function buildScenarioReport(
   return {
     mode,
     model,
-    corePerDraft: coreBaseline.usage,
-    openLobbyChurnPerDraft: subtractUsage(baseline.usage, coreBaseline.usage),
-    draftRoomIncomingMessages: baseline.draftRoomIncomingMessages,
-    draftRoomIncomingMessagesWithSelectionPreviews: baseline.draftRoomIncomingMessagesWithSelectionPreviews,
-    draftRoomIncomingMessagesWithTeamPickPreviews: baseline.draftRoomIncomingMessagesWithTeamPickPreviews,
-    openLobbyMutationRequests: baseline.openLobbyMutationRequests,
-    legacySelectedLobbyRefetchRequests: baseline.legacySelectedLobbyRefetchRequests,
+    corePerDraft,
+    openLobbyChurnPerDraft,
+    draftRoomIncomingMessages: modeledBaseline.draftRoomIncomingMessages,
+    draftRoomIncomingMessagesWithSelectionPreviews: modeledBaseline.draftRoomIncomingMessagesWithSelectionPreviews,
+    draftRoomIncomingMessagesWithTeamPickPreviews: modeledBaseline.draftRoomIncomingMessagesWithTeamPickPreviews,
+    openLobbyMutationRequests: modeledBaseline.openLobbyMutationRequests,
+    legacySelectedLobbyRefetchRequests: modeledBaseline.legacySelectedLobbyRefetchRequests,
     freeCapacityPlaysPerDay,
     paidIncludedCapacityPlaysPerDay,
     paidSixDollarCapacityPlaysPerDay,
@@ -578,6 +599,7 @@ async function simulateScenarioLifecycle(input: {
   mode: CapacityScenario
   backgroundRatedPlayers: number
   includeOpenLobbyChurn: boolean
+  acceptedSwaps?: number
 }): Promise<SimulationResult> {
   const { db, sqlite } = await createTestDatabase()
   const sqlTracker = trackSqlite(sqlite)
@@ -643,9 +665,28 @@ async function simulateScenarioLifecycle(input: {
 
     botRequests += 1
     const started = await startDraftFromOpenLobby(db, kv, input.mode)
+    let completedDraftState = started.completedDraftState
+    let draftRoomIncomingMessages = started.draftRoomIncomingMessages
+    let draftRoomIncomingMessagesWithSelectionPreviews = started.draftRoomIncomingMessagesWithSelectionPreviews
+    let draftRoomIncomingMessagesWithTeamPickPreviews = started.draftRoomIncomingMessagesWithTeamPickPreviews
 
     botRequests += 1
-    await handleDraftCompleteWebhook(db, kv, started.matchId, started.completedDraftState)
+    await handleDraftCompleteWebhook(db, kv, started.matchId, completedDraftState)
+
+    const acceptedSwaps = isTeamMode(input.mode.mode) ? Math.max(0, Math.trunc(input.acceptedSwaps ?? 0)) : 0
+    for (let index = 0; index < acceptedSwaps; index++) {
+      completedDraftState = applyAcceptedTeamSwap(completedDraftState)
+      botRequests += 1
+      await handleDraftCompleteWebhook(db, kv, started.matchId, completedDraftState)
+      draftRoomIncomingMessages += ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES
+      draftRoomIncomingMessagesWithSelectionPreviews += ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES
+      draftRoomIncomingMessagesWithTeamPickPreviews += ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES
+    }
+
+    if (isTeamMode(input.mode.mode)) {
+      botRequests += 1
+      await handleDraftCompleteWebhook(db, kv, started.matchId, completedDraftState, { finalized: true })
+    }
 
     for (let index = 0; index < playerIds.length; index++) {
       botRequests += 1
@@ -662,14 +703,14 @@ async function simulateScenarioLifecycle(input: {
     const doRequests = estimateDoBilledRequestUnits({
       stateCoordinatorRequests: stateCoordinator.requests(),
       viewerCount: scenarioViewerIds(input.mode).length,
-      draftRoomIncomingMessages: started.draftRoomIncomingMessages,
+      draftRoomIncomingMessages,
       lobbyWatchIncomingMessagesPerConnection: LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION,
     })
 
     return {
-      draftRoomIncomingMessages: started.draftRoomIncomingMessages,
-      draftRoomIncomingMessagesWithSelectionPreviews: started.draftRoomIncomingMessagesWithSelectionPreviews,
-      draftRoomIncomingMessagesWithTeamPickPreviews: started.draftRoomIncomingMessagesWithTeamPickPreviews,
+      draftRoomIncomingMessages,
+      draftRoomIncomingMessagesWithSelectionPreviews,
+      draftRoomIncomingMessagesWithTeamPickPreviews,
       openLobbyMutationRequests,
       legacySelectedLobbyRefetchRequests,
       usage: {
@@ -840,6 +881,9 @@ async function handleDraftCompleteWebhook(
   kv: KVNamespace,
   matchId: string,
   state: DraftState,
+  options: {
+    finalized?: boolean
+  } = {},
 ): Promise<void> {
   const activated = await activateDraftMatch(db, {
     state,
@@ -847,9 +891,15 @@ async function handleDraftCompleteWebhook(
     hostId: state.seats[0]?.playerId ?? HOST_ID,
   })
   if ('error' in activated) throw new Error(activated.error)
+  if (activated.alreadyActive && options.finalized !== true) return
 
   const lobby = await getLobbyByMatch(kv, matchId)
   if (!lobby) throw new Error('Expected lobby mapping during draft-complete simulation')
+
+  if (activated.alreadyActive && options.finalized === true) {
+    await storeMatchMessageMapping(db, `message-lobby-finalized-${matchId}`, matchId)
+    return
+  }
 
   const activeLobby = await setLobbyStatus(kv, lobby.id, 'active', lobby) ?? lobby
   await syncLobbyDerivedState(kv, activeLobby)
@@ -978,6 +1028,88 @@ function buildCompletedDraftState(
     inputCountWithSelectionPreviews: inputCount + selectionPreviewInputCount,
     inputCountWithTeamPickPreviews: inputCount + selectionPreviewInputCount,
   }
+}
+
+async function applyTeamSwapBlend(
+  mode: CapacityScenario,
+  base: SimulationResult,
+  input: {
+    backgroundRatedPlayers: number
+    includeOpenLobbyChurn: boolean
+  },
+): Promise<SimulationResult> {
+  if (!isTeamMode(mode.mode) || AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT <= 0) return base
+
+  const withAcceptedSwap = await measureStableValue(CAPACITY_STABILITY_SAMPLES, () => simulateScenarioLifecycle({
+    mode,
+    backgroundRatedPlayers: input.backgroundRatedPlayers,
+    includeOpenLobbyChurn: input.includeOpenLobbyChurn,
+    acceptedSwaps: 1,
+  }))
+
+  return blendSimulationResult(base, withAcceptedSwap, AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT)
+}
+
+function blendSimulationResult(
+  base: SimulationResult,
+  withAcceptedSwap: SimulationResult,
+  acceptedSwapRate: number,
+): SimulationResult {
+  return {
+    usage: blendUsageSample(base.usage, withAcceptedSwap.usage, acceptedSwapRate),
+    draftRoomIncomingMessages: blendMetric(base.draftRoomIncomingMessages, withAcceptedSwap.draftRoomIncomingMessages, acceptedSwapRate),
+    draftRoomIncomingMessagesWithSelectionPreviews: blendMetric(base.draftRoomIncomingMessagesWithSelectionPreviews, withAcceptedSwap.draftRoomIncomingMessagesWithSelectionPreviews, acceptedSwapRate),
+    draftRoomIncomingMessagesWithTeamPickPreviews: blendMetric(base.draftRoomIncomingMessagesWithTeamPickPreviews, withAcceptedSwap.draftRoomIncomingMessagesWithTeamPickPreviews, acceptedSwapRate),
+    openLobbyMutationRequests: blendMetric(base.openLobbyMutationRequests, withAcceptedSwap.openLobbyMutationRequests, acceptedSwapRate),
+    legacySelectedLobbyRefetchRequests: blendMetric(base.legacySelectedLobbyRefetchRequests, withAcceptedSwap.legacySelectedLobbyRefetchRequests, acceptedSwapRate),
+  }
+}
+
+function blendUsageSample(base: UsageSample, withAcceptedSwap: UsageSample, acceptedSwapRate: number): UsageSample {
+  return {
+    workersRequests: blendMetric(base.workersRequests, withAcceptedSwap.workersRequests, acceptedSwapRate),
+    d1RowsRead: blendMetric(base.d1RowsRead, withAcceptedSwap.d1RowsRead, acceptedSwapRate),
+    d1RowsWritten: blendMetric(base.d1RowsWritten, withAcceptedSwap.d1RowsWritten, acceptedSwapRate),
+    doSqliteRowsRead: blendMetric(base.doSqliteRowsRead, withAcceptedSwap.doSqliteRowsRead, acceptedSwapRate),
+    doSqliteRowsWritten: blendMetric(base.doSqliteRowsWritten, withAcceptedSwap.doSqliteRowsWritten, acceptedSwapRate),
+    kvReads: blendMetric(base.kvReads, withAcceptedSwap.kvReads, acceptedSwapRate),
+    kvWrites: blendMetric(base.kvWrites, withAcceptedSwap.kvWrites, acceptedSwapRate),
+    kvDeletes: blendMetric(base.kvDeletes, withAcceptedSwap.kvDeletes, acceptedSwapRate),
+    kvLists: blendMetric(base.kvLists, withAcceptedSwap.kvLists, acceptedSwapRate),
+    doRequests: blendMetric(base.doRequests, withAcceptedSwap.doRequests, acceptedSwapRate),
+    doDurationGbSeconds: blendMetric(base.doDurationGbSeconds, withAcceptedSwap.doDurationGbSeconds, acceptedSwapRate),
+  }
+}
+
+function blendMetric(base: number, withAcceptedSwap: number, acceptedSwapRate: number): number {
+  return roundSnapshotNumber(base + (withAcceptedSwap - base) * acceptedSwapRate)
+}
+
+function applyAcceptedTeamSwap(state: DraftState): DraftState {
+  const teammateSeatsByTeam = new Map<number, number[]>()
+  for (let seatIndex = 0; seatIndex < state.seats.length; seatIndex++) {
+    const team = state.seats[seatIndex]?.team
+    if (team == null) continue
+    const seatIndices = teammateSeatsByTeam.get(team) ?? []
+    seatIndices.push(seatIndex)
+    teammateSeatsByTeam.set(team, seatIndices)
+  }
+
+  for (const seatIndices of teammateSeatsByTeam.values()) {
+    if (seatIndices.length < 2) continue
+    const [fromSeat, toSeat] = seatIndices
+    if (fromSeat == null || toSeat == null) continue
+
+    const swappedPicks = swapSeatPicks(state, fromSeat, toSeat)
+    if ('error' in swappedPicks) continue
+
+    return {
+      ...state,
+      picks: swappedPicks,
+    }
+  }
+
+  throw new Error(`Expected an accepted teammate swap to be available for ${state.matchId}`)
 }
 
 function applyDraftInput(
@@ -1162,6 +1294,7 @@ function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
       lobbyWatchMsgsPerConnection: LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION,
       doWebsocketBillingRatio: DO_WEBSOCKET_BILLING_RATIO,
       estimatedDoGbSecondsPerRequest: ESTIMATED_DO_GB_SECONDS_PER_REQUEST,
+      averageAcceptedSwapsPerTeamDraft: AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT,
     },
     backgroundDailyUsage: backgroundDailyUsage ? roundNumericRecord(backgroundDailyUsage) : null,
     scenarios: reports.map((report) => {
