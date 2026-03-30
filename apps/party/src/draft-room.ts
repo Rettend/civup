@@ -4,7 +4,9 @@ import type {
   DraftPreviewState,
   DraftState,
   DraftWebhookPayload,
+  LeaderSwapRequest,
   LeaderSwapState,
+  PendingLeaderSwapRequest,
   RoomConfig,
   ServerMessage,
 } from '@civup/game'
@@ -108,7 +110,6 @@ export class Main extends Server<PartyEnv> {
     await this.ctx.storage.put('previews', createEmptyDraftPreviews())
     await this.ctx.storage.put('swapWindowOpen', false)
     await this.ctx.storage.put('swapState', null)
-    await this.ctx.storage.put('swapPendingExpiresAt', null)
     await this.ctx.storage.put('swapSafetyEndsAt', null)
 
     return json({ ok: true, matchId: config.matchId }, 201)
@@ -398,14 +399,13 @@ export class Main extends Server<PartyEnv> {
         }
 
         const swapState = await this.getSwapState()
-        const nextSwapState = createPendingSwap(state, swapState, seatIndex, msg.toSeat)
+        const nextSwapState = createPendingSwap(state, swapState, seatIndex, msg.toSeat, Date.now() + SWAP_REQUEST_TIMEOUT_MS)
         if ('error' in nextSwapState) {
           this.send(sender, { type: 'error', message: nextSwapState.error })
           return
         }
 
         await this.ctx.storage.put('swapState', nextSwapState)
-        await this.ctx.storage.put('swapPendingExpiresAt', Date.now() + SWAP_REQUEST_TIMEOUT_MS)
         await this.scheduleSwapAlarm()
         this.broadcastSwapUpdate(state, nextSwapState)
         break
@@ -422,13 +422,9 @@ export class Main extends Server<PartyEnv> {
         }
 
         const swapState = await this.getSwapState()
-        const pendingSwap = swapState.pendingSwap
+        const pendingSwap = getIncomingSwapForSeat(swapState, seatIndex)
         if (!pendingSwap) {
           this.send(sender, { type: 'error', message: 'No pending swap request' })
-          return
-        }
-        if (pendingSwap.toSeat !== seatIndex) {
-          this.send(sender, { type: 'error', message: 'Only the requested teammate can accept this swap' })
           return
         }
 
@@ -443,13 +439,12 @@ export class Main extends Server<PartyEnv> {
           picks: swappedPicks,
         }
         const nextSwapState: LeaderSwapState = {
-          pendingSwap: null,
+          pendingSwaps: swapState.pendingSwaps.filter(swap => !isSamePendingSwap(swap, pendingSwap)),
           completedSwaps: [...swapState.completedSwaps, pendingSwap],
         }
 
         await this.ctx.storage.put('state', nextState)
         await this.ctx.storage.put('swapState', nextSwapState)
-        await this.ctx.storage.put('swapPendingExpiresAt', null)
         await this.scheduleSwapAlarm()
         this.broadcastSwapUpdate(nextState, nextSwapState, swappedPicks)
         const completedAt = await this.ctx.storage.get<number | null>('completedAt')
@@ -470,7 +465,7 @@ export class Main extends Server<PartyEnv> {
         }
 
         const swapState = await this.getSwapState()
-        const pendingSwap = swapState.pendingSwap
+        const pendingSwap = getOutgoingSwapForSeat(swapState, seatIndex) ?? getIncomingSwapForSeat(swapState, seatIndex)
         if (!pendingSwap) return
         if (pendingSwap.fromSeat !== seatIndex && pendingSwap.toSeat !== seatIndex) {
           this.send(sender, { type: 'error', message: 'Only the players in this swap can cancel it' })
@@ -478,11 +473,10 @@ export class Main extends Server<PartyEnv> {
         }
 
         const nextSwapState: LeaderSwapState = {
-          ...swapState,
-          pendingSwap: null,
+          pendingSwaps: swapState.pendingSwaps.filter(swap => !isSamePendingSwap(swap, pendingSwap)),
+          completedSwaps: swapState.completedSwaps,
         }
         await this.ctx.storage.put('swapState', nextSwapState)
-        await this.ctx.storage.put('swapPendingExpiresAt', null)
         await this.scheduleSwapAlarm()
         this.broadcastSwapUpdate(state, nextSwapState)
         break
@@ -549,23 +543,17 @@ export class Main extends Server<PartyEnv> {
 
     if (state.status === 'complete' && await this.isSwapWindowOpen()) {
       const now = Date.now()
-      const pendingExpiresAt = await this.ctx.storage.get<number | null>('swapPendingExpiresAt')
       const safetyEndsAt = await this.ctx.storage.get<number | null>('swapSafetyEndsAt')
 
-      if (pendingExpiresAt != null && pendingExpiresAt <= now) {
-        const swapState = await this.getSwapState()
-        if (swapState.pendingSwap) {
-          const nextSwapState: LeaderSwapState = {
-            ...swapState,
-            pendingSwap: null,
-          }
+      const swapState = await this.getSwapState()
+      const nextPendingSwaps = swapState.pendingSwaps.filter(swap => swap.expiresAt > now)
+      if (nextPendingSwaps.length !== swapState.pendingSwaps.length) {
+        const nextSwapState: LeaderSwapState = {
+          pendingSwaps: nextPendingSwaps,
+          completedSwaps: swapState.completedSwaps,
+        }
           await this.ctx.storage.put('swapState', nextSwapState)
-          await this.ctx.storage.put('swapPendingExpiresAt', null)
-          this.broadcastSwapUpdate(state, nextSwapState)
-        }
-        else {
-          await this.ctx.storage.put('swapPendingExpiresAt', null)
-        }
+        this.broadcastSwapUpdate(state, nextSwapState)
       }
 
       if (safetyEndsAt != null && safetyEndsAt <= now) {
@@ -660,7 +648,6 @@ export class Main extends Server<PartyEnv> {
         swapState = createEmptySwapState()
         await this.ctx.storage.put('swapWindowOpen', true)
         await this.ctx.storage.put('swapState', swapState)
-        await this.ctx.storage.put('swapPendingExpiresAt', null)
         await this.ctx.storage.put('swapSafetyEndsAt', completedAt + SWAP_WINDOW_TIMEOUT_MS)
         await this.scheduleSwapAlarm()
         if (config) immediateSwapWindowSyncTask = this.notifyDraftComplete(newState, config, completedAt)
@@ -816,13 +803,14 @@ export class Main extends Server<PartyEnv> {
   }
 
   private async getSwapState(): Promise<LeaderSwapState> {
-    return await this.ctx.storage.get<LeaderSwapState>('swapState') ?? createEmptySwapState()
+    const storedSwapState = await this.ctx.storage.get<unknown>('swapState')
+    const legacyPendingExpiresAt = await this.ctx.storage.get<number | null>('swapPendingExpiresAt') ?? null
+    return normalizeStoredSwapState(storedSwapState, legacyPendingExpiresAt)
   }
 
   private async clearSwapWindowState() {
     await this.ctx.storage.put('swapWindowOpen', false)
     await this.ctx.storage.put('swapState', null)
-    await this.ctx.storage.put('swapPendingExpiresAt', null)
     await this.ctx.storage.put('swapSafetyEndsAt', null)
   }
 
@@ -832,9 +820,9 @@ export class Main extends Server<PartyEnv> {
       return
     }
 
-    const pendingExpiresAt = await this.ctx.storage.get<number | null>('swapPendingExpiresAt')
+    const swapState = await this.getSwapState()
     const safetyEndsAt = await this.ctx.storage.get<number | null>('swapSafetyEndsAt')
-    const nextAlarm = [pendingExpiresAt, safetyEndsAt]
+    const nextAlarm = [getNextSwapPendingExpiry(swapState), safetyEndsAt]
       .filter((timestamp): timestamp is number => typeof timestamp === 'number' && Number.isFinite(timestamp))
       .sort((left, right) => left - right)[0] ?? null
 
@@ -1191,7 +1179,7 @@ function wait(ms: number): Promise<void> {
 
 function createEmptySwapState(): LeaderSwapState {
   return {
-    pendingSwap: null,
+    pendingSwaps: [],
     completedSwaps: [],
   }
 }
@@ -1201,18 +1189,122 @@ function createPendingSwap(
   swapState: LeaderSwapState,
   fromSeat: number,
   toSeat: number,
+  expiresAt: number,
 ): LeaderSwapState | { error: string } {
-  if (swapState.pendingSwap) {
-    return { error: 'A swap request is already pending' }
+  if (findPendingSwapBetweenSeats(swapState, fromSeat, toSeat)) {
+    return { error: 'A swap request between those players is already pending' }
+  }
+  if (getOutgoingSwapForSeat(swapState, fromSeat)) {
+    return { error: 'You already have a pending outgoing swap request' }
+  }
+  if (getIncomingSwapForSeat(swapState, toSeat)) {
+    return { error: 'That player already has a pending incoming swap request' }
   }
 
   const validation = swapSeatPicks(state, fromSeat, toSeat)
   if ('error' in validation) return validation
 
   return {
-    pendingSwap: { fromSeat, toSeat },
+    pendingSwaps: [...swapState.pendingSwaps, { fromSeat, toSeat, expiresAt }],
     completedSwaps: swapState.completedSwaps,
   }
+}
+
+function getIncomingSwapForSeat(
+  swapState: LeaderSwapState,
+  seatIndex: number,
+): PendingLeaderSwapRequest | null {
+  return swapState.pendingSwaps.find(swap => swap.toSeat === seatIndex) ?? null
+}
+
+function getOutgoingSwapForSeat(
+  swapState: LeaderSwapState,
+  seatIndex: number,
+): PendingLeaderSwapRequest | null {
+  return swapState.pendingSwaps.find(swap => swap.fromSeat === seatIndex) ?? null
+}
+
+function findPendingSwapBetweenSeats(
+  swapState: LeaderSwapState,
+  leftSeat: number,
+  rightSeat: number,
+): PendingLeaderSwapRequest | null {
+  return swapState.pendingSwaps.find(
+    swap => (swap.fromSeat === leftSeat && swap.toSeat === rightSeat)
+      || (swap.fromSeat === rightSeat && swap.toSeat === leftSeat),
+  ) ?? null
+}
+
+function isSamePendingSwap(
+  left: Pick<PendingLeaderSwapRequest, 'fromSeat' | 'toSeat'>,
+  right: Pick<PendingLeaderSwapRequest, 'fromSeat' | 'toSeat'>,
+): boolean {
+  return left.fromSeat === right.fromSeat && left.toSeat === right.toSeat
+}
+
+function getNextSwapPendingExpiry(swapState: LeaderSwapState): number | null {
+  return swapState.pendingSwaps
+    .map(swap => swap.expiresAt)
+    .filter(timestamp => Number.isFinite(timestamp))
+    .sort((left, right) => left - right)[0] ?? null
+}
+
+function normalizeStoredSwapState(
+  value: unknown,
+  legacyPendingExpiresAt: number | null,
+): LeaderSwapState {
+  if (!value || typeof value !== 'object') return createEmptySwapState()
+
+  const raw = value as {
+    pendingSwaps?: unknown
+    completedSwaps?: unknown
+    pendingSwap?: unknown
+  }
+
+  if (Array.isArray(raw.pendingSwaps)) {
+    return {
+      pendingSwaps: raw.pendingSwaps.flatMap(normalizePendingSwapRequest),
+      completedSwaps: Array.isArray(raw.completedSwaps)
+        ? raw.completedSwaps.flatMap(normalizeCompletedSwapRequest)
+        : [],
+    }
+  }
+
+  const legacyPendingSwap = normalizeCompletedSwapRequest(raw.pendingSwap)[0] ?? null
+  return {
+    pendingSwaps: legacyPendingSwap
+      ? [{ ...legacyPendingSwap, expiresAt: legacyPendingExpiresAt ?? Date.now() + SWAP_REQUEST_TIMEOUT_MS }]
+      : [],
+    completedSwaps: Array.isArray(raw.completedSwaps)
+      ? raw.completedSwaps.flatMap(normalizeCompletedSwapRequest)
+      : [],
+  }
+}
+
+function normalizePendingSwapRequest(value: unknown): PendingLeaderSwapRequest[] {
+  if (!value || typeof value !== 'object') return []
+  const request = value as Partial<PendingLeaderSwapRequest>
+  if (!Number.isInteger(request.fromSeat) || !Number.isInteger(request.toSeat) || !Number.isFinite(request.expiresAt)) return []
+  const fromSeat = Number(request.fromSeat)
+  const toSeat = Number(request.toSeat)
+  const expiresAt = Number(request.expiresAt)
+  return [{
+    fromSeat,
+    toSeat,
+    expiresAt,
+  }]
+}
+
+function normalizeCompletedSwapRequest(value: unknown): LeaderSwapRequest[] {
+  if (!value || typeof value !== 'object') return []
+  const request = value as Partial<LeaderSwapRequest>
+  if (!Number.isInteger(request.fromSeat) || !Number.isInteger(request.toSeat)) return []
+  const fromSeat = Number(request.fromSeat)
+  const toSeat = Number(request.toSeat)
+  return [{
+    fromSeat,
+    toSeat,
+  }]
 }
 
 function isAuthorizedRequest(request: Request, expectedSecret: string | undefined): boolean {
