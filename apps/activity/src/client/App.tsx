@@ -439,9 +439,11 @@ export default function App() {
     const targetState = liveTargetState()
     if (!currentUserId || overviewSnapshot === undefined || targetState === undefined) return
 
-    const rawOptions = overviewSnapshot
-      ? materializeOverviewOptions(overviewSnapshot, currentUserId)
-      : fallbackOptions()
+    const rawOptions = overviewSnapshot === undefined
+      ? fallbackOptions()
+      : overviewSnapshot
+        ? materializeOverviewOptions(overviewSnapshot, currentUserId)
+        : []
     const options = visibleTargetOptions(rawOptions)
     const resolvedSnapshot = buildLiveActivityLaunchSnapshot(options, targetState, liveLobbySnapshots, currentUserId)
     const targetOption = targetState

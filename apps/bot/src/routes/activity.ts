@@ -559,7 +559,7 @@ function activityTargetPriority(option: ActivityTargetOption): number {
 function pickDefaultActivityLaunchSelection(targets: ChannelActivityTarget[]): ResolvedActivitySelection | null {
   const preferredTarget = targets.find(target => (target.option.isHost || target.option.isMember) && target.option.kind === 'match')
     ?? targets.find(target => target.option.isHost || target.option.isMember)
-    ?? targets.find(target => target.option.kind === 'match')
+    ?? null
   if (!preferredTarget) return null
 
   return {
