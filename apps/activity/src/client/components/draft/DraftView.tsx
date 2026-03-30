@@ -227,7 +227,7 @@ export function DraftView(props: DraftViewProps) {
 
                 {/* Post-draft message */}
                 <Show when={state()?.status === 'complete'}>
-                  <div class="flex inset-x-0 top-8 justify-center absolute z-50">
+                  <div class="flex inset-x-0 top-16 justify-center absolute z-50">
                     <div class="px-4 py-2 border border-border-subtle rounded-lg bg-bg-subtle/80 flex flex-col gap-1 shadow-2xl shadow-black/50 items-center backdrop-blur-sm">
                       <span class="text-base text-accent font-bold">You can close the activity!</span>
                       <span class="text-sm text-fg/80">Don't forget to report the result</span>
