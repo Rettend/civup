@@ -52,6 +52,10 @@ export function registerWebhookRoutes(app: Hono<Env>) {
       })
 
       if ('error' in result) {
+        if (isIgnorableDraftCompleteError(result.error)) {
+          console.warn(`Ignoring stale draft-complete webhook for match ${payload.matchId}: ${result.error}`)
+          return c.json({ ok: true, ignored: true })
+        }
         return c.json({ error: result.error }, 400)
       }
 
@@ -150,6 +154,11 @@ export function registerWebhookRoutes(app: Hono<Env>) {
     await clearLobbyById(kv, lobby.id, lobby)
     return c.json({ ok: true })
   })
+}
+
+function isIgnorableDraftCompleteError(error: string): boolean {
+  return error.includes('cannot be activated (status: cancelled)')
+    || error.includes('cannot be activated (status: completed)')
 }
 
 function isDraftWebhookPayload(value: unknown): value is DraftWebhookPayload {

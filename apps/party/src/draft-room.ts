@@ -4,11 +4,12 @@ import type {
   DraftPreviewState,
   DraftState,
   DraftWebhookPayload,
+  LeaderSwapState,
   RoomConfig,
   ServerMessage,
 } from '@civup/game'
 import type { Connection, ConnectionContext, WSMessage } from 'partyserver'
-import { createDraft, draftFormatMap, getCurrentStep, isDraftError, isRedDeathFormatId, MAX_TIMER_SECONDS, processDraftInput } from '@civup/game'
+import { createDraft, draftFormatMap, getCurrentStep, isDraftError, isRedDeathFormatId, MAX_TIMER_SECONDS, processDraftInput, swapSeatPicks } from '@civup/game'
 import {
   api,
   ApiError,
@@ -44,6 +45,8 @@ const WEBHOOK_RETRY_MAX_MS = 1500
 const DEBUG_ACTIVE_BOT_PLAYER_ID_PREFIX = 'bot:'
 const DEBUG_ACTIVE_BOT_DELAY_MS = 5000
 const DEBUG_ACTIVE_BOT_STAGGER_MS = 150
+const SWAP_REQUEST_TIMEOUT_MS = 30_000
+const SWAP_WINDOW_TIMEOUT_MS = 5 * 60_000
 
 // ── Draft Room Server ────────────────────────────────────────
 
@@ -103,6 +106,10 @@ export class Main extends Server<PartyEnv> {
     await this.ctx.storage.put('completedAt', null)
     await this.ctx.storage.put('cancelledAt', null)
     await this.ctx.storage.put('previews', createEmptyDraftPreviews())
+    await this.ctx.storage.put('swapWindowOpen', false)
+    await this.ctx.storage.put('swapState', null)
+    await this.ctx.storage.put('swapPendingExpiresAt', null)
+    await this.ctx.storage.put('swapSafetyEndsAt', null)
 
     return json({ ok: true, matchId: config.matchId }, 201)
   }
@@ -130,6 +137,7 @@ export class Main extends Server<PartyEnv> {
     const timerEndsAt = await this.ctx.storage.get<number | null>('timerEndsAt')
     const completedAt = await this.ctx.storage.get<number | null>('completedAt')
     const cancelledAt = await this.ctx.storage.get<number | null>('cancelledAt')
+    const swapWindowOpen = await this.ctx.storage.get<boolean>('swapWindowOpen') === true
     const seatIndex = state.seats.findIndex(seat => seat.playerId === activityUserId)
     const previews = sanitizeDraftPreviews(
       state,
@@ -141,6 +149,7 @@ export class Main extends Server<PartyEnv> {
       completedAt,
       cancelledAt,
       previews: censorDraftPreviews(state, previews, seatIndex),
+      swapState: swapWindowOpen ? await this.ctx.storage.get<LeaderSwapState>('swapState') ?? createEmptySwapState() : null,
     })
   }
 
@@ -183,6 +192,10 @@ export class Main extends Server<PartyEnv> {
 
     const timerEndsAt = await this.ctx.storage.get<number | null>('timerEndsAt')
     const completedAt = await this.ctx.storage.get<number | null>('completedAt')
+    const swapWindowOpen = await this.ctx.storage.get<boolean>('swapWindowOpen') === true
+    const swapState = swapWindowOpen
+      ? await this.ctx.storage.get<LeaderSwapState>('swapState') ?? createEmptySwapState()
+      : null
     const previews = sanitizeDraftPreviews(
       state,
       await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
@@ -200,9 +213,10 @@ export class Main extends Server<PartyEnv> {
       timerEndsAt: timerEndsAt ?? null,
       completedAt: completedAt ?? null,
       previews: censorDraftPreviews(state, previews, seatIndex),
+      swapState,
     })
 
-    if (state.status === 'complete' || state.status === 'cancelled') {
+    if ((state.status === 'complete' && !swapWindowOpen) || state.status === 'cancelled') {
       connection.close(1000, 'Draft closed')
     }
   }
@@ -369,6 +383,111 @@ export class Main extends Server<PartyEnv> {
         break
       }
 
+      case 'swap-request': {
+        if (seatIndex < 0) {
+          this.send(sender, { type: 'error', message: 'Not a participant' })
+          return
+        }
+        if (!Number.isInteger(msg.toSeat)) {
+          this.send(sender, { type: 'error', message: 'Swap target must be a seat index' })
+          return
+        }
+        if (!(await this.isSwapWindowOpen())) {
+          this.send(sender, { type: 'error', message: 'Leader swaps are not available right now' })
+          return
+        }
+
+        const swapState = await this.getSwapState()
+        const nextSwapState = createPendingSwap(state, swapState, seatIndex, msg.toSeat)
+        if ('error' in nextSwapState) {
+          this.send(sender, { type: 'error', message: nextSwapState.error })
+          return
+        }
+
+        await this.ctx.storage.put('swapState', nextSwapState)
+        await this.ctx.storage.put('swapPendingExpiresAt', Date.now() + SWAP_REQUEST_TIMEOUT_MS)
+        await this.scheduleSwapAlarm()
+        this.broadcastSwapUpdate(state, nextSwapState)
+        break
+      }
+
+      case 'swap-accept': {
+        if (seatIndex < 0) {
+          this.send(sender, { type: 'error', message: 'Not a participant' })
+          return
+        }
+        if (!(await this.isSwapWindowOpen())) {
+          this.send(sender, { type: 'error', message: 'Leader swaps are not available right now' })
+          return
+        }
+
+        const swapState = await this.getSwapState()
+        const pendingSwap = swapState.pendingSwap
+        if (!pendingSwap) {
+          this.send(sender, { type: 'error', message: 'No pending swap request' })
+          return
+        }
+        if (pendingSwap.toSeat !== seatIndex) {
+          this.send(sender, { type: 'error', message: 'Only the requested teammate can accept this swap' })
+          return
+        }
+
+        const swappedPicks = swapSeatPicks(state, pendingSwap.fromSeat, pendingSwap.toSeat)
+        if ('error' in swappedPicks) {
+          this.send(sender, { type: 'error', message: swappedPicks.error })
+          return
+        }
+
+        const nextState: DraftState = {
+          ...state,
+          picks: swappedPicks,
+        }
+        const nextSwapState: LeaderSwapState = {
+          pendingSwap: null,
+          completedSwaps: [...swapState.completedSwaps, pendingSwap],
+        }
+
+        await this.ctx.storage.put('state', nextState)
+        await this.ctx.storage.put('swapState', nextSwapState)
+        await this.ctx.storage.put('swapPendingExpiresAt', null)
+        await this.scheduleSwapAlarm()
+        this.broadcastSwapUpdate(nextState, nextSwapState, swappedPicks)
+        const completedAt = await this.ctx.storage.get<number | null>('completedAt')
+        if (config && completedAt != null) {
+          await this.notifyDraftComplete(nextState, config, completedAt)
+        }
+        break
+      }
+
+      case 'swap-cancel': {
+        if (seatIndex < 0) {
+          this.send(sender, { type: 'error', message: 'Not a participant' })
+          return
+        }
+        if (!(await this.isSwapWindowOpen())) {
+          this.send(sender, { type: 'error', message: 'Leader swaps are not available right now' })
+          return
+        }
+
+        const swapState = await this.getSwapState()
+        const pendingSwap = swapState.pendingSwap
+        if (!pendingSwap) return
+        if (pendingSwap.fromSeat !== seatIndex && pendingSwap.toSeat !== seatIndex) {
+          this.send(sender, { type: 'error', message: 'Only the players in this swap can cancel it' })
+          return
+        }
+
+        const nextSwapState: LeaderSwapState = {
+          ...swapState,
+          pendingSwap: null,
+        }
+        await this.ctx.storage.put('swapState', nextSwapState)
+        await this.ctx.storage.put('swapPendingExpiresAt', null)
+        await this.scheduleSwapAlarm()
+        this.broadcastSwapUpdate(state, nextSwapState)
+        break
+      }
+
       case 'config': {
         if (playerId !== config.hostId) {
           this.send(sender, { type: 'error', message: 'Only the host can update draft config' })
@@ -401,7 +520,7 @@ export class Main extends Server<PartyEnv> {
           await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
         )
         await this.ctx.storage.put('previews', previews)
-        this.broadcastUpdate(nextState, config.hostId, config.leaderDataVersion ?? 'live', [], timerEndsAt ?? null, completedAt ?? null, previews)
+        this.broadcastUpdate(nextState, config.hostId, config.leaderDataVersion ?? 'live', [], timerEndsAt ?? null, completedAt ?? null, previews, null)
         break
       }
 
@@ -413,8 +532,9 @@ export class Main extends Server<PartyEnv> {
   // ── WebSocket: Disconnect ──────────────────────────────────
 
   override async onClose(_connection: Connection) {
-    // No action needed — timer continues server-side.
-    // If the disconnected player's turn expires during picks, TIMEOUT auto-cancels.
+    const state = await this.ctx.storage.get<DraftState>('state')
+    if (!state || state.status !== 'complete') return
+    if (!(await this.isSwapWindowOpen())) return
   }
 
   override async onError(_connection: Connection, _error: unknown) {
@@ -425,7 +545,39 @@ export class Main extends Server<PartyEnv> {
 
   override async onAlarm() {
     const state = await this.ctx.storage.get<DraftState>('state')
-    if (!state || state.status !== 'active') return
+    if (!state) return
+
+    if (state.status === 'complete' && await this.isSwapWindowOpen()) {
+      const now = Date.now()
+      const pendingExpiresAt = await this.ctx.storage.get<number | null>('swapPendingExpiresAt')
+      const safetyEndsAt = await this.ctx.storage.get<number | null>('swapSafetyEndsAt')
+
+      if (pendingExpiresAt != null && pendingExpiresAt <= now) {
+        const swapState = await this.getSwapState()
+        if (swapState.pendingSwap) {
+          const nextSwapState: LeaderSwapState = {
+            ...swapState,
+            pendingSwap: null,
+          }
+          await this.ctx.storage.put('swapState', nextSwapState)
+          await this.ctx.storage.put('swapPendingExpiresAt', null)
+          this.broadcastSwapUpdate(state, nextSwapState)
+        }
+        else {
+          await this.ctx.storage.put('swapPendingExpiresAt', null)
+        }
+      }
+
+      if (safetyEndsAt != null && safetyEndsAt <= now) {
+        await this.finalizeCompletedDraft(state)
+        return
+      }
+
+      await this.scheduleSwapAlarm()
+      return
+    }
+
+    if (state.status !== 'active') return
 
     // Guard against stale alarms (step already advanced)
     const alarmStepIndex = await this.ctx.storage.get<number>('alarmStepIndex')
@@ -454,6 +606,7 @@ export class Main extends Server<PartyEnv> {
     const config = await this.ctx.storage.get<RoomConfig>('config')
     const format = config ? draftFormatMap.get(config.formatId) : null
     let webhookTask: Promise<void> | null = null
+    let immediateSwapWindowSyncTask: Promise<void> | null = null
     const previews = sanitizeDraftPreviews(
       newState,
       await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
@@ -468,6 +621,7 @@ export class Main extends Server<PartyEnv> {
     let timerEndsAt = await this.ctx.storage.get<number | null>('timerEndsAt')
     let completedAt = await this.ctx.storage.get<number | null>('completedAt')
     let cancelledAt = await this.ctx.storage.get<number | null>('cancelledAt')
+    let swapState: LeaderSwapState | null = null
 
     const nextState = this.assignDealtCivIds(newState, config ?? null)
     if (nextState !== newState) {
@@ -501,8 +655,21 @@ export class Main extends Server<PartyEnv> {
         completedAt = Date.now()
         await this.ctx.storage.put('completedAt', completedAt)
       }
-      if (config) {
-        webhookTask = this.notifyDraftComplete(newState, config, completedAt)
+
+      if (this.shouldOpenSwapWindow(newState)) {
+        swapState = createEmptySwapState()
+        await this.ctx.storage.put('swapWindowOpen', true)
+        await this.ctx.storage.put('swapState', swapState)
+        await this.ctx.storage.put('swapPendingExpiresAt', null)
+        await this.ctx.storage.put('swapSafetyEndsAt', completedAt + SWAP_WINDOW_TIMEOUT_MS)
+        await this.scheduleSwapAlarm()
+        if (config) immediateSwapWindowSyncTask = this.notifyDraftComplete(newState, config, completedAt)
+      }
+      else {
+        await this.clearSwapWindowState()
+        if (config) {
+          webhookTask = this.notifyDraftComplete(newState, config, completedAt)
+        }
       }
     }
 
@@ -515,15 +682,28 @@ export class Main extends Server<PartyEnv> {
         cancelledAt = Date.now()
         await this.ctx.storage.put('cancelledAt', cancelledAt)
       }
+      await this.clearSwapWindowState()
       if (config) {
         webhookTask = this.notifyDraftCancelled(newState, config, cancelledAt)
       }
     }
 
-    const hostId = config?.hostId ?? newState.seats[0]?.playerId ?? ''
-    this.broadcastUpdate(newState, hostId, config?.leaderDataVersion ?? 'live', events, timerEndsAt ?? null, completedAt ?? null, previews)
+    if (newState.status !== 'complete') {
+      await this.clearSwapWindowState()
+    }
 
-    if (newState.status === 'complete' || newState.status === 'cancelled') {
+    if (newState.status === 'complete' && swapState == null && await this.isSwapWindowOpen()) {
+      swapState = await this.getSwapState()
+    }
+
+    const hostId = config?.hostId ?? newState.seats[0]?.playerId ?? ''
+    this.broadcastUpdate(newState, hostId, config?.leaderDataVersion ?? 'live', events, timerEndsAt ?? null, completedAt ?? null, previews, swapState)
+
+    if (immediateSwapWindowSyncTask) {
+      await immediateSwapWindowSyncTask
+    }
+
+    if ((newState.status === 'complete' && !swapState) || newState.status === 'cancelled') {
       this.closeAllConnections('Draft closed')
     }
 
@@ -625,6 +805,65 @@ export class Main extends Server<PartyEnv> {
     }
   }
 
+  private shouldOpenSwapWindow(state: DraftState): boolean {
+    return state.status === 'complete'
+      && !isRedDeathDraftState(state)
+      && state.seats.some(seat => seat.team != null)
+  }
+
+  private async isSwapWindowOpen(): Promise<boolean> {
+    return await this.ctx.storage.get<boolean>('swapWindowOpen') === true
+  }
+
+  private async getSwapState(): Promise<LeaderSwapState> {
+    return await this.ctx.storage.get<LeaderSwapState>('swapState') ?? createEmptySwapState()
+  }
+
+  private async clearSwapWindowState() {
+    await this.ctx.storage.put('swapWindowOpen', false)
+    await this.ctx.storage.put('swapState', null)
+    await this.ctx.storage.put('swapPendingExpiresAt', null)
+    await this.ctx.storage.put('swapSafetyEndsAt', null)
+  }
+
+  private async scheduleSwapAlarm() {
+    if (!(await this.isSwapWindowOpen())) {
+      await this.ctx.storage.deleteAlarm()
+      return
+    }
+
+    const pendingExpiresAt = await this.ctx.storage.get<number | null>('swapPendingExpiresAt')
+    const safetyEndsAt = await this.ctx.storage.get<number | null>('swapSafetyEndsAt')
+    const nextAlarm = [pendingExpiresAt, safetyEndsAt]
+      .filter((timestamp): timestamp is number => typeof timestamp === 'number' && Number.isFinite(timestamp))
+      .sort((left, right) => left - right)[0] ?? null
+
+    if (nextAlarm == null) {
+      await this.ctx.storage.deleteAlarm()
+      return
+    }
+
+    await this.ctx.storage.setAlarm(nextAlarm)
+  }
+
+  private async finalizeCompletedDraft(state: DraftState) {
+    if (!(await this.isSwapWindowOpen())) return
+
+    await this.ctx.storage.deleteAlarm()
+    await this.ctx.storage.put('alarmStepIndex', -1)
+    await this.ctx.storage.put('timerEndsAt', null)
+
+    let completedAt = await this.ctx.storage.get<number | null>('completedAt')
+    if (completedAt == null) {
+      completedAt = Date.now()
+      await this.ctx.storage.put('completedAt', completedAt)
+    }
+
+    await this.clearSwapWindowState()
+
+    this.closeAllConnections('Draft closed')
+  }
+
   private broadcastUpdate(
     state: DraftState,
     hostId: string,
@@ -633,6 +872,7 @@ export class Main extends Server<PartyEnv> {
     timerEndsAt: number | null,
     completedAt: number | null,
     previews: DraftPreviewState,
+    swapState: LeaderSwapState | null,
   ) {
     for (const conn of this.getConnections()) {
       const connState = conn.state as ConnectionState | null
@@ -650,6 +890,17 @@ export class Main extends Server<PartyEnv> {
         timerEndsAt,
         completedAt,
         previews: censorDraftPreviews(state, previews, seatIndex),
+        swapState,
+      })
+    }
+  }
+
+  private broadcastSwapUpdate(_state: DraftState, swapState: LeaderSwapState, picks?: DraftState['picks']) {
+    for (const conn of this.getConnections()) {
+      this.send(conn, {
+        type: 'swap-update',
+        swapState,
+        picks,
       })
     }
   }
@@ -936,6 +1187,32 @@ function parseConfigTimer(value: unknown): number | null | undefined {
 
 function wait(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function createEmptySwapState(): LeaderSwapState {
+  return {
+    pendingSwap: null,
+    completedSwaps: [],
+  }
+}
+
+function createPendingSwap(
+  state: DraftState,
+  swapState: LeaderSwapState,
+  fromSeat: number,
+  toSeat: number,
+): LeaderSwapState | { error: string } {
+  if (swapState.pendingSwap) {
+    return { error: 'A swap request is already pending' }
+  }
+
+  const validation = swapSeatPicks(state, fromSeat, toSeat)
+  if ('error' in validation) return validation
+
+  return {
+    pendingSwap: { fromSeat, toSeat },
+    completedSwaps: swapState.completedSwaps,
+  }
 }
 
 function isAuthorizedRequest(request: Request, expectedSecret: string | undefined): boolean {
