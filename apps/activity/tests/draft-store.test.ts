@@ -1,5 +1,5 @@
 import type { DraftState } from '@civup/game'
-import { allFactionIds, createDraft, default2v2, getDraftFormat, isDraftError, processDraftInput } from '@civup/game'
+import { allFactionIds, createDraft, default2v2, default4v4, getDraftFormat, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import {
   canRequestSwapWith,
@@ -35,6 +35,24 @@ function createWaitingState() {
   return createDraft('draft-store-test', default2v2, create2v2Seats(), civPool)
 }
 
+function create4v4Seats() {
+  return [
+    { playerId: 'a1', displayName: 'A1', team: 0 },
+    { playerId: 'b1', displayName: 'B1', team: 1 },
+    { playerId: 'a2', displayName: 'A2', team: 0 },
+    { playerId: 'b2', displayName: 'B2', team: 1 },
+    { playerId: 'a3', displayName: 'A3', team: 0 },
+    { playerId: 'b3', displayName: 'B3', team: 1 },
+    { playerId: 'a4', displayName: 'A4', team: 0 },
+    { playerId: 'b4', displayName: 'B4', team: 1 },
+  ]
+}
+
+function create4v4WaitingState() {
+  const civPool = Array.from({ length: 50 }, (_, i) => `civ-${i + 1}`)
+  return createDraft('draft-store-4v4-test', default4v4, create4v4Seats(), civPool)
+}
+
 function createRedDeathWaitingState() {
   return createDraft('draft-store-rd-test', getDraftFormat('2v2', { redDeath: true }), create2v2Seats(), allFactionIds, { dealOptionsSize: 2 })
 }
@@ -60,6 +78,25 @@ function createCompleteTeamState(): DraftState {
       { civId: 'civ-20', seatIndex: 1, stepIndex: 2 },
       { civId: 'civ-11', seatIndex: 2, stepIndex: 4 },
       { civId: 'civ-21', seatIndex: 3, stepIndex: 3 },
+    ],
+  }
+}
+
+function createComplete4v4State(): DraftState {
+  const waiting = create4v4WaitingState()
+  return {
+    ...waiting,
+    status: 'complete',
+    currentStepIndex: waiting.steps.length,
+    picks: [
+      { civId: 'civ-10', seatIndex: 0, stepIndex: 1 },
+      { civId: 'civ-20', seatIndex: 1, stepIndex: 2 },
+      { civId: 'civ-11', seatIndex: 2, stepIndex: 4 },
+      { civId: 'civ-21', seatIndex: 3, stepIndex: 3 },
+      { civId: 'civ-12', seatIndex: 4, stepIndex: 5 },
+      { civId: 'civ-22', seatIndex: 5, stepIndex: 6 },
+      { civId: 'civ-13', seatIndex: 6, stepIndex: 8 },
+      { civId: 'civ-23', seatIndex: 7, stepIndex: 7 },
     ],
   }
 }
@@ -152,7 +189,7 @@ describe('draft-store helpers', () => {
   test('opens the swap window only for completed team drafts with swap state', () => {
     const complete = createCompleteTeamState()
     initDraft(complete, 'live', 'a1', 0, null, Date.now(), { bans: {}, picks: {} }, {
-      pendingSwap: null,
+      pendingSwaps: [],
       completedSwaps: [],
     })
 
@@ -164,11 +201,48 @@ describe('draft-store helpers', () => {
   test('tracks incoming swap requests on the requested seat', () => {
     const complete = createCompleteTeamState()
     initDraft(complete, 'live', 'a1', 2, null, Date.now(), { bans: {}, picks: {} }, {
-      pendingSwap: { fromSeat: 0, toSeat: 2 },
+      pendingSwaps: [{ fromSeat: 0, toSeat: 2, expiresAt: Date.now() + 30_000 }],
       completedSwaps: [],
     })
 
     expect(seatHasIncomingSwap(2)).toBe(true)
     expect(canRequestSwapWith(0)).toBe(false)
+  })
+
+  test('allows independent swaps while limiting one incoming and one outgoing per seat', () => {
+    const complete = createComplete4v4State()
+    const now = Date.now()
+
+    initDraft(complete, 'live', 'a2', 2, null, now, { bans: {}, picks: {} }, {
+      pendingSwaps: [
+        { fromSeat: 0, toSeat: 2, expiresAt: now + 30_000 },
+        { fromSeat: 1, toSeat: 3, expiresAt: now + 30_000 },
+      ],
+      completedSwaps: [],
+    })
+
+    expect(seatHasIncomingSwap(2)).toBe(true)
+    expect(canRequestSwapWith(4)).toBe(true)
+    expect(canRequestSwapWith(0)).toBe(false)
+
+    initDraft(complete, 'live', 'a1', 0, null, now, { bans: {}, picks: {} }, {
+      pendingSwaps: [
+        { fromSeat: 0, toSeat: 2, expiresAt: now + 30_000 },
+        { fromSeat: 1, toSeat: 3, expiresAt: now + 30_000 },
+      ],
+      completedSwaps: [],
+    })
+
+    expect(canRequestSwapWith(4)).toBe(false)
+
+    initDraft(complete, 'live', 'a3', 4, null, now, { bans: {}, picks: {} }, {
+      pendingSwaps: [
+        { fromSeat: 0, toSeat: 2, expiresAt: now + 30_000 },
+        { fromSeat: 1, toSeat: 3, expiresAt: now + 30_000 },
+      ],
+      completedSwaps: [],
+    })
+
+    expect(canRequestSwapWith(6)).toBe(true)
   })
 })
