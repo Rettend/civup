@@ -3,6 +3,7 @@ import type { LobbyState } from '../lobby/types.ts'
 import { allFactionIds, getDraftFormat, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
 import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
+import { syncActivityOverviewSnapshot } from './live-state.ts'
 import { getLobbiesByChannel } from '../lobby/index.ts'
 import { channelIndexKey, idKey, matchKey, modeIndexKey } from '../lobby/keys.ts'
 import { lobbySnapshotKey } from '../lobby/live-snapshot.ts'
@@ -519,6 +520,7 @@ export async function clearLobbyAndActivityMappings(
   ]
   if (lobby.matchId) keys.push(matchKey(lobby.matchId))
   await stateStoreMdelete(kv, keys)
+  await syncActivityOverviewSnapshot(kv, lobby.channelId)
 }
 
 /** Remove only the user -> open-lobby mapping while keeping the current channel target. */
