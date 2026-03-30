@@ -182,6 +182,16 @@ export interface DraftSelection {
   stepIndex: number
 }
 
+export interface LeaderSwapRequest {
+  fromSeat: number
+  toSeat: number
+}
+
+export interface LeaderSwapState {
+  pendingSwap: LeaderSwapRequest | null
+  completedSwaps: LeaderSwapRequest[]
+}
+
 export interface DraftState {
   matchId: string
   formatId: string

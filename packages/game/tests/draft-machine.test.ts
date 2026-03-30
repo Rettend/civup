@@ -10,6 +10,7 @@ import {
   isDraftError,
   isPlayerTurn,
   processDraftInput,
+  swapSeatPicks,
 } from '../src/draft-machine.ts'
 
 // ── Test Setup Helpers ──────────────────────────────────────
@@ -223,6 +224,49 @@ describe('processDraftInput — CANCEL', () => {
     expect(result.state.status).toBe('cancelled')
     expect(result.state.cancelReason).toBe('revert')
     expect(result.events).toContainEqual({ type: 'DRAFT_CANCELLED', reason: 'revert' })
+  })
+})
+
+describe('swapSeatPicks', () => {
+  test('swaps the locked picks between teammates', () => {
+    const state: DraftState = {
+      ...startDraft(createDraft('match-swap', default2v2, create2v2Seats(), createTestCivPool())),
+      status: 'complete',
+      currentStepIndex: 5,
+      picks: [
+        { civId: 'civ-10', seatIndex: 0, stepIndex: 1 },
+        { civId: 'civ-20', seatIndex: 1, stepIndex: 2 },
+        { civId: 'civ-11', seatIndex: 2, stepIndex: 4 },
+        { civId: 'civ-21', seatIndex: 3, stepIndex: 3 },
+      ],
+    }
+
+    const result = swapSeatPicks(state, 0, 2)
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.find(pick => pick.seatIndex === 0)?.civId).toBe('civ-11')
+    expect(result.find(pick => pick.seatIndex === 2)?.civId).toBe('civ-10')
+    expect(result.find(pick => pick.seatIndex === 1)?.civId).toBe('civ-20')
+  })
+
+  test('rejects swaps between non-teammates', () => {
+    const state: DraftState = {
+      ...startDraft(createDraft('match-swap', default2v2, create2v2Seats(), createTestCivPool())),
+      status: 'complete',
+      currentStepIndex: 5,
+      picks: [
+        { civId: 'civ-10', seatIndex: 0, stepIndex: 1 },
+        { civId: 'civ-20', seatIndex: 1, stepIndex: 2 },
+        { civId: 'civ-11', seatIndex: 2, stepIndex: 4 },
+        { civId: 'civ-21', seatIndex: 3, stepIndex: 3 },
+      ],
+    }
+
+    const result = swapSeatPicks(state, 0, 1)
+    expect(isDraftError(result)).toBe(true)
+    if (!isDraftError(result)) return
+    expect(result.error).toBe('Only teammates can swap leaders')
   })
 })
 

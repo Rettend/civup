@@ -4,8 +4,10 @@ import type {
   DraftEvent,
   DraftPreviewState,
   DraftSeat,
+  DraftSelection,
   DraftState,
   DraftTimerConfig,
+  LeaderSwapState,
   LeaderDataVersion,
 } from './types.ts'
 
@@ -53,6 +55,9 @@ export type ClientMessage
     | { type: 'pick', civId: string }
     | { type: 'preview', action: DraftAction, civIds: string[] }
     | { type: 'cancel', reason: 'cancel' | 'scrub' | 'revert' }
+    | { type: 'swap-request', toSeat: number }
+    | { type: 'swap-accept' }
+    | { type: 'swap-cancel' }
     | {
       type: 'config'
       banTimerSeconds: number | null
@@ -71,6 +76,7 @@ export type ServerMessage
     timerEndsAt: number | null
     completedAt: number | null
     previews: DraftPreviewState
+    swapState?: LeaderSwapState | null
   }
   | {
     type: 'update'
@@ -81,6 +87,8 @@ export type ServerMessage
     timerEndsAt: number | null
     completedAt: number | null
     previews: DraftPreviewState
+    swapState?: LeaderSwapState | null
   }
   | { type: 'preview', previews: DraftPreviewState }
+  | { type: 'swap-update', swapState: LeaderSwapState, picks?: DraftSelection[] }
   | { type: 'error', message: string }

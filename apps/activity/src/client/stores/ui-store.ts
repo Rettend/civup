@@ -23,18 +23,6 @@ export const [teamPlacementOrder, setTeamPlacementOrder] = createSignal<number[]
 export const selectedWinningTeam = (): number | null => teamPlacementOrder()[0] ?? null
 export const [resultSelectionsLocked, setResultSelectionsLocked] = createSignal(false)
 
-// ── Mock Swap State (UI testing only) ──────────────────────
-export const [swapPendingSeat, setSwapPendingSeat] = createSignal<number | null>(null)
-
-/** Toggle a swap request on a teammate's seat (mock) */
-export function toggleSwapRequest(targetSeat: number) {
-  if (swapPendingSeat() === targetSeat) {
-    setSwapPendingSeat(null)
-    return
-  }
-  setSwapPendingSeat(targetSeat)
-}
-
 // ── Phase Accent ───────────────────────────────────────────
 
 /** Current phase accent color class based on draft step */
@@ -177,7 +165,6 @@ export function clearResultSelections() {
   setFfaPlacementOrder([])
   setTeamPlacementOrder([])
   setResultSelectionsLocked(false)
-  setSwapPendingSeat(null)
 }
 
 function normalizePickSelections(civIds: string[]): string[] {

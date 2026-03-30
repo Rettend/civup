@@ -80,6 +80,32 @@ export function isDraftError(result: DraftResult | DraftError): result is DraftE
   return 'error' in result
 }
 
+/** Swap the picked civs between two teammate seats after draft completion. */
+export function swapSeatPicks(
+  state: DraftState,
+  seatA: number,
+  seatB: number,
+): DraftSelection[] | DraftError {
+  if (seatA === seatB) return { error: 'Cannot swap a seat with itself' }
+  if (state.status !== 'complete') return { error: 'Draft is not complete' }
+
+  const leftSeat = state.seats[seatA]
+  const rightSeat = state.seats[seatB]
+  if (!leftSeat || !rightSeat) return { error: 'Invalid seat index' }
+  if (leftSeat.team == null || rightSeat.team == null) return { error: 'Only team seats can swap leaders' }
+  if (leftSeat.team !== rightSeat.team) return { error: 'Only teammates can swap leaders' }
+
+  const leftPick = state.picks.find(pick => pick.seatIndex === seatA)
+  const rightPick = state.picks.find(pick => pick.seatIndex === seatB)
+  if (!leftPick || !rightPick) return { error: 'Both seats need a locked pick before swapping' }
+
+  return state.picks.map((pick) => {
+    if (pick.seatIndex === seatA) return { ...pick, civId: rightPick.civId }
+    if (pick.seatIndex === seatB) return { ...pick, civId: leftPick.civId }
+    return pick
+  })
+}
+
 // ── Start ───────────────────────────────────────────────────
 
 function processStart(state: DraftState): DraftResult | DraftError {

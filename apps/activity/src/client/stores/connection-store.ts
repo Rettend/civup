@@ -4,7 +4,7 @@ import PartySocket from 'partysocket'
 import { createSignal } from 'solid-js'
 import { buildActivitySessionHeaders, getActivitySessionToken } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
-import { draftStore, initDraft, setOptimisticSeatPick, updateDraft, updateDraftPreviews } from './draft-store'
+import { applySwapUpdate, draftStore, initDraft, setOptimisticSeatPick, updateDraft, updateDraftPreviews } from './draft-store'
 import { clearSelections } from './ui-store'
 
 // ── Types ──────────────────────────────────────────────────
@@ -478,6 +478,18 @@ export function sendRevert() {
   return sendCancel('revert')
 }
 
+export function sendSwapRequest(toSeat: number) {
+  return sendMessage({ type: 'swap-request', toSeat })
+}
+
+export function sendSwapAccept() {
+  return sendMessage({ type: 'swap-accept' })
+}
+
+export function sendSwapCancel() {
+  return sendMessage({ type: 'swap-cancel' })
+}
+
 export function sendConfig(banTimerSeconds: number | null, pickTimerSeconds: number | null): Promise<void> {
   if (pendingConfigAck) {
     clearTimeout(pendingConfigAck.timeout)
@@ -899,20 +911,20 @@ function handleServerMessage(msg: ServerMessage) {
     case 'init':
       clearSelections()
       syncPreviewCache(msg.previews, msg.seatIndex)
-      initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews)
-      if (isTerminalDraftStatus(msg.state.status)) {
+      initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null)
+      if (shouldDisconnectAfterState(msg.state.status, msg.swapState ?? null)) {
         disconnect()
       }
       break
     case 'update':
       syncPreviewCache(msg.previews)
-      updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews)
+      updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null)
       if (pendingConfigAck) {
         clearTimeout(pendingConfigAck.timeout)
         pendingConfigAck.resolve()
         pendingConfigAck = null
       }
-      if (isTerminalDraftStatus(msg.state.status)) {
+      if (shouldDisconnectAfterState(msg.state.status, msg.swapState ?? null)) {
         clearSelections()
         disconnect()
       }
@@ -920,6 +932,9 @@ function handleServerMessage(msg: ServerMessage) {
     case 'preview':
       syncPreviewCache(msg.previews)
       updateDraftPreviews(msg.previews)
+      break
+    case 'swap-update':
+      applySwapUpdate(msg.swapState, msg.picks)
       break
     case 'error':
       if (pendingConfigAck) {
@@ -932,8 +947,10 @@ function handleServerMessage(msg: ServerMessage) {
   }
 }
 
-function isTerminalDraftStatus(status: string): boolean {
-  return status === 'complete' || status === 'cancelled'
+function shouldDisconnectAfterState(status: string, swapState: unknown): boolean {
+  if (status === 'cancelled') return true
+  if (status !== 'complete') return false
+  return swapState == null
 }
 
 function formatConfigAckError(message: string): Error {
