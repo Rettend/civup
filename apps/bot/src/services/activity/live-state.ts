@@ -49,6 +49,35 @@ export async function syncActivityOverviewSnapshot(kv: KVNamespace, channelId: s
   return snapshot
 }
 
+export async function syncActivityOverviewSnapshotForLobby(kv: KVNamespace, lobby: LobbyState): Promise<ActivityOverviewSnapshot | null> {
+  const existing = parseActivityOverviewSnapshot(await kv.get(activityOverviewKey(lobby.channelId), 'json'))
+  if (!existing) {
+    return syncActivityOverviewSnapshot(kv, lobby.channelId)
+  }
+
+  const options = [
+    ...existing.options.filter(option => option.lobbyId !== lobby.id),
+    ...buildOverviewOptions(lobby.channelId, lobby),
+  ].sort(compareOverviewOptions)
+
+  const key = activityOverviewKey(lobby.channelId)
+  if (options.length === 0) {
+    await stateStoreMdelete(kv, [key])
+    return null
+  }
+
+  const snapshot: ActivityOverviewSnapshot = {
+    channelId: lobby.channelId,
+    options,
+  }
+  await stateStoreMput(kv, [{
+    key,
+    value: JSON.stringify(snapshot),
+    expirationTtl: LOBBY_TTL,
+  }])
+  return snapshot
+}
+
 async function buildActivityOverviewSnapshot(kv: KVNamespace, channelId: string): Promise<ActivityOverviewSnapshot | null> {
   const lobbies = await getChannelLobbiesForOverview(kv, channelId)
   const options = lobbies
@@ -130,4 +159,39 @@ function compareOverviewOptions(left: ActivityOverviewOptionSnapshot, right: Act
   if (left.updatedAt !== right.updatedAt) return right.updatedAt - left.updatedAt
   if (left.mode !== right.mode) return left.mode.localeCompare(right.mode)
   return left.id.localeCompare(right.id)
+}
+
+function parseActivityOverviewSnapshot(raw: unknown): ActivityOverviewSnapshot | null {
+  if (!raw || typeof raw !== 'object') return null
+  const snapshot = raw as Partial<ActivityOverviewSnapshot>
+  if (typeof snapshot.channelId !== 'string' || !Array.isArray(snapshot.options)) return null
+
+  const options = snapshot.options.flatMap((option) => {
+    if (!option || typeof option !== 'object') return []
+    const parsed = option as Partial<ActivityOverviewOptionSnapshot>
+    if ((parsed.kind !== 'lobby' && parsed.kind !== 'match') || typeof parsed.id !== 'string' || typeof parsed.lobbyId !== 'string' || typeof parsed.channelId !== 'string' || typeof parsed.mode !== 'string' || (parsed.status !== 'open' && parsed.status !== 'drafting' && parsed.status !== 'active') || typeof parsed.participantCount !== 'number' || typeof parsed.targetSize !== 'number' || typeof parsed.redDeath !== 'boolean' || typeof parsed.hostId !== 'string' || !Array.isArray(parsed.memberPlayerIds) || typeof parsed.updatedAt !== 'number') {
+      return []
+    }
+
+    return [{
+      kind: parsed.kind,
+      id: parsed.id,
+      lobbyId: parsed.lobbyId,
+      matchId: typeof parsed.matchId === 'string' ? parsed.matchId : null,
+      channelId: parsed.channelId,
+      mode: parsed.mode as GameMode,
+      status: parsed.status,
+      participantCount: parsed.participantCount,
+      targetSize: parsed.targetSize,
+      redDeath: parsed.redDeath,
+      hostId: parsed.hostId,
+      memberPlayerIds: parsed.memberPlayerIds.filter((playerId): playerId is string => typeof playerId === 'string'),
+      updatedAt: parsed.updatedAt,
+    } satisfies ActivityOverviewOptionSnapshot]
+  })
+
+  return {
+    channelId: snapshot.channelId,
+    options,
+  }
 }
