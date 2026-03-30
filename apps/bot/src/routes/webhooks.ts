@@ -59,14 +59,23 @@ export function registerWebhookRoutes(app: Hono<Env>) {
         return c.json({ error: result.error }, 400)
       }
 
+      if (result.alreadyActive && payload.finalized !== true) {
+        return c.json({ ok: true, synced: true })
+      }
+
       const lobby = await getLobbyByMatch(kv, payload.matchId)
       if (!lobby) {
         console.warn(`No lobby mapping found for draft-complete match ${payload.matchId}`)
         return c.json({ ok: true })
       }
 
-      const activeLobby = await setLobbyStatus(kv, lobby.id, 'active', lobby) ?? lobby
-      await syncLobbyDerivedState(kv, activeLobby)
+      const shouldRefreshEmbedOnly = result.alreadyActive && payload.finalized === true
+      const activeLobby = shouldRefreshEmbedOnly
+        ? lobby
+        : await setLobbyStatus(kv, lobby.id, 'active', lobby) ?? lobby
+      if (!shouldRefreshEmbedOnly) {
+        await syncLobbyDerivedState(kv, activeLobby)
+      }
       try {
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, activeLobby, {
           embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants, activeLobby.draftConfig.leaderDataVersion, activeLobby.draftConfig.redDeath)],

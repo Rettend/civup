@@ -111,6 +111,46 @@ export async function activateDraftMatch(
   }
 
   const civByPlayer = mapCivsFromDraftState(input.state, participantRows, match.gameMode as GameMode)
+  const draftData = JSON.stringify({
+    completedAt: input.completedAt,
+    hostId: input.hostId,
+    redDeath: isRedDeathFormatId(input.state.formatId),
+    state: input.state,
+  })
+
+  if (match.status === 'active') {
+    for (const participant of participantRows) {
+      const nextCivId = civByPlayer.get(participant.playerId) ?? null
+      if (participant.civId === nextCivId) continue
+
+      await db
+        .update(matchParticipants)
+        .set({ civId: nextCivId })
+        .where(
+          and(
+            eq(matchParticipants.matchId, matchId),
+            eq(matchParticipants.playerId, participant.playerId),
+          ),
+        )
+    }
+
+    await db
+      .update(matches)
+      .set({ draftData })
+      .where(eq(matches.id, matchId))
+
+    return {
+      alreadyActive: true,
+      match: {
+        ...match,
+        draftData,
+      },
+      participants: participantRows.map(participant => ({
+        ...participant,
+        civId: civByPlayer.get(participant.playerId) ?? null,
+      })),
+    }
+  }
 
   for (const participant of participantRows) {
     await db
@@ -147,27 +187,22 @@ export async function activateDraftMatch(
     .update(matches)
       .set({
         status: 'active',
-        draftData: JSON.stringify({
-          completedAt: input.completedAt,
-          hostId: input.hostId,
-          redDeath: isRedDeathFormatId(input.state.formatId),
-          state: input.state,
-        }),
+        draftData,
       })
     .where(eq(matches.id, matchId))
 
-  const [updatedMatch] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, matchId))
-    .limit(1)
-
-  const updatedParticipants = await db
-    .select()
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, matchId))
-
-  return { match: updatedMatch!, participants: updatedParticipants }
+  return {
+    alreadyActive: false,
+    match: {
+      ...match,
+      status: 'active',
+      draftData,
+    },
+    participants: participantRows.map(participant => ({
+      ...participant,
+      civId: civByPlayer.get(participant.playerId) ?? null,
+    })),
+  }
 }
 
 export async function cancelDraftMatch(

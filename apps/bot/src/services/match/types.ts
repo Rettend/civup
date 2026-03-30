@@ -66,7 +66,7 @@ export interface ActivateDraftInput {
   hostId: string
 }
 
-export type ActivateDraftResult = { match: MatchRow, participants: ParticipantRow[] } | { error: string }
+export type ActivateDraftResult = { match: MatchRow, participants: ParticipantRow[], alreadyActive: boolean } | { error: string }
 
 export interface CancelDraftInput {
   state: DraftState

@@ -30,6 +30,12 @@ import {
   resolveTimeoutWithPreviews,
   sanitizeDraftPreviews,
 } from './draft-previews.ts'
+import {
+  countConnectedDraftParticipants,
+  getNextSwapLifecycleAlarmAt,
+  getSwapDisconnectFinalizeAtAfterDisconnect,
+  getSwapWindowAlarmAction,
+} from './swap-window.ts'
 
 interface PartyEnv extends Cloudflare.Env {
   CIVUP_SECRET?: string
@@ -48,6 +54,7 @@ const DEBUG_ACTIVE_BOT_PLAYER_ID_PREFIX = 'bot:'
 const DEBUG_ACTIVE_BOT_DELAY_MS = 5000
 const DEBUG_ACTIVE_BOT_STAGGER_MS = 150
 const SWAP_REQUEST_TIMEOUT_MS = 30_000
+const SWAP_DISCONNECT_GRACE_MS = 5_000
 const SWAP_WINDOW_TIMEOUT_MS = 5 * 60_000
 
 // ── Draft Room Server ────────────────────────────────────────
@@ -110,6 +117,8 @@ export class Main extends Server<PartyEnv> {
     await this.ctx.storage.put('previews', createEmptyDraftPreviews())
     await this.ctx.storage.put('swapWindowOpen', false)
     await this.ctx.storage.put('swapState', null)
+    await this.ctx.storage.put('swapPendingExpiresAt', null)
+    await this.ctx.storage.put('swapDisconnectFinalizeAt', null)
     await this.ctx.storage.put('swapSafetyEndsAt', null)
 
     return json({ ok: true, matchId: config.matchId }, 201)
@@ -150,7 +159,7 @@ export class Main extends Server<PartyEnv> {
       completedAt,
       cancelledAt,
       previews: censorDraftPreviews(state, previews, seatIndex),
-      swapState: swapWindowOpen ? await this.ctx.storage.get<LeaderSwapState>('swapState') ?? createEmptySwapState() : null,
+      swapState: swapWindowOpen ? await this.getSwapState() : null,
     })
   }
 
@@ -194,8 +203,11 @@ export class Main extends Server<PartyEnv> {
     const timerEndsAt = await this.ctx.storage.get<number | null>('timerEndsAt')
     const completedAt = await this.ctx.storage.get<number | null>('completedAt')
     const swapWindowOpen = await this.ctx.storage.get<boolean>('swapWindowOpen') === true
+    const swapDisconnectFinalizeAt = swapWindowOpen
+      ? await this.ctx.storage.get<number | null>('swapDisconnectFinalizeAt')
+      : null
     const swapState = swapWindowOpen
-      ? await this.ctx.storage.get<LeaderSwapState>('swapState') ?? createEmptySwapState()
+      ? await this.getSwapState()
       : null
     const previews = sanitizeDraftPreviews(
       state,
@@ -216,6 +228,11 @@ export class Main extends Server<PartyEnv> {
       previews: censorDraftPreviews(state, previews, seatIndex),
       swapState,
     })
+
+    if (swapWindowOpen && seatIndex >= 0 && swapDisconnectFinalizeAt != null) {
+      await this.clearSwapDisconnectFinalizeAt()
+      await this.scheduleSwapAlarm()
+    }
 
     if ((state.status === 'complete' && !swapWindowOpen) || state.status === 'cancelled') {
       connection.close(1000, 'Draft closed')
@@ -525,10 +542,22 @@ export class Main extends Server<PartyEnv> {
 
   // ── WebSocket: Disconnect ──────────────────────────────────
 
-  override async onClose(_connection: Connection) {
+  override async onClose(connection: Connection) {
     const state = await this.ctx.storage.get<DraftState>('state')
     if (!state || state.status !== 'complete') return
     if (!(await this.isSwapWindowOpen())) return
+
+    const disconnectFinalizeAt = await this.ctx.storage.get<number | null>('swapDisconnectFinalizeAt') ?? null
+    const nextDisconnectFinalizeAt = getSwapDisconnectFinalizeAtAfterDisconnect({
+      connectedParticipantCount: this.getConnectedParticipantCount(state, connection),
+      existingDisconnectFinalizeAt: disconnectFinalizeAt,
+      now: Date.now(),
+      graceMs: SWAP_DISCONNECT_GRACE_MS,
+    })
+    if (nextDisconnectFinalizeAt == null || nextDisconnectFinalizeAt === disconnectFinalizeAt) return
+
+    await this.ctx.storage.put('swapDisconnectFinalizeAt', nextDisconnectFinalizeAt)
+    await this.scheduleSwapAlarm()
   }
 
   override async onError(_connection: Connection, _error: unknown) {
@@ -543,7 +572,8 @@ export class Main extends Server<PartyEnv> {
 
     if (state.status === 'complete' && await this.isSwapWindowOpen()) {
       const now = Date.now()
-      const safetyEndsAt = await this.ctx.storage.get<number | null>('swapSafetyEndsAt')
+      const disconnectFinalizeAt = await this.ctx.storage.get<number | null>('swapDisconnectFinalizeAt') ?? null
+      const safetyEndsAt = await this.ctx.storage.get<number | null>('swapSafetyEndsAt') ?? null
 
       const swapState = await this.getSwapState()
       const nextPendingSwaps = swapState.pendingSwaps.filter(swap => swap.expiresAt > now)
@@ -552,11 +582,20 @@ export class Main extends Server<PartyEnv> {
           pendingSwaps: nextPendingSwaps,
           completedSwaps: swapState.completedSwaps,
         }
-          await this.ctx.storage.put('swapState', nextSwapState)
+        await this.ctx.storage.put('swapState', nextSwapState)
         this.broadcastSwapUpdate(state, nextSwapState)
       }
 
-      if (safetyEndsAt != null && safetyEndsAt <= now) {
+      const alarmAction = getSwapWindowAlarmAction({
+        now,
+        connectedParticipantCount: this.getConnectedParticipantCount(state),
+        disconnectFinalizeAt,
+        safetyEndsAt,
+      })
+      if (alarmAction === 'clear-disconnect-grace') {
+        await this.clearSwapDisconnectFinalizeAt()
+      }
+      else if (alarmAction === 'finalize') {
         await this.finalizeCompletedDraft(state)
         return
       }
@@ -648,6 +687,7 @@ export class Main extends Server<PartyEnv> {
         swapState = createEmptySwapState()
         await this.ctx.storage.put('swapWindowOpen', true)
         await this.ctx.storage.put('swapState', swapState)
+        await this.ctx.storage.put('swapDisconnectFinalizeAt', null)
         await this.ctx.storage.put('swapSafetyEndsAt', completedAt + SWAP_WINDOW_TIMEOUT_MS)
         await this.scheduleSwapAlarm()
         if (config) immediateSwapWindowSyncTask = this.notifyDraftComplete(newState, config, completedAt)
@@ -811,7 +851,13 @@ export class Main extends Server<PartyEnv> {
   private async clearSwapWindowState() {
     await this.ctx.storage.put('swapWindowOpen', false)
     await this.ctx.storage.put('swapState', null)
+    await this.ctx.storage.put('swapPendingExpiresAt', null)
+    await this.ctx.storage.put('swapDisconnectFinalizeAt', null)
     await this.ctx.storage.put('swapSafetyEndsAt', null)
+  }
+
+  private async clearSwapDisconnectFinalizeAt() {
+    await this.ctx.storage.put('swapDisconnectFinalizeAt', null)
   }
 
   private async scheduleSwapAlarm() {
@@ -821,10 +867,13 @@ export class Main extends Server<PartyEnv> {
     }
 
     const swapState = await this.getSwapState()
-    const safetyEndsAt = await this.ctx.storage.get<number | null>('swapSafetyEndsAt')
-    const nextAlarm = [getNextSwapPendingExpiry(swapState), safetyEndsAt]
-      .filter((timestamp): timestamp is number => typeof timestamp === 'number' && Number.isFinite(timestamp))
-      .sort((left, right) => left - right)[0] ?? null
+    const disconnectFinalizeAt = await this.ctx.storage.get<number | null>('swapDisconnectFinalizeAt') ?? null
+    const safetyEndsAt = await this.ctx.storage.get<number | null>('swapSafetyEndsAt') ?? null
+    const nextAlarm = getNextSwapLifecycleAlarmAt({
+      swapState,
+      disconnectFinalizeAt,
+      safetyEndsAt,
+    })
 
     if (nextAlarm == null) {
       await this.ctx.storage.deleteAlarm()
@@ -847,9 +896,27 @@ export class Main extends Server<PartyEnv> {
       await this.ctx.storage.put('completedAt', completedAt)
     }
 
+    const config = await this.ctx.storage.get<RoomConfig>('config')
     await this.clearSwapWindowState()
 
     this.closeAllConnections('Draft closed')
+
+    if (!config) return
+
+    this.ctx.waitUntil(this.notifyDraftComplete(state, config, completedAt, { finalized: true }).catch((error) => {
+      console.error(`Failed to deliver finalized draft webhook for match ${state.matchId}:`, error)
+    }))
+  }
+
+  private getConnectedParticipantCount(state: DraftState, excludedConnection?: Connection): number {
+    return countConnectedDraftParticipants(
+      state.seats.map(seat => seat.playerId),
+      Array.from(this.getConnections(), connection => ({
+        connection,
+        playerId: (connection.state as ConnectionState | null)?.playerId,
+      })),
+      excludedConnection,
+    )
   }
 
   private broadcastUpdate(
@@ -979,13 +1046,21 @@ export class Main extends Server<PartyEnv> {
     }
   }
 
-  private async notifyDraftComplete(state: DraftState, config: RoomConfig, completedAt: number) {
+  private async notifyDraftComplete(
+    state: DraftState,
+    config: RoomConfig,
+    completedAt: number,
+    options: {
+      finalized?: boolean
+    } = {},
+  ) {
     const hostId = config.hostId || state.seats[0]?.playerId || undefined
     const payload: DraftWebhookPayload = {
       outcome: 'complete',
       matchId: state.matchId,
       hostId,
       completedAt,
+      finalized: options.finalized === true ? true : undefined,
       state,
     }
     await this.sendDraftWebhook(state.matchId, config, payload)
@@ -1240,13 +1315,6 @@ function isSamePendingSwap(
   right: Pick<PendingLeaderSwapRequest, 'fromSeat' | 'toSeat'>,
 ): boolean {
   return left.fromSeat === right.fromSeat && left.toSeat === right.toSeat
-}
-
-function getNextSwapPendingExpiry(swapState: LeaderSwapState): number | null {
-  return swapState.pendingSwaps
-    .map(swap => swap.expiresAt)
-    .filter(timestamp => Number.isFinite(timestamp))
-    .sort((left, right) => left - right)[0] ?? null
 }
 
 function normalizeStoredSwapState(

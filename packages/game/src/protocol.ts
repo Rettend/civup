@@ -33,6 +33,7 @@ export interface DraftCompleteWebhookPayload {
   matchId: string
   hostId?: string
   completedAt: number
+  finalized?: boolean
   state: DraftState
 }
 
