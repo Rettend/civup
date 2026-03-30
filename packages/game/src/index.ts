@@ -48,6 +48,7 @@ export type {
   GameMode,
   Leader,
   LeaderAbility,
+  PendingLeaderSwapRequest,
   LeaderSwapRequest,
   LeaderSwapState,
   LeaderboardMode,
