@@ -85,4 +85,5 @@ export interface PruneMatchesOptions {
 
 export interface PruneMatchesResult {
   removedMatchIds: string[]
+  clearedLiveLobbyMatchIds: string[]
 }
