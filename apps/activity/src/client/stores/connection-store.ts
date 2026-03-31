@@ -4,6 +4,7 @@ import PartySocket from 'partysocket'
 import { createSignal } from 'solid-js'
 import { buildActivitySessionHeaders, getActivitySessionToken } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
+import { shouldForceReconnectForStaleDraft } from '../lib/stale-draft'
 import { applySwapUpdate, draftStore, initDraft, setOptimisticSeatPick, updateDraft, updateDraftPreviews } from './draft-store'
 import { clearSelections } from './ui-store'
 
@@ -185,10 +186,14 @@ export const [connectionError, setConnectionError] = createSignal<string | null>
 
 const DRAFT_SOCKET_FATAL_CLOSE_MIN = 4000
 const DRAFT_SOCKET_FATAL_CLOSE_MAX = 5000
+const STALE_DRAFT_RECONNECT_CHECK_MS = 1_000
 
 // ── Socket ─────────────────────────────────────────────────
 
 let socket: PartySocket | null = null
+let currentRoomConnection: { target: PartySocketTarget, roomId: string, roomAccessToken: string } | null = null
+let staleDraftReconnectInterval: ReturnType<typeof setInterval> | null = null
+let lastSocketActivityAt = 0
 let pendingConfigAck:
   | {
     resolve: () => void
@@ -200,10 +205,13 @@ let lastSentPreviewKeys: Partial<Record<DraftAction, string>> = {}
 
 /** Connect to PartyKit draft room using host and match ID */
 export function connectToRoom(target: PartySocketTarget, roomId: string, roomAccessToken: string | null) {
+  stopStaleDraftReconnectWatchdog()
   const previousSocket = socket
   socket = null
   previousSocket?.close()
   lastSentPreviewKeys = {}
+  lastSocketActivityAt = 0
+  currentRoomConnection = null
 
   setConnectionStatus('connecting')
   setConnectionError(null)
@@ -221,6 +229,9 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
     return
   }
 
+  currentRoomConnection = { target, roomId, roomAccessToken }
+  startStaleDraftReconnectWatchdog()
+
   const nextSocket = new PartySocket({
     host: target.host,
     party: 'main',
@@ -236,12 +247,14 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
 
   nextSocket.addEventListener('open', () => {
     if (socket !== nextSocket) return
+    lastSocketActivityAt = Date.now()
     setConnectionStatus('connected')
     setConnectionError(null)
   })
 
   nextSocket.addEventListener('message', (event) => {
     if (socket !== nextSocket) return
+    lastSocketActivityAt = Date.now()
     try {
       const msg = JSON.parse(event.data as string) as ServerMessage
       handleServerMessage(msg)
@@ -278,12 +291,18 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
       }
 
       socket = null
+      stopStaleDraftReconnectWatchdog()
+      currentRoomConnection = null
+      lastSocketActivityAt = 0
       setConnectionStatus('error')
       setConnectionError(`WebSocket closed (${code}${reason ? `: ${reason}` : ''})`)
       return
     }
 
     socket = null
+    stopStaleDraftReconnectWatchdog()
+    currentRoomConnection = null
+    lastSocketActivityAt = 0
     setConnectionStatus('disconnected')
   })
 
@@ -306,14 +325,20 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
       target: describePartySocketTarget(target),
     })
     socket = null
+    stopStaleDraftReconnectWatchdog()
+    currentRoomConnection = null
+    lastSocketActivityAt = 0
     setConnectionStatus('error')
     setConnectionError('WebSocket connection failed')
   })
 }
 
 export function disconnect() {
+  stopStaleDraftReconnectWatchdog()
   socket?.close()
   socket = null
+  currentRoomConnection = null
+  lastSocketActivityAt = 0
   lastSentPreviewKeys = {}
   if (pendingConfigAck) {
     clearTimeout(pendingConfigAck.timeout)
@@ -321,6 +346,38 @@ export function disconnect() {
     pendingConfigAck = null
   }
   setConnectionStatus('disconnected')
+}
+
+function startStaleDraftReconnectWatchdog() {
+  stopStaleDraftReconnectWatchdog()
+  staleDraftReconnectInterval = setInterval(() => {
+    if (!shouldForceReconnectForStaleDraft({
+      connectionStatus: connectionStatus(),
+      state: draftStore.state,
+      timerEndsAt: draftStore.timerEndsAt,
+      lastSocketActivityAt,
+    })) {
+      return
+    }
+
+    const currentRoom = currentRoomConnection
+    if (!currentRoom) return
+
+    relayDevLog('warn', 'Forcing draft socket reconnect after stale timer', {
+      roomId: currentRoom.roomId,
+      timerEndsAt: draftStore.timerEndsAt,
+      currentStepIndex: draftStore.state?.currentStepIndex ?? null,
+      lastSocketActivityAt,
+      target: describePartySocketTarget(currentRoom.target),
+    })
+    connectToRoom(currentRoom.target, currentRoom.roomId, currentRoom.roomAccessToken)
+  }, STALE_DRAFT_RECONNECT_CHECK_MS)
+}
+
+function stopStaleDraftReconnectWatchdog() {
+  if (!staleDraftReconnectInterval) return
+  clearInterval(staleDraftReconnectInterval)
+  staleDraftReconnectInterval = null
 }
 
 /** Subscribe to lobby/match invalidation events from state coordinator room. */
