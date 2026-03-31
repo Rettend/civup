@@ -2,7 +2,7 @@ import { playerRatings, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { rankedPreviewEmbeds } from '../../src/embeds/ranked-preview.ts'
 import { markRankedRolesDirty, summarizeRankedPreview } from '../../src/services/ranked/role-sync.ts'
-import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { setRankedRoleCurrentRoles, updateRankedRoleConfig } from '../../src/services/ranked/roles.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
@@ -148,6 +148,38 @@ describe('ranked preview summary', () => {
     expect(modeFields).toContain('Locked')
     expect(modeFields).toContain('needs 80 players (70 more)')
     expect(modeFields).toContain('The rest')
+
+    sqlite.close()
+  })
+
+  test('uses the last configured role as fallback after unsetting the lowest tier', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedConfiguredRoles(kv)
+    await updateRankedRoleConfig(kv, 'guild-1', {
+      tierRoleIdsByRank: [undefined, undefined, undefined, undefined, null],
+    })
+    await seedPlayers(db, 'duel', 10, { prefix: 'duel', gamesPlayed: 6 })
+
+    const summary = await summarizeRankedPreview({
+      db,
+      kv,
+      guildId: 'guild-1',
+      now: NOW,
+      mode: 'duel',
+    })
+
+    expect(summary.bands.map(band => band.tier)).toEqual(['tier1', 'tier2', 'tier3', 'tier4'])
+    expect(summary.bands[3]).toMatchObject({
+      tier: 'tier4',
+      roleId: '22222222222222222',
+      isFallback: true,
+    })
+    expect(summary.modes[0]?.tiers.map(tier => tier.tier)).toEqual(['tier1', 'tier2', 'tier3', 'tier4'])
+
+    const embeds = rankedPreviewEmbeds(summary).map(embed => embed.toJSON())
+    expect(JSON.stringify(embeds)).not.toContain('Role 5')
+    expect(JSON.stringify(embeds)).toContain('<@&22222222222222222>')
 
     sqlite.close()
   })
