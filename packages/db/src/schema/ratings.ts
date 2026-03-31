@@ -1,4 +1,4 @@
-import { integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { players } from './players.ts'
 
 /**
@@ -21,4 +21,5 @@ export const playerRatings = sqliteTable('player_ratings', {
   lastPlayedAt: integer('last_played_at', { mode: 'number' }),
 }, table => [
   primaryKey({ columns: [table.playerId, table.mode] }),
+  index('player_ratings_mode_idx').on(table.mode),
 ])
