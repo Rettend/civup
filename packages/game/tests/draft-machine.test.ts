@@ -266,7 +266,34 @@ describe('swapSeatPicks', () => {
     const result = swapSeatPicks(state, 0, 1)
     expect(isDraftError(result)).toBe(true)
     if (!isDraftError(result)) return
-    expect(result.error).toBe('Only teammates can swap leaders')
+    expect(result.error).toBe('Only teammates can swap picks')
+  })
+
+  test('swaps locked picks in red death team drafts', () => {
+    const state: DraftState = {
+      ...startDraft(createDraft('match-rd-swap', redDeath2v2, createRdSeats(), createTestCivPool())),
+      formatId: redDeath2v2.id,
+      status: 'complete',
+      currentStepIndex: 4,
+      picks: [
+        { civId: 'rd-faction-10', seatIndex: 0, stepIndex: 0 },
+        { civId: 'rd-faction-20', seatIndex: 1, stepIndex: 1 },
+        { civId: 'rd-faction-11', seatIndex: 2, stepIndex: 2 },
+        { civId: 'rd-faction-21', seatIndex: 3, stepIndex: 3 },
+      ],
+      dealtCivIds: null,
+    }
+
+    const result = swapSeatPicks(state, 0, 2)
+    expect(isDraftError(result)).toBe(true)
+    if (!isDraftError(result)) return
+
+    const teammateResult = swapSeatPicks(state, 0, 1)
+    expect(isDraftError(teammateResult)).toBe(false)
+    if (isDraftError(teammateResult)) return
+
+    expect(teammateResult.find(pick => pick.seatIndex === 0)?.civId).toBe('rd-faction-20')
+    expect(teammateResult.find(pick => pick.seatIndex === 1)?.civId).toBe('rd-faction-10')
   })
 })
 

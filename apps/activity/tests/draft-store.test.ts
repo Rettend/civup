@@ -82,6 +82,22 @@ function createCompleteTeamState(): DraftState {
   }
 }
 
+function createCompleteRedDeathTeamState(): DraftState {
+  const waiting = createRedDeathWaitingState()
+  return {
+    ...waiting,
+    status: 'complete',
+    currentStepIndex: waiting.steps.length,
+    dealtCivIds: null,
+    picks: [
+      { civId: allFactionIds[0] ?? 'rd-faction-1', seatIndex: 0, stepIndex: 0 },
+      { civId: allFactionIds[1] ?? 'rd-faction-2', seatIndex: 1, stepIndex: 1 },
+      { civId: allFactionIds[2] ?? 'rd-faction-3', seatIndex: 2, stepIndex: 2 },
+      { civId: allFactionIds[3] ?? 'rd-faction-4', seatIndex: 3, stepIndex: 3 },
+    ],
+  }
+}
+
 function createComplete4v4State(): DraftState {
   const waiting = create4v4WaitingState()
   return {
@@ -188,6 +204,18 @@ describe('draft-store helpers', () => {
 
   test('opens the swap window only for completed team drafts with swap state', () => {
     const complete = createCompleteTeamState()
+    initDraft(complete, 'live', 'a1', 0, null, Date.now(), { bans: {}, picks: {} }, {
+      pendingSwaps: [],
+      completedSwaps: [],
+    })
+
+    expect(isSwapWindowOpen()).toBe(true)
+    expect(canRequestSwapWith(2)).toBe(true)
+    expect(canRequestSwapWith(1)).toBe(false)
+  })
+
+  test('opens the swap window for completed red death team drafts with swap state', () => {
+    const complete = createCompleteRedDeathTeamState()
     initDraft(complete, 'live', 'a1', 0, null, Date.now(), { bans: {}, picks: {} }, {
       pendingSwaps: [],
       completedSwaps: [],
