@@ -6,7 +6,7 @@ import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, max
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed, lobbyResultEmbed } from '../../embeds/match.ts'
-import { clearLobbyAndActivityMappings, clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
+import { clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
 import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
@@ -765,6 +765,7 @@ export const command_match = factory.command<MatchVar>(
           }
 
           const mode = matchContext.mode
+          const fallbackLobby = await getLobbyByMatch(kv, match.id)
 
           let placements: string
           if (mode === 'ffa') {
@@ -816,7 +817,7 @@ export const command_match = factory.command<MatchVar>(
             return
           }
 
-          const lobby = await getLobbyByMatch(kv, result.match.id)
+          const lobby = await getLobbyByMatch(kv, result.match.id) ?? fallbackLobby
           const guildId = lobby?.guildId ?? c.interaction.guild_id ?? null
           let rankedRoleLines: string[] = []
           if (guildId) {
@@ -858,7 +859,7 @@ export const command_match = factory.command<MatchVar>(
             catch (error) {
               console.error(`Failed to update lobby result embed for match ${result.match.id}:`, error)
             }
-            await clearLobbyAndActivityMappings(kv, lobby)
+            await clearLobbyById(kv, lobby.id, lobby)
           }
 
           const archiveChannelId = await getSystemChannel(kv, 'archive')

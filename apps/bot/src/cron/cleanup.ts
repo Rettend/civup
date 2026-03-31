@@ -26,6 +26,11 @@ export const cron_cleanup = factory.cron(
       console.log(`[cron] Pruned ${prunedMatches.removedMatchIds.length} abandoned matches`)
     }
 
+    if (prunedMatches.clearedLiveLobbyMatchIds.length > 0) {
+      // eslint-disable-next-line no-console
+      console.log(`[cron] Cleared ${prunedMatches.clearedLiveLobbyMatchIds.length} inconsistent live lobby(s)`)
+    }
+
     if (reminderResult.sentCount > 0) {
       // eslint-disable-next-line no-console
       console.log(`[cron] Sent ${reminderResult.sentCount} host report reminder DM(s)`)
