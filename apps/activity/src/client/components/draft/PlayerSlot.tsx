@@ -295,8 +295,8 @@ export function PlayerSlot(props: PlayerSlotProps) {
               'flex h-12 w-12 items-center justify-center cursor-pointer',
               swapButtonClass,
             )}
-            title="Request leader swap"
-            aria-label="Request leader swap"
+            title="Request swap"
+            aria-label="Request swap"
             onClick={(e) => {
               e.stopPropagation()
               sendSwapRequest(props.seatIndex)
@@ -335,8 +335,8 @@ export function PlayerSlot(props: PlayerSlotProps) {
                   'anim-swap-in pointer-events-auto flex h-[72px] w-[72px] items-center justify-center cursor-pointer',
                   swapButtonClass,
                 )}
-                title="Accept leader swap"
-                aria-label="Accept leader swap"
+                title="Accept swap"
+                aria-label="Accept swap"
                 onClick={(e) => {
                   e.stopPropagation()
                   sendSwapAccept()

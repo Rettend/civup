@@ -1,6 +1,7 @@
 import type { LeaderSwapState } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import {
+  canOpenSwapWindowForState,
   countConnectedDraftParticipants,
   getNextSwapLifecycleAlarmAt,
   getSwapDisconnectFinalizeAtAfterDisconnect,
@@ -25,6 +26,35 @@ describe('swap window lifecycle helpers', () => {
       now,
       graceMs: 5_000,
     })).toBe(now + 5_000)
+  })
+
+  test('opens the swap window for completed team red death drafts', () => {
+    expect(canOpenSwapWindowForState({
+      matchId: 'match-rd-swap',
+      formatId: 'red-death-2v2',
+      seats: [
+        { playerId: 'a1', displayName: 'A1', team: 0 },
+        { playerId: 'b1', displayName: 'B1', team: 1 },
+        { playerId: 'a2', displayName: 'A2', team: 0 },
+        { playerId: 'b2', displayName: 'B2', team: 1 },
+      ],
+      steps: [],
+      currentStepIndex: 4,
+      submissions: {},
+      bans: [],
+      picks: [
+        { civId: 'rd-faction-1', seatIndex: 0, stepIndex: 0 },
+        { civId: 'rd-faction-2', seatIndex: 1, stepIndex: 1 },
+        { civId: 'rd-faction-3', seatIndex: 2, stepIndex: 2 },
+        { civId: 'rd-faction-4', seatIndex: 3, stepIndex: 3 },
+      ],
+      availableCivIds: [],
+      dealtCivIds: null,
+      dealOptionsSize: 2,
+      status: 'complete',
+      cancelReason: null,
+      pendingBlindBans: [],
+    })).toBe(true)
   })
 
   test('keeps the window open and clears the disconnect grace when a participant is still connected', () => {

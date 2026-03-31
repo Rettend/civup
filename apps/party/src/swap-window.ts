@@ -1,4 +1,8 @@
-import type { LeaderSwapState } from '@civup/game'
+import type { DraftState, LeaderSwapState } from '@civup/game'
+
+export function canOpenSwapWindowForState(state: DraftState): boolean {
+  return state.status === 'complete' && state.seats.some(seat => seat.team != null)
+}
 
 export function countConnectedDraftParticipants<TConnection>(
   participantIds: readonly string[],

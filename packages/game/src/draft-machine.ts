@@ -92,8 +92,8 @@ export function swapSeatPicks(
   const leftSeat = state.seats[seatA]
   const rightSeat = state.seats[seatB]
   if (!leftSeat || !rightSeat) return { error: 'Invalid seat index' }
-  if (leftSeat.team == null || rightSeat.team == null) return { error: 'Only team seats can swap leaders' }
-  if (leftSeat.team !== rightSeat.team) return { error: 'Only teammates can swap leaders' }
+  if (leftSeat.team == null || rightSeat.team == null) return { error: 'Only team seats can swap picks' }
+  if (leftSeat.team !== rightSeat.team) return { error: 'Only teammates can swap picks' }
 
   const leftPick = state.picks.find(pick => pick.seatIndex === seatA)
   const rightPick = state.picks.find(pick => pick.seatIndex === seatB)
