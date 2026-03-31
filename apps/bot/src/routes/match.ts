@@ -3,10 +3,9 @@ import type { Env } from '../env.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match.ts'
-import { clearLobbyAndActivityMappings } from '../services/activity/index.ts'
 import { createChannelMessage } from '../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
-import { getLobbyByMatch, upsertLobbyMessage } from '../services/lobby/index.ts'
+import { clearLobbyById, getLobbyByMatch, upsertLobbyMessage } from '../services/lobby/index.ts'
 import { cancelMatchByModerator, getHostIdFromDraftData, getStoredGameModeContext, reportMatch } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../services/ranked/role-sync.ts'
@@ -71,6 +70,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
     if (mismatch) return mismatch
 
     const db = createDb(c.env.DB)
+    const fallbackLobby = await getLobbyByMatch(kv, c.req.param('matchId'))
     const result = await reportMatch(db, kv, {
       matchId: c.req.param('matchId'),
       reporterId: auth.identity.userId,
@@ -94,7 +94,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       return c.json({ error: `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.` }, 400)
     }
 
-    const lobby = await getLobbyByMatch(kv, result.match.id)
+    const lobby = await getLobbyByMatch(kv, result.match.id) ?? fallbackLobby
     const guildId = lobby?.guildId ?? null
     let rankedRoleLines: string[] = []
     if (guildId) {
@@ -136,7 +136,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       catch (error) {
         console.error(`Failed to update lobby result embed for match ${result.match.id}:`, error)
       }
-      await clearLobbyAndActivityMappings(kv, lobby)
+      await clearLobbyById(kv, lobby.id, lobby)
     }
 
     const archiveChannelId = await getSystemChannel(kv, 'archive')
