@@ -31,6 +31,7 @@ import {
   sanitizeDraftPreviews,
 } from './draft-previews.ts'
 import {
+  canOpenSwapWindowForState,
   countConnectedDraftParticipants,
   getNextSwapLifecycleAlarmAt,
   getSwapDisconnectFinalizeAtAfterDisconnect,
@@ -833,9 +834,7 @@ export class Main extends Server<PartyEnv> {
   }
 
   private shouldOpenSwapWindow(state: DraftState): boolean {
-    return state.status === 'complete'
-      && !isRedDeathDraftState(state)
-      && state.seats.some(seat => seat.team != null)
+    return canOpenSwapWindowForState(state)
   }
 
   private async isSwapWindowOpen(): Promise<boolean> {
