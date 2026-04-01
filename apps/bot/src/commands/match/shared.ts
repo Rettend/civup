@@ -4,7 +4,7 @@ import type { Embed } from 'discord-hono'
 import type { lobbyComponents } from '../../embeds/match.ts'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import { matches, matchParticipants } from '@civup/db'
-import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode, maxPlayerCount, teamCount as modeTeamCount, teamSize as modeTeamSize, slotToTeamIndex } from '@civup/game'
+import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode, teamCount as modeTeamCount, teamSize as modeTeamSize, slotToTeamIndex } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
 import { and, eq, inArray } from 'drizzle-orm'
@@ -28,7 +28,7 @@ const FFA_PLACEMENT_LABELS: Record<(typeof ALL_FFA_PLACEMENT_KEYS)[number], stri
   tenth: 'FFA 10th place',
 }
 
-export const FFA_PLACEMENT_KEYS = ALL_FFA_PLACEMENT_KEYS.slice(0, Math.max(0, maxPlayerCount('ffa') - 1))
+export const FFA_PLACEMENT_KEYS = ALL_FFA_PLACEMENT_KEYS
 export type FfaPlacementKey = (typeof FFA_PLACEMENT_KEYS)[number]
 
 export const LOBBY_STATUS_LABELS = {

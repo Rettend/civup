@@ -1,5 +1,6 @@
 import type { GameMode, QueueEntry } from '@civup/game'
 import type { LobbyState } from './types.ts'
+import { minPlayerCount } from '@civup/game'
 import { syncActivityOverviewSnapshotForLobby } from '../activity/live-state.ts'
 import { getServerDraftTimerDefaults } from '../config/index.ts'
 import { getQueueState } from '../queue/index.ts'
@@ -57,6 +58,7 @@ export async function buildLobbyLiveSnapshotFromParts(
 ): Promise<LobbySnapshot> {
   const slotEntries = mapLobbySlotsToEntries(slots, queueEntries)
   const serverDefaults = await getServerDraftTimerDefaults(kv)
+  const normalizedDraftConfig = normalizeDraftConfigForMode(mode, lobby.draftConfig)
 
   return {
     id: lobby.id,
@@ -76,9 +78,9 @@ export async function buildLobbyLiveSnapshotFromParts(
         partyIds: entry.partyIds ?? [],
       }
     }),
-    minPlayers: slots.length,
+    minPlayers: mode === 'ffa' ? (normalizedDraftConfig.redDeath ? 4 : minPlayerCount(mode)) : slots.length,
     targetSize: slots.length,
-    draftConfig: normalizeDraftConfigForMode(mode, lobby.draftConfig),
+    draftConfig: normalizedDraftConfig,
     serverDefaults,
   }
 }
