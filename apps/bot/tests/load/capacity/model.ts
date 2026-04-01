@@ -14,6 +14,9 @@ export interface UsageLimits {
 
 export interface PerDraftUsage {
   workersRequests: number
+  botWorkerRequests: number
+  activityWorkerRequests: number
+  partyWorkerRequests: number
   d1RowsReadBase: number
   d1RowsReadPerLeaderboardPlayer: number
   d1RowsWritten: number
@@ -24,11 +27,15 @@ export interface PerDraftUsage {
   kvDeletes: number
   kvLists: number
   doRequests: number
+  doRequestsRaw: number
   doDurationGbSeconds: number
 }
 
 export interface DailyUsage {
   workersRequests: number
+  botWorkerRequests: number
+  activityWorkerRequests: number
+  partyWorkerRequests: number
   d1RowsRead: number
   d1RowsWritten: number
   doSqliteRowsRead: number
@@ -38,6 +45,7 @@ export interface DailyUsage {
   kvDeletes: number
   kvLists: number
   doRequests: number
+  doRequestsRaw: number
   doDurationGbSeconds: number
 }
 
@@ -63,9 +71,15 @@ export function estimateDailyUsage(
 ): DailyUsage {
   const draftsPerDay = playsPerDay / playersPerDraft
   const d1RowsReadPerDraft = model.perDraft.d1RowsReadBase + model.perDraft.d1RowsReadPerLeaderboardPlayer * playsPerDay
+  const botWorkerRequests = Math.ceil(draftsPerDay * model.perDraft.botWorkerRequests)
+  const activityWorkerRequests = Math.ceil(draftsPerDay * model.perDraft.activityWorkerRequests)
+  const partyWorkerRequests = Math.ceil(draftsPerDay * model.perDraft.partyWorkerRequests)
 
   const perDraftUsage: DailyUsage = {
-    workersRequests: Math.ceil(draftsPerDay * model.perDraft.workersRequests),
+    workersRequests: botWorkerRequests + activityWorkerRequests + partyWorkerRequests,
+    botWorkerRequests,
+    activityWorkerRequests,
+    partyWorkerRequests,
     d1RowsRead: Math.ceil(draftsPerDay * d1RowsReadPerDraft),
     d1RowsWritten: Math.ceil(draftsPerDay * model.perDraft.d1RowsWritten),
     doSqliteRowsRead: Math.ceil(draftsPerDay * model.perDraft.doSqliteRowsRead),
@@ -75,6 +89,7 @@ export function estimateDailyUsage(
     kvDeletes: Math.ceil(draftsPerDay * model.perDraft.kvDeletes),
     kvLists: Math.ceil(draftsPerDay * model.perDraft.kvLists),
     doRequests: Math.ceil(draftsPerDay * model.perDraft.doRequests),
+    doRequestsRaw: Math.ceil(draftsPerDay * model.perDraft.doRequestsRaw),
     doDurationGbSeconds: Math.ceil(draftsPerDay * model.perDraft.doDurationGbSeconds),
   }
 
@@ -84,6 +99,9 @@ export function estimateDailyUsage(
 export function multiplyUsage(usage: DailyUsage, days: number): DailyUsage {
   return {
     workersRequests: usage.workersRequests * days,
+    botWorkerRequests: usage.botWorkerRequests * days,
+    activityWorkerRequests: usage.activityWorkerRequests * days,
+    partyWorkerRequests: usage.partyWorkerRequests * days,
     d1RowsRead: usage.d1RowsRead * days,
     d1RowsWritten: usage.d1RowsWritten * days,
     doSqliteRowsRead: usage.doSqliteRowsRead * days,
@@ -93,6 +111,7 @@ export function multiplyUsage(usage: DailyUsage, days: number): DailyUsage {
     kvDeletes: usage.kvDeletes * days,
     kvLists: usage.kvLists * days,
     doRequests: usage.doRequests * days,
+    doRequestsRaw: usage.doRequestsRaw * days,
     doDurationGbSeconds: usage.doDurationGbSeconds * days,
   }
 }
@@ -102,6 +121,9 @@ export function addUsage(base: DailyUsage, extra?: DailyUsage): DailyUsage {
 
   return {
     workersRequests: base.workersRequests + extra.workersRequests,
+    botWorkerRequests: base.botWorkerRequests + extra.botWorkerRequests,
+    activityWorkerRequests: base.activityWorkerRequests + extra.activityWorkerRequests,
+    partyWorkerRequests: base.partyWorkerRequests + extra.partyWorkerRequests,
     d1RowsRead: base.d1RowsRead + extra.d1RowsRead,
     d1RowsWritten: base.d1RowsWritten + extra.d1RowsWritten,
     doSqliteRowsRead: base.doSqliteRowsRead + extra.doSqliteRowsRead,
@@ -111,6 +133,7 @@ export function addUsage(base: DailyUsage, extra?: DailyUsage): DailyUsage {
     kvDeletes: base.kvDeletes + extra.kvDeletes,
     kvLists: base.kvLists + extra.kvLists,
     doRequests: base.doRequests + extra.doRequests,
+    doRequestsRaw: base.doRequestsRaw + extra.doRequestsRaw,
     doDurationGbSeconds: base.doDurationGbSeconds + extra.doDurationGbSeconds,
   }
 }

@@ -2,11 +2,12 @@ import type { Database } from '@civup/db'
 import type { GameMode, LeaderboardMode } from '@civup/game'
 import type { PlayerRankProfile } from '../services/player/rank.ts'
 import { matches, matchParticipants, playerRatings, players } from '@civup/db'
-import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MODES, parseGameMode, toLeaderboardMode } from '@civup/game'
+import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MODES, toLeaderboardMode } from '@civup/game'
 import { displayRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, desc, eq } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
+import { getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { getDisplaySeason } from '../services/season/index.ts'
 
 export type StatsModeFilter = 'all' | GameMode
@@ -100,6 +101,7 @@ export async function playerCardEmbed(
       ratingAfterMu: matchParticipants.ratingAfterMu,
       ratingAfterSigma: matchParticipants.ratingAfterSigma,
       gameMode: matches.gameMode,
+      draftData: matches.draftData,
     })
     .from(matchParticipants)
     .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
@@ -207,10 +209,11 @@ function formatRecentMatchLine(match: {
   ratingAfterMu: number | null
   ratingAfterSigma: number | null
   gameMode: string
+  draftData: string | null
 }): string {
   const placement = formatPlacementCode(match.placement)
   const rating = formatRecentRatingChange(match)
-  const modeLabel = formatGameModeLabel(match.gameMode)
+  const modeLabel = formatGameModeLabel(match.gameMode, match.draftData)
   const leader = formatLeaderName(match.civId)
   return `${placement} ${rating} - ${modeLabel} ${leader}`
 }
@@ -245,10 +248,10 @@ function formatRecentRatingChange(match: {
   return `\`${deltaText}\` ${trendEmoji} \`${updatedElo}\``
 }
 
-function formatGameModeLabel(gameMode: string): string {
-  const parsed = parseGameMode(gameMode)
-  if (parsed) return formatModeLabel(parsed, parsed)
-  return gameMode.toUpperCase()
+function formatGameModeLabel(gameMode: string, draftData: string | null): string {
+  const context = getStoredGameModeContext(gameMode, draftData)
+  if (context) return context.label
+  return formatModeLabel(gameMode, gameMode)
 }
 
 function formatLeaderName(civId: string | null): string {

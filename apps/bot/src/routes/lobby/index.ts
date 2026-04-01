@@ -1,8 +1,8 @@
-import type { GameMode, QueueEntry } from '@civup/game'
+import type { GameMode } from '@civup/game'
 import type { Hono } from 'hono'
 import type { Env } from '../../env.ts'
 import { createDb, playerRatings } from '@civup/db'
-import { formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isRedDeathMode, isTeamMode, MAX_LEADER_POOL_SIZE, maxPlayerCount, normalizeCompetitiveTierBounds, parseGameMode, playerCountOptions, slotToTeamIndex, toLeaderboardMode } from '@civup/game'
+import { formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isTeamMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, slotToTeamIndex, toLeaderboardMode } from '@civup/game'
 import { createDraftRoomAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
@@ -23,6 +23,7 @@ import {
   moveSlottedPremadeGroup,
   normalizeLobbySlots,
   rebuildQueueEntriesFromPremadeEdgeSet,
+  sameLobbySlots,
   setLobbyDraftConfig,
   setLobbyLastActivityAt,
   setLobbyMaxRole,
@@ -54,12 +55,13 @@ import {
   parseLobbyLeaderPoolSize,
   parseLobbyMaxRole,
   parseLobbyMinRole,
+  parseLobbyTargetSize,
   parseLobbyTimerSeconds,
   parseSlotIndex,
   resolveOpenLobbyFromBody,
 } from './snapshot.ts'
 
-const DEBUG_TEST_PLAYER_ID_PREFIX = 'debug-active-lobby-bot:'
+const DEBUG_TEST_PLAYER_ID_PREFIX = 'bot:'
 
 export function registerLobbyRoutes(app: Hono<Env>) {
   app.get('/api/lobby/:mode/fill-test', async (c) => {
@@ -117,18 +119,20 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, simultaneousPick: simultaneousPickRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, lobbyId } = body as {
+    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, simultaneousPick: simultaneousPickRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
       userId?: string
       banTimerSeconds?: unknown
       pickTimerSeconds?: unknown
       leaderPoolSize?: unknown
       leaderDataVersion?: unknown
       simultaneousPick?: unknown
+      redDeath?: unknown
       dealOptionsSize?: unknown
       randomDraft?: unknown
       minRole?: unknown
       maxRole?: unknown
       steamLobbyLink?: unknown
+      targetSize?: unknown
       lobbyId?: unknown
     }
 
@@ -152,8 +156,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const hasLeaderPoolSize = Object.prototype.hasOwnProperty.call(body, 'leaderPoolSize')
     const hasLeaderDataVersion = Object.prototype.hasOwnProperty.call(body, 'leaderDataVersion')
     const hasSimultaneousPick = Object.prototype.hasOwnProperty.call(body, 'simultaneousPick')
+    const hasRedDeath = Object.prototype.hasOwnProperty.call(body, 'redDeath')
     const hasDealOptionsSize = Object.prototype.hasOwnProperty.call(body, 'dealOptionsSize')
     const hasRandomDraft = Object.prototype.hasOwnProperty.call(body, 'randomDraft')
+    const hasTargetSize = Object.prototype.hasOwnProperty.call(body, 'targetSize')
     const parsedLeaderPoolSize = hasLeaderPoolSize
       ? parseLobbyLeaderPoolSize(leaderPoolSizeRaw)
       : undefined
@@ -169,11 +175,17 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const parsedSimultaneousPick = hasSimultaneousPick
       ? parseLobbySimultaneousPick(simultaneousPickRaw)
       : undefined
+    const parsedRedDeath = hasRedDeath
+      ? parseLobbyRedDeath(redDeathRaw)
+      : undefined
     const parsedDealOptionsSize = hasDealOptionsSize
       ? parseLobbyDealOptionsSize(dealOptionsSizeRaw)
       : undefined
     const parsedRandomDraft = hasRandomDraft
       ? parseLobbyRandomDraft(randomDraftRaw)
+      : undefined
+    const parsedTargetSize = hasTargetSize
+      ? parseLobbyTargetSize(mode, targetSizeRaw)
       : undefined
     if (hasLeaderDataVersion && parsedLeaderDataVersion === undefined) {
       return c.json({ error: 'leaderDataVersion must be "live" or "beta"' }, 400)
@@ -181,11 +193,17 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (hasSimultaneousPick && parsedSimultaneousPick === undefined) {
       return c.json({ error: 'simultaneousPick must be true or false' }, 400)
     }
+    if (hasRedDeath && parsedRedDeath === undefined) {
+      return c.json({ error: 'redDeath must be true or false' }, 400)
+    }
     if (hasDealOptionsSize && parsedDealOptionsSize === undefined) {
       return c.json({ error: 'dealOptionsSize must be an integer between 2 and 10, or null' }, 400)
     }
     if (hasRandomDraft && parsedRandomDraft === undefined) {
       return c.json({ error: 'randomDraft must be true or false' }, 400)
+    }
+    if (hasTargetSize && parsedTargetSize === undefined) {
+      return c.json({ error: 'targetSize must be a supported player count for this mode' }, 400)
     }
     const hasSteamLobbyLink = Object.prototype.hasOwnProperty.call(body, 'steamLobbyLink')
     const parsedSteamLobbyLink = hasSteamLobbyLink
@@ -237,6 +255,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const normalizedSimultaneousPick = hasSimultaneousPick
       ? parsedSimultaneousPick ?? false
       : lobby.draftConfig.simultaneousPick
+    const normalizedRedDeath = hasRedDeath
+      ? parsedRedDeath ?? false
+      : lobby.draftConfig.redDeath
     const normalizedDealOptionsSize = hasDealOptionsSize
       ? parsedDealOptionsSize ?? null
       : lobby.draftConfig.dealOptionsSize
@@ -257,7 +278,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       if (!hasSteamLobbyLink) {
         return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
       }
-      if (hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasSimultaneousPick || hasDealOptionsSize || hasRandomDraft || hasMinRole || hasMaxRole) {
+      if (hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasSimultaneousPick || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasTargetSize || hasMinRole || hasMaxRole) {
         return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
       }
 
@@ -277,14 +298,22 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const queue = await getQueueState(kv, mode)
     const lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
-    const currentPlayerCount = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
-      .filter(playerId => playerId != null)
-      .length
+    let slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
+    const requestedTargetSize = hasTargetSize ? parsedTargetSize ?? slots.length : slots.length
+
+    if (requestedTargetSize !== slots.length) {
+      if (requestedTargetSize < slots.length && slots.slice(requestedTargetSize).some(playerId => playerId != null)) {
+        return c.json({ error: 'Clear the extra 2v2 seats before removing them.' }, 400)
+      }
+
+      slots = resizeLobbySlots(slots, requestedTargetSize)
+    }
 
     const leaderPoolError = getLeaderPoolSizeError(
       mode,
+      normalizedRedDeath,
       normalizedLeaderPoolSize,
-      mode === 'ffa' ? currentPlayerCount : maxPlayerCount(mode),
+      slots.length,
     )
     if (leaderPoolError) return c.json({ error: leaderPoolError }, 400)
 
@@ -304,6 +333,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       leaderPoolSize: normalizedLeaderPoolSize,
       leaderDataVersion: normalizedLeaderDataVersion,
       simultaneousPick: normalizedSimultaneousPick,
+      redDeath: normalizedRedDeath,
       dealOptionsSize: normalizedDealOptionsSize,
       randomDraft: normalizedRandomDraft,
     }, lobby)
@@ -313,6 +343,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     lobby = minRoleUpdated ?? lobby
     const maxRoleUpdated = await setLobbyMaxRole(kv, lobby.id, normalizedMaxRole, lobby)
     lobby = maxRoleUpdated ?? lobby
+    if (!sameLobbySlots(slots, lobby.slots)) {
+      const resizedLobby = await setLobbySlots(kv, lobby.id, slots, lobby)
+      lobby = resizedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
+    }
     let updated = hasSteamLobbyLink
       ? (await setLobbySteamLobbyLink(kv, lobby.id, parsedSteamLobbyLink ?? null, lobby) ?? lobby)
       : lobby
@@ -326,11 +360,11 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const nextLobbyQueueEntries = buildLobbyQueueEntries(updated, queue.entries)
-    const slots = normalizeLobbySlots(mode, updated.slots, nextLobbyQueueEntries)
-    const slottedEntries = mapLobbySlotsToEntries(slots, nextLobbyQueueEntries)
+    const normalizedSlots = normalizeLobbySlots(mode, updated.slots, nextLobbyQueueEntries)
+    const slottedEntries = mapLobbySlotsToEntries(normalizedSlots, nextLobbyQueueEntries)
     const snapshot = await syncLobbyDerivedState(kv, updated, {
       queueEntries: nextLobbyQueueEntries,
-      slots,
+      slots: normalizedSlots,
     })
 
     queueBackgroundTask(c, async () => {
@@ -343,7 +377,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       })
     }, `Failed to update lobby embed after config change in ${mode}:`)
 
-    return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, updated, nextLobbyQueueEntries, slots))
+    return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, updated, nextLobbyQueueEntries, normalizedSlots))
   })
 
   app.post('/api/lobby/:mode/mode', async (c) => {
@@ -514,7 +548,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (mismatch) return mismatch
 
     const targetSlot = parseSlotIndex(targetSlotRaw)
-    if (targetSlot == null || targetSlot >= maxPlayerCount(mode)) {
+    if (targetSlot == null) {
       return c.json({ error: 'Invalid target slot index' }, 400)
     }
 
@@ -523,6 +557,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
     let lobby = resolvedLobby
+
+    if (targetSlot >= lobby.slots.length) {
+      return c.json({ error: 'Invalid target slot index' }, 400)
+    }
 
     const isHost = lobby.hostId === auth.identity.userId
     const movingPlayerId = typeof requestedPlayerId === 'string' && requestedPlayerId.length > 0
@@ -676,13 +714,17 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (mismatch) return mismatch
 
     const slot = parseSlotIndex(slotRaw)
-    if (slot == null || slot >= maxPlayerCount(mode)) {
+    if (slot == null) {
       return c.json({ error: 'Invalid slot index' }, 400)
     }
 
     const lobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
     if (!lobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
+    }
+
+    if (slot >= lobby.slots.length) {
+      return c.json({ error: 'Invalid slot index' }, 400)
     }
 
     const queue = await getQueueState(kv, mode)
@@ -781,17 +823,21 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const leftSlot = parseSlotIndex(leftSlotRaw)
     const rightSlot = leftSlot == null ? null : leftSlot + 1
-    if (leftSlot == null || rightSlot == null || rightSlot >= maxPlayerCount(mode)) {
+    if (leftSlot == null || rightSlot == null) {
       return c.json({ error: 'Invalid premade link position' }, 400)
-    }
-
-    if (slotToTeamIndex(mode, leftSlot) == null || slotToTeamIndex(mode, leftSlot) !== slotToTeamIndex(mode, rightSlot)) {
-      return c.json({ error: 'Premade links must stay on one team.' }, 400)
     }
 
     const lobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
     if (!lobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
+    }
+
+    if (rightSlot >= lobby.slots.length) {
+      return c.json({ error: 'Invalid premade link position' }, 400)
+    }
+
+    if (slotToTeamIndex(mode, leftSlot, lobby.slots.length) == null || slotToTeamIndex(mode, leftSlot, lobby.slots.length) !== slotToTeamIndex(mode, rightSlot, lobby.slots.length)) {
+      return c.json({ error: 'Premade links must stay on one team.' }, 400)
     }
 
     const queue = await getQueueState(kv, mode)
@@ -883,7 +929,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     let ratingsByPlayerId = new Map<string, { mu: number, sigma: number }>()
     if (strategyRaw === 'balance' && slottedPlayerIds.length > 0) {
-      const leaderboardMode = toLeaderboardMode(mode)
+      const leaderboardMode = toLeaderboardMode(mode, { redDeath: lobby.draftConfig.redDeath })
       const db = createDb(c.env.DB)
       const rows = await db
         .select({
@@ -1113,30 +1159,22 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Host must be in a lobby slot before starting.' }, 400)
     }
 
-    if (!canStartLobbyWithPlayerCount(mode, selectedEntries.length)) {
-      if (mode === 'ffa' || mode === 'rd-2p') {
-        const requirements = playerCountOptions(mode)
-        const requirement = requirements.join(' or ')
-        return c.json({ error: `${formatModeLabel(mode)} can start with ${requirement} slotted players.` }, 400)
-      }
-      return c.json({ error: `${formatModeLabel(mode)} requires exactly ${maxPlayerCount(mode)} slotted players.` }, 400)
+    if (!canStartLobbyWithPlayerCount(mode, selectedEntries.length, slots.length)) {
+      return c.json({ error: `${formatModeLabel(mode, mode, { redDeath: lobby.draftConfig.redDeath })} requires exactly ${slots.length} slotted players.` }, 400)
     }
 
     try {
       const timerConfig = await resolveDraftTimerConfig(kv, lobby.draftConfig)
-      const leaderPoolError = getLeaderPoolSizeError(mode, lobby.draftConfig.leaderPoolSize, selectedEntries.length)
+      const leaderPoolError = getLeaderPoolSizeError(mode, lobby.draftConfig.redDeath, lobby.draftConfig.leaderPoolSize, slots.length)
       if (leaderPoolError) return c.json({ error: leaderPoolError }, 400)
-
-      const draftEntries = isRedDeathMode(mode)
-        ? buildDraftEntriesForRedDeath(mode, slottedEntries)
-        : selectedEntries
 
       await storeLobbyDraftRoster(kv, lobby.id, lobbyQueueEntries)
 
-      const { matchId, seats } = await createDraftRoom(mode, draftEntries, {
+      const { matchId, seats } = await createDraftRoom(mode, selectedEntries, {
         hostId: lobby.hostId,
         leaderDataVersion: lobby.draftConfig.leaderDataVersion,
         simultaneousPick: lobby.draftConfig.simultaneousPick,
+        redDeath: lobby.draftConfig.redDeath,
         randomDraft: lobby.draftConfig.randomDraft,
         partyHost: c.env.PARTY_HOST,
         botHost: c.env.BOT_HOST,
@@ -1207,7 +1245,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         const currentLobby = await getCurrentLobbyForQueuedMessageUpdate(kv, lobbyForMessage)
         if (!currentLobby) return
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
-          embeds: [lobbyDraftingEmbed(mode, seats, lobbyForMessage.draftConfig.leaderDataVersion)],
+          embeds: [lobbyDraftingEmbed(mode, seats, lobbyForMessage.draftConfig.leaderDataVersion, lobbyForMessage.draftConfig.redDeath)],
           components: lobbyComponents(mode, currentLobby.id),
         })
         await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
@@ -1282,12 +1320,12 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     queueBackgroundTask(c, async () => {
-      await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-        embeds: [{
-          title: `LOBBY CANCELLED  -  ${formatModeLabel(mode)}`,
-          description: 'Host cancelled this lobby before draft start.',
-          color: 0x6B7280,
-        }],
+        await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
+          embeds: [{
+            title: `LOBBY CANCELLED  -  ${formatModeLabel(mode, mode, { redDeath: lobby.draftConfig.redDeath })}`,
+            description: 'Host cancelled this lobby before draft start.',
+            color: 0x6B7280,
+          }],
         components: [],
       })
     }, `Failed to update cancelled lobby embed for mode ${mode}:`)
@@ -1314,8 +1352,8 @@ async function buildStoredLobbySnapshot(
     minRole: lobby.minRole,
     maxRole: lobby.maxRole,
     entries: lobby.slots.map(() => null),
-    minPlayers: lobbyMinPlayerCount(mode),
-    targetSize: maxPlayerCount(mode),
+    minPlayers: lobbyMinPlayerCount(lobby.slots.length),
+    targetSize: lobby.slots.length,
     draftConfig: lobby.draftConfig,
     serverDefaults,
   }
@@ -1327,10 +1365,11 @@ function isSteamLobbyEditableStatus(status: 'open' | 'drafting' | 'active' | 'co
 
 function getLeaderPoolSizeError(
   mode: GameMode,
+  redDeath: boolean,
   leaderPoolSize: number | null,
   playerCount: number,
 ): string | null {
-  if (isRedDeathMode(mode)) return null
+  if (redDeath) return null
   if (leaderPoolSize == null) return null
 
   const minimumSize = getMinimumLeaderPoolSize(mode, playerCount)
@@ -1364,6 +1403,10 @@ function parseLobbySimultaneousPick(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
 }
 
+function parseLobbyRedDeath(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
 function parseLobbyDealOptionsSize(value: unknown): number | null | undefined {
   if (value == null) return null
   const numeric = typeof value === 'number' ? value : Number(value)
@@ -1376,25 +1419,8 @@ function parseLobbyRandomDraft(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
 }
 
-function buildDraftEntriesForRedDeath(
-  mode: GameMode,
-  entriesBySlot: Array<QueueEntry | null>,
-): QueueEntry[] {
-  const grouped = new Map<number, QueueEntry[]>()
-
-  for (let slot = 0; slot < entriesBySlot.length; slot++) {
-    const entry = entriesBySlot[slot]
-    if (!entry) continue
-    const team = slotToTeamIndex(mode, slot, entriesBySlot.length)
-    if (team == null) continue
-    const teamEntries = grouped.get(team) ?? []
-    teamEntries.push(entry)
-    grouped.set(team, teamEntries)
-  }
-
-  return [...grouped.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .flatMap(([, teamEntries]) => teamEntries)
+function resizeLobbySlots(slots: (string | null)[], targetSize: number): (string | null)[] {
+  return Array.from({ length: targetSize }, (_, index) => slots[index] ?? null)
 }
 
 function isDebugLobbyFillEnabled(

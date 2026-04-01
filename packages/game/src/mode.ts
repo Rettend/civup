@@ -7,8 +7,6 @@ export const GAME_MODE_CHOICES = [
   { name: '3v3', value: '3v3' },
   { name: '4v4', value: '4v4' },
   { name: 'FFA', value: 'ffa' },
-  { name: 'RD 2p', value: 'rd-2p' },
-  { name: 'RD 4p', value: 'rd-4p' },
 ] as const satisfies readonly { name: string, value: GameMode }[]
 
 export const LEADERBOARD_MODE_CHOICES = [
@@ -32,16 +30,8 @@ const LEADERBOARD_MODE_GAME_MODES = {
   'duo': ['2v2'],
   'squad': ['3v3', '4v4'],
   'ffa': ['ffa'],
-  'red-death': ['rd-2p', 'rd-4p'],
+  'red-death': GAME_MODES,
 } as const satisfies Record<LeaderboardMode, readonly GameMode[]>
-
-function isValidRd2pPlayerCount(playerCount: number): boolean {
-  return playerCount === 4 || playerCount === 8
-}
-
-export function isRedDeathMode(mode: GameMode): mode is 'rd-2p' | 'rd-4p' {
-  return mode === 'rd-2p' || mode === 'rd-4p'
-}
 
 function normalizeModeValue(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null
@@ -80,20 +70,27 @@ export function inferGameMode(value: string | null | undefined, fallback: GameMo
 }
 
 /** Format game mode for UI labels. */
-export function formatModeLabel(mode: string | null | undefined, fallback = ''): string {
+export function formatModeLabel(
+  mode: string | null | undefined,
+  fallback = '',
+  options: { redDeath?: boolean, targetSize?: number } = {},
+): string {
   if (!mode) return fallback
 
   const trimmed = mode.trim()
   if (!trimmed) return fallback
 
-  const parsed = parseGameMode(trimmed)
-  if (parsed) {
-    if (parsed === 'ffa') return 'FFA'
-    if (parsed === 'rd-2p') return 'RD 2p'
-    if (parsed === 'rd-4p') return 'RD 4p'
-    return parsed
-  }
-  return trimmed.replace(/^default-/i, '').replace(/-/g, ' ')
+  const baseLabel = (() => {
+    const parsed = parseGameMode(trimmed)
+    if (parsed) {
+      if (parsed === 'ffa') return 'FFA'
+      if (parsed === '2v2' && options.targetSize === 8) return '2v2v2v2'
+      return parsed
+    }
+    return trimmed.replace(/^default-/i, '').replace(/-/g, ' ')
+  })()
+
+  return options.redDeath ? `Red Death ${baseLabel}` : baseLabel
 }
 
 /** Whether a string matches a supported leaderboard mode. */
@@ -116,8 +113,8 @@ export function formatLeaderboardModeLabel(mode: string | null | undefined, fall
 }
 
 /** Map game mode to its leaderboard track. */
-export function toLeaderboardMode(mode: GameMode): LeaderboardMode {
-  if (isRedDeathMode(mode)) return 'red-death'
+export function toLeaderboardMode(mode: GameMode, options: { redDeath?: boolean } = {}): LeaderboardMode {
+  if (options.redDeath) return 'red-death'
   if (mode === '2v2') return 'duo'
   if (mode === '3v3' || mode === '4v4') return 'squad'
   if (mode === '1v1') return 'duel'
@@ -130,8 +127,8 @@ export function leaderboardModesToGameModes(mode: LeaderboardMode): readonly Gam
 }
 
 /** Whether a game mode is team-based. */
-export function isTeamMode(mode: GameMode): mode is '2v2' | '3v3' | '4v4' | 'rd-2p' | 'rd-4p' {
-  return mode === '2v2' || mode === '3v3' || mode === '4v4' || mode === 'rd-2p' || mode === 'rd-4p'
+export function isTeamMode(mode: GameMode): mode is '2v2' | '3v3' | '4v4' {
+  return mode === '2v2' || mode === '3v3' || mode === '4v4'
 }
 
 /** Players on one side of a lobby, or null for FFA. */
@@ -139,17 +136,13 @@ export function teamSize(mode: GameMode): 1 | 2 | 3 | 4 | null {
   if (mode === 'ffa') return null
   if (mode === '1v1') return 1
   if (mode === '2v2') return 2
-  if (mode === 'rd-2p') return 2
   if (mode === '3v3') return 3
   return 4
 }
 
 /** Number of teams for team or duel modes. */
-export function teamCount(mode: GameMode, playerCount?: number): number {
-  if (mode === 'rd-2p') {
-    if (playerCount != null && isValidRd2pPlayerCount(playerCount)) return playerCount / 2
-    return 4
-  }
+export function teamCount(mode: GameMode, playerCount: number = defaultPlayerCount(mode)): number {
+  if (mode === '2v2') return playerCount === 8 ? 4 : 2
   return teamSize(mode) == null ? 0 : 2
 }
 
@@ -160,8 +153,7 @@ export function playersPerTeam(mode: GameMode): number {
 
 /** Supported player counts for a mode. */
 export function playerCountOptions(mode: GameMode): readonly number[] {
-  if (mode === 'rd-2p') return [4, 8]
-  if (mode === 'rd-4p') return [8]
+  if (mode === '2v2') return [4, 8]
   const size = teamSize(mode)
   if (size == null) return [8]
   return [size * 2]
@@ -177,18 +169,17 @@ export function maxTeammatesForMode(mode: GameMode): number {
 export function slotToTeamIndex(mode: GameMode, slot: number, playerCount: number = defaultPlayerCount(mode)): 0 | 1 | 2 | 3 | null {
   const size = teamSize(mode)
   if (size == null || slot < 0) return null
-  if (mode === 'rd-2p') {
-    if (!isValidRd2pPlayerCount(playerCount) || slot >= playerCount) return null
-    return Math.floor(slot / size) as 0 | 1 | 2 | 3
-  }
-  if (slot >= size * 2) return null
-  return slot < size ? 0 : 1
+
+  const teams = teamCount(mode, playerCount)
+  const maxSlots = teams * size
+  if (slot >= maxSlots) return null
+  return Math.floor(slot / size) as 0 | 1 | 2 | 3
 }
 
 /** Default player count for a mode. */
 export function defaultPlayerCount(mode: GameMode): number {
   const options = playerCountOptions(mode)
-  return options[options.length - 1] ?? 0
+  return options[0] ?? 0
 }
 
 /** Maximum player count allowed for a lobby mode. */
@@ -202,6 +193,6 @@ export function minPlayerCount(mode: GameMode): number {
 }
 
 /** Whether a lobby can start with the current player count. */
-export function canStartWithPlayerCount(mode: GameMode, playerCount: number): boolean {
-  return playerCountOptions(mode).includes(playerCount)
+export function canStartWithPlayerCount(mode: GameMode, playerCount: number, targetSize: number = playerCount): boolean {
+  return playerCount === targetSize && playerCountOptions(mode).includes(targetSize)
 }

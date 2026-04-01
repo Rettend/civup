@@ -2,18 +2,18 @@ import type { DraftSeat, GameMode, QueueEntry } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { MatchJoinEntry, MatchVar } from './shared.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, maxPlayerCount, maxTeammatesForMode, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
+import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, maxPlayerCount, maxTeammatesForMode, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed, lobbyResultEmbed } from '../../embeds/match.ts'
-import { clearLobbyAndActivityMappings, clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
+import { clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
 import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
-import { cancelMatchByModerator, reportMatch } from '../../services/match/index.ts'
+import { cancelMatchByModerator, getStoredGameModeContext, reportMatch } from '../../services/match/index.ts'
 import { clearMatchMessageMapping, storeMatchMessageMapping } from '../../services/match/message.ts'
 import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, removeFromQueue, removeFromQueueAndUnlinkParty } from '../../services/queue/index.ts'
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../../services/ranked/role-sync.ts'
@@ -169,9 +169,9 @@ export const command_match = factory.command<MatchVar>(
             }
 
             const nextQueue = result.state ?? queue
-            const previewSlots = Array.from({ length: maxPlayerCount(mode) }, (_, index) => index === 0 ? identity.userId : null)
+            const previewSlots = Array.from({ length: defaultPlayerCount(mode) }, (_, index) => index === 0 ? identity.userId : null)
             const previewEntries = mapLobbySlotsToEntries(previewSlots, nextQueue.entries.filter(entry => entry.playerId === identity.userId))
-            const embed = lobbyOpenEmbed(mode, previewEntries, maxPlayerCount(mode), undefined, undefined, 'live')
+            const embed = lobbyOpenEmbed(mode, previewEntries, previewSlots.length, undefined, undefined, 'live')
 
             try {
               const message = await createChannelMessage(c.env.DISCORD_TOKEN, draftChannelId, {
@@ -422,7 +422,7 @@ export const command_match = factory.command<MatchVar>(
 
             try {
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-                embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'cancel', undefined, lobby.draftConfig.leaderDataVersion)],
+                embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'cancel', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
                 components: [],
               })
               await storeMatchMessageMapping(db, lobby.messageId, matchId)
@@ -732,7 +732,7 @@ export const command_match = factory.command<MatchVar>(
           }
 
           const [match] = await db
-            .select({ id: matches.id, gameMode: matches.gameMode, status: matches.status })
+            .select({ id: matches.id, gameMode: matches.gameMode, draftData: matches.draftData, status: matches.status })
             .from(matches)
             .where(eq(matches.id, matchId))
             .limit(1)
@@ -758,7 +758,14 @@ export const command_match = factory.command<MatchVar>(
 
           const orderedFfaIds = collectFfaPlacementUserIds(c.var)
           const winnerId = c.var.winner ?? null
-          const mode = normalizeMatchMode(match.gameMode)
+          const matchContext = getStoredGameModeContext(match.gameMode, match.draftData)
+          if (!matchContext) {
+            await sendTransientEphemeralResponse(c, `Match **${match.id}** has unsupported game mode: ${match.gameMode}.`, 'error')
+            return
+          }
+
+          const mode = matchContext.mode
+          const fallbackLobby = await getLobbyByMatch(kv, match.id)
 
           let placements: string
           if (mode === 'ffa') {
@@ -804,9 +811,13 @@ export const command_match = factory.command<MatchVar>(
             return
           }
 
-          const reportedMode = normalizeMatchMode(result.match.gameMode)
+          const reportedContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
+          if (!reportedContext) {
+            await sendTransientEphemeralResponse(c, `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.`, 'error')
+            return
+          }
 
-          const lobby = await getLobbyByMatch(kv, result.match.id)
+          const lobby = await getLobbyByMatch(kv, result.match.id) ?? fallbackLobby
           const guildId = lobby?.guildId ?? c.interaction.guild_id ?? null
           let rankedRoleLines: string[] = []
           if (guildId) {
@@ -837,27 +848,27 @@ export const command_match = factory.command<MatchVar>(
 
           if (lobby) {
             try {
-              const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-                embeds: [lobbyResultEmbed(lobby.mode, result.participants, undefined, {
-                  rankedRoleLines,
-                })],
-                components: [],
-              })
+                const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
+                  embeds: [lobbyResultEmbed(lobby.mode, result.participants, undefined, {
+                    rankedRoleLines,
+                  }, lobby.draftConfig.redDeath)],
+                  components: [],
+                })
               await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
             }
             catch (error) {
               console.error(`Failed to update lobby result embed for match ${result.match.id}:`, error)
             }
-            await clearLobbyAndActivityMappings(kv, lobby)
+            await clearLobbyById(kv, lobby.id, lobby)
           }
 
           const archiveChannelId = await getSystemChannel(kv, 'archive')
           if (archiveChannelId) {
             try {
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-                embeds: [lobbyResultEmbed(reportedMode, result.participants, undefined, {
+                embeds: [lobbyResultEmbed(reportedContext.mode, result.participants, undefined, {
                   rankedRoleLines,
-                })],
+                }, reportedContext.redDeath)],
               })
               await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
             }
@@ -890,10 +901,6 @@ export const command_match = factory.command<MatchVar>(
   },
 )
 
-function normalizeMatchMode(mode: string): GameMode {
-  return parseGameMode(mode) ?? '1v1'
-}
-
 async function sendMatchBumpResponse(
   c: Parameters<typeof sendEphemeralResponse>[0],
   message: string,
@@ -916,7 +923,7 @@ async function buildLobbyBumpRenderPayload(
   if (lobby.status === 'drafting') {
     const draftRoster = await getLobbyDraftRoster(kv, lobby.id)
     return {
-      embeds: [lobbyDraftingEmbed(lobby.mode, buildDraftSeatsFromLobby(lobby, draftRoster), lobby.draftConfig.leaderDataVersion)],
+      embeds: [lobbyDraftingEmbed(lobby.mode, buildDraftSeatsFromLobby(lobby, draftRoster), lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
       components: lobbyComponents(lobby.mode, lobby.id),
     }
   }
@@ -934,7 +941,7 @@ async function buildLobbyBumpRenderPayload(
     }
 
     return {
-      embeds: [lobbyDraftCompleteEmbed(lobby.mode, orderLobbyParticipantsBySlots(lobby, participants), lobby.draftConfig.leaderDataVersion)],
+      embeds: [lobbyDraftCompleteEmbed(lobby.mode, orderLobbyParticipantsBySlots(lobby, participants), lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
       components: lobbyComponents(lobby.mode, lobby.id),
     }
   }
@@ -958,7 +965,7 @@ function buildDraftSeatsFromLobby(
       playerId,
       displayName: entry?.displayName ?? 'Unknown',
       avatarUrl: entry?.avatarUrl ?? null,
-      team: slotToTeamIndex(lobby.mode, slot) ?? undefined,
+      team: slotToTeamIndex(lobby.mode, slot, lobby.slots.length) ?? undefined,
     })
   }
 
@@ -1197,7 +1204,7 @@ async function cancelHostedOpenLobby(
   await clearLobbyMappingsIfMatchingLobby(kv, lobbyQueueEntries.map(entry => entry.playerId), lobby.id, lobby.channelId)
   try {
     await upsertLobbyMessage(kv, token, lobby, {
-      embeds: [lobbyCancelledEmbed(lobby.mode, buildCancelledLobbyParticipants(lobby, lobbyQueueEntries), 'cancel', undefined, lobby.draftConfig.leaderDataVersion)],
+      embeds: [lobbyCancelledEmbed(lobby.mode, buildCancelledLobbyParticipants(lobby, lobbyQueueEntries), 'cancel', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
       components: [],
     })
   }
@@ -1214,10 +1221,10 @@ function buildCancelledLobbyParticipants(lobby: { mode: GameMode, slots: (string
     .map((playerId, slot) => {
       if (!playerId) return null
       const entry = entryByPlayerId.get(playerId)
-      return {
-        playerId,
-        team: slotToTeamIndex(lobby.mode, slot),
-        civId: null,
+        return {
+          playerId,
+          team: slotToTeamIndex(lobby.mode, slot, lobby.slots.length),
+          civId: null,
         placement: null,
         ratingBeforeMu: null,
         ratingBeforeSigma: null,

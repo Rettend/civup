@@ -4,7 +4,8 @@ import PartySocket from 'partysocket'
 import { createSignal } from 'solid-js'
 import { buildActivitySessionHeaders, getActivitySessionToken } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
-import { draftStore, initDraft, setOptimisticSeatPick, updateDraft, updateDraftPreviews } from './draft-store'
+import { shouldForceReconnectForStaleDraft } from '../lib/stale-draft'
+import { applySwapUpdate, draftStore, initDraft, setOptimisticSeatPick, updateDraft, updateDraftPreviews } from './draft-store'
 import { clearSelections } from './ui-store'
 
 // ── Types ──────────────────────────────────────────────────
@@ -51,6 +52,7 @@ export interface LobbySnapshot {
     leaderPoolSize: number | null
     leaderDataVersion: LeaderDataVersion
     simultaneousPick: boolean
+    redDeath: boolean
     dealOptionsSize: number | null
     randomDraft: boolean
   }
@@ -115,6 +117,7 @@ export interface ActivityTargetOption {
   status: 'open' | 'drafting' | 'active'
   participantCount: number
   targetSize: number
+  redDeath: boolean
   isMember: boolean
   isHost: boolean
   updatedAt: number
@@ -130,6 +133,7 @@ export interface ActivityOverviewOptionSnapshot {
   status: 'open' | 'drafting' | 'active'
   participantCount: number
   targetSize: number
+  redDeath: boolean
   hostId: string
   memberPlayerIds: string[]
   updatedAt: number
@@ -182,10 +186,14 @@ export const [connectionError, setConnectionError] = createSignal<string | null>
 
 const DRAFT_SOCKET_FATAL_CLOSE_MIN = 4000
 const DRAFT_SOCKET_FATAL_CLOSE_MAX = 5000
+const STALE_DRAFT_RECONNECT_CHECK_MS = 1_000
 
 // ── Socket ─────────────────────────────────────────────────
 
 let socket: PartySocket | null = null
+let currentRoomConnection: { target: PartySocketTarget, roomId: string, roomAccessToken: string } | null = null
+let staleDraftReconnectInterval: ReturnType<typeof setInterval> | null = null
+let lastSocketActivityAt = 0
 let pendingConfigAck:
   | {
     resolve: () => void
@@ -197,10 +205,13 @@ let lastSentPreviewKeys: Partial<Record<DraftAction, string>> = {}
 
 /** Connect to PartyKit draft room using host and match ID */
 export function connectToRoom(target: PartySocketTarget, roomId: string, roomAccessToken: string | null) {
+  stopStaleDraftReconnectWatchdog()
   const previousSocket = socket
   socket = null
   previousSocket?.close()
   lastSentPreviewKeys = {}
+  lastSocketActivityAt = 0
+  currentRoomConnection = null
 
   setConnectionStatus('connecting')
   setConnectionError(null)
@@ -218,6 +229,9 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
     return
   }
 
+  currentRoomConnection = { target, roomId, roomAccessToken }
+  startStaleDraftReconnectWatchdog()
+
   const nextSocket = new PartySocket({
     host: target.host,
     party: 'main',
@@ -233,12 +247,14 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
 
   nextSocket.addEventListener('open', () => {
     if (socket !== nextSocket) return
+    lastSocketActivityAt = Date.now()
     setConnectionStatus('connected')
     setConnectionError(null)
   })
 
   nextSocket.addEventListener('message', (event) => {
     if (socket !== nextSocket) return
+    lastSocketActivityAt = Date.now()
     try {
       const msg = JSON.parse(event.data as string) as ServerMessage
       handleServerMessage(msg)
@@ -275,12 +291,18 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
       }
 
       socket = null
+      stopStaleDraftReconnectWatchdog()
+      currentRoomConnection = null
+      lastSocketActivityAt = 0
       setConnectionStatus('error')
       setConnectionError(`WebSocket closed (${code}${reason ? `: ${reason}` : ''})`)
       return
     }
 
     socket = null
+    stopStaleDraftReconnectWatchdog()
+    currentRoomConnection = null
+    lastSocketActivityAt = 0
     setConnectionStatus('disconnected')
   })
 
@@ -303,14 +325,20 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
       target: describePartySocketTarget(target),
     })
     socket = null
+    stopStaleDraftReconnectWatchdog()
+    currentRoomConnection = null
+    lastSocketActivityAt = 0
     setConnectionStatus('error')
     setConnectionError('WebSocket connection failed')
   })
 }
 
 export function disconnect() {
+  stopStaleDraftReconnectWatchdog()
   socket?.close()
   socket = null
+  currentRoomConnection = null
+  lastSocketActivityAt = 0
   lastSentPreviewKeys = {}
   if (pendingConfigAck) {
     clearTimeout(pendingConfigAck.timeout)
@@ -318,6 +346,38 @@ export function disconnect() {
     pendingConfigAck = null
   }
   setConnectionStatus('disconnected')
+}
+
+function startStaleDraftReconnectWatchdog() {
+  stopStaleDraftReconnectWatchdog()
+  staleDraftReconnectInterval = setInterval(() => {
+    if (!shouldForceReconnectForStaleDraft({
+      connectionStatus: connectionStatus(),
+      state: draftStore.state,
+      timerEndsAt: draftStore.timerEndsAt,
+      lastSocketActivityAt,
+    })) {
+      return
+    }
+
+    const currentRoom = currentRoomConnection
+    if (!currentRoom) return
+
+    relayDevLog('warn', 'Forcing draft socket reconnect after stale timer', {
+      roomId: currentRoom.roomId,
+      timerEndsAt: draftStore.timerEndsAt,
+      currentStepIndex: draftStore.state?.currentStepIndex ?? null,
+      lastSocketActivityAt,
+      target: describePartySocketTarget(currentRoom.target),
+    })
+    connectToRoom(currentRoom.target, currentRoom.roomId, currentRoom.roomAccessToken)
+  }, STALE_DRAFT_RECONNECT_CHECK_MS)
+}
+
+function stopStaleDraftReconnectWatchdog() {
+  if (!staleDraftReconnectInterval) return
+  clearInterval(staleDraftReconnectInterval)
+  staleDraftReconnectInterval = null
 }
 
 /** Subscribe to lobby/match invalidation events from state coordinator room. */
@@ -475,6 +535,18 @@ export function sendRevert() {
   return sendCancel('revert')
 }
 
+export function sendSwapRequest(toSeat: number) {
+  return sendMessage({ type: 'swap-request', toSeat })
+}
+
+export function sendSwapAccept() {
+  return sendMessage({ type: 'swap-accept' })
+}
+
+export function sendSwapCancel() {
+  return sendMessage({ type: 'swap-cancel' })
+}
+
 export function sendConfig(banTimerSeconds: number | null, pickTimerSeconds: number | null): Promise<void> {
   if (pendingConfigAck) {
     clearTimeout(pendingConfigAck.timeout)
@@ -572,8 +644,10 @@ export async function updateLobbyConfig(
     leaderPoolSize?: number | null
     leaderDataVersion?: LeaderDataVersion
     simultaneousPick?: boolean
+    redDeath?: boolean
     dealOptionsSize?: number | null
     randomDraft?: boolean
+    targetSize?: number
     steamLobbyLink?: string | null
     minRole?: CompetitiveTier | null
     maxRole?: CompetitiveTier | null
@@ -588,8 +662,10 @@ export async function updateLobbyConfig(
       leaderPoolSize: draftConfig.leaderPoolSize,
       leaderDataVersion: draftConfig.leaderDataVersion,
       simultaneousPick: draftConfig.simultaneousPick,
+      redDeath: draftConfig.redDeath,
       dealOptionsSize: draftConfig.dealOptionsSize,
       randomDraft: draftConfig.randomDraft,
+      targetSize: draftConfig.targetSize,
       steamLobbyLink: draftConfig.steamLobbyLink,
       minRole: draftConfig.minRole,
       maxRole: draftConfig.maxRole,
@@ -892,20 +968,20 @@ function handleServerMessage(msg: ServerMessage) {
     case 'init':
       clearSelections()
       syncPreviewCache(msg.previews, msg.seatIndex)
-      initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews)
-      if (isTerminalDraftStatus(msg.state.status)) {
+      initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null)
+      if (shouldDisconnectAfterState(msg.state.status, msg.swapState ?? null)) {
         disconnect()
       }
       break
     case 'update':
       syncPreviewCache(msg.previews)
-      updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews)
+      updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null)
       if (pendingConfigAck) {
         clearTimeout(pendingConfigAck.timeout)
         pendingConfigAck.resolve()
         pendingConfigAck = null
       }
-      if (isTerminalDraftStatus(msg.state.status)) {
+      if (shouldDisconnectAfterState(msg.state.status, msg.swapState ?? null)) {
         clearSelections()
         disconnect()
       }
@@ -913,6 +989,9 @@ function handleServerMessage(msg: ServerMessage) {
     case 'preview':
       syncPreviewCache(msg.previews)
       updateDraftPreviews(msg.previews)
+      break
+    case 'swap-update':
+      applySwapUpdate(msg.swapState, msg.picks)
       break
     case 'error':
       if (pendingConfigAck) {
@@ -925,8 +1004,10 @@ function handleServerMessage(msg: ServerMessage) {
   }
 }
 
-function isTerminalDraftStatus(status: string): boolean {
-  return status === 'complete' || status === 'cancelled'
+function shouldDisconnectAfterState(status: string, swapState: unknown): boolean {
+  if (status === 'cancelled') return true
+  if (status !== 'complete') return false
+  return swapState == null
 }
 
 function formatConfigAckError(message: string): Error {

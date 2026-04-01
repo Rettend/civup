@@ -47,6 +47,7 @@ import {
   fillLobbyWithTestPlayers,
   isMiniView,
   isMobileLayout,
+  isRedDeathDraft,
   isSpectator,
   placeLobbySlot,
   removeLobbySlot,
@@ -75,6 +76,7 @@ interface LobbyEditableDraftConfig extends DraftTimerConfig {
   leaderPoolSize: number | null
   leaderDataVersion: 'live' | 'beta'
   simultaneousPick: boolean
+  redDeath: boolean
   dealOptionsSize: number | null
   randomDraft: boolean
 }
@@ -89,6 +91,7 @@ function sameLobbyDraftConfig(a: LobbyEditableDraftConfig, b: LobbyEditableDraft
     && a.leaderPoolSize === b.leaderPoolSize
     && a.leaderDataVersion === b.leaderDataVersion
     && a.simultaneousPick === b.simultaneousPick
+    && a.redDeath === b.redDeath
     && a.dealOptionsSize === b.dealOptionsSize
     && a.randomDraft === b.randomDraft
 }
@@ -108,6 +111,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const [lobbyActionPending, setLobbyActionPending] = createSignal(false)
   const [leaderDataVersionPending, setLeaderDataVersionPending] = createSignal(false)
   const [simultaneousPickPending, setSimultaneousPickPending] = createSignal(false)
+  const [redDeathPending, setRedDeathPending] = createSignal(false)
   const [randomDraftPending, setRandomDraftPending] = createSignal(false)
   const [pendingPlaceSelfSlot, setPendingPlaceSelfSlot] = createSignal<number | null>(null)
   const [draggingPlayerId, setDraggingPlayerId] = createSignal<string | null>(null)
@@ -124,6 +128,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
           leaderPoolSize: props.lobby.draftConfig.leaderPoolSize,
           leaderDataVersion: props.lobby.draftConfig.leaderDataVersion,
           simultaneousPick: props.lobby.draftConfig.simultaneousPick,
+          redDeath: props.lobby.draftConfig.redDeath,
           dealOptionsSize: props.lobby.draftConfig.dealOptionsSize,
           randomDraft: props.lobby.draftConfig.randomDraft,
         }
@@ -152,14 +157,15 @@ export function ConfigScreen(props: ConfigScreenProps) {
     }
 
     setLobbyTimerConfig({
-      banTimerSeconds: lobby.draftConfig.banTimerSeconds,
-      pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
-      leaderPoolSize: lobby.draftConfig.leaderPoolSize,
-      leaderDataVersion: lobby.draftConfig.leaderDataVersion,
-      simultaneousPick: lobby.draftConfig.simultaneousPick,
-      dealOptionsSize: lobby.draftConfig.dealOptionsSize,
-      randomDraft: lobby.draftConfig.randomDraft,
-    })
+        banTimerSeconds: lobby.draftConfig.banTimerSeconds,
+        pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
+        leaderPoolSize: lobby.draftConfig.leaderPoolSize,
+        leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+        simultaneousPick: lobby.draftConfig.simultaneousPick,
+        redDeath: lobby.draftConfig.redDeath,
+        dealOptionsSize: lobby.draftConfig.dealOptionsSize,
+        randomDraft: lobby.draftConfig.randomDraft,
+      })
   })
 
   const clearOptimisticLobbyAction = () => {
@@ -324,8 +330,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
   const formatId = () => {
     const lobby = currentLobby()
-    if (lobby) return formatModeLabel(lobby.mode, 'DRAFT')
-    return formatModeLabel(inferGameMode(state()?.formatId), 'DRAFT')
+    if (lobby) return formatModeLabel(lobby.mode, 'DRAFT', { redDeath: draftConfig().redDeath, targetSize: lobby.targetSize })
+    return formatModeLabel(inferGameMode(state()?.formatId), 'DRAFT', { redDeath: isRedDeathDraft() })
   }
   const isTeamMode = () => {
     const lobby = currentLobby()
@@ -350,21 +356,23 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const draftConfig = (): LobbyEditableDraftConfig => {
     const lobby = currentLobby()
     if (lobby) {
-      return lobbyTimerConfig() ?? {
-        banTimerSeconds: lobby.draftConfig.banTimerSeconds,
-        pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
-        leaderPoolSize: lobby.draftConfig.leaderPoolSize,
-        leaderDataVersion: lobby.draftConfig.leaderDataVersion,
-        simultaneousPick: lobby.draftConfig.simultaneousPick,
-        dealOptionsSize: lobby.draftConfig.dealOptionsSize,
-        randomDraft: lobby.draftConfig.randomDraft,
-      }
+        return lobbyTimerConfig() ?? {
+          banTimerSeconds: lobby.draftConfig.banTimerSeconds,
+          pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
+          leaderPoolSize: lobby.draftConfig.leaderPoolSize,
+          leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+          simultaneousPick: lobby.draftConfig.simultaneousPick,
+          redDeath: lobby.draftConfig.redDeath,
+          dealOptionsSize: lobby.draftConfig.dealOptionsSize,
+          randomDraft: lobby.draftConfig.randomDraft,
+        }
     }
     return {
       ...getTimerConfigFromDraft(state()),
       leaderPoolSize: null,
       leaderDataVersion: 'live',
       simultaneousPick: state()?.formatId === 'default-ffa-simultaneous',
+      redDeath: isRedDeathDraft(),
       dealOptionsSize: null,
       randomDraft: false,
     }
@@ -398,11 +406,11 @@ export function ConfigScreen(props: ConfigScreenProps) {
   }
   const leaderPoolValidationCount = () => {
     const lobby = currentLobby()
-    if (lobby) return lobby.mode === 'ffa' ? leaderPoolPlayerCount() : lobby.targetSize
+    if (lobby) return lobby.targetSize
     return state()?.seats.length ?? leaderPoolPlayerCount()
   }
   const leaderPoolMinimumValue = () => getLeaderPoolSizeMinimum(lobbyMode(), leaderPoolValidationCount())
-  const isRedDeathLobbyMode = () => lobbyMode() === 'rd-2p' || lobbyMode() === 'rd-4p'
+  const isRedDeathLobbyMode = () => currentLobby() ? optimisticDraftConfig().redDeath : isRedDeathDraft()
   const leaderPoolPlaceholderValue = () => isRedDeathLobbyMode()
     ? String(draftConfig().dealOptionsSize ?? 2)
     : leaderPoolSizePlaceholder(lobbyMode(), leaderPoolPlayerCount(), currentLobby()?.targetSize)
@@ -458,6 +466,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const formattedSimultaneousPick = () => draftConfig().simultaneousPick ? 'On' : 'Off'
   const formattedRandomDraft = () => draftConfig().randomDraft ? 'On' : 'Off'
   const poolInputLabel = () => isRedDeathLobbyMode() ? 'Factions' : 'Leaders'
+  const modeLabelClass = () => isRedDeathLobbyMode() ? 'text-[#f97316]' : 'text-accent'
 
   const clearConfigMessage = () => {
     if (configMessageTimeout) {
@@ -649,7 +658,17 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const canStartLobby = () => {
     const lobby = currentLobby()
     if (!lobby) return false
-    return canStartWithPlayerCount(inferGameMode(lobby.mode), filledSlots())
+    return canStartWithPlayerCount(inferGameMode(lobby.mode), filledSlots(), lobby.targetSize)
+  }
+
+  const show2v2TeamCountToggle = () => isLobbyMode() && lobbyMode() === '2v2'
+  const hasExpanded2v2Teams = () => currentLobby()?.targetSize === 8
+  const extra2v2SeatsOccupied = () => (currentLobby()?.entries.slice(4) ?? []).some(entry => entry != null)
+  const canToggle2v2Teams = () => amHost() && !lobbyActionPending() && (!hasExpanded2v2Teams() || !extra2v2SeatsOccupied())
+  const twoVTwoTeamCountToggleLabel = () => hasExpanded2v2Teams() ? 'Remove extra teams' : 'Add two extra teams'
+  const twoVTwoTeamCountToggleTitle = () => {
+    if (hasExpanded2v2Teams() && extra2v2SeatsOccupied()) return 'Clear Teams C and D before removing them.'
+    return twoVTwoTeamCountToggleLabel()
   }
 
   const isCurrentUserSlotted = () => {
@@ -728,6 +747,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
           leaderPoolSize: nextConfig.leaderPoolSize,
           leaderDataVersion: nextConfig.leaderDataVersion,
           simultaneousPick: nextConfig.simultaneousPick,
+          redDeath: nextConfig.redDeath,
           dealOptionsSize: nextConfig.dealOptionsSize,
           randomDraft: nextConfig.randomDraft,
           minRole: lobby.minRole,
@@ -777,6 +797,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       const leaderPoolSize = isRedDeathLobbyMode() ? current.leaderPoolSize : parsedLeaderPool
       const leaderDataVersion = current.leaderDataVersion
       const simultaneousPick = current.simultaneousPick
+      const redDeath = current.redDeath
       const dealOptionsSize = isRedDeathLobbyMode() ? parsedLeaderPool : current.dealOptionsSize
       const randomDraft = current.randomDraft
 
@@ -791,7 +812,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       }
 
       await commitDraftConfig(
-        { banTimerSeconds, pickTimerSeconds, leaderPoolSize, leaderDataVersion, simultaneousPick, dealOptionsSize, randomDraft },
+        { banTimerSeconds, pickTimerSeconds, leaderPoolSize, leaderDataVersion, simultaneousPick, redDeath, dealOptionsSize, randomDraft },
         { preserveConfigMessage: preserveClampMessage },
       )
     }
@@ -814,6 +835,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         leaderPoolSize: current.leaderPoolSize,
         leaderDataVersion,
         simultaneousPick: current.simultaneousPick,
+        redDeath: current.redDeath,
         dealOptionsSize: current.dealOptionsSize,
         randomDraft: current.randomDraft,
       })
@@ -835,12 +857,37 @@ export function ConfigScreen(props: ConfigScreenProps) {
         leaderPoolSize: current.leaderPoolSize,
         leaderDataVersion: current.leaderDataVersion,
         simultaneousPick: checked,
+        redDeath: current.redDeath,
         dealOptionsSize: current.dealOptionsSize,
         randomDraft: current.randomDraft,
       })
     }
     finally {
       setSimultaneousPickPending(false)
+    }
+  }
+
+  const handleRedDeathChange = async (checked: boolean) => {
+    if (!isLobbyMode() || !amHost() || lobbyActionPending() || redDeathPending()) return
+    const current = optimisticTimerConfig.value()
+    if (checked === current.redDeath) return
+
+    setRedDeathPending(true)
+    try {
+      await commitDraftConfig({
+        banTimerSeconds: current.banTimerSeconds,
+        pickTimerSeconds: current.pickTimerSeconds,
+        leaderPoolSize: checked ? null : current.leaderPoolSize,
+        leaderDataVersion: checked ? 'live' : current.leaderDataVersion,
+        simultaneousPick: checked ? false : current.simultaneousPick,
+        redDeath: checked,
+        dealOptionsSize: checked ? current.dealOptionsSize : null,
+        randomDraft: checked ? current.randomDraft : false,
+      })
+      showInfoMessage(checked ? 'Red Death enabled.' : 'Red Death disabled.')
+    }
+    finally {
+      setRedDeathPending(false)
     }
   }
 
@@ -856,6 +903,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         leaderPoolSize: current.leaderPoolSize,
         leaderDataVersion: current.leaderDataVersion,
         simultaneousPick: current.simultaneousPick,
+        redDeath: current.redDeath,
         dealOptionsSize: current.dealOptionsSize,
         randomDraft: checked,
       })
@@ -880,7 +928,30 @@ export function ConfigScreen(props: ConfigScreenProps) {
         showErrorMessage(result.error)
         return
       }
-      showInfoMessage(`Game mode changed to ${formatModeLabel(nextMode, nextMode)}.`)
+      showInfoMessage(`Game mode changed to ${formatModeLabel(nextMode, nextMode, { redDeath: draftConfig().redDeath })}.`)
+    }
+    finally {
+      setLobbyActionPending(false)
+    }
+  }
+
+  const handle2v2TeamCountToggle = async () => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || !amHost()) return
+    if (lobby.mode !== '2v2' || lobbyActionPending()) return
+
+    const nextTargetSize = lobby.targetSize > 4 ? 4 : 8
+    setLobbyActionPending(true)
+    clearConfigMessage()
+    try {
+      const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, { targetSize: nextTargetSize })
+      if (!result.ok) {
+        showErrorMessage(result.error)
+        return
+      }
+
+      showInfoMessage(nextTargetSize === 8 ? 'Added two extra teams.' : 'Removed the extra teams.')
     }
     finally {
       setLobbyActionPending(false)
@@ -1416,7 +1487,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
               <div class="h-9 w-9" />
               <div class="text-center">
                 <h1 class="text-2xl text-heading mb-1">Draft Setup</h1>
-                <span class="text-sm text-accent font-medium">{formatId()}</span>
+                <span class={cn('text-sm font-medium', modeLabelClass())}>{formatId()}</span>
               </div>
               <div class="h-9 w-9" />
             </div>
@@ -1508,6 +1579,30 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       </For>
                     </div>
                   </Show>
+
+                  <Show when={show2v2TeamCountToggle()}>
+                    <div class="mt-4 flex flex-col gap-2">
+                      <div class="flex gap-3 items-center justify-center">
+                        <div class="h-px flex-1 bg-border-subtle" />
+                        <button
+                          type="button"
+                          class={cn(
+                            'border rounded-full flex h-8 w-8 items-center justify-center transition-colors',
+                            canToggle2v2Teams()
+                              ? 'border-border text-fg-muted hover:text-fg hover:border-border-hover hover:bg-bg-muted/40 cursor-pointer'
+                              : 'border-border-subtle text-fg-subtle/60 cursor-default',
+                          )}
+                          disabled={!canToggle2v2Teams()}
+                          title={twoVTwoTeamCountToggleTitle()}
+                          aria-label={twoVTwoTeamCountToggleLabel()}
+                          onClick={() => void handle2v2TeamCountToggle()}
+                        >
+                          <span class={cn(hasExpanded2v2Teams() ? 'i-ph-minus-bold' : 'i-ph-plus-bold', 'text-sm')} />
+                        </button>
+                        <div class="h-px flex-1 bg-border-subtle" />
+                      </div>
+                    </div>
+                  </Show>
                 </div>
               </div>
 
@@ -1536,7 +1631,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                     </div>
                   </Show>
 
-                  <Show when={isLobbyMode() && amHost() && lobbyMode() === 'ffa'}>
+                  <Show when={isLobbyMode() && amHost() && lobbyMode() === 'ffa' && !isRedDeathLobbyMode()}>
                     <div class="px-1 flex gap-3 items-center justify-between">
                       <span class={cn('text-sm font-medium', optimisticDraftConfig().simultaneousPick ? 'text-accent' : 'text-fg-muted')}>
                         Simultaneous pick
@@ -1585,7 +1680,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                             valueClass={draftConfig().leaderDataVersion === 'beta' ? 'text-accent' : undefined}
                           />
                         </Show>
-                        <Show when={isLobbyMode() && lobbyMode() === 'ffa'}>
+                        <Show when={isLobbyMode() && lobbyMode() === 'ffa' && !isRedDeathLobbyMode()}>
                           <ReadonlyTimerRow
                             label="Simultaneous pick"
                             value={formattedSimultaneousPick()}
@@ -1714,30 +1809,45 @@ export function ConfigScreen(props: ConfigScreenProps) {
                           clearConfigMessage()
                           setPickMinutes(event.currentTarget.value)
                         }}
-                        onBlur={() => void saveConfigOnBlur()}
-                      />
-                    </div>
-                  </Show>
-
-                  <div class="min-h-5">
-                    <Show when={configMessage()}>
-                      <div class="text-xs text-fg flex gap-1.5 items-center">
-                        <span class={cn(
-                          'text-base shrink-0 self-center',
-                          configMessageTone() === 'error'
-                            ? 'i-ph-x-bold text-danger'
-                            : 'i-ph-check-bold text-accent',
-                        )}
+                          onBlur={() => void saveConfigOnBlur()}
                         />
-                        <Show
-                          when={configMessageTone() === 'info' && rankRoleSetDetail()}
-                          fallback={<span class="leading-relaxed">{configMessage()}</span>}
-                        >
-                          <RankRoleSetNotice detail={rankRoleSetDetail()!} />
+
+                        <Show when={isLobbyMode()}>
+                          <div class="mt-1 pt-3 border-t border-border-subtle px-1 flex gap-3 items-center justify-between">
+                            <span class={cn('text-sm font-medium', optimisticDraftConfig().redDeath ? 'text-[#f97316]' : 'text-fg-muted')}>
+                              Red Death
+                            </span>
+                            <Switch
+                              checked={optimisticDraftConfig().redDeath}
+                              disabled={lobbyActionPending() || redDeathPending()}
+                              class="w-auto"
+                              tone="orange"
+                              onChange={checked => void handleRedDeathChange(checked)}
+                            />
+                          </div>
                         </Show>
                       </div>
                     </Show>
-                  </div>
+                </div>
+
+                <div class="min-h-5 shrink-0">
+                  <Show when={configMessage()}>
+                    <div class="text-xs text-fg flex gap-1.5 items-center">
+                      <span class={cn(
+                        'text-base shrink-0 self-center',
+                        configMessageTone() === 'error'
+                          ? 'i-ph-x-bold text-danger'
+                          : 'i-ph-check-bold text-accent',
+                      )}
+                      />
+                      <Show
+                        when={configMessageTone() === 'info' && rankRoleSetDetail()}
+                        fallback={<span class="leading-relaxed">{configMessage()}</span>}
+                      >
+                        <RankRoleSetNotice detail={rankRoleSetDetail()!} />
+                      </Show>
+                    </div>
+                  </Show>
                 </div>
               </div>
             </div>
@@ -1827,7 +1937,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       <MiniFrame
         modeLabel={formatId()}
         title="Draft Setup"
-        titleAccent="gold"
+        titleAccent={isRedDeathLobbyMode() ? 'orange' : 'gold'}
         rightLabel={currentLobby() ? `${filledSlots()}/${currentLobby()!.targetSize}` : null}
       >
         <MiniSeatGrid

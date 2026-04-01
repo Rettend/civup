@@ -1,6 +1,7 @@
 import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
 import type { LobbyDraftConfig, LobbyState, LobbyStatus } from './types.ts'
 import { nanoid } from 'nanoid'
+import { syncActivityOverviewSnapshotForLobby } from '../activity/live-state.ts'
 import { getQueueState } from '../queue/index.ts'
 import { stateStoreMdelete } from '../state/store.ts'
 import { channelIndexKey, LOBBY_TTL } from './keys.ts'
@@ -65,6 +66,7 @@ export async function createLobby(
     value: JSON.stringify(snapshot),
     expirationTtl: LOBBY_TTL,
   }])
+  await syncActivityOverviewSnapshotForLobby(kv, lobby)
   return lobby
 }
 

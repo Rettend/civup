@@ -6,6 +6,7 @@ export interface MatchRow {
   status: string
   createdAt: number
   completedAt: number | null
+  draftData: string | null
 }
 
 export interface ParticipantRow {
@@ -65,7 +66,7 @@ export interface ActivateDraftInput {
   hostId: string
 }
 
-export type ActivateDraftResult = { match: MatchRow, participants: ParticipantRow[] } | { error: string }
+export type ActivateDraftResult = { match: MatchRow, participants: ParticipantRow[], alreadyActive: boolean } | { error: string }
 
 export interface CancelDraftInput {
   state: DraftState
@@ -84,4 +85,5 @@ export interface PruneMatchesOptions {
 
 export interface PruneMatchesResult {
   removedMatchIds: string[]
+  clearedLiveLobbyMatchIds: string[]
 }

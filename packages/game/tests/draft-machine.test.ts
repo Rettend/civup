@@ -1,6 +1,6 @@
 import type { DraftSeat, DraftState } from '../src/types.ts'
 import { describe, expect, test } from 'bun:test'
-import { default1v1, default2v2, default3v3, default4v4, defaultFfa, defaultFfaSimultaneous, defaultRd2p } from '../src/draft-formats.ts'
+import { default1v1, default2v2, default3v3, default4v4, defaultFfa, defaultFfaSimultaneous, redDeath2v2 } from '../src/draft-formats.ts'
 import {
   createDraft,
   getBansForSeat,
@@ -10,6 +10,7 @@ import {
   isDraftError,
   isPlayerTurn,
   processDraftInput,
+  swapSeatPicks,
 } from '../src/draft-machine.ts'
 
 // ── Test Setup Helpers ──────────────────────────────────────
@@ -223,6 +224,76 @@ describe('processDraftInput — CANCEL', () => {
     expect(result.state.status).toBe('cancelled')
     expect(result.state.cancelReason).toBe('revert')
     expect(result.events).toContainEqual({ type: 'DRAFT_CANCELLED', reason: 'revert' })
+  })
+})
+
+describe('swapSeatPicks', () => {
+  test('swaps the locked picks between teammates', () => {
+    const state: DraftState = {
+      ...startDraft(createDraft('match-swap', default2v2, create2v2Seats(), createTestCivPool())),
+      status: 'complete',
+      currentStepIndex: 5,
+      picks: [
+        { civId: 'civ-10', seatIndex: 0, stepIndex: 1 },
+        { civId: 'civ-20', seatIndex: 1, stepIndex: 2 },
+        { civId: 'civ-11', seatIndex: 2, stepIndex: 4 },
+        { civId: 'civ-21', seatIndex: 3, stepIndex: 3 },
+      ],
+    }
+
+    const result = swapSeatPicks(state, 0, 2)
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.find(pick => pick.seatIndex === 0)?.civId).toBe('civ-11')
+    expect(result.find(pick => pick.seatIndex === 2)?.civId).toBe('civ-10')
+    expect(result.find(pick => pick.seatIndex === 1)?.civId).toBe('civ-20')
+  })
+
+  test('rejects swaps between non-teammates', () => {
+    const state: DraftState = {
+      ...startDraft(createDraft('match-swap', default2v2, create2v2Seats(), createTestCivPool())),
+      status: 'complete',
+      currentStepIndex: 5,
+      picks: [
+        { civId: 'civ-10', seatIndex: 0, stepIndex: 1 },
+        { civId: 'civ-20', seatIndex: 1, stepIndex: 2 },
+        { civId: 'civ-11', seatIndex: 2, stepIndex: 4 },
+        { civId: 'civ-21', seatIndex: 3, stepIndex: 3 },
+      ],
+    }
+
+    const result = swapSeatPicks(state, 0, 1)
+    expect(isDraftError(result)).toBe(true)
+    if (!isDraftError(result)) return
+    expect(result.error).toBe('Only teammates can swap picks')
+  })
+
+  test('swaps locked picks in red death team drafts', () => {
+    const state: DraftState = {
+      ...startDraft(createDraft('match-rd-swap', redDeath2v2, createRdSeats(), createTestCivPool())),
+      formatId: redDeath2v2.id,
+      status: 'complete',
+      currentStepIndex: 4,
+      picks: [
+        { civId: 'rd-faction-10', seatIndex: 0, stepIndex: 0 },
+        { civId: 'rd-faction-20', seatIndex: 1, stepIndex: 1 },
+        { civId: 'rd-faction-11', seatIndex: 2, stepIndex: 2 },
+        { civId: 'rd-faction-21', seatIndex: 3, stepIndex: 3 },
+      ],
+      dealtCivIds: null,
+    }
+
+    const result = swapSeatPicks(state, 0, 2)
+    expect(isDraftError(result)).toBe(true)
+    if (!isDraftError(result)) return
+
+    const teammateResult = swapSeatPicks(state, 0, 1)
+    expect(isDraftError(teammateResult)).toBe(false)
+    if (isDraftError(teammateResult)) return
+
+    expect(teammateResult.find(pick => pick.seatIndex === 0)?.civId).toBe('rd-faction-20')
+    expect(teammateResult.find(pick => pick.seatIndex === 1)?.civId).toBe('rd-faction-10')
   })
 })
 
@@ -483,7 +554,7 @@ describe('processDraftInput — PICK (sequential)', () => {
   })
 
   test('Red Death picks must come from dealt options', () => {
-    let state = startDraft(createDraft('match-rd', defaultRd2p, createRdSeats(4), ['rd-a', 'rd-b', 'rd-c', 'rd-d'], { dealOptionsSize: 2 }))
+    let state = startDraft(createDraft('match-rd', redDeath2v2, createRdSeats(4), ['rd-a', 'rd-b', 'rd-c', 'rd-d'], { dealOptionsSize: 2 }))
     state = { ...state, dealtCivIds: ['rd-a', 'rd-b'] }
 
     const invalidPick = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'rd-c' })
@@ -702,7 +773,7 @@ describe('processDraftInput — TIMEOUT', () => {
   })
 
   test('timeout on Red Death pick selects from dealt options instead of scrubbing', () => {
-    let state = startDraft(createDraft('match-rd-timeout', defaultRd2p, createRdSeats(4), ['rd-a', 'rd-b', 'rd-c', 'rd-d'], { dealOptionsSize: 2 }))
+    let state = startDraft(createDraft('match-rd-timeout', redDeath2v2, createRdSeats(4), ['rd-a', 'rd-b', 'rd-c', 'rd-d'], { dealOptionsSize: 2 }))
     state = { ...state, dealtCivIds: ['rd-a', 'rd-b'] }
 
     const timedOut = processDraftInput(state, { type: 'TIMEOUT' }, false)

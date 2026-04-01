@@ -292,6 +292,24 @@ export default defineConfig({
             max-height: 100%;
           }
 
+          @keyframes civup-swap-in {
+            from {
+              opacity: 0;
+              transform: scale(0.94);
+            }
+            to {
+              opacity: 1;
+              transform: scale(1);
+            }
+          }
+          .anim-swap-in { animation: civup-swap-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+          @keyframes civup-swap-focus-flash {
+            from { opacity: 1; }
+            to { opacity: 0; }
+          }
+          .anim-swap-focus-flash { animation: civup-swap-focus-flash 420ms ease-out both; }
+
           .civup-h-scroll {
             -ms-overflow-style: none;
             scrollbar-width: none;

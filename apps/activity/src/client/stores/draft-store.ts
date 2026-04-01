@@ -1,11 +1,13 @@
-import type { DraftEvent, DraftPreviewState, DraftState, DraftStep, LeaderDataVersion } from '@civup/game'
-import { inferGameMode, isRedDeathMode } from '@civup/game'
+import type { DraftEvent, DraftPreviewState, DraftSelection, DraftState, DraftStep, LeaderDataVersion, LeaderSwapState, PendingLeaderSwapRequest } from '@civup/game'
+import { inferGameMode, isRedDeathFormatId } from '@civup/game'
 import { createStore, produce } from 'solid-js/store'
 
 const EMPTY_DRAFT_PREVIEWS: DraftPreviewState = {
   bans: {},
   picks: {},
 }
+
+const SWAP_FLASH_DURATION_MS = 600
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -28,6 +30,10 @@ export interface DraftStore {
   optimisticSeatPicks: Record<number, string>
   /** Server-authoritative tentative selections visible to this client */
   previews: DraftPreviewState
+  /** Post-draft teammate swap state, when the swap window is open. */
+  swapState: LeaderSwapState | null
+  /** Recently swapped seats for transient portrait flash effects. */
+  swapFlashSeatIndices: number[]
   /** Increments whenever the socket receives a fresh init payload. */
   initVersion: number
 }
@@ -44,10 +50,14 @@ const [draftStore, setDraftStore] = createStore<DraftStore>({
   lastEvents: [],
   optimisticSeatPicks: {},
   previews: EMPTY_DRAFT_PREVIEWS,
+  swapState: null,
+  swapFlashSeatIndices: [],
   initVersion: 0,
 })
 
 export { draftStore }
+
+let swapFlashTimeout: ReturnType<typeof setTimeout> | null = null
 
 // ── Actions ────────────────────────────────────────────────
 
@@ -59,7 +69,9 @@ export function initDraft(
   timerEndsAt: number | null,
   completedAt: number | null,
   previews: DraftPreviewState,
+  swapState: LeaderSwapState | null,
 ) {
+  clearSwapFlash()
   const nextInitVersion = draftStore.initVersion + 1
   setDraftStore({
     state,
@@ -71,11 +83,14 @@ export function initDraft(
     lastEvents: [],
     optimisticSeatPicks: {},
     previews,
+    swapState,
+    swapFlashSeatIndices: [],
     initVersion: nextInitVersion,
   })
 }
 
 export function resetDraft() {
+  clearSwapFlash()
   setDraftStore({
     state: null,
     leaderDataVersion: 'live',
@@ -86,6 +101,8 @@ export function resetDraft() {
     lastEvents: [],
     optimisticSeatPicks: {},
     previews: EMPTY_DRAFT_PREVIEWS,
+    swapState: null,
+    swapFlashSeatIndices: [],
     initVersion: 0,
   })
 }
@@ -98,6 +115,7 @@ export function updateDraft(
   timerEndsAt: number | null,
   completedAt: number | null,
   previews: DraftPreviewState,
+  swapState: LeaderSwapState | null,
 ) {
   setDraftStore(produce((s) => {
     s.state = state
@@ -108,11 +126,32 @@ export function updateDraft(
     s.lastEvents = events
     s.optimisticSeatPicks = {}
     s.previews = previews
+    s.swapState = swapState
   }))
 }
 
 export function updateDraftPreviews(previews: DraftPreviewState) {
   setDraftStore('previews', previews)
+}
+
+export function applySwapUpdate(swapState: LeaderSwapState, picks?: DraftSelection[]) {
+  const previousPendingSwaps = draftStore.swapState?.pendingSwaps ?? []
+  const resolvedSwap = picks ? findResolvedPendingSwap(previousPendingSwaps, swapState.pendingSwaps) : null
+  const flashSeats = resolvedSwap ? [resolvedSwap.fromSeat, resolvedSwap.toSeat] : []
+
+  setDraftStore(produce((s) => {
+    s.swapState = swapState
+    if (picks && s.state) s.state.picks = picks
+    if (flashSeats.length > 0) s.swapFlashSeatIndices = flashSeats
+  }))
+
+  if (flashSeats.length === 0) return
+
+  clearSwapFlashTimeout()
+  swapFlashTimeout = setTimeout(() => {
+    setDraftStore('swapFlashSeatIndices', [])
+    swapFlashTimeout = null
+  }, SWAP_FLASH_DURATION_MS)
 }
 
 /** Optimistically show a pick for this client's seat until server update arrives. */
@@ -175,13 +214,46 @@ export function canSendPickPreview(): boolean {
   return isRedDeathDraft() ? isMyTurn() : true
 }
 
+export function isSwapWindowOpen(): boolean {
+  return draftStore.state?.status === 'complete' && draftStore.swapState != null
+}
+
+export function canRequestSwapWith(seatIndex: number): boolean {
+  const state = draftStore.state
+  const mySeatIndex = draftStore.seatIndex
+  if (!state || !isSwapWindowOpen() || mySeatIndex == null) return false
+  if (mySeatIndex === seatIndex) return false
+
+  const mySeat = state.seats[mySeatIndex]
+  const targetSeat = state.seats[seatIndex]
+  if (!mySeat || !targetSeat) return false
+  if (mySeat.team == null || targetSeat.team == null || mySeat.team !== targetSeat.team) return false
+  if (getOutgoingSwapForSeat(mySeatIndex)) return false
+  if (getIncomingSwapForSeat(seatIndex)) return false
+  if (hasPendingSwapBetweenSeats(mySeatIndex, seatIndex)) return false
+
+  return state.picks.some(pick => pick.seatIndex === mySeatIndex)
+    && state.picks.some(pick => pick.seatIndex === seatIndex)
+}
+
+export function seatHasIncomingSwap(seatIndex: number): boolean {
+  return getIncomingSwapForSeat(seatIndex) != null
+}
+
+export function seatHasOutgoingSwap(seatIndex: number): boolean {
+  return getOutgoingSwapForSeat(seatIndex) != null
+}
+
+export function seatJustSwapped(seatIndex: number): boolean {
+  return draftStore.swapFlashSeatIndices.includes(seatIndex)
+}
+
 export function currentMode() {
   return inferGameMode(draftStore.state?.formatId)
 }
 
 export function isRedDeathDraft(): boolean {
-  const mode = currentMode()
-  return isRedDeathMode(mode)
+  return isRedDeathFormatId(draftStore.state?.formatId)
 }
 
 export function dealtCivIds(): string[] | null {
@@ -260,4 +332,41 @@ export function phaseLabel(): string {
 export function currentStepDuration(): number {
   const step = currentStep()
   return step?.timer ?? 0
+}
+
+function clearSwapFlash() {
+  clearSwapFlashTimeout()
+  setDraftStore('swapFlashSeatIndices', [])
+}
+
+function clearSwapFlashTimeout() {
+  if (!swapFlashTimeout) return
+  clearTimeout(swapFlashTimeout)
+  swapFlashTimeout = null
+}
+
+function getIncomingSwapForSeat(seatIndex: number): PendingLeaderSwapRequest | null {
+  return draftStore.swapState?.pendingSwaps.find(swap => swap.toSeat === seatIndex) ?? null
+}
+
+function getOutgoingSwapForSeat(seatIndex: number): PendingLeaderSwapRequest | null {
+  return draftStore.swapState?.pendingSwaps.find(swap => swap.fromSeat === seatIndex) ?? null
+}
+
+function hasPendingSwapBetweenSeats(leftSeat: number, rightSeat: number): boolean {
+  return draftStore.swapState?.pendingSwaps.some(
+    swap => (swap.fromSeat === leftSeat && swap.toSeat === rightSeat)
+      || (swap.fromSeat === rightSeat && swap.toSeat === leftSeat),
+  ) ?? false
+}
+
+function findResolvedPendingSwap(
+  previousPendingSwaps: PendingLeaderSwapRequest[],
+  nextPendingSwaps: PendingLeaderSwapRequest[],
+): PendingLeaderSwapRequest | null {
+  return previousPendingSwaps.find(
+    previous => !nextPendingSwaps.some(
+      next => next.fromSeat === previous.fromSeat && next.toSeat === previous.toSeat,
+    ),
+  ) ?? null
 }

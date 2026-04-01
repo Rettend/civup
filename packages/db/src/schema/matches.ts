@@ -1,4 +1,4 @@
-import { integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { index, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { players } from './players.ts'
 import { seasons } from './seasons.ts'
 
@@ -20,7 +20,10 @@ export const matches = sqliteTable('matches', {
   createdAt: integer('created_at', { mode: 'number' }).notNull(),
   /** Unix timestamp ms */
   completedAt: integer('completed_at', { mode: 'number' }),
-})
+}, table => [
+  index('matches_status_created_at_idx').on(table.status, table.createdAt),
+  index('matches_status_completed_at_idx').on(table.status, table.completedAt),
+])
 
 /**
  * A player's participation in a match.
@@ -41,7 +44,10 @@ export const matchParticipants = sqliteTable('match_participants', {
   /** Rating snapshot after the match */
   ratingAfterMu: real('rating_after_mu'),
   ratingAfterSigma: real('rating_after_sigma'),
-})
+}, table => [
+  index('match_participants_match_player_idx').on(table.matchId, table.playerId),
+  index('match_participants_player_id_idx').on(table.playerId),
+])
 
 /**
  * A civ that was banned during a match draft.
@@ -52,4 +58,6 @@ export const matchBans = sqliteTable('match_bans', {
   bannedBy: text('banned_by').notNull().references(() => players.id),
   /** Which ban phase (step index in draft) */
   phase: integer('phase').notNull(),
-})
+}, table => [
+  index('match_bans_match_id_idx').on(table.matchId),
+])

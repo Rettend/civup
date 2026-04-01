@@ -41,6 +41,7 @@ export function DraftView(props: DraftViewProps) {
   const [steamLobbyLink, setSteamLobbyLink] = createSignal<string | null>(props.steamLobbyLink ?? null)
   const [steamLobbySavePending, setSteamLobbySavePending] = createSignal(false)
   let autoStartSplashTimeout: ReturnType<typeof setTimeout> | null = null
+  let scrubRedirectTimeout: ReturnType<typeof setTimeout> | null = null
   const hostId = () => draftStore.hostId
   const amHost = () => {
     const currentUserId = userId()
@@ -78,10 +79,32 @@ export function DraftView(props: DraftViewProps) {
     setAutoStartSent(true)
   })
 
+  createEffect(() => {
+    const current = state()
+    if (current?.status !== 'cancelled' || current.cancelReason !== 'scrub' || !props.onSwitchTarget) {
+      if (!scrubRedirectTimeout) return
+      clearTimeout(scrubRedirectTimeout)
+      scrubRedirectTimeout = null
+      return
+    }
+    if (scrubRedirectTimeout) return
+
+    scrubRedirectTimeout = setTimeout(() => {
+      scrubRedirectTimeout = null
+      props.onSwitchTarget?.()
+    }, 5000)
+  })
+
   onCleanup(() => {
     if (!autoStartSplashTimeout) return
     clearTimeout(autoStartSplashTimeout)
     autoStartSplashTimeout = null
+  })
+
+  onCleanup(() => {
+    if (!scrubRedirectTimeout) return
+    clearTimeout(scrubRedirectTimeout)
+    scrubRedirectTimeout = null
   })
 
   const isMyPickTurn = () => {
@@ -227,7 +250,7 @@ export function DraftView(props: DraftViewProps) {
 
                 {/* Post-draft message */}
                 <Show when={state()?.status === 'complete'}>
-                  <div class="flex inset-x-0 top-8 justify-center absolute z-50">
+                  <div class="flex inset-x-0 top-16 justify-center absolute z-50">
                     <div class="px-4 py-2 border border-border-subtle rounded-lg bg-bg-subtle/80 flex flex-col gap-1 shadow-2xl shadow-black/50 items-center backdrop-blur-sm">
                       <span class="text-base text-accent font-bold">You can close the activity!</span>
                       <span class="text-sm text-fg/80">Don't forget to report the result</span>
@@ -256,6 +279,7 @@ export function DraftView(props: DraftViewProps) {
         <CancelledDraftScreen
           steamLobbyLink={steamLobbyLink()}
           isHost={amHost()}
+          onSwitchTarget={props.onSwitchTarget}
         />
       </Show>
     </Show>
@@ -276,6 +300,7 @@ function AutoStartingDraftScreen() {
 function CancelledDraftScreen(props: {
   steamLobbyLink: string | null
   isHost: boolean
+  onSwitchTarget?: () => void
 }) {
   const state = () => draftStore.state
   const reason = () => state()?.cancelReason ?? 'scrub'
@@ -296,6 +321,20 @@ function CancelledDraftScreen(props: {
 
   return (
     <main class="text-fg font-sans bg-bg h-screen relative overflow-y-auto">
+      <Show when={props.onSwitchTarget}>
+        <button
+          type="button"
+          class={cn(
+            'text-fg-muted border border-border-subtle rounded-md flex h-9 w-9 cursor-pointer transition-colors items-center justify-center z-20 absolute hover:text-fg hover:bg-bg-muted',
+            isMobileLayout() ? 'top-12 right-4' : 'top-4 right-6',
+          )}
+          title="Lobby Overview"
+          aria-label="Lobby Overview"
+          onClick={() => props.onSwitchTarget?.()}
+        >
+          <span class="i-ph-squares-four-bold text-base" />
+        </button>
+      </Show>
       <Show when={reason() !== 'scrub'}>
         <SteamLobbyButton
           steamLobbyLink={props.steamLobbyLink}
@@ -308,6 +347,9 @@ function CancelledDraftScreen(props: {
           <div class="text-[11px] text-fg-subtle tracking-[0.14em] font-semibold mb-2 uppercase">Session Closed</div>
           <h1 class="text-3xl text-fg font-semibold mb-3">{title()}</h1>
           <p class="text-sm text-fg-muted leading-relaxed">{detail()}</p>
+          <Show when={reason() === 'scrub' && props.onSwitchTarget}>
+            <p class="text-sm text-fg-muted mt-4">Returning to Lobby Overview in 5 seconds.</p>
+          </Show>
         </section>
       </div>
     </main>

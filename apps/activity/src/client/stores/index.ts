@@ -41,6 +41,9 @@ export {
   sendRevert,
   sendScrub,
   sendStart,
+  sendSwapAccept,
+  sendSwapCancel,
+  sendSwapRequest,
   startLobbyDraft,
   toggleLobbyPremadeLink,
   updateLobbyConfig,
@@ -48,8 +51,10 @@ export {
   watchLobbyState,
 } from './connection-store'
 export {
+  applySwapUpdate,
   canManagePickQueue,
   canOpenLeaderGrid,
+  canRequestSwapWith,
   canSendPickPreview,
   currentMode,
   currentStep,
@@ -63,9 +68,13 @@ export {
   isMyTurn,
   isRedDeathDraft,
   isSpectator,
+  isSwapWindowOpen,
   phaseLabel,
   resetDraft,
+  seatHasIncomingSwap,
   seatHasLockedPick,
+  seatHasOutgoingSwap,
+  seatJustSwapped,
   updateDraftPreviews,
 } from './draft-store'
 export {

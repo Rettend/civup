@@ -1,5 +1,5 @@
 import type { GameMode, QueueEntry, QueueState } from '@civup/game'
-import { formatModeLabel, GAME_MODES, maxPlayerCount } from '@civup/game'
+import { defaultPlayerCount, formatModeLabel, GAME_MODES, maxPlayerCount } from '@civup/game'
 import { stateStoreMget } from '../state/store.ts'
 
 const QUEUE_KEY_PREFIX = 'queue:'
@@ -16,7 +16,7 @@ function queueKey(mode: GameMode): string {
 }
 
 function defaultQueueTargetSize(mode: GameMode): number {
-  return maxPlayerCount(mode)
+  return defaultPlayerCount(mode)
 }
 
 function normalizeQueueTargetSize(mode: GameMode, value: unknown): number {

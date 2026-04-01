@@ -37,7 +37,7 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
                   <div class="px-2 py-1.5 border border-border-subtle rounded bg-bg-subtle/92 flex flex-col gap-1 min-w-0 overflow-hidden">
                     <div class="flex gap-1 min-w-0 items-center justify-between">
                       <span class="text-[10px] text-fg tracking-[0.14em] font-bold truncate uppercase">
-                        {formatModeLabel(option.mode, option.mode)}
+                        {formatModeLabel(option.mode, option.mode, { redDeath: option.redDeath })}
                       </span>
                       <span class={cn(
                         'text-[6px] font-semibold uppercase shrink-0',
@@ -135,7 +135,7 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
                   <div class="flex gap-3 items-start justify-between">
                     <div>
                       <div class="text-[11px] text-accent tracking-[0.16em] font-semibold">
-                        {formatModeLabel(option.mode, option.mode)}
+                        {formatModeLabel(option.mode, option.mode, { redDeath: option.redDeath })}
                       </div>
                       <div class="text-base text-fg font-semibold mt-0.5">{formatTargetTitle(option)}</div>
                     </div>

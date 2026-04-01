@@ -115,8 +115,9 @@ export async function updateRankedRoleConfig(
     }
   }
 
-  await kv.put(configKey(guildId), JSON.stringify(next))
-  return next
+  const normalized = compactRankedRoleConfig(next)
+  await kv.put(configKey(guildId), JSON.stringify(normalized))
+  return normalized
 }
 
 export async function setRankedRoleCurrentRoles(
@@ -149,8 +150,9 @@ export async function setRankedRoleCurrentRoles(
     }
   }
 
-  await kv.put(configKey(guildId), JSON.stringify(next))
-  return next
+  const normalized = compactRankedRoleConfig(next)
+  await kv.put(configKey(guildId), JSON.stringify(normalized))
+  return normalized
 }
 
 export function getConfiguredRankedRoleId(config: RankedRoleConfig, tier: CompetitiveTier): string | null {
@@ -323,13 +325,13 @@ function resizeRankedRoleConfig(config: RankedRoleConfig, requestedTierCount: nu
 
 function normalizeRankedRoleConfig(raw: StoredRankedRoleConfig | null | undefined): RankedRoleConfig {
   if (!Array.isArray(raw?.tiers) || raw.tiers.length === 0) return createDefaultRankedRoleConfig()
-  return resizeRankedRoleConfig({
+  return compactRankedRoleConfig({
     tiers: raw.tiers.map(tier => ({
       roleId: normalizeRoleId(tier?.roleId),
       label: normalizeOptionalLabel(tier?.label),
       color: normalizeOptionalLabel(tier?.color),
     })),
-  }, raw.tiers.length)
+  })
 }
 
 function resolveNextTierCount(
@@ -355,6 +357,12 @@ function createDefaultRankedRoleConfig(): RankedRoleConfig {
   return {
     tiers: Array.from({ length: DEFAULT_RANKED_ROLE_TIER_COUNT }, () => createEmptyRankedRoleTierConfig()),
   }
+}
+
+function compactRankedRoleConfig(config: RankedRoleConfig): RankedRoleConfig {
+  const highestConfiguredRank = config.tiers.reduce((best, tier, index) => tier.roleId ? index + 1 : best, 0)
+  const tierCount = highestConfiguredRank > 0 ? highestConfiguredRank : DEFAULT_RANKED_ROLE_TIER_COUNT
+  return resizeRankedRoleConfig(config, tierCount)
 }
 
 function createEmptyRankedRoleTierConfig(): RankedRoleTierConfig {

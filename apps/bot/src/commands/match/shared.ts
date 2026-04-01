@@ -600,7 +600,7 @@ function scoreLobbyCandidate(
 ): string {
   const filledBefore = currentSlots.filter(slot => slot != null).length
   const filledAfter = nextSlots.filter(slot => slot != null).length
-  const completionAfter = maxPlayerCount(lobby.mode) - filledAfter
+  const completionAfter = lobby.slots.length - filledAfter
   const fillGain = filledAfter - filledBefore
   const gapPenalty = countOpenGapPenalty(nextSlots)
 

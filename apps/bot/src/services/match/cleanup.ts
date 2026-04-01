@@ -1,9 +1,9 @@
 import type { Database } from '@civup/db'
 import type { PruneMatchesOptions, PruneMatchesResult } from './types.ts'
 import { matchBans, matches, matchParticipants } from '@civup/db'
-import { and, eq, isNull, lt, or } from 'drizzle-orm'
+import { and, eq, inArray, isNull, lt, or } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
-import { clearLobbyByMatch } from '../lobby/index.ts'
+import { clearLobbyById, clearLobbyByMatch, getCurrentLobbies } from '../lobby/index.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS, STALE_CANCELLED_MATCH_TIMEOUT_MS, STALE_DRAFTING_MATCH_TIMEOUT_MS } from './retention.ts'
 
 export async function pruneAbandonedMatches(
@@ -26,6 +26,7 @@ export async function pruneAbandonedMatches(
     ))
 
   const removedMatchIds: string[] = []
+  const clearedLiveLobbyMatchIds: string[] = []
 
   for (const match of staleMatches) {
     const participants = await db
@@ -47,6 +48,28 @@ export async function pruneAbandonedMatches(
     await db.delete(matches).where(eq(matches.id, match.id))
 
     removedMatchIds.push(match.id)
+  }
+
+  const liveMatchLobbies = (await getCurrentLobbies(kv)).flatMap(lobby => lobby.matchId
+    ? [{ lobby, matchId: lobby.matchId }]
+    : [])
+  const liveMatchIds = [...new Set(liveMatchLobbies.map(entry => entry.matchId))]
+
+  if (liveMatchIds.length > 0) {
+    const liveMatchRows = await db
+      .select({ id: matches.id, status: matches.status })
+      .from(matches)
+      .where(inArray(matches.id, liveMatchIds))
+    const liveStatusByMatchId = new Map(liveMatchRows.map(row => [row.id, row.status]))
+
+    for (const { lobby, matchId } of liveMatchLobbies) {
+      const matchStatus = liveStatusByMatchId.get(matchId)
+      if (matchStatus === 'drafting' || matchStatus === 'active') continue
+
+      await clearActivityMappings(kv, matchId, lobby.memberPlayerIds, lobby.channelId)
+      await clearLobbyById(kv, lobby.id, lobby)
+      clearedLiveLobbyMatchIds.push(matchId)
+    }
   }
 
   const completedBanRows = await db
@@ -82,5 +105,5 @@ export async function pruneAbandonedMatches(
     await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
   }
 
-  return { removedMatchIds }
+  return { removedMatchIds, clearedLiveLobbyMatchIds }
 }

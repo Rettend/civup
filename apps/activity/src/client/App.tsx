@@ -191,6 +191,7 @@ export default function App() {
       status: 'drafting',
       participantCount: 0,
       targetSize: 0,
+      redDeath: false,
       isMember: true,
       isHost: false,
       updatedAt: Date.now(),
@@ -438,9 +439,11 @@ export default function App() {
     const targetState = liveTargetState()
     if (!currentUserId || overviewSnapshot === undefined || targetState === undefined) return
 
-    const rawOptions = overviewSnapshot
-      ? materializeOverviewOptions(overviewSnapshot, currentUserId)
-      : fallbackOptions()
+    const rawOptions = overviewSnapshot === undefined
+      ? fallbackOptions()
+      : overviewSnapshot
+        ? materializeOverviewOptions(overviewSnapshot, currentUserId)
+        : []
     const options = visibleTargetOptions(rawOptions)
     const resolvedSnapshot = buildLiveActivityLaunchSnapshot(options, targetState, liveLobbySnapshots, currentUserId)
     const targetOption = targetState
@@ -855,6 +858,7 @@ function materializeOverviewOptions(
       status: option.status,
       participantCount: option.participantCount,
       targetSize: option.targetSize,
+      redDeath: option.redDeath,
       isMember: option.memberPlayerIds.includes(currentUserId),
       isHost: option.hostId === currentUserId,
       updatedAt: option.updatedAt,
@@ -868,6 +872,7 @@ function compareActivityTargetOptions(left: ActivityTargetOption, right: Activit
   if (leftPriority !== rightPriority) return leftPriority - rightPriority
 
   if (left.updatedAt !== right.updatedAt) return right.updatedAt - left.updatedAt
+  if (left.redDeath !== right.redDeath) return left.redDeath ? -1 : 1
   if (left.mode !== right.mode) return left.mode.localeCompare(right.mode)
   return left.id.localeCompare(right.id)
 }
@@ -1123,6 +1128,7 @@ function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
   if (a.draftConfig.leaderPoolSize !== b.draftConfig.leaderPoolSize) return false
   if (a.draftConfig.leaderDataVersion !== b.draftConfig.leaderDataVersion) return false
   if (a.draftConfig.simultaneousPick !== b.draftConfig.simultaneousPick) return false
+  if (a.draftConfig.redDeath !== b.draftConfig.redDeath) return false
   if (a.draftConfig.dealOptionsSize !== b.draftConfig.dealOptionsSize) return false
   if (a.draftConfig.randomDraft !== b.draftConfig.randomDraft) return false
   if (a.serverDefaults.banTimerSeconds !== b.serverDefaults.banTimerSeconds) return false

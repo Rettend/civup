@@ -39,7 +39,6 @@ export function resolveAutoSelectedActivityTarget(input: {
 
   return input.options.find(option => (option.isHost || option.isMember) && option.kind === 'match')
     ?? input.options.find(option => option.isHost || option.isMember)
-    ?? input.options.find(option => option.kind === 'match')
     ?? null
 }
 

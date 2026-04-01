@@ -66,8 +66,9 @@ describe('match result embed', () => {
   })
 
   test('pads four-team open lobbies into a 2x2 inline field layout', () => {
-    const embed = lobbyOpenEmbed('rd-2p', Array.from({ length: 8 }, () => null), 8).toJSON()
+    const embed = lobbyOpenEmbed('2v2', Array.from({ length: 8 }, () => null), 8).toJSON()
 
+    expect(embed.title).toContain('2v2v2v2')
     expect(embed.fields?.map(field => field.name)).toEqual([
       'Team A',
       'Team B',
@@ -84,7 +85,7 @@ describe('match result embed', () => {
       team: Math.floor(index / 2),
       civId: null,
     }))
-    const embed = lobbyCancelledEmbed('rd-2p', participants, 'cancel').toJSON()
+    const embed = lobbyCancelledEmbed('2v2', participants, 'cancel').toJSON()
 
     expect(embed.fields?.map(field => field.name)).toEqual([
       'Team A',
