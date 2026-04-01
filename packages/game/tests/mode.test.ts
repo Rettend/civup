@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  canStartWithPlayerCount,
+  defaultPlayerCount,
   formatLeaderboardModeLabel,
   formatModeLabel,
   inferGameMode,
@@ -125,12 +127,16 @@ describe('shared mode helpers', () => {
     expect(slotToTeamIndex('ffa', 0)).toBeNull()
   })
 
-  test('uses an 8-player FFA by default', () => {
+  test('uses strict 8-player FFA defaults', () => {
     expect(playerCountOptions('ffa')).toEqual([8])
     expect(playerCountOptions('2v2')).toEqual([4, 8])
+    expect(defaultPlayerCount('ffa')).toBe(8)
     expect(minPlayerCount('ffa')).toBe(8)
     expect(minPlayerCount('2v2')).toBe(4)
     expect(maxPlayerCount('ffa')).toBe(8)
     expect(maxPlayerCount('2v2')).toBe(8)
+    expect(canStartWithPlayerCount('ffa', 8, 8)).toBe(true)
+    expect(canStartWithPlayerCount('ffa', 6, 8)).toBe(false)
+    expect(canStartWithPlayerCount('ffa', 10, 10)).toBe(false)
   })
 })

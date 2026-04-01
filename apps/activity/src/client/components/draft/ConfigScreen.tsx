@@ -651,13 +651,17 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return GAME_MODE_CHOICES.map(choice => ({
       value: choice.value,
       label: choice.name,
-      disabled: playerCount > maxPlayerCount(choice.value),
+      disabled: playerCount > ((choice.value === 'ffa' && optimisticDraftConfig().redDeath) ? 10 : maxPlayerCount(choice.value)),
     }))
   }
 
   const canStartLobby = () => {
     const lobby = currentLobby()
     if (!lobby) return false
+    if (inferGameMode(lobby.mode) === 'ffa' && optimisticDraftConfig().redDeath) {
+      const filled = filledSlots()
+      return [4, 6, 8, 10].includes(filled) && filled <= lobby.targetSize
+    }
     return canStartWithPlayerCount(inferGameMode(lobby.mode), filledSlots(), lobby.targetSize)
   }
 
@@ -670,6 +674,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (hasExpanded2v2Teams() && extra2v2SeatsOccupied()) return 'Clear Teams C and D before removing them.'
     return twoVTwoTeamCountToggleLabel()
   }
+
+  const redDeathExtraFfaSeatsOccupied = () => {
+    const lobby = currentLobby()
+    if (!lobby || lobby.mode !== 'ffa' || !optimisticDraftConfig().redDeath) return false
+    return (lobby.entries.slice(8) ?? []).some(entry => entry != null)
+  }
+
+  const canToggleRedDeath = () => !redDeathExtraFfaSeatsOccupied()
 
   const isCurrentUserSlotted = () => {
     const id = userId()
@@ -728,7 +740,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
   const commitDraftConfig = async (
     nextConfig: LobbyEditableDraftConfig,
-    options: { preserveConfigMessage?: boolean } = {},
+    options: { preserveConfigMessage?: boolean, targetSize?: number } = {},
   ) => {
     const currentUserId = userId()
     if (!currentUserId) {
@@ -750,6 +762,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
           redDeath: nextConfig.redDeath,
           dealOptionsSize: nextConfig.dealOptionsSize,
           randomDraft: nextConfig.randomDraft,
+          targetSize: options.targetSize,
           minRole: lobby.minRole,
           maxRole: lobby.maxRole,
         })
@@ -869,8 +882,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
   const handleRedDeathChange = async (checked: boolean) => {
     if (!isLobbyMode() || !amHost() || lobbyActionPending() || redDeathPending()) return
+    const lobby = currentLobby()
     const current = optimisticTimerConfig.value()
     if (checked === current.redDeath) return
+    if (!checked && redDeathExtraFfaSeatsOccupied()) return
 
     setRedDeathPending(true)
     try {
@@ -883,6 +898,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
         redDeath: checked,
         dealOptionsSize: checked ? current.dealOptionsSize : null,
         randomDraft: checked ? current.randomDraft : false,
+      }, {
+        targetSize: lobby?.mode === 'ffa' ? (checked ? 10 : 8) : undefined,
       })
       showInfoMessage(checked ? 'Red Death enabled.' : 'Red Death disabled.')
     }
@@ -1819,7 +1836,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                             </span>
                             <Switch
                               checked={optimisticDraftConfig().redDeath}
-                              disabled={lobbyActionPending() || redDeathPending()}
+                              disabled={lobbyActionPending() || redDeathPending() || !canToggleRedDeath()}
                               class="w-auto"
                               tone="orange"
                               onChange={checked => void handleRedDeathChange(checked)}
