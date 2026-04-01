@@ -1,9 +1,20 @@
+import type { GameMode, LeaderboardMode } from '@civup/game'
+import { formatModeLabel, parseGameMode, toLeaderboardMode } from '@civup/game'
+
 interface ParsedDraftData {
   completedAt?: unknown
   hostId?: unknown
+  redDeath?: unknown
   state?: {
     seats?: Array<{ playerId?: unknown }>
   }
+}
+
+export interface StoredGameModeContext {
+  mode: GameMode
+  redDeath: boolean
+  leaderboardMode: LeaderboardMode
+  label: string
 }
 
 function parseDraftData(draftData: string | null): ParsedDraftData | null {
@@ -34,4 +45,22 @@ export function getCompletedAtFromDraftData(draftData: string | null): number | 
   return typeof parsed.completedAt === 'number' && Number.isFinite(parsed.completedAt)
     ? Math.round(parsed.completedAt)
     : null
+}
+
+export function getRedDeathFromDraftData(draftData: string | null): boolean {
+  const parsed = parseDraftData(draftData)
+  return parsed?.redDeath === true
+}
+
+export function getStoredGameModeContext(gameMode: string, draftData: string | null): StoredGameModeContext | null {
+  const mode = parseGameMode(gameMode)
+  if (!mode) return null
+
+  const redDeath = getRedDeathFromDraftData(draftData)
+  return {
+    mode,
+    redDeath,
+    leaderboardMode: toLeaderboardMode(mode, { redDeath }),
+    label: formatModeLabel(mode, mode, { redDeath }),
+  }
 }

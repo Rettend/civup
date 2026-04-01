@@ -1,6 +1,5 @@
 import type { QueueEntry } from '@civup/game'
 import type { LobbyState } from './types.ts'
-import { maxPlayerCount } from '@civup/game'
 import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/match.ts'
 import { getConfiguredRankedRoleId, getRankedRoleConfig } from '../ranked/roles.ts'
 
@@ -12,7 +11,7 @@ export async function buildOpenLobbyRenderPayload(
   const { minRoleId, maxRoleId } = await resolveLobbyRankRoleIds(kv, lobby)
 
   return {
-    embeds: [lobbyOpenEmbed(lobby.mode, entries, maxPlayerCount(lobby.mode), minRoleId, maxRoleId, lobby.draftConfig.leaderDataVersion)],
+    embeds: [lobbyOpenEmbed(lobby.mode, entries, lobby.slots.length, minRoleId, maxRoleId, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
     components: lobbyComponents(lobby.mode, lobby.id),
   }
 }

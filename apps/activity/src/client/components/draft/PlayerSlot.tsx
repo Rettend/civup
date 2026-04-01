@@ -5,7 +5,7 @@ import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { placementIconClass } from '~/client/lib/placement-icons'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
-import { draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, isMobileLayout, phaseAccent, resultSelectionsLocked, selectWinningTeam, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
+import { canRequestSwapWith, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, isMobileLayout, isSwapWindowOpen, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -39,6 +39,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
     catch { return null }
   }
 
+  const filled = () => !!pick()
   const previewLeader = (): Leader | null => {
     if (filled()) return null
     const civId = getPreviewPickForSeat(props.seatIndex)
@@ -66,7 +67,6 @@ export function PlayerSlot(props: PlayerSlotProps) {
   }
 
   const accent = () => phaseAccent()
-  const filled = () => !!pick()
   const seatAvatarUrl = () => seat()?.avatarUrl ?? null
 
   const [wasEverActive, setWasEverActive] = createSignal(false)
@@ -166,6 +166,20 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
   const placementNumber = () => placementRank() + 1
   const seatTeam = () => seat()?.team ?? null
+
+  const isMySeat = () => {
+    const uid = userId()
+    return !!uid && seat()?.playerId === uid
+  }
+  const showCornerSwapButton = () => canRequestSwapWith(props.seatIndex)
+  const showFocusedSwapButton = () => isSwapWindowOpen() && isMySeat() && seatHasIncomingSwap(props.seatIndex)
+  const isMobileFourVFourSwapLayout = () => {
+    if (!isMobileLayout()) return false
+    const team = seatTeam()
+    if (team == null) return false
+    return (state()?.seats.filter(current => current.team === team).length ?? 0) >= 4
+  }
+  const swapButtonClass = 'rounded-full border-2 bg-transparent text-[#e2c68b] border-[#e8d4ab]/72 shadow-[0_6px_18px_rgba(0,0,0,0.38),0_0_0_1px_rgba(200,170,110,0.08)] transition-[color,border-color,box-shadow,transform] duration-200 hover:text-[#f4dca8] hover:border-[#f4dca8]/92 hover:shadow-[0_8px_24px_rgba(0,0,0,0.46),0_0_18px_rgba(200,170,110,0.24)] active:scale-95'
 
   const handleSlotClick = () => {
     if (!isFfaPlacementMode() || !canSelectResult()) return
@@ -270,6 +284,69 @@ export function PlayerSlot(props: PlayerSlotProps) {
         <Show when={anyFfaPlaced() && !isPlaced()}>
           <div class="bg-black/50 pointer-events-none inset-0 absolute z-25" />
         </Show>
+      </Show>
+
+      {/* Small swap button on teammate portraits */}
+      <Show when={showCornerSwapButton()}>
+        <div class="right-2 top-2 absolute z-50">
+          <button
+            type="button"
+            class={cn(
+              'flex h-12 w-12 items-center justify-center cursor-pointer',
+              swapButtonClass,
+            )}
+            title="Request swap"
+            aria-label="Request swap"
+            onClick={(e) => {
+              e.stopPropagation()
+              sendSwapRequest(props.seatIndex)
+            }}
+          >
+            <span class="i-ph-arrows-left-right-bold text-[20px] pointer-events-none" />
+          </button>
+        </div>
+      </Show>
+
+      {/* Focused swap prompt for the selected teammate */}
+      <Show when={showFocusedSwapButton()}>
+        <>
+          <div
+            class="anim-swap-focus-flash pointer-events-none inset-0 absolute z-25"
+            style={{ background: 'radial-gradient(ellipse at center, rgba(244,220,168,0.44) 0%, rgba(200,170,110,0.28) 48%, rgba(200,170,110,0.12) 100%)' }}
+          />
+          <div
+            class={cn(
+              'pointer-events-none inset-0 absolute z-50 flex',
+              isMobileFourVFourSwapLayout() ? 'items-stretch justify-end' : 'items-center justify-center',
+            )}
+          >
+            <div
+              class={cn(
+                'anim-fade-in border border-border-subtle bg-bg-subtle/72 flex flex-col gap-3 shadow-2xl shadow-black/50 items-center backdrop-blur-md',
+                isMobileFourVFourSwapLayout()
+                  ? 'h-full w-fit justify-center rounded-none px-3 py-3'
+                  : 'w-full rounded-none px-4 py-4',
+              )}
+            >
+              <span class="text-base text-accent font-bold">SWAP</span>
+              <button
+                type="button"
+                class={cn(
+                  'anim-swap-in pointer-events-auto flex h-[72px] w-[72px] items-center justify-center cursor-pointer',
+                  swapButtonClass,
+                )}
+                title="Accept swap"
+                aria-label="Accept swap"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  sendSwapAccept()
+                }}
+              >
+                <span class="i-ph-arrows-left-right-bold text-[30px] pointer-events-none" />
+              </button>
+            </div>
+          </div>
+        </>
       </Show>
 
       {/* Portrait */}

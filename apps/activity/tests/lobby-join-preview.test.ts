@@ -17,7 +17,7 @@ const baseLobby: LobbySnapshot = {
     null,
     null,
   ],
-  minPlayers: 2,
+  minPlayers: 4,
   targetSize: 4,
   draftConfig: {
     banTimerSeconds: null,
@@ -25,6 +25,7 @@ const baseLobby: LobbySnapshot = {
     leaderPoolSize: null,
     leaderDataVersion: 'live',
     simultaneousPick: false,
+    redDeath: false,
     dealOptionsSize: 2,
     randomDraft: false,
   },

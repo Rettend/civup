@@ -1,7 +1,6 @@
-import type { GameMode } from '@civup/game'
 import type { MatchVar } from './match/shared'
 import { createDb } from '@civup/db'
-import { formatModeLabel, parseGameMode } from '@civup/game'
+import { formatModeLabel } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
 import { clearLobbyMappings } from '../services/activity/index.ts'
@@ -9,7 +8,7 @@ import { createChannelMessage } from '../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { clearLobbyById, filterQueueEntriesForLobby, getLobbyById, getLobbyByMatch } from '../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
-import { cancelMatchByModerator, resolveMatchByModerator } from '../services/match/index.ts'
+import { cancelMatchByModerator, getStoredGameModeContext, resolveMatchByModerator } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { canUseModCommands, parseRoleIds } from '../services/permissions/index.ts'
 import { clearQueue, getQueueState } from '../services/queue/index.ts'
@@ -98,7 +97,7 @@ export const command_mod = factory.command<ModVar>(
             await clearLobbyMappings(kv, directLobby.memberPlayerIds, directLobby.channelId)
             try {
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, directLobby, {
-                embeds: [lobbyCancelledEmbed(directLobby.mode, [], 'cancel', { actorId, reason }, directLobby.draftConfig.leaderDataVersion)],
+                embeds: [lobbyCancelledEmbed(directLobby.mode, [], 'cancel', { actorId, reason }, directLobby.draftConfig.leaderDataVersion, directLobby.draftConfig.redDeath)],
                 components: [],
               })
             }
@@ -122,13 +121,19 @@ export const command_mod = factory.command<ModVar>(
             return
           }
 
-          const mode = normalizeMatchMode(result.match.gameMode)
+          const matchContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
+          if (!matchContext) {
+            await sendTransientEphemeralResponse(c, `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.`, 'error')
+            return
+          }
+
+          const mode = matchContext.mode
           const moderation = { actorId, reason }
 
           if (existingLobby) {
             try {
               const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
-                embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation, existingLobby.draftConfig.leaderDataVersion)],
+                embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation, existingLobby.draftConfig.leaderDataVersion, existingLobby.draftConfig.redDeath)],
                 components: [],
               })
               await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
@@ -143,7 +148,7 @@ export const command_mod = factory.command<ModVar>(
           if (archiveChannelId && shouldArchiveCancellation) {
             try {
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-                embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation, existingLobby?.draftConfig.leaderDataVersion)],
+                embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation, existingLobby?.draftConfig.leaderDataVersion, matchContext.redDeath)],
               })
               await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
             }
@@ -169,7 +174,7 @@ export const command_mod = factory.command<ModVar>(
           const recalculated = result.recalculatedMatchIds.length
           await sendTransientEphemeralResponse(
             c,
-            `Cancelled match **${result.match.id}** (was ${result.previousStatus}). Recalculated ${recalculated} completed ${formatModeLabel(mode)} matches.`,
+            `Cancelled match **${result.match.id}** (was ${result.previousStatus}). Recalculated ${recalculated} completed ${formatModeLabel(mode, mode, { redDeath: matchContext.redDeath })} matches.`,
             'success',
           )
         })
@@ -221,7 +226,13 @@ export const command_mod = factory.command<ModVar>(
             return
           }
 
-          const mode = normalizeMatchMode(result.match.gameMode)
+          const matchContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
+          if (!matchContext) {
+            await sendTransientEphemeralResponse(c, `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.`, 'error')
+            return
+          }
+
+          const mode = matchContext.mode
           const moderation = { actorId, reason }
           const guildId = existingLobby?.guildId ?? c.interaction.guild_id ?? null
           let rankedRoleLines: string[] = []
@@ -245,7 +256,7 @@ export const command_mod = factory.command<ModVar>(
               const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
                 embeds: [lobbyResultEmbed(mode, result.participants, moderation, {
                   rankedRoleLines,
-                })],
+                }, existingLobby.draftConfig.redDeath)],
                 components: [],
               })
               await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
@@ -261,7 +272,7 @@ export const command_mod = factory.command<ModVar>(
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
                 embeds: [lobbyResultEmbed(mode, result.participants, moderation, {
                   rankedRoleLines,
-                })],
+                }, matchContext.redDeath)],
               })
               await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
             }
@@ -300,7 +311,3 @@ export const command_mod = factory.command<ModVar>(
     }
   },
 )
-
-function normalizeMatchMode(mode: string): GameMode {
-  return parseGameMode(mode) ?? '1v1'
-}
