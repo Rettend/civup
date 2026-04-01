@@ -2,7 +2,7 @@ import type { ClientMessage, CompetitiveTier, DraftAction, LeaderDataVersion, Se
 import { api, ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import PartySocket from 'partysocket'
 import { createSignal } from 'solid-js'
-import { buildActivitySessionHeaders, getActivitySessionToken } from '../lib/activity-session'
+import { buildActivitySessionHeaders, clearActivitySessionToken, getActivitySessionToken } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
 import { shouldForceReconnectForStaleDraft } from '../lib/stale-draft'
 import { applySwapUpdate, draftStore, initDraft, setOptimisticSeatPick, updateDraft, updateDraftPreviews } from './draft-store'
@@ -184,9 +184,10 @@ export interface PartySocketTarget {
 export const [connectionStatus, setConnectionStatus] = createSignal<ConnectionStatus>('disconnected')
 export const [connectionError, setConnectionError] = createSignal<string | null>(null)
 
-const DRAFT_SOCKET_FATAL_CLOSE_MIN = 4000
-const DRAFT_SOCKET_FATAL_CLOSE_MAX = 5000
+const SOCKET_FATAL_CLOSE_MIN = 4000
+const SOCKET_FATAL_CLOSE_MAX = 5000
 const STALE_DRAFT_RECONNECT_CHECK_MS = 1_000
+const STATE_WATCH_SOCKET_MAX_RETRIES = 8
 
 // ── Socket ─────────────────────────────────────────────────
 
@@ -276,6 +277,9 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
         : '-'
 
     if (code !== 1000) {
+      if (isFatalSocketClose(code)) stopSocketReconnects(nextSocket, `fatal close ${code}`)
+      if (isUnauthorizedSocketClose(code)) clearActivitySessionToken()
+
       relayDevLog('warn', 'Draft socket closed unexpectedly', {
         code,
         reason,
@@ -398,7 +402,7 @@ export function watchLobbyState(target: PartySocketTarget, options: LobbyStateWa
     query: activitySessionToken
       ? { [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken }
       : undefined,
-    maxRetries: Infinity,
+    maxRetries: STATE_WATCH_SOCKET_MAX_RETRIES,
   })
 
   const isSocketOpen = () => stateSocket.readyState === WebSocket.OPEN
@@ -465,9 +469,13 @@ export function watchLobbyState(target: PartySocketTarget, options: LobbyStateWa
 
   stateSocket.addEventListener('close', (event) => {
     if (closed) return
+    if (isFatalSocketClose(event.code)) stopSocketReconnects(stateSocket, `fatal close ${event.code}`)
+    if (isUnauthorizedSocketClose(event.code)) clearActivitySessionToken()
     if (event.code === 1000) return
     options.onDisconnected?.()
-    options.onError?.(`State watch disconnected (${event.code})`)
+    options.onError?.(isUnauthorizedSocketClose(event.code)
+      ? 'Activity session expired. Reopen the activity.'
+      : `State watch disconnected (${event.code})`)
   })
 
   stateSocket.addEventListener('error', () => {
@@ -1035,10 +1043,18 @@ function describePartySocketTarget(target: PartySocketTarget): string {
 
 function shouldRetryDraftSocket(currentSocket: PartySocket, code?: number): boolean {
   if (!currentSocket.shouldReconnect) return false
-  if (typeof code === 'number' && isFatalDraftSocketClose(code)) return false
+  if (typeof code === 'number' && isFatalSocketClose(code)) return false
   return true
 }
 
-function isFatalDraftSocketClose(code: number): boolean {
-  return code >= DRAFT_SOCKET_FATAL_CLOSE_MIN && code < DRAFT_SOCKET_FATAL_CLOSE_MAX
+function stopSocketReconnects(currentSocket: PartySocket, reason: string): void {
+  currentSocket.close(1000, reason)
+}
+
+export function isFatalSocketClose(code: number): boolean {
+  return code >= SOCKET_FATAL_CLOSE_MIN && code < SOCKET_FATAL_CLOSE_MAX
+}
+
+export function isUnauthorizedSocketClose(code: number): boolean {
+  return code === 4401 || code === 4403
 }
