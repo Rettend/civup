@@ -773,7 +773,7 @@ export const command_match = factory.command<MatchVar>(
               await sendTransientEphemeralResponse(c, 'For FFA reporting, you must provide a `winner` (1st place) user.', 'error')
               return
             }
-            const requiredPlacements = minPlayerCount(mode)
+            const requiredPlacements = matchContext.redDeath ? 4 : minPlayerCount(mode)
             const placementLabelByCount: Record<number, string> = {
               2: 'second',
               3: 'third',

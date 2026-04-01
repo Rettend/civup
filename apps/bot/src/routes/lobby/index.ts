@@ -2,7 +2,7 @@ import type { GameMode } from '@civup/game'
 import type { Hono } from 'hono'
 import type { Env } from '../../env.ts'
 import { createDb, playerRatings } from '@civup/db'
-import { formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isTeamMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, slotToTeamIndex, toLeaderboardMode } from '@civup/game'
+import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isTeamMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, playerCountOptions, slotToTeamIndex, toLeaderboardMode } from '@civup/game'
 import { createDraftRoomAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
@@ -202,9 +202,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (hasRandomDraft && parsedRandomDraft === undefined) {
       return c.json({ error: 'randomDraft must be true or false' }, 400)
     }
-    if (hasTargetSize && parsedTargetSize === undefined) {
-      return c.json({ error: 'targetSize must be a supported player count for this mode' }, 400)
-    }
     const hasSteamLobbyLink = Object.prototype.hasOwnProperty.call(body, 'steamLobbyLink')
     const parsedSteamLobbyLink = hasSteamLobbyLink
       ? parseSteamLobbyLink(steamLobbyLinkRaw)
@@ -264,6 +261,18 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const normalizedRandomDraft = hasRandomDraft
       ? parsedRandomDraft ?? false
       : lobby.draftConfig.randomDraft
+    const parsedRedDeathFfaTargetSize = mode === 'ffa' && hasTargetSize
+      ? parseRedDeathFfaTargetSize(targetSizeRaw)
+      : undefined
+
+    if (hasTargetSize) {
+      const targetSizeValid = mode === 'ffa' && normalizedRedDeath
+        ? parsedRedDeathFfaTargetSize !== undefined
+        : parsedTargetSize !== undefined
+      if (!targetSizeValid) {
+        return c.json({ error: 'targetSize must be a supported player count for this mode' }, 400)
+      }
+    }
     const minRoleChanged = normalizedMinRole !== lobby.minRole
     const maxRoleChanged = normalizedMaxRole !== lobby.maxRole
 
@@ -299,7 +308,18 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const queue = await getQueueState(kv, mode)
     const lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
     let slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
-    const requestedTargetSize = hasTargetSize ? parsedTargetSize ?? slots.length : slots.length
+    const requestedTargetSize = (() => {
+      if (mode !== 'ffa') {
+        return hasTargetSize ? parsedTargetSize ?? slots.length : slots.length
+      }
+
+      if (normalizedRedDeath) {
+        if (hasTargetSize) return parsedRedDeathFfaTargetSize ?? 10
+        return 10
+      }
+
+      return defaultPlayerCount(mode)
+    })()
 
     if (requestedTargetSize !== slots.length) {
       if (requestedTargetSize < slots.length && slots.slice(requestedTargetSize).some(playerId => playerId != null)) {
@@ -460,7 +480,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if ('error' in nextLayout) {
       return c.json({ error: nextLayout.error }, 400)
     }
-    const nextSlots = nextLayout.slots
+    let nextSlots = nextLayout.slots
+    if (nextMode === 'ffa' && lobby.draftConfig.redDeath) {
+      nextSlots = resizeLobbySlots(nextSlots, 10)
+    }
     const changedAt = Date.now()
 
     const nextLobby = {
@@ -1159,13 +1182,19 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Host must be in a lobby slot before starting.' }, 400)
     }
 
-    if (!canStartLobbyWithPlayerCount(mode, selectedEntries.length, slots.length)) {
+    if (!canStartLobbyWithPlayerCount(mode, selectedEntries.length, slots.length, lobby.draftConfig.redDeath)) {
+      if (mode === 'ffa') {
+        const validCounts = lobby.draftConfig.redDeath
+          ? [4, 6, 8, 10].filter(count => count <= slots.length)
+          : [defaultPlayerCount(mode)]
+        return c.json({ error: `FFA can start with ${validCounts.join(', ')} slotted players.` }, 400)
+      }
       return c.json({ error: `${formatModeLabel(mode, mode, { redDeath: lobby.draftConfig.redDeath })} requires exactly ${slots.length} slotted players.` }, 400)
     }
 
     try {
       const timerConfig = await resolveDraftTimerConfig(kv, lobby.draftConfig)
-      const leaderPoolError = getLeaderPoolSizeError(mode, lobby.draftConfig.redDeath, lobby.draftConfig.leaderPoolSize, slots.length)
+      const leaderPoolError = getLeaderPoolSizeError(mode, lobby.draftConfig.redDeath, lobby.draftConfig.leaderPoolSize, selectedEntries.length)
       if (leaderPoolError) return c.json({ error: leaderPoolError }, 400)
 
       await storeLobbyDraftRoster(kv, lobby.id, lobbyQueueEntries)
@@ -1352,7 +1381,7 @@ async function buildStoredLobbySnapshot(
     minRole: lobby.minRole,
     maxRole: lobby.maxRole,
     entries: lobby.slots.map(() => null),
-    minPlayers: lobbyMinPlayerCount(lobby.slots.length),
+    minPlayers: lobbyMinPlayerCount(mode, lobby.slots.length, lobby.draftConfig.redDeath),
     targetSize: lobby.slots.length,
     draftConfig: lobby.draftConfig,
     serverDefaults,
@@ -1417,6 +1446,12 @@ function parseLobbyDealOptionsSize(value: unknown): number | null | undefined {
 
 function parseLobbyRandomDraft(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
+}
+
+function parseRedDeathFfaTargetSize(value: unknown): number | undefined {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  if (!Number.isInteger(numeric)) return undefined
+  return [4, 6, 8, 10].includes(numeric) ? numeric : undefined
 }
 
 function resizeLobbySlots(slots: (string | null)[], targetSize: number): (string | null)[] {

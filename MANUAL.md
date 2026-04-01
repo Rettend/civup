@@ -132,7 +132,8 @@ The `/match` command group manages the lobby:
 > [!NOTE]
 >
 > - players can only join one lobby, consequently a host can only host one lobby, re-running `/match create` reuses that lobby
-> - team modes must be full to start, except FFA which can start with 4, 6, 8, or 10 players
+> - team modes and regular FFA must be full to start (regular FFA is 8 players)
+> - Red Death FFA can start with 4, 6, 8, or 10 players
 
 ### Activity
 
