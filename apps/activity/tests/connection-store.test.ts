@@ -1,6 +1,7 @@
 import type { DraftState } from '@civup/game'
 import { createDraft, default2v2, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
+import { isFatalSocketClose, isUnauthorizedSocketClose } from '../src/client/stores/connection-store'
 import { shouldForceReconnectForStaleDraft } from '../src/client/lib/stale-draft'
 
 function create2v2Seats() {
@@ -73,5 +74,20 @@ describe('stale draft reconnect watchdog', () => {
       lastSocketActivityAt: 0,
       nowMs: 20_000,
     })).toBe(false)
+  })
+})
+
+describe('socket close classification', () => {
+  test('treats custom 4xxx closes as fatal', () => {
+    expect(isFatalSocketClose(4000)).toBe(true)
+    expect(isFatalSocketClose(4401)).toBe(true)
+    expect(isFatalSocketClose(4999)).toBe(true)
+    expect(isFatalSocketClose(1006)).toBe(false)
+  })
+
+  test('detects auth-related close codes', () => {
+    expect(isUnauthorizedSocketClose(4401)).toBe(true)
+    expect(isUnauthorizedSocketClose(4403)).toBe(true)
+    expect(isUnauthorizedSocketClose(4000)).toBe(false)
   })
 })

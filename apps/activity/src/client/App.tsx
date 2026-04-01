@@ -84,6 +84,7 @@ export default function App() {
   const [liveTargetState, setLiveTargetState] = createSignal<LiveActivityTargetState | null | undefined>(undefined)
   const [liveLobbySnapshotVersion, setLiveLobbySnapshotVersion] = createSignal(0)
   let activityWatch: LobbyStateWatch | null = null
+  let launchSnapshotFallbackTimeout: ReturnType<typeof setTimeout> | null = null
   let activeChannelId: string | null = null
   let activeUserId: string | null = null
   let pendingTargetSelectionKey: string | null = null
@@ -99,6 +100,14 @@ export default function App() {
     activityWatch = null
     subscribedLobbySnapshotKeys.clear()
   }
+
+  const clearLaunchSnapshotFallback = () => {
+    if (!launchSnapshotFallbackTimeout) return
+    clearTimeout(launchSnapshotFallbackTimeout)
+    launchSnapshotFallbackTimeout = null
+  }
+
+  const hasHydratedLiveActivityState = () => liveOverviewSnapshot() !== undefined && liveTargetState() !== undefined
 
   const clearDraftConnection = () => {
     disconnect()
@@ -120,6 +129,7 @@ export default function App() {
   }
 
   onCleanup(() => {
+    clearLaunchSnapshotFallback()
     stopActivityWatch()
     clearDraftConnection()
   })
@@ -439,6 +449,8 @@ export default function App() {
     const targetState = liveTargetState()
     if (!currentUserId || overviewSnapshot === undefined || targetState === undefined) return
 
+    clearLaunchSnapshotFallback()
+
     const rawOptions = overviewSnapshot === undefined
       ? fallbackOptions()
       : overviewSnapshot
@@ -573,6 +585,7 @@ export default function App() {
 
   const startActivityWatch = (channelId: string, currentUserId: string) => {
     stopActivityWatch()
+    clearLaunchSnapshotFallback()
     pendingTargetSelectionKey = null
     selectionRequestVersion += 1
     suppressAutoSelection = false
@@ -600,7 +613,12 @@ export default function App() {
     })
 
     syncActivityWatchSubscriptions()
-    void refreshActivityLaunchSnapshot(channelId, currentUserId)
+
+    launchSnapshotFallbackTimeout = setTimeout(() => {
+      launchSnapshotFallbackTimeout = null
+      if (activeChannelId !== channelId || activeUserId !== currentUserId || hasHydratedLiveActivityState()) return
+      void refreshActivityLaunchSnapshot(channelId, currentUserId)
+    }, 1500)
   }
 
   const handleTargetSelection = async (option: ActivityTargetOption) => {
@@ -654,6 +672,26 @@ export default function App() {
             : 'Unknown error',
       })
     }
+  })
+
+  onMount(() => {
+    const handleVisibilityChange = () => {
+      if (!activeChannelId || !activeUserId) return
+      if (document.visibilityState === 'hidden') {
+        // Keep the current draft UI state, but drop background sockets so hidden activities do not keep retrying.
+        disconnect()
+        stopActivityWatch()
+        clearLaunchSnapshotFallback()
+        return
+      }
+      if (activityWatch) return
+      startActivityWatch(activeChannelId, activeUserId)
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    onCleanup(() => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    })
   })
 
   return (
