@@ -195,6 +195,7 @@ let socket: PartySocket | null = null
 let currentRoomConnection: { target: PartySocketTarget, roomId: string, roomAccessToken: string } | null = null
 let staleDraftReconnectInterval: ReturnType<typeof setInterval> | null = null
 let lastSocketActivityAt = 0
+let lastForcedReconnectTimerEndsAt: number | null = null
 let pendingConfigAck:
   | {
     resolve: () => void
@@ -212,6 +213,7 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
   previousSocket?.close()
   lastSentPreviewKeys = {}
   lastSocketActivityAt = 0
+  lastForcedReconnectTimerEndsAt = null
   currentRoomConnection = null
 
   setConnectionStatus('connecting')
@@ -343,6 +345,7 @@ export function disconnect() {
   socket = null
   currentRoomConnection = null
   lastSocketActivityAt = 0
+  lastForcedReconnectTimerEndsAt = null
   lastSentPreviewKeys = {}
   if (pendingConfigAck) {
     clearTimeout(pendingConfigAck.timeout)
@@ -360,12 +363,14 @@ function startStaleDraftReconnectWatchdog() {
       state: draftStore.state,
       timerEndsAt: draftStore.timerEndsAt,
       lastSocketActivityAt,
+      lastForcedReconnectTimerEndsAt,
     })) {
       return
     }
 
     const currentRoom = currentRoomConnection
     if (!currentRoom) return
+    lastForcedReconnectTimerEndsAt = draftStore.timerEndsAt
 
     relayDevLog('warn', 'Forcing draft socket reconnect after stale timer', {
       roomId: currentRoom.roomId,
@@ -975,6 +980,7 @@ function handleServerMessage(msg: ServerMessage) {
   switch (msg.type) {
     case 'init':
       clearSelections()
+      syncForcedReconnectTimer(msg.timerEndsAt)
       syncPreviewCache(msg.previews, msg.seatIndex)
       initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null)
       if (shouldDisconnectAfterState(msg.state.status, msg.swapState ?? null)) {
@@ -982,6 +988,7 @@ function handleServerMessage(msg: ServerMessage) {
       }
       break
     case 'update':
+      syncForcedReconnectTimer(msg.timerEndsAt)
       syncPreviewCache(msg.previews)
       updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null)
       if (pendingConfigAck) {
@@ -1034,6 +1041,12 @@ function syncPreviewCache(previews: { bans: Record<number, string[]>, picks: Rec
   lastSentPreviewKeys = {
     ban: `ban:${(previews.bans[seatIndex] ?? []).join(',')}`,
     pick: `pick:${(previews.picks[seatIndex] ?? []).join(',')}`,
+  }
+}
+
+function syncForcedReconnectTimer(timerEndsAt: number | null) {
+  if (timerEndsAt == null || timerEndsAt !== lastForcedReconnectTimerEndsAt) {
+    lastForcedReconnectTimerEndsAt = null
   }
 }
 
