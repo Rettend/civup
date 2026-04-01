@@ -132,6 +132,26 @@ describe('activity mapping behavior', () => {
     expect(deleteKeys).toContain('activity-user:user-2')
     expect(deleteKeys).toContain('activity-target-user:user-1:channel-1')
     expect(deleteKeys).toContain('activity-target-user:user-2:channel-1')
+    expect(deleteKeys).toContain('activity-target-match:channel-1:match-1:user-1')
+    expect(deleteKeys).toContain('activity-target-match:channel-1:match-1:user-2')
+  })
+
+  test('clearActivityMappings removes spectator match targets discovered via reverse index', async () => {
+    const { kv } = createTrackedKv()
+
+    await storeMatchMapping(kv, 'channel-1', 'match-1')
+    await storeMatchActivityState(kv, 'channel-1', ['spectator-1'], {
+      matchId: 'match-1',
+      lobbyId: 'lobby-1',
+      mode: '2v2',
+      activitySecret: 'secret',
+    })
+
+    await clearActivityMappings(kv, 'match-1', ['player-1'], 'channel-1')
+
+    await expect(kv.get('activity-user:spectator-1')).resolves.toBeNull()
+    await expect(kv.get('activity-target-user:spectator-1:channel-1')).resolves.toBeNull()
+    await expect(kv.get('activity-target-match:channel-1:match-1:spectator-1')).resolves.toBeNull()
   })
 
   test('clearLobbyMappings removes lobby reopen mapping and channel target', async () => {
@@ -146,6 +166,23 @@ describe('activity mapping behavior', () => {
     const deleteKeys = operations.filter(op => op.type === 'delete').map(op => op.key)
     expect(deleteKeys).toContain('activity-lobby-user:user-1')
     expect(deleteKeys).toContain('activity-target-user:user-1:channel-1')
+    expect(deleteKeys).toContain('activity-target-lobby:channel-1:lobby-1:user-1')
+  })
+
+  test('switching targets removes the old reverse selection key', async () => {
+    const { kv } = createTrackedKv()
+
+    await storeUserActivityTarget(kv, 'channel-1', ['user-1'], { kind: 'lobby', id: 'lobby-1' })
+    await storeUserActivityTarget(kv, 'channel-1', ['user-1'], {
+      kind: 'match',
+      id: 'match-1',
+      lobbyId: 'lobby-1',
+      mode: '2v2',
+      activitySecret: 'secret',
+    })
+
+    await expect(kv.get('activity-target-lobby:channel-1:lobby-1:user-1')).resolves.toBeNull()
+    await expect(kv.get('activity-target-match:channel-1:match-1:user-1')).resolves.toBeDefined()
   })
 
   test('handoffLobbySpectatorsToMatchActivity retargets only current lobby spectators', async () => {
