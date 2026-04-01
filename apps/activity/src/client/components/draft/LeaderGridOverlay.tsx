@@ -2,7 +2,7 @@ import type { Leader } from '@civup/game'
 import type { LeaderTagCategory } from '~/client/lib/leader-tags'
 import { factions, getLeaders, searchFactions, searchLeaders } from '@civup/game'
 import { throttle } from '@solid-primitives/scheduled'
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import {
@@ -489,9 +489,11 @@ export function LeaderGridOverlay() {
     <div
       class={cn(
         'flex flex-col max-h-full overflow-hidden rounded-lg bg-bg-subtle shadow-2xl grid-panel-glow relative z-20 border border-border',
-        showDockedPanels()
-          ? 'w-[min(calc(100vw-32rem),68rem)] xl:w-[min(calc(100vw-36rem),68rem)] 2xl:w-[min(calc(100vw-40rem),68rem)]'
-          : 'w-full',
+        gridViewMode() === 'list'
+          ? 'w-80 mx-auto'
+          : showDockedPanels()
+            ? 'w-[min(calc(100vw-32rem),68rem)] xl:w-[min(calc(100vw-36rem),68rem)] 2xl:w-[min(calc(100vw-40rem),68rem)]'
+            : 'w-full',
         showDockedPanels() && filtersOpen() && 'rounded-l-none',
         showDockedPanels() && hasDetail() && 'rounded-r-none',
         className,
@@ -559,7 +561,7 @@ export function LeaderGridOverlay() {
         </Show>
 
         <div class="ml-auto flex shrink-0 gap-2 items-center">
-          <div class="flex border border-border rounded overflow-hidden">
+          <div class="border border-border rounded flex overflow-hidden">
             <button
               class={cn(
                 'px-1 py-0 transition-all duration-150 cursor-pointer',
@@ -572,6 +574,19 @@ export function LeaderGridOverlay() {
               onClick={() => setGridViewMode('grid')}
             >
               <div class="i-ph-grid-four-bold text-xs" />
+            </button>
+            <button
+              class={cn(
+                'px-1 py-0 transition-all duration-150 cursor-pointer border-l border-border',
+                gridViewMode() === 'multi-list'
+                  ? 'bg-bg-muted text-fg'
+                  : 'bg-bg/60 text-fg-muted hover:text-fg-muted hover:bg-bg-muted',
+              )}
+              title="Multi-column list"
+              aria-label="Multi-column list"
+              onClick={() => setGridViewMode('multi-list')}
+            >
+              <div class="i-ph:grid-nine-bold text-xs" />
             </button>
             <button
               class={cn(
@@ -604,9 +619,52 @@ export function LeaderGridOverlay() {
       </div>
 
       <div class={cn('p-1.5 flex-1 overflow-y-auto', showDockedPanels() ? 'min-h-[calc(3*4.5rem)]' : 'min-h-0')}>
-        <Show
-          when={gridViewMode() === 'list'}
-          fallback={(
+        <Switch>
+          <Match when={gridViewMode() === 'multi-list'}>
+            <div class="columns-[11rem]" style={{ 'column-gap': '0' }}>
+              <Show when={!isRedDeathDraft()}>
+                <RandomLeaderListItem
+                  disabled={!canUseRandom()}
+                  active={isRandomSelected()}
+                  accent={accent()}
+                  onClick={handleToggleRandom}
+                />
+              </Show>
+              <For each={filteredLeaders()}>
+                {leader => (
+                  <LeaderListItem
+                    leader={leader}
+                    singleClickShowsDetail={singleClickShowsDetail()}
+                    onHoverMove={handleLeaderHoverMove}
+                    onHoverLeave={handleLeaderHoverLeave}
+                  />
+                )}
+              </For>
+            </div>
+          </Match>
+          <Match when={gridViewMode() === 'list'}>
+            <div class="flex flex-col">
+              <Show when={!isRedDeathDraft()}>
+                <RandomLeaderListItem
+                  disabled={!canUseRandom()}
+                  active={isRandomSelected()}
+                  accent={accent()}
+                  onClick={handleToggleRandom}
+                />
+              </Show>
+              <For each={filteredLeaders()}>
+                {leader => (
+                  <LeaderListItem
+                    leader={leader}
+                    singleClickShowsDetail={singleClickShowsDetail()}
+                    onHoverMove={handleLeaderHoverMove}
+                    onHoverLeave={handleLeaderHoverLeave}
+                  />
+                )}
+              </For>
+            </div>
+          </Match>
+          <Match when={gridViewMode() === 'grid'}>
             <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
               <Show when={!isRedDeathDraft()}>
                 <RandomLeaderCard
@@ -630,29 +688,8 @@ export function LeaderGridOverlay() {
                 {() => <div class="aspect-square" />}
               </For>
             </div>
-          )}
-        >
-          <div class="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))]">
-            <Show when={!isRedDeathDraft()}>
-              <RandomLeaderListItem
-                disabled={!canUseRandom()}
-                active={isRandomSelected()}
-                accent={accent()}
-                onClick={handleToggleRandom}
-              />
-            </Show>
-            <For each={filteredLeaders()}>
-              {leader => (
-                <LeaderListItem
-                  leader={leader}
-                  singleClickShowsDetail={singleClickShowsDetail()}
-                  onHoverMove={handleLeaderHoverMove}
-                  onHoverLeave={handleLeaderHoverLeave}
-                />
-              )}
-            </For>
-          </div>
-        </Show>
+          </Match>
+        </Switch>
       </div>
 
       <Show when={state()?.status === 'active' && isMyTurn() && !hasSubmitted()}>
@@ -746,7 +783,7 @@ export function LeaderGridOverlay() {
                 </div>
               </Show>
 
-              {renderGridPanel(gridExpanded() ? 'h-full' : '')}
+              {renderGridPanel(gridExpanded() ? 'h-full' : gridViewMode() === 'list' ? 'max-h-[60vh]' : '')}
             </div>
           )}
         >
@@ -847,7 +884,8 @@ function RandomLeaderListItem(props: { disabled: boolean, active: boolean, accen
         !props.disabled && !props.active && 'text-fg-muted group-hover:text-fg',
         !props.disabled && props.active && accentColor() === 'accent' && 'text-accent group-hover:text-accent group-hover:drop-shadow-[0_0_4px_var(--accent)]',
         !props.disabled && props.active && accentColor() === 'danger' && 'text-danger group-hover:text-danger group-hover:drop-shadow-[0_0_4px_var(--danger)]',
-      )}>
+      )}
+      >
         Random
       </span>
     </button>
