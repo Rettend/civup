@@ -39,11 +39,22 @@ export async function buildOpenLobbySnapshotFromParts(
   return buildLobbyLiveSnapshotFromParts(kv, mode, lobby, queueEntries, slots)
 }
 
-export function lobbyMinPlayerCount(targetSize: number): number {
+const RED_DEATH_FFA_PLAYER_COUNTS = new Set([4, 6, 8, 10])
+
+function isRedDeathFfaPlayerCount(playerCount: number, targetSize: number): boolean {
+  return playerCount <= targetSize
+    && RED_DEATH_FFA_PLAYER_COUNTS.has(playerCount)
+}
+
+export function lobbyMinPlayerCount(mode: GameMode, targetSize: number, redDeath = false): number {
+  if (mode === 'ffa' && redDeath) return 4
   return targetSize
 }
 
-export function canStartLobbyWithPlayerCount(mode: GameMode, playerCount: number, targetSize: number): boolean {
+export function canStartLobbyWithPlayerCount(mode: GameMode, playerCount: number, targetSize: number, redDeath = false): boolean {
+  if (mode === 'ffa' && redDeath) {
+    return isRedDeathFfaPlayerCount(playerCount, targetSize)
+  }
   return canStartWithPlayerCount(mode, playerCount, targetSize)
 }
 

@@ -156,6 +156,7 @@ function resolveStoredSlotCount(mode: GameMode, value: unknown): number {
   if (!Array.isArray(value)) return defaultPlayerCount(mode)
 
   const slotCount = Math.round(value.length)
+  if (mode === 'ffa' && slotCount === 10) return slotCount
   return playerCountOptions(mode).includes(slotCount) ? slotCount : defaultPlayerCount(mode)
 }
 
