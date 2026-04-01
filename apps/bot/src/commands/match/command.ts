@@ -773,8 +773,21 @@ export const command_match = factory.command<MatchVar>(
               await sendTransientEphemeralResponse(c, 'For FFA reporting, you must provide a `winner` (1st place) user.', 'error')
               return
             }
-            if (orderedFfaIds.length < 6) {
-              await sendTransientEphemeralResponse(c, 'FFA reporting needs at least 6 ordered users (`winner` + `second` to `sixth`).', 'error')
+            const requiredPlacements = minPlayerCount(mode)
+            const placementLabelByCount: Record<number, string> = {
+              2: 'second',
+              3: 'third',
+              4: 'fourth',
+              5: 'fifth',
+              6: 'sixth',
+              7: 'seventh',
+              8: 'eighth',
+              9: 'ninth',
+              10: 'tenth',
+            }
+            const lastRequiredPlacement = placementLabelByCount[requiredPlacements] ?? `${requiredPlacements}th`
+            if (orderedFfaIds.length < requiredPlacements) {
+              await sendTransientEphemeralResponse(c, `FFA reporting needs at least ${requiredPlacements} ordered users (\`winner\` + \`second\` to \`${lastRequiredPlacement}\`).`, 'error')
               return
             }
             placements = orderedFfaIds.map(playerId => `<@${playerId}>`).join('\n')
@@ -848,12 +861,12 @@ export const command_match = factory.command<MatchVar>(
 
           if (lobby) {
             try {
-                const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-                  embeds: [lobbyResultEmbed(lobby.mode, result.participants, undefined, {
-                    rankedRoleLines,
-                  }, lobby.draftConfig.redDeath)],
-                  components: [],
-                })
+              const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
+                embeds: [lobbyResultEmbed(lobby.mode, result.participants, undefined, {
+                  rankedRoleLines,
+                }, lobby.draftConfig.redDeath)],
+                components: [],
+              })
               await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
             }
             catch (error) {
@@ -1221,10 +1234,10 @@ function buildCancelledLobbyParticipants(lobby: { mode: GameMode, slots: (string
     .map((playerId, slot) => {
       if (!playerId) return null
       const entry = entryByPlayerId.get(playerId)
-        return {
-          playerId,
-          team: slotToTeamIndex(lobby.mode, slot, lobby.slots.length),
-          civId: null,
+      return {
+        playerId,
+        team: slotToTeamIndex(lobby.mode, slot, lobby.slots.length),
+        civId: null,
         placement: null,
         ratingBeforeMu: null,
         ratingBeforeSigma: null,
