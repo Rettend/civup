@@ -47,6 +47,29 @@ describe('stale draft reconnect watchdog', () => {
     })).toBe(false)
   })
 
+  test('forces at most one reconnect per stale timer value', () => {
+    const state = createActiveState()
+    const timerEndsAt = 10_000
+
+    expect(shouldForceReconnectForStaleDraft({
+      connectionStatus: 'connected',
+      state,
+      timerEndsAt,
+      lastSocketActivityAt: timerEndsAt - 1,
+      nowMs: timerEndsAt + 5_001,
+      lastForcedReconnectTimerEndsAt: null,
+    })).toBe(true)
+
+    expect(shouldForceReconnectForStaleDraft({
+      connectionStatus: 'connected',
+      state,
+      timerEndsAt,
+      lastSocketActivityAt: timerEndsAt - 1,
+      nowMs: timerEndsAt + 50_000,
+      lastForcedReconnectTimerEndsAt: timerEndsAt,
+    })).toBe(false)
+  })
+
   test('does not reconnect outside an active timed draft step', () => {
     const active = createActiveState()
     const waiting = createDraft('connection-store-waiting-test', default2v2, create2v2Seats(), Array.from({ length: 40 }, (_, i) => `civ-${i + 1}`))
