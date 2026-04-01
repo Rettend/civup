@@ -1,27 +1,131 @@
 import type { TagFilterState } from '~/client/lib/leader-tags'
-import { createMemo, createSignal } from 'solid-js'
+import { makePersisted } from '@solid-primitives/storage'
+import { createMemo } from 'solid-js'
+import { createStore, unwrap } from 'solid-js/store'
 import { countActiveTagFilters, createEmptyTagFilters, getTagCategory } from '~/client/lib/leader-tags'
 import { currentStep } from './draft-store'
 
+interface UiMemoryState {
+  pickSelections: string[]
+  selectedLeader: string | null
+  searchQuery: string
+  tagFilters: TagFilterState
+  banSelections: string[]
+  isRandomSelected: boolean
+  gridOpen: boolean
+  detailLeaderId: string | null
+  isMiniView: boolean
+  isMobileLayout: boolean
+  ffaPlacementOrder: number[]
+  teamPlacementOrder: number[]
+  resultSelectionsLocked: boolean
+}
+
+interface UiPersistedState {
+  gridExpanded: boolean
+  gridViewMode: 'grid' | 'list'
+  favoriteLeaderIds: string[]
+}
+
 // ── UI State ───────────────────────────────────────────────
 
-const [pickSelectionsSignal, setPickSelectionsSignal] = createSignal<string[]>([])
-const [selectedLeaderSignal, setSelectedLeaderSignal] = createSignal<string | null>(null)
-export const pickSelections = pickSelectionsSignal
-export const selectedLeader = selectedLeaderSignal
-export const [searchQuery, setSearchQuery] = createSignal('')
-export const [tagFilters, setTagFilters] = createSignal<TagFilterState>(createEmptyTagFilters())
+const [uiState, setUiState] = createStore<UiMemoryState>({
+  pickSelections: [],
+  selectedLeader: null,
+  searchQuery: '',
+  tagFilters: createEmptyTagFilters(),
+  banSelections: [],
+  isRandomSelected: false,
+  gridOpen: false,
+  detailLeaderId: null,
+  isMiniView: false,
+  isMobileLayout: typeof window !== 'undefined' ? window.innerWidth < 640 : false,
+  ffaPlacementOrder: [],
+  teamPlacementOrder: [],
+  resultSelectionsLocked: false,
+})
+
+const [persistedUiState, setPersistedUiState] = makePersisted(createStore<UiPersistedState>({
+  gridExpanded: false,
+  gridViewMode: 'grid',
+  favoriteLeaderIds: [],
+}), {
+  name: 'civup:activity:ui',
+  storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+  serialize: value => JSON.stringify(unwrap(value)),
+  deserialize: value => normalizePersistedUiState(JSON.parse(value)),
+})
+
+export const pickSelections = () => uiState.pickSelections
+export const selectedLeader = () => uiState.selectedLeader
+export const searchQuery = () => uiState.searchQuery
+export const tagFilters = () => uiState.tagFilters
 export const activeTagFilterCount = createMemo(() => countActiveTagFilters(tagFilters()))
-export const [banSelections, setBanSelections] = createSignal<string[]>([])
-export const [isRandomSelected, setIsRandomSelected] = createSignal(false)
-export const [gridOpen, setGridOpen] = createSignal(false)
-export const [detailLeaderId, setDetailLeaderId] = createSignal<string | null>(null)
-export const [isMiniView, setIsMiniView] = createSignal(false)
-export const [isMobileLayout, setIsMobileLayout] = createSignal(typeof window !== 'undefined' ? window.innerWidth < 640 : false)
-export const [ffaPlacementOrder, setFfaPlacementOrder] = createSignal<number[]>([])
-export const [teamPlacementOrder, setTeamPlacementOrder] = createSignal<number[]>([])
+export const banSelections = () => uiState.banSelections
+export const isRandomSelected = () => uiState.isRandomSelected
+export const gridOpen = () => uiState.gridOpen
+export const gridExpanded = () => persistedUiState.gridExpanded
+export const gridViewMode = () => persistedUiState.gridViewMode
+export const favoriteLeaderIds = () => persistedUiState.favoriteLeaderIds
+export const detailLeaderId = () => uiState.detailLeaderId
+export const isMiniView = () => uiState.isMiniView
+export const isMobileLayout = () => uiState.isMobileLayout
+export const ffaPlacementOrder = () => uiState.ffaPlacementOrder
+export const teamPlacementOrder = () => uiState.teamPlacementOrder
 export const selectedWinningTeam = (): number | null => teamPlacementOrder()[0] ?? null
-export const [resultSelectionsLocked, setResultSelectionsLocked] = createSignal(false)
+export const resultSelectionsLocked = () => uiState.resultSelectionsLocked
+
+export function setSearchQuery(next: string | ((prev: string) => string)) {
+  setUiState('searchQuery', next)
+}
+
+export function setTagFilters(next: TagFilterState | ((prev: TagFilterState) => TagFilterState)) {
+  setUiState('tagFilters', next)
+}
+
+export function setBanSelections(next: string[] | ((prev: string[]) => string[])) {
+  setUiState('banSelections', next)
+}
+
+export function setIsRandomSelected(next: boolean | ((prev: boolean) => boolean)) {
+  setUiState('isRandomSelected', next)
+}
+
+export function setGridOpen(next: boolean | ((prev: boolean) => boolean)) {
+  setUiState('gridOpen', next)
+}
+
+export function setGridExpanded(next: boolean | ((prev: boolean) => boolean)) {
+  setPersistedUiState('gridExpanded', next)
+}
+
+export function setGridViewMode(next: 'grid' | 'list' | ((prev: 'grid' | 'list') => 'grid' | 'list')) {
+  setPersistedUiState('gridViewMode', next)
+}
+
+export function setDetailLeaderId(next: string | null | ((prev: string | null) => string | null)) {
+  setUiState('detailLeaderId', next)
+}
+
+export function setIsMiniView(next: boolean | ((prev: boolean) => boolean)) {
+  setUiState('isMiniView', next)
+}
+
+export function setIsMobileLayout(next: boolean | ((prev: boolean) => boolean)) {
+  setUiState('isMobileLayout', next)
+}
+
+export function setFfaPlacementOrder(next: number[] | ((prev: number[]) => number[])) {
+  setUiState('ffaPlacementOrder', next)
+}
+
+export function setTeamPlacementOrder(next: number[] | ((prev: number[]) => number[])) {
+  setUiState('teamPlacementOrder', next)
+}
+
+export function setResultSelectionsLocked(next: boolean | ((prev: boolean) => boolean)) {
+  setUiState('resultSelectionsLocked', next)
+}
 
 // ── Phase Accent ───────────────────────────────────────────
 
@@ -78,8 +182,8 @@ export function setSelectedLeader(next: string | null | ((prev: string | null) =
 export function setPickSelections(next: string[] | ((prev: string[]) => string[])) {
   const resolved = typeof next === 'function' ? next(pickSelections()) : next
   const normalized = normalizePickSelections(resolved)
-  setPickSelectionsSignal(normalized)
-  setSelectedLeaderSignal(normalized[0] ?? null)
+  setUiState('pickSelections', normalized)
+  setUiState('selectedLeader', normalized[0] ?? null)
 }
 
 /** Shift/long-press toggles an ordered fallback pick queue. */
@@ -107,14 +211,9 @@ export function toggleTagFilter(tag: string) {
   const category = getTagCategory(tag)
   if (!category) return
 
-  setTagFilters((prev) => {
-    const current = prev[category]
-    const hasTag = current.includes(tag)
-    return {
-      ...prev,
-      [category]: hasTag ? current.filter(t => t !== tag) : [...current, tag],
-    }
-  })
+  const current = tagFilters()[category]
+  const hasTag = current.includes(tag)
+  setUiState('tagFilters', category, hasTag ? current.filter(t => t !== tag) : [...current, tag])
 }
 
 /** Clear all selected tag filters */
@@ -125,6 +224,24 @@ export function clearTagFilters() {
 /** Toggle the detail panel for a leader */
 export function toggleDetail(leaderId: string) {
   setDetailLeaderId(prev => prev === leaderId ? null : leaderId)
+}
+
+/** Return whether this leader is persisted as a favorite. */
+export function isLeaderFavorited(leaderId: string): boolean {
+  return favoriteLeaderIds().includes(leaderId)
+}
+
+/** Toggle a leader in the persisted favorites list. */
+export function toggleLeaderFavorite(leaderId: string) {
+  setPersistedUiState('favoriteLeaderIds', (prev) => {
+    if (prev.includes(leaderId)) return prev.filter(id => id !== leaderId)
+    return normalizeIdList([...prev, leaderId])
+  })
+}
+
+/** Clear all persisted favorite leaders. */
+export function clearLeaderFavorites() {
+  setPersistedUiState('favoriteLeaderIds', [])
 }
 
 /** Toggle a seat in the FFA placement order */
@@ -168,14 +285,37 @@ export function clearResultSelections() {
 }
 
 function normalizePickSelections(civIds: string[]): string[] {
+  return normalizeIdList(civIds)
+}
+
+function normalizeIdList(ids: string[]): string[] {
   const normalized: string[] = []
   const seen = new Set<string>()
 
-  for (const civId of civIds) {
-    if (typeof civId !== 'string' || seen.has(civId)) continue
-    normalized.push(civId)
-    seen.add(civId)
+  for (const id of ids) {
+    if (typeof id !== 'string' || seen.has(id)) continue
+    normalized.push(id)
+    seen.add(id)
   }
 
   return normalized
+}
+
+function normalizePersistedUiState(value: unknown): UiPersistedState {
+  if (!value || typeof value !== 'object') {
+    return { gridExpanded: false, gridViewMode: 'grid', favoriteLeaderIds: [] }
+  }
+
+  const record = value as Record<string, unknown>
+  const gridExpanded = record.gridExpanded === true
+  const gridViewMode = record.gridViewMode === 'list' ? 'list' : 'grid'
+  const favoriteLeaderIds = Array.isArray(record.favoriteLeaderIds)
+    ? normalizeIdList(record.favoriteLeaderIds)
+    : []
+
+  return {
+    gridExpanded,
+    gridViewMode,
+    favoriteLeaderIds,
+  }
 }

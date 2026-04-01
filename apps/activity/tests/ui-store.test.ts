@@ -2,15 +2,21 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import {
   banSelections,
   clearFfaPlacements,
+  clearLeaderFavorites,
   clearResultSelections,
   clearSelections,
   clearTagFilters,
   detailLeaderId,
+  favoriteLeaderIds,
   ffaPlacementOrder,
+  gridExpanded,
+  gridViewMode,
   pickSelections,
   searchQuery,
   selectedLeader,
   selectedWinningTeam,
+  setGridExpanded,
+  setGridViewMode,
   selectWinningTeam,
   setBanSelections,
   setDetailLeaderId,
@@ -20,6 +26,7 @@ import {
   tagFilters,
   toggleBanSelection,
   toggleFfaPlacement,
+  toggleLeaderFavorite,
   togglePickSelection,
   toggleTagFilter,
 } from '../src/client/stores/ui-store'
@@ -30,6 +37,9 @@ describe('ui-store helpers', () => {
     clearFfaPlacements()
     clearResultSelections()
     clearTagFilters()
+    clearLeaderFavorites()
+    setGridExpanded(false)
+    setGridViewMode('grid')
   })
 
   test('toggleBanSelection enforces max selection count', () => {
@@ -135,5 +145,27 @@ describe('ui-store helpers', () => {
     togglePickSelection('civ-12', false)
     expect(pickSelections()).toEqual(['civ-12'])
     expect(selectedLeader()).toBe('civ-12')
+  })
+
+  test('persisted ui preferences keep grid layout choices', () => {
+    expect(gridExpanded()).toBe(false)
+    expect(gridViewMode()).toBe('grid')
+
+    setGridExpanded(true)
+    setGridViewMode('list')
+
+    expect(gridExpanded()).toBe(true)
+    expect(gridViewMode()).toBe('list')
+  })
+
+  test('toggleLeaderFavorite keeps a unique persisted favorites list', () => {
+    toggleLeaderFavorite('civ-7')
+    toggleLeaderFavorite('civ-9')
+    toggleLeaderFavorite('civ-7')
+
+    expect(favoriteLeaderIds()).toEqual(['civ-9'])
+
+    toggleLeaderFavorite('civ-9')
+    expect(favoriteLeaderIds()).toEqual([])
   })
 })
