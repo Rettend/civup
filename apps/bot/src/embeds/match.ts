@@ -1,5 +1,5 @@
 import type { DraftCancelReason, DraftSeat, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
-import { formatModeLabel, getLeader, isRedDeathMode, isTeamMode, teamSize as modeTeamSize } from '@civup/game'
+import { formatModeLabel, getLeader, isTeamMode, teamSize as modeTeamSize } from '@civup/game'
 import { displayRating } from '@civup/rating'
 import { Button, Components, Embed } from 'discord-hono'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
@@ -53,8 +53,9 @@ export function lobbyOpenEmbed(
   minRoleId?: string | null,
   maxRoleId?: string | null,
   leaderDataVersion?: LeaderDataVersion | null,
+  redDeath = false,
 ): Embed {
-  const embed = baseLobbyEmbed(mode, 'open', leaderDataVersion)
+  const embed = baseLobbyEmbed(mode, 'open', leaderDataVersion, redDeath, targetSize)
   const rankFields = [
     minRoleId ? { name: 'Min Rank', value: `<@&${minRoleId}>`, inline: true } : null,
     maxRoleId ? { name: 'Max Rank', value: `<@&${maxRoleId}>`, inline: true } : null,
@@ -116,8 +117,8 @@ export function lobbyOpenEmbed(
   return rankFields.length > 0 ? embed.fields(...rankFields, ...fields) : embed.fields(...fields)
 }
 
-export function lobbyDraftingEmbed(mode: GameMode, seats: DraftSeat[], leaderDataVersion?: LeaderDataVersion | null): Embed {
-  const embed = baseLobbyEmbed(mode, 'drafting', leaderDataVersion)
+export function lobbyDraftingEmbed(mode: GameMode, seats: DraftSeat[], leaderDataVersion?: LeaderDataVersion | null, redDeath = false): Embed {
+  const embed = baseLobbyEmbed(mode, 'drafting', leaderDataVersion, redDeath, seats.length)
   const hasTeams = seats.some(seat => seat.team != null)
 
   if (hasTeams) {
@@ -137,8 +138,9 @@ export function lobbyDraftCompleteEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
   leaderDataVersion?: LeaderDataVersion | null,
+  redDeath = false,
 ): Embed {
-  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'draft-complete', undefined, leaderDataVersion)
+  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'draft-complete', undefined, leaderDataVersion, redDeath, participants.length)
 }
 
 export function lobbyCancelledEmbed(
@@ -147,6 +149,7 @@ export function lobbyCancelledEmbed(
   reason: DraftCancelReason,
   moderation?: ModerationContext,
   leaderDataVersion?: LeaderDataVersion | null,
+  redDeath = false,
 ): Embed {
   const stage: 'cancelled' | 'scrubbed' = reason === 'cancel' ? 'cancelled' : 'scrubbed'
   return lobbyDraftCompleteLeaderEmbed(
@@ -155,6 +158,8 @@ export function lobbyCancelledEmbed(
     stage,
     moderation,
     stage === 'scrubbed' ? undefined : leaderDataVersion,
+    redDeath,
+    participants.length,
   )
 }
 
@@ -162,8 +167,9 @@ export function lobbyTimeoutEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
   leaderDataVersion?: LeaderDataVersion | null,
+  redDeath = false,
 ): Embed {
-  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'timeout', undefined, leaderDataVersion)
+  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'timeout', undefined, leaderDataVersion, redDeath, participants.length)
 }
 
 export function lobbyResultEmbed(
@@ -171,8 +177,9 @@ export function lobbyResultEmbed(
   participants: LobbyParticipant[],
   moderation?: ModerationContext,
   options: { rankedRoleLines?: string[] } = {},
+  redDeath = false,
 ): Embed {
-  return lobbyReportedEmbed(mode, participants, moderation, options)
+  return lobbyReportedEmbed(mode, participants, moderation, options, redDeath, participants.length)
 }
 
 export function lobbyComponents(mode: GameMode, lobbyId?: string): Components {
@@ -182,12 +189,18 @@ export function lobbyComponents(mode: GameMode, lobbyId?: string): Components {
   )
 }
 
-function baseLobbyEmbed(mode: GameMode, stage: LobbyStage, leaderDataVersion?: LeaderDataVersion | null): Embed {
+function baseLobbyEmbed(
+  mode: GameMode,
+  stage: LobbyStage,
+  leaderDataVersion?: LeaderDataVersion | null,
+  redDeath = false,
+  targetSize?: number,
+): Embed {
   const embed = new Embed()
-    .title(`${STAGE_LABELS[stage]}  -  ${formatModeLabel(mode, mode)}`)
+    .title(`${STAGE_LABELS[stage]}  -  ${formatModeLabel(mode, mode, { redDeath, targetSize })}`)
     .color(STAGE_COLORS[stage])
 
-  const footerText = formatLeaderDataVersionFooter(mode, leaderDataVersion)
+  const footerText = formatLeaderDataVersionFooter(leaderDataVersion, redDeath)
   return footerText ? embed.footer({ text: footerText }) : embed
 }
 
@@ -197,8 +210,10 @@ function lobbyDraftCompleteLeaderEmbed(
   stage: Extract<LobbyStage, 'draft-complete' | 'cancelled' | 'scrubbed' | 'timeout'> = 'draft-complete',
   moderation?: ModerationContext,
   leaderDataVersion?: LeaderDataVersion | null,
+  redDeath = false,
+  targetSize?: number,
 ): Embed {
-  const embed = baseLobbyEmbed(mode, stage, leaderDataVersion)
+  const embed = baseLobbyEmbed(mode, stage, leaderDataVersion, redDeath, targetSize)
   const hasTeams = participants.some(participant => participant.team != null)
   const moderationField = buildModerationField(moderation)
 
@@ -231,8 +246,10 @@ function lobbyReportedEmbed(
   participants: LobbyParticipant[],
   moderation?: ModerationContext,
   options: { rankedRoleLines?: string[] } = {},
+  redDeath = false,
+  targetSize?: number,
 ): Embed {
-  const embed = baseLobbyEmbed(mode, 'reported')
+  const embed = baseLobbyEmbed(mode, 'reported', undefined, redDeath, targetSize)
   const usesTeamRows = isTeamMode(mode)
   const description = usesTeamRows
     ? formatReportedTeamRows(participants)
@@ -252,8 +269,8 @@ function lobbyReportedEmbed(
   return fields.length > 0 ? embed.fields(...fields) : embed
 }
 
-function formatLeaderDataVersionFooter(mode: GameMode, leaderDataVersion?: LeaderDataVersion | null): string | null {
-  if (isRedDeathMode(mode)) return null
+function formatLeaderDataVersionFooter(leaderDataVersion?: LeaderDataVersion | null, redDeath = false): string | null {
+  if (redDeath) return null
   if (!leaderDataVersion) return null
   return leaderDataVersion === 'beta' ? 'BBG Beta' : 'BBG Live'
 }

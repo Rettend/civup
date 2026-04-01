@@ -24,14 +24,14 @@ export interface MiniSeatItem {
 interface MiniFrameProps {
   modeLabel?: string | null
   title: string
-  titleAccent?: 'gold' | 'red'
+  titleAccent?: 'gold' | 'red' | 'orange'
   rightLabel?: string | null
   children: JSX.Element
 }
 
 interface MiniSeatGridProps {
   columns: MiniSeatItem[][]
-  activeTone?: 'gold' | 'red'
+  activeTone?: 'gold' | 'red' | 'orange'
   footer?: string | null
 }
 
@@ -42,6 +42,7 @@ interface MiniSeatGridProps {
 export function MiniFrame(props: MiniFrameProps) {
   const titleColorClass = () => {
     if (props.titleAccent === 'red') return 'text-danger'
+    if (props.titleAccent === 'orange') return 'text-[#f97316]'
     if (props.titleAccent === 'gold') return 'text-accent'
     return 'text-accent'
   }
@@ -107,7 +108,7 @@ export function MiniSeatGrid(props: MiniSeatGridProps) {
   )
 }
 
-function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' }) {
+function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' | 'orange' }) {
   const leaderPortraitUrl = () => {
     const leaderId = props.item.leaderId ?? props.item.previewLeaderId
     if (!leaderId) return null
@@ -130,6 +131,7 @@ function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' }) 
   const activeClass = () => {
     if (!props.item.active) return ''
     if (props.activeTone === 'red') return 'border-danger/55 shadow-[inset_0_0_0_1px_var(--danger-subtle)]'
+    if (props.activeTone === 'orange') return 'border-[#f97316]/55 shadow-[inset_0_0_0_1px_rgba(249,115,22,0.15)]'
     return 'border-accent/55 shadow-[inset_0_0_0_1px_var(--accent-subtle)]'
   }
 
@@ -179,7 +181,7 @@ function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' }) 
                   <div class="flex h-5 w-5 items-center justify-center">
                     <span class={cn(
                       'h-1.5 w-1.5 rounded-full animate-pulse',
-                      props.activeTone === 'red' ? 'bg-danger' : 'bg-accent',
+                      props.activeTone === 'red' ? 'bg-danger' : props.activeTone === 'orange' ? 'bg-[#f97316]' : 'bg-accent',
                     )}
                     />
                   </div>

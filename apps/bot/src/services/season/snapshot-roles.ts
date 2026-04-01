@@ -1,9 +1,10 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import { matches, matchParticipants, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
-import { parseGameMode, parseLeaderboardMode, toLeaderboardMode } from '@civup/game'
+import { parseLeaderboardMode } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { createGuildRole, deleteGuildRole, DiscordApiError, editGuildMemberRoles } from '../discord/index.ts'
+import { getStoredGameModeContext } from '../match/draft-data.ts'
 import {
   createRankedRoleTierId,
   fetchGuildMemberRoleIds,
@@ -173,6 +174,7 @@ export async function listPlayerSeasonSnapshotHistory(
       .select({
         seasonId: matches.seasonId,
         gameMode: matches.gameMode,
+        draftData: matches.draftData,
         placement: matchParticipants.placement,
       })
       .from(matchParticipants)
@@ -187,9 +189,10 @@ export async function listPlayerSeasonSnapshotHistory(
   const seasonMatchStats = new Map<string, Partial<Record<LeaderboardMode, { gamesPlayed: number, wins: number }>>>()
   for (const row of matchRows) {
     if (!row.seasonId) continue
-    const gameMode = parseGameMode(row.gameMode)
-    if (!gameMode) continue
-    const mode = toLeaderboardMode(gameMode)
+    const context = getStoredGameModeContext(row.gameMode, row.draftData)
+    if (!context) continue
+
+    const mode = context.leaderboardMode
     const seasonStats = seasonMatchStats.get(row.seasonId) ?? {}
     const modeStats = seasonStats[mode] ?? { gamesPlayed: 0, wins: 0 }
     modeStats.gamesPlayed += 1

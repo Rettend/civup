@@ -1,8 +1,9 @@
 import type { DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry, RoomConfig } from '@civup/game'
 import type { LobbyState } from '../lobby/types.ts'
-import { allFactionIds, getDraftFormat, isRedDeathMode, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
+import { allFactionIds, getDraftFormat, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
 import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
+import { syncActivityOverviewSnapshot } from './live-state.ts'
 import { getLobbiesByChannel } from '../lobby/index.ts'
 import { channelIndexKey, idKey, matchKey, modeIndexKey } from '../lobby/keys.ts'
 import { lobbySnapshotKey } from '../lobby/live-snapshot.ts'
@@ -20,6 +21,7 @@ export interface CreateDraftRoomOptions {
   hostId: string
   leaderDataVersion?: LeaderDataVersion
   simultaneousPick?: boolean
+  redDeath?: boolean
   randomDraft?: boolean
   partyHost?: string
   botHost?: string
@@ -138,10 +140,10 @@ export async function createDraftRoom(
   options: CreateDraftRoomOptions,
 ): Promise<MatchCreationResult> {
   const matchId = nanoid(12)
-  const redDeathMode = isRedDeathMode(mode)
-  const simultaneousPick = mode === 'ffa' && options.simultaneousPick === true
+  const redDeathMode = options.redDeath === true
+  const simultaneousPick = mode === 'ffa' && !redDeathMode && options.simultaneousPick === true
   const randomDraft = redDeathMode && options.randomDraft === true
-  const format = getDraftFormat(mode, { simultaneousPick, randomDraft })
+  const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode })
   const seats: DraftSeat[] = buildSeats(mode, entries)
   const civPool = redDeathMode
     ? [...allFactionIds]
@@ -518,6 +520,7 @@ export async function clearLobbyAndActivityMappings(
   ]
   if (lobby.matchId) keys.push(matchKey(lobby.matchId))
   await stateStoreMdelete(kv, keys)
+  await syncActivityOverviewSnapshot(kv, lobby.channelId)
 }
 
 /** Remove only the user -> open-lobby mapping while keeping the current channel target. */

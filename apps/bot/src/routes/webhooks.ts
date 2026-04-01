@@ -52,7 +52,15 @@ export function registerWebhookRoutes(app: Hono<Env>) {
       })
 
       if ('error' in result) {
+        if (isIgnorableDraftCompleteError(result.error)) {
+          console.warn(`Ignoring stale draft-complete webhook for match ${payload.matchId}: ${result.error}`)
+          return c.json({ ok: true, ignored: true })
+        }
         return c.json({ error: result.error }, 400)
+      }
+
+      if (result.alreadyActive && payload.finalized !== true) {
+        return c.json({ ok: true, synced: true })
       }
 
       const lobby = await getLobbyByMatch(kv, payload.matchId)
@@ -61,11 +69,16 @@ export function registerWebhookRoutes(app: Hono<Env>) {
         return c.json({ ok: true })
       }
 
-      const activeLobby = await setLobbyStatus(kv, lobby.id, 'active', lobby) ?? lobby
-      await syncLobbyDerivedState(kv, activeLobby)
+      const shouldRefreshEmbedOnly = result.alreadyActive && payload.finalized === true
+      const activeLobby = shouldRefreshEmbedOnly
+        ? lobby
+        : await setLobbyStatus(kv, lobby.id, 'active', lobby) ?? lobby
+      if (!shouldRefreshEmbedOnly) {
+        await syncLobbyDerivedState(kv, activeLobby)
+      }
       try {
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, activeLobby, {
-          embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants, activeLobby.draftConfig.leaderDataVersion)],
+          embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants, activeLobby.draftConfig.leaderDataVersion, activeLobby.draftConfig.redDeath)],
           components: lobbyComponents(activeLobby.mode, activeLobby.id),
         })
         await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
@@ -137,7 +150,7 @@ export function registerWebhookRoutes(app: Hono<Env>) {
     const closedLobby = await setLobbyStatus(kv, lobby.id, payload.reason === 'cancel' ? 'cancelled' : 'scrubbed', lobby) ?? lobby
     try {
       const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, closedLobby, {
-        embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason, undefined, closedLobby.draftConfig.leaderDataVersion)],
+        embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason, undefined, closedLobby.draftConfig.leaderDataVersion, closedLobby.draftConfig.redDeath)],
         components: [],
       })
       await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
@@ -150,6 +163,11 @@ export function registerWebhookRoutes(app: Hono<Env>) {
     await clearLobbyById(kv, lobby.id, lobby)
     return c.json({ ok: true })
   })
+}
+
+function isIgnorableDraftCompleteError(error: string): boolean {
+  return error.includes('cannot be activated (status: cancelled)')
+    || error.includes('cannot be activated (status: completed)')
 }
 
 function isDraftWebhookPayload(value: unknown): value is DraftWebhookPayload {

@@ -247,6 +247,29 @@ describe('activity target selection', () => {
     }))
   })
 
+  test('does not auto-select unrelated live matches for spectators', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1')
+    expect(snapshot.selection).toBeNull()
+    expect(snapshot.options).toEqual([
+      expect.objectContaining({
+        kind: 'match',
+        id: 'match-1',
+        isHost: false,
+        isMember: false,
+      }),
+    ])
+  })
+
   test('includes the Steam lobby link in live match activity selections', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
@@ -293,7 +316,7 @@ describe('activity target selection', () => {
     })).resolves.not.toBeNull()
   })
 
-  test('allows authenticated spectators to open live match targets read-only', async () => {
+  test('allows authenticated spectators to open live match targets read-only when selected', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: '2v2',
@@ -310,6 +333,12 @@ describe('activity target selection', () => {
     })
 
     await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+
+    await expect(selectActivityTargetForUser(kv, lobby.channelId, 'spectator-1', {
+      kind: 'match',
+      id: 'match-1',
+      activitySecret: 'secret',
+    })).resolves.toEqual({ ok: true })
 
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1')
     expect(snapshot.selection?.kind).toBe('match')

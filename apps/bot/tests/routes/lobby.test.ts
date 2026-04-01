@@ -462,7 +462,8 @@ describe('lobby routes', () => {
       leaderPoolSize: 12,
       leaderDataVersion: 'live',
       simultaneousPick: false,
-      dealOptionsSize: 2,
+      redDeath: false,
+      dealOptionsSize: null,
       randomDraft: false,
     })
     expect(updatedLobby?.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
@@ -474,13 +475,13 @@ describe('lobby routes', () => {
     registerLobbyRoutes(app as any)
 
     const lobby = await createLobby(kv, {
-      mode: 'rd-2p',
+      mode: '2v2',
       hostId: 'host',
       channelId: 'channel-1',
       messageId: 'message-1',
     })
 
-    await addToQueue(kv, 'rd-2p', {
+    await addToQueue(kv, '2v2', {
       playerId: 'host',
       displayName: 'Host',
       avatarUrl: null,
@@ -493,6 +494,7 @@ describe('lobby routes', () => {
       leaderPoolSize: null,
       leaderDataVersion: 'live',
       simultaneousPick: false,
+      redDeath: true,
       dealOptionsSize: 4,
       randomDraft: false,
     }, lobby)
@@ -503,7 +505,7 @@ describe('lobby routes', () => {
       headers: { 'Content-Type': 'application/json' },
     })) as typeof fetch
 
-    const response = await app.request('/api/lobby/rd-2p/config', {
+    const response = await app.request('/api/lobby/2v2/config', {
       method: 'POST',
       headers: buildAuthHeaders('host', 'Host'),
       body: JSON.stringify({
@@ -790,19 +792,19 @@ describe('lobby routes', () => {
     expect(updatedLobby?.slots).toEqual(['p1', 'p2', 'p3', 'host', 'p5', 'p6'])
   })
 
-  test('mode changes clear Red Death random draft when switching to a regular mode', async () => {
+  test('mode changes keep Red Death config when switching base modes', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
 
     const lobby = await createLobby(kv, {
-      mode: 'rd-2p',
+      mode: '2v2',
       hostId: 'host',
       channelId: 'channel-1',
       messageId: 'message-1',
     })
 
-    await addToQueue(kv, 'rd-2p', {
+    await addToQueue(kv, '2v2', {
       playerId: 'host',
       displayName: 'Host',
       avatarUrl: null,
@@ -815,6 +817,7 @@ describe('lobby routes', () => {
       leaderPoolSize: null,
       leaderDataVersion: 'live',
       simultaneousPick: false,
+      redDeath: true,
       dealOptionsSize: 4,
       randomDraft: true,
     }, lobby)
@@ -825,7 +828,7 @@ describe('lobby routes', () => {
       headers: { 'Content-Type': 'application/json' },
     })) as typeof fetch
 
-    const response = await app.request('/api/lobby/rd-2p/mode', {
+    const response = await app.request('/api/lobby/2v2/mode', {
       method: 'POST',
       headers: buildAuthHeaders('host', 'Host'),
       body: JSON.stringify({
@@ -839,7 +842,8 @@ describe('lobby routes', () => {
 
     const updatedLobby = await getLobbyById(kv, lobby.id)
     expect(updatedLobby?.mode).toBe('1v1')
-    expect(updatedLobby?.draftConfig.randomDraft).toBe(false)
+    expect(updatedLobby?.draftConfig.redDeath).toBe(true)
+    expect(updatedLobby?.draftConfig.randomDraft).toBe(true)
   })
 
   test('mode changes clear FFA simultaneous pick when switching to another mode', async () => {
@@ -943,7 +947,7 @@ describe('lobby routes', () => {
     expect(updatedLobby?.slots).toEqual(['p1', 'p2', 'p3', null, 'p4', 'p5', 'p6', null])
   })
 
-  test('mode changes reject shrinking to a smaller lobby than the current player count', async () => {
+  test('mode changes expand 2v2 to fit the current player count', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
@@ -985,12 +989,11 @@ describe('lobby routes', () => {
       }),
     }, buildEnv(kv))
 
-    expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toEqual({ error: '2v2 only supports 4 players.' })
+    expect(response.status).toBe(200)
 
     const updatedLobby = await getLobbyById(kv, lobby.id)
-    expect(updatedLobby?.mode).toBe('3v3')
-    expect(updatedLobby?.slots).toEqual(['p1', 'p2', 'p3', 'p4', 'p5', 'p6'])
+    expect(updatedLobby?.mode).toBe('2v2')
+    expect(updatedLobby?.slots).toEqual(['p1', 'p2', 'p3', 'p4', 'p5', 'p6', null, null])
     expect(updatedLobby?.memberPlayerIds).toEqual(playerIds)
   })
 })

@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { DraftState, GameMode } from '@civup/game'
 import type { ActivateDraftInput, ActivateDraftResult, CancelDraftInput, CancelDraftResult, CreateDraftMatchInput, ParticipantRow } from './types.ts'
 import { matchBans, matches, matchParticipants, players } from '@civup/db'
-import { isTeamMode } from '@civup/game'
+import { isRedDeathFormatId, isTeamMode } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { getActiveSeason } from '../season/index.ts'
@@ -111,6 +111,46 @@ export async function activateDraftMatch(
   }
 
   const civByPlayer = mapCivsFromDraftState(input.state, participantRows, match.gameMode as GameMode)
+  const draftData = JSON.stringify({
+    completedAt: input.completedAt,
+    hostId: input.hostId,
+    redDeath: isRedDeathFormatId(input.state.formatId),
+    state: input.state,
+  })
+
+  if (match.status === 'active') {
+    for (const participant of participantRows) {
+      const nextCivId = civByPlayer.get(participant.playerId) ?? null
+      if (participant.civId === nextCivId) continue
+
+      await db
+        .update(matchParticipants)
+        .set({ civId: nextCivId })
+        .where(
+          and(
+            eq(matchParticipants.matchId, matchId),
+            eq(matchParticipants.playerId, participant.playerId),
+          ),
+        )
+    }
+
+    await db
+      .update(matches)
+      .set({ draftData })
+      .where(eq(matches.id, matchId))
+
+    return {
+      alreadyActive: true,
+      match: {
+        ...match,
+        draftData,
+      },
+      participants: participantRows.map(participant => ({
+        ...participant,
+        civId: civByPlayer.get(participant.playerId) ?? null,
+      })),
+    }
+  }
 
   for (const participant of participantRows) {
     await db
@@ -145,28 +185,24 @@ export async function activateDraftMatch(
 
   await db
     .update(matches)
-    .set({
+      .set({
+        status: 'active',
+        draftData,
+      })
+    .where(eq(matches.id, matchId))
+
+  return {
+    alreadyActive: false,
+    match: {
+      ...match,
       status: 'active',
-      draftData: JSON.stringify({
-        completedAt: input.completedAt,
-        hostId: input.hostId,
-        state: input.state,
-      }),
-    })
-    .where(eq(matches.id, matchId))
-
-  const [updatedMatch] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, matchId))
-    .limit(1)
-
-  const updatedParticipants = await db
-    .select()
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, matchId))
-
-  return { match: updatedMatch!, participants: updatedParticipants }
+      draftData,
+    },
+    participants: participantRows.map(participant => ({
+      ...participant,
+      civId: civByPlayer.get(participant.playerId) ?? null,
+    })),
+  }
 }
 
 export async function cancelDraftMatch(
@@ -229,16 +265,17 @@ export async function cancelDraftMatch(
 
   await db
     .update(matches)
-    .set({
-      status: 'cancelled',
-      completedAt: input.cancelledAt,
-      draftData: JSON.stringify({
-        cancelledAt: input.cancelledAt,
-        reason: input.reason,
-        hostId: input.hostId,
-        state: input.state,
-      }),
-    })
+      .set({
+        status: 'cancelled',
+        completedAt: input.cancelledAt,
+        draftData: JSON.stringify({
+          cancelledAt: input.cancelledAt,
+          reason: input.reason,
+          hostId: input.hostId,
+          redDeath: isRedDeathFormatId(input.state.formatId),
+          state: input.state,
+        }),
+      })
     .where(eq(matches.id, matchId))
 
   const channelId = await getChannelForMatch(kv, matchId)
