@@ -153,7 +153,6 @@ export function playersPerTeam(mode: GameMode): number {
 
 /** Supported player counts for a mode. */
 export function playerCountOptions(mode: GameMode): readonly number[] {
-  if (mode === 'ffa') return [4, 6, 8, 10]
   if (mode === '2v2') return [4, 8]
   const size = teamSize(mode)
   if (size == null) return [8]
@@ -180,7 +179,6 @@ export function slotToTeamIndex(mode: GameMode, slot: number, playerCount: numbe
 /** Default player count for a mode. */
 export function defaultPlayerCount(mode: GameMode): number {
   const options = playerCountOptions(mode)
-  if (mode === 'ffa') return options.find(option => option === 8) ?? options[0] ?? 0
   return options[0] ?? 0
 }
 
