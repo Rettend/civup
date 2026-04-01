@@ -7,6 +7,7 @@ import {
   canManagePickQueue,
   currentStep,
   draftStore,
+  isLeaderFavorited,
   isMyTurn,
   isRandomSelected,
   isRedDeathDraft,
@@ -41,8 +42,7 @@ interface LeaderCardProps {
   onHoverLeave?: () => void
 }
 
-/** Icon-only leader card for the grid overlay */
-export function LeaderCard(props: LeaderCardProps) {
+function useLeaderCardState(props: LeaderCardProps) {
   const state = () => draftStore.state
   const step = currentStep
 
@@ -55,6 +55,7 @@ export function LeaderCard(props: LeaderCardProps) {
   const isBanSelected = (): boolean => banSelections().includes(props.leader.id)
   const isActive = (): boolean => isSelected() || isBanSelected()
   const hasSelectionVisual = (): boolean => isActive() || isQueuedPick()
+  const isFavorited = (): boolean => isLeaderFavorited(props.leader.id)
   let longPressTimeout: ReturnType<typeof setTimeout> | null = null
   let suppressNextClick = false
 
@@ -169,6 +170,49 @@ export function LeaderCard(props: LeaderCardProps) {
     props.onHoverLeave?.()
   }
 
+  return {
+    state,
+    step,
+    isBanned,
+    isPicked,
+    isUnavailable,
+    pickQueueIndex,
+    isSelected,
+    isQueuedPick,
+    isBanSelected,
+    isActive,
+    hasSelectionVisual,
+    isFavorited,
+    isInteractive,
+    handleClick,
+    handleContextMenu,
+    handlePointerDown,
+    handlePointerUp,
+    handleHoverMove,
+    handleHoverLeave,
+  }
+}
+
+/** Icon-only leader card for the grid overlay */
+export function LeaderCard(props: LeaderCardProps) {
+  const {
+    isBanned,
+    isUnavailable,
+    pickQueueIndex,
+    isSelected,
+    isQueuedPick,
+    isBanSelected,
+    hasSelectionVisual,
+    isFavorited,
+    isInteractive,
+    handleClick,
+    handleContextMenu,
+    handlePointerDown,
+    handlePointerUp,
+    handleHoverMove,
+    handleHoverLeave,
+  } = useLeaderCardState(props)
+
   return (
     <button
       class={cn(
@@ -189,6 +233,12 @@ export function LeaderCard(props: LeaderCardProps) {
       onPointerCancel={handlePointerUp}
       disabled={isBanned()}
     >
+      <Show when={isFavorited() && !hasSelectionVisual()}>
+        <div class="bg-bg/88 border border-border/60 rounded-full h-5 w-5 flex items-center justify-center right-1 top-1 absolute z-10 shadow-black/30 shadow">
+          <span class="i-ph-star-fill text-[10px] text-accent" />
+        </div>
+      </Show>
+
       {/* Circular visual container */}
       <div
         class={cn(
@@ -257,6 +307,123 @@ export function LeaderCard(props: LeaderCardProps) {
 
       <Show when={isQueuedPick()}>
         <span class="text-[10px] text-accent font-semibold px-1 py-0.5 text-center rounded-full bg-bg-subtle min-w-4 right-1 top-1 absolute z-10">
+          {pickQueueIndex() + 1}
+        </span>
+      </Show>
+    </button>
+  )
+}
+
+/** Compact list-row leader card for the list view */
+export function LeaderListItem(props: LeaderCardProps) {
+  const {
+    isBanned,
+    isUnavailable,
+    pickQueueIndex,
+    isSelected,
+    isQueuedPick,
+    isBanSelected,
+    hasSelectionVisual,
+    isFavorited,
+    isInteractive,
+    handleClick,
+    handleContextMenu,
+    handlePointerDown,
+    handlePointerUp,
+    handleHoverMove,
+    handleHoverLeave,
+  } = useLeaderCardState(props)
+
+  return (
+    <button
+      class={cn(
+        'relative flex items-center gap-2 rounded-md px-1.5 py-1 group min-w-0 transition-all duration-150',
+        'outline outline-2 outline-transparent',
+        isBanned() && 'pointer-events-none',
+        (isInteractive() || !isUnavailable()) && 'cursor-pointer',
+
+        // Default
+        !hasSelectionVisual() && isInteractive() && 'hover:bg-white/6',
+        !hasSelectionVisual() && !isInteractive() && !isUnavailable() && 'hover:bg-white/4',
+
+        // Selected pick
+        isSelected() && 'outline-accent/50 bg-accent/8 hover:bg-accent/14 hover:outline-accent/65',
+
+        // Ban selected
+        isBanSelected() && 'outline-danger/50 bg-danger/8 hover:bg-danger/14 hover:outline-danger/65',
+
+        // Queued fallback pick
+        isQueuedPick() && 'outline-1 outline-accent/25 bg-accent/5 hover:bg-accent/8',
+      )}
+      onClick={handleClick}
+      onContextMenu={handleContextMenu}
+      onMouseEnter={handleHoverMove}
+      onMouseMove={handleHoverMove}
+      onMouseLeave={handleHoverLeave}
+      onBlur={handleHoverLeave}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      disabled={isBanned()}
+    >
+      <div class="rounded-full shrink-0 h-7 w-7 relative overflow-hidden">
+        <Show when={isFavorited() && !hasSelectionVisual()}>
+          <div class="bg-bg/92 border border-border/60 rounded-full h-4 w-4 flex items-center justify-center right-0 top-0 absolute z-10 shadow-black/30 shadow">
+            <span class="i-ph-star-fill text-[8px] text-accent" />
+          </div>
+        </Show>
+
+        <Show
+          when={props.leader.portraitUrl}
+          fallback={(
+            <div class={cn(
+              'bg-bg-subtle flex h-full w-full items-center justify-center rounded-full',
+              isUnavailable() && 'opacity-25',
+            )}
+            >
+              <span class="text-xs text-accent/40 font-bold">
+                {props.leader.name.slice(0, 1)}
+              </span>
+            </div>
+          )}
+        >
+          {url => (
+            <img
+              src={resolveAssetUrl(url()) ?? url()}
+              alt={props.leader.name}
+              class={cn(
+                'h-full w-full object-cover',
+                isBanned() && 'grayscale',
+                isUnavailable() && 'opacity-25',
+                ZOOMED_LEADERS.includes(props.leader.name) && 'scale-90',
+                SLIGHTLY_ZOOMED_LEADERS.includes(props.leader.name) && 'scale-95',
+              )}
+            />
+          )}
+        </Show>
+
+        <Show when={isBanned()}>
+          <div class="rounded-full bg-danger/10 flex items-center inset-0 justify-center absolute">
+            <span class="text-sm text-danger font-bold">✕</span>
+          </div>
+        </Show>
+      </div>
+
+      <span class={cn(
+        'text-xs truncate min-w-0 transition-colors',
+        isUnavailable() && 'text-fg-subtle/40',
+        isBanSelected() && !isUnavailable() && 'text-danger group-hover:text-danger group-hover:drop-shadow-[0_0_4px_var(--danger)]',
+        isSelected() && !isUnavailable() && 'text-accent group-hover:text-accent group-hover:drop-shadow-[0_0_4px_var(--accent)]',
+        isQueuedPick() && !isUnavailable() && 'text-accent/70 group-hover:text-accent group-hover:drop-shadow-[0_0_3px_var(--accent-muted)]',
+        !hasSelectionVisual() && !isUnavailable() && 'text-fg-muted group-hover:text-fg',
+      )}
+      >
+        {props.leader.name}
+      </span>
+
+      <Show when={isQueuedPick()}>
+        <span class="text-[9px] text-accent font-semibold ml-auto shrink-0">
+          #
           {pickQueueIndex() + 1}
         </span>
       </Show>

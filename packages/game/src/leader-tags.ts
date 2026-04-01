@@ -75,7 +75,7 @@ export const leaderTagsById = {
   'portugal-joao-iii': ['econ:gold', 'win:science', 'spike:mid', 'role:backline', 'other:naval', 'other:greatpeople'],
   'rome-julius-caesar': ['econ:gold', 'win:domination', 'spike:early', 'role:frontline'],
   'rome-trajan': ['econ:gold', 'econ:production', 'win:domination', 'spike:early', 'role:flex'],
-  'russia-peter': ['econ:faith', 'econ:gold', 'win:science', 'win:culture', 'spike:mid', 'role:backline', 'other:greatpeople'],
+  'russia-peter': ['econ:faith', 'econ:gold', 'win:science', 'win:culture', 'spike:mid', 'role:backline', 'other:cavalry', 'other:greatpeople'],
   'scotland-robert-the-bruce': ['econ:production', 'win:science', 'spike:mid', 'role:flex', 'other:defense', 'other:greatpeople'],
   'scythia-tomyris': ['econ:faith', 'win:domination', 'spike:early', 'role:frontline', 'other:cavalry'],
   'spain-philip-ii': ['econ:gold', 'econ:faith', 'win:domination', 'win:science', 'spike:mid', 'role:flex', 'other:Naval'],
@@ -86,7 +86,7 @@ export const leaderTagsById = {
   'thule-kiviuq': ['econ:gold', 'econ:food', 'win:domination', 'spike:early', 'role:flex', 'other:Naval', 'other:defense'],
   'tibet-trisong-detsen': ['econ:faith', 'econ:gold', 'win:domination', 'spike:mid', 'role:flex', 'other:defense'],
   'vietnam-ba-trieu': ['win:domination', 'win:culture', 'spike:mid', 'role:frontline', 'other:defense'],
-  'zulu-shaka': ['win:domination', 'spike:mid', 'role:frontline'],
+  'zulu-shaka': ['win:domination', 'win:culture', 'spike:mid', 'role:frontline'],
 } as const satisfies Record<string, readonly string[]>
 
 /** Apply curated tags to synced leaders in-place */

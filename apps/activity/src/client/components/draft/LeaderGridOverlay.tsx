@@ -23,7 +23,9 @@ import {
   dealtCivIds,
   detailLeaderId,
   draftStore,
+  gridExpanded,
   gridOpen,
+  gridViewMode,
   hasSubmitted,
   isMyTurn,
   isRandomSelected,
@@ -37,7 +39,9 @@ import {
   sendPreview,
   setBanSelections,
   setDetailLeaderId,
+  setGridExpanded,
   setGridOpen,
+  setGridViewMode,
   setIsRandomSelected,
   setPickSelections,
   setSearchQuery,
@@ -45,7 +49,7 @@ import {
   tagFilters,
   toggleTagFilter,
 } from '~/client/stores'
-import { LeaderCard } from './LeaderCard'
+import { LeaderCard, LeaderListItem } from './LeaderCard'
 import { LeaderDetailPanel } from './LeaderDetailPanel'
 
 const DOCKED_PANEL_MIN_WIDTH = 1280
@@ -98,7 +102,6 @@ export function LeaderGridOverlay() {
   }
   const [hoverTooltip, setHoverTooltip] = createSignal<HoverTooltip | null>(null)
   const [filtersOpen, setFiltersOpen] = createSignal(false)
-  const [gridExpanded, setGridExpanded] = createSignal(false)
   const [panelsDocked, setPanelsDocked] = createSignal(false)
   const [tooltipSize, setTooltipSize] = createSignal({ width: 224, height: 96 })
   const [hydratedPickPreviewToken, setHydratedPickPreviewToken] = createSignal<string | null>(null)
@@ -556,6 +559,35 @@ export function LeaderGridOverlay() {
         </Show>
 
         <div class="ml-auto flex shrink-0 gap-2 items-center">
+          <div class="flex border border-border rounded overflow-hidden">
+            <button
+              class={cn(
+                'px-1 py-0 transition-all duration-150 cursor-pointer',
+                gridViewMode() === 'grid'
+                  ? 'bg-bg-muted text-fg'
+                  : 'bg-bg/60 text-fg-muted hover:text-fg-muted hover:bg-bg-muted',
+              )}
+              title="Grid view"
+              aria-label="Grid view"
+              onClick={() => setGridViewMode('grid')}
+            >
+              <div class="i-ph-grid-four-bold text-xs" />
+            </button>
+            <button
+              class={cn(
+                'px-1 py-0 transition-all duration-150 cursor-pointer border-l border-border',
+                gridViewMode() === 'list'
+                  ? 'bg-bg-muted text-fg'
+                  : 'bg-bg/60 text-fg-muted hover:text-fg-muted hover:bg-bg-muted',
+              )}
+              title="List view"
+              aria-label="List view"
+              onClick={() => setGridViewMode('list')}
+            >
+              <div class="i-ph-list-bullets-bold text-xs" />
+            </button>
+          </div>
+
           <div class="text-[11px] text-fg-subtle">
             {filteredLeaders().length}
             /
@@ -572,29 +604,55 @@ export function LeaderGridOverlay() {
       </div>
 
       <div class={cn('p-1.5 flex-1 overflow-y-auto', showDockedPanels() ? 'min-h-[calc(3*4.5rem)]' : 'min-h-0')}>
-        <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
-          <Show when={!isRedDeathDraft()}>
-            <RandomLeaderCard
-              disabled={!canUseRandom()}
-              active={isRandomSelected()}
-              accent={accent()}
-              onClick={handleToggleRandom}
-            />
-          </Show>
-          <For each={filteredLeaders()}>
-            {leader => (
-              <LeaderCard
-                leader={leader}
-                singleClickShowsDetail={singleClickShowsDetail()}
-                onHoverMove={handleLeaderHoverMove}
-                onHoverLeave={handleLeaderHoverLeave}
+        <Show
+          when={gridViewMode() === 'list'}
+          fallback={(
+            <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
+              <Show when={!isRedDeathDraft()}>
+                <RandomLeaderCard
+                  disabled={!canUseRandom()}
+                  active={isRandomSelected()}
+                  accent={accent()}
+                  onClick={handleToggleRandom}
+                />
+              </Show>
+              <For each={filteredLeaders()}>
+                {leader => (
+                  <LeaderCard
+                    leader={leader}
+                    singleClickShowsDetail={singleClickShowsDetail()}
+                    onHoverMove={handleLeaderHoverMove}
+                    onHoverLeave={handleLeaderHoverLeave}
+                  />
+                )}
+              </For>
+              <For each={Array.from({ length: ghostCount() })}>
+                {() => <div class="aspect-square" />}
+              </For>
+            </div>
+          )}
+        >
+          <div class="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))]">
+            <Show when={!isRedDeathDraft()}>
+              <RandomLeaderListItem
+                disabled={!canUseRandom()}
+                active={isRandomSelected()}
+                accent={accent()}
+                onClick={handleToggleRandom}
               />
-            )}
-          </For>
-          <For each={Array.from({ length: ghostCount() })}>
-            {() => <div class="aspect-square" />}
-          </For>
-        </div>
+            </Show>
+            <For each={filteredLeaders()}>
+              {leader => (
+                <LeaderListItem
+                  leader={leader}
+                  singleClickShowsDetail={singleClickShowsDetail()}
+                  onHoverMove={handleLeaderHoverMove}
+                  onHoverLeave={handleLeaderHoverLeave}
+                />
+              )}
+            </For>
+          </div>
+        </Show>
       </div>
 
       <Show when={state()?.status === 'active' && isMyTurn() && !hasSubmitted()}>
@@ -754,6 +812,48 @@ export function LeaderGridOverlay() {
   )
 }
 
+function RandomLeaderListItem(props: { disabled: boolean, active: boolean, accent: 'gold' | 'red', onClick: () => void }) {
+  const accentColor = () => props.accent === 'red' ? 'danger' : 'accent'
+
+  return (
+    <button
+      class={cn(
+        'relative flex items-center gap-2 rounded-md px-1.5 py-1 group min-w-0 transition-all duration-150',
+        'outline outline-2 outline-transparent',
+        props.disabled ? 'cursor-default' : 'cursor-pointer',
+
+        !props.active && !props.disabled && 'hover:bg-white/6',
+
+        !props.disabled && props.active && accentColor() === 'accent' && 'outline-accent/50 bg-accent/8 hover:bg-accent/14 hover:outline-accent/65',
+        !props.disabled && props.active && accentColor() === 'danger' && 'outline-danger/50 bg-danger/8 hover:bg-danger/14 hover:outline-danger/65',
+      )}
+      disabled={props.disabled}
+      onClick={() => props.onClick()}
+    >
+      <div
+        class={cn(
+          'h-7 w-7 shrink-0 rounded-full flex items-center justify-center',
+          props.disabled && 'bg-bg/35 text-fg-subtle/45',
+          !props.disabled && !props.active && 'bg-bg/60 text-fg-muted',
+          !props.disabled && props.active && accentColor() === 'accent' && 'bg-accent/15 text-accent',
+          !props.disabled && props.active && accentColor() === 'danger' && 'bg-danger/15 text-danger',
+        )}
+      >
+        <span class="i-ph-dice-five-bold text-xs" />
+      </div>
+      <span class={cn(
+        'text-xs font-semibold tracking-wide transition-colors',
+        props.disabled && 'text-fg-subtle/45',
+        !props.disabled && !props.active && 'text-fg-muted group-hover:text-fg',
+        !props.disabled && props.active && accentColor() === 'accent' && 'text-accent group-hover:text-accent group-hover:drop-shadow-[0_0_4px_var(--accent)]',
+        !props.disabled && props.active && accentColor() === 'danger' && 'text-danger group-hover:text-danger group-hover:drop-shadow-[0_0_4px_var(--danger)]',
+      )}>
+        Random
+      </span>
+    </button>
+  )
+}
+
 function RandomLeaderCard(props: { disabled: boolean, active: boolean, accent: 'gold' | 'red', onClick: () => void }) {
   const accentRing = () => props.accent === 'red' ? 'danger' : 'accent'
 
@@ -790,7 +890,7 @@ function RandomLeaderCard(props: { disabled: boolean, active: boolean, accent: '
         )}
       >
         <span class="i-ph-dice-five-bold text-base" />
-        <span class="text-[10px] tracking-wide font-semibold uppercase">Random</span>
+        <span class="text-[10px] tracking-wide font-semibold">Random</span>
       </div>
     </button>
   )
