@@ -21,9 +21,11 @@ interface UiMemoryState {
   resultSelectionsLocked: boolean
 }
 
+type GridViewMode = 'grid' | 'multi-list' | 'list'
+
 interface UiPersistedState {
   gridExpanded: boolean
-  gridViewMode: 'grid' | 'list'
+  gridViewMode: GridViewMode
   favoriteLeaderIds: string[]
 }
 
@@ -99,7 +101,7 @@ export function setGridExpanded(next: boolean | ((prev: boolean) => boolean)) {
   setPersistedUiState('gridExpanded', next)
 }
 
-export function setGridViewMode(next: 'grid' | 'list' | ((prev: 'grid' | 'list') => 'grid' | 'list')) {
+export function setGridViewMode(next: GridViewMode | ((prev: GridViewMode) => GridViewMode)) {
   setPersistedUiState('gridViewMode', next)
 }
 
@@ -308,7 +310,7 @@ function normalizePersistedUiState(value: unknown): UiPersistedState {
 
   const record = value as Record<string, unknown>
   const gridExpanded = record.gridExpanded === true
-  const gridViewMode = record.gridViewMode === 'list' ? 'list' : 'grid'
+  const gridViewMode: GridViewMode = record.gridViewMode === 'list' ? 'list' : record.gridViewMode === 'multi-list' ? 'multi-list' : 'grid'
   const favoriteLeaderIds = Array.isArray(record.favoriteLeaderIds)
     ? normalizeIdList(record.favoriteLeaderIds)
     : []
