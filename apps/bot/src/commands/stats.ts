@@ -35,12 +35,14 @@ export const command_stats = factory.command<Var>(
     return c.resDefer(async (c) => {
       const db = createDb(c.env.DB)
       const kv = createStateStore(c.env)
-      try {
-        await syncPlayerProfileFromDiscord(db, c.env.DISCORD_TOKEN, targetId)
-      }
-      catch (error) {
-        console.error(`Failed to sync player profile for ${targetId}:`, error)
-      }
+      c.executionCtx.waitUntil((async () => {
+        try {
+          await syncPlayerProfileFromDiscord(db, c.env.DISCORD_TOKEN, targetId)
+        }
+        catch (error) {
+          console.error(`Failed to sync player profile for ${targetId}:`, error)
+        }
+      })())
 
       const rankProfile = guildId
         ? await getPlayerRankProfile(db, kv, guildId, targetId)

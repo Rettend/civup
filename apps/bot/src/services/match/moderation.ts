@@ -4,11 +4,11 @@ import type { LeaderboardMode } from '@civup/game'
 import { matchBans, matches, matchParticipants } from '@civup/db'
 import { and, eq } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
-import { ensureLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
+import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearLobbyByMatch } from '../lobby/index.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
 import { parseModerationPlacements } from './placements.ts'
-import { buildRankByPlayer, recalculateLeaderboardMode } from './ratings.ts'
+import { recalculateLeaderboardMode } from './ratings.ts'
 
 type BatchItem = Parameters<Database['batch']>[0][number]
 type MatchBanRow = {
@@ -52,8 +52,6 @@ export async function resolveMatchByModerator(
   if ('error' in parsedPlacements) return parsedPlacements
 
   const leaderboardMode = gameContext.leaderboardMode
-  const leaderboardSnapshotBefore = await ensureLeaderboardModeSnapshot(db, kv, leaderboardMode)
-  const beforeRankByPlayer = buildRankByPlayer(leaderboardSnapshotBefore.rows)
   const previousStatus = match.status
   const originalBans = await db
     .select()
@@ -142,18 +140,9 @@ export async function resolveMatchByModerator(
     await clearLobbyByMatch(kv, input.matchId)
   }
 
-  const leaderboardSnapshotAfter = await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode)
-  const afterRankByPlayer = buildRankByPlayer(leaderboardSnapshotAfter.rows)
-  const leaderboardEligibleCount = afterRankByPlayer.size
-
   return {
     match: updatedMatch,
-    participants: updatedParticipants.map(participant => ({
-      ...participant,
-      leaderboardBeforeRank: beforeRankByPlayer.get(participant.playerId) ?? null,
-      leaderboardAfterRank: afterRankByPlayer.get(participant.playerId) ?? null,
-      leaderboardEligibleCount,
-    })),
+    participants: updatedParticipants,
     previousStatus,
     recalculatedMatchIds,
   }

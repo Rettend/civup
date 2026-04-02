@@ -7,6 +7,12 @@ import { calculateRatings, createRating, displayRating, LEADERBOARD_MIN_GAMES, s
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import { getStoredGameModeContext } from './draft-data.ts'
 
+type BatchItem = Parameters<Database['batch']>[0][number]
+
+interface BatchRunner {
+  batch?: (queries: [BatchItem, ...BatchItem[]]) => Promise<unknown>
+}
+
 interface LeaderboardSnapshotRow {
   playerId: string
   mu: number
@@ -54,6 +60,20 @@ export async function recalculateLeaderboardMode(
       .from(seasons)
       .orderBy(asc(seasons.startsAt), asc(seasons.id)),
   ])
+  const completedMatchIds = completedMatches.map(match => match.id)
+  const allParticipantRows = completedMatchIds.length > 0
+    ? await db
+        .select()
+        .from(matchParticipants)
+        .where(inArray(matchParticipants.matchId, completedMatchIds))
+    : []
+  const participantsByMatchId = new Map<string, typeof allParticipantRows>()
+
+  for (const participant of allParticipantRows) {
+    const current = participantsByMatchId.get(participant.matchId) ?? []
+    current.push(participant)
+    participantsByMatchId.set(participant.matchId, current)
+  }
 
   const ratingStateByPlayer = new Map<string, {
     mu: number
@@ -88,10 +108,7 @@ export async function recalculateLeaderboardMode(
     if (!gameContext) return { error: `Completed match **${match.id}** has unsupported game mode: ${match.gameMode}.` }
     if (gameContext.leaderboardMode !== leaderboardMode) continue
 
-    const participantRows = await db
-      .select()
-      .from(matchParticipants)
-      .where(eq(matchParticipants.matchId, match.id))
+    const participantRows = participantsByMatchId.get(match.id) ?? []
 
     if (participantRows.length === 0) return { error: `Completed match **${match.id}** has no participants.` }
     if (participantRows.some(participant => participant.placement == null)) {
@@ -149,25 +166,28 @@ export async function recalculateLeaderboardMode(
     }
 
     const updateByPlayer = new Map(ratingUpdates.map(update => [update.playerId, update]))
+    const participantUpdateQueries: BatchItem[] = []
 
     for (const participant of participantRows) {
       const update = updateByPlayer.get(participant.playerId)
       if (!update) return { error: `Failed to recalculate ratings for match **${match.id}**.` }
 
-      await db
-        .update(matchParticipants)
-        .set({
-          ratingBeforeMu: update.before.mu,
-          ratingBeforeSigma: update.before.sigma,
-          ratingAfterMu: update.after.mu,
-          ratingAfterSigma: update.after.sigma,
-        })
-        .where(
-          and(
-            eq(matchParticipants.matchId, match.id),
-            eq(matchParticipants.playerId, participant.playerId),
+      participantUpdateQueries.push(
+        db
+          .update(matchParticipants)
+          .set({
+            ratingBeforeMu: update.before.mu,
+            ratingBeforeSigma: update.before.sigma,
+            ratingAfterMu: update.after.mu,
+            ratingAfterSigma: update.after.sigma,
+          })
+          .where(
+            and(
+              eq(matchParticipants.matchId, match.id),
+              eq(matchParticipants.playerId, participant.playerId),
+            ),
           ),
-        )
+      )
 
       const currentState = ratingStateByPlayer.get(participant.playerId)
       const nextGamesPlayed = (currentState?.gamesPlayed ?? 0) + 1
@@ -181,23 +201,44 @@ export async function recalculateLeaderboardMode(
         lastPlayedAt: match.completedAt ?? match.createdAt,
       })
     }
+
+    await runBatch(db, participantUpdateQueries)
   }
 
   applySeasonResetsUntil(Number.POSITIVE_INFINITY)
 
-  await db.delete(playerRatings).where(eq(playerRatings.mode, leaderboardMode))
-
+  const ratingQueries: BatchItem[] = [
+    db.delete(playerRatings).where(eq(playerRatings.mode, leaderboardMode)),
+  ]
   for (const [playerId, state] of ratingStateByPlayer.entries()) {
-    await db.insert(playerRatings).values({
-      playerId,
-      mode: leaderboardMode,
-      mu: state.mu,
-      sigma: state.sigma,
-      gamesPlayed: state.gamesPlayed,
-      wins: state.wins,
-      lastPlayedAt: state.lastPlayedAt,
-    })
+    ratingQueries.push(
+      db.insert(playerRatings).values({
+        playerId,
+        mode: leaderboardMode,
+        mu: state.mu,
+        sigma: state.sigma,
+        gamesPlayed: state.gamesPlayed,
+        wins: state.wins,
+        lastPlayedAt: state.lastPlayedAt,
+      }),
+    )
   }
 
+  await runBatch(db, ratingQueries)
+
   return { matchIds: completedMatches.map(match => match.id) }
+}
+
+async function runBatch(db: Database, queries: BatchItem[]): Promise<void> {
+  if (queries.length === 0) return
+
+  const batchDb = db as unknown as BatchRunner
+  if (typeof batchDb.batch === 'function') {
+    await batchDb.batch(queries as [BatchItem, ...BatchItem[]])
+    return
+  }
+
+  for (const query of queries) {
+    await query
+  }
 }
