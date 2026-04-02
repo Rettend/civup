@@ -3,21 +3,21 @@ import { getDefaultLeaderPoolSize, getMinimumLeaderPoolSize, MAX_LEADER_POOL_SIZ
 
 describe('leader pool helpers', () => {
   test('uses fixed versus defaults', () => {
-    expect(getDefaultLeaderPoolSize('1v1', 2)).toBe(24)
-    expect(getDefaultLeaderPoolSize('2v2', 4)).toBe(32)
-    expect(getDefaultLeaderPoolSize('3v3', 6)).toBe(40)
-    expect(getDefaultLeaderPoolSize('4v4', 8)).toBe(48)
+    expect(getDefaultLeaderPoolSize('1v1', 2)).toBe(32)
+    expect(getDefaultLeaderPoolSize('2v2', 4)).toBe(40)
+    expect(getDefaultLeaderPoolSize('3v3', 6)).toBe(48)
+    expect(getDefaultLeaderPoolSize('4v4', 8)).toBe(56)
   })
 
   test('scales FFA defaults with player count', () => {
-    expect(getDefaultLeaderPoolSize('ffa', 6)).toBe(30)
-    expect(getDefaultLeaderPoolSize('ffa', 8)).toBe(40)
-    expect(getDefaultLeaderPoolSize('ffa', 10)).toBe(50)
+    expect(getDefaultLeaderPoolSize('ffa', 6)).toBe(36)
+    expect(getDefaultLeaderPoolSize('ffa', 8)).toBe(48)
+    expect(getDefaultLeaderPoolSize('ffa', 10)).toBe(60)
   })
 
   test('uses a minimum FFA floor before six players', () => {
-    expect(getDefaultLeaderPoolSize('ffa', 1)).toBe(30)
-    expect(getDefaultLeaderPoolSize('ffa', 5)).toBe(30)
+    expect(getDefaultLeaderPoolSize('ffa', 1)).toBe(36)
+    expect(getDefaultLeaderPoolSize('ffa', 5)).toBe(36)
   })
 
   test('computes playable minimum sizes', () => {
@@ -29,7 +29,7 @@ describe('leader pool helpers', () => {
   })
 
   test('resolves explicit overrides over defaults', () => {
-    expect(resolveLeaderPoolSize('2v2', 4, null)).toBe(32)
+    expect(resolveLeaderPoolSize('2v2', 4, null)).toBe(40)
     expect(resolveLeaderPoolSize('2v2', 4, 28)).toBe(28)
   })
 

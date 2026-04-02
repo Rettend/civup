@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import { createDb } from '@civup/db'
 import { LEADERBOARD_MODE_CHOICES, LEADERBOARD_MODES, parseLeaderboardMode } from '@civup/game'
-import { buildLeaderboard } from '@civup/rating'
+import { LEADERBOARD_MIN_GAMES } from '@civup/rating'
 import { Command, Option } from 'discord-hono'
 import { leaderboardEmbed } from '../embeds/leaderboard.ts'
 import { ensureLeaderboardModeSnapshot, ensureLeaderboardModeSnapshots } from '../services/leaderboard/snapshot.ts'
@@ -43,7 +43,7 @@ export async function buildLeaderboardCommandPayload(
   const snapshots = await ensureLeaderboardModeSnapshots(db, kv, LEADERBOARD_MODES)
   const embeds = LEADERBOARD_MODES.flatMap((mode) => {
     const snapshot = snapshots.get(mode)
-    if (!snapshot || buildLeaderboard([...snapshot.rows]).length === 0) return []
+    if (!snapshot || !snapshot.rows.some(row => row.gamesPlayed >= LEADERBOARD_MIN_GAMES)) return []
     return [leaderboardEmbed(mode, snapshot.rows)]
   })
 

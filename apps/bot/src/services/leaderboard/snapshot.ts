@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import { playerRatings } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { recalculateLeaderboardMode } from '../match/ratings.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
 
@@ -73,15 +73,20 @@ export async function ensureLeaderboardModeSnapshots(
 
   if (missingModes.length === 0) return snapshots
 
-  const rebuilt = await Promise.all(missingModes.map(async (mode) => {
-    let rows = await listLeaderboardModeRowsFromD1(db, mode)
-    if (rows.length === 0 && (mode === 'duo' || mode === 'squad')) {
-      const recalculated = await recalculateLeaderboardMode(db, mode)
-      if ('error' in recalculated) throw new Error(recalculated.error)
-      rows = await listLeaderboardModeRowsFromD1(db, mode)
-    }
-    return buildLeaderboardModeSnapshot(mode, rows, Date.now())
-  }))
+  let rowsByMode = await listLeaderboardModeRowsFromD1ByModes(db, missingModes)
+  const recalcModes = missingModes.filter(mode => rowsByMode.get(mode)?.length === 0 && (mode === 'duo' || mode === 'squad'))
+
+  for (const mode of recalcModes) {
+    const recalculated = await recalculateLeaderboardMode(db, mode)
+    if ('error' in recalculated) throw new Error(recalculated.error)
+  }
+
+  if (recalcModes.length > 0) {
+    const recalculatedRowsByMode = await listLeaderboardModeRowsFromD1ByModes(db, recalcModes)
+    rowsByMode = new Map([...rowsByMode, ...recalculatedRowsByMode])
+  }
+
+  const rebuilt = missingModes.map(mode => buildLeaderboardModeSnapshot(mode, rowsByMode.get(mode) ?? [], Date.now()))
 
   await setLeaderboardModeSnapshots(kv, rebuilt)
   for (const snapshot of rebuilt) {
@@ -157,8 +162,19 @@ async function listLeaderboardModeRowsFromD1(
   db: Database,
   mode: LeaderboardMode,
 ): Promise<LeaderboardSnapshotRow[]> {
+  return (await listLeaderboardModeRowsFromD1ByModes(db, [mode])).get(mode) ?? []
+}
+
+async function listLeaderboardModeRowsFromD1ByModes(
+  db: Database,
+  modes: readonly LeaderboardMode[],
+): Promise<Map<LeaderboardMode, LeaderboardSnapshotRow[]>> {
+  const requestedModes = [...new Set(modes.filter(isLeaderboardMode))]
+  if (requestedModes.length === 0) return new Map()
+
   const rows = await db
     .select({
+      mode: playerRatings.mode,
       playerId: playerRatings.playerId,
       mu: playerRatings.mu,
       sigma: playerRatings.sigma,
@@ -167,17 +183,25 @@ async function listLeaderboardModeRowsFromD1(
       lastPlayedAt: playerRatings.lastPlayedAt,
     })
     .from(playerRatings)
-    .where(eq(playerRatings.mode, mode))
+    .where(inArray(playerRatings.mode, requestedModes))
 
-  return rows.map(row => ({
-    playerId: row.playerId,
-    mode,
-    mu: row.mu,
-    sigma: row.sigma,
-    gamesPlayed: row.gamesPlayed,
-    wins: row.wins,
-    lastPlayedAt: row.lastPlayedAt ?? null,
-  }))
+  const rowsByMode = new Map<LeaderboardMode, LeaderboardSnapshotRow[]>(requestedModes.map(mode => [mode, []]))
+  for (const row of rows) {
+    if (!isLeaderboardMode(row.mode)) continue
+    const modeRows = rowsByMode.get(row.mode) ?? []
+    modeRows.push({
+      playerId: row.playerId,
+      mode: row.mode,
+      mu: row.mu,
+      sigma: row.sigma,
+      gamesPlayed: row.gamesPlayed,
+      wins: row.wins,
+      lastPlayedAt: row.lastPlayedAt ?? null,
+    })
+    rowsByMode.set(row.mode, modeRows)
+  }
+
+  return rowsByMode
 }
 
 function normalizeLeaderboardModeSnapshot(

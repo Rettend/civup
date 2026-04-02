@@ -6,14 +6,16 @@ import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
 import { clearLobbyMappings } from '../services/activity/index.ts'
 import { createChannelMessage } from '../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
+import { rebuildLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { clearLobbyById, filterQueueEntriesForLobby, getLobbyById, getLobbyByMatch } from '../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { cancelMatchByModerator, getStoredGameModeContext, resolveMatchByModerator } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { canUseModCommands, parseRoleIds } from '../services/permissions/index.ts'
 import { clearQueue, getQueueState } from '../services/queue/index.ts'
-import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, syncRankedRoles } from '../services/ranked/role-sync.ts'
-import { sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
+import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../services/ranked/role-sync.ts'
+import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
+import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 import { factory } from '../setup'
@@ -207,100 +209,132 @@ export const command_mod = factory.command<ModVar>(
         const placements = orderedFfaIds.map(playerId => `<@${playerId}>`).join('\n')
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const db = createDb(c.env.DB)
-          const actorId = c.interaction.member?.user?.id ?? c.interaction.user?.id
-          if (!actorId) {
-            await sendTransientEphemeralResponse(c, 'Could not identify moderator user.', 'error')
-            return
-          }
-
-          const existingLobby = await getLobbyByMatch(kv, matchId)
-          const result = await resolveMatchByModerator(db, kv, {
-            matchId,
-            placements,
-            resolvedAt: Date.now(),
-          })
-
-          if ('error' in result) {
-            await sendTransientEphemeralResponse(c, result.error, 'error')
-            return
-          }
-
-          const matchContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
-          if (!matchContext) {
-            await sendTransientEphemeralResponse(c, `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.`, 'error')
-            return
-          }
-
-          const mode = matchContext.mode
-          const moderation = { actorId, reason }
-          const guildId = existingLobby?.guildId ?? c.interaction.guild_id ?? null
-          let rankedRoleLines: string[] = []
-          if (guildId) {
-            try {
-              const rankedPreview = await syncRankedRoles({ db, kv, guildId })
-              rankedRoleLines = await listRankedRoleMatchUpdateLines({
-                kv,
-                guildId,
-                preview: rankedPreview,
-                playerIds: result.participants.map(participant => participant.playerId),
-              })
-            }
-            catch (error) {
-              console.error(`Failed to preview ranked role changes after resolving match ${result.match.id}:`, error)
-            }
-          }
-
-          if (existingLobby) {
-            try {
-              const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
-                embeds: [lobbyResultEmbed(mode, result.participants, moderation, {
-                  rankedRoleLines,
-                }, existingLobby.draftConfig.redDeath)],
-                components: [],
-              })
-              await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
-            }
-            catch (error) {
-              console.error(`Failed to update resolved result embed for match ${result.match.id}:`, error)
-            }
-          }
-
-          const archiveChannelId = await getSystemChannel(kv, 'archive')
-          if (archiveChannelId) {
-            try {
-              const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-                embeds: [lobbyResultEmbed(mode, result.participants, moderation, {
-                  rankedRoleLines,
-                }, matchContext.redDeath)],
-              })
-              await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
-            }
-            catch (error) {
-              console.error(`Failed to post archive resolve note for match ${result.match.id}:`, error)
-            }
-          }
-
           try {
-            await markLeaderboardsDirty(db, `mod-resolve:${result.match.id}`)
+            const db = createDb(c.env.DB)
+            const actorId = c.interaction.member?.user?.id ?? c.interaction.user?.id
+            if (!actorId) {
+              await sendTransientEphemeralResponse(c, 'Could not identify moderator user.', 'error')
+              return
+            }
+
+            const result = await resolveMatchByModerator(db, kv, {
+              matchId,
+              placements,
+              resolvedAt: Date.now(),
+            })
+
+            if ('error' in result) {
+              await sendTransientEphemeralResponse(c, result.error, 'error')
+              return
+            }
+
+            const matchContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
+            if (!matchContext) {
+              await sendTransientEphemeralResponse(c, `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.`, 'error')
+              return
+            }
+
+            const existingLobby = result.previousStatus === 'completed' ? null : await getLobbyByMatch(kv, result.match.id)
+            const mode = matchContext.mode
+            const moderation = { actorId, reason }
+            const guildId = existingLobby?.guildId ?? c.interaction.guild_id ?? null
+            const participantIds = result.participants.map(participant => participant.playerId)
+
+            try {
+              await markLeaderboardsDirty(db, `mod-resolve:${result.match.id}`)
+            }
+            catch (error) {
+              console.error(`Failed to mark leaderboards dirty after resolving match ${result.match.id}:`, error)
+            }
+
+            try {
+              await markRankedRolesDirty(kv, `mod-resolve:${result.match.id}`)
+            }
+            catch (error) {
+              console.error(`Failed to mark ranked roles dirty after resolving match ${result.match.id}:`, error)
+            }
+
+            const recalculated = result.recalculatedMatchIds.length
+            await sendEphemeralResponse(
+              c,
+              `Resolved match **${result.match.id}** (was ${result.previousStatus}). Recalculated ${recalculated} completed ${formatModeLabel(mode)} matches.`,
+              'success',
+            )
+
+            c.executionCtx.waitUntil((async () => {
+              try {
+                await rebuildLeaderboardModeSnapshot(db, kv, matchContext.leaderboardMode)
+              }
+              catch (error) {
+                console.error(`Failed to rebuild leaderboard snapshot after resolving match ${result.match.id}:`, error)
+              }
+
+              let rankedRoleLines: string[] = []
+              if (guildId) {
+                try {
+                  const rankedPreview = await previewRankedRoles({
+                    db,
+                    kv,
+                    guildId,
+                    playerIds: participantIds,
+                    includePlayerIdentities: false,
+                  })
+                  rankedRoleLines = await listRankedRoleMatchUpdateLines({
+                    kv,
+                    guildId,
+                    preview: rankedPreview,
+                    playerIds: participantIds,
+                  })
+                  await syncSeasonPeaksForPlayers(db, {
+                    playerIds: participantIds,
+                    playerPreviews: rankedPreview.playerPreviews,
+                  })
+                }
+                catch (error) {
+                  console.error(`Failed to preview ranked role changes after resolving match ${result.match.id}:`, error)
+                }
+              }
+
+              if (existingLobby) {
+                try {
+                  const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
+                    embeds: [lobbyResultEmbed(mode, result.participants, moderation, {
+                      rankedRoleLines,
+                    }, existingLobby.draftConfig.redDeath)],
+                    components: [],
+                  })
+                  await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
+                }
+                catch (error) {
+                  console.error(`Failed to update resolved result embed for match ${result.match.id}:`, error)
+                }
+              }
+
+              const archiveChannelId = await getSystemChannel(kv, 'archive')
+              if (archiveChannelId) {
+                try {
+                  const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
+                    embeds: [lobbyResultEmbed(mode, result.participants, moderation, {
+                      rankedRoleLines,
+                    }, matchContext.redDeath)],
+                  })
+                  await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
+                }
+                catch (error) {
+                  console.error(`Failed to post archive resolve note for match ${result.match.id}:`, error)
+                }
+              }
+            })())
           }
           catch (error) {
-            console.error(`Failed to mark leaderboards dirty after resolving match ${result.match.id}:`, error)
+            console.error(`Failed to resolve match ${matchId} by moderator:`, error)
+            try {
+              await sendTransientEphemeralResponse(c, 'Failed to resolve match. Check bot logs for details.', 'error')
+            }
+            catch (responseError) {
+              console.error(`Failed to send resolve error response for match ${matchId}:`, responseError)
+            }
           }
-
-          try {
-            await markRankedRolesDirty(kv, `mod-resolve:${result.match.id}`)
-          }
-          catch (error) {
-            console.error(`Failed to mark ranked roles dirty after resolving match ${result.match.id}:`, error)
-          }
-
-          const recalculated = result.recalculatedMatchIds.length
-          await sendTransientEphemeralResponse(
-            c,
-            `Resolved match **${result.match.id}** (was ${result.previousStatus}). Recalculated ${recalculated} completed ${formatModeLabel(mode)} matches.`,
-            'success',
-          )
         })
       }
 
