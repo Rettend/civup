@@ -7,6 +7,7 @@ export function shouldForceReconnectForStaleDraft(params: {
   state: DraftState | null
   timerEndsAt: number | null
   lastSocketActivityAt: number
+  lastForcedReconnectTimerEndsAt?: number | null
   nowMs?: number
   graceMs?: number
 }): boolean {
@@ -21,6 +22,7 @@ export function shouldForceReconnectForStaleDraft(params: {
   const nowMs = params.nowMs ?? Date.now()
   const graceMs = params.graceMs ?? STALE_DRAFT_RECONNECT_GRACE_MS
   if (nowMs <= params.timerEndsAt + graceMs) return false
+  if (params.lastForcedReconnectTimerEndsAt === params.timerEndsAt) return false
 
   return params.lastSocketActivityAt <= params.timerEndsAt
 }

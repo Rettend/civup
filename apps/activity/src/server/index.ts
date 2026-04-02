@@ -13,6 +13,7 @@ import {
 } from '@civup/utils'
 
 interface Env {
+  ALLOWED_DISCORD_GUILD_ID?: string
   CIVUP_SECRET?: string
   DISCORD_CLIENT_ID: string
   DISCORD_CLIENT_SECRET: string
@@ -45,6 +46,10 @@ interface DiscordUserResponse {
   username?: string
   global_name?: string | null
   avatar?: string | null
+}
+
+interface DiscordGuildMemberResponse {
+  user?: DiscordUserResponse | null
 }
 
 interface ActivityProxySession {
@@ -310,22 +315,10 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
       return json({ error: 'Token exchange returned no access token' }, 502)
     }
 
-    const userResponse = await fetch('https://discord.com/api/v10/users/@me', {
-      headers: {
-        Authorization: `Bearer ${payload.access_token}`,
-      },
-    })
-
-    if (!userResponse.ok) {
-      const detail = await userResponse.text()
-      console.error('Discord user lookup failed:', {
-        status: userResponse.status,
-        detail,
-      })
-      return json({ error: 'Failed to verify Discord user' }, 502)
-    }
-
-    const discordUser = await userResponse.json<DiscordUserResponse>()
+    const allowedGuildId = normalizeGuildId(env.ALLOWED_DISCORD_GUILD_ID)
+    const discordUserResult = await loadDiscordUser(payload.access_token, allowedGuildId)
+    if (discordUserResult instanceof Response) return discordUserResult
+    const discordUser = discordUserResult
     const userId = typeof discordUser.id === 'string' ? discordUser.id.trim() : ''
     if (!userId) {
       console.error('Discord user lookup returned no user ID')
@@ -383,4 +376,48 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   })
+}
+
+async function loadDiscordUser(accessToken: string, allowedGuildId: string | null): Promise<DiscordUserResponse | Response> {
+  const url = allowedGuildId
+    ? `https://discord.com/api/v10/users/@me/guilds/${allowedGuildId}/member`
+    : 'https://discord.com/api/v10/users/@me'
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+
+  if (!response.ok) {
+    const detail = await response.text()
+    console.error(allowedGuildId ? 'Discord guild member lookup failed:' : 'Discord user lookup failed:', {
+      guildId: allowedGuildId,
+      status: response.status,
+      detail,
+    })
+
+    if (allowedGuildId && (response.status === 403 || response.status === 404)) {
+      return json({ error: 'This activity is only available in the configured Discord server' }, 403)
+    }
+
+    return json({ error: 'Failed to verify Discord user' }, 502)
+  }
+
+  if (!allowedGuildId) {
+    return await response.json<DiscordUserResponse>()
+  }
+
+  const member = await response.json<DiscordGuildMemberResponse>()
+  if (!member.user) {
+    console.error('Discord guild member lookup returned no user payload', { guildId: allowedGuildId })
+    return json({ error: 'Failed to verify Discord user' }, 502)
+  }
+
+  return member.user
+}
+
+function normalizeGuildId(value: string | undefined): string | null {
+  const normalized = value?.trim() ?? ''
+  return normalized.length > 0 ? normalized : null
 }

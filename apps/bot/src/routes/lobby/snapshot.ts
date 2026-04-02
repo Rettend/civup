@@ -75,8 +75,10 @@ export async function resolveOpenLobbyFromBody(
   mode: GameMode,
   body: { lobbyId?: unknown },
 ): Promise<LobbyState | null> {
+  const queue = await getQueueState(kv, mode)
   const openLobbies = (await getLobbiesByMode(kv, mode))
     .filter(lobby => lobby.status === 'open')
+    .filter(lobby => isQueueBackedOpenLobby(lobby, filterQueueEntriesForLobby(lobby, queue.entries)))
 
   if (typeof body.lobbyId === 'string' && body.lobbyId.length > 0) {
     return openLobbies.find(lobby => lobby.id === body.lobbyId) ?? null
@@ -91,6 +93,13 @@ export function buildLobbyQueueEntries(
   queueEntries: Awaited<ReturnType<typeof getQueueState>>['entries'],
 ) {
   return filterQueueEntriesForLobby(lobby, queueEntries)
+}
+
+export function isQueueBackedOpenLobby(
+  lobby: Pick<LobbyState, 'hostId'>,
+  queueEntries: Awaited<ReturnType<typeof getQueueState>>['entries'],
+): boolean {
+  return queueEntries.some(entry => entry.playerId === lobby.hostId)
 }
 
 export function parseSlotIndex(value: unknown): number | null {

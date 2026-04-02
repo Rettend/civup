@@ -1,6 +1,7 @@
 import type { DraftState } from '@civup/game'
 import { createDraft, default2v2, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
+import { isFatalSocketClose, isUnauthorizedSocketClose } from '../src/client/stores/connection-store'
 import { shouldForceReconnectForStaleDraft } from '../src/client/lib/stale-draft'
 
 function create2v2Seats() {
@@ -46,6 +47,29 @@ describe('stale draft reconnect watchdog', () => {
     })).toBe(false)
   })
 
+  test('forces at most one reconnect per stale timer value', () => {
+    const state = createActiveState()
+    const timerEndsAt = 10_000
+
+    expect(shouldForceReconnectForStaleDraft({
+      connectionStatus: 'connected',
+      state,
+      timerEndsAt,
+      lastSocketActivityAt: timerEndsAt - 1,
+      nowMs: timerEndsAt + 5_001,
+      lastForcedReconnectTimerEndsAt: null,
+    })).toBe(true)
+
+    expect(shouldForceReconnectForStaleDraft({
+      connectionStatus: 'connected',
+      state,
+      timerEndsAt,
+      lastSocketActivityAt: timerEndsAt - 1,
+      nowMs: timerEndsAt + 50_000,
+      lastForcedReconnectTimerEndsAt: timerEndsAt,
+    })).toBe(false)
+  })
+
   test('does not reconnect outside an active timed draft step', () => {
     const active = createActiveState()
     const waiting = createDraft('connection-store-waiting-test', default2v2, create2v2Seats(), Array.from({ length: 40 }, (_, i) => `civ-${i + 1}`))
@@ -73,5 +97,20 @@ describe('stale draft reconnect watchdog', () => {
       lastSocketActivityAt: 0,
       nowMs: 20_000,
     })).toBe(false)
+  })
+})
+
+describe('socket close classification', () => {
+  test('treats custom 4xxx closes as fatal', () => {
+    expect(isFatalSocketClose(4000)).toBe(true)
+    expect(isFatalSocketClose(4401)).toBe(true)
+    expect(isFatalSocketClose(4999)).toBe(true)
+    expect(isFatalSocketClose(1006)).toBe(false)
+  })
+
+  test('detects auth-related close codes', () => {
+    expect(isUnauthorizedSocketClose(4401)).toBe(true)
+    expect(isUnauthorizedSocketClose(4403)).toBe(true)
+    expect(isUnauthorizedSocketClose(4000)).toBe(false)
   })
 })

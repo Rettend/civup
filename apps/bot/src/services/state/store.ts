@@ -102,6 +102,7 @@ const HOT_KEY_PREFIXES = [
   'activity-user:',
   'activity-lobby-user:',
   'activity-target-user:',
+  'activity-target-match:',
   'activity-target-lobby:',
 ]
 
