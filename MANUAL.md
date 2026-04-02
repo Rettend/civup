@@ -225,11 +225,11 @@ Each draft uses a random subset of leaders.
 
 Default leader pool sizes (and min allowed override):
 
-- `1v1`: 24 (min 8)
-- `2v2`: 32 (min 10)
-- `3v3`: 40 (min 12)
-- `4v4`: 48 (min 14)
-- `FFA`: `5 x player count`: 30-50 for 6-10 players (min `3 x player count` 18-30 for 6-10 players)
+- `1v1`: 32 (min 8)
+- `2v2`: 40 (min 10)
+- `3v3`: 48 (min 12)
+- `4v4`: 56 (min 14)
+- `FFA`: `6 x player count`: 36-60 for 6-10 players (min `3 x player count` 18-30 for 6-10 players)
 
 Max allowed override is all leaders (85).
 
