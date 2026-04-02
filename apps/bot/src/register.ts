@@ -6,7 +6,7 @@ import { factory } from './setup.ts'
 
 const DISCORD_APPLICATION_ID = process.env.DISCORD_APPLICATION_ID
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN
-const DISCORD_TEST_GUILD_ID = process.env.DISCORD_TEST_GUILD_ID
+const ALLOWED_DISCORD_GUILD_ID = process.env.ALLOWED_DISCORD_GUILD_ID
 
 if (!DISCORD_APPLICATION_ID || !DISCORD_TOKEN) {
   console.error('Missing DISCORD_APPLICATION_ID or DISCORD_TOKEN in environment')
@@ -24,7 +24,7 @@ await register(
   commandsForRegistration,
   DISCORD_APPLICATION_ID,
   DISCORD_TOKEN,
-  DISCORD_TEST_GUILD_ID, // omit for global registration
+  ALLOWED_DISCORD_GUILD_ID, // omit for global registration
 )
 
 console.log('Done!')

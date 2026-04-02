@@ -347,9 +347,6 @@ function CancelledDraftScreen(props: {
           <div class="text-[11px] text-fg-subtle tracking-[0.14em] font-semibold mb-2 uppercase">Session Closed</div>
           <h1 class="text-3xl text-fg font-semibold mb-3">{title()}</h1>
           <p class="text-sm text-fg-muted leading-relaxed">{detail()}</p>
-          <Show when={reason() === 'scrub' && props.onSwitchTarget}>
-            <p class="text-sm text-fg-muted mt-4">Returning to Lobby Overview in 5 seconds.</p>
-          </Show>
         </section>
       </div>
     </main>

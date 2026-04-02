@@ -2,12 +2,12 @@ import type { GameMode } from './types.ts'
 import { allLeaderIds } from './leaders.ts'
 import { defaultPlayerCount } from './mode.ts'
 
-const VERSUS_DEFAULT_LEADER_POOL_BASE = 16
+const VERSUS_DEFAULT_LEADER_POOL_BASE = 24
 const VERSUS_DEFAULT_LEADER_POOL_PER_PLAYER = 4
 const VERSUS_MINIMUM_LEADER_POOL_BASE = 6
 
 const FFA_DEFAULT_PLAYER_FLOOR = 6
-const FFA_DEFAULT_POOL_MULTIPLIER = 5
+const FFA_DEFAULT_POOL_MULTIPLIER = 6
 const FFA_MINIMUM_POOL_MULTIPLIER = 3
 
 export const MAX_LEADER_POOL_SIZE = allLeaderIds.length

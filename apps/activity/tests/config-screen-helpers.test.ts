@@ -3,11 +3,11 @@ import { formatLeaderPoolValue, leaderPoolSizePlaceholder } from '../src/client/
 
 describe('leader pool helper defaults', () => {
   test('uses full FFA target size for open-lobby placeholder defaults', () => {
-    expect(leaderPoolSizePlaceholder('ffa', 6, 8)).toBe('40')
+    expect(leaderPoolSizePlaceholder('ffa', 6, 8)).toBe('48')
   })
 
   test('uses full FFA target size for open-lobby formatted defaults', () => {
-    expect(formatLeaderPoolValue(null, 'ffa', 6, 8)).toBe('40')
+    expect(formatLeaderPoolValue(null, 'ffa', 6, 8)).toBe('48')
   })
 
   test('preserves explicit leader pool overrides', () => {

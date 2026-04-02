@@ -12,7 +12,7 @@ import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayer, getLobbiesByCha
 import { getPlayerQueueMode, getPlayerQueueModeFromStates, getQueueStates } from '../services/queue/index.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
-import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, getUniqueOpenLobbyForChannel } from './lobby/snapshot.ts'
+import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, getUniqueOpenLobbyForChannel, isQueueBackedOpenLobby } from './lobby/snapshot.ts'
 
 export interface LobbyJoinEligibility {
   canJoin: boolean
@@ -478,6 +478,7 @@ async function loadActivityLaunchContext(
       if (!queue) continue
 
       const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
+      if (!isQueueBackedOpenLobby(lobby, lobbyQueueEntries)) continue
       const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
       targets.push({
         lobby,

@@ -3,7 +3,7 @@ import type { LobbyState } from './types.ts'
 import { GAME_MODES } from '@civup/game'
 import { syncActivityOverviewSnapshot } from '../activity/live-state.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
-import { bumpCooldownKey, channelIndexKey, channelPrefix, hostKey, idKey, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
+import { bumpCooldownKey, channelIndexKey, channelPrefix, hostKey, idKey, LOBBY_HOST_KEY_PREFIX, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
 import { lobbySnapshotKey } from './live-snapshot.ts'
 import { normalizeLobby, parseLobbyState } from './normalize.ts'
 
@@ -121,7 +121,10 @@ export async function getLobbyByMatch(kv: KVNamespace, matchId: string): Promise
   const lobbyId = await kv.get(matchKey(matchId))
   if (!lobbyId) return null
   const lobby = await getLobbyById(kv, lobbyId)
-  if (!lobby || lobby.matchId !== matchId) return null
+  if (!lobby || lobby.matchId !== matchId) {
+    await stateStoreMdelete(kv, [matchKey(matchId)])
+    return null
+  }
   return lobby
 }
 
@@ -137,8 +140,11 @@ export async function clearLobbyById(
 ): Promise<void> {
   const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
   const keys = [idKey(lobbyId), lobbySnapshotKey(lobbyId), bumpCooldownKey(lobbyId)]
+  const hostKeys = lobby
+    ? [hostKey(lobby.hostId)]
+    : await findHostKeysForLobby(kv, lobbyId)
+  keys.push(...hostKeys)
   if (lobby) {
-    keys.push(hostKey(lobby.hostId))
     keys.push(modeIndexKey(lobby.mode, lobby.id))
     keys.push(channelIndexKey(lobby.channelId, lobby.id))
     if (lobby.matchId) keys.push(matchKey(lobby.matchId))
@@ -215,4 +221,12 @@ export async function putLobbyEntries(
 async function getAllLobbies(kv: KVNamespace): Promise<LobbyState[]> {
   const all = await Promise.all(GAME_MODES.map(mode => getLobbiesByMode(kv, mode)))
   return all.flat().sort((left, right) => left.createdAt - right.createdAt)
+}
+
+async function findHostKeysForLobby(kv: KVNamespace, lobbyId: string): Promise<string[]> {
+  const listed = await kv.list({ prefix: LOBBY_HOST_KEY_PREFIX })
+  const hostKeys = listed.keys.map(entry => entry.name)
+  const hostLobbyIds = await stateStoreMget(kv, hostKeys.map(key => ({ key })))
+
+  return hostKeys.filter((key, index) => hostLobbyIds[index] === lobbyId)
 }
