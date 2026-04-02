@@ -4,12 +4,14 @@ import { formatModeLabel } from '@civup/game'
 import { Button } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { getMatchForUser, storeMatchActivityState, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
-import { clearLobbyById, getLobbyById } from '../../services/lobby/index.ts'
+import { clearLobbyById, filterQueueEntriesForLobby, getLobbyById } from '../../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
+import { getQueueState } from '../../services/queue/index.ts'
 import { sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { createStateStore } from '../../services/state/store.ts'
 import { factory } from '../../setup.ts'
 import { findLiveMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
+import { isQueueBackedOpenLobby } from '../../routes/lobby/snapshot.ts'
 
 export const component_match_join = factory.component(
   new Button('match-join', 'Join', 'Primary'),
@@ -75,6 +77,14 @@ export const component_match_join = factory.component(
         activitySecret: c.env.CIVUP_SECRET,
       })
       return c.resActivity()
+    }
+
+    const queue = await getQueueState(kv, mode)
+    if (!isQueueBackedOpenLobby(lobby, filterQueueEntriesForLobby(lobby, queue.entries))) {
+      await clearLobbyById(kv, lobby.id, lobby)
+      return c.flags('EPHEMERAL').resDefer(async (c) => {
+        await sendTransientEphemeralResponse(c, 'This lobby is no longer available. Use `/match create` to start a fresh lobby.', 'error')
+      })
     }
 
     const db = createDb(c.env.DB)

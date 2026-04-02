@@ -2,8 +2,8 @@ import { verifyDraftRoomAccessToken } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility, selectActivityTargetForUser } from '../../src/routes/activity.ts'
-import { buildOpenLobbySnapshot } from '../../src/routes/lobby/snapshot.ts'
-import { getUserActivityTarget, handoffLobbySpectatorsToMatchActivity, storeUserActivityTarget, storeUserLobbyState } from '../../src/services/activity/index.ts'
+import { buildOpenLobbySnapshot, resolveOpenLobbyFromBody } from '../../src/routes/lobby/snapshot.ts'
+import { getUserActivityTarget, handoffLobbySpectatorsToMatchActivity, storeMatchActivityState, storeUserActivityTarget, storeUserLobbyState } from '../../src/services/activity/index.ts'
 import { attachLobbyMatch, createLobby, getLobbyById, setLobbyMaxRole, setLobbyMinRole } from '../../src/services/lobby/index.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
@@ -245,6 +245,46 @@ describe('activity target selection', () => {
       isHost: false,
       isMember: false,
     }))
+  })
+
+  test('ignores invalid open lobbies with no queued host', async () => {
+    const { kv } = createTrackedKv()
+    const invalidLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-open',
+    })
+    const liveLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-2',
+      channelId: 'channel-1',
+      messageId: 'message-live',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-2',
+      displayName: 'Host 2',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await attachLobbyMatch(kv, liveLobby.id, 'match-1', liveLobby)
+    await storeMatchActivityState(kv, 'channel-1', ['spectator-1'], {
+      matchId: 'match-1',
+      lobbyId: liveLobby.id,
+      mode: '2v2',
+      activitySecret: 'secret',
+    })
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'spectator-1')
+    expect(snapshot.selection?.kind).toBe('match')
+    expect(snapshot.options).toEqual([
+      expect.objectContaining({
+        kind: 'match',
+        id: 'match-1',
+      }),
+    ])
+    await expect(resolveOpenLobbyFromBody(kv, '2v2', { lobbyId: invalidLobby.id })).resolves.toBeNull()
   })
 
   test('does not auto-select unrelated live matches for spectators', async () => {
