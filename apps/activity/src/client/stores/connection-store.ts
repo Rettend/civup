@@ -187,6 +187,7 @@ export const [connectionError, setConnectionError] = createSignal<string | null>
 const SOCKET_FATAL_CLOSE_MIN = 4000
 const SOCKET_FATAL_CLOSE_MAX = 5000
 const STALE_DRAFT_RECONNECT_CHECK_MS = 1_000
+const DRAFT_SOCKET_MAX_RETRIES = 12
 const STATE_WATCH_SOCKET_MAX_RETRIES = 8
 
 // ── Socket ─────────────────────────────────────────────────
@@ -244,7 +245,7 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
       accessToken: roomAccessToken,
       [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken,
     },
-    maxRetries: Infinity,
+    maxRetries: DRAFT_SOCKET_MAX_RETRIES,
   })
   socket = nextSocket
 
