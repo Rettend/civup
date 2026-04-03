@@ -51,7 +51,7 @@ describe('match result embed', () => {
     expect(fields).toContain('⬆️ <@100010000000000001> `#9 ` -> `#6 `')
     expect(fields).not.toContain('100010000000000002')
     expect(fields).toContain('🆕 <@100010000000000003> entered at `#12`')
-    expect(fields).toContain('Rank Roles')
+    expect(fields).toContain('Ranked Roles')
     expect(fields).toContain('<@&1> -> <@&2>')
   })
 
