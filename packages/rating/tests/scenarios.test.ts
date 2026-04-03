@@ -215,11 +215,11 @@ describe('duel progression simulations', () => {
 
   test.each([
     [0.5, 1010],
-    [0.52, 1032],
-    [0.55, 1064],
-    [0.6, 1118],
-    [0.7, 1235],
-    [0.8, 1376],
+    [0.52, 1030],
+    [0.55, 1061],
+    [0.6, 1108],
+    [0.7, 1186],
+    [0.8, 1243],
   ])('display rating after 100 games reflects a %p duel win rate against 1000 opposition', (winRate, expectedDisplay) => {
     const averageDisplay = averageDisplayAfterGames(winRate, 100)
     expect(averageDisplay).toBeCloseTo(expectedDisplay, 0)
@@ -238,7 +238,7 @@ describe('duel progression simulations', () => {
     expect(loser.displayDelta).toBeCloseTo(-54.69, 2)
   })
 
-  test('established favorites cannot farm huge Elo from weaker duel opponents', () => {
+  test('duel favorites keep normal value until 75% and then taper hard', () => {
     const modestFavorite = calculateTeamRatings([
       { players: [playerFromDisplay('fav-1200', 1200)] },
       { players: [playerFromDisplay('dog-1000', 1000)] },
@@ -247,10 +247,19 @@ describe('duel progression simulations', () => {
       { players: [playerFromDisplay('fav-1400', 1400)] },
       { players: [playerFromDisplay('dog-1000', 1000)] },
     ])
+    const hugeSkillGap = calculateTeamRatings([
+      { players: [playerFromDisplay('fav-1200', 1200)] },
+      { players: [playerFromDisplay('dog-800', 800)] },
+    ])
+    const fullStomp = calculateTeamRatings([
+      { players: [playerFromDisplay('fav-1400', 1400)] },
+      { players: [playerFromDisplay('dog-800', 800)] },
+    ])
 
     expect(playerById(modestFavorite, 'fav-1200').displayDelta).toBeCloseTo(36.96, 2)
-    expect(playerById(heavyFavorite, 'fav-1400').displayDelta).toBeCloseTo(22.60, 2)
-    expect(playerById(heavyFavorite, 'fav-1400').displayDelta).toBeLessThan(24)
+    expect(playerById(heavyFavorite, 'fav-1400').displayDelta).toBeCloseTo(4.79, 2)
+    expect(playerById(hugeSkillGap, 'fav-1200').displayDelta).toBeCloseTo(4.79, 2)
+    expect(playerById(fullStomp, 'fav-1400').displayDelta).toBeCloseTo(0.64, 2)
   })
 })
 
@@ -287,6 +296,110 @@ describe('teamer rating scenarios', () => {
 
     expect(carryUpdate.displayDelta).toBeLessThan(0)
     expect(learnerUpdate.displayDelta).toBeLessThan(carryUpdate.displayDelta)
+  })
+
+  test('stacked favorites in 2v2, 3v3, and 4v4 get sharply discounted expected wins', () => {
+    const duoFavorite = [
+      playerFromDisplay('duo-pro1', 1200),
+      playerFromDisplay('duo-pro2', 1200),
+    ]
+    const duoAverage = [
+      playerFromDisplay('duo-avg1', 1000),
+      playerFromDisplay('duo-avg2', 1000),
+    ]
+    const squadFavorite = [
+      playerFromDisplay('squad-pro1', 1200),
+      playerFromDisplay('squad-pro2', 1200),
+      playerFromDisplay('squad-pro3', 1200),
+    ]
+    const squadAverage = [
+      playerFromDisplay('squad-avg1', 1000),
+      playerFromDisplay('squad-avg2', 1000),
+      playerFromDisplay('squad-avg3', 1000),
+    ]
+    const fourStackFavorite = [
+      playerFromDisplay('stack4-pro1', 1200),
+      playerFromDisplay('stack4-pro2', 1200),
+      playerFromDisplay('stack4-pro3', 1200),
+      playerFromDisplay('stack4-pro4', 1200),
+    ]
+    const fourStackAverage = [
+      playerFromDisplay('stack4-avg1', 1000),
+      playerFromDisplay('stack4-avg2', 1000),
+      playerFromDisplay('stack4-avg3', 1000),
+      playerFromDisplay('stack4-avg4', 1000),
+    ]
+
+    const duoProbabilities = predictWinProbabilities([duoFavorite, duoAverage])
+    const squadProbabilities = predictWinProbabilities([squadFavorite, squadAverage])
+    const fourStackProbabilities = predictWinProbabilities([fourStackFavorite, fourStackAverage])
+    const duoUpdates = calculateTeamRatings([
+      { players: duoFavorite },
+      { players: duoAverage },
+    ])
+    const squadUpdates = calculateTeamRatings([
+      { players: squadFavorite },
+      { players: squadAverage },
+    ])
+    const fourStackUpdates = calculateTeamRatings([
+      { players: fourStackFavorite },
+      { players: fourStackAverage },
+    ])
+
+    expect(duoProbabilities[0]).toBeCloseTo(0.8468, 3)
+    expect(squadProbabilities[0]).toBeCloseTo(0.9008, 3)
+    expect(fourStackProbabilities[0]).toBeCloseTo(0.9338, 3)
+
+    for (const playerId of ['duo-pro1', 'duo-pro2']) {
+      expect(playerById(duoUpdates, playerId).displayDelta).toBeCloseTo(10.54, 2)
+    }
+    for (const playerId of ['squad-pro1', 'squad-pro2', 'squad-pro3']) {
+      expect(playerById(squadUpdates, playerId).displayDelta).toBeCloseTo(3.77, 2)
+    }
+    for (const playerId of ['stack4-pro1', 'stack4-pro2', 'stack4-pro3', 'stack4-pro4']) {
+      expect(playerById(fourStackUpdates, playerId).displayDelta).toBeCloseTo(1.51, 2)
+    }
+  })
+
+  test('balanced mixed 3v3 and 4v4 teams still get full-value updates', () => {
+    const mixedThree = [
+      playerFromDisplay('mix3-carry', 1400),
+      playerFromDisplay('mix3-mate1', 1000),
+      playerFromDisplay('mix3-mate2', 1000),
+    ]
+    const balancedThree = [
+      playerFromDisplay('bal3-1', 1133),
+      playerFromDisplay('bal3-2', 1133),
+      playerFromDisplay('bal3-3', 1133),
+    ]
+    const mixedFour = [
+      playerFromDisplay('mix4-carry', 1400),
+      playerFromDisplay('mix4-mate1', 1000),
+      playerFromDisplay('mix4-mate2', 1000),
+      playerFromDisplay('mix4-mate3', 1000),
+    ]
+    const balancedFour = [
+      playerFromDisplay('bal4-1', 1100),
+      playerFromDisplay('bal4-2', 1100),
+      playerFromDisplay('bal4-3', 1100),
+      playerFromDisplay('bal4-4', 1100),
+    ]
+
+    const threeProbabilities = predictWinProbabilities([mixedThree, balancedThree])
+    const fourProbabilities = predictWinProbabilities([mixedFour, balancedFour])
+    const threeUpdates = calculateTeamRatings([
+      { players: mixedThree },
+      { players: balancedThree },
+    ])
+    const fourUpdates = calculateTeamRatings([
+      { players: mixedFour },
+      { players: balancedFour },
+    ])
+
+    expect(threeProbabilities[0]).toBeCloseTo(0.5, 2)
+    expect(fourProbabilities[0]).toBeCloseTo(0.5, 2)
+    expect(playerById(threeUpdates, 'mix3-carry').displayDelta).toBeCloseTo(34.75, 2)
+    expect(playerById(fourUpdates, 'mix4-carry').displayDelta).toBeCloseTo(30.54, 2)
   })
 
   test('elite 3v3 stacks are overwhelming favorites over average stacks', () => {
@@ -383,9 +496,9 @@ describe('cross-mode progression sanity', () => {
     const twoVTwo60 = averageTeamDisplayAfterGames(2, 0.6, 100)
     const threeVThree60 = averageTeamDisplayAfterGames(3, 0.6, 100)
 
-    expect(duel60).toBeCloseTo(1118, 0)
-    expect(twoVTwo60).toBeCloseTo(1169, 0)
-    expect(threeVThree60).toBeCloseTo(1204, 0)
+    expect(duel60).toBeCloseTo(1108, 0)
+    expect(twoVTwo60).toBeCloseTo(1158, 0)
+    expect(threeVThree60).toBeCloseTo(1195, 0)
     expect(twoVTwo60).toBeGreaterThan(duel60)
     expect(threeVThree60).toBeGreaterThan(twoVTwo60)
     expect(threeVThree60 - duel60).toBeLessThan(120)

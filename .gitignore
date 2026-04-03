@@ -57,3 +57,4 @@ mods/installer/*.wixpdb
 
 # TEMP
 mods/preset_loader
+tmp/

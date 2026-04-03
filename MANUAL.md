@@ -288,6 +288,7 @@ Commands to view rating:
 ### Elo system
 
 - uses **OpenSkill** with parameters tuned for Civ 6: games are less frequent so it uses more uncertainty
+- in **duel and team modes**, very lopsided two-team wins are **tapered hard** once the winner was already a big favorite, so stacked teams cannot farm much elo from obviously weaker opponents
 - the **first ~10-20 games** are pretty volatile, but after that it gets very accurate for the player's skill level
 - new player **display elo** starts at `1000` and they are Unranked
 - a player needs **3 games** in a game mode to get the first Ranked role and appear on the leaderboard
@@ -303,9 +304,9 @@ Veteran player (20+ games): ±55
 | Win rate | Elo rating |
 | -------- | ---------- |
 | 50%      | ~1000      |
-| 60%      | ~1118      |
-| 70%      | ~1235      |
-| 80%      | ~1376      |
+| 60%      | ~1108      |
+| 70%      | ~1186      |
+| 80%      | ~1243      |
 
 ### Ranked roles
 
