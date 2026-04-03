@@ -49,7 +49,10 @@ function getRankedRatingOptions(sides: number) {
 }
 
 /** Minimum games required to appear on leaderboard */
-export const LEADERBOARD_MIN_GAMES = 3
+export const LEADERBOARD_MIN_GAMES = 5
+
+/** Minimum games normally required for ranked-role eligibility. */
+export const RANKED_ROLE_MIN_GAMES = 3
 
 export type LeaderboardMode = 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death'
 
