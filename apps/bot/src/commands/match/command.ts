@@ -160,6 +160,7 @@ export const command_match = factory.command<MatchVar>(
               avatarUrl: identity.avatarUrl,
               joinedAt: Date.now(),
             }, {
+              existingMode: existingQueueMode,
               currentState: queue,
             })
 
@@ -1184,9 +1185,8 @@ async function reconcileHostedOpenLobbyCreation(
   hostId: string,
   createdLobby: Awaited<ReturnType<typeof createLobby>>,
 ): Promise<{ lobby: Awaited<ReturnType<typeof createLobby>>, reusedExisting: boolean }> {
-  const hostedLobbies = await findHostedOpenLobbies(kv, hostId)
-  const canonicalLobby = hostedLobbies[0]
-  if (!canonicalLobby || canonicalLobby.id === createdLobby.id) {
+  const canonicalLobby = await getCurrentLobbyHostedBy(kv, hostId)
+  if (!canonicalLobby || canonicalLobby.status !== 'open' || canonicalLobby.id === createdLobby.id) {
     return { lobby: createdLobby, reusedExisting: false }
   }
 
