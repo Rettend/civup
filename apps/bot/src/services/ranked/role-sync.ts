@@ -1,10 +1,10 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import type { RankedRoleConfig } from './roles.ts'
-import { players } from '@civup/db'
+import { playerRatings, playerRatingSeeds, players } from '@civup/db'
 import { competitiveTierRank, LEADERBOARD_MODES } from '@civup/game'
-import { displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'
-import { inArray } from 'drizzle-orm'
+import { displayRating, RANKED_ROLE_MIN_GAMES } from '@civup/rating'
+import { and, eq, gt, inArray } from 'drizzle-orm'
 import { DiscordApiError, editGuildMemberRoles } from '../discord/index.ts'
 import { ensureLeaderboardModeSnapshots } from '../leaderboard/snapshot.ts'
 import { getActiveSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks } from '../season/index.ts'
@@ -121,6 +121,7 @@ interface RankedRoleSyncOptions {
   advanceDemotionWindow?: boolean
   playerIds?: string[]
   includePlayerIdentities?: boolean
+  rankedMinGames?: number
 }
 
 interface RatingSnapshotRow {
@@ -165,6 +166,8 @@ interface RankedRolePreviewState {
   config: RankedRoleConfig
   laddersByMode: Map<LeaderboardMode, LadderSnapshots>
 }
+
+type RankedEligibilityOverrideKey = `${string}:${LeaderboardMode}`
 
 interface RankedTierThreshold {
   tier: CompetitiveTier
@@ -556,13 +559,33 @@ async function buildRankedRolePreviewState({
   advanceDemotionWindow = false,
   playerIds,
   includePlayerIdentities = true,
+  rankedMinGames = RANKED_ROLE_MIN_GAMES,
 }: RankedRoleSyncOptions): Promise<RankedRolePreviewState> {
-  const [leaderboardSnapshots, previousAssignments, previousCandidates, config] = await Promise.all([
+  const [leaderboardSnapshots, previousAssignments, previousCandidates, config, seedOverrides] = await Promise.all([
     ensureLeaderboardModeSnapshots(db, kv),
     getCurrentRankAssignments(kv, guildId),
     getRankedRoleDemotionCandidates(kv, guildId),
     getRankedRoleConfig(kv, guildId),
+    db
+      .select({
+        playerId: playerRatingSeeds.playerId,
+        mode: playerRatingSeeds.mode,
+      })
+      .from(playerRatingSeeds)
+      .innerJoin(playerRatings, and(
+        eq(playerRatings.playerId, playerRatingSeeds.playerId),
+        eq(playerRatings.mode, playerRatingSeeds.mode),
+      ))
+      .where(and(
+        eq(playerRatingSeeds.eligibleForRanked, true),
+        gt(playerRatings.gamesPlayed, 0),
+      )),
   ])
+
+  const rankedEligibilityOverrideKeys = new Set<RankedEligibilityOverrideKey>(seedOverrides.flatMap((row) => {
+    if (!LEADERBOARD_MODES.includes(row.mode as LeaderboardMode)) return []
+    return [`${row.playerId}:${row.mode}` as RankedEligibilityOverrideKey]
+  }))
 
   const ratings = [...leaderboardSnapshots.values()]
     .flatMap(snapshot => snapshot.rows)
@@ -578,7 +601,13 @@ async function buildRankedRolePreviewState({
 
   const laddersByMode = new Map<LeaderboardMode, LadderSnapshots>()
   for (const mode of LEADERBOARD_MODES) {
-    laddersByMode.set(mode, buildLadderSnapshots(ratings.filter(row => row.mode === mode), mode, config))
+    laddersByMode.set(mode, buildLadderSnapshots(
+      ratings.filter(row => row.mode === mode),
+      mode,
+      config,
+      rankedMinGames,
+      rankedEligibilityOverrideKeys,
+    ))
   }
 
   const knownPlayerIds = new Set<string>()
@@ -721,9 +750,15 @@ function buildSeasonModePeakCandidates(
   })
 }
 
-function buildLadderSnapshots(rows: RatingSnapshotRow[], mode: LeaderboardMode, config: RankedRoleConfig): LadderSnapshots {
+function buildLadderSnapshots(
+  rows: RatingSnapshotRow[],
+  mode: LeaderboardMode,
+  config: RankedRoleConfig,
+  rankedMinGames: number,
+  rankedEligibilityOverrideKeys: Set<RankedEligibilityOverrideKey>,
+): LadderSnapshots {
   const eligible = rows
-    .filter(row => row.gamesPlayed >= LEADERBOARD_MIN_GAMES)
+    .filter(row => row.gamesPlayed >= rankedMinGames || rankedEligibilityOverrideKeys.has(rankEligibilityOverrideKey(row.playerId, mode)))
     .map(row => ({
       playerId: row.playerId,
       score: displayRating(row.mu, row.sigma),
@@ -736,6 +771,10 @@ function buildLadderSnapshots(rows: RatingSnapshotRow[], mode: LeaderboardMode, 
     keep: buildKeepAssignments(eligible, mode, config),
     scores: new Map(eligible.map(entry => [entry.playerId, entry.score])),
   }
+}
+
+function rankEligibilityOverrideKey(playerId: string, mode: LeaderboardMode): RankedEligibilityOverrideKey {
+  return `${playerId}:${mode}`
 }
 
 function buildEarnAssignments(entries: LadderEntry[], mode: LeaderboardMode, config: RankedRoleConfig): Map<string, LadderAssignment> {
