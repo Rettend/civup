@@ -7,6 +7,7 @@ import { calculateRatings, createRating } from '@civup/rating'
 import { and, eq } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { ensureLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
+import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
 import { buildRankByPlayer } from './ratings.ts'
@@ -305,6 +306,9 @@ async function finalizeReportedMatch(
     .limit(1)
 
   const leaderboardSnapshotAfter = await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode, now)
+  if (leaderboardMode === 'duo' || leaderboardMode === 'squad') {
+    await clearTeamLeaderboardModeSnapshots(kv, leaderboardMode)
+  }
   const afterRankByPlayer = buildRankByPlayer(leaderboardSnapshotAfter.rows)
   const leaderboardEligibleCount = afterRankByPlayer.size
 

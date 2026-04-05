@@ -5,6 +5,7 @@ import { matchBans, matches, matchParticipants } from '@civup/db'
 import { and, eq } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
+import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
 import { clearLobbyByMatch } from '../lobby/index.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
 import { parseModerationPlacements } from './placements.ts'
@@ -189,6 +190,9 @@ async function rollbackResolvedMatchModeration(
     if ('error' in recalculated) return recalculated.error
 
     await rebuildLeaderboardModeSnapshot(db, kv, options.leaderboardMode)
+    if (options.leaderboardMode === 'duo' || options.leaderboardMode === 'squad') {
+      await clearTeamLeaderboardModeSnapshots(kv, options.leaderboardMode)
+    }
     return null
   }
   catch (error) {
@@ -271,6 +275,9 @@ export async function cancelMatchByModerator(
     const recalculated = await recalculateLeaderboardMode(db, leaderboardMode)
     if ('error' in recalculated) return recalculated
     await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode)
+    if (leaderboardMode === 'duo' || leaderboardMode === 'squad') {
+      await clearTeamLeaderboardModeSnapshots(kv, leaderboardMode)
+    }
     recalculatedMatchIds = recalculated.matchIds
   }
 
