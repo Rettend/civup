@@ -1,6 +1,6 @@
 import type { LeaderboardMode } from '@civup/game'
 import { formatLeaderboardModeLabel } from '@civup/game'
-import { buildLeaderboard } from '@civup/rating'
+import { buildLeaderboard, getLeaderboardMinGames } from '@civup/rating'
 import { Embed } from 'discord-hono'
 
 interface LeaderboardRatingRow {
@@ -27,7 +27,7 @@ export function leaderboardEmbed(
     showOffseasonData?: boolean
   } = {},
 ): Embed {
-  const entries = buildLeaderboard([...rows])
+  const entries = buildLeaderboard([...rows], getLeaderboardMinGames(mode))
   const top25 = entries.slice(0, 25)
 
   if (top25.length === 0) {

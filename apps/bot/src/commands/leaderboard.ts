@@ -3,7 +3,7 @@ import type { LeaderboardMode } from '@civup/game'
 import type { Embed } from 'discord-hono'
 import { createDb } from '@civup/db'
 import { LEADERBOARD_MODE_CHOICES, LEADERBOARD_MODES, parseLeaderboardMode } from '@civup/game'
-import { LEADERBOARD_MIN_GAMES } from '@civup/rating'
+import { getLeaderboardMinGames } from '@civup/rating'
 import { Command, Option } from 'discord-hono'
 import { leaderboardEmbed } from '../embeds/leaderboard.ts'
 import { teamLeaderboardEmbed } from '../embeds/team-leaderboard.ts'
@@ -92,7 +92,7 @@ async function buildPlayerLeaderboardCommandPayload(
   const snapshots = await ensureLeaderboardModeSnapshots(db, kv, LEADERBOARD_MODES)
   const embeds = LEADERBOARD_MODES.flatMap((mode) => {
     const snapshot = snapshots.get(mode)
-    if (!snapshot || !snapshot.rows.some(row => row.gamesPlayed >= LEADERBOARD_MIN_GAMES)) return []
+    if (!snapshot || !snapshot.rows.some(row => row.gamesPlayed >= getLeaderboardMinGames(mode))) return []
     return [leaderboardEmbed(mode, snapshot.rows)]
   })
 

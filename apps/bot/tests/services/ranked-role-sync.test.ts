@@ -7,6 +7,7 @@ import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 const DAY_MS = 86_400_000
 const NOW = 1_700_000_000_000
 const originalFetch = globalThis.fetch
+const TIER_3 = 'tier3'
 const TIER_4 = 'tier4'
 const TIER_5 = 'tier5'
 
@@ -22,8 +23,8 @@ describe('ranked role sync service', () => {
     await seedPlayers(db, 'duel', 8, { prefix: 'duel' })
     const heroId = playerIdFor('hero', 1)
     await seedPlayerIdentity(db, heroId)
-    await seedRating(db, { playerId: heroId, mode: 'ffa', mu: 25, sigma: 8.333, gamesPlayed: 3, lastPlayedAt: NOW })
-    await seedRating(db, { playerId: heroId, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 8, lastPlayedAt: NOW })
+    await seedRating(db, { playerId: heroId, mode: 'ffa', mu: 25, sigma: 8.333, gamesPlayed: 10, lastPlayedAt: NOW })
+    await seedRating(db, { playerId: heroId, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 10, lastPlayedAt: NOW })
 
     const preview = await previewRankedRoles({ db, kv, guildId: 'guild-1', now: NOW })
     const hero = preview.playerPreviews.find(player => player.playerId === heroId)
@@ -44,7 +45,7 @@ describe('ranked role sync service', () => {
     await seedPlayers(db, 'duel', 8, { prefix: 'duel' })
     const heroId = playerIdFor('hero', 1)
     await seedPlayerIdentity(db, heroId)
-    await seedRating(db, { playerId: heroId, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 8, lastPlayedAt: NOW })
+    await seedRating(db, { playerId: heroId, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 10, lastPlayedAt: NOW })
 
     const preview = await previewRankedRoles({
       db,
@@ -63,13 +64,108 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
+  test('protected unlock counts only apply within the protected source mode', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const duoHeroId = playerIdFor('duo-hero', 1)
+    await seedPlayerIdentity(db, duoHeroId)
+    await seedRating(db, { playerId: duoHeroId, mode: 'duo', mu: 40, sigma: 6, gamesPlayed: 12, lastPlayedAt: NOW })
+
+    await kv.put('ranked-roles:current-assignments:guild-1', JSON.stringify({
+      byPlayerId: Object.fromEntries(Array.from({ length: 80 }, (_value, index) => [playerIdFor('protected-squad', index + 1), {
+        tier: TIER_4,
+        sourceMode: 'squad',
+        protectedUntilTotalGames: 10,
+      }])),
+    }))
+
+    const preview = await previewRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      now: NOW,
+      playerIds: [duoHeroId],
+      includePlayerIdentities: false,
+    })
+
+    expect(preview.playerPreviews).toHaveLength(1)
+    expect(preview.playerPreviews[0]?.ladderTiers.duo).toBe(TIER_5)
+    expect(preview.playerPreviews[0]?.assignment.tier).toBe(TIER_5)
+    expect(preview.playerPreviews[0]?.assignment.sourceMode).toBe('duo')
+
+    sqlite.close()
+  })
+
+  test('players below the minimum games still affect ranked placement', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const heroId = playerIdFor('duo-hero', 2)
+
+    await seedPlayerIdentity(db, playerIdFor('duo-hero', 1))
+    await seedRating(db, {
+      playerId: playerIdFor('duo-hero', 1),
+      mode: 'duo',
+      mu: 41,
+      sigma: 6,
+      gamesPlayed: 9,
+      lastPlayedAt: NOW,
+    })
+
+    await seedPlayerIdentity(db, heroId)
+    await seedRating(db, {
+      playerId: heroId,
+      mode: 'duo',
+      mu: 40,
+      sigma: 6,
+      gamesPlayed: 10,
+      lastPlayedAt: NOW,
+    })
+
+    for (let index = 3; index <= 11; index++) {
+      const playerId = playerIdFor('duo-hero', index)
+      await seedPlayerIdentity(db, playerId)
+      await seedRating(db, {
+        playerId,
+        mode: 'duo',
+        mu: 40 - index,
+        sigma: 6,
+        gamesPlayed: 9,
+        lastPlayedAt: NOW,
+      })
+    }
+
+    await kv.put('ranked-roles:current-assignments:guild-1', JSON.stringify({
+      byPlayerId: Object.fromEntries(Array.from({ length: 40 }, (_value, index) => [playerIdFor('protected-duo', index + 1), {
+        tier: TIER_4,
+        sourceMode: 'duo',
+        protectedUntilTotalGames: 10,
+      }])),
+    }))
+
+    const preview = await previewRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      now: NOW,
+      playerIds: [heroId],
+      includePlayerIdentities: false,
+    })
+
+    expect(preview.playerPreviews).toHaveLength(1)
+    expect(preview.playerPreviews[0]?.ladderTiers.duo).toBe(TIER_3)
+    expect(preview.playerPreviews[0]?.assignment.tier).toBe(TIER_3)
+    expect(preview.playerPreviews[0]?.assignment.sourceMode).toBe('duo')
+
+    sqlite.close()
+  })
+
   test('daily sync keeps demotion candidates until the delay is reached', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
     const oldSquireId = playerIdFor('old-squire', 1)
     await seedPlayerIdentity(db, oldSquireId)
-    await seedRating(db, { playerId: oldSquireId, mode: 'ffa', mu: 26, sigma: 8.333, gamesPlayed: 6, lastPlayedAt: NOW })
+    await seedRating(db, { playerId: oldSquireId, mode: 'ffa', mu: 26, sigma: 8.333, gamesPlayed: 10, lastPlayedAt: NOW })
 
     await setRankedRoleCurrentRoles(kv, 'guild-1', {
       tier5: '11111111111111111',
@@ -107,6 +203,51 @@ describe('ranked role sync service', () => {
 
     const storedCandidates = await getRankedRoleDemotionCandidates(kv, 'guild-1')
     expect(storedCandidates.byPlayerId[oldSquireId]).toBeUndefined()
+
+    sqlite.close()
+  })
+
+  test('migration protection suppresses demotion until the player reaches 10 total games', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
+    const heroId = playerIdFor('migrated-squire', 1)
+    await seedPlayerIdentity(db, heroId)
+    await seedRating(db, { playerId: heroId, mode: 'ffa', mu: 20, sigma: 8.333, gamesPlayed: 9, lastPlayedAt: NOW })
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
+    })
+    await seedPreviousAssignment(kv, 'guild-1', heroId, { tier: TIER_4, sourceMode: null, protectedUntilTotalGames: 10 })
+
+    const beforeThreshold = await syncRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      now: NOW,
+      advanceDemotionWindow: true,
+    })
+    const protectedPlayer = beforeThreshold.playerPreviews.find(player => player.playerId === heroId)
+    expect(protectedPlayer?.assignment.tier).toBe(TIER_4)
+    expect(protectedPlayer?.pendingDemotion).toBeNull()
+
+    await seedRating(db, { playerId: heroId, mode: 'ffa', mu: 20, sigma: 8.333, gamesPlayed: 10, lastPlayedAt: NOW + DAY_MS })
+    await kv.delete('leaderboard:snapshot:ffa')
+
+    const afterThreshold = await syncRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      now: NOW + DAY_MS,
+      advanceDemotionWindow: true,
+    })
+    const pendingPlayer = afterThreshold.playerPreviews.find(player => player.playerId === heroId)
+    expect(pendingPlayer?.assignment.tier).toBe(TIER_4)
+    expect(pendingPlayer?.pendingDemotion?.belowKeepSyncs).toBe(1)
 
     sqlite.close()
   })
@@ -272,7 +413,7 @@ async function seedPlayers(
       mode,
       mu: 40 - index,
       sigma: 6,
-      gamesPlayed: 6,
+      gamesPlayed: 12,
       lastPlayedAt: NOW,
     })
   }
@@ -308,7 +449,7 @@ async function seedPreviousAssignment(
   kv: KVNamespace,
   guildId: string,
   playerId: string,
-  assignment: { tier: string, sourceMode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death' | null },
+  assignment: { tier: string, sourceMode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death' | null, protectedUntilTotalGames?: number },
 ): Promise<void> {
   await kv.put(`ranked-roles:current-assignments:${guildId}`, JSON.stringify({
     byPlayerId: {

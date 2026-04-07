@@ -170,7 +170,7 @@ async function finalizeReportedMatch(
   const gameMode = gameContext.mode
   const leaderboardMode = gameContext.leaderboardMode
   const leaderboardSnapshotBefore = await ensureLeaderboardModeSnapshot(db, kv, leaderboardMode)
-  const beforeRankByPlayer = buildRankByPlayer(leaderboardSnapshotBefore.rows)
+  const beforeRankByPlayer = buildRankByPlayer(leaderboardSnapshotBefore.rows, leaderboardMode)
   const leaderboardSnapshotByPlayerId = new Map(
     leaderboardSnapshotBefore.rows.map(row => [row.playerId, row]),
   )
@@ -309,7 +309,7 @@ async function finalizeReportedMatch(
   if (leaderboardMode === 'duo' || leaderboardMode === 'squad') {
     await clearTeamLeaderboardModeSnapshots(kv, leaderboardMode)
   }
-  const afterRankByPlayer = buildRankByPlayer(leaderboardSnapshotAfter.rows)
+  const afterRankByPlayer = buildRankByPlayer(leaderboardSnapshotAfter.rows, leaderboardMode)
   const leaderboardEligibleCount = afterRankByPlayer.size
 
   const updatedParticipants = await db
