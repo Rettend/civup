@@ -3,7 +3,7 @@ import type { LeaderboardMode } from '@civup/game'
 import type { FfaEntry, TeamInput } from '@civup/rating'
 import { matches, matchParticipants, playerRatings, seasons } from '@civup/db'
 import { isTeamMode, leaderboardModesToGameModes } from '@civup/game'
-import { calculateRatings, createRating, displayRating, LEADERBOARD_MIN_GAMES, seasonReset } from '@civup/rating'
+import { calculateRatings, createRating, displayRating, getLeaderboardMinGames, seasonReset } from '@civup/rating'
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import { getStoredGameModeContext } from './draft-data.ts'
 
@@ -20,9 +20,9 @@ interface LeaderboardSnapshotRow {
   gamesPlayed: number
 }
 
-export function buildRankByPlayer(rows: LeaderboardSnapshotRow[]): Map<string, number> {
+export function buildRankByPlayer(rows: LeaderboardSnapshotRow[], mode: LeaderboardMode): Map<string, number> {
   const ranked = rows
-    .filter(row => row.gamesPlayed >= LEADERBOARD_MIN_GAMES)
+    .filter(row => row.gamesPlayed >= getLeaderboardMinGames(mode))
     .map(row => ({
       playerId: row.playerId,
       display: displayRating(row.mu, row.sigma),
