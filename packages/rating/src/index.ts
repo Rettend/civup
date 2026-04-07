@@ -82,13 +82,20 @@ function scaleRatingUpdates(updates: RatingUpdate[], weight: number): RatingUpda
   })
 }
 
-/** Minimum games required to appear on leaderboard */
-export const LEADERBOARD_MIN_GAMES = 5
+/** Minimum games required to appear on solo leaderboards. */
+export const LEADERBOARD_MIN_GAMES = 10
 
-/** Minimum games normally required for ranked-role eligibility. */
-export const RANKED_ROLE_MIN_GAMES = 3
+/** Minimum games required to appear on duo/squad player leaderboards. */
+export const TEAM_LEADERBOARD_MIN_GAMES = 5
+
+/** Minimum total ranked games required before non-fallback ranked roles apply. */
+export const RANKED_ROLE_MIN_GAMES = 10
 
 export type LeaderboardMode = 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death'
+
+export function getLeaderboardMinGames(mode: LeaderboardMode): number {
+  return mode === 'duo' || mode === 'squad' ? TEAM_LEADERBOARD_MIN_GAMES : LEADERBOARD_MIN_GAMES
+}
 
 // ── Player Rating ───────────────────────────────────────────
 
