@@ -52,7 +52,7 @@ interface TeamParticipantRow {
 const TEAM_LEADERBOARD_SNAPSHOT_KEY = 'leaderboard:team-snapshot'
 
 export const TEAM_LEADERBOARD_BUCKETS = ['duo', 'squad-3v3', 'squad-4v4'] as const satisfies readonly TeamLeaderboardBucket[]
-export const TEAM_LEADERBOARD_MIN_GAMES = 3
+export const TEAM_LEADERBOARD_MIN_GAMES = 5
 
 const TEAM_LEADERBOARD_BUCKET_CONTEXTS: Record<TeamLeaderboardBucket, TeamLeaderboardBucketContext> = {
   'duo': {

@@ -45,6 +45,7 @@ describe('match moderation recalculation', () => {
           gamesPlayed: row.gamesPlayed,
           wins: row.wins,
         })),
+        3,
       )
       expect(leaderboardEntries.length).toBeGreaterThan(0)
 
