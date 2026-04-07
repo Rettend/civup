@@ -13,7 +13,7 @@ describe('ranked preview summary', () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedConfiguredRoles(kv)
-    await seedPlayers(db, 'ffa', 100, { prefix: 'ffa', gamesPlayed: 6 })
+    await seedPlayers(db, 'ffa', 100, { prefix: 'ffa', gamesPlayed: 12 })
     await seedPlayers(db, 'ffa', 2, { prefix: 'unranked', gamesPlayed: 2 })
 
     const summary = await summarizeRankedPreview({
@@ -58,7 +58,7 @@ describe('ranked preview summary', () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedConfiguredRoles(kv)
-    await seedPlayers(db, 'duel', 10, { prefix: 'duel', gamesPlayed: 6 })
+    await seedPlayers(db, 'duel', 10, { prefix: 'duel', gamesPlayed: 12 })
 
     const summary = await summarizeRankedPreview({
       db,
@@ -89,7 +89,7 @@ describe('ranked preview summary', () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedConfiguredRoles(kv)
-    await seedPlayers(db, 'duel', 8, { prefix: 'duel', gamesPlayed: 6 })
+    await seedPlayers(db, 'duel', 8, { prefix: 'duel', gamesPlayed: 12 })
 
     const playerId = playerIdFor('seeded', 1)
     await db.insert(players).values({
@@ -187,6 +187,46 @@ describe('ranked preview summary', () => {
     expect(afterSummary.modes[0]?.rankedCount).toBe(9)
     expect(after.playerPreviews[0]?.ladderTiers.duel).toBe('tier4')
 
+    await db.insert(playerRatings).values({
+      playerId,
+      mode: 'duel',
+      mu: 50,
+      sigma: 6,
+      gamesPlayed: 10,
+      wins: 10,
+      lastPlayedAt: NOW,
+    }).onConflictDoUpdate({
+      target: [playerRatings.playerId, playerRatings.mode],
+      set: {
+        mu: 50,
+        sigma: 6,
+        gamesPlayed: 10,
+        wins: 10,
+        lastPlayedAt: NOW,
+      },
+    })
+    await markLeaderboardsDirty(db, 'seed eligibility test reaches total threshold')
+    await kv.delete('leaderboard:snapshot:duel')
+
+    const qualified = await previewRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      now: NOW,
+      playerIds: [playerId],
+      includePlayerIdentities: false,
+    })
+    const qualifiedSummary = await summarizeRankedPreview({
+      db,
+      kv,
+      guildId: 'guild-1',
+      now: NOW,
+      mode: 'duel',
+    })
+
+    expect(qualifiedSummary.modes[0]?.rankedCount).toBe(9)
+    expect(qualified.playerPreviews[0]?.ladderTiers.duel).toBe('tier4')
+
     sqlite.close()
   })
 
@@ -194,7 +234,7 @@ describe('ranked preview summary', () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedConfiguredRoles(kv)
-    await seedPlayers(db, 'ffa', 100, { prefix: 'ffa', gamesPlayed: 6 })
+    await seedPlayers(db, 'ffa', 100, { prefix: 'ffa', gamesPlayed: 12 })
 
     const summary = await summarizeRankedPreview({
       db,
@@ -217,7 +257,7 @@ describe('ranked preview summary', () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedConfiguredRoles(kv)
-    await seedPlayers(db, 'duel', 10, { prefix: 'duel', gamesPlayed: 6 })
+    await seedPlayers(db, 'duel', 10, { prefix: 'duel', gamesPlayed: 12 })
     await markRankedRolesDirty(kv, 'test')
 
     const summary = await summarizeRankedPreview({
@@ -265,7 +305,7 @@ describe('ranked preview summary', () => {
     await updateRankedRoleConfig(kv, 'guild-1', {
       tierRoleIdsByRank: [undefined, undefined, undefined, undefined, null],
     })
-    await seedPlayers(db, 'duel', 10, { prefix: 'duel', gamesPlayed: 6 })
+    await seedPlayers(db, 'duel', 10, { prefix: 'duel', gamesPlayed: 12 })
 
     const summary = await summarizeRankedPreview({
       db,
