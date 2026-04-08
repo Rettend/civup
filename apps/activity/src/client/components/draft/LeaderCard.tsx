@@ -40,6 +40,69 @@ interface LeaderCardProps {
   onHoverLeave?: () => void
 }
 
+export interface LeaderListNeighborState {
+  selectedAbove: boolean
+  selectedBelow: boolean
+  selectedLeft: boolean
+  selectedRight: boolean
+  hoveredAbove: boolean
+  hoveredBelow: boolean
+  hoveredLeft: boolean
+  hoveredRight: boolean
+}
+
+const TRANSPARENT_SELECTION_SHADOW = [
+  'inset 0 1.5px 0 0 transparent',
+  'inset 0 -1.5px 0 0 transparent',
+  'inset 1.5px 0 0 0 transparent',
+  'inset -1.5px 0 0 0 transparent',
+  '0 0 8px transparent',
+].join(', ')
+
+export function computeListItemBorderRadius(
+  hasSelection: boolean,
+  ns: LeaderListNeighborState | undefined,
+): string {
+  if (!hasSelection || !ns) return '0.375rem'
+
+  const corner = (adjV: boolean, adjH: boolean, hovV: boolean, hovH: boolean) => {
+    if (adjV || adjH) return '2px'
+    if (hovV || hovH) return '4px'
+    return '6px'
+  }
+
+  const tl = corner(ns.selectedAbove, ns.selectedLeft, ns.hoveredAbove, ns.hoveredLeft)
+  const tr = corner(ns.selectedAbove, ns.selectedRight, ns.hoveredAbove, ns.hoveredRight)
+  const br = corner(ns.selectedBelow, ns.selectedRight, ns.hoveredBelow, ns.hoveredRight)
+  const bl = corner(ns.selectedBelow, ns.selectedLeft, ns.hoveredBelow, ns.hoveredLeft)
+
+  return `${tl} ${tr} ${br} ${bl}`
+}
+
+export function computeListItemBoxShadow(
+  hasSelection: boolean,
+  colorScheme: 'accent' | 'danger',
+  ns: LeaderListNeighborState | undefined,
+): string {
+  if (!hasSelection) return TRANSPARENT_SELECTION_SHADOW
+
+  const color = colorScheme === 'accent' ? 'var(--accent)' : 'var(--danger)'
+  const glow = colorScheme === 'accent' ? 'var(--accent-muted)' : 'var(--danger-muted)'
+
+  const topColor = ns?.selectedAbove ? 'transparent' : color
+  const bottomColor = ns?.selectedBelow ? 'transparent' : color
+  const leftColor = ns?.selectedLeft ? 'transparent' : color
+  const rightColor = ns?.selectedRight ? 'transparent' : color
+
+  return [
+    `inset 0 1.5px 0 0 ${topColor}`,
+    `inset 0 -1.5px 0 0 ${bottomColor}`,
+    `inset 1.5px 0 0 0 ${leftColor}`,
+    `inset -1.5px 0 0 0 ${rightColor}`,
+    `0 0 8px ${glow}`,
+  ].join(', ')
+}
+
 function useLeaderCardState(props: LeaderCardProps) {
   const state = () => draftStore.state
   const step = currentStep
@@ -252,7 +315,7 @@ export function LeaderCard(props: LeaderCardProps) {
 }
 
 /** Compact list-row leader card for the list view */
-export function LeaderListItem(props: LeaderCardProps) {
+export function LeaderListItem(props: LeaderCardProps & { neighborState?: LeaderListNeighborState }) {
   const {
     isBanned,
     isUnavailable,
@@ -270,21 +333,21 @@ export function LeaderListItem(props: LeaderCardProps) {
   return (
     <button
       class={cn(
-        'relative flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left group min-w-0 transition-all duration-150',
-        'outline outline-2 outline-transparent',
+        'relative flex w-full items-center gap-2 px-1.5 py-1 text-left group min-w-0 transition-all duration-150',
+        'focus:outline-none',
         isBanned() && 'pointer-events-none',
         (isInteractive() || !isUnavailable()) && 'cursor-pointer',
 
-        // Default
         !hasSelectionVisual() && isInteractive() && 'hover:bg-white/6',
         !hasSelectionVisual() && !isInteractive() && !isUnavailable() && 'hover:bg-white/4',
 
-        // Selected pick
-        isSelected() && 'outline-accent/50 bg-accent/8 hover:bg-accent/14 hover:outline-accent/65',
-
-        // Ban selected
-        isBanSelected() && 'outline-danger/50 bg-danger/8 hover:bg-danger/14 hover:outline-danger/65',
+        isSelected() && 'bg-accent/8 hover:bg-accent/14',
+        isBanSelected() && 'bg-danger/8 hover:bg-danger/14',
       )}
+      style={{
+        'border-radius': computeListItemBorderRadius(hasSelectionVisual(), props.neighborState),
+        'box-shadow': computeListItemBoxShadow(hasSelectionVisual(), isSelected() ? 'accent' : 'danger', props.neighborState),
+      }}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
       onMouseEnter={handleHoverMove}
