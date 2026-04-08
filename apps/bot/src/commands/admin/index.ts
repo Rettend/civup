@@ -25,7 +25,13 @@ export const command_admin = factory.command<AdminVar>(
       ),
     ),
     new SubGroup('season', 'Season management').options(
-      new SubCommand('start', 'Start a new season'),
+      new SubCommand('start', 'Start a new season').options(
+        new Option('season_number', 'Optional starting season number'),
+        new Option('soft_reset', 'Apply a soft rating reset?').choices(
+          { name: 'Yes', value: 'yes' },
+          { name: 'No', value: 'no' },
+        ),
+      ),
       new SubCommand('end', 'End the current season'),
     ),
     new SubGroup('ranked', 'Ranked commands').options(

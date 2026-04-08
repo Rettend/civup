@@ -1,5 +1,7 @@
 export interface AdminVar {
   name?: string
+  season_number?: string
+  soft_reset?: string
   key?: string
   value?: string
   player?: string
