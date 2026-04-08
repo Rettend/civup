@@ -17,6 +17,9 @@ interface CliOptions {
   replicates: number
   modes: SimMode[]
   seed: number
+  discountStart: number
+  discountFloor: number
+  discountExponent: number
 }
 
 interface VariantConfig {
@@ -96,12 +99,23 @@ interface ModeSummary {
   bands: BandSummary[]
 }
 
+interface ExpectedWinDiscountPolicy {
+  start: number
+  floor: number
+  exponent: number
+}
+
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const DEFAULT_OUT_DIR = resolve(repoRoot, 'tmp', 'rating-open-sim')
 const DEFAULT_SEED = 20260403
 const DEFAULT_GAMES = 100
 const DEFAULT_REPLICATES = 12
 const DEFAULT_MODES: SimMode[] = ['duel', 'duo', 'squad']
+const LIVE_DISCOUNT_POLICY: ExpectedWinDiscountPolicy = {
+  start: 0.70,
+  floor: 0.05,
+  exponent: 1.5,
+}
 
 const WIN_RATE_BANDS = [
   { label: '45-55%', low: 0.45, high: 0.55 },
@@ -184,6 +198,7 @@ await mkdir(args.outDir, { recursive: true })
 
 console.log(`[sim] running open-lobby rating population sim`)
 console.log(`[sim] modes=${args.modes.join(', ')} games=${args.games} replicates=${args.replicates} seed=${args.seed}`)
+console.log(`[sim] expected-win taper start=${formatPolicyPercent(args.discountStart)} floor=${formatPolicyPercent(args.discountFloor)} exp=${args.discountExponent}`)
 
 const variantsToRun = expandVariants(args.modes)
 const results: VariantSimulationResult[] = []
@@ -251,13 +266,16 @@ function parseCli(values: string[]): CliOptions {
     replicates: normalizePositiveInteger(options.get('replicates'), DEFAULT_REPLICATES),
     modes: parseModes(options.get('modes')),
     seed: normalizePositiveInteger(options.get('seed'), DEFAULT_SEED),
+    discountStart: normalizeUnitFloat(options.get('discount-start'), LIVE_DISCOUNT_POLICY.start),
+    discountFloor: normalizeUnitFloat(options.get('discount-floor'), LIVE_DISCOUNT_POLICY.floor),
+    discountExponent: normalizePositiveFloat(options.get('discount-exponent'), LIVE_DISCOUNT_POLICY.exponent),
   }
 }
 
 function printUsage(): void {
   console.log([
     'Usage:',
-    '  bun scripts/rating-open-sim.ts summary [--modes duel,duo,squad] [--games 100] [--replicates 12] [--seed 20260403] [--out-dir tmp/rating-open-sim] [--json]',
+    '  bun scripts/rating-open-sim.ts summary [--modes duel,duo,squad] [--games 100] [--replicates 12] [--seed 20260403] [--discount-start 0.70] [--discount-floor 0.05] [--discount-exponent 1.5] [--out-dir tmp/rating-open-sim] [--json]',
     '  bun scripts/rating-open-sim.ts help',
     '',
     'Notes:',
@@ -270,6 +288,19 @@ function printUsage(): void {
 function normalizePositiveInteger(value: string | undefined, fallback: number): number {
   if (!value) return fallback
   const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function normalizeUnitFloat(value: string | undefined, fallback: number): number {
+  if (!value) return fallback
+  const parsed = Number.parseFloat(value)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.max(0, Math.min(0.99, parsed))
+}
+
+function normalizePositiveFloat(value: string | undefined, fallback: number): number {
+  if (!value) return fallback
+  const parsed = Number.parseFloat(value)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
@@ -388,8 +419,22 @@ function simulateVariant(config: VariantConfig, gamesPerPlayer: number, seed: nu
     const teamAWon = random() < (actualProbabilities[0] ?? 0.5)
 
     const updates = teamAWon
-      ? calculateTeamRatings([{ players: teamAVisible }, { players: teamBVisible }])
-      : calculateTeamRatings([{ players: teamBVisible }, { players: teamAVisible }])
+      ? calculateTeamRatingsForSimulation(
+          [{ players: teamAVisible }, { players: teamBVisible }],
+          {
+            start: args.discountStart,
+            floor: args.discountFloor,
+            exponent: args.discountExponent,
+          },
+        )
+      : calculateTeamRatingsForSimulation(
+          [{ players: teamBVisible }, { players: teamAVisible }],
+          {
+            start: args.discountStart,
+            floor: args.discountFloor,
+            exponent: args.discountExponent,
+          },
+        )
     const updateByPlayerId = new Map(updates.map(update => [update.playerId, update]))
 
     for (const playerId of teamA.playerIds) {
@@ -607,6 +652,40 @@ function displayToMu(display: number): number {
   return DEFAULT_MU + ((display - DISPLAY_RATING_BASE) / DISPLAY_RATING_SCALE)
 }
 
+function calculateTeamRatingsForSimulation(
+  teams: Array<{ players: PlayerRating[] }>,
+  policy: ExpectedWinDiscountPolicy,
+) {
+  const currentUpdates = calculateTeamRatings(teams)
+  if (teams.length !== 2) return currentUpdates
+
+  const winnerProbability = predictWinProbabilities(teams.map(team => team.players))[0] ?? 0.5
+  const liveWeight = getExpectedWinWeight(LIVE_DISCOUNT_POLICY, winnerProbability)
+  const targetWeight = getExpectedWinWeight(policy, winnerProbability)
+  if (Math.abs(liveWeight - targetWeight) < 1e-12) return currentUpdates
+
+  const scale = targetWeight / liveWeight
+  return currentUpdates.map((update) => {
+    const afterMu = update.before.mu + ((update.after.mu - update.before.mu) * scale)
+    const afterSigma = update.before.sigma + ((update.after.sigma - update.before.sigma) * scale)
+    const displayAfter = displayRating(afterMu, afterSigma)
+    return {
+      ...update,
+      after: { mu: afterMu, sigma: afterSigma },
+      displayAfter,
+      displayDelta: displayAfter - update.displayBefore,
+    }
+  })
+}
+
+function getExpectedWinWeight(policy: ExpectedWinDiscountPolicy, winnerProbability: number): number {
+  const boundedProbability = Math.max(0, Math.min(1, winnerProbability))
+  if (boundedProbability <= policy.start) return 1
+
+  const normalizedTail = (1 - boundedProbability) / Math.max(1e-9, 1 - policy.start)
+  return Math.max(policy.floor, normalizedTail ** policy.exponent)
+}
+
 function summarizeModes(results: VariantSimulationResult[], requestedModes: SimMode[]): ModeSummary[] {
   return requestedModes.map((mode) => {
     const relevant = results.filter(result => result.config.publicMode === mode)
@@ -688,6 +767,10 @@ function renderMarkdown(modeSummaries: ModeSummary[], options: CliOptions): stri
 
 function formatPercent(value: number): string {
   return `${Math.round(value * 100)}%`
+}
+
+function formatPolicyPercent(value: number): string {
+  return `${(value * 100).toFixed(0)}%`
 }
 
 function formatMaybeRating(value: number | null): string {
