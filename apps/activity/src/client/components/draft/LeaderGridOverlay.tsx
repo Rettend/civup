@@ -5,6 +5,7 @@ import { throttle } from '@solid-primitives/scheduled'
 import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
+import { isWideWangQuery, WIDE_WANG_AUDIO_URL, WIDE_WANG_TRANSCRIPT } from '~/client/lib/wide-wang-easter-egg'
 import {
   getFilterTagOptions,
   getLeaderTagMeta,
@@ -106,13 +107,57 @@ export function LeaderGridOverlay() {
   const [tooltipSize, setTooltipSize] = createSignal({ width: 224, height: 96 })
   const [hydratedPickPreviewToken, setHydratedPickPreviewToken] = createSignal<string | null>(null)
   const [hydratedBanPreviewToken, setHydratedBanPreviewToken] = createSignal<string | null>(null)
+  const [wideWangVisibleLineCount, setWideWangVisibleLineCount] = createSignal(0)
   const sendThrottledBanPreview = throttle((civIds: string[]) => sendPreview('ban', civIds), PREVIEW_THROTTLE_MS)
   const sendThrottledPickPreview = throttle((civIds: string[]) => sendPreview('pick', civIds), PREVIEW_THROTTLE_MS)
   let tooltipRef: HTMLDivElement | undefined
+  let wideWangAudio: HTMLAudioElement | null = null
+  let wideWangRevealTimeouts: Array<ReturnType<typeof setTimeout>> = []
+
+  const clearWideWangRevealTimeouts = () => {
+    for (const timeout of wideWangRevealTimeouts) clearTimeout(timeout)
+    wideWangRevealTimeouts = []
+  }
+
+  const stopWideWangEasterEgg = () => {
+    clearWideWangRevealTimeouts()
+    if (wideWangAudio) {
+      wideWangAudio.pause()
+      wideWangAudio.currentTime = 0
+    }
+    if (wideWangVisibleLineCount() > 0) setWideWangVisibleLineCount(0)
+  }
+
+  const startWideWangEasterEgg = () => {
+    stopWideWangEasterEgg()
+    setWideWangVisibleLineCount(1)
+
+    for (const [index, line] of WIDE_WANG_TRANSCRIPT.entries()) {
+      if (index === 0 || line.revealDelayMs <= 0) continue
+      wideWangRevealTimeouts.push(setTimeout(() => setWideWangVisibleLineCount(index + 1), line.revealDelayMs))
+    }
+
+    if (!wideWangAudio) {
+      wideWangAudio = new Audio(resolveAssetUrl(WIDE_WANG_AUDIO_URL) ?? WIDE_WANG_AUDIO_URL)
+      wideWangAudio.preload = 'auto'
+    }
+
+    wideWangAudio.currentTime = 0
+    void wideWangAudio.play().catch((err) => {
+      console.error('Failed to play Wide Wang easter egg audio:', err)
+    })
+  }
+
+  const handleSearchInput = (value: string) => {
+    const wasWideWangQuery = isWideWangQuery(searchQuery())
+    setSearchQuery(value)
+    if (!wasWideWangQuery && isWideWangQuery(value)) startWideWangEasterEgg()
+  }
 
   onCleanup(() => {
     sendThrottledBanPreview.clear()
     sendThrottledPickPreview.clear()
+    stopWideWangEasterEgg()
   })
   let restoreFiltersAfterCollapse = false
   let restoreDetailLeaderId: string | null = null
@@ -123,6 +168,7 @@ export function LeaderGridOverlay() {
   const showDockedPanels = () => panelsDocked()
   const showStackedShelf = () => !panelsDocked() && !gridExpanded()
   const showFocusPanelStrip = () => !panelsDocked() && gridExpanded() && (filtersOpen() || hasDetail())
+  const showWideWangTranscript = () => gridViewMode() === 'grid' && !isRedDeathDraft() && wideWangVisibleLineCount() > 0
   const singleClickShowsDetail = () => panelsDocked()
   const overlayEntranceClass = () => skipNextOverlayAnimation ? '' : 'anim-overlay-in'
 
@@ -434,6 +480,20 @@ export function LeaderGridOverlay() {
     setFiltersOpen(false)
   })
 
+  createEffect(() => {
+    if (isRedDeathDraft()) {
+      if (wideWangVisibleLineCount() > 0) stopWideWangEasterEgg()
+      return
+    }
+
+    if (isWideWangQuery(searchQuery())) {
+      if (wideWangVisibleLineCount() === 0) startWideWangEasterEgg()
+      return
+    }
+
+    if (wideWangVisibleLineCount() > 0) stopWideWangEasterEgg()
+  })
+
   const renderFilterPanel = (className: string) => (
     <div class={cn('grid-panel-glow border border-border rounded-lg bg-bg-subtle flex min-h-0 flex-col shadow-2xl overflow-hidden', className)}>
       <div class="p-3 flex-1 overflow-y-auto">
@@ -519,7 +579,7 @@ export function LeaderGridOverlay() {
                 type="text"
                 placeholder="Search..."
                 value={searchQuery()}
-                onInput={e => setSearchQuery(e.currentTarget.value)}
+                onInput={e => handleSearchInput(e.currentTarget.value)}
                 class={cn(
                   'text-sm text-fg px-3.5 py-2 pl-8 rounded-lg w-full',
                   'bg-bg/60 border border-border',
@@ -618,7 +678,7 @@ export function LeaderGridOverlay() {
         </div>
       </div>
 
-      <div class={cn('p-1.5 flex-1 overflow-y-auto', showDockedPanels() ? 'min-h-[calc(3*4.5rem)]' : 'min-h-0')}>
+      <div class={cn('p-1.5 flex-1 overflow-y-auto relative', showDockedPanels() ? 'min-h-[calc(3*4.5rem)]' : 'min-h-0')}>
         <Switch>
           <Match when={gridViewMode() === 'multi-list'}>
             <div class="columns-[11rem]" style={{ 'column-gap': '0' }}>
@@ -665,8 +725,44 @@ export function LeaderGridOverlay() {
             </div>
           </Match>
           <Match when={gridViewMode() === 'grid'}>
+            <Show when={showWideWangTranscript()}>
+              <div class="pointer-events-none left-1.5 right-1.5 top-1.5 absolute z-10 flex gap-2 items-start">
+                <div class="w-[4.5rem] shrink-0 pointer-events-auto">
+                  <RandomLeaderCard
+                    class="w-full"
+                    disabled={!canUseRandom()}
+                    active={isRandomSelected()}
+                    accent={accent()}
+                    onClick={handleToggleRandom}
+                  />
+                </div>
+
+                <div class="min-h-[4.5rem] min-w-0 flex flex-1 items-center pr-2">
+                  <div class="mx-auto flex min-w-0 w-fit max-w-full flex-col gap-1.5 text-left justify-center">
+                    <For each={WIDE_WANG_TRANSCRIPT}>
+                      {(line, index) => {
+                        const visible = () => wideWangVisibleLineCount() > index()
+                        return (
+                          <p
+                            aria-hidden={!visible()}
+                            class={cn(
+                              'text-sm text-fg leading-relaxed font-medium',
+                              visible() ? 'visible' : 'invisible',
+                              visible() && index() > 0 && 'anim-fade-in',
+                            )}
+                          >
+                            {line.text}
+                          </p>
+                        )
+                      }}
+                    </For>
+                  </div>
+                </div>
+              </div>
+            </Show>
+
             <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
-              <Show when={!isRedDeathDraft()}>
+              <Show when={!isRedDeathDraft() && !showWideWangTranscript()}>
                 <RandomLeaderCard
                   disabled={!canUseRandom()}
                   active={isRandomSelected()}
@@ -684,7 +780,7 @@ export function LeaderGridOverlay() {
                   />
                 )}
               </For>
-              <For each={Array.from({ length: ghostCount() })}>
+              <For each={Array.from({ length: ghostCount() + (showWideWangTranscript() ? 1 : 0) })}>
                 {() => <div class="aspect-square" />}
               </For>
             </div>
@@ -892,12 +988,13 @@ function RandomLeaderListItem(props: { disabled: boolean, active: boolean, accen
   )
 }
 
-function RandomLeaderCard(props: { disabled: boolean, active: boolean, accent: 'gold' | 'red', onClick: () => void }) {
+function RandomLeaderCard(props: { class?: string, disabled: boolean, active: boolean, accent: 'gold' | 'red', onClick: () => void }) {
   const accentRing = () => props.accent === 'red' ? 'danger' : 'accent'
 
   return (
     <button
       class={cn(
+        props.class,
         'relative aspect-square p-0.5 group',
         'focus:outline-none',
         props.disabled
