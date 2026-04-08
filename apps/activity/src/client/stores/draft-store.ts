@@ -190,17 +190,6 @@ export function seatHasLockedPick(seatIndex: number): boolean {
   return draftStore.state?.picks.some(pick => pick.seatIndex === seatIndex) ?? false
 }
 
-export function canManagePickQueue(): boolean {
-  const s = draftStore.state
-  const seat = draftStore.seatIndex
-  if (!s || s.status !== 'active' || seat == null) return false
-  if (isRedDeathDraft()) return false
-
-  const step = s.steps[s.currentStepIndex]
-  if (!step || step.action !== 'pick') return false
-  return !seatHasLockedPick(seat)
-}
-
 export function canSendPickPreview(): boolean {
   const s = draftStore.state
   const seat = draftStore.seatIndex

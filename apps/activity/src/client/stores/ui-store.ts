@@ -174,13 +174,13 @@ export function clearSelections() {
   clearResultSelections()
 }
 
-/** Replace the primary pick and clear any queued fallback picks. */
+/** Replace the single selected pick. */
 export function setSelectedLeader(next: string | null | ((prev: string | null) => string | null)) {
   const resolved = typeof next === 'function' ? next(selectedLeader()) : next
   setPickSelections(resolved ? [resolved] : [])
 }
 
-/** Replace the full ordered pick queue and keep the primary pick signal in sync. */
+/** Replace the current pick selection and keep the primary pick signal in sync. */
 export function setPickSelections(next: string[] | ((prev: string[]) => string[])) {
   const resolved = typeof next === 'function' ? next(pickSelections()) : next
   const normalized = normalizePickSelections(resolved)
@@ -188,24 +188,12 @@ export function setPickSelections(next: string[] | ((prev: string[]) => string[]
   setUiState('selectedLeader', normalized[0] ?? null)
 }
 
-/** Shift/long-press toggles an ordered fallback pick queue. */
-export function togglePickSelection(civId: string, extendQueue: boolean) {
+/** Toggle the single selected pick. */
+export function togglePickSelection(civId: string) {
   setPickSelections((prev) => {
-    if (!extendQueue) {
-      if (prev.length === 1 && prev[0] === civId) return []
-      if (prev[0] === civId) return [civId]
-      return [civId]
-    }
-
-    const index = prev.indexOf(civId)
-    if (index >= 0) return prev.filter(id => id !== civId)
-    return [...prev, civId]
+    if (prev[0] === civId) return []
+    return [civId]
   })
-}
-
-/** Position of a queued pick, or -1 if absent. */
-export function pickSelectionIndex(civId: string): number {
-  return pickSelections().indexOf(civId)
 }
 
 /** Toggle a single leader tag within its category filter set */
@@ -290,7 +278,7 @@ export function clearResultSelections() {
 }
 
 function normalizePickSelections(civIds: string[]): string[] {
-  return normalizeIdList(civIds)
+  return normalizeIdList(civIds).slice(0, 1)
 }
 
 function normalizeIdList(ids: string[]): string[] {

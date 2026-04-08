@@ -215,7 +215,6 @@ When the Steam lobby link is set, other players see a gold Steam button top left
 - **Filters by tags**, see [Tag filters](#tag-filters) below
 - `left click` on a leader selects them, shows the leader details, and during pick phase it shows the leader to teammates
 - `right click` only opens the leader details panel
-- `shift + left click` or holding `left click` selects **additional leaders**: they are used as ordered fallbacks if your locked leader becomes unavailable, and also if the timer runs out without confirming a pick
 - **Random** will chose a random leader when confirmed (no way to know beforehand)
 
 ### Leader pool size

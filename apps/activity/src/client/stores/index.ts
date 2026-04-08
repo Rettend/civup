@@ -52,7 +52,6 @@ export {
 } from './connection-store'
 export {
   applySwapUpdate,
-  canManagePickQueue,
   canOpenLeaderGrid,
   canRequestSwapWith,
   canSendPickPreview,
@@ -99,7 +98,6 @@ export {
   phaseAccent,
   phaseAccentColor,
   phaseHeaderBg,
-  pickSelectionIndex,
   pickSelections,
   resultSelectionsLocked,
   searchQuery,
