@@ -23,7 +23,7 @@ export const DISPLAY_RATING_SCALE = 36
 export const Z_MULTIPLIER = 0
 
 /** Two-team favorites keep full value until this win probability. */
-const EXPECTED_WIN_DISCOUNT_START = 0.75
+const EXPECTED_WIN_DISCOUNT_START = 0.70
 
 /** Even the most lopsided wins still move rating a tiny bit. */
 const MIN_EXPECTED_WIN_WEIGHT = 0.05

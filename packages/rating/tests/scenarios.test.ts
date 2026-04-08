@@ -214,12 +214,12 @@ describe('duel progression simulations', () => {
   })
 
   test.each([
-    [0.5, 1010],
-    [0.52, 1030],
-    [0.55, 1061],
-    [0.6, 1108],
-    [0.7, 1186],
-    [0.8, 1243],
+    [0.5, 1009],
+    [0.52, 1028],
+    [0.55, 1057],
+    [0.6, 1101],
+    [0.7, 1167],
+    [0.8, 1221],
   ])('display rating after 100 games reflects a %p duel win rate against 1000 opposition', (winRate, expectedDisplay) => {
     const averageDisplay = averageDisplayAfterGames(winRate, 100)
     expect(averageDisplay).toBeCloseTo(expectedDisplay, 0)
@@ -238,16 +238,16 @@ describe('duel progression simulations', () => {
     expect(loser.displayDelta).toBeCloseTo(-54.69, 2)
   })
 
-  test('duel favorites keep normal value until 75% and then taper hard', () => {
+  test('duel favorites keep normal value until 70% and then taper hard', () => {
     const modestFavorite = calculateTeamRatings([
+      { players: [playerFromDisplay('fav-1150', 1150)] },
+      { players: [playerFromDisplay('dog-1000', 1000)] },
+    ])
+    const mediumFavorite = calculateTeamRatings([
       { players: [playerFromDisplay('fav-1200', 1200)] },
       { players: [playerFromDisplay('dog-1000', 1000)] },
     ])
     const heavyFavorite = calculateTeamRatings([
-      { players: [playerFromDisplay('fav-1400', 1400)] },
-      { players: [playerFromDisplay('dog-1000', 1000)] },
-    ])
-    const hugeSkillGap = calculateTeamRatings([
       { players: [playerFromDisplay('fav-1200', 1200)] },
       { players: [playerFromDisplay('dog-800', 800)] },
     ])
@@ -256,9 +256,9 @@ describe('duel progression simulations', () => {
       { players: [playerFromDisplay('dog-800', 800)] },
     ])
 
-    expect(playerById(modestFavorite, 'fav-1200').displayDelta).toBeCloseTo(36.96, 2)
-    expect(playerById(heavyFavorite, 'fav-1400').displayDelta).toBeCloseTo(4.79, 2)
-    expect(playerById(hugeSkillGap, 'fav-1200').displayDelta).toBeCloseTo(4.79, 2)
+    expect(playerById(modestFavorite, 'fav-1150').displayDelta).toBeCloseTo(41.18, 2)
+    expect(playerById(mediumFavorite, 'fav-1200').displayDelta).toBeCloseTo(28.16, 2)
+    expect(playerById(heavyFavorite, 'fav-1200').displayDelta).toBeCloseTo(3.65, 2)
     expect(playerById(fullStomp, 'fav-1400').displayDelta).toBeCloseTo(0.64, 2)
   })
 })
@@ -351,13 +351,13 @@ describe('teamer rating scenarios', () => {
     expect(fourStackProbabilities[0]).toBeCloseTo(0.9338, 3)
 
     for (const playerId of ['duo-pro1', 'duo-pro2']) {
-      expect(playerById(duoUpdates, playerId).displayDelta).toBeCloseTo(10.54, 2)
+      expect(playerById(duoUpdates, playerId).displayDelta).toBeCloseTo(8.02, 2)
     }
     for (const playerId of ['squad-pro1', 'squad-pro2', 'squad-pro3']) {
-      expect(playerById(squadUpdates, playerId).displayDelta).toBeCloseTo(3.77, 2)
+      expect(playerById(squadUpdates, playerId).displayDelta).toBeCloseTo(2.87, 2)
     }
     for (const playerId of ['stack4-pro1', 'stack4-pro2', 'stack4-pro3', 'stack4-pro4']) {
-      expect(playerById(fourStackUpdates, playerId).displayDelta).toBeCloseTo(1.51, 2)
+      expect(playerById(fourStackUpdates, playerId).displayDelta).toBeCloseTo(1.15, 2)
     }
   })
 
@@ -496,9 +496,9 @@ describe('cross-mode progression sanity', () => {
     const twoVTwo60 = averageTeamDisplayAfterGames(2, 0.6, 100)
     const threeVThree60 = averageTeamDisplayAfterGames(3, 0.6, 100)
 
-    expect(duel60).toBeCloseTo(1108, 0)
-    expect(twoVTwo60).toBeCloseTo(1158, 0)
-    expect(threeVThree60).toBeCloseTo(1195, 0)
+    expect(duel60).toBeCloseTo(1101, 0)
+    expect(twoVTwo60).toBeCloseTo(1148, 0)
+    expect(threeVThree60).toBeCloseTo(1183, 0)
     expect(twoVTwo60).toBeGreaterThan(duel60)
     expect(threeVThree60).toBeGreaterThan(twoVTwo60)
     expect(threeVThree60 - duel60).toBeLessThan(120)
