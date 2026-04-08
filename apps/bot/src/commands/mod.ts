@@ -7,6 +7,7 @@ import { clearLobbyMappings } from '../services/activity/index.ts'
 import { createChannelMessage } from '../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { rebuildLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
+import { clearTeamLeaderboardModeSnapshots } from '../services/leaderboard/team-snapshot.ts'
 import { clearLobbyById, filterQueueEntriesForLobby, getLobbyById, getLobbyByMatch } from '../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { cancelMatchByModerator, getStoredGameModeContext, resolveMatchByModerator } from '../services/match/index.ts'
@@ -264,6 +265,9 @@ export const command_mod = factory.command<ModVar>(
             c.executionCtx.waitUntil((async () => {
               try {
                 await rebuildLeaderboardModeSnapshot(db, kv, matchContext.leaderboardMode)
+                if (matchContext.leaderboardMode === 'duo' || matchContext.leaderboardMode === 'squad') {
+                  await clearTeamLeaderboardModeSnapshots(kv, matchContext.leaderboardMode)
+                }
               }
               catch (error) {
                 console.error(`Failed to rebuild leaderboard snapshot after resolving match ${result.match.id}:`, error)

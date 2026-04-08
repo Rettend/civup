@@ -1,4 +1,4 @@
-import { CIVUP_INTERNAL_SECRET_HEADER, normalizeHost } from '@civup/utils'
+import { CIVUP_INTERNAL_SECRET_HEADER, isDev, normalizeHost } from '@civup/utils'
 
 interface StateStoreEnv {
   KV: KVNamespace
@@ -112,6 +112,7 @@ export function createStateStore(env: StateStoreEnv): KVNamespace {
   const partyHost = normalizeHost(env.PARTY_HOST, DEFAULT_PARTY_HOST)
   const endpoint = `${partyHost}/parties/state/${STATE_ROOM_NAME}`
   const secret = env.CIVUP_SECRET?.trim() ?? ''
+  const debugStateStore = isDev({ configuredHosts: [env.PARTY_HOST] })
 
   const store = {
     async get(key: string, type?: string) {
@@ -123,7 +124,7 @@ export function createStateStore(env: StateStoreEnv): KVNamespace {
         op: 'get',
         key,
         type: type === 'json' ? 'json' : undefined,
-      })
+      }, debugStateStore)
       return response.value as any
     },
 
@@ -138,7 +139,7 @@ export function createStateStore(env: StateStoreEnv): KVNamespace {
         key,
         value,
         expirationTtl: options?.expirationTtl,
-      })
+      }, debugStateStore)
     },
 
     async delete(key: string) {
@@ -150,7 +151,7 @@ export function createStateStore(env: StateStoreEnv): KVNamespace {
       await stateKvRequest(endpoint, secret, {
         op: 'delete',
         key,
-      })
+      }, debugStateStore)
     },
 
     async list(options?: KVNamespaceListOptions) {
@@ -162,7 +163,7 @@ export function createStateStore(env: StateStoreEnv): KVNamespace {
       const response = await stateKvRequest<StateKvResponseList>(endpoint, secret, {
         op: 'list',
         prefix,
-      })
+      }, debugStateStore)
 
       return {
         keys: response.keys,
@@ -199,7 +200,7 @@ export function createStateStore(env: StateStoreEnv): KVNamespace {
             key: entry.key,
             type: entry.type,
           })),
-        })
+        }, debugStateStore)
 
         for (let index = 0; index < hotEntries.length; index++) {
           const hotEntry = hotEntries[index]
@@ -236,7 +237,7 @@ export function createStateStore(env: StateStoreEnv): KVNamespace {
         await stateKvRequest(endpoint, secret, {
           op: 'mput',
           entries: hotEntries,
-        })
+        }, debugStateStore)
       }
 
       if (coldWrites.length > 0) {
@@ -265,7 +266,7 @@ export function createStateStore(env: StateStoreEnv): KVNamespace {
         await stateKvRequest(endpoint, secret, {
           op: 'mdelete',
           keys: hotKeys,
-        })
+        }, debugStateStore)
       }
 
       if (coldDeletes.length > 0) {
@@ -332,7 +333,13 @@ async function stateKvRequest<T = unknown>(
   endpoint: string,
   secret: string,
   payload: StateKvRequest,
+  debug = false,
 ): Promise<T> {
+  if (debug) {
+    // eslint-disable-next-line no-console
+    console.log('[state-store]', describeStateStorePayload(payload))
+  }
+
   const headers = new Headers({
     'Content-Type': 'application/json',
   })
@@ -352,4 +359,29 @@ async function stateKvRequest<T = unknown>(
   }
 
   return await response.json<T>()
+}
+
+function describeStateStorePayload(payload: StateKvRequest): string {
+  switch (payload.op) {
+    case 'get':
+      return `get key=${payload.key}`
+    case 'put':
+      return `put key=${payload.key}`
+    case 'delete':
+      return `delete key=${payload.key}`
+    case 'list':
+      return `list prefix=${payload.prefix ?? ''}`
+    case 'mget':
+      return `mget count=${payload.entries.length} keys=${summarizeKeys(payload.entries.map(entry => entry.key))}`
+    case 'mput':
+      return `mput count=${payload.entries.length} keys=${summarizeKeys(payload.entries.map(entry => entry.key))}`
+    case 'mdelete':
+      return `mdelete count=${payload.keys.length} keys=${summarizeKeys(payload.keys)}`
+  }
+}
+
+function summarizeKeys(keys: string[]): string {
+  const visibleKeys = keys.slice(0, 4)
+  const suffix = keys.length > visibleKeys.length ? ',…' : ''
+  return `${visibleKeys.join(',')}${suffix}`
 }
