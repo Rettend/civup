@@ -1,7 +1,7 @@
 import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import type { FfaEntry, TeamInput } from '@civup/rating'
-import { matches, matchParticipants, playerRatings, seasons } from '@civup/db'
+import { matches, matchParticipants, playerRatings, playerRatingSeeds, seasons } from '@civup/db'
 import { isTeamMode, leaderboardModesToGameModes } from '@civup/game'
 import { calculateRatings, createRating, displayRating, LEADERBOARD_MIN_GAMES, seasonReset } from '@civup/rating'
 import { and, asc, eq, inArray } from 'drizzle-orm'
@@ -37,7 +37,7 @@ export async function recalculateLeaderboardMode(
   leaderboardMode: LeaderboardMode,
 ): Promise<{ matchIds: string[] } | { error: string }> {
   const gameModes = leaderboardModesToGameModes(leaderboardMode)
-  const [completedMatches, seasonRows] = await Promise.all([
+  const [completedMatches, seasonRows, seedRows] = await Promise.all([
     db
       .select({
         id: matches.id,
@@ -59,6 +59,14 @@ export async function recalculateLeaderboardMode(
       })
       .from(seasons)
       .orderBy(asc(seasons.startsAt), asc(seasons.id)),
+    db
+      .select({
+        playerId: playerRatingSeeds.playerId,
+        mu: playerRatingSeeds.mu,
+        sigma: playerRatingSeeds.sigma,
+      })
+      .from(playerRatingSeeds)
+      .where(eq(playerRatingSeeds.mode, leaderboardMode)),
   ])
   const completedMatchIds = completedMatches.map(match => match.id)
   const allParticipantRows = completedMatchIds.length > 0
@@ -82,6 +90,16 @@ export async function recalculateLeaderboardMode(
     wins: number
     lastPlayedAt: number | null
   }>()
+
+  for (const seed of seedRows) {
+    ratingStateByPlayer.set(seed.playerId, {
+      mu: seed.mu,
+      sigma: seed.sigma,
+      gamesPlayed: 0,
+      wins: 0,
+      lastPlayedAt: null,
+    })
+  }
   let seasonIndex = 0
 
   function applySeasonResetsUntil(timestamp: number): void {

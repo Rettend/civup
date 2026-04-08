@@ -22,6 +22,15 @@ export const DISPLAY_RATING_SCALE = 36
 /** Visible Elo intentionally ignores sigma; uncertainty stays internal. */
 export const Z_MULTIPLIER = 0
 
+/** Two-team favorites keep full value until this win probability. */
+const EXPECTED_WIN_DISCOUNT_START = 0.75
+
+/** Even the most lopsided wins still move rating a tiny bit. */
+const MIN_EXPECTED_WIN_WEIGHT = 0.05
+
+/** Steeper taper that quickly flattens obvious farm wins. */
+const EXPECTED_WIN_WEIGHT_EXPONENT = 1.5
+
 /** Core openskill parameters tweaked for Civ 6 */
 export const RATING_OPTIONS = {
   beta: 3.0, // Trust game outcomes more (less luck)
@@ -48,10 +57,45 @@ function getRankedRatingOptions(sides: number) {
   }
 }
 
-/** Minimum games required to appear on leaderboard */
-export const LEADERBOARD_MIN_GAMES = 3
+function getExpectedWinWeight(winnerProbability: number): number {
+  const boundedProbability = Math.max(0, Math.min(1, winnerProbability))
+  if (boundedProbability <= EXPECTED_WIN_DISCOUNT_START) return 1
+
+  const normalizedTail = (1 - boundedProbability) / (1 - EXPECTED_WIN_DISCOUNT_START)
+  return Math.max(MIN_EXPECTED_WIN_WEIGHT, normalizedTail ** EXPECTED_WIN_WEIGHT_EXPONENT)
+}
+
+function scaleRatingUpdates(updates: RatingUpdate[], weight: number): RatingUpdate[] {
+  if (weight >= 1) return updates
+
+  return updates.map((update) => {
+    const afterMu = update.before.mu + ((update.after.mu - update.before.mu) * weight)
+    const afterSigma = update.before.sigma + ((update.after.sigma - update.before.sigma) * weight)
+    const displayAfter = displayRating(afterMu, afterSigma)
+
+    return {
+      ...update,
+      after: { mu: afterMu, sigma: afterSigma },
+      displayAfter,
+      displayDelta: displayAfter - update.displayBefore,
+    }
+  })
+}
+
+/** Minimum games required to appear on solo leaderboards. */
+export const LEADERBOARD_MIN_GAMES = 10
+
+/** Minimum games required to appear on duo/squad player leaderboards. */
+export const TEAM_LEADERBOARD_MIN_GAMES = 5
+
+/** Minimum total ranked games required before non-fallback ranked roles apply. */
+export const RANKED_ROLE_MIN_GAMES = 10
 
 export type LeaderboardMode = 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death'
+
+export function getLeaderboardMinGames(mode: LeaderboardMode): number {
+  return mode === 'duo' || mode === 'squad' ? TEAM_LEADERBOARD_MIN_GAMES : LEADERBOARD_MIN_GAMES
+}
 
 // ── Player Rating ───────────────────────────────────────────
 
@@ -108,8 +152,9 @@ export interface TeamInput {
  * For a duel, each "team" has exactly 1 player.
  * For 2v2, each team has 2 players; for 3v3, each team has 3; for 4v4, each team has 4.
  *
- * Two-team matchups use low beta (duel tuning). Three or more teams use the same model and
- * beta curve as FFA so placements stay balanced.
+ * Two-team matchups use low beta (duel tuning). They also taper extremely expected wins so
+ * stacked teams in open lobbies cannot farm much rating from obviously weaker opponents.
+ * Three or more teams use the same model and beta curve as FFA so placements stay balanced.
  *
  * OpenSkill's `rate()` takes teams in placement order by default.
  *
@@ -128,6 +173,9 @@ export function calculateTeamRatings(teams: TeamInput[]): RatingUpdate[] {
   const ratingOptions = teams.length > 2
     ? getRankedRatingOptions(teams.length)
     : RATING_OPTIONS
+  const winnerProbability = teams.length === 2
+    ? (predictWin(osTeams, ratingOptions)[0] ?? 0.5)
+    : null
 
   const updatedTeams = rate(osTeams, { rank, ...ratingOptions })
 
@@ -154,7 +202,8 @@ export function calculateTeamRatings(teams: TeamInput[]): RatingUpdate[] {
     }
   }
 
-  return updates
+  if (winnerProbability == null) return updates
+  return scaleRatingUpdates(updates, getExpectedWinWeight(winnerProbability))
 }
 
 // ── FFA Ratings ─────────────────────────────────────────────
