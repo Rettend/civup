@@ -1,11 +1,11 @@
 import type { Leader } from '@civup/game'
+import type { LeaderListNeighborState } from './LeaderCard'
 import type { LeaderTagCategory } from '~/client/lib/leader-tags'
 import { factions, getLeaders, searchFactions, searchLeaders } from '@civup/game'
 import { throttle } from '@solid-primitives/scheduled'
 import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
-import { isWideWangQuery, WIDE_WANG_AUDIO_URL, WIDE_WANG_TRANSCRIPT } from '~/client/lib/wide-wang-easter-egg'
 import {
   getFilterTagOptions,
   getLeaderTagMeta,
@@ -13,6 +13,7 @@ import {
   TAG_CATEGORY_LABELS,
   TAG_CATEGORY_ORDER,
 } from '~/client/lib/leader-tags'
+import { isWideWangQuery, WIDE_WANG_AUDIO_URL, WIDE_WANG_TRANSCRIPT } from '~/client/lib/wide-wang-easter-egg'
 import {
   activeTagFilterCount,
   banSelections,
@@ -50,7 +51,7 @@ import {
   tagFilters,
   toggleTagFilter,
 } from '~/client/stores'
-import { LeaderCard, LeaderListItem } from './LeaderCard'
+import { computeListItemBorderRadius, computeListItemBoxShadow, LeaderCard, LeaderListItem } from './LeaderCard'
 import { LeaderDetailPanel } from './LeaderDetailPanel'
 
 const DOCKED_PANEL_MIN_WIDTH = 1280
@@ -87,6 +88,72 @@ function resolveTooltipPosition(x: number, y: number, width: number, height: num
   top = Math.max(edge, Math.min(top, vh - height - edge))
 
   return { left, top }
+}
+
+function computeListNeighborMap(
+  itemIds: string[],
+  columns: number,
+  isSelected: (id: string) => boolean,
+  hoveredIndex: number | null,
+): Map<string, LeaderListNeighborState> {
+  const n = itemIds.length
+  const c = Math.max(1, Math.min(columns, n || 1))
+  const map = new Map<string, LeaderListNeighborState>()
+
+  if (n === 0) return map
+
+  const base = Math.floor(n / c)
+  const remainder = n % c
+
+  const colStarts: number[] = []
+  const colHeights: number[] = []
+  let start = 0
+  for (let j = 0; j < c; j++) {
+    colStarts.push(start)
+    const h = base + (j < remainder ? 1 : 0)
+    colHeights.push(h)
+    start += h
+  }
+
+  for (let i = 0; i < n; i++) {
+    let col = 0
+    let row = i
+    for (let j = 0; j < c; j++) {
+      if (i < colStarts[j]! + colHeights[j]!) {
+        col = j
+        row = i - colStarts[j]!
+        break
+      }
+    }
+
+    const aboveIdx = row > 0 ? i - 1 : -1
+    const belowIdx = row < colHeights[col]! - 1 ? i + 1 : -1
+
+    let leftIdx = -1
+    if (col > 0 && row < colHeights[col - 1]!) {
+      leftIdx = colStarts[col - 1]! + row
+    }
+    let rightIdx = -1
+    if (col < c - 1 && row < colHeights[col + 1]!) {
+      rightIdx = colStarts[col + 1]! + row
+    }
+
+    const selAt = (idx: number) => idx >= 0 && idx < n && isSelected(itemIds[idx]!)
+    const hovAt = (idx: number) => idx >= 0 && idx === hoveredIndex
+
+    map.set(itemIds[i]!, {
+      selectedAbove: selAt(aboveIdx),
+      selectedBelow: selAt(belowIdx),
+      selectedLeft: selAt(leftIdx),
+      selectedRight: selAt(rightIdx),
+      hoveredAbove: hovAt(aboveIdx),
+      hoveredBelow: hovAt(belowIdx),
+      hoveredLeft: hovAt(leftIdx),
+      hoveredRight: hovAt(rightIdx),
+    })
+  }
+
+  return map
 }
 
 /** Collapsible leader grid overlay */
@@ -303,6 +370,29 @@ export function LeaderGridOverlay() {
   })
 
   const ghostCount = createMemo(() => Math.max(0, draftLeaderPoolIds().size - filteredLeaders().length))
+
+  const showRandomInList = () => !isRedDeathDraft() && !showWideWangTranscript()
+  const [hoveredListIndex, setHoveredListIndex] = createSignal<number | null>(null)
+  const [multiListColumns, setMultiListColumns] = createSignal(1)
+
+  const listItemIds = createMemo(() => {
+    const ids: string[] = []
+    if (showRandomInList()) ids.push('__random__')
+    for (const leader of filteredLeaders()) ids.push(leader.id)
+    return ids
+  })
+
+  const isItemVisuallySelected = (id: string): boolean => {
+    if (id === '__random__') return isRandomSelected()
+    return selectedLeader() === id || banSelections().includes(id)
+  }
+
+  const listNeighborMap = createMemo((): Map<string, LeaderListNeighborState> => {
+    const viewMode = gridViewMode()
+    if (viewMode === 'grid') return new Map()
+    const cols = viewMode === 'multi-list' ? multiListColumns() : 1
+    return computeListNeighborMap(listItemIds(), cols, isItemVisuallySelected, hoveredListIndex())
+  })
 
   const isTagActive = (category: LeaderTagCategory, tag: string): boolean => {
     return tagFilters()[category].includes(tag)
@@ -692,23 +782,50 @@ export function LeaderGridOverlay() {
 
         <Switch>
           <Match when={gridViewMode() === 'multi-list'}>
-            <div class="columns-[11rem]" style={{ 'column-gap': '0' }}>
-              <Show when={!isRedDeathDraft() && !showWideWangTranscript()}>
-                <div style={{ 'break-inside': 'avoid-column' }}>
+            <div
+              ref={(el) => {
+                const remPx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
+                const colWidth = 11 * remPx
+                const update = () => {
+                  if (!el.isConnected) return
+                  setMultiListColumns(Math.max(1, Math.floor(el.clientWidth / colWidth)))
+                }
+                update()
+                const observer = new ResizeObserver(update)
+                observer.observe(el)
+                onCleanup(() => {
+                  observer.disconnect()
+                  setMultiListColumns(1)
+                })
+              }}
+              class="columns-[11rem]"
+              style={{ 'column-gap': '0' }}
+              onMouseLeave={() => setHoveredListIndex(null)}
+            >
+              <Show when={showRandomInList()}>
+                <div
+                  style={{ 'break-inside': 'avoid-column' }}
+                  onMouseEnter={() => setHoveredListIndex(0)}
+                >
                   <RandomLeaderListItem
                     disabled={!canUseRandom()}
                     active={isRandomSelected()}
                     accent={accent()}
+                    neighborState={listNeighborMap().get('__random__')}
                     onClick={handleToggleRandom}
                   />
                 </div>
               </Show>
               <For each={filteredLeaders()}>
-                {leader => (
-                  <div style={{ 'break-inside': 'avoid-column' }}>
+                {(leader, index) => (
+                  <div
+                    style={{ 'break-inside': 'avoid-column' }}
+                    onMouseEnter={() => setHoveredListIndex(index() + (showRandomInList() ? 1 : 0))}
+                  >
                     <LeaderListItem
                       leader={leader}
                       singleClickShowsDetail={singleClickShowsDetail()}
+                      neighborState={listNeighborMap().get(leader.id)}
                       onHoverMove={handleLeaderHoverMove}
                       onHoverLeave={handleLeaderHoverLeave}
                     />
@@ -718,23 +835,29 @@ export function LeaderGridOverlay() {
             </div>
           </Match>
           <Match when={gridViewMode() === 'list'}>
-            <div class="flex flex-col">
-              <Show when={!isRedDeathDraft() && !showWideWangTranscript()}>
-                <RandomLeaderListItem
-                  disabled={!canUseRandom()}
-                  active={isRandomSelected()}
-                  accent={accent()}
-                  onClick={handleToggleRandom}
-                />
+            <div class="flex flex-col" onMouseLeave={() => setHoveredListIndex(null)}>
+              <Show when={showRandomInList()}>
+                <div onMouseEnter={() => setHoveredListIndex(0)}>
+                  <RandomLeaderListItem
+                    disabled={!canUseRandom()}
+                    active={isRandomSelected()}
+                    accent={accent()}
+                    neighborState={listNeighborMap().get('__random__')}
+                    onClick={handleToggleRandom}
+                  />
+                </div>
               </Show>
               <For each={filteredLeaders()}>
-                {leader => (
-                  <LeaderListItem
-                    leader={leader}
-                    singleClickShowsDetail={singleClickShowsDetail()}
-                    onHoverMove={handleLeaderHoverMove}
-                    onHoverLeave={handleLeaderHoverLeave}
-                  />
+                {(leader, index) => (
+                  <div onMouseEnter={() => setHoveredListIndex(index() + (showRandomInList() ? 1 : 0))}>
+                    <LeaderListItem
+                      leader={leader}
+                      singleClickShowsDetail={singleClickShowsDetail()}
+                      neighborState={listNeighborMap().get(leader.id)}
+                      onHoverMove={handleLeaderHoverMove}
+                      onHoverLeave={handleLeaderHoverLeave}
+                    />
+                  </div>
                 )}
               </For>
             </div>
@@ -984,22 +1107,26 @@ function WideWangTranscriptBanner(props: {
   )
 }
 
-function RandomLeaderListItem(props: { class?: string, disabled: boolean, active: boolean, accent: 'gold' | 'red', onClick: () => void }) {
+function RandomLeaderListItem(props: { class?: string, disabled: boolean, active: boolean, accent: 'gold' | 'red', neighborState?: LeaderListNeighborState, onClick: () => void }) {
   const accentColor = () => props.accent === 'red' ? 'danger' : 'accent'
 
   return (
     <button
       class={cn(
-        'relative flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left group min-w-0 transition-all duration-150',
-        'outline outline-2 outline-transparent',
+        'relative flex w-full items-center gap-2 px-1.5 py-1 text-left group min-w-0 transition-all duration-150',
+        'focus:outline-none',
         props.disabled ? 'cursor-default' : 'cursor-pointer',
 
         !props.active && !props.disabled && 'hover:bg-white/6',
 
-        !props.disabled && props.active && accentColor() === 'accent' && 'outline-accent/50 bg-accent/8 hover:bg-accent/14 hover:outline-accent/65',
-        !props.disabled && props.active && accentColor() === 'danger' && 'outline-danger/50 bg-danger/8 hover:bg-danger/14 hover:outline-danger/65',
+        !props.disabled && props.active && accentColor() === 'accent' && 'bg-accent/8 hover:bg-accent/14',
+        !props.disabled && props.active && accentColor() === 'danger' && 'bg-danger/8 hover:bg-danger/14',
         props.class,
       )}
+      style={{
+        'border-radius': computeListItemBorderRadius(props.active && !props.disabled, props.neighborState),
+        'box-shadow': computeListItemBoxShadow(props.active && !props.disabled, accentColor(), props.neighborState),
+      }}
       disabled={props.disabled}
       onClick={() => props.onClick()}
     >
