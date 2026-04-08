@@ -1,11 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  ADMIN_COMMAND_DEFAULT_MEMBER_PERMISSIONS,
   addModRole,
   canUseModCommands,
   getModRoleIds,
   hasAdminPermission,
   removeModRole,
 } from '../../src/services/permissions/index.ts'
+import { command_admin } from '../../src/commands/admin/index.ts'
+import { factory } from '../../src/setup.ts'
 import { createTestKv } from '../helpers/test-env.ts'
 
 describe('permissions service', () => {
@@ -13,9 +16,19 @@ describe('permissions service', () => {
     const administratorBit = (1n << 3n).toString()
     const manageGuildBit = (1n << 5n).toString()
 
+    expect(ADMIN_COMMAND_DEFAULT_MEMBER_PERMISSIONS).toBe(manageGuildBit)
     expect(hasAdminPermission({ permissions: administratorBit })).toBe(true)
     expect(hasAdminPermission({ permissions: manageGuildBit })).toBe(true)
     expect(hasAdminPermission({ permissions: '0' })).toBe(false)
+  })
+
+  test('registers /admin with manage server default permissions', () => {
+    const [registeredAdmin] = factory.getCommands([command_admin]).map(command => command.toJSON())
+
+    expect(registeredAdmin).toMatchObject({
+      name: 'admin',
+      default_member_permissions: ADMIN_COMMAND_DEFAULT_MEMBER_PERMISSIONS,
+    })
   })
 
   test('configured mod roles can use /mod while non-members cannot', async () => {

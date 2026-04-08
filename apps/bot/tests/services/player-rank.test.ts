@@ -30,8 +30,8 @@ describe('player rank views', () => {
     await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
     await seedPlayers(db, 'duel', 8, { prefix: 'duel' })
     await seedPlayerIdentity(db, HERO_ID)
-    await seedRating(db, { playerId: HERO_ID, mode: 'ffa', mu: 24, sigma: 8.333, gamesPlayed: 6, lastPlayedAt: NOW })
-    await seedRating(db, { playerId: HERO_ID, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 6, lastPlayedAt: NOW })
+    await seedRating(db, { playerId: HERO_ID, mode: 'ffa', mu: 24, sigma: 8.333, gamesPlayed: 10, lastPlayedAt: NOW })
+    await seedRating(db, { playerId: HERO_ID, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 10, lastPlayedAt: NOW })
 
     const profile = await getPlayerRankProfile(db, kv, 'guild-1', HERO_ID, NOW)
 
@@ -64,8 +64,8 @@ describe('player rank views', () => {
     await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
     await seedPlayers(db, 'duel', 8, { prefix: 'duel' })
     await seedPlayerIdentity(db, HERO_ID)
-    await seedRating(db, { playerId: HERO_ID, mode: 'ffa', mu: 24, sigma: 8.333, gamesPlayed: 6, lastPlayedAt: NOW })
-    await seedRating(db, { playerId: HERO_ID, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 6, lastPlayedAt: NOW })
+    await seedRating(db, { playerId: HERO_ID, mode: 'ffa', mu: 24, sigma: 8.333, gamesPlayed: 10, lastPlayedAt: NOW })
+    await seedRating(db, { playerId: HERO_ID, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 10, lastPlayedAt: NOW })
     await seedSeason(db, { id: 'season-2', seasonNumber: 2, name: 'Season 2', startsAt: NOW - 2 * 86_400_000, endsAt: null, active: true })
     await seedSeason(db, { id: 'season-1', seasonNumber: 1, name: 'Season 1', startsAt: NOW - 20 * 86_400_000, endsAt: NOW - 10 * 86_400_000, active: false })
     await db.insert(seasonPeakRanks).values({ seasonId: 'season-1', playerId: HERO_ID, tier: TIER_2, sourceMode: 'duel', achievedAt: NOW - 15_000 })
@@ -266,7 +266,7 @@ async function seedPlayers(
       mode,
       mu: 40 - index,
       sigma: 6,
-      gamesPlayed: 6,
+      gamesPlayed: 12,
       lastPlayedAt: NOW,
     })
   }

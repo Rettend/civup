@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import { playerRatings } from '@civup/db'
 import { LEADERBOARD_MODES, parseLeaderboardMode } from '@civup/game'
-import { displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'
+import { displayRating, getLeaderboardMinGames } from '@civup/rating'
 import { eq } from 'drizzle-orm'
 import { previewRankedRoles } from '../ranked/role-sync.ts'
 import { getConfiguredRankedRoleId, getConfiguredRankedRoleLabel, getLowestRankedRoleTier, getRankedRoleConfig } from '../ranked/roles.ts'
@@ -46,7 +46,7 @@ export async function getPlayerRankProfile(
 
   const modes = Object.fromEntries(LEADERBOARD_MODES.map((mode) => {
     const ratingRow = ratingByMode.get(mode)
-    const eligible = (ratingRow?.gamesPlayed ?? 0) >= LEADERBOARD_MIN_GAMES
+    const eligible = (ratingRow?.gamesPlayed ?? 0) >= getLeaderboardMinGames(mode)
     const tier = previewPlayer?.ladderTiers[mode] ?? null
 
     return [mode, {

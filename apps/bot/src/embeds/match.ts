@@ -263,7 +263,7 @@ function lobbyReportedEmbed(
   const fields = [
     moderationField,
     leaderboardUpdate ? { name: 'Leaderboard', value: leaderboardUpdate, inline: false } : null,
-    rankedRoleUpdate ? { name: 'Rank Roles', value: rankedRoleUpdate, inline: false } : null,
+    rankedRoleUpdate ? { name: 'Ranked Roles', value: rankedRoleUpdate, inline: false } : null,
   ].filter((field): field is { name: string, value: string, inline: false } => field !== null)
 
   return fields.length > 0 ? embed.fields(...fields) : embed
