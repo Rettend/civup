@@ -168,7 +168,7 @@ export function LeaderGridOverlay() {
   const showDockedPanels = () => panelsDocked()
   const showStackedShelf = () => !panelsDocked() && !gridExpanded()
   const showFocusPanelStrip = () => !panelsDocked() && gridExpanded() && (filtersOpen() || hasDetail())
-  const showWideWangTranscript = () => gridViewMode() === 'grid' && !isRedDeathDraft() && wideWangVisibleLineCount() > 0
+  const showWideWangTranscript = () => !isRedDeathDraft() && wideWangVisibleLineCount() > 0
   const singleClickShowsDetail = () => panelsDocked()
   const overlayEntranceClass = () => skipNextOverlayAnimation ? '' : 'anim-overlay-in'
 
@@ -679,32 +679,47 @@ export function LeaderGridOverlay() {
       </div>
 
       <div class={cn('p-1.5 flex-1 overflow-y-auto relative', showDockedPanels() ? 'min-h-[calc(3*4.5rem)]' : 'min-h-0')}>
+        <Show when={showWideWangTranscript()}>
+          <WideWangTranscriptBanner
+            mode={gridViewMode() === 'grid' ? 'grid' : 'list'}
+            visibleLineCount={wideWangVisibleLineCount()}
+            canUseRandom={canUseRandom()}
+            randomSelected={isRandomSelected()}
+            accent={accent()}
+            onRandomClick={handleToggleRandom}
+          />
+        </Show>
+
         <Switch>
           <Match when={gridViewMode() === 'multi-list'}>
             <div class="columns-[11rem]" style={{ 'column-gap': '0' }}>
-              <Show when={!isRedDeathDraft()}>
-                <RandomLeaderListItem
-                  disabled={!canUseRandom()}
-                  active={isRandomSelected()}
-                  accent={accent()}
-                  onClick={handleToggleRandom}
-                />
+              <Show when={!isRedDeathDraft() && !showWideWangTranscript()}>
+                <div style={{ 'break-inside': 'avoid-column' }}>
+                  <RandomLeaderListItem
+                    disabled={!canUseRandom()}
+                    active={isRandomSelected()}
+                    accent={accent()}
+                    onClick={handleToggleRandom}
+                  />
+                </div>
               </Show>
               <For each={filteredLeaders()}>
                 {leader => (
-                  <LeaderListItem
-                    leader={leader}
-                    singleClickShowsDetail={singleClickShowsDetail()}
-                    onHoverMove={handleLeaderHoverMove}
-                    onHoverLeave={handleLeaderHoverLeave}
-                  />
+                  <div style={{ 'break-inside': 'avoid-column' }}>
+                    <LeaderListItem
+                      leader={leader}
+                      singleClickShowsDetail={singleClickShowsDetail()}
+                      onHoverMove={handleLeaderHoverMove}
+                      onHoverLeave={handleLeaderHoverLeave}
+                    />
+                  </div>
                 )}
               </For>
             </div>
           </Match>
           <Match when={gridViewMode() === 'list'}>
             <div class="flex flex-col">
-              <Show when={!isRedDeathDraft()}>
+              <Show when={!isRedDeathDraft() && !showWideWangTranscript()}>
                 <RandomLeaderListItem
                   disabled={!canUseRandom()}
                   active={isRandomSelected()}
@@ -725,42 +740,6 @@ export function LeaderGridOverlay() {
             </div>
           </Match>
           <Match when={gridViewMode() === 'grid'}>
-            <Show when={showWideWangTranscript()}>
-              <div class="pointer-events-none left-1.5 right-1.5 top-1.5 absolute z-10 flex gap-2 items-start">
-                <div class="w-[4.5rem] shrink-0 pointer-events-auto">
-                  <RandomLeaderCard
-                    class="w-full"
-                    disabled={!canUseRandom()}
-                    active={isRandomSelected()}
-                    accent={accent()}
-                    onClick={handleToggleRandom}
-                  />
-                </div>
-
-                <div class="min-h-[4.5rem] min-w-0 flex flex-1 items-center pr-2">
-                  <div class="mx-auto flex min-w-0 w-fit max-w-full flex-col gap-1.5 text-left justify-center">
-                    <For each={WIDE_WANG_TRANSCRIPT}>
-                      {(line, index) => {
-                        const visible = () => wideWangVisibleLineCount() > index()
-                        return (
-                          <p
-                            aria-hidden={!visible()}
-                            class={cn(
-                              'text-sm text-fg leading-relaxed font-medium',
-                              visible() ? 'visible' : 'invisible',
-                              visible() && index() > 0 && 'anim-fade-in',
-                            )}
-                          >
-                            {line.text}
-                          </p>
-                        )
-                      }}
-                    </For>
-                  </div>
-                </div>
-              </div>
-            </Show>
-
             <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
               <Show when={!isRedDeathDraft() && !showWideWangTranscript()}>
                 <RandomLeaderCard
@@ -780,7 +759,7 @@ export function LeaderGridOverlay() {
                   />
                 )}
               </For>
-              <For each={Array.from({ length: ghostCount() + (showWideWangTranscript() ? 1 : 0) })}>
+              <For each={Array.from({ length: ghostCount() })}>
                 {() => <div class="aspect-square" />}
               </For>
             </div>
@@ -945,13 +924,73 @@ export function LeaderGridOverlay() {
   )
 }
 
-function RandomLeaderListItem(props: { disabled: boolean, active: boolean, accent: 'gold' | 'red', onClick: () => void }) {
+function WideWangTranscriptBanner(props: {
+  mode: 'grid' | 'list'
+  visibleLineCount: number
+  canUseRandom: boolean
+  randomSelected: boolean
+  accent: 'gold' | 'red'
+  onRandomClick: () => void
+}) {
+  const isGrid = () => props.mode === 'grid'
+
+  return (
+    <div class={cn('mb-1.5 flex gap-2 items-start', !isGrid() && 'px-1.5 py-1')}>
+      <div class={cn(isGrid() ? 'w-[4.5rem] shrink-0' : 'w-28 shrink-0')}>
+        <Show
+          when={isGrid()}
+          fallback={(
+            <RandomLeaderListItem
+              class="w-28"
+              disabled={!props.canUseRandom}
+              active={props.randomSelected}
+              accent={props.accent}
+              onClick={props.onRandomClick}
+            />
+          )}
+        >
+          <RandomLeaderCard
+            class="w-full"
+            disabled={!props.canUseRandom}
+            active={props.randomSelected}
+            accent={props.accent}
+            onClick={props.onRandomClick}
+          />
+        </Show>
+      </div>
+
+      <div class={cn('min-w-0 flex flex-1 items-center', isGrid() ? 'min-h-[4.5rem] pr-2' : 'min-h-9')}>
+        <div class={cn('flex min-w-0 max-w-full flex-col gap-1.5 text-left justify-center', isGrid() ? 'mx-auto w-fit' : 'flex-1')}>
+          <For each={WIDE_WANG_TRANSCRIPT}>
+            {(line, index) => {
+              const visible = () => props.visibleLineCount > index()
+              return (
+                <p
+                  aria-hidden={!visible()}
+                  class={cn(
+                    'text-sm text-fg leading-relaxed font-medium',
+                    visible() ? 'visible' : 'invisible',
+                    visible() && index() > 0 && 'anim-fade-in',
+                  )}
+                >
+                  {line.text}
+                </p>
+              )
+            }}
+          </For>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RandomLeaderListItem(props: { class?: string, disabled: boolean, active: boolean, accent: 'gold' | 'red', onClick: () => void }) {
   const accentColor = () => props.accent === 'red' ? 'danger' : 'accent'
 
   return (
     <button
       class={cn(
-        'relative flex items-center gap-2 rounded-md px-1.5 py-1 group min-w-0 transition-all duration-150',
+        'relative flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left group min-w-0 transition-all duration-150',
         'outline outline-2 outline-transparent',
         props.disabled ? 'cursor-default' : 'cursor-pointer',
 
@@ -959,6 +998,7 @@ function RandomLeaderListItem(props: { disabled: boolean, active: boolean, accen
 
         !props.disabled && props.active && accentColor() === 'accent' && 'outline-accent/50 bg-accent/8 hover:bg-accent/14 hover:outline-accent/65',
         !props.disabled && props.active && accentColor() === 'danger' && 'outline-danger/50 bg-danger/8 hover:bg-danger/14 hover:outline-danger/65',
+        props.class,
       )}
       disabled={props.disabled}
       onClick={() => props.onClick()}
@@ -975,7 +1015,7 @@ function RandomLeaderListItem(props: { disabled: boolean, active: boolean, accen
         <span class="i-ph-dice-five-bold text-xs" />
       </div>
       <span class={cn(
-        'text-xs font-semibold tracking-wide transition-colors',
+        'text-xs font-semibold tracking-wide transition-colors flex-1 min-w-0',
         props.disabled && 'text-fg-subtle/45',
         !props.disabled && !props.active && 'text-fg-muted group-hover:text-fg',
         !props.disabled && props.active && accentColor() === 'accent' && 'text-accent group-hover:text-accent group-hover:drop-shadow-[0_0_4px_var(--accent)]',

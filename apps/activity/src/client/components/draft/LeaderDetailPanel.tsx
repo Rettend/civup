@@ -35,7 +35,14 @@ export function LeaderDetailPanel() {
     <Show when={leader()}>
       {l => (
         <div class="p-4 h-full w-full select-text relative overflow-x-hidden overflow-y-auto sm:overflow-x-visible">
-          <div class="flex gap-1 items-center right-2 top-2 absolute">
+          <div class="top-4 right-4 absolute z-10 flex flex-col items-end gap-1">
+            <button
+              class="text-fg-subtle rounded-full h-8 w-8 flex items-center justify-center cursor-pointer hover:bg-bg-muted hover:text-fg-muted"
+              onClick={() => setDetailLeaderId(null)}
+            >
+              <div class="i-ph-x-bold text-base" />
+            </button>
+
             <button
               class={cn(
                 'rounded-full h-8 w-8 flex items-center justify-center border transition-colors cursor-pointer',
@@ -49,17 +56,10 @@ export function LeaderDetailPanel() {
             >
               <div class={cn(isFavorited() ? 'i-ph-star-fill' : 'i-ph-star-bold', 'text-sm')} />
             </button>
-
-            <button
-              class="text-fg-subtle rounded-full h-8 w-8 flex items-center justify-center cursor-pointer hover:bg-bg-muted hover:text-fg-muted"
-              onClick={() => setDetailLeaderId(null)}
-            >
-              <div class="i-ph-x-bold text-base" />
-            </button>
           </div>
 
           {/* Header: portrait + name */}
-          <div class="mb-3 flex gap-3 items-center">
+          <div class="mb-3 flex gap-3 items-center pr-12">
             <Show when={l().portraitUrl}>
               {url => (
                 <img src={resolveAssetUrl(url()) ?? url()} alt={l().name} class="rounded shrink-0 h-12 w-12 object-cover" />
