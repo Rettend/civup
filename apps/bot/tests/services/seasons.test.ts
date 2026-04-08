@@ -1,8 +1,9 @@
-import { matches, playerRatings, players, seasonPeakModeRanks, seasonPeakRanks } from '@civup/db'
+import { matches, matchParticipants, playerRatings, players, seasonPeakModeRanks, seasonPeakRanks } from '@civup/db'
 import { seasonReset } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { createDraftMatch } from '../../src/services/match/index.ts'
+import { recalculateLeaderboardMode } from '../../src/services/match/ratings.ts'
 import { previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { endSeason, getActiveSeason, startSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
@@ -22,6 +23,8 @@ describe('season services', () => {
     expect(first.seasonNumber).toBe(1)
     expect(first.name).toBe('Season 1')
     expect(first.active).toBeTrue()
+    expect(first.didSoftReset).toBeTrue()
+    expect(first.softReset).toBeTrue()
 
     const active = await getActiveSeason(db)
     expect(active?.id).toBe(first.id)
@@ -36,11 +39,13 @@ describe('season services', () => {
     const second = await startSeason(db, { now: NOW + 2 * DAY_MS })
     expect(second.seasonNumber).toBe(2)
     expect(second.name).toBe('Season 2')
+    expect(second.didSoftReset).toBeTrue()
+    expect(second.softReset).toBeTrue()
 
     sqlite.close()
   })
 
-  test('startSeason soft-resets current ratings for the new season', async () => {
+  test('startSeason soft-resets current ratings by default', async () => {
     const { db, sqlite } = await createTestDatabase()
     await seedPlayerIdentity(db, PLAYER_ID)
     await seedPlayerIdentity(db, HERO_ID)
@@ -63,7 +68,8 @@ describe('season services', () => {
       lastPlayedAt: NOW - 2 * DAY_MS,
     })
 
-    await startSeason(db, { now: NOW })
+    const season = await startSeason(db, { now: NOW })
+    expect(season.didSoftReset).toBeTrue()
 
     const ratings = await db.select().from(playerRatings)
     expect(ratings).toHaveLength(2)
@@ -81,6 +87,114 @@ describe('season services', () => {
     expect(ffaRating?.gamesPlayed).toBe(0)
     expect(ffaRating?.wins).toBe(0)
     expect(ffaRating?.lastPlayedAt).toBe(NOW - 2 * DAY_MS)
+
+    sqlite.close()
+  })
+
+  test('startSeason preserves ratings when softReset is disabled', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    await seedPlayerIdentity(db, PLAYER_ID)
+    await seedRating(db, {
+      playerId: PLAYER_ID,
+      mode: 'duel',
+      mu: 40,
+      sigma: 6,
+      gamesPlayed: 6,
+      wins: 4,
+      lastPlayedAt: NOW - DAY_MS,
+    })
+
+    const season = await startSeason(db, { now: NOW, seasonNumber: 8, softReset: false })
+    expect(season.didSoftReset).toBeFalse()
+    expect(season.softReset).toBeFalse()
+
+    const ratings = await db.select().from(playerRatings)
+    expect(ratings).toHaveLength(1)
+    expect(ratings[0]?.mu).toBe(40)
+    expect(ratings[0]?.sigma).toBe(6)
+    expect(ratings[0]?.gamesPlayed).toBe(6)
+    expect(ratings[0]?.wins).toBe(4)
+
+    sqlite.close()
+  })
+
+  test('startSeason accepts a custom starting season number', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    const first = await startSeason(db, { now: NOW, seasonNumber: 8 })
+    expect(first.id).toBe('season-8')
+    expect(first.seasonNumber).toBe(8)
+    expect(first.name).toBe('Season 8')
+    expect(first.softReset).toBeTrue()
+
+    await endSeason(db, { now: NOW + DAY_MS })
+
+    const second = await startSeason(db, { now: NOW + 2 * DAY_MS })
+    expect(second.id).toBe('season-9')
+    expect(second.seasonNumber).toBe(9)
+    expect(second.name).toBe('Season 9')
+
+    await endSeason(db, { now: NOW + 3 * DAY_MS })
+
+    await expect(startSeason(db, { now: NOW + 4 * DAY_MS, seasonNumber: 8 })).rejects.toThrow('next available season')
+
+    sqlite.close()
+  })
+
+  test('recalculateLeaderboardMode preserves pre-season games across the first season boundary', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const rivalId = playerIdFor('rival', 1)
+    await seedPlayerIdentity(db, PLAYER_ID)
+    await seedPlayerIdentity(db, rivalId)
+
+    await db.insert(matches).values({
+      id: 'duel-before-s8',
+      gameMode: '1v1',
+      status: 'completed',
+      seasonId: null,
+      createdAt: NOW - 2 * DAY_MS,
+      completedAt: NOW - 2 * DAY_MS + 1_000,
+      draftData: null,
+    })
+    await db.insert(matchParticipants).values([
+      {
+        matchId: 'duel-before-s8',
+        playerId: PLAYER_ID,
+        team: null,
+        civId: null,
+        placement: 1,
+        ratingBeforeMu: null,
+        ratingBeforeSigma: null,
+        ratingAfterMu: null,
+        ratingAfterSigma: null,
+      },
+      {
+        matchId: 'duel-before-s8',
+        playerId: rivalId,
+        team: null,
+        civId: null,
+        placement: 2,
+        ratingBeforeMu: null,
+        ratingBeforeSigma: null,
+        ratingAfterMu: null,
+        ratingAfterSigma: null,
+      },
+    ])
+
+    await startSeason(db, { now: NOW, seasonNumber: 8, softReset: false })
+
+    const result = await recalculateLeaderboardMode(db, 'duel')
+    expect('error' in result).toBeFalse()
+    if ('error' in result) return
+
+    const ratings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duel'))
+    const hero = ratings.find(row => row.playerId === PLAYER_ID)
+    const rival = ratings.find(row => row.playerId === rivalId)
+
+    expect(hero?.gamesPlayed).toBe(1)
+    expect(hero?.wins).toBe(1)
+    expect(rival?.gamesPlayed).toBe(1)
+    expect(rival?.wins).toBe(0)
 
     sqlite.close()
   })

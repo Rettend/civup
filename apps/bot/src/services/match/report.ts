@@ -6,7 +6,7 @@ import { isTeamMode } from '@civup/game'
 import { calculateRatings, createRating } from '@civup/rating'
 import { and, eq } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
-import { ensureLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
+import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
@@ -169,7 +169,7 @@ async function finalizeReportedMatch(
 
   const gameMode = gameContext.mode
   const leaderboardMode = gameContext.leaderboardMode
-  const leaderboardSnapshotBefore = await ensureLeaderboardModeSnapshot(db, kv, leaderboardMode)
+  const leaderboardSnapshotBefore = await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode)
   const beforeRankByPlayer = buildRankByPlayer(leaderboardSnapshotBefore.rows, leaderboardMode)
   const leaderboardSnapshotByPlayerId = new Map(
     leaderboardSnapshotBefore.rows.map(row => [row.playerId, row]),
@@ -245,6 +245,15 @@ async function finalizeReportedMatch(
     const existing = leaderboardSnapshotByPlayerId.get(update.playerId)
     const isWin = placementByPlayerId.get(update.playerId) === 1
 
+    await db
+      .insert(players)
+      .values({
+        id: update.playerId,
+        displayName: update.playerId,
+        createdAt: now,
+      })
+      .onConflictDoNothing()
+
     if (existing) {
       await db
         .update(playerRatings)
@@ -274,14 +283,6 @@ async function finalizeReportedMatch(
       })
     }
 
-    await db
-      .insert(players)
-      .values({
-        id: update.playerId,
-        displayName: update.playerId,
-        createdAt: now,
-      })
-      .onConflictDoNothing()
   }
 
   await db
