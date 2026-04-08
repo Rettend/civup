@@ -102,13 +102,12 @@ The bot can be used without an active season, but games will not be saved to a s
 
 This matters because season start will:
 
-- soft-reset current ratings
-- clear current ranked roles
+- optionally soft-reset current ratings and clear current ranked roles
 - rotate leaderboard embeds
 
 Commands:
 
-- `/admin season start` to start a season, the name is automatically created in this format: `Season {i}` and `S{i}` where `i=1..n`
+- `/admin season start [season_number] [soft_reset]` to start a season, the name is automatically created in this format: `Season {i}` and `S{i}` where `i=1..n`
 - `/admin season end` when the season is over
 
 ## Match Flow
@@ -357,7 +356,7 @@ Ending a season will rotate the Leaderboard embeds, and give past season roles t
 
 **Season roles** are Ranked roles prefixed with the season number, for example `@Role1` becomes `@S1 Role1`. These are only kept for the past 4 seasons, ratings after that can only be viewed with the `/rank` command.
 
-Starting the next season soft-resets ratings instead of wiping them: players keep their skill estimate but their uncertainty is increased. They also must play 3 games before they reappear on leaderboards and re-earn roles.
+Starting a season with soft reset enabled resets ratings instead of wiping them: players keep their skill estimate but their uncertainty is increased. They also must play 3 games before they reappear on leaderboards and re-earn roles. Starting a season without soft reset only begins assigning new matches to that season and preserves the current ladder state.
 
 ## Correction tools for Mods
 

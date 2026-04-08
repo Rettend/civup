@@ -77,34 +77,48 @@ export function formatSeasonShortName(seasonNumber: number): string {
   return `S${Math.max(1, Math.round(seasonNumber))}`
 }
 
-export async function startSeason(db: Database, input: { now?: number, kv?: KVNamespace } = {}) {
+export async function startSeason(db: Database, input: { now?: number, kv?: KVNamespace, seasonNumber?: number, softReset?: boolean } = {}) {
   const existing = await getActiveSeason(db)
   if (existing) throw new Error(`Cannot start a new season while **${existing.name}** is still active.`)
 
   const now = input.now ?? Date.now()
-  const seasonNumber = await getNextSeasonNumber(db)
+  const latestSeason = await getLatestSeason(db)
+  const nextSeasonNumber = (latestSeason?.seasonNumber ?? 0) + 1
+  const seasonNumber = input.seasonNumber ?? nextSeasonNumber
+  if (!Number.isSafeInteger(seasonNumber) || seasonNumber < 1) throw new Error('Season number must be a positive integer.')
+  if (seasonNumber < nextSeasonNumber) {
+    throw new Error(`Cannot start ${formatSeasonName(seasonNumber)} because ${formatSeasonName(nextSeasonNumber)} is the next available season.`)
+  }
+
+  const softReset = input.softReset ?? true
   const season = {
     id: `season-${seasonNumber}`,
     seasonNumber,
     name: formatSeasonName(seasonNumber),
     startsAt: now,
     endsAt: null,
+    softReset,
     active: true,
   } as const
 
   await db.insert(seasons).values(season)
-  await db.update(playerRatings).set({
-    sigma: sql<number>`${playerRatings.sigma} + (${DEFAULT_SIGMA} - ${playerRatings.sigma}) * ${DEFAULT_SEASON_RESET_FACTOR}`,
-    gamesPlayed: 0,
-    wins: 0,
-  })
+  if (softReset) {
+    await db.update(playerRatings).set({
+      sigma: sql<number>`${playerRatings.sigma} + (${DEFAULT_SIGMA} - ${playerRatings.sigma}) * ${DEFAULT_SEASON_RESET_FACTOR}`,
+      gamesPlayed: 0,
+      wins: 0,
+    })
+  }
   if (input.kv) {
     await Promise.all([
       clearAllLeaderboardModeSnapshots(input.kv),
       clearAllTeamLeaderboardSnapshots(input.kv),
     ])
   }
-  return season
+  return {
+    ...season,
+    didSoftReset: softReset,
+  }
 }
 
 export async function endSeason(db: Database, input: { now?: number } = {}) {

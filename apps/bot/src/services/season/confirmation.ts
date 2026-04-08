@@ -6,6 +6,8 @@ export interface PendingSeasonConfirmation {
   actorId: string
   action: 'start' | 'end'
   seasonName: string | null
+  seasonNumber?: number | null
+  softReset?: boolean | null
 }
 
 function seasonConfirmationKey(token: string): string {
@@ -46,6 +48,10 @@ export async function getSeasonConfirmation(
     actorId: parsed.actorId,
     action: parsed.action,
     seasonName: typeof parsed.seasonName === 'string' ? parsed.seasonName : null,
+    seasonNumber: typeof parsed.seasonNumber === 'number' && Number.isSafeInteger(parsed.seasonNumber) && parsed.seasonNumber > 0
+      ? parsed.seasonNumber
+      : null,
+    softReset: typeof parsed.softReset === 'boolean' ? parsed.softReset : null,
   }
 }
 

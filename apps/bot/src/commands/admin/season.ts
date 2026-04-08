@@ -23,18 +23,43 @@ export function handleSeasonStart(c: AdminCommandContext) {
 
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
     const db = createDb(c.env.DB)
+    const parsedSeasonNumber = parseSeasonNumberOption(c.var.season_number)
+    if (parsedSeasonNumber.error) {
+      await sendTransientEphemeralResponse(c, parsedSeasonNumber.error, 'error')
+      return
+    }
+    const parsedSoftReset = parseSoftResetOption(c.var.soft_reset)
+    if (parsedSoftReset.error) {
+      await sendTransientEphemeralResponse(c, parsedSoftReset.error, 'error')
+      return
+    }
+
     const activeSeason = await getActiveSeason(db)
     if (activeSeason) {
       await sendTransientEphemeralResponse(c, `Cannot start a new season while **${activeSeason.name}** is still active.`, 'error')
       return
     }
 
-    const seasonName = formatSeasonName(await getNextSeasonNumber(db))
+    const nextSeasonNumber = await getNextSeasonNumber(db)
+    if (parsedSeasonNumber.value != null && parsedSeasonNumber.value < nextSeasonNumber) {
+      await sendTransientEphemeralResponse(
+        c,
+        `Cannot start ${formatSeasonName(parsedSeasonNumber.value)} because ${formatSeasonName(nextSeasonNumber)} is the next available season.`,
+        'error',
+      )
+      return
+    }
+
+    const seasonNumber = parsedSeasonNumber.value ?? nextSeasonNumber
+    const seasonName = formatSeasonName(seasonNumber)
+    const softReset = parsedSoftReset.value ?? true
     const token = await createSeasonConfirmation(c.env.KV, {
       guildId,
       actorId,
       action: 'start',
       seasonName,
+      seasonNumber,
+      softReset,
     })
 
     const components = new Components().row(
@@ -44,7 +69,7 @@ export function handleSeasonStart(c: AdminCommandContext) {
 
     await sendEphemeralResponse(
       c,
-      `Confirm season start for **${seasonName}**? This action is not recoverable.`,
+      `Confirm season start for **${seasonName}** ${softReset ? 'with' : 'without'} a soft reset? This action is not recoverable.`,
       'info',
       { components, autoDeleteMs: null },
     )
@@ -134,11 +159,21 @@ export const component_admin_season_confirm = factory.component(
       if (pending.action === 'start') {
         try {
           const db = createDb(c.env.DB)
-          const season = await startSeason(db, { kv })
-          await resetCurrentRankedRoleState({ kv, guildId, token: c.env.DISCORD_TOKEN })
+          const season = await startSeason(db, {
+            kv,
+            seasonNumber: pending.seasonNumber ?? undefined,
+            softReset: pending.softReset ?? true,
+          })
+          if (season.didSoftReset) await resetCurrentRankedRoleState({ kv, guildId, token: c.env.DISCORD_TOKEN })
           await refreshConfiguredLeaderboards(db, kv, c.env.DISCORD_TOKEN)
           await ensureSeasonSnapshotRoles(kv, guildId, c.env.DISCORD_TOKEN, season)
-          await updateSeasonActionPrompt(c, `Started **${season.name}**. New matches will now count toward this season.`, 'success')
+          await updateSeasonActionPrompt(
+            c,
+            season.didSoftReset
+              ? `Started **${season.name}** with a soft reset. New matches will now count toward this season.`
+              : `Started **${season.name}** without a soft reset. Existing ratings and roles were preserved.`,
+            'success',
+          )
         }
         catch (error) {
           const message = error instanceof Error ? error.message : 'Failed to start the season.'
@@ -162,6 +197,26 @@ export const component_admin_season_confirm = factory.component(
     })
   },
 )
+
+function parseSeasonNumberOption(raw?: string): { value: number | null, error: string | null } {
+  if (!raw) return { value: null, error: null }
+
+  const trimmed = raw.trim()
+  if (!/^\d+$/.test(trimmed)) return { value: null, error: 'Season number must be a positive integer.' }
+
+  const value = Number.parseInt(trimmed, 10)
+  if (!Number.isSafeInteger(value) || value < 1) return { value: null, error: 'Season number must be a positive integer.' }
+  return { value, error: null }
+}
+
+function parseSoftResetOption(raw?: string): { value: boolean | null, error: string | null } {
+  if (!raw) return { value: null, error: null }
+
+  const normalized = raw.trim().toLowerCase()
+  if (normalized === 'yes') return { value: true, error: null }
+  if (normalized === 'no') return { value: false, error: null }
+  return { value: null, error: 'Soft reset must be Yes or No.' }
+}
 
 export const component_admin_season_cancel = factory.component(
   new Button('admin-season-cancel', 'Cancel', 'Secondary'),

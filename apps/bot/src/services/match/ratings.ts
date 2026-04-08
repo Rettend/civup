@@ -56,6 +56,7 @@ export async function recalculateLeaderboardMode(
       .select({
         id: seasons.id,
         startsAt: seasons.startsAt,
+        softReset: seasons.softReset,
       })
       .from(seasons)
       .orderBy(asc(seasons.startsAt), asc(seasons.id)),
@@ -117,15 +118,17 @@ export async function recalculateLeaderboardMode(
 
   function applySeasonResetsUntil(timestamp: number): void {
     while (seasonIndex < seasonRows.length && seasonRows[seasonIndex]!.startsAt <= timestamp) {
-      for (const [playerId, state] of ratingStateByPlayer.entries()) {
-        const reset = seasonReset(state.mu, state.sigma)
-        ratingStateByPlayer.set(playerId, {
-          ...state,
-          mu: reset.mu,
-          sigma: reset.sigma,
-          gamesPlayed: 0,
-          wins: 0,
-        })
+      if (seasonRows[seasonIndex]!.softReset) {
+        for (const [playerId, state] of ratingStateByPlayer.entries()) {
+          const reset = seasonReset(state.mu, state.sigma)
+          ratingStateByPlayer.set(playerId, {
+            ...state,
+            mu: reset.mu,
+            sigma: reset.sigma,
+            gamesPlayed: 0,
+            wins: 0,
+          })
+        }
       }
 
       seasonIndex += 1
