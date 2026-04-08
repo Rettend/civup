@@ -68,12 +68,25 @@ export async function recalculateLeaderboardMode(
       .from(playerRatingSeeds)
       .where(eq(playerRatingSeeds.mode, leaderboardMode)),
   ])
-  const completedMatchIds = completedMatches.map(match => match.id)
-  const allParticipantRows = completedMatchIds.length > 0
+  const allParticipantRows = completedMatches.length > 0
     ? await db
-        .select()
+        .select({
+          matchId: matchParticipants.matchId,
+          playerId: matchParticipants.playerId,
+          team: matchParticipants.team,
+          civId: matchParticipants.civId,
+          placement: matchParticipants.placement,
+          ratingBeforeMu: matchParticipants.ratingBeforeMu,
+          ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
+          ratingAfterMu: matchParticipants.ratingAfterMu,
+          ratingAfterSigma: matchParticipants.ratingAfterSigma,
+        })
         .from(matchParticipants)
-        .where(inArray(matchParticipants.matchId, completedMatchIds))
+        .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+        .where(and(
+          eq(matches.status, 'completed'),
+          inArray(matches.gameMode, gameModes),
+        ))
     : []
   const participantsByMatchId = new Map<string, typeof allParticipantRows>()
 
