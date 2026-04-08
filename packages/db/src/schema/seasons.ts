@@ -9,6 +9,8 @@ export const seasons = sqliteTable('seasons', {
   startsAt: integer('starts_at', { mode: 'number' }).notNull(),
   /** Unix timestamp ms (null = ongoing) */
   endsAt: integer('ends_at', { mode: 'number' }),
+  /** Whether starting this season applied a soft reset */
+  softReset: integer('soft_reset', { mode: 'boolean' }).notNull().default(true),
   /** Whether this is the active season */
   active: integer('active', { mode: 'boolean' }).notNull().default(false),
 })

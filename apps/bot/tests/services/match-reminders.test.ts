@@ -154,4 +154,128 @@ describe('host report reminders', () => {
       sqlite.close()
     }
   })
+
+  test('does not mark reminders as sent when delivery fails', async () => {
+    const now = Date.now()
+    const { db, sqlite } = await createTestDatabase()
+    const { kv } = createTrackedKv()
+
+    try {
+      const lobby = await createLobby(kv, {
+        mode: '1v1',
+        guildId: 'guild-fail',
+        hostId: 'host-fail',
+        channelId: 'channel-fail',
+        messageId: 'message-fail',
+      })
+      const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-fail', lobby)
+      await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
+
+      await db.insert(matches).values({
+        id: 'match-fail',
+        gameMode: '1v1',
+        status: 'active',
+        seasonId: null,
+        draftData: JSON.stringify({
+          completedAt: now - (3 * 60 * 60 * 1000) - 1,
+          hostId: 'host-fail',
+          state: { seats: [{ playerId: 'host-fail' }] },
+        }),
+        createdAt: now - (4 * 60 * 60 * 1000),
+        completedAt: null,
+      })
+
+      globalThis.fetch = (async () => new Response('boom', { status: 500 })) as typeof fetch
+
+      await expect(sendOverdueHostReportReminders(db, kv, 'token', { now })).resolves.toEqual({
+        attemptedCount: 1,
+        sentCount: 0,
+      })
+
+      let successAttempt = 0
+      globalThis.fetch = (async () => {
+        successAttempt += 1
+        return new Response(JSON.stringify({ id: successAttempt === 1 ? 'dm-ok' : 'message-ok' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }) as typeof fetch
+
+      await expect(sendOverdueHostReportReminders(db, kv, 'token', { now })).resolves.toEqual({
+        attemptedCount: 1,
+        sentCount: 1,
+      })
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('limits reminder sends per run', async () => {
+    const now = Date.now()
+    const { db, sqlite } = await createTestDatabase()
+    const { kv } = createTrackedKv()
+    const fetchCalls: Array<{ url: string, body: unknown }> = []
+
+    globalThis.fetch = (async (input, init) => {
+      fetchCalls.push({
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      })
+
+      if (fetchCalls.length % 2 === 1) {
+        return new Response(JSON.stringify({ id: `dm-${fetchCalls.length}` }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+
+      return new Response(JSON.stringify({ id: `message-${fetchCalls.length}` }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    try {
+      for (let index = 1; index <= 6; index++) {
+        const suffix = String(index)
+        const lobby = await createLobby(kv, {
+          mode: '2v2',
+          guildId: `guild-${suffix}`,
+          hostId: `host-${suffix}`,
+          channelId: `channel-${suffix}`,
+          messageId: `message-${suffix}`,
+        })
+        const draftingLobby = await attachLobbyMatch(kv, lobby.id, `match-${suffix}`, lobby)
+        await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
+
+        await db.insert(matches).values({
+          id: `match-${suffix}`,
+          gameMode: '2v2',
+          status: 'active',
+          seasonId: null,
+          draftData: JSON.stringify({
+            completedAt: now - (3 * 60 * 60 * 1000) - 1,
+            hostId: `host-${suffix}`,
+            state: { seats: [{ playerId: `host-${suffix}` }] },
+          }),
+          createdAt: now - (4 * 60 * 60 * 1000),
+          completedAt: null,
+        })
+      }
+
+      await expect(sendOverdueHostReportReminders(db, kv, 'token', { now })).resolves.toEqual({
+        attemptedCount: 4,
+        sentCount: 4,
+      })
+
+      await expect(sendOverdueHostReportReminders(db, kv, 'token', { now })).resolves.toEqual({
+        attemptedCount: 2,
+        sentCount: 2,
+      })
+    }
+    finally {
+      sqlite.close()
+    }
+  })
 })

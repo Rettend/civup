@@ -56,6 +56,7 @@ export async function recalculateLeaderboardMode(
       .select({
         id: seasons.id,
         startsAt: seasons.startsAt,
+        softReset: seasons.softReset,
       })
       .from(seasons)
       .orderBy(asc(seasons.startsAt), asc(seasons.id)),
@@ -68,12 +69,25 @@ export async function recalculateLeaderboardMode(
       .from(playerRatingSeeds)
       .where(eq(playerRatingSeeds.mode, leaderboardMode)),
   ])
-  const completedMatchIds = completedMatches.map(match => match.id)
-  const allParticipantRows = completedMatchIds.length > 0
+  const allParticipantRows = completedMatches.length > 0
     ? await db
-        .select()
+        .select({
+          matchId: matchParticipants.matchId,
+          playerId: matchParticipants.playerId,
+          team: matchParticipants.team,
+          civId: matchParticipants.civId,
+          placement: matchParticipants.placement,
+          ratingBeforeMu: matchParticipants.ratingBeforeMu,
+          ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
+          ratingAfterMu: matchParticipants.ratingAfterMu,
+          ratingAfterSigma: matchParticipants.ratingAfterSigma,
+        })
         .from(matchParticipants)
-        .where(inArray(matchParticipants.matchId, completedMatchIds))
+        .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+        .where(and(
+          eq(matches.status, 'completed'),
+          inArray(matches.gameMode, gameModes),
+        ))
     : []
   const participantsByMatchId = new Map<string, typeof allParticipantRows>()
 
@@ -104,15 +118,17 @@ export async function recalculateLeaderboardMode(
 
   function applySeasonResetsUntil(timestamp: number): void {
     while (seasonIndex < seasonRows.length && seasonRows[seasonIndex]!.startsAt <= timestamp) {
-      for (const [playerId, state] of ratingStateByPlayer.entries()) {
-        const reset = seasonReset(state.mu, state.sigma)
-        ratingStateByPlayer.set(playerId, {
-          ...state,
-          mu: reset.mu,
-          sigma: reset.sigma,
-          gamesPlayed: 0,
-          wins: 0,
-        })
+      if (seasonRows[seasonIndex]!.softReset) {
+        for (const [playerId, state] of ratingStateByPlayer.entries()) {
+          const reset = seasonReset(state.mu, state.sigma)
+          ratingStateByPlayer.set(playerId, {
+            ...state,
+            mu: reset.mu,
+            sigma: reset.sigma,
+            gamesPlayed: 0,
+            wins: 0,
+          })
+        }
       }
 
       seasonIndex += 1
