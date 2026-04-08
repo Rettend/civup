@@ -35,7 +35,7 @@ export function LeaderDetailPanel() {
     <Show when={leader()}>
       {l => (
         <div class="p-4 h-full w-full select-text relative overflow-x-hidden overflow-y-auto sm:overflow-x-visible">
-          <div class="top-4 right-4 absolute z-10 flex flex-col items-end gap-1">
+          <div class="top-2 right-4 absolute z-10 flex flex-col items-end gap-1">
             <button
               class="text-fg-subtle rounded-full h-8 w-8 flex items-center justify-center cursor-pointer hover:bg-bg-muted hover:text-fg-muted"
               onClick={() => setDetailLeaderId(null)}

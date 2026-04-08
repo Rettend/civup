@@ -132,19 +132,25 @@ describe('ui-store helpers', () => {
     expect(selectedWinningTeam()).toBeNull()
   })
 
-  test('togglePickSelection keeps an ordered fallback queue for shift selection', () => {
-    togglePickSelection('civ-9', false)
-    togglePickSelection('civ-10', true)
-    togglePickSelection('civ-11', true)
-    expect(pickSelections()).toEqual(['civ-9', 'civ-10', 'civ-11'])
+  test('togglePickSelection keeps only one selected pick', () => {
+    togglePickSelection('civ-9')
     expect(selectedLeader()).toBe('civ-9')
+    expect(pickSelections()).toEqual(['civ-9'])
 
-    togglePickSelection('civ-10', true)
-    expect(pickSelections()).toEqual(['civ-9', 'civ-11'])
+    togglePickSelection('civ-10')
+    expect(pickSelections()).toEqual(['civ-10'])
+    expect(selectedLeader()).toBe('civ-10')
 
-    togglePickSelection('civ-12', false)
-    expect(pickSelections()).toEqual(['civ-12'])
-    expect(selectedLeader()).toBe('civ-12')
+    togglePickSelection('civ-10')
+    expect(pickSelections()).toEqual([])
+    expect(selectedLeader()).toBeNull()
+  })
+
+  test('setPickSelections normalizes preview state down to one pick', () => {
+    setPickSelections(['civ-9', 'civ-10'])
+
+    expect(pickSelections()).toEqual(['civ-9'])
+    expect(selectedLeader()).toBe('civ-9')
   })
 
   test('persisted ui preferences keep grid layout choices', () => {
