@@ -248,6 +248,7 @@ export function clearLeaderFavorites() {
 
 /** Toggle a seat in the FFA placement order */
 export function toggleFfaPlacement(seatIndex: number) {
+  if (resultSelectionsLocked()) return
   setFfaPlacementOrder((prev) => {
     const idx = prev.indexOf(seatIndex)
     if (idx >= 0) return prev.filter(idx => idx !== seatIndex)
@@ -262,11 +263,13 @@ export function clearFfaPlacements() {
 
 /** Select or clear the winning team for team-mode result reporting. */
 export function selectWinningTeam(team: 0 | 1) {
+  if (resultSelectionsLocked()) return
   setTeamPlacementOrder(prev => (prev[0] === team && prev.length === 1 ? [] : [team]))
 }
 
 /** Toggle a team in the ordered result placement list. */
 export function toggleTeamPlacement(team: number) {
+  if (resultSelectionsLocked()) return
   setTeamPlacementOrder((prev) => {
     const index = prev.indexOf(team)
     if (index >= 0) return prev.filter(value => value !== team)
