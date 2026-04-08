@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { getMatchIdForMessage, storeMatchMessageMapping } from '../../src/services/match/message.ts'
+import { getMatchIdForMessage, listMatchMessageIds, storeMatchMessageMapping } from '../../src/services/match/message.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
 
@@ -23,5 +23,16 @@ describe('match message mapping', () => {
     trackedSqlite.restore()
 
     expect(trackedSqlite.counts.rowsWritten).toBe(0)
+  })
+
+  test('lists message IDs in stored order for a match', async () => {
+    const { db } = await createTestDatabase()
+
+    await storeMatchMessageMapping(db, 'message-b', 'match-1')
+    await Bun.sleep(2)
+    await storeMatchMessageMapping(db, 'message-a', 'match-1')
+    await storeMatchMessageMapping(db, 'message-c', 'match-2')
+
+    await expect(listMatchMessageIds(db, 'match-1')).resolves.toEqual(['message-b', 'message-a'])
   })
 })
