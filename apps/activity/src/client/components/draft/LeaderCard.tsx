@@ -1,5 +1,5 @@
 import type { Leader } from '@civup/game'
-import { Show } from 'solid-js'
+import { Show, type JSX } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import {
@@ -193,6 +193,14 @@ function useLeaderCardState(props: LeaderCardProps) {
   }
 }
 
+function LeaderCornerBadge(props: { class?: string, children: JSX.Element }) {
+  return (
+    <span class={cn('absolute z-10 flex items-center justify-center rounded-full text-center leading-none', props.class)}>
+      {props.children}
+    </span>
+  )
+}
+
 /** Icon-only leader card for the grid overlay */
 export function LeaderCard(props: LeaderCardProps) {
   const {
@@ -233,10 +241,10 @@ export function LeaderCard(props: LeaderCardProps) {
       onPointerCancel={handlePointerUp}
       disabled={isBanned()}
     >
-      <Show when={isFavorited() && !hasSelectionVisual()}>
-        <div class="bg-bg/88 border border-border/60 rounded-full h-5 w-5 flex items-center justify-center right-1 top-1 absolute z-10 shadow-black/30 shadow">
+      <Show when={isFavorited() && !isQueuedPick()}>
+        <LeaderCornerBadge class="right-1 top-1 min-w-4 bg-bg-subtle px-1 py-0.5 shadow shadow-black/30">
           <span class="i-ph-star-fill text-[10px] text-accent" />
-        </div>
+        </LeaderCornerBadge>
       </Show>
 
       {/* Circular visual container */}
@@ -306,9 +314,9 @@ export function LeaderCard(props: LeaderCardProps) {
       </div>
 
       <Show when={isQueuedPick()}>
-        <span class="text-[10px] text-accent font-semibold px-1 py-0.5 text-center rounded-full bg-bg-subtle min-w-4 right-1 top-1 absolute z-10">
-          {pickQueueIndex() + 1}
-        </span>
+        <LeaderCornerBadge class="right-1 top-1 min-w-4 bg-bg-subtle px-1 py-0.5 shadow shadow-black/30">
+          <span class="text-[10px] font-semibold text-accent">{pickQueueIndex() + 1}</span>
+        </LeaderCornerBadge>
       </Show>
     </button>
   )
@@ -337,7 +345,7 @@ export function LeaderListItem(props: LeaderCardProps) {
   return (
     <button
       class={cn(
-        'relative flex items-center gap-2 rounded-md px-1.5 py-1 group min-w-0 transition-all duration-150',
+        'relative flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left group min-w-0 transition-all duration-150',
         'outline outline-2 outline-transparent',
         isBanned() && 'pointer-events-none',
         (isInteractive() || !isUnavailable()) && 'cursor-pointer',
@@ -366,51 +374,53 @@ export function LeaderListItem(props: LeaderCardProps) {
       onPointerCancel={handlePointerUp}
       disabled={isBanned()}
     >
-      <div class="rounded-full shrink-0 h-7 w-7 relative overflow-hidden">
-        <Show when={isFavorited() && !hasSelectionVisual()}>
-          <div class="bg-bg/92 border border-border/60 rounded-full h-4 w-4 flex items-center justify-center right-0 top-0 absolute z-10 shadow-black/30 shadow">
+      <div class="relative h-7 w-7 shrink-0">
+        <Show when={isFavorited()}>
+          <LeaderCornerBadge class="-right-1 top-0 h-4 w-4 border border-border/60 bg-bg/92 shadow shadow-black/30">
             <span class="i-ph-star-fill text-[8px] text-accent" />
-          </div>
+          </LeaderCornerBadge>
         </Show>
 
-        <Show
-          when={props.leader.portraitUrl}
-          fallback={(
-            <div class={cn(
-              'bg-bg-subtle flex h-full w-full items-center justify-center rounded-full',
-              isUnavailable() && 'opacity-25',
-            )}
-            >
-              <span class="text-xs text-accent/40 font-bold">
-                {props.leader.name.slice(0, 1)}
-              </span>
-            </div>
-          )}
-        >
-          {url => (
-            <img
-              src={resolveAssetUrl(url()) ?? url()}
-              alt={props.leader.name}
-              class={cn(
-                'h-full w-full object-cover',
-                isBanned() && 'grayscale',
+        <div class="relative h-full w-full overflow-hidden rounded-full">
+          <Show
+            when={props.leader.portraitUrl}
+            fallback={(
+              <div class={cn(
+                'bg-bg-subtle flex h-full w-full items-center justify-center rounded-full',
                 isUnavailable() && 'opacity-25',
-                ZOOMED_LEADERS.includes(props.leader.name) && 'scale-90',
-                SLIGHTLY_ZOOMED_LEADERS.includes(props.leader.name) && 'scale-95',
               )}
-            />
-          )}
-        </Show>
+              >
+                <span class="text-xs text-accent/40 font-bold">
+                  {props.leader.name.slice(0, 1)}
+                </span>
+              </div>
+            )}
+          >
+            {url => (
+              <img
+                src={resolveAssetUrl(url()) ?? url()}
+                alt={props.leader.name}
+                class={cn(
+                  'h-full w-full object-cover',
+                  isBanned() && 'grayscale',
+                  isUnavailable() && 'opacity-25',
+                  ZOOMED_LEADERS.includes(props.leader.name) && 'scale-90',
+                  SLIGHTLY_ZOOMED_LEADERS.includes(props.leader.name) && 'scale-95',
+                )}
+              />
+            )}
+          </Show>
 
-        <Show when={isBanned()}>
-          <div class="rounded-full bg-danger/10 flex items-center inset-0 justify-center absolute">
-            <span class="text-sm text-danger font-bold">✕</span>
-          </div>
-        </Show>
+          <Show when={isBanned()}>
+            <div class="rounded-full bg-danger/10 flex items-center inset-0 justify-center absolute">
+              <span class="text-sm text-danger font-bold">✕</span>
+            </div>
+          </Show>
+        </div>
       </div>
 
       <span class={cn(
-        'text-xs truncate min-w-0 transition-colors',
+        'text-xs truncate min-w-0 flex-1 transition-colors',
         isUnavailable() && 'text-fg-subtle/40',
         isBanSelected() && !isUnavailable() && 'text-danger group-hover:text-danger group-hover:drop-shadow-[0_0_4px_var(--danger)]',
         isSelected() && !isUnavailable() && 'text-accent group-hover:text-accent group-hover:drop-shadow-[0_0_4px_var(--accent)]',
