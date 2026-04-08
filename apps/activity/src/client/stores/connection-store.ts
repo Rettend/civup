@@ -197,6 +197,7 @@ let currentRoomConnection: { target: PartySocketTarget, roomId: string, roomAcce
 let staleDraftReconnectInterval: ReturnType<typeof setInterval> | null = null
 let lastSocketActivityAt = 0
 let lastForcedReconnectTimerEndsAt: number | null = null
+let lastServerErrorMessage: { message: string, at: number } | null = null
 let pendingConfigAck:
   | {
     resolve: () => void
@@ -215,6 +216,7 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
   lastSentPreviewKeys = {}
   lastSocketActivityAt = 0
   lastForcedReconnectTimerEndsAt = null
+  lastServerErrorMessage = null
   currentRoomConnection = null
 
   setConnectionStatus('connecting')
@@ -252,6 +254,7 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
   nextSocket.addEventListener('open', () => {
     if (socket !== nextSocket) return
     lastSocketActivityAt = Date.now()
+    lastServerErrorMessage = null
     setConnectionStatus('connected')
     setConnectionError(null)
   })
@@ -281,7 +284,7 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
 
     if (code !== 1000) {
       if (isFatalSocketClose(code)) stopSocketReconnects(nextSocket, `fatal close ${code}`)
-      if (isUnauthorizedSocketClose(code)) clearActivitySessionToken()
+      if (code === 4401) clearActivitySessionToken()
 
       relayDevLog('warn', 'Draft socket closed unexpectedly', {
         code,
@@ -302,7 +305,7 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
       currentRoomConnection = null
       lastSocketActivityAt = 0
       setConnectionStatus('error')
-      setConnectionError(`WebSocket closed (${code}${reason ? `: ${reason}` : ''})`)
+      setConnectionError(formatDraftSocketCloseError(code, reason, lastServerErrorMessage))
       return
     }
 
@@ -347,6 +350,7 @@ export function disconnect() {
   currentRoomConnection = null
   lastSocketActivityAt = 0
   lastForcedReconnectTimerEndsAt = null
+  lastServerErrorMessage = null
   lastSentPreviewKeys = {}
   if (pendingConfigAck) {
     clearTimeout(pendingConfigAck.timeout)
@@ -1010,6 +1014,10 @@ function handleServerMessage(msg: ServerMessage) {
       applySwapUpdate(msg.swapState, msg.picks)
       break
     case 'error':
+      lastServerErrorMessage = {
+        message: msg.message,
+        at: Date.now(),
+      }
       if (pendingConfigAck) {
         clearTimeout(pendingConfigAck.timeout)
         pendingConfigAck.reject(formatConfigAckError(msg.message))
@@ -1024,6 +1032,30 @@ function shouldDisconnectAfterState(status: string, swapState: unknown): boolean
   if (status === 'cancelled') return true
   if (status !== 'complete') return false
   return swapState == null
+}
+
+function formatDraftSocketCloseError(
+  code: number,
+  reason: string,
+  serverError: { message: string, at: number } | null,
+): string {
+  if (code === 4401) {
+    return 'Activity session expired. Reopen the activity.'
+  }
+
+  if (code === 4403) {
+    const recentServerError = serverError && Date.now() - serverError.at <= 2_000
+      ? serverError.message.trim()
+      : ''
+    if (recentServerError.length > 0) {
+      return /reopen the activity\.?$/i.test(recentServerError)
+        ? recentServerError
+        : `${recentServerError}. Reopen the activity.`
+    }
+    return 'Draft access token is invalid or expired. Reopen the activity.'
+  }
+
+  return `WebSocket closed (${code}${reason ? `: ${reason}` : ''})`
 }
 
 function formatConfigAckError(message: string): Error {

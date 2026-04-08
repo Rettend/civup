@@ -1,7 +1,7 @@
 import type { AdminVar } from './types.ts'
 import { LEADERBOARD_MODE_CHOICES } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
-import { hasAdminPermission } from '../../services/permissions/index.ts'
+import { ADMIN_COMMAND_DEFAULT_MEMBER_PERMISSIONS, hasAdminPermission } from '../../services/permissions/index.ts'
 import { factory } from '../../setup.ts'
 import { component_admin_show_response } from './components.ts'
 import { handleConfig } from './config.ts'
@@ -12,7 +12,9 @@ import { handleSetup } from './setup.ts'
 import { sendTransientEphemeralResponse } from './shared.ts'
 
 export const command_admin = factory.command<AdminVar>(
-  new Command('admin', 'Admin commands for CivUp').options(
+  new Command('admin', 'Admin commands for CivUp')
+    .default_member_permissions(ADMIN_COMMAND_DEFAULT_MEMBER_PERMISSIONS)
+    .options(
     new SubGroup('permission', 'Configure Mod command access').options(
       new SubCommand('list', 'Show roles allowed to use /mod commands'),
       new SubCommand('add', 'Grant /mod command access to a role').options(
@@ -74,7 +76,7 @@ export const command_admin = factory.command<AdminVar>(
       new Option('player', 'Player to reset', 'User').required(),
       new Option('mode', 'Rating mode to reset').choices(...LEADERBOARD_MODE_CHOICES).required(),
     ),
-  ),
+    ),
   (c) => {
     if (!hasAdminPermission({ permissions: c.interaction.member?.permissions })) {
       return c.flags('EPHEMERAL').resDefer(async (c) => {

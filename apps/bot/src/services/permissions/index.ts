@@ -3,6 +3,8 @@ const MOD_ROLE_KEY_PREFIX = 'permissions:mod_roles:'
 const DISCORD_ADMINISTRATOR = 1n << 3n
 const DISCORD_MANAGE_GUILD = 1n << 5n
 
+export const ADMIN_COMMAND_DEFAULT_MEMBER_PERMISSIONS = DISCORD_MANAGE_GUILD.toString()
+
 interface PermissionCheckInput {
   permissions?: string
 }
