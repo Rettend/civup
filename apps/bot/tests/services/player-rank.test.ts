@@ -122,16 +122,16 @@ describe('player rank views', () => {
     })).toJSON()
 
     expect(stats.description).toContain('<@100010000000000099> - <@&22222222222222222>')
-    expect(JSON.stringify(stats.fields)).toContain('Rating: <@&11111111111111111> (982)')
-    expect(JSON.stringify(stats.fields)).toContain('Rating: <@&22222222222222222> (1270)')
+    expect(JSON.stringify(stats.fields)).toContain('Rating: <@&11111111111111111> (964)')
+    expect(JSON.stringify(stats.fields)).toContain('Rating: <@&22222222222222222> (1540)')
 
     expect(rank.description).toContain('<@100010000000000099> - <@&22222222222222222>')
     expect(rank.fields?.[0]?.name).toBe('S2')
     expect(JSON.stringify(rank.fields)).toContain('S2')
     expect(JSON.stringify(rank.fields)).toContain('FFA')
     expect(JSON.stringify(rank.fields)).toContain('Duel')
-    expect(JSON.stringify(rank.fields)).toContain('Rating: <@&11111111111111111> (982)')
-    expect(JSON.stringify(rank.fields)).toContain('Rating: <@&22222222222222222> (1270)')
+    expect(JSON.stringify(rank.fields)).toContain('Rating: <@&11111111111111111> (964)')
+    expect(JSON.stringify(rank.fields)).toContain('Rating: <@&22222222222222222> (1540)')
     expect(JSON.stringify(rank.fields)).toContain('S1')
     expect(JSON.stringify(rank.fields)).toContain('Rating: <@&11111111111111111> (631)')
     expect(JSON.stringify(rank.fields)).toContain('Rating: <@&44444444444444444> (711)')
@@ -235,7 +235,7 @@ describe('player rank views', () => {
       seasonHistory: history,
     })).toJSON()
 
-    expect(JSON.stringify(stats.fields)).toContain('Rating: Unranked (1270)')
+    expect(JSON.stringify(stats.fields)).toContain('Rating: Unranked (1540)')
     expect(JSON.stringify(stats.fields)).toContain('Games: 0')
     expect(JSON.stringify(stats.fields)).toContain('Wins: 0 (0%)')
     expect(JSON.stringify(stats.fields)).not.toContain('Recent Matches')
@@ -243,7 +243,7 @@ describe('player rank views', () => {
 
     expect(rank.fields?.[0]?.name).toBe('S2')
     expect(JSON.stringify(rank.fields)).toContain('Duel')
-    expect(JSON.stringify(rank.fields)).toContain('Rating: Unranked (1270)')
+    expect(JSON.stringify(rank.fields)).toContain('Rating: Unranked (1540)')
     expect(JSON.stringify(rank.fields)).toContain('Games: 0')
     expect(JSON.stringify(rank.fields)).toContain('Wins: 0 (0%)')
     expect(JSON.stringify(rank.fields)).not.toContain('No ranked games yet.')

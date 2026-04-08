@@ -1,10 +1,10 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import type { RankedRoleConfig } from './roles.ts'
-import { players } from '@civup/db'
+import { playerRatings, playerRatingSeeds, players } from '@civup/db'
 import { competitiveTierRank, LEADERBOARD_MODES } from '@civup/game'
-import { displayRating, LEADERBOARD_MIN_GAMES } from '@civup/rating'
-import { inArray } from 'drizzle-orm'
+import { displayRating, getLeaderboardMinGames, RANKED_ROLE_MIN_GAMES } from '@civup/rating'
+import { and, eq, gt, inArray } from 'drizzle-orm'
 import { DiscordApiError, editGuildMemberRoles } from '../discord/index.ts'
 import { ensureLeaderboardModeSnapshots } from '../leaderboard/snapshot.ts'
 import { getActiveSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks } from '../season/index.ts'
@@ -26,6 +26,7 @@ import {
 export interface CurrentRankAssignment {
   tier: CompetitiveTier
   sourceMode: LeaderboardMode | null
+  protectedUntilTotalGames?: number
 }
 
 export interface RankedRoleAssignments {
@@ -121,6 +122,7 @@ interface RankedRoleSyncOptions {
   advanceDemotionWindow?: boolean
   playerIds?: string[]
   includePlayerIdentities?: boolean
+  rankedMinGames?: number
 }
 
 interface RatingSnapshotRow {
@@ -157,6 +159,7 @@ interface LadderSnapshots {
   earn: Map<string, LadderAssignment>
   keep: Map<string, LadderAssignment>
   scores: Map<string, number>
+  unlockPopulationCount: number
 }
 
 interface RankedRolePreviewState {
@@ -165,6 +168,8 @@ interface RankedRolePreviewState {
   config: RankedRoleConfig
   laddersByMode: Map<LeaderboardMode, LadderSnapshots>
 }
+
+type RankedEligibilityOverrideKey = `${string}:${LeaderboardMode}`
 
 interface RankedTierThreshold {
   tier: CompetitiveTier
@@ -246,7 +251,8 @@ function buildRankedPreviewModeSummary(
   ladders: LadderSnapshots | undefined,
 ): RankedPreviewModeSummary {
   const rankedCount = ladders?.scores.size ?? 0
-  if (rankedCount <= 0) {
+  const unlockPopulationCount = ladders?.unlockPopulationCount ?? rankedCount
+  if (unlockPopulationCount <= 0) {
     return {
       mode,
       rankedCount: 0,
@@ -267,7 +273,7 @@ function buildRankedPreviewModeSummary(
 
   const tiers: RankedPreviewModeTierSummary[] = []
   for (const threshold of buildRankedTierThresholds(config)) {
-    const locked = rankedCount < threshold.unlockMinPlayers
+    const locked = unlockPopulationCount < threshold.unlockMinPlayers
     const cutoff = locked ? null : cutoffByTier.get(threshold.tier)
     tiers.push({
       tier: threshold.tier,
@@ -275,7 +281,7 @@ function buildRankedPreviewModeSummary(
       isFallback: false,
       locked,
       unlockMinPlayers: threshold.unlockMinPlayers,
-      playersNeededToUnlock: locked ? threshold.unlockMinPlayers - rankedCount : null,
+      playersNeededToUnlock: locked ? threshold.unlockMinPlayers - unlockPopulationCount : null,
       cutoffRank: cutoff?.rank ?? null,
       cutoffScore: cutoff?.score ?? null,
     })
@@ -556,13 +562,33 @@ async function buildRankedRolePreviewState({
   advanceDemotionWindow = false,
   playerIds,
   includePlayerIdentities = true,
+  rankedMinGames = RANKED_ROLE_MIN_GAMES,
 }: RankedRoleSyncOptions): Promise<RankedRolePreviewState> {
-  const [leaderboardSnapshots, previousAssignments, previousCandidates, config] = await Promise.all([
+  const [leaderboardSnapshots, previousAssignments, previousCandidates, config, seedOverrides] = await Promise.all([
     ensureLeaderboardModeSnapshots(db, kv),
     getCurrentRankAssignments(kv, guildId),
     getRankedRoleDemotionCandidates(kv, guildId),
     getRankedRoleConfig(kv, guildId),
+    db
+      .select({
+        playerId: playerRatingSeeds.playerId,
+        mode: playerRatingSeeds.mode,
+      })
+      .from(playerRatingSeeds)
+      .innerJoin(playerRatings, and(
+        eq(playerRatings.playerId, playerRatingSeeds.playerId),
+        eq(playerRatings.mode, playerRatingSeeds.mode),
+      ))
+      .where(and(
+        eq(playerRatingSeeds.eligibleForRanked, true),
+        gt(playerRatings.gamesPlayed, 0),
+      )),
   ])
+
+  const rankedEligibilityOverrideKeys = new Set<RankedEligibilityOverrideKey>(seedOverrides.flatMap((row) => {
+    if (!LEADERBOARD_MODES.includes(row.mode as LeaderboardMode)) return []
+    return [`${row.playerId}:${row.mode}` as RankedEligibilityOverrideKey]
+  }))
 
   const ratings = [...leaderboardSnapshots.values()]
     .flatMap(snapshot => snapshot.rows)
@@ -576,9 +602,20 @@ async function buildRankedRolePreviewState({
     }))
     .filter(row => LEADERBOARD_MODES.includes(row.mode) && isDiscordSnowflake(row.playerId))
 
+  const maxModeGamesByPlayerId = buildMaxModeGamesByPlayerId(ratings)
+  const fallbackTier = getLowestRankedRoleTier(config) ?? createRankedRoleTierId(getRankedRoleTierCount(config))
+  const protectedUnlockPopulationCountsByMode = countProtectedUnlockPlayersByMode(previousAssignments, config, fallbackTier, maxModeGamesByPlayerId)
+
   const laddersByMode = new Map<LeaderboardMode, LadderSnapshots>()
   for (const mode of LEADERBOARD_MODES) {
-    laddersByMode.set(mode, buildLadderSnapshots(ratings.filter(row => row.mode === mode), mode, config))
+      laddersByMode.set(mode, buildLadderSnapshots(
+        ratings.filter(row => row.mode === mode),
+        mode,
+        config,
+        rankedMinGames,
+        rankedEligibilityOverrideKeys,
+        protectedUnlockPopulationCountsByMode.get(mode) ?? 0,
+      ))
   }
 
   const knownPlayerIds = new Set<string>()
@@ -599,7 +636,6 @@ async function buildRankedRolePreviewState({
   const playerPreviews: RankedRolePlayerPreview[] = []
   const distribution = createTierCounter(config)
   let unrankedCount = 0
-  const fallbackTier = getLowestRankedRoleTier(config) ?? createRankedRoleTierId(getRankedRoleTierCount(config))
 
   for (const playerId of previewPlayerIds) {
     const previousAssignment = (() => {
@@ -623,6 +659,7 @@ async function buildRankedRolePreviewState({
       fallbackTier,
       previousAssignment,
       previousCandidate,
+      totalGames: maxModeGamesByPlayerId.get(playerId) ?? 0,
       now,
       advanceDemotionWindow,
     })
@@ -721,60 +758,118 @@ function buildSeasonModePeakCandidates(
   })
 }
 
-function buildLadderSnapshots(rows: RatingSnapshotRow[], mode: LeaderboardMode, config: RankedRoleConfig): LadderSnapshots {
-  const eligible = rows
-    .filter(row => row.gamesPlayed >= LEADERBOARD_MIN_GAMES)
+function buildMaxModeGamesByPlayerId(ratings: RatingSnapshotRow[]): Map<string, number> {
+  const totals = new Map<string, number>()
+  for (const row of ratings) {
+    totals.set(row.playerId, Math.max(totals.get(row.playerId) ?? 0, row.gamesPlayed))
+  }
+  return totals
+}
+
+function countProtectedUnlockPlayersByMode(
+  previousAssignments: RankedRoleAssignments,
+  config: RankedRoleConfig,
+  fallbackTier: CompetitiveTier,
+  maxModeGamesByPlayerId: Map<string, number>,
+): Map<LeaderboardMode, number> {
+  const counts = new Map<LeaderboardMode, number>()
+  for (const mode of LEADERBOARD_MODES) counts.set(mode, 0)
+
+  for (const [playerId, assignment] of Object.entries(previousAssignments.byPlayerId)) {
+    if (!isDiscordSnowflake(playerId)) continue
+    if (!hasConfiguredRankedRoleTier(config, assignment.tier)) continue
+    if (assignment.tier === fallbackTier) continue
+    if ((assignment.protectedUntilTotalGames ?? 0) <= (maxModeGamesByPlayerId.get(playerId) ?? 0)) continue
+    if (!assignment.sourceMode || !LEADERBOARD_MODES.includes(assignment.sourceMode)) continue
+    counts.set(assignment.sourceMode, (counts.get(assignment.sourceMode) ?? 0) + 1)
+  }
+
+  return counts
+}
+
+function buildLadderSnapshots(
+  rows: RatingSnapshotRow[],
+  mode: LeaderboardMode,
+  config: RankedRoleConfig,
+  rankedMinGames: number,
+  rankedEligibilityOverrideKeys: Set<RankedEligibilityOverrideKey>,
+  protectedUnlockPopulationCount: number,
+): LadderSnapshots {
+  const ranked = rows
+    .filter(row => row.gamesPlayed >= getLeaderboardMinGames(mode) || rankedEligibilityOverrideKeys.has(rankEligibilityOverrideKey(row.playerId, mode)))
     .map(row => ({
       playerId: row.playerId,
       score: displayRating(row.mu, row.sigma),
       lastPlayedAt: row.lastPlayedAt,
     }))
     .sort(compareLadderEntry)
+  const qualifiedPlayerIds = new Set(rows
+    .filter(row => row.gamesPlayed >= rankedMinGames || rankedEligibilityOverrideKeys.has(rankEligibilityOverrideKey(row.playerId, mode)))
+    .map(row => row.playerId))
 
   return {
-    earn: buildEarnAssignments(eligible, mode, config),
-    keep: buildKeepAssignments(eligible, mode, config),
-    scores: new Map(eligible.map(entry => [entry.playerId, entry.score])),
+    earn: buildEarnAssignments(ranked, mode, config, protectedUnlockPopulationCount, qualifiedPlayerIds),
+    keep: buildKeepAssignments(ranked, mode, config, protectedUnlockPopulationCount, qualifiedPlayerIds),
+    scores: new Map(ranked.map(entry => [entry.playerId, entry.score])),
+    unlockPopulationCount: Math.max(ranked.length, protectedUnlockPopulationCount),
   }
 }
 
-function buildEarnAssignments(entries: LadderEntry[], mode: LeaderboardMode, config: RankedRoleConfig): Map<string, LadderAssignment> {
+function rankEligibilityOverrideKey(playerId: string, mode: LeaderboardMode): RankedEligibilityOverrideKey {
+  return `${playerId}:${mode}`
+}
+
+function buildEarnAssignments(
+  entries: LadderEntry[],
+  mode: LeaderboardMode,
+  config: RankedRoleConfig,
+  protectedUnlockPopulationCount: number,
+  qualifiedPlayerIds: Set<string>,
+): Map<string, LadderAssignment> {
   const n = entries.length
+  const unlockPopulationCount = Math.max(n, protectedUnlockPopulationCount)
   const assignmentByPlayerId = new Map<string, LadderAssignment>()
   if (n === 0) return assignmentByPlayerId
 
   const fallbackTier = getLowestRankedRoleTier(config) ?? createRankedRoleTierId(getRankedRoleTierCount(config))
   let start = 0
   for (const threshold of buildRankedTierThresholds(config)) {
-    if (n < threshold.unlockMinPlayers) continue
+    if (unlockPopulationCount < threshold.unlockMinPlayers) continue
     let size = Math.round(n * threshold.earnPercent)
     if (threshold.minimumCountWhenUnlocked > 0) size = Math.max(threshold.minimumCountWhenUnlocked, size)
     size = Math.max(0, Math.min(size, n - start))
-    assignTierSlice(assignmentByPlayerId, entries, threshold.tier, mode, start, size)
+    assignTierSlice(assignmentByPlayerId, entries, threshold.tier, mode, start, size, qualifiedPlayerIds)
     start += size
   }
 
-  assignTierSlice(assignmentByPlayerId, entries, fallbackTier, mode, start, n - start)
+  assignTierSlice(assignmentByPlayerId, entries, fallbackTier, mode, start, n - start, qualifiedPlayerIds)
   return assignmentByPlayerId
 }
 
-function buildKeepAssignments(entries: LadderEntry[], mode: LeaderboardMode, config: RankedRoleConfig): Map<string, LadderAssignment> {
+function buildKeepAssignments(
+  entries: LadderEntry[],
+  mode: LeaderboardMode,
+  config: RankedRoleConfig,
+  protectedUnlockPopulationCount: number,
+  qualifiedPlayerIds: Set<string>,
+): Map<string, LadderAssignment> {
   const n = entries.length
+  const unlockPopulationCount = Math.max(n, protectedUnlockPopulationCount)
   const assignmentByPlayerId = new Map<string, LadderAssignment>()
   if (n === 0) return assignmentByPlayerId
 
   const fallbackTier = getLowestRankedRoleTier(config) ?? createRankedRoleTierId(getRankedRoleTierCount(config))
   let previousCount = 0
   for (const threshold of buildRankedTierThresholds(config)) {
-    const nextCount = n >= threshold.unlockMinPlayers
+    const nextCount = unlockPopulationCount >= threshold.unlockMinPlayers
       ? Math.max(previousCount, threshold.minimumCountWhenUnlocked, Math.round(n * threshold.keepCumulativePercent))
       : previousCount
     const boundedCount = Math.max(0, Math.min(nextCount, n))
-    assignTierSlice(assignmentByPlayerId, entries, threshold.tier, mode, previousCount, boundedCount - previousCount)
+    assignTierSlice(assignmentByPlayerId, entries, threshold.tier, mode, previousCount, boundedCount - previousCount, qualifiedPlayerIds)
     previousCount = boundedCount
   }
 
-  assignTierSlice(assignmentByPlayerId, entries, fallbackTier, mode, previousCount, Math.max(0, n - previousCount))
+  assignTierSlice(assignmentByPlayerId, entries, fallbackTier, mode, previousCount, Math.max(0, n - previousCount), qualifiedPlayerIds)
 
   return assignmentByPlayerId
 }
@@ -786,11 +881,13 @@ function assignTierSlice(
   mode: LeaderboardMode,
   start: number,
   size: number,
+  qualifiedPlayerIds: Set<string>,
 ): void {
   for (let offset = 0; offset < size; offset++) {
     const index = start + offset
     const entry = entries[index]
     if (!entry) break
+    if (!qualifiedPlayerIds.has(entry.playerId)) continue
     target.set(entry.playerId, {
       playerId: entry.playerId,
       tier,
@@ -849,6 +946,7 @@ function resolveCurrentAssignment({
   fallbackTier,
   previousAssignment,
   previousCandidate,
+  totalGames,
   now,
   advanceDemotionWindow,
 }: {
@@ -857,6 +955,7 @@ function resolveCurrentAssignment({
   fallbackTier: CompetitiveTier
   previousAssignment: CurrentRankAssignment | null
   previousCandidate: RankedRoleDemotionCandidate | null
+  totalGames: number
   now: number
   advanceDemotionWindow: boolean
 }): {
@@ -866,6 +965,10 @@ function resolveCurrentAssignment({
   const earned = earnAssignment ?? { tier: fallbackTier, sourceMode: null }
   const keep = keepAssignment ?? { tier: fallbackTier, sourceMode: null }
   if (!previousAssignment) return { assignment: earned, pendingDemotion: null }
+
+  if ((previousAssignment.protectedUntilTotalGames ?? 0) > totalGames) {
+    return { assignment: previousAssignment, pendingDemotion: null }
+  }
 
   if (competitiveTierRank(earned.tier) > competitiveTierRank(previousAssignment.tier)) {
     return { assignment: earned, pendingDemotion: null }
@@ -880,6 +983,7 @@ function resolveCurrentAssignment({
       assignment: {
         tier: previousAssignment.tier,
         sourceMode: keep.sourceMode ?? previousAssignment.sourceMode,
+        protectedUntilTotalGames: previousAssignment.protectedUntilTotalGames,
       },
       pendingDemotion: null,
     }
@@ -1055,6 +1159,7 @@ function normalizeCurrentRankAssignment(value: unknown): CurrentRankAssignment |
   return {
     tier,
     sourceMode: LEADERBOARD_MODES.includes(sourceMode as LeaderboardMode) ? sourceMode as LeaderboardMode : null,
+    protectedUntilTotalGames: normalizePositiveInteger((value as { protectedUntilTotalGames?: unknown }).protectedUntilTotalGames),
   }
 }
 
