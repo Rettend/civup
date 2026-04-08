@@ -2,6 +2,7 @@ import { matches, matchParticipants, playerRatings, players } from '@civup/db'
 import { buildLeaderboard } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
+import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
 import { cancelMatchByModerator, recalculateLeaderboardMode, reportMatch, resolveMatchByModerator } from '../../src/services/match/index.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
@@ -207,6 +208,49 @@ describe('match moderation recalculation', () => {
     }
   })
 
+  test('report rebuilds leaderboard snapshot before writing ratings', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedActiveSquadMatch(db)
+      await kv.put(leaderboardModeSnapshotKey('squad'), JSON.stringify({
+        updatedAt: 1,
+        rows: [
+          { playerId: 'p1', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 1, lastPlayedAt: 1000 },
+          { playerId: 'p2', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 1, lastPlayedAt: 1000 },
+          { playerId: 'p3', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 1, lastPlayedAt: 1000 },
+          { playerId: 'p4', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 0, lastPlayedAt: 1000 },
+          { playerId: 'p5', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 0, lastPlayedAt: 1000 },
+        ],
+      }))
+
+      const result = await reportMatch(db, kv, {
+        matchId: 'squad-active',
+        reporterId: 'p1',
+        placements: '<@p1>',
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.match.status).toBe('completed')
+
+      const [p6Rating] = await db
+        .select()
+        .from(playerRatings)
+        .where(and(
+          eq(playerRatings.playerId, 'p6'),
+          eq(playerRatings.mode, 'squad'),
+        ))
+        .limit(1)
+
+      expect(p6Rating?.gamesPlayed).toBe(2)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('recalculateLeaderboardMode splits 2v2 into duo and 3v3 into squad', async () => {
     const { db, sqlite } = await createTestDatabase()
 
@@ -339,5 +383,44 @@ async function seedCompletedTeamMatches(db: any): Promise<void> {
     { matchId: 'squad-1', playerId: 's4', team: 1, civId: 'china', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
     { matchId: 'squad-1', playerId: 's5', team: 1, civId: 'japan', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
     { matchId: 'squad-1', playerId: 's6', team: 1, civId: 'france', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+  ])
+}
+
+async function seedActiveSquadMatch(db: any): Promise<void> {
+  await db.insert(players).values([
+    { id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 },
+    { id: 'p2', displayName: 'P2', avatarUrl: null, createdAt: 1 },
+    { id: 'p3', displayName: 'P3', avatarUrl: null, createdAt: 1 },
+    { id: 'p4', displayName: 'P4', avatarUrl: null, createdAt: 1 },
+    { id: 'p5', displayName: 'P5', avatarUrl: null, createdAt: 1 },
+    { id: 'p6', displayName: 'P6', avatarUrl: null, createdAt: 1 },
+  ])
+
+  await db.insert(matches).values({
+    id: 'squad-active',
+    gameMode: '3v3',
+    status: 'active',
+    createdAt: 1000,
+    completedAt: null,
+    seasonId: null,
+    draftData: null,
+  })
+
+  await db.insert(matchParticipants).values([
+    { matchId: 'squad-active', playerId: 'p1', team: 0, civId: 'rome', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'squad-active', playerId: 'p2', team: 0, civId: 'greece', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'squad-active', playerId: 'p3', team: 0, civId: 'india', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'squad-active', playerId: 'p4', team: 1, civId: 'china', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'squad-active', playerId: 'p5', team: 1, civId: 'japan', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'squad-active', playerId: 'p6', team: 1, civId: 'france', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+  ])
+
+  await db.insert(playerRatings).values([
+    { playerId: 'p1', mode: 'squad', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 1, lastPlayedAt: 1000 },
+    { playerId: 'p2', mode: 'squad', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 1, lastPlayedAt: 1000 },
+    { playerId: 'p3', mode: 'squad', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 1, lastPlayedAt: 1000 },
+    { playerId: 'p4', mode: 'squad', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 0, lastPlayedAt: 1000 },
+    { playerId: 'p5', mode: 'squad', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 0, lastPlayedAt: 1000 },
+    { playerId: 'p6', mode: 'squad', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 0, lastPlayedAt: 1000 },
   ])
 }

@@ -1,11 +1,13 @@
 import type { Database } from '@civup/db'
 import { matches } from '@civup/db'
-import { eq } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 import { createChannelMessage, createDmChannel } from '../discord/index.ts'
 import { getLobbyByMatch } from '../lobby/index.ts'
+import { stateStoreMget } from '../state/store.ts'
 import { getCompletedAtFromDraftData, getHostIdFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 
 const REPORT_REMINDER_TTL_SECONDS = 3 * 24 * 60 * 60
+const MAX_HOST_REPORT_REMINDERS_PER_RUN = 4
 
 const REPORT_REMINDER_STAGES = [
   {
@@ -42,11 +44,14 @@ export async function sendOverdueHostReportReminders(
     })
     .from(matches)
     .where(eq(matches.status, 'active'))
+    .orderBy(asc(matches.createdAt), asc(matches.id))
 
   let attemptedCount = 0
   let sentCount = 0
 
   for (const match of activeMatches) {
+    if (attemptedCount >= MAX_HOST_REPORT_REMINDERS_PER_RUN) break
+
     const completedAt = getCompletedAtFromDraftData(match.draftData)
     const hostId = getHostIdFromDraftData(match.draftData)
     if (completedAt == null || !hostId) continue
@@ -58,11 +63,11 @@ export async function sendOverdueHostReportReminders(
     if (!pendingStage) continue
 
     attemptedCount += 1
-    await markReminderStagesThrough(kv, match.id, pendingStage.key)
 
     try {
       const reportLink = await getMatchReportLink(kv, match.id)
       await sendReminderDm(token, hostId, buildReminderContent(pendingStage.introPrefix, gameContext.label, reportLink))
+      await markReminderStagesThrough(kv, match.id, pendingStage.key)
       sentCount += 1
     }
     catch (error) {
@@ -78,11 +83,16 @@ async function resolvePendingReminderStage(
   matchId: string,
   elapsedMs: number,
 ): Promise<(typeof REPORT_REMINDER_STAGES)[number] | null> {
+  const reminderStates = await stateStoreMget(kv, REPORT_REMINDER_STAGES.map(stage => ({
+    key: reminderKey(matchId, stage.key),
+  })))
   let pendingStage: (typeof REPORT_REMINDER_STAGES)[number] | null = null
 
-  for (const stage of REPORT_REMINDER_STAGES) {
+  for (let index = 0; index < REPORT_REMINDER_STAGES.length; index++) {
+    const stage = REPORT_REMINDER_STAGES[index]
+    if (!stage) continue
     if (elapsedMs < stage.delayMs) continue
-    if (await kv.get(reminderKey(matchId, stage.key))) continue
+    if (reminderStates[index]) continue
     pendingStage = stage
   }
 
