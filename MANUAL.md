@@ -287,6 +287,7 @@ Commands to view rating:
 
 - uses **OpenSkill** with parameters tuned for Civ 6: games are less frequent so it uses more uncertainty
 - in **duel and team modes**, very lopsided two-team wins are **tapered hard** once the winner was already a big favorite, so stacked teams cannot farm much elo from obviously weaker opponents
+- in **all 3+ side placement modes** including **FFA**, all placements matter
 - the **first ~10-20 games** are pretty volatile, but after that it gets very accurate for the player's skill level
 - new player **display elo** starts at `1000` and they are Unranked
 - a player needs **3 games** in a game mode to get the first Ranked role and appear on the leaderboard

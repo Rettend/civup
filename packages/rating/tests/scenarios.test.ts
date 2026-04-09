@@ -91,14 +91,14 @@ function averageTeamDisplayAfterGames(teamSize: 2 | 3, winRate: number, games: n
   return total / seedCount
 }
 
-function simulateFfaPatternDisplayAfterGames(pattern: number[], games: number): number {
+function simulateFfaPatternDisplayAfterGames(pattern: number[], games: number, playerCount: number = 8): number {
   let hero = createRating('hero')
 
   for (let game = 1; game <= games; game++) {
     const placement = pattern[(game - 1) % pattern.length]!
     const entries: FfaEntry[] = []
 
-    for (let index = 1; index <= 10; index++) {
+    for (let index = 1; index <= playerCount; index++) {
       entries.push({
         player: index === placement ? hero : playerFromDisplay(`opp${index}`, 1000),
         placement: index,
@@ -121,11 +121,11 @@ function buildEqualFfaEntries(playerCount: number): FfaEntry[] {
 
 describe('calculateFfaRatings realistic distributions', () => {
   test.each([
-    [6, [73.05, 43.83, 14.61, -14.61, -43.83, -73.05]],
-    [7, [70.37, 46.91, 23.46, 0.0, -23.46, -46.91, -70.37]],
-    [8, [64.96, 46.40, 27.84, 9.28, -9.28, -27.84, -46.40, -64.96]],
-    [9, [61.94, 46.46, 30.97, 15.49, 0.0, -15.49, -30.97, -46.46, -61.94]],
-    [10, [56.79, 44.17, 31.55, 18.93, 6.31, -6.31, -18.93, -31.55, -44.17, -56.79]],
+    [6, [47.85, 28.71, 9.57, -9.57, -28.71, -47.85]],
+    [7, [54.62, 36.41, 18.21, 0.0, -18.21, -36.41, -54.62]],
+    [8, [60.31, 43.08, 25.85, 8.62, -8.62, -25.85, -43.08, -60.31]],
+    [9, [65.03, 48.77, 32.52, 16.26, 0.0, -16.26, -32.52, -48.77, -65.03]],
+    [10, [68.93, 53.61, 38.29, 22.98, 7.66, -7.66, -22.98, -38.29, -53.61, -68.93]],
   ])('equal-skill %i-player FFAs produce stable placement spreads', (playerCount, expectedDeltas) => {
     const updates = calculateFfaRatings(buildEqualFfaEntries(playerCount))
 
@@ -164,7 +164,23 @@ describe('calculateFfaRatings realistic distributions', () => {
     }
   })
 
-  test('elite players cannot farm huge gains from average 10-player FFA lobbies', () => {
+  test('8-player FFA provisional wins stay more volatile than established ones without exploding', () => {
+    const provisional = calculateFfaRatings(buildEqualFfaEntries(8))
+    const established = calculateFfaRatings(Array.from({ length: 8 }, (_, index) => ({
+      player: playerFromDisplay(`est${index + 1}`, 1000),
+      placement: index + 1,
+    })))
+
+    const provisionalWinner = playerById(provisional, 'p1')
+    const establishedWinner = playerById(established, 'est1')
+
+    expect(provisionalWinner.displayDelta).toBeCloseTo(60.31, 2)
+    expect(establishedWinner.displayDelta).toBeCloseTo(28.6, 2)
+    expect(provisionalWinner.displayDelta).toBeGreaterThan(establishedWinner.displayDelta + 25)
+    expect(provisionalWinner.displayDelta).toBeLessThan(70)
+  })
+
+  test('elite players still need top finishes against average 10-player FFA lobbies', () => {
     const heroWinField: FfaEntry[] = [
       { player: playerFromDisplay('hero', 1400, 4), placement: 1 },
       ...Array.from({ length: 9 }, (_, index) => ({
@@ -187,10 +203,10 @@ describe('calculateFfaRatings realistic distributions', () => {
     const winDelta = playerById(calculateFfaRatings(heroWinField), 'hero').displayDelta
     const midDelta = playerById(calculateFfaRatings(heroMidField), 'hero').displayDelta
 
-    expect(winDelta).toBeGreaterThan(12)
-    expect(winDelta).toBeLessThan(14)
-    expect(midDelta).toBeGreaterThan(0)
-    expect(midDelta).toBeLessThan(2)
+    expect(winDelta).toBeGreaterThan(11)
+    expect(winDelta).toBeLessThan(13)
+    expect(midDelta).toBeLessThan(-5)
+    expect(midDelta).toBeGreaterThan(-7)
   })
 })
 
@@ -504,14 +520,19 @@ describe('cross-mode progression sanity', () => {
     expect(threeVThree60 - duel60).toBeLessThan(120)
   })
 
-  test('10-player FFA placement patterns move Elo in intuitive directions', () => {
-    const averagePattern = simulateFfaPatternDisplayAfterGames([5, 6], 100)
-    const mildTopPattern = simulateFfaPatternDisplayAfterGames([4, 5, 5, 6], 100)
-    const mildBottomPattern = simulateFfaPatternDisplayAfterGames([5, 6, 6, 7], 100)
+  test('8-player FFA placement patterns move Elo in intuitive directions', () => {
+    const averagePattern = simulateFfaPatternDisplayAfterGames([4, 5], 100, 8)
+    const slightTopPattern = simulateFfaPatternDisplayAfterGames([4, 4, 4, 5], 100, 8)
+    const mildTopPattern = simulateFfaPatternDisplayAfterGames([3, 4, 4, 5], 100, 8)
+    const slightBottomPattern = simulateFfaPatternDisplayAfterGames([4, 5, 5, 6], 100, 8)
 
     expect(averagePattern).toBeGreaterThan(990)
     expect(averagePattern).toBeLessThan(1010)
-    expect(mildTopPattern).toBeGreaterThan(1260)
-    expect(mildBottomPattern).toBeLessThan(750)
+    expect(slightTopPattern).toBeGreaterThan(1040)
+    expect(slightTopPattern).toBeLessThan(1065)
+    expect(mildTopPattern).toBeGreaterThan(1090)
+    expect(mildTopPattern).toBeLessThan(1120)
+    expect(slightBottomPattern).toBeGreaterThan(870)
+    expect(slightBottomPattern).toBeLessThan(905)
   })
 })
