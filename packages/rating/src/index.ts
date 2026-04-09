@@ -37,25 +37,17 @@ export const RATING_OPTIONS = {
   tau: 0.3, // Adds back some uncertainty to prevent stagnation
 }
 
-/** Openskill options for ranked outcomes with 3+ sides (FFA players or 3+ teams like RD). */
-function getRankedRatingOptions(sides: number) {
-  const betaBySides: Record<number, number> = {
-    3: 30,
-    4: 40,
-    5: 50,
-    6: 60,
-    7: 75,
-    8: 95,
-    9: 114,
-    10: 140,
-  }
-
+/** All 3+ side placement modes */
+function getPlacementRatingOptions(sides: number) {
   return {
     ...RATING_OPTIONS,
     model: bradleyTerryFull,
-    beta: betaBySides[sides] ?? (1.5 * sides * Math.max(1, sides - 1)),
+    beta: Math.max(3, sides - 2),
   }
 }
+
+/** Placement games contain more variance, so 3+ side outcomes are scaled down uniformly. */
+const PLACEMENT_UPDATE_WEIGHT = 0.1
 
 function getExpectedWinWeight(winnerProbability: number): number {
   const boundedProbability = Math.max(0, Math.min(1, winnerProbability))
@@ -154,7 +146,7 @@ export interface TeamInput {
  *
  * Two-team matchups use low beta (duel tuning). They also taper extremely expected wins so
  * stacked teams in open lobbies cannot farm much rating from obviously weaker opponents.
- * Three or more teams use the same model and beta curve as FFA so placements stay balanced.
+ * Three or more sides use one shared placement curve, whether those sides are solo FFA players or teams.
  *
  * OpenSkill's `rate()` takes teams in placement order by default.
  *
@@ -171,7 +163,7 @@ export function calculateTeamRatings(teams: TeamInput[]): RatingUpdate[] {
   const rank = teams.map((_, i) => i + 1)
 
   const ratingOptions = teams.length > 2
-    ? getRankedRatingOptions(teams.length)
+    ? getPlacementRatingOptions(teams.length)
     : RATING_OPTIONS
   const winnerProbability = teams.length === 2
     ? (predictWin(osTeams, ratingOptions)[0] ?? 0.5)
@@ -202,7 +194,7 @@ export function calculateTeamRatings(teams: TeamInput[]): RatingUpdate[] {
     }
   }
 
-  if (winnerProbability == null) return updates
+  if (winnerProbability == null) return scaleRatingUpdates(updates, PLACEMENT_UPDATE_WEIGHT)
   return scaleRatingUpdates(updates, getExpectedWinWeight(winnerProbability))
 }
 
@@ -230,9 +222,9 @@ export function calculateFfaRatings(entries: FfaEntry[]): RatingUpdate[] {
   const osTeams: OSRating[][] = sorted.map(e => [{ mu: e.player.mu, sigma: e.player.sigma }])
   const rank = sorted.map(e => e.placement)
 
-  const updatedTeams = rate(osTeams, { rank, ...getRankedRatingOptions(sorted.length) })
+  const updatedTeams = rate(osTeams, { rank, ...getPlacementRatingOptions(sorted.length) })
 
-  return sorted.map((entry, i) => {
+  const updates = sorted.map((entry, i) => {
     const updated = updatedTeams[i]![0]!
     const displayBefore = displayRating(entry.player.mu, entry.player.sigma)
     const displayAfter = displayRating(updated.mu, updated.sigma)
@@ -246,6 +238,8 @@ export function calculateFfaRatings(entries: FfaEntry[]): RatingUpdate[] {
       displayDelta: displayAfter - displayBefore,
     }
   })
+
+  return scaleRatingUpdates(updates, PLACEMENT_UPDATE_WEIGHT)
 }
 
 // ── Unified Calculation ────────────────────────────────────
@@ -280,7 +274,7 @@ export function predictWinProbabilities(teams: PlayerRating[][]): number[] {
     t.map(p => ({ mu: p.mu, sigma: p.sigma })),
   )
   const options = teams.length > 2
-    ? getRankedRatingOptions(teams.length)
+    ? getPlacementRatingOptions(teams.length)
     : RATING_OPTIONS
   return predictWin(osTeams, options)
 }
