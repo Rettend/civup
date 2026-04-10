@@ -1,6 +1,6 @@
 import type { Database } from '@civup/db'
 import { matchMessageMappings } from '@civup/db'
-import { eq } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 
 const MATCH_MESSAGE_TTL_MS = 180 * 24 * 60 * 60 * 1000
 
@@ -71,4 +71,19 @@ export async function clearMatchMessageMapping(
   messageId: string,
 ): Promise<void> {
   await db.delete(matchMessageMappings).where(eq(matchMessageMappings.messageId, messageId))
+}
+
+export async function listMatchMessageIds(
+  db: Database,
+  matchId: string,
+): Promise<string[]> {
+  const rows = await db
+    .select({
+      messageId: matchMessageMappings.messageId,
+    })
+    .from(matchMessageMappings)
+    .where(eq(matchMessageMappings.matchId, matchId))
+    .orderBy(asc(matchMessageMappings.createdAt), asc(matchMessageMappings.messageId))
+
+  return rows.map(row => row.messageId)
 }
