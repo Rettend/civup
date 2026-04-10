@@ -25,6 +25,8 @@ export const LEADERBOARD_MODE_LABELS: Record<LeaderboardMode, string> = {
   'red-death': 'Red Death',
 }
 
+const RED_DEATH_FFA_START_PLAYER_COUNTS = [4, 6, 8, 10] as const
+
 const LEADERBOARD_MODE_GAME_MODES = {
   'duel': ['1v1'],
   'duo': ['2v2'],
@@ -84,7 +86,9 @@ export function formatModeLabel(
     const parsed = parseGameMode(trimmed)
     if (parsed) {
       if (parsed === 'ffa') return 'FFA'
-      if (parsed === '2v2' && options.targetSize === 8) return '2v2v2v2'
+      if (parsed === '2v2' && typeof options.targetSize === 'number' && options.targetSize >= 6 && options.targetSize % 2 === 0) {
+        return Array.from({ length: Math.floor(options.targetSize / 2) }, () => '2').join('v')
+      }
       return parsed
     }
     return trimmed.replace(/^default-/i, '').replace(/-/g, ' ')
@@ -142,7 +146,7 @@ export function teamSize(mode: GameMode): 1 | 2 | 3 | 4 | null {
 
 /** Number of teams for team or duel modes. */
 export function teamCount(mode: GameMode, playerCount: number = defaultPlayerCount(mode)): number {
-  if (mode === '2v2') return playerCount === 8 ? 4 : 2
+  if (mode === '2v2') return Math.max(2, Math.floor(Math.max(4, playerCount) / 2))
   return teamSize(mode) == null ? 0 : 2
 }
 
@@ -192,7 +196,26 @@ export function minPlayerCount(mode: GameMode): number {
   return Math.min(...playerCountOptions(mode))
 }
 
+/** Valid player counts that can start a lobby for the current target size. */
+export function startPlayerCountOptions(
+  mode: GameMode,
+  targetSize: number = defaultPlayerCount(mode),
+  options: { redDeath?: boolean } = {},
+): readonly number[] {
+  if (mode === 'ffa' && options.redDeath) {
+    return RED_DEATH_FFA_START_PLAYER_COUNTS.filter(count => count <= targetSize)
+  }
+
+  if (mode === '2v2' && targetSize === 8) return [6, 8]
+  return playerCountOptions(mode).includes(targetSize) ? [targetSize] : []
+}
+
 /** Whether a lobby can start with the current player count. */
-export function canStartWithPlayerCount(mode: GameMode, playerCount: number, targetSize: number = playerCount): boolean {
-  return playerCount === targetSize && playerCountOptions(mode).includes(targetSize)
+export function canStartWithPlayerCount(
+  mode: GameMode,
+  playerCount: number,
+  targetSize: number = playerCount,
+  options: { redDeath?: boolean } = {},
+): boolean {
+  return startPlayerCountOptions(mode, targetSize, options).includes(playerCount)
 }

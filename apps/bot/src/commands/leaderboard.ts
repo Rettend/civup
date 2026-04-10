@@ -38,7 +38,7 @@ const TEAM_LEADERBOARD_SIZE_CHOICES = [
 ] as const
 
 export const command_leaderboard = factory.command<Var>(
-  new Command('leaderboard', 'Show the top players or teams').options(
+  new Command('leaderboard', 'Show the top players').options(
     new Option('mode', 'Leaderboard track')
       .choices(...LEADERBOARD_MODE_CHOICES),
     new Option('view', 'Leaderboard view')
