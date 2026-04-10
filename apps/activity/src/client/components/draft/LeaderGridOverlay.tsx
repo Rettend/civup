@@ -1,8 +1,9 @@
 import type { Leader } from '@civup/game'
+import type { LeaderListNeighborState } from './LeaderCard'
 import type { LeaderTagCategory } from '~/client/lib/leader-tags'
 import { factions, getLeaders, searchFactions, searchLeaders } from '@civup/game'
 import { throttle } from '@solid-primitives/scheduled'
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import {
@@ -12,6 +13,7 @@ import {
   TAG_CATEGORY_LABELS,
   TAG_CATEGORY_ORDER,
 } from '~/client/lib/leader-tags'
+import { isWideWangQuery, WIDE_WANG_AUDIO_URL, WIDE_WANG_TRANSCRIPT } from '~/client/lib/wide-wang-easter-egg'
 import {
   activeTagFilterCount,
   banSelections,
@@ -23,7 +25,9 @@ import {
   dealtCivIds,
   detailLeaderId,
   draftStore,
+  gridExpanded,
   gridOpen,
+  gridViewMode,
   hasSubmitted,
   isMyTurn,
   isRandomSelected,
@@ -37,7 +41,9 @@ import {
   sendPreview,
   setBanSelections,
   setDetailLeaderId,
+  setGridExpanded,
   setGridOpen,
+  setGridViewMode,
   setIsRandomSelected,
   setPickSelections,
   setSearchQuery,
@@ -45,7 +51,7 @@ import {
   tagFilters,
   toggleTagFilter,
 } from '~/client/stores'
-import { LeaderCard } from './LeaderCard'
+import { computeListItemBorderRadius, computeListItemBoxShadow, LeaderCard, LeaderListItem } from './LeaderCard'
 import { LeaderDetailPanel } from './LeaderDetailPanel'
 
 const DOCKED_PANEL_MIN_WIDTH = 1280
@@ -84,6 +90,72 @@ function resolveTooltipPosition(x: number, y: number, width: number, height: num
   return { left, top }
 }
 
+function computeListNeighborMap(
+  itemIds: string[],
+  columns: number,
+  isSelected: (id: string) => boolean,
+  hoveredIndex: number | null,
+): Map<string, LeaderListNeighborState> {
+  const n = itemIds.length
+  const c = Math.max(1, Math.min(columns, n || 1))
+  const map = new Map<string, LeaderListNeighborState>()
+
+  if (n === 0) return map
+
+  const base = Math.floor(n / c)
+  const remainder = n % c
+
+  const colStarts: number[] = []
+  const colHeights: number[] = []
+  let start = 0
+  for (let j = 0; j < c; j++) {
+    colStarts.push(start)
+    const h = base + (j < remainder ? 1 : 0)
+    colHeights.push(h)
+    start += h
+  }
+
+  for (let i = 0; i < n; i++) {
+    let col = 0
+    let row = i
+    for (let j = 0; j < c; j++) {
+      if (i < colStarts[j]! + colHeights[j]!) {
+        col = j
+        row = i - colStarts[j]!
+        break
+      }
+    }
+
+    const aboveIdx = row > 0 ? i - 1 : -1
+    const belowIdx = row < colHeights[col]! - 1 ? i + 1 : -1
+
+    let leftIdx = -1
+    if (col > 0 && row < colHeights[col - 1]!) {
+      leftIdx = colStarts[col - 1]! + row
+    }
+    let rightIdx = -1
+    if (col < c - 1 && row < colHeights[col + 1]!) {
+      rightIdx = colStarts[col + 1]! + row
+    }
+
+    const selAt = (idx: number) => idx >= 0 && idx < n && isSelected(itemIds[idx]!)
+    const hovAt = (idx: number) => idx >= 0 && idx === hoveredIndex
+
+    map.set(itemIds[i]!, {
+      selectedAbove: selAt(aboveIdx),
+      selectedBelow: selAt(belowIdx),
+      selectedLeft: selAt(leftIdx),
+      selectedRight: selAt(rightIdx),
+      hoveredAbove: hovAt(aboveIdx),
+      hoveredBelow: hovAt(belowIdx),
+      hoveredLeft: hovAt(leftIdx),
+      hoveredRight: hovAt(rightIdx),
+    })
+  }
+
+  return map
+}
+
 /** Collapsible leader grid overlay */
 export function LeaderGridOverlay() {
   const state = () => draftStore.state
@@ -98,18 +170,61 @@ export function LeaderGridOverlay() {
   }
   const [hoverTooltip, setHoverTooltip] = createSignal<HoverTooltip | null>(null)
   const [filtersOpen, setFiltersOpen] = createSignal(false)
-  const [gridExpanded, setGridExpanded] = createSignal(false)
   const [panelsDocked, setPanelsDocked] = createSignal(false)
   const [tooltipSize, setTooltipSize] = createSignal({ width: 224, height: 96 })
   const [hydratedPickPreviewToken, setHydratedPickPreviewToken] = createSignal<string | null>(null)
   const [hydratedBanPreviewToken, setHydratedBanPreviewToken] = createSignal<string | null>(null)
+  const [wideWangVisibleLineCount, setWideWangVisibleLineCount] = createSignal(0)
   const sendThrottledBanPreview = throttle((civIds: string[]) => sendPreview('ban', civIds), PREVIEW_THROTTLE_MS)
   const sendThrottledPickPreview = throttle((civIds: string[]) => sendPreview('pick', civIds), PREVIEW_THROTTLE_MS)
   let tooltipRef: HTMLDivElement | undefined
+  let wideWangAudio: HTMLAudioElement | null = null
+  let wideWangRevealTimeouts: Array<ReturnType<typeof setTimeout>> = []
+
+  const clearWideWangRevealTimeouts = () => {
+    for (const timeout of wideWangRevealTimeouts) clearTimeout(timeout)
+    wideWangRevealTimeouts = []
+  }
+
+  const stopWideWangEasterEgg = () => {
+    clearWideWangRevealTimeouts()
+    if (wideWangAudio) {
+      wideWangAudio.pause()
+      wideWangAudio.currentTime = 0
+    }
+    if (wideWangVisibleLineCount() > 0) setWideWangVisibleLineCount(0)
+  }
+
+  const startWideWangEasterEgg = () => {
+    stopWideWangEasterEgg()
+    setWideWangVisibleLineCount(1)
+
+    for (const [index, line] of WIDE_WANG_TRANSCRIPT.entries()) {
+      if (index === 0 || line.revealDelayMs <= 0) continue
+      wideWangRevealTimeouts.push(setTimeout(() => setWideWangVisibleLineCount(index + 1), line.revealDelayMs))
+    }
+
+    if (!wideWangAudio) {
+      wideWangAudio = new Audio(resolveAssetUrl(WIDE_WANG_AUDIO_URL) ?? WIDE_WANG_AUDIO_URL)
+      wideWangAudio.preload = 'auto'
+    }
+
+    wideWangAudio.currentTime = 0
+    void wideWangAudio.play().catch((err) => {
+      console.error('Failed to play Wide Wang easter egg audio:', err)
+    })
+  }
+
+  const handleSearchInput = (value: string) => {
+    const wasWideWangQuery = isWideWangQuery(searchQuery())
+    setSearchQuery(value)
+    if (!wasWideWangQuery && isWideWangQuery(value)) startWideWangEasterEgg()
+  }
 
   onCleanup(() => {
     sendThrottledBanPreview.clear()
     sendThrottledPickPreview.clear()
+    stopWideWangEasterEgg()
   })
   let restoreFiltersAfterCollapse = false
   let restoreDetailLeaderId: string | null = null
@@ -120,6 +235,7 @@ export function LeaderGridOverlay() {
   const showDockedPanels = () => panelsDocked()
   const showStackedShelf = () => !panelsDocked() && !gridExpanded()
   const showFocusPanelStrip = () => !panelsDocked() && gridExpanded() && (filtersOpen() || hasDetail())
+  const showWideWangTranscript = () => !isRedDeathDraft() && wideWangVisibleLineCount() > 0
   const singleClickShowsDetail = () => panelsDocked()
   const overlayEntranceClass = () => skipNextOverlayAnimation ? '' : 'anim-overlay-in'
 
@@ -254,6 +370,29 @@ export function LeaderGridOverlay() {
   })
 
   const ghostCount = createMemo(() => Math.max(0, draftLeaderPoolIds().size - filteredLeaders().length))
+
+  const showRandomInList = () => !isRedDeathDraft() && !showWideWangTranscript()
+  const [hoveredListIndex, setHoveredListIndex] = createSignal<number | null>(null)
+  const [multiListColumns, setMultiListColumns] = createSignal(1)
+
+  const listItemIds = createMemo(() => {
+    const ids: string[] = []
+    if (showRandomInList()) ids.push('__random__')
+    for (const leader of filteredLeaders()) ids.push(leader.id)
+    return ids
+  })
+
+  const isItemVisuallySelected = (id: string): boolean => {
+    if (id === '__random__') return isRandomSelected()
+    return selectedLeader() === id || banSelections().includes(id)
+  }
+
+  const listNeighborMap = createMemo((): Map<string, LeaderListNeighborState> => {
+    const viewMode = gridViewMode()
+    if (viewMode === 'grid') return new Map()
+    const cols = viewMode === 'multi-list' ? multiListColumns() : 1
+    return computeListNeighborMap(listItemIds(), cols, isItemVisuallySelected, hoveredListIndex())
+  })
 
   const isTagActive = (category: LeaderTagCategory, tag: string): boolean => {
     return tagFilters()[category].includes(tag)
@@ -431,6 +570,20 @@ export function LeaderGridOverlay() {
     setFiltersOpen(false)
   })
 
+  createEffect(() => {
+    if (isRedDeathDraft()) {
+      if (wideWangVisibleLineCount() > 0) stopWideWangEasterEgg()
+      return
+    }
+
+    if (isWideWangQuery(searchQuery())) {
+      if (wideWangVisibleLineCount() === 0) startWideWangEasterEgg()
+      return
+    }
+
+    if (wideWangVisibleLineCount() > 0) stopWideWangEasterEgg()
+  })
+
   const renderFilterPanel = (className: string) => (
     <div class={cn('grid-panel-glow border border-border rounded-lg bg-bg-subtle flex min-h-0 flex-col shadow-2xl overflow-hidden', className)}>
       <div class="p-3 flex-1 overflow-y-auto">
@@ -486,9 +639,11 @@ export function LeaderGridOverlay() {
     <div
       class={cn(
         'flex flex-col max-h-full overflow-hidden rounded-lg bg-bg-subtle shadow-2xl grid-panel-glow relative z-20 border border-border',
-        showDockedPanels()
-          ? 'w-[min(calc(100vw-32rem),68rem)] xl:w-[min(calc(100vw-36rem),68rem)] 2xl:w-[min(calc(100vw-40rem),68rem)]'
-          : 'w-full',
+        gridViewMode() === 'list'
+          ? 'w-80 mx-auto'
+          : showDockedPanels()
+            ? 'w-[min(calc(100vw-32rem),68rem)] xl:w-[min(calc(100vw-36rem),68rem)] 2xl:w-[min(calc(100vw-40rem),68rem)]'
+            : 'w-full',
         showDockedPanels() && filtersOpen() && 'rounded-l-none',
         showDockedPanels() && hasDetail() && 'rounded-r-none',
         className,
@@ -514,7 +669,7 @@ export function LeaderGridOverlay() {
                 type="text"
                 placeholder="Search..."
                 value={searchQuery()}
-                onInput={e => setSearchQuery(e.currentTarget.value)}
+                onInput={e => handleSearchInput(e.currentTarget.value)}
                 class={cn(
                   'text-sm text-fg px-3.5 py-2 pl-8 rounded-lg w-full',
                   'bg-bg/60 border border-border',
@@ -556,6 +711,48 @@ export function LeaderGridOverlay() {
         </Show>
 
         <div class="ml-auto flex shrink-0 gap-2 items-center">
+          <div class="border border-border rounded flex overflow-hidden">
+            <button
+              class={cn(
+                'px-1 py-0 transition-all duration-150 cursor-pointer',
+                gridViewMode() === 'grid'
+                  ? 'bg-bg-muted text-fg'
+                  : 'bg-bg/60 text-fg-muted hover:text-fg-muted hover:bg-bg-muted',
+              )}
+              title="Grid view"
+              aria-label="Grid view"
+              onClick={() => setGridViewMode('grid')}
+            >
+              <div class="i-ph-grid-four-bold text-xs" />
+            </button>
+            <button
+              class={cn(
+                'px-1 py-0 transition-all duration-150 cursor-pointer border-l border-border',
+                gridViewMode() === 'multi-list'
+                  ? 'bg-bg-muted text-fg'
+                  : 'bg-bg/60 text-fg-muted hover:text-fg-muted hover:bg-bg-muted',
+              )}
+              title="Multi-column list"
+              aria-label="Multi-column list"
+              onClick={() => setGridViewMode('multi-list')}
+            >
+              <div class="i-ph:grid-nine-bold text-xs" />
+            </button>
+            <button
+              class={cn(
+                'px-1 py-0 transition-all duration-150 cursor-pointer border-l border-border',
+                gridViewMode() === 'list'
+                  ? 'bg-bg-muted text-fg'
+                  : 'bg-bg/60 text-fg-muted hover:text-fg-muted hover:bg-bg-muted',
+              )}
+              title="List view"
+              aria-label="List view"
+              onClick={() => setGridViewMode('list')}
+            >
+              <div class="i-ph-list-bullets-bold text-xs" />
+            </button>
+          </div>
+
           <div class="text-[11px] text-fg-subtle">
             {filteredLeaders().length}
             /
@@ -571,30 +768,126 @@ export function LeaderGridOverlay() {
         </div>
       </div>
 
-      <div class={cn('p-1.5 flex-1 overflow-y-auto', showDockedPanels() ? 'min-h-[calc(3*4.5rem)]' : 'min-h-0')}>
-        <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
-          <Show when={!isRedDeathDraft()}>
-            <RandomLeaderCard
-              disabled={!canUseRandom()}
-              active={isRandomSelected()}
-              accent={accent()}
-              onClick={handleToggleRandom}
-            />
-          </Show>
-          <For each={filteredLeaders()}>
-            {leader => (
-              <LeaderCard
-                leader={leader}
-                singleClickShowsDetail={singleClickShowsDetail()}
-                onHoverMove={handleLeaderHoverMove}
-                onHoverLeave={handleLeaderHoverLeave}
-              />
-            )}
-          </For>
-          <For each={Array.from({ length: ghostCount() })}>
-            {() => <div class="aspect-square" />}
-          </For>
-        </div>
+      <div class={cn('p-1.5 flex-1 overflow-y-auto relative', showDockedPanels() ? 'min-h-[calc(3*4.5rem)]' : 'min-h-0')}>
+        <Show when={showWideWangTranscript()}>
+          <WideWangTranscriptBanner
+            mode={gridViewMode() === 'grid' ? 'grid' : 'list'}
+            visibleLineCount={wideWangVisibleLineCount()}
+            canUseRandom={canUseRandom()}
+            randomSelected={isRandomSelected()}
+            accent={accent()}
+            onRandomClick={handleToggleRandom}
+          />
+        </Show>
+
+        <Switch>
+          <Match when={gridViewMode() === 'multi-list'}>
+            <div
+              ref={(el) => {
+                const remPx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
+                const colWidth = 11 * remPx
+                const update = () => {
+                  if (!el.isConnected) return
+                  setMultiListColumns(Math.max(1, Math.floor(el.clientWidth / colWidth)))
+                }
+                update()
+                const observer = new ResizeObserver(update)
+                observer.observe(el)
+                onCleanup(() => {
+                  observer.disconnect()
+                  setMultiListColumns(1)
+                })
+              }}
+              class="columns-[11rem]"
+              style={{ 'column-gap': '0' }}
+              onMouseLeave={() => setHoveredListIndex(null)}
+            >
+              <Show when={showRandomInList()}>
+                <div
+                  style={{ 'break-inside': 'avoid-column' }}
+                  onMouseEnter={() => setHoveredListIndex(0)}
+                >
+                  <RandomLeaderListItem
+                    disabled={!canUseRandom()}
+                    active={isRandomSelected()}
+                    accent={accent()}
+                    neighborState={listNeighborMap().get('__random__')}
+                    onClick={handleToggleRandom}
+                  />
+                </div>
+              </Show>
+              <For each={filteredLeaders()}>
+                {(leader, index) => (
+                  <div
+                    style={{ 'break-inside': 'avoid-column' }}
+                    onMouseEnter={() => setHoveredListIndex(index() + (showRandomInList() ? 1 : 0))}
+                  >
+                    <LeaderListItem
+                      leader={leader}
+                      singleClickShowsDetail={singleClickShowsDetail()}
+                      neighborState={listNeighborMap().get(leader.id)}
+                      onHoverMove={handleLeaderHoverMove}
+                      onHoverLeave={handleLeaderHoverLeave}
+                    />
+                  </div>
+                )}
+              </For>
+            </div>
+          </Match>
+          <Match when={gridViewMode() === 'list'}>
+            <div class="flex flex-col" onMouseLeave={() => setHoveredListIndex(null)}>
+              <Show when={showRandomInList()}>
+                <div onMouseEnter={() => setHoveredListIndex(0)}>
+                  <RandomLeaderListItem
+                    disabled={!canUseRandom()}
+                    active={isRandomSelected()}
+                    accent={accent()}
+                    neighborState={listNeighborMap().get('__random__')}
+                    onClick={handleToggleRandom}
+                  />
+                </div>
+              </Show>
+              <For each={filteredLeaders()}>
+                {(leader, index) => (
+                  <div onMouseEnter={() => setHoveredListIndex(index() + (showRandomInList() ? 1 : 0))}>
+                    <LeaderListItem
+                      leader={leader}
+                      singleClickShowsDetail={singleClickShowsDetail()}
+                      neighborState={listNeighborMap().get(leader.id)}
+                      onHoverMove={handleLeaderHoverMove}
+                      onHoverLeave={handleLeaderHoverLeave}
+                    />
+                  </div>
+                )}
+              </For>
+            </div>
+          </Match>
+          <Match when={gridViewMode() === 'grid'}>
+            <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
+              <Show when={!isRedDeathDraft() && !showWideWangTranscript()}>
+                <RandomLeaderCard
+                  disabled={!canUseRandom()}
+                  active={isRandomSelected()}
+                  accent={accent()}
+                  onClick={handleToggleRandom}
+                />
+              </Show>
+              <For each={filteredLeaders()}>
+                {leader => (
+                  <LeaderCard
+                    leader={leader}
+                    singleClickShowsDetail={singleClickShowsDetail()}
+                    onHoverMove={handleLeaderHoverMove}
+                    onHoverLeave={handleLeaderHoverLeave}
+                  />
+                )}
+              </For>
+              <For each={Array.from({ length: ghostCount() })}>
+                {() => <div class="aspect-square" />}
+              </For>
+            </div>
+          </Match>
+        </Switch>
       </div>
 
       <Show when={state()?.status === 'active' && isMyTurn() && !hasSubmitted()}>
@@ -688,7 +981,7 @@ export function LeaderGridOverlay() {
                 </div>
               </Show>
 
-              {renderGridPanel(gridExpanded() ? 'h-full' : '')}
+              {renderGridPanel(gridExpanded() ? 'h-full' : gridViewMode() === 'list' ? 'max-h-[60vh]' : '')}
             </div>
           )}
         >
@@ -754,12 +1047,121 @@ export function LeaderGridOverlay() {
   )
 }
 
-function RandomLeaderCard(props: { disabled: boolean, active: boolean, accent: 'gold' | 'red', onClick: () => void }) {
+function WideWangTranscriptBanner(props: {
+  mode: 'grid' | 'list'
+  visibleLineCount: number
+  canUseRandom: boolean
+  randomSelected: boolean
+  accent: 'gold' | 'red'
+  onRandomClick: () => void
+}) {
+  const isGrid = () => props.mode === 'grid'
+
+  return (
+    <div class={cn('mb-1.5 flex gap-2 items-start', !isGrid() && 'px-1.5 py-1')}>
+      <div class={cn(isGrid() ? 'w-[4.5rem] shrink-0' : 'w-28 shrink-0')}>
+        <Show
+          when={isGrid()}
+          fallback={(
+            <RandomLeaderListItem
+              class="w-28"
+              disabled={!props.canUseRandom}
+              active={props.randomSelected}
+              accent={props.accent}
+              onClick={props.onRandomClick}
+            />
+          )}
+        >
+          <RandomLeaderCard
+            class="w-full"
+            disabled={!props.canUseRandom}
+            active={props.randomSelected}
+            accent={props.accent}
+            onClick={props.onRandomClick}
+          />
+        </Show>
+      </div>
+
+      <div class={cn('min-w-0 flex flex-1 items-center', isGrid() ? 'min-h-[4.5rem] pr-2' : 'min-h-9')}>
+        <div class={cn('flex min-w-0 max-w-full flex-col gap-1.5 text-left justify-center', isGrid() ? 'mx-auto w-fit' : 'flex-1')}>
+          <For each={WIDE_WANG_TRANSCRIPT}>
+            {(line, index) => {
+              const visible = () => props.visibleLineCount > index()
+              return (
+                <p
+                  aria-hidden={!visible()}
+                  class={cn(
+                    'text-sm text-fg leading-relaxed font-medium',
+                    visible() ? 'visible' : 'invisible',
+                    visible() && index() > 0 && 'anim-fade-in',
+                  )}
+                >
+                  {line.text}
+                </p>
+              )
+            }}
+          </For>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RandomLeaderListItem(props: { class?: string, disabled: boolean, active: boolean, accent: 'gold' | 'red', neighborState?: LeaderListNeighborState, onClick: () => void }) {
+  const accentColor = () => props.accent === 'red' ? 'danger' : 'accent'
+
+  return (
+    <button
+      class={cn(
+        'relative flex w-full items-center gap-2 px-1.5 py-1 text-left group min-w-0 transition-all duration-150',
+        'focus:outline-none',
+        props.disabled ? 'cursor-default' : 'cursor-pointer',
+
+        !props.active && !props.disabled && 'hover:bg-white/6',
+
+        !props.disabled && props.active && accentColor() === 'accent' && 'bg-accent/8 hover:bg-accent/14',
+        !props.disabled && props.active && accentColor() === 'danger' && 'bg-danger/8 hover:bg-danger/14',
+        props.class,
+      )}
+      style={{
+        'border-radius': computeListItemBorderRadius(props.active && !props.disabled, props.neighborState),
+        'box-shadow': computeListItemBoxShadow(props.active && !props.disabled, accentColor(), props.neighborState),
+      }}
+      disabled={props.disabled}
+      onClick={() => props.onClick()}
+    >
+      <div
+        class={cn(
+          'h-7 w-7 shrink-0 rounded-full flex items-center justify-center',
+          props.disabled && 'bg-bg/35 text-fg-subtle/45',
+          !props.disabled && !props.active && 'bg-bg/60 text-fg-muted',
+          !props.disabled && props.active && accentColor() === 'accent' && 'bg-accent/15 text-accent',
+          !props.disabled && props.active && accentColor() === 'danger' && 'bg-danger/15 text-danger',
+        )}
+      >
+        <span class="i-ph-dice-five-bold text-xs" />
+      </div>
+      <span class={cn(
+        'text-xs font-semibold tracking-wide transition-colors flex-1 min-w-0',
+        props.disabled && 'text-fg-subtle/45',
+        !props.disabled && !props.active && 'text-fg-muted group-hover:text-fg',
+        !props.disabled && props.active && accentColor() === 'accent' && 'text-accent group-hover:text-accent group-hover:drop-shadow-[0_0_4px_var(--accent)]',
+        !props.disabled && props.active && accentColor() === 'danger' && 'text-danger group-hover:text-danger group-hover:drop-shadow-[0_0_4px_var(--danger)]',
+      )}
+      >
+        Random
+      </span>
+    </button>
+  )
+}
+
+function RandomLeaderCard(props: { class?: string, disabled: boolean, active: boolean, accent: 'gold' | 'red', onClick: () => void }) {
   const accentRing = () => props.accent === 'red' ? 'danger' : 'accent'
 
   return (
     <button
       class={cn(
+        props.class,
         'relative aspect-square p-0.5 group',
         'focus:outline-none',
         props.disabled
@@ -790,7 +1192,7 @@ function RandomLeaderCard(props: { disabled: boolean, active: boolean, accent: '
         )}
       >
         <span class="i-ph-dice-five-bold text-base" />
-        <span class="text-[10px] tracking-wide font-semibold uppercase">Random</span>
+        <span class="text-[10px] tracking-wide font-semibold">Random</span>
       </div>
     </button>
   )

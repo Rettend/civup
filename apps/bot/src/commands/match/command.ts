@@ -5,7 +5,7 @@ import { createDb, matches, matchParticipants } from '@civup/db'
 import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, maxPlayerCount, maxTeammatesForMode, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed, lobbyResultEmbed } from '../../embeds/match.ts'
+import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/match.ts'
 import { clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
@@ -15,6 +15,7 @@ import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { cancelMatchByModerator, getStoredGameModeContext, reportMatch } from '../../services/match/index.ts'
 import { clearMatchMessageMapping, storeMatchMessageMapping } from '../../services/match/message.ts'
+import { syncReportedMatchDiscordMessages } from '../../services/match/report-discord.ts'
 import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, removeFromQueue, removeFromQueueAndUnlinkParty } from '../../services/queue/index.ts'
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../../services/ranked/role-sync.ts'
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
@@ -816,15 +817,6 @@ export const command_match = factory.command<MatchVar>(
             return
           }
 
-          if (result.idempotent) {
-            console.log('[idempotency] slash report deduplicated after race', {
-              matchId: result.match.id,
-              reporterId: identity.userId,
-            })
-            await sendTransientEphemeralResponse(c, `Match **${result.match.id}** was already reported.`, 'info')
-            return
-          }
-
           const reportedContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
           if (!reportedContext) {
             await sendTransientEphemeralResponse(c, `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.`, 'error')
@@ -832,6 +824,30 @@ export const command_match = factory.command<MatchVar>(
           }
 
           const lobby = await getLobbyByMatch(kv, result.match.id) ?? fallbackLobby
+
+          if (result.idempotent) {
+            console.log('[idempotency] slash report deduplicated after race', {
+              matchId: result.match.id,
+              reporterId: identity.userId,
+            })
+            await syncReportedMatchDiscordMessages({
+              db,
+              kv,
+              token: c.env.DISCORD_TOKEN,
+              matchId: result.match.id,
+              reportedMode: reportedContext.mode,
+              reportedRedDeath: reportedContext.redDeath,
+              participants: result.participants,
+              lobby,
+              archivePolicy: 'if-missing',
+            })
+            if (lobby) {
+              await clearLobbyById(kv, lobby.id, lobby)
+            }
+            await sendTransientEphemeralResponse(c, `Match **${result.match.id}** was already reported. Checked Discord result state.`, 'info')
+            return
+          }
+
           const guildId = lobby?.guildId ?? c.interaction.guild_id ?? null
           let rankedRoleLines: string[] = []
           if (guildId) {
@@ -860,35 +876,20 @@ export const command_match = factory.command<MatchVar>(
             }
           }
 
+          await syncReportedMatchDiscordMessages({
+            db,
+            kv,
+            token: c.env.DISCORD_TOKEN,
+            matchId: result.match.id,
+            reportedMode: reportedContext.mode,
+            reportedRedDeath: reportedContext.redDeath,
+            participants: result.participants,
+            lobby,
+            rankedRoleLines,
+            archivePolicy: 'always',
+          })
           if (lobby) {
-            try {
-              const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-                embeds: [lobbyResultEmbed(lobby.mode, result.participants, undefined, {
-                  rankedRoleLines,
-                }, lobby.draftConfig.redDeath)],
-                components: [],
-              })
-              await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
-            }
-            catch (error) {
-              console.error(`Failed to update lobby result embed for match ${result.match.id}:`, error)
-            }
             await clearLobbyById(kv, lobby.id, lobby)
-          }
-
-          const archiveChannelId = await getSystemChannel(kv, 'archive')
-          if (archiveChannelId) {
-            try {
-              const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-                embeds: [lobbyResultEmbed(reportedContext.mode, result.participants, undefined, {
-                  rankedRoleLines,
-                }, reportedContext.redDeath)],
-              })
-              await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
-            }
-            catch (error) {
-              console.error(`Failed to post archive result for match ${result.match.id}:`, error)
-            }
           }
 
           try {

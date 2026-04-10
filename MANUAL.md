@@ -215,7 +215,6 @@ When the Steam lobby link is set, other players see a gold Steam button top left
 - **Filters by tags**, see [Tag filters](#tag-filters) below
 - `left click` on a leader selects them, shows the leader details, and during pick phase it shows the leader to teammates
 - `right click` only opens the leader details panel
-- `shift + left click` or holding `left click` selects **additional leaders**: they are used as ordered fallbacks if your locked leader becomes unavailable, and also if the timer runs out without confirming a pick
 - **Random** will chose a random leader when confirmed (no way to know beforehand)
 
 ### Leader pool size
@@ -288,6 +287,7 @@ Commands to view rating:
 
 - uses **OpenSkill** with parameters tuned for Civ 6: games are less frequent so it uses more uncertainty
 - in **duel and team modes**, very lopsided two-team wins are **tapered hard** once the winner was already a big favorite, so stacked teams cannot farm much elo from obviously weaker opponents
+- in **all 3+ side placement modes** including **FFA**, all placements matter
 - the **first ~10-20 games** are pretty volatile, but after that it gets very accurate for the player's skill level
 - new player **display elo** starts at `1000` and they are Unranked
 - a player needs **3 games** in a game mode to get the first Ranked role and appear on the leaderboard
