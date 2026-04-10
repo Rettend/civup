@@ -32,7 +32,8 @@
   "triggers": {
     "crons": [
       "0 * * * *", // every hour
-      "*/2 * * * *" // every 2 minutes
+      "*/2 * * * *", // every 2 minutes
+      "0 0 * * *" // every day at 0:00 UTC
     ]
   },
 
