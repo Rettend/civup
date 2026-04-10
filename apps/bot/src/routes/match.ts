@@ -2,16 +2,15 @@ import type { Hono } from 'hono'
 import type { Env } from '../env.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { eq } from 'drizzle-orm'
-import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match.ts'
-import { createChannelMessage } from '../services/discord/index.ts'
+import { lobbyCancelledEmbed } from '../embeds/match.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { clearLobbyById, getLobbyByMatch, upsertLobbyMessage } from '../services/lobby/index.ts'
 import { cancelMatchByModerator, getHostIdFromDraftData, getStoredGameModeContext, reportMatch } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
+import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../services/ranked/role-sync.ts'
 import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
 import { createStateStore } from '../services/state/store.ts'
-import { getSystemChannel } from '../services/system/channels.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from './auth.ts'
 
 export function registerMatchRoutes(app: Hono<Env>) {
@@ -81,20 +80,35 @@ export function registerMatchRoutes(app: Hono<Env>) {
       return c.json({ error: result.error }, 400)
     }
 
-    if (result.idempotent) {
-      console.log('[idempotency] activity report request deduplicated', {
-        matchId: result.match.id,
-        reporterId,
-      })
-      return c.json({ ok: true, alreadyReported: true, match: result.match, participants: result.participants })
-    }
-
     const reportedContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
     if (!reportedContext) {
       return c.json({ error: `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.` }, 400)
     }
 
     const lobby = await getLobbyByMatch(kv, result.match.id) ?? fallbackLobby
+
+    if (result.idempotent) {
+      console.log('[idempotency] activity report request deduplicated', {
+        matchId: result.match.id,
+        reporterId,
+      })
+      await syncReportedMatchDiscordMessages({
+        db,
+        kv,
+        token: c.env.DISCORD_TOKEN,
+        matchId: result.match.id,
+        reportedMode: reportedContext.mode,
+        reportedRedDeath: reportedContext.redDeath,
+        participants: result.participants,
+        lobby,
+        archivePolicy: 'if-missing',
+      })
+      if (lobby) {
+        await clearLobbyById(kv, lobby.id, lobby)
+      }
+      return c.json({ ok: true, alreadyReported: true, match: result.match, participants: result.participants })
+    }
+
     const guildId = lobby?.guildId ?? null
     let rankedRoleLines: string[] = []
     if (guildId) {
@@ -123,35 +137,20 @@ export function registerMatchRoutes(app: Hono<Env>) {
       }
     }
 
+    await syncReportedMatchDiscordMessages({
+      db,
+      kv,
+      token: c.env.DISCORD_TOKEN,
+      matchId: result.match.id,
+      reportedMode: reportedContext.mode,
+      reportedRedDeath: reportedContext.redDeath,
+      participants: result.participants,
+      lobby,
+      rankedRoleLines,
+      archivePolicy: 'always',
+    })
     if (lobby) {
-      try {
-        const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-          embeds: [lobbyResultEmbed(lobby.mode, result.participants, undefined, {
-            rankedRoleLines,
-          }, lobby.draftConfig.redDeath)],
-          components: [],
-        })
-        await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
-      }
-      catch (error) {
-        console.error(`Failed to update lobby result embed for match ${result.match.id}:`, error)
-      }
       await clearLobbyById(kv, lobby.id, lobby)
-    }
-
-    const archiveChannelId = await getSystemChannel(kv, 'archive')
-    if (archiveChannelId) {
-      try {
-        const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-          embeds: [lobbyResultEmbed(reportedContext.mode, result.participants, undefined, {
-            rankedRoleLines,
-          }, reportedContext.redDeath)],
-        })
-        await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
-      }
-      catch (error) {
-        console.error(`Failed to post archive result for match ${result.match.id}:`, error)
-      }
     }
 
     try {

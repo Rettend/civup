@@ -3,7 +3,7 @@ import { getLeader } from '@civup/game'
 import { For, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
-import { detailLeaderId, draftStore, setDetailLeaderId } from '~/client/stores'
+import { detailLeaderId, draftStore, isLeaderFavorited, setDetailLeaderId, toggleLeaderFavorite } from '~/client/stores'
 import { RichLeaderText } from './RichLeaderText'
 
 /** Click-to-open detail panel beside the grid */
@@ -26,21 +26,40 @@ export function LeaderDetailPanel() {
   }
 
   const isRedDeathEntry = () => leader()?.id.startsWith('rd-') ?? false
+  const isFavorited = () => {
+    const id = detailLeaderId()
+    return id ? isLeaderFavorited(id) : false
+  }
 
   return (
     <Show when={leader()}>
       {l => (
         <div class="p-4 h-full w-full select-text relative overflow-x-hidden overflow-y-auto sm:overflow-x-visible">
-          {/* Close button */}
-          <button
-            class="text-fg-subtle cursor-pointer right-2 top-2 absolute hover:text-fg-muted"
-            onClick={() => setDetailLeaderId(null)}
-          >
-            <div class="i-ph-x-bold text-base" />
-          </button>
+          <div class="top-2 right-4 absolute z-10 flex flex-col items-end gap-1">
+            <button
+              class="text-fg-subtle rounded-full h-8 w-8 flex items-center justify-center cursor-pointer hover:bg-bg-muted hover:text-fg-muted"
+              onClick={() => setDetailLeaderId(null)}
+            >
+              <div class="i-ph-x-bold text-base" />
+            </button>
+
+            <button
+              class={cn(
+                'rounded-full h-8 w-8 flex items-center justify-center border transition-colors cursor-pointer',
+                isFavorited()
+                  ? 'border-accent/50 bg-accent/12 text-accent hover:bg-accent/18'
+                  : 'border-border bg-bg/75 text-fg-subtle hover:border-border-hover hover:text-fg-muted',
+              )}
+              title={isFavorited() ? 'Remove favorite' : 'Favorite leader'}
+              aria-label={isFavorited() ? 'Remove favorite' : 'Favorite leader'}
+              onClick={() => toggleLeaderFavorite(l().id)}
+            >
+              <div class={cn(isFavorited() ? 'i-ph-star-fill' : 'i-ph-star-bold', 'text-sm')} />
+            </button>
+          </div>
 
           {/* Header: portrait + name */}
-          <div class="mb-3 flex gap-3 items-center">
+          <div class="mb-3 flex gap-3 items-center pr-12">
             <Show when={l().portraitUrl}>
               {url => (
                 <img src={resolveAssetUrl(url()) ?? url()} alt={l().name} class="rounded shrink-0 h-12 w-12 object-cover" />
