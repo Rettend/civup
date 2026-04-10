@@ -17,15 +17,15 @@ import { createStateStore } from '../../services/state/store.ts'
 
 const ALL_FFA_PLACEMENT_KEYS = ['second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'] as const
 const FFA_PLACEMENT_LABELS: Record<(typeof ALL_FFA_PLACEMENT_KEYS)[number], string> = {
-  second: 'FFA 2nd place',
-  third: 'FFA 3rd place',
-  fourth: 'FFA 4th place',
-  fifth: 'FFA 5th place',
-  sixth: 'FFA 6th place',
-  seventh: 'FFA 7th place',
-  eighth: 'FFA 8th place',
-  ninth: 'FFA 9th place',
-  tenth: 'FFA 10th place',
+  second: '2nd place',
+  third: '3rd place',
+  fourth: '4th place',
+  fifth: '5th place',
+  sixth: '6th place',
+  seventh: '7th place',
+  eighth: '8th place',
+  ninth: '9th place',
+  tenth: '10th place',
 }
 
 export const FFA_PLACEMENT_KEYS = ALL_FFA_PLACEMENT_KEYS
