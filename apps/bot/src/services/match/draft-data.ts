@@ -56,11 +56,13 @@ export function getStoredGameModeContext(gameMode: string, draftData: string | n
   const mode = parseGameMode(gameMode)
   if (!mode) return null
 
-  const redDeath = getRedDeathFromDraftData(draftData)
+  const parsed = parseDraftData(draftData)
+  const redDeath = parsed?.redDeath === true
+  const seatCount = Array.isArray(parsed?.state?.seats) ? parsed.state.seats.length : undefined
   return {
     mode,
     redDeath,
     leaderboardMode: toLeaderboardMode(mode, { redDeath }),
-    label: formatModeLabel(mode, mode, { redDeath }),
+    label: formatModeLabel(mode, mode, { redDeath, targetSize: seatCount }),
   }
 }

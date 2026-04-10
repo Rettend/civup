@@ -2,7 +2,7 @@ import type { GameMode } from '@civup/game'
 import type { Hono } from 'hono'
 import type { Env } from '../../env.ts'
 import { createDb, playerRatings } from '@civup/db'
-import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isTeamMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, playerCountOptions, slotToTeamIndex, toLeaderboardMode } from '@civup/game'
+import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isTeamMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, playerCountOptions, slotToTeamIndex, startPlayerCountOptions, toLeaderboardMode } from '@civup/game'
 import { createDraftRoomAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
@@ -1183,13 +1183,12 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     if (!canStartLobbyWithPlayerCount(mode, selectedEntries.length, slots.length, lobby.draftConfig.redDeath)) {
-      if (mode === 'ffa') {
-        const validCounts = lobby.draftConfig.redDeath
-          ? [4, 6, 8, 10].filter(count => count <= slots.length)
-          : [defaultPlayerCount(mode)]
-        return c.json({ error: `FFA can start with ${validCounts.join(', ')} slotted players.` }, 400)
+      const validCounts = startPlayerCountOptions(mode, slots.length, { redDeath: lobby.draftConfig.redDeath })
+      const label = formatModeLabel(mode, mode, { redDeath: lobby.draftConfig.redDeath, targetSize: slots.length })
+      if (validCounts.length > 0) {
+        return c.json({ error: `${label} can start with ${formatCountList(validCounts)} slotted players.` }, 400)
       }
-      return c.json({ error: `${formatModeLabel(mode, mode, { redDeath: lobby.draftConfig.redDeath })} requires exactly ${slots.length} slotted players.` }, 400)
+      return c.json({ error: `${label} requires exactly ${slots.length} slotted players.` }, 400)
     }
 
     try {
@@ -1386,6 +1385,12 @@ async function buildStoredLobbySnapshot(
     draftConfig: lobby.draftConfig,
     serverDefaults,
   }
+}
+
+function formatCountList(counts: readonly number[]): string {
+  if (counts.length <= 1) return String(counts[0] ?? '')
+  if (counts.length === 2) return `${counts[0]} or ${counts[1]}`
+  return `${counts.slice(0, -1).join(', ')}, or ${counts[counts.length - 1]}`
 }
 
 function isSteamLobbyEditableStatus(status: 'open' | 'drafting' | 'active' | 'completed' | 'cancelled' | 'scrubbed'): boolean {

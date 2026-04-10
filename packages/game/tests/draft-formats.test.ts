@@ -43,6 +43,11 @@ describe('draft formats', () => {
     expect(default2v2.getSteps(8).slice(1).map(step => step.seats)).toEqual([[0], [1], [2], [3], [7], [6], [5], [4]])
   })
 
+  test('2v2v2 uses three captains for bans and a 123321 snake', () => {
+    expect(default2v2.getSteps(6)[0]).toEqual({ action: 'ban', seats: [0, 1, 2], count: 3, timer: 120 })
+    expect(default2v2.getSteps(6).slice(1).map(step => step.seats)).toEqual([[0], [1], [2], [5], [4], [3]])
+  })
+
   test('3v3 full roster order stays A1, B1, B2, A2, A3, B3', () => {
     expect(default3v3.getSteps(6).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [4], [5]])
   })
@@ -73,6 +78,10 @@ describe('draft formats', () => {
 
   test('Red Death 2v2 uses four-team snake order for 8 players', () => {
     expect(redDeath2v2.getSteps(8).map(step => step.seats)).toEqual([[0], [1], [2], [3], [7], [6], [5], [4]])
+  })
+
+  test('Red Death 2v2 uses three-team snake order for 6 players', () => {
+    expect(redDeath2v2.getSteps(6).map(step => step.seats)).toEqual([[0], [1], [2], [5], [4], [3]])
   })
 
   test('Red Death 4v4 removes bans and keeps the 4v4 snake pick order', () => {

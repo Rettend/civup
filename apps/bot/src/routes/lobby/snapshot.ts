@@ -1,7 +1,7 @@
 import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { getRankedRoleConfig } from '../../services/ranked/roles.ts'
-import { canStartWithPlayerCount, MAX_LEADER_POOL_SIZE, playerCountOptions } from '@civup/game'
+import { canStartWithPlayerCount, MAX_LEADER_POOL_SIZE, playerCountOptions, startPlayerCountOptions } from '@civup/game'
 import { MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
 import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
 import { buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
@@ -39,23 +39,12 @@ export async function buildOpenLobbySnapshotFromParts(
   return buildLobbyLiveSnapshotFromParts(kv, mode, lobby, queueEntries, slots)
 }
 
-const RED_DEATH_FFA_PLAYER_COUNTS = new Set([4, 6, 8, 10])
-
-function isRedDeathFfaPlayerCount(playerCount: number, targetSize: number): boolean {
-  return playerCount <= targetSize
-    && RED_DEATH_FFA_PLAYER_COUNTS.has(playerCount)
-}
-
 export function lobbyMinPlayerCount(mode: GameMode, targetSize: number, redDeath = false): number {
-  if (mode === 'ffa' && redDeath) return 4
-  return targetSize
+  return startPlayerCountOptions(mode, targetSize, { redDeath })[0] ?? targetSize
 }
 
 export function canStartLobbyWithPlayerCount(mode: GameMode, playerCount: number, targetSize: number, redDeath = false): boolean {
-  if (mode === 'ffa' && redDeath) {
-    return isRedDeathFfaPlayerCount(playerCount, targetSize)
-  }
-  return canStartWithPlayerCount(mode, playerCount, targetSize)
+  return canStartWithPlayerCount(mode, playerCount, targetSize, { redDeath })
 }
 
 export async function getUniqueOpenLobbyForChannel(

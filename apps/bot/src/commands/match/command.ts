@@ -2,7 +2,7 @@ import type { DraftSeat, GameMode, QueueEntry } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { MatchJoinEntry, MatchVar } from './shared.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, maxPlayerCount, maxTeammatesForMode, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
+import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, isTeamMode, maxPlayerCount, maxTeammatesForMode, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/match.ts'
@@ -45,7 +45,7 @@ export const command_match = factory.command<MatchVar>(
       new Option('teammate2', 'Second teammate for 3v3/4v4', 'User'),
       new Option('teammate3', 'Third teammate for 4v4', 'User'),
     ),
-    new SubCommand('activity', 'Open the CivUp activity for this channel'),
+    new SubCommand('activity', 'Open the activity for this channel'),
     new SubCommand('cancel', 'Cancel your hosted open or live lobby').options(
       new Option('match_id', 'Optional match or lobby ID override'),
     ),
@@ -56,7 +56,7 @@ export const command_match = factory.command<MatchVar>(
     new SubCommand('status', 'Show all active lobbies'),
     new SubCommand('report', 'Report your active match result (host only)').options(
       new Option('match_id', 'Optional match ID override'),
-      new Option('winner', 'Winner (1v1/team) or 1st place (FFA)', 'User'),
+      new Option('winner', 'Winner or 1st place', 'User'),
       ...buildFfaPlacementOptions(),
     ),
     new SubGroup('steam', 'Manage the Civ 6 Steam lobby link').options(
@@ -768,6 +768,14 @@ export const command_match = factory.command<MatchVar>(
 
           const mode = matchContext.mode
           const fallbackLobby = await getLobbyByMatch(kv, match.id)
+          const multiTeamMatch = isTeamMode(mode)
+            ? (await db
+                .select({ team: matchParticipants.team })
+                .from(matchParticipants)
+                .where(eq(matchParticipants.matchId, match.id)))
+                .flatMap(participant => participant.team == null ? [] : [participant.team])
+            : []
+          const uniqueTeams = new Set(multiTeamMatch)
 
           let placements: string
           if (mode === 'ffa') {
@@ -795,15 +803,43 @@ export const command_match = factory.command<MatchVar>(
             placements = orderedFfaIds.map(playerId => `<@${playerId}>`).join('\n')
           }
           else {
-            if (orderedFfaIds.length > 1) {
-              await sendTransientEphemeralResponse(c, 'For 1v1/team reporting, use the `winner` user option only (no partial placements).', 'error')
-              return
+            if (uniqueTeams.size > 2) {
+              if (!winnerId) {
+                await sendTransientEphemeralResponse(c, 'For multi-team team reporting, provide `winner` and one player from each remaining team in placement order.', 'error')
+                return
+              }
+
+              const requiredPlacements = uniqueTeams.size
+              const placementLabelByCount: Record<number, string> = {
+                2: 'second',
+                3: 'third',
+                4: 'fourth',
+                5: 'fifth',
+                6: 'sixth',
+                7: 'seventh',
+                8: 'eighth',
+                9: 'ninth',
+                10: 'tenth',
+              }
+              const lastRequiredPlacement = placementLabelByCount[requiredPlacements] ?? `${requiredPlacements}th`
+              if (orderedFfaIds.length !== requiredPlacements) {
+                await sendTransientEphemeralResponse(c, `Multi-team team reporting needs exactly ${requiredPlacements} ordered users (winner + second to ${lastRequiredPlacement}), using one player from each team.`, 'error')
+                return
+              }
+
+              placements = orderedFfaIds.map(playerId => `<@${playerId}>`).join('\n')
             }
-            if (!winnerId) {
-              await sendTransientEphemeralResponse(c, 'Please provide `winner` for 1v1/team reporting.', 'error')
-              return
+            else {
+              if (orderedFfaIds.length > 1) {
+                await sendTransientEphemeralResponse(c, 'For 1v1/team reporting, use the `winner` user option only (no partial placements).', 'error')
+                return
+              }
+              if (!winnerId) {
+                await sendTransientEphemeralResponse(c, 'Please provide `winner` for 1v1/team reporting.', 'error')
+                return
+              }
+              placements = `<@${winnerId}>`
             }
-            placements = `<@${winnerId}>`
           }
 
           const result = await reportMatch(db, kv, {
