@@ -7,6 +7,16 @@ import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 const NOW = 1_700_000_000_000
 const originalFetch = globalThis.fetch
 
+function extractMessagePayload(init: RequestInit | undefined) {
+  const body = init?.body
+  if (typeof body === 'string') {
+    return JSON.parse(body) as any
+  }
+
+  const formData = body as FormData
+  return JSON.parse(String(formData.get('payload_json'))) as any
+}
+
 describe('leaderboard message service', () => {
   afterEach(() => {
     globalThis.fetch = originalFetch
@@ -48,12 +58,12 @@ describe('leaderboard message service', () => {
       const url = String(input)
       if (init?.method === 'POST' && url.includes('/channels/channel-1/messages')) {
         messageCounter += 1
-        const payload = JSON.parse(String(init.body))
+        const payload = extractMessagePayload(init)
         postPayloads.push(payload)
         return new Response(JSON.stringify({ id: `message-${messageCounter}` }), { status: 200 })
       }
       if (init?.method === 'PATCH' && url.includes('/channels/channel-1/messages/')) {
-        const payload = JSON.parse(String(init.body))
+        const payload = extractMessagePayload(init)
         patchPayloads.push(payload)
         return new Response('{}', { status: 200 })
       }
@@ -70,7 +80,8 @@ describe('leaderboard message service', () => {
     expect(JSON.stringify(patchPayloads[0].embeds)).toContain('Season 9 FFA Leaderboard')
     expect(JSON.stringify(postPayloads[1].embeds)).toContain('FFA Leaderboard')
     expect(JSON.stringify(postPayloads[1].embeds)).not.toContain('Season 9 FFA Leaderboard')
-    expect(JSON.stringify(postPayloads[1].embeds)).toContain('<@100010000000000001>')
+    expect(postPayloads[1].embeds).toHaveLength(5)
+    expect(postPayloads[1].attachments).toHaveLength(5)
 
     const [state] = await db.select().from(leaderboardMessageStates).limit(1)
     expect(state?.messageId).toBe('message-2')

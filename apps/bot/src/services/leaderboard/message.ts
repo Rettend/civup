@@ -4,7 +4,8 @@ import type { LeaderboardDirtyState, LeaderboardMessageState } from '../system/c
 import { leaderboardDirtyStates, leaderboardMessageStates } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
 import { eq } from 'drizzle-orm'
-import { leaderboardEmbed } from '../../embeds/leaderboard.ts'
+import { buildLeaderboardImageCard } from '../discord/leaderboard-card.ts'
+import type { DiscordMessagePayload } from '../discord/index.ts'
 import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
 import {
   getSystemChannel,
@@ -63,7 +64,7 @@ export async function archiveSeasonLeaderboards(
   if (!leaderboardChannelId) return false
 
   const existing = await getLeaderboardMessageState(db)
-  const archivedEmbeds = await buildLeaderboardEmbeds(db, kv, {
+  const archivedPayload = await buildLeaderboardMessagePayload(db, kv, {
     titlePrefix: seasonName,
     modes: options.modes,
   })
@@ -71,17 +72,16 @@ export async function archiveSeasonLeaderboards(
   if (existing?.channelId === leaderboardChannelId) {
     try {
       await editChannelMessage(token, leaderboardChannelId, existing.messageId, {
-        content: null,
-        embeds: archivedEmbeds,
+        ...archivedPayload,
       })
     }
     catch (error) {
       if (!isDiscordApiError(error, 404)) throw error
-      await createChannelMessage(token, leaderboardChannelId, { embeds: archivedEmbeds })
+      await createChannelMessage(token, leaderboardChannelId, archivedPayload)
     }
   }
   else {
-    await createChannelMessage(token, leaderboardChannelId, { embeds: archivedEmbeds })
+    await createChannelMessage(token, leaderboardChannelId, archivedPayload)
   }
 
   await upsertLeaderboardMessagesForChannel(db, kv, token, leaderboardChannelId, {
@@ -121,14 +121,11 @@ export async function upsertLeaderboardMessagesForChannel(
 ): Promise<LeaderboardMessageState> {
   const existing = await getLeaderboardMessageState(db)
   const previousMessageId = !options.forceCreate && existing?.channelId === channelId ? existing.messageId : null
-  const embeds = await buildLeaderboardEmbeds(db, kv, { modes: options.modes })
+  const payload = await buildLeaderboardMessagePayload(db, kv, { modes: options.modes })
 
   if (previousMessageId) {
     try {
-      await editChannelMessage(token, channelId, previousMessageId, {
-        content: null,
-        embeds,
-      })
+      await editChannelMessage(token, channelId, previousMessageId, payload)
 
       const state: LeaderboardMessageState = {
         channelId,
@@ -143,9 +140,7 @@ export async function upsertLeaderboardMessagesForChannel(
     }
   }
 
-  const created = await createChannelMessage(token, channelId, {
-    embeds,
-  })
+  const created = await createChannelMessage(token, channelId, payload)
 
   const state: LeaderboardMessageState = {
     channelId,
@@ -156,20 +151,32 @@ export async function upsertLeaderboardMessagesForChannel(
   return state
 }
 
-async function buildLeaderboardEmbeds(
+async function buildLeaderboardMessagePayload(
   db: Database,
   kv: KVNamespace,
   options: {
     titlePrefix?: string
     modes?: readonly LeaderboardMode[]
   } = {},
-) {
+): Promise<DiscordMessagePayload> {
   const modes = options.modes ?? LEADERBOARD_MODES
   const snapshots = await ensureLeaderboardModeSnapshots(db, kv, modes)
-  return modes.map((mode) => {
+  const cards = await Promise.all(modes.map(async (mode) => {
     const snapshot = snapshots.get(mode)
-    return leaderboardEmbed(mode, snapshot?.rows ?? [], options)
-  })
+    return await buildLeaderboardImageCard({
+      db,
+      mode,
+      rows: snapshot?.rows ?? [],
+      titlePrefix: options.titlePrefix,
+    })
+  }))
+
+  return {
+    content: null,
+    embeds: cards.map(card => card.embed),
+    files: cards.map(card => card.file),
+    allowed_mentions: { parse: [] },
+  }
 }
 
 async function getLeaderboardMessageState(db: Database): Promise<LeaderboardMessageState | null> {

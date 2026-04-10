@@ -2,12 +2,20 @@ export interface DiscordMessagePayload {
   content?: string | null
   embeds?: unknown[]
   components?: unknown
+  files?: DiscordFilePayload[]
   allowed_mentions?: {
     parse?: string[]
     roles?: string[]
     users?: string[]
     replied_user?: boolean
   }
+}
+
+export interface DiscordFilePayload {
+  filename: string
+  contentType?: string
+  data: ArrayBuffer | Uint8Array
+  description?: string
 }
 
 export interface DiscordGuildRolePayload {
@@ -56,17 +64,11 @@ export async function createChannelMessage(
   channelId: string,
   payload: DiscordMessagePayload,
 ): Promise<DiscordMessageResponse> {
+  const request = buildDiscordMessageRequest(token, payload)
   const response = await requestDiscord(
     'create message',
     `https://discord.com/api/v10/channels/${channelId}/messages`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bot ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    },
+    { method: 'POST', ...request },
   )
 
   return await response.json() as DiscordMessageResponse
@@ -98,17 +100,11 @@ export async function editChannelMessage(
   messageId: string,
   payload: DiscordMessagePayload,
 ): Promise<void> {
+  const request = buildDiscordMessageRequest(token, payload)
   await requestDiscord(
     'edit message',
     `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`,
-    {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `Bot ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    },
+    { method: 'PATCH', ...request },
   )
 }
 
@@ -236,4 +232,56 @@ function parseDiscordErrorPayload(detail: string): DiscordErrorPayload | null {
   catch {
     return null
   }
+}
+
+function buildDiscordMessageRequest(
+  token: string,
+  payload: DiscordMessagePayload,
+): Pick<RequestInit, 'headers' | 'body'> {
+  if (!payload.files || payload.files.length === 0) {
+    const { files: _files, ...jsonPayload } = payload
+    return {
+      headers: {
+        'Authorization': `Bot ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(jsonPayload),
+    }
+  }
+
+  const formData = new FormData()
+  const files = payload.files
+  const jsonPayload = {
+    content: payload.content,
+    embeds: payload.embeds,
+    components: payload.components,
+    allowed_mentions: payload.allowed_mentions,
+    attachments: files.map((file, index) => ({
+      id: index,
+      filename: file.filename,
+      description: file.description,
+    })),
+  }
+
+  formData.set('payload_json', JSON.stringify(jsonPayload))
+  files.forEach((file, index) => {
+    formData.set(
+      `files[${index}]`,
+      new Blob([toUint8Array(file.data)], {
+        type: file.contentType ?? 'application/octet-stream',
+      }),
+      file.filename,
+    )
+  })
+
+  return {
+    headers: {
+      'Authorization': `Bot ${token}`,
+    },
+    body: formData,
+  }
+}
+
+function toUint8Array(data: ArrayBuffer | Uint8Array): Uint8Array {
+  return data instanceof Uint8Array ? data : new Uint8Array(data)
 }

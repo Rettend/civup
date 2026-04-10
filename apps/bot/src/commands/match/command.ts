@@ -5,8 +5,10 @@ import { createDb, matches, matchParticipants } from '@civup/db'
 import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, maxPlayerCount, maxTeammatesForMode, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/match.ts'
+import { lobbyComponents, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/match.ts'
+import { buildLobbyImageMessage } from '../../services/discord/lobby-card.ts'
 import { clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
+import type { DiscordMessagePayload } from '../../services/discord/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
 import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
@@ -423,8 +425,16 @@ export const command_match = factory.command<MatchVar>(
             }
 
             try {
+              const renderPayload = await buildLobbyImageMessage({
+                db,
+                mode: lobby.mode,
+                stage: 'cancelled',
+                participants: result.participants,
+                leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+                redDeath: lobby.draftConfig.redDeath,
+              })
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-                embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'cancel', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
+                ...renderPayload,
                 components: [],
               })
               await storeMatchMessageMapping(db, lobby.messageId, matchId)
@@ -865,6 +875,7 @@ export const command_match = factory.command<MatchVar>(
                 guildId,
                 preview: rankedPreview,
                 playerIds: participantIds,
+                format: 'plain',
               })
               await syncSeasonPeaksForPlayers(db, {
                 playerIds: participantIds,
@@ -928,7 +939,7 @@ async function buildLobbyBumpRenderPayload(
   db: ReturnType<typeof createDb>,
   kv: KVNamespace,
   lobby: LobbyState,
-): Promise<{ embeds: unknown[], components?: unknown } | { error: string }> {
+): Promise<DiscordMessagePayload | { error: string }> {
   if (lobby.status === 'open') {
     const queue = await getQueueState(kv, lobby.mode)
     const entries = mapLobbySlotsToEntries(lobby.slots, filterQueueEntriesForLobby(lobby, queue.entries))
@@ -956,7 +967,14 @@ async function buildLobbyBumpRenderPayload(
     }
 
     return {
-      embeds: [lobbyDraftCompleteEmbed(lobby.mode, orderLobbyParticipantsBySlots(lobby, participants), lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
+      ...(await buildLobbyImageMessage({
+        db,
+        mode: lobby.mode,
+        stage: 'draft-complete',
+        participants: orderLobbyParticipantsBySlots(lobby, participants),
+        leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+        redDeath: lobby.draftConfig.redDeath,
+      })),
       components: lobbyComponents(lobby.mode, lobby.id),
     }
   }
@@ -1217,8 +1235,15 @@ async function cancelHostedOpenLobby(
 
   await clearLobbyMappingsIfMatchingLobby(kv, lobbyQueueEntries.map(entry => entry.playerId), lobby.id, lobby.channelId)
   try {
+    const renderPayload = await buildLobbyImageMessage({
+      mode: lobby.mode,
+      stage: 'cancelled',
+      participants: buildCancelledLobbyParticipants(lobby, lobbyQueueEntries),
+      leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+      redDeath: lobby.draftConfig.redDeath,
+    })
     await upsertLobbyMessage(kv, token, lobby, {
-      embeds: [lobbyCancelledEmbed(lobby.mode, buildCancelledLobbyParticipants(lobby, lobbyQueueEntries), 'cancel', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
+      ...renderPayload,
       components: [],
     })
   }
@@ -1245,6 +1270,7 @@ function buildCancelledLobbyParticipants(lobby: { mode: GameMode, slots: (string
         ratingAfterMu: null,
         ratingAfterSigma: null,
         displayName: entry?.displayName,
+        avatarUrl: entry?.avatarUrl ?? null,
       }
     })
     .filter(participant => participant != null)

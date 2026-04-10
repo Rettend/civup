@@ -1,6 +1,12 @@
 import type { Database } from '@civup/db'
 import { players } from '@civup/db'
 import { api, buildDiscordAvatarUrl } from '@civup/utils'
+import { inArray } from 'drizzle-orm'
+
+export interface PlayerIdentity {
+  displayName: string
+  avatarUrl: string | null
+}
 
 interface DiscordUserResponse {
   id: string
@@ -68,4 +74,26 @@ export async function syncPlayerProfileFromDiscord(
   const profile = await fetchDiscordPlayerProfile(token, playerId)
   if (!profile) return
   await upsertPlayerProfile(db, profile)
+}
+
+export async function listPlayerIdentitiesById(
+  db: Database,
+  playerIds: readonly string[],
+): Promise<Map<string, PlayerIdentity>> {
+  const uniquePlayerIds = [...new Set(playerIds.filter(playerId => typeof playerId === 'string' && playerId.length > 0))]
+  if (uniquePlayerIds.length === 0) return new Map()
+
+  const rows = await db
+    .select({
+      id: players.id,
+      displayName: players.displayName,
+      avatarUrl: players.avatarUrl,
+    })
+    .from(players)
+    .where(inArray(players.id, uniquePlayerIds))
+
+  return new Map(rows.map(row => [row.id, {
+    displayName: row.displayName,
+    avatarUrl: row.avatarUrl ?? null,
+  }]))
 }

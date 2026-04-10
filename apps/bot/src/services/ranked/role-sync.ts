@@ -13,6 +13,7 @@ import {
   fetchGuildMemberRoleIds,
   formatRankedRoleSlotLabel,
   getConfiguredRankedRoleId,
+  getConfiguredRankedRoleLabel,
   getLowestRankedRoleTier,
   getMissingRankedRoleConfigTiers,
   getRankedRoleConfig,
@@ -401,13 +402,14 @@ export async function listRankedRoleMatchUpdateLines(options: {
   guildId: string
   preview: Pick<RankedRolePreview, 'playerPreviews'>
   playerIds: string[]
+  format?: 'discord' | 'plain'
 }): Promise<string[]> {
   const config = await getRankedRoleConfig(options.kv, options.guildId)
   const playerIdSet = new Set(options.playerIds)
 
   return options.preview.playerPreviews
     .filter(player => playerIdSet.has(player.playerId))
-    .map(player => buildRankMatchUpdateLine(player, config))
+    .map(player => buildRankMatchUpdateLine(player, config, options.format ?? 'discord'))
     .filter((line): line is string => typeof line === 'string' && line.length > 0)
 }
 
@@ -1065,23 +1067,31 @@ async function applyCurrentRankRoles(
 function buildRankMatchUpdateLine(
   player: RankedRolePlayerPreview,
   config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
+  format: 'discord' | 'plain',
 ): string | null {
   const previous = player.previousAssignment
   const next = player.assignment
   const fallbackTier = getLowestRankedRoleTier(config)
+  const playerLabel = format === 'plain' ? player.displayName : `<@${player.playerId}>`
   if (!previous) {
     if (fallbackTier && competitiveTierRank(next.tier) <= competitiveTierRank(fallbackTier)) return null
-    return `🆕 <@${player.playerId}> qualified for ${formatRankAnnouncementRole(config, next.tier)}`
+    return format === 'plain'
+      ? `NEW ${playerLabel} qualified for ${formatRankAnnouncementRole(config, next.tier, format)}`
+      : `🆕 ${playerLabel} qualified for ${formatRankAnnouncementRole(config, next.tier, format)}`
   }
 
   const previousRank = competitiveTierRank(previous.tier)
   const nextRank = competitiveTierRank(next.tier)
   if (nextRank > previousRank) {
-    return `⬆️ <@${player.playerId}> ${formatRankAnnouncementRole(config, previous.tier)} -> ${formatRankAnnouncementRole(config, next.tier)}`
+    return format === 'plain'
+      ? `UP ${playerLabel} ${formatRankAnnouncementRole(config, previous.tier, format)} -> ${formatRankAnnouncementRole(config, next.tier, format)}`
+      : `⬆️ ${playerLabel} ${formatRankAnnouncementRole(config, previous.tier, format)} -> ${formatRankAnnouncementRole(config, next.tier, format)}`
   }
 
   if (nextRank < previousRank) {
-    return `⬇️ <@${player.playerId}> ${formatRankAnnouncementRole(config, previous.tier)} -> ${formatRankAnnouncementRole(config, next.tier)}`
+    return format === 'plain'
+      ? `DOWN ${playerLabel} ${formatRankAnnouncementRole(config, previous.tier, format)} -> ${formatRankAnnouncementRole(config, next.tier, format)}`
+      : `⬇️ ${playerLabel} ${formatRankAnnouncementRole(config, previous.tier, format)} -> ${formatRankAnnouncementRole(config, next.tier, format)}`
   }
 
   return null
@@ -1090,7 +1100,12 @@ function buildRankMatchUpdateLine(
 function formatRankAnnouncementRole(
   config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
   tier: CompetitiveTier,
+  format: 'discord' | 'plain',
 ): string {
+  if (format === 'plain') {
+    return getConfiguredRankedRoleLabel(config, tier) ?? formatRankedRoleSlotLabel(tier)
+  }
+
   const roleId = getConfiguredRankedRoleId(config, tier)
   return roleId ? `<@&${roleId}>` : `**${formatRankedRoleSlotLabel(tier)}**`
 }

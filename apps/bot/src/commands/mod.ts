@@ -1,8 +1,8 @@
 import type { MatchVar } from './match/shared'
 import { createDb } from '@civup/db'
-import { formatModeLabel } from '@civup/game'
+import { formatModeLabel, slotToTeamIndex } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
-import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
+import { buildLobbyImageMessage } from '../services/discord/lobby-card.ts'
 import { clearLobbyMappings } from '../services/activity/index.ts'
 import { createChannelMessage } from '../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
@@ -99,8 +99,29 @@ export const command_mod = factory.command<ModVar>(
 
             await clearLobbyMappings(kv, directLobby.memberPlayerIds, directLobby.channelId)
             try {
+              const directLobbyParticipants = directLobby.slots
+                .map((playerId, slot) => {
+                  if (!playerId) return null
+                  const entry = lobbyQueueEntries.find(candidate => candidate.playerId === playerId)
+                  return {
+                    playerId,
+                    team: slotToTeamIndex(directLobby.mode, slot, directLobby.slots.length),
+                    civId: null,
+                    displayName: entry?.displayName ?? playerId,
+                    avatarUrl: entry?.avatarUrl ?? null,
+                  }
+                })
+                .filter((participant): participant is NonNullable<typeof participant> => participant != null)
+              const renderPayload = await buildLobbyImageMessage({
+                mode: directLobby.mode,
+                stage: 'cancelled',
+                participants: directLobbyParticipants,
+                moderation: { actorId, reason },
+                leaderDataVersion: directLobby.draftConfig.leaderDataVersion,
+                redDeath: directLobby.draftConfig.redDeath,
+              })
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, directLobby, {
-                embeds: [lobbyCancelledEmbed(directLobby.mode, [], 'cancel', { actorId, reason }, directLobby.draftConfig.leaderDataVersion, directLobby.draftConfig.redDeath)],
+                ...renderPayload,
                 components: [],
               })
             }
@@ -135,8 +156,17 @@ export const command_mod = factory.command<ModVar>(
 
           if (existingLobby) {
             try {
+              const renderPayload = await buildLobbyImageMessage({
+                db,
+                mode,
+                stage: 'cancelled',
+                participants: result.participants,
+                moderation,
+                leaderDataVersion: existingLobby.draftConfig.leaderDataVersion,
+                redDeath: existingLobby.draftConfig.redDeath,
+              })
               const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
-                embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation, existingLobby.draftConfig.leaderDataVersion, existingLobby.draftConfig.redDeath)],
+                ...renderPayload,
                 components: [],
               })
               await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
@@ -150,9 +180,16 @@ export const command_mod = factory.command<ModVar>(
           const archiveChannelId = shouldArchiveCancellation ? await getSystemChannel(kv, 'archive') : null
           if (archiveChannelId && shouldArchiveCancellation) {
             try {
-              const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-                embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation, existingLobby?.draftConfig.leaderDataVersion, matchContext.redDeath)],
+              const renderPayload = await buildLobbyImageMessage({
+                db,
+                mode,
+                stage: 'cancelled',
+                participants: result.participants,
+                moderation,
+                leaderDataVersion: existingLobby?.draftConfig.leaderDataVersion,
+                redDeath: matchContext.redDeath,
               })
+              const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, renderPayload)
               await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
             }
             catch (error) {
@@ -288,6 +325,7 @@ export const command_mod = factory.command<ModVar>(
                     guildId,
                     preview: rankedPreview,
                     playerIds: participantIds,
+                    format: 'plain',
                   })
                   await syncSeasonPeaksForPlayers(db, {
                     playerIds: participantIds,
@@ -301,10 +339,17 @@ export const command_mod = factory.command<ModVar>(
 
               if (existingLobby) {
                 try {
+                  const renderPayload = await buildLobbyImageMessage({
+                    db,
+                    mode,
+                    stage: 'reported',
+                    participants: result.participants,
+                    moderation,
+                    rankedRoleLines,
+                    redDeath: existingLobby.draftConfig.redDeath,
+                  })
                   const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
-                    embeds: [lobbyResultEmbed(mode, result.participants, moderation, {
-                      rankedRoleLines,
-                    }, existingLobby.draftConfig.redDeath)],
+                    ...renderPayload,
                     components: [],
                   })
                   await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
@@ -317,11 +362,16 @@ export const command_mod = factory.command<ModVar>(
               const archiveChannelId = await getSystemChannel(kv, 'archive')
               if (archiveChannelId) {
                 try {
-                  const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-                    embeds: [lobbyResultEmbed(mode, result.participants, moderation, {
-                      rankedRoleLines,
-                    }, matchContext.redDeath)],
+                  const renderPayload = await buildLobbyImageMessage({
+                    db,
+                    mode,
+                    stage: 'reported',
+                    participants: result.participants,
+                    moderation,
+                    rankedRoleLines,
+                    redDeath: matchContext.redDeath,
                   })
+                  const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, renderPayload)
                   await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
                 }
                 catch (error) {

@@ -3,8 +3,9 @@ import type { Hono } from 'hono'
 import type { Env } from '../env.ts'
 import { createDb } from '@civup/db'
 import { verifySignedWebhookRequest } from '@civup/utils'
-import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed } from '../embeds/match.ts'
+import { lobbyComponents } from '../embeds/match.ts'
 import { clearActivityMappings, clearLobbyMappings, storeUserLobbyState } from '../services/activity/index.ts'
+import { buildLobbyImageMessage } from '../services/discord/lobby-card.ts'
 import { buildOpenLobbyRenderPayload, clearLobbyById, getLobbyByMatch, getLobbyDraftRoster, mapLobbySlotsToEntries, reopenLobbyAfterCancelledDraft, reopenLobbyAfterTimedOutDraft, setLobbyStatus, upsertLobbyMessage } from '../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../services/lobby/live-snapshot.ts'
 import { activateDraftMatch, cancelDraftMatch } from '../services/match/index.ts'
@@ -77,8 +78,16 @@ export function registerWebhookRoutes(app: Hono<Env>) {
         await syncLobbyDerivedState(kv, activeLobby)
       }
       try {
+        const renderPayload = await buildLobbyImageMessage({
+          db,
+          mode: lobby.mode,
+          stage: 'draft-complete',
+          participants: result.participants,
+          leaderDataVersion: activeLobby.draftConfig.leaderDataVersion,
+          redDeath: activeLobby.draftConfig.redDeath,
+        })
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, activeLobby, {
-          embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants, activeLobby.draftConfig.leaderDataVersion, activeLobby.draftConfig.redDeath)],
+          ...renderPayload,
           components: lobbyComponents(activeLobby.mode, activeLobby.id),
         })
         await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
@@ -149,8 +158,16 @@ export function registerWebhookRoutes(app: Hono<Env>) {
 
     const closedLobby = await setLobbyStatus(kv, lobby.id, payload.reason === 'cancel' ? 'cancelled' : 'scrubbed', lobby) ?? lobby
     try {
+      const renderPayload = await buildLobbyImageMessage({
+        db,
+        mode: lobby.mode,
+        stage: payload.reason === 'cancel' ? 'cancelled' : 'scrubbed',
+        participants: cancelled.participants,
+        leaderDataVersion: closedLobby.draftConfig.leaderDataVersion,
+        redDeath: closedLobby.draftConfig.redDeath,
+      })
       const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, closedLobby, {
-        embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason, undefined, closedLobby.draftConfig.leaderDataVersion, closedLobby.draftConfig.redDeath)],
+        ...renderPayload,
         components: [],
       })
       await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)

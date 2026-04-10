@@ -1,7 +1,7 @@
 import type { GameMode, QueueState } from '@civup/game'
 import type { LobbyState } from './types.ts'
 import { GAME_MODES, slotToTeamIndex } from '@civup/game'
-import { lobbyTimeoutEmbed } from '../../embeds/match.ts'
+import { buildLobbyImageMessage } from '../discord/lobby-card.ts'
 import { clearLobbyMappingsIfMatchingLobby } from '../activity/index.ts'
 import { clearQueue, getQueueState } from '../queue/index.ts'
 import { upsertLobbyMessage } from './message.ts'
@@ -71,8 +71,15 @@ async function expireOpenLobby(
 
   if (token) {
     try {
+      const renderPayload = await buildLobbyImageMessage({
+        mode: lobby.mode,
+        stage: 'timeout',
+        participants: buildInactiveLobbyParticipants(lobby.mode, slots, lobbyQueueEntries),
+        leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+        redDeath: lobby.draftConfig.redDeath,
+      })
       await upsertLobbyMessage(kv, token, cancelledLobby, {
-        embeds: [lobbyTimeoutEmbed(lobby.mode, buildInactiveLobbyParticipants(lobby.mode, slots), undefined, lobby.draftConfig.redDeath)],
+        ...renderPayload,
         components: [],
       })
     }
@@ -97,10 +104,12 @@ async function expireOpenLobby(
   }
 }
 
-function buildInactiveLobbyParticipants(mode: GameMode, slots: (string | null)[]) {
+function buildInactiveLobbyParticipants(mode: GameMode, slots: (string | null)[], entries: QueueState['entries']) {
+  const entryByPlayerId = new Map(entries.map(entry => [entry.playerId, entry]))
   return slots
     .map((playerId, slot) => {
       if (!playerId) return null
+      const entry = entryByPlayerId.get(playerId)
       return {
         playerId,
         team: slotToTeamIndex(mode, slot),
@@ -110,6 +119,8 @@ function buildInactiveLobbyParticipants(mode: GameMode, slots: (string | null)[]
         ratingBeforeSigma: null,
         ratingAfterMu: null,
         ratingAfterSigma: null,
+        displayName: entry?.displayName ?? playerId,
+        avatarUrl: entry?.avatarUrl ?? null,
       }
     })
     .filter((participant): participant is NonNullable<typeof participant> => participant != null)

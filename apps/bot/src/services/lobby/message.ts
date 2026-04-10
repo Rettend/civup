@@ -1,12 +1,10 @@
 import type { LobbyState } from './types.ts'
+import type { DiscordMessagePayload } from '../discord/index.ts'
 import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
 import { setLobbyMessage } from './mutations.ts'
 import { getLobbyById } from './store.ts'
 
-interface LobbyRenderPayload {
-  embeds: unknown[]
-  components?: unknown
-}
+type LobbyRenderPayload = DiscordMessagePayload
 
 export function canApplyQueuedLobbyMessageUpdate(
   expectedLobby: Pick<LobbyState, 'id' | 'revision' | 'status' | 'messageId'>,
@@ -38,10 +36,11 @@ export async function upsertLobbyMessage(
 ): Promise<LobbyState> {
   try {
     await editChannelMessage(token, lobby.channelId, lobby.messageId, {
-      content: null,
+      content: payload.content ?? null,
       embeds: payload.embeds,
       components: payload.components,
-      allowed_mentions: { parse: [] },
+      files: payload.files,
+      allowed_mentions: payload.allowed_mentions ?? { parse: [] },
     })
     return lobby
   }
@@ -49,9 +48,11 @@ export async function upsertLobbyMessage(
     if (!isDiscordApiError(error, 404)) throw error
 
     const created = await createChannelMessage(token, lobby.channelId, {
+      content: payload.content ?? null,
       embeds: payload.embeds,
       components: payload.components,
-      allowed_mentions: { parse: [] },
+      files: payload.files,
+      allowed_mentions: payload.allowed_mentions ?? { parse: [] },
     })
 
     const updated = await setLobbyMessage(kv, lobby.id, lobby.channelId, created.id)
@@ -72,10 +73,11 @@ export async function repostLobbyMessage(
 ): Promise<{ lobby: LobbyState, previousMessageId: string }> {
   const previousMessageId = lobby.messageId
   const created = await createChannelMessage(token, lobby.channelId, {
-    content: null,
+    content: payload.content ?? null,
     embeds: payload.embeds,
     components: payload.components,
-    allowed_mentions: { parse: [] },
+    files: payload.files,
+    allowed_mentions: payload.allowed_mentions ?? { parse: [] },
   })
 
   const updated = await setLobbyMessage(kv, lobby.id, lobby.channelId, created.id)

@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from '../lobby/index.ts'
 import type { ParticipantRow } from './types.ts'
-import { lobbyResultEmbed } from '../../embeds/match.ts'
+import { buildLobbyImageMessage } from '../discord/lobby-card.ts'
 import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
 import { upsertLobbyMessage } from '../lobby/index.ts'
 import { listMatchMessageIds, storeMatchMessageMapping } from './message.ts'
@@ -37,13 +37,19 @@ export async function syncReportedMatchDiscordMessages({
 }: SyncReportedMatchDiscordMessagesInput): Promise<void> {
   const messageIds = await listMatchMessageIds(db, matchId)
   const draftMessageId = messageIds[0] ?? null
+  const resultPayload = await buildLobbyImageMessage({
+    db,
+    mode: reportedMode,
+    stage: 'reported',
+    participants,
+    rankedRoleLines,
+    redDeath: reportedRedDeath,
+  })
 
   if (lobby) {
     try {
       const updatedLobby = await upsertLobbyMessage(kv, token, lobby, {
-        embeds: [lobbyResultEmbed(lobby.mode, participants, undefined, {
-          rankedRoleLines,
-        }, lobby.draftConfig.redDeath)],
+        ...resultPayload,
         components: [],
       })
       await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
@@ -59,12 +65,8 @@ export async function syncReportedMatchDiscordMessages({
       for (const messageId of messageIds) {
         try {
           await editChannelMessage(token, draftChannelId, messageId, {
-            content: null,
-            embeds: [lobbyResultEmbed(reportedMode, participants, undefined, {
-              rankedRoleLines,
-            }, reportedRedDeath)],
+            ...resultPayload,
             components: [],
-            allowed_mentions: { parse: [] },
           })
           draftRepairError = null
           break
@@ -88,12 +90,7 @@ export async function syncReportedMatchDiscordMessages({
   if (!shouldCreateArchive) return
 
   try {
-    const archiveMessage = await createChannelMessage(token, archiveChannelId, {
-      embeds: [lobbyResultEmbed(reportedMode, participants, undefined, {
-        rankedRoleLines,
-      }, reportedRedDeath)],
-      allowed_mentions: { parse: [] },
-    })
+    const archiveMessage = await createChannelMessage(token, archiveChannelId, resultPayload)
     await storeMatchMessageMapping(db, archiveMessage.id, matchId)
   }
   catch (error) {

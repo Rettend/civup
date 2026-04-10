@@ -7,6 +7,16 @@ import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
 
+function extractMessagePayload(init: RequestInit | undefined) {
+  const body = init?.body
+  if (typeof body === 'string') {
+    return JSON.parse(body) as any
+  }
+
+  const formData = body as FormData
+  return JSON.parse(String(formData.get('payload_json'))) as any
+}
+
 afterEach(() => {
   globalThis.fetch = originalFetch
 })
@@ -53,7 +63,7 @@ describe('inactive lobby cleanup', () => {
 
     const editRequest = requests.find(request => request.init?.method === 'PATCH')
     expect(editRequest).toBeDefined()
-    const payload = JSON.parse(String(editRequest?.init?.body)) as {
+    const payload = extractMessagePayload(editRequest?.init) as {
       embeds?: unknown[]
       components?: unknown
     }

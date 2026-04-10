@@ -2,7 +2,7 @@ import type { Hono } from 'hono'
 import type { Env } from '../env.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { eq } from 'drizzle-orm'
-import { lobbyCancelledEmbed } from '../embeds/match.ts'
+import { buildLobbyImageMessage } from '../services/discord/lobby-card.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { clearLobbyById, getLobbyByMatch, upsertLobbyMessage } from '../services/lobby/index.ts'
 import { cancelMatchByModerator, getHostIdFromDraftData, getStoredGameModeContext, reportMatch } from '../services/match/index.ts'
@@ -126,6 +126,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
           guildId,
           preview: rankedPreview,
           playerIds: participantIds,
+          format: 'plain',
         })
         await syncSeasonPeaksForPlayers(db, {
           playerIds: participantIds,
@@ -238,8 +239,16 @@ export function registerMatchRoutes(app: Hono<Env>) {
 
     if (lobby) {
       try {
+        const renderPayload = await buildLobbyImageMessage({
+          db,
+          mode: lobby.mode,
+          stage: 'scrubbed',
+          participants: result.participants,
+          leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+          redDeath: lobby.draftConfig.redDeath,
+        })
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-          embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'scrub', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
+          ...renderPayload,
           components: [],
         })
         await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
