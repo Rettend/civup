@@ -178,7 +178,7 @@ export const command_match = factory.command<MatchVar>(
             try {
               const message = await createChannelMessage(c.env.DISCORD_TOKEN, draftChannelId, {
                 embeds: [embed],
-                components: lobbyComponents(mode),
+                components: [],
                 allowed_mentions: { parse: [] },
               })
               const createdLobby = await createLobby(kv, {
