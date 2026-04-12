@@ -38,6 +38,7 @@ import {
 import { modeIndexKey } from '../../services/lobby/keys.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { arePremadeGroupsAdjacent } from '../../services/lobby/premades.ts'
+import { normalizeDraftConfigForMode } from '../../services/lobby/normalize.ts'
 import { createDraftMatch } from '../../services/match/index.ts'
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { addToQueue, clearQueue, getQueueState, moveQueueEntriesBetweenModes, removeFromQueueAndUnlinkParty, setQueueEntries } from '../../services/queue/index.ts'
@@ -265,6 +266,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       ? parseRedDeathFfaTargetSize(targetSizeRaw)
       : undefined
 
+    if (mode === 'big-team' && (normalizedMinRole != null || normalizedMaxRole != null)) {
+      return c.json({ error: 'Big Team lobbies are unranked and do not support matchmaking rank limits.' }, 400)
+    }
+
     if (hasTargetSize) {
       const targetSizeValid = mode === 'ffa' && normalizedRedDeath
         ? parsedRedDeathFfaTargetSize !== undefined
@@ -322,11 +327,14 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     })()
 
     if (requestedTargetSize !== slots.length) {
-      if (requestedTargetSize < slots.length && slots.slice(requestedTargetSize).some(playerId => playerId != null)) {
-        return c.json({ error: 'Clear the extra 2v2 seats before removing them.' }, 400)
+      if (requestedTargetSize < slots.length) {
+        const removedSlotIndexes = getRemovedSlotIndexesForResize(mode, slots.length, requestedTargetSize)
+        if (removedSlotIndexes.some(index => slots[index] != null)) {
+          return c.json({ error: getResizeShrinkErrorMessage(mode, slots.length, requestedTargetSize) }, 400)
+        }
       }
 
-      slots = resizeLobbySlots(slots, requestedTargetSize)
+      slots = resizeLobbySlots(mode, slots, requestedTargetSize)
     }
 
     const leaderPoolError = getLeaderPoolSizeError(
@@ -482,13 +490,16 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     let nextSlots = nextLayout.slots
     if (nextMode === 'ffa' && lobby.draftConfig.redDeath) {
-      nextSlots = resizeLobbySlots(nextSlots, 10)
+      nextSlots = resizeLobbySlots(nextMode, nextSlots, 10)
     }
     const changedAt = Date.now()
 
     const nextLobby = {
       ...lobby,
       mode: nextMode,
+      draftConfig: normalizeDraftConfigForMode(nextMode, lobby.draftConfig),
+      minRole: nextMode === 'big-team' ? null : lobby.minRole,
+      maxRole: nextMode === 'big-team' ? null : lobby.maxRole,
       slots: nextSlots,
       lastActivityAt: changedAt,
       updatedAt: changedAt,
@@ -952,21 +963,23 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     let ratingsByPlayerId = new Map<string, { mu: number, sigma: number }>()
     if (strategyRaw === 'balance' && slottedPlayerIds.length > 0) {
-      const leaderboardMode = toLeaderboardMode(mode, { redDeath: lobby.draftConfig.redDeath })
-      const db = createDb(c.env.DB)
-      const rows = await db
-        .select({
-          playerId: playerRatings.playerId,
-          mu: playerRatings.mu,
-          sigma: playerRatings.sigma,
-        })
-        .from(playerRatings)
-        .where(and(
-          eq(playerRatings.mode, leaderboardMode),
-          inArray(playerRatings.playerId, slottedPlayerIds),
-        ))
+      const leaderboardMode = toLeaderboardMode(mode, { redDeath: lobby.draftConfig.redDeath }) ?? (mode === 'big-team' ? 'squad' : null)
+      if (leaderboardMode != null) {
+        const db = createDb(c.env.DB)
+        const rows = await db
+          .select({
+            playerId: playerRatings.playerId,
+            mu: playerRatings.mu,
+            sigma: playerRatings.sigma,
+          })
+          .from(playerRatings)
+          .where(and(
+            eq(playerRatings.mode, leaderboardMode),
+            inArray(playerRatings.playerId, slottedPlayerIds),
+          ))
 
-      ratingsByPlayerId = new Map(rows.map(row => [row.playerId, { mu: row.mu, sigma: row.sigma }]))
+        ratingsByPlayerId = new Map(rows.map(row => [row.playerId, { mu: row.mu, sigma: row.sigma }]))
+      }
     }
 
     const arranged = arrangeLobbySlots({
@@ -1459,8 +1472,46 @@ function parseRedDeathFfaTargetSize(value: unknown): number | undefined {
   return [4, 6, 8, 10].includes(numeric) ? numeric : undefined
 }
 
-function resizeLobbySlots(slots: (string | null)[], targetSize: number): (string | null)[] {
+function resizeLobbySlots(mode: GameMode, slots: (string | null)[], targetSize: number): (string | null)[] {
+  if (mode === 'big-team') {
+    if (slots.length === 10 && targetSize === 12) {
+      return [
+        ...slots.slice(0, 5),
+        null,
+        ...slots.slice(5, 10),
+        null,
+      ]
+    }
+
+    if (slots.length === 12 && targetSize === 10) {
+      return [
+        ...slots.slice(0, 5),
+        ...slots.slice(6, 11),
+      ]
+    }
+  }
+
   return Array.from({ length: targetSize }, (_, index) => slots[index] ?? null)
+}
+
+function getRemovedSlotIndexesForResize(mode: GameMode, currentSize: number, targetSize: number): number[] {
+  if (mode === 'big-team' && currentSize === 12 && targetSize === 10) {
+    return [5, 11]
+  }
+
+  return Array.from({ length: Math.max(0, currentSize - targetSize) }, (_, index) => targetSize + index)
+}
+
+function getResizeShrinkErrorMessage(mode: GameMode, currentSize: number, targetSize: number): string {
+  if (mode === 'big-team' && currentSize === 12 && targetSize === 10) {
+    return 'Clear the extra 6v6 seats before switching back to 5v5.'
+  }
+
+  if (mode === '2v2' && currentSize === 8 && targetSize === 4) {
+    return 'Clear the extra 2v2 seats before removing them.'
+  }
+
+  return 'Clear the extra seats before shrinking the lobby.'
 }
 
 function isDebugLobbyFillEnabled(
