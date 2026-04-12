@@ -311,14 +311,17 @@ export function LeaderGridOverlay() {
     }
 
     const available = new Set(current.availableCivIds)
+    const allowsDuplicatePicks = current.duplicateFactions === true
     const localPickSelections = pickSelections()
-    const prunedLocalSelections = localPickSelections.filter(civId => available.has(civId))
+    const prunedLocalSelections = allowsDuplicatePicks
+      ? localPickSelections
+      : localPickSelections.filter(civId => available.has(civId))
     if (!sameCivIdList(localPickSelections, prunedLocalSelections)) {
       setPickSelections(prunedLocalSelections)
       return
     }
 
-    const serverPickPreview = (draftStore.previews.picks[seatIndex] ?? []).filter(civId => available.has(civId))
+    const serverPickPreview = (draftStore.previews.picks[seatIndex] ?? []).filter(civId => allowsDuplicatePicks || available.has(civId))
     if (localPickSelections.length === 0 && serverPickPreview.length > 0 && hydratedPickPreviewToken() !== hydrationToken) {
       setPickSelections([...serverPickPreview])
       setHydratedPickPreviewToken(hydrationToken)
@@ -419,6 +422,7 @@ export function LeaderGridOverlay() {
     if (isRandomSelected()) return true
     const id = selectedLeader()
     if (!id) return false
+    if (state()?.duplicateFactions === true) return true
     return !state()?.picks.some(p => p.civId === id)
   }
 

@@ -160,15 +160,20 @@ export const command_mod = factory.command<ModVar>(
             }
           }
 
+          const isRankedMatch = matchContext.ranked
           try {
-            await markLeaderboardsDirty(db, `mod-cancel:${result.match.id}`)
+            if (isRankedMatch) {
+              await markLeaderboardsDirty(db, `mod-cancel:${result.match.id}`)
+            }
           }
           catch (error) {
             console.error(`Failed to mark leaderboards dirty after cancelling match ${result.match.id}:`, error)
           }
 
           try {
-            await markRankedRolesDirty(kv, `mod-cancel:${result.match.id}`)
+            if (isRankedMatch) {
+              await markRankedRolesDirty(kv, `mod-cancel:${result.match.id}`)
+            }
           }
           catch (error) {
             console.error(`Failed to mark ranked roles dirty after cancelling match ${result.match.id}:`, error)
@@ -240,16 +245,21 @@ export const command_mod = factory.command<ModVar>(
             const moderation = { actorId, reason }
             const guildId = existingLobby?.guildId ?? c.interaction.guild_id ?? null
             const participantIds = result.participants.map(participant => participant.playerId)
+            const isRankedMatch = matchContext.ranked
 
             try {
-              await markLeaderboardsDirty(db, `mod-resolve:${result.match.id}`)
+              if (isRankedMatch) {
+                await markLeaderboardsDirty(db, `mod-resolve:${result.match.id}`)
+              }
             }
             catch (error) {
               console.error(`Failed to mark leaderboards dirty after resolving match ${result.match.id}:`, error)
             }
 
             try {
-              await markRankedRolesDirty(kv, `mod-resolve:${result.match.id}`)
+              if (isRankedMatch) {
+                await markRankedRolesDirty(kv, `mod-resolve:${result.match.id}`)
+              }
             }
             catch (error) {
               console.error(`Failed to mark ranked roles dirty after resolving match ${result.match.id}:`, error)
@@ -263,18 +273,20 @@ export const command_mod = factory.command<ModVar>(
             )
 
             c.executionCtx.waitUntil((async () => {
-              try {
-                await rebuildLeaderboardModeSnapshot(db, kv, matchContext.leaderboardMode)
-                if (matchContext.leaderboardMode === 'duo' || matchContext.leaderboardMode === 'squad') {
-                  await clearTeamLeaderboardModeSnapshots(kv, matchContext.leaderboardMode)
+              if (matchContext.leaderboardMode != null) {
+                try {
+                  await rebuildLeaderboardModeSnapshot(db, kv, matchContext.leaderboardMode)
+                  if (matchContext.leaderboardMode === 'duo' || matchContext.leaderboardMode === 'squad') {
+                    await clearTeamLeaderboardModeSnapshots(kv, matchContext.leaderboardMode)
+                  }
                 }
-              }
-              catch (error) {
-                console.error(`Failed to rebuild leaderboard snapshot after resolving match ${result.match.id}:`, error)
+                catch (error) {
+                  console.error(`Failed to rebuild leaderboard snapshot after resolving match ${result.match.id}:`, error)
+                }
               }
 
               let rankedRoleLines: string[] = []
-              if (guildId) {
+              if (isRankedMatch && guildId) {
                 try {
                   const rankedPreview = await previewRankedRoles({
                     db,

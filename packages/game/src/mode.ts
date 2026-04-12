@@ -1,11 +1,35 @@
 import type { GameMode, LeaderboardMode } from './types.ts'
 import { GAME_MODES, LEADERBOARD_MODES } from './types.ts'
 
+type BaseLeaderboardMode = Exclude<LeaderboardMode, 'red-death'>
+
+interface GameModeDefinition {
+  label: string
+  playerCountOptions: readonly number[]
+  teamSize: 1 | 2 | 3 | 4 | 5 | 6 | null
+  leaderboardMode: BaseLeaderboardMode | null
+  balanceLeaderboardMode: BaseLeaderboardMode | null
+  unranked: boolean
+  redDeathDuplicateFactionsRequired: boolean
+}
+
+const GAME_MODE_DEFINITIONS = {
+  '1v1': { label: '1v1', playerCountOptions: [2], teamSize: 1, leaderboardMode: 'duel', balanceLeaderboardMode: null, unranked: false, redDeathDuplicateFactionsRequired: false },
+  '2v2': { label: '2v2', playerCountOptions: [4, 8], teamSize: 2, leaderboardMode: 'duo', balanceLeaderboardMode: null, unranked: false, redDeathDuplicateFactionsRequired: false },
+  '3v3': { label: '3v3', playerCountOptions: [6], teamSize: 3, leaderboardMode: 'squad', balanceLeaderboardMode: null, unranked: false, redDeathDuplicateFactionsRequired: false },
+  '4v4': { label: '4v4', playerCountOptions: [8], teamSize: 4, leaderboardMode: 'squad', balanceLeaderboardMode: null, unranked: false, redDeathDuplicateFactionsRequired: false },
+  '5v5': { label: '5v5', playerCountOptions: [10], teamSize: 5, leaderboardMode: null, balanceLeaderboardMode: 'squad', unranked: true, redDeathDuplicateFactionsRequired: false },
+  '6v6': { label: '6v6', playerCountOptions: [12], teamSize: 6, leaderboardMode: null, balanceLeaderboardMode: 'squad', unranked: true, redDeathDuplicateFactionsRequired: true },
+  'ffa': { label: 'FFA', playerCountOptions: [8], teamSize: null, leaderboardMode: 'ffa', balanceLeaderboardMode: null, unranked: false, redDeathDuplicateFactionsRequired: false },
+} as const satisfies Record<GameMode, GameModeDefinition>
+
 export const GAME_MODE_CHOICES = [
   { name: '1v1', value: '1v1' },
   { name: '2v2', value: '2v2' },
   { name: '3v3', value: '3v3' },
   { name: '4v4', value: '4v4' },
+  { name: '5v5', value: '5v5' },
+  { name: '6v6', value: '6v6' },
   { name: 'FFA', value: 'ffa' },
 ] as const satisfies readonly { name: string, value: GameMode }[]
 
@@ -26,13 +50,14 @@ export const LEADERBOARD_MODE_LABELS: Record<LeaderboardMode, string> = {
 }
 
 const RED_DEATH_FFA_START_PLAYER_COUNTS = [4, 6, 8, 10] as const
+const RED_DEATH_GAME_MODES = ['ffa', '1v1', '2v2', '3v3', '4v4'] as const satisfies readonly GameMode[]
 
 const LEADERBOARD_MODE_GAME_MODES = {
   'duel': ['1v1'],
   'duo': ['2v2'],
   'squad': ['3v3', '4v4'],
   'ffa': ['ffa'],
-  'red-death': GAME_MODES,
+  'red-death': RED_DEATH_GAME_MODES,
 } as const satisfies Record<LeaderboardMode, readonly GameMode[]>
 
 function normalizeModeValue(value: string | null | undefined): string | null {
@@ -75,7 +100,7 @@ export function inferGameMode(value: string | null | undefined, fallback: GameMo
 export function formatModeLabel(
   mode: string | null | undefined,
   fallback = '',
-  options: { redDeath?: boolean, targetSize?: number } = {},
+  options: { redDeath?: boolean, compactRedDeath?: boolean, targetSize?: number } = {},
 ): string {
   if (!mode) return fallback
 
@@ -85,16 +110,16 @@ export function formatModeLabel(
   const baseLabel = (() => {
     const parsed = parseGameMode(trimmed)
     if (parsed) {
-      if (parsed === 'ffa') return 'FFA'
       if (parsed === '2v2' && typeof options.targetSize === 'number' && options.targetSize >= 6 && options.targetSize % 2 === 0) {
         return Array.from({ length: Math.floor(options.targetSize / 2) }, () => '2').join('v')
       }
-      return parsed
+      return GAME_MODE_DEFINITIONS[parsed].label
     }
     return trimmed.replace(/^default-/i, '').replace(/-/g, ' ')
   })()
 
-  return options.redDeath ? `Red Death ${baseLabel}` : baseLabel
+  if (!options.redDeath) return baseLabel
+  return `${options.compactRedDeath ? 'RD' : 'Red Death'} ${baseLabel}`
 }
 
 /** Whether a string matches a supported leaderboard mode. */
@@ -116,13 +141,28 @@ export function formatLeaderboardModeLabel(mode: string | null | undefined, fall
   return parsed ? LEADERBOARD_MODE_LABELS[parsed] : fallback
 }
 
+/** Whether a game mode is always unranked. */
+export function isUnrankedMode(mode: GameMode): boolean {
+  return GAME_MODE_DEFINITIONS[mode].unranked
+}
+
+/** Whether a Red Death mode must allow duplicate factions. */
+export function requiresRedDeathDuplicateFactions(mode: GameMode): boolean {
+  return GAME_MODE_DEFINITIONS[mode].redDeathDuplicateFactionsRequired
+}
+
 /** Map game mode to its leaderboard track. */
-export function toLeaderboardMode(mode: GameMode, options: { redDeath?: boolean } = {}): LeaderboardMode {
+export function toLeaderboardMode(mode: GameMode, options: { redDeath?: boolean } = {}): LeaderboardMode | null {
+  if (isUnrankedMode(mode)) return null
   if (options.redDeath) return 'red-death'
-  if (mode === '2v2') return 'duo'
-  if (mode === '3v3' || mode === '4v4') return 'squad'
-  if (mode === '1v1') return 'duel'
-  return 'ffa'
+  return GAME_MODE_DEFINITIONS[mode].leaderboardMode
+}
+
+/** Map a mode to the rating track used when balancing lobbies. */
+export function toBalanceLeaderboardMode(mode: GameMode, options: { redDeath?: boolean } = {}): LeaderboardMode | null {
+  if (options.redDeath && !isUnrankedMode(mode)) return 'red-death'
+  const definition = GAME_MODE_DEFINITIONS[mode]
+  return definition.balanceLeaderboardMode ?? definition.leaderboardMode
 }
 
 /** Expand one leaderboard track into its underlying game modes. */
@@ -131,47 +171,40 @@ export function leaderboardModesToGameModes(mode: LeaderboardMode): readonly Gam
 }
 
 /** Whether a game mode is team-based. */
-export function isTeamMode(mode: GameMode): mode is '2v2' | '3v3' | '4v4' {
-  return mode === '2v2' || mode === '3v3' || mode === '4v4'
+export function isTeamMode(mode: GameMode): mode is '2v2' | '3v3' | '4v4' | '5v5' | '6v6' {
+  return mode === '2v2' || mode === '3v3' || mode === '4v4' || mode === '5v5' || mode === '6v6'
 }
 
 /** Players on one side of a lobby, or null for FFA. */
-export function teamSize(mode: GameMode): 1 | 2 | 3 | 4 | null {
-  if (mode === 'ffa') return null
-  if (mode === '1v1') return 1
-  if (mode === '2v2') return 2
-  if (mode === '3v3') return 3
-  return 4
+export function teamSize(mode: GameMode, _playerCount?: number): 1 | 2 | 3 | 4 | 5 | 6 | null {
+  return GAME_MODE_DEFINITIONS[mode].teamSize
 }
 
 /** Number of teams for team or duel modes. */
 export function teamCount(mode: GameMode, playerCount: number = defaultPlayerCount(mode)): number {
   if (mode === '2v2') return Math.max(2, Math.floor(Math.max(4, playerCount) / 2))
-  return teamSize(mode) == null ? 0 : 2
+  return teamSize(mode, playerCount) == null ? 0 : 2
 }
 
 /** Players per team. */
-export function playersPerTeam(mode: GameMode): number {
-  return teamSize(mode) ?? 1
+export function playersPerTeam(mode: GameMode, playerCount: number = defaultPlayerCount(mode)): number {
+  return teamSize(mode, playerCount) ?? 1
 }
 
 /** Supported player counts for a mode. */
 export function playerCountOptions(mode: GameMode): readonly number[] {
-  if (mode === '2v2') return [4, 8]
-  const size = teamSize(mode)
-  if (size == null) return [8]
-  return [size * 2]
+  return GAME_MODE_DEFINITIONS[mode].playerCountOptions
 }
 
 /** Maximum teammate mentions accepted by a mode. */
-export function maxTeammatesForMode(mode: GameMode): number {
-  const size = teamSize(mode)
+export function maxTeammatesForMode(mode: GameMode, playerCount: number = maxPlayerCount(mode)): number {
+  const size = teamSize(mode, playerCount)
   return size == null ? 0 : Math.max(0, size - 1)
 }
 
 /** Map a lobby slot to its team index for versus modes. */
 export function slotToTeamIndex(mode: GameMode, slot: number, playerCount: number = defaultPlayerCount(mode)): 0 | 1 | 2 | 3 | null {
-  const size = teamSize(mode)
+  const size = teamSize(mode, playerCount)
   if (size == null || slot < 0) return null
 
   const teams = teamCount(mode, playerCount)

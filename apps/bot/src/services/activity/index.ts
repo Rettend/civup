@@ -1,6 +1,6 @@
 import type { DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry, RoomConfig } from '@civup/game'
 import type { LobbyState } from '../lobby/types.ts'
-import { allFactionIds, getDraftFormat, isTeamMode, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
+import { allFactionIds, getDraftFormat, isTeamMode, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
 import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
 import { syncActivityOverviewSnapshot } from './live-state.ts'
@@ -23,6 +23,7 @@ export interface CreateDraftRoomOptions {
   simultaneousPick?: boolean
   redDeath?: boolean
   randomDraft?: boolean
+  duplicateFactions?: boolean
   partyHost?: string
   botHost?: string
   webhookSecret?: string
@@ -199,6 +200,7 @@ export async function createDraftRoom(
   const redDeathMode = options.redDeath === true
   const simultaneousPick = mode === 'ffa' && !redDeathMode && options.simultaneousPick === true
   const randomDraft = redDeathMode && options.randomDraft === true
+  const duplicateFactions = redDeathMode && (requiresRedDeathDuplicateFactions(mode) || options.duplicateFactions === true)
   const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode })
   const seats: DraftSeat[] = buildSeats(mode, entries)
   const civPool = redDeathMode
@@ -212,6 +214,7 @@ export async function createDraftRoom(
     civPool,
     dealOptionsSize: redDeathMode ? options.dealOptionsSize ?? undefined : undefined,
     randomDraft,
+    duplicateFactions,
     leaderDataVersion: options.leaderDataVersion ?? 'live',
     timerConfig: options.timerConfig,
     webhookUrl: buildDraftWebhookUrl(options.botHost, options.partyHost),
@@ -245,7 +248,7 @@ function buildDraftWebhookUrl(botHost: string | undefined, partyHost: string | u
 
 function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
   if (isTeamMode(mode)) {
-    const playersPerTeam = teamSize(mode) ?? 0
+    const playersPerTeam = teamSize(mode, entries.length) ?? 0
     const teams = teamCount(mode, entries.length)
     const seats: DraftSeat[] = []
 
@@ -270,7 +273,7 @@ function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
       playerId: e.playerId,
       displayName: e.displayName,
       avatarUrl: e.avatarUrl ?? null,
-      team: slotToTeamIndex(mode, i) ?? undefined,
+      team: slotToTeamIndex(mode, i, entries.length) ?? undefined,
     }))
   }
 

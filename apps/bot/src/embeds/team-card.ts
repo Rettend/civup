@@ -1,5 +1,5 @@
 import type { Database } from '@civup/db'
-import type { CompetitiveTier, GameMode, LeaderboardMode } from '@civup/game'
+import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { PlayerRating } from '@civup/rating'
 import { matches, matchParticipants, playerRatings, players } from '@civup/db'
 import { formatLeaderboardModeLabel, formatModeLabel, getLeader } from '@civup/game'
@@ -9,8 +9,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
 import { projectLineupDisplayRating } from '../services/leaderboard/team-rating.ts'
 import { getStoredGameModeContext } from '../services/match/draft-data.ts'
-import { summarizeRankedPreview } from '../services/ranked/role-sync.ts'
-import { getConfiguredRankedRoleId, getConfiguredRankedRoleLabel } from '../services/ranked/roles.ts'
+import { projectRankedTierForScore } from '../services/ranked/role-sync.ts'
 import { getDisplaySeason } from '../services/season/index.ts'
 
 const TOP_LEADERS_LIMIT = 5
@@ -60,7 +59,7 @@ export async function teamCardEmbed(
 ): Promise<Embed> {
   const uniquePlayerIds = [...new Set(playerIds)]
   const modeContext = resolveTeamModeContext(uniquePlayerIds.length)
-  const [playerRows, ratingRows, displaySeason, rankedPreview] = await Promise.all([
+  const [playerRows, ratingRows, displaySeason] = await Promise.all([
     db
       .select({ id: players.id, displayName: players.displayName, avatarUrl: players.avatarUrl })
       .from(players)
@@ -73,7 +72,6 @@ export async function teamCardEmbed(
         eq(playerRatings.mode, modeContext.leaderboardMode),
       )),
     getDisplaySeason(db),
-    guildId ? summarizeRankedPreview({ db, kv, guildId, mode: modeContext.leaderboardMode }) : Promise.resolve(null),
   ])
 
   const playerById = new Map(playerRows.map(player => [player.id, player]))
@@ -85,7 +83,9 @@ export async function teamCardEmbed(
   })
 
   const projectedRating = Math.round(projectLineupDisplayRating(lineupRatings))
-  const projectedVisual = resolveTeamRatingVisual(rankedPreview, modeContext.leaderboardMode, projectedRating)
+  const visual = guildId
+    ? await projectRankedTierForScore({ db, kv, guildId, mode: modeContext.leaderboardMode, score: projectedRating })
+    : { tier: null, roleId: null, label: null }
 
   const conditions = [
     eq(matches.status, 'completed'),
@@ -126,7 +126,7 @@ export async function teamCardEmbed(
 
   const embed = new Embed()
     .title('Stats')
-    .description(buildTeamDescription(uniquePlayerIds, projectedVisual))
+    .description(buildTeamDescription(uniquePlayerIds, visual))
     .color(0xC8AA6E)
 
   const fields: Array<{ name: string, value: string, inline?: boolean }> = []
@@ -142,7 +142,7 @@ export async function teamCardEmbed(
     fields.push({
       name: modeContext.fieldLabel,
       value: [
-        `Rating: ${formatProjectedRating(projectedVisual, projectedRating)}`,
+        `Rating: ${formatProjectedRating(visual, projectedRating)}`,
         `Games: ${gamesPlayed}`,
         `Wins: ${wins} (${winRate}%)`,
       ].join('\n'),
@@ -210,25 +210,16 @@ function resolveTeamModeContext(playerCount: number): TeamModeContext {
   throw new Error('Team stats require 2, 3, or 4 players.')
 }
 
-function resolveTeamRatingVisual(
-  preview: Awaited<ReturnType<typeof summarizeRankedPreview>> | null,
-  mode: LeaderboardMode,
-  rating: number,
-): TeamRatingVisual {
-  if (!preview) return { tier: null, roleId: null, label: null }
+function formatProjectedRating(visual: TeamRatingVisual, rating: number): string {
+  if (visual.roleId) return `<@&${visual.roleId}> (${rating})`
+  if (visual.label) return `${visual.label} (${rating})`
+  return String(rating)
+}
 
-  const modeSummary = preview.modes.find(summary => summary.mode === mode)
-  const fallbackTier = modeSummary?.tiers.find(tier => tier.isFallback)?.tier ?? null
-  const earnedTier = modeSummary?.tiers.find((tier) => {
-    return !tier.isFallback && !tier.locked && tier.cutoffScore != null && rating >= tier.cutoffScore
-  })?.tier ?? null
-  const tier = earnedTier ?? fallbackTier
-
-  return {
-    tier,
-    roleId: tier ? getConfiguredRankedRoleId(preview.config, tier) : null,
-    label: tier ? getConfiguredRankedRoleLabel(preview.config, tier) : null,
-  }
+function formatProjectedRoleMention(visual: TeamRatingVisual): string | null {
+  if (visual.roleId) return `<@&${visual.roleId}>`
+  const label = visual.label?.trim()
+  return label ? label : null
 }
 
 function buildCommonMatches(rows: TeamParticipantRow[], playerIds: string[]): TeamMatchGroup[] {
@@ -284,18 +275,6 @@ function summarizeLeaderStats(rows: Array<{ civId: string | null, placement: num
 
       return a.civId.localeCompare(b.civId)
     })
-}
-
-function formatProjectedRating(visual: TeamRatingVisual, rating: number): string {
-  if (visual.roleId) return `<@&${visual.roleId}> (${rating})`
-  if (visual.label) return `${visual.label} (${rating})`
-  return String(rating)
-}
-
-function formatProjectedRoleMention(visual: TeamRatingVisual): string | null {
-  if (visual.roleId) return `<@&${visual.roleId}>`
-  const label = visual.label?.trim()
-  return label ? label : null
 }
 
 function formatLeaderStatLine(stat: { civId: string, games: number, wins: number }): string {
