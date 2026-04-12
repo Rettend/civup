@@ -1,15 +1,15 @@
 // ── Game Modes ──────────────────────────────────────────────
 
 /** Individual game modes */
-export type GameMode = 'ffa' | '1v1' | '2v2' | '3v3' | '4v4'
+export type GameMode = 'ffa' | '1v1' | '2v2' | '3v3' | '4v4' | '5v5' | '6v6'
 
-/** Leaderboard tracks: duel (1v1), duo (2v2), squad (3v3 + 4v4), ffa, red death */
+/** Leaderboard tracks: duel (1v1), duo (2v2), squad (3v3 + 4v4 + 5v5 + 6v6), ffa, red death */
 export type LeaderboardMode = 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death'
 
 /** Live competitive rank tiers used for role gates and ranked roles. */
 export type CompetitiveTier = string
 
-export const GAME_MODES = ['ffa', '1v1', '2v2', '3v3', '4v4'] as const satisfies readonly GameMode[]
+export const GAME_MODES = ['ffa', '1v1', '2v2', '3v3', '4v4', '5v5', '6v6'] as const satisfies readonly GameMode[]
 
 export const LEADERBOARD_MODES = ['duel', 'duo', 'squad', 'ffa', 'red-death'] as const satisfies readonly LeaderboardMode[]
 
@@ -219,6 +219,8 @@ export interface DraftState {
   dealtCivIds?: string[] | null
   /** How many factions to deal per turn (rd modes only). */
   dealOptionsSize?: number
+  /** Whether Red Death picks can reuse factions that were already chosen. */
+  duplicateFactions?: boolean
   status: 'waiting' | 'active' | 'complete' | 'cancelled'
   /** Why the draft was cancelled, scrubbed, timed out, or reverted (null unless status is cancelled) */
   cancelReason: DraftCancelReason | null

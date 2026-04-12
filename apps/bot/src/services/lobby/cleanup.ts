@@ -103,7 +103,7 @@ function buildInactiveLobbyParticipants(mode: GameMode, slots: (string | null)[]
       if (!playerId) return null
       return {
         playerId,
-        team: slotToTeamIndex(mode, slot),
+        team: slotToTeamIndex(mode, slot, slots.length),
         civId: null,
         placement: null,
         ratingBeforeMu: null,

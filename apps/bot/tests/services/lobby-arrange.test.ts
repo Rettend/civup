@@ -124,6 +124,46 @@ describe('lobby arrange helpers', () => {
     expect(quartetOnA || quartetOnB).toBe(true)
   })
 
+  test('auto-balance keeps a full five-stack together in 5v5', () => {
+    const result = arrangeLobbySlots({
+      mode: '5v5',
+      strategy: 'balance',
+      slots: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', null],
+      queueEntries: [
+        entry('p1', ['p2', 'p3', 'p4', 'p5']),
+        entry('p2', ['p1', 'p3', 'p4', 'p5']),
+        entry('p3', ['p1', 'p2', 'p4', 'p5']),
+        entry('p4', ['p1', 'p2', 'p3', 'p5']),
+        entry('p5', ['p1', 'p2', 'p3', 'p4']),
+        entry('p6'),
+        entry('p7'),
+        entry('p8'),
+        entry('p9'),
+      ],
+      ratingsByPlayerId: new Map([
+        ['p1', { mu: 34, sigma: 2 }],
+        ['p2', { mu: 33, sigma: 2 }],
+        ['p3', { mu: 32, sigma: 2 }],
+        ['p4', { mu: 31, sigma: 2 }],
+        ['p5', { mu: 30, sigma: 2 }],
+        ['p6', { mu: 28, sigma: 2 }],
+        ['p7', { mu: 27, sigma: 2 }],
+        ['p8', { mu: 26, sigma: 2 }],
+        ['p9', { mu: 25, sigma: 2 }],
+      ]),
+    })
+
+    expect('error' in result).toBe(false)
+    if ('error' in result) return
+
+    const teamA = new Set(result.slots.slice(0, 5).filter((playerId): playerId is string => playerId != null))
+    const teamB = new Set(result.slots.slice(5, 10).filter((playerId): playerId is string => playerId != null))
+
+    const stackOnA = ['p1', 'p2', 'p3', 'p4', 'p5'].every(playerId => teamA.has(playerId))
+    const stackOnB = ['p1', 'p2', 'p3', 'p4', 'p5'].every(playerId => teamB.has(playerId))
+    expect(stackOnA || stackOnB).toBe(true)
+  })
+
   test('randomize shuffles occupied FFA seats and compacts gaps', () => {
     const result = arrangeLobbySlots({
       mode: 'ffa',

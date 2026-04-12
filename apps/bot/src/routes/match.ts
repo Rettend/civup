@@ -86,6 +86,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
     }
 
     const lobby = await getLobbyByMatch(kv, result.match.id) ?? fallbackLobby
+    const isRankedResult = reportedContext.ranked
 
     if (result.idempotent) {
       console.log('[idempotency] activity report request deduplicated', {
@@ -111,7 +112,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
 
     const guildId = lobby?.guildId ?? null
     let rankedRoleLines: string[] = []
-    if (guildId) {
+    if (isRankedResult && guildId) {
       try {
         const participantIds = result.participants.map(participant => participant.playerId)
         const rankedPreview = await previewRankedRoles({
@@ -153,18 +154,20 @@ export function registerMatchRoutes(app: Hono<Env>) {
       await clearLobbyById(kv, lobby.id, lobby)
     }
 
-    try {
-      await markLeaderboardsDirty(db, `activity-report:${result.match.id}`)
-    }
-    catch (error) {
-      console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
-    }
+    if (isRankedResult) {
+      try {
+        await markLeaderboardsDirty(db, `activity-report:${result.match.id}`)
+      }
+      catch (error) {
+        console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
+      }
 
-    try {
-      await markRankedRolesDirty(kv, `activity-report:${result.match.id}`)
-    }
-    catch (error) {
-      console.error(`Failed to mark ranked roles dirty after match ${result.match.id}:`, error)
+      try {
+        await markRankedRolesDirty(kv, `activity-report:${result.match.id}`)
+      }
+      catch (error) {
+        console.error(`Failed to mark ranked roles dirty after match ${result.match.id}:`, error)
+      }
     }
 
     return c.json({ ok: true, match: result.match, participants: result.participants })
@@ -250,18 +253,21 @@ export function registerMatchRoutes(app: Hono<Env>) {
     }
 
     if (result.previousStatus === 'completed') {
-      try {
-        await markLeaderboardsDirty(db, `activity-scrub:${result.match.id}`)
-      }
-      catch (error) {
-        console.error(`Failed to mark leaderboards dirty after scrub ${result.match.id}:`, error)
-      }
+      const scrubContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
+      if (scrubContext?.ranked) {
+        try {
+          await markLeaderboardsDirty(db, `activity-scrub:${result.match.id}`)
+        }
+        catch (error) {
+          console.error(`Failed to mark leaderboards dirty after scrub ${result.match.id}:`, error)
+        }
 
-      try {
-        await markRankedRolesDirty(kv, `activity-scrub:${result.match.id}`)
-      }
-      catch (error) {
-        console.error(`Failed to mark ranked roles dirty after scrub ${result.match.id}:`, error)
+        try {
+          await markRankedRolesDirty(kv, `activity-scrub:${result.match.id}`)
+        }
+        catch (error) {
+          console.error(`Failed to mark ranked roles dirty after scrub ${result.match.id}:`, error)
+        }
       }
     }
 

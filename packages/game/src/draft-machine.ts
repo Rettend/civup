@@ -25,6 +25,7 @@ export function createDraft(
   civPool: string[],
   options: {
     dealOptionsSize?: number
+    duplicateFactions?: boolean
   } = {},
 ): DraftState {
   const seatCount = seats.length
@@ -42,6 +43,7 @@ export function createDraft(
     availableCivIds: [...civPool],
     dealtCivIds: null,
     dealOptionsSize: options.dealOptionsSize,
+    duplicateFactions: options.duplicateFactions === true,
     status: 'waiting',
     cancelReason: null,
     pendingBlindBans: [],
@@ -277,7 +279,7 @@ function processPick(
     return { error: `Seat ${seatIndex} has already made all picks for this step` }
   }
 
-  if (!state.availableCivIds.includes(civId)) {
+  if (!state.duplicateFactions && !state.availableCivIds.includes(civId)) {
     return { error: `Civ ${civId} is not available` }
   }
 
@@ -287,7 +289,7 @@ function processPick(
 
   // Also check not already picked in current submissions by another seat
   const allCurrentSubmissions = Object.values(state.submissions).flat()
-  if (allCurrentSubmissions.includes(civId)) {
+  if (!state.duplicateFactions && allCurrentSubmissions.includes(civId)) {
     return { error: `Civ ${civId} was already picked in this step` }
   }
 
@@ -299,7 +301,9 @@ function processPick(
   ]
 
   // Remove from available immediately (picks are never blind)
-  const newAvailable = state.availableCivIds.filter(id => id !== civId)
+  const newAvailable = state.duplicateFactions
+    ? state.availableCivIds
+    : state.availableCivIds.filter(id => id !== civId)
 
   // Check if step is complete (all active seats have made all their picks)
   const activeSeats = getActiveSeats(step, state.seats.length)
@@ -352,7 +356,9 @@ function processTimeout(
         return { error: 'No pending picks to timeout' }
       }
 
-      const timedOutPool = state.dealtCivIds.filter(civId => state.availableCivIds.includes(civId))
+      const timedOutPool = state.duplicateFactions
+        ? state.dealtCivIds
+        : state.dealtCivIds.filter(civId => state.availableCivIds.includes(civId))
       if (timedOutPool.length === 0) {
         return { error: 'No dealt factions available for timeout pick' }
       }
@@ -370,7 +376,9 @@ function processTimeout(
         ...state,
         submissions: { ...state.submissions, [timedOutSeat]: [randomPick] },
         picks: [...state.picks, { civId: randomPick, seatIndex: timedOutSeat, stepIndex: state.currentStepIndex }],
-        availableCivIds: state.availableCivIds.filter(id => id !== randomPick),
+        availableCivIds: state.duplicateFactions
+          ? state.availableCivIds
+          : state.availableCivIds.filter(id => id !== randomPick),
         dealtCivIds: null,
       }
 

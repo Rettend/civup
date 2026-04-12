@@ -82,7 +82,7 @@ export function lobbyOpenEmbed(
   }
 
   if (isTeamMode(mode)) {
-    const teamSize = modeTeamSize(mode) ?? 1
+    const teamSize = modeTeamSize(mode, targetSize) ?? 1
     const totalTeams = Math.max(1, Math.floor(targetSize / teamSize))
     const fields = layoutTeamFields(Array.from({ length: totalTeams }, (_, teamIndex) => {
       const teamLines = Array.from({ length: teamSize }, (_, index) => {

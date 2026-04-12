@@ -17,7 +17,7 @@ export function buildSlottedPremadeGroups(
   slots: (string | null)[],
   queueEntries: QueueEntry[],
 ): SlottedPremadeGroup[] {
-  const teamSize = modeTeamSize(mode)
+  const teamSize = modeTeamSize(mode, slots.length)
   if (!teamSize) return []
 
   const slottedPlayerIds = slots.filter((playerId): playerId is string => playerId != null)
@@ -158,7 +158,7 @@ export function rebuildQueueEntriesFromPremadeEdgeSet(
   queueEntries: QueueEntry[],
   activeEdges: Set<number>,
 ): QueueEntry[] {
-  const teamSize = modeTeamSize(mode)
+  const teamSize = modeTeamSize(mode, slots.length)
   if (!teamSize) return queueEntries
 
   const queueOrderByPlayerId = new Map<string, number>()
@@ -230,7 +230,7 @@ export function compactSlottedPremadesForMode(
     return { slots }
   }
 
-  const teamSize = modeTeamSize(mode)
+  const teamSize = modeTeamSize(mode, targetSize)
   if (!teamSize) {
     return { error: 'Linked premades do not fit this mode.' }
   }
@@ -272,8 +272,8 @@ function buildCurrentTeamsForModeChange(
   const sourceSlots = options?.sourceSlots
   if (!sourceMode || !sourceSlots) return null
 
-  const targetTeamSize = modeTeamSize(mode)
-  if (!targetTeamSize || !modeTeamSize(sourceMode)) return null
+  const targetTeamSize = modeTeamSize(mode, targetSize)
+  if (!targetTeamSize || !modeTeamSize(sourceMode, sourceSlots.length)) return null
 
   const sourceTeamCount = modeTeamCount(sourceMode, sourceSlots.length)
   if (sourceTeamCount !== modeTeamCount(mode, targetSize)) return null
@@ -298,7 +298,7 @@ function buildCurrentTeamsForModeChange(
 }
 
 function buildContiguousSegments(mode: GameMode, slotCount: number, size: number): number[][] {
-  const teamSize = modeTeamSize(mode)
+  const teamSize = modeTeamSize(mode, slotCount)
   if (!teamSize || size <= 0 || size > teamSize) return []
   const totalTeams = modeTeamCount(mode, slotCount)
 

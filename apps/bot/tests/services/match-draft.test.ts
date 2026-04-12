@@ -4,6 +4,7 @@ import { createDraft, default2v2, isDraftError, processDraftInput, swapSeatPicks
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { activateDraftMatch, createDraftMatch } from '../../src/services/match/index.ts'
+import { splitValuesForD1InsertLimit } from '../../src/services/match/draft.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
 
@@ -119,6 +120,41 @@ describe('draft match activation', () => {
       sqlite.close()
     }
   })
+
+  test('splits 12 participant inserts to stay under the D1 variable limit', () => {
+    const chunks = splitValuesForD1InsertLimit(Array.from({ length: 12 }, (_value, index) => index), 9)
+
+    expect(chunks).toHaveLength(2)
+    expect(chunks[0]).toHaveLength(11)
+    expect(chunks[1]).toHaveLength(1)
+  })
+
+  test('creates a 6v6 draft match', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      const matchId = 'match-draft-6v6'
+      const seats = createBigTeamSeats(12)
+
+      await createDraftMatch(db, {
+        matchId,
+        mode: '6v6',
+        seats,
+      })
+
+      const storedParticipants = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, matchId))
+
+      expect(storedParticipants).toHaveLength(12)
+      expect(storedParticipants.filter(participant => participant.team === 0)).toHaveLength(6)
+      expect(storedParticipants.filter(participant => participant.team === 1)).toHaveLength(6)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
 })
 
 function create2v2Seats(): DraftSeat[] {
@@ -128,6 +164,21 @@ function create2v2Seats(): DraftSeat[] {
     { playerId: 'p3', displayName: 'P3', team: 0 },
     { playerId: 'p4', displayName: 'P4', team: 1 },
   ]
+}
+
+function createBigTeamSeats(playerCount: 10 | 12): DraftSeat[] {
+  const playersPerTeam = playerCount / 2
+  const seats: DraftSeat[] = []
+
+  for (let index = 0; index < playerCount; index++) {
+    seats.push({
+      playerId: `p${index + 1}`,
+      displayName: `P${index + 1}`,
+      team: index < playersPerTeam ? 0 : 1,
+    })
+  }
+
+  return seats
 }
 
 function createTestCivPool(): string[] {

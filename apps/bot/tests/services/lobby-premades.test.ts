@@ -223,7 +223,33 @@ describe('lobby premade helpers', () => {
     expect(compacted.slots).toEqual(['p1', 'p2', 'p3', null, 'p4', 'p5', 'p6', null])
   })
 
-  test('compactSlottedPremadesForMode rejects mode changes that would drop players', () => {
+  test('compactSlottedPremadesForMode preserves team split when expanding to 5v5', () => {
+    const compacted = compactSlottedPremadesForMode(
+      '5v5',
+      ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8'],
+      [
+        entry('p1'),
+        entry('p2'),
+        entry('p3'),
+        entry('p4'),
+        entry('p5'),
+        entry('p6'),
+        entry('p7'),
+        entry('p8'),
+      ],
+      {
+        sourceMode: '4v4',
+        sourceSlots: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8'],
+      },
+    )
+
+    expect('error' in compacted).toBe(false)
+    if ('error' in compacted) return
+
+    expect(compacted.slots).toEqual(['p1', 'p2', 'p3', 'p4', null, 'p5', 'p6', 'p7', 'p8', null])
+  })
+
+  test('compactSlottedPremadesForMode packs six players into 2v2v2', () => {
     const compacted = compactSlottedPremadesForMode(
       '2v2',
       ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'],
@@ -237,10 +263,10 @@ describe('lobby premade helpers', () => {
       ],
     )
 
-    expect('error' in compacted).toBe(true)
-    if ('error' in compacted) {
-      expect(compacted.error).toBe('2v2 only supports 4 players.')
-    }
+    expect('error' in compacted).toBe(false)
+    if ('error' in compacted) return
+
+    expect(compacted.slots).toEqual(['p1', 'p2', 'p3', 'p4', 'p5', 'p6', null, null])
   })
 })
 

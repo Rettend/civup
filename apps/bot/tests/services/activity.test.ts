@@ -288,4 +288,31 @@ describe('draft room creation', () => {
     expect(postedConfig?.randomDraft).toBe(false)
     expect(result.formatId).toBe('default-1v1')
   })
+
+  test('forces duplicate factions for Red Death 6v6 rooms', async () => {
+    let postedConfig: { formatId?: unknown, duplicateFactions?: unknown } | null = null
+    globalThis.fetch = (async (_input, init) => {
+      postedConfig = JSON.parse(String(init?.body)) as { formatId?: unknown, duplicateFactions?: unknown }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const entries: QueueEntry[] = Array.from({ length: 12 }, (_, index) => ({
+      playerId: `p${index + 1}`,
+      displayName: `P${index + 1}`,
+      joinedAt: index,
+    }))
+
+    const result = await createDraftRoom('6v6', entries, {
+      hostId: 'p1',
+      redDeath: true,
+      duplicateFactions: false,
+    })
+
+    expect(postedConfig?.formatId).toBe('red-death-6v6')
+    expect(postedConfig?.duplicateFactions).toBe(true)
+    expect(result.formatId).toBe('red-death-6v6')
+  })
 })

@@ -31,6 +31,10 @@ import {
   sanitizeDraftPreviews,
 } from './draft-previews.ts'
 import {
+  buildRandomDraftResult,
+  pickRandomDistinct,
+} from './random-draft.ts'
+import {
   canOpenSwapWindowForState,
   countConnectedDraftParticipants,
   getNextSwapLifecycleAlarmAt,
@@ -106,6 +110,7 @@ export class Main extends Server<PartyEnv> {
 
     const baseState = createDraft(config.matchId, format, config.seats, config.civPool, {
       dealOptionsSize: config.dealOptionsSize,
+      duplicateFactions: config.duplicateFactions,
     })
     const state = withWaitingTimerConfig(format, baseState, config.timerConfig)
 
@@ -884,7 +889,6 @@ export class Main extends Server<PartyEnv> {
 
   private async finalizeCompletedDraft(state: DraftState) {
     if (!(await this.isSwapWindowOpen())) return
-
     await this.ctx.storage.deleteAlarm()
     await this.ctx.storage.put('alarmStepIndex', -1)
     await this.ctx.storage.put('timerEndsAt', null)
@@ -897,7 +901,6 @@ export class Main extends Server<PartyEnv> {
 
     const config = await this.ctx.storage.get<RoomConfig>('config')
     await this.clearSwapWindowState()
-
     this.closeAllConnections('Draft closed')
 
     if (!config) return
@@ -1128,18 +1131,6 @@ function isSeatInStep(step: DraftState['steps'][number], seatIndex: number, tota
   return step.seats.includes(seatIndex)
 }
 
-function pickRandomDistinct<T>(items: T[], count: number): T[] {
-  const pool = [...items]
-  const picks: T[] = []
-  const target = Math.max(0, Math.min(count, pool.length))
-  for (let i = 0; i < target; i++) {
-    const index = Math.floor(Math.random() * pool.length)
-    const [next] = pool.splice(index, 1)
-    if (next != null) picks.push(next)
-  }
-  return picks
-}
-
 function normalizeDealOptionsSize(value: number | null | undefined): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 2
   return Math.max(1, Math.round(value))
@@ -1167,32 +1158,6 @@ function seatCanSeeDealtOptions(state: DraftState, seatIndex: number): boolean {
   const viewerTeam = state.seats[seatIndex]?.team
   if (activeTeam == null || viewerTeam == null) return false
   return activeTeam === viewerTeam
-}
-
-function buildRandomDraftResult(state: DraftState): { state: DraftState, events: DraftEvent[] } {
-  const shuffledIds = pickRandomDistinct(state.availableCivIds, state.availableCivIds.length)
-  const picks = state.seats.map((_, seatIndex) => ({
-    civId: shuffledIds[seatIndex]!,
-    seatIndex,
-    stepIndex: seatIndex,
-  }))
-
-  return {
-    state: {
-      ...state,
-      currentStepIndex: state.steps.length,
-      submissions: {},
-      picks,
-      availableCivIds: state.availableCivIds.filter(civId => !picks.some(pick => pick.civId === civId)),
-      dealtCivIds: null,
-      status: 'complete',
-      cancelReason: null,
-    },
-    events: [
-      { type: 'DRAFT_STARTED' },
-      { type: 'DRAFT_COMPLETE' },
-    ],
-  }
 }
 
 function json(data: unknown, status = 200): Response {

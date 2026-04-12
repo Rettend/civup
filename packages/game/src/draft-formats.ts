@@ -2,6 +2,8 @@ import type { DraftFormat, DraftSeat, DraftStep, GameMode } from './types.ts'
 
 const FULL_ROSTER_3V3_PICK_ORDER = [0, 1, 3, 2, 4, 5] as const
 const FULL_ROSTER_4V4_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7] as const
+const FULL_ROSTER_5V5_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7, 8, 9] as const
+const FULL_ROSTER_6V6_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7, 9, 8, 10, 11] as const
 const TEAM_BAN_STEP: DraftStep = { action: 'ban', seats: [0, 1], count: 3, timer: 120 }
 const FFA_BAN_STEP: DraftStep = { action: 'ban', seats: 'all', count: 2, timer: 120 }
 
@@ -33,7 +35,7 @@ function createTwoVTwoPickOrder(seatCount: number): number[] {
 function createTeamFormat(config: {
   id: string
   name: string
-  gameMode: Extract<GameMode, '2v2' | '3v3' | '4v4'>
+  gameMode: Extract<GameMode, '2v2' | '3v3' | '4v4' | '5v5' | '6v6'>
   getPickOrder: (seatCount: number) => readonly number[]
   getBanStep?: (seatCount: number) => DraftStep
 }): DraftFormat {
@@ -115,6 +117,36 @@ export const default4v4 = createTeamFormat({
   gameMode: '4v4',
   getPickOrder() {
     return FULL_ROSTER_4V4_PICK_ORDER
+  },
+})
+
+/**
+ * 5v5 Format:
+ * - 3 blind bans per team (simultaneous)
+ * - Captains submit bans (seat 0 = Team A captain, seat 1 = Team B captain)
+ * - Pick order: 1221211212
+ */
+export const default5v5 = createTeamFormat({
+  id: 'default-5v5',
+  name: '5v5',
+  gameMode: '5v5',
+  getPickOrder() {
+    return FULL_ROSTER_5V5_PICK_ORDER
+  },
+})
+
+/**
+ * 6v6 Format:
+ * - 3 blind bans per team (simultaneous)
+ * - Captains submit bans (seat 0 = Team A captain, seat 1 = Team B captain)
+ * - Pick order: 122121122112
+ */
+export const default6v6 = createTeamFormat({
+  id: 'default-6v6',
+  name: '6v6',
+  gameMode: '6v6',
+  getPickOrder() {
+    return FULL_ROSTER_6V6_PICK_ORDER
   },
 })
 
@@ -212,6 +244,24 @@ export const redDeath4v4 = createRedDeathFormat({
   },
 })
 
+export const redDeath5v5 = createRedDeathFormat({
+  id: 'red-death-5v5',
+  name: 'Red Death 5v5',
+  gameMode: '5v5',
+  getPickOrder() {
+    return FULL_ROSTER_5V5_PICK_ORDER
+  },
+})
+
+export const redDeath6v6 = createRedDeathFormat({
+  id: 'red-death-6v6',
+  name: 'Red Death 6v6',
+  gameMode: '6v6',
+  getPickOrder() {
+    return FULL_ROSTER_6V6_PICK_ORDER
+  },
+})
+
 export const redDeathFfa = createRedDeathFormat({
   id: 'red-death-ffa',
   name: 'Red Death FFA',
@@ -231,11 +281,15 @@ export const draftFormats: DraftFormat[] = [
   default2v2,
   default3v3,
   default4v4,
+  default5v5,
+  default6v6,
   redDeathFfa,
   redDeath1v1,
   redDeath2v2,
   redDeath3v3,
   redDeath4v4,
+  redDeath5v5,
+  redDeath6v6,
 ]
 
 /** Map of format ID to format */

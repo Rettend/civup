@@ -25,6 +25,7 @@ export function MiniView() {
 
   const modeLabel = () => formatModeLabel(inferGameMode(state()?.formatId), '', {
     redDeath: isRedDeathDraft(),
+    compactRedDeath: true,
     targetSize: state()?.seats.length,
   })
   const timerLabel = () => {
