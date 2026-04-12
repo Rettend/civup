@@ -37,6 +37,7 @@ interface TeamParticipantRow {
   gameMode: string
   draftData: string | null
   completedAt: number | null
+  isOld: boolean
 }
 
 interface TeamMatchGroup {
@@ -108,6 +109,7 @@ export async function teamCardEmbed(
       gameMode: matches.gameMode,
       draftData: matches.draftData,
       completedAt: matches.completedAt,
+      isOld: matches.isOld,
     })
     .from(matchParticipants)
     .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
@@ -301,8 +303,8 @@ function formatRecentTeamMatchLine(match: TeamParticipantRow, includePlacement: 
   const placement = includePlacement ? formatPlacementCode(match.placement) : formatBlankPlacementCode()
   const rating = formatRecentRatingChange(match)
   const modeLabel = formatGameModeLabel(match.gameMode, match.draftData)
-  const leader = formatLeaderName(match.civId)
-  return `${placement} ${rating} - ${modeLabel} ${leader}`
+  const leader = formatRecentLeaderLabel(match.civId, match.isOld)
+  return leader ? `${placement} ${rating} - ${modeLabel} ${leader}` : `${placement} ${rating} - ${modeLabel}`
 }
 
 function formatPlacementCode(placement: number | null): string {
@@ -355,4 +357,9 @@ function formatLeaderName(civId: string | null): string {
   catch {
     return civId
   }
+}
+
+function formatRecentLeaderLabel(civId: string | null, isOld: boolean): string | null {
+  if (!civId) return isOld ? null : formatLeaderName(civId)
+  return formatLeaderName(civId)
 }

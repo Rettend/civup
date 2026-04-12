@@ -102,6 +102,7 @@ export async function playerCardEmbed(
       ratingAfterSigma: matchParticipants.ratingAfterSigma,
       gameMode: matches.gameMode,
       draftData: matches.draftData,
+      isOld: matches.isOld,
     })
     .from(matchParticipants)
     .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
@@ -210,12 +211,13 @@ function formatRecentMatchLine(match: {
   ratingAfterSigma: number | null
   gameMode: string
   draftData: string | null
+  isOld: boolean
 }): string {
   const placement = formatPlacementCode(match.placement)
   const rating = formatRecentRatingChange(match)
   const modeLabel = formatGameModeLabel(match.gameMode, match.draftData)
-  const leader = formatLeaderName(match.civId)
-  return `${placement} ${rating} - ${modeLabel} ${leader}`
+  const leader = formatRecentLeaderLabel(match.civId, match.isOld)
+  return leader ? `${placement} ${rating} - ${modeLabel} ${leader}` : `${placement} ${rating} - ${modeLabel}`
 }
 
 function formatPlacementCode(placement: number | null): string {
@@ -264,4 +266,9 @@ function formatLeaderName(civId: string | null): string {
   catch {
     return civId
   }
+}
+
+function formatRecentLeaderLabel(civId: string | null, isOld: boolean): string | null {
+  if (!civId) return isOld ? null : formatLeaderName(civId)
+  return formatLeaderName(civId)
 }

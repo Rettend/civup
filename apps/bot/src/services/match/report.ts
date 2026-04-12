@@ -1,16 +1,16 @@
 import type { Database } from '@civup/db'
 import type { FfaEntry, TeamInput } from '@civup/rating'
 import type { ParticipantRow, ReportInput, ReportResult } from './types.ts'
-import { matchBans, matches, matchParticipants, playerRatings, players } from '@civup/db'
+import { matchBans, matches, matchParticipants, playerRatings, playerRatingSeeds, players } from '@civup/db'
 import { isTeamMode } from '@civup/game'
 import { calculateRatings, createRating } from '@civup/rating'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, gt } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
-import { buildRankByPlayer } from './ratings.ts'
+import { buildRankByPlayer, recalculateLeaderboardMode } from './ratings.ts'
 
 export async function reportMatch(
   db: Database,
@@ -167,125 +167,39 @@ async function finalizeReportedMatch(
   const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
   if (!gameContext) return { error: `Match **${match.id}** has unsupported game mode: ${match.gameMode}.` }
 
-  const gameMode = gameContext.mode
   const leaderboardMode = gameContext.leaderboardMode
   if (leaderboardMode == null) {
     return await finalizeReportedUnrankedMatch(db, kv, match, participantRows)
   }
+
   const leaderboardSnapshotBefore = await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode)
   const beforeRankByPlayer = buildRankByPlayer(leaderboardSnapshotBefore.rows, leaderboardMode)
-  const leaderboardSnapshotByPlayerId = new Map(
-    leaderboardSnapshotBefore.rows.map(row => [row.playerId, row]),
-  )
-  const placementByPlayerId = new Map(participantRows.map(participant => [participant.playerId, participant.placement]))
-  const playerRatingMap = new Map<string, { mu: number, sigma: number }>()
-
-  for (const participant of participantRows) {
-    const existing = leaderboardSnapshotByPlayerId.get(participant.playerId)
-
-    if (existing) {
-      playerRatingMap.set(participant.playerId, { mu: existing.mu, sigma: existing.sigma })
-    }
-    else {
-      const fresh = createRating(participant.playerId)
-      playerRatingMap.set(participant.playerId, { mu: fresh.mu, sigma: fresh.sigma })
-    }
-  }
-
-  let ratingUpdates
-
-  if (isTeamMode(gameMode) || gameMode === '1v1') {
-    const teams = new Map<number, { playerId: string, mu: number, sigma: number }[]>()
-    for (const participant of participantRows) {
-      const team = participant.team ?? 0
-      if (!teams.has(team)) teams.set(team, [])
-      const rating = playerRatingMap.get(participant.playerId)!
-      teams.get(team)!.push({ playerId: participant.playerId, mu: rating.mu, sigma: rating.sigma })
-    }
-
-    const teamEntries = [...teams.entries()].sort((a, b) => {
-      const aPlacement = participantRows.find(participant => participant.team === a[0])?.placement ?? 99
-      const bPlacement = participantRows.find(participant => participant.team === b[0])?.placement ?? 99
-      return aPlacement - bPlacement
-    })
-
-    const teamInputs: TeamInput[] = teamEntries.map(([, players]) => ({
-      players: players.map(player => ({ playerId: player.playerId, mu: player.mu, sigma: player.sigma })),
-    }))
-
-    ratingUpdates = calculateRatings({ type: 'team', teams: teamInputs })
-  }
-  else {
-    const ffaEntries: FfaEntry[] = participantRows.map((participant) => {
-      const rating = playerRatingMap.get(participant.playerId)!
-      return {
-        player: { playerId: participant.playerId, mu: rating.mu, sigma: rating.sigma },
-        placement: participant.placement!,
-      }
-    })
-
-    ratingUpdates = calculateRatings({ type: 'ffa', entries: ffaEntries })
-  }
+  const usesLiveSeedFade = await modeUsesLiveSeedFade(db, leaderboardMode)
 
   const now = Date.now()
 
-  for (const update of ratingUpdates) {
-    await db
-      .update(matchParticipants)
-      .set({
-        ratingBeforeMu: update.before.mu,
-        ratingBeforeSigma: update.before.sigma,
-        ratingAfterMu: update.after.mu,
-        ratingAfterSigma: update.after.sigma,
-      })
-      .where(
-        and(
-          eq(matchParticipants.matchId, matchId),
-          eq(matchParticipants.playerId, update.playerId),
-        ),
-      )
-
-    const existing = leaderboardSnapshotByPlayerId.get(update.playerId)
-    const isWin = placementByPlayerId.get(update.playerId) === 1
-
+  for (const participant of participantRows) {
     await db
       .insert(players)
       .values({
-        id: update.playerId,
-        displayName: update.playerId,
+        id: participant.playerId,
+        displayName: participant.playerId,
         createdAt: now,
       })
       .onConflictDoNothing()
+  }
 
-    if (existing) {
-      await db
-        .update(playerRatings)
-        .set({
-          mu: update.after.mu,
-          sigma: update.after.sigma,
-          gamesPlayed: existing.gamesPlayed + 1,
-          wins: existing.wins + (isWin ? 1 : 0),
-          lastPlayedAt: now,
-        })
-        .where(
-          and(
-            eq(playerRatings.playerId, update.playerId),
-            eq(playerRatings.mode, leaderboardMode),
-          ),
-        )
-    }
-    else {
-      await db.insert(playerRatings).values({
-        playerId: update.playerId,
-        mode: leaderboardMode,
-        mu: update.after.mu,
-        sigma: update.after.sigma,
-        gamesPlayed: 1,
-        wins: isWin ? 1 : 0,
-        lastPlayedAt: now,
-      })
-    }
-
+  if (!usesLiveSeedFade) {
+    const applied = await applyIncrementalRatedReport(
+      db,
+      matchId,
+      gameContext.mode,
+      leaderboardMode,
+      participantRows,
+      new Map(leaderboardSnapshotBefore.rows.map(row => [row.playerId, row])),
+      now,
+    )
+    if (applied) return { error: applied }
   }
 
   await db
@@ -309,6 +223,14 @@ async function finalizeReportedMatch(
     .where(eq(matches.id, matchId))
     .limit(1)
 
+  if (usesLiveSeedFade) {
+    const recalculated = await recalculateLeaderboardMode(db, leaderboardMode, {
+      fromMatchId: matchId,
+      includeFromMatch: true,
+    })
+    if ('error' in recalculated) return recalculated
+  }
+
   const leaderboardSnapshotAfter = await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode, now)
   if (leaderboardMode === 'duo' || leaderboardMode === 'squad') {
     await clearTeamLeaderboardModeSnapshots(kv, leaderboardMode)
@@ -329,6 +251,125 @@ async function finalizeReportedMatch(
   }))
 
   return { match: updatedMatch!, participants: participantsWithLeaderboardRanks }
+}
+
+async function applyIncrementalRatedReport(
+  db: Database,
+  matchId: string,
+  gameMode: string,
+  leaderboardMode: string,
+  participantRows: ParticipantRow[],
+  leaderboardSnapshotByPlayerId: Map<string, { playerId: string, mu: number, sigma: number, gamesPlayed: number, wins?: number }>,
+  now: number,
+): Promise<string | null> {
+  const placementByPlayerId = new Map(participantRows.map(participant => [participant.playerId, participant.placement]))
+  const playerRatingMap = new Map<string, { mu: number, sigma: number }>()
+
+  for (const participant of participantRows) {
+    const existing = leaderboardSnapshotByPlayerId.get(participant.playerId)
+    if (existing) playerRatingMap.set(participant.playerId, { mu: existing.mu, sigma: existing.sigma })
+    else {
+      const fresh = createRating(participant.playerId)
+      playerRatingMap.set(participant.playerId, { mu: fresh.mu, sigma: fresh.sigma })
+    }
+  }
+
+  let ratingUpdates
+
+  if (isTeamMode(gameMode as Parameters<typeof isTeamMode>[0]) || gameMode === '1v1') {
+    const teams = new Map<number, { playerId: string, mu: number, sigma: number }[]>()
+    for (const participant of participantRows) {
+      const team = participant.team ?? 0
+      if (!teams.has(team)) teams.set(team, [])
+      const rating = playerRatingMap.get(participant.playerId)
+      if (!rating) return `Missing rating state for **${participant.playerId}**.`
+      teams.get(team)?.push({ playerId: participant.playerId, mu: rating.mu, sigma: rating.sigma })
+    }
+
+    const teamEntries = [...teams.entries()].sort((a, b) => {
+      const aPlacement = participantRows.find(participant => participant.team === a[0])?.placement ?? 99
+      const bPlacement = participantRows.find(participant => participant.team === b[0])?.placement ?? 99
+      return aPlacement - bPlacement
+    })
+
+    const teamInputs: TeamInput[] = teamEntries.map(([, players]) => ({
+      players: players.map(player => ({ playerId: player.playerId, mu: player.mu, sigma: player.sigma })),
+    }))
+
+    ratingUpdates = calculateRatings({ type: 'team', teams: teamInputs })
+  }
+  else {
+    const ffaEntries: FfaEntry[] = participantRows.map((participant) => {
+      const rating = playerRatingMap.get(participant.playerId)
+      if (!rating) throw new Error(`Missing rating state for ${participant.playerId}`)
+      return {
+        player: { playerId: participant.playerId, mu: rating.mu, sigma: rating.sigma },
+        placement: participant.placement!,
+      }
+    })
+
+    ratingUpdates = calculateRatings({ type: 'ffa', entries: ffaEntries })
+  }
+
+  for (const update of ratingUpdates) {
+    await db
+      .update(matchParticipants)
+      .set({
+        ratingBeforeMu: update.before.mu,
+        ratingBeforeSigma: update.before.sigma,
+        ratingAfterMu: update.after.mu,
+        ratingAfterSigma: update.after.sigma,
+      })
+      .where(and(
+        eq(matchParticipants.matchId, matchId),
+        eq(matchParticipants.playerId, update.playerId),
+      ))
+
+    const existing = leaderboardSnapshotByPlayerId.get(update.playerId)
+    const isWin = placementByPlayerId.get(update.playerId) === 1
+
+    if (existing) {
+      await db
+        .update(playerRatings)
+        .set({
+          mu: update.after.mu,
+          sigma: update.after.sigma,
+          gamesPlayed: existing.gamesPlayed + 1,
+          wins: (existing.wins ?? 0) + (isWin ? 1 : 0),
+          lastPlayedAt: now,
+        })
+        .where(and(
+          eq(playerRatings.playerId, update.playerId),
+          eq(playerRatings.mode, leaderboardMode),
+        ))
+    }
+    else {
+      await db.insert(playerRatings).values({
+        playerId: update.playerId,
+        mode: leaderboardMode,
+        mu: update.after.mu,
+        sigma: update.after.sigma,
+        gamesPlayed: 1,
+        wins: isWin ? 1 : 0,
+        lastPlayedAt: now,
+      })
+    }
+  }
+
+  return null
+}
+
+async function modeUsesLiveSeedFade(db: Database, leaderboardMode: string): Promise<boolean> {
+  const [row] = await db
+    .select({ playerId: playerRatingSeeds.playerId })
+    .from(playerRatingSeeds)
+    .where(and(
+      eq(playerRatingSeeds.mode, leaderboardMode),
+      gt(playerRatingSeeds.fadeGamesRemaining, 0),
+    ))
+    .limit(1)
+
+  return row != null
 }
 
 async function finalizeReportedUnrankedMatch(

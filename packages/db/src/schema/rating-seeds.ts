@@ -14,6 +14,8 @@ export const playerRatingSeeds = sqliteTable('player_rating_seeds', {
   sigma: real('sigma').notNull(),
   /** Allow ranked-role eligibility below the normal minimum games threshold. */
   eligibleForRanked: integer('eligible_for_ranked', { mode: 'boolean' }).notNull().default(false),
+  /** Remaining new-bot games until this seed fully fades away. Null preserves the old permanent-seed behavior. */
+  fadeGamesRemaining: integer('fade_games_remaining', { mode: 'number' }),
   /** Human-readable source */
   source: text('source'),
   /** Optional operator note kept with the seed. */

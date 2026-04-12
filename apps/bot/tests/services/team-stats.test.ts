@@ -236,6 +236,48 @@ describe('team stats embed', () => {
 
     sqlite.close()
   })
+
+  test('renders old duo matches without placeholder leaders', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedConfiguredRoles(kv)
+
+    for (const [playerId, displayName] of [
+      [HERO_ID, 'Hero'],
+      [MATE_ID, 'Mate'],
+      [OPP1_ID, 'Opp 1'],
+      [OPP2_ID, 'Opp 2'],
+    ] as const) {
+      await seedPlayerIdentity(db, playerId, displayName)
+    }
+
+    await seedRating(db, { playerId: HERO_ID, mode: 'duo', mu: 30, sigma: 6, gamesPlayed: 1, wins: 1 })
+    await seedRating(db, { playerId: MATE_ID, mode: 'duo', mu: 29, sigma: 6, gamesPlayed: 1, wins: 1 })
+
+    await seedCompletedMatch(db, {
+      matchId: 'old-duo-1',
+      gameMode: '2v2',
+      completedAt: NOW - 500,
+      isOld: true,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: MATE_ID, team: 0, placement: 1, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP1_ID, team: 1, placement: 2, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP2_ID, team: 1, placement: 2, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ],
+    })
+
+    const embed = (await teamCardEmbed(db, kv, 'guild-1', [HERO_ID, MATE_ID])).toJSON()
+    const duoField = embed.fields?.find(field => field.name === 'Duo')
+    const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
+
+    expect(duoField?.value).toContain('Games: 1')
+    expect(recentMatchesField?.value).toContain('#1')
+    expect(recentMatchesField?.value).not.toContain('[empty]')
+    expect(recentMatchesField?.value).toContain('2v2')
+
+    sqlite.close()
+  })
 })
 
 async function seedConfiguredRoles(kv: KVNamespace): Promise<void> {
@@ -290,6 +332,7 @@ async function seedCompletedMatch(
     matchId: string
     gameMode: '2v2' | '3v3' | '4v4'
     completedAt: number
+    isOld?: boolean
     participants: Array<{
       playerId: string
       team: number
@@ -306,6 +349,7 @@ async function seedCompletedMatch(
     id: input.matchId,
     gameMode: input.gameMode,
     status: 'completed',
+    isOld: input.isOld ?? false,
     seasonId: null,
     draftData: null,
     createdAt: input.completedAt - 10_000,
