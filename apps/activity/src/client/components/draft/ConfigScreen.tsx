@@ -1009,7 +1009,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         return
       }
 
-      showInfoMessage(nextTargetSize === 12 ? 'Expanded the lobby to 6v6.' : 'Shrank the lobby back to 5v5.')
+      showInfoMessage(nextTargetSize === 12 ? 'Changed the lobby to 6v6.' : 'Changed the lobby to 5v5.')
     }
     finally {
       setLobbyActionPending(false)
@@ -1832,10 +1832,12 @@ export function ConfigScreen(props: ConfigScreenProps) {
                             />
                           </div>
                         </div>
+                        </Show>
 
-                        <TextInput
-                          type="number"
-                          label={poolInputLabel()}
+                        <Show when={isLobbyMode()}>
+                          <TextInput
+                            type="number"
+                            label={poolInputLabel()}
                           min={isRedDeathLobbyMode() ? '2' : String(leaderPoolMinimumValue())}
                           max={isRedDeathLobbyMode() ? '10' : String(MAX_LEADER_POOL_INPUT)}
                           step="1"
@@ -1851,10 +1853,9 @@ export function ConfigScreen(props: ConfigScreenProps) {
                             clearConfigMessage()
                             setLeaderPoolInput(event.currentTarget.value)
                           }}
-                          onBlur={() => void saveConfigOnBlur()}
-                        />
-
-                      </Show>
+                            onBlur={() => void saveConfigOnBlur()}
+                          />
+                        </Show>
 
                       <Show when={!isRedDeathLobbyMode()}>
                         <TextInput
