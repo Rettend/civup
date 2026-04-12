@@ -13,6 +13,7 @@ import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, Switch, TextInput } from '~/client/components/ui'
 import {
   applyOptimisticLobbyAction,
+  buildLobbyBalanceSummary,
   buildRankDotStyle,
   findRankedRoleOptionByTier,
   formatLeaderPoolValue,
@@ -247,6 +248,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     currentDisplayName(),
     currentAvatarUrl(),
   )
+  const lobbyBalance = () => buildLobbyBalanceSummary(currentLobby())
   const pendingSelfJoinSlot = () => resolvePendingJoinGhostSlot(
     currentLobby(),
     userId(),
@@ -1576,6 +1578,53 @@ export function ConfigScreen(props: ConfigScreenProps) {
             >
               <div class="p-4 rounded-lg bg-bg-subtle flex flex-col min-h-0 overflow-hidden lg:h-full">
                 <div class="text-xs text-fg-subtle tracking-widest font-bold mb-3 uppercase">Players</div>
+
+                <Show when={lobbyBalance()}>
+                  {(balance) => (
+                    <div
+                      class="rounded-lg border border-border-subtle bg-bg-muted/30 px-3 py-2.5 mb-3 flex flex-col gap-2"
+                      title="Expected winrate uses OpenSkill mu/sigma for the current team layout. +/- shows a one-sigma swing estimate."
+                    >
+                      <div class="flex flex-wrap gap-2 items-center justify-between">
+                        <span class="text-[11px] text-fg-subtle tracking-wider font-semibold uppercase">Expected winrate</span>
+                        <Show when={balance().lowConfidence}>
+                          <span class="text-[11px] text-[#fbbf24] flex gap-1.5 items-center">
+                            <span class="i-ph-warning-circle-bold text-sm shrink-0" />
+                            Low confidence
+                          </span>
+                        </Show>
+                      </div>
+
+                      <div class="flex flex-wrap gap-2">
+                        <For each={balance().teams}>
+                          {team => (
+                            <div class="rounded-md border border-border-subtle bg-bg/40 px-2.5 py-1.5 flex flex-col gap-0.5 min-w-[86px]">
+                              <span class="text-[11px] text-accent tracking-wider font-semibold uppercase">
+                                Team
+                                {' '}
+                                {String.fromCharCode(65 + team.team)}
+                              </span>
+                              <span class="text-sm text-fg font-semibold">{Math.round(team.probability * 100)}%</span>
+                              <Show when={team.uncertainty >= 0.01}>
+                                <span class="text-[11px] text-fg-subtle">+/- {Math.round(team.uncertainty * 100)}%</span>
+                              </Show>
+                            </div>
+                          )}
+                        </For>
+                      </div>
+
+                      <Show when={balance().lowConfidence}>
+                        <span class="text-[11px] text-fg-subtle leading-relaxed">
+                          {balance().lowConfidencePlayerCount}
+                          {' '}
+                          player{balance().lowConfidencePlayerCount === 1 ? '' : 's'} under 10 games.
+                          {' '}
+                          Avg sigma {balance().averageSigma.toFixed(1)}.
+                        </span>
+                      </Show>
+                    </div>
+                  )}
+                </Show>
 
                 <div class="pr-1 flex-1 min-h-0 overflow-y-auto">
                   <Show

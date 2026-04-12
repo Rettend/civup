@@ -1,8 +1,10 @@
 import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
+import type { LobbySnapshot } from '../../services/lobby/live-snapshot.ts'
 import type { getRankedRoleConfig } from '../../services/ranked/roles.ts'
-import { canStartWithPlayerCount, MAX_LEADER_POOL_SIZE, playerCountOptions, startPlayerCountOptions } from '@civup/game'
+import { canStartWithPlayerCount, MAX_LEADER_POOL_SIZE, playerCountOptions, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import { MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
+import { getStoredLeaderboardModeSnapshot } from '../../services/leaderboard/snapshot.ts'
 import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
 import { buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
 import { getQueueState } from '../../services/queue/index.ts'
@@ -36,7 +38,49 @@ export async function buildOpenLobbySnapshotFromParts(
   queueEntries: Awaited<ReturnType<typeof getQueueState>>['entries'],
   slots: (string | null)[],
 ) {
-  return buildLobbyLiveSnapshotFromParts(kv, mode, lobby, queueEntries, slots)
+  const snapshot = await buildLobbyLiveSnapshotFromParts(kv, mode, lobby, queueEntries, slots)
+  return attachLobbyBalanceRatings(kv, mode, snapshot)
+}
+
+async function attachLobbyBalanceRatings(
+  kv: KVNamespace,
+  mode: GameMode,
+  snapshot: LobbySnapshot,
+): Promise<LobbySnapshot> {
+  const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath: snapshot.draftConfig.redDeath })
+  if (!leaderboardMode) return snapshot
+
+  const leaderboardSnapshot = await getStoredLeaderboardModeSnapshot(kv, leaderboardMode)
+  if (!leaderboardSnapshot) return snapshot
+
+  const balanceRatingByPlayerId = new Map(leaderboardSnapshot.rows.map(row => [
+    row.playerId,
+    {
+      mu: row.mu,
+      sigma: row.sigma,
+      gamesPlayed: row.gamesPlayed,
+    },
+  ]))
+
+  let hasAttachedRatings = false
+  const entries = snapshot.entries.map((entry) => {
+    if (!entry) return null
+
+    const balanceRating = balanceRatingByPlayerId.get(entry.playerId)
+    if (!balanceRating) return entry
+
+    hasAttachedRatings = true
+    return {
+      ...entry,
+      balanceRating,
+    }
+  })
+
+  if (!hasAttachedRatings) return snapshot
+  return {
+    ...snapshot,
+    entries,
+  }
 }
 
 export function lobbyMinPlayerCount(mode: GameMode, targetSize: number, redDeath = false): number {

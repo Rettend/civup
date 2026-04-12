@@ -25,6 +25,11 @@ export interface LobbySnapshot {
     displayName: string
     avatarUrl?: string | null
     partyIds?: string[]
+    balanceRating?: {
+      mu: number
+      sigma: number
+      gamesPlayed: number
+    }
   } | null)[]
   minPlayers: number
   targetSize: number

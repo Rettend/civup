@@ -1,6 +1,8 @@
 import type { CompetitiveTier, DraftState, GameMode } from '@civup/game'
+import type { PlayerRating } from '@civup/rating'
 import type { LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
-import { getDefaultLeaderPoolSize, getMinimumLeaderPoolSize, MAX_LEADER_POOL_SIZE } from '@civup/game'
+import { getDefaultLeaderPoolSize, getMinimumLeaderPoolSize, inferGameMode, MAX_LEADER_POOL_SIZE, slotToTeamIndex, toBalanceLeaderboardMode } from '@civup/game'
+import { createRating, predictWinProbabilities, RANKED_ROLE_MIN_GAMES } from '@civup/rating'
 
 export const MAX_TIMER_MINUTES = 30
 export const MAX_LEADER_POOL_INPUT = MAX_LEADER_POOL_SIZE
@@ -34,6 +36,27 @@ export interface RankRoleSetDetail {
   boundLabel: string
   roleLabel: string
   roleColor: string | null
+}
+
+interface LobbyBalancePlayer {
+  playerId: string
+  mu: number
+  sigma: number
+  gamesPlayed: number
+}
+
+export interface LobbyBalanceTeamSummary {
+  team: number
+  playerCount: number
+  probability: number
+  uncertainty: number
+}
+
+export interface LobbyBalanceSummary {
+  teams: LobbyBalanceTeamSummary[]
+  lowConfidence: boolean
+  lowConfidencePlayerCount: number
+  averageSigma: number
 }
 
 export type OptimisticLobbyAction
@@ -79,6 +102,104 @@ export type PendingOptimisticLobbyAction
     kind: 'remove-player'
     playerId: string
   }
+
+export function buildLobbyBalanceSummary(lobby: LobbySnapshot | null): LobbyBalanceSummary | null {
+  if (!lobby) return null
+
+  const mode = inferGameMode(lobby.mode)
+  if (mode === 'ffa' || !toBalanceLeaderboardMode(mode, { redDeath: lobby.draftConfig.redDeath })) return null
+
+  const playersByTeam = new Map<number, LobbyBalancePlayer[]>()
+  for (let slot = 0; slot < lobby.entries.length; slot++) {
+    const entry = lobby.entries[slot]
+    if (!entry) continue
+
+    const team = slotToTeamIndex(mode, slot, lobby.targetSize)
+    if (team == null) continue
+
+    const fallback = createRating(entry.playerId)
+    const balanceRating = entry.balanceRating ?? {
+      mu: fallback.mu,
+      sigma: fallback.sigma,
+      gamesPlayed: 0,
+    }
+
+    const teamPlayers = playersByTeam.get(team) ?? []
+    teamPlayers.push({
+      playerId: entry.playerId,
+      mu: balanceRating.mu,
+      sigma: balanceRating.sigma,
+      gamesPlayed: balanceRating.gamesPlayed,
+    })
+    playersByTeam.set(team, teamPlayers)
+  }
+
+  const activeTeams = [...playersByTeam.entries()]
+    .filter(([, players]) => players.length > 0)
+    .sort((left, right) => left[0] - right[0])
+  if (activeTeams.length < 2) return null
+
+  const teamRatings = activeTeams.map(([, players]) => players.map(player => ({
+    playerId: player.playerId,
+    mu: player.mu,
+    sigma: player.sigma,
+  } satisfies PlayerRating)))
+  const probabilities = predictTeamProbabilities(teamRatings)
+  if (!probabilities) return null
+
+  const allPlayers = activeTeams.flatMap(([, players]) => players)
+  const lowConfidencePlayerCount = allPlayers.filter(player => player.gamesPlayed < RANKED_ROLE_MIN_GAMES).length
+  const averageSigma = allPlayers.reduce((total, player) => total + player.sigma, 0) / allPlayers.length
+
+  return {
+    teams: activeTeams.map(([team, players], index) => {
+      const probability = probabilities[index] ?? 0
+      return {
+        team,
+        playerCount: players.length,
+        probability,
+        uncertainty: estimateProbabilityUncertainty(teamRatings, index, probability),
+      }
+    }),
+    lowConfidence: lowConfidencePlayerCount > 0,
+    lowConfidencePlayerCount,
+    averageSigma,
+  }
+}
+
+function predictTeamProbabilities(teams: PlayerRating[][]): number[] | null {
+  try {
+    const probabilities = predictWinProbabilities(teams)
+    if (probabilities.length !== teams.length) return null
+    if (probabilities.some(probability => typeof probability !== 'number' || !Number.isFinite(probability))) return null
+    return probabilities.map(probability => Math.max(0, Math.min(1, probability)))
+  }
+  catch {
+    return null
+  }
+}
+
+// Estimate how much each side's probability can swing within one sigma.
+function estimateProbabilityUncertainty(teams: PlayerRating[][], focusTeam: number, baseProbability: number): number {
+  const optimistic = predictTeamProbabilities(adjustTeamRatings(teams, focusTeam, 1))
+  const pessimistic = predictTeamProbabilities(adjustTeamRatings(teams, focusTeam, -1))
+  if (!optimistic || !pessimistic) return 0
+
+  const optimisticProbability = optimistic[focusTeam] ?? baseProbability
+  const pessimisticProbability = pessimistic[focusTeam] ?? baseProbability
+  return Math.max(
+    Math.abs(baseProbability - optimisticProbability),
+    Math.abs(baseProbability - pessimisticProbability),
+  )
+}
+
+function adjustTeamRatings(teams: PlayerRating[][], focusTeam: number, direction: 1 | -1): PlayerRating[][] {
+  return teams.map((team, teamIndex) => team.map(player => ({
+    playerId: player.playerId,
+    mu: player.mu + ((teamIndex === focusTeam ? direction : -direction) * player.sigma),
+    sigma: player.sigma,
+  })))
+}
 
 export function resolveOptimisticLobbyPlacementAction(
   lobby: LobbySnapshot | null,
