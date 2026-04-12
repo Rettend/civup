@@ -1,6 +1,6 @@
 import type { DraftSeat } from '../src/types.ts'
 import { describe, expect, test } from 'bun:test'
-import { default1v1, default2v2, default3v3, default4v4, defaultBigTeam, defaultFfa, defaultFfaSimultaneous, formatDraftStepLabel, getDraftFormat, redDeath2v2, redDeath4v4, redDeathBigTeam } from '../src/draft-formats.ts'
+import { default1v1, default2v2, default3v3, default4v4, default5v5, default6v6, defaultFfa, defaultFfaSimultaneous, formatDraftStepLabel, getDraftFormat, redDeath2v2, redDeath4v4, redDeath5v5, redDeath6v6 } from '../src/draft-formats.ts'
 
 const duelSeats: DraftSeat[] = [
   { playerId: 'p1', displayName: 'Player 1', team: 0 },
@@ -27,7 +27,7 @@ const teamer4v4Seats: DraftSeat[] = [
   { playerId: 'b4', displayName: 'B4', team: 1 },
 ]
 
-const bigTeamSeats: DraftSeat[] = [
+const teamer5v5Seats: DraftSeat[] = [
   { playerId: 'a1', displayName: 'A1', team: 0 },
   { playerId: 'b1', displayName: 'B1', team: 1 },
   { playerId: 'a2', displayName: 'A2', team: 0 },
@@ -69,12 +69,12 @@ describe('draft formats', () => {
     expect(default4v4.getSteps(8).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7]])
   })
 
-  test('big-team 5v5 uses the expanded two-team pick order', () => {
-    expect(defaultBigTeam.getSteps(10).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7], [8], [9]])
+  test('5v5 uses the expanded two-team pick order', () => {
+    expect(default5v5.getSteps(10).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7], [8], [9]])
   })
 
-  test('big-team 6v6 uses the expanded 12-seat pick order', () => {
-    expect(defaultBigTeam.getSteps(12).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7], [9], [8], [10], [11]])
+  test('6v6 uses the expanded 12-seat pick order', () => {
+    expect(default6v6.getSteps(12).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7], [9], [8], [10], [11]])
   })
 
   test('FFA opens with two blind bans each', () => {
@@ -109,20 +109,20 @@ describe('draft formats', () => {
     expect(redDeath4v4.getSteps(8).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7]])
   })
 
-  test('Red Death Big Team keeps the 5v5 pick order without bans', () => {
-    expect(redDeathBigTeam.getSteps(10).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7], [8], [9]])
+  test('Red Death 5v5 keeps the 5v5 pick order without bans', () => {
+    expect(redDeath5v5.getSteps(10).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7], [8], [9]])
   })
 
-  test('Red Death Big Team keeps the 6v6 pick order without bans', () => {
-    expect(redDeathBigTeam.getSteps(12).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7], [9], [8], [10], [11]])
+  test('Red Death 6v6 keeps the 6v6 pick order without bans', () => {
+    expect(redDeath6v6.getSteps(12).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7], [9], [8], [10], [11]])
   })
 
   test('resolves the Red Death 2v2 format when requested', () => {
     expect(getDraftFormat('2v2', { redDeath: true })).toBe(redDeath2v2)
   })
 
-  test('resolves the Red Death Big Team format when requested', () => {
-    expect(getDraftFormat('big-team', { redDeath: true })).toBe(redDeathBigTeam)
+  test('resolves the Red Death 6v6 format when requested', () => {
+    expect(getDraftFormat('6v6', { redDeath: true })).toBe(redDeath6v6)
   })
 })
 
@@ -159,9 +159,9 @@ describe('formatDraftStepLabel', () => {
     ])
   })
 
-  test('labels big-team picks by team instead of seat index', () => {
-    const steps = defaultBigTeam.getSteps(10)
-    expect(steps.slice(1).map(step => formatDraftStepLabel(step, bigTeamSeats))).toEqual([
+  test('labels 5v5 picks by team instead of seat index', () => {
+    const steps = default5v5.getSteps(10)
+    expect(steps.slice(1).map(step => formatDraftStepLabel(step, teamer5v5Seats))).toEqual([
       'PICK T1',
       'PICK T2',
       'PICK T2',
