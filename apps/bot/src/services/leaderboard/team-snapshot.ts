@@ -8,7 +8,7 @@ import { getDisplaySeason } from '../season/index.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
 import { projectLineupDisplayRating } from './team-rating.ts'
 
-export type TeamLeaderboardBucket = 'duo' | 'squad-3v3' | 'squad-4v4'
+export type TeamLeaderboardBucket = 'duo' | 'squad-3v3' | 'squad-4v4' | 'squad-5v5' | 'squad-6v6'
 
 export interface TeamLeaderboardSnapshotRow {
   playerIds: string[]
@@ -32,7 +32,7 @@ interface StoredTeamLeaderboardSnapshot {
 interface TeamLeaderboardBucketContext {
   bucket: TeamLeaderboardBucket
   leaderboardMode: 'duo' | 'squad'
-  gameMode: '2v2' | '3v3' | '4v4'
+  gameMode: '2v2' | '3v3' | '4v4' | '5v5' | '6v6'
 }
 
 interface TeamLineupState {
@@ -51,7 +51,7 @@ interface TeamParticipantRow {
 
 const TEAM_LEADERBOARD_SNAPSHOT_KEY = 'leaderboard:team-snapshot'
 
-export const TEAM_LEADERBOARD_BUCKETS = ['duo', 'squad-3v3', 'squad-4v4'] as const satisfies readonly TeamLeaderboardBucket[]
+export const TEAM_LEADERBOARD_BUCKETS = ['duo', 'squad-3v3', 'squad-4v4', 'squad-5v5', 'squad-6v6'] as const satisfies readonly TeamLeaderboardBucket[]
 export const TEAM_LEADERBOARD_MIN_GAMES = 5
 
 const TEAM_LEADERBOARD_BUCKET_CONTEXTS: Record<TeamLeaderboardBucket, TeamLeaderboardBucketContext> = {
@@ -70,6 +70,16 @@ const TEAM_LEADERBOARD_BUCKET_CONTEXTS: Record<TeamLeaderboardBucket, TeamLeader
     leaderboardMode: 'squad',
     gameMode: '4v4',
   },
+  'squad-5v5': {
+    bucket: 'squad-5v5',
+    leaderboardMode: 'squad',
+    gameMode: '5v5',
+  },
+  'squad-6v6': {
+    bucket: 'squad-6v6',
+    leaderboardMode: 'squad',
+    gameMode: '6v6',
+  },
 }
 
 export function getTeamLeaderboardBucketContext(bucket: TeamLeaderboardBucket): TeamLeaderboardBucketContext {
@@ -82,7 +92,7 @@ export function teamLeaderboardSnapshotKey(): string {
 
 export function teamLeaderboardBucketsForMode(mode: LeaderboardMode): TeamLeaderboardBucket[] {
   if (mode === 'duo') return ['duo']
-  if (mode === 'squad') return ['squad-3v3', 'squad-4v4']
+  if (mode === 'squad') return ['squad-3v3', 'squad-4v4', 'squad-5v5', 'squad-6v6']
   return []
 }
 
@@ -398,7 +408,9 @@ function compareTeamLeaderboardRows(left: TeamLeaderboardSnapshotRow, right: Tea
 function expectedPlayerCount(gameMode: TeamLeaderboardBucketContext['gameMode']): number {
   if (gameMode === '2v2') return 2
   if (gameMode === '3v3') return 3
-  return 4
+  if (gameMode === '4v4') return 4
+  if (gameMode === '5v5') return 5
+  return 6
 }
 
 function isTeamLeaderboardBucket(value: unknown): value is TeamLeaderboardBucket {

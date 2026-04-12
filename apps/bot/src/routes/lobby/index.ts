@@ -839,7 +839,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
     if (!isTeamMode(mode)) {
-      return c.json({ error: 'Premade links are only available in 2v2, 3v3, and 4v4.' }, 400)
+      return c.json({ error: 'Premade links are only available in team modes.' }, 400)
     }
 
     let body: unknown

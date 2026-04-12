@@ -3,7 +3,7 @@
 /** Individual game modes */
 export type GameMode = 'ffa' | '1v1' | '2v2' | '3v3' | '4v4' | '5v5' | '6v6'
 
-/** Leaderboard tracks: duel (1v1), duo (2v2), squad (3v3 + 4v4), ffa, red death */
+/** Leaderboard tracks: duel (1v1), duo (2v2), squad (3v3 + 4v4 + 5v5 + 6v6), ffa, red death */
 export type LeaderboardMode = 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death'
 
 /** Live competitive rank tiers used for role gates and ranked roles. */

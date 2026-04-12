@@ -325,6 +325,88 @@ describe('leaderboard command payload', () => {
     }
   })
 
+  test('shows 5v5 and 6v6 team leaderboards when those squad sizes have ranked data', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedPlayers(db, [
+        's51', 's52', 's53', 's54', 's55', 's56', 's57', 's58', 's59', 's5a',
+        's61', 's62', 's63', 's64', 's65', 's66', 's67', 's68', 's69', 's6a', 's6b', 's6c',
+      ])
+      await seedRatings(db, [
+        { playerId: 's51', mode: 'squad', mu: 33, sigma: 6, gamesPlayed: 7, wins: 5 },
+        { playerId: 's52', mode: 'squad', mu: 32, sigma: 6, gamesPlayed: 7, wins: 5 },
+        { playerId: 's53', mode: 'squad', mu: 31, sigma: 6, gamesPlayed: 7, wins: 5 },
+        { playerId: 's54', mode: 'squad', mu: 30, sigma: 6, gamesPlayed: 7, wins: 5 },
+        { playerId: 's55', mode: 'squad', mu: 29, sigma: 6, gamesPlayed: 7, wins: 5 },
+        { playerId: 's61', mode: 'squad', mu: 34, sigma: 6, gamesPlayed: 8, wins: 6 },
+        { playerId: 's62', mode: 'squad', mu: 33, sigma: 6, gamesPlayed: 8, wins: 6 },
+        { playerId: 's63', mode: 'squad', mu: 32, sigma: 6, gamesPlayed: 8, wins: 6 },
+        { playerId: 's64', mode: 'squad', mu: 31, sigma: 6, gamesPlayed: 8, wins: 6 },
+        { playerId: 's65', mode: 'squad', mu: 30, sigma: 6, gamesPlayed: 8, wins: 6 },
+        { playerId: 's66', mode: 'squad', mu: 29, sigma: 6, gamesPlayed: 8, wins: 6 },
+      ])
+
+      for (const [index, matchId] of ['squad-5-1', 'squad-5-2', 'squad-5-3', 'squad-5-4', 'squad-5-5'].entries()) {
+        await seedCompletedTeamMatch(db, {
+          matchId,
+          gameMode: '5v5',
+          completedAt: 1_000 + index,
+          participants: [
+            { playerId: 's51', team: 0, placement: 1 },
+            { playerId: 's52', team: 0, placement: 1 },
+            { playerId: 's53', team: 0, placement: 1 },
+            { playerId: 's54', team: 0, placement: 1 },
+            { playerId: 's55', team: 0, placement: 1 },
+            { playerId: 's56', team: 1, placement: 2 },
+            { playerId: 's57', team: 1, placement: 2 },
+            { playerId: 's58', team: 1, placement: 2 },
+            { playerId: 's59', team: 1, placement: 2 },
+            { playerId: 's5a', team: 1, placement: 2 },
+          ],
+        })
+      }
+
+      for (const [index, matchId] of ['squad-6-1', 'squad-6-2', 'squad-6-3', 'squad-6-4', 'squad-6-5'].entries()) {
+        await seedCompletedTeamMatch(db, {
+          matchId,
+          gameMode: '6v6',
+          completedAt: 2_000 + index,
+          participants: [
+            { playerId: 's61', team: 0, placement: 1 },
+            { playerId: 's62', team: 0, placement: 1 },
+            { playerId: 's63', team: 0, placement: 1 },
+            { playerId: 's64', team: 0, placement: 1 },
+            { playerId: 's65', team: 0, placement: 1 },
+            { playerId: 's66', team: 0, placement: 1 },
+            { playerId: 's67', team: 1, placement: 2 },
+            { playerId: 's68', team: 1, placement: 2 },
+            { playerId: 's69', team: 1, placement: 2 },
+            { playerId: 's6a', team: 1, placement: 2 },
+            { playerId: 's6b', team: 1, placement: 2 },
+            { playerId: 's6c', team: 1, placement: 2 },
+          ],
+        })
+      }
+
+      const payload = await buildLeaderboardCommandPayload(db, kv, null, { view: 'teams' })
+      const titles = payload.embeds?.map(embed => embed.toJSON().title) ?? []
+      const descriptions = payload.embeds?.map(embed => embed.toJSON().description) ?? []
+
+      expect(payload.content).toBeUndefined()
+      expect(titles).toEqual([
+        'Squad 5v5 Team Leaderboard',
+        'Squad 6v6 Team Leaderboard',
+      ])
+      expect(descriptions[0]).toContain('<@s51> + <@s52> + <@s53> + <@s54> + <@s55>')
+      expect(descriptions[1]).toContain('<@s61> + <@s62> + <@s63> + <@s64> + <@s65> + <@s66>')
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('shows an explicit empty team board when a lineup has fewer than five shared games', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -393,6 +475,8 @@ describe('leaderboard command payload', () => {
         'Duo Team Leaderboard',
         'Squad 3v3 Team Leaderboard',
         'Squad 4v4 Team Leaderboard',
+        'Squad 5v5 Team Leaderboard',
+        'Squad 6v6 Team Leaderboard',
       ])
       expect(payload.embeds?.every(embed => embed.toJSON().description === 'No teams with enough games to rank yet.')).toBe(true)
     }
@@ -517,7 +601,7 @@ async function seedCompletedTeamMatch(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   input: {
     matchId: string
-    gameMode: '2v2' | '3v3' | '4v4'
+    gameMode: '2v2' | '3v3' | '4v4' | '5v5' | '6v6'
     completedAt: number
     participants: Array<{
       playerId: string

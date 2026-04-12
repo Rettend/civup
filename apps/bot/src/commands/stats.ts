@@ -20,6 +20,8 @@ interface Var {
   teammate1?: string
   teammate2?: string
   teammate3?: string
+  teammate4?: string
+  teammate5?: string
 }
 
 export const command_stats = factory.command<Var>(
@@ -29,13 +31,15 @@ export const command_stats = factory.command<Var>(
     new Option('teammate1', 'First teammate for lineup stats', 'User'),
     new Option('teammate2', 'Second teammate for lineup stats', 'User'),
     new Option('teammate3', 'Third teammate for lineup stats', 'User'),
+    new Option('teammate4', 'Fourth teammate for lineup stats', 'User'),
+    new Option('teammate5', 'Fifth teammate for lineup stats', 'User'),
   ),
   (c) => {
     const guildId = c.interaction.guild_id
     const targetId = c.var.player
       ?? c.interaction.member?.user?.id
       ?? c.interaction.user?.id
-    const teammateIds = [c.var.teammate1, c.var.teammate2, c.var.teammate3]
+    const teammateIds = [c.var.teammate1, c.var.teammate2, c.var.teammate3, c.var.teammate4, c.var.teammate5]
       .filter((value): value is string => typeof value === 'string' && value.length > 0)
     const mode = (parseGameMode(c.var.mode) ?? 'all') as StatsModeFilter
 
