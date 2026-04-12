@@ -155,6 +155,44 @@ describe('team stats embed', () => {
     sqlite.close()
   })
 
+  test('marks old shared team matches in recent history without empty leader placeholders', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    for (const [playerId, displayName] of [
+      [HERO_ID, 'Hero'],
+      [MATE_ID, 'Mate'],
+      [OPP1_ID, 'Opp 1'],
+      [OPP2_ID, 'Opp 2'],
+    ] as const) {
+      await seedPlayerIdentity(db, playerId, displayName)
+    }
+
+    await seedRating(db, { playerId: HERO_ID, mode: 'duo', mu: 30, sigma: 6, gamesPlayed: 1, wins: 1 })
+    await seedRating(db, { playerId: MATE_ID, mode: 'duo', mu: 29, sigma: 6, gamesPlayed: 1, wins: 1 })
+
+    await seedCompletedMatch(db, {
+      matchId: 'duo-old-1',
+      gameMode: '2v2',
+      completedAt: NOW - 1_000,
+      isOld: true,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: null, ratingBeforeMu: 25, ratingBeforeSigma: 6, ratingAfterMu: 26, ratingAfterSigma: 5.9 },
+        { playerId: MATE_ID, team: 0, placement: 1, civId: null, ratingBeforeMu: 25, ratingBeforeSigma: 6, ratingAfterMu: 26, ratingAfterSigma: 5.9 },
+        { playerId: OPP1_ID, team: 1, placement: 2, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP2_ID, team: 1, placement: 2, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ],
+    })
+
+    const embed = (await teamCardEmbed(db, kv, null, [HERO_ID, MATE_ID])).toJSON()
+    const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
+
+    expect(recentMatchesField?.value).toContain('2v2 [old]')
+    expect(recentMatchesField?.value).not.toContain('[empty]')
+
+    sqlite.close()
+  })
+
   test('renders shared 5v5 squad stats for larger ranked lineups', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
