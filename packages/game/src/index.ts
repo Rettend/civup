@@ -26,6 +26,7 @@ export {
   parseLeaderboardMode,
   playerCountOptions,
   playersPerTeam,
+  requiresRedDeathDuplicateFactions,
   slotToTeamIndex,
   startPlayerCountOptions,
   teamCount,

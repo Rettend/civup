@@ -219,6 +219,8 @@ export interface DraftState {
   dealtCivIds?: string[] | null
   /** How many factions to deal per turn (rd modes only). */
   dealOptionsSize?: number
+  /** Whether Red Death picks can reuse factions that were already chosen. */
+  duplicateFactions?: boolean
   status: 'waiting' | 'active' | 'complete' | 'cancelled'
   /** Why the draft was cancelled, scrubbed, timed out, or reverted (null unless status is cancelled) */
   cancelReason: DraftCancelReason | null

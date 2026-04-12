@@ -13,6 +13,7 @@ import {
   fetchGuildMemberRoleIds,
   formatRankedRoleSlotLabel,
   getConfiguredRankedRoleId,
+  getConfiguredRankedRoleLabel,
   getLowestRankedRoleTier,
   getMissingRankedRoleConfigTiers,
   getRankedRoleConfig,
@@ -110,6 +111,12 @@ export interface RankedPreviewSummary {
   modes: RankedPreviewModeSummary[]
   unrankedCount: number
   dirty: boolean
+}
+
+export interface ProjectedRankedTierSummary {
+  tier: CompetitiveTier | null
+  roleId: string | null
+  label: string | null
 }
 
 interface RankedRoleSyncOptions {
@@ -343,6 +350,23 @@ export async function summarizeRankedPreview(options: RankedRoleSyncOptions & {
     modes: modes.map(mode => buildRankedPreviewModeSummary(mode, state.config, state.laddersByMode.get(mode))),
     unrankedCount: state.preview.unrankedCount,
     dirty: dirtyState != null,
+  }
+}
+
+export async function projectRankedTierForScore(options: RankedRoleSyncOptions & {
+  mode: LeaderboardMode
+  score: number
+}): Promise<ProjectedRankedTierSummary> {
+  const state = await buildRankedRolePreviewState({
+    ...options,
+    includePlayerIdentities: false,
+  })
+  const tier = resolveProjectedTierForScore(state.laddersByMode.get(options.mode), state.config, options.score)
+
+  return {
+    tier,
+    roleId: tier ? getConfiguredRankedRoleId(state.config, tier) : null,
+    label: tier ? getConfiguredRankedRoleLabel(state.config, tier) : null,
   }
 }
 
@@ -899,6 +923,35 @@ function assignTierSlice(
       tierSize: size,
     })
   }
+}
+
+function resolveProjectedTierForScore(
+  ladders: LadderSnapshots | undefined,
+  config: RankedRoleConfig,
+  score: number,
+): CompetitiveTier | null {
+  if (!Number.isFinite(score)) return null
+
+  const rankedScores = [...(ladders?.scores.values() ?? [])].sort((a, b) => b - a)
+  const rankedCount = rankedScores.length
+  const unlockPopulationCount = ladders?.unlockPopulationCount ?? rankedCount
+  if (rankedCount <= 0 || unlockPopulationCount <= 0) return null
+
+  let start = 0
+  for (const threshold of buildRankedTierThresholds(config)) {
+    if (unlockPopulationCount < threshold.unlockMinPlayers) continue
+
+    let size = Math.round(rankedCount * threshold.earnPercent)
+    if (threshold.minimumCountWhenUnlocked > 0) size = Math.max(threshold.minimumCountWhenUnlocked, size)
+    size = Math.max(0, Math.min(size, rankedCount - start))
+    if (size <= 0) continue
+
+    const cutoffScore = rankedScores[(start + size) - 1]
+    if (cutoffScore != null && score >= cutoffScore) return threshold.tier
+    start += size
+  }
+
+  return getLowestRankedRoleTier(config) ?? createRankedRoleTierId(getRankedRoleTierCount(config))
 }
 
 function mergeLadderAssignments(

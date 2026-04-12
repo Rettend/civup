@@ -55,6 +55,7 @@ export interface LobbySnapshot {
     redDeath: boolean
     dealOptionsSize: number | null
     randomDraft: boolean
+    duplicateFactions: boolean
   }
   serverDefaults: {
     banTimerSeconds: number | null
@@ -665,6 +666,7 @@ export async function updateLobbyConfig(
     redDeath?: boolean
     dealOptionsSize?: number | null
     randomDraft?: boolean
+    duplicateFactions?: boolean
     targetSize?: number
     steamLobbyLink?: string | null
     minRole?: CompetitiveTier | null
@@ -683,6 +685,7 @@ export async function updateLobbyConfig(
       redDeath: draftConfig.redDeath,
       dealOptionsSize: draftConfig.dealOptionsSize,
       randomDraft: draftConfig.randomDraft,
+      duplicateFactions: draftConfig.duplicateFactions,
       targetSize: draftConfig.targetSize,
       steamLobbyLink: draftConfig.steamLobbyLink,
       minRole: draftConfig.minRole,
