@@ -11,6 +11,7 @@ export interface LobbyDraftConfig {
   redDeath: boolean
   dealOptionsSize: number | null
   randomDraft: boolean
+  duplicateFactions: boolean
 }
 
 export interface LobbyState {

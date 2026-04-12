@@ -8,7 +8,7 @@ import type {
   RankRoleSetDetail,
 } from '~/client/lib/config-screen/helpers'
 import type { LobbyArrangeStrategy, LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
-import { canStartWithPlayerCount, formatModeLabel, GAME_MODE_CHOICES, hasBetaLeaderData, inferGameMode, isTeamMode as isTeamGameMode, isUnrankedMode, maxPlayerCount, normalizeAvailableLeaderDataVersion, normalizeCompetitiveTierBounds, slotToTeamIndex } from '@civup/game'
+import { canStartWithPlayerCount, formatModeLabel, GAME_MODE_CHOICES, hasBetaLeaderData, inferGameMode, isTeamMode as isTeamGameMode, isUnrankedMode, maxPlayerCount, normalizeAvailableLeaderDataVersion, normalizeCompetitiveTierBounds, requiresRedDeathDuplicateFactions, slotToTeamIndex } from '@civup/game'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, Switch, TextInput } from '~/client/components/ui'
 import {
@@ -79,6 +79,7 @@ interface LobbyEditableDraftConfig extends DraftTimerConfig {
   redDeath: boolean
   dealOptionsSize: number | null
   randomDraft: boolean
+  duplicateFactions: boolean
 }
 
 type EditableConfigField = 'ban' | 'pick' | 'leaderPool'
@@ -94,6 +95,7 @@ function sameLobbyDraftConfig(a: LobbyEditableDraftConfig, b: LobbyEditableDraft
     && a.redDeath === b.redDeath
     && a.dealOptionsSize === b.dealOptionsSize
     && a.randomDraft === b.randomDraft
+    && a.duplicateFactions === b.duplicateFactions
 }
 
 /** Pre-draft setup screen (lobby waiting + room waiting). */
@@ -113,6 +115,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const [simultaneousPickPending, setSimultaneousPickPending] = createSignal(false)
   const [redDeathPending, setRedDeathPending] = createSignal(false)
   const [randomDraftPending, setRandomDraftPending] = createSignal(false)
+  const [duplicateFactionsPending, setDuplicateFactionsPending] = createSignal(false)
   const [pendingPlaceSelfSlot, setPendingPlaceSelfSlot] = createSignal<number | null>(null)
   const [draggingPlayerId, setDraggingPlayerId] = createSignal<string | null>(null)
   const [dragOverSlot, setDragOverSlot] = createSignal<number | null>(null)
@@ -131,6 +134,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
           redDeath: props.lobby.draftConfig.redDeath,
           dealOptionsSize: props.lobby.draftConfig.dealOptionsSize,
           randomDraft: props.lobby.draftConfig.randomDraft,
+          duplicateFactions: props.lobby.draftConfig.duplicateFactions,
         }
       : null,
   )
@@ -165,6 +169,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         redDeath: lobby.draftConfig.redDeath,
         dealOptionsSize: lobby.draftConfig.dealOptionsSize,
         randomDraft: lobby.draftConfig.randomDraft,
+        duplicateFactions: lobby.draftConfig.duplicateFactions,
       })
   })
 
@@ -338,6 +343,11 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (lobby) return formatModeLabel(lobby.mode, 'DRAFT', { redDeath: draftConfig().redDeath, targetSize: lobby.targetSize })
     return formatModeLabel(inferGameMode(state()?.formatId), 'DRAFT', { redDeath: isRedDeathDraft(), targetSize: state()?.seats.length })
   }
+  const miniFormatId = () => {
+    const lobby = currentLobby()
+    if (lobby) return formatModeLabel(lobby.mode, 'DRAFT', { redDeath: draftConfig().redDeath, compactRedDeath: true, targetSize: lobby.targetSize })
+    return formatModeLabel(inferGameMode(state()?.formatId), 'DRAFT', { redDeath: isRedDeathDraft(), compactRedDeath: true, targetSize: state()?.seats.length })
+  }
   const isTeamMode = () => {
     const lobby = currentLobby()
     if (lobby) return inferGameMode(lobby.mode) !== 'ffa'
@@ -361,16 +371,17 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const draftConfig = (): LobbyEditableDraftConfig => {
     const lobby = currentLobby()
     if (lobby) {
-        return lobbyTimerConfig() ?? {
-          banTimerSeconds: lobby.draftConfig.banTimerSeconds,
-          pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
-          leaderPoolSize: lobby.draftConfig.leaderPoolSize,
-          leaderDataVersion: lobby.draftConfig.leaderDataVersion,
-          simultaneousPick: lobby.draftConfig.simultaneousPick,
-          redDeath: lobby.draftConfig.redDeath,
-          dealOptionsSize: lobby.draftConfig.dealOptionsSize,
-          randomDraft: lobby.draftConfig.randomDraft,
-        }
+      return lobbyTimerConfig() ?? {
+        banTimerSeconds: lobby.draftConfig.banTimerSeconds,
+        pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
+        leaderPoolSize: lobby.draftConfig.leaderPoolSize,
+        leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+        simultaneousPick: lobby.draftConfig.simultaneousPick,
+        redDeath: lobby.draftConfig.redDeath,
+        dealOptionsSize: lobby.draftConfig.dealOptionsSize,
+        randomDraft: lobby.draftConfig.randomDraft,
+        duplicateFactions: lobby.draftConfig.duplicateFactions,
+      }
     }
     return {
       ...getTimerConfigFromDraft(state()),
@@ -380,6 +391,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       redDeath: isRedDeathDraft(),
       dealOptionsSize: null,
       randomDraft: false,
+      duplicateFactions: false,
     }
   }
 
@@ -470,6 +482,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const formattedBbgVersion = () => normalizeAvailableLeaderDataVersion(draftConfig().leaderDataVersion) === 'beta' ? 'Beta' : 'Live'
   const formattedSimultaneousPick = () => draftConfig().simultaneousPick ? 'On' : 'Off'
   const formattedRandomDraft = () => draftConfig().randomDraft ? 'On' : 'Off'
+  const duplicateFactionsLocked = () => isRedDeathLobbyMode() && requiresRedDeathDuplicateFactions(lobbyMode())
+  const draftDuplicateFactions = () => duplicateFactionsLocked() ? true : draftConfig().duplicateFactions
+  const optimisticDuplicateFactions = () => duplicateFactionsLocked() ? true : optimisticDraftConfig().duplicateFactions
+  const formattedDuplicateFactions = () => draftDuplicateFactions() ? 'On' : 'Off'
   const poolInputLabel = () => isRedDeathLobbyMode() ? 'Factions' : 'Leaders'
   const modeLabelClass = () => isRedDeathLobbyMode() ? 'text-[#f97316]' : 'text-accent'
 
@@ -767,6 +783,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
           redDeath: nextConfig.redDeath,
           dealOptionsSize: nextConfig.dealOptionsSize,
           randomDraft: nextConfig.randomDraft,
+          duplicateFactions: nextConfig.duplicateFactions,
           targetSize: options.targetSize,
           minRole: lobby.minRole,
           maxRole: lobby.maxRole,
@@ -818,6 +835,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       const redDeath = current.redDeath
       const dealOptionsSize = isRedDeathLobbyMode() ? parsedLeaderPool : current.dealOptionsSize
       const randomDraft = current.randomDraft
+      const duplicateFactions = current.duplicateFactions
 
       if (
         banTimerSeconds === current.banTimerSeconds
@@ -830,7 +848,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       }
 
       await commitDraftConfig(
-        { banTimerSeconds, pickTimerSeconds, leaderPoolSize, leaderDataVersion, simultaneousPick, redDeath, dealOptionsSize, randomDraft },
+        { banTimerSeconds, pickTimerSeconds, leaderPoolSize, leaderDataVersion, simultaneousPick, redDeath, dealOptionsSize, randomDraft, duplicateFactions },
         { preserveConfigMessage: preserveClampMessage },
       )
     }
@@ -856,6 +874,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         redDeath: current.redDeath,
         dealOptionsSize: current.dealOptionsSize,
         randomDraft: current.randomDraft,
+        duplicateFactions: current.duplicateFactions,
       })
     }
     finally {
@@ -878,6 +897,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         redDeath: current.redDeath,
         dealOptionsSize: current.dealOptionsSize,
         randomDraft: current.randomDraft,
+        duplicateFactions: current.duplicateFactions,
       })
     }
     finally {
@@ -903,6 +923,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         redDeath: checked,
         dealOptionsSize: checked ? current.dealOptionsSize : null,
         randomDraft: checked ? current.randomDraft : false,
+        duplicateFactions: checked ? requiresRedDeathDuplicateFactions(lobbyMode()) : false,
       }, {
         targetSize: lobby?.mode === 'ffa' ? (checked ? 10 : 8) : undefined,
       })
@@ -928,10 +949,34 @@ export function ConfigScreen(props: ConfigScreenProps) {
         redDeath: current.redDeath,
         dealOptionsSize: current.dealOptionsSize,
         randomDraft: checked,
+        duplicateFactions: current.duplicateFactions,
       })
     }
     finally {
       setRandomDraftPending(false)
+    }
+  }
+
+  const handleDuplicateFactionsChange = async (checked: boolean) => {
+    if (!isLobbyMode() || !amHost() || lobbyActionPending() || duplicateFactionsPending() || !isRedDeathLobbyMode() || duplicateFactionsLocked()) return
+    const current = optimisticTimerConfig.value()
+    if (checked === current.duplicateFactions) return
+    setDuplicateFactionsPending(true)
+    try {
+      await commitDraftConfig({
+        banTimerSeconds: current.banTimerSeconds,
+        pickTimerSeconds: current.pickTimerSeconds,
+        leaderPoolSize: current.leaderPoolSize,
+        leaderDataVersion: current.leaderDataVersion,
+        simultaneousPick: current.simultaneousPick,
+        redDeath: current.redDeath,
+        dealOptionsSize: current.dealOptionsSize,
+        randomDraft: current.randomDraft,
+        duplicateFactions: checked,
+      })
+    }
+    finally {
+      setDuplicateFactionsPending(false)
     }
   }
 
@@ -1688,6 +1733,20 @@ export function ConfigScreen(props: ConfigScreenProps) {
                     </div>
                   </Show>
 
+                  <Show when={isLobbyMode() && amHost() && isRedDeathLobbyMode()}>
+                    <div class="px-1 flex gap-3 items-center justify-between">
+                      <span class={cn('text-sm font-medium', optimisticDuplicateFactions() ? 'text-accent' : 'text-fg-muted')}>
+                        Duplicate factions
+                      </span>
+                      <Switch
+                        checked={optimisticDuplicateFactions()}
+                        disabled={lobbyActionPending() || duplicateFactionsPending() || duplicateFactionsLocked()}
+                        class="w-auto"
+                        onChange={checked => void handleDuplicateFactionsChange(checked)}
+                      />
+                    </div>
+                  </Show>
+
                   <Show when={isLobbyMode() && amHost()}>
                     <Dropdown
                       label="Game Mode"
@@ -1721,6 +1780,11 @@ export function ConfigScreen(props: ConfigScreenProps) {
                             label="Random draft"
                             value={formattedRandomDraft()}
                             valueClass={draftConfig().randomDraft ? 'text-accent' : undefined}
+                          />
+                          <ReadonlyTimerRow
+                            label="Duplicate factions"
+                            value={formattedDuplicateFactions()}
+                            valueClass={draftDuplicateFactions() ? 'text-accent' : undefined}
                           />
                         </Show>
                         <Show when={isLobbyMode() && !isUnrankedMode(lobbyMode())}>
@@ -1965,7 +2029,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       )}
     >
       <MiniFrame
-        modeLabel={formatId()}
+        modeLabel={miniFormatId()}
         title="Draft Setup"
         titleAccent={isRedDeathLobbyMode() ? 'orange' : 'gold'}
         rightLabel={currentLobby() ? `${filledSlots()}/${currentLobby()!.targetSize}` : null}
