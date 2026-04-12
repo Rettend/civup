@@ -28,6 +28,7 @@ const baseLobby: LobbySnapshot = {
     redDeath: false,
     dealOptionsSize: 2,
     randomDraft: false,
+    duplicateFactions: false,
   },
   serverDefaults: {
     banTimerSeconds: null,

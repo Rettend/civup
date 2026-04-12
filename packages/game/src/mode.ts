@@ -10,16 +10,17 @@ interface GameModeDefinition {
   leaderboardMode: BaseLeaderboardMode | null
   balanceLeaderboardMode: BaseLeaderboardMode | null
   unranked: boolean
+  redDeathDuplicateFactionsRequired: boolean
 }
 
 const GAME_MODE_DEFINITIONS = {
-  '1v1': { label: '1v1', playerCountOptions: [2], teamSize: 1, leaderboardMode: 'duel', balanceLeaderboardMode: null, unranked: false },
-  '2v2': { label: '2v2', playerCountOptions: [4, 8], teamSize: 2, leaderboardMode: 'duo', balanceLeaderboardMode: null, unranked: false },
-  '3v3': { label: '3v3', playerCountOptions: [6], teamSize: 3, leaderboardMode: 'squad', balanceLeaderboardMode: null, unranked: false },
-  '4v4': { label: '4v4', playerCountOptions: [8], teamSize: 4, leaderboardMode: 'squad', balanceLeaderboardMode: null, unranked: false },
-  '5v5': { label: '5v5', playerCountOptions: [10], teamSize: 5, leaderboardMode: null, balanceLeaderboardMode: 'squad', unranked: true },
-  '6v6': { label: '6v6', playerCountOptions: [12], teamSize: 6, leaderboardMode: null, balanceLeaderboardMode: 'squad', unranked: true },
-  'ffa': { label: 'FFA', playerCountOptions: [8], teamSize: null, leaderboardMode: 'ffa', balanceLeaderboardMode: null, unranked: false },
+  '1v1': { label: '1v1', playerCountOptions: [2], teamSize: 1, leaderboardMode: 'duel', balanceLeaderboardMode: null, unranked: false, redDeathDuplicateFactionsRequired: false },
+  '2v2': { label: '2v2', playerCountOptions: [4, 8], teamSize: 2, leaderboardMode: 'duo', balanceLeaderboardMode: null, unranked: false, redDeathDuplicateFactionsRequired: false },
+  '3v3': { label: '3v3', playerCountOptions: [6], teamSize: 3, leaderboardMode: 'squad', balanceLeaderboardMode: null, unranked: false, redDeathDuplicateFactionsRequired: false },
+  '4v4': { label: '4v4', playerCountOptions: [8], teamSize: 4, leaderboardMode: 'squad', balanceLeaderboardMode: null, unranked: false, redDeathDuplicateFactionsRequired: false },
+  '5v5': { label: '5v5', playerCountOptions: [10], teamSize: 5, leaderboardMode: null, balanceLeaderboardMode: 'squad', unranked: true, redDeathDuplicateFactionsRequired: false },
+  '6v6': { label: '6v6', playerCountOptions: [12], teamSize: 6, leaderboardMode: null, balanceLeaderboardMode: 'squad', unranked: true, redDeathDuplicateFactionsRequired: true },
+  'ffa': { label: 'FFA', playerCountOptions: [8], teamSize: null, leaderboardMode: 'ffa', balanceLeaderboardMode: null, unranked: false, redDeathDuplicateFactionsRequired: false },
 } as const satisfies Record<GameMode, GameModeDefinition>
 
 export const GAME_MODE_CHOICES = [
@@ -99,7 +100,7 @@ export function inferGameMode(value: string | null | undefined, fallback: GameMo
 export function formatModeLabel(
   mode: string | null | undefined,
   fallback = '',
-  options: { redDeath?: boolean, targetSize?: number } = {},
+  options: { redDeath?: boolean, compactRedDeath?: boolean, targetSize?: number } = {},
 ): string {
   if (!mode) return fallback
 
@@ -117,7 +118,8 @@ export function formatModeLabel(
     return trimmed.replace(/^default-/i, '').replace(/-/g, ' ')
   })()
 
-  return options.redDeath ? `Red Death ${baseLabel}` : baseLabel
+  if (!options.redDeath) return baseLabel
+  return `${options.compactRedDeath ? 'RD' : 'Red Death'} ${baseLabel}`
 }
 
 /** Whether a string matches a supported leaderboard mode. */
@@ -142,6 +144,11 @@ export function formatLeaderboardModeLabel(mode: string | null | undefined, fall
 /** Whether a game mode is always unranked. */
 export function isUnrankedMode(mode: GameMode): boolean {
   return GAME_MODE_DEFINITIONS[mode].unranked
+}
+
+/** Whether a Red Death mode must allow duplicate factions. */
+export function requiresRedDeathDuplicateFactions(mode: GameMode): boolean {
+  return GAME_MODE_DEFINITIONS[mode].redDeathDuplicateFactionsRequired
 }
 
 /** Map game mode to its leaderboard track. */

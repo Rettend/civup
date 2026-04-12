@@ -12,6 +12,7 @@ import {
   minPlayerCount,
   parseGameMode,
   playerCountOptions,
+  requiresRedDeathDuplicateFactions,
   slotToTeamIndex,
   startPlayerCountOptions,
   teamCount,
@@ -44,6 +45,7 @@ describe('formatModeLabel', () => {
     expect(formatModeLabel('2v2', '', { targetSize: 8 })).toBe('2v2v2v2')
     expect(formatModeLabel('2v2', '', { redDeath: true, targetSize: 8 })).toBe('Red Death 2v2v2v2')
     expect(formatModeLabel('4V4', '', { redDeath: true })).toBe('Red Death 4v4')
+    expect(formatModeLabel('3V3', '', { redDeath: true, compactRedDeath: true })).toBe('RD 3v3')
   })
 
   test('replaces dashes with spaces for other modes', () => {
@@ -124,6 +126,8 @@ describe('shared mode helpers', () => {
     expect(isUnrankedMode('5v5')).toBe(true)
     expect(isUnrankedMode('6v6')).toBe(true)
     expect(isUnrankedMode('4v4')).toBe(false)
+    expect(requiresRedDeathDuplicateFactions('5v5')).toBe(false)
+    expect(requiresRedDeathDuplicateFactions('6v6')).toBe(true)
   })
 
   test('expands leaderboard tracks to game modes', () => {
