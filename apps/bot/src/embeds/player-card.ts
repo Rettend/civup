@@ -215,7 +215,7 @@ function formatRecentMatchLine(match: {
 }): string {
   const placement = formatPlacementCode(match.placement)
   const rating = formatRecentRatingChange(match)
-  const modeLabel = formatGameModeLabel(match.gameMode, match.draftData)
+  const modeLabel = formatRecentModeLabel(match.gameMode, match.draftData, match.isOld)
   const leader = formatRecentLeaderLabel(match.civId, match.isOld)
   return leader ? `${placement} ${rating} - ${modeLabel} ${leader}` : `${placement} ${rating} - ${modeLabel}`
 }
@@ -254,6 +254,11 @@ function formatGameModeLabel(gameMode: string, draftData: string | null): string
   const context = getStoredGameModeContext(gameMode, draftData)
   if (context) return context.label
   return formatModeLabel(gameMode, gameMode)
+}
+
+function formatRecentModeLabel(gameMode: string, draftData: string | null, isOld: boolean): string {
+  const label = formatGameModeLabel(gameMode, draftData)
+  return isOld ? `${label} [old]` : label
 }
 
 function formatLeaderName(civId: string | null): string {

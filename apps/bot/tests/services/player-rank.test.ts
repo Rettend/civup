@@ -291,6 +291,7 @@ describe('player rank views', () => {
     expect(recentMatchesField?.value).toContain('Hammurabi')
     expect(recentMatchesField?.value).not.toContain('[empty]')
     expect(recentMatchesField?.value).toContain('2v2')
+    expect(recentMatchesField?.value).toContain('2v2 [old]')
 
     sqlite.close()
   })

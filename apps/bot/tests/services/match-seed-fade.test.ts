@@ -1,5 +1,5 @@
 import { matches, matchParticipants, playerRatingSeeds, playerRatings, players } from '@civup/db'
-import { DEFAULT_MU, DEFAULT_SIGMA } from '@civup/rating'
+import { DEFAULT_MU, DEFAULT_SIGMA, displayRating } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
 import { recalculateLeaderboardMode, reportMatch } from '../../src/services/match/index.ts'
@@ -34,8 +34,11 @@ describe('match seed fade', () => {
       const permanentParticipant = await loadParticipant(permanentDb, 'm1', HERO_ID)
       const decayRating = await loadPlayerRating(decayDb, HERO_ID)
 
-      expect(decayParticipant?.ratingBeforeMu).toBeCloseTo(permanentParticipant?.ratingBeforeMu ?? 0, 6)
+      expect(decayParticipant?.ratingBeforeMu).toBeCloseTo((permanentParticipant?.ratingBeforeMu ?? 0) - SEED_STEP_MU, 6)
       expect(decayParticipant?.ratingAfterMu).toBeCloseTo((permanentParticipant?.ratingAfterMu ?? 0) - SEED_STEP_MU, 6)
+      expect(displayRating(decayParticipant?.ratingAfterMu ?? 0, decayParticipant?.ratingAfterSigma ?? 0)).toBeGreaterThan(
+        displayRating(decayParticipant?.ratingBeforeMu ?? 0, decayParticipant?.ratingBeforeSigma ?? 0),
+      )
       expect(decayRating?.gamesPlayed).toBe(1)
       expect(decayRating?.lastPlayedAt).toBe(NOW)
     }
@@ -109,8 +112,11 @@ describe('match seed fade', () => {
       const permanentParticipant = await loadParticipant(permanentDb, 'completed-1', HERO_ID)
       const decayRating = await loadPlayerRating(decayDb, HERO_ID)
 
-      expect(decayParticipant?.ratingBeforeMu).toBeCloseTo(INITIAL_SEED_MU, 6)
+      expect(decayParticipant?.ratingBeforeMu).toBeCloseTo(INITIAL_SEED_MU - SEED_STEP_MU, 6)
       expect(decayParticipant?.ratingAfterMu).toBeCloseTo((permanentParticipant?.ratingAfterMu ?? 0) - SEED_STEP_MU, 6)
+      expect(displayRating(decayParticipant?.ratingAfterMu ?? 0, decayParticipant?.ratingAfterSigma ?? 0)).toBeGreaterThan(
+        displayRating(decayParticipant?.ratingBeforeMu ?? 0, decayParticipant?.ratingBeforeSigma ?? 0),
+      )
       expect(decayRating?.gamesPlayed).toBe(1)
     }
     finally {
