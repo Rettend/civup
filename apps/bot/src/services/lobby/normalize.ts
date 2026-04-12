@@ -1,6 +1,6 @@
 import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 import type { LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
-import { defaultPlayerCount, MAX_LEADER_POOL_SIZE, playerCountOptions } from '@civup/game'
+import { defaultPlayerCount, MAX_LEADER_POOL_SIZE, normalizeAvailableLeaderDataVersion, playerCountOptions } from '@civup/game'
 import { nanoid } from 'nanoid'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 import { normalizeSteamLobbyLink } from '../steam-link.ts'
@@ -188,7 +188,7 @@ function normalizeLeaderPoolSize(value: unknown): number | null {
 }
 
 function normalizeLeaderDataVersion(value: unknown): LeaderDataVersion {
-  return value === 'beta' ? 'beta' : 'live'
+  return normalizeAvailableLeaderDataVersion(value === 'beta' ? 'beta' : 'live')
 }
 
 function normalizeSimultaneousPick(value: unknown): boolean {

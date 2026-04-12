@@ -1,5 +1,5 @@
 import type { DraftCancelReason, DraftSeat, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
-import { formatModeLabel, getLeader, isTeamMode, teamSize as modeTeamSize } from '@civup/game'
+import { formatModeLabel, getLeader, hasBetaLeaderData, isTeamMode, normalizeAvailableLeaderDataVersion, teamSize as modeTeamSize } from '@civup/game'
 import { displayRating } from '@civup/rating'
 import { Button, Components, Embed } from 'discord-hono'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
@@ -272,7 +272,8 @@ function lobbyReportedEmbed(
 function formatLeaderDataVersionFooter(leaderDataVersion?: LeaderDataVersion | null, redDeath = false): string | null {
   if (redDeath) return null
   if (!leaderDataVersion) return null
-  return leaderDataVersion === 'beta' ? 'BBG Beta' : 'BBG Live'
+  if (!hasBetaLeaderData) return null
+  return normalizeAvailableLeaderDataVersion(leaderDataVersion) === 'beta' ? 'BBG Beta' : 'BBG Live'
 }
 
 function formatReportedTeamRows(participants: LobbyParticipant[]): string {

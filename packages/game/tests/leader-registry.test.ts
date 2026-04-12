@@ -25,6 +25,16 @@ describe('leader registry', () => {
     expect(pedro.uniqueBuildings.map(unique => unique.name)).toEqual(['Street Carnival', 'Copacabana'])
   })
 
+  test('expanded leaders use BBG-updated descriptions', () => {
+    const olympias = getLeader('macedon-olympias')
+    const ahiram = getLeader('phoenicia-ahiram')
+    const spearthrowerOwl = getLeader('teotihuacan-spearthrower-owl')
+
+    expect(olympias.ability.description).toContain('Cities with a Basilikoi and Holy Site give 0.5 :science: science per :citizen: population')
+    expect(ahiram.ability.description).toContain('International :traderoute: trade routes provides +0.5 :production: Production and +2 :gold: Gold')
+    expect(spearthrowerOwl.ability.description).toContain('Pochteca Enclave and the Chancery')
+  })
+
   test('all live and beta leaders have resolved civilization and leader abilities', () => {
     const assertResolvedAbilities = (label: string, leaderSet: typeof liveLeaders) => {
       const failures: string[] = []

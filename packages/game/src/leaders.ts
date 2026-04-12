@@ -430,7 +430,7 @@ export const leaders: Leader[] = [
     "uniqueImprovements": [
       {
         "name": "Great Wall",
-        "description": "Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 2 turns of fortification.",
+        "description": "Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 1 turn of fortification.",
         "iconUrl": "/assets/bbg/items/Great%20Wall.webp"
       }
     ],
@@ -461,7 +461,7 @@ export const leaders: Leader[] = [
     "uniqueImprovements": [
       {
         "name": "Great Wall",
-        "description": "Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 2 turns of fortification.",
+        "description": "Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 1 turn of fortification.",
         "iconUrl": "/assets/bbg/items/Great%20Wall.webp"
       }
     ],
@@ -492,7 +492,7 @@ export const leaders: Leader[] = [
     "uniqueImprovements": [
       {
         "name": "Great Wall",
-        "description": "Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 2 turns of fortification.",
+        "description": "Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 1 turn of fortification.",
         "iconUrl": "/assets/bbg/items/Great%20Wall.webp"
       }
     ],
@@ -523,7 +523,7 @@ export const leaders: Leader[] = [
     "uniqueImprovements": [
       {
         "name": "Great Wall",
-        "description": "Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 2 turns of fortification.",
+        "description": "Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 1 turn of fortification.",
         "iconUrl": "/assets/bbg/items/Great%20Wall.webp"
       }
     ],
@@ -554,7 +554,7 @@ export const leaders: Leader[] = [
     "uniqueImprovements": [
       {
         "name": "Great Wall",
-        "description": "Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 2 turns of fortification.",
+        "description": "Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 1 turn of fortification.",
         "iconUrl": "/assets/bbg/items/Great%20Wall.webp"
       }
     ],
@@ -692,7 +692,7 @@ export const leaders: Leader[] = [
     },
     "ability": {
       "name": "Court of Love",
-      "description": "+100% :production: Production to Theater Square Buildings. Great Works receive additional yields based on the districts built in this city (+1 for :greatworkwriting: Writings and :greatworkrelic: Relics, +2 for :greatworklandscape: Art and :greatworkartifact: Artifacts, +4 for :greatworkmusic: Music): :science: Science for Campus. :culture: Culture for Theater Square. :gold: Gold for Harbor or Commercial Hub. :faith: Faith for Holy Site. :production: Production for Industrial Zone. :food: Food for Neighborhood. (Can't receive bonus yields on great works from Anshan) Great Works in Eleanor's cities each cause -1 Loyalty per turn in foreign cities within 9 tiles. A city that leaves another civilization due to a loss of Loyalty and is currently receiving the most Loyalty per turn from Eleanor's civilization skips the Free City step to join this civilization. Cities with either a Lighthouse or a Temple receive +1 :greatwriter: Great Writer point."
+      "description": "+100% :production: Production to Theater Square Buildings. Great Works receive additional yields based on the districts built in this city (+1 for :greatworkwriting: Writings and :greatworkrelic: Relics, +2 for :greatworklandscape: Art and :greatworkartifact: Artifacts, +4 for :greatworkmusic: Music): :science: Science for Campus. :culture: Culture for Theater Square. :gold: Gold for Harbor or Commercial Hub. :faith: Faith for Holy Site. :production: Production for Industrial Zone. :food: Food for Neighborhood. (Can't receive bonus yields on great works from Anshan) Great Works in Eleanor's cities each cause -1 Loyalty per turn in foreign cities within 9 tiles. A city that leaves another civilization due to a loss of Loyalty and is currently receiving the most Loyalty per turn from Eleanor's civilization skips the Free City step to join this civilization. When Eleanor leads France receive +20% :production: Production toward ancient and classical wonders."
     },
     "uniqueUnits": [
       {
@@ -919,7 +919,7 @@ export const leaders: Leader[] = [
     },
     "ability": {
       "name": "Court of Love",
-      "description": "+100% :production: Production to Theater Square Buildings. Great Works receive additional yields based on the districts built in this city (+1 for :greatworkwriting: Writings and :greatworkrelic: Relics, +2 for :greatworklandscape: Art and :greatworkartifact: Artifacts, +4 for :greatworkmusic: Music): :science: Science for Campus. :culture: Culture for Theater Square. :gold: Gold for Harbor or Commercial Hub. :faith: Faith for Holy Site. :production: Production for Industrial Zone. :food: Food for Neighborhood. (Can't receive bonus yields on great works from Anshan) Great Works in Eleanor's cities each cause -1 Loyalty per turn in foreign cities within 9 tiles. A city that leaves another civilization due to a loss of Loyalty and is currently receiving the most Loyalty per turn from Eleanor's civilization skips the Free City step to join this civilization. Cities with either a Lighthouse or a Temple receive +1 :greatwriter: Great Writer point."
+      "description": "+100% :production: Production to Theater Square Buildings. Great Works receive additional yields based on the districts built in this city (+1 for :greatworkwriting: Writings and :greatworkrelic: Relics, +2 for :greatworklandscape: Art and :greatworkartifact: Artifacts, +4 for :greatworkmusic: Music): :science: Science for Campus. :culture: Culture for Theater Square. :gold: Gold for Harbor or Commercial Hub. :faith: Faith for Holy Site. :production: Production for Industrial Zone. :food: Food for Neighborhood. (Can't receive bonus yields on great works from Anshan) Great Works in Eleanor's cities each cause -1 Loyalty per turn in foreign cities within 9 tiles. A city that leaves another civilization due to a loss of Loyalty and is currently receiving the most Loyalty per turn from Eleanor's civilization skips the Free City step to join this civilization. When Eleanor leads France receive +20% :production: Production toward ancient and classical wonders."
     },
     "uniqueUnits": [
       {
@@ -1088,7 +1088,7 @@ export const leaders: Leader[] = [
     },
     "ability": {
       "name": "Swan King",
-      "description": "Wonders (complete and incomplete) receive +1 :culture: Culture for every adjacent :district: District as adjacency bonus. All :culture: Culture adjacencies provide :tourism: Tourism with Castles. Culture bomb adjacent tiles when completing a Commercial Hub. Hansa receives major adjacency bonus from Commercial Hubs."
+      "description": "Wonders (complete and incomplete) receive +1 :culture: Culture for every adjacent :district: District as adjacency bonus. All :culture: Culture adjacencies provide :tourism: Tourism with Castles. Hansa receives major adjacency bonus from Commercial Hubs."
     },
     "uniqueUnits": [
       {
@@ -1381,11 +1381,11 @@ export const leaders: Leader[] = [
     "portraitUrl": "/assets/bbg/leaders/Japan%20Hojo%20Tokimune.webp",
     "civilizationAbility": {
       "name": "Meiji Restoration",
-      "description": "All :district: districts receive standard adjacency bonus for being adjacent to another :district: district. Commercial Hubs do not receive bonuses from adjacent rivers. - Bias: T1 Coast."
+      "description": "All districts other than Commercial Hubs and Harbors receive an additional standard adjacency bonus for being adjacent to another district."
     },
     "ability": {
       "name": "Divine Wind",
-      "description": "Land units receive +3 :strength: Combat Strength in land tiles adjacent to Coast; naval units receive +3 :strength: Combat Strength in shallow water tiles. Units do not receive damage from Hurricanes. Civilizations that are at war with Japan receive +100% unit damage from Hurricanes in Japanese territory. +100% :production: Production to Theater Square, Holy Site, and Encampment districts."
+      "description": "+100% :production: Production to Theater Square, Holy Site, and Encampment districts. Commercial Hubs and Harbors receive standard adjacency bonus for being adjacent to another :district: district. Land units receive +3 :strength: Combat Strength in land tiles adjacent to Coast; naval units receive +3 :strength: Combat Strength in shallow water tiles. Units do not receive damage from Hurricanes. Civilizations that are at war with Japan receive +100% unit damage from Hurricanes in Japanese territory."
     },
     "uniqueUnits": [
       {
@@ -1412,7 +1412,7 @@ export const leaders: Leader[] = [
     "portraitUrl": "/assets/bbg/leaders/Japan%20Tokugawa.webp",
     "civilizationAbility": {
       "name": "Meiji Restoration",
-      "description": "All :district: districts receive standard adjacency bonus for being adjacent to another :district: district. Commercial Hubs do not receive bonuses from adjacent rivers. - Bias: T1 Coast."
+      "description": "All districts other than Commercial Hubs and Harbors receive an additional standard adjacency bonus for being adjacent to another district."
     },
     "ability": {
       "name": "Bakuhan",
@@ -1447,7 +1447,7 @@ export const leaders: Leader[] = [
     },
     "ability": {
       "name": "Monasteries of the King",
-      "description": "Holy Sites are granted a standard adjacency in :faith: Faith from Rivers, +1 :food: Food and +2 :housing: Housing if built adjacent to a River, and trigger a Culture Bomb when completed."
+      "description": "Holy Sites grant +1 :food: Food and +2 :housing: Housing if built adjacent to a River, and trigger a Culture Bomb when completed."
     },
     "uniqueUnits": [
       {
@@ -1479,7 +1479,7 @@ export const leaders: Leader[] = [
     },
     "ability": {
       "name": "Religious Convert",
-      "description": "May not build Holy Site districts, gain :greatprophet: Great Prophets, or found Religions. Receives +0.2 :culture: Culture and +1 :gold: Gold per citizen in a city following any religion. Receives an Apostle (of that city's majority Religion) each time he finishes a Mbanza or Theater Square district. Once you enter the classical era, all land combat units and :greatgeneral: Great Generals ignore the Rainforest and Woods :movement: Movement penalty. Receive 50% more :greatgeneral: Great General points. Rainforest and Woods tiles adjacent to an Encampment receive +1 :production: Production. These tiles also receive +1 :food: Food once the city has constructed a Mbanza."
+      "description": "May not build Holy Site districts, gain :greatprophet: Great Prophets, or found Religions. Receives +0.2 :culture: Culture and +1 :gold: Gold per citizen in a city following any religion. Receives an Apostle (of that city's majority Religion) each time he finishes a Mbanza or Theater Square district. Once you enter the classical era, all land combat units and :greatgeneral: Great Generals ignore the Rainforest and Woods :movement: Movement penalty. +1 :greatgeneral: Great General points on barracks or stables. Rainforest and Woods tiles adjacent to an Encampment receive +1 :production: Production. These tiles also receive +1 :food: Food once the city has constructed a Mbanza."
     },
     "uniqueUnits": [
       {
@@ -1644,7 +1644,7 @@ export const leaders: Leader[] = [
     },
     "ability": {
       "name": "Cabeiri Mysteries",
-      "description": "Receives an :envoy: Envoy from founding a Pantheon. Assigning :envoy: Envoys to City-States grants :greatgeneral: Great General and :greatprophet: Great Prophet Points, doubling if to Militaristic and Religious City-States."
+      "description": "Cities with a Basilikoi and Holy Site give 0.5 :science: science per :citizen: population. +1 :envoy: envoy when a city first has both a Basilikoi and Holy Site. +2 :strength: Combat Strength when attacking for melee and heavy cavalry units per City-state you are Suzerain of."
     },
     "uniqueUnits": [
       {
@@ -1671,7 +1671,7 @@ export const leaders: Leader[] = [
     "portraitUrl": "/assets/bbg/leaders/Mali%20Mansa%20Musa.webp",
     "civilizationAbility": {
       "name": "Songs of the Jeli",
-      "description": "-5% :production: Production. +2 :food: Food on all featureless Desert tiles other than City Centers. After Foreign Trade, your capital and any cities settled on Desert tiles gain +2 :faith: Faith. Farms can be constructed in Desert. After Civil Engineering is unlocked, Farms can be built on Desert Hills. Mines on desert tiles grant +2 :gold: Gold. - Bias: T1 Desert, T5 Minable Resources."
+      "description": "-5% :production: Production. +2 :food: Food on all featureless Desert tiles other than City Centers. After Foreign Trade, your capital and any cities settled on Desert tiles gain +2 :faith: Faith. Farms can be constructed in Desert. After Civil Engineering is unlocked, Farms can be built on Desert Hills. Mines on desert tiles grant +2 :gold: Gold. Can purchase Suguba buildings with :faith: Faith. - Bias: T1 Desert, T5 Minable Resources."
     },
     "ability": {
       "name": "Sahel Merchants",
@@ -1703,11 +1703,11 @@ export const leaders: Leader[] = [
     "portraitUrl": "/assets/bbg/leaders/Mali%20Sundiata%20Keita.webp",
     "civilizationAbility": {
       "name": "Songs of the Jeli",
-      "description": "-5% :production: Production. +2 :food: Food on all featureless Desert tiles other than City Centers. After Foreign Trade, your capital and any cities settled on Desert tiles gain +2 :faith: Faith. Farms can be constructed in Desert. After Civil Engineering is unlocked, Farms can be built on Desert Hills. Mines on desert tiles grant +2 :gold: Gold. - Bias: T1 Desert, T5 Minable Resources."
+      "description": "-5% :production: Production. +2 :food: Food on all featureless Desert tiles other than City Centers. After Foreign Trade, your capital and any cities settled on Desert tiles gain +2 :faith: Faith. Farms can be constructed in Desert. After Civil Engineering is unlocked, Farms can be built on Desert Hills. Mines on desert tiles grant +2 :gold: Gold. Can purchase Suguba buildings with :faith: Faith. - Bias: T1 Desert, T5 Minable Resources."
     },
     "ability": {
       "name": "Sogolon",
-      "description": "Patronage of :greatperson: Great People costs 30% less :gold: Gold. Cities with a Theater Square and Suguba receive +1 :greatwriter: Great Writer point. Markets gain 2 slots for :greatworkwriting: Great Works of Writing in cities founded by Sundiata. :greatworkwriting: Great Works of Writing grant +2 :culture: Culture and +4 :gold: Gold."
+      "description": "Patronage of :greatperson: Great People costs 30% less :gold: Gold. Theater Squares grant standard adjacency to Sugubas. Cities with a Theater Square and Suguba receive +1 :greatwriter: Great Writer point. Markets gain 2 slots for :greatworkwriting: Great Works of Writing in cities founded by Sundiata. :greatworkwriting: Great Works of Writing grant +2 :culture: Culture and +4 :gold: Gold."
     },
     "uniqueUnits": [
       {
@@ -1758,7 +1758,7 @@ export const leaders: Leader[] = [
     "uniqueImprovements": [
       {
         "name": "Pā",
-        "description": "Maori unique improvement built by the Toa. Occupying units receive +1 Sight and +4 :strength: Defense Strength, and automatically gains 2 turns of fortification. A Māori unit occupying a Pā heals even if they just moved or attacked. Must be built on a Hill tile.",
+        "description": "Maori unique improvement built by the Toa. Occupying units receive +1 Sight and +4 :strength: Defense Strength, and automatically gains 1 turn of fortification. A Māori unit occupying a Pā heals even if they just moved or attacked. Must be built on a Hill tile.",
         "iconUrl": "/assets/bbg/items/P%C4%81.webp"
       }
     ],
@@ -1838,7 +1838,7 @@ export const leaders: Leader[] = [
     },
     "ability": {
       "name": "Wrath of Venus",
-      "description": "Damaging enemy Cities provides a burst of :science: Science equal to the damage the City received, and conquering an Original Capital grants a random Eureka. Discovering a Technology while at war instantly heals military units by +25 Health and grants them +5 Experience."
+      "description": "Once you enter the classical era, receive -2 :strength: combat strength for all units within six tiles of your :capital: capital. Units beyond 6 tiles receive +4 :strength: combat strength. Units heal 5hp and gain 2 experience points upon completing an :techboosted: eureka."
     },
     "uniqueUnits": [
       {
@@ -2224,7 +2224,7 @@ export const leaders: Leader[] = [
     },
     "ability": {
       "name": "Merchant Princes",
-      "description": "Purchasing buildings generates a burst of :greatmerchant: Great Merchant points. Unlock the Royal Tomb unique building."
+      "description": "International :traderoute: trade routes provides +0.5 :production: Production and +2 :gold: Gold for each Luxury resource in the origin city. Unlock the Royal Tomb unique building."
     },
     "uniqueUnits": [
       {
@@ -2243,7 +2243,7 @@ export const leaders: Leader[] = [
       },
       {
         "name": "Royal Tomb",
-        "description": "Replaces the Library. Provides bonus :gold: Gold equal to the adjacency :science: Science bonus of its district. +1 :science: Science for each :greatmerchant: Great Merchant earnt by this civilization.",
+        "description": "Replaces the Library. +1 :science: Science per Great Admiral recruited by Ahiram after this city was founded or conquered. Doesn't cost maintenance.",
         "replaces": "Library",
         "iconUrl": "/assets/bbg/items/Royal%20Tomb.webp"
       }
@@ -2390,7 +2390,7 @@ export const leaders: Leader[] = [
     "portraitUrl": "/assets/bbg/leaders/Russia%20Peter.webp",
     "civilizationAbility": {
       "name": "Mother Russia",
-      "description": "Extra territory upon founding cities. +1 :production: Production from Tundra tiles. Cities in Tundra with a Lavra receive +1 :food: Food. Units do not receive damage from Blizzards. Civilizations that are at war with Russia receive +100% unit damage from Blizzards in Russian territory. - Bias: T1 Tundra."
+      "description": "Extra territory upon founding cities. +1 :production: Production from Tundra tiles. Cities in Tundra with a Shrine receive +1 :food: Food. Units do not receive damage from Blizzards. Civilizations that are at war with Russia receive +100% unit damage from Blizzards in Russian territory. - Bias: T1 Tundra."
     },
     "ability": {
       "name": "The Grand Embassy",
@@ -2492,7 +2492,7 @@ export const leaders: Leader[] = [
     "uniqueUnits": [
       {
         "name": "Conquistador",
-        "description": "Spanish unique Renaissance Era unit that replaces the Musketman. +9 :strength: Combat Strength when there is a Missionary, Inquisitor, or Apostle in the same hex. If this unit captures a city or is adjacent to a city when it is captured, the city will automatically adopt the Conquistador player's Religion as the dominant Religion.",
+        "description": "Spanish unique Renaissance era unit that replaces the Musketman. +5 :strength: Combat Strength when there is a religious unit within 1 hex. If this unit captures a city or is adjacent to a city when it is captured, the city will automatically adopt the Conquistador player's majority religion.",
         "replaces": "Musketman",
         "iconUrl": "/assets/bbg/items/Conquistador.webp"
       }
@@ -2575,7 +2575,7 @@ export const leaders: Leader[] = [
     "portraitUrl": "/assets/bbg/leaders/Sweden%20Kristina.webp",
     "civilizationAbility": {
       "name": "Nobel Prize",
-      "description": "Sweden gains 20 :favor: Diplomatic Favor (on Standard speed) when earning a :greatperson: Great Person. Having Sweden in the game adds three unique World Congress competitions starting in the Renaissance Era. +50% :production: Production towards Libraries, Workshops, Universities, Factories and Government Plaza buildings. +1 :greatengineer: Great Engineer point from Factories. +1 :greatscientist: Great Scientist point from Universities. +2 :greatwriter: Great Writer points from tier 1 Gov't Plaza building. +2 :greatartist: Great Artist points from tier 2 Gov't Plaza building. +2 :greatmusician: Great Muscician points from tier 3 Gov't Plaza building. +2 :greatscientist: Great Scientist points and +2 :greatengineer: Great Engineer points per tier of Government Plaza building. - Bias: Special \"King of the North\""
+      "description": "Sweden gains 20 :favor: Diplomatic Favor (on Standard speed) when earning a :greatperson: Great Person. Having Sweden in the game adds three unique World Congress competitions starting in the Renaissance Era. +50% :production: Production towards Libraries, Workshops, Universities, Factories and Government Plaza buildings. +1 :greatengineer: Great Engineer point from Factories. +1 :greatscientist: Great Scientist point from Universities. +2 :greatwriter: Great Writer points from tier 1 Gov't Plaza building. +2 :greatartist: Great Artist points from tier 2 Gov't Plaza building. +2 :greatmusician: Great Musician points from tier 3 Gov't Plaza building. +2 :greatscientist: Great Scientist points and +2 :greatengineer: Great Engineer points per tier of Government Plaza building. - Bias: Special \"King of the North\""
     },
     "ability": {
       "name": "Minerva of the North",
@@ -2612,16 +2612,16 @@ export const leaders: Leader[] = [
     "portraitUrl": "/assets/bbg/leaders/Teotihuac%C3%A1n%20Spearthrower%20Owl.webp",
     "civilizationAbility": {
       "name": "Where Men Become Gods",
-      "description": "May not build Settlers. All Trade Routes grant +1 :envoy: Envoy when sent to a City-state. Type bonuses from City-States following your Religion are increased by 100%."
+      "description": "When you are Suzerain of a City-state, all :traderoute: Trade Routes receive additional yields based on the type of City-state. If you are suzerain to 2 or more City-states of that type, triple these yields. +1 :food: Food for Religious +1 :production: Production for Millitaristic and Industrial +3 :gold: Gold for Commercial +1 :science: Science for Scientific +1 :culture: Culture for Cultural. - Bias: None."
     },
     "ability": {
       "name": "Lord of the West",
-      "description": "Has access to the Emissary Unique Governor, Fire Is Born. The Capital gains +1 :citizen: Population when a City-State is Conquered."
+      "description": "+1 :traderoute: Trade route capacity when completing the Pochteca Enclave and the Chancery. Unlock the unique :governor: Governor, Fire is Born."
     },
     "uniqueUnits": [
       {
         "name": "Ehuatl Wearer",
-        "description": "Replaces the Swordsmen. Unlocked at Early Empire. Does not require Iron. When at least one is within 3 tiles of a City-State, Envoys sent to that City-State are doubled.",
+        "description": "Unique Swordsman unlocked at Political Philosophy, +1 sight range and does not require strategic resources.",
         "replaces": "Swordsmen",
         "iconUrl": "/assets/bbg/items/Ehuatl%20Wearer.webp"
       }
@@ -2629,7 +2629,7 @@ export const leaders: Leader[] = [
     "uniqueBuildings": [
       {
         "name": "Pochteca Enclave",
-        "description": "Replaces the Diplomatic Quarter. Unlocked at State Workforce. Provides +1 :traderoute: Trade Route capacity, with an additonal +1 per adjacent District, and +2 per adjacent Wonder. Grants a major adjacency bonus to adjacent specialty Districts. Generates +1 :greatprophet: Great Prophet Points.",
+        "description": "Unlocked at State Workforce and replaces the Diplomatic Quarter. +1 :envoy: Envoy when built next to a city center. Grants a :governor: Governor Title when first completed. Does not count towards district limit based on :citizen: population and does not provide yields on internal :traderoute: trade routes.",
         "replaces": "Diplomatic Quarter",
         "iconUrl": "/assets/bbg/items/Pochteca%20Enclave.webp"
       }
@@ -2644,16 +2644,16 @@ export const leaders: Leader[] = [
     "portraitUrl": "/assets/bbg/leaders/Thule%20Kiviuq.webp",
     "civilizationAbility": {
       "name": "Hunting of the Bowhead",
-      "description": "Workers may build a :resourcewhales: Whales luxury resource at the cost of 1 population."
+      "description": "Builders can consume one :charges: Charge and one :citizen: Citizen to create a :resourcewhales: Whales tile. City Centers adjacent to a Hunter's House receive +1 :food: Food. At sailing, tundra tiles adjacent to a Hunter's House receive +1 :food: Food (doubled for snow). Adjacent Camps and Fishing boats receive +1 :food: Food and +1 :production: Production. A tile may only benefit from a single Hunter's House. Bias: T1 Tundra, T2 Coast."
     },
     "ability": {
-      "name": "A Heart Not Made of Stone",
-      "description": "All Cities generate +10% :faith: Faith for every Reconnaissance unit with at least 1 Promotion. Reconnaissance units gain +1 :movement: Movement and +10 :strength: Combat Strength while on Tundra, Snow, Tundra Hills, or Snow Hills terrain."
+      "name": "Heart Not Stone",
+      "description": "+5 :strength: Combat Strength and +1 :movement: Movement for Recon units starting their turn on Tundra or Snow tiles."
     },
     "uniqueUnits": [
       {
-        "name": "Dogsled Raider",
-        "description": "Skirmisher Replacement. Unlocked at Construction. Much cheaper. -5 :strength: Combat Strength when defending. +10 :strength: Combat Strength when attacking units at full health.",
+        "name": "Dogsled Hunter",
+        "description": "Thule unique Ancient era ranged Recon unit, replaces the Scout. Has 1 :charges: Charge to establish a Hunter's House.",
         "replaces": "Scout",
         "iconUrl": "/assets/bbg/items/Dogsled%20Hunter.webp"
       }
@@ -2661,8 +2661,8 @@ export const leaders: Leader[] = [
     "uniqueBuildings": [],
     "uniqueImprovements": [
       {
-        "name": "Whalebone House",
-        "description": "Unlocked at Celestial Navigation. Must be placed adjacent to 3 Coast tiles. Provides +1 :food: Food, and +1 :production: Production to each adjacent Fishing Boats improvement. Provides +1 :culture: Culture, +1 :faith: Faith, and +1 :tourism: Tourism for each adjacent Sea Resource. +1 :housing: Housing.",
+        "name": "Hunter's House",
+        "description": "Unique improvement for Thule. +1 :housing: Housing +1 :food: Food if built on a Tundra tile (doubled on snow) +1 :culture: Culture and +1 :faith: Faith for each adjacent sea resource and Camp tile after Foreign Trade. Must be built adjacent to a resource tile. Can be placed on forests. Cannot be placed next to another Hunter's House.",
         "iconUrl": "/assets/bbg/items/Hunter's%20House.webp"
       }
     ],
@@ -2755,7 +2755,7 @@ export const leaders: Leader[] = [
     "uniqueBuildings": [
       {
         "name": "Ikanda",
-        "description": "A district unique to Zulu which replaces the Encampment. Provides +1 :housing: Housing. Buildings in the Ikanda receive +2 :gold: Gold and +1 :culture: Culture. Once required Civics are unlocked, allows :corps: Corps or :army: Armies to be trained directly and their costs are reduced by 5%.",
+        "description": "A district unique to Zulu which replaces the Encampment. Provides +1 :housing: Housing. Buildings in the Ikanda receive +2 :gold: Gold and +1 :culture: Culture. Once required Civics are unlocked, allows :corps: Corps or :army: Armies to be trained directly and their costs are reduced by 5%, increasing by an additional 5% at Mercenaries, 5% at Nationalism, 5% at Mobilization, and 5% at Ideology.",
         "replaces": "Encampment",
         "iconUrl": "/assets/bbg/items/Ikanda.webp"
       }

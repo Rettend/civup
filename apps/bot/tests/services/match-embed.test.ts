@@ -55,12 +55,12 @@ describe('match result embed', () => {
     expect(fields).toContain('<@&1> -> <@&2>')
   })
 
-  test('shows the BBG data version in the footer when provided', () => {
+  test('omits the BBG footer when no beta leader data is active', () => {
     const openEmbed = lobbyOpenEmbed('2v2', [null, null, null, null], 4, null, null, 'beta').toJSON()
     const resultEmbed = lobbyResultEmbed('ffa', []).toJSON()
     const cancelledEmbed = lobbyCancelledEmbed('2v2', [], 'scrub', undefined, 'live').toJSON()
 
-    expect(openEmbed.footer?.text).toBe('BBG Beta')
+    expect(openEmbed.footer).toBeUndefined()
     expect(resultEmbed.footer).toBeUndefined()
     expect(cancelledEmbed.footer).toBeUndefined()
   })
