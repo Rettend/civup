@@ -15,7 +15,7 @@ describe('leaderboard command payload', () => {
         { id: 'p3', displayName: 'P3', avatarUrl: null, createdAt: 1 },
       ])
       await db.insert(playerRatings).values([
-        { playerId: 'p1', mode: 'ffa', mu: 30, sigma: 5, gamesPlayed: 6, wins: 3, lastPlayedAt: 1 },
+        { playerId: 'p1', mode: 'ffa', mu: 30, sigma: 5, gamesPlayed: 10, wins: 3, lastPlayedAt: 1 },
         { playerId: 'p2', mode: 'duo', mu: 31, sigma: 5, gamesPlayed: 7, wins: 4, lastPlayedAt: 1 },
         { playerId: 'p3', mode: 'duel', mu: 29, sigma: 5, gamesPlayed: 2, wins: 2, lastPlayedAt: 1 },
       ])
@@ -141,6 +141,28 @@ describe('leaderboard command payload', () => {
           { playerId: 'd4', team: 1, placement: 1 },
         ],
       })
+      await seedCompletedTeamMatch(db, {
+        matchId: 'duo-4',
+        gameMode: '2v2',
+        completedAt: 3_500,
+        participants: [
+          { playerId: 'd1', team: 0, placement: 1 },
+          { playerId: 'd2', team: 0, placement: 1 },
+          { playerId: 'd3', team: 1, placement: 2 },
+          { playerId: 'd4', team: 1, placement: 2 },
+        ],
+      })
+      await seedCompletedTeamMatch(db, {
+        matchId: 'duo-5',
+        gameMode: '2v2',
+        completedAt: 3_750,
+        participants: [
+          { playerId: 'd1', team: 0, placement: 2 },
+          { playerId: 'd2', team: 0, placement: 2 },
+          { playerId: 'd3', team: 1, placement: 1 },
+          { playerId: 'd4', team: 1, placement: 1 },
+        ],
+      })
 
       await seedCompletedTeamMatch(db, {
         matchId: 'squad-3v3-1',
@@ -172,6 +194,32 @@ describe('leaderboard command payload', () => {
         matchId: 'squad-3v3-3',
         gameMode: '3v3',
         completedAt: 6_000,
+        participants: [
+          { playerId: 's31', team: 0, placement: 2 },
+          { playerId: 's32', team: 0, placement: 2 },
+          { playerId: 's33', team: 0, placement: 2 },
+          { playerId: 's34', team: 1, placement: 1 },
+          { playerId: 's35', team: 1, placement: 1 },
+          { playerId: 's36', team: 1, placement: 1 },
+        ],
+      })
+      await seedCompletedTeamMatch(db, {
+        matchId: 'squad-3v3-4',
+        gameMode: '3v3',
+        completedAt: 6_500,
+        participants: [
+          { playerId: 's31', team: 0, placement: 1 },
+          { playerId: 's32', team: 0, placement: 1 },
+          { playerId: 's33', team: 0, placement: 1 },
+          { playerId: 's34', team: 1, placement: 2 },
+          { playerId: 's35', team: 1, placement: 2 },
+          { playerId: 's36', team: 1, placement: 2 },
+        ],
+      })
+      await seedCompletedTeamMatch(db, {
+        matchId: 'squad-3v3-5',
+        gameMode: '3v3',
+        completedAt: 6_750,
         participants: [
           { playerId: 's31', team: 0, placement: 2 },
           { playerId: 's32', team: 0, placement: 2 },
@@ -227,6 +275,36 @@ describe('leaderboard command payload', () => {
           { playerId: 's48', team: 1, placement: 1 },
         ],
       })
+      await seedCompletedTeamMatch(db, {
+        matchId: 'squad-4v4-4',
+        gameMode: '4v4',
+        completedAt: 9_500,
+        participants: [
+          { playerId: 's41', team: 0, placement: 1 },
+          { playerId: 's42', team: 0, placement: 1 },
+          { playerId: 's43', team: 0, placement: 1 },
+          { playerId: 's44', team: 0, placement: 1 },
+          { playerId: 's45', team: 1, placement: 2 },
+          { playerId: 's46', team: 1, placement: 2 },
+          { playerId: 's47', team: 1, placement: 2 },
+          { playerId: 's48', team: 1, placement: 2 },
+        ],
+      })
+      await seedCompletedTeamMatch(db, {
+        matchId: 'squad-4v4-5',
+        gameMode: '4v4',
+        completedAt: 9_750,
+        participants: [
+          { playerId: 's41', team: 0, placement: 2 },
+          { playerId: 's42', team: 0, placement: 2 },
+          { playerId: 's43', team: 0, placement: 2 },
+          { playerId: 's44', team: 0, placement: 2 },
+          { playerId: 's45', team: 1, placement: 1 },
+          { playerId: 's46', team: 1, placement: 1 },
+          { playerId: 's47', team: 1, placement: 1 },
+          { playerId: 's48', team: 1, placement: 1 },
+        ],
+      })
 
       const payload = await buildLeaderboardCommandPayload(db, kv, null, { view: 'teams' })
       const titles = payload.embeds?.map(embed => embed.toJSON().title) ?? []
@@ -247,7 +325,7 @@ describe('leaderboard command payload', () => {
     }
   })
 
-  test('shows an explicit empty team board when a lineup has fewer than three shared games', async () => {
+  test('shows an explicit empty team board when a lineup has fewer than five shared games', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
@@ -339,7 +417,7 @@ describe('leaderboard command payload', () => {
         { playerId: 's44', mode: 'squad', mu: 31, sigma: 6, gamesPlayed: 6, wins: 4 },
       ])
 
-      for (const [index, matchId] of ['squad-3-1', 'squad-3-2', 'squad-3-3'].entries()) {
+      for (const [index, matchId] of ['squad-3-1', 'squad-3-2', 'squad-3-3', 'squad-3-4', 'squad-3-5'].entries()) {
         await seedCompletedTeamMatch(db, {
           matchId,
           gameMode: '3v3',
@@ -355,7 +433,7 @@ describe('leaderboard command payload', () => {
         })
       }
 
-      for (const [index, matchId] of ['squad-4-1', 'squad-4-2', 'squad-4-3'].entries()) {
+      for (const [index, matchId] of ['squad-4-1', 'squad-4-2', 'squad-4-3', 'squad-4-4', 'squad-4-5'].entries()) {
         await seedCompletedTeamMatch(db, {
           matchId,
           gameMode: '4v4',
