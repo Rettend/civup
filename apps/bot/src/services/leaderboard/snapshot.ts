@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import { playerRatings } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
-import { eq, inArray } from 'drizzle-orm'
+import { inArray } from 'drizzle-orm'
 import { recalculateLeaderboardMode } from '../match/ratings.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
 
@@ -50,26 +50,8 @@ export async function ensureLeaderboardModeSnapshots(
   const requestedModes = [...new Set(modes.filter(isLeaderboardMode))]
   if (requestedModes.length === 0) return new Map()
 
-  const rawSnapshots = await stateStoreMget(kv, requestedModes.map(mode => ({
-    key: leaderboardModeSnapshotKey(mode),
-    type: 'json',
-  })))
-
-  const snapshots = new Map<LeaderboardMode, LeaderboardModeSnapshot>()
-  const missingModes: LeaderboardMode[] = []
-
-  for (let index = 0; index < requestedModes.length; index++) {
-    const mode = requestedModes[index]
-    if (!mode) continue
-
-    const snapshot = normalizeLeaderboardModeSnapshot(mode, rawSnapshots[index])
-    if (snapshot) {
-      snapshots.set(mode, snapshot)
-      continue
-    }
-
-    missingModes.push(mode)
-  }
+  const snapshots = await getStoredLeaderboardModeSnapshots(kv, requestedModes)
+  const missingModes = requestedModes.filter(mode => !snapshots.has(mode))
 
   if (missingModes.length === 0) return snapshots
 
@@ -91,6 +73,39 @@ export async function ensureLeaderboardModeSnapshots(
   await setLeaderboardModeSnapshots(kv, rebuilt)
   for (const snapshot of rebuilt) {
     snapshots.set(snapshot.mode, snapshot)
+  }
+
+  return snapshots
+}
+
+export async function getStoredLeaderboardModeSnapshot(
+  kv: KVNamespace,
+  mode: LeaderboardMode,
+): Promise<LeaderboardModeSnapshot | null> {
+  const snapshots = await getStoredLeaderboardModeSnapshots(kv, [mode])
+  return snapshots.get(mode) ?? null
+}
+
+export async function getStoredLeaderboardModeSnapshots(
+  kv: KVNamespace,
+  modes: readonly LeaderboardMode[] = LEADERBOARD_MODES,
+): Promise<Map<LeaderboardMode, LeaderboardModeSnapshot>> {
+  const requestedModes = [...new Set(modes.filter(isLeaderboardMode))]
+  if (requestedModes.length === 0) return new Map()
+
+  const rawSnapshots = await stateStoreMget(kv, requestedModes.map(mode => ({
+    key: leaderboardModeSnapshotKey(mode),
+    type: 'json',
+  })))
+
+  const snapshots = new Map<LeaderboardMode, LeaderboardModeSnapshot>()
+  for (let index = 0; index < requestedModes.length; index++) {
+    const mode = requestedModes[index]
+    if (!mode) continue
+
+    const snapshot = normalizeLeaderboardModeSnapshot(mode, rawSnapshots[index])
+    if (!snapshot) continue
+    snapshots.set(mode, snapshot)
   }
 
   return snapshots

@@ -4,6 +4,7 @@ import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility, selectActivityTargetForUser } from '../../src/routes/activity.ts'
 import { buildOpenLobbySnapshot, resolveOpenLobbyFromBody } from '../../src/routes/lobby/snapshot.ts'
 import { getUserActivityTarget, handoffLobbySpectatorsToMatchActivity, storeMatchActivityState, storeUserActivityTarget, storeUserLobbyState } from '../../src/services/activity/index.ts'
+import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
 import { attachLobbyMatch, createLobby, getLobbyById, setLobbyMaxRole, setLobbyMinRole } from '../../src/services/lobby/index.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
@@ -218,6 +219,40 @@ describe('activity target selection', () => {
 
     const snapshot = await buildOpenLobbySnapshot(kv, '2v2', lobby)
     expect(snapshot.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
+  })
+
+  test('includes cached balance ratings in open lobby snapshots', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await kv.put(leaderboardModeSnapshotKey('duo'), JSON.stringify({
+      updatedAt: Date.now(),
+      rows: [
+        { playerId: 'host-1', mu: 31, sigma: 3, gamesPlayed: 12, wins: 7, lastPlayedAt: null },
+      ],
+    }))
+
+    const snapshot = await buildOpenLobbySnapshot(kv, '2v2', lobby)
+    const hostEntry = snapshot.entries.find(entry => entry?.playerId === 'host-1') ?? null
+
+    expect(hostEntry).toEqual(expect.objectContaining({
+      playerId: 'host-1',
+      balanceRating: {
+        mu: 31,
+        sigma: 3,
+        gamesPlayed: 12,
+      },
+    }))
   })
 
   test('does not auto-select unrelated open lobbies for spectators', async () => {
