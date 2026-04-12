@@ -28,7 +28,7 @@ describe('leaderboard message service', () => {
       mode: 'ffa',
       mu: 35,
       sigma: 6,
-      gamesPlayed: 8,
+      gamesPlayed: 10,
       wins: 5,
       lastPlayedAt: NOW,
     })
