@@ -1524,7 +1524,11 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return isSpectator() ? 'Spectating' : 'Waiting for host'
   }
 
-  const desktopSetupPanelHeightClass = () => amHost() ? 'lg:h-[432px]' : 'lg:h-[336px]'
+  const desktopSetupPanelHeightClass = () => {
+    if (amHost()) return 'lg:h-[432px]'
+    if (isCurrentUserSlotted() && lobbyMode() === '6v6') return 'lg:h-[368px]'
+    return 'lg:h-[336px]'
+  }
 
   return (
     <Show

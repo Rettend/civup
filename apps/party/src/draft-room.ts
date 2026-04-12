@@ -31,13 +31,16 @@ import {
   sanitizeDraftPreviews,
 } from './draft-previews.ts'
 import {
+  buildRandomDraftResult,
+  pickRandomDistinct,
+} from './random-draft.ts'
+import {
   canOpenSwapWindowForState,
   countConnectedDraftParticipants,
   getNextSwapLifecycleAlarmAt,
   getSwapDisconnectFinalizeAtAfterDisconnect,
   getSwapWindowAlarmAction,
 } from './swap-window.ts'
-import { buildRandomDraftResult, pickRandomDistinct } from './random-draft.ts'
 
 interface PartyEnv extends Cloudflare.Env {
   CIVUP_SECRET?: string
@@ -886,7 +889,6 @@ export class Main extends Server<PartyEnv> {
 
   private async finalizeCompletedDraft(state: DraftState) {
     if (!(await this.isSwapWindowOpen())) return
-
     await this.ctx.storage.deleteAlarm()
     await this.ctx.storage.put('alarmStepIndex', -1)
     await this.ctx.storage.put('timerEndsAt', null)
@@ -899,7 +901,6 @@ export class Main extends Server<PartyEnv> {
 
     const config = await this.ctx.storage.get<RoomConfig>('config')
     await this.clearSwapWindowState()
-
     this.closeAllConnections('Draft closed')
 
     if (!config) return
