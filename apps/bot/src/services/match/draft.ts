@@ -7,6 +7,9 @@ import { and, eq } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { getActiveSeason } from '../season/index.ts'
 
+const MATCH_PARTICIPANT_INSERT_COLUMN_COUNT = 9
+const D1_MAX_SQL_VARIABLES = 100
+
 export async function createDraftMatch(
   db: Database,
   input: CreateDraftMatchInput,
@@ -65,20 +68,34 @@ export async function createDraftMatch(
     .limit(1)
 
   if (!existingParticipant && input.seats.length > 0) {
-    await db.insert(matchParticipants).values(
-      input.seats.map(seat => ({
-        matchId: input.matchId,
-        playerId: seat.playerId,
-        team: seat.team ?? null,
-        civId: null,
-        placement: null,
-        ratingBeforeMu: null,
-        ratingBeforeSigma: null,
-        ratingAfterMu: null,
-        ratingAfterSigma: null,
-      })),
-    )
+    const participantValues = input.seats.map(seat => ({
+      matchId: input.matchId,
+      playerId: seat.playerId,
+      team: seat.team ?? null,
+      civId: null,
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    }))
+
+    for (const chunk of splitValuesForD1InsertLimit(participantValues, MATCH_PARTICIPANT_INSERT_COLUMN_COUNT)) {
+      await db.insert(matchParticipants).values(chunk)
+    }
   }
+}
+
+export function splitValuesForD1InsertLimit<T>(values: T[], columnCount: number, maxVariables: number = D1_MAX_SQL_VARIABLES): T[][] {
+  if (values.length === 0) return []
+  if (!Number.isInteger(columnCount) || columnCount <= 0) return [values]
+
+  const maxRowsPerInsert = Math.max(1, Math.floor(maxVariables / columnCount))
+  const chunks: T[][] = []
+  for (let index = 0; index < values.length; index += maxRowsPerInsert) {
+    chunks.push(values.slice(index, index + maxRowsPerInsert))
+  }
+  return chunks
 }
 
 export async function activateDraftMatch(
