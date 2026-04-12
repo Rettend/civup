@@ -30,12 +30,14 @@ interface StoredSeedRow {
   playerId: string
   mu: number
   sigma: number
+  fadeGamesRemaining: number | null
 }
 
 interface StoredMatchRow {
   id: string
   gameMode: string
   draftData: string | null
+  isOld: boolean
   createdAt: number
   completedAt: number | null
 }
@@ -56,6 +58,7 @@ interface HistoricalParticipantRow {
   matchId: string
   createdAt: number
   completedAt: number | null
+  isOld: boolean
   playerId: string
   placement: number | null
   ratingAfterMu: number | null
@@ -68,6 +71,12 @@ interface RatingState {
   gamesPlayed: number
   wins: number
   lastPlayedAt: number | null
+}
+
+interface SeedFadeState {
+  initialBonusMu: number
+  fadeGamesRemaining: number
+  newBotGamesPlayed: number
 }
 
 interface SeasonProgress {
@@ -111,12 +120,14 @@ export async function recalculateLeaderboardMode(
         playerId: playerRatingSeeds.playerId,
         mu: playerRatingSeeds.mu,
         sigma: playerRatingSeeds.sigma,
+        fadeGamesRemaining: playerRatingSeeds.fadeGamesRemaining,
       })
       .from(playerRatingSeeds)
       .where(eq(playerRatingSeeds.mode, leaderboardMode)),
   ])
 
   if (options.fromMatchId) {
+    if (hasLiveSeedFade(seedRows)) return await recalculateLeaderboardModeFromScratch(db, leaderboardMode, gameModes, seasonRows, seedRows)
     return await recalculateLeaderboardModeFromBoundary(
       db,
       leaderboardMode,
@@ -143,6 +154,7 @@ async function recalculateLeaderboardModeFromScratch(
       id: matches.id,
       gameMode: matches.gameMode,
       draftData: matches.draftData,
+      isOld: matches.isOld,
       createdAt: matches.createdAt,
       completedAt: matches.completedAt,
     })
@@ -174,7 +186,7 @@ async function recalculateLeaderboardModeFromScratch(
         ))
     : []
 
-  const ratingStateByPlayer = createSeededRatingState(seedRows)
+  const { ratingStateByPlayer, seedFadeStateByPlayer } = createReplayStates(seedRows)
   const seasonProgress: SeasonProgress = { value: 0 }
   const participantsByMatchId = buildParticipantsByMatchId(allParticipantRows)
 
@@ -182,7 +194,7 @@ async function recalculateLeaderboardModeFromScratch(
     applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, match.createdAt)
 
     const participantRows = participantsByMatchId.get(match.id) ?? []
-    const replayResult = await replayCompletedMatch(db, leaderboardMode, match, participantRows, ratingStateByPlayer)
+    const replayResult = await replayCompletedMatch(db, leaderboardMode, match, participantRows, ratingStateByPlayer, seedFadeStateByPlayer)
     if (typeof replayResult === 'string') return { error: replayResult }
   }
 
@@ -206,6 +218,7 @@ async function recalculateLeaderboardModeFromBoundary(
       id: matches.id,
       gameMode: matches.gameMode,
       draftData: matches.draftData,
+      isOld: matches.isOld,
       createdAt: matches.createdAt,
       completedAt: matches.completedAt,
     })
@@ -231,6 +244,7 @@ async function recalculateLeaderboardModeFromBoundary(
         id: matches.id,
         gameMode: matches.gameMode,
         draftData: matches.draftData,
+        isOld: matches.isOld,
         createdAt: matches.createdAt,
         completedAt: matches.completedAt,
       })
@@ -271,6 +285,7 @@ async function recalculateLeaderboardModeFromBoundary(
           matchId: matchParticipants.matchId,
           createdAt: matches.createdAt,
           completedAt: matches.completedAt,
+          isOld: matches.isOld,
           playerId: matchParticipants.playerId,
           placement: matchParticipants.placement,
           ratingAfterMu: matchParticipants.ratingAfterMu,
@@ -287,10 +302,11 @@ async function recalculateLeaderboardModeFromBoundary(
         .orderBy(asc(matches.createdAt), asc(matches.id), asc(matchParticipants.playerId))
     : []
 
-  const ratingStateByPlayer = createSeededRatingState(seedRows, affectedPlayerIds)
+  const { ratingStateByPlayer, seedFadeStateByPlayer } = createReplayStates(seedRows, affectedPlayerIds)
   const seasonProgress: SeasonProgress = { value: 0 }
   const hydrateResult = hydrateRatingStateUntilBoundary(
     ratingStateByPlayer,
+    seedFadeStateByPlayer,
     seasonRows,
     seasonProgress,
     earlierParticipantRows,
@@ -303,7 +319,7 @@ async function recalculateLeaderboardModeFromBoundary(
     applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, match.createdAt)
 
     const participantRows = participantsByMatchId.get(match.id) ?? []
-    const replayResult = await replayCompletedMatch(db, leaderboardMode, match, participantRows, ratingStateByPlayer)
+    const replayResult = await replayCompletedMatch(db, leaderboardMode, match, participantRows, ratingStateByPlayer, seedFadeStateByPlayer)
     if (typeof replayResult === 'string') return { error: replayResult }
   }
 
@@ -313,12 +329,21 @@ async function recalculateLeaderboardModeFromBoundary(
   return { matchIds: replayMatches.map(match => match.id) }
 }
 
-function createSeededRatingState(seedRows: StoredSeedRow[], playerIds?: string[]): Map<string, RatingState> {
+function createReplayStates(
+  seedRows: StoredSeedRow[],
+  playerIds?: string[],
+): {
+  ratingStateByPlayer: Map<string, RatingState>
+  seedFadeStateByPlayer: Map<string, SeedFadeState>
+} {
   const playerIdSet = playerIds ? new Set(playerIds) : null
   const ratingStateByPlayer = new Map<string, RatingState>()
+  const seedFadeStateByPlayer = new Map<string, SeedFadeState>()
 
   for (const seed of seedRows) {
     if (playerIdSet && !playerIdSet.has(seed.playerId)) continue
+
+    if (seed.fadeGamesRemaining != null && seed.fadeGamesRemaining <= 0) continue
 
     ratingStateByPlayer.set(seed.playerId, {
       mu: seed.mu,
@@ -327,9 +352,18 @@ function createSeededRatingState(seedRows: StoredSeedRow[], playerIds?: string[]
       wins: 0,
       lastPlayedAt: null,
     })
+
+    if (seed.fadeGamesRemaining != null && seed.fadeGamesRemaining > 0) {
+      const defaultRating = createRating(seed.playerId)
+      seedFadeStateByPlayer.set(seed.playerId, {
+        initialBonusMu: seed.mu - defaultRating.mu,
+        fadeGamesRemaining: seed.fadeGamesRemaining,
+        newBotGamesPlayed: 0,
+      })
+    }
   }
 
-  return ratingStateByPlayer
+  return { ratingStateByPlayer, seedFadeStateByPlayer }
 }
 
 function buildParticipantsByMatchId(rows: StoredParticipantRow[]): Map<string, StoredParticipantRow[]> {
@@ -370,6 +404,7 @@ function applySeasonResetsUntil(
 
 function hydrateRatingStateUntilBoundary(
   ratingStateByPlayer: Map<string, RatingState>,
+  seedFadeStateByPlayer: Map<string, SeedFadeState>,
   seasonRows: StoredSeasonRow[],
   seasonProgress: SeasonProgress,
   rows: HistoricalParticipantRow[],
@@ -392,12 +427,18 @@ function hydrateRatingStateUntilBoundary(
       }
 
       const currentState = ratingStateByPlayer.get(row.playerId) ?? createDefaultRatingState(row.playerId)
+      const shouldCountAsNewBotGame = !row.isOld
+      const seedFadeState = seedFadeStateByPlayer.get(row.playerId)
+      if (seedFadeState && shouldCountAsNewBotGame) {
+        seedFadeState.newBotGamesPlayed += 1
+        seedFadeStateByPlayer.set(row.playerId, seedFadeState)
+      }
       ratingStateByPlayer.set(row.playerId, {
         mu: row.ratingAfterMu,
         sigma: row.ratingAfterSigma,
-        gamesPlayed: currentState.gamesPlayed + 1,
-        wins: currentState.wins + (row.placement === 1 ? 1 : 0),
-        lastPlayedAt: currentMatchCompletedAt ?? currentMatchCreatedAt,
+        gamesPlayed: currentState.gamesPlayed + (shouldCountAsNewBotGame ? 1 : 0),
+        wins: currentState.wins + (shouldCountAsNewBotGame && row.placement === 1 ? 1 : 0),
+        lastPlayedAt: shouldCountAsNewBotGame ? (currentMatchCompletedAt ?? currentMatchCreatedAt) : currentState.lastPlayedAt,
       })
     }
 
@@ -431,6 +472,7 @@ async function replayCompletedMatch(
   match: StoredMatchRow,
   participantRows: StoredParticipantRow[],
   ratingStateByPlayer: Map<string, RatingState>,
+  seedFadeStateByPlayer: Map<string, SeedFadeState>,
 ): Promise<string | null> {
   const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
   if (!gameContext) return `Completed match **${match.id}** has unsupported game mode: ${match.gameMode}.`
@@ -441,19 +483,74 @@ async function replayCompletedMatch(
     return `Completed match **${match.id}** has missing placements.`
   }
 
-  let ratingUpdates
   const gameMode = gameContext.mode
+  const ratingUpdates = calculateRatingUpdatesForMatch(gameMode, participantRows, (playerId) => {
+    const existingRating = ratingStateByPlayer.get(playerId)
+    if (existingRating) return { mu: existingRating.mu, sigma: existingRating.sigma }
+    const rating = createRating(playerId)
+    return { mu: rating.mu, sigma: rating.sigma }
+  })
 
-  if (isTeamMode(gameMode) || gameMode === '1v1') {
+  const updateByPlayer = new Map(ratingUpdates.map(update => [update.playerId, update]))
+  const participantUpdateQueries: BatchItem[] = []
+  const shouldCountAsNewBotGame = !match.isOld
+
+  for (const participant of participantRows) {
+    const update = updateByPlayer.get(participant.playerId)
+    if (!update) return `Failed to recalculate ratings for match **${match.id}**.`
+
+    const currentState = ratingStateByPlayer.get(participant.playerId) ?? createDefaultRatingState(participant.playerId)
+    const seedFadeState = seedFadeStateByPlayer.get(participant.playerId)
+    let ratingAfterMu = update.after.mu
+
+    if (seedFadeState && shouldCountAsNewBotGame) {
+      const previousBonusMu = currentSeedBonusMu(seedFadeState)
+      seedFadeState.newBotGamesPlayed += 1
+      ratingAfterMu -= previousBonusMu - currentSeedBonusMu(seedFadeState)
+      seedFadeStateByPlayer.set(participant.playerId, seedFadeState)
+    }
+
+    participantUpdateQueries.push(
+      db
+        .update(matchParticipants)
+        .set({
+          ratingBeforeMu: update.before.mu,
+          ratingBeforeSigma: update.before.sigma,
+          ratingAfterMu,
+          ratingAfterSigma: update.after.sigma,
+        })
+        .where(
+          and(
+            eq(matchParticipants.matchId, match.id),
+            eq(matchParticipants.playerId, participant.playerId),
+          ),
+        ),
+    )
+
+    ratingStateByPlayer.set(participant.playerId, {
+      mu: ratingAfterMu,
+      sigma: update.after.sigma,
+      gamesPlayed: currentState.gamesPlayed + (shouldCountAsNewBotGame ? 1 : 0),
+      wins: currentState.wins + (shouldCountAsNewBotGame && participant.placement === 1 ? 1 : 0),
+      lastPlayedAt: shouldCountAsNewBotGame ? (match.completedAt ?? match.createdAt) : currentState.lastPlayedAt,
+    })
+  }
+
+  await runBatch(db, participantUpdateQueries)
+  return null
+}
+
+function calculateRatingUpdatesForMatch(
+  gameMode: string,
+  participantRows: StoredParticipantRow[],
+  resolveRating: (playerId: string) => { mu: number, sigma: number },
+) {
+  if (isTeamMode(gameMode as Parameters<typeof isTeamMode>[0]) || gameMode === '1v1') {
     const teams = new Map<number, { playerId: string, mu: number, sigma: number }[]>()
 
     for (const participant of participantRows) {
       const team = participant.team ?? 0
-      const existingRating = ratingStateByPlayer.get(participant.playerId)
-      const rating = existingRating
-        ? { mu: existingRating.mu, sigma: existingRating.sigma }
-        : createRating(participant.playerId)
-
+      const rating = resolveRating(participant.playerId)
       const teamPlayers = teams.get(team) ?? []
       teamPlayers.push({ playerId: participant.playerId, mu: rating.mu, sigma: rating.sigma })
       teams.set(team, teamPlayers)
@@ -469,64 +566,22 @@ async function replayCompletedMatch(
       players: players.map(player => ({ playerId: player.playerId, mu: player.mu, sigma: player.sigma })),
     }))
 
-    ratingUpdates = calculateRatings({ type: 'team', teams: teamInputs })
-  }
-  else {
-    const ffaEntries: FfaEntry[] = participantRows.map((participant) => {
-      const existingRating = ratingStateByPlayer.get(participant.playerId)
-      const rating = existingRating
-        ? { mu: existingRating.mu, sigma: existingRating.sigma }
-        : createRating(participant.playerId)
-
-      return {
-        player: {
-          playerId: participant.playerId,
-          mu: rating.mu,
-          sigma: rating.sigma,
-        },
-        placement: participant.placement!,
-      }
-    })
-
-    ratingUpdates = calculateRatings({ type: 'ffa', entries: ffaEntries })
+    return calculateRatings({ type: 'team', teams: teamInputs })
   }
 
-  const updateByPlayer = new Map(ratingUpdates.map(update => [update.playerId, update]))
-  const participantUpdateQueries: BatchItem[] = []
+  const ffaEntries: FfaEntry[] = participantRows.map((participant) => {
+    const rating = resolveRating(participant.playerId)
+    return {
+      player: {
+        playerId: participant.playerId,
+        mu: rating.mu,
+        sigma: rating.sigma,
+      },
+      placement: participant.placement!,
+    }
+  })
 
-  for (const participant of participantRows) {
-    const update = updateByPlayer.get(participant.playerId)
-    if (!update) return `Failed to recalculate ratings for match **${match.id}**.`
-
-    participantUpdateQueries.push(
-      db
-        .update(matchParticipants)
-        .set({
-          ratingBeforeMu: update.before.mu,
-          ratingBeforeSigma: update.before.sigma,
-          ratingAfterMu: update.after.mu,
-          ratingAfterSigma: update.after.sigma,
-        })
-        .where(
-          and(
-            eq(matchParticipants.matchId, match.id),
-            eq(matchParticipants.playerId, participant.playerId),
-          ),
-        ),
-    )
-
-    const currentState = ratingStateByPlayer.get(participant.playerId) ?? createDefaultRatingState(participant.playerId)
-    ratingStateByPlayer.set(participant.playerId, {
-      mu: update.after.mu,
-      sigma: update.after.sigma,
-      gamesPlayed: currentState.gamesPlayed + 1,
-      wins: currentState.wins + (participant.placement === 1 ? 1 : 0),
-      lastPlayedAt: match.completedAt ?? match.createdAt,
-    })
-  }
-
-  await runBatch(db, participantUpdateQueries)
-  return null
+  return calculateRatings({ type: 'ffa', entries: ffaEntries })
 }
 
 async function replacePlayerRatings(
@@ -579,6 +634,16 @@ function createDefaultRatingState(playerId: string): RatingState {
     wins: 0,
     lastPlayedAt: null,
   }
+}
+
+function hasLiveSeedFade(seedRows: StoredSeedRow[]): boolean {
+  return seedRows.some(row => (row.fadeGamesRemaining ?? 0) > 0)
+}
+
+function currentSeedBonusMu(state: SeedFadeState): number {
+  if (state.fadeGamesRemaining <= 0) return 0
+  const remainingGames = Math.max(0, state.fadeGamesRemaining - state.newBotGamesPlayed)
+  return state.initialBonusMu * (remainingGames / state.fadeGamesRemaining)
 }
 
 function buildBoundaryCondition(

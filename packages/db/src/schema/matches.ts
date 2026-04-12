@@ -12,6 +12,8 @@ export const matches = sqliteTable('matches', {
   gameMode: text('game_mode').notNull(),
   /** drafting | active | completed | cancelled */
   status: text('status').notNull().default('drafting'),
+  /** Imported legacy match from the old bot export. */
+  isOld: integer('is_old', { mode: 'boolean' }).notNull().default(false),
   /** Reference to the season */
   seasonId: text('season_id').references(() => seasons.id),
   /** Full draft log as JSON (bans, picks, order, format used) */

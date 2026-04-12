@@ -250,6 +250,50 @@ describe('player rank views', () => {
 
     sqlite.close()
   })
+
+  test('renders old match history without empty leader placeholders', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    await seedPlayerIdentity(db, HERO_ID)
+    await seedPlayerIdentity(db, '100010000000000098')
+    await seedPlayerIdentity(db, '100010000000000097')
+    await seedPlayerIdentity(db, '100010000000000096')
+    await seedPlayerIdentity(db, '100010000000000095')
+    await seedRating(db, { playerId: HERO_ID, mode: 'duel', mu: 30, sigma: 6, gamesPlayed: 1, lastPlayedAt: NOW })
+    await seedRating(db, { playerId: HERO_ID, mode: 'duo', mu: 29, sigma: 6, gamesPlayed: 1, lastPlayedAt: NOW })
+
+    await seedCompletedMatch(db, {
+      matchId: 'old-duel-1',
+      gameMode: '1v1',
+      completedAt: NOW - 2_000,
+      isOld: true,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: 'babylon-hammurabi' },
+        { playerId: '100010000000000098', team: 1, placement: 2, civId: 'rome-trajan' },
+      ],
+    })
+    await seedCompletedMatch(db, {
+      matchId: 'old-duo-1',
+      gameMode: '2v2',
+      completedAt: NOW - 1_000,
+      isOld: true,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: null },
+        { playerId: '100010000000000097', team: 0, placement: 1, civId: null },
+        { playerId: '100010000000000096', team: 1, placement: 2, civId: null },
+        { playerId: '100010000000000095', team: 1, placement: 2, civId: null },
+      ],
+    })
+
+    const stats = (await playerCardEmbed(db, HERO_ID)).toJSON()
+    const recentMatchesField = stats.fields?.find(field => field.name === 'Recent Matches')
+
+    expect(recentMatchesField?.value).toContain('Hammurabi')
+    expect(recentMatchesField?.value).not.toContain('[empty]')
+    expect(recentMatchesField?.value).toContain('2v2')
+
+    sqlite.close()
+  })
 })
 
 async function seedPlayers(
@@ -354,4 +398,43 @@ async function seedCompletedSeasonMatch(
     ratingAfterMu: null,
     ratingAfterSigma: null,
   })
+}
+
+async function seedCompletedMatch(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  row: {
+    matchId: string
+    gameMode: GameMode
+    completedAt: number
+    isOld?: boolean
+    participants: Array<{
+      playerId: string
+      team: number | null
+      placement: number
+      civId: string | null
+    }>
+  },
+): Promise<void> {
+  await db.insert(matches).values({
+    id: row.matchId,
+    gameMode: row.gameMode,
+    status: 'completed',
+    isOld: row.isOld ?? false,
+    seasonId: null,
+    draftData: null,
+    createdAt: row.completedAt - 10_000,
+    completedAt: row.completedAt,
+  })
+
+  await db.insert(matchParticipants).values(row.participants.map(participant => ({
+    matchId: row.matchId,
+    playerId: participant.playerId,
+    team: participant.team,
+    civId: participant.civId,
+    placement: participant.placement,
+    ratingBeforeMu: null,
+    ratingBeforeSigma: null,
+    ratingAfterMu: null,
+    ratingAfterSigma: null,
+  })))
 }
