@@ -25,6 +25,7 @@ export {
   playerCountOptions,
   playersPerTeam,
   slotToTeamIndex,
+  startPlayerCountOptions,
   teamCount,
   teamSize,
   toLeaderboardMode,

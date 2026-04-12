@@ -331,7 +331,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const formatId = () => {
     const lobby = currentLobby()
     if (lobby) return formatModeLabel(lobby.mode, 'DRAFT', { redDeath: draftConfig().redDeath, targetSize: lobby.targetSize })
-    return formatModeLabel(inferGameMode(state()?.formatId), 'DRAFT', { redDeath: isRedDeathDraft() })
+    return formatModeLabel(inferGameMode(state()?.formatId), 'DRAFT', { redDeath: isRedDeathDraft(), targetSize: state()?.seats.length })
   }
   const isTeamMode = () => {
     const lobby = currentLobby()
@@ -658,11 +658,9 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const canStartLobby = () => {
     const lobby = currentLobby()
     if (!lobby) return false
-    if (inferGameMode(lobby.mode) === 'ffa' && optimisticDraftConfig().redDeath) {
-      const filled = filledSlots()
-      return [4, 6, 8, 10].includes(filled) && filled <= lobby.targetSize
-    }
-    return canStartWithPlayerCount(inferGameMode(lobby.mode), filledSlots(), lobby.targetSize)
+    return canStartWithPlayerCount(inferGameMode(lobby.mode), filledSlots(), lobby.targetSize, {
+      redDeath: optimisticDraftConfig().redDeath,
+    })
   }
 
   const show2v2TeamCountToggle = () => isLobbyMode() && lobbyMode() === '2v2'

@@ -1,7 +1,5 @@
 import type { DraftFormat, DraftSeat, DraftStep, GameMode } from './types.ts'
 
-const FULL_ROSTER_2V2_PICK_ORDER = [0, 1, 3, 2] as const
-const FOUR_TEAM_2V2_PICK_ORDER = [0, 1, 2, 3, 7, 6, 5, 4] as const
 const FULL_ROSTER_3V3_PICK_ORDER = [0, 1, 3, 2, 4, 5] as const
 const FULL_ROSTER_4V4_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7] as const
 const TEAM_BAN_STEP: DraftStep = { action: 'ban', seats: [0, 1], count: 3, timer: 120 }
@@ -18,6 +16,18 @@ function createCaptainBanStep(captainCount: number): DraftStep {
     count: 3,
     timer: 120,
   }
+}
+
+function getTwoVTwoTeamCount(seatCount: number): number {
+  return Math.max(2, Math.floor(Math.max(4, seatCount) / 2))
+}
+
+function createTwoVTwoPickOrder(seatCount: number): number[] {
+  const teams = getTwoVTwoTeamCount(seatCount)
+  return [
+    ...Array.from({ length: teams }, (_, seatIndex) => seatIndex),
+    ...Array.from({ length: teams }, (_, index) => (teams * 2) - 1 - index),
+  ]
 }
 
 function createTeamFormat(config: {
@@ -71,10 +81,10 @@ export const default2v2 = createTeamFormat({
   name: '2v2',
   gameMode: '2v2',
   getPickOrder(seatCount) {
-    return seatCount <= 4 ? FULL_ROSTER_2V2_PICK_ORDER : FOUR_TEAM_2V2_PICK_ORDER
+    return createTwoVTwoPickOrder(seatCount)
   },
   getBanStep(seatCount) {
-    return seatCount <= 4 ? TEAM_BAN_STEP : createCaptainBanStep(4)
+    return seatCount <= 4 ? TEAM_BAN_STEP : createCaptainBanStep(getTwoVTwoTeamCount(seatCount))
   },
 })
 
@@ -180,7 +190,7 @@ export const redDeath2v2 = createRedDeathFormat({
   name: 'Red Death 2v2',
   gameMode: '2v2',
   getPickOrder(seatCount) {
-    return seatCount <= 4 ? FULL_ROSTER_2V2_PICK_ORDER : FOUR_TEAM_2V2_PICK_ORDER
+    return createTwoVTwoPickOrder(seatCount)
   },
 })
 

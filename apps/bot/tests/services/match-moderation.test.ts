@@ -78,6 +78,88 @@ describe('match moderation recalculation', () => {
     }
   })
 
+  test('resolve on a newly completed mid-history 1v1 match replays from that match onward', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedThreeCompletedDuels(db)
+      await db.insert(matches).values({
+        id: 'm1a',
+        gameMode: '1v1',
+        status: 'active',
+        createdAt: 2500,
+        completedAt: null,
+        seasonId: null,
+        draftData: null,
+      })
+      await db.insert(matchParticipants).values([
+        { matchId: 'm1a', playerId: 'p1', team: 0, civId: 'aztec', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'm1a', playerId: 'p2', team: 1, civId: 'egypt', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ])
+
+      const result = await resolveMatchByModerator(db, kv, {
+        matchId: 'm1a',
+        placements: 'B',
+        resolvedAt: 10_000,
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+
+      expect(result.recalculatedMatchIds).toEqual(['m1a', 'm2', 'm3'])
+
+      const duelRatings = await db
+        .select()
+        .from(playerRatings)
+        .where(eq(playerRatings.mode, 'duel'))
+
+      expect(duelRatings).toHaveLength(2)
+      expect(duelRatings.every(row => row.gamesPlayed === 4)).toBe(true)
+
+      const [m1aP1] = await db
+        .select({
+          ratingBeforeMu: matchParticipants.ratingBeforeMu,
+          ratingAfterMu: matchParticipants.ratingAfterMu,
+        })
+        .from(matchParticipants)
+        .where(and(
+          eq(matchParticipants.matchId, 'm1a'),
+          eq(matchParticipants.playerId, 'p1'),
+        ))
+        .limit(1)
+
+      expect(m1aP1?.ratingBeforeMu).not.toBeNull()
+      expect(m1aP1?.ratingAfterMu).not.toBeNull()
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('resolve on the latest completed 1v1 match only recalculates that match', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedThreeCompletedDuels(db)
+
+      const result = await resolveMatchByModerator(db, kv, {
+        matchId: 'm3',
+        placements: 'A',
+        resolvedAt: 10_000,
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+
+      expect(result.recalculatedMatchIds).toEqual(['m3'])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('cancel on a completed 1v1 match removes it from track and recalculates later matches', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -127,6 +209,36 @@ describe('match moderation recalculation', () => {
         .limit(1)
 
       expect(m2p1?.ratingBeforeMu).not.toBeCloseTo(27, 5)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('cancel on the latest completed 1v1 match does not replay downstream matches', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedThreeCompletedDuels(db)
+
+      const result = await cancelMatchByModerator(db, kv, {
+        matchId: 'm3',
+        cancelledAt: 10_000,
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+
+      expect(result.recalculatedMatchIds).toEqual([])
+
+      const duelRatings = await db
+        .select()
+        .from(playerRatings)
+        .where(eq(playerRatings.mode, 'duel'))
+
+      expect(duelRatings).toHaveLength(2)
+      expect(duelRatings.every(row => row.gamesPlayed === 2)).toBe(true)
     }
     finally {
       sqlite.close()
@@ -202,6 +314,40 @@ describe('match moderation recalculation', () => {
       expect('error' in result).toBe(false)
       if ('error' in result) return
       expect(result.match.status).toBe('completed')
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('report resolves ordered team placements for multi-team 2v2 matches', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedActiveMultiTeamDuoMatch(db)
+
+      const result = await reportMatch(db, kv, {
+        matchId: 'duo-multi-active',
+        reporterId: 'p1',
+        placements: '<@p5>\n<@p1>\n<@p3>',
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.match.status).toBe('completed')
+
+      const resolved = await db
+        .select({ playerId: matchParticipants.playerId, placement: matchParticipants.placement })
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, 'duo-multi-active'))
+
+      expect(resolved.find(row => row.playerId === 'p5')?.placement).toBe(1)
+      expect(resolved.find(row => row.playerId === 'p6')?.placement).toBe(1)
+      expect(resolved.find(row => row.playerId === 'p1')?.placement).toBe(2)
+      expect(resolved.find(row => row.playerId === 'p2')?.placement).toBe(2)
+      expect(resolved.find(row => row.playerId === 'p3')?.placement).toBe(3)
+      expect(resolved.find(row => row.playerId === 'p4')?.placement).toBe(3)
     }
     finally {
       sqlite.close()
@@ -422,5 +568,35 @@ async function seedActiveSquadMatch(db: any): Promise<void> {
     { playerId: 'p4', mode: 'squad', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 0, lastPlayedAt: 1000 },
     { playerId: 'p5', mode: 'squad', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 0, lastPlayedAt: 1000 },
     { playerId: 'p6', mode: 'squad', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 0, lastPlayedAt: 1000 },
+  ])
+}
+
+async function seedActiveMultiTeamDuoMatch(db: any): Promise<void> {
+  await db.insert(players).values([
+    { id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 },
+    { id: 'p2', displayName: 'P2', avatarUrl: null, createdAt: 1 },
+    { id: 'p3', displayName: 'P3', avatarUrl: null, createdAt: 1 },
+    { id: 'p4', displayName: 'P4', avatarUrl: null, createdAt: 1 },
+    { id: 'p5', displayName: 'P5', avatarUrl: null, createdAt: 1 },
+    { id: 'p6', displayName: 'P6', avatarUrl: null, createdAt: 1 },
+  ])
+
+  await db.insert(matches).values({
+    id: 'duo-multi-active',
+    gameMode: '2v2',
+    status: 'active',
+    createdAt: 1000,
+    completedAt: null,
+    seasonId: null,
+    draftData: null,
+  })
+
+  await db.insert(matchParticipants).values([
+    { matchId: 'duo-multi-active', playerId: 'p1', team: 0, civId: 'rome', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'duo-multi-active', playerId: 'p2', team: 0, civId: 'greece', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'duo-multi-active', playerId: 'p3', team: 1, civId: 'india', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'duo-multi-active', playerId: 'p4', team: 1, civId: 'china', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'duo-multi-active', playerId: 'p5', team: 2, civId: 'japan', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'duo-multi-active', playerId: 'p6', team: 2, civId: 'france', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
   ])
 }

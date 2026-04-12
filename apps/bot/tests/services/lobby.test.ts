@@ -218,6 +218,35 @@ describe('lobby service KV write behavior', () => {
     expect(await kv.get(lobbySnapshotKey(lobby.id), 'json')).toBeNull()
   })
 
+  test('stores six players as the expanded 2v2 minimum start size', async () => {
+    const { kv } = createTrackedKv()
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    const updated = await setLobbySlots(kv, lobby.id, ['host-1', null, null, null, null, null, null, null], lobby)
+    await syncLobbyDerivedState(kv, updated ?? lobby)
+
+    const snapshot = await kv.get(lobbySnapshotKey(lobby.id), 'json') as {
+      minPlayers?: unknown
+      targetSize?: unknown
+    } | null
+
+    expect(snapshot?.minPlayers).toBe(6)
+    expect(snapshot?.targetSize).toBe(8)
+  })
+
   test('automatically refreshes the activity overview snapshot as lobby state changes', async () => {
     const { kv } = createTrackedKv()
 

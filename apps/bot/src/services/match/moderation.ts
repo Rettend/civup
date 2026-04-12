@@ -89,7 +89,10 @@ export async function resolveMatchByModerator(
   try {
     await runBatch(db, applyQueries)
 
-    const recalculated = await recalculateLeaderboardMode(db, leaderboardMode)
+    const recalculated = await recalculateLeaderboardMode(db, leaderboardMode, {
+      fromMatchId: input.matchId,
+      includeFromMatch: true,
+    })
     if ('error' in recalculated) {
       const rollbackError = await rollbackResolvedMatchModeration(db, kv, {
         input,
@@ -186,7 +189,10 @@ async function rollbackResolvedMatchModeration(
 
     await runBatch(db, rollbackQueries)
 
-    const recalculated = await recalculateLeaderboardMode(db, options.leaderboardMode)
+    const recalculated = await recalculateLeaderboardMode(db, options.leaderboardMode, {
+      fromMatchId: options.input.matchId,
+      includeFromMatch: options.match.status === 'completed',
+    })
     if ('error' in recalculated) return recalculated.error
 
     await rebuildLeaderboardModeSnapshot(db, kv, options.leaderboardMode)
@@ -272,7 +278,10 @@ export async function cancelMatchByModerator(
     if (!gameContext) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
 
     const leaderboardMode = gameContext.leaderboardMode
-    const recalculated = await recalculateLeaderboardMode(db, leaderboardMode)
+    const recalculated = await recalculateLeaderboardMode(db, leaderboardMode, {
+      fromMatchId: input.matchId,
+      includeFromMatch: false,
+    })
     if ('error' in recalculated) return recalculated
     await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode)
     if (leaderboardMode === 'duo' || leaderboardMode === 'squad') {

@@ -23,7 +23,10 @@ export function MiniView() {
     onCleanup(() => clearInterval(interval))
   })
 
-  const modeLabel = () => formatModeLabel(inferGameMode(state()?.formatId), '', { redDeath: isRedDeathDraft() })
+  const modeLabel = () => formatModeLabel(inferGameMode(state()?.formatId), '', {
+    redDeath: isRedDeathDraft(),
+    targetSize: state()?.seats.length,
+  })
   const timerLabel = () => {
     if (state()?.status !== 'active' || draftStore.timerEndsAt == null) return null
 

@@ -12,6 +12,8 @@ import {
   parseGameMode,
   playerCountOptions,
   slotToTeamIndex,
+  startPlayerCountOptions,
+  teamCount,
   teamSize,
   toLeaderboardMode,
 } from '../src/mode.ts'
@@ -33,6 +35,8 @@ describe('formatModeLabel', () => {
     expect(formatModeLabel('default-2V2')).toBe('2v2')
     expect(formatModeLabel('3V3')).toBe('3v3')
     expect(formatModeLabel('4V4')).toBe('4v4')
+    expect(formatModeLabel('2v2', '', { targetSize: 6 })).toBe('2v2v2')
+    expect(formatModeLabel('2v2', '', { redDeath: true, targetSize: 6 })).toBe('Red Death 2v2v2')
     expect(formatModeLabel('2v2', '', { targetSize: 8 })).toBe('2v2v2v2')
     expect(formatModeLabel('2v2', '', { redDeath: true, targetSize: 8 })).toBe('Red Death 2v2v2v2')
     expect(formatModeLabel('4V4', '', { redDeath: true })).toBe('Red Death 4v4')
@@ -114,6 +118,9 @@ describe('shared mode helpers', () => {
     expect(teamSize('1v1')).toBe(1)
     expect(teamSize('2v2')).toBe(2)
     expect(teamSize('4v4')).toBe(4)
+    expect(teamCount('2v2', 4)).toBe(2)
+    expect(teamCount('2v2', 6)).toBe(3)
+    expect(teamCount('2v2', 8)).toBe(4)
     expect(maxTeammatesForMode('ffa')).toBe(0)
     expect(maxTeammatesForMode('2v2')).toBe(1)
     expect(maxTeammatesForMode('3v3')).toBe(2)
@@ -121,6 +128,7 @@ describe('shared mode helpers', () => {
     expect(slotToTeamIndex('1v1', 0)).toBe(0)
     expect(slotToTeamIndex('1v1', 1)).toBe(1)
     expect(slotToTeamIndex('2v2', 3)).toBe(1)
+    expect(slotToTeamIndex('2v2', 5, 6)).toBe(2)
     expect(slotToTeamIndex('2v2', 5, 8)).toBe(2)
     expect(slotToTeamIndex('2v2', 7, 8)).toBe(3)
     expect(slotToTeamIndex('4v4', 7)).toBe(1)
@@ -135,8 +143,14 @@ describe('shared mode helpers', () => {
     expect(minPlayerCount('2v2')).toBe(4)
     expect(maxPlayerCount('ffa')).toBe(8)
     expect(maxPlayerCount('2v2')).toBe(8)
+    expect(startPlayerCountOptions('2v2', 4)).toEqual([4])
+    expect(startPlayerCountOptions('2v2', 8)).toEqual([6, 8])
+    expect(startPlayerCountOptions('ffa', 10, { redDeath: true })).toEqual([4, 6, 8, 10])
     expect(canStartWithPlayerCount('ffa', 8, 8)).toBe(true)
     expect(canStartWithPlayerCount('ffa', 6, 8)).toBe(false)
     expect(canStartWithPlayerCount('ffa', 10, 10)).toBe(false)
+    expect(canStartWithPlayerCount('2v2', 6, 8)).toBe(true)
+    expect(canStartWithPlayerCount('2v2', 4, 8)).toBe(false)
+    expect(canStartWithPlayerCount('ffa', 6, 10, { redDeath: true })).toBe(true)
   })
 })
