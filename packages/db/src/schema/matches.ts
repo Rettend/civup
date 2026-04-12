@@ -8,7 +8,7 @@ import { seasons } from './seasons.ts'
 export const matches = sqliteTable('matches', {
   /** ULID or nanoid */
   id: text('id').primaryKey(),
-  /** Game mode: ffa, 1v1, 2v2, 3v3, 4v4 */
+  /** Game mode: ffa, 1v1, 2v2, 3v3, 4v4, 5v5, 6v6 */
   gameMode: text('game_mode').notNull(),
   /** drafting | active | completed | cancelled */
   status: text('status').notNull().default('drafting'),

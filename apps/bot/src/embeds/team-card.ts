@@ -16,7 +16,7 @@ const TOP_LEADERS_LIMIT = 5
 const RECENT_MATCH_GROUP_LIMIT = 4
 const DISCORD_FIELD_LIMIT = 1024
 
-type TeamStatsGameMode = '2v2' | '3v3' | '4v4'
+type TeamStatsGameMode = '2v2' | '3v3' | '4v4' | '5v5' | '6v6'
 
 interface TeamModeContext {
   gameMode: TeamStatsGameMode
@@ -209,7 +209,21 @@ function resolveTeamModeContext(playerCount: number): TeamModeContext {
       fieldLabel: formatLeaderboardModeLabel('squad', 'Squad'),
     }
   }
-  throw new Error('Team stats require 2, 3, or 4 players.')
+  if (playerCount === 5) {
+    return {
+      gameMode: '5v5',
+      leaderboardMode: 'squad',
+      fieldLabel: formatLeaderboardModeLabel('squad', 'Squad'),
+    }
+  }
+  if (playerCount === 6) {
+    return {
+      gameMode: '6v6',
+      leaderboardMode: 'squad',
+      fieldLabel: formatLeaderboardModeLabel('squad', 'Squad'),
+    }
+  }
+  throw new Error('Team stats require 2 to 6 players.')
 }
 
 function formatProjectedRating(visual: TeamRatingVisual, rating: number): string {

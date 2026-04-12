@@ -8,10 +8,13 @@ const NOW = 1_700_000_000_000
 const HERO_ID = '100010000000000099'
 const MATE_ID = '100010000000000098'
 const EXTRA_ID = '100010000000000097'
+const ALLY4_ID = '100010000000000092'
+const ALLY5_ID = '100010000000000091'
 const OPP1_ID = '100010000000000096'
 const OPP2_ID = '100010000000000095'
 const OPP3_ID = '100010000000000094'
 const OPP4_ID = '100010000000000093'
+const OPP5_ID = '100010000000000090'
 
 describe('team stats embed', () => {
   test('renders shared duo stats, leaders, and grouped recent matches', async () => {
@@ -148,6 +151,59 @@ describe('team stats embed', () => {
     expect(embed.fields?.[0]?.value).toBe('No games played yet.')
     expect(JSON.stringify(embed.fields)).not.toContain('Games: 0')
     expect(JSON.stringify(embed.fields)).not.toContain('Wins: 0 (0%)')
+
+    sqlite.close()
+  })
+
+  test('renders shared 5v5 squad stats for larger ranked lineups', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    for (const [playerId, displayName] of [
+      [HERO_ID, 'Hero'],
+      [MATE_ID, 'Mate'],
+      [EXTRA_ID, 'Extra'],
+      [ALLY4_ID, 'Ally 4'],
+      [ALLY5_ID, 'Ally 5'],
+      [OPP1_ID, 'Opp 1'],
+      [OPP2_ID, 'Opp 2'],
+      [OPP3_ID, 'Opp 3'],
+      [OPP4_ID, 'Opp 4'],
+      [OPP5_ID, 'Opp 5'],
+    ] as const) {
+      await seedPlayerIdentity(db, playerId, displayName)
+    }
+
+    for (const playerId of [HERO_ID, MATE_ID, EXTRA_ID, ALLY4_ID, ALLY5_ID]) {
+      await seedRating(db, { playerId, mode: 'squad', mu: 30, sigma: 6, gamesPlayed: 6, wins: 4 })
+    }
+
+    await seedCompletedMatch(db, {
+      matchId: 'squad-5v5-1',
+      gameMode: '5v5',
+      completedAt: NOW - 750,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: null, ratingBeforeMu: 29, ratingBeforeSigma: 6, ratingAfterMu: 30, ratingAfterSigma: 5.9 },
+        { playerId: MATE_ID, team: 0, placement: 1, civId: null, ratingBeforeMu: 29, ratingBeforeSigma: 6, ratingAfterMu: 30, ratingAfterSigma: 5.9 },
+        { playerId: EXTRA_ID, team: 0, placement: 1, civId: null, ratingBeforeMu: 29, ratingBeforeSigma: 6, ratingAfterMu: 30, ratingAfterSigma: 5.9 },
+        { playerId: ALLY4_ID, team: 0, placement: 1, civId: null, ratingBeforeMu: 29, ratingBeforeSigma: 6, ratingAfterMu: 30, ratingAfterSigma: 5.9 },
+        { playerId: ALLY5_ID, team: 0, placement: 1, civId: null, ratingBeforeMu: 29, ratingBeforeSigma: 6, ratingAfterMu: 30, ratingAfterSigma: 5.9 },
+        { playerId: OPP1_ID, team: 1, placement: 2, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP2_ID, team: 1, placement: 2, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP3_ID, team: 1, placement: 2, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP4_ID, team: 1, placement: 2, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP5_ID, team: 1, placement: 2, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ],
+    })
+
+    const embed = (await teamCardEmbed(db, kv, null, [HERO_ID, MATE_ID, EXTRA_ID, ALLY4_ID, ALLY5_ID])).toJSON()
+    const squadField = embed.fields?.find(field => field.name === 'Squad')
+    const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
+
+    expect(embed.description).toBe(`<@${HERO_ID}> + <@${MATE_ID}> + <@${EXTRA_ID}> + <@${ALLY4_ID}> + <@${ALLY5_ID}>`)
+    expect(squadField?.value).toContain('Games: 1')
+    expect(squadField?.value).toContain('Wins: 1 (100%)')
+    expect(recentMatchesField?.value).toContain('5v5')
 
     sqlite.close()
   })
@@ -330,7 +386,7 @@ async function seedCompletedMatch(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   input: {
     matchId: string
-    gameMode: '2v2' | '3v3' | '4v4'
+    gameMode: '2v2' | '3v3' | '4v4' | '5v5' | '6v6'
     completedAt: number
     isOld?: boolean
     participants: Array<{

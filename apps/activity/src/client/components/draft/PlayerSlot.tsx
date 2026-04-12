@@ -171,8 +171,8 @@ export function PlayerSlot(props: PlayerSlotProps) {
     const uid = userId()
     return !!uid && seat()?.playerId === uid
   }
-  const showCornerSwapButton = () => canRequestSwapWith(props.seatIndex)
-  const showFocusedSwapButton = () => isSwapWindowOpen() && isMySeat() && seatHasIncomingSwap(props.seatIndex)
+  const showCornerSwapButton = () => !resultSelectionsLocked() && canRequestSwapWith(props.seatIndex)
+  const showFocusedSwapButton = () => !resultSelectionsLocked() && isSwapWindowOpen() && isMySeat() && seatHasIncomingSwap(props.seatIndex)
   const isMobileFourVFourSwapLayout = () => {
     if (!isMobileLayout()) return false
     const team = seatTeam()

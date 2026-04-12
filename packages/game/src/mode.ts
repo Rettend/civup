@@ -18,8 +18,8 @@ const GAME_MODE_DEFINITIONS = {
   '2v2': { label: '2v2', playerCountOptions: [4, 8], teamSize: 2, leaderboardMode: 'duo', balanceLeaderboardMode: null, unranked: false, redDeathDuplicateFactionsRequired: false },
   '3v3': { label: '3v3', playerCountOptions: [6], teamSize: 3, leaderboardMode: 'squad', balanceLeaderboardMode: null, unranked: false, redDeathDuplicateFactionsRequired: false },
   '4v4': { label: '4v4', playerCountOptions: [8], teamSize: 4, leaderboardMode: 'squad', balanceLeaderboardMode: null, unranked: false, redDeathDuplicateFactionsRequired: false },
-  '5v5': { label: '5v5', playerCountOptions: [10], teamSize: 5, leaderboardMode: null, balanceLeaderboardMode: 'squad', unranked: true, redDeathDuplicateFactionsRequired: false },
-  '6v6': { label: '6v6', playerCountOptions: [12], teamSize: 6, leaderboardMode: null, balanceLeaderboardMode: 'squad', unranked: true, redDeathDuplicateFactionsRequired: true },
+  '5v5': { label: '5v5', playerCountOptions: [10], teamSize: 5, leaderboardMode: 'squad', balanceLeaderboardMode: 'squad', unranked: false, redDeathDuplicateFactionsRequired: false },
+  '6v6': { label: '6v6', playerCountOptions: [12], teamSize: 6, leaderboardMode: 'squad', balanceLeaderboardMode: 'squad', unranked: false, redDeathDuplicateFactionsRequired: true },
   'ffa': { label: 'FFA', playerCountOptions: [8], teamSize: null, leaderboardMode: 'ffa', balanceLeaderboardMode: null, unranked: false, redDeathDuplicateFactionsRequired: false },
 } as const satisfies Record<GameMode, GameModeDefinition>
 
@@ -50,12 +50,12 @@ export const LEADERBOARD_MODE_LABELS: Record<LeaderboardMode, string> = {
 }
 
 const RED_DEATH_FFA_START_PLAYER_COUNTS = [4, 6, 8, 10] as const
-const RED_DEATH_GAME_MODES = ['ffa', '1v1', '2v2', '3v3', '4v4'] as const satisfies readonly GameMode[]
+const RED_DEATH_GAME_MODES = ['ffa', '1v1', '2v2', '3v3', '4v4', '5v5', '6v6'] as const satisfies readonly GameMode[]
 
 const LEADERBOARD_MODE_GAME_MODES = {
   'duel': ['1v1'],
   'duo': ['2v2'],
-  'squad': ['3v3', '4v4'],
+  'squad': ['3v3', '4v4', '5v5', '6v6'],
   'ffa': ['ffa'],
   'red-death': RED_DEATH_GAME_MODES,
 } as const satisfies Record<LeaderboardMode, readonly GameMode[]>
