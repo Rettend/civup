@@ -129,16 +129,16 @@ describe('draft match activation', () => {
     expect(chunks[1]).toHaveLength(1)
   })
 
-  test('creates a 6v6 big-team draft match', async () => {
+  test('creates a 6v6 draft match', async () => {
     const { db, sqlite } = await createTestDatabase()
 
     try {
-      const matchId = 'match-draft-big-team-6v6'
+      const matchId = 'match-draft-6v6'
       const seats = createBigTeamSeats(12)
 
       await createDraftMatch(db, {
         matchId,
-        mode: 'big-team',
+        mode: '6v6',
         seats,
       })
 

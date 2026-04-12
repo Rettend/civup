@@ -7,7 +7,7 @@ import { cancelMatchByModerator, recalculateLeaderboardMode, reportMatch, resolv
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('match moderation recalculation', () => {
-  test('reporting a big-team match leaves ranked ratings untouched', async () => {
+  test('reporting a 5v5 match leaves ranked ratings untouched', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
@@ -20,8 +20,8 @@ describe('match moderation recalculation', () => {
         createdAt: 1,
       })))
       await db.insert(matches).values({
-        id: 'big-team-1',
-        gameMode: 'big-team',
+        id: '5v5-1',
+        gameMode: '5v5',
         status: 'active',
         createdAt: 1,
         completedAt: null,
@@ -36,7 +36,7 @@ describe('match moderation recalculation', () => {
         }),
       })
       await db.insert(matchParticipants).values(playerIds.map((playerId, index) => ({
-        matchId: 'big-team-1',
+        matchId: '5v5-1',
         playerId,
         team: index < 5 ? 0 : 1,
         civId: null,
@@ -48,7 +48,7 @@ describe('match moderation recalculation', () => {
       })))
 
       const result = await reportMatch(db, kv, {
-        matchId: 'big-team-1',
+        matchId: '5v5-1',
         reporterId: 'p1',
         placements: '<@p1>',
       })

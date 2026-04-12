@@ -223,9 +223,9 @@ describe('lobby premade helpers', () => {
     expect(compacted.slots).toEqual(['p1', 'p2', 'p3', null, 'p4', 'p5', 'p6', null])
   })
 
-  test('compactSlottedPremadesForMode preserves team split when expanding to big-team', () => {
+  test('compactSlottedPremadesForMode preserves team split when expanding to 5v5', () => {
     const compacted = compactSlottedPremadesForMode(
-      'big-team',
+      '5v5',
       ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8'],
       [
         entry('p1'),
