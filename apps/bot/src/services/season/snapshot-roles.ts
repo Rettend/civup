@@ -191,6 +191,7 @@ export async function listPlayerSeasonSnapshotHistory(
     if (!row.seasonId) continue
     const context = getStoredGameModeContext(row.gameMode, row.draftData)
     if (!context) continue
+    if (context.leaderboardMode == null) continue
 
     const mode = context.leaderboardMode
     const seasonStats = seasonMatchStats.get(row.seasonId) ?? {}

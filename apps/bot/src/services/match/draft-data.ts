@@ -13,7 +13,8 @@ interface ParsedDraftData {
 export interface StoredGameModeContext {
   mode: GameMode
   redDeath: boolean
-  leaderboardMode: LeaderboardMode
+  leaderboardMode: LeaderboardMode | null
+  ranked: boolean
   label: string
 }
 
@@ -59,10 +60,12 @@ export function getStoredGameModeContext(gameMode: string, draftData: string | n
   const parsed = parseDraftData(draftData)
   const redDeath = parsed?.redDeath === true
   const seatCount = Array.isArray(parsed?.state?.seats) ? parsed.state.seats.length : undefined
+  const leaderboardMode = toLeaderboardMode(mode, { redDeath })
   return {
     mode,
     redDeath,
-    leaderboardMode: toLeaderboardMode(mode, { redDeath }),
+    leaderboardMode,
+    ranked: leaderboardMode != null,
     label: formatModeLabel(mode, mode, { redDeath, targetSize: seatCount }),
   }
 }
