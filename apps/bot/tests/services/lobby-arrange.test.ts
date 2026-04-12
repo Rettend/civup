@@ -124,9 +124,9 @@ describe('lobby arrange helpers', () => {
     expect(quartetOnA || quartetOnB).toBe(true)
   })
 
-  test('auto-balance keeps a full five-stack together in big-team', () => {
+  test('auto-balance keeps a full five-stack together in 5v5', () => {
     const result = arrangeLobbySlots({
-      mode: 'big-team',
+      mode: '5v5',
       strategy: 'balance',
       slots: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', null],
       queueEntries: [

@@ -2,7 +2,7 @@ import type { GameMode } from '@civup/game'
 import type { Hono } from 'hono'
 import type { Env } from '../../env.ts'
 import { createDb, playerRatings } from '@civup/db'
-import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isTeamMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, playerCountOptions, slotToTeamIndex, startPlayerCountOptions, toLeaderboardMode } from '@civup/game'
+import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isTeamMode, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, playerCountOptions, slotToTeamIndex, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import { createDraftRoomAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
@@ -266,8 +266,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       ? parseRedDeathFfaTargetSize(targetSizeRaw)
       : undefined
 
-    if (mode === 'big-team' && (normalizedMinRole != null || normalizedMaxRole != null)) {
-      return c.json({ error: 'Big Team lobbies are unranked and do not support matchmaking rank limits.' }, 400)
+    if (isUnrankedMode(mode) && (normalizedMinRole != null || normalizedMaxRole != null)) {
+      return c.json({ error: `${formatModeLabel(mode)} lobbies are unranked and do not support matchmaking rank limits.` }, 400)
     }
 
     if (hasTargetSize) {
@@ -498,8 +498,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       ...lobby,
       mode: nextMode,
       draftConfig: normalizeDraftConfigForMode(nextMode, lobby.draftConfig),
-      minRole: nextMode === 'big-team' ? null : lobby.minRole,
-      maxRole: nextMode === 'big-team' ? null : lobby.maxRole,
+      minRole: isUnrankedMode(nextMode) ? null : lobby.minRole,
+      maxRole: isUnrankedMode(nextMode) ? null : lobby.maxRole,
       slots: nextSlots,
       lastActivityAt: changedAt,
       updatedAt: changedAt,
@@ -963,7 +963,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     let ratingsByPlayerId = new Map<string, { mu: number, sigma: number }>()
     if (strategyRaw === 'balance' && slottedPlayerIds.length > 0) {
-      const leaderboardMode = toLeaderboardMode(mode, { redDeath: lobby.draftConfig.redDeath }) ?? (mode === 'big-team' ? 'squad' : null)
+      const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath: lobby.draftConfig.redDeath })
       if (leaderboardMode != null) {
         const db = createDb(c.env.DB)
         const rows = await db
@@ -1472,41 +1472,15 @@ function parseRedDeathFfaTargetSize(value: unknown): number | undefined {
   return [4, 6, 8, 10].includes(numeric) ? numeric : undefined
 }
 
-function resizeLobbySlots(mode: GameMode, slots: (string | null)[], targetSize: number): (string | null)[] {
-  if (mode === 'big-team') {
-    if (slots.length === 10 && targetSize === 12) {
-      return [
-        ...slots.slice(0, 5),
-        null,
-        ...slots.slice(5, 10),
-        null,
-      ]
-    }
-
-    if (slots.length === 12 && targetSize === 10) {
-      return [
-        ...slots.slice(0, 5),
-        ...slots.slice(6, 11),
-      ]
-    }
-  }
-
+function resizeLobbySlots(_mode: GameMode, slots: (string | null)[], targetSize: number): (string | null)[] {
   return Array.from({ length: targetSize }, (_, index) => slots[index] ?? null)
 }
 
-function getRemovedSlotIndexesForResize(mode: GameMode, currentSize: number, targetSize: number): number[] {
-  if (mode === 'big-team' && currentSize === 12 && targetSize === 10) {
-    return [5, 11]
-  }
-
+function getRemovedSlotIndexesForResize(_mode: GameMode, currentSize: number, targetSize: number): number[] {
   return Array.from({ length: Math.max(0, currentSize - targetSize) }, (_, index) => targetSize + index)
 }
 
 function getResizeShrinkErrorMessage(mode: GameMode, currentSize: number, targetSize: number): string {
-  if (mode === 'big-team' && currentSize === 12 && targetSize === 10) {
-    return 'Clear the extra 6v6 seats before switching back to 5v5.'
-  }
-
   if (mode === '2v2' && currentSize === 8 && targetSize === 4) {
     return 'Clear the extra 2v2 seats before removing them.'
   }

@@ -72,7 +72,7 @@ function arrangeTeamLobbySlots(
   input: ArrangeLobbySlotsInput,
 ): { slots: (string | null)[] } | { error: string } {
   if (!isTeamMode(input.mode)) {
-    return { error: 'Team arrange actions are only available in 2v2, 3v3, and 4v4 lobbies.' }
+    return { error: 'Team arrange actions are only available in team lobbies.' }
   }
 
   const teamSlotCount = teamSize(input.mode, input.slots.length)

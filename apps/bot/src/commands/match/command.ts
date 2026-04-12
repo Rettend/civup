@@ -42,10 +42,10 @@ export const command_match = factory.command<MatchVar>(
         .required()
         .choices(...MATCH_MODE_CHOICES),
       new Option('teammate', 'Teammate for team modes', 'User'),
-      new Option('teammate2', 'Second teammate for 3v3/4v4/Big Team', 'User'),
-      new Option('teammate3', 'Third teammate for 4v4/Big Team', 'User'),
-      new Option('teammate4', 'Fourth teammate for Big Team', 'User'),
-      new Option('teammate5', 'Fifth teammate for Big Team', 'User'),
+      new Option('teammate2', 'Second teammate for 3v3/4v4/5v5/6v6', 'User'),
+      new Option('teammate3', 'Third teammate for 4v4/5v5/6v6', 'User'),
+      new Option('teammate4', 'Fourth teammate for 5v5/6v6', 'User'),
+      new Option('teammate5', 'Fifth teammate for 6v6', 'User'),
     ),
     new SubCommand('activity', 'Open the activity for this channel'),
     new SubCommand('cancel', 'Cancel your hosted open or live lobby').options(
