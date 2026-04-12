@@ -305,14 +305,14 @@ describe('season services', () => {
     const kv = createTestKv()
     const season = await startSeason(db, { now: NOW - DAY_MS })
 
-    await seedPlayers(db, 'ffa', 7, { prefix: 'inactive', lastPlayedAt: NOW - 2 * DAY_MS })
+    await seedPlayers(db, 'ffa', 7, { prefix: 'inactive', lastPlayedAt: NOW - 2 * DAY_MS, gamesPlayed: 10 })
     await seedPlayerIdentity(db, HERO_ID)
     await seedRating(db, {
       playerId: HERO_ID,
       mode: 'ffa',
       mu: 50,
       sigma: 6,
-      gamesPlayed: 6,
+      gamesPlayed: 10,
       lastPlayedAt: NOW,
     })
 
@@ -397,7 +397,7 @@ async function seedPlayers(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   mode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death',
   count: number,
-  options: { prefix: string, lastPlayedAt: number },
+  options: { prefix: string, lastPlayedAt: number, gamesPlayed?: number },
 ): Promise<void> {
   for (let index = 1; index <= count; index++) {
     const playerId = playerIdFor(options.prefix, index)
@@ -407,7 +407,7 @@ async function seedPlayers(
       mode,
       mu: 40 - index,
       sigma: 6,
-      gamesPlayed: 6,
+      gamesPlayed: options.gamesPlayed ?? 6,
       lastPlayedAt: options.lastPlayedAt,
     })
   }
