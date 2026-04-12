@@ -8,7 +8,7 @@ import type {
   RankRoleSetDetail,
 } from '~/client/lib/config-screen/helpers'
 import type { LobbyArrangeStrategy, LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
-import { canStartWithPlayerCount, formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isTeamMode as isTeamGameMode, maxPlayerCount, normalizeCompetitiveTierBounds, slotToTeamIndex } from '@civup/game'
+import { canStartWithPlayerCount, formatModeLabel, GAME_MODE_CHOICES, hasBetaLeaderData, inferGameMode, isTeamMode as isTeamGameMode, maxPlayerCount, normalizeAvailableLeaderDataVersion, normalizeCompetitiveTierBounds, slotToTeamIndex } from '@civup/game'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, Switch, TextInput } from '~/client/components/ui'
 import {
@@ -462,7 +462,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
     equals: sameLobbyDraftConfig,
   })
   const optimisticDraftConfig = () => optimisticTimerConfig.value()
-  const formattedBbgVersion = () => draftConfig().leaderDataVersion === 'beta' ? 'Beta' : 'Live'
+  const formattedBbgVersion = () => normalizeAvailableLeaderDataVersion(draftConfig().leaderDataVersion) === 'beta' ? 'Beta' : 'Live'
   const formattedSimultaneousPick = () => draftConfig().simultaneousPick ? 'On' : 'Off'
   const formattedRandomDraft = () => draftConfig().randomDraft ? 'On' : 'Off'
   const poolInputLabel = () => isRedDeathLobbyMode() ? 'Factions' : 'Leaders'
@@ -1632,13 +1632,13 @@ export function ConfigScreen(props: ConfigScreenProps) {
                 </div>
 
                 <div class="pr-4 flex flex-1 flex-col gap-3 min-h-0 overflow-y-auto -mr-3">
-                  <Show when={isLobbyMode() && amHost() && !isRedDeathLobbyMode()}>
+                  <Show when={isLobbyMode() && amHost() && !isRedDeathLobbyMode() && hasBetaLeaderData}>
                     <div class="px-1 flex gap-3 items-center justify-between">
-                      <span class={cn('text-sm font-medium', optimisticDraftConfig().leaderDataVersion === 'beta' ? 'text-accent' : 'text-fg-muted')}>
+                      <span class={cn('text-sm font-medium', normalizeAvailableLeaderDataVersion(optimisticDraftConfig().leaderDataVersion) === 'beta' ? 'text-accent' : 'text-fg-muted')}>
                         BBG Beta
                       </span>
                       <Switch
-                        checked={optimisticDraftConfig().leaderDataVersion === 'beta'}
+                        checked={normalizeAvailableLeaderDataVersion(optimisticDraftConfig().leaderDataVersion) === 'beta'}
                         disabled={lobbyActionPending() || leaderDataVersionPending()}
                         class="w-auto"
                         onChange={checked => void handleLeaderDataVersionChange(checked)}
@@ -1688,11 +1688,11 @@ export function ConfigScreen(props: ConfigScreenProps) {
                     when={amHost()}
                     fallback={(
                       <div class="flex flex-col gap-2">
-                        <Show when={!isRedDeathLobbyMode()}>
+                        <Show when={!isRedDeathLobbyMode() && hasBetaLeaderData}>
                           <ReadonlyTimerRow
                             label="BBG"
                             value={formattedBbgVersion()}
-                            valueClass={draftConfig().leaderDataVersion === 'beta' ? 'text-accent' : undefined}
+                            valueClass={normalizeAvailableLeaderDataVersion(draftConfig().leaderDataVersion) === 'beta' ? 'text-accent' : undefined}
                           />
                         </Show>
                         <Show when={isLobbyMode() && lobbyMode() === 'ffa' && !isRedDeathLobbyMode()}>
