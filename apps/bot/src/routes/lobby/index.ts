@@ -2,7 +2,7 @@ import type { GameMode } from '@civup/game'
 import type { Hono } from 'hono'
 import type { Env } from '../../env.ts'
 import { createDb, playerRatings } from '@civup/db'
-import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isTeamMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, playerCountOptions, slotToTeamIndex, startPlayerCountOptions, toLeaderboardMode } from '@civup/game'
+import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isTeamMode, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, playerCountOptions, slotToTeamIndex, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import { createDraftRoomAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
@@ -38,6 +38,7 @@ import {
 import { modeIndexKey } from '../../services/lobby/keys.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { arePremadeGroupsAdjacent } from '../../services/lobby/premades.ts'
+import { normalizeDraftConfigForMode } from '../../services/lobby/normalize.ts'
 import { createDraftMatch } from '../../services/match/index.ts'
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { addToQueue, clearQueue, getQueueState, moveQueueEntriesBetweenModes, removeFromQueueAndUnlinkParty, setQueueEntries } from '../../services/queue/index.ts'
@@ -119,7 +120,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, simultaneousPick: simultaneousPickRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
+    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, simultaneousPick: simultaneousPickRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, duplicateFactions: duplicateFactionsRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
       userId?: string
       banTimerSeconds?: unknown
       pickTimerSeconds?: unknown
@@ -129,6 +130,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       redDeath?: unknown
       dealOptionsSize?: unknown
       randomDraft?: unknown
+      duplicateFactions?: unknown
       minRole?: unknown
       maxRole?: unknown
       steamLobbyLink?: unknown
@@ -159,6 +161,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const hasRedDeath = Object.prototype.hasOwnProperty.call(body, 'redDeath')
     const hasDealOptionsSize = Object.prototype.hasOwnProperty.call(body, 'dealOptionsSize')
     const hasRandomDraft = Object.prototype.hasOwnProperty.call(body, 'randomDraft')
+    const hasDuplicateFactions = Object.prototype.hasOwnProperty.call(body, 'duplicateFactions')
     const hasTargetSize = Object.prototype.hasOwnProperty.call(body, 'targetSize')
     const parsedLeaderPoolSize = hasLeaderPoolSize
       ? parseLobbyLeaderPoolSize(leaderPoolSizeRaw)
@@ -184,6 +187,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const parsedRandomDraft = hasRandomDraft
       ? parseLobbyRandomDraft(randomDraftRaw)
       : undefined
+    const parsedDuplicateFactions = hasDuplicateFactions
+      ? parseLobbyDuplicateFactions(duplicateFactionsRaw)
+      : undefined
     const parsedTargetSize = hasTargetSize
       ? parseLobbyTargetSize(mode, targetSizeRaw)
       : undefined
@@ -201,6 +207,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     if (hasRandomDraft && parsedRandomDraft === undefined) {
       return c.json({ error: 'randomDraft must be true or false' }, 400)
+    }
+    if (hasDuplicateFactions && parsedDuplicateFactions === undefined) {
+      return c.json({ error: 'duplicateFactions must be true or false' }, 400)
     }
     const hasSteamLobbyLink = Object.prototype.hasOwnProperty.call(body, 'steamLobbyLink')
     const parsedSteamLobbyLink = hasSteamLobbyLink
@@ -261,9 +270,16 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const normalizedRandomDraft = hasRandomDraft
       ? parsedRandomDraft ?? false
       : lobby.draftConfig.randomDraft
+    const normalizedDuplicateFactions = hasDuplicateFactions
+      ? parsedDuplicateFactions ?? false
+      : lobby.draftConfig.duplicateFactions
     const parsedRedDeathFfaTargetSize = mode === 'ffa' && hasTargetSize
       ? parseRedDeathFfaTargetSize(targetSizeRaw)
       : undefined
+
+    if (isUnrankedMode(mode) && (normalizedMinRole != null || normalizedMaxRole != null)) {
+      return c.json({ error: `${formatModeLabel(mode)} lobbies are unranked and do not support matchmaking rank limits.` }, 400)
+    }
 
     if (hasTargetSize) {
       const targetSizeValid = mode === 'ffa' && normalizedRedDeath
@@ -287,7 +303,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       if (!hasSteamLobbyLink) {
         return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
       }
-      if (hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasSimultaneousPick || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasTargetSize || hasMinRole || hasMaxRole) {
+      if (hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasSimultaneousPick || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasDuplicateFactions || hasTargetSize || hasMinRole || hasMaxRole) {
         return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
       }
 
@@ -322,11 +338,14 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     })()
 
     if (requestedTargetSize !== slots.length) {
-      if (requestedTargetSize < slots.length && slots.slice(requestedTargetSize).some(playerId => playerId != null)) {
-        return c.json({ error: 'Clear the extra 2v2 seats before removing them.' }, 400)
+      if (requestedTargetSize < slots.length) {
+        const removedSlotIndexes = getRemovedSlotIndexesForResize(mode, slots.length, requestedTargetSize)
+        if (removedSlotIndexes.some(index => slots[index] != null)) {
+          return c.json({ error: getResizeShrinkErrorMessage(mode, slots.length, requestedTargetSize) }, 400)
+        }
       }
 
-      slots = resizeLobbySlots(slots, requestedTargetSize)
+      slots = resizeLobbySlots(mode, slots, requestedTargetSize)
     }
 
     const leaderPoolError = getLeaderPoolSizeError(
@@ -356,6 +375,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       redDeath: normalizedRedDeath,
       dealOptionsSize: normalizedDealOptionsSize,
       randomDraft: normalizedRandomDraft,
+      duplicateFactions: normalizedDuplicateFactions,
     }, lobby)
 
     lobby = draftUpdated ?? lobby
@@ -482,13 +502,16 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     let nextSlots = nextLayout.slots
     if (nextMode === 'ffa' && lobby.draftConfig.redDeath) {
-      nextSlots = resizeLobbySlots(nextSlots, 10)
+      nextSlots = resizeLobbySlots(nextMode, nextSlots, 10)
     }
     const changedAt = Date.now()
 
     const nextLobby = {
       ...lobby,
       mode: nextMode,
+      draftConfig: normalizeDraftConfigForMode(nextMode, lobby.draftConfig),
+      minRole: isUnrankedMode(nextMode) ? null : lobby.minRole,
+      maxRole: isUnrankedMode(nextMode) ? null : lobby.maxRole,
       slots: nextSlots,
       lastActivityAt: changedAt,
       updatedAt: changedAt,
@@ -816,7 +839,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const kv = createStateStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
     if (!isTeamMode(mode)) {
-      return c.json({ error: 'Premade links are only available in 2v2, 3v3, and 4v4.' }, 400)
+      return c.json({ error: 'Premade links are only available in team modes.' }, 400)
     }
 
     let body: unknown
@@ -952,21 +975,23 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     let ratingsByPlayerId = new Map<string, { mu: number, sigma: number }>()
     if (strategyRaw === 'balance' && slottedPlayerIds.length > 0) {
-      const leaderboardMode = toLeaderboardMode(mode, { redDeath: lobby.draftConfig.redDeath })
-      const db = createDb(c.env.DB)
-      const rows = await db
-        .select({
-          playerId: playerRatings.playerId,
-          mu: playerRatings.mu,
-          sigma: playerRatings.sigma,
-        })
-        .from(playerRatings)
-        .where(and(
-          eq(playerRatings.mode, leaderboardMode),
-          inArray(playerRatings.playerId, slottedPlayerIds),
-        ))
+      const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath: lobby.draftConfig.redDeath })
+      if (leaderboardMode != null) {
+        const db = createDb(c.env.DB)
+        const rows = await db
+          .select({
+            playerId: playerRatings.playerId,
+            mu: playerRatings.mu,
+            sigma: playerRatings.sigma,
+          })
+          .from(playerRatings)
+          .where(and(
+            eq(playerRatings.mode, leaderboardMode),
+            inArray(playerRatings.playerId, slottedPlayerIds),
+          ))
 
-      ratingsByPlayerId = new Map(rows.map(row => [row.playerId, { mu: row.mu, sigma: row.sigma }]))
+        ratingsByPlayerId = new Map(rows.map(row => [row.playerId, { mu: row.mu, sigma: row.sigma }]))
+      }
     }
 
     const arranged = arrangeLobbySlots({
@@ -1204,6 +1229,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         simultaneousPick: lobby.draftConfig.simultaneousPick,
         redDeath: lobby.draftConfig.redDeath,
         randomDraft: lobby.draftConfig.randomDraft,
+        duplicateFactions: lobby.draftConfig.duplicateFactions,
         partyHost: c.env.PARTY_HOST,
         botHost: c.env.BOT_HOST,
         webhookSecret: internalSecret,
@@ -1453,14 +1479,30 @@ function parseLobbyRandomDraft(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
 }
 
+function parseLobbyDuplicateFactions(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
 function parseRedDeathFfaTargetSize(value: unknown): number | undefined {
   const numeric = typeof value === 'number' ? value : Number(value)
   if (!Number.isInteger(numeric)) return undefined
   return [4, 6, 8, 10].includes(numeric) ? numeric : undefined
 }
 
-function resizeLobbySlots(slots: (string | null)[], targetSize: number): (string | null)[] {
+function resizeLobbySlots(_mode: GameMode, slots: (string | null)[], targetSize: number): (string | null)[] {
   return Array.from({ length: targetSize }, (_, index) => slots[index] ?? null)
+}
+
+function getRemovedSlotIndexesForResize(_mode: GameMode, currentSize: number, targetSize: number): number[] {
+  return Array.from({ length: Math.max(0, currentSize - targetSize) }, (_, index) => targetSize + index)
+}
+
+function getResizeShrinkErrorMessage(mode: GameMode, currentSize: number, targetSize: number): string {
+  if (mode === '2v2' && currentSize === 8 && targetSize === 4) {
+    return 'Clear the extra 2v2 seats before removing them.'
+  }
+
+  return 'Clear the extra seats before shrinking the lobby.'
 }
 
 function isDebugLobbyFillEnabled(

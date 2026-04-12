@@ -8,23 +8,19 @@ const NOW = 1_700_000_000_000
 const HERO_ID = '100010000000000099'
 const MATE_ID = '100010000000000098'
 const EXTRA_ID = '100010000000000097'
+const ALLY4_ID = '100010000000000092'
+const ALLY5_ID = '100010000000000091'
 const OPP1_ID = '100010000000000096'
 const OPP2_ID = '100010000000000095'
 const OPP3_ID = '100010000000000094'
 const OPP4_ID = '100010000000000093'
+const OPP5_ID = '100010000000000090'
 
 describe('team stats embed', () => {
   test('renders shared duo stats, leaders, and grouped recent matches', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
-
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      tier5: '11111111111111111',
-      tier4: '22222222222222222',
-      tier3: '33333333333333333',
-      tier2: '44444444444444444',
-      tier1: '55555555555555555',
-    })
+    await seedConfiguredRoles(kv)
 
     for (const [playerId, displayName] of [
       [HERO_ID, 'Hero'],
@@ -141,14 +137,7 @@ describe('team stats embed', () => {
   test('shows no games played yet for lineups without shared matches', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
-
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      tier5: '11111111111111111',
-      tier4: '22222222222222222',
-      tier3: '33333333333333333',
-      tier2: '44444444444444444',
-      tier1: '55555555555555555',
-    })
+    await seedConfiguredRoles(kv)
 
     await seedPlayerIdentity(db, HERO_ID, 'Hero')
     await seedPlayerIdentity(db, MATE_ID, 'Mate')
@@ -165,7 +154,197 @@ describe('team stats embed', () => {
 
     sqlite.close()
   })
+
+  test('renders shared 5v5 squad stats for larger ranked lineups', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    for (const [playerId, displayName] of [
+      [HERO_ID, 'Hero'],
+      [MATE_ID, 'Mate'],
+      [EXTRA_ID, 'Extra'],
+      [ALLY4_ID, 'Ally 4'],
+      [ALLY5_ID, 'Ally 5'],
+      [OPP1_ID, 'Opp 1'],
+      [OPP2_ID, 'Opp 2'],
+      [OPP3_ID, 'Opp 3'],
+      [OPP4_ID, 'Opp 4'],
+      [OPP5_ID, 'Opp 5'],
+    ] as const) {
+      await seedPlayerIdentity(db, playerId, displayName)
+    }
+
+    for (const playerId of [HERO_ID, MATE_ID, EXTRA_ID, ALLY4_ID, ALLY5_ID]) {
+      await seedRating(db, { playerId, mode: 'squad', mu: 30, sigma: 6, gamesPlayed: 6, wins: 4 })
+    }
+
+    await seedCompletedMatch(db, {
+      matchId: 'squad-5v5-1',
+      gameMode: '5v5',
+      completedAt: NOW - 750,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: null, ratingBeforeMu: 29, ratingBeforeSigma: 6, ratingAfterMu: 30, ratingAfterSigma: 5.9 },
+        { playerId: MATE_ID, team: 0, placement: 1, civId: null, ratingBeforeMu: 29, ratingBeforeSigma: 6, ratingAfterMu: 30, ratingAfterSigma: 5.9 },
+        { playerId: EXTRA_ID, team: 0, placement: 1, civId: null, ratingBeforeMu: 29, ratingBeforeSigma: 6, ratingAfterMu: 30, ratingAfterSigma: 5.9 },
+        { playerId: ALLY4_ID, team: 0, placement: 1, civId: null, ratingBeforeMu: 29, ratingBeforeSigma: 6, ratingAfterMu: 30, ratingAfterSigma: 5.9 },
+        { playerId: ALLY5_ID, team: 0, placement: 1, civId: null, ratingBeforeMu: 29, ratingBeforeSigma: 6, ratingAfterMu: 30, ratingAfterSigma: 5.9 },
+        { playerId: OPP1_ID, team: 1, placement: 2, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP2_ID, team: 1, placement: 2, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP3_ID, team: 1, placement: 2, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP4_ID, team: 1, placement: 2, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP5_ID, team: 1, placement: 2, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ],
+    })
+
+    const embed = (await teamCardEmbed(db, kv, null, [HERO_ID, MATE_ID, EXTRA_ID, ALLY4_ID, ALLY5_ID])).toJSON()
+    const squadField = embed.fields?.find(field => field.name === 'Squad')
+    const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
+
+    expect(embed.description).toBe(`<@${HERO_ID}> + <@${MATE_ID}> + <@${EXTRA_ID}> + <@${ALLY4_ID}> + <@${ALLY5_ID}>`)
+    expect(squadField?.value).toContain('Games: 1')
+    expect(squadField?.value).toContain('Wins: 1 (100%)')
+    expect(recentMatchesField?.value).toContain('5v5')
+
+    sqlite.close()
+  })
+
+  test('projects team role from the visible duo ladder, not only 10-game qualifiers', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedConfiguredRoles(kv)
+
+    for (const [playerId, displayName] of [
+      [HERO_ID, 'Hero'],
+      [MATE_ID, 'Mate'],
+      [EXTRA_ID, 'Extra'],
+      ['100010000000000092', 'Alt 1'],
+      ['100010000000000091', 'Alt 2'],
+      ['100010000000000090', 'Alt 3'],
+      ['100010000000000089', 'Alt 4'],
+      [OPP1_ID, 'Opp 1'],
+      [OPP2_ID, 'Opp 2'],
+    ] as const) {
+      await seedPlayerIdentity(db, playerId, displayName)
+    }
+
+    await seedRating(db, { playerId: HERO_ID, mode: 'duo', mu: 40, sigma: 6, gamesPlayed: 5, wins: 5 })
+    await seedRating(db, { playerId: MATE_ID, mode: 'duo', mu: 39, sigma: 6, gamesPlayed: 5, wins: 5 })
+    await seedRating(db, { playerId: EXTRA_ID, mode: 'duo', mu: 35, sigma: 6, gamesPlayed: 5, wins: 3 })
+    await seedRating(db, { playerId: '100010000000000092', mode: 'duo', mu: 34, sigma: 6, gamesPlayed: 5, wins: 3 })
+    await seedRating(db, { playerId: '100010000000000091', mode: 'duo', mu: 33, sigma: 6, gamesPlayed: 5, wins: 3 })
+    await seedRating(db, { playerId: '100010000000000090', mode: 'duo', mu: 32, sigma: 6, gamesPlayed: 5, wins: 3 })
+    await seedRating(db, { playerId: '100010000000000089', mode: 'duo', mu: 31, sigma: 6, gamesPlayed: 10, wins: 5 })
+    await seedRating(db, { playerId: OPP1_ID, mode: 'duo', mu: 30, sigma: 6, gamesPlayed: 10, wins: 5 })
+
+    await seedCompletedMatch(db, {
+      matchId: 'duo-projection',
+      gameMode: '2v2',
+      completedAt: NOW - 100,
+      participants: [
+        {
+          playerId: HERO_ID,
+          team: 0,
+          placement: 1,
+          civId: 'japan-hojo-tokimune',
+          ratingBeforeMu: 39,
+          ratingBeforeSigma: 6,
+          ratingAfterMu: 40,
+          ratingAfterSigma: 6,
+        },
+        {
+          playerId: MATE_ID,
+          team: 0,
+          placement: 1,
+          civId: 'babylon-hammurabi',
+          ratingBeforeMu: 38,
+          ratingBeforeSigma: 6,
+          ratingAfterMu: 39,
+          ratingAfterSigma: 6,
+        },
+        {
+          playerId: OPP1_ID,
+          team: 1,
+          placement: 2,
+          civId: 'rome-trajan',
+          ratingBeforeMu: 30,
+          ratingBeforeSigma: 6,
+          ratingAfterMu: 30,
+          ratingAfterSigma: 6,
+        },
+        {
+          playerId: OPP2_ID,
+          team: 1,
+          placement: 2,
+          civId: 'macedon-alexander',
+          ratingBeforeMu: 29,
+          ratingBeforeSigma: 6,
+          ratingAfterMu: 29,
+          ratingAfterSigma: 6,
+        },
+      ],
+    })
+
+    const embed = (await teamCardEmbed(db, kv, 'guild-1', [HERO_ID, MATE_ID])).toJSON()
+    const duoField = embed.fields?.find(field => field.name === 'Duo')
+
+    expect(embed.description).toBe(`<@${HERO_ID}> + <@${MATE_ID}> - <@&22222222222222222>`)
+    expect(duoField?.value).toContain('Rating: <@&22222222222222222> (')
+
+    sqlite.close()
+  })
+
+  test('renders old duo matches without placeholder leaders', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedConfiguredRoles(kv)
+
+    for (const [playerId, displayName] of [
+      [HERO_ID, 'Hero'],
+      [MATE_ID, 'Mate'],
+      [OPP1_ID, 'Opp 1'],
+      [OPP2_ID, 'Opp 2'],
+    ] as const) {
+      await seedPlayerIdentity(db, playerId, displayName)
+    }
+
+    await seedRating(db, { playerId: HERO_ID, mode: 'duo', mu: 30, sigma: 6, gamesPlayed: 1, wins: 1 })
+    await seedRating(db, { playerId: MATE_ID, mode: 'duo', mu: 29, sigma: 6, gamesPlayed: 1, wins: 1 })
+
+    await seedCompletedMatch(db, {
+      matchId: 'old-duo-1',
+      gameMode: '2v2',
+      completedAt: NOW - 500,
+      isOld: true,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: MATE_ID, team: 0, placement: 1, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP1_ID, team: 1, placement: 2, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP2_ID, team: 1, placement: 2, civId: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ],
+    })
+
+    const embed = (await teamCardEmbed(db, kv, 'guild-1', [HERO_ID, MATE_ID])).toJSON()
+    const duoField = embed.fields?.find(field => field.name === 'Duo')
+    const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
+
+    expect(duoField?.value).toContain('Games: 1')
+    expect(recentMatchesField?.value).toContain('#1')
+    expect(recentMatchesField?.value).not.toContain('[empty]')
+    expect(recentMatchesField?.value).toContain('2v2')
+
+    sqlite.close()
+  })
 })
+
+async function seedConfiguredRoles(kv: KVNamespace): Promise<void> {
+  await setRankedRoleCurrentRoles(kv, 'guild-1', {
+    tier5: '11111111111111111',
+    tier4: '22222222222222222',
+    tier3: '33333333333333333',
+    tier2: '44444444444444444',
+    tier1: '55555555555555555',
+  })
+}
 
 async function seedPlayerIdentity(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
@@ -207,8 +386,9 @@ async function seedCompletedMatch(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   input: {
     matchId: string
-    gameMode: '2v2' | '3v3' | '4v4'
+    gameMode: '2v2' | '3v3' | '4v4' | '5v5' | '6v6'
     completedAt: number
+    isOld?: boolean
     participants: Array<{
       playerId: string
       team: number
@@ -225,6 +405,7 @@ async function seedCompletedMatch(
     id: input.matchId,
     gameMode: input.gameMode,
     status: 'completed',
+    isOld: input.isOld ?? false,
     seasonId: null,
     draftData: null,
     createdAt: input.completedAt - 10_000,

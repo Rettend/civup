@@ -1,6 +1,6 @@
 import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 import type { LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
-import { defaultPlayerCount, MAX_LEADER_POOL_SIZE, normalizeAvailableLeaderDataVersion, playerCountOptions } from '@civup/game'
+import { defaultPlayerCount, MAX_LEADER_POOL_SIZE, normalizeAvailableLeaderDataVersion, playerCountOptions, requiresRedDeathDuplicateFactions } from '@civup/game'
 import { nanoid } from 'nanoid'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 import { normalizeSteamLobbyLink } from '../steam-link.ts'
@@ -14,6 +14,7 @@ export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   redDeath: false,
   dealOptionsSize: null,
   randomDraft: false,
+  duplicateFactions: false,
 }
 
 export function parseLobbyState(raw: unknown): LobbyState | null {
@@ -84,6 +85,7 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
     redDeath: normalizeRedDeath(config?.redDeath),
     dealOptionsSize: normalizeDealOptionsSize(config?.dealOptionsSize),
     randomDraft: normalizeRandomDraft(config?.randomDraft),
+    duplicateFactions: normalizeDuplicateFactions(config?.duplicateFactions),
   }
 }
 
@@ -92,14 +94,16 @@ export function normalizeDraftConfigForMode(
   config: Partial<LobbyDraftConfig> | LobbyDraftConfig | null | undefined,
 ): LobbyDraftConfig {
   const normalized = normalizeDraftConfig(config)
+  const redDeath = normalized.redDeath
   return {
     ...normalized,
-    leaderPoolSize: normalized.redDeath ? null : normalized.leaderPoolSize,
-    leaderDataVersion: normalized.redDeath ? 'live' : normalized.leaderDataVersion,
-    simultaneousPick: mode === 'ffa' && !normalized.redDeath ? normalized.simultaneousPick : false,
-    redDeath: normalized.redDeath,
-    dealOptionsSize: normalized.redDeath ? normalized.dealOptionsSize : null,
-    randomDraft: normalized.redDeath ? normalized.randomDraft : false,
+    leaderPoolSize: redDeath ? null : normalized.leaderPoolSize,
+    leaderDataVersion: redDeath ? 'live' : normalized.leaderDataVersion,
+    simultaneousPick: mode === 'ffa' && !redDeath ? normalized.simultaneousPick : false,
+    redDeath,
+    dealOptionsSize: redDeath ? normalized.dealOptionsSize : null,
+    randomDraft: redDeath ? normalized.randomDraft : false,
+    duplicateFactions: redDeath ? (requiresRedDeathDuplicateFactions(mode) || normalized.duplicateFactions) : false,
   }
 }
 
@@ -150,6 +154,7 @@ export function sameDraftConfig(a: LobbyDraftConfig, b: LobbyDraftConfig): boole
     && a.redDeath === b.redDeath
     && a.dealOptionsSize === b.dealOptionsSize
     && a.randomDraft === b.randomDraft
+    && a.duplicateFactions === b.duplicateFactions
 }
 
 function resolveStoredSlotCount(mode: GameMode, value: unknown): number {
@@ -207,5 +212,9 @@ function normalizeDealOptionsSize(value: unknown): number | null {
 }
 
 function normalizeRandomDraft(value: unknown): boolean {
+  return value === true
+}
+
+function normalizeDuplicateFactions(value: unknown): boolean {
   return value === true
 }

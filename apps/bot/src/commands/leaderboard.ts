@@ -18,7 +18,7 @@ import { createStateStore } from '../services/state/store.ts'
 import { factory } from '../setup.ts'
 
 type LeaderboardView = 'players' | 'teams'
-type TeamLeaderboardSize = 'all' | '3v3' | '4v4'
+type TeamLeaderboardSize = 'all' | '3v3' | '4v4' | '5v5' | '6v6'
 
 interface Var {
   mode?: string
@@ -35,6 +35,8 @@ const TEAM_LEADERBOARD_SIZE_CHOICES = [
   { name: 'All Squad Sizes', value: 'all' },
   { name: '3v3 Only', value: '3v3' },
   { name: '4v4 Only', value: '4v4' },
+  { name: '5v5 Only', value: '5v5' },
+  { name: '6v6 Only', value: '6v6' },
 ] as const
 
 export const command_leaderboard = factory.command<Var>(
@@ -135,7 +137,7 @@ function parseLeaderboardView(value: string | null | undefined): LeaderboardView
 }
 
 function parseTeamLeaderboardSize(value: string | null | undefined): TeamLeaderboardSize | null {
-  if (value === 'all' || value === '3v3' || value === '4v4') return value
+  if (value === 'all' || value === '3v3' || value === '4v4' || value === '5v5' || value === '6v6') return value
   return null
 }
 
@@ -158,11 +160,15 @@ function resolveRequestedTeamLeaderboardBuckets(
   if (requestedMode === 'squad') {
     if (teamSize === '3v3') return { buckets: ['squad-3v3'], explicit: true }
     if (teamSize === '4v4') return { buckets: ['squad-4v4'], explicit: true }
-    return { buckets: ['squad-3v3', 'squad-4v4'], explicit: true }
+    if (teamSize === '5v5') return { buckets: ['squad-5v5'], explicit: true }
+    if (teamSize === '6v6') return { buckets: ['squad-6v6'], explicit: true }
+    return { buckets: ['squad-3v3', 'squad-4v4', 'squad-5v5', 'squad-6v6'], explicit: true }
   }
 
   if (teamSize === '3v3') return { buckets: ['squad-3v3'], explicit: true }
   if (teamSize === '4v4') return { buckets: ['squad-4v4'], explicit: true }
+  if (teamSize === '5v5') return { buckets: ['squad-5v5'], explicit: true }
+  if (teamSize === '6v6') return { buckets: ['squad-6v6'], explicit: true }
 
   return { buckets: [...TEAM_LEADERBOARD_BUCKETS], explicit: false }
 }

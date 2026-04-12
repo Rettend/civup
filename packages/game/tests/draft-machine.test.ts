@@ -562,6 +562,20 @@ describe('processDraftInput — PICK (sequential)', () => {
     if (!isDraftError(invalidPick)) return
     expect(invalidPick.error).toBe('Civ rd-c is not in the dealt options')
   })
+
+  test('Red Death duplicate factions keep picked factions available', () => {
+    let state = startDraft(createDraft('match-rd-dup', redDeath2v2, createRdSeats(4), ['rd-a', 'rd-b', 'rd-c', 'rd-d'], {
+      dealOptionsSize: 2,
+      duplicateFactions: true,
+    }))
+    state = { ...state, dealtCivIds: ['rd-a', 'rd-b'] }
+
+    const result = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'rd-a' })
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.state.availableCivIds).toContain('rd-a')
+  })
 })
 
 describe('processDraftInput — PICK (simultaneous FFA)', () => {
@@ -785,6 +799,22 @@ describe('processDraftInput — TIMEOUT', () => {
     expect(timedOut.state.picks).toHaveLength(1)
     expect(['rd-a', 'rd-b']).toContain(timedOut.state.picks[0]?.civId)
     expect(timedOut.events).toContainEqual(expect.objectContaining({ type: 'TIMEOUT_APPLIED', seatIndex: 0 }))
+  })
+
+  test('timeout on duplicate-faction Red Death pick does not consume the faction', () => {
+    let state = startDraft(createDraft('match-rd-timeout-dup', redDeath2v2, createRdSeats(4), ['rd-a', 'rd-b', 'rd-c', 'rd-d'], {
+      dealOptionsSize: 2,
+      duplicateFactions: true,
+    }))
+    state = { ...state, dealtCivIds: ['rd-a', 'rd-b'] }
+
+    const timedOut = processDraftInput(state, { type: 'TIMEOUT' }, false)
+    expect(isDraftError(timedOut)).toBe(false)
+    if (isDraftError(timedOut)) return
+
+    expect(timedOut.state.picks).toHaveLength(1)
+    expect(['rd-a', 'rd-b']).toContain(timedOut.state.picks[0]?.civId)
+    expect(timedOut.state.availableCivIds).toContain(timedOut.state.picks[0]!.civId)
   })
 })
 

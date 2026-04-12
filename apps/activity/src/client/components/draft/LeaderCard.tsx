@@ -104,7 +104,8 @@ function useLeaderCardState(props: LeaderCardProps) {
 
   const isBanned = (): boolean => state()?.bans.some(b => b.civId === props.leader.id) ?? false
   const isPicked = (): boolean => state()?.picks.some(p => p.civId === props.leader.id) ?? false
-  const isUnavailable = (): boolean => isBanned() || isPicked()
+  const allowsDuplicatePicks = (): boolean => isRedDeathDraft() && state()?.duplicateFactions === true
+  const isUnavailable = (): boolean => isBanned() || (isPicked() && !allowsDuplicatePicks())
   const isSelected = (): boolean => selectedLeader() === props.leader.id
   const isBanSelected = (): boolean => banSelections().includes(props.leader.id)
   const hasSelectionVisual = (): boolean => isSelected() || isBanSelected()

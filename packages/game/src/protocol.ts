@@ -22,6 +22,7 @@ export interface RoomConfig {
   civPool: string[]
   dealOptionsSize?: number
   randomDraft?: boolean
+  duplicateFactions?: boolean
   leaderDataVersion?: LeaderDataVersion
   timerConfig?: DraftTimerConfig
   webhookUrl?: string

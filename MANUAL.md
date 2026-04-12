@@ -198,6 +198,8 @@ When the Steam lobby link is set, other players see a gold Steam button top left
 | `2v2` | captains ban 3 each | 1221                      |
 | `3v3` | captains ban 3 each | 122112                    |
 | `4v4` | captains ban 3 each | 12212112                  |
+| `5v5` | captains ban 3 each | 1221211212                |
+| `6v6` | captains ban 3 each | 122121122112              |
 | `FFA` | 2 each              | seat order / simultaneous |
 
 > [!NOTE]
@@ -229,6 +231,8 @@ Default leader pool sizes (and min allowed override):
 - `2v2`: 40 (min 10)
 - `3v3`: 48 (min 12)
 - `4v4`: 56 (min 14)
+- `5v5`: 64 (min 16)
+- `6v6`: 72 (min 18)
 - `FFA`: `6 x player count`: 36-60 for 6-10 players (min `3 x player count` 18-30 for 6-10 players)
 
 Max allowed override is all leaders (85).
@@ -274,11 +278,13 @@ Two ways:
 
 ### Rating
 
-3 separate leaderboards and separate elo scores:
+5 separate leaderboards and separate elo scores:
 
 - **Duel** = `1v1`
-- **Teamers** = `2v2`, `3v3`, `4v4`
+- **Duo** = `2v2`
+- **Squad** = `3v3`, `4v4`, `5v5`, `6v6`
 - **FFA** = `ffa`
+- **Red Death** = any Red Death mode
 
 Commands to view rating:
 

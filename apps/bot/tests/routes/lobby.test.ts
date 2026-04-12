@@ -434,8 +434,10 @@ describe('lobby routes', () => {
       leaderPoolSize: 12,
       leaderDataVersion: 'live',
       simultaneousPick: false,
+      redDeath: false,
       dealOptionsSize: 2,
       randomDraft: false,
+      duplicateFactions: false,
     }, lobby)
     expect(configuredLobby).not.toBeNull()
 
@@ -465,6 +467,7 @@ describe('lobby routes', () => {
       redDeath: false,
       dealOptionsSize: null,
       randomDraft: false,
+      duplicateFactions: false,
     })
     expect(updatedLobby?.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
   })
@@ -497,6 +500,7 @@ describe('lobby routes', () => {
       redDeath: true,
       dealOptionsSize: 4,
       randomDraft: false,
+      duplicateFactions: false,
     }, lobby)
     expect(configuredLobby).not.toBeNull()
 
@@ -820,6 +824,7 @@ describe('lobby routes', () => {
       redDeath: true,
       dealOptionsSize: 4,
       randomDraft: true,
+      duplicateFactions: false,
     }, lobby)
     expect(configuredLobby).not.toBeNull()
 
@@ -844,6 +849,62 @@ describe('lobby routes', () => {
     expect(updatedLobby?.mode).toBe('1v1')
     expect(updatedLobby?.draftConfig.redDeath).toBe(true)
     expect(updatedLobby?.draftConfig.randomDraft).toBe(true)
+    expect(updatedLobby?.draftConfig.duplicateFactions).toBe(false)
+  })
+
+  test('mode changes force duplicate factions for Red Death 6v6', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '5v5',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '5v5', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const configuredLobby = await setLobbyDraftConfig(kv, lobby.id, {
+      banTimerSeconds: null,
+      pickTimerSeconds: null,
+      leaderPoolSize: null,
+      leaderDataVersion: 'live',
+      simultaneousPick: false,
+      redDeath: true,
+      dealOptionsSize: 4,
+      randomDraft: false,
+      duplicateFactions: false,
+    }, lobby)
+    expect(configuredLobby).not.toBeNull()
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/5v5/mode', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        nextMode: '6v6',
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.mode).toBe('6v6')
+    expect(updatedLobby?.draftConfig.redDeath).toBe(true)
+    expect(updatedLobby?.draftConfig.duplicateFactions).toBe(true)
   })
 
   test('mode changes clear FFA simultaneous pick when switching to another mode', async () => {
@@ -870,9 +931,11 @@ describe('lobby routes', () => {
       pickTimerSeconds: null,
       leaderPoolSize: null,
       leaderDataVersion: 'live',
+      redDeath: false,
       simultaneousPick: true,
       dealOptionsSize: null,
       randomDraft: false,
+      duplicateFactions: false,
     }, lobby)
     expect(configuredLobby).not.toBeNull()
 
