@@ -86,20 +86,15 @@ export function computeListItemBoxShadow(
 ): string {
   if (!hasSelection) return TRANSPARENT_SELECTION_SHADOW
 
-  const color = colorScheme === 'accent' ? 'var(--accent)' : 'var(--danger)'
-  const glow = colorScheme === 'accent' ? 'var(--accent-muted)' : 'var(--danger-muted)'
-
-  const topColor = ns?.selectedAbove ? 'transparent' : color
-  const bottomColor = ns?.selectedBelow ? 'transparent' : color
-  const leftColor = ns?.selectedLeft ? 'transparent' : color
-  const rightColor = ns?.selectedRight ? 'transparent' : color
+  const border = colorScheme === 'accent' ? 'var(--accent)' : 'var(--danger)'
+  const muted = colorScheme === 'accent' ? 'var(--accent-muted)' : 'var(--danger-muted)'
 
   return [
-    `inset 0 1.5px 0 0 ${topColor}`,
-    `inset 0 -1.5px 0 0 ${bottomColor}`,
-    `inset 1.5px 0 0 0 ${leftColor}`,
-    `inset -1.5px 0 0 0 ${rightColor}`,
-    `0 0 8px ${glow}`,
+    ns?.selectedAbove ? `inset 0 1px 0 0 ${muted}` : `inset 0 1.5px 0 0 ${border}`,
+    ns?.selectedBelow ? `inset 0 -1px 0 0 ${muted}` : `inset 0 -1.5px 0 0 ${border}`,
+    ns?.selectedLeft ? `inset 1px 0 0 0 ${muted}` : `inset 1.5px 0 0 0 ${border}`,
+    ns?.selectedRight ? `inset -1px 0 0 0 ${muted}` : `inset -1.5px 0 0 0 ${border}`,
+    `0 0 8px ${muted}`,
   ].join(', ')
 }
 
