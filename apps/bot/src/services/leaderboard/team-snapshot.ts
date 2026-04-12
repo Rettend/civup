@@ -147,6 +147,7 @@ async function listTeamLeaderboardBucketSnapshotsFromD1(
   const displaySeason = await getDisplaySeason(db)
   const conditions = [
     eq(matches.status, 'completed'),
+    eq(matches.isOld, false),
     inArray(matches.gameMode, gameModes),
   ]
   if (displaySeason?.id) conditions.push(eq(matches.seasonId, displaySeason.id))
