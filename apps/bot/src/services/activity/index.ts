@@ -245,7 +245,7 @@ function buildDraftWebhookUrl(botHost: string | undefined, partyHost: string | u
 
 function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
   if (isTeamMode(mode)) {
-    const playersPerTeam = teamSize(mode) ?? 0
+    const playersPerTeam = teamSize(mode, entries.length) ?? 0
     const teams = teamCount(mode, entries.length)
     const seats: DraftSeat[] = []
 
@@ -270,7 +270,7 @@ function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
       playerId: e.playerId,
       displayName: e.displayName,
       avatarUrl: e.avatarUrl ?? null,
-      team: slotToTeamIndex(mode, i) ?? undefined,
+      team: slotToTeamIndex(mode, i, entries.length) ?? undefined,
     }))
   }
 

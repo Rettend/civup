@@ -270,6 +270,11 @@ export function ConfigScreen(props: ConfigScreenProps) {
     if (rankedRoleOptionsFetchKey === nextFetchKey) return
     rankedRoleOptionsFetchKey = nextFetchKey
 
+    if (inferGameMode(lobby.mode) === 'big-team') {
+      setRankedRoleOptions([])
+      return
+    }
+
     let cancelled = false
     void (async () => {
       const snapshot = await fetchLobbyRankedRoles(lobby.mode, lobby.id)
@@ -673,6 +678,21 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return twoVTwoTeamCountToggleLabel()
   }
 
+  const isBigTeamLobbyMode = () => isLobbyMode() && lobbyMode() === 'big-team'
+  const showBigTeamSizeToggle = () => isBigTeamLobbyMode()
+  const hasExpandedBigTeam = () => currentLobby()?.targetSize === 12
+  const bigTeamExtraSeatsOccupied = () => {
+    const lobby = currentLobby()
+    if (!lobby || lobby.mode !== 'big-team' || lobby.targetSize !== 12) return false
+    return lobby.entries[5] != null || lobby.entries[11] != null
+  }
+  const canToggleBigTeamSize = () => amHost() && !lobbyActionPending() && (!hasExpandedBigTeam() || !bigTeamExtraSeatsOccupied())
+  const bigTeamSizeToggleLabel = () => hasExpandedBigTeam() ? 'Switch to 5v5' : 'Switch to 6v6'
+  const bigTeamSizeToggleTitle = () => {
+    if (hasExpandedBigTeam() && bigTeamExtraSeatsOccupied()) return 'Clear the extra 6v6 seats before switching back to 5v5.'
+    return bigTeamSizeToggleLabel()
+  }
+
   const redDeathExtraFfaSeatsOccupied = () => {
     const lobby = currentLobby()
     if (!lobby || lobby.mode !== 'ffa' || !optimisticDraftConfig().redDeath) return false
@@ -967,6 +987,29 @@ export function ConfigScreen(props: ConfigScreenProps) {
       }
 
       showInfoMessage(nextTargetSize === 8 ? 'Added two extra teams.' : 'Removed the extra teams.')
+    }
+    finally {
+      setLobbyActionPending(false)
+    }
+  }
+
+  const handleBigTeamSizeToggle = async () => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || !amHost()) return
+    if (lobby.mode !== 'big-team' || lobbyActionPending()) return
+
+    const nextTargetSize = lobby.targetSize > 10 ? 10 : 12
+    setLobbyActionPending(true)
+    clearConfigMessage()
+    try {
+      const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, { targetSize: nextTargetSize })
+      if (!result.ok) {
+        showErrorMessage(result.error)
+        return
+      }
+
+      showInfoMessage(nextTargetSize === 12 ? 'Expanded the lobby to 6v6.' : 'Shrank the lobby back to 5v5.')
     }
     finally {
       setLobbyActionPending(false)
@@ -1397,6 +1440,12 @@ export function ConfigScreen(props: ConfigScreenProps) {
     </div>
   )
 
+  const teamColumnsClass = () => isBigTeamLobbyMode()
+    ? 'flex flex-col gap-4 lg:flex-row lg:overflow-x-auto lg:pb-1'
+    : cn('gap-4 grid', teamIndices().length > 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2')
+
+  const teamSectionClass = () => isBigTeamLobbyMode() ? 'min-w-0 lg:min-w-[280px] lg:flex-1' : undefined
+
   const handleCancelAction = async () => {
     if (cancelPending()) return
 
@@ -1579,10 +1628,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       </div>
                     )}
                   >
-                    <div class={cn('gap-4 grid', teamIndices().length > 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2')}>
+                    <div class={teamColumnsClass()}>
                       <For each={teamIndices()}>
                         {team => (
-                          <div>
+                          <div class={teamSectionClass()}>
                             <div class="text-xs text-accent tracking-wider font-bold mb-2">
                               Team
                               {' '}
@@ -1613,6 +1662,30 @@ export function ConfigScreen(props: ConfigScreenProps) {
                           onClick={() => void handle2v2TeamCountToggle()}
                         >
                           <span class={cn(hasExpanded2v2Teams() ? 'i-ph-minus-bold' : 'i-ph-plus-bold', 'text-sm')} />
+                        </button>
+                        <div class="h-px flex-1 bg-border-subtle" />
+                      </div>
+                    </div>
+                  </Show>
+
+                  <Show when={showBigTeamSizeToggle()}>
+                    <div class="mt-4 flex flex-col gap-2">
+                      <div class="flex gap-3 items-center justify-center">
+                        <div class="h-px flex-1 bg-border-subtle" />
+                        <button
+                          type="button"
+                          class={cn(
+                            'border rounded-full flex h-8 w-8 items-center justify-center transition-colors',
+                            canToggleBigTeamSize()
+                              ? 'border-border text-fg-muted hover:text-fg hover:border-border-hover hover:bg-bg-muted/40 cursor-pointer'
+                              : 'border-border-subtle text-fg-subtle/60 cursor-default',
+                          )}
+                          disabled={!canToggleBigTeamSize()}
+                          title={bigTeamSizeToggleTitle()}
+                          aria-label={bigTeamSizeToggleLabel()}
+                          onClick={() => void handleBigTeamSizeToggle()}
+                        >
+                          <span class={cn(hasExpandedBigTeam() ? 'i-ph-minus-bold' : 'i-ph-plus-bold', 'text-sm')} />
                         </button>
                         <div class="h-px flex-1 bg-border-subtle" />
                       </div>
@@ -1709,7 +1782,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                             valueClass={draftConfig().randomDraft ? 'text-accent' : undefined}
                           />
                         </Show>
-                        <Show when={isLobbyMode()}>
+                        <Show when={isLobbyMode() && !isBigTeamLobbyMode()}>
                           <>
                             <ReadonlyTimerRow
                               label="Min rank"
@@ -1739,9 +1812,9 @@ export function ConfigScreen(props: ConfigScreenProps) {
                     )}
                   >
                     <div class="flex flex-col gap-2">
-                      <Show when={isLobbyMode()}>
-                        <div class="flex flex-col gap-1.5">
-                          <div class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">Min and max matchmaking rank</div>
+                        <Show when={isLobbyMode() && !isBigTeamLobbyMode()}>
+                          <div class="flex flex-col gap-1.5">
+                            <div class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">Min and max matchmaking rank</div>
                           <div class="gap-2 grid grid-cols-1 sm:grid-cols-2">
                             <Dropdown
                               ariaLabel="Minimum matchmaking rank"

@@ -6,6 +6,7 @@ export const GAME_MODE_CHOICES = [
   { name: '2v2', value: '2v2' },
   { name: '3v3', value: '3v3' },
   { name: '4v4', value: '4v4' },
+  { name: 'Big Team', value: 'big-team' },
   { name: 'FFA', value: 'ffa' },
 ] as const satisfies readonly { name: string, value: GameMode }[]
 
@@ -26,13 +27,15 @@ export const LEADERBOARD_MODE_LABELS: Record<LeaderboardMode, string> = {
 }
 
 const RED_DEATH_FFA_START_PLAYER_COUNTS = [4, 6, 8, 10] as const
+const BIG_TEAM_TARGET_SIZES = [10, 12] as const
+const RED_DEATH_GAME_MODES = ['ffa', '1v1', '2v2', '3v3', '4v4'] as const satisfies readonly GameMode[]
 
 const LEADERBOARD_MODE_GAME_MODES = {
   'duel': ['1v1'],
   'duo': ['2v2'],
   'squad': ['3v3', '4v4'],
   'ffa': ['ffa'],
-  'red-death': GAME_MODES,
+  'red-death': RED_DEATH_GAME_MODES,
 } as const satisfies Record<LeaderboardMode, readonly GameMode[]>
 
 function normalizeModeValue(value: string | null | undefined): string | null {
@@ -86,6 +89,11 @@ export function formatModeLabel(
     const parsed = parseGameMode(trimmed)
     if (parsed) {
       if (parsed === 'ffa') return 'FFA'
+      if (parsed === 'big-team') {
+        if (options.targetSize === 10) return '5v5'
+        if (options.targetSize === 12) return '6v6'
+        return 'Big Team'
+      }
       if (parsed === '2v2' && typeof options.targetSize === 'number' && options.targetSize >= 6 && options.targetSize % 2 === 0) {
         return Array.from({ length: Math.floor(options.targetSize / 2) }, () => '2').join('v')
       }
@@ -117,7 +125,8 @@ export function formatLeaderboardModeLabel(mode: string | null | undefined, fall
 }
 
 /** Map game mode to its leaderboard track. */
-export function toLeaderboardMode(mode: GameMode, options: { redDeath?: boolean } = {}): LeaderboardMode {
+export function toLeaderboardMode(mode: GameMode, options: { redDeath?: boolean } = {}): LeaderboardMode | null {
+  if (mode === 'big-team') return null
   if (options.redDeath) return 'red-death'
   if (mode === '2v2') return 'duo'
   if (mode === '3v3' || mode === '4v4') return 'squad'
@@ -131,32 +140,35 @@ export function leaderboardModesToGameModes(mode: LeaderboardMode): readonly Gam
 }
 
 /** Whether a game mode is team-based. */
-export function isTeamMode(mode: GameMode): mode is '2v2' | '3v3' | '4v4' {
-  return mode === '2v2' || mode === '3v3' || mode === '4v4'
+export function isTeamMode(mode: GameMode): mode is '2v2' | '3v3' | '4v4' | 'big-team' {
+  return mode === '2v2' || mode === '3v3' || mode === '4v4' || mode === 'big-team'
 }
 
 /** Players on one side of a lobby, or null for FFA. */
-export function teamSize(mode: GameMode): 1 | 2 | 3 | 4 | null {
+export function teamSize(mode: GameMode, playerCount?: number): 1 | 2 | 3 | 4 | 5 | 6 | null {
   if (mode === 'ffa') return null
   if (mode === '1v1') return 1
   if (mode === '2v2') return 2
   if (mode === '3v3') return 3
-  return 4
+  if (mode === '4v4') return 4
+  return (playerCount ?? defaultPlayerCount(mode)) >= 12 ? 6 : 5
 }
 
 /** Number of teams for team or duel modes. */
 export function teamCount(mode: GameMode, playerCount: number = defaultPlayerCount(mode)): number {
+  if (mode === 'big-team') return 2
   if (mode === '2v2') return Math.max(2, Math.floor(Math.max(4, playerCount) / 2))
-  return teamSize(mode) == null ? 0 : 2
+  return teamSize(mode, playerCount) == null ? 0 : 2
 }
 
 /** Players per team. */
-export function playersPerTeam(mode: GameMode): number {
-  return teamSize(mode) ?? 1
+export function playersPerTeam(mode: GameMode, playerCount: number = defaultPlayerCount(mode)): number {
+  return teamSize(mode, playerCount) ?? 1
 }
 
 /** Supported player counts for a mode. */
 export function playerCountOptions(mode: GameMode): readonly number[] {
+  if (mode === 'big-team') return BIG_TEAM_TARGET_SIZES
   if (mode === '2v2') return [4, 8]
   const size = teamSize(mode)
   if (size == null) return [8]
@@ -164,14 +176,14 @@ export function playerCountOptions(mode: GameMode): readonly number[] {
 }
 
 /** Maximum teammate mentions accepted by a mode. */
-export function maxTeammatesForMode(mode: GameMode): number {
-  const size = teamSize(mode)
+export function maxTeammatesForMode(mode: GameMode, playerCount: number = maxPlayerCount(mode)): number {
+  const size = teamSize(mode, playerCount)
   return size == null ? 0 : Math.max(0, size - 1)
 }
 
 /** Map a lobby slot to its team index for versus modes. */
 export function slotToTeamIndex(mode: GameMode, slot: number, playerCount: number = defaultPlayerCount(mode)): 0 | 1 | 2 | 3 | null {
-  const size = teamSize(mode)
+  const size = teamSize(mode, playerCount)
   if (size == null || slot < 0) return null
 
   const teams = teamCount(mode, playerCount)
@@ -206,6 +218,7 @@ export function startPlayerCountOptions(
     return RED_DEATH_FFA_START_PLAYER_COUNTS.filter(count => count <= targetSize)
   }
 
+  if (mode === 'big-team') return playerCountOptions(mode).includes(targetSize) ? [targetSize] : []
   if (mode === '2v2' && targetSize === 8) return [6, 8]
   return playerCountOptions(mode).includes(targetSize) ? [targetSize] : []
 }

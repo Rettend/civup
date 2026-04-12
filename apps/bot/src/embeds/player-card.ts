@@ -157,7 +157,7 @@ function formatRankedRoleMention(mode: PlayerRankProfile['modes'][LeaderboardMod
 function getRatingModes(modeFilter: StatsModeFilter, visibleModes: readonly LeaderboardMode[]): readonly LeaderboardMode[] {
   if (modeFilter === 'all') return visibleModes
   const mode = toLeaderboardMode(modeFilter)
-  return visibleModes.includes(mode) ? [mode] : []
+  return mode && visibleModes.includes(mode) ? [mode] : []
 }
 
 function buildCompletedMatchesWhereClause(playerId: string, modeFilter: StatsModeFilter, seasonId: string | null) {

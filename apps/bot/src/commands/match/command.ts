@@ -41,9 +41,11 @@ export const command_match = factory.command<MatchVar>(
       new Option('mode', 'Game mode to queue for')
         .required()
         .choices(...MATCH_MODE_CHOICES),
-      new Option('teammate', 'Teammate for 2v2/3v3/4v4', 'User'),
-      new Option('teammate2', 'Second teammate for 3v3/4v4', 'User'),
-      new Option('teammate3', 'Third teammate for 4v4', 'User'),
+      new Option('teammate', 'Teammate for team modes', 'User'),
+      new Option('teammate2', 'Second teammate for 3v3/4v4/Big Team', 'User'),
+      new Option('teammate3', 'Third teammate for 4v4/Big Team', 'User'),
+      new Option('teammate4', 'Fourth teammate for Big Team', 'User'),
+      new Option('teammate5', 'Fifth teammate for Big Team', 'User'),
     ),
     new SubCommand('activity', 'Open the activity for this channel'),
     new SubCommand('cancel', 'Cancel your hosted open or live lobby').options(
@@ -860,6 +862,7 @@ export const command_match = factory.command<MatchVar>(
           }
 
           const lobby = await getLobbyByMatch(kv, result.match.id) ?? fallbackLobby
+          const isRankedResult = reportedContext.ranked
 
           if (result.idempotent) {
             console.log('[idempotency] slash report deduplicated after race', {
@@ -886,7 +889,7 @@ export const command_match = factory.command<MatchVar>(
 
           const guildId = lobby?.guildId ?? c.interaction.guild_id ?? null
           let rankedRoleLines: string[] = []
-          if (guildId) {
+          if (isRankedResult && guildId) {
             try {
               const participantIds = result.participants.map(participant => participant.playerId)
               const rankedPreview = await previewRankedRoles({
@@ -928,18 +931,20 @@ export const command_match = factory.command<MatchVar>(
             await clearLobbyById(kv, lobby.id, lobby)
           }
 
-          try {
-            await markLeaderboardsDirty(db, `match-report:${result.match.id}`)
-          }
-          catch (error) {
-            console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
-          }
+          if (isRankedResult) {
+            try {
+              await markLeaderboardsDirty(db, `match-report:${result.match.id}`)
+            }
+            catch (error) {
+              console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
+            }
 
-          try {
-            await markRankedRolesDirty(kv, `match-report:${result.match.id}`)
-          }
-          catch (error) {
-            console.error(`Failed to mark ranked roles dirty after match ${result.match.id}:`, error)
+            try {
+              await markRankedRolesDirty(kv, `match-report:${result.match.id}`)
+            }
+            catch (error) {
+              console.error(`Failed to mark ranked roles dirty after match ${result.match.id}:`, error)
+            }
           }
 
           await sendTransientEphemeralResponse(c, `Reported result for match **${result.match.id}**.`, 'success')
@@ -1046,7 +1051,7 @@ function orderLobbyParticipantsBySlots<T extends { playerId: string }>(
 
 function buildMatchJoinRequest(
   c: {
-    var: Pick<MatchVar, 'teammate' | 'teammate2' | 'teammate3'>
+    var: Pick<MatchVar, 'teammate' | 'teammate2' | 'teammate3' | 'teammate4' | 'teammate5'>
     interaction: {
       member?: { user?: { id?: string, global_name?: string | null, username?: string, avatar?: string | null } }
       user?: { id?: string, global_name?: string | null, username?: string, avatar?: string | null }
@@ -1058,13 +1063,13 @@ function buildMatchJoinRequest(
 ):
   | { entries: MatchJoinEntry[], teammateIds: string[] }
   | { error: string } {
-  const rawTeammateIds = [c.var.teammate, c.var.teammate2, c.var.teammate3]
+  const rawTeammateIds = [c.var.teammate, c.var.teammate2, c.var.teammate3, c.var.teammate4, c.var.teammate5]
     .filter((value): value is string => typeof value === 'string' && value.length > 0)
   const teammateLimit = maxTeammatesForMode(mode)
 
   if (rawTeammateIds.length > teammateLimit) {
     if (teammateLimit === 0) {
-      return { error: 'Teammate options are only available for 2v2, 3v3, and 4v4.' }
+      return { error: 'Teammate options are only available for team modes.' }
     }
     return {
       error: `${formatModeLabel(mode)} supports up to ${teammateLimit} teammate option${teammateLimit === 1 ? '' : 's'}.`,

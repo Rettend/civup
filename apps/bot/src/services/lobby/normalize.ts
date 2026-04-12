@@ -92,14 +92,15 @@ export function normalizeDraftConfigForMode(
   config: Partial<LobbyDraftConfig> | LobbyDraftConfig | null | undefined,
 ): LobbyDraftConfig {
   const normalized = normalizeDraftConfig(config)
+  const redDeath = normalized.redDeath
   return {
     ...normalized,
-    leaderPoolSize: normalized.redDeath ? null : normalized.leaderPoolSize,
-    leaderDataVersion: normalized.redDeath ? 'live' : normalized.leaderDataVersion,
-    simultaneousPick: mode === 'ffa' && !normalized.redDeath ? normalized.simultaneousPick : false,
-    redDeath: normalized.redDeath,
-    dealOptionsSize: normalized.redDeath ? normalized.dealOptionsSize : null,
-    randomDraft: normalized.redDeath ? normalized.randomDraft : false,
+    leaderPoolSize: redDeath ? null : normalized.leaderPoolSize,
+    leaderDataVersion: redDeath ? 'live' : normalized.leaderDataVersion,
+    simultaneousPick: mode === 'ffa' && !redDeath ? normalized.simultaneousPick : false,
+    redDeath,
+    dealOptionsSize: redDeath ? normalized.dealOptionsSize : null,
+    randomDraft: redDeath ? normalized.randomDraft : false,
   }
 }
 

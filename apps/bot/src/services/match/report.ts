@@ -169,6 +169,9 @@ async function finalizeReportedMatch(
 
   const gameMode = gameContext.mode
   const leaderboardMode = gameContext.leaderboardMode
+  if (leaderboardMode == null) {
+    return await finalizeReportedUnrankedMatch(db, kv, match, participantRows)
+  }
   const leaderboardSnapshotBefore = await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode)
   const beforeRankByPlayer = buildRankByPlayer(leaderboardSnapshotBefore.rows, leaderboardMode)
   const leaderboardSnapshotByPlayerId = new Map(
@@ -326,4 +329,60 @@ async function finalizeReportedMatch(
   }))
 
   return { match: updatedMatch!, participants: participantsWithLeaderboardRanks }
+}
+
+async function finalizeReportedUnrankedMatch(
+  db: Database,
+  kv: KVNamespace,
+  match: { id: string },
+  participantRows: ParticipantRow[],
+): Promise<ReportResult> {
+  const matchId = match.id
+  const now = Date.now()
+
+  await db
+    .update(matchParticipants)
+    .set({
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    })
+    .where(eq(matchParticipants.matchId, matchId))
+
+  await db
+    .update(matches)
+    .set({ status: 'completed', completedAt: now })
+    .where(eq(matches.id, matchId))
+
+  await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
+
+  const channelId = await getChannelForMatch(kv, matchId)
+  await clearActivityMappings(
+    kv,
+    matchId,
+    participantRows.map(participant => participant.playerId),
+    channelId ?? undefined,
+  )
+
+  const [updatedMatch] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, matchId))
+    .limit(1)
+
+  const updatedParticipants = await db
+    .select()
+    .from(matchParticipants)
+    .where(eq(matchParticipants.matchId, matchId))
+
+  return {
+    match: updatedMatch!,
+    participants: updatedParticipants.map(participant => ({
+      ...participant,
+      leaderboardBeforeRank: null,
+      leaderboardAfterRank: null,
+      leaderboardEligibleCount: null,
+    })),
+  }
 }

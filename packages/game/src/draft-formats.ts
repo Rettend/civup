@@ -2,6 +2,8 @@ import type { DraftFormat, DraftSeat, DraftStep, GameMode } from './types.ts'
 
 const FULL_ROSTER_3V3_PICK_ORDER = [0, 1, 3, 2, 4, 5] as const
 const FULL_ROSTER_4V4_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7] as const
+const FULL_ROSTER_5V5_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7, 8, 9] as const
+const FULL_ROSTER_6V6_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7, 9, 8, 10, 11] as const
 const TEAM_BAN_STEP: DraftStep = { action: 'ban', seats: [0, 1], count: 3, timer: 120 }
 const FFA_BAN_STEP: DraftStep = { action: 'ban', seats: 'all', count: 2, timer: 120 }
 
@@ -33,7 +35,7 @@ function createTwoVTwoPickOrder(seatCount: number): number[] {
 function createTeamFormat(config: {
   id: string
   name: string
-  gameMode: Extract<GameMode, '2v2' | '3v3' | '4v4'>
+  gameMode: Extract<GameMode, '2v2' | '3v3' | '4v4' | 'big-team'>
   getPickOrder: (seatCount: number) => readonly number[]
   getBanStep?: (seatCount: number) => DraftStep
 }): DraftFormat {
@@ -115,6 +117,21 @@ export const default4v4 = createTeamFormat({
   gameMode: '4v4',
   getPickOrder() {
     return FULL_ROSTER_4V4_PICK_ORDER
+  },
+})
+
+/**
+ * Big Team Format:
+ * - 3 blind bans per team (simultaneous)
+ * - Captains submit bans (seat 0 = Team A captain, seat 1 = Team B captain)
+ * - Pick order expands for 5v5 and 6v6 rosters
+ */
+export const defaultBigTeam = createTeamFormat({
+  id: 'default-big-team',
+  name: 'Big Team',
+  gameMode: 'big-team',
+  getPickOrder(seatCount) {
+    return seatCount >= 12 ? FULL_ROSTER_6V6_PICK_ORDER : FULL_ROSTER_5V5_PICK_ORDER
   },
 })
 
@@ -212,6 +229,15 @@ export const redDeath4v4 = createRedDeathFormat({
   },
 })
 
+export const redDeathBigTeam = createRedDeathFormat({
+  id: 'red-death-big-team',
+  name: 'Red Death Big Team',
+  gameMode: 'big-team',
+  getPickOrder(seatCount) {
+    return seatCount >= 12 ? FULL_ROSTER_6V6_PICK_ORDER : FULL_ROSTER_5V5_PICK_ORDER
+  },
+})
+
 export const redDeathFfa = createRedDeathFormat({
   id: 'red-death-ffa',
   name: 'Red Death FFA',
@@ -231,11 +257,13 @@ export const draftFormats: DraftFormat[] = [
   default2v2,
   default3v3,
   default4v4,
+  defaultBigTeam,
   redDeathFfa,
   redDeath1v1,
   redDeath2v2,
   redDeath3v3,
   redDeath4v4,
+  redDeathBigTeam,
 ]
 
 /** Map of format ID to format */
