@@ -132,6 +132,7 @@ The `/match` command group manages the lobby:
 >
 > - players can only join one lobby, consequently a host can only host one lobby, re-running `/match create` reuses that lobby
 > - team modes and regular FFA must be full to start (regular FFA is 8 players)
+> - expanded `2v2` lobbies can start with 6 players as `2v2v2`, or 8 players as `2v2v2v2`
 > - Red Death FFA can start with 4, 6, 8, or 10 players
 
 ### Activity
@@ -202,6 +203,7 @@ When the Steam lobby link is set, other players see a gold Steam button top left
 > [!NOTE]
 >
 > Captains are the first seat in each team, only they can submit bans.
+> Expanded `2v2` snakes by active teams: `123321` for `2v2v2`, `12344321` for `2v2v2v2`.
 
 ### Draft behavior
 
@@ -257,7 +259,9 @@ The bot will send reminder DMs to the host roughly 3 and 6 hours after a draft i
 Two ways:
 
 - inside the **Activity**: any player can click on the team that won and then the `Confirm Result` button in the header, for FFA they need to select the players in the placement order
-- using **Commands**: `/match report winner:...` for duel, duo, and squad games, `/match report [...placements]` for FFA
+- using **Commands**: `/match report winner:...` for duel and two-team team games
+- using **Commands**: `/match report winner:... second:... [third/fourth...]` for multi-team team games, using one player from each team in placement order
+- using **Commands**: `/match report [...placements]` for FFA
 
 ### What a successful report does
 
