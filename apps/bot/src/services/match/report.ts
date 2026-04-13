@@ -10,7 +10,6 @@ import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
-import { storeMatchReporterIdentity } from './reporter.ts'
 import { buildRankByPlayer, recalculateLeaderboardMode } from './ratings.ts'
 
 export async function reportMatch(
@@ -150,20 +149,9 @@ export async function reportMatch(
     return { error: 'Could not resolve placements for all participants.' }
   }
 
-  const finalized = await finalizeReportedMatch(db, kv, match, updatedParticipants)
+  const finalized = await finalizeReportedMatch(db, kv, match, updatedParticipants, input.reporterId)
   if ('error' in finalized) {
     return finalized
-  }
-
-  try {
-    await storeMatchReporterIdentity(kv, finalized.match.id, {
-      userId: input.reporterId,
-      displayName: input.reporterDisplayName ?? null,
-      avatarUrl: input.reporterAvatarUrl ?? null,
-    })
-  }
-  catch (error) {
-    console.error(`Failed to store reporter identity for match ${finalized.match.id}:`, error)
   }
 
   return finalized
@@ -174,6 +162,7 @@ async function finalizeReportedMatch(
   kv: KVNamespace,
   match: { id: string, gameMode: string, draftData: string | null },
   participantRows: ParticipantRow[],
+  reporterId: string,
 ): Promise<ReportResult> {
   const matchId = match.id
   const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
@@ -181,7 +170,7 @@ async function finalizeReportedMatch(
 
   const leaderboardMode = gameContext.leaderboardMode
   if (leaderboardMode == null) {
-    return await finalizeReportedUnrankedMatch(db, kv, match, participantRows)
+    return await finalizeReportedUnrankedMatch(db, kv, match, participantRows, reporterId)
   }
 
   const leaderboardSnapshotBefore = await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode)
@@ -216,7 +205,11 @@ async function finalizeReportedMatch(
 
   await db
     .update(matches)
-    .set({ status: 'completed', completedAt: now })
+    .set({
+      status: 'completed',
+      completedAt: now,
+      draftData: setReportedByInDraftData(match.draftData, reporterId),
+    })
     .where(eq(matches.id, matchId))
 
   await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
@@ -387,8 +380,9 @@ async function modeUsesLiveSeedFade(db: Database, leaderboardMode: string): Prom
 async function finalizeReportedUnrankedMatch(
   db: Database,
   kv: KVNamespace,
-  match: { id: string },
+  match: { id: string, draftData: string | null },
   participantRows: ParticipantRow[],
+  reporterId: string,
 ): Promise<ReportResult> {
   const matchId = match.id
   const now = Date.now()
@@ -405,7 +399,11 @@ async function finalizeReportedUnrankedMatch(
 
   await db
     .update(matches)
-    .set({ status: 'completed', completedAt: now })
+    .set({
+      status: 'completed',
+      completedAt: now,
+      draftData: setReportedByInDraftData(match.draftData, reporterId),
+    })
     .where(eq(matches.id, matchId))
 
   await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
@@ -437,5 +435,23 @@ async function finalizeReportedUnrankedMatch(
       leaderboardAfterRank: null,
       leaderboardEligibleCount: null,
     })),
+  }
+}
+
+function setReportedByInDraftData(draftData: string | null, reporterId: string): string | null {
+  const normalizedReporterId = reporterId.trim()
+  if (normalizedReporterId.length === 0) return draftData
+  if (!draftData) return JSON.stringify({ reportedById: normalizedReporterId })
+
+  try {
+    const parsed = JSON.parse(draftData)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return draftData
+    return JSON.stringify({
+      ...(parsed as Record<string, unknown>),
+      reportedById: normalizedReporterId,
+    })
+  }
+  catch {
+    return draftData
   }
 }
