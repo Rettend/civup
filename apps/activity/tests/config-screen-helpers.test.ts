@@ -1,6 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import type { LobbySnapshot } from '../src/client/stores'
-import { buildLobbyBalanceSummary, formatLeaderPoolValue, leaderPoolSizePlaceholder } from '../src/client/lib/config-screen/helpers'
+import {
+  buildLobbyBalanceSummary,
+  formatLeaderPoolValue,
+  formatTimerValue,
+  leaderPoolSizePlaceholder,
+  parseTimerMinutesInput,
+  timerSecondsToMinutesInput,
+  timerSecondsToMinutesPlaceholder,
+} from '../src/client/lib/config-screen/helpers'
 
 describe('leader pool helper defaults', () => {
   test('uses full FFA target size for open-lobby placeholder defaults', () => {
@@ -13,6 +21,25 @@ describe('leader pool helper defaults', () => {
 
   test('preserves explicit leader pool overrides', () => {
     expect(formatLeaderPoolValue(20, 'ffa', 6, 8)).toBe('20')
+  })
+})
+
+describe('timer helper formatting', () => {
+  test('preserves fractional minute inputs for non-round second values', () => {
+    expect(timerSecondsToMinutesInput(45)).toBe('0.75')
+    expect(timerSecondsToMinutesPlaceholder(75)).toBe('1.25')
+  })
+
+  test('accepts decimal minute values', () => {
+    expect(parseTimerMinutesInput('0.1')).toBe(0.1)
+    expect(parseTimerMinutesInput('0.75')).toBe(0.75)
+    expect(parseTimerMinutesInput('30.1')).toBeUndefined()
+  })
+
+  test('formats sub-minute and fractional-minute timers clearly', () => {
+    expect(formatTimerValue(45)).toBe('45 seconds')
+    expect(formatTimerValue(90)).toBe('1.5 minutes')
+    expect(formatTimerValue(null, 45)).toBe('45 seconds')
   })
 })
 

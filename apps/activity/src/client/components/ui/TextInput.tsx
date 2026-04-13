@@ -14,6 +14,7 @@ interface TextInputProps {
   onFocus?: JSX.EventHandlerUnion<HTMLInputElement, FocusEvent>
   onBlur?: JSX.EventHandlerUnion<HTMLInputElement, FocusEvent>
   onClamp?: (detail: { previousValue: string, nextValue: string }) => void
+  roundOnBlur?: boolean
   class?: string
 }
 
@@ -27,7 +28,7 @@ export function TextInput(props: TextInputProps) {
     const numeric = Number(trimmed)
     if (!Number.isFinite(numeric)) return { nextValue: value, adjusted: false }
 
-    let bounded = Math.round(numeric)
+    let bounded = numeric
 
     if (props.min != null) {
       const minimum = Number(props.min)
@@ -39,9 +40,13 @@ export function TextInput(props: TextInputProps) {
       if (Number.isFinite(maximum)) bounded = Math.min(maximum, bounded)
     }
 
+    const step = props.step == null ? Number.NaN : Number(props.step)
+    const shouldRoundToInteger = (props.roundOnBlur ?? true) && (!Number.isFinite(step) || Number.isInteger(step))
+    if (shouldRoundToInteger) bounded = Math.round(bounded)
+
     return {
       nextValue: String(bounded),
-      adjusted: bounded !== numeric || !Number.isInteger(numeric),
+      adjusted: bounded !== numeric || (shouldRoundToInteger && !Number.isInteger(numeric)),
     }
   }
 

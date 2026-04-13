@@ -477,6 +477,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
   const banTimerPlaceholder = () => timerSecondsToMinutesPlaceholder(serverDefaultTimerConfig().banTimerSeconds)
   const pickTimerPlaceholder = () => timerSecondsToMinutesPlaceholder(serverDefaultTimerConfig().pickTimerSeconds)
+  const timerInputStep = (value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed) return '1'
+
+    const numeric = Number(trimmed)
+    if (!Number.isFinite(numeric)) return '0.1'
+    return numeric >= 1 && Number.isInteger(numeric) ? '1' : '0.1'
+  }
 
   const optimisticTimerConfig = createOptimisticState(draftConfig, {
     equals: sameLobbyDraftConfig,
@@ -859,8 +867,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
         return
       }
 
-      const banTimerSeconds = parsedBan == null ? null : parsedBan * 60
-      const pickTimerSeconds = parsedPick == null ? null : parsedPick * 60
+      const banTimerSeconds = parsedBan == null ? null : Math.round(parsedBan * 60)
+      const pickTimerSeconds = parsedPick == null ? null : Math.round(parsedPick * 60)
       const current = optimisticTimerConfig.value()
       const leaderPoolSize = isRedDeathLobbyMode() ? current.leaderPoolSize : parsedLeaderPool
       const leaderDataVersion = current.leaderDataVersion
@@ -1907,7 +1915,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
                           label="Ban Timer (minutes)"
                           min="0"
                           max={String(MAX_TIMER_MINUTES)}
-                          step="1"
+                          step={timerInputStep(banMinutes())}
+                          roundOnBlur={false}
                           value={banMinutes()}
                           placeholder={banTimerPlaceholder()}
                           onFocus={() => setEditingField('ban')}
@@ -1929,7 +1938,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
                         label="Pick Timer (minutes)"
                         min="0"
                         max={String(MAX_TIMER_MINUTES)}
-                        step="1"
+                        step={timerInputStep(pickMinutes())}
+                        roundOnBlur={false}
                         value={pickMinutes()}
                         placeholder={pickTimerPlaceholder()}
                         onFocus={() => setEditingField('pick')}

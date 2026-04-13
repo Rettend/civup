@@ -234,12 +234,12 @@ export function getTimerConfigFromDraft(state: DraftState | null): DraftTimerCon
 
 export function timerSecondsToMinutesInput(timerSeconds: number | null): string {
   if (timerSeconds == null) return ''
-  return String(Math.round(timerSeconds / 60))
+  return formatTimerMinutesInput(timerSeconds)
 }
 
 export function timerSecondsToMinutesPlaceholder(timerSeconds: number | null): string {
   if (timerSeconds == null) return ''
-  return String(Math.round(timerSeconds / 60))
+  return formatTimerMinutesInput(timerSeconds)
 }
 
 export function parseTimerMinutesInput(value: string): number | null | undefined {
@@ -247,7 +247,7 @@ export function parseTimerMinutesInput(value: string): number | null | undefined
   if (!trimmed) return null
 
   const numeric = Number(trimmed)
-  if (!Number.isFinite(numeric) || !Number.isInteger(numeric)) return undefined
+  if (!Number.isFinite(numeric)) return undefined
   if (numeric < 0 || numeric > MAX_TIMER_MINUTES) return undefined
   return numeric
 }
@@ -259,23 +259,34 @@ export function normalizeTimerMinutesInput(value: string): string {
   const numeric = Number(trimmed)
   if (!Number.isFinite(numeric)) return value
 
-  const bounded = Math.min(MAX_TIMER_MINUTES, Math.max(0, Math.round(numeric)))
-  return String(bounded)
+  const bounded = Math.min(MAX_TIMER_MINUTES, Math.max(0, numeric))
+  return trimTrailingZeros(bounded.toFixed(3))
 }
 
 export function formatTimerValue(timerSeconds: number | null, defaultTimerSeconds: number | null = null): string {
   if (timerSeconds == null && defaultTimerSeconds != null) {
-    if (defaultTimerSeconds === 0) return 'Unlimited'
-    const defaultMinutes = Math.round(defaultTimerSeconds / 60)
-    if (defaultMinutes === 1) return '1 minute'
-    return `${defaultMinutes} minutes`
+    return formatTimerDuration(defaultTimerSeconds)
   }
 
   if (timerSeconds == null) return 'Server default'
+  return formatTimerDuration(timerSeconds)
+}
+
+function formatTimerMinutesInput(timerSeconds: number): string {
+  return trimTrailingZeros((timerSeconds / 60).toFixed(3))
+}
+
+function formatTimerDuration(timerSeconds: number): string {
   if (timerSeconds === 0) return 'Unlimited'
-  const minutes = Math.round(timerSeconds / 60)
-  if (minutes === 1) return '1 minute'
-  return `${minutes} minutes`
+  if (timerSeconds < 60) return timerSeconds === 1 ? '1 second' : `${timerSeconds} seconds`
+
+  const minutes = timerSeconds / 60
+  if (Number.isInteger(minutes)) return minutes === 1 ? '1 minute' : `${minutes} minutes`
+  return `${trimTrailingZeros(minutes.toFixed(2))} minutes`
+}
+
+function trimTrailingZeros(value: string): string {
+  return value.replace(/(?:\.0+|(\.\d*?[1-9])0+)$/, '$1')
 }
 
 export function leaderPoolSizeToInput(leaderPoolSize: number | null): string {
