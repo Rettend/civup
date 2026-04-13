@@ -211,7 +211,7 @@ describe('player rank views', () => {
     sqlite.close()
   })
 
-  test('shows seeded current-season ratings immediately in stats and rank', async () => {
+  test('hides zero-game seeded modes in current stats and rank', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
@@ -235,18 +235,16 @@ describe('player rank views', () => {
       seasonHistory: history,
     })).toJSON()
 
-    expect(JSON.stringify(stats.fields)).toContain('Rating: Unranked (1540)')
-    expect(JSON.stringify(stats.fields)).toContain('Games: 0')
-    expect(JSON.stringify(stats.fields)).toContain('Wins: 0 (0%)')
+    expect(JSON.stringify(stats.fields)).toContain('No games played yet.')
+    expect(JSON.stringify(stats.fields)).not.toContain('Duel')
+    expect(JSON.stringify(stats.fields)).not.toContain('Rating: Unranked (1540)')
     expect(JSON.stringify(stats.fields)).not.toContain('Recent Matches')
     expect(JSON.stringify(stats.fields)).not.toContain('Top Leaders')
 
     expect(rank.fields?.[0]?.name).toBe('S2')
-    expect(JSON.stringify(rank.fields)).toContain('Duel')
-    expect(JSON.stringify(rank.fields)).toContain('Rating: Unranked (1540)')
-    expect(JSON.stringify(rank.fields)).toContain('Games: 0')
-    expect(JSON.stringify(rank.fields)).toContain('Wins: 0 (0%)')
-    expect(JSON.stringify(rank.fields)).not.toContain('No ranked games yet.')
+    expect(JSON.stringify(rank.fields)).not.toContain('Duel')
+    expect(JSON.stringify(rank.fields)).not.toContain('Rating: Unranked (1540)')
+    expect(JSON.stringify(rank.fields)).toContain('No ranked games yet.')
 
     sqlite.close()
   })
