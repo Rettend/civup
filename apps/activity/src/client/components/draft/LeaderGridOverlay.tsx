@@ -772,7 +772,7 @@ export function LeaderGridOverlay() {
         </div>
       </div>
 
-      <div class={cn('p-1.5 flex-1 overflow-y-auto relative', showDockedPanels() ? 'min-h-[calc(3*4.5rem)]' : 'min-h-0')}>
+      <div class="p-1.5 flex-1 min-h-0 overflow-y-auto relative">
         <Show when={showWideWangTranscript()}>
           <WideWangTranscriptBanner
             mode={gridViewMode() === 'grid' ? 'grid' : 'list'}
