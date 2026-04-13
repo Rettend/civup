@@ -1,16 +1,18 @@
 import type { GameMode } from '@civup/game'
 import type { Hono } from 'hono'
 import type { Env } from '../env.ts'
+import type { LeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import type { LobbyState } from '../services/lobby/index.ts'
 import type { getQueueState } from '../services/queue/index.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { formatModeLabel } from '@civup/game'
+import { formatModeLabel, GAME_MODES, toBalanceLeaderboardMode } from '@civup/game'
 import { createDraftRoomAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { clearUserActivityTargets, getLobbyForUser, getMatchForChannel, getMatchForUser, getUserActivityTarget, storeUserActivityTarget, storeUserMatchMappings } from '../services/activity/index.ts'
+import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
-import { getPlayerQueueMode, getPlayerQueueModeFromStates, getQueueStates } from '../services/queue/index.ts'
-import { createStateStore } from '../services/state/store.ts'
+import { getPlayerQueueMode, getPlayerQueueModeFromStates, parseQueueState, queueKey } from '../services/queue/index.ts'
+import { createStateStore, stateStoreMget } from '../services/state/store.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
 import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, getUniqueOpenLobbyForChannel, isQueueBackedOpenLobby } from './lobby/snapshot.ts'
 
@@ -62,6 +64,7 @@ interface ChannelActivityTarget {
   lobby: LobbyState
   queueEntries?: Awaited<ReturnType<typeof getQueueState>>['entries']
   slots?: (string | null)[]
+  balanceSnapshot?: LeaderboardModeSnapshot | null
 }
 
 interface ResolvedActivitySelection {
@@ -366,6 +369,7 @@ async function serializeActivityLaunchSelection(
       selection.target.lobby,
       selection.target.queueEntries ?? [],
       selection.target.slots ?? selection.target.lobby.slots,
+      selection.target.balanceSnapshot,
     )
     return {
       kind: 'lobby',
@@ -462,11 +466,11 @@ async function loadActivityLaunchContext(
   channelId: string,
   userId: string,
 ): Promise<ActivityLaunchContext> {
-  const queueStates = await getQueueStates(kv)
-  const targets: ChannelActivityTarget[] = []
-
-  const lobbiesByMode = new Map<GameMode, LobbyState[]>()
   const channelLobbies = await getLobbiesByChannel(kv, channelId)
+  const { queueStates, balanceSnapshots } = await loadActivityLaunchState(kv, channelLobbies)
+  const targets: ChannelActivityTarget[] = []
+  const lobbiesByMode = new Map<GameMode, LobbyState[]>()
+
   for (const lobby of channelLobbies) {
     const mode = lobby.mode
     const existing = lobbiesByMode.get(mode)
@@ -484,6 +488,7 @@ async function loadActivityLaunchContext(
         lobby,
         queueEntries: lobbyQueueEntries,
         slots,
+        balanceSnapshot: resolveLobbyBalanceSnapshot(balanceSnapshots, lobby),
         option: {
           kind: 'lobby',
           id: lobby.id,
@@ -530,6 +535,56 @@ async function loadActivityLaunchContext(
     queueStates,
     lobbiesByMode,
   }
+}
+
+async function loadActivityLaunchState(
+  kv: KVNamespace,
+  channelLobbies: LobbyState[],
+): Promise<{
+  queueStates: Map<GameMode, Awaited<ReturnType<typeof getQueueState>>>
+  balanceSnapshots: Map<string, LeaderboardModeSnapshot>
+}> {
+  const requestedBalanceModes = [...new Set(
+    channelLobbies
+      .filter(lobby => lobby.status === 'open')
+      .map(lobby => toBalanceLeaderboardMode(lobby.mode, { redDeath: lobby.draftConfig.redDeath }))
+      .filter((mode): mode is NonNullable<ReturnType<typeof toBalanceLeaderboardMode>> => mode != null),
+  )]
+
+  const rawState = await stateStoreMget(kv, [
+    ...GAME_MODES.map(mode => ({ key: queueKey(mode), type: 'json' as const })),
+    ...requestedBalanceModes.map(mode => ({ key: leaderboardModeSnapshotKey(mode), type: 'json' as const })),
+  ])
+
+  const queueStates = new Map<GameMode, Awaited<ReturnType<typeof getQueueState>>>()
+  for (let index = 0; index < GAME_MODES.length; index++) {
+    const mode = GAME_MODES[index]
+    if (!mode) continue
+    queueStates.set(mode, parseQueueState(mode, rawState[index]))
+  }
+
+  const balanceSnapshots = new Map<string, LeaderboardModeSnapshot>()
+  for (let index = 0; index < requestedBalanceModes.length; index++) {
+    const mode = requestedBalanceModes[index]
+    if (!mode) continue
+    const snapshot = normalizeLeaderboardModeSnapshot(mode, rawState[GAME_MODES.length + index])
+    if (!snapshot) continue
+    balanceSnapshots.set(mode, snapshot)
+  }
+
+  return {
+    queueStates,
+    balanceSnapshots,
+  }
+}
+
+function resolveLobbyBalanceSnapshot(
+  balanceSnapshots: ReadonlyMap<string, LeaderboardModeSnapshot>,
+  lobby: LobbyState,
+): LeaderboardModeSnapshot | null {
+  const mode = toBalanceLeaderboardMode(lobby.mode, { redDeath: lobby.draftConfig.redDeath })
+  if (!mode) return null
+  return balanceSnapshots.get(mode) ?? null
 }
 
 function countFilledSlots(slots: (string | null)[]): number {

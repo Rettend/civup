@@ -1,26 +1,27 @@
-import type { CompetitiveTier, GameMode } from '@civup/game'
+import type { CompetitiveTier, GameMode, QueueState } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
-import type { LobbySnapshot } from '../../services/lobby/live-snapshot.ts'
+import type { LeaderboardModeSnapshot } from '../../services/leaderboard/snapshot.ts'
 import type { getRankedRoleConfig } from '../../services/ranked/roles.ts'
 import { canStartWithPlayerCount, MAX_LEADER_POOL_SIZE, playerCountOptions, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import { MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
-import { getStoredLeaderboardModeSnapshot } from '../../services/leaderboard/snapshot.ts'
+import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../../services/leaderboard/snapshot.ts'
 import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
-import { buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
-import { getQueueState } from '../../services/queue/index.ts'
+import { attachLobbyBalanceRatings, buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
+import { getQueueState, parseQueueState, queueKey } from '../../services/queue/index.ts'
 import { normalizeRankedRoleTierId } from '../../services/ranked/roles.ts'
+import { stateStoreMget } from '../../services/state/store.ts'
 
 export async function buildOpenLobbySnapshot(
   kv: KVNamespace,
   mode: GameMode,
   lobby: LobbyState,
 ) {
-  const queue = await getQueueState(kv, mode)
+  const { queue, balanceSnapshot } = await getQueueStateWithLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
   const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
   const normalizedSlots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
 
   if (sameLobbySlots(normalizedSlots, lobby.slots)) {
-    return buildOpenLobbySnapshotFromParts(kv, mode, lobby, lobbyQueueEntries, normalizedSlots)
+    return buildOpenLobbySnapshotFromParts(kv, mode, lobby, lobbyQueueEntries, normalizedSlots, balanceSnapshot)
   }
 
   const updatedLobby = await setLobbySlots(kv, lobby.id, normalizedSlots)
@@ -28,7 +29,7 @@ export async function buildOpenLobbySnapshot(
     ...lobby,
     slots: normalizedSlots,
   }
-  return buildOpenLobbySnapshotFromParts(kv, mode, resolvedLobby, lobbyQueueEntries, normalizedSlots)
+  return buildOpenLobbySnapshotFromParts(kv, mode, resolvedLobby, lobbyQueueEntries, normalizedSlots, balanceSnapshot)
 }
 
 export async function buildOpenLobbySnapshotFromParts(
@@ -37,49 +38,36 @@ export async function buildOpenLobbySnapshotFromParts(
   lobby: LobbyState,
   queueEntries: Awaited<ReturnType<typeof getQueueState>>['entries'],
   slots: (string | null)[],
+  balanceSnapshot?: LeaderboardModeSnapshot | null,
 ) {
   const snapshot = await buildLobbyLiveSnapshotFromParts(kv, mode, lobby, queueEntries, slots)
-  return attachLobbyBalanceRatings(kv, mode, snapshot)
+  return attachLobbyBalanceRatings(kv, mode, snapshot, balanceSnapshot)
 }
 
-async function attachLobbyBalanceRatings(
+export async function getQueueStateWithLobbyBalanceSnapshot(
   kv: KVNamespace,
   mode: GameMode,
-  snapshot: LobbySnapshot,
-): Promise<LobbySnapshot> {
-  const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath: snapshot.draftConfig.redDeath })
-  if (!leaderboardMode) return snapshot
-
-  const leaderboardSnapshot = await getStoredLeaderboardModeSnapshot(kv, leaderboardMode)
-  if (!leaderboardSnapshot) return snapshot
-
-  const balanceRatingByPlayerId = new Map(leaderboardSnapshot.rows.map(row => [
-    row.playerId,
-    {
-      mu: row.mu,
-      sigma: row.sigma,
-      gamesPlayed: row.gamesPlayed,
-    },
-  ]))
-
-  let hasAttachedRatings = false
-  const entries = snapshot.entries.map((entry) => {
-    if (!entry) return null
-
-    const balanceRating = balanceRatingByPlayerId.get(entry.playerId)
-    if (!balanceRating) return entry
-
-    hasAttachedRatings = true
+  redDeath = false,
+): Promise<{
+  queue: QueueState
+  balanceSnapshot: LeaderboardModeSnapshot | null
+}> {
+  const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath })
+  if (!leaderboardMode) {
     return {
-      ...entry,
-      balanceRating,
+      queue: await getQueueState(kv, mode),
+      balanceSnapshot: null,
     }
-  })
+  }
 
-  if (!hasAttachedRatings) return snapshot
+  const [rawQueueState, rawBalanceSnapshot] = await stateStoreMget(kv, [
+    { key: queueKey(mode), type: 'json' },
+    { key: leaderboardModeSnapshotKey(leaderboardMode), type: 'json' },
+  ])
+
   return {
-    ...snapshot,
-    entries,
+    queue: parseQueueState(mode, rawQueueState),
+    balanceSnapshot: normalizeLeaderboardModeSnapshot(leaderboardMode, rawBalanceSnapshot),
   }
 }
 

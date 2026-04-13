@@ -11,7 +11,7 @@ interface StoredQueueState {
   targetSize?: unknown
 }
 
-function queueKey(mode: GameMode): string {
+export function queueKey(mode: GameMode): string {
   return `${QUEUE_KEY_PREFIX}${mode}`
 }
 
