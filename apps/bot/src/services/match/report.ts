@@ -10,6 +10,7 @@ import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
+import { storeMatchReporterIdentity } from './reporter.ts'
 import { buildRankByPlayer, recalculateLeaderboardMode } from './ratings.ts'
 
 export async function reportMatch(
@@ -152,6 +153,17 @@ export async function reportMatch(
   const finalized = await finalizeReportedMatch(db, kv, match, updatedParticipants)
   if ('error' in finalized) {
     return finalized
+  }
+
+  try {
+    await storeMatchReporterIdentity(kv, finalized.match.id, {
+      userId: input.reporterId,
+      displayName: input.reporterDisplayName ?? null,
+      avatarUrl: input.reporterAvatarUrl ?? null,
+    })
+  }
+  catch (error) {
+    console.error(`Failed to store reporter identity for match ${finalized.match.id}:`, error)
   }
 
   return finalized
