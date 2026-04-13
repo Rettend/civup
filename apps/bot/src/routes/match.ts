@@ -73,8 +73,6 @@ export function registerMatchRoutes(app: Hono<Env>) {
     const result = await reportMatch(db, kv, {
       matchId: c.req.param('matchId'),
       reporterId: auth.identity.userId,
-      reporterDisplayName: auth.identity.displayName,
-      reporterAvatarUrl: auth.identity.avatarUrl,
       placements,
     })
 
@@ -103,6 +101,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
         reportedMode: reportedContext.mode,
         reportedRedDeath: reportedContext.redDeath,
         participants: result.participants,
+        matchDraftData: result.match.draftData,
         lobby,
         archivePolicy: 'if-missing',
       })
@@ -148,6 +147,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       reportedMode: reportedContext.mode,
       reportedRedDeath: reportedContext.redDeath,
       participants: result.participants,
+      matchDraftData: result.match.draftData,
       lobby,
       rankedRoleLines,
       reporter: {
