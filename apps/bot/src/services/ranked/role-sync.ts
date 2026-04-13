@@ -51,6 +51,10 @@ export interface RankedRolesDirtyState {
   reason: string | null
 }
 
+interface AppliedRankedRoleConfig {
+  byTier: Record<string, string | null>
+}
+
 export interface RankedRolePlayerPreview {
   playerId: string
   displayName: string
@@ -189,6 +193,7 @@ interface RankedTierThreshold {
 const CURRENT_ASSIGNMENTS_KEY_PREFIX = 'ranked-roles:current-assignments:'
 const DEMOTION_CANDIDATES_KEY_PREFIX = 'ranked-roles:demotion-candidates:'
 const RANKED_ROLES_DIRTY_STATE_KEY = 'ranked-roles:dirty'
+const APPLIED_ROLE_CONFIG_KEY_PREFIX = 'ranked-roles:applied-config:'
 
 const EARN_CUMULATIVE_PERCENT_ANCHORS = [0.015, 0.055, 0.155, 0.355] as const
 const KEEP_CUMULATIVE_PERCENT_BUFFER_PER_TIER = 0.005
@@ -571,6 +576,10 @@ function currentAssignmentsKey(guildId: string): string {
 
 function demotionCandidatesKey(guildId: string): string {
   return `${DEMOTION_CANDIDATES_KEY_PREFIX}${guildId}`
+}
+
+function appliedRoleConfigKey(guildId: string): string {
+  return `${APPLIED_ROLE_CONFIG_KEY_PREFIX}${guildId}`
 }
 
 async function buildRankedRolePreview(options: RankedRoleSyncOptions): Promise<RankedRolePreview> {
@@ -1070,21 +1079,30 @@ async function applyCurrentRankRoles(
   token: string,
   playerPreviews: RankedRolePlayerPreview[],
 ): Promise<number> {
-  const config = await getRankedRoleConfig(kv, guildId)
+  const [config, previousAppliedConfig] = await Promise.all([
+    getRankedRoleConfig(kv, guildId),
+    getAppliedRankedRoleConfig(kv, guildId),
+  ])
   const missingTiers = getMissingRankedRoleConfigTiers(config)
   if (missingTiers.length > 0) {
     throw new Error(`Cannot sync ranked roles until all current roles are configured: ${missingTiers.join(', ')}`)
   }
 
-  const rankedRoleIds = config.tiers
-    .map(tier => tier.roleId)
-    .filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)
+  const rankedRoleIds = [...new Set([
+    ...config.tiers.map(tier => tier.roleId),
+    ...(previousAppliedConfig ? [...previousAppliedConfig.values()] : []),
+  ])].filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)
 
   let appliedChanges = 0
   for (const preview of playerPreviews) {
     if (!isDiscordSnowflake(preview.playerId)) continue
     const desiredRoleId = getConfiguredRankedRoleId(config, preview.assignment.tier)
     if (!desiredRoleId) continue
+
+    const previousRoleId = resolvePreviouslyAppliedRoleId(preview.previousAssignment, previousAppliedConfig, config)
+    if (preview.previousAssignment && preview.previousAssignment.tier === preview.assignment.tier && previousRoleId === desiredRoleId) {
+      continue
+    }
 
     let roleIds: string[]
     try {
@@ -1112,7 +1130,50 @@ async function applyCurrentRankRoles(
     }
   }
 
+  await setAppliedRankedRoleConfig(kv, guildId, config)
+
   return appliedChanges
+}
+
+async function getAppliedRankedRoleConfig(
+  kv: KVNamespace,
+  guildId: string,
+): Promise<Map<CompetitiveTier, string | null> | null> {
+  const raw = await kv.get(appliedRoleConfigKey(guildId), 'json') as AppliedRankedRoleConfig | null
+  if (!raw || !raw.byTier || typeof raw.byTier !== 'object') return null
+
+  const byTier = new Map<CompetitiveTier, string | null>()
+  for (const [rawTier, rawRoleId] of Object.entries(raw.byTier)) {
+    const tier = normalizeRankedRoleTierId(rawTier)
+    if (!tier) continue
+    byTier.set(tier, typeof rawRoleId === 'string' && rawRoleId.length > 0 ? rawRoleId : null)
+  }
+
+  return byTier
+}
+
+async function setAppliedRankedRoleConfig(
+  kv: KVNamespace,
+  guildId: string,
+  config: RankedRoleConfig,
+): Promise<void> {
+  const byTier: Record<string, string | null> = {}
+  for (let index = 0; index < getRankedRoleTierCount(config); index++) {
+    const tier = createRankedRoleTierId(index + 1)
+    byTier[tier] = getConfiguredRankedRoleId(config, tier)
+  }
+
+  await kv.put(appliedRoleConfigKey(guildId), JSON.stringify({ byTier }))
+}
+
+function resolvePreviouslyAppliedRoleId(
+  previousAssignment: CurrentRankAssignment | null,
+  previousAppliedConfig: Map<CompetitiveTier, string | null> | null,
+  currentConfig: RankedRoleConfig,
+): string | null {
+  if (!previousAssignment) return null
+  if (previousAppliedConfig?.has(previousAssignment.tier)) return previousAppliedConfig.get(previousAssignment.tier) ?? null
+  return getConfiguredRankedRoleId(currentConfig, previousAssignment.tier)
 }
 
 function buildRankMatchUpdateLine(
