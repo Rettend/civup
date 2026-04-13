@@ -18,6 +18,7 @@ import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { findLiveMatchIdsForPlayers, joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
 import { buildActivityLaunchSnapshot, selectActivityTargetForUser } from '../../src/routes/activity.ts'
+import { getQueueStateWithLobbyBalanceSnapshot } from '../../src/routes/lobby/snapshot.ts'
 import {
   clearLobbyAndActivityMappings,
   clearUserLobbyMappings,
@@ -797,10 +798,10 @@ async function simulateOpenLobbyConfigEdit(kv: KVNamespace, mode: CapacityScenar
     banTimerSeconds: (lobby.draftConfig.banTimerSeconds ?? 30) + 1,
   }, lobby) ?? lobby
 
-  const queue = await getQueueState(kv, mode.mode)
+  const { queue, balanceSnapshot } = await getQueueStateWithLobbyBalanceSnapshot(kv, mode.mode, updatedLobby.draftConfig.redDeath)
   const queueEntries = filterQueueEntriesForLobby(updatedLobby, queue.entries)
   const slots = normalizeLobbySlots(mode.mode, updatedLobby.slots, queueEntries)
-  await syncLobbyDerivedState(kv, updatedLobby, { queueEntries, slots })
+  await syncLobbyDerivedState(kv, updatedLobby, { queueEntries, slots, balanceSnapshot })
 }
 
 async function startDraftFromOpenLobby(

@@ -52,6 +52,7 @@ import {
   buildOpenLobbySnapshotFromParts,
   canStartLobbyWithPlayerCount,
   emptyRankedRoleConfig,
+  getQueueStateWithLobbyBalanceSnapshot,
   lobbyMinPlayerCount,
   parseLobbyLeaderPoolSize,
   parseLobbyMaxRole,
@@ -321,7 +322,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'This lobby is missing guild context, so max rank cannot be set.' }, 400)
     }
 
-    const queue = await getQueueState(kv, mode)
+    const { queue, balanceSnapshot } = await getQueueStateWithLobbyBalanceSnapshot(kv, mode, resolvedLobby.draftConfig.redDeath)
     const lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
     let slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
     const requestedTargetSize = (() => {
@@ -405,6 +406,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const snapshot = await syncLobbyDerivedState(kv, updated, {
       queueEntries: nextLobbyQueueEntries,
       slots: normalizedSlots,
+      balanceSnapshot,
     })
 
     queueBackgroundTask(c, async () => {
@@ -472,7 +474,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json(await buildOpenLobbySnapshot(kv, mode, lobby))
     }
 
-    const queue = await getQueueState(kv, mode)
+    const { queue, balanceSnapshot } = await getQueueStateWithLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
     const lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
     if (!lobbyQueueEntries.some(entry => entry.playerId === lobby.hostId)) {
       return c.json({ error: 'Host is not in the queue anymore. Rejoin first.' }, 400)
@@ -531,6 +533,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const snapshot = await syncLobbyDerivedState(kv, finalizedLobby, {
       queueEntries: movedLobbyQueueEntries,
       slots: normalizedNextSlots,
+      balanceSnapshot,
     })
     await storeUserLobbyMappings(kv, finalizedLobby.memberPlayerIds, finalizedLobby.id)
     const slottedEntries = mapLobbySlotsToEntries(normalizedNextSlots, movedLobbyQueueEntries)
@@ -617,7 +620,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'You can only move yourself' }, 403)
     }
 
-    let queue = await getQueueState(kv, mode)
+    const preloaded = await getQueueStateWithLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
+    let queue = preloaded.queue
+    const balanceSnapshot = preloaded.balanceSnapshot
     let lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
     let slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
 
@@ -714,6 +719,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
       queueEntries: lobbyQueueEntries,
       slots,
+      balanceSnapshot,
     })
 
     const slottedEntries = mapLobbySlotsToEntries(slots, lobbyQueueEntries)
@@ -773,7 +779,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid slot index' }, 400)
     }
 
-    const queue = await getQueueState(kv, mode)
+    const { queue, balanceSnapshot } = await getQueueStateWithLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
     const lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
     const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
     const targetPlayerId = slots[slot]
@@ -813,6 +819,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
       queueEntries: nextLobbyQueueEntries,
       slots,
+      balanceSnapshot,
     })
     const slottedEntries = mapLobbySlotsToEntries(slots, nextLobbyQueueEntries)
 
@@ -886,7 +893,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Premade links must stay on one team.' }, 400)
     }
 
-    const queue = await getQueueState(kv, mode)
+    const { queue, balanceSnapshot } = await getQueueStateWithLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
     const lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
     const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
     const leftPlayerId = slots[leftSlot]
@@ -917,6 +924,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
       queueEntries: nextLobbyQueueEntries,
       slots,
+      balanceSnapshot,
     })
 
     return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextLobbyQueueEntries, slots))
@@ -968,7 +976,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Only the lobby host can arrange the lobby' }, 403)
     }
 
-    const queue = await getQueueState(kv, mode)
+    const { queue, balanceSnapshot } = await getQueueStateWithLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
     const lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
     const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
     const slottedPlayerIds = slots.filter((playerId): playerId is string => playerId != null)
@@ -1012,6 +1020,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
       queueEntries: lobbyQueueEntries,
       slots: arranged.slots,
+      balanceSnapshot,
     })
     const slottedEntries = mapLobbySlotsToEntries(arranged.slots, lobbyQueueEntries)
 
@@ -1069,7 +1078,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Only the lobby host can fill test players' }, 403)
     }
 
-    const queue = await getQueueState(kv, mode)
+    const { queue, balanceSnapshot } = await getQueueStateWithLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
     const lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
     const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
     const nextEntries = [...queue.entries]
@@ -1111,6 +1120,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
       queueEntries: nextLobbyQueueEntries,
       slots,
+      balanceSnapshot,
     })
     const slottedEntries = mapLobbySlotsToEntries(slots, nextLobbyQueueEntries)
 
