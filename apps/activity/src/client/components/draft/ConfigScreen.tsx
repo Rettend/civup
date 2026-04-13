@@ -9,7 +9,7 @@ import type {
 } from '~/client/lib/config-screen/helpers'
 import type { LobbyArrangeStrategy, LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
 import { canStartWithPlayerCount, formatModeLabel, GAME_MODE_CHOICES, hasBetaLeaderData, inferGameMode, isTeamMode as isTeamGameMode, isUnrankedMode, maxPlayerCount, normalizeAvailableLeaderDataVersion, normalizeCompetitiveTierBounds, requiresRedDeathDuplicateFactions, slotToTeamIndex } from '@civup/game'
-import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, Switch, TextInput } from '~/client/components/ui'
 import {
   applyOptimisticLobbyAction,
@@ -248,7 +248,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
     currentDisplayName(),
     currentAvatarUrl(),
   )
-  const lobbyBalance = () => buildLobbyBalanceSummary(currentLobby())
+  const lobbyBalance = createMemo(() => buildLobbyBalanceSummary(currentLobby()))
+  const teamBalance = (team: number) => lobbyBalance()?.teams.find(summary => summary.team === team) ?? null
   const pendingSelfJoinSlot = () => resolvePendingJoinGhostSlot(
     currentLobby(),
     userId(),
@@ -706,11 +707,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
   const canToggleRedDeath = () => !redDeathExtraFfaSeatsOccupied()
 
-  const isCurrentUserSlotted = () => {
+  const currentUserLobbySlot = createMemo(() => {
     const id = userId()
-    if (!id) return false
-    return currentLobby()?.entries.some(entry => entry?.playerId === id) ?? false
-  }
+    if (!id) return null
+    const slot = currentLobby()?.entries.findIndex(entry => entry?.playerId === id) ?? -1
+    return slot >= 0 ? slot : null
+  })
+
+  const isCurrentUserSlotted = () => currentUserLobbySlot() != null
 
   const currentUserLinkedPartySize = () => {
     const id = userId()
@@ -719,14 +723,40 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return entry?.partyIds?.length ?? 0
   }
 
-  const canJoinSlot = (row: PlayerRow) => {
+  const canCurrentUserPlaceSelf = () => {
     if (!isLobbyMode()) return false
-    if (!row.empty) return false
     if (!userId()) return false
     if (props.showJoinPending && !isCurrentUserSlotted()) return false
     if (props.joinEligibility && !props.joinEligibility.canJoin && !isCurrentUserSlotted()) return false
     if (!amHost() && currentUserLinkedPartySize() > 0) return false
     return true
+  }
+
+  const joinLobbyTargetSlot = createMemo(() => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || isCurrentUserSlotted()) return null
+
+    const suggestedSlot = resolvePendingJoinGhostSlot(lobby, currentUserId, true, props.joinEligibility ?? null)
+    if (suggestedSlot != null) return suggestedSlot
+
+    const firstEmptySlot = lobby.entries.findIndex(entry => entry == null)
+    return firstEmptySlot >= 0 ? firstEmptySlot : null
+  })
+
+  const canJoinLobby = () => !isCurrentUserSlotted() && canCurrentUserPlaceSelf() && joinLobbyTargetSlot() != null
+  const canLeaveLobby = () => isLobbyMode() && !amHost() && currentUserLobbySlot() != null
+
+  const joinLobbyButtonTitle = () => {
+    if (props.showJoinPending) return 'Joining lobby...'
+    if (props.joinEligibility?.blockedReason) return props.joinEligibility.blockedReason
+    if (joinLobbyTargetSlot() == null) return 'No empty seats available.'
+    return 'Join Lobby'
+  }
+
+  const canJoinSlot = (row: PlayerRow) => {
+    if (!row.empty) return false
+    return canCurrentUserPlaceSelf()
   }
 
   const canRemoveSlot = (row: PlayerRow) => {
@@ -1526,10 +1556,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return isSpectator() ? 'Spectating' : 'Waiting for host'
   }
 
-  const desktopSetupPanelHeightClass = () => {
-    if (amHost()) return 'lg:h-[432px]'
-    if (isCurrentUserSlotted() && lobbyMode() === '6v6') return 'lg:h-[368px]'
-    return 'lg:h-[336px]'
+  const desktopSetupPanelMaxHeightClass = () => {
+    if (amHost()) return 'lg:max-h-[432px]'
+    if (isCurrentUserSlotted() && lobbyMode() === '6v6') return 'lg:max-h-[368px]'
+    return 'lg:max-h-[336px]'
   }
 
   return (
@@ -1561,7 +1591,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
               isMobileLayout() ? 'top-12 left-4 h-9 w-9' : 'top-4 left-6 h-9 w-9',
             )}
           />
-          <div class={cn('mx-auto px-6 py-4 flex flex-col gap-6 max-w-5xl w-full', isMobileLayout() && 'pt-12')}>
+          <div class={cn('mx-auto px-6 py-4 flex min-h-dvh flex-col gap-6 max-w-5xl w-full lg:h-dvh lg:overflow-hidden', isMobileLayout() && 'pt-12')}>
             <div class="grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-center">
               <div class="h-9 w-9" />
               <div class="text-center">
@@ -1572,12 +1602,20 @@ export function ConfigScreen(props: ConfigScreenProps) {
             </div>
 
             <div class={cn(
-              'gap-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)]',
-              desktopSetupPanelHeightClass(),
+              'gap-4 grid grid-cols-1 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)]',
+              desktopSetupPanelMaxHeightClass(),
             )}
             >
               <div class="p-4 rounded-lg bg-bg-subtle flex flex-col min-h-0 overflow-hidden lg:h-full">
-                <div class="text-xs text-fg-subtle tracking-widest font-bold mb-3 uppercase">Players</div>
+                <div class="mb-3 flex items-center justify-between gap-3 text-xs text-fg-subtle tracking-widest font-bold uppercase">
+                  <span>Players</span>
+                  <Show when={lobbyBalance()?.lowConfidence}>
+                    <span class="inline-flex items-center gap-1 text-[11px] text-fg-subtle/70 font-medium tracking-normal normal-case">
+                      <span class="i-ph-warning-circle text-xs" />
+                      low confidence
+                    </span>
+                  </Show>
+                </div>
 
                 <div class="pr-1 flex-1 min-h-0 overflow-y-auto">
                   <Show
@@ -1647,10 +1685,24 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       <For each={teamIndices()}>
                         {team => (
                           <div class={teamSectionClass()}>
-                            <div class="text-xs text-accent tracking-wider font-bold mb-2">
-                              Team
-                              {' '}
-                              {String.fromCharCode(65 + team)}
+                            <div class="mb-2 flex items-center justify-between gap-3">
+                              <div class="text-xs text-accent tracking-wider font-bold">
+                                Team
+                                {' '}
+                                {String.fromCharCode(65 + team)}
+                              </div>
+                              <Show when={teamBalance(team)}>
+                                {(summary) => (
+                                  <div class="text-[11px] text-right text-accent font-semibold whitespace-nowrap">
+                                    {Math.round(summary().probability * 100)}%
+                                    <Show when={summary().uncertainty >= 0.01}>
+                                      <span class="ml-1 text-fg-subtle font-normal">
+                                        ±{Math.round(summary().uncertainty * 100)}
+                                      </span>
+                                    </Show>
+                                  </div>
+                                )}
+                              </Show>
                             </div>
                             {renderTeamColumn(teamRows(team))}
                           </div>
@@ -1681,38 +1733,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
                         <div class="h-px flex-1 bg-border-subtle" />
                       </div>
                     </div>
-                  </Show>
-
-                  <Show when={lobbyBalance()}>
-                    {(balance) => (
-                      <div class="relative mt-3 flex items-center justify-center text-[11px]">
-                        <div class="flex gap-x-3">
-                          <For each={balance().teams}>
-                            {team => (
-                              <span class="text-accent font-semibold">
-                                Team
-                                {' '}
-                                {String.fromCharCode(65 + team.team)}
-                                {' '}
-                                {Math.round(team.probability * 100)}%
-                                <Show when={team.uncertainty >= 0.01}>
-                                  <span class="text-fg-subtle font-normal">
-                                    {' '}
-                                    ±{Math.round(team.uncertainty * 100)}
-                                  </span>
-                                </Show>
-                              </span>
-                            )}
-                          </For>
-                        </div>
-                        <Show when={balance().lowConfidence}>
-                          <span class="absolute right-0 text-fg-subtle/60">
-                            <span class="i-ph-warning-circle inline-block align-[-2px] text-xs mr-0.5" />
-                            low confidence
-                          </span>
-                        </Show>
-                      </div>
-                    )}
                   </Show>
 
                 </div>
@@ -1984,13 +2004,49 @@ export function ConfigScreen(props: ConfigScreenProps) {
               </div>
             </div>
 
-            <div class="flex justify-center">
+            <div class="shrink-0 flex justify-center">
               <Show
                 when={amHost()}
                 fallback={(
-                  <span class="text-sm text-fg-subtle">
-                    {setupStatusText()}
-                  </span>
+                  <div class="flex flex-col gap-2 items-center">
+                    <Show when={isLobbyMode() && (!isCurrentUserSlotted() || canLeaveLobby())}>
+                      <div class="flex flex-wrap gap-3 items-center justify-center">
+                        <Show when={!isCurrentUserSlotted()}>
+                          <button
+                            class="text-sm text-bg font-bold px-8 py-2.5 rounded-lg bg-accent cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-default hover:brightness-110"
+                            title={joinLobbyButtonTitle()}
+                            aria-label="Join Lobby"
+                            disabled={!canJoinLobby() || lobbyActionPending()}
+                            onClick={() => {
+                              const slot = joinLobbyTargetSlot()
+                              if (slot == null) return
+                              void handlePlaceSelf(slot)
+                            }}
+                          >
+                            Join Lobby
+                          </button>
+                        </Show>
+
+                        <Show when={canLeaveLobby()}>
+                          <button
+                            class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
+                            title="Leave Lobby"
+                            aria-label="Leave Lobby"
+                            disabled={lobbyActionPending()}
+                            onClick={() => {
+                              const slot = currentUserLobbySlot()
+                              if (slot == null) return
+                              void handleRemoveFromSlot(slot)
+                            }}
+                          >
+                            Leave Lobby
+                          </button>
+                        </Show>
+                      </div>
+                    </Show>
+
+                    <span class="text-sm text-fg-subtle">{setupStatusText()}</span>
+                  </div>
                 )}
               >
                 <Show
