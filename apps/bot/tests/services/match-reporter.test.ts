@@ -1,11 +1,11 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
-import { loadMatchReporterIdentity } from '../../src/services/match/reporter.ts'
+import { getReporterIdentityFromDraftData } from '../../src/services/match/draft-data.ts'
 import { reportMatch } from '../../src/services/match/report.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('match reporter identity', () => {
-  test('stores the reporting player identity for later embed repairs', async () => {
+  test('stores the reporter id in draft data and resolves footer identity from seats', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
@@ -34,8 +34,18 @@ describe('match reporter identity', () => {
         draftData: JSON.stringify({
           state: {
             seats: [
-              { playerId: 'p1', team: 0 },
-              { playerId: 'p2', team: 1 },
+              {
+                playerId: 'p1',
+                displayName: 'Fresh Reporter',
+                avatarUrl: 'https://cdn.discordapp.com/avatars/p1/fresh.png',
+                team: 0,
+              },
+              {
+                playerId: 'p2',
+                displayName: 'Player Two',
+                avatarUrl: null,
+                team: 1,
+              },
             ],
           },
         }),
@@ -68,15 +78,13 @@ describe('match reporter identity', () => {
       const result = await reportMatch(db, kv, {
         matchId: 'm1',
         reporterId: 'p1',
-        reporterDisplayName: 'Fresh Reporter',
-        reporterAvatarUrl: 'https://cdn.discordapp.com/avatars/p1/fresh.png',
         placements: '<@p1>',
       })
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
 
-      await expect(loadMatchReporterIdentity(kv, 'm1')).resolves.toEqual({
+      expect(getReporterIdentityFromDraftData(result.match.draftData)).toEqual({
         userId: 'p1',
         displayName: 'Fresh Reporter',
         avatarUrl: 'https://cdn.discordapp.com/avatars/p1/fresh.png',

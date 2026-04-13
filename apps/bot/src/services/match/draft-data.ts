@@ -1,12 +1,14 @@
 import type { GameMode, LeaderboardMode } from '@civup/game'
+import type { MatchReporterIdentity } from './types.ts'
 import { formatModeLabel, parseGameMode, toLeaderboardMode } from '@civup/game'
 
 interface ParsedDraftData {
   completedAt?: unknown
   hostId?: unknown
+  reportedById?: unknown
   redDeath?: unknown
   state?: {
-    seats?: Array<{ playerId?: unknown }>
+    seats?: Array<{ playerId?: unknown, displayName?: unknown, avatarUrl?: unknown }>
   }
 }
 
@@ -46,6 +48,28 @@ export function getCompletedAtFromDraftData(draftData: string | null): number | 
   return typeof parsed.completedAt === 'number' && Number.isFinite(parsed.completedAt)
     ? Math.round(parsed.completedAt)
     : null
+}
+
+export function getReporterIdentityFromDraftData(draftData: string | null): MatchReporterIdentity | null {
+  const parsed = parseDraftData(draftData)
+  const userId = typeof parsed?.reportedById === 'string' && parsed.reportedById.trim().length > 0
+    ? parsed.reportedById.trim()
+    : null
+  if (!userId) return null
+
+  const seat = parsed?.state?.seats?.find(candidate => candidate?.playerId === userId)
+  const displayName = typeof seat?.displayName === 'string' && seat.displayName.trim().length > 0
+    ? seat.displayName.trim()
+    : null
+  const avatarUrl = typeof seat?.avatarUrl === 'string' && seat.avatarUrl.trim().length > 0
+    ? seat.avatarUrl.trim()
+    : null
+
+  return {
+    userId,
+    displayName,
+    avatarUrl,
+  }
 }
 
 export function getRedDeathFromDraftData(draftData: string | null): boolean {

@@ -432,7 +432,8 @@ function formatRankedRoleUpdate(lines: string[] | undefined): string | null {
 function buildReporterFooter(reporter?: ReporterContext | null): { text: string, icon_url?: string } | null {
   if (!reporter?.userId) return null
 
-  const displayName = reporter.displayName?.trim() || reporter.userId
+  const displayName = reporter.displayName?.trim() || null
+  if (!displayName) return null
   const avatarUrl = reporter.avatarUrl?.trim() || undefined
 
   return {

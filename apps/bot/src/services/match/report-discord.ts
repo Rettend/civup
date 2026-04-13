@@ -3,13 +3,11 @@ import type { MatchReporterIdentity } from './types.ts'
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from '../lobby/index.ts'
 import type { ParticipantRow } from './types.ts'
-import { players } from '@civup/db'
-import { eq } from 'drizzle-orm'
 import { lobbyResultEmbed } from '../../embeds/match.ts'
 import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
 import { upsertLobbyMessage } from '../lobby/index.ts'
+import { getReporterIdentityFromDraftData } from './draft-data.ts'
 import { listMatchMessageIds, storeMatchMessageMapping } from './message.ts'
-import { loadMatchReporterIdentity } from './reporter.ts'
 import { getSystemChannel } from '../system/channels.ts'
 
 type ArchivePolicy = 'always' | 'if-missing'
@@ -24,6 +22,7 @@ interface SyncReportedMatchDiscordMessagesInput {
   participants: ParticipantRow[]
   lobby?: LobbyState | null
   rankedRoleLines?: string[]
+  matchDraftData?: string | null
   reporter?: MatchReporterIdentity | null
   archivePolicy?: ArchivePolicy
 }
@@ -38,19 +37,20 @@ export async function syncReportedMatchDiscordMessages({
   participants,
   lobby = null,
   rankedRoleLines = [],
+  matchDraftData = null,
   reporter = null,
   archivePolicy = 'always',
 }: SyncReportedMatchDiscordMessagesInput): Promise<void> {
   const messageIds = await listMatchMessageIds(db, matchId)
   const draftMessageId = messageIds[0] ?? null
-  const storedReporter = await resolveMatchReporterIdentity(db, kv, matchId, reporter)
+  const resolvedReporter = resolveMatchReporterIdentity(matchDraftData, reporter)
 
   if (lobby) {
     try {
-      const updatedLobby = await upsertLobbyMessage(kv, token, lobby, {
+        const updatedLobby = await upsertLobbyMessage(kv, token, lobby, {
         embeds: [lobbyResultEmbed(lobby.mode, participants, undefined, {
           rankedRoleLines,
-          reporter: storedReporter,
+          reporter: resolvedReporter,
         }, lobby.draftConfig.redDeath)],
         components: [],
       })
@@ -70,7 +70,7 @@ export async function syncReportedMatchDiscordMessages({
             content: null,
             embeds: [lobbyResultEmbed(reportedMode, participants, undefined, {
               rankedRoleLines,
-              reporter: storedReporter,
+              reporter: resolvedReporter,
             }, reportedRedDeath)],
             components: [],
             allowed_mentions: { parse: [] },
@@ -100,7 +100,7 @@ export async function syncReportedMatchDiscordMessages({
     const archiveMessage = await createChannelMessage(token, archiveChannelId, {
       embeds: [lobbyResultEmbed(reportedMode, participants, undefined, {
         rankedRoleLines,
-        reporter: storedReporter,
+        reporter: resolvedReporter,
       }, reportedRedDeath)],
       allowed_mentions: { parse: [] },
     })
@@ -111,34 +111,17 @@ export async function syncReportedMatchDiscordMessages({
   }
 }
 
-async function resolveMatchReporterIdentity(
-  db: Database,
-  kv: KVNamespace,
-  matchId: string,
+function resolveMatchReporterIdentity(
+  draftData: string | null,
   reporter?: MatchReporterIdentity | null,
-): Promise<MatchReporterIdentity | null> {
-  const current = reporter ?? await loadMatchReporterIdentity(kv, matchId)
-  if (!current?.userId) return null
-  if (current.displayName?.trim() && current.avatarUrl?.trim()) return current
+): MatchReporterIdentity | null {
+  const storedReporter = getReporterIdentityFromDraftData(draftData)
+  if (!reporter?.userId) return storedReporter
+  if (!storedReporter || storedReporter.userId !== reporter.userId) return reporter
 
-  try {
-    const [player] = await db
-      .select({
-        displayName: players.displayName,
-        avatarUrl: players.avatarUrl,
-      })
-      .from(players)
-      .where(eq(players.id, current.userId))
-      .limit(1)
-
-    return {
-      userId: current.userId,
-      displayName: (current.displayName?.trim() || player?.displayName) ?? null,
-      avatarUrl: (current.avatarUrl?.trim() || player?.avatarUrl) ?? null,
-    }
-  }
-  catch (error) {
-    console.error(`Failed to resolve reporter identity for match ${matchId}:`, error)
-    return current
+  return {
+    userId: reporter.userId,
+    displayName: (reporter.displayName?.trim() || storedReporter.displayName) ?? null,
+    avatarUrl: (reporter.avatarUrl?.trim() || storedReporter.avatarUrl) ?? null,
   }
 }
