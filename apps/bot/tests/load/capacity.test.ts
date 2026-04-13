@@ -46,7 +46,7 @@ import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
 import { activateDraftMatch, createDraftMatch, reportMatch } from '../../src/services/match/index.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
-import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState } from '../../src/services/queue/index.ts'
+import { addToQueue, clearQueue, getQueueState, getQueueStateWithPlayerQueueModes } from '../../src/services/queue/index.ts'
 import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
@@ -723,9 +723,8 @@ async function simulateMatchCreate(
   if (!draftChannelId) throw new Error('Expected draft channel to be configured')
 
   await getCurrentLobbyHostedBy(kv, HOST_ID)
-  await getPlayerQueueMode(kv, HOST_ID)
+  const { queue } = await getQueueStateWithPlayerQueueModes(kv, mode.mode, [HOST_ID], { fallbackToQueueScan: false })
   await findLiveMatchIdsForPlayers(db, [HOST_ID])
-  const queue = await getQueueState(kv, mode.mode)
 
   const hostEntry = buildQueueEntry(HOST_ID, 1)
   const addResult = await addToQueue(kv, mode.mode, hostEntry, { currentState: queue })

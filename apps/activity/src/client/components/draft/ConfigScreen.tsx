@@ -1250,6 +1250,9 @@ export function ConfigScreen(props: ConfigScreenProps) {
         if (optimisticAction) clearOptimisticLobbyAction()
         showErrorMessage(result.error)
       }
+      else if (result.transferNotice) {
+        showInfoMessage(result.transferNotice)
+      }
     }
     finally {
       setLobbyActionPending(false)
@@ -1301,6 +1304,9 @@ export function ConfigScreen(props: ConfigScreenProps) {
       if (!result.ok) {
         if (optimisticAction) clearOptimisticLobbyAction()
         showErrorMessage(result.error)
+      }
+      else if (result.transferNotice) {
+        showInfoMessage(result.transferNotice)
       }
     }
     finally {

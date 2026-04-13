@@ -422,20 +422,36 @@ export async function resolveLobbyJoinEligibility(
   })
   const blockingLobby = otherCurrentLobbies.find(candidate => candidate.status !== 'open') ?? otherCurrentLobbies[0] ?? null
   if (blockingLobby) {
+    if (blockingLobby.status === 'open') {
+      const hasOtherMembers = blockingLobby.memberPlayerIds.some(playerId => playerId !== userId)
+      if (!(blockingLobby.hostId === userId && hasOtherMembers)) {
+        const pendingSlot = lobbySnapshot.entries.findIndex(entry => entry == null)
+        if (pendingSlot >= 0) {
+          return {
+            canJoin: true,
+            blockedReason: null,
+            pendingSlot,
+          }
+        }
+      }
+    }
+
     return {
       canJoin: false,
-        blockedReason: blockingLobby.status === 'open'
-          ? blockingLobby.mode === lobby.mode
+      blockedReason: blockingLobby.status === 'open'
+        ? blockingLobby.hostId === userId && blockingLobby.memberPlayerIds.some(playerId => playerId !== userId)
+          ? 'You are hosting another open lobby with other players. Cancel it first.'
+          : blockingLobby.mode === lobby.mode
             ? 'You are already in another open lobby.'
             : `You're already in a ${formatModeLabel(blockingLobby.mode, blockingLobby.mode, { redDeath: blockingLobby.draftConfig.redDeath })} lobby.`
-          : 'You are already in a live match.',
+        : 'You are already in a live match.',
       pendingSlot: null,
     }
   }
 
   const existingQueueMode = options?.existingQueueMode !== undefined
     ? options.existingQueueMode
-    : await getPlayerQueueMode(kv, userId)
+    : await getPlayerQueueMode(kv, userId, { fallbackToQueueScan: false })
   if (existingQueueMode) {
       return {
         canJoin: false,

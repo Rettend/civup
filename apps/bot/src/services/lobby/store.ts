@@ -13,6 +13,10 @@ interface LobbyStoreEntry {
   expirationTtl: number
 }
 
+function activityLobbyUserKey(userId: string): string {
+  return `activity-lobby-user:${userId}`
+}
+
 export async function getLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise<LobbyState[]> {
   const listed = await kv.list({ prefix: modePrefix(mode) })
   const lobbyIds = listed.keys
@@ -77,6 +81,84 @@ export function isCurrentLobbyStatus(status: LobbyState['status']): boolean {
   return status === 'open' || status === 'drafting' || status === 'active'
 }
 
+export async function getCurrentLobbiesForPlayers(
+  kv: KVNamespace,
+  playerIds: string[],
+  options?: {
+    mode?: GameMode
+    excludeLobbyIds?: readonly string[]
+    fallbackToLobbyScan?: boolean
+  },
+): Promise<Map<string, LobbyState | null>> {
+  const uniquePlayerIds = [...new Set(playerIds.filter(playerId => playerId.length > 0))]
+  const excludedLobbyIds = new Set(options?.excludeLobbyIds ?? [])
+  const lobbyByPlayerId = new Map<string, LobbyState | null>()
+  if (uniquePlayerIds.length === 0) return lobbyByPlayerId
+
+  const rawMappedLobbyIds = await stateStoreMget(
+    kv,
+    uniquePlayerIds.map(playerId => ({ key: activityLobbyUserKey(playerId) })),
+  )
+
+  const lobbyIdsToLoad: string[] = []
+  const lobbyIdSet = new Set<string>()
+  for (const rawLobbyId of rawMappedLobbyIds) {
+    if (typeof rawLobbyId !== 'string' || rawLobbyId.length === 0 || lobbyIdSet.has(rawLobbyId)) continue
+    lobbyIdSet.add(rawLobbyId)
+    lobbyIdsToLoad.push(rawLobbyId)
+  }
+
+  const rawLobbies = await stateStoreMget(
+    kv,
+    lobbyIdsToLoad.map(lobbyId => ({ key: idKey(lobbyId), type: 'json' })),
+  )
+  const mappedLobbyById = new Map<string, LobbyState>()
+  for (let index = 0; index < lobbyIdsToLoad.length; index++) {
+    const lobbyId = lobbyIdsToLoad[index]
+    const lobby = parseLobbyState(rawLobbies[index])
+    if (!lobbyId || !lobby) continue
+    mappedLobbyById.set(lobbyId, lobby)
+  }
+
+  const unresolvedPlayerIds: string[] = []
+  for (let index = 0; index < uniquePlayerIds.length; index++) {
+    const playerId = uniquePlayerIds[index]
+    const rawLobbyId = rawMappedLobbyIds[index]
+    if (!playerId || typeof rawLobbyId !== 'string' || rawLobbyId.length === 0) {
+      unresolvedPlayerIds.push(playerId ?? '')
+      continue
+    }
+
+    const lobby = mappedLobbyById.get(rawLobbyId)
+    if (!lobby
+      || !isCurrentLobbyStatus(lobby.status)
+      || excludedLobbyIds.has(lobby.id)
+      || (options?.mode && lobby.mode !== options.mode)
+      || !lobby.memberPlayerIds.includes(playerId)) {
+      unresolvedPlayerIds.push(playerId)
+      continue
+    }
+
+    lobbyByPlayerId.set(playerId, lobby)
+  }
+
+  if (options?.fallbackToLobbyScan === false || unresolvedPlayerIds.length === 0) {
+    for (const playerId of unresolvedPlayerIds) {
+      if (!playerId) continue
+      lobbyByPlayerId.set(playerId, null)
+    }
+    return lobbyByPlayerId
+  }
+
+  const fallbackLobbies = await getCurrentLobbies(kv, options?.mode)
+  for (const playerId of unresolvedPlayerIds) {
+    if (!playerId) continue
+    lobbyByPlayerId.set(playerId, fallbackLobbies.find(lobby => !excludedLobbyIds.has(lobby.id) && lobby.memberPlayerIds.includes(playerId)) ?? null)
+  }
+
+  return lobbyByPlayerId
+}
+
 export async function getCurrentLobbies(kv: KVNamespace, mode?: GameMode): Promise<LobbyState[]> {
   const lobbies = mode ? await getLobbiesByMode(kv, mode) : await getAllLobbies(kv)
   return lobbies.filter(lobby => isCurrentLobbyStatus(lobby.status))
@@ -88,8 +170,17 @@ export async function getCurrentLobbiesForPlayer(
   options?: {
     mode?: GameMode
     excludeLobbyIds?: readonly string[]
+    fallbackToLobbyScan?: boolean
   },
 ): Promise<LobbyState[]> {
+  const mappedLobby = (await getCurrentLobbiesForPlayers(kv, [playerId], {
+    ...options,
+    fallbackToLobbyScan: false,
+  })).get(playerId) ?? null
+  if (mappedLobby) return [mappedLobby]
+
+  if (options?.fallbackToLobbyScan === false) return []
+
   const excludedLobbyIds = new Set(options?.excludeLobbyIds ?? [])
   return (await getCurrentLobbies(kv, options?.mode))
     .filter(lobby => !excludedLobbyIds.has(lobby.id) && lobby.memberPlayerIds.includes(playerId))
@@ -113,6 +204,12 @@ export async function getOpenLobbyForPlayer(
   playerId: string,
   mode?: GameMode,
 ): Promise<LobbyState | null> {
+  const mappedLobby = (await getCurrentLobbiesForPlayers(kv, [playerId], {
+    mode,
+    fallbackToLobbyScan: false,
+  })).get(playerId) ?? null
+  if (mappedLobby?.status === 'open') return mappedLobby
+
   const lobbies = mode ? await getLobbiesByMode(kv, mode) : await getAllLobbies(kv)
   return lobbies.find(lobby => lobby.status === 'open' && lobby.memberPlayerIds.includes(playerId)) ?? null
 }
@@ -158,7 +255,14 @@ export async function clearLobbiesByMode(kv: KVNamespace, mode: GameMode): Promi
   if (lobbies.length === 0) return
   const channelIds = [...new Set(lobbies.map(lobby => lobby.channelId))]
   await stateStoreMdelete(kv, lobbies.flatMap((lobby) => {
-    const keys = [idKey(lobby.id), lobbySnapshotKey(lobby.id), hostKey(lobby.hostId), bumpCooldownKey(lobby.id), modeIndexKey(mode, lobby.id), channelIndexKey(lobby.channelId, lobby.id)]
+    const keys = [
+      idKey(lobby.id),
+      lobbySnapshotKey(lobby.id),
+      hostKey(lobby.hostId),
+      bumpCooldownKey(lobby.id),
+      modeIndexKey(mode, lobby.id),
+      channelIndexKey(lobby.channelId, lobby.id),
+    ]
     if (lobby.matchId) keys.push(matchKey(lobby.matchId))
     return keys
   }))
