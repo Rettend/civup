@@ -954,7 +954,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         simultaneousPick: checked ? false : current.simultaneousPick,
         redDeath: checked,
         dealOptionsSize: checked ? current.dealOptionsSize : null,
-        randomDraft: checked ? current.randomDraft : false,
+        randomDraft: current.randomDraft,
         duplicateFactions: checked ? requiresRedDeathDuplicateFactions(lobbyMode()) : false,
       }, {
         targetSize: lobby?.mode === 'ffa' ? (checked ? 10 : 8) : undefined,
@@ -967,7 +967,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   }
 
   const handleRandomDraftChange = async (checked: boolean) => {
-    if (!isLobbyMode() || !amHost() || lobbyActionPending() || randomDraftPending() || !isRedDeathLobbyMode()) return
+    if (!isLobbyMode() || !amHost() || lobbyActionPending() || randomDraftPending()) return
     const current = optimisticTimerConfig.value()
     if (checked === current.randomDraft) return
     setRandomDraftPending(true)
@@ -1779,20 +1779,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
                   <Show when={isLobbyMode() && amHost() && isRedDeathLobbyMode()}>
                     <div class="px-1 flex gap-3 items-center justify-between">
-                      <span class={cn('text-sm font-medium', optimisticDraftConfig().randomDraft ? 'text-accent' : 'text-fg-muted')}>
-                        Random draft
-                      </span>
-                      <Switch
-                        checked={optimisticDraftConfig().randomDraft}
-                        disabled={lobbyActionPending() || randomDraftPending()}
-                        class="w-auto"
-                        onChange={checked => void handleRandomDraftChange(checked)}
-                      />
-                    </div>
-                  </Show>
-
-                  <Show when={isLobbyMode() && amHost() && isRedDeathLobbyMode()}>
-                    <div class="px-1 flex gap-3 items-center justify-between">
                       <span class={cn('text-sm font-medium', optimisticDuplicateFactions() ? 'text-accent' : 'text-fg-muted')}>
                         Duplicate factions
                       </span>
@@ -1833,12 +1819,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
                             valueClass={draftConfig().simultaneousPick ? 'text-accent' : undefined}
                           />
                         </Show>
-                        <Show when={isRedDeathLobbyMode()}>
+                        <Show when={isLobbyMode()}>
                           <ReadonlyTimerRow
                             label="Random draft"
                             value={formattedRandomDraft()}
                             valueClass={draftConfig().randomDraft ? 'text-accent' : undefined}
                           />
+                        </Show>
+                        <Show when={isRedDeathLobbyMode()}>
                           <ReadonlyTimerRow
                             label="Duplicate factions"
                             value={formattedDuplicateFactions()}
@@ -1966,6 +1954,18 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
                         <Show when={isLobbyMode()}>
                           <div class="mt-1 pt-3 border-t border-border-subtle px-1 flex gap-3 items-center justify-between">
+                            <span class={cn('text-sm font-medium', optimisticDraftConfig().randomDraft ? 'text-accent' : 'text-fg-muted')}>
+                              Random draft
+                            </span>
+                            <Switch
+                              checked={optimisticDraftConfig().randomDraft}
+                              disabled={lobbyActionPending() || randomDraftPending()}
+                              class="w-auto"
+                              onChange={checked => void handleRandomDraftChange(checked)}
+                            />
+                          </div>
+
+                          <div class="px-1 flex gap-3 items-center justify-between">
                             <span class={cn('text-sm font-medium', optimisticDraftConfig().redDeath ? 'text-[#f97316]' : 'text-fg-muted')}>
                               Red Death
                             </span>
