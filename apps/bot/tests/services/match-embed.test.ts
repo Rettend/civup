@@ -75,7 +75,7 @@ describe('match result embed', () => {
     }).toJSON()
 
     expect(embed.footer).toEqual({
-      text: 'Reported by Test Reporter',
+      text: 'Test Reporter',
       icon_url: 'https://cdn.discordapp.com/avatars/1/test.png',
     })
   })

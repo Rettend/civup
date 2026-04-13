@@ -437,7 +437,7 @@ function buildReporterFooter(reporter?: ReporterContext | null): { text: string,
   const avatarUrl = reporter.avatarUrl?.trim() || undefined
 
   return {
-    text: `Reported by ${displayName}`,
+    text: displayName,
     icon_url: avatarUrl,
   }
 }
