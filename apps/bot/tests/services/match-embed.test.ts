@@ -65,6 +65,21 @@ describe('match result embed', () => {
     expect(cancelledEmbed.footer).toBeUndefined()
   })
 
+  test('shows the reporter in the reported-result footer only when provided', () => {
+    const embed = lobbyResultEmbed('ffa', [], undefined, {
+      reporter: {
+        userId: '100010000000000001',
+        displayName: 'Test Reporter',
+        avatarUrl: 'https://cdn.discordapp.com/avatars/1/test.png',
+      },
+    }).toJSON()
+
+    expect(embed.footer).toEqual({
+      text: 'Reported by Test Reporter',
+      icon_url: 'https://cdn.discordapp.com/avatars/1/test.png',
+    })
+  })
+
   test('pads four-team open lobbies into a 2x2 inline field layout', () => {
     const embed = lobbyOpenEmbed('2v2', Array.from({ length: 8 }, () => null), 8).toJSON()
 

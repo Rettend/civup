@@ -25,6 +25,12 @@ interface ModerationContext {
   reason?: string | null
 }
 
+interface ReporterContext {
+  userId: string
+  displayName?: string | null
+  avatarUrl?: string | null
+}
+
 export type LobbyStage = 'open' | 'drafting' | 'draft-complete' | 'reported' | 'cancelled' | 'scrubbed' | 'timeout'
 
 const STAGE_LABELS: Record<LobbyStage, string> = {
@@ -177,7 +183,7 @@ export function lobbyResultEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
   moderation?: ModerationContext,
-  options: { rankedRoleLines?: string[] } = {},
+  options: { rankedRoleLines?: string[], reporter?: ReporterContext | null } = {},
   redDeath = false,
 ): Embed {
   return lobbyReportedEmbed(mode, participants, moderation, options, redDeath, participants.length)
@@ -246,7 +252,7 @@ function lobbyReportedEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
   moderation?: ModerationContext,
-  options: { rankedRoleLines?: string[] } = {},
+  options: { rankedRoleLines?: string[], reporter?: ReporterContext | null } = {},
   redDeath = false,
   targetSize?: number,
 ): Embed {
@@ -258,8 +264,10 @@ function lobbyReportedEmbed(
   const leaderboardUpdate = formatLeaderboardUpdate(participants)
   const rankedRoleUpdate = formatRankedRoleUpdate(options.rankedRoleLines)
   const moderationField = buildModerationField(moderation)
+  const reporterFooter = buildReporterFooter(options.reporter)
 
   embed.description(description || '`[empty]`')
+  if (reporterFooter) embed.footer(reporterFooter)
 
   const fields = [
     moderationField,
@@ -419,6 +427,18 @@ function formatLeaderboardUpdate(participants: LobbyParticipant[]): string | nul
 function formatRankedRoleUpdate(lines: string[] | undefined): string | null {
   if (!lines || lines.length === 0) return null
   return lines.join('\n')
+}
+
+function buildReporterFooter(reporter?: ReporterContext | null): { text: string, icon_url?: string } | null {
+  if (!reporter?.userId) return null
+
+  const displayName = reporter.displayName?.trim() || reporter.userId
+  const avatarUrl = reporter.avatarUrl?.trim() || undefined
+
+  return {
+    text: `Reported by ${displayName}`,
+    icon_url: avatarUrl,
+  }
 }
 
 function formatLeaderName(civId: string | null): string {
