@@ -305,6 +305,139 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
+  test('sync skips Discord fetches for unchanged assignments', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
+    })
+
+    globalThis.fetch = (async (_input, init) => {
+      if (!init?.method || init.method === 'GET') return new Response(JSON.stringify({ roles: [] }), { status: 200 })
+      if (init?.method === 'PATCH') return new Response('{}', { status: 200 })
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+
+    await syncRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      token: 'token',
+      now: NOW,
+      applyDiscord: true,
+    })
+
+    let getCalls = 0
+    let patchCalls = 0
+    globalThis.fetch = (async (_input, init) => {
+      if (!init?.method || init.method === 'GET') {
+        getCalls += 1
+        return new Response(JSON.stringify({ roles: [] }), { status: 200 })
+      }
+      if (init?.method === 'PATCH') {
+        patchCalls += 1
+        return new Response('{}', { status: 200 })
+      }
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+
+    const result = await syncRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      token: 'token',
+      now: NOW + 1,
+      applyDiscord: true,
+    })
+
+    expect(result.appliedDiscordChanges).toBe(0)
+    expect(getCalls).toBe(0)
+    expect(patchCalls).toBe(0)
+
+    sqlite.close()
+  })
+
+  test('sync reapplies affected members when ranked role ids change', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
+    })
+
+    const topPlayerId = playerIdFor('ffa', 1)
+    globalThis.fetch = (async (_input, init) => {
+      if (!init?.method || init.method === 'GET') return new Response(JSON.stringify({ roles: [] }), { status: 200 })
+      if (init?.method === 'PATCH') return new Response('{}', { status: 200 })
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+
+    await syncRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      token: 'token',
+      now: NOW,
+      applyDiscord: true,
+    })
+
+    const initialAssignments = await getCurrentRankAssignments(kv, 'guild-1')
+    const affectedPlayerIds = Object.entries(initialAssignments.byPlayerId)
+      .filter(([_playerId, assignment]) => assignment.tier === TIER_4)
+      .map(([playerId]) => playerId)
+      .sort((a, b) => a.localeCompare(b))
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier4: '99999999999999999',
+    })
+
+    const getCalls: string[] = []
+    const patchCalls: Array<{ userId: string, roles: string[] }> = []
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input)
+      const userId = url.split('/').pop() ?? ''
+      if (!init?.method || init.method === 'GET') {
+        getCalls.push(userId)
+        return new Response(JSON.stringify({ roles: userId === topPlayerId ? ['22222222222222222'] : ['11111111111111111'] }), { status: 200 })
+      }
+      if (init?.method === 'PATCH') {
+        const payload = JSON.parse(String(init.body)) as { roles: string[] }
+        patchCalls.push({ userId, roles: payload.roles })
+        return new Response('{}', { status: 200 })
+      }
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+
+    const result = await syncRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      token: 'token',
+      now: NOW + 1,
+      applyDiscord: true,
+    })
+
+    expect(result.appliedDiscordChanges).toBe(affectedPlayerIds.length)
+    expect([...getCalls].sort((a, b) => a.localeCompare(b))).toEqual(affectedPlayerIds)
+    expect(patchCalls.map(call => call.userId).sort((a, b) => a.localeCompare(b))).toEqual(affectedPlayerIds)
+    const topPlayerCall = patchCalls.find(call => call.userId === topPlayerId)
+    expect(topPlayerCall?.roles).toContain('99999999999999999')
+    expect(topPlayerCall?.roles).not.toContain('22222222222222222')
+
+    sqlite.close()
+  })
+
   test('builds compact ranked role update lines for match participants', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()

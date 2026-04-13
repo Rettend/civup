@@ -11,6 +11,7 @@ import { projectLineupDisplayRating } from '../services/leaderboard/team-rating.
 import { getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { projectRankedTierForScore } from '../services/ranked/role-sync.ts'
 import { getDisplaySeason } from '../services/season/index.ts'
+import { formatDisplayRatingChange } from './rating-change.ts'
 
 const TOP_LEADERS_LIMIT = 5
 const RECENT_MATCH_GROUP_LIMIT = 4
@@ -347,12 +348,8 @@ function formatRecentRatingChange(match: {
 
   const before = displayRating(match.ratingBeforeMu, match.ratingBeforeSigma)
   const after = displayRating(match.ratingAfterMu, match.ratingAfterSigma)
-  const delta = Math.round(after - before)
-  const deltaText = `${delta >= 0 ? '+' : ''}${delta}`.padStart(3, ' ')
-  const trendEmoji = delta >= 0 ? '📈' : '📉'
-  const updatedElo = `(${String(Math.round(after)).padStart(4, ' ')})`
 
-  return `\`${deltaText}\` ${trendEmoji} \`${updatedElo}\``
+  return formatDisplayRatingChange(before, after)
 }
 
 function formatGameModeLabel(gameMode: string, draftData: string | null): string {

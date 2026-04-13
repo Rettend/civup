@@ -456,6 +456,18 @@ async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
   })
 
   try {
+    await seedRankedRoleCronState(db, kv)
+
+    await syncRankedRoles({
+      db,
+      kv,
+      guildId: GUILD_ID,
+      token: 'token',
+      applyDiscord: true,
+      advanceDemotionWindow: true,
+      now: NOW,
+    })
+
     resetOperations()
     sqlTracker.reset()
     stateCoordinator.reset()
@@ -503,6 +515,38 @@ async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
     sqlTracker.restore()
     sqlite.close()
   }
+}
+
+async function seedRankedRoleCronState(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  kv: ReturnType<typeof createStateStore>,
+): Promise<void> {
+  const playerIds = Array.from({ length: 8 }, (_value, index) => `ranked-role-cron-${index + 1}`)
+
+  await setRankedRoleCurrentRoles(kv, GUILD_ID, {
+    tier5: '11111111111111111',
+    tier4: '22222222222222222',
+    tier3: '33333333333333333',
+    tier2: '44444444444444444',
+    tier1: '55555555555555555',
+  })
+
+  await db.insert(players).values(playerIds.map((playerId, index) => ({
+    id: playerId,
+    displayName: playerId.toUpperCase(),
+    avatarUrl: null,
+    createdAt: NOW + index,
+  })))
+
+  await db.insert(playerRatings).values(playerIds.map((playerId, index) => ({
+    playerId,
+    mode: 'ffa',
+    mu: 40 - index,
+    sigma: 6,
+    gamesPlayed: 10,
+    wins: Math.max(0, 6 - (index % 4)),
+    lastPlayedAt: NOW + 10_000 + index,
+  })))
 }
 
 async function simulateScenarioLifecycle(input: {
