@@ -9,7 +9,7 @@ import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDra
 import { clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
-import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
+import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
@@ -145,6 +145,19 @@ export const command_match = factory.command<MatchVar>(
               await sendTransientEphemeralResponse(
                 c,
                 `You are already in an open ${formatModeLabel(existingQueueMode)} lobby. Leave it first with \`/match leave\`.`,
+                'error',
+              )
+              return
+            }
+
+            // Temporary cutover safety: existing live/open lobbies may predate the per-player queue index.
+            const currentLobby = (await getCurrentLobbiesForPlayer(kv, identity.userId))[0] ?? null
+            if (currentLobby) {
+              await sendTransientEphemeralResponse(
+                c,
+                currentLobby.status === 'open'
+                  ? `You are already in an open ${formatModeLabel(currentLobby.mode, currentLobby.mode, { redDeath: currentLobby.draftConfig.redDeath })} lobby. Leave it first with \`/match leave\`.`
+                  : 'You are already in a live match. Finish or cancel it before creating a new lobby.',
                 'error',
               )
               return

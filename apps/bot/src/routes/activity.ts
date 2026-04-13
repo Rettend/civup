@@ -158,7 +158,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
     const mappedLobbyId = await getLobbyForUser(kv, userId)
     if (mappedLobbyId) {
       const mappedLobby = await getLobbyById(kv, mappedLobbyId)
-      if (mappedLobby?.status === 'open') {
+      if (mappedLobby?.status === 'open' && mappedLobby.memberPlayerIds.includes(userId)) {
         return c.json(await buildOpenLobbySnapshot(kv, mappedLobby.mode, mappedLobby))
       }
     }
@@ -317,6 +317,19 @@ async function resolveActivityLaunchSelection(
   if (storedTarget) {
     const storedSelection = targets.find(target => target.option.kind === storedTarget.kind && target.option.id === storedTarget.id) ?? null
     if (storedSelection) {
+      const currentMembershipSelection = pickCurrentActivityMembershipSelection(targets)
+      if (
+        currentMembershipSelection
+        && currentMembershipSelection.target.option.kind === 'lobby'
+        && isDifferentActivityTarget(currentMembershipSelection.target.option, storedSelection.option)
+      ) {
+        const storedIsCurrentMemberTarget = storedSelection.option.isHost || storedSelection.option.isMember
+        if (storedSelection.option.kind === 'lobby' && !storedIsCurrentMemberTarget) {
+          await clearUserActivityTargets(kv, channelId, [userId])
+          return currentMembershipSelection
+        }
+      }
+
       return {
         target: storedSelection,
         pendingJoin: storedTarget.kind === 'lobby' && storedTarget.pendingJoin,
@@ -629,8 +642,7 @@ function activityTargetPriority(option: ActivityTargetOption): number {
 }
 
 function pickDefaultActivityLaunchSelection(targets: ChannelActivityTarget[]): ResolvedActivitySelection | null {
-  const preferredTarget = targets.find(target => (target.option.isHost || target.option.isMember) && target.option.kind === 'match')
-    ?? targets.find(target => target.option.isHost || target.option.isMember)
+  const preferredTarget = pickCurrentActivityMembershipTarget(targets)
     ?? null
   if (!preferredTarget) return null
 
@@ -638,6 +650,26 @@ function pickDefaultActivityLaunchSelection(targets: ChannelActivityTarget[]): R
     target: preferredTarget,
     pendingJoin: false,
   }
+}
+
+function pickCurrentActivityMembershipSelection(targets: ChannelActivityTarget[]): ResolvedActivitySelection | null {
+  const preferredTarget = pickCurrentActivityMembershipTarget(targets)
+  if (!preferredTarget) return null
+
+  return {
+    target: preferredTarget,
+    pendingJoin: false,
+  }
+}
+
+function pickCurrentActivityMembershipTarget(targets: ChannelActivityTarget[]): ChannelActivityTarget | null {
+  return targets.find(target => (target.option.isHost || target.option.isMember) && target.option.kind === 'match')
+    ?? targets.find(target => target.option.isHost || target.option.isMember)
+    ?? null
+}
+
+function isDifferentActivityTarget(left: ActivityTargetOption, right: ActivityTargetOption): boolean {
+  return left.kind !== right.kind || left.id !== right.id
 }
 
 async function issueDraftRoomAccessToken(
