@@ -219,7 +219,7 @@ async function listLeaderboardModeRowsFromD1ByModes(
   return rowsByMode
 }
 
-function normalizeLeaderboardModeSnapshot(
+export function normalizeLeaderboardModeSnapshot(
   mode: LeaderboardMode,
   value: unknown,
 ): LeaderboardModeSnapshot | null {
