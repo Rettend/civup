@@ -199,6 +199,92 @@ describe('match seed fade', () => {
     }
   })
 
+  test('retrying a broken completed match repairs missing rating snapshots', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedDuelPlayers(db)
+      await seedSeedRow(db, 10)
+      await seedCompletedDuel(db, { matchId: 'completed-broken', completedAt: NOW, isOld: false })
+
+      const result = await reportMatch(db, kv, {
+        matchId: 'completed-broken',
+        reporterId: HERO_ID,
+        placements: `<@${HERO_ID}>`,
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+
+      expect(result.idempotent).toBe(true)
+      expect(result.participants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
+
+      const storedParticipants = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, 'completed-broken'))
+
+      expect(storedParticipants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
+
+      const duelRatings = await db
+        .select()
+        .from(playerRatings)
+        .where(eq(playerRatings.mode, 'duel'))
+
+      expect(duelRatings).toHaveLength(2)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('reportMatch rolls back a seeded report when boundary replay fails', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedDuelPlayers(db)
+      await seedSeedRow(db, 10)
+      await seedCompletedDuel(db, { matchId: 'broken-old', completedAt: NOW - 10_000, isOld: false })
+      await seedActiveDuel(db, 'active-rollback', NOW)
+
+      const result = await reportMatch(db, kv, {
+        matchId: 'active-rollback',
+        reporterId: HERO_ID,
+        placements: `<@${HERO_ID}>`,
+      })
+
+      expect('error' in result).toBe(true)
+      if (!('error' in result)) return
+
+      expect(result.error).toContain('missing rating snapshots')
+
+      const [rolledBackMatch] = await db
+        .select()
+        .from(matches)
+        .where(eq(matches.id, 'active-rollback'))
+        .limit(1)
+
+      expect(rolledBackMatch?.status).toBe('active')
+      expect(rolledBackMatch?.completedAt).toBeNull()
+
+      const rolledBackParticipants = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, 'active-rollback'))
+
+      expect(rolledBackParticipants.every(participant => (
+        participant.placement == null
+        && participant.ratingBeforeMu == null
+        && participant.ratingAfterMu == null
+      ))).toBe(true)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('boundary recalculation works with live seed fade without replaying the full ladder', async () => {
     const { db: boundaryDb, sqlite: boundarySqlite } = await createTestDatabase()
     const { db: fullDb, sqlite: fullSqlite } = await createTestDatabase()
