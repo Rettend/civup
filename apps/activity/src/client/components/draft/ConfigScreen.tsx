@@ -488,6 +488,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const duplicateFactionsLocked = () => isRedDeathLobbyMode() && requiresRedDeathDuplicateFactions(lobbyMode())
   const draftDuplicateFactions = () => duplicateFactionsLocked() ? true : draftConfig().duplicateFactions
   const optimisticDuplicateFactions = () => duplicateFactionsLocked() ? true : optimisticDraftConfig().duplicateFactions
+  const duplicateOptionLabel = () => isRedDeathLobbyMode() ? 'Duplicate factions' : 'Duplicate leaders'
   const formattedDuplicateFactions = () => draftDuplicateFactions() ? 'On' : 'Off'
   const poolInputLabel = () => isRedDeathLobbyMode() ? 'Factions' : 'Leaders'
   const modeLabelClass = () => isRedDeathLobbyMode() ? 'text-[#f97316]' : 'text-accent'
@@ -955,7 +956,9 @@ export function ConfigScreen(props: ConfigScreenProps) {
         redDeath: checked,
         dealOptionsSize: checked ? current.dealOptionsSize : null,
         randomDraft: current.randomDraft,
-        duplicateFactions: checked ? requiresRedDeathDuplicateFactions(lobbyMode()) : false,
+        duplicateFactions: checked && requiresRedDeathDuplicateFactions(lobbyMode())
+          ? true
+          : current.duplicateFactions,
       }, {
         targetSize: lobby?.mode === 'ffa' ? (checked ? 10 : 8) : undefined,
       })
@@ -990,7 +993,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   }
 
   const handleDuplicateFactionsChange = async (checked: boolean) => {
-    if (!isLobbyMode() || !amHost() || lobbyActionPending() || duplicateFactionsPending() || !isRedDeathLobbyMode() || duplicateFactionsLocked()) return
+    if (!isLobbyMode() || !amHost() || lobbyActionPending() || duplicateFactionsPending() || duplicateFactionsLocked()) return
     const current = optimisticTimerConfig.value()
     if (checked === current.duplicateFactions) return
     setDuplicateFactionsPending(true)
@@ -1777,20 +1780,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
                     </div>
                   </Show>
 
-                  <Show when={isLobbyMode() && amHost() && isRedDeathLobbyMode()}>
-                    <div class="px-1 flex gap-3 items-center justify-between">
-                      <span class={cn('text-sm font-medium', optimisticDuplicateFactions() ? 'text-accent' : 'text-fg-muted')}>
-                        Duplicate factions
-                      </span>
-                      <Switch
-                        checked={optimisticDuplicateFactions()}
-                        disabled={lobbyActionPending() || duplicateFactionsPending() || duplicateFactionsLocked()}
-                        class="w-auto"
-                        onChange={checked => void handleDuplicateFactionsChange(checked)}
-                      />
-                    </div>
-                  </Show>
-
                   <Show when={isLobbyMode() && amHost()}>
                     <Dropdown
                       label="Game Mode"
@@ -1825,10 +1814,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
                             value={formattedRandomDraft()}
                             valueClass={draftConfig().randomDraft ? 'text-accent' : undefined}
                           />
-                        </Show>
-                        <Show when={isRedDeathLobbyMode()}>
                           <ReadonlyTimerRow
-                            label="Duplicate factions"
+                            label={duplicateOptionLabel()}
                             value={formattedDuplicateFactions()}
                             valueClass={draftDuplicateFactions() ? 'text-accent' : undefined}
                           />
@@ -1953,7 +1940,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                         />
 
                         <Show when={isLobbyMode()}>
-                          <div class="mt-1 pt-3 border-t border-border-subtle px-1 flex gap-3 items-center justify-between">
+                          <div class="px-1 flex gap-3 items-center justify-between">
                             <span class={cn('text-sm font-medium', optimisticDraftConfig().randomDraft ? 'text-accent' : 'text-fg-muted')}>
                               Random draft
                             </span>
@@ -1966,6 +1953,18 @@ export function ConfigScreen(props: ConfigScreenProps) {
                           </div>
 
                           <div class="px-1 flex gap-3 items-center justify-between">
+                            <span class={cn('text-sm font-medium', optimisticDuplicateFactions() ? 'text-accent' : 'text-fg-muted')}>
+                              {duplicateOptionLabel()}
+                            </span>
+                            <Switch
+                              checked={optimisticDuplicateFactions()}
+                              disabled={lobbyActionPending() || duplicateFactionsPending() || duplicateFactionsLocked()}
+                              class="w-auto"
+                              onChange={checked => void handleDuplicateFactionsChange(checked)}
+                            />
+                          </div>
+
+                          <div class="mt-1 pt-3 border-t border-border-subtle px-1 flex gap-3 items-center justify-between">
                             <span class={cn('text-sm font-medium', optimisticDraftConfig().redDeath ? 'text-[#f97316]' : 'text-fg-muted')}>
                               Red Death
                             </span>
