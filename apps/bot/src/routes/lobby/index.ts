@@ -19,6 +19,7 @@ import {
   getCurrentLobbiesForPlayer,
   getCurrentLobbyForQueuedMessageUpdate,
   getLobbyById,
+  leaveOpenLobbyForLobbyJoin,
   mapLobbySlotsToEntries,
   moveSlottedPremadeGroup,
   normalizeLobbySlots,
@@ -623,51 +624,43 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const preloaded = await getQueueStateWithLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
     let queue = preloaded.queue
     const balanceSnapshot = preloaded.balanceSnapshot
-    let lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
-    let slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
+    let transferNotice: string | null = null
 
     const currentLobbiesForPlayer = await getCurrentLobbiesForPlayer(kv, movingPlayerId, {
       excludeLobbyIds: [lobby.id],
     })
     const blockingLobbyForPlayer = currentLobbiesForPlayer.find(candidate => candidate.status !== 'open') ?? currentLobbiesForPlayer[0] ?? null
     if (blockingLobbyForPlayer) {
-      return c.json({ error: blockingLobbyForPlayer.status === 'open' ? 'That player is already in another open lobby.' : 'That player is already in a live match.' }, 400)
+      if (blockingLobbyForPlayer.status !== 'open') {
+        return c.json({ error: 'That player is already in a live match.' }, 400)
+      }
+      if (movingPlayerId !== auth.identity.userId) {
+        return c.json({ error: 'That player is already in another open lobby.' }, 400)
+      }
+      transferNotice = `Moved you from your previous ${formatModeLabel(blockingLobbyForPlayer.mode, blockingLobbyForPlayer.mode, { redDeath: blockingLobbyForPlayer.draftConfig.redDeath })} lobby.`
     }
 
+    const isQueuedForTargetMode = queue.entries.some(entry => entry.playerId === movingPlayerId)
+    const previewMemberIds = isQueuedForTargetMode && !lobby.memberPlayerIds.includes(movingPlayerId)
+      ? [...new Set([...lobby.memberPlayerIds, movingPlayerId])]
+      : lobby.memberPlayerIds
+    let lobbyQueueEntries = buildLobbyQueueEntries({ ...lobby, memberPlayerIds: previewMemberIds }, queue.entries)
+    let slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
+
     const actionAt = Date.now()
+    let resolvedDisplayName: string | null = null
     const movingEntry = lobbyQueueEntries.find(entry => entry.playerId === movingPlayerId)
-    if (!movingEntry) {
+    const queuedEntry = queue.entries.find(entry => entry.playerId === movingPlayerId) ?? null
+    if (!movingEntry && !queuedEntry) {
       if (movingPlayerId !== auth.identity.userId) {
         return c.json({ error: 'Target player is not available as a spectator.' }, 400)
       }
 
-      const resolvedDisplayName = auth.identity.displayName?.trim() ?? ''
+      resolvedDisplayName = auth.identity.displayName?.trim() ?? ''
       if (resolvedDisplayName.length === 0) {
         return c.json({ error: 'displayName is required when joining as spectator.' }, 400)
       }
-
-      const joinResult = await addToQueue(kv, mode, {
-        playerId: movingPlayerId,
-        displayName: resolvedDisplayName,
-        avatarUrl: auth.identity.avatarUrl,
-        joinedAt: actionAt,
-      })
-
-      if (joinResult.error) {
-        return c.json({ error: joinResult.error }, 400)
-      }
-
-      queue = await getQueueState(kv, mode)
-      const nextMemberIds = [...new Set([...lobby.memberPlayerIds, movingPlayerId])]
-      const updatedLobby = await setLobbyMemberPlayerIds(kv, lobby.id, nextMemberIds, lobby)
-      if (updatedLobby) {
-        lobby = updatedLobby
-      }
-      lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
-      slots = normalizeLobbySlots(mode, slots, lobbyQueueEntries)
-      await storeUserLobbyState(kv, lobby.channelId, [movingPlayerId], lobby.id)
     }
-
     const sourceSlot = slots.findIndex(playerId => playerId === movingPlayerId)
     const targetPlayerId = slots[targetSlot]
     const movingPremadeGroup = isTeamMode(mode) && sourceSlot >= 0
@@ -675,7 +668,11 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       : null
 
     if (targetPlayerId === movingPlayerId) {
-      return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, lobby, lobbyQueueEntries, slots))
+      await storeUserLobbyState(kv, lobby.channelId, [movingPlayerId], lobby.id)
+      return c.json({
+        lobby: await buildOpenLobbySnapshotFromParts(kv, mode, lobby, lobbyQueueEntries, slots),
+        transferNotice,
+      })
     }
 
     if (!isHost) {
@@ -713,6 +710,43 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'This move would split a linked premade.' }, 400)
     }
 
+    if (blockingLobbyForPlayer?.status === 'open') {
+      const transferResult = await leaveOpenLobbyForLobbyJoin(
+        kv,
+        c.env.DISCORD_TOKEN,
+        blockingLobbyForPlayer,
+        [movingPlayerId],
+        mode,
+      )
+      if (!transferResult.ok) {
+        return c.json({ error: transferResult.error }, 400)
+      }
+    }
+
+    if (!movingEntry && !queuedEntry) {
+      const joinResult = await addToQueue(kv, mode, {
+        playerId: movingPlayerId,
+        displayName: resolvedDisplayName ?? '',
+        avatarUrl: auth.identity.avatarUrl,
+        joinedAt: actionAt,
+      })
+
+      if (joinResult.error) {
+        return c.json({ error: joinResult.error }, 400)
+      }
+
+      queue = joinResult.state ?? await getQueueState(kv, mode)
+    }
+
+    if (!lobby.memberPlayerIds.includes(movingPlayerId)) {
+      const nextMemberIds = [...new Set([...lobby.memberPlayerIds, movingPlayerId])]
+      const updatedLobby = await setLobbyMemberPlayerIds(kv, lobby.id, nextMemberIds, lobby)
+      if (updatedLobby) lobby = updatedLobby
+    }
+
+    lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
+    slots = normalizeLobbySlots(mode, slots, lobbyQueueEntries)
+
     const updatedLobby = await setLobbySlots(kv, lobby.id, slots, lobby)
     let nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
     nextLobby = await setLobbyLastActivityAt(kv, nextLobby.id, actionAt, nextLobby) ?? nextLobby
@@ -721,6 +755,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       slots,
       balanceSnapshot,
     })
+
+    await storeUserLobbyState(kv, nextLobby.channelId, [movingPlayerId], nextLobby.id)
 
     const slottedEntries = mapLobbySlotsToEntries(slots, lobbyQueueEntries)
     queueBackgroundTask(c, async () => {
@@ -733,7 +769,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       })
     }, `Failed to update lobby embed after slot placement in ${mode}:`)
 
-    return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, lobbyQueueEntries, slots))
+    return c.json({
+      lobby: snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, lobbyQueueEntries, slots),
+      transferNotice,
+    })
   })
 
   app.post('/api/lobby/:mode/remove', async (c) => {

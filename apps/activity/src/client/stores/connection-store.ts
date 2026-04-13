@@ -68,6 +68,11 @@ export interface LobbySnapshot {
   }
 }
 
+interface LobbyPlacementResponse {
+  lobby: LobbySnapshot
+  transferNotice: string | null
+}
+
 export interface RankedRoleOptionSnapshot {
   tier: CompetitiveTier
   rank: number
@@ -748,10 +753,10 @@ export async function placeLobbySlot(
     displayName?: string
     avatarUrl?: string | null
   },
-): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
+): Promise<{ ok: true, lobby: LobbySnapshot, transferNotice: string | null } | { ok: false, error: string }> {
   try {
-    const lobby = await activityApiPost<LobbySnapshot>(`/api/lobby/${mode}/place`, payload)
-    return { ok: true, lobby }
+    const result = await activityApiPost<LobbyPlacementResponse>(`/api/lobby/${mode}/place`, payload)
+    return { ok: true, lobby: result.lobby, transferNotice: result.transferNotice }
   }
   catch (err) {
     console.error('Failed to place lobby slot:', err)
