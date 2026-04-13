@@ -24,9 +24,17 @@ export interface ParticipantRow {
   leaderboardEligibleCount?: number | null
 }
 
+export interface MatchReporterIdentity {
+  userId: string
+  displayName?: string | null
+  avatarUrl?: string | null
+}
+
 export interface ReportInput {
   matchId: string
   reporterId: string
+  reporterDisplayName?: string | null
+  reporterAvatarUrl?: string | null
   /** For team and 1v1 games: "A" or "B". For FFA: player IDs in placement order, newline-separated. */
   placements: string
 }

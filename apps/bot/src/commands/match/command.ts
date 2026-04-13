@@ -847,6 +847,8 @@ export const command_match = factory.command<MatchVar>(
           const result = await reportMatch(db, kv, {
             matchId: match.id,
             reporterId: identity.userId,
+            reporterDisplayName: identity.displayName,
+            reporterAvatarUrl: identity.avatarUrl,
             placements,
           })
 
@@ -925,6 +927,11 @@ export const command_match = factory.command<MatchVar>(
             participants: result.participants,
             lobby,
             rankedRoleLines,
+            reporter: {
+              userId: identity.userId,
+              displayName: identity.displayName,
+              avatarUrl: identity.avatarUrl,
+            },
             archivePolicy: 'always',
           })
           if (lobby) {

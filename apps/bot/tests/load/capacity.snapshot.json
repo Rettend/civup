@@ -48,7 +48,7 @@
         "doSqliteRowsRead": 79,
         "doSqliteRowsWritten": 63,
         "kvReads": 17,
-        "kvWrites": 0,
+        "kvWrites": 1,
         "kvDeletes": 0,
         "kvLists": 0,
         "doRequests": 74,
@@ -83,7 +83,7 @@
         "doSqliteRowsRead": 99,
         "doSqliteRowsWritten": 75,
         "kvReads": 21,
-        "kvWrites": 0,
+        "kvWrites": 1,
         "kvDeletes": 0,
         "kvLists": 0,
         "doRequests": 88,
@@ -120,14 +120,14 @@
             "draftsPerDay": 905.5
           },
           {
+            "metric": "kvWrites",
+            "playsPerDay": 1994,
+            "draftsPerDay": 997
+          },
+          {
             "metric": "d1RowsRead",
             "playsPerDay": 2229,
             "draftsPerDay": 1114.5
-          },
-          {
-            "metric": "doRequests",
-            "playsPerDay": 2261,
-            "draftsPerDay": 1130.5
           }
         ],
         "paidIncluded": [
@@ -169,7 +169,7 @@
         "doSqliteRowsRead": 110,
         "doSqliteRowsWritten": 82,
         "kvReads": 17,
-        "kvWrites": 0,
+        "kvWrites": 1,
         "kvDeletes": 0,
         "kvLists": 0,
         "doRequests": 102,
@@ -204,7 +204,7 @@
         "doSqliteRowsRead": 130,
         "doSqliteRowsWritten": 94,
         "kvReads": 21,
-        "kvWrites": 0,
+        "kvWrites": 1,
         "kvDeletes": 0,
         "kvLists": 0,
         "doRequests": 116,
@@ -246,9 +246,9 @@
             "draftsPerDay": 857.5
           },
           {
-            "metric": "doSqliteRowsWritten",
-            "playsPerDay": 2127,
-            "draftsPerDay": 1063.5
+            "metric": "kvWrites",
+            "playsPerDay": 1994,
+            "draftsPerDay": 997
           }
         ],
         "paidIncluded": [
@@ -290,7 +290,7 @@
         "doSqliteRowsRead": 122,
         "doSqliteRowsWritten": 96,
         "kvReads": 23,
-        "kvWrites": 0,
+        "kvWrites": 1,
         "kvDeletes": 1,
         "kvLists": 0,
         "doRequests": 102,
@@ -325,7 +325,7 @@
         "doSqliteRowsRead": 142,
         "doSqliteRowsWritten": 108,
         "kvReads": 27,
-        "kvWrites": 0,
+        "kvWrites": 1,
         "kvDeletes": 1,
         "kvLists": 0,
         "doRequests": 116,
@@ -411,7 +411,7 @@
         "doSqliteRowsRead": 148,
         "doSqliteRowsWritten": 118,
         "kvReads": 27,
-        "kvWrites": 0,
+        "kvWrites": 1,
         "kvDeletes": 1,
         "kvLists": 0,
         "doRequests": 117,
@@ -446,7 +446,7 @@
         "doSqliteRowsRead": 168,
         "doSqliteRowsWritten": 130,
         "kvReads": 31,
-        "kvWrites": 0,
+        "kvWrites": 1,
         "kvDeletes": 1,
         "kvLists": 0,
         "doRequests": 131,
@@ -532,7 +532,7 @@
         "doSqliteRowsRead": 174,
         "doSqliteRowsWritten": 140,
         "kvReads": 31,
-        "kvWrites": 0,
+        "kvWrites": 1,
         "kvDeletes": 1,
         "kvLists": 0,
         "doRequests": 131,
@@ -567,7 +567,7 @@
         "doSqliteRowsRead": 194,
         "doSqliteRowsWritten": 152,
         "kvReads": 35,
-        "kvWrites": 0,
+        "kvWrites": 1,
         "kvDeletes": 1,
         "kvLists": 0,
         "doRequests": 145,
@@ -653,7 +653,7 @@
         "doSqliteRowsRead": 247,
         "doSqliteRowsWritten": 195,
         "kvReads": 41,
-        "kvWrites": 0,
+        "kvWrites": 1,
         "kvDeletes": 0,
         "kvLists": 0,
         "doRequests": 189,
@@ -688,7 +688,7 @@
         "doSqliteRowsRead": 267,
         "doSqliteRowsWritten": 207,
         "kvReads": 45,
-        "kvWrites": 0,
+        "kvWrites": 1,
         "kvDeletes": 0,
         "kvLists": 0,
         "doRequests": 203,
