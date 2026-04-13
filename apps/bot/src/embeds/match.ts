@@ -3,6 +3,7 @@ import { formatModeLabel, getLeader, hasBetaLeaderData, isTeamMode, normalizeAva
 import { displayRating } from '@civup/rating'
 import { Button, Components, Embed } from 'discord-hono'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
+import { formatDisplayRatingChange } from './rating-change.ts'
 
 interface LobbyParticipant {
   playerId: string
@@ -366,12 +367,8 @@ function formatReportedRating(participant: LobbyParticipant): string {
 
   const before = displayRating(participant.ratingBeforeMu, participant.ratingBeforeSigma)
   const after = displayRating(participant.ratingAfterMu, participant.ratingAfterSigma)
-  const delta = Math.round(after - before)
-  const deltaText = `${delta >= 0 ? '+' : ''}${delta}`.padStart(3, ' ')
-  const trendEmoji = delta >= 0 ? '📈' : '📉'
-  const updatedElo = `(${String(Math.round(after)).padStart(4, ' ')})`
 
-  return `\`${deltaText}\` ${trendEmoji} \`${updatedElo}\``
+  return formatDisplayRatingChange(before, after)
 }
 
 function formatLeaderboardUpdate(participants: LobbyParticipant[]): string | null {

@@ -127,7 +127,6 @@ export async function recalculateLeaderboardMode(
   ])
 
   if (options.fromMatchId) {
-    if (hasLiveSeedFade(seedRows)) return await recalculateLeaderboardModeFromScratch(db, leaderboardMode, gameModes, seasonRows, seedRows)
     return await recalculateLeaderboardModeFromBoundary(
       db,
       leaderboardMode,
