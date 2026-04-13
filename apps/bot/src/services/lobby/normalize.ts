@@ -103,7 +103,7 @@ export function normalizeDraftConfigForMode(
     redDeath,
     dealOptionsSize: redDeath ? normalized.dealOptionsSize : null,
     randomDraft: normalized.randomDraft,
-    duplicateFactions: redDeath ? (requiresRedDeathDuplicateFactions(mode) || normalized.duplicateFactions) : false,
+    duplicateFactions: redDeath ? (requiresRedDeathDuplicateFactions(mode) || normalized.duplicateFactions) : normalized.duplicateFactions,
   }
 }
 
