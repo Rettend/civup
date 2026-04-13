@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
-import { attachLobbyMatch, createLobby, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMinRole } from '../../src/services/lobby/index.ts'
+import { attachLobbyMatch, createLobby, getLobbyById, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../../src/services/lobby/index.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -271,5 +271,67 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     })
 
     expect(result).toEqual({ error: '<@player-1> is already in a live match.' })
+  })
+
+  test('moves a player from another open lobby into the preferred lobby', async () => {
+    const { kv } = createTrackedKv()
+    const sourceLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'source-host',
+      channelId: 'channel-source',
+      messageId: 'message-source',
+    })
+    const targetLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'target-host',
+      channelId: 'channel-target',
+      messageId: 'message-target',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'source-host',
+      displayName: 'Source Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'target-host',
+      displayName: 'Target Host',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'pleb',
+      displayName: 'Pleb',
+      avatarUrl: null,
+      joinedAt: Date.now() + 2,
+    })
+
+    const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'pleb'], sourceLobby)
+    await setLobbySlots(kv, sourceLobby.id, ['source-host', 'pleb', null, null], populatedSource ?? sourceLobby)
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const result = await joinLobbyAndMaybeStartMatch({
+      env: {
+        KV: kv,
+        DISCORD_TOKEN: 'token',
+      },
+    }, '2v2', [{
+      playerId: 'pleb',
+      displayName: 'Pleb',
+      avatarUrl: '',
+    }], {
+      preferredLobbyId: targetLobby.id,
+    })
+
+    expect('stage' in result).toBe(true)
+    if (!('stage' in result)) return
+    expect(result.lobby.id).toBe(targetLobby.id)
+    expect((await getLobbyById(kv, sourceLobby.id))?.memberPlayerIds).toEqual(['source-host'])
+    expect((await getLobbyById(kv, targetLobby.id))?.memberPlayerIds).toEqual(['target-host', 'pleb'])
   })
 })
