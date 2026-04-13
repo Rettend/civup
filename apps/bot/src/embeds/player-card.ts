@@ -52,7 +52,7 @@ export async function playerCardEmbed(
 
   for (const mode of ratingModes) {
     const ratingRow = ratings.find(r => r.mode === mode)
-    if (!ratingRow) continue
+    if (!ratingRow || ratingRow.gamesPlayed === 0) continue
 
     const rating = displayRating(ratingRow.mu, ratingRow.sigma)
     const winRate = ratingRow.gamesPlayed > 0
