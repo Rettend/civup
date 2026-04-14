@@ -50,7 +50,7 @@ function arrangeSeatLobbySlots(
 
   if (input.strategy === 'randomize') {
     const random = input.random ?? Math.random
-    return { slots: buildSeatSlots(input.slots.length, shuffle(slottedPlayerIds, random)) }
+    return { slots: shuffle(input.slots, random) }
   }
 
   const ratingsByPlayerId = input.ratingsByPlayerId ?? new Map<string, RatingSnapshot>()
@@ -133,8 +133,8 @@ function arrangeTeamLobbySlots(
     const chosen = scoredCandidates[index] ?? scoredCandidates[0]
     if (!chosen) return { error: 'Could not randomize teams for this lobby.' }
     const teamIdsByTeam = assignmentToTeams(chosen.assignment, groups, activeTeamCount)
-    const randomizedTeams = teamIdsByTeam.map(teamIds => randomizeTeamOrder(teamIds, groups, random))
-    return { slots: buildTeamSlots(teamSlotCount, randomizedTeams, input.slots.length) }
+    const randomizedTeams = shuffle(teamIdsByTeam, random).map(teamIds => buildRandomizedTeamSegment(teamIds, groups, teamSlotCount, random))
+    return { slots: buildTeamSlotsFromSegments(teamSlotCount, randomizedTeams, input.slots.length) }
   }
 
   const minScore = Math.min(...scoredCandidates.map(candidate => candidate.score))
@@ -321,20 +321,25 @@ function getArrangeSkill(ratingsByPlayerId: Map<string, RatingSnapshot>, playerI
   return toPlayerRating(playerId, ratingsByPlayerId).mu
 }
 
-function randomizeTeamOrder(
+function buildRandomizedTeamSegment(
   teamIds: string[],
   groups: PremadeGroup[],
+  teamSize: number,
   random: () => number,
-): string[] {
-  if (teamIds.length <= 1) return [...teamIds]
+): (string | null)[] {
+  const emptySlotCount = Math.max(0, teamSize - teamIds.length)
 
   const playerSet = new Set(teamIds)
   const teamGroups = groups
     .map(group => group.playerIds.filter(playerId => playerSet.has(playerId)))
     .filter(group => group.length > 0)
 
-  const shuffledGroups = shuffle(teamGroups, random).map(group => shuffle(group, random))
-  return shuffledGroups.flat()
+  const segmentItems = [
+    ...teamGroups.map(group => shuffle(group, random) as (string | null)[]),
+    ...Array.from({ length: emptySlotCount }, () => [null] as (string | null)[]),
+  ]
+
+  return shuffle(segmentItems, random).flat()
 }
 
 function shuffle<T>(values: T[], random: () => number): T[] {
@@ -355,6 +360,19 @@ function buildTeamSlots(teamSize: number, teamIdsByTeam: string[][], slotCount: 
     const teamIds = teamIdsByTeam[team] ?? []
     for (let index = 0; index < teamSize; index++) {
       slots[team * teamSize + index] = teamIds[index] ?? null
+    }
+  }
+
+  return slots
+}
+
+function buildTeamSlotsFromSegments(teamSize: number, teamSegments: (string | null)[][], slotCount: number): (string | null)[] {
+  const slots = Array.from({ length: slotCount }, () => null as string | null)
+
+  for (let team = 0; team < teamSegments.length; team++) {
+    const teamSegment = teamSegments[team] ?? []
+    for (let index = 0; index < teamSize; index++) {
+      slots[team * teamSize + index] = teamSegment[index] ?? null
     }
   }
 
