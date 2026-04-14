@@ -602,7 +602,7 @@ async function simulateScenarioLifecycle(input: {
     activityRequests += viewerIds.length
     for (const playerId of viewerIds) {
       botRequests += 1
-      await simulateActivityLaunchSnapshot(kv, stateCoordinator.secret, CHANNEL_ID, playerId)
+      await simulateActivityLaunchSnapshot(db, kv, stateCoordinator.secret, CHANNEL_ID, playerId)
     }
 
     // Each viewer opens the live state-watch socket through the activity proxy.
@@ -761,12 +761,32 @@ async function simulateMatchJoin(
 }
 
 async function simulateActivityLaunchSnapshot(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   kv: KVNamespace,
   activitySecret: string,
   channelId: string,
   userId: string,
 ): Promise<void> {
-  await buildActivityLaunchSnapshot(undefined, activitySecret, kv, channelId, userId)
+  await buildActivityLaunchSnapshot(undefined, activitySecret, kv, channelId, userId, {
+    db: createCapacityD1Adapter(db),
+  })
+}
+
+function createCapacityD1Adapter(db: Awaited<ReturnType<typeof createTestDatabase>>['db']): D1Database {
+  const sqlite = (db as { $client?: { query?: (sql: string) => { all: (...values: unknown[]) => unknown[] } } }).$client
+  return {
+    prepare(query: string) {
+      return {
+        bind(...values: unknown[]) {
+          return {
+            async all<T = Record<string, unknown>>() {
+              return { results: sqlite?.query?.(query).all(...values) as T[] | undefined }
+            },
+          }
+        },
+      }
+    },
+  } as D1Database
 }
 
 async function simulateSpectatorLobbySelection(kv: KVNamespace, mode: CapacityScenario, spectatorId: string): Promise<void> {
