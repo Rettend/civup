@@ -24,6 +24,12 @@ export interface ParticipantRow {
   leaderboardEligibleCount?: number | null
 }
 
+export interface MatchReporterIdentity {
+  userId: string
+  displayName?: string | null
+  avatarUrl?: string | null
+}
+
 export interface ReportInput {
   matchId: string
   reporterId: string

@@ -269,7 +269,7 @@ describe('draft room creation', () => {
     expect(result.formatId).toBe('default-ffa-simultaneous')
   })
 
-  test('ignores random draft outside Red Death rooms', async () => {
+  test('forwards random draft outside Red Death rooms', async () => {
     let postedConfig: { formatId?: unknown, randomDraft?: unknown } | null = null
     globalThis.fetch = (async (_input, init) => {
       postedConfig = JSON.parse(String(init?.body)) as { formatId?: unknown, randomDraft?: unknown }
@@ -285,7 +285,49 @@ describe('draft room creation', () => {
     })
 
     expect(postedConfig?.formatId).toBe('default-1v1')
-    expect(postedConfig?.randomDraft).toBe(false)
+    expect(postedConfig?.randomDraft).toBe(true)
+    expect(result.formatId).toBe('default-1v1')
+  })
+
+  test('forwards duplicate leaders for base-game random drafts', async () => {
+    let postedConfig: { formatId?: unknown, randomDraft?: unknown, duplicateFactions?: unknown } | null = null
+    globalThis.fetch = (async (_input, init) => {
+      postedConfig = JSON.parse(String(init?.body)) as { formatId?: unknown, randomDraft?: unknown, duplicateFactions?: unknown }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const result = await createDraftRoom('1v1', baseFfaEntries.slice(0, 2), {
+      hostId: 'p1',
+      randomDraft: true,
+      duplicateFactions: true,
+    })
+
+    expect(postedConfig?.formatId).toBe('default-1v1')
+    expect(postedConfig?.randomDraft).toBe(true)
+    expect(postedConfig?.duplicateFactions).toBe(true)
+    expect(result.formatId).toBe('default-1v1')
+  })
+
+  test('ignores duplicate leaders outside random drafts', async () => {
+    let postedConfig: { formatId?: unknown, duplicateFactions?: unknown } | null = null
+    globalThis.fetch = (async (_input, init) => {
+      postedConfig = JSON.parse(String(init?.body)) as { formatId?: unknown, duplicateFactions?: unknown }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const result = await createDraftRoom('1v1', baseFfaEntries.slice(0, 2), {
+      hostId: 'p1',
+      duplicateFactions: true,
+    })
+
+    expect(postedConfig?.formatId).toBe('default-1v1')
+    expect(postedConfig?.duplicateFactions).toBe(false)
     expect(result.formatId).toBe('default-1v1')
   })
 

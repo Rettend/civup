@@ -1,8 +1,10 @@
 import type { GameMode, QueueEntry } from '@civup/game'
 import type { LobbyState } from './types.ts'
-import { startPlayerCountOptions } from '@civup/game'
+import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
+import { startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import { syncActivityOverviewSnapshotForLobby } from '../activity/live-state.ts'
 import { getServerDraftTimerDefaults } from '../config/index.ts'
+import { getStoredLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { getQueueState } from '../queue/index.ts'
 import { stateStoreMdelete, stateStoreMput } from '../state/store.ts'
 import { LOBBY_TTL } from './keys.ts'
@@ -25,6 +27,11 @@ export interface LobbySnapshot {
     displayName: string
     avatarUrl?: string | null
     partyIds?: string[]
+    balanceRating?: {
+      mu: number
+      sigma: number
+      gamesPlayed: number
+    }
   } | null)[]
   minPlayers: number
   targetSize: number
@@ -92,6 +99,7 @@ export async function storeLobbyLiveSnapshot(
   lobby: LobbyState,
   queueEntries?: QueueEntry[],
   slots?: (string | null)[],
+  balanceSnapshot?: LeaderboardModeSnapshot | null,
 ): Promise<LobbySnapshot | null> {
   if (lobby.status !== 'open') {
     await clearLobbyLiveSnapshot(kv, lobby.id)
@@ -100,7 +108,12 @@ export async function storeLobbyLiveSnapshot(
 
   const resolvedQueueEntries = queueEntries ?? []
   const resolvedSlots = slots ?? normalizeLobbySlots(mode, lobby.slots, resolvedQueueEntries)
-  const snapshot = await buildLobbyLiveSnapshotFromParts(kv, mode, lobby, resolvedQueueEntries, resolvedSlots)
+  const snapshot = await attachLobbyBalanceRatings(
+    kv,
+    mode,
+    await buildLobbyLiveSnapshotFromParts(kv, mode, lobby, resolvedQueueEntries, resolvedSlots),
+    balanceSnapshot,
+  )
 
   await stateStoreMput(kv, [{
     key: lobbySnapshotKey(lobby.id),
@@ -109,6 +122,50 @@ export async function storeLobbyLiveSnapshot(
   }])
 
   return snapshot
+}
+
+export async function attachLobbyBalanceRatings(
+  kv: KVNamespace,
+  mode: GameMode,
+  snapshot: LobbySnapshot,
+  balanceSnapshot?: LeaderboardModeSnapshot | null,
+): Promise<LobbySnapshot> {
+  const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath: snapshot.draftConfig.redDeath })
+  if (!leaderboardMode) return snapshot
+
+  const leaderboardSnapshot = balanceSnapshot === undefined
+    ? await getStoredLeaderboardModeSnapshot(kv, leaderboardMode)
+    : balanceSnapshot
+  if (!leaderboardSnapshot) return snapshot
+
+  const balanceRatingByPlayerId = new Map(leaderboardSnapshot.rows.map(row => [
+    row.playerId,
+    {
+      mu: row.mu,
+      sigma: row.sigma,
+      gamesPlayed: row.gamesPlayed,
+    },
+  ]))
+
+  let hasAttachedRatings = false
+  const entries = snapshot.entries.map((entry) => {
+    if (!entry) return null
+
+    const balanceRating = balanceRatingByPlayerId.get(entry.playerId)
+    if (!balanceRating) return entry
+
+    hasAttachedRatings = true
+    return {
+      ...entry,
+      balanceRating,
+    }
+  })
+
+  if (!hasAttachedRatings) return snapshot
+  return {
+    ...snapshot,
+    entries,
+  }
 }
 
 export async function clearLobbyLiveSnapshot(kv: KVNamespace, lobbyId: string): Promise<void> {
@@ -121,6 +178,7 @@ export async function syncLobbyDerivedState(
   options?: {
     queueEntries?: QueueEntry[]
     slots?: (string | null)[]
+    balanceSnapshot?: LeaderboardModeSnapshot | null
   },
 ): Promise<LobbySnapshot | null> {
   let queueEntries = options?.queueEntries
@@ -137,6 +195,7 @@ export async function syncLobbyDerivedState(
       lobby,
       queueEntries,
       options?.slots ?? normalizeLobbySlots(lobby.mode, lobby.slots, queueEntries ?? []),
+      options?.balanceSnapshot,
     )
   }
   else {

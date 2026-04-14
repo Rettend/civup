@@ -2,6 +2,7 @@ import type { DraftState } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { activityOverviewKey, syncActivityOverviewSnapshot } from '../../src/services/activity/live-state.ts'
 import { attachLobbyMatch, clearLobbyById, createLobby, getCurrentLobbyHostedBy, getLobbyByChannel, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
+import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
 import { hostKey, idKey, LOBBY_TTL, matchKey } from '../../src/services/lobby/keys.ts'
 import { lobbySnapshotKey, syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../../src/services/match/retention.ts'
@@ -245,6 +246,49 @@ describe('lobby service KV write behavior', () => {
 
     expect(snapshot?.minPlayers).toBe(6)
     expect(snapshot?.targetSize).toBe(8)
+  })
+
+  test('stores live snapshots with attached balance ratings', async () => {
+    const { kv } = createTrackedKv()
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    await kv.put(leaderboardModeSnapshotKey('duo'), JSON.stringify({
+      updatedAt: Date.now(),
+      rows: [
+        { playerId: 'host-1', mu: 31, sigma: 3, gamesPlayed: 12, wins: 7, lastPlayedAt: null },
+      ],
+    }))
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await syncLobbyDerivedState(kv, lobby)
+
+    const snapshot = await kv.get(lobbySnapshotKey(lobby.id), 'json') as {
+      entries?: Array<{ playerId?: unknown, balanceRating?: { mu?: unknown, sigma?: unknown, gamesPlayed?: unknown } } | null>
+    } | null
+
+    expect(snapshot?.entries?.[0]).toEqual({
+      playerId: 'host-1',
+      displayName: 'Host',
+      avatarUrl: null,
+      partyIds: [],
+      balanceRating: {
+        mu: 31,
+        sigma: 3,
+        gamesPlayed: 12,
+      },
+    })
   })
 
   test('automatically refreshes the activity overview snapshot as lobby state changes', async () => {

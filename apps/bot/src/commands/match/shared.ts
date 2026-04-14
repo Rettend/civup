@@ -8,10 +8,10 @@ import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLab
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
 import { and, eq, inArray } from 'drizzle-orm'
-import { filterQueueEntriesForLobby, getLobbiesByMode, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby/index.ts'
+import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayers, getLobbiesByMode, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
-import { getQueueStates, MAX_QUEUE_ENTRIES, setQueueEntries } from '../../services/queue/index.ts'
+import { getQueueStateWithPlayerQueueModes, MAX_QUEUE_ENTRIES, setQueueEntries } from '../../services/queue/index.ts'
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds } from '../../services/ranked/roles.ts'
 import { createStateStore } from '../../services/state/store.ts'
 
@@ -184,23 +184,65 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   const kv = createStateStore(c.env)
-  const queueStates = await getQueueStates(kv)
-  let queue = queueStates.get(mode)
-  if (!queue) throw new Error(`Queue state missing for mode ${mode}`)
-  const openLobbies = (await getLobbiesByMode(kv, mode)).filter(lobby => lobby.status === 'open')
+  const [{ queueModeByPlayerId, queue: initialQueue }, openLobbies] = await Promise.all([
+    getQueueStateWithPlayerQueueModes(kv, mode, requestedEntries.map(entry => entry.playerId), { fallbackToQueueScan: false }),
+    getLobbiesByMode(kv, mode).then(lobbies => lobbies.filter(lobby => lobby.status === 'open')),
+  ])
+  let queue = initialQueue
   const queueByPlayerId = new Map<string, QueueEntry>(queue.entries.map(entry => [entry.playerId, entry]))
-  const queueModeByPlayerId = new Map<string, GameMode>()
   const lobbyByPlayerId = new Map<string, LobbyState>()
-
-  for (const queueState of queueStates.values()) {
-    for (const entry of queueState.entries) {
-      if (!queueModeByPlayerId.has(entry.playerId)) queueModeByPlayerId.set(entry.playerId, queueState.mode)
-    }
-  }
 
   for (const lobby of openLobbies) {
     for (const playerId of lobby.memberPlayerIds) {
       if (!lobbyByPlayerId.has(playerId)) lobbyByPlayerId.set(playerId, lobby)
+    }
+  }
+
+  const sameModeLobbyIds = [...new Set(
+    requestedEntries
+      .map(entry => lobbyByPlayerId.get(entry.playerId)?.id ?? null)
+      .filter((lobbyId): lobbyId is string => lobbyId != null),
+  )]
+  if (sameModeLobbyIds.length > 1) {
+    return { error: 'This premade is already split across different open lobbies.' }
+  }
+
+  let currentOpenLobby = sameModeLobbyIds.length === 1
+    ? openLobbies.find(lobby => lobby.id === sameModeLobbyIds[0]) ?? null
+    : null
+
+  const conflictingQueuePlayerIds = requestedEntries
+    .map(entry => {
+      const existingMode = queueByPlayerId.has(entry.playerId) ? mode : (queueModeByPlayerId.get(entry.playerId) ?? null)
+      return existingMode && existingMode !== mode ? entry.playerId : null
+    })
+    .filter((playerId): playerId is string => playerId != null)
+
+  if (conflictingQueuePlayerIds.length > 0) {
+    const currentLobbiesByPlayerId = await getCurrentLobbiesForPlayers(kv, conflictingQueuePlayerIds)
+    const liveLobbyPlayerId = conflictingQueuePlayerIds.find(playerId => {
+      const lobby = currentLobbiesByPlayerId.get(playerId)
+      return lobby != null && lobby.status !== 'open'
+    })
+    if (liveLobbyPlayerId) {
+      return { error: `<@${liveLobbyPlayerId}> is already in a live match.` }
+    }
+
+    const conflictingOpenLobbies = [...new Set(
+      conflictingQueuePlayerIds
+        .map(playerId => currentLobbiesByPlayerId.get(playerId)?.id ?? null)
+        .filter((lobbyId): lobbyId is string => lobbyId != null),
+    )]
+    if (conflictingOpenLobbies.length > 1) {
+      return { error: 'This premade is already split across different open lobbies.' }
+    }
+
+    if (conflictingOpenLobbies.length === 1) {
+      const conflictingLobby = currentLobbiesByPlayerId.get(conflictingQueuePlayerIds[0]!) ?? null
+      if (conflictingLobby && currentOpenLobby && conflictingLobby.id !== currentOpenLobby.id) {
+        return { error: 'This premade is already split across different open lobbies.' }
+      }
+      currentOpenLobby = conflictingLobby
     }
   }
 
@@ -211,25 +253,13 @@ export async function joinLobbyAndMaybeStartMatch(
 
     const existingMode = queueByPlayerId.has(entry.playerId) ? mode : (queueModeByPlayerId.get(entry.playerId) ?? null)
     if (!existingMode || existingMode === mode) continue
+    if (currentOpenLobby?.memberPlayerIds.includes(entry.playerId)) continue
     return {
       error: `<@${entry.playerId}> is already in a ${formatModeLabel(existingMode)} lobby.`,
     }
   }
 
-  const existingLobbyIds = [...new Set(
-    requestedEntries
-      .map(entry => lobbyByPlayerId.get(entry.playerId)?.id ?? null)
-      .filter((lobbyId): lobbyId is string => lobbyId != null),
-  )]
-
-  if (existingLobbyIds.length > 1) {
-    return { error: 'This premade is already split across different open lobbies.' }
-  }
-
-  const preferredLobbyId = options?.preferredLobbyId ?? existingLobbyIds[0] ?? null
-  if (preferredLobbyId && existingLobbyIds.length === 1 && existingLobbyIds[0] !== preferredLobbyId) {
-    return { error: 'You are already in another open lobby.' }
-  }
+  const preferredLobbyId = options?.preferredLobbyId ?? (currentOpenLobby?.mode === mode ? currentOpenLobby.id : null)
 
   const nextEntries = [...queue.entries]
   const now = Date.now()
@@ -290,11 +320,6 @@ export async function joinLobbyAndMaybeStartMatch(
 
   const candidateResults = await Promise.all(candidateLobbies
     .map(async (lobby) => {
-      for (const requestedEntry of requestedEntries) {
-        const existingLobby = lobbyByPlayerId.get(requestedEntry.playerId)
-        if (existingLobby && existingLobby.id !== lobby.id) return null
-      }
-
       const gateError = await getRoleGateErrorForLobby(
         c.env.DISCORD_TOKEN,
         kv,
@@ -329,6 +354,19 @@ export async function joinLobbyAndMaybeStartMatch(
     const gateError = candidateResults.find((result): result is { gateError: string } => result != null && 'gateError' in result)?.gateError
     if (gateError) return { error: gateError }
     return { error: 'No compatible open lobby could fit this join.' }
+  }
+
+  if (currentOpenLobby && currentOpenLobby.id !== chosen.lobby.id) {
+    const transferResult = await leaveOpenLobbyForLobbyJoin(
+      kv,
+      c.env.DISCORD_TOKEN,
+      currentOpenLobby,
+      requestedEntries.map(entry => entry.playerId),
+      mode,
+    )
+    if (!transferResult.ok) {
+      return { error: transferResult.error }
+    }
   }
 
   let nextLobby = chosen.lobby

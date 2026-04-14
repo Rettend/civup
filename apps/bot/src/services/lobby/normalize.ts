@@ -102,8 +102,8 @@ export function normalizeDraftConfigForMode(
     simultaneousPick: mode === 'ffa' && !redDeath ? normalized.simultaneousPick : false,
     redDeath,
     dealOptionsSize: redDeath ? normalized.dealOptionsSize : null,
-    randomDraft: redDeath ? normalized.randomDraft : false,
-    duplicateFactions: redDeath ? (requiresRedDeathDuplicateFactions(mode) || normalized.duplicateFactions) : false,
+    randomDraft: normalized.randomDraft,
+    duplicateFactions: redDeath ? (requiresRedDeathDuplicateFactions(mode) || normalized.duplicateFactions) : normalized.duplicateFactions,
   }
 }
 

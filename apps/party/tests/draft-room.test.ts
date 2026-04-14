@@ -1,4 +1,4 @@
-import { createDraft, redDeath2v2 } from '@civup/game'
+import { createDraft, default2v2, redDeath2v2 } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { buildRandomDraftResult } from '../src/random-draft.ts'
 
@@ -18,6 +18,32 @@ function createRdSeats() {
 }
 
 describe('buildRandomDraftResult', () => {
+  test('assigns distinct leaders for base game drafts', () => {
+    Math.random = () => 0
+
+    const state = createDraft('match-base-random', default2v2, createRdSeats(), ['leader-a', 'leader-b', 'leader-c', 'leader-d'])
+
+    const result = buildRandomDraftResult(state)
+
+    expect(result.state.picks).toHaveLength(4)
+    expect(result.state.picks.map(pick => pick.civId)).toEqual(['leader-a', 'leader-b', 'leader-c', 'leader-d'])
+    expect(result.state.availableCivIds).toEqual([])
+  })
+
+  test('uses duplicate leaders when enabled for base game drafts', () => {
+    Math.random = () => 0
+
+    const state = createDraft('match-base-random-dup', default2v2, createRdSeats(), ['leader-a', 'leader-b', 'leader-c', 'leader-d'], {
+      duplicateFactions: true,
+    })
+
+    const result = buildRandomDraftResult(state)
+
+    expect(result.state.picks).toHaveLength(4)
+    expect(result.state.picks.map(pick => pick.civId)).toEqual(['leader-a', 'leader-a', 'leader-a', 'leader-a'])
+    expect(result.state.availableCivIds).toEqual(['leader-a', 'leader-b', 'leader-c', 'leader-d'])
+  })
+
   test('uses duplicate factions when enabled', () => {
     Math.random = () => 0
 

@@ -1,10 +1,12 @@
 import type { Database } from '@civup/db'
+import type { MatchReporterIdentity } from './types.ts'
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from '../lobby/index.ts'
 import type { ParticipantRow } from './types.ts'
 import { lobbyResultEmbed } from '../../embeds/match.ts'
 import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
 import { upsertLobbyMessage } from '../lobby/index.ts'
+import { getReporterIdentityFromDraftData } from './draft-data.ts'
 import { listMatchMessageIds, storeMatchMessageMapping } from './message.ts'
 import { getSystemChannel } from '../system/channels.ts'
 
@@ -20,6 +22,8 @@ interface SyncReportedMatchDiscordMessagesInput {
   participants: ParticipantRow[]
   lobby?: LobbyState | null
   rankedRoleLines?: string[]
+  matchDraftData?: string | null
+  reporter?: MatchReporterIdentity | null
   archivePolicy?: ArchivePolicy
 }
 
@@ -33,16 +37,20 @@ export async function syncReportedMatchDiscordMessages({
   participants,
   lobby = null,
   rankedRoleLines = [],
+  matchDraftData = null,
+  reporter = null,
   archivePolicy = 'always',
 }: SyncReportedMatchDiscordMessagesInput): Promise<void> {
   const messageIds = await listMatchMessageIds(db, matchId)
   const draftMessageId = messageIds[0] ?? null
+  const resolvedReporter = resolveMatchReporterIdentity(matchDraftData, reporter)
 
   if (lobby) {
     try {
-      const updatedLobby = await upsertLobbyMessage(kv, token, lobby, {
+        const updatedLobby = await upsertLobbyMessage(kv, token, lobby, {
         embeds: [lobbyResultEmbed(lobby.mode, participants, undefined, {
           rankedRoleLines,
+          reporter: resolvedReporter,
         }, lobby.draftConfig.redDeath)],
         components: [],
       })
@@ -62,6 +70,7 @@ export async function syncReportedMatchDiscordMessages({
             content: null,
             embeds: [lobbyResultEmbed(reportedMode, participants, undefined, {
               rankedRoleLines,
+              reporter: resolvedReporter,
             }, reportedRedDeath)],
             components: [],
             allowed_mentions: { parse: [] },
@@ -91,6 +100,7 @@ export async function syncReportedMatchDiscordMessages({
     const archiveMessage = await createChannelMessage(token, archiveChannelId, {
       embeds: [lobbyResultEmbed(reportedMode, participants, undefined, {
         rankedRoleLines,
+        reporter: resolvedReporter,
       }, reportedRedDeath)],
       allowed_mentions: { parse: [] },
     })
@@ -98,5 +108,20 @@ export async function syncReportedMatchDiscordMessages({
   }
   catch (error) {
     console.error(`Failed to post archive result for match ${matchId}:`, error)
+  }
+}
+
+function resolveMatchReporterIdentity(
+  draftData: string | null,
+  reporter?: MatchReporterIdentity | null,
+): MatchReporterIdentity | null {
+  const storedReporter = getReporterIdentityFromDraftData(draftData)
+  if (!reporter?.userId) return storedReporter
+  if (!storedReporter || storedReporter.userId !== reporter.userId) return reporter
+
+  return {
+    userId: reporter.userId,
+    displayName: (reporter.displayName?.trim() || storedReporter.displayName) ?? null,
+    avatarUrl: (reporter.avatarUrl?.trim() || storedReporter.avatarUrl) ?? null,
   }
 }

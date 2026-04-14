@@ -196,6 +196,132 @@ describe('lobby routes', () => {
     expect((await getLobbyById(kv, openLobby.id))?.memberPlayerIds).toEqual(['host'])
   })
 
+  test('direct lobby joins move a player from another open lobby', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const sourceLobby = await createLobby(kv, {
+      mode: '1v1',
+      hostId: 'source-host',
+      channelId: 'channel-source',
+      messageId: 'message-source',
+    })
+    const targetLobby = await createLobby(kv, {
+      mode: '1v1',
+      hostId: 'target-host',
+      channelId: 'channel-target',
+      messageId: 'message-target',
+    })
+
+    await addToQueue(kv, '1v1', {
+      playerId: 'source-host',
+      displayName: 'Source Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '1v1', {
+      playerId: 'pleb',
+      displayName: 'Pleb',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await addToQueue(kv, '1v1', {
+      playerId: 'target-host',
+      displayName: 'Target Host',
+      avatarUrl: null,
+      joinedAt: Date.now() + 2,
+    })
+
+    const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'pleb'], sourceLobby)
+    await setLobbySlots(kv, sourceLobby.id, ['source-host', 'pleb'], populatedSource ?? sourceLobby)
+    await storeUserLobbyMappings(kv, ['pleb'], sourceLobby.id)
+    await storeUserActivityTarget(kv, sourceLobby.channelId, ['pleb'], { kind: 'lobby', id: sourceLobby.id })
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const joinResponse = await app.request('/api/lobby/1v1/place', {
+      method: 'POST',
+      headers: buildAuthHeaders('pleb', 'Pleb'),
+      body: JSON.stringify({
+        userId: 'pleb',
+        lobbyId: targetLobby.id,
+        targetSlot: 1,
+        displayName: 'Pleb',
+        avatarUrl: null,
+      }),
+    }, buildEnv(kv))
+
+    expect(joinResponse.status).toBe(200)
+    await expect(joinResponse.json()).resolves.toMatchObject({
+      transferNotice: 'Moved you from your previous 1v1 lobby.',
+    })
+    expect((await getLobbyById(kv, sourceLobby.id))?.memberPlayerIds).toEqual(['source-host'])
+    expect((await getLobbyById(kv, targetLobby.id))?.memberPlayerIds).toEqual(['target-host', 'pleb'])
+    expect(await getLobbyForUser(kv, 'pleb')).toBe(targetLobby.id)
+  })
+
+  test('direct lobby joins block hosts from abandoning players in another open lobby', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const sourceLobby = await createLobby(kv, {
+      mode: '1v1',
+      hostId: 'pleb',
+      channelId: 'channel-source',
+      messageId: 'message-source',
+    })
+    const targetLobby = await createLobby(kv, {
+      mode: '1v1',
+      hostId: 'target-host',
+      channelId: 'channel-target',
+      messageId: 'message-target',
+    })
+
+    await addToQueue(kv, '1v1', {
+      playerId: 'pleb',
+      displayName: 'Pleb',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '1v1', {
+      playerId: 'ally',
+      displayName: 'Ally',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await addToQueue(kv, '1v1', {
+      playerId: 'target-host',
+      displayName: 'Target Host',
+      avatarUrl: null,
+      joinedAt: Date.now() + 2,
+    })
+
+    const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['pleb', 'ally'], sourceLobby)
+    await setLobbySlots(kv, sourceLobby.id, ['pleb', 'ally'], populatedSource ?? sourceLobby)
+
+    const joinResponse = await app.request('/api/lobby/1v1/place', {
+      method: 'POST',
+      headers: buildAuthHeaders('pleb', 'Pleb'),
+      body: JSON.stringify({
+        userId: 'pleb',
+        lobbyId: targetLobby.id,
+        targetSlot: 1,
+        displayName: 'Pleb',
+        avatarUrl: null,
+      }),
+    }, buildEnv(kv))
+
+    expect(joinResponse.status).toBe(400)
+    await expect(joinResponse.json()).resolves.toEqual({
+      error: 'You are hosting another open lobby with other players. Cancel it first.',
+    })
+  })
+
   test('direct lobby joins ignore matchmaking max rank', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
@@ -561,6 +687,86 @@ describe('lobby routes', () => {
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
     expect(updatedLobby?.draftConfig.simultaneousPick).toBe(true)
+  })
+
+  test('config route updates the base-game random draft toggle', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '1v1',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '1v1', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/1v1/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        randomDraft: true,
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.draftConfig.randomDraft).toBe(true)
+    expect(updatedLobby?.draftConfig.redDeath).toBe(false)
+  })
+
+  test('config route updates the base-game duplicate leaders toggle', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '1v1',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '1v1', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/1v1/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        duplicateFactions: true,
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.draftConfig.duplicateFactions).toBe(true)
+    expect(updatedLobby?.draftConfig.redDeath).toBe(false)
   })
 
   test('config route updates the Steam lobby link for an active hosted lobby', async () => {

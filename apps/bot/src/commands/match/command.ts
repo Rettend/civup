@@ -16,7 +16,7 @@ import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { cancelMatchByModerator, getStoredGameModeContext, reportMatch } from '../../services/match/index.ts'
 import { clearMatchMessageMapping, storeMatchMessageMapping } from '../../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../../services/match/report-discord.ts'
-import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, removeFromQueue, removeFromQueueAndUnlinkParty } from '../../services/queue/index.ts'
+import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, getQueueStateWithPlayerQueueModes, removeFromQueue, removeFromQueueAndUnlinkParty } from '../../services/queue/index.ts'
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../../services/ranked/role-sync.ts'
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { syncSeasonPeaksForPlayers } from '../../services/season/index.ts'
@@ -134,7 +134,13 @@ export const command_match = factory.command<MatchVar>(
               return
             }
 
-            const existingQueueMode = await getPlayerQueueMode(kv, identity.userId)
+            const { queue, queueModeByPlayerId } = await getQueueStateWithPlayerQueueModes(
+              kv,
+              mode,
+              [identity.userId],
+              { fallbackToQueueScan: false },
+            )
+            const existingQueueMode = queueModeByPlayerId.get(identity.userId) ?? null
             if (existingQueueMode) {
               await sendTransientEphemeralResponse(
                 c,
@@ -154,8 +160,6 @@ export const command_match = factory.command<MatchVar>(
               )
               return
             }
-
-            const queue = await getQueueState(kv, mode)
 
             const result = await addToQueue(kv, mode, {
               playerId: identity.userId,
@@ -877,6 +881,7 @@ export const command_match = factory.command<MatchVar>(
               reportedMode: reportedContext.mode,
               reportedRedDeath: reportedContext.redDeath,
               participants: result.participants,
+              matchDraftData: result.match.draftData,
               lobby,
               archivePolicy: 'if-missing',
             })
@@ -923,8 +928,14 @@ export const command_match = factory.command<MatchVar>(
             reportedMode: reportedContext.mode,
             reportedRedDeath: reportedContext.redDeath,
             participants: result.participants,
+            matchDraftData: result.match.draftData,
             lobby,
             rankedRoleLines,
+            reporter: {
+              userId: identity.userId,
+              displayName: identity.displayName,
+              avatarUrl: identity.avatarUrl,
+            },
             archivePolicy: 'always',
           })
           if (lobby) {

@@ -3,6 +3,7 @@ import { formatModeLabel, getLeader, hasBetaLeaderData, isTeamMode, normalizeAva
 import { displayRating } from '@civup/rating'
 import { Button, Components, Embed } from 'discord-hono'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
+import { formatDisplayRatingChange } from './rating-change.ts'
 
 interface LobbyParticipant {
   playerId: string
@@ -22,6 +23,12 @@ interface ModerationContext {
   actorId?: string | null
   actorLabel?: string | null
   reason?: string | null
+}
+
+interface ReporterContext {
+  userId: string
+  displayName?: string | null
+  avatarUrl?: string | null
 }
 
 export type LobbyStage = 'open' | 'drafting' | 'draft-complete' | 'reported' | 'cancelled' | 'scrubbed' | 'timeout'
@@ -176,7 +183,7 @@ export function lobbyResultEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
   moderation?: ModerationContext,
-  options: { rankedRoleLines?: string[] } = {},
+  options: { rankedRoleLines?: string[], reporter?: ReporterContext | null } = {},
   redDeath = false,
 ): Embed {
   return lobbyReportedEmbed(mode, participants, moderation, options, redDeath, participants.length)
@@ -245,7 +252,7 @@ function lobbyReportedEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
   moderation?: ModerationContext,
-  options: { rankedRoleLines?: string[] } = {},
+  options: { rankedRoleLines?: string[], reporter?: ReporterContext | null } = {},
   redDeath = false,
   targetSize?: number,
 ): Embed {
@@ -257,8 +264,10 @@ function lobbyReportedEmbed(
   const leaderboardUpdate = formatLeaderboardUpdate(participants)
   const rankedRoleUpdate = formatRankedRoleUpdate(options.rankedRoleLines)
   const moderationField = buildModerationField(moderation)
+  const reporterFooter = buildReporterFooter(options.reporter)
 
   embed.description(description || '`[empty]`')
+  if (reporterFooter) embed.footer(reporterFooter)
 
   const fields = [
     moderationField,
@@ -366,12 +375,8 @@ function formatReportedRating(participant: LobbyParticipant): string {
 
   const before = displayRating(participant.ratingBeforeMu, participant.ratingBeforeSigma)
   const after = displayRating(participant.ratingAfterMu, participant.ratingAfterSigma)
-  const delta = Math.round(after - before)
-  const deltaText = `${delta >= 0 ? '+' : ''}${delta}`.padStart(3, ' ')
-  const trendEmoji = delta >= 0 ? '📈' : '📉'
-  const updatedElo = `(${String(Math.round(after)).padStart(4, ' ')})`
 
-  return `\`${deltaText}\` ${trendEmoji} \`${updatedElo}\``
+  return formatDisplayRatingChange(before, after)
 }
 
 function formatLeaderboardUpdate(participants: LobbyParticipant[]): string | null {
@@ -422,6 +427,19 @@ function formatLeaderboardUpdate(participants: LobbyParticipant[]): string | nul
 function formatRankedRoleUpdate(lines: string[] | undefined): string | null {
   if (!lines || lines.length === 0) return null
   return lines.join('\n')
+}
+
+function buildReporterFooter(reporter?: ReporterContext | null): { text: string, icon_url?: string } | null {
+  if (!reporter?.userId) return null
+
+  const displayName = reporter.displayName?.trim() || null
+  if (!displayName) return null
+  const avatarUrl = reporter.avatarUrl?.trim() || undefined
+
+  return {
+    text: displayName,
+    icon_url: avatarUrl,
+  }
 }
 
 function formatLeaderName(civId: string | null): string {

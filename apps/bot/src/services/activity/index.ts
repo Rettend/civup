@@ -199,8 +199,10 @@ export async function createDraftRoom(
   const matchId = nanoid(12)
   const redDeathMode = options.redDeath === true
   const simultaneousPick = mode === 'ffa' && !redDeathMode && options.simultaneousPick === true
-  const randomDraft = redDeathMode && options.randomDraft === true
-  const duplicateFactions = redDeathMode && (requiresRedDeathDuplicateFactions(mode) || options.duplicateFactions === true)
+  const randomDraft = options.randomDraft === true
+  const duplicateFactions = redDeathMode
+    ? (requiresRedDeathDuplicateFactions(mode) || options.duplicateFactions === true)
+    : (randomDraft && options.duplicateFactions === true)
   const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode })
   const seats: DraftSeat[] = buildSeats(mode, entries)
   const civPool = redDeathMode

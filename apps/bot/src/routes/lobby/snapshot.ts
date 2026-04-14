@@ -1,24 +1,27 @@
-import type { CompetitiveTier, GameMode } from '@civup/game'
+import type { CompetitiveTier, GameMode, QueueState } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
+import type { LeaderboardModeSnapshot } from '../../services/leaderboard/snapshot.ts'
 import type { getRankedRoleConfig } from '../../services/ranked/roles.ts'
-import { canStartWithPlayerCount, MAX_LEADER_POOL_SIZE, playerCountOptions, startPlayerCountOptions } from '@civup/game'
+import { canStartWithPlayerCount, MAX_LEADER_POOL_SIZE, playerCountOptions, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import { MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
+import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../../services/leaderboard/snapshot.ts'
 import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
-import { buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
-import { getQueueState } from '../../services/queue/index.ts'
+import { attachLobbyBalanceRatings, buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
+import { getQueueState, parseQueueState, queueKey } from '../../services/queue/index.ts'
 import { normalizeRankedRoleTierId } from '../../services/ranked/roles.ts'
+import { stateStoreMget } from '../../services/state/store.ts'
 
 export async function buildOpenLobbySnapshot(
   kv: KVNamespace,
   mode: GameMode,
   lobby: LobbyState,
 ) {
-  const queue = await getQueueState(kv, mode)
+  const { queue, balanceSnapshot } = await getQueueStateWithLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
   const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
   const normalizedSlots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
 
   if (sameLobbySlots(normalizedSlots, lobby.slots)) {
-    return buildOpenLobbySnapshotFromParts(kv, mode, lobby, lobbyQueueEntries, normalizedSlots)
+    return buildOpenLobbySnapshotFromParts(kv, mode, lobby, lobbyQueueEntries, normalizedSlots, balanceSnapshot)
   }
 
   const updatedLobby = await setLobbySlots(kv, lobby.id, normalizedSlots)
@@ -26,7 +29,7 @@ export async function buildOpenLobbySnapshot(
     ...lobby,
     slots: normalizedSlots,
   }
-  return buildOpenLobbySnapshotFromParts(kv, mode, resolvedLobby, lobbyQueueEntries, normalizedSlots)
+  return buildOpenLobbySnapshotFromParts(kv, mode, resolvedLobby, lobbyQueueEntries, normalizedSlots, balanceSnapshot)
 }
 
 export async function buildOpenLobbySnapshotFromParts(
@@ -35,8 +38,37 @@ export async function buildOpenLobbySnapshotFromParts(
   lobby: LobbyState,
   queueEntries: Awaited<ReturnType<typeof getQueueState>>['entries'],
   slots: (string | null)[],
+  balanceSnapshot?: LeaderboardModeSnapshot | null,
 ) {
-  return buildLobbyLiveSnapshotFromParts(kv, mode, lobby, queueEntries, slots)
+  const snapshot = await buildLobbyLiveSnapshotFromParts(kv, mode, lobby, queueEntries, slots)
+  return attachLobbyBalanceRatings(kv, mode, snapshot, balanceSnapshot)
+}
+
+export async function getQueueStateWithLobbyBalanceSnapshot(
+  kv: KVNamespace,
+  mode: GameMode,
+  redDeath = false,
+): Promise<{
+  queue: QueueState
+  balanceSnapshot: LeaderboardModeSnapshot | null
+}> {
+  const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath })
+  if (!leaderboardMode) {
+    return {
+      queue: await getQueueState(kv, mode),
+      balanceSnapshot: null,
+    }
+  }
+
+  const [rawQueueState, rawBalanceSnapshot] = await stateStoreMget(kv, [
+    { key: queueKey(mode), type: 'json' },
+    { key: leaderboardModeSnapshotKey(leaderboardMode), type: 'json' },
+  ])
+
+  return {
+    queue: parseQueueState(mode, rawQueueState),
+    balanceSnapshot: normalizeLeaderboardModeSnapshot(leaderboardMode, rawBalanceSnapshot),
+  }
 }
 
 export function lobbyMinPlayerCount(mode: GameMode, targetSize: number, redDeath = false): number {
