@@ -196,6 +196,59 @@ describe('lobby routes', () => {
     expect((await getLobbyById(kv, openLobby.id))?.memberPlayerIds).toEqual(['host'])
   })
 
+  test('direct lobby joins ignore stale live-match conflicts when D1 shows no live match', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const liveLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'player-1',
+      channelId: 'channel-live',
+      messageId: 'message-live',
+    })
+    const openLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-open',
+      messageId: 'message-open',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await attachLobbyMatch(kv, liveLobby.id, 'match-stale', liveLobby)
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const joinResponse = await app.request('/api/lobby/2v2/place', {
+      method: 'POST',
+      headers: buildAuthHeaders('player-1', 'Player 1'),
+      body: JSON.stringify({
+        userId: 'player-1',
+        lobbyId: openLobby.id,
+        targetSlot: 1,
+        displayName: 'Player 1',
+        avatarUrl: null,
+      }),
+    }, buildEnv(kv, { liveMatchPlayerIds: [] }))
+
+    expect(joinResponse.status).toBe(200)
+    expect((await getLobbyById(kv, openLobby.id))?.memberPlayerIds).toEqual(['host', 'player-1'])
+  })
+
   test('direct lobby joins move a player from another open lobby', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
@@ -1349,15 +1402,38 @@ describe('lobby routes', () => {
   })
 })
 
-function buildEnv(kv: KVNamespace) {
+function buildEnv(kv: KVNamespace, options?: { liveMatchPlayerIds?: string[] }) {
   return {
     KV: kv,
-    DB: {} as D1Database,
+    DB: buildDb(options?.liveMatchPlayerIds ?? null),
     DISCORD_APPLICATION_ID: 'app',
     DISCORD_PUBLIC_KEY: 'key',
     DISCORD_TOKEN: 'token',
     CIVUP_SECRET: 'secret',
   } as any
+}
+
+function buildDb(liveMatchPlayerIds: string[] | null): D1Database {
+  if (liveMatchPlayerIds == null) return {} as D1Database
+
+  const livePlayerIdSet = new Set(liveMatchPlayerIds)
+  return {
+    prepare() {
+      return {
+        bind(...values: unknown[]) {
+          return {
+            async all() {
+              return {
+                results: values
+                  .filter((value): value is string => typeof value === 'string' && livePlayerIdSet.has(value))
+                  .map(playerId => ({ playerId, matchId: `match:${playerId}` })),
+              }
+            },
+          }
+        },
+      }
+    },
+  } as D1Database
 }
 
 function buildAuthHeaders(userId: string, displayName = userId): HeadersInit {
