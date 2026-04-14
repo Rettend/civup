@@ -37,6 +37,7 @@ import {
   upsertLobbyMessage,
 } from '../../services/lobby/index.ts'
 import { modeIndexKey } from '../../services/lobby/keys.ts'
+import { findPersistedLiveMatchIdsForPlayers } from '../../services/match/live.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { arePremadeGroupsAdjacent } from '../../services/lobby/premades.ts'
 import { normalizeDraftConfigForMode } from '../../services/lobby/normalize.ts'
@@ -632,11 +633,16 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       const currentLobbiesForPlayer = await getCurrentLobbiesForPlayer(kv, movingPlayerId, {
         excludeLobbyIds: [lobby.id],
       })
-      blockingLobbyForPlayer = currentLobbiesForPlayer.find(candidate => candidate.status !== 'open') ?? currentLobbiesForPlayer[0] ?? null
-      if (blockingLobbyForPlayer) {
-        if (blockingLobbyForPlayer.status !== 'open') {
+      const persistedLiveMatchIds = await findPersistedLiveMatchIdsForPlayers(c.env.DB, [movingPlayerId])
+      const hasLiveMatch = persistedLiveMatchIds == null
+        ? currentLobbiesForPlayer.some(candidate => candidate.status !== 'open')
+        : persistedLiveMatchIds.has(movingPlayerId)
+      if (hasLiveMatch) {
           return c.json({ error: 'That player is already in a live match.' }, 400)
-        }
+      }
+
+      blockingLobbyForPlayer = currentLobbiesForPlayer.find(candidate => candidate.status === 'open') ?? null
+      if (blockingLobbyForPlayer) {
         if (movingPlayerId !== auth.identity.userId) {
           return c.json({ error: 'That player is already in another open lobby.' }, 400)
         }
