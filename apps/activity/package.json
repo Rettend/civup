@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@civup/game": "workspace:*",
+    "@civup/rating": "workspace:*",
     "@civup/utils": "workspace:*",
     "@discord/embedded-app-sdk": "^2.4.0",
     "@fontsource-variable/inter": "^5.2.8",

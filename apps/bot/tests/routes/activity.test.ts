@@ -3,8 +3,9 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility, selectActivityTargetForUser } from '../../src/routes/activity.ts'
 import { buildOpenLobbySnapshot, resolveOpenLobbyFromBody } from '../../src/routes/lobby/snapshot.ts'
-import { getUserActivityTarget, handoffLobbySpectatorsToMatchActivity, storeMatchActivityState, storeUserActivityTarget, storeUserLobbyState } from '../../src/services/activity/index.ts'
-import { attachLobbyMatch, createLobby, getLobbyById, setLobbyMaxRole, setLobbyMinRole } from '../../src/services/lobby/index.ts'
+import { getUserActivityTarget, handoffLobbySpectatorsToMatchActivity, storeMatchActivityState, storeUserActivityTarget, storeUserLobbyMappings, storeUserLobbyState } from '../../src/services/activity/index.ts'
+import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
+import { attachLobbyMatch, createLobby, getLobbyById, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../../src/services/lobby/index.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -80,6 +81,102 @@ describe('activity lobby join eligibility', () => {
     expect(snapshot.selection.joinEligibility).toEqual({
       canJoin: false,
       blockedReason: 'You are already in a live match.',
+      pendingSlot: null,
+    })
+  })
+
+  test('allows joining another open lobby when the viewer is not the source host', async () => {
+    const { kv } = createTrackedKv()
+    const sourceLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-source',
+    })
+    const targetLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-2',
+      channelId: 'channel-2',
+      messageId: 'message-target',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-2',
+      displayName: 'Host 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 2,
+    })
+
+    const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['host-1', 'player-1'], sourceLobby)
+    await setLobbySlots(kv, sourceLobby.id, ['host-1', 'player-1', null, null], populatedSource ?? sourceLobby)
+    await storeUserLobbyState(kv, sourceLobby.channelId, ['player-1'], sourceLobby.id)
+
+    const snapshot = await buildOpenLobbySnapshot(kv, '2v2', targetLobby)
+    const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', targetLobby, snapshot)
+
+    expect(eligibility).toEqual({
+      canJoin: true,
+      blockedReason: null,
+      pendingSlot: 1,
+    })
+  })
+
+  test('blocks joining another open lobby when the viewer is hosting players in the source lobby', async () => {
+    const { kv } = createTrackedKv()
+    const sourceLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'player-1',
+      channelId: 'channel-1',
+      messageId: 'message-source',
+    })
+    const targetLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-2',
+      channelId: 'channel-2',
+      messageId: 'message-target',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'ally-1',
+      displayName: 'Ally 1',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-2',
+      displayName: 'Host 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 2,
+    })
+
+    const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['player-1', 'ally-1'], sourceLobby)
+    await setLobbySlots(kv, sourceLobby.id, ['player-1', 'ally-1', null, null], populatedSource ?? sourceLobby)
+    await storeUserLobbyState(kv, sourceLobby.channelId, ['player-1'], sourceLobby.id)
+
+    const snapshot = await buildOpenLobbySnapshot(kv, '2v2', targetLobby)
+    const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', targetLobby, snapshot)
+
+    expect(eligibility).toEqual({
+      canJoin: false,
+      blockedReason: 'You are hosting another open lobby with other players. Cancel it first.',
       pendingSlot: null,
     })
   })
@@ -200,6 +297,55 @@ describe('activity target selection', () => {
     await expect(getUserActivityTarget(kv, 'channel-1', 'spectator-1')).resolves.toBeNull()
   })
 
+  test('ignores stale user lobby mappings that no longer include the viewer', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerActivityRoutes(app as any)
+
+    const currentLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-current',
+    })
+    const staleLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-2',
+      channelId: 'channel-1',
+      messageId: 'message-stale',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-2',
+      displayName: 'Host 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now() + 2,
+    })
+
+    const populatedCurrentLobby = await setLobbyMemberPlayerIds(kv, currentLobby.id, ['host-1', 'player-1'], currentLobby)
+    await setLobbySlots(kv, currentLobby.id, ['host-1', 'player-1', null, null], populatedCurrentLobby ?? currentLobby)
+    await storeUserLobbyMappings(kv, ['player-1'], staleLobby.id)
+
+    const response = await app.request('/api/lobby/user/player-1', {
+      headers: buildAuthHeaders('player-1'),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual(expect.objectContaining({ id: currentLobby.id }))
+  })
+
   test('includes the Steam lobby link in open lobby snapshots', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
@@ -218,6 +364,40 @@ describe('activity target selection', () => {
 
     const snapshot = await buildOpenLobbySnapshot(kv, '2v2', lobby)
     expect(snapshot.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
+  })
+
+  test('includes cached balance ratings in open lobby snapshots', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await kv.put(leaderboardModeSnapshotKey('duo'), JSON.stringify({
+      updatedAt: Date.now(),
+      rows: [
+        { playerId: 'host-1', mu: 31, sigma: 3, gamesPlayed: 12, wins: 7, lastPlayedAt: null },
+      ],
+    }))
+
+    const snapshot = await buildOpenLobbySnapshot(kv, '2v2', lobby)
+    const hostEntry = snapshot.entries.find(entry => entry?.playerId === 'host-1') ?? null
+
+    expect(hostEntry).toEqual(expect.objectContaining({
+      playerId: 'host-1',
+      balanceRating: {
+        mu: 31,
+        sigma: 3,
+        gamesPlayed: 12,
+      },
+    }))
   })
 
   test('does not auto-select unrelated open lobbies for spectators', async () => {
@@ -245,6 +425,53 @@ describe('activity target selection', () => {
       isHost: false,
       isMember: false,
     }))
+  })
+
+  test('prefers the viewer\'s current lobby over a stale open-lobby target in the same channel', async () => {
+    const { kv } = createTrackedKv()
+    const currentLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-current',
+    })
+    const staleLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-2',
+      channelId: 'channel-1',
+      messageId: 'message-stale',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-2',
+      displayName: 'Host 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now() + 2,
+    })
+
+    const populatedCurrentLobby = await setLobbyMemberPlayerIds(kv, currentLobby.id, ['host-1', 'player-1'], currentLobby)
+    await setLobbySlots(kv, currentLobby.id, ['host-1', 'player-1', null, null], populatedCurrentLobby ?? currentLobby)
+    await storeUserLobbyState(kv, currentLobby.channelId, ['player-1'], currentLobby.id)
+    await storeUserActivityTarget(kv, currentLobby.channelId, ['player-1'], { kind: 'lobby', id: staleLobby.id })
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, currentLobby.channelId, 'player-1')
+    expect(snapshot.selection?.kind).toBe('lobby')
+    if (snapshot.selection?.kind !== 'lobby') return
+
+    expect(snapshot.selection.option.id).toBe(currentLobby.id)
+    expect(snapshot.selection.option.isMember).toBe(true)
   })
 
   test('ignores invalid open lobbies with no queued host', async () => {

@@ -35,10 +35,10 @@ export async function rankEmbed(
   const fields: Array<{ name: string, value: string, inline?: boolean }> = []
   if (activeSeason) {
     pushSeasonFields(fields, formatSeasonShortName(activeSeason.seasonNumber), {
-      duel: rankProfile.modes.duel.rating != null ? rankProfile.modes.duel : undefined,
-      duo: rankProfile.modes.duo.rating != null ? rankProfile.modes.duo : undefined,
-      squad: rankProfile.modes.squad.rating != null ? rankProfile.modes.squad : undefined,
-      ffa: rankProfile.modes.ffa.rating != null ? rankProfile.modes.ffa : undefined,
+      duel: rankProfile.modes.duel.gamesPlayed > 0 ? rankProfile.modes.duel : undefined,
+      duo: rankProfile.modes.duo.gamesPlayed > 0 ? rankProfile.modes.duo : undefined,
+      squad: rankProfile.modes.squad.gamesPlayed > 0 ? rankProfile.modes.squad : undefined,
+      ffa: rankProfile.modes.ffa.gamesPlayed > 0 ? rankProfile.modes.ffa : undefined,
     }, visibleModes, { emptyValue: 'No ranked games yet.' })
   }
 

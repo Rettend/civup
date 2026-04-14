@@ -18,6 +18,7 @@ import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { findLiveMatchIdsForPlayers, joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
 import { buildActivityLaunchSnapshot, selectActivityTargetForUser } from '../../src/routes/activity.ts'
+import { getQueueStateWithLobbyBalanceSnapshot } from '../../src/routes/lobby/snapshot.ts'
 import {
   clearLobbyAndActivityMappings,
   clearUserLobbyMappings,
@@ -45,7 +46,7 @@ import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
 import { activateDraftMatch, createDraftMatch, reportMatch } from '../../src/services/match/index.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
-import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState } from '../../src/services/queue/index.ts'
+import { addToQueue, clearQueue, getQueueState, getQueueStateWithPlayerQueueModes } from '../../src/services/queue/index.ts'
 import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
@@ -456,6 +457,18 @@ async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
   })
 
   try {
+    await seedRankedRoleCronState(db, kv)
+
+    await syncRankedRoles({
+      db,
+      kv,
+      guildId: GUILD_ID,
+      token: 'token',
+      applyDiscord: true,
+      advanceDemotionWindow: true,
+      now: NOW,
+    })
+
     resetOperations()
     sqlTracker.reset()
     stateCoordinator.reset()
@@ -503,6 +516,38 @@ async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
     sqlTracker.restore()
     sqlite.close()
   }
+}
+
+async function seedRankedRoleCronState(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  kv: ReturnType<typeof createStateStore>,
+): Promise<void> {
+  const playerIds = Array.from({ length: 8 }, (_value, index) => `ranked-role-cron-${index + 1}`)
+
+  await setRankedRoleCurrentRoles(kv, GUILD_ID, {
+    tier5: '11111111111111111',
+    tier4: '22222222222222222',
+    tier3: '33333333333333333',
+    tier2: '44444444444444444',
+    tier1: '55555555555555555',
+  })
+
+  await db.insert(players).values(playerIds.map((playerId, index) => ({
+    id: playerId,
+    displayName: playerId.toUpperCase(),
+    avatarUrl: null,
+    createdAt: NOW + index,
+  })))
+
+  await db.insert(playerRatings).values(playerIds.map((playerId, index) => ({
+    playerId,
+    mode: 'ffa',
+    mu: 40 - index,
+    sigma: 6,
+    gamesPlayed: 10,
+    wins: Math.max(0, 6 - (index % 4)),
+    lastPlayedAt: NOW + 10_000 + index,
+  })))
 }
 
 async function simulateScenarioLifecycle(input: {
@@ -678,9 +723,8 @@ async function simulateMatchCreate(
   if (!draftChannelId) throw new Error('Expected draft channel to be configured')
 
   await getCurrentLobbyHostedBy(kv, HOST_ID)
-  await getPlayerQueueMode(kv, HOST_ID)
+  const { queue } = await getQueueStateWithPlayerQueueModes(kv, mode.mode, [HOST_ID], { fallbackToQueueScan: false })
   await findLiveMatchIdsForPlayers(db, [HOST_ID])
-  const queue = await getQueueState(kv, mode.mode)
 
   const hostEntry = buildQueueEntry(HOST_ID, 1)
   const addResult = await addToQueue(kv, mode.mode, hostEntry, { currentState: queue })
@@ -753,10 +797,10 @@ async function simulateOpenLobbyConfigEdit(kv: KVNamespace, mode: CapacityScenar
     banTimerSeconds: (lobby.draftConfig.banTimerSeconds ?? 30) + 1,
   }, lobby) ?? lobby
 
-  const queue = await getQueueState(kv, mode.mode)
+  const { queue, balanceSnapshot } = await getQueueStateWithLobbyBalanceSnapshot(kv, mode.mode, updatedLobby.draftConfig.redDeath)
   const queueEntries = filterQueueEntriesForLobby(updatedLobby, queue.entries)
   const slots = normalizeLobbySlots(mode.mode, updatedLobby.slots, queueEntries)
-  await syncLobbyDerivedState(kv, updatedLobby, { queueEntries, slots })
+  await syncLobbyDerivedState(kv, updatedLobby, { queueEntries, slots, balanceSnapshot })
 }
 
 async function startDraftFromOpenLobby(

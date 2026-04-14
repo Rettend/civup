@@ -1,4 +1,5 @@
 import type { Database } from '@civup/db'
+import type { LeaderboardMode } from '@civup/game'
 import type { FfaEntry, TeamInput } from '@civup/rating'
 import type { ParticipantRow, ReportInput, ReportResult } from './types.ts'
 import { matchBans, matches, matchParticipants, playerRatings, playerRatingSeeds, players } from '@civup/db'
@@ -38,6 +39,10 @@ export async function reportMatch(
   }
 
   if (match.status === 'completed') {
+    const repaired = await repairCompletedReportedMatch(db, kv, match, participantRows)
+    if (repaired) return repaired
+
+    await ensureReportedMatchCleanup(db, kv, input.matchId, participantRows)
     return { match, participants: participantRows, idempotent: true }
   }
 
@@ -149,7 +154,7 @@ export async function reportMatch(
     return { error: 'Could not resolve placements for all participants.' }
   }
 
-  const finalized = await finalizeReportedMatch(db, kv, match, updatedParticipants)
+  const finalized = await finalizeReportedMatch(db, kv, match, updatedParticipants, input.reporterId)
   if ('error' in finalized) {
     return finalized
   }
@@ -162,6 +167,7 @@ async function finalizeReportedMatch(
   kv: KVNamespace,
   match: { id: string, gameMode: string, draftData: string | null },
   participantRows: ParticipantRow[],
+  reporterId: string,
 ): Promise<ReportResult> {
   const matchId = match.id
   const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
@@ -169,7 +175,7 @@ async function finalizeReportedMatch(
 
   const leaderboardMode = gameContext.leaderboardMode
   if (leaderboardMode == null) {
-    return await finalizeReportedUnrankedMatch(db, kv, match, participantRows)
+    return await finalizeReportedUnrankedMatch(db, kv, match, participantRows, reporterId)
   }
 
   const leaderboardSnapshotBefore = await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode)
@@ -204,32 +210,47 @@ async function finalizeReportedMatch(
 
   await db
     .update(matches)
-    .set({ status: 'completed', completedAt: now })
+    .set({
+      status: 'completed',
+      completedAt: now,
+      draftData: setReportedByInDraftData(match.draftData, reporterId),
+    })
     .where(eq(matches.id, matchId))
 
-  await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
+  if (usesLiveSeedFade) {
+    try {
+      const recalculated = await recalculateLeaderboardMode(db, leaderboardMode, {
+        fromMatchId: matchId,
+        includeFromMatch: true,
+      })
+      if ('error' in recalculated) {
+        const rollbackError = await rollbackReportedRatedMatch(db, kv, {
+          match,
+          leaderboardMode,
+        })
+        if (rollbackError) return { error: `${recalculated.error} Automatic rollback also failed: ${rollbackError}` }
+        return recalculated
+      }
+    }
+    catch (error) {
+      const rollbackError = await rollbackReportedRatedMatch(db, kv, {
+        match,
+        leaderboardMode,
+      })
+      if (rollbackError) {
+        console.error(`Failed to roll back reported match ${matchId}:`, rollbackError)
+      }
+      throw error
+    }
+  }
 
-  const channelId = await getChannelForMatch(kv, matchId)
-  await clearActivityMappings(
-    kv,
-    matchId,
-    participantRows.map(participant => participant.playerId),
-    channelId ?? undefined,
-  )
+  await ensureReportedMatchCleanup(db, kv, matchId, participantRows)
 
   const [updatedMatch] = await db
     .select()
     .from(matches)
     .where(eq(matches.id, matchId))
     .limit(1)
-
-  if (usesLiveSeedFade) {
-    const recalculated = await recalculateLeaderboardMode(db, leaderboardMode, {
-      fromMatchId: matchId,
-      includeFromMatch: true,
-    })
-    if ('error' in recalculated) return recalculated
-  }
 
   const leaderboardSnapshotAfter = await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode, now)
   if (leaderboardMode === 'duo' || leaderboardMode === 'squad') {
@@ -359,6 +380,119 @@ async function applyIncrementalRatedReport(
   return null
 }
 
+async function repairCompletedReportedMatch(
+  db: Database,
+  kv: KVNamespace,
+  match: { id: string, gameMode: string, draftData: string | null },
+  participantRows: ParticipantRow[],
+): Promise<ReportResult | null> {
+  if (!hasMissingRatingSnapshots(participantRows)) return null
+
+  const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
+  if (!gameContext) return { error: `Match **${match.id}** has unsupported game mode: ${match.gameMode}.` }
+  if (gameContext.leaderboardMode == null) return null
+
+  console.error(`Repairing incomplete reported match ${match.id}.`)
+
+  const recalculated = await recalculateLeaderboardMode(db, gameContext.leaderboardMode, {
+    fromMatchId: match.id,
+    includeFromMatch: true,
+  })
+  if ('error' in recalculated) return recalculated
+
+  await rebuildLeaderboardModeSnapshot(db, kv, gameContext.leaderboardMode)
+  if (gameContext.leaderboardMode === 'duo' || gameContext.leaderboardMode === 'squad') {
+    await clearTeamLeaderboardModeSnapshots(kv, gameContext.leaderboardMode)
+  }
+
+  const [updatedMatch] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, match.id))
+    .limit(1)
+  if (!updatedMatch) return { error: `Match **${match.id}** not found after repair.` }
+
+  const updatedParticipants = await db
+    .select()
+    .from(matchParticipants)
+    .where(eq(matchParticipants.matchId, match.id))
+
+  await ensureReportedMatchCleanup(db, kv, match.id, updatedParticipants)
+  return { match: updatedMatch, participants: updatedParticipants, idempotent: true }
+}
+
+function hasMissingRatingSnapshots(participantRows: ParticipantRow[]): boolean {
+  return participantRows.some(participant => (
+    participant.ratingBeforeMu == null
+    || participant.ratingBeforeSigma == null
+    || participant.ratingAfterMu == null
+    || participant.ratingAfterSigma == null
+  ))
+}
+
+async function ensureReportedMatchCleanup(
+  db: Database,
+  kv: KVNamespace,
+  matchId: string,
+  participantRows: ParticipantRow[],
+): Promise<void> {
+  await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
+
+  const channelId = await getChannelForMatch(kv, matchId)
+  await clearActivityMappings(
+    kv,
+    matchId,
+    participantRows.map(participant => participant.playerId),
+    channelId ?? undefined,
+  )
+}
+
+async function rollbackReportedRatedMatch(
+  db: Database,
+  kv: KVNamespace,
+  options: {
+    match: { id: string, draftData: string | null }
+    leaderboardMode: LeaderboardMode
+  },
+): Promise<string | null> {
+  try {
+    await db
+      .update(matchParticipants)
+      .set({
+        placement: null,
+        ratingBeforeMu: null,
+        ratingBeforeSigma: null,
+        ratingAfterMu: null,
+        ratingAfterSigma: null,
+      })
+      .where(eq(matchParticipants.matchId, options.match.id))
+
+    await db
+      .update(matches)
+      .set({
+        status: 'active',
+        completedAt: null,
+        draftData: options.match.draftData,
+      })
+      .where(eq(matches.id, options.match.id))
+
+    const recalculated = await recalculateLeaderboardMode(db, options.leaderboardMode, {
+      fromMatchId: options.match.id,
+      includeFromMatch: false,
+    })
+    if ('error' in recalculated) return recalculated.error
+
+    await rebuildLeaderboardModeSnapshot(db, kv, options.leaderboardMode)
+    if (options.leaderboardMode === 'duo' || options.leaderboardMode === 'squad') {
+      await clearTeamLeaderboardModeSnapshots(kv, options.leaderboardMode)
+    }
+    return null
+  }
+  catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+
 async function modeUsesLiveSeedFade(db: Database, leaderboardMode: string): Promise<boolean> {
   const [row] = await db
     .select({ playerId: playerRatingSeeds.playerId })
@@ -375,8 +509,9 @@ async function modeUsesLiveSeedFade(db: Database, leaderboardMode: string): Prom
 async function finalizeReportedUnrankedMatch(
   db: Database,
   kv: KVNamespace,
-  match: { id: string },
+  match: { id: string, draftData: string | null },
   participantRows: ParticipantRow[],
+  reporterId: string,
 ): Promise<ReportResult> {
   const matchId = match.id
   const now = Date.now()
@@ -393,7 +528,11 @@ async function finalizeReportedUnrankedMatch(
 
   await db
     .update(matches)
-    .set({ status: 'completed', completedAt: now })
+    .set({
+      status: 'completed',
+      completedAt: now,
+      draftData: setReportedByInDraftData(match.draftData, reporterId),
+    })
     .where(eq(matches.id, matchId))
 
   await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
@@ -425,5 +564,23 @@ async function finalizeReportedUnrankedMatch(
       leaderboardAfterRank: null,
       leaderboardEligibleCount: null,
     })),
+  }
+}
+
+function setReportedByInDraftData(draftData: string | null, reporterId: string): string | null {
+  const normalizedReporterId = reporterId.trim()
+  if (normalizedReporterId.length === 0) return draftData
+  if (!draftData) return JSON.stringify({ reportedById: normalizedReporterId })
+
+  try {
+    const parsed = JSON.parse(draftData)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return draftData
+    return JSON.stringify({
+      ...(parsed as Record<string, unknown>),
+      reportedById: normalizedReporterId,
+    })
+  }
+  catch {
+    return draftData
   }
 }

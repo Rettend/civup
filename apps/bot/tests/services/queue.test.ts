@@ -4,6 +4,7 @@ import {
   clearQueue,
   getPlayerQueueMode,
   getQueueState,
+  playerQueueKey,
   removeFromQueue,
   removeFromQueueAndUnlinkParty,
   setQueueEntries,
@@ -19,11 +20,11 @@ describe('queue service KV behavior', () => {
 
     await setQueueEntries(kv, 'ffa', [entry('p1'), entry('p3')])
 
-    const putKeys = operations.filter(op => op.type === 'put').map(op => op.key)
-    const deleteKeys = operations.filter(op => op.type === 'delete').map(op => op.key)
+    const putKeys = operations.filter(op => op.type === 'put').map(op => op.key).sort()
+    const deleteKeys = operations.filter(op => op.type === 'delete').map(op => op.key).sort()
 
-    expect(putKeys).toEqual(['queue:ffa'])
-    expect(deleteKeys).toEqual([])
+    expect(putKeys).toEqual(['player-queue:p3', 'queue:ffa'])
+    expect(deleteKeys).toEqual(['player-queue:p2'])
   })
 
   test('setQueueEntries is a no-op when entries are unchanged', async () => {
@@ -47,10 +48,10 @@ describe('queue service KV behavior', () => {
     const removedMode = await removeFromQueue(kv, 'p1')
     expect(removedMode).toBe('ffa')
 
-    const putKeys = operations.filter(op => op.type === 'put').map(op => op.key)
-    const deleteKeys = operations.filter(op => op.type === 'delete').map(op => op.key)
+    const putKeys = operations.filter(op => op.type === 'put').map(op => op.key).sort()
+    const deleteKeys = operations.filter(op => op.type === 'delete').map(op => op.key).sort()
     expect(putKeys).toEqual(['queue:ffa'])
-    expect(deleteKeys).toEqual([])
+    expect(deleteKeys).toEqual(['player-queue:p1'])
   })
 
   test('removeFromQueueAndUnlinkParty removes one player and unlinks teammate', async () => {
@@ -104,19 +105,20 @@ describe('queue service KV behavior', () => {
 
     await clearQueue(kv, 'ffa', ['p1', 'p2'])
 
-    const putKeys = operations.filter(op => op.type === 'put').map(op => op.key)
-    const deleteKeys = operations.filter(op => op.type === 'delete').map(op => op.key)
+    const putKeys = operations.filter(op => op.type === 'put').map(op => op.key).sort()
+    const deleteKeys = operations.filter(op => op.type === 'delete').map(op => op.key).sort()
     expect(putKeys).toEqual([])
-    expect(deleteKeys).toEqual(['queue:ffa'])
+    expect(deleteKeys).toEqual(['player-queue:p1', 'player-queue:p2', 'queue:ffa'])
   })
 
-  test('getPlayerQueueMode scans queues without KV writes', async () => {
+  test('getPlayerQueueMode resolves from the player queue index without KV writes', async () => {
     const { kv, operations, resetOperations } = createTrackedKv({ trackReads: true })
 
     await setQueueEntries(kv, 'ffa', [entry('p1')])
     resetOperations()
 
     await expect(getPlayerQueueMode(kv, 'p1')).resolves.toBe('ffa')
+    expect(await kv.get(playerQueueKey('p1'))).toBe('ffa')
 
     const writes = operations.filter(op => op.type === 'put' || op.type === 'delete')
     expect(writes).toHaveLength(0)
