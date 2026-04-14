@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { PlayerRating } from '@civup/rating'
 import { matches, matchParticipants, playerRatings, players } from '@civup/db'
-import { formatLeaderboardModeLabel, formatModeLabel, getLeader } from '@civup/game'
+import { formatLeaderboardModeLabel, formatModeLabel, getLeader, isTeamMode, teamSize, toLeaderboardMode } from '@civup/game'
 import { createRating, displayRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
@@ -16,12 +16,14 @@ import { formatDisplayRatingChange } from './rating-change.ts'
 const TOP_LEADERS_LIMIT = 5
 const RECENT_MATCH_GROUP_LIMIT = 4
 const DISCORD_FIELD_LIMIT = 1024
+const TEAM_STATS_GAME_MODES = ['2v2', '3v3', '4v4', '5v5', '6v6'] as const
 
 type TeamStatsGameMode = '2v2' | '3v3' | '4v4' | '5v5' | '6v6'
 
 interface TeamModeContext {
-  gameMode: TeamStatsGameMode
-  leaderboardMode: 'duo' | 'squad'
+  gameModes: readonly TeamStatsGameMode[]
+  descriptionModeLabel: string | null
+  leaderboardMode: 'duo' | 'squad' | null
   fieldLabel: string
 }
 
@@ -58,21 +60,24 @@ export async function teamCardEmbed(
   kv: KVNamespace,
   guildId: string | null,
   playerIds: string[],
+  modeFilter: GameMode | 'all' = 'all',
 ): Promise<Embed> {
   const uniquePlayerIds = [...new Set(playerIds)]
-  const modeContext = resolveTeamModeContext(uniquePlayerIds.length)
+  const modeContext = resolveTeamModeContext(uniquePlayerIds.length, modeFilter)
   const [playerRows, ratingRows, displaySeason] = await Promise.all([
     db
       .select({ id: players.id, displayName: players.displayName, avatarUrl: players.avatarUrl })
       .from(players)
       .where(inArray(players.id, uniquePlayerIds)),
-    db
-      .select()
-      .from(playerRatings)
-      .where(and(
-        inArray(playerRatings.playerId, uniquePlayerIds),
-        eq(playerRatings.mode, modeContext.leaderboardMode),
-      )),
+    modeContext.leaderboardMode
+      ? db
+          .select()
+          .from(playerRatings)
+          .where(and(
+            inArray(playerRatings.playerId, uniquePlayerIds),
+            eq(playerRatings.mode, modeContext.leaderboardMode),
+          ))
+      : Promise.resolve([]),
     getDisplaySeason(db),
   ])
 
@@ -84,38 +89,40 @@ export async function teamCardEmbed(
     return { playerId, mu: ratingRow.mu, sigma: ratingRow.sigma }
   })
 
-  const projectedRating = Math.round(projectLineupDisplayRating(lineupRatings))
-  const visual = guildId
+  const projectedRating = modeContext.leaderboardMode ? Math.round(projectLineupDisplayRating(lineupRatings)) : null
+  const visual = guildId && projectedRating != null && modeContext.leaderboardMode
     ? await projectRankedTierForScore({ db, kv, guildId, mode: modeContext.leaderboardMode, score: projectedRating })
     : { tier: null, roleId: null, label: null }
 
   const conditions = [
     eq(matches.status, 'completed'),
-    eq(matches.gameMode, modeContext.gameMode),
     inArray(matchParticipants.playerId, uniquePlayerIds),
   ]
+  if (modeContext.gameModes.length > 0) conditions.push(inArray(matches.gameMode, [...modeContext.gameModes]))
   if (displaySeason?.id) conditions.push(eq(matches.seasonId, displaySeason.id))
 
-  const participantRows = await db
-    .select({
-      matchId: matchParticipants.matchId,
-      playerId: matchParticipants.playerId,
-      team: matchParticipants.team,
-      placement: matchParticipants.placement,
-      civId: matchParticipants.civId,
-      ratingBeforeMu: matchParticipants.ratingBeforeMu,
-      ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
-      ratingAfterMu: matchParticipants.ratingAfterMu,
-      ratingAfterSigma: matchParticipants.ratingAfterSigma,
-      gameMode: matches.gameMode,
-      draftData: matches.draftData,
-      completedAt: matches.completedAt,
-      isOld: matches.isOld,
-    })
-    .from(matchParticipants)
-    .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-    .where(and(...conditions))
-    .orderBy(desc(matches.completedAt), desc(matches.id))
+  const participantRows = modeContext.gameModes.length === 0
+    ? []
+    : await db
+        .select({
+          matchId: matchParticipants.matchId,
+          playerId: matchParticipants.playerId,
+          team: matchParticipants.team,
+          placement: matchParticipants.placement,
+          civId: matchParticipants.civId,
+          ratingBeforeMu: matchParticipants.ratingBeforeMu,
+          ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
+          ratingAfterMu: matchParticipants.ratingAfterMu,
+          ratingAfterSigma: matchParticipants.ratingAfterSigma,
+          gameMode: matches.gameMode,
+          draftData: matches.draftData,
+          completedAt: matches.completedAt,
+          isOld: matches.isOld,
+        })
+        .from(matchParticipants)
+        .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+        .where(and(...conditions))
+        .orderBy(desc(matches.completedAt), desc(matches.id))
 
   const commonMatches = buildCommonMatches(participantRows, uniquePlayerIds)
   const gamesPlayed = commonMatches.length
@@ -129,7 +136,7 @@ export async function teamCardEmbed(
 
   const embed = new Embed()
     .title('Stats')
-    .description(buildTeamDescription(uniquePlayerIds, visual))
+    .description(buildTeamDescription(uniquePlayerIds, modeContext.descriptionModeLabel, visual, modeContext.leaderboardMode != null))
     .color(0xC8AA6E)
 
   const fields: Array<{ name: string, value: string, inline?: boolean }> = []
@@ -145,7 +152,7 @@ export async function teamCardEmbed(
     fields.push({
       name: modeContext.fieldLabel,
       value: [
-        `Rating: ${formatProjectedRating(visual, projectedRating)}`,
+        ...(projectedRating != null ? [`Rating: ${formatProjectedRating(visual, projectedRating)}`] : []),
         `Games: ${gamesPlayed}`,
         `Wins: ${wins} (${winRate}%)`,
       ].join('\n'),
@@ -181,50 +188,45 @@ export async function teamCardEmbed(
   return embed
 }
 
-function buildTeamDescription(playerIds: string[], visual: TeamRatingVisual): string {
+function buildTeamDescription(
+  playerIds: string[],
+  requestedModeLabel: string | null,
+  visual: TeamRatingVisual,
+  showProjectedRole: boolean,
+): string {
   const parts = [playerIds.map(playerId => `<@${playerId}>`).join(' + ')]
-  const roleMention = formatProjectedRoleMention(visual)
-  if (roleMention) parts.push(roleMention)
+  if (showProjectedRole) {
+    const roleMention = formatProjectedRoleMention(visual)
+    if (roleMention) parts.push(roleMention)
+  }
+  if (requestedModeLabel) parts.push(requestedModeLabel)
   return parts.join(' - ')
 }
 
-function resolveTeamModeContext(playerCount: number): TeamModeContext {
-  if (playerCount === 2) {
-    return {
-      gameMode: '2v2',
-      leaderboardMode: 'duo',
-      fieldLabel: formatLeaderboardModeLabel('duo', 'Duo'),
-    }
+function resolveTeamModeContext(playerCount: number, modeFilter: GameMode | 'all'): TeamModeContext {
+  if (playerCount < 2 || playerCount > 6) throw new Error('Team stats require 2 to 6 players.')
+
+  const requestedModeLabel = modeFilter === 'all' ? null : formatModeLabel(modeFilter, modeFilter)
+  const gameModes = modeFilter === 'all'
+    ? TEAM_STATS_GAME_MODES.filter(mode => (teamSize(mode) ?? 0) >= playerCount)
+    : isTeamMode(modeFilter)
+        ? [modeFilter]
+        : []
+  const exactModeOnly = gameModes.length > 0 && gameModes.every(mode => teamSize(mode) === playerCount)
+  const firstMode = gameModes[0] ?? null
+  const rawLeaderboardMode = exactModeOnly && firstMode ? toLeaderboardMode(firstMode) : null
+  const leaderboardMode = rawLeaderboardMode === 'duo' || rawLeaderboardMode === 'squad'
+    ? rawLeaderboardMode
+    : null
+
+  return {
+    gameModes,
+    descriptionModeLabel: leaderboardMode ? null : requestedModeLabel,
+    leaderboardMode,
+    fieldLabel: leaderboardMode
+      ? formatLeaderboardModeLabel(leaderboardMode, leaderboardMode === 'duo' ? 'Duo' : 'Squad')
+      : requestedModeLabel ?? 'Lineup',
   }
-  if (playerCount === 3) {
-    return {
-      gameMode: '3v3',
-      leaderboardMode: 'squad',
-      fieldLabel: formatLeaderboardModeLabel('squad', 'Squad'),
-    }
-  }
-  if (playerCount === 4) {
-    return {
-      gameMode: '4v4',
-      leaderboardMode: 'squad',
-      fieldLabel: formatLeaderboardModeLabel('squad', 'Squad'),
-    }
-  }
-  if (playerCount === 5) {
-    return {
-      gameMode: '5v5',
-      leaderboardMode: 'squad',
-      fieldLabel: formatLeaderboardModeLabel('squad', 'Squad'),
-    }
-  }
-  if (playerCount === 6) {
-    return {
-      gameMode: '6v6',
-      leaderboardMode: 'squad',
-      fieldLabel: formatLeaderboardModeLabel('squad', 'Squad'),
-    }
-  }
-  throw new Error('Team stats require 2 to 6 players.')
 }
 
 function formatProjectedRating(visual: TeamRatingVisual, rating: number): string {
