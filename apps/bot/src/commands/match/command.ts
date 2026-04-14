@@ -24,7 +24,7 @@ import { createStateStore } from '../../services/state/store.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
 import { factory } from '../../setup.ts'
-import { buildFfaPlacementOptions, collectFfaPlacementUserIds, findLiveMatchIdsForPlayers, getIdentity, getIdentityByUserId, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
+import { buildFfaPlacementOptions, collectFfaPlacementUserIds, findActiveMatchIdsForPlayers, findLiveMatchIdsForPlayers, getIdentity, getIdentityByUserId, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
 
 const MATCH_MODE_CHOICES = GAME_MODE_CHOICES
 const MATCH_BUMP_RESPONSE_DELETE_MS = 5_000
@@ -56,7 +56,7 @@ export const command_match = factory.command<MatchVar>(
       new Option('match_id', 'Optional match or lobby ID override'),
     ),
     new SubCommand('status', 'Show all active lobbies'),
-    new SubCommand('report', 'Report your active match result (host only)').options(
+    new SubCommand('report', 'Report your active match result').options(
       new Option('match_id', 'Optional match ID override'),
       new Option('winner', 'Winner or 1st place', 'User'),
       ...buildFfaPlacementOptions(),
@@ -713,22 +713,13 @@ export const command_match = factory.command<MatchVar>(
 
           let matchId = c.var.match_id?.trim() ?? null
           if (!matchId) {
-            matchId = await getMatchForUser(kv, identity.userId)
-          }
+            const activeMatchIds = (await findActiveMatchIdsForPlayers(db, [identity.userId])).get(identity.userId) ?? []
+            if (activeMatchIds.length > 1) {
+              await sendTransientEphemeralResponse(c, 'You are in multiple active matches. Pass `match_id` to pick the right one.', 'error')
+              return
+            }
 
-          if (!matchId) {
-            const [active] = await db
-              .select({ matchId: matchParticipants.matchId })
-              .from(matchParticipants)
-              .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-              .where(and(
-                eq(matchParticipants.playerId, identity.userId),
-                inArray(matches.status, ['active']),
-              ))
-              .orderBy(desc(matches.createdAt))
-              .limit(1)
-
-            matchId = active?.matchId ?? null
+            matchId = activeMatchIds[0] ?? null
             if (matchId) {
               c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], matchId))
             }
