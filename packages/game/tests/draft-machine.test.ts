@@ -6,6 +6,7 @@ import {
   getBansForSeat,
   getCurrentStep,
   getPendingSeats,
+  getPickSeatForPlayer,
   getPicksForSeat,
   isDraftError,
   isPlayerTurn,
@@ -166,6 +167,49 @@ describe('processDraftInput — START', () => {
   })
 })
 
+describe('getPickSeatForPlayer', () => {
+  test('returns own seat during the active player turn', () => {
+    let state = startDraft(createDraft('match-own-pick', default2v2, create2v2Seats(), createTestCivPool()))
+    state = startDraftBanPhase(state)
+
+    expect(getPickSeatForPlayer(state, 0)).toBe(0)
+    expect(getPickSeatForPlayer(state, 2)).toBeNull()
+  })
+
+  test('lets captains pick for a teammate on the current team turn', () => {
+    let state = startDraft(createDraft('match-captain-pick', default2v2, create2v2Seats(), createTestCivPool()))
+    state = startDraftBanPhase(state)
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' }, false))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-11' }, false))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 3, civId: 'civ-12' }, false))
+
+    expect(getPickSeatForPlayer(state, 0)).toBe(2)
+    expect(getPickSeatForPlayer(state, 2)).toBe(2)
+    expect(getPickSeatForPlayer(state, 1)).toBeNull()
+    expect(getPickSeatForPlayer(state, 3)).toBeNull()
+  })
+
+  test('does not allow non-captains to proxy pick for teammates', () => {
+    let state = startDraft(createDraft('match-no-proxy', default3v3, create3v3PlayerSeats(), createTestCivPool()))
+    state = startDraftBanPhase(state)
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' }, false))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-11' }, false))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 3, civId: 'civ-12' }, false))
+
+    expect(getPickSeatForPlayer(state, 0)).toBe(2)
+    expect(getPickSeatForPlayer(state, 2)).toBe(2)
+    expect(getPickSeatForPlayer(state, 4)).toBeNull()
+  })
+
+  test('lets captains proxy pick in Red Death', () => {
+    let state = startDraft(createDraft('match-rd-captain', redDeath2v2, createRdSeats(), createTestCivPool()))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-1' }, false))
+
+    expect(getPickSeatForPlayer(state, 0)).toBe(1)
+    expect(getPickSeatForPlayer(state, 1)).toBe(1)
+  })
+})
+
 describe('processDraftInput — CANCEL', () => {
   test('cancels waiting draft with cancel reason', () => {
     const draft = createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool())
@@ -226,6 +270,17 @@ describe('processDraftInput — CANCEL', () => {
     expect(result.events).toContainEqual({ type: 'DRAFT_CANCELLED', reason: 'revert' })
   })
 })
+
+function resolveState(result: ReturnType<typeof processDraftInput>): DraftState {
+  if (isDraftError(result)) throw new Error(result.error)
+  return result.state
+}
+
+function startDraftBanPhase(state: DraftState): DraftState {
+  let nextState = resolveState(processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true))
+  nextState = resolveState(processDraftInput(nextState, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true))
+  return nextState
+}
 
 describe('swapSeatPicks', () => {
   test('swaps the locked picks between teammates', () => {
