@@ -204,7 +204,7 @@ When the Steam lobby link is set, other players see a gold Steam button top left
 
 > [!NOTE]
 >
-> Captains are the first seat in each team, only they can submit bans.
+> Captains are the first seat in each team, only they can submit bans, and during the pick phase, they can also lock the current pick for teammates.
 > Expanded `2v2` snakes by active teams: `123321` for `2v2v2`, `12344321` for `2v2v2v2`.
 
 ### Draft behavior
