@@ -127,7 +127,6 @@ export async function recalculateLeaderboardMode(
   ])
 
   if (options.fromMatchId) {
-    if (hasLiveSeedFade(seedRows)) return await recalculateLeaderboardModeFromScratch(db, leaderboardMode, gameModes, seasonRows, seedRows)
     return await recalculateLeaderboardModeFromBoundary(
       db,
       leaderboardMode,
@@ -501,12 +500,15 @@ async function replayCompletedMatch(
 
     const currentState = ratingStateByPlayer.get(participant.playerId) ?? createDefaultRatingState(participant.playerId)
     const seedFadeState = seedFadeStateByPlayer.get(participant.playerId)
+    let ratingBeforeMu = update.before.mu
     let ratingAfterMu = update.after.mu
 
     if (seedFadeState && shouldCountAsNewBotGame) {
       const previousBonusMu = currentSeedBonusMu(seedFadeState)
       seedFadeState.newBotGamesPlayed += 1
-      ratingAfterMu -= previousBonusMu - currentSeedBonusMu(seedFadeState)
+      const seedFadeDeltaMu = previousBonusMu - currentSeedBonusMu(seedFadeState)
+      ratingBeforeMu -= seedFadeDeltaMu
+      ratingAfterMu -= seedFadeDeltaMu
       seedFadeStateByPlayer.set(participant.playerId, seedFadeState)
     }
 
@@ -514,7 +516,7 @@ async function replayCompletedMatch(
       db
         .update(matchParticipants)
         .set({
-          ratingBeforeMu: update.before.mu,
+          ratingBeforeMu,
           ratingBeforeSigma: update.before.sigma,
           ratingAfterMu,
           ratingAfterSigma: update.after.sigma,

@@ -287,7 +287,7 @@ export async function setLobbyMemberPlayerIds(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  await putLobby(kv, updated)
+  await putLobbyEntries(kv, updated)
   return updated
 }
 

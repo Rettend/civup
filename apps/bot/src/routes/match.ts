@@ -101,6 +101,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
         reportedMode: reportedContext.mode,
         reportedRedDeath: reportedContext.redDeath,
         participants: result.participants,
+        matchDraftData: result.match.draftData,
         lobby,
         archivePolicy: 'if-missing',
       })
@@ -146,8 +147,14 @@ export function registerMatchRoutes(app: Hono<Env>) {
       reportedMode: reportedContext.mode,
       reportedRedDeath: reportedContext.redDeath,
       participants: result.participants,
+      matchDraftData: result.match.draftData,
       lobby,
       rankedRoleLines,
+      reporter: {
+        userId: auth.identity.userId,
+        displayName: auth.identity.displayName,
+        avatarUrl: auth.identity.avatarUrl,
+      },
       archivePolicy: 'always',
     })
     if (lobby) {

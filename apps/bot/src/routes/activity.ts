@@ -1,16 +1,18 @@
 import type { GameMode } from '@civup/game'
 import type { Hono } from 'hono'
 import type { Env } from '../env.ts'
+import type { LeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import type { LobbyState } from '../services/lobby/index.ts'
 import type { getQueueState } from '../services/queue/index.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { formatModeLabel } from '@civup/game'
+import { formatModeLabel, GAME_MODES, toBalanceLeaderboardMode } from '@civup/game'
 import { createDraftRoomAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { clearUserActivityTargets, getLobbyForUser, getMatchForChannel, getMatchForUser, getUserActivityTarget, storeUserActivityTarget, storeUserMatchMappings } from '../services/activity/index.ts'
+import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
-import { getPlayerQueueMode, getPlayerQueueModeFromStates, getQueueStates } from '../services/queue/index.ts'
-import { createStateStore } from '../services/state/store.ts'
+import { getPlayerQueueMode, getPlayerQueueModeFromStates, parseQueueState, queueKey } from '../services/queue/index.ts'
+import { createStateStore, stateStoreMget } from '../services/state/store.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
 import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, getUniqueOpenLobbyForChannel, isQueueBackedOpenLobby } from './lobby/snapshot.ts'
 
@@ -62,6 +64,7 @@ interface ChannelActivityTarget {
   lobby: LobbyState
   queueEntries?: Awaited<ReturnType<typeof getQueueState>>['entries']
   slots?: (string | null)[]
+  balanceSnapshot?: LeaderboardModeSnapshot | null
 }
 
 interface ResolvedActivitySelection {
@@ -155,7 +158,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
     const mappedLobbyId = await getLobbyForUser(kv, userId)
     if (mappedLobbyId) {
       const mappedLobby = await getLobbyById(kv, mappedLobbyId)
-      if (mappedLobby?.status === 'open') {
+      if (mappedLobby?.status === 'open' && mappedLobby.memberPlayerIds.includes(userId)) {
         return c.json(await buildOpenLobbySnapshot(kv, mappedLobby.mode, mappedLobby))
       }
     }
@@ -314,6 +317,19 @@ async function resolveActivityLaunchSelection(
   if (storedTarget) {
     const storedSelection = targets.find(target => target.option.kind === storedTarget.kind && target.option.id === storedTarget.id) ?? null
     if (storedSelection) {
+      const currentMembershipSelection = pickCurrentActivityMembershipSelection(targets)
+      if (
+        currentMembershipSelection
+        && currentMembershipSelection.target.option.kind === 'lobby'
+        && isDifferentActivityTarget(currentMembershipSelection.target.option, storedSelection.option)
+      ) {
+        const storedIsCurrentMemberTarget = storedSelection.option.isHost || storedSelection.option.isMember
+        if (storedSelection.option.kind === 'lobby' && !storedIsCurrentMemberTarget) {
+          await clearUserActivityTargets(kv, channelId, [userId])
+          return currentMembershipSelection
+        }
+      }
+
       return {
         target: storedSelection,
         pendingJoin: storedTarget.kind === 'lobby' && storedTarget.pendingJoin,
@@ -366,6 +382,7 @@ async function serializeActivityLaunchSelection(
       selection.target.lobby,
       selection.target.queueEntries ?? [],
       selection.target.slots ?? selection.target.lobby.slots,
+      selection.target.balanceSnapshot,
     )
     return {
       kind: 'lobby',
@@ -418,20 +435,36 @@ export async function resolveLobbyJoinEligibility(
   })
   const blockingLobby = otherCurrentLobbies.find(candidate => candidate.status !== 'open') ?? otherCurrentLobbies[0] ?? null
   if (blockingLobby) {
+    if (blockingLobby.status === 'open') {
+      const hasOtherMembers = blockingLobby.memberPlayerIds.some(playerId => playerId !== userId)
+      if (!(blockingLobby.hostId === userId && hasOtherMembers)) {
+        const pendingSlot = lobbySnapshot.entries.findIndex(entry => entry == null)
+        if (pendingSlot >= 0) {
+          return {
+            canJoin: true,
+            blockedReason: null,
+            pendingSlot,
+          }
+        }
+      }
+    }
+
     return {
       canJoin: false,
-        blockedReason: blockingLobby.status === 'open'
-          ? blockingLobby.mode === lobby.mode
+      blockedReason: blockingLobby.status === 'open'
+        ? blockingLobby.hostId === userId && blockingLobby.memberPlayerIds.some(playerId => playerId !== userId)
+          ? 'You are hosting another open lobby with other players. Cancel it first.'
+          : blockingLobby.mode === lobby.mode
             ? 'You are already in another open lobby.'
             : `You're already in a ${formatModeLabel(blockingLobby.mode, blockingLobby.mode, { redDeath: blockingLobby.draftConfig.redDeath })} lobby.`
-          : 'You are already in a live match.',
+        : 'You are already in a live match.',
       pendingSlot: null,
     }
   }
 
   const existingQueueMode = options?.existingQueueMode !== undefined
     ? options.existingQueueMode
-    : await getPlayerQueueMode(kv, userId)
+    : await getPlayerQueueMode(kv, userId, { fallbackToQueueScan: false })
   if (existingQueueMode) {
       return {
         canJoin: false,
@@ -462,11 +495,11 @@ async function loadActivityLaunchContext(
   channelId: string,
   userId: string,
 ): Promise<ActivityLaunchContext> {
-  const queueStates = await getQueueStates(kv)
-  const targets: ChannelActivityTarget[] = []
-
-  const lobbiesByMode = new Map<GameMode, LobbyState[]>()
   const channelLobbies = await getLobbiesByChannel(kv, channelId)
+  const { queueStates, balanceSnapshots } = await loadActivityLaunchState(kv, channelLobbies)
+  const targets: ChannelActivityTarget[] = []
+  const lobbiesByMode = new Map<GameMode, LobbyState[]>()
+
   for (const lobby of channelLobbies) {
     const mode = lobby.mode
     const existing = lobbiesByMode.get(mode)
@@ -484,6 +517,7 @@ async function loadActivityLaunchContext(
         lobby,
         queueEntries: lobbyQueueEntries,
         slots,
+        balanceSnapshot: resolveLobbyBalanceSnapshot(balanceSnapshots, lobby),
         option: {
           kind: 'lobby',
           id: lobby.id,
@@ -532,6 +566,56 @@ async function loadActivityLaunchContext(
   }
 }
 
+async function loadActivityLaunchState(
+  kv: KVNamespace,
+  channelLobbies: LobbyState[],
+): Promise<{
+  queueStates: Map<GameMode, Awaited<ReturnType<typeof getQueueState>>>
+  balanceSnapshots: Map<string, LeaderboardModeSnapshot>
+}> {
+  const requestedBalanceModes = [...new Set(
+    channelLobbies
+      .filter(lobby => lobby.status === 'open')
+      .map(lobby => toBalanceLeaderboardMode(lobby.mode, { redDeath: lobby.draftConfig.redDeath }))
+      .filter((mode): mode is NonNullable<ReturnType<typeof toBalanceLeaderboardMode>> => mode != null),
+  )]
+
+  const rawState = await stateStoreMget(kv, [
+    ...GAME_MODES.map(mode => ({ key: queueKey(mode), type: 'json' as const })),
+    ...requestedBalanceModes.map(mode => ({ key: leaderboardModeSnapshotKey(mode), type: 'json' as const })),
+  ])
+
+  const queueStates = new Map<GameMode, Awaited<ReturnType<typeof getQueueState>>>()
+  for (let index = 0; index < GAME_MODES.length; index++) {
+    const mode = GAME_MODES[index]
+    if (!mode) continue
+    queueStates.set(mode, parseQueueState(mode, rawState[index]))
+  }
+
+  const balanceSnapshots = new Map<string, LeaderboardModeSnapshot>()
+  for (let index = 0; index < requestedBalanceModes.length; index++) {
+    const mode = requestedBalanceModes[index]
+    if (!mode) continue
+    const snapshot = normalizeLeaderboardModeSnapshot(mode, rawState[GAME_MODES.length + index])
+    if (!snapshot) continue
+    balanceSnapshots.set(mode, snapshot)
+  }
+
+  return {
+    queueStates,
+    balanceSnapshots,
+  }
+}
+
+function resolveLobbyBalanceSnapshot(
+  balanceSnapshots: ReadonlyMap<string, LeaderboardModeSnapshot>,
+  lobby: LobbyState,
+): LeaderboardModeSnapshot | null {
+  const mode = toBalanceLeaderboardMode(lobby.mode, { redDeath: lobby.draftConfig.redDeath })
+  if (!mode) return null
+  return balanceSnapshots.get(mode) ?? null
+}
+
 function countFilledSlots(slots: (string | null)[]): number {
   let count = 0
   for (const slot of slots) {
@@ -558,8 +642,7 @@ function activityTargetPriority(option: ActivityTargetOption): number {
 }
 
 function pickDefaultActivityLaunchSelection(targets: ChannelActivityTarget[]): ResolvedActivitySelection | null {
-  const preferredTarget = targets.find(target => (target.option.isHost || target.option.isMember) && target.option.kind === 'match')
-    ?? targets.find(target => target.option.isHost || target.option.isMember)
+  const preferredTarget = pickCurrentActivityMembershipTarget(targets)
     ?? null
   if (!preferredTarget) return null
 
@@ -567,6 +650,26 @@ function pickDefaultActivityLaunchSelection(targets: ChannelActivityTarget[]): R
     target: preferredTarget,
     pendingJoin: false,
   }
+}
+
+function pickCurrentActivityMembershipSelection(targets: ChannelActivityTarget[]): ResolvedActivitySelection | null {
+  const preferredTarget = pickCurrentActivityMembershipTarget(targets)
+  if (!preferredTarget) return null
+
+  return {
+    target: preferredTarget,
+    pendingJoin: false,
+  }
+}
+
+function pickCurrentActivityMembershipTarget(targets: ChannelActivityTarget[]): ChannelActivityTarget | null {
+  return targets.find(target => (target.option.isHost || target.option.isMember) && target.option.kind === 'match')
+    ?? targets.find(target => target.option.isHost || target.option.isMember)
+    ?? null
+}
+
+function isDifferentActivityTarget(left: ActivityTargetOption, right: ActivityTargetOption): boolean {
+  return left.kind !== right.kind || left.id !== right.id
 }
 
 async function issueDraftRoomAccessToken(

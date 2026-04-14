@@ -9,10 +9,11 @@ import type {
 } from '~/client/lib/config-screen/helpers'
 import type { LobbyArrangeStrategy, LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
 import { canStartWithPlayerCount, formatModeLabel, GAME_MODE_CHOICES, hasBetaLeaderData, inferGameMode, isTeamMode as isTeamGameMode, isUnrankedMode, maxPlayerCount, normalizeAvailableLeaderDataVersion, normalizeCompetitiveTierBounds, requiresRedDeathDuplicateFactions, slotToTeamIndex } from '@civup/game'
-import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Dropdown, Switch, TextInput } from '~/client/components/ui'
 import {
   applyOptimisticLobbyAction,
+  buildLobbyBalanceSummary,
   buildRankDotStyle,
   findRankedRoleOptionByTier,
   formatLeaderPoolValue,
@@ -247,6 +248,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
     currentDisplayName(),
     currentAvatarUrl(),
   )
+  const lobbyBalance = createMemo(() => buildLobbyBalanceSummary(currentLobby()))
+  const teamBalance = (team: number) => lobbyBalance()?.teams.find(summary => summary.team === team) ?? null
   const pendingSelfJoinSlot = () => resolvePendingJoinGhostSlot(
     currentLobby(),
     userId(),
@@ -474,6 +477,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
   const banTimerPlaceholder = () => timerSecondsToMinutesPlaceholder(serverDefaultTimerConfig().banTimerSeconds)
   const pickTimerPlaceholder = () => timerSecondsToMinutesPlaceholder(serverDefaultTimerConfig().pickTimerSeconds)
+  const timerInputStep = (value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed) return '1'
+
+    const numeric = Number(trimmed)
+    if (!Number.isFinite(numeric)) return '0.1'
+    return numeric >= 1 && Number.isInteger(numeric) ? '1' : '0.1'
+  }
 
   const optimisticTimerConfig = createOptimisticState(draftConfig, {
     equals: sameLobbyDraftConfig,
@@ -485,6 +496,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const duplicateFactionsLocked = () => isRedDeathLobbyMode() && requiresRedDeathDuplicateFactions(lobbyMode())
   const draftDuplicateFactions = () => duplicateFactionsLocked() ? true : draftConfig().duplicateFactions
   const optimisticDuplicateFactions = () => duplicateFactionsLocked() ? true : optimisticDraftConfig().duplicateFactions
+  const duplicateOptionLabel = () => isRedDeathLobbyMode() ? 'Duplicate factions' : 'Duplicate leaders'
   const formattedDuplicateFactions = () => draftDuplicateFactions() ? 'On' : 'Off'
   const poolInputLabel = () => isRedDeathLobbyMode() ? 'Factions' : 'Leaders'
   const modeLabelClass = () => isRedDeathLobbyMode() ? 'text-[#f97316]' : 'text-accent'
@@ -704,11 +716,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
 
   const canToggleRedDeath = () => !redDeathExtraFfaSeatsOccupied()
 
-  const isCurrentUserSlotted = () => {
+  const currentUserLobbySlot = createMemo(() => {
     const id = userId()
-    if (!id) return false
-    return currentLobby()?.entries.some(entry => entry?.playerId === id) ?? false
-  }
+    if (!id) return null
+    const slot = currentLobby()?.entries.findIndex(entry => entry?.playerId === id) ?? -1
+    return slot >= 0 ? slot : null
+  })
+
+  const isCurrentUserSlotted = () => currentUserLobbySlot() != null
 
   const currentUserLinkedPartySize = () => {
     const id = userId()
@@ -717,14 +732,40 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return entry?.partyIds?.length ?? 0
   }
 
-  const canJoinSlot = (row: PlayerRow) => {
+  const canCurrentUserPlaceSelf = () => {
     if (!isLobbyMode()) return false
-    if (!row.empty) return false
     if (!userId()) return false
     if (props.showJoinPending && !isCurrentUserSlotted()) return false
     if (props.joinEligibility && !props.joinEligibility.canJoin && !isCurrentUserSlotted()) return false
     if (!amHost() && currentUserLinkedPartySize() > 0) return false
     return true
+  }
+
+  const joinLobbyTargetSlot = createMemo(() => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || isCurrentUserSlotted()) return null
+
+    const suggestedSlot = resolvePendingJoinGhostSlot(lobby, currentUserId, true, props.joinEligibility ?? null)
+    if (suggestedSlot != null) return suggestedSlot
+
+    const firstEmptySlot = lobby.entries.findIndex(entry => entry == null)
+    return firstEmptySlot >= 0 ? firstEmptySlot : null
+  })
+
+  const canJoinLobby = () => !isCurrentUserSlotted() && canCurrentUserPlaceSelf() && joinLobbyTargetSlot() != null
+  const canLeaveLobby = () => isLobbyMode() && !amHost() && currentUserLobbySlot() != null
+
+  const joinLobbyButtonTitle = () => {
+    if (props.showJoinPending) return 'Joining lobby...'
+    if (props.joinEligibility?.blockedReason) return props.joinEligibility.blockedReason
+    if (joinLobbyTargetSlot() == null) return 'No empty seats available.'
+    return 'Join Lobby'
+  }
+
+  const canJoinSlot = (row: PlayerRow) => {
+    if (!row.empty) return false
+    return canCurrentUserPlaceSelf()
   }
 
   const canRemoveSlot = (row: PlayerRow) => {
@@ -826,8 +867,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
         return
       }
 
-      const banTimerSeconds = parsedBan == null ? null : parsedBan * 60
-      const pickTimerSeconds = parsedPick == null ? null : parsedPick * 60
+      const banTimerSeconds = parsedBan == null ? null : Math.round(parsedBan * 60)
+      const pickTimerSeconds = parsedPick == null ? null : Math.round(parsedPick * 60)
       const current = optimisticTimerConfig.value()
       const leaderPoolSize = isRedDeathLobbyMode() ? current.leaderPoolSize : parsedLeaderPool
       const leaderDataVersion = current.leaderDataVersion
@@ -922,8 +963,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
         simultaneousPick: checked ? false : current.simultaneousPick,
         redDeath: checked,
         dealOptionsSize: checked ? current.dealOptionsSize : null,
-        randomDraft: checked ? current.randomDraft : false,
-        duplicateFactions: checked ? requiresRedDeathDuplicateFactions(lobbyMode()) : false,
+        randomDraft: current.randomDraft,
+        duplicateFactions: checked && requiresRedDeathDuplicateFactions(lobbyMode())
+          ? true
+          : current.duplicateFactions,
       }, {
         targetSize: lobby?.mode === 'ffa' ? (checked ? 10 : 8) : undefined,
       })
@@ -935,7 +978,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   }
 
   const handleRandomDraftChange = async (checked: boolean) => {
-    if (!isLobbyMode() || !amHost() || lobbyActionPending() || randomDraftPending() || !isRedDeathLobbyMode()) return
+    if (!isLobbyMode() || !amHost() || lobbyActionPending() || randomDraftPending()) return
     const current = optimisticTimerConfig.value()
     if (checked === current.randomDraft) return
     setRandomDraftPending(true)
@@ -958,7 +1001,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   }
 
   const handleDuplicateFactionsChange = async (checked: boolean) => {
-    if (!isLobbyMode() || !amHost() || lobbyActionPending() || duplicateFactionsPending() || !isRedDeathLobbyMode() || duplicateFactionsLocked()) return
+    if (!isLobbyMode() || !amHost() || lobbyActionPending() || duplicateFactionsPending() || duplicateFactionsLocked()) return
     const current = optimisticTimerConfig.value()
     if (checked === current.duplicateFactions) return
     setDuplicateFactionsPending(true)
@@ -1215,6 +1258,9 @@ export function ConfigScreen(props: ConfigScreenProps) {
         if (optimisticAction) clearOptimisticLobbyAction()
         showErrorMessage(result.error)
       }
+      else if (result.transferNotice) {
+        showInfoMessage(result.transferNotice)
+      }
     }
     finally {
       setLobbyActionPending(false)
@@ -1266,6 +1312,9 @@ export function ConfigScreen(props: ConfigScreenProps) {
       if (!result.ok) {
         if (optimisticAction) clearOptimisticLobbyAction()
         showErrorMessage(result.error)
+      }
+      else if (result.transferNotice) {
+        showInfoMessage(result.transferNotice)
       }
     }
     finally {
@@ -1524,10 +1573,10 @@ export function ConfigScreen(props: ConfigScreenProps) {
     return isSpectator() ? 'Spectating' : 'Waiting for host'
   }
 
-  const desktopSetupPanelHeightClass = () => {
-    if (amHost()) return 'lg:h-[432px]'
-    if (isCurrentUserSlotted() && lobbyMode() === '6v6') return 'lg:h-[368px]'
-    return 'lg:h-[336px]'
+  const desktopSetupPanelMaxHeightClass = () => {
+    if (amHost()) return 'lg:max-h-[432px]'
+    if (isCurrentUserSlotted() && lobbyMode() === '6v6') return 'lg:max-h-[368px]'
+    return 'lg:max-h-[336px]'
   }
 
   return (
@@ -1559,7 +1608,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
               isMobileLayout() ? 'top-12 left-4 h-9 w-9' : 'top-4 left-6 h-9 w-9',
             )}
           />
-          <div class={cn('mx-auto px-6 py-4 flex flex-col gap-6 max-w-5xl w-full', isMobileLayout() && 'pt-12')}>
+          <div class={cn('mx-auto px-6 py-4 flex min-h-dvh flex-col gap-6 max-w-5xl w-full lg:h-dvh lg:overflow-hidden', isMobileLayout() && 'pt-12')}>
             <div class="grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-center">
               <div class="h-9 w-9" />
               <div class="text-center">
@@ -1570,12 +1619,20 @@ export function ConfigScreen(props: ConfigScreenProps) {
             </div>
 
             <div class={cn(
-              'gap-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)]',
-              desktopSetupPanelHeightClass(),
+              'gap-4 grid grid-cols-1 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)]',
+              desktopSetupPanelMaxHeightClass(),
             )}
             >
               <div class="p-4 rounded-lg bg-bg-subtle flex flex-col min-h-0 overflow-hidden lg:h-full">
-                <div class="text-xs text-fg-subtle tracking-widest font-bold mb-3 uppercase">Players</div>
+                <div class="mb-3 flex items-center justify-between gap-3 text-xs text-fg-subtle tracking-widest font-bold uppercase">
+                  <span>Players</span>
+                  <Show when={lobbyBalance()?.lowConfidence}>
+                    <span class="inline-flex items-center gap-1 text-[11px] text-fg-subtle/70 font-medium tracking-normal normal-case">
+                      <span class="i-ph-warning-circle text-xs" />
+                      low confidence
+                    </span>
+                  </Show>
+                </div>
 
                 <div class="pr-1 flex-1 min-h-0 overflow-y-auto">
                   <Show
@@ -1645,10 +1702,24 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       <For each={teamIndices()}>
                         {team => (
                           <div class={teamSectionClass()}>
-                            <div class="text-xs text-accent tracking-wider font-bold mb-2">
-                              Team
-                              {' '}
-                              {String.fromCharCode(65 + team)}
+                            <div class="mb-2 flex items-center justify-between gap-3">
+                              <div class="text-xs text-accent tracking-wider font-bold">
+                                Team
+                                {' '}
+                                {String.fromCharCode(65 + team)}
+                              </div>
+                              <Show when={teamBalance(team)}>
+                                {(summary) => (
+                                  <div class="text-[11px] text-right text-accent font-semibold whitespace-nowrap">
+                                    {Math.round(summary().probability * 100)}%
+                                    <Show when={summary().uncertainty >= 0.01}>
+                                      <span class="ml-1 text-fg-subtle font-normal">
+                                        ±{Math.round(summary().uncertainty * 100)}
+                                      </span>
+                                    </Show>
+                                  </div>
+                                )}
+                              </Show>
                             </div>
                             {renderTeamColumn(teamRows(team))}
                           </div>
@@ -1723,34 +1794,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
                     </div>
                   </Show>
 
-                  <Show when={isLobbyMode() && amHost() && isRedDeathLobbyMode()}>
-                    <div class="px-1 flex gap-3 items-center justify-between">
-                      <span class={cn('text-sm font-medium', optimisticDraftConfig().randomDraft ? 'text-accent' : 'text-fg-muted')}>
-                        Random draft
-                      </span>
-                      <Switch
-                        checked={optimisticDraftConfig().randomDraft}
-                        disabled={lobbyActionPending() || randomDraftPending()}
-                        class="w-auto"
-                        onChange={checked => void handleRandomDraftChange(checked)}
-                      />
-                    </div>
-                  </Show>
-
-                  <Show when={isLobbyMode() && amHost() && isRedDeathLobbyMode()}>
-                    <div class="px-1 flex gap-3 items-center justify-between">
-                      <span class={cn('text-sm font-medium', optimisticDuplicateFactions() ? 'text-accent' : 'text-fg-muted')}>
-                        Duplicate factions
-                      </span>
-                      <Switch
-                        checked={optimisticDuplicateFactions()}
-                        disabled={lobbyActionPending() || duplicateFactionsPending() || duplicateFactionsLocked()}
-                        class="w-auto"
-                        onChange={checked => void handleDuplicateFactionsChange(checked)}
-                      />
-                    </div>
-                  </Show>
-
                   <Show when={isLobbyMode() && amHost()}>
                     <Dropdown
                       label="Game Mode"
@@ -1779,14 +1822,14 @@ export function ConfigScreen(props: ConfigScreenProps) {
                             valueClass={draftConfig().simultaneousPick ? 'text-accent' : undefined}
                           />
                         </Show>
-                        <Show when={isRedDeathLobbyMode()}>
+                        <Show when={isLobbyMode()}>
                           <ReadonlyTimerRow
                             label="Random draft"
                             value={formattedRandomDraft()}
                             valueClass={draftConfig().randomDraft ? 'text-accent' : undefined}
                           />
                           <ReadonlyTimerRow
-                            label="Duplicate factions"
+                            label={duplicateOptionLabel()}
                             value={formattedDuplicateFactions()}
                             valueClass={draftDuplicateFactions() ? 'text-accent' : undefined}
                           />
@@ -1872,7 +1915,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
                           label="Ban Timer (minutes)"
                           min="0"
                           max={String(MAX_TIMER_MINUTES)}
-                          step="1"
+                          step={timerInputStep(banMinutes())}
+                          roundOnBlur={false}
                           value={banMinutes()}
                           placeholder={banTimerPlaceholder()}
                           onFocus={() => setEditingField('ban')}
@@ -1894,7 +1938,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
                         label="Pick Timer (minutes)"
                         min="0"
                         max={String(MAX_TIMER_MINUTES)}
-                        step="1"
+                        step={timerInputStep(pickMinutes())}
+                        roundOnBlur={false}
                         value={pickMinutes()}
                         placeholder={pickTimerPlaceholder()}
                         onFocus={() => setEditingField('pick')}
@@ -1911,6 +1956,30 @@ export function ConfigScreen(props: ConfigScreenProps) {
                         />
 
                         <Show when={isLobbyMode()}>
+                          <div class="px-1 flex gap-3 items-center justify-between">
+                            <span class={cn('text-sm font-medium', optimisticDraftConfig().randomDraft ? 'text-accent' : 'text-fg-muted')}>
+                              Random draft
+                            </span>
+                            <Switch
+                              checked={optimisticDraftConfig().randomDraft}
+                              disabled={lobbyActionPending() || randomDraftPending()}
+                              class="w-auto"
+                              onChange={checked => void handleRandomDraftChange(checked)}
+                            />
+                          </div>
+
+                          <div class="px-1 flex gap-3 items-center justify-between">
+                            <span class={cn('text-sm font-medium', optimisticDuplicateFactions() ? 'text-accent' : 'text-fg-muted')}>
+                              {duplicateOptionLabel()}
+                            </span>
+                            <Switch
+                              checked={optimisticDuplicateFactions()}
+                              disabled={lobbyActionPending() || duplicateFactionsPending() || duplicateFactionsLocked()}
+                              class="w-auto"
+                              onChange={checked => void handleDuplicateFactionsChange(checked)}
+                            />
+                          </div>
+
                           <div class="mt-1 pt-3 border-t border-border-subtle px-1 flex gap-3 items-center justify-between">
                             <span class={cn('text-sm font-medium', optimisticDraftConfig().redDeath ? 'text-[#f97316]' : 'text-fg-muted')}>
                               Red Death
@@ -1950,13 +2019,49 @@ export function ConfigScreen(props: ConfigScreenProps) {
               </div>
             </div>
 
-            <div class="flex justify-center">
+            <div class="shrink-0 flex justify-center">
               <Show
                 when={amHost()}
                 fallback={(
-                  <span class="text-sm text-fg-subtle">
-                    {setupStatusText()}
-                  </span>
+                  <div class="flex flex-col gap-2 items-center">
+                    <Show when={isLobbyMode() && (!isCurrentUserSlotted() || canLeaveLobby())}>
+                      <div class="flex flex-wrap gap-3 items-center justify-center">
+                        <Show when={!isCurrentUserSlotted()}>
+                          <button
+                            class="text-sm text-bg font-bold px-8 py-2.5 rounded-lg bg-accent cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-default hover:brightness-110"
+                            title={joinLobbyButtonTitle()}
+                            aria-label="Join Lobby"
+                            disabled={!canJoinLobby() || lobbyActionPending()}
+                            onClick={() => {
+                              const slot = joinLobbyTargetSlot()
+                              if (slot == null) return
+                              void handlePlaceSelf(slot)
+                            }}
+                          >
+                            Join Lobby
+                          </button>
+                        </Show>
+
+                        <Show when={canLeaveLobby()}>
+                          <button
+                            class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
+                            title="Leave Lobby"
+                            aria-label="Leave Lobby"
+                            disabled={lobbyActionPending()}
+                            onClick={() => {
+                              const slot = currentUserLobbySlot()
+                              if (slot == null) return
+                              void handleRemoveFromSlot(slot)
+                            }}
+                          >
+                            Leave Lobby
+                          </button>
+                        </Show>
+                      </div>
+                    </Show>
+
+                    <span class="text-sm text-fg-subtle">{setupStatusText()}</span>
+                  </div>
                 )}
               >
                 <Show
