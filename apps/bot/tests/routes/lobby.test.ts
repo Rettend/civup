@@ -322,6 +322,88 @@ describe('lobby routes', () => {
     })
   })
 
+  test('seat moves ignore stale live-match conflicts for players already in the target lobby', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const liveLobby = await createLobby(kv, {
+      mode: '4v4',
+      hostId: 'live-host',
+      channelId: 'channel-live',
+      messageId: 'message-live',
+    })
+    const targetLobby = await createLobby(kv, {
+      mode: '4v4',
+      hostId: 'host',
+      channelId: 'channel-target',
+      messageId: 'message-target',
+    })
+
+    await addToQueue(kv, '4v4', {
+      playerId: 'live-host',
+      displayName: 'Live Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '4v4', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await addToQueue(kv, '4v4', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now() + 2,
+    })
+    await addToQueue(kv, '4v4', {
+      playerId: 'player-2',
+      displayName: 'Player 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 3,
+    })
+
+    const populatedLiveLobby = await setLobbyMemberPlayerIds(kv, liveLobby.id, ['live-host', 'player-1', 'player-2'], liveLobby)
+    await setLobbySlots(kv, liveLobby.id, ['live-host', 'player-1', 'player-2', null, null, null, null, null], populatedLiveLobby ?? liveLobby)
+    await attachLobbyMatch(kv, liveLobby.id, 'match-1', populatedLiveLobby ?? liveLobby)
+
+    const populatedTargetLobby = await setLobbyMemberPlayerIds(kv, targetLobby.id, ['host', 'player-1', 'player-2'], targetLobby)
+    await setLobbySlots(kv, targetLobby.id, ['host', 'player-1', 'player-2', null, null, null, null, null], populatedTargetLobby ?? targetLobby)
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const selfMoveResponse = await app.request('/api/lobby/4v4/place', {
+      method: 'POST',
+      headers: buildAuthHeaders('player-1', 'Player 1'),
+      body: JSON.stringify({
+        userId: 'player-1',
+        lobbyId: targetLobby.id,
+        targetSlot: 4,
+      }),
+    }, buildEnv(kv))
+
+    expect(selfMoveResponse.status).toBe(200)
+
+    const hostMoveResponse = await app.request('/api/lobby/4v4/place', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: targetLobby.id,
+        playerId: 'player-2',
+        targetSlot: 5,
+      }),
+    }, buildEnv(kv))
+
+    expect(hostMoveResponse.status).toBe(200)
+    expect((await getLobbyById(kv, targetLobby.id))?.slots).toEqual(['host', null, null, null, 'player-1', 'player-2', null, null])
+  })
+
   test('direct lobby joins ignore matchmaking max rank', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
