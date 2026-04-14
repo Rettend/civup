@@ -1,9 +1,8 @@
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from './types.ts'
-import { GAME_MODES } from '@civup/game'
 import { syncActivityOverviewSnapshot } from '../activity/live-state.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
-import { bumpCooldownKey, channelIndexKey, channelPrefix, hostKey, idKey, LOBBY_HOST_KEY_PREFIX, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
+import { bumpCooldownKey, channelIndexKey, channelPrefix, hostKey, idKey, LOBBY_HOST_KEY_PREFIX, LOBBY_MODE_KEY_PREFIX, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
 import { lobbySnapshotKey } from './live-snapshot.ts'
 import { normalizeLobby, parseLobbyState } from './normalize.ts'
 
@@ -234,6 +233,9 @@ export async function clearLobbyById(
   kv: KVNamespace,
   lobbyId: string,
   currentLobby?: LobbyState | null,
+  options?: {
+    syncActivityOverview?: boolean
+  },
 ): Promise<void> {
   const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
   const keys = [idKey(lobbyId), lobbySnapshotKey(lobbyId), bumpCooldownKey(lobbyId)]
@@ -247,7 +249,7 @@ export async function clearLobbyById(
     if (lobby.matchId) keys.push(matchKey(lobby.matchId))
   }
   await stateStoreMdelete(kv, keys)
-  if (lobby) await syncActivityOverviewSnapshot(kv, lobby.channelId)
+  if (lobby && options?.syncActivityOverview !== false) await syncActivityOverviewSnapshot(kv, lobby.channelId)
 }
 
 export async function clearLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise<void> {
@@ -323,8 +325,22 @@ export async function putLobbyEntries(
 }
 
 async function getAllLobbies(kv: KVNamespace): Promise<LobbyState[]> {
-  const all = await Promise.all(GAME_MODES.map(mode => getLobbiesByMode(kv, mode)))
-  return all.flat().sort((left, right) => left.createdAt - right.createdAt)
+  const listed = await kv.list({ prefix: LOBBY_MODE_KEY_PREFIX })
+  const lobbyIds = [...new Set(listed.keys
+    .map(entry => entry.name.slice(entry.name.lastIndexOf(':') + 1))
+    .filter((lobbyId): lobbyId is string => lobbyId.length > 0))]
+
+  if (lobbyIds.length === 0) return []
+
+  const rawLobbies = await stateStoreMget(
+    kv,
+    lobbyIds.map(lobbyId => ({ key: idKey(lobbyId), type: 'json' })),
+  )
+
+  return rawLobbies
+    .map(raw => parseLobbyState(raw))
+    .filter((lobby): lobby is LobbyState => lobby != null)
+    .sort((left, right) => left.createdAt - right.createdAt)
 }
 
 async function findHostKeysForLobby(kv: KVNamespace, lobbyId: string): Promise<string[]> {

@@ -5,12 +5,11 @@ import { playerRatings, playerRatingSeeds, players } from '@civup/db'
 import { competitiveTierRank, LEADERBOARD_MODES } from '@civup/game'
 import { displayRating, getLeaderboardMinGames, RANKED_ROLE_MIN_GAMES } from '@civup/rating'
 import { and, eq, gt, inArray } from 'drizzle-orm'
-import { DiscordApiError, editGuildMemberRoles } from '../discord/index.ts'
+import { addGuildMemberRole, DiscordApiError, removeGuildMemberRole } from '../discord/index.ts'
 import { ensureLeaderboardModeSnapshots } from '../leaderboard/snapshot.ts'
 import { getActiveSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks } from '../season/index.ts'
 import {
   createRankedRoleTierId,
-  fetchGuildMemberRoleIds,
   formatRankedRoleSlotLabel,
   getConfiguredRankedRoleId,
   getConfiguredRankedRoleLabel,
@@ -446,56 +445,44 @@ export async function resetCurrentRankedRoleState(options: {
   token?: string
 }): Promise<{ clearedAssignments: number, appliedDiscordChanges: number }> {
   const previousAssignments = await getCurrentRankAssignments(options.kv, options.guildId)
-  const playerIds = Object.keys(previousAssignments.byPlayerId).filter(isDiscordSnowflake)
+  const trackedAssignments = Object.entries(previousAssignments.byPlayerId)
+    .filter(([playerId]) => isDiscordSnowflake(playerId))
 
   await setCurrentRankAssignments(options.kv, options.guildId, { byPlayerId: {} })
   await setRankedRoleDemotionCandidates(options.kv, options.guildId, { byPlayerId: {} })
 
   const token = options.token?.trim()
-  if (!token || playerIds.length === 0) {
+  if (!token || trackedAssignments.length === 0) {
     return {
-      clearedAssignments: playerIds.length,
+      clearedAssignments: trackedAssignments.length,
       appliedDiscordChanges: 0,
     }
   }
 
-  const config = await getRankedRoleConfig(options.kv, options.guildId)
-  const rankedRoleIds = [...new Set(config.tiers
-    .map(tier => tier.roleId)
-    .filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0))]
+  const [config, previousAppliedConfig] = await Promise.all([
+    getRankedRoleConfig(options.kv, options.guildId),
+    getAppliedRankedRoleConfig(options.kv, options.guildId),
+  ])
   const fallbackTier = getLowestRankedRoleTier(config)
   const fallbackRoleId = fallbackTier ? getConfiguredRankedRoleId(config, fallbackTier) : null
 
   let appliedDiscordChanges = 0
-  for (const playerId of playerIds) {
-    let roleIds: string[]
-    try {
-      roleIds = await fetchGuildMemberRoleIds(token, options.guildId, playerId)
-    }
-    catch (error) {
-      if (error instanceof DiscordApiError && error.status === 404) continue
-      throw error
-    }
-
-    const nextRoleIds = roleIds.filter(roleId => !rankedRoleIds.includes(roleId))
-    if (fallbackRoleId && !nextRoleIds.includes(fallbackRoleId)) nextRoleIds.push(fallbackRoleId)
-    nextRoleIds.sort((a, b) => a.localeCompare(b))
-
-    const currentSorted = [...roleIds].sort((a, b) => a.localeCompare(b))
-    if (sameStringArray(currentSorted, nextRoleIds)) continue
-
-    try {
-      await editGuildMemberRoles(token, options.guildId, playerId, nextRoleIds)
-      appliedDiscordChanges += 1
-    }
-    catch (error) {
-      if (error instanceof DiscordApiError && error.status === 404) continue
-      throw error
-    }
+  for (const [playerId, previousAssignment] of trackedAssignments) {
+    const previousRoleId = resolvePreviouslyAppliedRoleId(previousAssignment, previousAppliedConfig, config)
+    const changed = await applyTrackedRankRoleChange({
+      token,
+      guildId: options.guildId,
+      playerId,
+      previousRoleId,
+      nextRoleId: fallbackRoleId,
+    })
+    if (changed) appliedDiscordChanges += 1
   }
 
+  await setAppliedRankedRoleConfig(options.kv, options.guildId, config)
+
   return {
-    clearedAssignments: playerIds.length,
+    clearedAssignments: trackedAssignments.length,
     appliedDiscordChanges,
   }
 }
@@ -1088,11 +1075,6 @@ async function applyCurrentRankRoles(
     throw new Error(`Cannot sync ranked roles until all current roles are configured: ${missingTiers.join(', ')}`)
   }
 
-  const rankedRoleIds = [...new Set([
-    ...config.tiers.map(tier => tier.roleId),
-    ...(previousAppliedConfig ? [...previousAppliedConfig.values()] : []),
-  ])].filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)
-
   let appliedChanges = 0
   for (const preview of playerPreviews) {
     if (!isDiscordSnowflake(preview.playerId)) continue
@@ -1104,30 +1086,14 @@ async function applyCurrentRankRoles(
       continue
     }
 
-    let roleIds: string[]
-    try {
-      roleIds = await fetchGuildMemberRoleIds(token, guildId, preview.playerId)
-    }
-    catch (error) {
-      if (error instanceof DiscordApiError && error.status === 404) continue
-      throw error
-    }
-
-    const nextRoleIds = roleIds.filter(roleId => !rankedRoleIds.includes(roleId))
-    nextRoleIds.push(desiredRoleId)
-    nextRoleIds.sort((a, b) => a.localeCompare(b))
-
-    const currentSorted = [...roleIds].sort((a, b) => a.localeCompare(b))
-    if (sameStringArray(currentSorted, nextRoleIds)) continue
-
-    try {
-      await editGuildMemberRoles(token, guildId, preview.playerId, nextRoleIds)
-      appliedChanges += 1
-    }
-    catch (error) {
-      if (error instanceof DiscordApiError && error.status === 404) continue
-      throw error
-    }
+    const changed = await applyTrackedRankRoleChange({
+      token,
+      guildId,
+      playerId: preview.playerId,
+      previousRoleId,
+      nextRoleId: desiredRoleId,
+    })
+    if (changed) appliedChanges += 1
   }
 
   await setAppliedRankedRoleConfig(kv, guildId, config)
@@ -1174,6 +1140,38 @@ function resolvePreviouslyAppliedRoleId(
   if (!previousAssignment) return null
   if (previousAppliedConfig?.has(previousAssignment.tier)) return previousAppliedConfig.get(previousAssignment.tier) ?? null
   return getConfiguredRankedRoleId(currentConfig, previousAssignment.tier)
+}
+
+async function applyTrackedRankRoleChange(options: {
+  token: string
+  guildId: string
+  playerId: string
+  previousRoleId: string | null
+  nextRoleId: string | null
+}): Promise<boolean> {
+  let changed = false
+
+  if (options.previousRoleId && options.previousRoleId !== options.nextRoleId) {
+    try {
+      await removeGuildMemberRole(options.token, options.guildId, options.playerId, options.previousRoleId)
+      changed = true
+    }
+    catch (error) {
+      if (!(error instanceof DiscordApiError && error.status === 404)) throw error
+    }
+  }
+
+  if (options.nextRoleId && options.nextRoleId !== options.previousRoleId) {
+    try {
+      await addGuildMemberRole(options.token, options.guildId, options.playerId, options.nextRoleId)
+      changed = true
+    }
+    catch (error) {
+      if (!(error instanceof DiscordApiError && error.status === 404)) throw error
+    }
+  }
+
+  return changed
 }
 
 function buildRankMatchUpdateLine(
@@ -1298,14 +1296,6 @@ function normalizePositiveInteger(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 0
   const rounded = Math.round(value)
   return rounded > 0 ? rounded : 0
-}
-
-function sameStringArray(left: string[], right: string[]): boolean {
-  if (left.length !== right.length) return false
-  for (let i = 0; i < left.length; i++) {
-    if (left[i] !== right[i]) return false
-  }
-  return true
 }
 
 function isDiscordSnowflake(value: string): boolean {
