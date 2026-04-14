@@ -32,6 +32,25 @@ describe('lobby arrange helpers', () => {
     expect(secondPremadeOnA || secondPremadeOnB).toBe(true)
   })
 
+  test('randomize can move the first slotted player to another displayed team', () => {
+    const result = arrangeLobbySlots({
+      mode: '2v2',
+      strategy: 'randomize',
+      slots: ['host', 'p2', 'p3', 'p4'],
+      queueEntries: [entry('host'), entry('p2'), entry('p3'), entry('p4')],
+      random: () => 0,
+    })
+
+    expect('error' in result).toBe(false)
+    if ('error' in result) return
+
+    const teamA = result.slots.slice(0, 2)
+    const teamB = result.slots.slice(2, 4)
+
+    expect(teamA.includes('host')).toBe(false)
+    expect(teamB.includes('host')).toBe(true)
+  })
+
   test('auto-balance keeps teams even for partial lobbies', () => {
     const result = arrangeLobbySlots({
       mode: '3v3',
@@ -164,7 +183,7 @@ describe('lobby arrange helpers', () => {
     expect(stackOnA || stackOnB).toBe(true)
   })
 
-  test('randomize shuffles occupied FFA seats and compacts gaps', () => {
+  test('randomize shuffles FFA seats including gaps', () => {
     const result = arrangeLobbySlots({
       mode: 'ffa',
       strategy: 'randomize',
@@ -176,7 +195,26 @@ describe('lobby arrange helpers', () => {
     expect('error' in result).toBe(false)
     if ('error' in result) return
 
-    expect(result.slots).toEqual(['p2', 'p3', 'p1', null, null])
+    expect(result.slots).toEqual([null, 'p2', 'p3', null, 'p1'])
+  })
+
+  test('randomize shuffles empty slots inside active teams while keeping premades intact', () => {
+    const result = arrangeLobbySlots({
+      mode: '2v2',
+      strategy: 'randomize',
+      slots: ['p1', 'p2', 'p3', null],
+      queueEntries: [
+        entry('p1', ['p2']),
+        entry('p2', ['p1']),
+        entry('p3'),
+      ],
+      random: () => 0,
+    })
+
+    expect('error' in result).toBe(false)
+    if ('error' in result) return
+
+    expect(result.slots).toEqual([null, 'p3', 'p2', 'p1'])
   })
 
   test('auto-balance orders FFA seats weakest first and strongest last', () => {
