@@ -3,11 +3,11 @@ import type { LobbyState } from './types.ts'
 import { GAME_MODES, slotToTeamIndex } from '@civup/game'
 import { lobbyTimeoutEmbed } from '../../embeds/match.ts'
 import { clearLobbyMappingsIfMatchingLobby } from '../activity/index.ts'
-import { clearQueue, getQueueState } from '../queue/index.ts'
+import { clearQueue, getQueueState, getQueueStates } from '../queue/index.ts'
 import { upsertLobbyMessage } from './message.ts'
 import { setLobbyStatus } from './mutations.ts'
 import { filterQueueEntriesForLobby, normalizeLobbySlots } from './slots.ts'
-import { clearLobbyById, getLobbiesByMode } from './store.ts'
+import { clearLobbyById, getCurrentLobbies } from './store.ts'
 
 export const LOBBY_TIMEOUT_MESSAGE = 'This lobby timed out due to inactivity.'
 export const LOBBY_INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000 // 1 hour
@@ -34,10 +34,25 @@ export async function pruneInactiveOpenLobbies(
 ): Promise<PrunedInactiveLobby[]> {
   const now = options.now ?? Date.now()
   const pruned: PrunedInactiveLobby[] = []
+  const [queueStates, currentLobbies] = await Promise.all([
+    getQueueStates(kv),
+    getCurrentLobbies(kv),
+  ])
+  const openLobbiesByMode = new Map<GameMode, LobbyState[]>()
 
   for (const mode of GAME_MODES) {
-    let queue = await getQueueState(kv, mode)
-    const lobbies = await getLobbiesByMode(kv, mode)
+    openLobbiesByMode.set(mode, [])
+  }
+
+  for (const lobby of currentLobbies) {
+    if (lobby.status !== 'open') continue
+    openLobbiesByMode.get(lobby.mode)?.push(lobby)
+  }
+
+  for (const mode of GAME_MODES) {
+    let queue = queueStates.get(mode)
+    const lobbies = openLobbiesByMode.get(mode) ?? []
+    if (!queue) continue
 
     for (const lobby of lobbies) {
       if (!isLobbyInactive(lobby, now)) continue
