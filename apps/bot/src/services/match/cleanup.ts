@@ -3,7 +3,8 @@ import type { PruneMatchesOptions, PruneMatchesResult } from './types.ts'
 import { matchBans, matches, matchParticipants } from '@civup/db'
 import { and, eq, inArray, isNull, lt, or } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
-import { clearLobbyById, clearLobbyByMatch, getCurrentLobbies } from '../lobby/index.ts'
+import { syncActivityOverviewSnapshot } from '../activity/live-state.ts'
+import { clearLobbyById, clearLobbyByMatch, getCurrentLobbies, getLobbyByMatch } from '../lobby/index.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS, STALE_CANCELLED_MATCH_TIMEOUT_MS, STALE_DRAFTING_MATCH_TIMEOUT_MS } from './retention.ts'
 
 export async function pruneAbandonedMatches(
@@ -27,6 +28,7 @@ export async function pruneAbandonedMatches(
 
   const removedMatchIds: string[] = []
   const clearedLiveLobbyMatchIds: string[] = []
+  const overviewChannelIds = new Set<string>()
 
   for (const match of staleMatches) {
     const participants = await db
@@ -42,7 +44,15 @@ export async function pruneAbandonedMatches(
       channelId ?? undefined,
     )
 
-    await clearLobbyByMatch(kv, match.id)
+    const lobby = await getLobbyByMatch(kv, match.id)
+    if (lobby) {
+      await clearLobbyById(kv, lobby.id, lobby, { syncActivityOverview: false })
+      overviewChannelIds.add(lobby.channelId)
+    }
+    else {
+      await clearLobbyByMatch(kv, match.id)
+    }
+
     await db.delete(matchBans).where(eq(matchBans.matchId, match.id))
     await db.delete(matchParticipants).where(eq(matchParticipants.matchId, match.id))
     await db.delete(matches).where(eq(matches.id, match.id))
@@ -67,9 +77,14 @@ export async function pruneAbandonedMatches(
       if (matchStatus === 'drafting' || matchStatus === 'active') continue
 
       await clearActivityMappings(kv, matchId, lobby.memberPlayerIds, lobby.channelId)
-      await clearLobbyById(kv, lobby.id, lobby)
+      await clearLobbyById(kv, lobby.id, lobby, { syncActivityOverview: false })
+      overviewChannelIds.add(lobby.channelId)
       clearedLiveLobbyMatchIds.push(matchId)
     }
+  }
+
+  if (overviewChannelIds.size > 0) {
+    await Promise.all([...overviewChannelIds].map(channelId => syncActivityOverviewSnapshot(kv, channelId)))
   }
 
   const completedBanRows = await db
