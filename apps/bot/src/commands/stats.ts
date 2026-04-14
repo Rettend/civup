@@ -64,7 +64,7 @@ export const command_stats = factory.command<Var>(
       })())
 
       if (teammateIds.length > 0) {
-        const embed = await teamCardEmbed(db, kv, guildId ?? null, playerIds)
+        const embed = await teamCardEmbed(db, kv, guildId ?? null, playerIds, mode)
         await c.followup({ embeds: [embed] })
         return
       }
