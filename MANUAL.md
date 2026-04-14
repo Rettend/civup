@@ -52,7 +52,7 @@ Run these in the channels you want the bot to use:
 Use `/admin ranked set` to map Discord roles to tiers:
 
 - `tier1` is the highest role
-- the last configured tier is the base role that players get after playing 3 games, before that they are Unranked
+- the last configured tier is the base role that players get after playing 10 games, before that they are Unranked
 - bot supports 3 to 10 tiers
 
 Commands:
@@ -366,7 +366,7 @@ Ending a season will rotate the Leaderboard embeds, and give past season roles t
 
 **Season roles** are Ranked roles prefixed with the season number, for example `@Role1` becomes `@S1 Role1`. These are only kept for the past 4 seasons, ratings after that can only be viewed with the `/rank` command.
 
-Starting a season with soft reset enabled resets ratings instead of wiping them: players keep their skill estimate but their uncertainty is increased. They also must play 3 games before they reappear on leaderboards and re-earn roles. Starting a season without soft reset only begins assigning new matches to that season and preserves the current ladder state.
+Starting a season with soft reset enabled resets ratings instead of wiping them: players keep their skill estimate but their uncertainty is increased. They also must play 10 games before they reappear on leaderboards and re-earn roles. Starting a season without soft reset only begins assigning new matches to that season and preserves the current ladder state.
 
 ## Correction tools for Mods
 

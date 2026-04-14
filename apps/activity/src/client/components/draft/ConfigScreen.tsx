@@ -1822,18 +1822,6 @@ export function ConfigScreen(props: ConfigScreenProps) {
                             valueClass={draftConfig().simultaneousPick ? 'text-accent' : undefined}
                           />
                         </Show>
-                        <Show when={isLobbyMode()}>
-                          <ReadonlyTimerRow
-                            label="Random draft"
-                            value={formattedRandomDraft()}
-                            valueClass={draftConfig().randomDraft ? 'text-accent' : undefined}
-                          />
-                          <ReadonlyTimerRow
-                            label={duplicateOptionLabel()}
-                            value={formattedDuplicateFactions()}
-                            valueClass={draftDuplicateFactions() ? 'text-accent' : undefined}
-                          />
-                        </Show>
                         <Show when={isLobbyMode() && !isUnrankedMode(lobbyMode())}>
                           <>
                             <ReadonlyTimerRow
@@ -1860,6 +1848,18 @@ export function ConfigScreen(props: ConfigScreenProps) {
                           label="Pick timer"
                           value={formatTimerValue(timerConfig().pickTimerSeconds, serverDefaultTimerConfig().pickTimerSeconds)}
                         />
+                        <Show when={isLobbyMode()}>
+                          <ReadonlyTimerRow
+                            label="Random draft"
+                            value={formattedRandomDraft()}
+                            valueClass={draftConfig().randomDraft ? 'text-accent' : undefined}
+                          />
+                          <ReadonlyTimerRow
+                            label={duplicateOptionLabel()}
+                            value={formattedDuplicateFactions()}
+                            valueClass={draftDuplicateFactions() ? 'text-accent' : undefined}
+                          />
+                        </Show>
                       </div>
                     )}
                   >

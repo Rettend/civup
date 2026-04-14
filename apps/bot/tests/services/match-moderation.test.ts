@@ -7,7 +7,7 @@ import { cancelMatchByModerator, recalculateLeaderboardMode, reportMatch, resolv
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('match moderation recalculation', () => {
-  test('reporting a 5v5 match leaves ranked ratings untouched', async () => {
+  test('reporting a 5v5 match records squad ratings', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
@@ -57,11 +57,16 @@ describe('match moderation recalculation', () => {
       if ('error' in result) return
 
       expect(result.match.status).toBe('completed')
-      expect(result.participants.every(participant => participant.ratingBeforeMu == null && participant.ratingAfterMu == null)).toBe(true)
+      expect(result.participants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
       expect(result.participants.every(participant => participant.leaderboardBeforeRank == null && participant.leaderboardAfterRank == null)).toBe(true)
 
-      const ratingRows = await db.select().from(playerRatings)
-      expect(ratingRows).toHaveLength(0)
+      const ratingRows = await db
+        .select()
+        .from(playerRatings)
+        .where(eq(playerRatings.mode, 'squad'))
+
+      expect(ratingRows).toHaveLength(10)
+      expect(ratingRows.every(row => row.gamesPlayed === 1)).toBe(true)
     }
     finally {
       sqlite.close()
