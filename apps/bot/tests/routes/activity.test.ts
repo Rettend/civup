@@ -85,6 +85,47 @@ describe('activity lobby join eligibility', () => {
     })
   })
 
+  test('ignores stale live-match lobbies when D1 shows no live match', async () => {
+    const { kv } = createTrackedKv()
+    const liveLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'player-1',
+      channelId: 'channel-1',
+      messageId: 'message-live',
+    })
+    const openLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-2',
+      channelId: 'channel-2',
+      messageId: 'message-open',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-2',
+      displayName: 'Host 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await attachLobbyMatch(kv, liveLobby.id, 'match-stale', liveLobby)
+
+    const snapshot = await buildOpenLobbySnapshot(kv, '2v2', openLobby)
+    const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', openLobby, snapshot, {
+      db: buildDb([]),
+    })
+
+    expect(eligibility).toEqual({
+      canJoin: true,
+      blockedReason: null,
+      pendingSlot: 1,
+    })
+  })
+
   test('allows joining another open lobby when the viewer is not the source host', async () => {
     const { kv } = createTrackedKv()
     const sourceLobby = await createLobby(kv, {
@@ -739,12 +780,35 @@ describe('activity target selection', () => {
 function buildEnv(kv: KVNamespace) {
   return {
     KV: kv,
-    DB: {} as any,
+    DB: buildDb(null),
     DISCORD_APPLICATION_ID: 'app',
     DISCORD_PUBLIC_KEY: 'key',
     DISCORD_TOKEN: 'token',
     CIVUP_SECRET: 'secret',
   } as any
+}
+
+function buildDb(liveMatchPlayerIds: string[] | null): D1Database {
+  if (liveMatchPlayerIds == null) return {} as D1Database
+
+  const livePlayerIdSet = new Set(liveMatchPlayerIds)
+  return {
+    prepare() {
+      return {
+        bind(...values: unknown[]) {
+          return {
+            async all() {
+              return {
+                results: values
+                  .filter((value): value is string => typeof value === 'string' && livePlayerIdSet.has(value))
+                  .map(playerId => ({ playerId, matchId: `match:${playerId}` })),
+              }
+            },
+          }
+        },
+      }
+    },
+  } as D1Database
 }
 
 function buildAuthHeaders(userId: string): HeadersInit {

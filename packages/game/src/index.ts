@@ -1,6 +1,6 @@
 export { MAX_TIMER_SECONDS } from './constants.ts'
 export { default1v1, default2v2, default3v3, default4v4, default5v5, default6v6, defaultFfa, defaultFfaSimultaneous, draftFormatMap, draftFormats, formatDraftStepLabel, getDefaultFormat, getDraftFormat, isRedDeathFormatId, redDeath1v1, redDeath2v2, redDeath3v3, redDeath4v4, redDeath5v5, redDeath6v6, redDeathFfa } from './draft-formats.ts'
-export { createDraft, getBansForSeat, getCurrentStep, getPendingSeats, getPicksForSeat, isDraftError, isPlayerTurn, processDraftInput, swapSeatPicks } from './draft-machine.ts'
+export { createDraft, getBansForSeat, getCurrentStep, getPendingSeats, getPickSeatForPlayer, getPicksForSeat, isDraftError, isPlayerTurn, processDraftInput, swapSeatPicks } from './draft-machine.ts'
 export { allFactionIds, factionMap, factions, getFaction, searchFactions } from './factions.ts'
 export { betaLeaderDataVersionLabel, hasBetaLeaderData, liveLeaderDataVersionLabel, normalizeAvailableLeaderDataVersion } from './leader-data-meta.ts'
 export { getDefaultLeaderPoolSize, getMinimumLeaderPoolSize, MAX_LEADER_POOL_SIZE, resolveLeaderPoolSize, sampleLeaderPool } from './leader-pool.ts'

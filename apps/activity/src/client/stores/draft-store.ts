@@ -1,5 +1,5 @@
 import type { DraftEvent, DraftPreviewState, DraftSelection, DraftState, DraftStep, LeaderDataVersion, LeaderSwapState, PendingLeaderSwapRequest } from '@civup/game'
-import { inferGameMode, isRedDeathFormatId } from '@civup/game'
+import { getPickSeatForPlayer, inferGameMode, isRedDeathFormatId } from '@civup/game'
 import { createStore, produce } from 'solid-js/store'
 
 const EMPTY_DRAFT_PREVIEWS: DraftPreviewState = {
@@ -157,19 +157,12 @@ export function applySwapUpdate(swapState: LeaderSwapState, picks?: DraftSelecti
 /** Optimistically show a pick for this client's seat until server update arrives. */
 export function setOptimisticSeatPick(civId: string): void {
   const s = draftStore.state
-  const seat = draftStore.seatIndex
+  const seat = currentPickTargetSeatIndex()
   if (!s || s.status !== 'active' || seat == null) return
 
   const step = s.steps[s.currentStepIndex]
   if (!step || step.action !== 'pick') return
-
-  const seatIsInStep = step.seats === 'all'
-    ? seat >= 0 && seat < s.seats.length
-    : step.seats.includes(seat)
-  if (!seatIsInStep) return
-
-  const submittedCount = s.submissions[seat]?.length ?? 0
-  if (submittedCount >= step.count) return
+  if ((s.submissions[seat]?.length ?? 0) >= step.count) return
 
   setDraftStore('optimisticSeatPicks', seat, civId)
 }
@@ -186,6 +179,25 @@ export function getPreviewPickForSeat(seatIndex: number): string | null {
   return getPreviewPicksForSeat(seatIndex)[0] ?? null
 }
 
+/** Get the seat this client would currently submit a pick for. */
+export function currentPickTargetSeatIndex(): number | null {
+  const s = draftStore.state
+  const seat = draftStore.seatIndex
+  if (!s || seat == null) return null
+  return getPickSeatForPlayer(s, seat)
+}
+
+/** Whether the current pick turn belongs to this client's own seat. */
+export function isMyOwnPickTurn(): boolean {
+  const s = draftStore.state
+  const seat = draftStore.seatIndex
+  if (!s || s.status !== 'active' || seat == null) return false
+
+  const step = s.steps[s.currentStepIndex]
+  if (!step || step.action !== 'pick') return false
+  return currentPickTargetSeatIndex() === seat
+}
+
 export function seatHasLockedPick(seatIndex: number): boolean {
   return draftStore.state?.picks.some(pick => pick.seatIndex === seatIndex) ?? false
 }
@@ -198,6 +210,8 @@ export function canSendPickPreview(): boolean {
   const step = s.steps[s.currentStepIndex]
   if (!step || step.action !== 'pick') return false
   if (seatHasLockedPick(seat)) return false
+  const targetSeat = currentPickTargetSeatIndex()
+  if (targetSeat != null && targetSeat !== seat) return false
   if (!canOpenLeaderGrid()) return false
 
   return isRedDeathDraft() ? isMyTurn() : true
@@ -265,7 +279,7 @@ export function currentStep(): DraftStep | null {
   return s.steps[s.currentStepIndex] ?? null
 }
 
-/** Whether this client's seat is active in the current step */
+/** Whether this client can act in the current step. */
 export function isMyTurn(): boolean {
   const s = draftStore.state
   const seat = draftStore.seatIndex
@@ -273,6 +287,7 @@ export function isMyTurn(): boolean {
 
   const step = s.steps[s.currentStepIndex]
   if (!step) return false
+  if (step.action === 'pick') return currentPickTargetSeatIndex() != null
 
   if (step.seats === 'all') return true
   return step.seats.includes(seat)
@@ -284,11 +299,15 @@ export function hasSubmitted(): boolean {
   const seat = draftStore.seatIndex
   if (!s || seat == null) return false
 
-  const submissions = s.submissions[seat]
-  if (!submissions) return false
-
   const step = s.steps[s.currentStepIndex]
   if (!step) return false
+
+  const targetSeat = step.action === 'pick'
+    ? currentPickTargetSeatIndex() ?? seat
+    : seat
+
+  const submissions = s.submissions[targetSeat]
+  if (!submissions) return false
 
   return submissions.length >= step.count
 }

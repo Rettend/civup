@@ -37,6 +37,7 @@ import {
   upsertLobbyMessage,
 } from '../../services/lobby/index.ts'
 import { modeIndexKey } from '../../services/lobby/keys.ts'
+import { findPersistedLiveMatchIdsForPlayers } from '../../services/match/live.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { arePremadeGroupsAdjacent } from '../../services/lobby/premades.ts'
 import { normalizeDraftConfigForMode } from '../../services/lobby/normalize.ts'
@@ -626,18 +627,27 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const balanceSnapshot = preloaded.balanceSnapshot
     let transferNotice: string | null = null
 
-    const currentLobbiesForPlayer = await getCurrentLobbiesForPlayer(kv, movingPlayerId, {
-      excludeLobbyIds: [lobby.id],
-    })
-    const blockingLobbyForPlayer = currentLobbiesForPlayer.find(candidate => candidate.status !== 'open') ?? currentLobbiesForPlayer[0] ?? null
-    if (blockingLobbyForPlayer) {
-      if (blockingLobbyForPlayer.status !== 'open') {
-        return c.json({ error: 'That player is already in a live match.' }, 400)
+    const alreadyInTargetLobby = lobby.memberPlayerIds.includes(movingPlayerId) || lobby.slots.includes(movingPlayerId)
+    let blockingLobbyForPlayer: Awaited<ReturnType<typeof getCurrentLobbiesForPlayer>>[number] | null = null
+    if (!alreadyInTargetLobby) {
+      const currentLobbiesForPlayer = await getCurrentLobbiesForPlayer(kv, movingPlayerId, {
+        excludeLobbyIds: [lobby.id],
+      })
+      const persistedLiveMatchIds = await findPersistedLiveMatchIdsForPlayers(c.env.DB, [movingPlayerId])
+      const hasLiveMatch = persistedLiveMatchIds == null
+        ? currentLobbiesForPlayer.some(candidate => candidate.status !== 'open')
+        : persistedLiveMatchIds.has(movingPlayerId)
+      if (hasLiveMatch) {
+          return c.json({ error: 'That player is already in a live match.' }, 400)
       }
-      if (movingPlayerId !== auth.identity.userId) {
-        return c.json({ error: 'That player is already in another open lobby.' }, 400)
+
+      blockingLobbyForPlayer = currentLobbiesForPlayer.find(candidate => candidate.status === 'open') ?? null
+      if (blockingLobbyForPlayer) {
+        if (movingPlayerId !== auth.identity.userId) {
+          return c.json({ error: 'That player is already in another open lobby.' }, 400)
+        }
+        transferNotice = `Moved you from your previous ${formatModeLabel(blockingLobbyForPlayer.mode, blockingLobbyForPlayer.mode, { redDeath: blockingLobbyForPlayer.draftConfig.redDeath })} lobby.`
       }
-      transferNotice = `Moved you from your previous ${formatModeLabel(blockingLobbyForPlayer.mode, blockingLobbyForPlayer.mode, { redDeath: blockingLobbyForPlayer.draftConfig.redDeath })} lobby.`
     }
 
     const isQueuedForTargetMode = queue.entries.some(entry => entry.playerId === movingPlayerId)

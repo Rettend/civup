@@ -1,0 +1,183 @@
+{
+  "version": 1,
+  "globals": {
+    "warmupSamples": 1,
+    "stabilitySamples": 3,
+    "leaderboardPlayersPerMode": 250,
+    "modeFilter": "all"
+  },
+  "scenarios": [
+    {
+      "id": "duel-150",
+      "label": "Duel",
+      "gameMode": "1v1",
+      "leaderboardMode": "duel",
+      "matchCount": 150,
+      "participantsPerMatch": 2,
+      "leaderboardPlayersPerMode": 250,
+      "output": {
+        "fieldCount": 8,
+        "jsonBytes": 1508,
+        "topLeadersLines": 5,
+        "commonTeammatesLines": 0,
+        "commonOpponentsLines": 5,
+        "recentMatchesLines": 5
+      },
+      "cold": {
+        "sqlRowsRead": {
+          "rankProfile": 1260,
+          "embed": 200,
+          "total": 1460
+        },
+        "kvOps": {
+          "gets": 7,
+          "puts": 5,
+          "deletes": 0,
+          "lists": 0
+        }
+      },
+      "warm": {
+        "sqlRowsRead": {
+          "rankProfile": 5,
+          "embed": 200,
+          "total": 205
+        },
+        "kvOps": {
+          "gets": 7,
+          "puts": 0,
+          "deletes": 0,
+          "lists": 0
+        }
+      }
+    },
+    {
+      "id": "duo-150",
+      "label": "2v2",
+      "gameMode": "2v2",
+      "leaderboardMode": "duo",
+      "matchCount": 150,
+      "participantsPerMatch": 4,
+      "leaderboardPlayersPerMode": 250,
+      "output": {
+        "fieldCount": 9,
+        "jsonBytes": 1681,
+        "topLeadersLines": 5,
+        "commonTeammatesLines": 5,
+        "commonOpponentsLines": 5,
+        "recentMatchesLines": 5
+      },
+      "cold": {
+        "sqlRowsRead": {
+          "rankProfile": 1260,
+          "embed": 224,
+          "total": 1484
+        },
+        "kvOps": {
+          "gets": 7,
+          "puts": 5,
+          "deletes": 0,
+          "lists": 0
+        }
+      },
+      "warm": {
+        "sqlRowsRead": {
+          "rankProfile": 5,
+          "embed": 224,
+          "total": 229
+        },
+        "kvOps": {
+          "gets": 7,
+          "puts": 0,
+          "deletes": 0,
+          "lists": 0
+        }
+      }
+    },
+    {
+      "id": "ffa-150",
+      "label": "FFA8",
+      "gameMode": "ffa",
+      "leaderboardMode": "ffa",
+      "matchCount": 150,
+      "participantsPerMatch": 8,
+      "leaderboardPlayersPerMode": 250,
+      "output": {
+        "fieldCount": 8,
+        "jsonBytes": 1512,
+        "topLeadersLines": 5,
+        "commonTeammatesLines": 0,
+        "commonOpponentsLines": 5,
+        "recentMatchesLines": 5
+      },
+      "cold": {
+        "sqlRowsRead": {
+          "rankProfile": 1260,
+          "embed": 248,
+          "total": 1508
+        },
+        "kvOps": {
+          "gets": 7,
+          "puts": 5,
+          "deletes": 0,
+          "lists": 0
+        }
+      },
+      "warm": {
+        "sqlRowsRead": {
+          "rankProfile": 5,
+          "embed": 248,
+          "total": 253
+        },
+        "kvOps": {
+          "gets": 7,
+          "puts": 0,
+          "deletes": 0,
+          "lists": 0
+        }
+      }
+    },
+    {
+      "id": "sixes-120",
+      "label": "6v6",
+      "gameMode": "6v6",
+      "leaderboardMode": "squad",
+      "matchCount": 120,
+      "participantsPerMatch": 12,
+      "leaderboardPlayersPerMode": 250,
+      "output": {
+        "fieldCount": 9,
+        "jsonBytes": 1688,
+        "topLeadersLines": 5,
+        "commonTeammatesLines": 5,
+        "commonOpponentsLines": 5,
+        "recentMatchesLines": 5
+      },
+      "cold": {
+        "sqlRowsRead": {
+          "rankProfile": 1260,
+          "embed": 266,
+          "total": 1526
+        },
+        "kvOps": {
+          "gets": 7,
+          "puts": 5,
+          "deletes": 0,
+          "lists": 0
+        }
+      },
+      "warm": {
+        "sqlRowsRead": {
+          "rankProfile": 5,
+          "embed": 266,
+          "total": 271
+        },
+        "kvOps": {
+          "gets": 7,
+          "puts": 0,
+          "deletes": 0,
+          "lists": 0
+        }
+      }
+    }
+  ]
+}

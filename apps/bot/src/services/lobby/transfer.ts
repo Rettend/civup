@@ -2,7 +2,7 @@ import type { GameMode, QueueEntry } from '@civup/game'
 import type { LobbyState } from './types.ts'
 import { slotToTeamIndex } from '@civup/game'
 import { lobbyCancelledEmbed } from '../../embeds/match.ts'
-import { clearLobbyMappingsIfMatchingLobby } from '../activity/index.ts'
+import { clearUserLobbyMappings } from '../activity/index.ts'
 import { clearQueue, getQueueState } from '../queue/index.ts'
 import { buildOpenLobbyRenderPayload } from './render.ts'
 import { setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbyStatus } from './mutations.ts'
@@ -50,7 +50,7 @@ export async function leaveOpenLobbyForLobbyJoin(
 
   if (remainingMemberIds.length === 0) {
     const cancelledLobby = await setLobbyStatus(kv, lobby.id, 'cancelled', lobby) ?? { ...lobby, status: 'cancelled' as const }
-    await clearLobbyMappingsIfMatchingLobby(kv, uniqueMovingPlayerIds, lobby.id, lobby.channelId)
+    await clearUserLobbyMappings(kv, uniqueMovingPlayerIds)
 
     if (token) {
       try {
@@ -95,7 +95,7 @@ export async function leaveOpenLobbyForLobbyJoin(
     queueEntries: nextLobbyQueueEntries,
     slots: nextSlots,
   })
-  await clearLobbyMappingsIfMatchingLobby(kv, uniqueMovingPlayerIds, lobby.id, lobby.channelId)
+  await clearUserLobbyMappings(kv, uniqueMovingPlayerIds)
 
   if (token) {
     try {

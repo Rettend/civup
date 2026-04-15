@@ -17,7 +17,7 @@ const OPP4_ID = '100010000000000093'
 const OPP5_ID = '100010000000000090'
 
 describe('team stats embed', () => {
-  test('renders shared duo stats, leaders, and grouped recent matches', async () => {
+  test('uses all compatible team modes for default lineup stats', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedConfiguredRoles(kv)
@@ -112,14 +112,14 @@ describe('team stats embed', () => {
     })
 
     const embed = (await teamCardEmbed(db, kv, 'guild-1', [HERO_ID, MATE_ID])).toJSON()
-    const duoField = embed.fields?.find(field => field.name === 'Duo')
+    const lineupField = embed.fields?.find(field => field.name === 'Lineup')
     const topLeadersField = embed.fields?.find(field => field.name === 'Top Leaders')
     const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
 
-    expect(embed.description).toBe(`<@${HERO_ID}> + <@${MATE_ID}> - <@&11111111111111111>`)
-    expect(duoField?.value).toContain('Rating: <@&11111111111111111> (')
-    expect(duoField?.value).toContain('Games: 2')
-    expect(duoField?.value).toContain('Wins: 1 (50%)')
+    expect(embed.description).toBe(`<@${HERO_ID}> + <@${MATE_ID}>`)
+    expect(lineupField?.value).not.toContain('Rating:')
+    expect(lineupField?.value).toContain('Games: 3')
+    expect(lineupField?.value).toContain('Wins: 2 (67%)')
 
     expect(topLeadersField?.value).toContain('Hojo Tokimune')
     expect(topLeadersField?.value).toContain('Hammurabi')
@@ -127,9 +127,70 @@ describe('team stats embed', () => {
 
     expect(recentMatchesField?.value).toContain('#2')
     expect(recentMatchesField?.value).toContain('#1')
+    expect(recentMatchesField?.value).toContain('3v3')
     expect(recentMatchesField?.value).toContain('Hojo Tokimune')
     expect(recentMatchesField?.value).toContain('Hammurabi')
     expect(recentMatchesField?.value).toContain('`   `')
+
+    sqlite.close()
+  })
+
+  test('uses the explicit mode filter to keep the old exact-mode lineup behavior', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedConfiguredRoles(kv)
+
+    for (const [playerId, displayName] of [
+      [HERO_ID, 'Hero'],
+      [MATE_ID, 'Mate'],
+      [EXTRA_ID, 'Extra'],
+      [OPP1_ID, 'Opp 1'],
+      [OPP2_ID, 'Opp 2'],
+      [OPP3_ID, 'Opp 3'],
+      [OPP4_ID, 'Opp 4'],
+    ] as const) {
+      await seedPlayerIdentity(db, playerId, displayName)
+    }
+
+    await seedRating(db, { playerId: HERO_ID, mode: 'duo', mu: 30, sigma: 6, gamesPlayed: 6, wins: 4 })
+    await seedRating(db, { playerId: MATE_ID, mode: 'duo', mu: 29, sigma: 6, gamesPlayed: 6, wins: 4 })
+
+    await seedCompletedMatch(db, {
+      matchId: 'duo-only-1',
+      gameMode: '2v2',
+      completedAt: NOW - 2_000,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: 'japan-hojo-tokimune', ratingBeforeMu: 25, ratingBeforeSigma: 6, ratingAfterMu: 26, ratingAfterSigma: 5.8 },
+        { playerId: MATE_ID, team: 0, placement: 1, civId: 'babylon-hammurabi', ratingBeforeMu: 25, ratingBeforeSigma: 6, ratingAfterMu: 26, ratingAfterSigma: 5.8 },
+        { playerId: OPP1_ID, team: 1, placement: 2, civId: 'rome-trajan', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP2_ID, team: 1, placement: 2, civId: 'macedon-alexander', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ],
+    })
+
+    await seedCompletedMatch(db, {
+      matchId: 'duo-only-2',
+      gameMode: '3v3',
+      completedAt: NOW - 1_000,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: 'japan-hojo-tokimune', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: MATE_ID, team: 0, placement: 1, civId: 'babylon-hammurabi', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: EXTRA_ID, team: 0, placement: 1, civId: 'rome-trajan', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP1_ID, team: 1, placement: 2, civId: 'macedon-alexander', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP2_ID, team: 1, placement: 2, civId: 'rome-trajan', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP3_ID, team: 1, placement: 2, civId: 'macedon-alexander', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ],
+    })
+
+    const embed = (await teamCardEmbed(db, kv, 'guild-1', [HERO_ID, MATE_ID], '2v2')).toJSON()
+    const duoField = embed.fields?.find(field => field.name === 'Duo')
+    const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
+
+    expect(embed.description).toBe(`<@${HERO_ID}> + <@${MATE_ID}> - <@&11111111111111111>`)
+    expect(duoField?.value).toContain('Rating: <@&11111111111111111> (')
+    expect(duoField?.value).toContain('Games: 1')
+    expect(duoField?.value).toContain('Wins: 1 (100%)')
+    expect(recentMatchesField?.value).toContain('2v2')
+    expect(recentMatchesField?.value).not.toContain('3v3')
 
     sqlite.close()
   })
@@ -144,7 +205,7 @@ describe('team stats embed', () => {
     await seedRating(db, { playerId: HERO_ID, mode: 'duo', mu: 26, sigma: 6, gamesPlayed: 4, wins: 2 })
     await seedRating(db, { playerId: MATE_ID, mode: 'duo', mu: 27, sigma: 6, gamesPlayed: 5, wins: 3 })
 
-    const embed = (await teamCardEmbed(db, kv, 'guild-1', [HERO_ID, MATE_ID])).toJSON()
+    const embed = (await teamCardEmbed(db, kv, 'guild-1', [HERO_ID, MATE_ID], '2v2')).toJSON()
 
     expect(embed.description).toBe(`<@${HERO_ID}> + <@${MATE_ID}> - <@&11111111111111111>`)
     expect(embed.fields?.[0]?.name).toBe('Overview')
@@ -184,7 +245,7 @@ describe('team stats embed', () => {
       ],
     })
 
-    const embed = (await teamCardEmbed(db, kv, null, [HERO_ID, MATE_ID])).toJSON()
+    const embed = (await teamCardEmbed(db, kv, null, [HERO_ID, MATE_ID], '2v2')).toJSON()
     const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
 
     expect(recentMatchesField?.value).toContain('2v2 [old]')
@@ -234,7 +295,7 @@ describe('team stats embed', () => {
       ],
     })
 
-    const embed = (await teamCardEmbed(db, kv, null, [HERO_ID, MATE_ID, EXTRA_ID, ALLY4_ID, ALLY5_ID])).toJSON()
+    const embed = (await teamCardEmbed(db, kv, null, [HERO_ID, MATE_ID, EXTRA_ID, ALLY4_ID, ALLY5_ID], '5v5')).toJSON()
     const squadField = embed.fields?.find(field => field.name === 'Squad')
     const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
 
@@ -322,7 +383,7 @@ describe('team stats embed', () => {
       ],
     })
 
-    const embed = (await teamCardEmbed(db, kv, 'guild-1', [HERO_ID, MATE_ID])).toJSON()
+    const embed = (await teamCardEmbed(db, kv, 'guild-1', [HERO_ID, MATE_ID], '2v2')).toJSON()
     const duoField = embed.fields?.find(field => field.name === 'Duo')
 
     expect(embed.description).toBe(`<@${HERO_ID}> + <@${MATE_ID}> - <@&22222222222222222>`)
@@ -361,7 +422,7 @@ describe('team stats embed', () => {
       ],
     })
 
-    const embed = (await teamCardEmbed(db, kv, 'guild-1', [HERO_ID, MATE_ID])).toJSON()
+    const embed = (await teamCardEmbed(db, kv, 'guild-1', [HERO_ID, MATE_ID], '2v2')).toJSON()
     const duoField = embed.fields?.find(field => field.name === 'Duo')
     const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
 

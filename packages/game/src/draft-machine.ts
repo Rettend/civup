@@ -601,6 +601,28 @@ export function getPendingSeats(state: DraftState): number[] {
   })
 }
 
+/** Get which seat this player may currently submit a pick for. */
+export function getPickSeatForPlayer(state: DraftState, seatIndex: number): number | null {
+  if (seatIndex < 0 || seatIndex >= state.seats.length) return null
+
+  const step = getCurrentStep(state)
+  if (!step || step.action !== 'pick') return null
+  if (isSeatPendingForStep(state, step, seatIndex)) return seatIndex
+  if (step.seats === 'all' || step.seats.length !== 1) return null
+
+  const ownSeat = state.seats[seatIndex]
+  const targetSeatIndex = step.seats[0]
+  if (targetSeatIndex == null) return null
+
+  const targetSeat = state.seats[targetSeatIndex]
+  if (!ownSeat || !targetSeat) return null
+  if (ownSeat.team == null || targetSeat.team == null || ownSeat.team !== targetSeat.team) return null
+  if (!isSeatTeamCaptain(state.seats, seatIndex)) return null
+  if (!isSeatPendingForStep(state, step, targetSeatIndex)) return null
+
+  return targetSeatIndex
+}
+
 /** Get picks for a specific seat */
 export function getPicksForSeat(state: DraftState, seatIndex: number): DraftSelection[] {
   return state.picks.filter(p => p.seatIndex === seatIndex)
@@ -615,4 +637,20 @@ export function getBansForSeat(state: DraftState, seatIndex: number): DraftSelec
 export function isPlayerTurn(state: DraftState, playerId: string): boolean {
   const pendingSeats = getPendingSeats(state)
   return pendingSeats.some(seat => state.seats[seat]?.playerId === playerId)
+}
+
+function isSeatPendingForStep(state: DraftState, step: DraftStep, seatIndex: number): boolean {
+  if (!isSeatActive(step, seatIndex, state.seats.length)) return false
+  return (state.submissions[seatIndex]?.length ?? 0) < step.count
+}
+
+function isSeatTeamCaptain(seats: DraftSeat[], seatIndex: number): boolean {
+  const team = seats[seatIndex]?.team
+  if (team == null) return false
+
+  for (let currentSeatIndex = 0; currentSeatIndex < seats.length; currentSeatIndex++) {
+    if (seats[currentSeatIndex]?.team === team) return currentSeatIndex === seatIndex
+  }
+
+  return false
 }
