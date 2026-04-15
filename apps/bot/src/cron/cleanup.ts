@@ -66,7 +66,7 @@ export const cron_ranked_roles = factory.cron(
       const guildIds = await listRankedRoleConfigGuildIds(kv)
       let syncedGuilds = 0
       for (const guildId of guildIds) {
-        await syncRankedRoles({
+        const result = await syncRankedRoles({
           db,
           kv,
           guildId,
@@ -74,6 +74,7 @@ export const cron_ranked_roles = factory.cron(
           applyDiscord: true,
           advanceDemotionWindow: true,
         })
+        if (result.pendingDiscordChanges === 0 && await getRankedRolesDirtyState(kv)) await clearRankedRolesDirtyState(kv)
         syncedGuilds += 1
       }
 
@@ -81,8 +82,6 @@ export const cron_ranked_roles = factory.cron(
         // eslint-disable-next-line no-console
         console.log(`[cron] Synced ranked roles for ${syncedGuilds} guild(s)`)
       }
-
-      if (await getRankedRolesDirtyState(kv)) await clearRankedRolesDirtyState(kv)
     }
     catch (error) {
       console.error('[cron] Failed to sync ranked roles:', error)
