@@ -4,6 +4,7 @@ import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import {
   banSelections,
+  currentPickTargetSeatIndex,
   currentStep,
   draftStore,
   isLeaderFavorited,
@@ -118,7 +119,7 @@ function useLeaderCardState(props: LeaderCardProps) {
   }
 
   const seatHasLockedPickForCard = (): boolean => {
-    const seat = draftStore.seatIndex
+    const seat = currentPickTargetSeatIndex() ?? draftStore.seatIndex
     if (seat == null) return false
     return state()?.picks.some(pick => pick.seatIndex === seat) ?? false
   }

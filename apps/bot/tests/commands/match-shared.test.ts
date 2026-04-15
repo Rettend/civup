@@ -1,8 +1,10 @@
+import { matches, matchParticipants, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
+import { findActiveMatchIdsForPlayers, joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
 import { attachLobbyMatch, createLobby, getLobbyById, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../../src/services/lobby/index.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
@@ -335,4 +337,45 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     expect((await getLobbyById(kv, targetLobby.id))?.memberPlayerIds).toEqual(['target-host', 'pleb'])
   })
 
+})
+
+describe('findActiveMatchIdsForPlayers', () => {
+  test('returns only active matches and preserves newest-first ordering', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await db.insert(players).values([
+        { id: 'p1', displayName: 'Player 1', avatarUrl: null, createdAt: 1 },
+        { id: 'p2', displayName: 'Player 2', avatarUrl: null, createdAt: 1 },
+        { id: 'p3', displayName: 'Player 3', avatarUrl: null, createdAt: 1 },
+      ])
+
+      await db.insert(matches).values([
+        { id: 'draft-1', gameMode: '1v1', status: 'drafting', createdAt: 1, completedAt: null, seasonId: null, draftData: null },
+        { id: 'active-1', gameMode: '1v1', status: 'active', createdAt: 2, completedAt: null, seasonId: null, draftData: null },
+        { id: 'completed-1', gameMode: '1v1', status: 'completed', createdAt: 3, completedAt: 4, seasonId: null, draftData: null },
+        { id: 'active-2', gameMode: '1v1', status: 'active', createdAt: 4, completedAt: null, seasonId: null, draftData: null },
+      ])
+
+      await db.insert(matchParticipants).values([
+        { matchId: 'draft-1', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'draft-1', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'active-1', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'active-1', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'completed-1', playerId: 'p1', team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'completed-1', playerId: 'p3', team: 1, civId: null, placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'active-2', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'active-2', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ])
+
+      const activeMatchIdsByPlayer = await findActiveMatchIdsForPlayers(db, ['p1', 'p2', 'p3'])
+
+      expect(activeMatchIdsByPlayer.get('p1')).toEqual(['active-2', 'active-1'])
+      expect(activeMatchIdsByPlayer.get('p2')).toEqual(['active-2', 'active-1'])
+      expect(activeMatchIdsByPlayer.get('p3')).toBeUndefined()
+    }
+    finally {
+      sqlite.close()
+    }
+  })
 })

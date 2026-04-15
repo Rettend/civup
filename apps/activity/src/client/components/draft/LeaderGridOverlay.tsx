@@ -21,6 +21,7 @@ import {
   canSendPickPreview,
   clearSelections,
   clearTagFilters,
+  currentPickTargetSeatIndex,
   currentStep,
   dealtCivIds,
   detailLeaderId,
@@ -29,6 +30,7 @@ import {
   gridOpen,
   gridViewMode,
   hasSubmitted,
+  isMyOwnPickTurn,
   isMyTurn,
   isRandomSelected,
   isRedDeathDraft,
@@ -88,6 +90,15 @@ function resolveTooltipPosition(x: number, y: number, width: number, height: num
   top = Math.max(edge, Math.min(top, vh - height - edge))
 
   return { left, top }
+}
+
+function parseHydrationSeatIndex(token: string | null): number | null {
+  if (!token) return null
+  const rawSeatIndex = token.split(':').at(-1)
+  if (rawSeatIndex == null) return null
+
+  const seatIndex = Number(rawSeatIndex)
+  return Number.isInteger(seatIndex) ? seatIndex : null
 }
 
 function computeListNeighborMap(
@@ -163,9 +174,10 @@ export function LeaderGridOverlay() {
   const step = currentStep
   const accent = () => phaseAccent()
   const ownSeatIndex = () => draftStore.seatIndex
+  const pickSelectionSeatIndex = () => currentPickTargetSeatIndex() ?? ownSeatIndex()
   const currentHydrationToken = () => {
     const current = state()
-    const seatIndex = ownSeatIndex()
+    const seatIndex = step()?.action === 'pick' ? pickSelectionSeatIndex() : ownSeatIndex()
     return current && seatIndex != null ? `${draftStore.initVersion}:${current.currentStepIndex}:${seatIndex}` : null
   }
   const [hoverTooltip, setHoverTooltip] = createSignal<HoverTooltip | null>(null)
@@ -269,7 +281,10 @@ export function LeaderGridOverlay() {
 
   // Auto-open grid when it's your turn
   createEffect(() => {
-    if (isMyTurn() && !hasSubmitted()) setGridOpen(true)
+    const currentStep = step()
+    if (!currentStep || hasSubmitted()) return
+    if (currentStep.action === 'pick' && !isMyOwnPickTurn()) return
+    if (isMyTurn()) setGridOpen(true)
   })
 
   createEffect(() => {
@@ -279,8 +294,8 @@ export function LeaderGridOverlay() {
 
   createEffect(() => {
     const current = state()
-    const seatIndex = ownSeatIndex()
     const currentStep = step()
+    const seatIndex = currentStep?.action === 'pick' ? pickSelectionSeatIndex() : ownSeatIndex()
     const hydrationToken = current && seatIndex != null ? `${draftStore.initVersion}:${current.currentStepIndex}:${seatIndex}` : null
 
     if (!current || current.status !== 'active' || seatIndex == null) {
@@ -322,6 +337,12 @@ export function LeaderGridOverlay() {
     }
 
     const serverPickPreview = (draftStore.previews.picks[seatIndex] ?? []).filter(civId => allowsDuplicatePicks || available.has(civId))
+    const seatContextChanged = parseHydrationSeatIndex(hydratedPickPreviewToken()) !== seatIndex
+    if (seatContextChanged) {
+      setPickSelections([...serverPickPreview])
+      if (hydrationToken) setHydratedPickPreviewToken(hydrationToken)
+      return
+    }
     if (localPickSelections.length === 0 && serverPickPreview.length > 0 && hydratedPickPreviewToken() !== hydrationToken) {
       setPickSelections([...serverPickPreview])
       setHydratedPickPreviewToken(hydrationToken)
@@ -424,6 +445,13 @@ export function LeaderGridOverlay() {
     if (!id) return false
     if (state()?.duplicateFactions === true) return true
     return !state()?.picks.some(p => p.civId === id)
+  }
+
+  const pickConfirmLabel = () => {
+    const targetSeat = currentPickTargetSeatIndex()
+    const ownSeat = ownSeatIndex()
+    if (targetSeat == null || ownSeat == null || targetSeat === ownSeat) return 'Confirm Pick'
+    return `Pick for ${state()?.seats[targetSeat]?.displayName ?? 'teammate'}`
   }
 
   const canConfirmBan = () => {
@@ -926,7 +954,7 @@ export function LeaderGridOverlay() {
               disabled={!canConfirmPick()}
               onClick={handleConfirmPick}
             >
-              Confirm Pick
+              {pickConfirmLabel()}
             </button>
           </Show>
         </div>

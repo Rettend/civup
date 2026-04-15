@@ -265,20 +265,18 @@ describe('ranked role sync service', () => {
       tier1: '55555555555555555',
     })
 
-    const patchCalls: Array<{ userId: string, roles: string[] }> = []
+    const roleCalls: Array<{ method: 'PUT' | 'DELETE', userId: string, roleId: string }> = []
     const topPlayerId = playerIdFor('ffa', 1)
     const bottomPlayerId = playerIdFor('ffa', 8)
     globalThis.fetch = (async (input, init) => {
-      const url = String(input)
-      if (init?.method === 'GET') {
-        const userId = url.split('/').pop() ?? ''
-        return new Response(JSON.stringify({ roles: userId === topPlayerId ? ['legacy-role'] : [] }), { status: 200 })
-      }
-      if (init?.method === 'PATCH') {
-        const userId = url.split('/').pop() ?? ''
-        const payload = JSON.parse(String(init.body)) as { roles: string[] }
-        patchCalls.push({ userId, roles: payload.roles })
-        return new Response('{}', { status: 200 })
+      const url = new URL(String(input))
+      const method = init?.method
+      if ((method === 'PUT' || method === 'DELETE') && url.pathname.includes('/members/')) {
+        const parts = url.pathname.split('/')
+        const roleId = parts.at(-1) ?? ''
+        const userId = parts.at(-3) ?? ''
+        roleCalls.push({ method, userId, roleId })
+        return new Response(null, { status: 204 })
       }
 
       return new Response('not found', { status: 404 })
@@ -294,9 +292,10 @@ describe('ranked role sync service', () => {
     })
 
     expect(result.appliedDiscordChanges).toBe(8)
-    const topPlayerCall = patchCalls.find(call => call.userId === topPlayerId)
-    expect(topPlayerCall?.roles).toContain('22222222222222222')
-    expect(topPlayerCall?.roles).not.toContain('legacy-role')
+    expect(roleCalls.filter(call => call.method === 'PUT')).toHaveLength(8)
+    expect(roleCalls.filter(call => call.method === 'DELETE')).toHaveLength(0)
+    const topPlayerCall = roleCalls.find(call => call.userId === topPlayerId)
+    expect(topPlayerCall?.roleId).toBe('22222222222222222')
 
     const assignments = await getCurrentRankAssignments(kv, 'guild-1')
     expect(assignments.byPlayerId[topPlayerId]?.tier).toBe(TIER_4)
@@ -319,8 +318,7 @@ describe('ranked role sync service', () => {
     })
 
     globalThis.fetch = (async (_input, init) => {
-      if (!init?.method || init.method === 'GET') return new Response(JSON.stringify({ roles: [] }), { status: 200 })
-      if (init?.method === 'PATCH') return new Response('{}', { status: 200 })
+      if (init?.method === 'PUT' || init?.method === 'DELETE') return new Response(null, { status: 204 })
       return new Response('not found', { status: 404 })
     }) as typeof fetch
 
@@ -333,16 +331,11 @@ describe('ranked role sync service', () => {
       applyDiscord: true,
     })
 
-    let getCalls = 0
-    let patchCalls = 0
+    let writeCalls = 0
     globalThis.fetch = (async (_input, init) => {
-      if (!init?.method || init.method === 'GET') {
-        getCalls += 1
-        return new Response(JSON.stringify({ roles: [] }), { status: 200 })
-      }
-      if (init?.method === 'PATCH') {
-        patchCalls += 1
-        return new Response('{}', { status: 200 })
+      if (init?.method === 'PUT' || init?.method === 'DELETE') {
+        writeCalls += 1
+        return new Response(null, { status: 204 })
       }
       return new Response('not found', { status: 404 })
     }) as typeof fetch
@@ -357,8 +350,7 @@ describe('ranked role sync service', () => {
     })
 
     expect(result.appliedDiscordChanges).toBe(0)
-    expect(getCalls).toBe(0)
-    expect(patchCalls).toBe(0)
+    expect(writeCalls).toBe(0)
 
     sqlite.close()
   })
@@ -378,8 +370,7 @@ describe('ranked role sync service', () => {
 
     const topPlayerId = playerIdFor('ffa', 1)
     globalThis.fetch = (async (_input, init) => {
-      if (!init?.method || init.method === 'GET') return new Response(JSON.stringify({ roles: [] }), { status: 200 })
-      if (init?.method === 'PATCH') return new Response('{}', { status: 200 })
+      if (init?.method === 'PUT' || init?.method === 'DELETE') return new Response(null, { status: 204 })
       return new Response('not found', { status: 404 })
     }) as typeof fetch
 
@@ -402,19 +393,18 @@ describe('ranked role sync service', () => {
       tier4: '99999999999999999',
     })
 
-    const getCalls: string[] = []
-    const patchCalls: Array<{ userId: string, roles: string[] }> = []
+    const deleteCalls: Array<{ userId: string, roleId: string }> = []
+    const putCalls: Array<{ userId: string, roleId: string }> = []
     globalThis.fetch = (async (input, init) => {
-      const url = String(input)
-      const userId = url.split('/').pop() ?? ''
-      if (!init?.method || init.method === 'GET') {
-        getCalls.push(userId)
-        return new Response(JSON.stringify({ roles: userId === topPlayerId ? ['22222222222222222'] : ['11111111111111111'] }), { status: 200 })
-      }
-      if (init?.method === 'PATCH') {
-        const payload = JSON.parse(String(init.body)) as { roles: string[] }
-        patchCalls.push({ userId, roles: payload.roles })
-        return new Response('{}', { status: 200 })
+      const url = new URL(String(input))
+      const method = init?.method
+      if ((method === 'PUT' || method === 'DELETE') && url.pathname.includes('/members/')) {
+        const parts = url.pathname.split('/')
+        const roleId = parts.at(-1) ?? ''
+        const userId = parts.at(-3) ?? ''
+        if (method === 'DELETE') deleteCalls.push({ userId, roleId })
+        if (method === 'PUT') putCalls.push({ userId, roleId })
+        return new Response(null, { status: 204 })
       }
       return new Response('not found', { status: 404 })
     }) as typeof fetch
@@ -429,11 +419,10 @@ describe('ranked role sync service', () => {
     })
 
     expect(result.appliedDiscordChanges).toBe(affectedPlayerIds.length)
-    expect([...getCalls].sort((a, b) => a.localeCompare(b))).toEqual(affectedPlayerIds)
-    expect(patchCalls.map(call => call.userId).sort((a, b) => a.localeCompare(b))).toEqual(affectedPlayerIds)
-    const topPlayerCall = patchCalls.find(call => call.userId === topPlayerId)
-    expect(topPlayerCall?.roles).toContain('99999999999999999')
-    expect(topPlayerCall?.roles).not.toContain('22222222222222222')
+    expect(deleteCalls.map(call => call.userId).sort((a, b) => a.localeCompare(b))).toEqual(affectedPlayerIds)
+    expect(putCalls.map(call => call.userId).sort((a, b) => a.localeCompare(b))).toEqual(affectedPlayerIds)
+    expect(deleteCalls.find(call => call.userId === topPlayerId)?.roleId).toBe('22222222222222222')
+    expect(putCalls.find(call => call.userId === topPlayerId)?.roleId).toBe('99999999999999999')
 
     sqlite.close()
   })
@@ -484,17 +473,16 @@ describe('ranked role sync service', () => {
     })
     await seedPreviousAssignment(kv, 'guild-1', heroId, { tier: TIER_4, sourceMode: 'ffa' })
 
-    const patchCalls: Array<{ userId: string, roles: string[] }> = []
+    const roleCalls: Array<{ method: 'PUT' | 'DELETE', userId: string, roleId: string }> = []
     globalThis.fetch = (async (input, init) => {
-      const url = String(input)
-      if (init?.method === 'GET' && url.includes('/members/')) {
-        return new Response(JSON.stringify({ roles: ['legacy-role', '22222222222222222'] }), { status: 200 })
-      }
-      if (init?.method === 'PATCH' && url.includes('/members/')) {
-        const userId = url.split('/').pop() ?? ''
-        const payload = JSON.parse(String(init.body)) as { roles: string[] }
-        patchCalls.push({ userId, roles: payload.roles })
-        return new Response('{}', { status: 200 })
+      const url = new URL(String(input))
+      const method = init?.method
+      if ((method === 'PUT' || method === 'DELETE') && url.pathname.includes('/members/')) {
+        const parts = url.pathname.split('/')
+        const roleId = parts.at(-1) ?? ''
+        const userId = parts.at(-3) ?? ''
+        roleCalls.push({ method, userId, roleId })
+        return new Response(null, { status: 204 })
       }
 
       return new Response('not found', { status: 404 })
@@ -508,9 +496,10 @@ describe('ranked role sync service', () => {
 
     expect(result.clearedAssignments).toBe(1)
     expect(result.appliedDiscordChanges).toBe(1)
-    expect(patchCalls[0]?.userId).toBe(heroId)
-    expect(patchCalls[0]?.roles).toContain('11111111111111111')
-    expect(patchCalls[0]?.roles).not.toContain('22222222222222222')
+    expect(roleCalls).toEqual([
+      { method: 'DELETE', userId: heroId, roleId: '22222222222222222' },
+      { method: 'PUT', userId: heroId, roleId: '11111111111111111' },
+    ])
 
     const assignments = await getCurrentRankAssignments(kv, 'guild-1')
     expect(assignments.byPlayerId[heroId]).toBeUndefined()

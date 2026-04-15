@@ -98,14 +98,12 @@ function formatBandKeepValue(band: RankedPreviewBandSummary): string {
 
 function formatTierCutoffValue(tier: RankedPreviewModeSummary['tiers'][number]): string {
   if (tier.isFallback) return 'The rest'
-  if (tier.locked) return 'Locked'
   if (tier.cutoffRank == null) return 'No cutoff'
   return `#${tier.cutoffRank}`
 }
 
 function formatTierScoreValue(tier: RankedPreviewModeSummary['tiers'][number]): string {
   if (tier.isFallback) return '-'
-  if (tier.locked) return `needs ${tier.unlockMinPlayers} players (${tier.playersNeededToUnlock} more)`
   if (tier.cutoffScore == null) return '-'
   return String(Math.round(tier.cutoffScore))
 }

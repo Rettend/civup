@@ -11,6 +11,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import { clearUserActivityTargets, getLobbyForUser, getMatchForChannel, getMatchForUser, getUserActivityTarget, storeUserActivityTarget, storeUserMatchMappings } from '../services/activity/index.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
+import { findPersistedLiveMatchIdsForPlayers } from '../services/match/live.ts'
 import { getPlayerQueueMode, getPlayerQueueModeFromStates, parseQueueState, queueKey } from '../services/queue/index.ts'
 import { createStateStore, stateStoreMget } from '../services/state/store.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
@@ -187,7 +188,9 @@ export function registerActivityRoutes(app: Hono<Env>) {
     const userId = auth.identity.userId
     const kv = createStateStore(c.env)
 
-    return c.json(await buildActivityLaunchSnapshot(c.env.DISCORD_TOKEN, c.env.CIVUP_SECRET, kv, channelId, userId))
+    return c.json(await buildActivityLaunchSnapshot(c.env.DISCORD_TOKEN, c.env.CIVUP_SECRET, kv, channelId, userId, {
+      db: c.env.DB,
+    }))
   })
 
   app.post('/api/activity/target', async (c) => {
@@ -287,10 +290,13 @@ export async function buildActivityLaunchSnapshot(
   kv: KVNamespace,
   channelId: string,
   userId: string,
+  options?: {
+    db?: D1Database | null
+  },
 ): Promise<ActivityLaunchSnapshot> {
   const context = await loadActivityLaunchContext(token, kv, channelId, userId)
   const selection = await resolveActivityLaunchSelection(kv, channelId, userId, context.targets)
-  return buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, selection)
+  return buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, selection, options?.db)
 }
 
 async function buildActivityLaunchSnapshotFromTargets(
@@ -300,9 +306,10 @@ async function buildActivityLaunchSnapshotFromTargets(
   userId: string,
   context: ActivityLaunchContext,
   selection: ResolvedActivitySelection | null,
+  db: D1Database | null | undefined,
 ): Promise<ActivityLaunchSnapshot> {
   return {
-    selection: selection ? await serializeActivityLaunchSelection(token, activitySecret, kv, userId, context, selection) : null,
+    selection: selection ? await serializeActivityLaunchSelection(token, activitySecret, kv, userId, context, selection, db) : null,
     options: context.targets.map(target => target.option),
   }
 }
@@ -374,6 +381,7 @@ async function serializeActivityLaunchSelection(
   userId: string,
   context: ActivityLaunchContext,
   selection: ResolvedActivitySelection,
+  db: D1Database | null | undefined,
 ): Promise<ActivityLaunchSelection> {
   if (selection.target.option.kind === 'lobby') {
     const lobby = await buildOpenLobbySnapshotFromParts(
@@ -389,6 +397,7 @@ async function serializeActivityLaunchSelection(
       option: selection.target.option,
       pendingJoin: selection.pendingJoin,
       joinEligibility: await resolveLobbyJoinEligibility(token, kv, userId, selection.target.lobby, lobby, {
+        db,
         existingQueueMode: getPlayerQueueModeFromStates(context.queueStates.values(), userId),
       }),
       lobby,
@@ -411,6 +420,7 @@ export async function resolveLobbyJoinEligibility(
   lobby: LobbyState,
   lobbySnapshot: Awaited<ReturnType<typeof buildOpenLobbySnapshot>>,
   options?: {
+    db?: D1Database | null
     existingQueueMode?: GameMode | null
   },
 ): Promise<LobbyJoinEligibility> {
@@ -433,7 +443,19 @@ export async function resolveLobbyJoinEligibility(
   const otherCurrentLobbies = await getCurrentLobbiesForPlayer(kv, userId, {
     excludeLobbyIds: [lobby.id],
   })
-  const blockingLobby = otherCurrentLobbies.find(candidate => candidate.status !== 'open') ?? otherCurrentLobbies[0] ?? null
+  const persistedLiveMatchIds = await findPersistedLiveMatchIdsForPlayers(options?.db, [userId])
+  const hasLiveMatch = persistedLiveMatchIds == null
+    ? otherCurrentLobbies.some(candidate => candidate.status !== 'open')
+    : persistedLiveMatchIds.has(userId)
+  if (hasLiveMatch) {
+    return {
+      canJoin: false,
+      blockedReason: 'You are already in a live match.',
+      pendingSlot: null,
+    }
+  }
+
+  const blockingLobby = otherCurrentLobbies.find(candidate => candidate.status === 'open') ?? null
   if (blockingLobby) {
     if (blockingLobby.status === 'open') {
       const hasOtherMembers = blockingLobby.memberPlayerIds.some(playerId => playerId !== userId)
@@ -465,7 +487,7 @@ export async function resolveLobbyJoinEligibility(
   const existingQueueMode = options?.existingQueueMode !== undefined
     ? options.existingQueueMode
     : await getPlayerQueueMode(kv, userId, { fallbackToQueueScan: false })
-  if (existingQueueMode) {
+  if (existingQueueMode && existingQueueMode !== lobby.mode) {
       return {
         canJoin: false,
         blockedReason: `You're already in a ${formatModeLabel(existingQueueMode)} lobby.`,

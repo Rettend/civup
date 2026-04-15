@@ -58,6 +58,22 @@ describe('activity mapping behavior', () => {
     })
   })
 
+  test('switching pending lobby targets in one channel removes the old selection', async () => {
+    const { kv } = createTrackedKv()
+
+    await storeUserLobbyState(kv, 'channel-1', ['player-1'], 'lobby-1')
+    await storeUserLobbyState(kv, 'channel-1', ['player-1'], 'lobby-2', { pendingJoin: true })
+
+    await expect(getUserActivityTarget(kv, 'channel-1', 'player-1')).resolves.toEqual({
+      kind: 'lobby',
+      id: 'lobby-2',
+      pendingJoin: true,
+      selectedAt: expect.any(Number),
+    })
+    await expect(kv.get('activity-target-lobby:channel-1:lobby-1:player-1')).resolves.toBeNull()
+    await expect(kv.get('activity-target-lobby:channel-1:lobby-2:player-1')).resolves.toBeDefined()
+  })
+
   test('match activity targets store room access tokens and match context', async () => {
     const { kv } = createTrackedKv()
 

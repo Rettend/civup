@@ -7,7 +7,7 @@ import { matches, matchParticipants } from '@civup/db'
 import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode, teamCount as modeTeamCount, teamSize as modeTeamSize, slotToTeamIndex } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayers, getLobbiesByMode, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
@@ -438,6 +438,40 @@ export async function findLiveMatchIdsForPlayers(
     }
   }
   return liveMatchIdByPlayerId
+}
+
+export async function findActiveMatchIdsForPlayers(
+  db: ReturnType<typeof createDb>,
+  playerIds: string[],
+): Promise<Map<string, string[]>> {
+  const uniquePlayerIds = [...new Set(playerIds)]
+  if (uniquePlayerIds.length === 0) return new Map()
+
+  const rows = await db
+    .select({
+      playerId: matchParticipants.playerId,
+      matchId: matchParticipants.matchId,
+    })
+    .from(matchParticipants)
+    .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+    .where(and(
+      inArray(matchParticipants.playerId, uniquePlayerIds),
+      eq(matches.status, 'active'),
+    ))
+    .orderBy(desc(matches.createdAt))
+
+  const activeMatchIdsByPlayerId = new Map<string, string[]>()
+  for (const row of rows) {
+    const existing = activeMatchIdsByPlayerId.get(row.playerId)
+    if (existing) {
+      existing.push(row.matchId)
+      continue
+    }
+
+    activeMatchIdsByPlayerId.set(row.playerId, [row.matchId])
+  }
+
+  return activeMatchIdsByPlayerId
 }
 
 async function getRoleGateErrorForLobby(
