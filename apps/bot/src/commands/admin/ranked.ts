@@ -118,7 +118,7 @@ export function handleRankedSync(c: AdminCommandContext) {
         token: c.env.DISCORD_TOKEN,
         applyDiscord: true,
       })
-      await clearRankedRolesDirtyState(kv)
+      if (result.pendingDiscordChanges === 0) await clearRankedRolesDirtyState(kv)
       const config = await getRankedRoleConfig(kv, guildId)
       await sendEphemeralResponse(c, formatRankedRoleSyncResult(result, config), 'success')
     }
@@ -180,9 +180,10 @@ function formatRankedRoleSyncResult(
   const lines = [
     '**Ranked roles synced**',
     `Updated members: ${result.appliedDiscordChanges}`,
+    result.pendingDiscordChanges > 0 ? `Pending members: ${result.pendingDiscordChanges}` : null,
     formatRankedRoleDistribution(result.distribution, config),
     `Unranked: ${result.unrankedCount}`,
-  ]
+  ].filter((line): line is string => Boolean(line))
 
   if (result.missingConfigTiers.length > 0) {
     lines.push(`Missing current role mappings: ${result.missingConfigTiers.map(tier => formatRankedRoleSlotLabel(tier)).join(', ')}`)
