@@ -11,7 +11,7 @@ import type {
   ServerMessage,
 } from '@civup/game'
 import type { Connection, ConnectionContext, WSMessage } from 'partyserver'
-import { createDraft, draftFormatMap, getCurrentStep, isDraftError, isRedDeathFormatId, MAX_TIMER_SECONDS, processDraftInput, swapSeatPicks } from '@civup/game'
+import { createDraft, draftFormatMap, getCurrentStep, getPickSeatForPlayer, isDraftError, isRedDeathFormatId, MAX_TIMER_SECONDS, processDraftInput, swapSeatPicks } from '@civup/game'
 import {
   api,
   ApiError,
@@ -341,11 +341,12 @@ export class Main extends Server<PartyEnv> {
           state,
           await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
         )
+        const pickSeatIndex = getPickSeatForPlayer(state, seatIndex) ?? seatIndex
         const result = resolvePickSubmissionWithPreviews(
           state,
           format.blindBans,
           previews.picks,
-          seatIndex,
+          pickSeatIndex,
           msg.civId,
         )
         if (isDraftError(result)) {

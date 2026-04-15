@@ -149,6 +149,42 @@ export async function editGuildMemberRoles(
   )
 }
 
+export async function addGuildMemberRole(
+  token: string,
+  guildId: string,
+  userId: string,
+  roleId: string,
+): Promise<void> {
+  await requestDiscord(
+    'add guild member role',
+    `https://discord.com/api/v10/guilds/${guildId}/members/${userId}/roles/${roleId}`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bot ${token}`,
+      },
+    },
+  )
+}
+
+export async function removeGuildMemberRole(
+  token: string,
+  guildId: string,
+  userId: string,
+  roleId: string,
+): Promise<void> {
+  await requestDiscord(
+    'remove guild member role',
+    `https://discord.com/api/v10/guilds/${guildId}/members/${userId}/roles/${roleId}`,
+    {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bot ${token}`,
+      },
+    },
+  )
+}
+
 export async function createGuildRole(
   token: string,
   guildId: string,

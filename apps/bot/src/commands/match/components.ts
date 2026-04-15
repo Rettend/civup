@@ -27,14 +27,13 @@ export const component_match_join = factory.component(
 
     const env = c.env
     const interactionChannelId = c.interaction.channel_id ?? null
+    const kv = createStateStore(env)
+
+    if (interactionChannelId) {
+      await storeUserLobbyState(kv, interactionChannelId, [identity.userId], lobbyId, { pendingJoin: true })
+    }
 
     queueBackgroundTask(c, async () => {
-      const kv = createStateStore(env)
-
-      if (interactionChannelId) {
-        await storeUserLobbyState(kv, interactionChannelId, [identity.userId], lobbyId, { pendingJoin: true })
-      }
-
       const lobby = await getLobbyById(kv, lobbyId)
       if (!lobby) {
         let userMatchId = await getMatchForUser(kv, identity.userId)

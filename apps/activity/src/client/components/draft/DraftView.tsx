@@ -8,7 +8,7 @@ import {
   hasSubmitted,
   isMiniView,
   isMobileLayout,
-  isMyTurn,
+  isMyOwnPickTurn,
   isSpectator,
   sendStart,
   setGridOpen,
@@ -109,7 +109,7 @@ export function DraftView(props: DraftViewProps) {
 
   const isMyPickTurn = () => {
     const step = currentStep()
-    return !!step && step.action === 'pick' && isMyTurn() && !hasSubmitted()
+    return !!step && step.action === 'pick' && isMyOwnPickTurn() && !hasSubmitted()
   }
 
   const [showTurnFlash, setShowTurnFlash] = createSignal(false)
@@ -152,6 +152,7 @@ export function DraftView(props: DraftViewProps) {
     }
     if (isMiniView()) return
     if (!canOpenLeaderGrid()) return
+    if (currentStep()?.action === 'pick' && !isMyOwnPickTurn()) return
 
     const nextToken = `${draftStore.initVersion}:${current.matchId}:${seatIndex}`
     if (autoOpenedGridToken() === nextToken) return

@@ -3,7 +3,7 @@ import { matches, matchParticipants, playerRatings, players, seasonPeakModeRanks
 import { describe, expect, test } from 'bun:test'
 import { playerCardEmbed } from '../../src/embeds/player-card.ts'
 import { rankEmbed } from '../../src/embeds/rank.ts'
-import { getPlayerRankProfile } from '../../src/services/player/rank.ts'
+import { getPlayerRankProfile, getPlayerStatsRankProfile } from '../../src/services/player/rank.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { listPlayerSeasonSnapshotHistory } from '../../src/services/season/snapshot-roles.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
@@ -293,6 +293,205 @@ describe('player rank views', () => {
 
     sqlite.close()
   })
+
+  test('renders top common teammates and opponents with plain player names', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    await seedPlayerIdentity(db, HERO_ID)
+
+    for (const [playerId, displayName] of [
+      ['100010000000000088', 'Teammate A'],
+      ['100010000000000087', 'Teammate B'],
+      ['100010000000000086', 'Teammate C'],
+      ['100010000000000085', 'Teammate D'],
+      ['100010000000000084', 'Teammate E'],
+      ['100010000000000083', 'Teammate F'],
+      ['100010000000000082', 'Opponent A'],
+      ['100010000000000081', 'Opponent B'],
+      ['100010000000000080', 'Opponent C'],
+      ['100010000000000079', 'Opponent D'],
+      ['100010000000000078', 'Opponent E'],
+      ['100010000000000077', 'Opponent F'],
+    ] as const) {
+      await seedPlayerIdentity(db, playerId, displayName)
+    }
+
+    await seedCompletedMatch(db, {
+      matchId: 'common-1',
+      gameMode: '2v2',
+      completedAt: NOW - 9_000,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: 'japan-hojo-tokimune' },
+        { playerId: '100010000000000088', team: 0, placement: 1, civId: 'babylon-hammurabi' },
+        { playerId: '100010000000000082', team: 1, placement: 2, civId: 'rome-trajan' },
+        { playerId: '100010000000000081', team: 1, placement: 2, civId: 'macedon-alexander' },
+      ],
+    })
+    await seedCompletedMatch(db, {
+      matchId: 'common-2',
+      gameMode: '2v2',
+      completedAt: NOW - 8_000,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: 'japan-hojo-tokimune' },
+        { playerId: '100010000000000088', team: 0, placement: 1, civId: 'babylon-hammurabi' },
+        { playerId: '100010000000000082', team: 1, placement: 2, civId: 'rome-trajan' },
+        { playerId: '100010000000000080', team: 1, placement: 2, civId: 'macedon-alexander' },
+      ],
+    })
+    await seedCompletedMatch(db, {
+      matchId: 'common-3',
+      gameMode: '2v2',
+      completedAt: NOW - 7_000,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 2, civId: 'japan-hojo-tokimune' },
+        { playerId: '100010000000000088', team: 0, placement: 2, civId: 'babylon-hammurabi' },
+        { playerId: '100010000000000081', team: 1, placement: 1, civId: 'rome-trajan' },
+        { playerId: '100010000000000080', team: 1, placement: 1, civId: 'macedon-alexander' },
+      ],
+    })
+    await seedCompletedMatch(db, {
+      matchId: 'common-4',
+      gameMode: '2v2',
+      completedAt: NOW - 6_000,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: 'japan-hojo-tokimune' },
+        { playerId: '100010000000000087', team: 0, placement: 1, civId: 'babylon-hammurabi' },
+        { playerId: '100010000000000082', team: 1, placement: 2, civId: 'rome-trajan' },
+        { playerId: '100010000000000079', team: 1, placement: 2, civId: 'macedon-alexander' },
+      ],
+    })
+    await seedCompletedMatch(db, {
+      matchId: 'common-5',
+      gameMode: '2v2',
+      completedAt: NOW - 5_000,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 2, civId: 'japan-hojo-tokimune' },
+        { playerId: '100010000000000087', team: 0, placement: 2, civId: 'babylon-hammurabi' },
+        { playerId: '100010000000000079', team: 1, placement: 1, civId: 'rome-trajan' },
+        { playerId: '100010000000000078', team: 1, placement: 1, civId: 'macedon-alexander' },
+      ],
+    })
+    await seedCompletedMatch(db, {
+      matchId: 'common-6',
+      gameMode: '2v2',
+      completedAt: NOW - 4_000,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: 'japan-hojo-tokimune' },
+        { playerId: '100010000000000086', team: 0, placement: 1, civId: 'babylon-hammurabi' },
+        { playerId: '100010000000000081', team: 1, placement: 2, civId: 'rome-trajan' },
+        { playerId: '100010000000000077', team: 1, placement: 2, civId: 'macedon-alexander' },
+      ],
+    })
+    await seedCompletedMatch(db, {
+      matchId: 'common-7',
+      gameMode: '2v2',
+      completedAt: NOW - 3_000,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 2, civId: 'japan-hojo-tokimune' },
+        { playerId: '100010000000000085', team: 0, placement: 2, civId: 'babylon-hammurabi' },
+        { playerId: '100010000000000082', team: 1, placement: 1, civId: 'rome-trajan' },
+        { playerId: '100010000000000077', team: 1, placement: 1, civId: 'macedon-alexander' },
+      ],
+    })
+    await seedCompletedMatch(db, {
+      matchId: 'common-8',
+      gameMode: '2v2',
+      completedAt: NOW - 2_000,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: 'japan-hojo-tokimune' },
+        { playerId: '100010000000000084', team: 0, placement: 1, civId: 'babylon-hammurabi' },
+        { playerId: '100010000000000081', team: 1, placement: 2, civId: 'rome-trajan' },
+        { playerId: '100010000000000078', team: 1, placement: 2, civId: 'macedon-alexander' },
+      ],
+    })
+    await seedCompletedMatch(db, {
+      matchId: 'common-9',
+      gameMode: '2v2',
+      completedAt: NOW - 1_000,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 2, civId: 'japan-hojo-tokimune' },
+        { playerId: '100010000000000083', team: 0, placement: 2, civId: 'babylon-hammurabi' },
+        { playerId: '100010000000000080', team: 1, placement: 1, civId: 'rome-trajan' },
+        { playerId: '100010000000000079', team: 1, placement: 1, civId: 'macedon-alexander' },
+      ],
+    })
+
+    const embed = (await playerCardEmbed(db, HERO_ID)).toJSON()
+    const teammatesField = embed.fields?.find(field => field.name === 'Common Teammates')
+    const opponentsField = embed.fields?.find(field => field.name === 'Common Opponents')
+
+    expect(teammatesField?.value).toContain('Teammate A')
+    expect(teammatesField?.value).toContain('2/3')
+    expect(teammatesField?.value).toContain('Teammate B')
+    expect(teammatesField?.value).toContain('1/2')
+    expect(teammatesField?.value).toContain('Teammate E')
+    expect(teammatesField?.value).not.toContain('Teammate F')
+    expect(teammatesField?.value).not.toContain('<@')
+
+    expect(opponentsField?.value).toContain('Opponent A')
+    expect(opponentsField?.value).toContain('3/4')
+    expect(opponentsField?.value).toContain('Opponent B')
+    expect(opponentsField?.value).toContain('Opponent E')
+    expect(opponentsField?.value).not.toContain('Opponent F')
+    expect(opponentsField?.value).not.toContain('<@')
+
+    sqlite.close()
+  })
+
+  test('stats rank helper matches preview-based rank labels for current stats', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
+    })
+
+    await seedPlayerIdentity(db, HERO_ID, 'Hero')
+    await seedPlayerIdentity(db, '100010000000000088', 'Ally')
+    await seedPlayerIdentity(db, '100010000000000087', 'Opp')
+    await seedRating(db, { playerId: HERO_ID, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 12, lastPlayedAt: NOW })
+    await seedRating(db, { playerId: HERO_ID, mode: 'ffa', mu: 24, sigma: 8.333, gamesPlayed: 12, lastPlayedAt: NOW })
+    await seedSeason(db, { id: 'season-1', seasonNumber: 1, name: 'Season 1', startsAt: NOW - 50_000, endsAt: null, active: true })
+    await seedCompletedMatch(db, {
+      matchId: 'stats-rank-helper-1',
+      gameMode: '1v1',
+      completedAt: NOW - 1_000,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: 'babylon-hammurabi' },
+        { playerId: '100010000000000087', team: 1, placement: 2, civId: 'rome-trajan' },
+      ],
+    })
+    await seedCompletedMatch(db, {
+      matchId: 'stats-rank-helper-2',
+      gameMode: 'ffa',
+      completedAt: NOW - 500,
+      participants: [
+        { playerId: HERO_ID, team: null, placement: 2, civId: 'japan-hojo-tokimune' },
+        { playerId: '100010000000000088', team: null, placement: 1, civId: 'rome-trajan' },
+      ],
+    })
+
+    const previewProfile = await getPlayerRankProfile(db, kv, 'guild-1', HERO_ID, NOW)
+    const statsProfile = await getPlayerStatsRankProfile(db, kv, 'guild-1', HERO_ID)
+    const previewStatsEmbed = (await playerCardEmbed(db, HERO_ID, 'all', { rankProfile: previewProfile })).toJSON()
+    const statsEmbed = (await playerCardEmbed(db, HERO_ID, 'all', {
+      rankProfile: statsProfile.rankProfile,
+      ratingRows: statsProfile.ratingRows,
+    })).toJSON()
+
+    expect(statsProfile.rankProfile.overallRoleId).toBe(previewProfile.overallRoleId)
+    expect(statsProfile.rankProfile.modes.duel.tierRoleId).toBe(previewProfile.modes.duel.tierRoleId)
+    expect(statsProfile.rankProfile.modes.ffa.tierRoleId).toBe(previewProfile.modes.ffa.tierRoleId)
+    expect(statsEmbed.description).toBe(previewStatsEmbed.description)
+    expect(JSON.stringify(statsEmbed.fields)).toContain(JSON.stringify(previewStatsEmbed.fields?.find(field => field.name === 'Duel')))
+    expect(JSON.stringify(statsEmbed.fields)).toContain(JSON.stringify(previewStatsEmbed.fields?.find(field => field.name === 'FFA')))
+
+    sqlite.close()
+  })
 })
 
 async function seedPlayers(
@@ -329,10 +528,14 @@ async function seedSeason(
   await db.insert(seasons).values(row)
 }
 
-async function seedPlayerIdentity(db: Awaited<ReturnType<typeof createTestDatabase>>['db'], playerId: string): Promise<void> {
+async function seedPlayerIdentity(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  playerId: string,
+  displayName = playerId,
+): Promise<void> {
   await db.insert(players).values({
     id: playerId,
-    displayName: playerId,
+    displayName,
     avatarUrl: null,
     createdAt: NOW,
   }).onConflictDoNothing()

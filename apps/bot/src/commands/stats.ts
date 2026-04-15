@@ -1,11 +1,11 @@
 import type { StatsModeFilter } from '../embeds/player-card.ts'
 import { createDb } from '@civup/db'
-import { GAME_MODE_CHOICES, parseGameMode } from '@civup/game'
+import { GAME_MODE_CHOICES, LEADERBOARD_MODES, parseGameMode, toLeaderboardMode } from '@civup/game'
 import { Command, Option } from 'discord-hono'
 import { playerCardEmbed } from '../embeds/player-card.ts'
 import { teamCardEmbed } from '../embeds/team-card.ts'
 import { syncPlayerProfileFromDiscord } from '../services/player/profile.ts'
-import { getPlayerRankProfile } from '../services/player/rank.ts'
+import { getPlayerStatsRankProfile } from '../services/player/rank.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { factory } from '../setup.ts'
 
@@ -64,16 +64,27 @@ export const command_stats = factory.command<Var>(
       })())
 
       if (teammateIds.length > 0) {
-        const embed = await teamCardEmbed(db, kv, guildId ?? null, playerIds)
+        const embed = await teamCardEmbed(db, kv, guildId ?? null, playerIds, mode)
         await c.followup({ embeds: [embed] })
         return
       }
 
       const rankProfile = guildId
-        ? await getPlayerRankProfile(db, kv, guildId, targetId)
+        ? await getPlayerStatsRankProfile(db, kv, guildId, targetId)
         : null
 
-      const embed = await playerCardEmbed(db, targetId, mode, { rankProfile })
+      const visibleModes = mode === 'all'
+        ? LEADERBOARD_MODES
+        : (() => {
+            const leaderboardMode = toLeaderboardMode(mode)
+            return leaderboardMode ? [leaderboardMode] as const : LEADERBOARD_MODES
+          })()
+
+      const embed = await playerCardEmbed(db, targetId, mode, {
+        rankProfile: rankProfile?.rankProfile ?? null,
+        ratingRows: rankProfile?.ratingRows,
+        visibleModes,
+      })
       await c.followup({ embeds: [embed] })
     })
   },
