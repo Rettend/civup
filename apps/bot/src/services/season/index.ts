@@ -30,6 +30,10 @@ export interface SeasonModePeakCandidate {
 
 export interface SeasonPeakPreviewPlayer {
   playerId: string
+  liveAssignment: {
+    tier: CompetitiveTier
+    sourceMode: LeaderboardMode | null
+  }
   assignment: {
     tier: CompetitiveTier
     sourceMode: LeaderboardMode | null
@@ -372,8 +376,8 @@ export async function syncSeasonPeaksForPlayers(
       if (!preview) return null
       return {
         playerId,
-        tier: preview.assignment.tier,
-        sourceMode: preview.assignment.sourceMode,
+        tier: preview.liveAssignment.tier,
+        sourceMode: preview.liveAssignment.sourceMode,
       }
     })
     .filter((candidate): candidate is SeasonPeakCandidate => candidate !== null)
