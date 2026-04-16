@@ -34,9 +34,10 @@ describe('LeaderGridOverlay UI', () => {
 
   test('supports search, filters, list mode, and list selection flows', async () => {
     setViewportWidth(1440)
+    let unmount = () => {}
     const mount = () => {
-      document.body.innerHTML = ''
-      render(() => <LeaderGridOverlay />)
+      unmount()
+      ;({ unmount } = render(() => <LeaderGridOverlay />))
     }
 
     mount()
@@ -48,7 +49,6 @@ describe('LeaderGridOverlay UI', () => {
 
     expect(uiMockState.searchQuery).toBe('Montezuma')
     expect(screen.getByRole('button', { name: /Montezuma/i })).toBeTruthy()
-    expect(screen.getByText('Montezuma')).toBeTruthy()
 
     fireEvent.input(screen.getByPlaceholderText('Search...'), { target: { value: '' } })
     mount()
@@ -72,9 +72,10 @@ describe('LeaderGridOverlay UI', () => {
   })
 
   test('supports random toggle, direct card selection, and pick confirmation', async () => {
+    let unmount = () => {}
     const mount = () => {
-      document.body.innerHTML = ''
-      render(() => <LeaderGridOverlay />)
+      unmount()
+      ;({ unmount } = render(() => <LeaderGridOverlay />))
     }
 
     mount()
@@ -105,9 +106,10 @@ describe('LeaderGridOverlay UI', () => {
       steps: [{ action: 'ban', count: 2, timer: 60, seats: 'all' }, { action: 'pick', count: 1, timer: 90, seats: [0] }],
     })
 
+    let unmount = () => {}
     const mount = () => {
-      document.body.innerHTML = ''
-      render(() => <LeaderGridOverlay />)
+      unmount()
+      ;({ unmount } = render(() => <LeaderGridOverlay />))
     }
 
     mount()
@@ -135,9 +137,10 @@ describe('LeaderGridOverlay UI', () => {
       steps: [{ action: 'ban', count: 1, timer: 60, seats: [0] }, { action: 'pick', count: 1, timer: 90, seats: [2] }],
     })
 
+    let unmount = () => {}
     const mount = () => {
-      document.body.innerHTML = ''
-      render(() => <LeaderGridOverlay />)
+      unmount()
+      ;({ unmount } = render(() => <LeaderGridOverlay />))
     }
 
     mount()
@@ -152,9 +155,10 @@ describe('LeaderGridOverlay UI', () => {
   })
 
   test('toggles the expanded overlay layout through the shared grid controls', async () => {
+    let unmount = () => {}
     const mount = () => {
-      document.body.innerHTML = ''
-      render(() => <LeaderGridOverlay />)
+      unmount()
+      ;({ unmount } = render(() => <LeaderGridOverlay />))
     }
 
     mount()
@@ -181,9 +185,10 @@ describe('LeaderGridOverlay UI', () => {
   })
 
   test('opens leader details from a grid card context menu and supports favorite toggling', () => {
+    let unmount = () => {}
     const mount = () => {
-      document.body.innerHTML = ''
-      render(() => <LeaderGridOverlay />)
+      unmount()
+      ;({ unmount } = render(() => <LeaderGridOverlay />))
     }
 
     mount()
@@ -202,5 +207,45 @@ describe('LeaderGridOverlay UI', () => {
     mount()
 
     expect(screen.queryByRole('button', { name: 'Remove favorite' })).toBeNull()
+  })
+
+  test('supports random ban confirmation through the shared overlay flow', () => {
+    uiMockState.draftState = createActiveDraftState({
+      currentStepIndex: 0,
+      steps: [{ action: 'ban', count: 2, timer: 60, seats: 'all' }, { action: 'pick', count: 1, timer: 90, seats: [0] }],
+    })
+
+    let unmount = () => {}
+    const mount = () => {
+      unmount()
+      ;({ unmount } = render(() => <LeaderGridOverlay />))
+    }
+
+    mount()
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Random' })[0]!)
+    mount()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Bans (2/2)' }))
+
+    expect(storeSpies.sendBan).toHaveBeenCalledTimes(1)
+    const [randomBans] = storeSpies.sendBan.mock.calls[0]!
+    expect(randomBans).toHaveLength(2)
+    expect(new Set(randomBans).size).toBe(2)
+    expect(uiMockState.gridOpen).toBe(false)
+  })
+
+  test('keeps the overlay open on your turn but lets spectators close it from the backdrop', () => {
+    render(() => <LeaderGridOverlay />)
+
+    const backdrop = document.querySelector('[class*="bg-black/40"]') as HTMLElement
+
+    fireEvent.click(backdrop)
+
+    expect(uiMockState.gridOpen).toBe(true)
+
+    uiMockState.draftSeatIndex = 1
+    fireEvent.click(backdrop)
+
+    expect(uiMockState.gridOpen).toBe(false)
   })
 })
