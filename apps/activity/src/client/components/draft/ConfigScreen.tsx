@@ -70,6 +70,8 @@ export interface ConfigScreenProps {
   steamLobbyLink?: string | null
   showJoinPending?: boolean
   joinEligibility?: LobbyJoinEligibilitySnapshot
+  prefetchedRankedRoleOptions?: RankedRoleOptionSnapshot[]
+  prefetchedFillTestPlayersAvailable?: boolean
   onLobbyStarted?: (matchId: string, steamLobbyLink: string | null, roomAccessToken: string | null) => void
   onSwitchTarget?: () => void
 }
@@ -144,8 +146,8 @@ export function ConfigScreen(props: ConfigScreenProps) {
         }
       : null,
   )
-  const [rankedRoleOptions, setRankedRoleOptions] = createSignal<RankedRoleOptionSnapshot[]>([])
-  const [fillTestPlayersAvailable, setFillTestPlayersAvailable] = createSignal(false)
+  const [rankedRoleOptions, setRankedRoleOptions] = createSignal<RankedRoleOptionSnapshot[]>(props.prefetchedRankedRoleOptions ?? [])
+  const [fillTestPlayersAvailable, setFillTestPlayersAvailable] = createSignal(props.prefetchedFillTestPlayersAvailable ?? false)
   const [rankRoleSetDetail, setRankRoleSetDetail] = createSignal<RankRoleSetDetail | null>(null)
   let fillTestPlayersAvailabilityKey: string | null = null
   let rankedRoleOptionsFetchKey: string | null = null
@@ -273,10 +275,21 @@ export function ConfigScreen(props: ConfigScreenProps) {
   }
 
   createEffect(() => {
+    if (props.prefetchedRankedRoleOptions == null) return
+    setRankedRoleOptions(props.prefetchedRankedRoleOptions)
+  })
+
+  createEffect(() => {
     const lobby = currentLobby()
     if (!lobby) {
       rankedRoleOptionsFetchKey = null
       setRankedRoleOptions([])
+      return
+    }
+
+    if (props.prefetchedRankedRoleOptions != null) {
+      rankedRoleOptionsFetchKey = null
+      setRankedRoleOptions(props.prefetchedRankedRoleOptions)
       return
     }
 
@@ -302,10 +315,21 @@ export function ConfigScreen(props: ConfigScreenProps) {
   })
 
   createEffect(() => {
+    if (props.prefetchedFillTestPlayersAvailable == null) return
+    setFillTestPlayersAvailable(props.prefetchedFillTestPlayersAvailable)
+  })
+
+  createEffect(() => {
     const lobby = currentLobby()
     if (!lobby) {
       fillTestPlayersAvailabilityKey = null
       setFillTestPlayersAvailable(false)
+      return
+    }
+
+    if (props.prefetchedFillTestPlayersAvailable != null) {
+      fillTestPlayersAvailabilityKey = null
+      setFillTestPlayersAvailable(props.prefetchedFillTestPlayersAvailable)
       return
     }
 
