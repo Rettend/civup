@@ -5,7 +5,7 @@ import type { getRankedRoleConfig } from '../../services/ranked/roles.ts'
 import { canStartWithPlayerCount, MAX_LEADER_POOL_SIZE, playerCountOptions, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import { MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../../services/leaderboard/snapshot.ts'
-import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, normalizeLobbySlots, sameLobbySlots, setLobbySlots } from '../../services/lobby/index.ts'
+import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, isQueueBackedOpenLobbyState, reconcileOpenLobbyState } from '../../services/lobby/index.ts'
 import { attachLobbyBalanceRatings, buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
 import { getQueueState, parseQueueState, queueKey } from '../../services/queue/index.ts'
 import { normalizeRankedRoleTierId } from '../../services/ranked/roles.ts'
@@ -17,19 +17,11 @@ export async function buildOpenLobbySnapshot(
   lobby: LobbyState,
 ) {
   const { queue, balanceSnapshot } = await getQueueStateWithLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
-  const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
-  const normalizedSlots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
-
-  if (sameLobbySlots(normalizedSlots, lobby.slots)) {
-    return buildOpenLobbySnapshotFromParts(kv, mode, lobby, lobbyQueueEntries, normalizedSlots, balanceSnapshot)
-  }
-
-  const updatedLobby = await setLobbySlots(kv, lobby.id, normalizedSlots)
-  const resolvedLobby = updatedLobby ?? {
-    ...lobby,
-    slots: normalizedSlots,
-  }
-  return buildOpenLobbySnapshotFromParts(kv, mode, resolvedLobby, lobbyQueueEntries, normalizedSlots, balanceSnapshot)
+  const reconciled = await reconcileOpenLobbyState(kv, lobby, { currentQueue: queue })
+  const resolvedLobby = reconciled?.lobby ?? lobby
+  const resolvedQueueEntries = reconciled?.lobbyQueueEntries ?? filterQueueEntriesForLobby(lobby, queue.entries)
+  const resolvedSlots = reconciled?.slots ?? resolvedLobby.slots
+  return buildOpenLobbySnapshotFromParts(kv, mode, resolvedLobby, resolvedQueueEntries, resolvedSlots, balanceSnapshot)
 }
 
 export async function buildOpenLobbySnapshotFromParts(
@@ -117,10 +109,10 @@ export function buildLobbyQueueEntries(
 }
 
 export function isQueueBackedOpenLobby(
-  lobby: Pick<LobbyState, 'hostId'>,
+  lobby: Pick<LobbyState, 'hostId' | 'memberPlayerIds' | 'slots'>,
   queueEntries: Awaited<ReturnType<typeof getQueueState>>['entries'],
 ): boolean {
-  return queueEntries.some(entry => entry.playerId === lobby.hostId)
+  return isQueueBackedOpenLobbyState(lobby, queueEntries)
 }
 
 export function parseSlotIndex(value: unknown): number | null {
