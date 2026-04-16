@@ -24,6 +24,7 @@ import {
   moveSlottedPremadeGroup,
   normalizeLobbySlots,
   rebuildQueueEntriesFromPremadeEdgeSet,
+  reconcileOpenLobbyState,
   sameLobbySlots,
   setLobbyDraftConfig,
   setLobbyLastActivityAt,
@@ -481,7 +482,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!resolvedLobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
-    const lobby = resolvedLobby
+    const lobby = (await reconcileOpenLobbyState(kv, resolvedLobby))?.lobby ?? resolvedLobby
 
     if (lobby.hostId !== auth.identity.userId) {
       return c.json({ error: 'Only the lobby host can change game mode' }, 403)
@@ -492,18 +493,19 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const { queue, balanceSnapshot } = await getQueueStateWithLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
-    const lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
-    if (!lobbyQueueEntries.some(entry => entry.playerId === lobby.hostId)) {
-      return c.json({ error: 'Host is not in the queue anymore. Rejoin first.' }, 400)
+    const sourceLobby = (await reconcileOpenLobbyState(kv, lobby, { currentQueue: queue }))?.lobby ?? lobby
+    const lobbyQueueEntries = buildLobbyQueueEntries(sourceLobby, queue.entries)
+    if (!lobbyQueueEntries.some(entry => entry.playerId === sourceLobby.hostId)) {
+      return c.json({ error: 'Host is not in this lobby anymore.' }, 400)
     }
 
-    const normalizedSlots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
+    const normalizedSlots = normalizeLobbySlots(mode, sourceLobby.slots, lobbyQueueEntries)
     const orderedPlayers = normalizedSlots.filter((playerId): playerId is string => playerId != null)
     const orderedPlayerSet = new Set(orderedPlayers)
 
-    if (!orderedPlayerSet.has(lobby.hostId)) {
-      orderedPlayers.push(lobby.hostId)
-      orderedPlayerSet.add(lobby.hostId)
+    if (!orderedPlayerSet.has(sourceLobby.hostId)) {
+      orderedPlayers.push(sourceLobby.hostId)
+      orderedPlayerSet.add(sourceLobby.hostId)
     }
 
     for (const entry of lobbyQueueEntries) {
@@ -520,32 +522,32 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: nextLayout.error }, 400)
     }
     let nextSlots = nextLayout.slots
-    if (nextMode === 'ffa' && lobby.draftConfig.redDeath) {
+    if (nextMode === 'ffa' && sourceLobby.draftConfig.redDeath) {
       nextSlots = resizeLobbySlots(nextMode, nextSlots, 10)
     }
     const changedAt = Date.now()
 
     const nextLobby = {
-      ...lobby,
+      ...sourceLobby,
       mode: nextMode,
-      draftConfig: normalizeDraftConfigForMode(nextMode, lobby.draftConfig, nextSlots.length),
-      minRole: isUnrankedMode(nextMode) ? null : lobby.minRole,
-      maxRole: isUnrankedMode(nextMode) ? null : lobby.maxRole,
+      draftConfig: normalizeDraftConfigForMode(nextMode, sourceLobby.draftConfig, nextSlots.length),
+      minRole: isUnrankedMode(nextMode) ? null : sourceLobby.minRole,
+      maxRole: isUnrankedMode(nextMode) ? null : sourceLobby.maxRole,
       slots: nextSlots,
       lastActivityAt: changedAt,
       updatedAt: changedAt,
-      revision: lobby.revision + 1,
+      revision: sourceLobby.revision + 1,
     }
 
-    const movedQueue = await moveQueueEntriesBetweenModes(kv, mode, nextMode, lobby.memberPlayerIds)
-    const movedLobbyQueueEntries = buildLobbyQueueEntries({ ...lobby, mode: nextMode }, movedQueue.to.entries)
+    const movedQueue = await moveQueueEntriesBetweenModes(kv, mode, nextMode, sourceLobby.memberPlayerIds)
+    const movedLobbyQueueEntries = buildLobbyQueueEntries({ ...sourceLobby, mode: nextMode }, movedQueue.to.entries)
     const normalizedNextSlots = normalizeLobbySlots(nextMode, nextSlots, movedLobbyQueueEntries)
     const finalizedLobby = {
       ...nextLobby,
       slots: normalizedNextSlots,
     }
 
-    await stateStoreMdelete(kv, [modeIndexKey(mode, lobby.id)])
+    await stateStoreMdelete(kv, [modeIndexKey(mode, sourceLobby.id)])
     await upsertLobby(kv, finalizedLobby)
     const snapshot = await syncLobbyDerivedState(kv, finalizedLobby, {
       queueEntries: movedLobbyQueueEntries,
@@ -622,7 +624,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!resolvedLobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
-    let lobby = resolvedLobby
+    let lobby = (await reconcileOpenLobbyState(kv, resolvedLobby))?.lobby ?? resolvedLobby
 
     if (targetSlot >= lobby.slots.length) {
       return c.json({ error: 'Invalid target slot index' }, 400)
@@ -659,7 +661,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       blockingLobbyForPlayer = currentLobbiesForPlayer.find(candidate => candidate.status === 'open') ?? null
       if (blockingLobbyForPlayer) {
         if (movingPlayerId !== auth.identity.userId) {
-          return c.json({ error: 'That player is already in another open lobby.' }, 400)
+          return c.json({ error: 'That player is already in another lobby.' }, 400)
         }
         transferNotice = `Moved you from your previous ${formatModeLabel(blockingLobbyForPlayer.mode, blockingLobbyForPlayer.mode, { redDeath: blockingLobbyForPlayer.draftConfig.redDeath })} lobby.`
       }
@@ -763,18 +765,24 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       queue = joinResult.state ?? await getQueueState(kv, mode)
     }
 
-    if (!lobby.memberPlayerIds.includes(movingPlayerId)) {
-      const nextMemberIds = [...new Set([...lobby.memberPlayerIds, movingPlayerId])]
-      const updatedLobby = await setLobbyMemberPlayerIds(kv, lobby.id, nextMemberIds, lobby)
-      if (updatedLobby) lobby = updatedLobby
-    }
-
-    lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
+    const nextMemberIds = lobby.memberPlayerIds.includes(movingPlayerId)
+      ? lobby.memberPlayerIds
+      : [...new Set([...lobby.memberPlayerIds, movingPlayerId])]
+    lobbyQueueEntries = buildLobbyQueueEntries({ ...lobby, memberPlayerIds: nextMemberIds }, queue.entries)
     slots = normalizeLobbySlots(mode, slots, lobbyQueueEntries)
-
-    const updatedLobby = await setLobbySlots(kv, lobby.id, slots, lobby)
-    let nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
-    nextLobby = await setLobbyLastActivityAt(kv, nextLobby.id, actionAt, nextLobby) ?? nextLobby
+    let nextLobby = lobby
+    if (!sameLobbySlots(slots, lobby.slots) || nextMemberIds.length !== lobby.memberPlayerIds.length || lobby.lastActivityAt !== actionAt) {
+      nextLobby = {
+        ...lobby,
+        memberPlayerIds: nextMemberIds,
+        slots,
+        lastActivityAt: actionAt,
+        updatedAt: actionAt,
+        revision: lobby.revision + 1,
+      }
+      await upsertLobby(kv, nextLobby)
+    }
+    lobbyQueueEntries = buildLobbyQueueEntries(nextLobby, queue.entries)
     const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
       queueEntries: lobbyQueueEntries,
       slots,

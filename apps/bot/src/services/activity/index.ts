@@ -4,7 +4,7 @@ import { allFactionIds, getDraftFormat, isTeamMode, requiresRedDeathDuplicateFac
 import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
 import { syncActivityOverviewSnapshot } from './live-state.ts'
-import { getLobbiesByChannel } from '../lobby/index.ts'
+import { getLobbiesByChannel, getLobbyById, getOpenLobbyForPlayer } from '../lobby/index.ts'
 import { channelIndexKey, idKey, matchKey, modeIndexKey } from '../lobby/keys.ts'
 import { lobbySnapshotKey } from '../lobby/live-snapshot.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
@@ -506,7 +506,23 @@ export async function getLobbyForUser(
   kv: KVNamespace,
   userId: string,
 ): Promise<string | null> {
-  return kv.get(`activity-lobby-user:${userId}`)
+  const mappedLobbyId = await kv.get(`activity-lobby-user:${userId}`)
+  if (!mappedLobbyId) return null
+
+  const mappedLobby = await getLobbyById(kv, mappedLobbyId)
+  if (mappedLobby?.status === 'open') {
+    const realLobby = await getOpenLobbyForPlayer(kv, userId, mappedLobby.mode)
+    if (realLobby?.id === mappedLobbyId) return mappedLobbyId
+  }
+
+  const realLobby = await getOpenLobbyForPlayer(kv, userId)
+  if (realLobby) {
+    await storeUserLobbyMappings(kv, [userId], realLobby.id)
+    return realLobby.id
+  }
+
+  await clearUserLobbyMappings(kv, [userId])
+  return null
 }
 
 /** Get a unique active match ID for a channel when only one exists. */

@@ -230,6 +230,161 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     expect(result.lobby.memberPlayerIds).toContain('pleb')
   })
 
+  test('repairs stale member ids when a queued player is already slotted in the target lobby', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+
+    await setLobbySlots(kv, lobby.id, ['host', 'player-1', null, null], lobby)
+
+    globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch
+
+    const result = await joinLobbyAndMaybeStartMatch({
+      env: {
+        KV: kv,
+        DISCORD_TOKEN: 'token',
+      },
+    }, '2v2', [{
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: '',
+    }], {
+      preferredLobbyId: lobby.id,
+    })
+
+    expect('stage' in result).toBe(true)
+    if (!('stage' in result)) return
+    expect(result.lobby.id).toBe(lobby.id)
+    expect((await getLobbyById(kv, lobby.id))?.memberPlayerIds).toEqual(['host', 'player-1'])
+    expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(['host', 'player-1', null, null])
+  })
+
+  test('keeps already slotted queued players when another player joins a lobby with stale member ids', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-2',
+      displayName: 'Player 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 2,
+    })
+
+    await setLobbySlots(kv, lobby.id, ['host', 'player-1', null, null], lobby)
+
+    globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch
+
+    const result = await joinLobbyAndMaybeStartMatch({
+      env: {
+        KV: kv,
+        DISCORD_TOKEN: 'token',
+      },
+    }, '2v2', [{
+      playerId: 'player-2',
+      displayName: 'Player 2',
+      avatarUrl: '',
+    }], {
+      preferredLobbyId: lobby.id,
+    })
+
+    expect('stage' in result).toBe(true)
+    if (!('stage' in result)) return
+    expect(result.lobby.id).toBe(lobby.id)
+    expect((await getLobbyById(kv, lobby.id))?.memberPlayerIds).toEqual(['host', 'player-1', 'player-2'])
+    expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(['host', 'player-1', 'player-2', null])
+  })
+
+  test('ignores orphan open lobbies when no queue-backed lobby can fit the join', async () => {
+    const { kv } = createTrackedKv()
+    await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'orphan-host',
+      channelId: 'channel-orphan',
+      messageId: 'message-orphan',
+    })
+    const crowdedLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'ally',
+      displayName: 'Ally',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'enemy',
+      displayName: 'Enemy',
+      avatarUrl: null,
+      joinedAt: Date.now() + 2,
+    })
+
+    const populatedLobby = await setLobbyMemberPlayerIds(kv, crowdedLobby.id, ['host', 'ally', 'enemy'], crowdedLobby)
+    await setLobbySlots(kv, crowdedLobby.id, ['host', 'ally', 'enemy', null], populatedLobby ?? crowdedLobby)
+
+    const result = await joinLobbyAndMaybeStartMatch({
+      env: {
+        KV: kv,
+        DISCORD_TOKEN: 'token',
+      },
+    }, '2v2', [{
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: '',
+      partyIds: ['player-2'],
+    }, {
+      playerId: 'player-2',
+      displayName: 'Player 2',
+      avatarUrl: '',
+      partyIds: ['player-1'],
+    }])
+
+    expect(result).toEqual({ error: 'No compatible open lobby could fit this join.' })
+  })
+
   test('rejects joins for players who are already in a live match', async () => {
     const { kv } = createTrackedKv()
     const liveLobby = await createLobby(kv, {

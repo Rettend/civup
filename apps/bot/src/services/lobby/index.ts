@@ -5,6 +5,7 @@ export { isLobbyInactive, LOBBY_INACTIVITY_TIMEOUT_MS, LOBBY_TIMEOUT_MESSAGE, pr
 export { canApplyQueuedLobbyMessageUpdate, getCurrentLobbyForQueuedMessageUpdate, repostLobbyMessage, upsertLobbyMessage } from './message.ts'
 export { attachLobbyMatch, canTransitionLobbyStatus, createLobby, setLobbyDraftConfig, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMessage, setLobbyMinRole, setLobbySlots, setLobbyStatus, setLobbySteamLobbyLink } from './mutations.ts'
 export { parseLobbyState } from './normalize.ts'
+export { deriveQueueBackedLobbyMemberPlayerIds, isQueueBackedOpenLobbyState, reconcileOpenLobbyState } from './reconcile.ts'
 export type { SlottedPremadeGroup } from './premades.ts'
 export { buildActivePremadeEdgeSet, buildSlottedPremadeGroups, compactSlottedPremadesForMode, moveSlottedPremadeGroup, rebuildQueueEntriesFromPremadeEdgeSet } from './premades.ts'
 export { getLobbyAndQueueState } from './queue.ts'
