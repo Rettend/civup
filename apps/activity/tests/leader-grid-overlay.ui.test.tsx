@@ -1,7 +1,7 @@
 /** @jsxImportSource solid-js */
 
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { fireEvent, render, screen } from '@solidjs/testing-library'
+import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library'
 import { createActiveDraftState, TEST_LEADER_IDS } from './ui-fixtures'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
@@ -25,6 +25,7 @@ function setViewportWidth(width: number) {
 
 describe('LeaderGridOverlay UI', () => {
   beforeEach(() => {
+    cleanup()
     resetUiMocks()
     setViewportWidth(1024)
     uiMockState.draftSeatIndex = 0
@@ -100,6 +101,29 @@ describe('LeaderGridOverlay UI', () => {
     expect(uiMockState.pickSelections).toEqual([])
   })
 
+  test('confirms a random pick from the stable available pool', () => {
+    uiMockState.draftState = createActiveDraftState({
+      currentStepIndex: 1,
+      availableCivIds: [TEST_LEADER_IDS.abrahamLincoln],
+    })
+
+    let unmount = () => {}
+    const mount = () => {
+      unmount()
+      ;({ unmount } = render(() => <LeaderGridOverlay />))
+    }
+
+    mount()
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Random' })[0]!)
+    mount()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Pick' }))
+
+    expect(storeSpies.sendPick).toHaveBeenCalledWith(TEST_LEADER_IDS.abrahamLincoln)
+    expect(uiMockState.gridOpen).toBe(false)
+    expect(uiMockState.isRandomSelected).toBe(false)
+  })
+
   test('supports ban selections and confirmation through the shared overlay flow', async () => {
     uiMockState.draftState = createActiveDraftState({
       currentStepIndex: 0,
@@ -172,6 +196,29 @@ describe('LeaderGridOverlay UI', () => {
     mount()
     expect(uiMockState.gridExpanded).toBe(false)
     expect(screen.getByRole('button', { name: 'Expand leader grid' })).toBeTruthy()
+  })
+
+  test('clears active filters from the shared toolbar', () => {
+    uiMockState.gridViewMode = 'list'
+    uiMockState.tagFiltersState = {
+      econ: ['econ:production'],
+      win: [],
+      spike: [],
+      role: [],
+      other: [],
+    }
+
+    render(() => <LeaderGridOverlay />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+
+    expect(uiMockState.tagFiltersState).toEqual({
+      econ: [],
+      win: [],
+      spike: [],
+      role: [],
+      other: [],
+    })
   })
 
   test('hides search-only controls for red death drafts', () => {

@@ -1,7 +1,7 @@
 /** @jsxImportSource solid-js */
 
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
-import { fireEvent, render, screen, waitFor } from '@solidjs/testing-library'
+import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library'
 import userEvent from '@testing-library/user-event'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 import { createActiveDraftState, createCancelledDraftState, createCompleteDraftState, createWaitingDraftState, TEST_LEADER_IDS } from './ui-fixtures'
@@ -12,6 +12,7 @@ const { DraftPage } = await import('../src/client/pages/draft/DraftPage')
 
 describe('DraftPage UI', () => {
   beforeEach(() => {
+    cleanup()
     resetUiMocks()
     onSwitchTarget.mockClear()
   })
