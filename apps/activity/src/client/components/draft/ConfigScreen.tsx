@@ -65,7 +65,7 @@ import {
 import { MiniFrame, MiniSeatGrid } from './MiniLayout'
 import { SteamLobbyButton } from './SteamLobbyButton'
 
-interface ConfigScreenProps {
+export interface ConfigScreenProps {
   lobby?: LobbySnapshot
   steamLobbyLink?: string | null
   showJoinPending?: boolean
