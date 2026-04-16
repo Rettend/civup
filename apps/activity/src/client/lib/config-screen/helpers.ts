@@ -302,6 +302,13 @@ export function getLeaderPoolSizeMinimum(mode: GameMode, playerCount: number): n
   return getMinimumLeaderPoolSize(mode, playerCount)
 }
 
+export function supportsBlindBansControl(mode: GameMode, options: { redDeath?: boolean, targetSize?: number } = {}): boolean {
+  if (options.redDeath) return false
+  if (mode === 'ffa') return false
+  if (mode === '2v2') return options.targetSize === 4
+  return true
+}
+
 export function parseLeaderPoolSizeInput(value: string, minimum: number, maximum: number = MAX_LEADER_POOL_INPUT): number | null | undefined {
   const trimmed = value.trim()
   if (!trimmed) return null

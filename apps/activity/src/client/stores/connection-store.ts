@@ -56,6 +56,7 @@ export interface LobbySnapshot {
     pickTimerSeconds: number | null
     leaderPoolSize: number | null
     leaderDataVersion: LeaderDataVersion
+    blindBans: boolean
     simultaneousPick: boolean
     redDeath: boolean
     dealOptionsSize: number | null
@@ -672,6 +673,7 @@ export async function updateLobbyConfig(
     pickTimerSeconds?: number | null
     leaderPoolSize?: number | null
     leaderDataVersion?: LeaderDataVersion
+    blindBans?: boolean
     simultaneousPick?: boolean
     redDeath?: boolean
     dealOptionsSize?: number | null
@@ -691,6 +693,7 @@ export async function updateLobbyConfig(
       pickTimerSeconds: draftConfig.pickTimerSeconds,
       leaderPoolSize: draftConfig.leaderPoolSize,
       leaderDataVersion: draftConfig.leaderDataVersion,
+      blindBans: draftConfig.blindBans,
       simultaneousPick: draftConfig.simultaneousPick,
       redDeath: draftConfig.redDeath,
       dealOptionsSize: draftConfig.dealOptionsSize,

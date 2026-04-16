@@ -373,4 +373,54 @@ describe('draft room creation', () => {
     expect(postedConfig?.duplicateFactions).toBe(true)
     expect(result.formatId).toBe('red-death-6v6')
   })
+
+  test('uses a visible-ban format for supported modes when blind bans are disabled', async () => {
+    let postedConfig: { formatId?: unknown } | null = null
+    globalThis.fetch = (async (_input, init) => {
+      postedConfig = JSON.parse(String(init?.body)) as { formatId?: unknown }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const entries = baseFfaEntries.map((entry, index) => ({
+      ...entry,
+      playerId: `team-player-${index + 1}`,
+      displayName: `Team Player ${index + 1}`,
+    }))
+
+    const result = await createDraftRoom('1v1', entries.slice(0, 2), {
+      hostId: 'team-player-1',
+      blindBans: false,
+    })
+
+    expect(postedConfig?.formatId).toBe('default-1v1-visible-bans')
+    expect(result.formatId).toBe('default-1v1-visible-bans')
+  })
+
+  test('falls back to the default format when visible bans are unsupported for the seat count', async () => {
+    let postedConfig: { formatId?: unknown } | null = null
+    globalThis.fetch = (async (_input, init) => {
+      postedConfig = JSON.parse(String(init?.body)) as { formatId?: unknown }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const entries: QueueEntry[] = Array.from({ length: 8 }, (_, index) => ({
+      playerId: `p${index + 1}`,
+      displayName: `P${index + 1}`,
+      joinedAt: index,
+    }))
+
+    const result = await createDraftRoom('2v2', entries, {
+      hostId: 'p1',
+      blindBans: false,
+    })
+
+    expect(postedConfig?.formatId).toBe('default-2v2')
+    expect(result.formatId).toBe('default-2v2')
+  })
 })
