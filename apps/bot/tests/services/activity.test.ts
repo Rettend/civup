@@ -17,6 +17,8 @@ import {
   storeUserLobbyState,
   storeUserMatchMappings,
 } from '../../src/services/activity/index.ts'
+import { createLobby, setLobbySlots } from '../../src/services/lobby/index.ts'
+import { addToQueue } from '../../src/services/queue/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
@@ -246,6 +248,48 @@ describe('activity mapping behavior', () => {
       pendingJoin: false,
       roomAccessToken: expect.any(String),
     }))
+  })
+
+  test('getLobbyForUser repairs a stale mapping to the player\'s real open lobby', async () => {
+    const { kv } = createTrackedKv()
+
+    const currentLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-current',
+    })
+    const staleLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-2',
+      channelId: 'channel-2',
+      messageId: 'message-stale',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-2',
+      displayName: 'Host 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now() + 2,
+    })
+
+    await setLobbySlots(kv, currentLobby.id, ['host-1', 'player-1', null, null], currentLobby)
+    await storeUserLobbyMappings(kv, ['player-1'], staleLobby.id)
+
+    await expect(getLobbyForUser(kv, 'player-1')).resolves.toBe(currentLobby.id)
+    await expect(kv.get('activity-lobby-user:player-1')).resolves.toBe(currentLobby.id)
   })
 })
 

@@ -457,6 +457,58 @@ describe('lobby routes', () => {
     expect((await getLobbyById(kv, targetLobby.id))?.slots).toEqual(['host', null, null, null, 'player-1', 'player-2', null, null])
   })
 
+  test('seat moves keep working for players already in the target lobby despite stale open-lobby residue', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const sourceLobby = await createLobby(kv, {
+      mode: '4v4',
+      hostId: 'source-host',
+      channelId: 'channel-source',
+      messageId: 'message-source',
+    })
+    const targetLobby = await createLobby(kv, {
+      mode: '4v4',
+      hostId: 'host',
+      channelId: 'channel-target',
+      messageId: 'message-target',
+    })
+
+    for (const [index, playerId] of ['source-host', 'host', 'player-1', 'player-2'].entries()) {
+      await addToQueue(kv, '4v4', {
+        playerId,
+        displayName: playerId,
+        avatarUrl: null,
+        joinedAt: Date.now() + index,
+      })
+    }
+
+    const sourceWithMembers = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'player-1'], sourceLobby)
+    await setLobbySlots(kv, sourceLobby.id, ['source-host', 'player-1', null, null, null, null, null, null], sourceWithMembers ?? sourceLobby)
+    const targetWithMembers = await setLobbyMemberPlayerIds(kv, targetLobby.id, ['host', 'player-1', 'player-2'], targetLobby)
+    await setLobbySlots(kv, targetLobby.id, ['host', 'player-1', 'player-2', null, null, null, null, null], targetWithMembers ?? targetLobby)
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/4v4/place', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        playerId: 'player-1',
+        lobbyId: targetLobby.id,
+        targetSlot: 4,
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    expect((await getLobbyById(kv, targetLobby.id))?.slots).toEqual(['host', null, 'player-2', null, 'player-1', null, null, null])
+  })
+
   test('direct lobby joins ignore matchmaking max rank', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
@@ -1456,6 +1508,52 @@ describe('lobby routes', () => {
     expect(updatedLobby?.mode).toBe('2v2')
     expect(updatedLobby?.slots).toEqual(['p1', 'p2', 'p3', 'p4', 'p5', 'p6', null, null])
     expect(updatedLobby?.memberPlayerIds).toEqual(playerIds)
+  })
+
+  test('mode changes preserve slotted queued players even when member ids are stale', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '3v3',
+      hostId: 'p1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6']
+    for (let index = 0; index < playerIds.length; index++) {
+      const playerId = playerIds[index]
+      await addToQueue(kv, '3v3', {
+        playerId,
+        displayName: playerId,
+        avatarUrl: null,
+        joinedAt: Date.now() + index,
+      })
+    }
+
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['p1', 'p2', 'p3', 'p4', 'p5'], lobby)
+    await setLobbySlots(kv, lobby.id, ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'], withMembers ?? lobby)
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/3v3/mode', {
+      method: 'POST',
+      headers: buildAuthHeaders('p1', 'P1'),
+      body: JSON.stringify({
+        userId: 'p1',
+        lobbyId: lobby.id,
+        nextMode: '2v2',
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    expect((await getLobbyById(kv, lobby.id))?.memberPlayerIds).toEqual(playerIds)
+    expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(['p1', 'p2', 'p3', 'p4', 'p5', 'p6', null, null])
   })
 
   test('lobby config defaults blind bans on and preserves false for supported modes', async () => {

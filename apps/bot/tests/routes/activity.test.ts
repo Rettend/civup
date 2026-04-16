@@ -174,6 +174,47 @@ describe('activity lobby join eligibility', () => {
     })
   })
 
+  test('ignores stale open-lobby member residue when evaluating another lobby', async () => {
+    const { kv } = createTrackedKv()
+    const sourceLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-source',
+    })
+    const targetLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-2',
+      channelId: 'channel-2',
+      messageId: 'message-target',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-2',
+      displayName: 'Host 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+
+    const staleSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['host-1', 'player-1'], sourceLobby)
+    await setLobbySlots(kv, sourceLobby.id, ['host-1', null, null, null], staleSource ?? sourceLobby)
+
+    const snapshot = await buildOpenLobbySnapshot(kv, '2v2', targetLobby)
+    const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', targetLobby, snapshot)
+
+    expect(eligibility).toEqual({
+      canJoin: true,
+      blockedReason: null,
+      pendingSlot: 1,
+    })
+  })
+
   test('blocks joining another open lobby when the viewer is hosting players in the source lobby', async () => {
     const { kv } = createTrackedKv()
     const sourceLobby = await createLobby(kv, {
