@@ -1,15 +1,20 @@
 /** @jsxImportSource solid-js */
 
-import type { DraftState, LeaderDataVersion } from '@civup/game'
+import { getPickSeatForPlayer, type DraftState, type LeaderDataVersion } from '@civup/game'
 import type { LeaderTagCategory } from '../src/client/lib/leader-tags'
 import type { LobbySnapshot } from '../src/client/stores'
+import { getTagCategory } from '../src/client/lib/leader-tags'
 import { mock } from 'bun:test'
+import { createMutable } from 'solid-js/store'
 
 export const storeSpies = {
   sendStart: mock(() => true),
   sendCancel: mock(() => {}),
   sendScrub: mock(() => {}),
   sendRevert: mock(() => {}),
+  sendBan: mock((_civIds: string[]) => {}),
+  sendPick: mock((_civId: string) => {}),
+  sendPreview: mock((_kind: 'ban' | 'pick', _civIds: string[]) => {}),
   sendSwapAccept: mock(() => {}),
   sendSwapRequest: mock((_seatIndex: number) => {}),
   reportMatchResult: mock(async () => ({ ok: true })),
@@ -60,6 +65,10 @@ type MockState = {
   selectedWinningTeam: number | null
   selectedLeaderId: string | null
   detailLeaderId: string | null
+  pickSelections: string[]
+  banSelections: string[]
+  isRandomSelected: boolean
+  favoriteLeaderIds: string[]
   ffaPlacementOrder: number[]
   teamPlacementOrder: number[]
   canOpenLeaderGrid: boolean
@@ -104,6 +113,10 @@ const defaults = (): MockState => ({
   selectedWinningTeam: null,
   selectedLeaderId: null,
   detailLeaderId: null,
+  pickSelections: [],
+  banSelections: [],
+  isRandomSelected: false,
+  favoriteLeaderIds: [],
   ffaPlacementOrder: [],
   teamPlacementOrder: [],
   canOpenLeaderGrid: true,
@@ -116,7 +129,7 @@ const defaults = (): MockState => ({
   tagFiltersState: emptyTagFilters(),
 })
 
-export const uiMockState: MockState = defaults()
+export const uiMockState: MockState = createMutable(defaults())
 
 export function resetUiMocks() {
   Object.assign(uiMockState, defaults())
@@ -127,6 +140,10 @@ export function resetUiMocks() {
   uiMockState.selectedWinningTeam = null
   uiMockState.selectedLeaderId = null
   uiMockState.detailLeaderId = null
+  uiMockState.pickSelections = []
+  uiMockState.banSelections = []
+  uiMockState.isRandomSelected = false
+  uiMockState.favoriteLeaderIds = []
   uiMockState.ffaPlacementOrder = []
   uiMockState.teamPlacementOrder = []
   uiMockState.canOpenLeaderGrid = true
@@ -145,21 +162,46 @@ export function resetUiMocks() {
 
 function currentStep() {
   const state = uiMockState.draftState
-  if (!state) return null
+  if (!state || state.status !== 'active') return null
   return state.steps[state.currentStepIndex] ?? null
 }
 
+function currentPickTargetSeatIndex() {
+  const state = uiMockState.draftState
+  const seatIndex = uiMockState.draftSeatIndex
+  if (!state || seatIndex == null) return null
+  return getPickSeatForPlayer(state, seatIndex)
+}
+
 function isMyOwnPickTurn() {
+  const step = currentStep()
+  const seatIndex = uiMockState.draftSeatIndex
+  const targetSeatIndex = currentPickTargetSeatIndex()
+  return Boolean(step?.action === 'pick' && seatIndex != null && targetSeatIndex != null && targetSeatIndex === seatIndex)
+}
+
+function isMyTurn() {
   const state = uiMockState.draftState
   const step = currentStep()
-  return Boolean(state && step?.action === 'pick' && uiMockState.draftSeatIndex != null && step.seats !== 'all' && step.seats.includes(uiMockState.draftSeatIndex))
+  const seatIndex = uiMockState.draftSeatIndex
+  if (!state || !step || seatIndex == null) return false
+  if (step.action === 'pick') return currentPickTargetSeatIndex() != null
+  if (step.seats === 'all') return true
+  return step.seats.includes(seatIndex)
 }
 
 function hasSubmitted() {
   const state = uiMockState.draftState
   const seatIndex = uiMockState.draftSeatIndex
   if (!state || seatIndex == null) return false
-  return (state.submissions[seatIndex]?.length ?? 0) > 0
+  const step = currentStep()
+  if (!step) return false
+
+  const targetSeatIndex = step.action === 'pick'
+    ? currentPickTargetSeatIndex() ?? seatIndex
+    : seatIndex
+
+  return (state.submissions[targetSeatIndex]?.length ?? 0) >= step.count
 }
 
 function phaseLabel() {
@@ -177,6 +219,23 @@ function phaseAccent() {
 
 function phaseAccentColor() {
   return phaseAccent() === 'red' ? 'var(--danger)' : 'var(--accent)'
+}
+
+function setPickSelections(next: string[]) {
+  uiMockState.pickSelections = [...next]
+  uiMockState.selectedLeaderId = uiMockState.pickSelections[0] ?? null
+}
+
+function clearSelections() {
+  setPickSelections([])
+  uiMockState.banSelections = []
+  uiMockState.isRandomSelected = false
+  uiMockState.searchQuery = ''
+  uiMockState.tagFiltersState = emptyTagFilters()
+  uiMockState.detailLeaderId = null
+  uiMockState.selectedWinningTeam = null
+  uiMockState.ffaPlacementOrder = []
+  uiMockState.teamPlacementOrder = []
 }
 
 function phaseHeaderBg() {
@@ -202,8 +261,8 @@ mock.module('~/client/lib/clipboard', () => ({
 mock.module('~/client/stores', () => ({
   activeTagFilterCount: () => Object.values(uiMockState.tagFiltersState).reduce((count, tags) => count + tags.length, 0),
   arrangeLobbySlots: async () => ({ ok: true }),
-  banSelections: () => [],
-  clearLeaderFavorites: () => {},
+  banSelections: () => uiMockState.banSelections,
+  clearLeaderFavorites: () => { uiMockState.favoriteLeaderIds = [] },
   clearWinningTeam: () => { uiMockState.selectedWinningTeam = null },
   cancelLobby: async () => ({ ok: true }),
   canFillLobbyWithTestPlayers: async () => false,
@@ -211,7 +270,7 @@ mock.module('~/client/stores', () => ({
   canSendPickPreview: () => false,
   avatarUrl: () => uiMockState.avatarUrl,
   canOpenLeaderGrid: () => uiMockState.canOpenLeaderGrid,
-  clearSelections: () => {},
+  clearSelections,
   clearTagFilters: () => { uiMockState.tagFiltersState = emptyTagFilters() },
   clearFfaPlacements: () => { uiMockState.ffaPlacementOrder = [] },
   clearResultSelections: () => {
@@ -221,7 +280,7 @@ mock.module('~/client/stores', () => ({
   },
   connectionError: () => uiMockState.connectionError,
   connectionStatus: () => uiMockState.connectionStatus,
-  currentPickTargetSeatIndex: () => uiMockState.draftSeatIndex,
+  currentPickTargetSeatIndex,
   currentStep,
   currentStepDuration,
   dealtCivIds: () => [],
@@ -247,7 +306,7 @@ mock.module('~/client/stores', () => ({
     swapState: null,
     initVersion: 1,
   },
-  favoriteLeaderIds: () => [],
+  favoriteLeaderIds: () => uiMockState.favoriteLeaderIds,
   fetchLobbyRankedRoles: async () => null,
   ffaPlacementOrder: () => uiMockState.ffaPlacementOrder,
   fillLobbyWithTestPlayers: async () => ({ ok: true, addedCount: 0 }),
@@ -258,11 +317,11 @@ mock.module('~/client/stores', () => ({
   gridViewMode: () => uiMockState.gridViewMode,
   hasSubmitted,
   isMiniView: () => uiMockState.isMiniView,
-  isLeaderFavorited: () => false,
-  isMyTurn: isMyOwnPickTurn,
+  isLeaderFavorited: (leaderId: string) => uiMockState.favoriteLeaderIds.includes(leaderId),
+  isMyTurn,
   isMobileLayout: () => uiMockState.isMobileLayout,
   isMyOwnPickTurn,
-  isRandomSelected: () => false,
+  isRandomSelected: () => uiMockState.isRandomSelected,
   isRedDeathDraft: () => uiMockState.isRedDeathDraft,
   isSpectator: () => uiMockState.isSpectator,
   isSwapWindowOpen: () => uiMockState.swapWindowOpen,
@@ -270,7 +329,7 @@ mock.module('~/client/stores', () => ({
   phaseAccentColor,
   phaseHeaderBg,
   phaseLabel,
-  pickSelections: () => [],
+  pickSelections: () => uiMockState.pickSelections,
   placeLobbySlot: async () => ({ ok: true }),
   removeLobbySlot: async () => ({ ok: true }),
   reportMatchResult: (...args: Parameters<typeof storeSpies.reportMatchResult>) => storeSpies.reportMatchResult(...args),
@@ -281,37 +340,62 @@ mock.module('~/client/stores', () => ({
   selectedLeader: () => uiMockState.selectedLeaderId,
   seatHasIncomingSwap: (seatIndex: number) => uiMockState.incomingSwapSeatIndices.includes(seatIndex),
   sendCancel: (...args: Parameters<typeof storeSpies.sendCancel>) => storeSpies.sendCancel(...args),
-  sendBan: () => {},
+  sendBan: (...args: Parameters<typeof storeSpies.sendBan>) => storeSpies.sendBan(...args),
   sendConfig: async () => {},
-  sendPick: () => {},
-  sendPreview: () => {},
+  sendPick: (...args: Parameters<typeof storeSpies.sendPick>) => storeSpies.sendPick(...args),
+  sendPreview: (...args: Parameters<typeof storeSpies.sendPreview>) => storeSpies.sendPreview(...args),
   sendRevert: (...args: Parameters<typeof storeSpies.sendRevert>) => storeSpies.sendRevert(...args),
   sendScrub: (...args: Parameters<typeof storeSpies.sendScrub>) => storeSpies.sendScrub(...args),
   sendStart: (...args: Parameters<typeof storeSpies.sendStart>) => storeSpies.sendStart(...args),
   sendSwapAccept: (...args: Parameters<typeof storeSpies.sendSwapAccept>) => storeSpies.sendSwapAccept(...args),
   sendSwapRequest: (...args: Parameters<typeof storeSpies.sendSwapRequest>) => storeSpies.sendSwapRequest(...args),
-  setBanSelections: () => {},
+  setBanSelections: (next: string[]) => { uiMockState.banSelections = [...next] },
   setDetailLeaderId: (leaderId: string | null) => { uiMockState.detailLeaderId = leaderId },
   setIsMiniView: () => {},
   setIsMobileLayout: () => {},
   setGridExpanded: (next: boolean) => { uiMockState.gridExpanded = next },
   setGridOpen: (next: boolean) => { uiMockState.gridOpen = next },
   setGridViewMode: (next: 'grid' | 'multi-list' | 'list') => { uiMockState.gridViewMode = next },
-  setIsRandomSelected: () => {},
-  setPickSelections: () => {},
+  setIsRandomSelected: (next: boolean) => { uiMockState.isRandomSelected = next },
+  setPickSelections,
   setResultSelectionsLocked: (next: boolean) => { uiMockState.resultSelectionsLocked = next },
   setSearchQuery: (next: string) => { uiMockState.searchQuery = next },
-  setSelectedLeader: (leaderId: string | null) => { uiMockState.selectedLeaderId = leaderId },
+  setSelectedLeader: (leaderId: string | null) => { setPickSelections(leaderId ? [leaderId] : []) },
   selectWinningTeam: (team: number | null) => { uiMockState.selectedWinningTeam = team },
   startLobbyDraft: async () => ({ ok: true, matchId: 'match-1', roomAccessToken: 'room-token' }),
   tagFilters: () => uiMockState.tagFiltersState,
   teamPlacementOrder: () => uiMockState.teamPlacementOrder,
-  toggleDetail: () => {},
-  toggleBanSelection: () => {},
+  toggleDetail: (leaderId: string) => { uiMockState.detailLeaderId = uiMockState.detailLeaderId === leaderId ? null : leaderId },
+  toggleBanSelection: (leaderId: string, maxBans: number) => {
+    if (uiMockState.banSelections.includes(leaderId)) {
+      uiMockState.banSelections = uiMockState.banSelections.filter(id => id !== leaderId)
+      return
+    }
+    if (uiMockState.banSelections.length >= maxBans) return
+    uiMockState.banSelections = [...uiMockState.banSelections, leaderId]
+  },
   toggleFfaPlacement: (...args: Parameters<typeof storeSpies.toggleFfaPlacement>) => storeSpies.toggleFfaPlacement(...args),
-  toggleLeaderFavorite: () => {},
-  togglePickSelection: () => {},
-  toggleTagFilter: () => {},
+  toggleLeaderFavorite: (leaderId: string) => {
+    if (uiMockState.favoriteLeaderIds.includes(leaderId)) {
+      uiMockState.favoriteLeaderIds = uiMockState.favoriteLeaderIds.filter(id => id !== leaderId)
+      return
+    }
+    uiMockState.favoriteLeaderIds = [...uiMockState.favoriteLeaderIds, leaderId]
+  },
+  togglePickSelection: (leaderId: string) => {
+    setPickSelections(uiMockState.pickSelections[0] === leaderId ? [] : [leaderId])
+  },
+  toggleTagFilter: (tag: string) => {
+    const category = getTagCategory(tag)
+    if (!category) return
+    const nextTags = uiMockState.tagFiltersState[category].includes(tag)
+      ? uiMockState.tagFiltersState[category].filter(current => current !== tag)
+      : [...uiMockState.tagFiltersState[category], tag]
+    uiMockState.tagFiltersState = {
+      ...uiMockState.tagFiltersState,
+      [category]: nextTags,
+    }
+  },
   toggleTeamPlacement: (...args: Parameters<typeof storeSpies.toggleTeamPlacement>) => storeSpies.toggleTeamPlacement(...args),
   toggleLobbyPremadeLink: async () => ({ ok: true }),
   updateLobbyConfig: (...args: Parameters<typeof storeSpies.updateLobbyConfig>) => storeSpies.updateLobbyConfig(...args),
