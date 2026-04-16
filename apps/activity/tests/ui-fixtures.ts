@@ -3,6 +3,17 @@ import type { ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot 
 
 type DraftStatus = DraftState['status']
 
+export const TEST_LEADER_IDS = {
+  abrahamLincoln: 'america-abraham-lincoln',
+  teddyBullMoose: 'america-teddy-roosevelt-bull-moose',
+  teddyRoughRider: 'america-teddy-roosevelt-rough-rider',
+  saladinVizier: 'arabia-saladin-vizier',
+  saladinSultan: 'arabia-saladin-sultan',
+  johnCurtin: 'australia-john-curtin',
+  montezuma: 'aztec-montezuma',
+  hammurabi: 'babylon-hammurabi',
+} as const
+
 export function createActivityTargetOption(overrides: Partial<ActivityTargetOption> = {}): ActivityTargetOption {
   return {
     kind: 'lobby',
@@ -102,10 +113,10 @@ function createDraftState(status: DraftStatus, overrides: Partial<DraftState>): 
     bans: [],
     picks: status === 'complete'
       ? [
-          { seatIndex: 0, civId: 'america', stepIndex: 1 },
-          { seatIndex: 1, civId: 'rome', stepIndex: 1 },
-          { seatIndex: 2, civId: 'greece', stepIndex: 1 },
-          { seatIndex: 3, civId: 'egypt', stepIndex: 1 },
+          { seatIndex: 0, civId: TEST_LEADER_IDS.abrahamLincoln, stepIndex: 1 },
+          { seatIndex: 1, civId: TEST_LEADER_IDS.saladinVizier, stepIndex: 1 },
+          { seatIndex: 2, civId: TEST_LEADER_IDS.johnCurtin, stepIndex: 1 },
+          { seatIndex: 3, civId: TEST_LEADER_IDS.montezuma, stepIndex: 1 },
         ]
       : [],
     steps: [
@@ -113,7 +124,7 @@ function createDraftState(status: DraftStatus, overrides: Partial<DraftState>): 
       { action: 'pick', count: 1, timer: 90, seats: [0] },
     ],
     submissions: {},
-    availableCivIds: ['america', 'rome', 'greece', 'egypt'],
+    availableCivIds: Object.values(TEST_LEADER_IDS),
     cancelReason: null,
     pendingBlindBans: [],
     ...overrides,

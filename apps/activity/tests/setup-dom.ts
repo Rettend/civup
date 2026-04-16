@@ -34,6 +34,10 @@ GlobalRegistrator.register({
   url: 'http://localhost/',
 })
 
+if (!('__ASSET_REVISION_MAP__' in globalThis)) {
+  Object.assign(globalThis, { __ASSET_REVISION_MAP__: {} })
+}
+
 const { cleanup } = await import('@solidjs/testing-library')
 
 if (!globalThis.matchMedia) {

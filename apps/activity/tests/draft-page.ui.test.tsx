@@ -1,9 +1,10 @@
 /** @jsxImportSource solid-js */
 
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
-import { render, screen } from '@solidjs/testing-library'
-import { resetUiMocks, uiMockState } from './ui-mocks'
-import { createActiveDraftState, createCancelledDraftState, createCompleteDraftState, createWaitingDraftState } from './ui-fixtures'
+import { fireEvent, render, screen } from '@solidjs/testing-library'
+import userEvent from '@testing-library/user-event'
+import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
+import { createActiveDraftState, createCancelledDraftState, createCompleteDraftState, createWaitingDraftState, TEST_LEADER_IDS } from './ui-fixtures'
 
 const onSwitchTarget = mock(() => {})
 
@@ -57,13 +58,36 @@ describe('DraftPage UI', () => {
     uiMockState.gridOpen = true
     uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1 })
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
+    const view = render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
 
     expect(screen.getByText('Host Player')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Expand leader grid' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Filters' })).toBeTruthy()
     expect(screen.getByText('Reconnecting...')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Lobby Overview' })).toBeTruthy()
+  })
+
+  test('supports a real active draft pick flow through the page overlay', () => {
+    const mount = () => {
+      document.body.innerHTML = ''
+      render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
+    }
+
+    uiMockState.connectionStatus = 'connected'
+    uiMockState.gridOpen = true
+    uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1 })
+
+    mount()
+
+    expect(screen.getByText('Host Player')).toBeTruthy()
+    expect(screen.getByText('Player 2')).toBeTruthy()
+
+    fireEvent.click(screen.getByAltText('Abraham Lincoln').closest('button')!)
+    mount()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Pick' }))
+
+    expect(storeSpies.sendPick).toHaveBeenCalledWith(TEST_LEADER_IDS.abrahamLincoln)
+    expect(uiMockState.gridOpen).toBe(false)
   })
 
   test('shows the complete draft shell even after a connection error', () => {
@@ -75,6 +99,21 @@ describe('DraftPage UI', () => {
 
     expect(screen.getByText('You can close the activity!')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Confirm Result' })).toBeTruthy()
+  })
+
+  test('supports selecting the winning team from the completed draft page slot strip', () => {
+    uiMockState.connectionStatus = 'connected'
+    uiMockState.userId = 'host-1'
+    uiMockState.draftSeatIndex = 0
+    uiMockState.draftState = createCompleteDraftState({ formatId: '2v2' })
+
+    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="teamers" />)
+
+    expect(screen.getByText('VS')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('Host Player'))
+
+    expect(uiMockState.selectedWinningTeam).toBe(0)
   })
 
   test('shows cancelled outcomes for scrubbed and reverted drafts in full and mini layouts', () => {
@@ -92,5 +131,19 @@ describe('DraftPage UI', () => {
     render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
 
     expect(screen.getByText('Draft Reverted')).toBeTruthy()
+  })
+
+  test('lets the user leave a cancelled non-scrub draft back to lobby overview', async () => {
+    const user = userEvent.setup()
+    uiMockState.connectionStatus = 'connected'
+    uiMockState.draftState = createCancelledDraftState('cancel')
+
+    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
+
+    expect(screen.getByRole('button', { name: 'Open Steam link' })).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: 'Lobby Overview' }))
+
+    expect(onSwitchTarget).toHaveBeenCalledTimes(1)
   })
 })

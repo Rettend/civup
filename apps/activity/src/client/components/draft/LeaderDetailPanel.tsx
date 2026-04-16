@@ -38,6 +38,8 @@ export function LeaderDetailPanel() {
           <div class="top-2 right-4 absolute z-10 flex flex-col items-end gap-1">
             <button
               class="text-fg-subtle rounded-full h-8 w-8 flex items-center justify-center cursor-pointer hover:bg-bg-muted hover:text-fg-muted"
+              title="Close leader details"
+              aria-label="Close leader details"
               onClick={() => setDetailLeaderId(null)}
             >
               <div class="i-ph-x-bold text-base" />

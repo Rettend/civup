@@ -1,40 +1,173 @@
 /** @jsxImportSource solid-js */
 
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { render, screen } from '@solidjs/testing-library'
-import { createActiveDraftState } from './ui-fixtures'
-import { resetUiMocks, uiMockState } from './ui-mocks'
+import { fireEvent, render, screen } from '@solidjs/testing-library'
+import { createActiveDraftState, TEST_LEADER_IDS } from './ui-fixtures'
+import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const { LeaderGridOverlay } = await import('../src/client/components/draft/LeaderGridOverlay')
+
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, 'innerWidth', {
+    configurable: true,
+    writable: true,
+    value: width,
+  })
+  Object.defineProperty(window, 'visualViewport', {
+    configurable: true,
+    value: {
+      width,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    },
+  })
+}
 
 describe('LeaderGridOverlay UI', () => {
   beforeEach(() => {
     resetUiMocks()
+    setViewportWidth(1024)
     uiMockState.draftSeatIndex = 0
     uiMockState.gridOpen = true
     uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1 })
   })
 
-  test('shows the default grid shell with search, filters, view toggles, and random selection', () => {
-    render(() => <LeaderGridOverlay />)
+  test('supports search, filters, list mode, and list selection flows', async () => {
+    setViewportWidth(1440)
+    const mount = () => {
+      document.body.innerHTML = ''
+      render(() => <LeaderGridOverlay />)
+    }
 
-    expect(screen.getByPlaceholderText('Search...')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Expand leader grid' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Filters' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Grid view' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Multi-column list' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'List view' })).toBeTruthy()
-    expect(screen.getAllByText('Random').length).toBeGreaterThan(0)
+    mount()
+
+    fireEvent.click(screen.getByRole('button', { name: 'List view' }))
+    mount()
+    fireEvent.input(screen.getByPlaceholderText('Search...'), { target: { value: 'Montezuma' } })
+    mount()
+
+    expect(uiMockState.searchQuery).toBe('Montezuma')
+    expect(screen.getByRole('button', { name: /Montezuma/i })).toBeTruthy()
+    expect(screen.getByText('Montezuma')).toBeTruthy()
+
+    fireEvent.input(screen.getByPlaceholderText('Search...'), { target: { value: '' } })
+    mount()
+    uiMockState.tagFiltersState = {
+      econ: ['econ:production'],
+      win: [],
+      spike: [],
+      role: [],
+      other: [],
+    }
+    mount()
+
+    expect(uiMockState.tagFiltersState.econ).toEqual(['econ:production'])
+    expect(screen.getByRole('button', { name: 'Clear' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /Abraham Lincoln/i }))
+    mount()
+
+    expect(uiMockState.selectedLeaderId).toBe(TEST_LEADER_IDS.abrahamLincoln)
+    expect(screen.getByRole('button', { name: 'Confirm Pick' }).hasAttribute('disabled')).toBe(false)
   })
 
-  test('shows the expanded list-view shell when the grid is docked open', () => {
-    uiMockState.gridExpanded = true
-    uiMockState.gridViewMode = 'list'
+  test('supports random toggle, direct card selection, and pick confirmation', async () => {
+    const mount = () => {
+      document.body.innerHTML = ''
+      render(() => <LeaderGridOverlay />)
+    }
 
-    render(() => <LeaderGridOverlay />)
+    mount()
 
+    fireEvent.click(screen.getAllByRole('button', { name: 'Random' })[0]!)
+    mount()
+
+    expect(uiMockState.isRandomSelected).toBe(true)
+    expect(uiMockState.selectedLeaderId).toBeNull()
+
+    fireEvent.click(screen.getByAltText('Abraham Lincoln').closest('button')!)
+    mount()
+
+    expect(uiMockState.isRandomSelected).toBe(false)
+    expect(uiMockState.selectedLeaderId).toBe(TEST_LEADER_IDS.abrahamLincoln)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Pick' }))
+
+    expect(storeSpies.sendPick).toHaveBeenCalledWith(TEST_LEADER_IDS.abrahamLincoln)
+    expect(uiMockState.gridOpen).toBe(false)
+    expect(uiMockState.selectedLeaderId).toBeNull()
+    expect(uiMockState.pickSelections).toEqual([])
+  })
+
+  test('supports ban selections and confirmation through the shared overlay flow', async () => {
+    uiMockState.draftState = createActiveDraftState({
+      currentStepIndex: 0,
+      steps: [{ action: 'ban', count: 2, timer: 60, seats: 'all' }, { action: 'pick', count: 1, timer: 90, seats: [0] }],
+    })
+
+    const mount = () => {
+      document.body.innerHTML = ''
+      render(() => <LeaderGridOverlay />)
+    }
+
+    mount()
+
+    fireEvent.click(screen.getByAltText('Abraham Lincoln').closest('button')!)
+    mount()
+    fireEvent.click(screen.getByAltText('John Curtin').closest('button')!)
+    mount()
+
+    expect(uiMockState.banSelections).toEqual([TEST_LEADER_IDS.abrahamLincoln, TEST_LEADER_IDS.johnCurtin])
+    expect(screen.getByRole('button', { name: 'Confirm Bans (2/2)' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Bans (2/2)' }))
+
+    expect(storeSpies.sendBan).toHaveBeenCalledWith([TEST_LEADER_IDS.abrahamLincoln, TEST_LEADER_IDS.johnCurtin])
+    expect(uiMockState.gridOpen).toBe(false)
+    expect(uiMockState.banSelections).toEqual([])
+  })
+
+  test('lets a team captain confirm a pick for a teammate through the shared overlay flow', () => {
+    uiMockState.draftSeatIndex = 0
+    uiMockState.draftState = createActiveDraftState({
+      formatId: '2v2',
+      currentStepIndex: 1,
+      steps: [{ action: 'ban', count: 1, timer: 60, seats: [0] }, { action: 'pick', count: 1, timer: 90, seats: [2] }],
+    })
+
+    const mount = () => {
+      document.body.innerHTML = ''
+      render(() => <LeaderGridOverlay />)
+    }
+
+    mount()
+
+    fireEvent.click(screen.getByAltText('Abraham Lincoln').closest('button')!)
+    mount()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pick for Player 3' }))
+
+    expect(storeSpies.sendPick).toHaveBeenCalledWith(TEST_LEADER_IDS.abrahamLincoln)
+    expect(uiMockState.gridOpen).toBe(false)
+  })
+
+  test('toggles the expanded overlay layout through the shared grid controls', async () => {
+    const mount = () => {
+      document.body.innerHTML = ''
+      render(() => <LeaderGridOverlay />)
+    }
+
+    mount()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand leader grid' }))
+    mount()
+    expect(uiMockState.gridExpanded).toBe(true)
     expect(screen.getByRole('button', { name: 'Restore side panels' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'List view' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restore side panels' }))
+    mount()
+    expect(uiMockState.gridExpanded).toBe(false)
+    expect(screen.getByRole('button', { name: 'Expand leader grid' })).toBeTruthy()
   })
 
   test('hides search-only controls for red death drafts', () => {
@@ -45,5 +178,29 @@ describe('LeaderGridOverlay UI', () => {
     expect(screen.queryByPlaceholderText('Search...')).toBeNull()
     expect(screen.queryByText('Random')).toBeNull()
     expect(screen.getByRole('button', { name: 'Expand leader grid' })).toBeTruthy()
+  })
+
+  test('opens leader details from a grid card context menu and supports favorite toggling', () => {
+    const mount = () => {
+      document.body.innerHTML = ''
+      render(() => <LeaderGridOverlay />)
+    }
+
+    mount()
+
+    fireEvent.contextMenu(screen.getByAltText('Abraham Lincoln').closest('button')!)
+    mount()
+
+    expect(uiMockState.detailLeaderId).toBe(TEST_LEADER_IDS.abrahamLincoln)
+    fireEvent.click(screen.getByRole('button', { name: 'Favorite leader' }))
+    mount()
+
+    expect(uiMockState.favoriteLeaderIds).toEqual([TEST_LEADER_IDS.abrahamLincoln])
+    expect(screen.getByRole('button', { name: 'Remove favorite' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close leader details' }))
+    mount()
+
+    expect(screen.queryByRole('button', { name: 'Remove favorite' })).toBeNull()
   })
 })
