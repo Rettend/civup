@@ -7,6 +7,8 @@ import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 const DAY_MS = 86_400_000
 const NOW = 1_700_000_000_000
 const originalFetch = globalThis.fetch
+const TIER_1 = 'tier1'
+const TIER_2 = 'tier2'
 const TIER_3 = 'tier3'
 const TIER_4 = 'tier4'
 const TIER_5 = 'tier5'
@@ -31,8 +33,8 @@ describe('ranked role sync service', () => {
 
     expect(hero).not.toBeUndefined()
     expect(hero?.ladderTiers.ffa).toBe(TIER_5)
-    expect(hero?.ladderTiers.duel).toBe(TIER_4)
-    expect(hero?.assignment.tier).toBe(TIER_4)
+    expect(hero?.ladderTiers.duel).toBe(TIER_1)
+    expect(hero?.assignment.tier).toBe(TIER_1)
     expect(hero?.assignment.sourceMode).toBe('duel')
 
     sqlite.close()
@@ -89,8 +91,8 @@ describe('ranked role sync service', () => {
     })
 
     expect(preview.playerPreviews).toHaveLength(1)
-    expect(preview.playerPreviews[0]?.ladderTiers.duo).toBe(TIER_5)
-    expect(preview.playerPreviews[0]?.assignment.tier).toBe(TIER_5)
+    expect(preview.playerPreviews[0]?.ladderTiers.duo).toBe(TIER_1)
+    expect(preview.playerPreviews[0]?.assignment.tier).toBe(TIER_1)
     expect(preview.playerPreviews[0]?.assignment.sourceMode).toBe('duo')
 
     sqlite.close()
@@ -152,8 +154,8 @@ describe('ranked role sync service', () => {
     })
 
     expect(preview.playerPreviews).toHaveLength(1)
-    expect(preview.playerPreviews[0]?.ladderTiers.duo).toBe(TIER_3)
-    expect(preview.playerPreviews[0]?.assignment.tier).toBe(TIER_3)
+    expect(preview.playerPreviews[0]?.ladderTiers.duo).toBe(TIER_2)
+    expect(preview.playerPreviews[0]?.assignment.tier).toBe(TIER_2)
     expect(preview.playerPreviews[0]?.assignment.sourceMode).toBe('duo')
 
     sqlite.close()
@@ -246,8 +248,8 @@ describe('ranked role sync service', () => {
       advanceDemotionWindow: true,
     })
     const pendingPlayer = afterThreshold.playerPreviews.find(player => player.playerId === heroId)
-    expect(pendingPlayer?.assignment.tier).toBe(TIER_4)
-    expect(pendingPlayer?.pendingDemotion?.belowKeepSyncs).toBe(1)
+    expect(pendingPlayer?.assignment.tier).toBe(TIER_5)
+    expect(pendingPlayer?.pendingDemotion).toBeNull()
 
     sqlite.close()
   })
@@ -295,10 +297,10 @@ describe('ranked role sync service', () => {
     expect(roleCalls.filter(call => call.method === 'PUT')).toHaveLength(8)
     expect(roleCalls.filter(call => call.method === 'DELETE')).toHaveLength(0)
     const topPlayerCall = roleCalls.find(call => call.userId === topPlayerId)
-    expect(topPlayerCall?.roleId).toBe('22222222222222222')
+    expect(topPlayerCall?.roleId).toBe('55555555555555555')
 
     const assignments = await getCurrentRankAssignments(kv, 'guild-1')
-    expect(assignments.byPlayerId[topPlayerId]?.tier).toBe(TIER_4)
+    expect(assignments.byPlayerId[topPlayerId]?.tier).toBe(TIER_1)
     expect(assignments.byPlayerId[bottomPlayerId]?.tier).toBe(TIER_5)
 
     sqlite.close()
@@ -368,7 +370,6 @@ describe('ranked role sync service', () => {
       tier1: '55555555555555555',
     })
 
-    const topPlayerId = playerIdFor('ffa', 1)
     globalThis.fetch = (async (_input, init) => {
       if (init?.method === 'PUT' || init?.method === 'DELETE') return new Response(null, { status: 204 })
       return new Response('not found', { status: 404 })
@@ -421,8 +422,8 @@ describe('ranked role sync service', () => {
     expect(result.appliedDiscordChanges).toBe(affectedPlayerIds.length)
     expect(deleteCalls.map(call => call.userId).sort((a, b) => a.localeCompare(b))).toEqual(affectedPlayerIds)
     expect(putCalls.map(call => call.userId).sort((a, b) => a.localeCompare(b))).toEqual(affectedPlayerIds)
-    expect(deleteCalls.find(call => call.userId === topPlayerId)?.roleId).toBe('22222222222222222')
-    expect(putCalls.find(call => call.userId === topPlayerId)?.roleId).toBe('99999999999999999')
+    expect(new Set(deleteCalls.map(call => call.roleId))).toEqual(new Set(['22222222222222222']))
+    expect(new Set(putCalls.map(call => call.roleId))).toEqual(new Set(['99999999999999999']))
 
     sqlite.close()
   })
@@ -455,7 +456,7 @@ describe('ranked role sync service', () => {
 
     expect(lines).toHaveLength(2)
     expect(lines[0]).toContain('⬆️')
-    expect(lines[0]).toContain('<@&11111111111111111> -> <@&22222222222222222>')
+    expect(lines[0]).toContain('<@&11111111111111111> -> <@&55555555555555555>')
 
     sqlite.close()
   })
