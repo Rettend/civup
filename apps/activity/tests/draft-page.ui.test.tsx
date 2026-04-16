@@ -58,7 +58,7 @@ describe('DraftPage UI', () => {
     uiMockState.gridOpen = true
     uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1 })
 
-    const view = render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
+    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
 
     expect(screen.getByText('Host Player')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Expand leader grid' })).toBeTruthy()
@@ -68,9 +68,10 @@ describe('DraftPage UI', () => {
   })
 
   test('supports a real active draft pick flow through the page overlay', () => {
+    let unmount = () => {}
     const mount = () => {
-      document.body.innerHTML = ''
-      render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
+      unmount()
+      ;({ unmount } = render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />))
     }
 
     uiMockState.connectionStatus = 'connected'
@@ -117,20 +118,61 @@ describe('DraftPage UI', () => {
   })
 
   test('shows cancelled outcomes for scrubbed and reverted drafts in full and mini layouts', () => {
+    let unmount = () => {}
+    const mount = (steamLobbyLink: string | null) => {
+      unmount()
+      ;({ unmount } = render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={steamLobbyLink} lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />))
+    }
+
     uiMockState.connectionStatus = 'connected'
     uiMockState.draftState = createCancelledDraftState('scrub')
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
+    mount('steam://joinlobby/289070/example')
 
     expect(screen.getByText('Session Closed')).toBeTruthy()
     expect(screen.getByText('Match Scrubbed')).toBeTruthy()
 
     uiMockState.isMiniView = true
     uiMockState.draftState = createCancelledDraftState('revert')
-    document.body.innerHTML = ''
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
+    mount(null)
 
     expect(screen.getByText('Draft Reverted')).toBeTruthy()
+  })
+
+  test('transitions from the auto-start splash into the active draft shell', () => {
+    let unmount = () => {}
+    const mount = () => {
+      unmount()
+      ;({ unmount } = render(() => <DraftPage matchId="match-1" autoStart steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />))
+    }
+
+    uiMockState.connectionStatus = 'connected'
+    uiMockState.draftHostId = 'host-1'
+    uiMockState.userId = 'host-1'
+    uiMockState.draftState = createWaitingDraftState()
+
+    mount()
+
+    expect(screen.getByText('Starting draft...')).toBeTruthy()
+
+    uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1 })
+    mount()
+
+    expect(screen.queryByText('Starting draft...')).toBeNull()
+    expect(screen.getByText('Host Player')).toBeTruthy()
+  })
+
+  test('shows spectator gating when the leader grid cannot be opened', () => {
+    uiMockState.connectionStatus = 'connected'
+    uiMockState.gridOpen = false
+    uiMockState.canOpenLeaderGrid = false
+    uiMockState.isSpectator = true
+    uiMockState.draftState = createActiveDraftState({ currentStepIndex: 0 })
+
+    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
+
+    expect(screen.getByText('Spectating')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Open leader grid' }).hasAttribute('disabled')).toBe(true)
   })
 
   test('lets the user leave a cancelled non-scrub draft back to lobby overview', async () => {

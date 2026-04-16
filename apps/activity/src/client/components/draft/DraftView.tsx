@@ -227,6 +227,8 @@ export function DraftView(props: DraftViewProps) {
                         canOpenLeaderGrid() && 'hover:bg-bg-muted hover:text-fg transition-colors',
                         !canOpenLeaderGrid() && 'cursor-default opacity-50',
                       )}
+                      title={gridOpen() ? 'Close leader grid' : 'Open leader grid'}
+                      aria-label={gridOpen() ? 'Close leader grid' : 'Open leader grid'}
                       disabled={!canOpenLeaderGrid()}
                       onClick={() => {
                         if (!canOpenLeaderGrid()) return

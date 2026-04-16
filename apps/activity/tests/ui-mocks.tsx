@@ -81,9 +81,12 @@ type MockState = {
   ffaPlacementOrder: number[]
   teamPlacementOrder: number[]
   canOpenLeaderGrid: boolean
+  canSendPickPreview: boolean
   sendStartResult: boolean
   searchQuery: string
   previewPicks: Record<number, string | null>
+  draftPreviewBans: Record<number, string[]>
+  draftPreviewPicks: Record<number, string[]>
   canRequestSwapSeatIndices: number[]
   swapWindowOpen: boolean
   incomingSwapSeatIndices: number[]
@@ -171,9 +174,12 @@ const defaults = (): MockState => ({
   ffaPlacementOrder: [],
   teamPlacementOrder: [],
   canOpenLeaderGrid: true,
+  canSendPickPreview: false,
   sendStartResult: true,
   searchQuery: '',
   previewPicks: {},
+  draftPreviewBans: {},
+  draftPreviewPicks: {},
   canRequestSwapSeatIndices: [],
   swapWindowOpen: false,
   incomingSwapSeatIndices: [],
@@ -208,9 +214,12 @@ export function resetUiMocks() {
   uiMockState.ffaPlacementOrder = []
   uiMockState.teamPlacementOrder = []
   uiMockState.canOpenLeaderGrid = true
+  uiMockState.canSendPickPreview = false
   uiMockState.sendStartResult = true
   uiMockState.searchQuery = ''
   uiMockState.previewPicks = {}
+  uiMockState.draftPreviewBans = {}
+  uiMockState.draftPreviewPicks = {}
   uiMockState.canRequestSwapSeatIndices = []
   uiMockState.swapWindowOpen = false
   uiMockState.incomingSwapSeatIndices = []
@@ -328,7 +337,7 @@ mock.module('~/client/stores', () => ({
   cancelLobby: (...args: Parameters<typeof storeSpies.cancelLobby>) => storeSpies.cancelLobby(...args),
   canFillLobbyWithTestPlayers: (...args: Parameters<typeof storeSpies.canFillLobbyWithTestPlayers>) => storeSpies.canFillLobbyWithTestPlayers(...args),
   canRequestSwapWith: (seatIndex: number) => uiMockState.canRequestSwapSeatIndices.includes(seatIndex),
-  canSendPickPreview: () => false,
+  canSendPickPreview: () => uiMockState.canSendPickPreview,
   avatarUrl: () => uiMockState.avatarUrl,
   canOpenLeaderGrid: () => uiMockState.canOpenLeaderGrid,
   clearSelections,
@@ -363,7 +372,12 @@ mock.module('~/client/stores', () => ({
     get leaderDataVersion() {
       return uiMockState.draftLeaderDataVersion
     },
-    previews: { bans: {}, picks: {} },
+    get previews() {
+      return {
+        bans: uiMockState.draftPreviewBans,
+        picks: uiMockState.draftPreviewPicks,
+      }
+    },
     swapState: null,
     initVersion: 1,
   },
