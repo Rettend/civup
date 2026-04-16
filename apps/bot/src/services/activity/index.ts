@@ -670,7 +670,7 @@ export async function clearLobbyMappingsIfMatchingLobby(
   if (userIds.length === 0) return
 
   const [mappedLobbyIds, targets] = await Promise.all([
-    Promise.all(userIds.map(userId => getLobbyForUser(kv, userId))),
+    Promise.all(userIds.map(userId => kv.get(`activity-lobby-user:${userId}`))),
     Promise.all(userIds.map(userId => getUserActivityTarget(kv, channelId, userId))),
   ])
 
