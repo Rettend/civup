@@ -1,7 +1,7 @@
 /** @jsxImportSource solid-js */
 
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
-import { fireEvent, render, screen } from '@solidjs/testing-library'
+import { fireEvent, render, screen, waitFor } from '@solidjs/testing-library'
 import userEvent from '@testing-library/user-event'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 import { createActiveDraftState, createCancelledDraftState, createCompleteDraftState, createWaitingDraftState, TEST_LEADER_IDS } from './ui-fixtures'
@@ -173,6 +173,47 @@ describe('DraftPage UI', () => {
 
     expect(screen.getByText('Spectating')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Open leader grid' }).hasAttribute('disabled')).toBe(true)
+  })
+
+  test('does not auto-open the leader grid for a teammate proxy-pick turn', async () => {
+    uiMockState.connectionStatus = 'connected'
+    uiMockState.gridOpen = false
+    uiMockState.draftSeatIndex = 0
+    uiMockState.draftState = createActiveDraftState({
+      formatId: '2v2',
+      currentStepIndex: 1,
+      steps: [
+        { action: 'ban', count: 1, timer: 60, seats: [0] },
+        { action: 'pick', count: 1, timer: 90, seats: [2] },
+      ],
+    })
+
+    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="teamers" onSwitchTarget={onSwitchTarget} />)
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open leader grid' })).toBeTruthy())
+    expect(uiMockState.gridOpen).toBe(false)
+  })
+
+  test('shows cancel cancellation copy in the full cancelled draft screen', () => {
+    uiMockState.connectionStatus = 'connected'
+    uiMockState.draftState = createCancelledDraftState('cancel')
+
+    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
+
+    expect(screen.getByText('Draft Cancelled')).toBeTruthy()
+    expect(screen.getByText('Host cancelled this draft before lock-in.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Open Steam link' })).toBeTruthy()
+  })
+
+  test('shows timeout cancellation copy in the full cancelled draft screen', () => {
+    uiMockState.connectionStatus = 'connected'
+    uiMockState.draftState = createCancelledDraftState('timeout')
+
+    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
+
+    expect(screen.getByText('Draft Auto-Scrubbed')).toBeTruthy()
+    expect(screen.getByText('A player timed out picking a leader.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Open Steam link' })).toBeTruthy()
   })
 
   test('lets the user leave a cancelled non-scrub draft back to lobby overview', async () => {
