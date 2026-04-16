@@ -65,7 +65,7 @@ export async function buildLobbyLiveSnapshotFromParts(
 ): Promise<LobbySnapshot> {
   const slotEntries = mapLobbySlotsToEntries(slots, queueEntries)
   const serverDefaults = await getServerDraftTimerDefaults(kv)
-  const normalizedDraftConfig = normalizeDraftConfigForMode(mode, lobby.draftConfig)
+  const normalizedDraftConfig = normalizeDraftConfigForMode(mode, lobby.draftConfig, slots.length)
   const minPlayers = startPlayerCountOptions(mode, slots.length, { redDeath: normalizedDraftConfig.redDeath })[0] ?? slots.length
 
   return {

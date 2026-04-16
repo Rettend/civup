@@ -83,7 +83,7 @@ The leader pool consists of a random subset of leaders, and it's shared between 
 > ![leader grid button](images/leader-grid-toggle.webp)
 
 
-Bans are simultaneous and blind: everyone bans at the same time and the banned leaders are only revealed after everyone has finished banning. In team modes, only captains ban (the first seat in each team).
+By default, bans are simultaneous and blind: everyone bans at the same time and the banned leaders are only revealed after everyone has finished banning. In team modes, only captains ban (the first seat in each team). If `Blind Bans` is OFF, `1v1` uses `121212`, team modes use `122112` for the ban phase.
 
 
 Click on leaders to select them, then use the `Confirm` button at the bottom to lock them in. Clicking on leaders also opens up a side pane with leader details, to open it without selecting the leader, use right click.

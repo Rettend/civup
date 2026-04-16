@@ -724,6 +724,7 @@ describe('lobby routes', () => {
       pickTimerSeconds: 60,
       leaderPoolSize: 12,
       leaderDataVersion: 'live',
+      blindBans: true,
       simultaneousPick: false,
       redDeath: false,
       dealOptionsSize: null,
@@ -1302,6 +1303,62 @@ describe('lobby routes', () => {
     expect(updatedLobby?.draftConfig.simultaneousPick).toBe(false)
   })
 
+  test('mode changes force blind bans back on when the destination mode does not support them', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '3v3',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '3v3', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const configuredLobby = await setLobbyDraftConfig(kv, lobby.id, {
+      banTimerSeconds: null,
+      pickTimerSeconds: null,
+      leaderPoolSize: null,
+      leaderDataVersion: 'live',
+      blindBans: false,
+      simultaneousPick: false,
+      redDeath: false,
+      dealOptionsSize: null,
+      randomDraft: false,
+      duplicateFactions: false,
+    }, lobby)
+    expect(configuredLobby).not.toBeNull()
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/3v3/mode', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        nextMode: 'ffa',
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      mode: 'ffa',
+      draftConfig: { blindBans: true },
+    })
+    expect((await getLobbyById(kv, lobby.id))?.draftConfig.blindBans).toBe(true)
+  })
+
   test('mode changes preserve the current team split when expanding team size', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
@@ -1399,6 +1456,239 @@ describe('lobby routes', () => {
     expect(updatedLobby?.mode).toBe('2v2')
     expect(updatedLobby?.slots).toEqual(['p1', 'p2', 'p3', 'p4', 'p5', 'p6', null, null])
     expect(updatedLobby?.memberPlayerIds).toEqual(playerIds)
+  })
+
+  test('lobby config defaults blind bans on and preserves false for supported modes', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '3v3',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '3v3', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    expect((await getLobbyById(kv, lobby.id))?.draftConfig.blindBans).toBe(true)
+
+    const response = await app.request('/api/lobby/3v3/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        blindBans: false,
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      draftConfig: { blindBans: false },
+    })
+    expect((await getLobbyById(kv, lobby.id))?.draftConfig.blindBans).toBe(false)
+  })
+
+  test('lobby config preserves blind bans false for 1v1', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '1v1',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '1v1', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/1v1/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        blindBans: false,
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      draftConfig: { blindBans: false },
+    })
+    expect((await getLobbyById(kv, lobby.id))?.draftConfig.blindBans).toBe(false)
+  })
+
+  test('lobby config forces blind bans on for unsupported modes and sizes', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const ffaLobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'ffa-host',
+      channelId: 'channel-ffa',
+      messageId: 'message-ffa',
+    })
+    await addToQueue(kv, 'ffa', {
+      playerId: 'ffa-host',
+      displayName: 'FFA Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const ffaResponse = await app.request('/api/lobby/ffa/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('ffa-host', 'FFA Host'),
+      body: JSON.stringify({
+        userId: 'ffa-host',
+        lobbyId: ffaLobby.id,
+        blindBans: false,
+      }),
+    }, buildEnv(kv))
+
+    expect(ffaResponse.status).toBe(200)
+    await expect(ffaResponse.json()).resolves.toMatchObject({
+      draftConfig: { blindBans: true },
+    })
+    expect((await getLobbyById(kv, ffaLobby.id))?.draftConfig.blindBans).toBe(true)
+
+    const redDeathLobby = await createLobby(kv, {
+      mode: '3v3',
+      hostId: 'red-death-host',
+      channelId: 'channel-red-death',
+      messageId: 'message-red-death',
+    })
+    await addToQueue(kv, '3v3', {
+      playerId: 'red-death-host',
+      displayName: 'Red Death Host',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+
+    const redDeathResponse = await app.request('/api/lobby/3v3/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('red-death-host', 'Red Death Host'),
+      body: JSON.stringify({
+        userId: 'red-death-host',
+        lobbyId: redDeathLobby.id,
+        blindBans: false,
+        redDeath: true,
+      }),
+    }, buildEnv(kv))
+
+    expect(redDeathResponse.status).toBe(200)
+    await expect(redDeathResponse.json()).resolves.toMatchObject({
+      draftConfig: { blindBans: true, redDeath: true },
+    })
+    expect((await getLobbyById(kv, redDeathLobby.id))?.draftConfig.blindBans).toBe(true)
+
+    const oversizedLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'oversized-host',
+      channelId: 'channel-oversized',
+      messageId: 'message-oversized',
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'oversized-host',
+      displayName: 'Oversized Host',
+      avatarUrl: null,
+      joinedAt: Date.now() + 2,
+    })
+
+    const oversizedResponse = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('oversized-host', 'Oversized Host'),
+      body: JSON.stringify({
+        userId: 'oversized-host',
+        lobbyId: oversizedLobby.id,
+        blindBans: false,
+        targetSize: 8,
+      }),
+    }, buildEnv(kv))
+
+    expect(oversizedResponse.status).toBe(200)
+    await expect(oversizedResponse.json()).resolves.toMatchObject({
+      draftConfig: { blindBans: true },
+      targetSize: 8,
+    })
+    const updatedOversizedLobby = await getLobbyById(kv, oversizedLobby.id)
+    expect(updatedOversizedLobby?.draftConfig.blindBans).toBe(true)
+    expect(updatedOversizedLobby?.slots).toEqual(['oversized-host', null, null, null, null, null, null, null])
+  })
+
+  test('lobby config shrink applies blind bans against the destination 2v2 size', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const expandedLobby = await setLobbySlots(kv, lobby.id, ['host', null, null, null, null, null, null, null], lobby)
+    expect(expandedLobby?.draftConfig.blindBans).toBe(true)
+
+    const response = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        targetSize: 4,
+        blindBans: false,
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      draftConfig: { blindBans: false },
+      targetSize: 4,
+    })
+    expect((await getLobbyById(kv, lobby.id))?.draftConfig.blindBans).toBe(false)
+    expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(['host', null, null, null])
   })
 })
 

@@ -20,6 +20,7 @@ export interface MatchCreationResult {
 export interface CreateDraftRoomOptions {
   hostId: string
   leaderDataVersion?: LeaderDataVersion
+  blindBans?: boolean
   simultaneousPick?: boolean
   redDeath?: boolean
   randomDraft?: boolean
@@ -197,14 +198,14 @@ export async function createDraftRoom(
   options: CreateDraftRoomOptions,
 ): Promise<MatchCreationResult> {
   const matchId = nanoid(12)
+  const seats: DraftSeat[] = buildSeats(mode, entries)
   const redDeathMode = options.redDeath === true
   const simultaneousPick = mode === 'ffa' && !redDeathMode && options.simultaneousPick === true
   const randomDraft = options.randomDraft === true
   const duplicateFactions = redDeathMode
     ? (requiresRedDeathDuplicateFactions(mode) || options.duplicateFactions === true)
     : (randomDraft && options.duplicateFactions === true)
-  const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode })
-  const seats: DraftSeat[] = buildSeats(mode, entries)
+  const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode, blindBans: options.blindBans, seatCount: seats.length })
   const civPool = redDeathMode
     ? [...allFactionIds]
     : sampleLeaderPool(resolveLeaderPoolSize(mode, seats.length, options.leaderPoolSize))

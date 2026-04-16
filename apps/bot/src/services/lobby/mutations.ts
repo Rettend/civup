@@ -169,7 +169,7 @@ export async function setLobbyDraftConfig(
   const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
   if (!lobby) return null
 
-  const normalizedDraftConfig = normalizeDraftConfigForMode(lobby.mode, draftConfig)
+  const normalizedDraftConfig = normalizeDraftConfigForMode(lobby.mode, draftConfig, lobby.slots.length)
   if (sameDraftConfig(lobby.draftConfig, normalizedDraftConfig)) return lobby
 
   const updated: LobbyState = {

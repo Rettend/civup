@@ -1165,6 +1165,7 @@ function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
   if (a.draftConfig.pickTimerSeconds !== b.draftConfig.pickTimerSeconds) return false
   if (a.draftConfig.leaderPoolSize !== b.draftConfig.leaderPoolSize) return false
   if (a.draftConfig.leaderDataVersion !== b.draftConfig.leaderDataVersion) return false
+  if (a.draftConfig.blindBans !== b.draftConfig.blindBans) return false
   if (a.draftConfig.simultaneousPick !== b.draftConfig.simultaneousPick) return false
   if (a.draftConfig.redDeath !== b.draftConfig.redDeath) return false
   if (a.draftConfig.dealOptionsSize !== b.draftConfig.dealOptionsSize) return false

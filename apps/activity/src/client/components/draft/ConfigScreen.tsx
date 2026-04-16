@@ -31,6 +31,7 @@ import {
   parseTimerMinutesInput,
   resolveOptimisticLobbyPlacementAction,
   resolvePendingJoinGhostSlot,
+  supportsBlindBansControl,
   timerSecondsToMinutesInput,
   timerSecondsToMinutesPlaceholder,
 } from '~/client/lib/config-screen/helpers'
@@ -76,6 +77,7 @@ interface ConfigScreenProps {
 interface LobbyEditableDraftConfig extends DraftTimerConfig {
   leaderPoolSize: number | null
   leaderDataVersion: 'live' | 'beta'
+  blindBans: boolean
   simultaneousPick: boolean
   redDeath: boolean
   dealOptionsSize: number | null
@@ -92,6 +94,7 @@ function sameLobbyDraftConfig(a: LobbyEditableDraftConfig, b: LobbyEditableDraft
     && a.pickTimerSeconds === b.pickTimerSeconds
     && a.leaderPoolSize === b.leaderPoolSize
     && a.leaderDataVersion === b.leaderDataVersion
+    && a.blindBans === b.blindBans
     && a.simultaneousPick === b.simultaneousPick
     && a.redDeath === b.redDeath
     && a.dealOptionsSize === b.dealOptionsSize
@@ -113,6 +116,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   const [startPending, setStartPending] = createSignal(false)
   const [lobbyActionPending, setLobbyActionPending] = createSignal(false)
   const [leaderDataVersionPending, setLeaderDataVersionPending] = createSignal(false)
+  const [blindBansPending, setBlindBansPending] = createSignal(false)
   const [simultaneousPickPending, setSimultaneousPickPending] = createSignal(false)
   const [redDeathPending, setRedDeathPending] = createSignal(false)
   const [randomDraftPending, setRandomDraftPending] = createSignal(false)
@@ -131,6 +135,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
           pickTimerSeconds: props.lobby.draftConfig.pickTimerSeconds,
           leaderPoolSize: props.lobby.draftConfig.leaderPoolSize,
           leaderDataVersion: props.lobby.draftConfig.leaderDataVersion,
+          blindBans: props.lobby.draftConfig.blindBans,
           simultaneousPick: props.lobby.draftConfig.simultaneousPick,
           redDeath: props.lobby.draftConfig.redDeath,
           dealOptionsSize: props.lobby.draftConfig.dealOptionsSize,
@@ -162,16 +167,17 @@ export function ConfigScreen(props: ConfigScreenProps) {
     }
 
     setLobbyTimerConfig({
-        banTimerSeconds: lobby.draftConfig.banTimerSeconds,
-        pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
-        leaderPoolSize: lobby.draftConfig.leaderPoolSize,
-        leaderDataVersion: lobby.draftConfig.leaderDataVersion,
-        simultaneousPick: lobby.draftConfig.simultaneousPick,
-        redDeath: lobby.draftConfig.redDeath,
-        dealOptionsSize: lobby.draftConfig.dealOptionsSize,
-        randomDraft: lobby.draftConfig.randomDraft,
-        duplicateFactions: lobby.draftConfig.duplicateFactions,
-      })
+      banTimerSeconds: lobby.draftConfig.banTimerSeconds,
+      pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
+      leaderPoolSize: lobby.draftConfig.leaderPoolSize,
+      leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+      blindBans: lobby.draftConfig.blindBans,
+      simultaneousPick: lobby.draftConfig.simultaneousPick,
+      redDeath: lobby.draftConfig.redDeath,
+      dealOptionsSize: lobby.draftConfig.dealOptionsSize,
+      randomDraft: lobby.draftConfig.randomDraft,
+      duplicateFactions: lobby.draftConfig.duplicateFactions,
+    })
   })
 
   const clearOptimisticLobbyAction = () => {
@@ -379,6 +385,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
         leaderPoolSize: lobby.draftConfig.leaderPoolSize,
         leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+        blindBans: lobby.draftConfig.blindBans,
         simultaneousPick: lobby.draftConfig.simultaneousPick,
         redDeath: lobby.draftConfig.redDeath,
         dealOptionsSize: lobby.draftConfig.dealOptionsSize,
@@ -390,6 +397,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       ...getTimerConfigFromDraft(state()),
       leaderPoolSize: null,
       leaderDataVersion: 'live',
+      blindBans: true,
       simultaneousPick: state()?.formatId === 'default-ffa-simultaneous',
       redDeath: isRedDeathDraft(),
       dealOptionsSize: null,
@@ -491,6 +499,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
   })
   const optimisticDraftConfig = () => optimisticTimerConfig.value()
   const formattedBbgVersion = () => normalizeAvailableLeaderDataVersion(draftConfig().leaderDataVersion) === 'beta' ? 'Beta' : 'Live'
+  const formattedBlindBans = () => draftConfig().blindBans ? 'On' : 'Off'
   const formattedSimultaneousPick = () => draftConfig().simultaneousPick ? 'On' : 'Off'
   const formattedRandomDraft = () => draftConfig().randomDraft ? 'On' : 'Off'
   const duplicateFactionsLocked = () => isRedDeathLobbyMode() && requiresRedDeathDuplicateFactions(lobbyMode())
@@ -715,6 +724,12 @@ export function ConfigScreen(props: ConfigScreenProps) {
   }
 
   const canToggleRedDeath = () => !redDeathExtraFfaSeatsOccupied()
+  const supportsBlindBansToggle = () => {
+    return isLobbyMode() && supportsBlindBansControl(lobbyMode(), {
+      redDeath: isRedDeathLobbyMode(),
+      targetSize: currentLobby()?.targetSize,
+    })
+  }
 
   const currentUserLobbySlot = createMemo(() => {
     const id = userId()
@@ -820,6 +835,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
           pickTimerSeconds: nextConfig.pickTimerSeconds,
           leaderPoolSize: nextConfig.leaderPoolSize,
           leaderDataVersion: nextConfig.leaderDataVersion,
+          blindBans: nextConfig.blindBans,
           simultaneousPick: nextConfig.simultaneousPick,
           redDeath: nextConfig.redDeath,
           dealOptionsSize: nextConfig.dealOptionsSize,
@@ -872,6 +888,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       const current = optimisticTimerConfig.value()
       const leaderPoolSize = isRedDeathLobbyMode() ? current.leaderPoolSize : parsedLeaderPool
       const leaderDataVersion = current.leaderDataVersion
+      const blindBans = current.blindBans
       const simultaneousPick = current.simultaneousPick
       const redDeath = current.redDeath
       const dealOptionsSize = isRedDeathLobbyMode() ? parsedLeaderPool : current.dealOptionsSize
@@ -889,7 +906,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
       }
 
       await commitDraftConfig(
-        { banTimerSeconds, pickTimerSeconds, leaderPoolSize, leaderDataVersion, simultaneousPick, redDeath, dealOptionsSize, randomDraft, duplicateFactions },
+        { banTimerSeconds, pickTimerSeconds, leaderPoolSize, leaderDataVersion, blindBans, simultaneousPick, redDeath, dealOptionsSize, randomDraft, duplicateFactions },
         { preserveConfigMessage: preserveClampMessage },
       )
     }
@@ -911,6 +928,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         pickTimerSeconds: current.pickTimerSeconds,
         leaderPoolSize: current.leaderPoolSize,
         leaderDataVersion,
+        blindBans: current.blindBans,
         simultaneousPick: current.simultaneousPick,
         redDeath: current.redDeath,
         dealOptionsSize: current.dealOptionsSize,
@@ -920,6 +938,30 @@ export function ConfigScreen(props: ConfigScreenProps) {
     }
     finally {
       setLeaderDataVersionPending(false)
+    }
+  }
+
+  const handleBlindBansChange = async (checked: boolean) => {
+    if (!isLobbyMode() || !amHost() || lobbyActionPending() || blindBansPending() || !supportsBlindBansToggle()) return
+    const current = optimisticTimerConfig.value()
+    if (checked === current.blindBans) return
+    setBlindBansPending(true)
+    try {
+      await commitDraftConfig({
+        banTimerSeconds: current.banTimerSeconds,
+        pickTimerSeconds: current.pickTimerSeconds,
+        leaderPoolSize: current.leaderPoolSize,
+        leaderDataVersion: current.leaderDataVersion,
+        blindBans: checked,
+        simultaneousPick: current.simultaneousPick,
+        redDeath: current.redDeath,
+        dealOptionsSize: current.dealOptionsSize,
+        randomDraft: current.randomDraft,
+        duplicateFactions: current.duplicateFactions,
+      })
+    }
+    finally {
+      setBlindBansPending(false)
     }
   }
 
@@ -934,6 +976,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         pickTimerSeconds: current.pickTimerSeconds,
         leaderPoolSize: current.leaderPoolSize,
         leaderDataVersion: current.leaderDataVersion,
+        blindBans: current.blindBans,
         simultaneousPick: checked,
         redDeath: current.redDeath,
         dealOptionsSize: current.dealOptionsSize,
@@ -960,6 +1003,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         pickTimerSeconds: current.pickTimerSeconds,
         leaderPoolSize: checked ? null : current.leaderPoolSize,
         leaderDataVersion: checked ? 'live' : current.leaderDataVersion,
+        blindBans: checked ? true : current.blindBans,
         simultaneousPick: checked ? false : current.simultaneousPick,
         redDeath: checked,
         dealOptionsSize: checked ? current.dealOptionsSize : null,
@@ -988,6 +1032,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         pickTimerSeconds: current.pickTimerSeconds,
         leaderPoolSize: current.leaderPoolSize,
         leaderDataVersion: current.leaderDataVersion,
+        blindBans: current.blindBans,
         simultaneousPick: current.simultaneousPick,
         redDeath: current.redDeath,
         dealOptionsSize: current.dealOptionsSize,
@@ -1011,6 +1056,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
         pickTimerSeconds: current.pickTimerSeconds,
         leaderPoolSize: current.leaderPoolSize,
         leaderDataVersion: current.leaderDataVersion,
+        blindBans: current.blindBans,
         simultaneousPick: current.simultaneousPick,
         redDeath: current.redDeath,
         dealOptionsSize: current.dealOptionsSize,
@@ -1766,6 +1812,20 @@ export function ConfigScreen(props: ConfigScreenProps) {
                 </div>
 
                 <div class="pr-4 flex flex-1 flex-col gap-3 min-h-0 overflow-y-auto -mr-3">
+                  <Show when={isLobbyMode() && amHost() && supportsBlindBansToggle()}>
+                    <div class="px-1 flex gap-3 items-center justify-between">
+                      <span class={cn('text-sm font-medium', optimisticDraftConfig().blindBans ? 'text-accent' : 'text-fg-muted')}>
+                        Blind Bans
+                      </span>
+                      <Switch
+                        checked={optimisticDraftConfig().blindBans}
+                        disabled={lobbyActionPending() || blindBansPending()}
+                        class="w-auto"
+                        onChange={checked => void handleBlindBansChange(checked)}
+                      />
+                    </div>
+                  </Show>
+
                   <Show when={isLobbyMode() && amHost() && !isRedDeathLobbyMode() && hasBetaLeaderData}>
                     <div class="px-1 flex gap-3 items-center justify-between">
                       <span class={cn('text-sm font-medium', normalizeAvailableLeaderDataVersion(optimisticDraftConfig().leaderDataVersion) === 'beta' ? 'text-accent' : 'text-fg-muted')}>
@@ -1808,6 +1868,13 @@ export function ConfigScreen(props: ConfigScreenProps) {
                     when={amHost()}
                     fallback={(
                       <div class="flex flex-col gap-2">
+                        <Show when={isLobbyMode() && supportsBlindBansToggle()}>
+                          <ReadonlyTimerRow
+                            label="Blind bans"
+                            value={formattedBlindBans()}
+                            valueClass={draftConfig().blindBans ? 'text-accent' : undefined}
+                          />
+                        </Show>
                         <Show when={!isRedDeathLobbyMode() && hasBetaLeaderData}>
                           <ReadonlyTimerRow
                             label="BBG"
