@@ -1,5 +1,5 @@
 import type { JSX } from 'solid-js'
-import { createSignal, For, Show } from 'solid-js'
+import { createSignal, For } from 'solid-js'
 import { cn } from '~/client/lib/css'
 
 interface DropdownOption {
@@ -128,38 +128,37 @@ export function Dropdown(props: DropdownProps) {
         </button>
 
         {/* Dropdown menu */}
-        <Show when={open()}>
-          <div
-            class={cn(
-              'absolute z-50 mt-1.5 w-full rounded-lg overflow-hidden',
-              'bg-bg-subtle border border-border-subtle',
-              'shadow-lg shadow-black/40',
-              'anim-fade-in',
+        <div
+          hidden={!open()}
+          class={cn(
+            'absolute z-50 mt-1.5 w-full rounded-lg overflow-hidden',
+            'bg-bg-subtle border border-border-subtle',
+            'shadow-lg shadow-black/40',
+            open() && 'anim-fade-in',
+          )}
+        >
+          <For each={props.options}>
+            {option => (
+              <button
+                type="button"
+                aria-disabled={option.disabled ? 'true' : undefined}
+                onClick={() => handleSelect(option.value)}
+                class={cn(
+                  'w-full text-left text-sm px-3.5 py-2.5 cursor-pointer',
+                  'transition-colors duration-100',
+                  option.disabled && 'cursor-default opacity-45',
+                  option.value === props.value
+                    ? 'bg-accent/12 text-accent font-medium'
+                    : option.disabled
+                      ? 'text-fg-subtle'
+                      : 'text-fg-muted hover:bg-white/6 hover:text-fg',
+                )}
+              >
+                {option.render ? option.render() : option.label}
+              </button>
             )}
-          >
-            <For each={props.options}>
-              {option => (
-                <button
-                  type="button"
-                  aria-disabled={option.disabled ? 'true' : undefined}
-                  onClick={() => handleSelect(option.value)}
-                  class={cn(
-                    'w-full text-left text-sm px-3.5 py-2.5 cursor-pointer',
-                    'transition-colors duration-100',
-                    option.disabled && 'cursor-default opacity-45',
-                    option.value === props.value
-                      ? 'bg-accent/12 text-accent font-medium'
-                      : option.disabled
-                        ? 'text-fg-subtle'
-                        : 'text-fg-muted hover:bg-white/6 hover:text-fg',
-                  )}
-                >
-                  {option.render ? option.render() : option.label}
-                </button>
-              )}
-            </For>
-          </div>
-        </Show>
+          </For>
+        </div>
       </div>
     </div>
   )

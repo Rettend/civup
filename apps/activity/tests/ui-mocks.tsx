@@ -34,6 +34,8 @@ export const storeSpies = {
   canFillLobbyWithTestPlayers: mock(async (_mode: string) => uiMockState.canFillLobbyWithTestPlayersResult),
   fetchLobbyRankedRoles: mock(async (_mode: string, _lobbyId: string) => uiMockState.fetchLobbyRankedRolesResult),
   fillLobbyWithTestPlayers: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.fillLobbyWithTestPlayersResult),
+  placeLobbySlot: mock(async (_mode: string, _payload: { lobbyId: string, userId: string, targetSlot: number, playerId?: string, displayName?: string, avatarUrl?: string | null }) => uiMockState.placeLobbySlotResult),
+  removeLobbySlot: mock(async (_mode: string, _payload: { lobbyId: string, userId: string, slot: number }) => uiMockState.removeLobbySlotResult),
   startLobbyDraft: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.startLobbyDraftResult),
   updateLobbyConfig: mock(async (_mode: string, _lobbyId: string, _userId: string, patch: Partial<LobbySnapshot>) => ({
     ...uiMockState.updateLobbyConfigResult,
@@ -91,6 +93,8 @@ type MockState = {
   canFillLobbyWithTestPlayersResult: boolean
   fetchLobbyRankedRolesResult: { options: RankedRoleOptionSnapshot[] } | null
   fillLobbyWithTestPlayersResult: { ok: true, addedCount: number } | { ok: false, error: string }
+  placeLobbySlotResult: { ok: true, lobby: LobbySnapshot, transferNotice: string | null } | { ok: false, error: string }
+  removeLobbySlotResult: { ok: true, lobby: LobbySnapshot } | { ok: false, error: string }
   startLobbyDraftResult: { ok: true, matchId: string, roomAccessToken: string | null } | { ok: false, error: string }
   updateLobbyConfigResult: { ok: true } | { ok: false, error: string }
   updateLobbyModeResult: { ok: true } | { ok: false, error: string }
@@ -103,6 +107,38 @@ function emptyTagFilters(): Record<LeaderTagCategory, string[]> {
     spike: [],
     role: [],
     other: [],
+  }
+}
+
+function mockLobbySnapshot(): LobbySnapshot {
+  return {
+    id: 'lobby-1',
+    revision: 1,
+    mode: 'ffa',
+    hostId: 'host-1',
+    status: 'open',
+    steamLobbyLink: 'steam://joinlobby/289070/example',
+    minRole: null,
+    maxRole: null,
+    entries: [],
+    minPlayers: 2,
+    targetSize: 4,
+    draftConfig: {
+      banTimerSeconds: 60,
+      pickTimerSeconds: 90,
+      leaderPoolSize: 6,
+      leaderDataVersion: 'live',
+      blindBans: true,
+      simultaneousPick: false,
+      redDeath: false,
+      dealOptionsSize: null,
+      randomDraft: false,
+      duplicateFactions: false,
+    },
+    serverDefaults: {
+      banTimerSeconds: 60,
+      pickTimerSeconds: 90,
+    },
   }
 }
 
@@ -147,6 +183,8 @@ const defaults = (): MockState => ({
   canFillLobbyWithTestPlayersResult: false,
   fetchLobbyRankedRolesResult: null,
   fillLobbyWithTestPlayersResult: { ok: true, addedCount: 0 },
+  placeLobbySlotResult: { ok: true, lobby: mockLobbySnapshot(), transferNotice: null },
+  removeLobbySlotResult: { ok: true, lobby: mockLobbySnapshot() },
   startLobbyDraftResult: { ok: true, matchId: 'match-1', roomAccessToken: 'room-token' },
   updateLobbyConfigResult: { ok: true },
   updateLobbyModeResult: { ok: true },
@@ -353,8 +391,8 @@ mock.module('~/client/stores', () => ({
   phaseHeaderBg,
   phaseLabel,
   pickSelections: () => uiMockState.pickSelections,
-  placeLobbySlot: async () => ({ ok: true }),
-  removeLobbySlot: async () => ({ ok: true }),
+  placeLobbySlot: (...args: Parameters<typeof storeSpies.placeLobbySlot>) => storeSpies.placeLobbySlot(...args),
+  removeLobbySlot: (...args: Parameters<typeof storeSpies.removeLobbySlot>) => storeSpies.removeLobbySlot(...args),
   reportMatchResult: (...args: Parameters<typeof storeSpies.reportMatchResult>) => storeSpies.reportMatchResult(...args),
   resultSelectionsLocked: () => uiMockState.resultSelectionsLocked,
   scrubMatchResult: (...args: Parameters<typeof storeSpies.scrubMatchResult>) => storeSpies.scrubMatchResult(...args),
