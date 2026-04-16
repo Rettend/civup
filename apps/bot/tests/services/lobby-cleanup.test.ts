@@ -108,6 +108,8 @@ describe('inactive lobby cleanup', () => {
       channelId: 'channel-1',
       messageId: 'message-2',
     })
+    const nextWithMembers = await setLobbyMemberPlayerIds(kv, nextLobby.id, ['next-host', 'player'], nextLobby)
+    await setLobbySlots(kv, nextLobby.id, ['next-host', 'player', null, null], nextWithMembers ?? nextLobby)
 
     await setQueueEntries(kv, '2v2', [entry('host', now - 61 * 60 * 1000), entry('player', now - 61 * 60 * 1000)])
     const staleWithMembers = await setLobbyMemberPlayerIds(kv, staleLobby.id, ['host', 'player'], staleLobby)
@@ -125,7 +127,7 @@ describe('inactive lobby cleanup', () => {
     }])
 
     expect(await getLobbyForUser(kv, 'host')).toBeNull()
-    expect(await getLobbyForUser(kv, 'player')).toBe(nextLobby.id)
+    expect(await getLobbyForUser(kv, 'player')).toBeNull()
     expect(await getUserActivityTarget(kv, 'channel-1', 'player')).toEqual(expect.objectContaining({
       kind: 'lobby',
       id: nextLobby.id,
