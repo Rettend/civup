@@ -123,12 +123,13 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, simultaneousPick: simultaneousPickRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, duplicateFactions: duplicateFactionsRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
+    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, blindBans: blindBansRaw, simultaneousPick: simultaneousPickRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, duplicateFactions: duplicateFactionsRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
       userId?: string
       banTimerSeconds?: unknown
       pickTimerSeconds?: unknown
       leaderPoolSize?: unknown
       leaderDataVersion?: unknown
+      blindBans?: unknown
       simultaneousPick?: unknown
       redDeath?: unknown
       dealOptionsSize?: unknown
@@ -160,6 +161,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       : undefined
     const hasLeaderPoolSize = Object.prototype.hasOwnProperty.call(body, 'leaderPoolSize')
     const hasLeaderDataVersion = Object.prototype.hasOwnProperty.call(body, 'leaderDataVersion')
+    const hasBlindBans = Object.prototype.hasOwnProperty.call(body, 'blindBans')
     const hasSimultaneousPick = Object.prototype.hasOwnProperty.call(body, 'simultaneousPick')
     const hasRedDeath = Object.prototype.hasOwnProperty.call(body, 'redDeath')
     const hasDealOptionsSize = Object.prototype.hasOwnProperty.call(body, 'dealOptionsSize')
@@ -177,6 +179,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     const parsedLeaderDataVersion = hasLeaderDataVersion
       ? parseLobbyLeaderDataVersion(leaderDataVersionRaw)
+      : undefined
+    const parsedBlindBans = hasBlindBans
+      ? parseLobbyBlindBans(blindBansRaw)
       : undefined
     const parsedSimultaneousPick = hasSimultaneousPick
       ? parseLobbySimultaneousPick(simultaneousPickRaw)
@@ -198,6 +203,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       : undefined
     if (hasLeaderDataVersion && parsedLeaderDataVersion === undefined) {
       return c.json({ error: 'leaderDataVersion must be "live" or "beta"' }, 400)
+    }
+    if (hasBlindBans && parsedBlindBans === undefined) {
+      return c.json({ error: 'blindBans must be true or false' }, 400)
     }
     if (hasSimultaneousPick && parsedSimultaneousPick === undefined) {
       return c.json({ error: 'simultaneousPick must be true or false' }, 400)
@@ -261,6 +269,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const normalizedLeaderDataVersion = hasLeaderDataVersion
       ? parsedLeaderDataVersion ?? 'live'
       : lobby.draftConfig.leaderDataVersion
+    const normalizedBlindBans = hasBlindBans
+      ? parsedBlindBans ?? true
+      : lobby.draftConfig.blindBans
     const normalizedSimultaneousPick = hasSimultaneousPick
       ? parsedSimultaneousPick ?? false
       : lobby.draftConfig.simultaneousPick
@@ -306,7 +317,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       if (!hasSteamLobbyLink) {
         return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
       }
-      if (hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasSimultaneousPick || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasDuplicateFactions || hasTargetSize || hasMinRole || hasMaxRole) {
+      if (hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasBlindBans || hasSimultaneousPick || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasDuplicateFactions || hasTargetSize || hasMinRole || hasMaxRole) {
         return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
       }
 
@@ -369,27 +380,31 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       if (gateError) return c.json({ error: gateError }, 400)
     }
 
-    const draftUpdated = await setLobbyDraftConfig(kv, lobby.id, {
+    const nextDraftConfig = normalizeDraftConfigForMode(mode, {
       banTimerSeconds: resolvedBanTimerSeconds,
       pickTimerSeconds: resolvedPickTimerSeconds,
       leaderPoolSize: normalizedLeaderPoolSize,
       leaderDataVersion: normalizedLeaderDataVersion,
+      blindBans: normalizedBlindBans,
       simultaneousPick: normalizedSimultaneousPick,
       redDeath: normalizedRedDeath,
       dealOptionsSize: normalizedDealOptionsSize,
       randomDraft: normalizedRandomDraft,
       duplicateFactions: normalizedDuplicateFactions,
-    }, lobby)
+    }, requestedTargetSize)
+
+    if (!sameLobbySlots(slots, lobby.slots)) {
+      const resizedLobby = await setLobbySlots(kv, lobby.id, slots, lobby)
+      lobby = resizedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
+    }
+
+    const draftUpdated = await setLobbyDraftConfig(kv, lobby.id, nextDraftConfig, lobby)
 
     lobby = draftUpdated ?? lobby
     const minRoleUpdated = await setLobbyMinRole(kv, lobby.id, normalizedMinRole, lobby)
     lobby = minRoleUpdated ?? lobby
     const maxRoleUpdated = await setLobbyMaxRole(kv, lobby.id, normalizedMaxRole, lobby)
     lobby = maxRoleUpdated ?? lobby
-    if (!sameLobbySlots(slots, lobby.slots)) {
-      const resizedLobby = await setLobbySlots(kv, lobby.id, slots, lobby)
-      lobby = resizedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
-    }
     let updated = hasSteamLobbyLink
       ? (await setLobbySteamLobbyLink(kv, lobby.id, parsedSteamLobbyLink ?? null, lobby) ?? lobby)
       : lobby
@@ -513,7 +528,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const nextLobby = {
       ...lobby,
       mode: nextMode,
-      draftConfig: normalizeDraftConfigForMode(nextMode, lobby.draftConfig),
+      draftConfig: normalizeDraftConfigForMode(nextMode, lobby.draftConfig, nextSlots.length),
       minRole: isUnrankedMode(nextMode) ? null : lobby.minRole,
       maxRole: isUnrankedMode(nextMode) ? null : lobby.maxRole,
       slots: nextSlots,
@@ -1285,6 +1300,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       const { matchId, seats } = await createDraftRoom(mode, selectedEntries, {
         hostId: lobby.hostId,
         leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+        blindBans: lobby.draftConfig.blindBans,
         simultaneousPick: lobby.draftConfig.simultaneousPick,
         redDeath: lobby.draftConfig.redDeath,
         randomDraft: lobby.draftConfig.randomDraft,
@@ -1519,6 +1535,10 @@ function parseLobbyLeaderDataVersion(value: unknown): 'live' | 'beta' | undefine
 }
 
 function parseLobbySimultaneousPick(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function parseLobbyBlindBans(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
 }
 

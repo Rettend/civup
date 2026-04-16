@@ -10,6 +10,7 @@ export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   pickTimerSeconds: null,
   leaderPoolSize: null,
   leaderDataVersion: 'live',
+  blindBans: true,
   simultaneousPick: false,
   redDeath: false,
   dealOptionsSize: null,
@@ -29,6 +30,7 @@ export function normalizeLobby(raw: StoredLobbyState | LobbyState): LobbyState {
   const updatedAt = typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt)
     ? Math.round(raw.updatedAt)
     : createdAt
+  const slots = normalizeStoredSlots(raw.mode, raw.slots)
 
   return {
     ...raw,
@@ -37,8 +39,8 @@ export function normalizeLobby(raw: StoredLobbyState | LobbyState): LobbyState {
     updatedAt,
     guildId: normalizeGuildId(raw.guildId),
     steamLobbyLink: normalizeSteamLobbyLink(raw.steamLobbyLink),
-    slots: normalizeStoredSlots(raw.mode, raw.slots),
-    draftConfig: normalizeDraftConfigForMode(raw.mode, raw.draftConfig),
+    slots,
+    draftConfig: normalizeDraftConfigForMode(raw.mode, raw.draftConfig, slots.length),
     minRole: normalizeCompetitiveTier(raw.minRole),
     maxRole: normalizeCompetitiveTier(raw.maxRole),
     lastActivityAt: normalizeLobbyLastActivityAt(
@@ -81,6 +83,7 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
     pickTimerSeconds: normalizeTimerSeconds(config?.pickTimerSeconds),
     leaderPoolSize: normalizeLeaderPoolSize(config?.leaderPoolSize),
     leaderDataVersion: normalizeLeaderDataVersion(config?.leaderDataVersion),
+    blindBans: normalizeBlindBans(config?.blindBans),
     simultaneousPick: normalizeSimultaneousPick(config?.simultaneousPick),
     redDeath: normalizeRedDeath(config?.redDeath),
     dealOptionsSize: normalizeDealOptionsSize(config?.dealOptionsSize),
@@ -92,6 +95,7 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
 export function normalizeDraftConfigForMode(
   mode: GameMode,
   config: Partial<LobbyDraftConfig> | LobbyDraftConfig | null | undefined,
+  targetSize?: number,
 ): LobbyDraftConfig {
   const normalized = normalizeDraftConfig(config)
   const redDeath = normalized.redDeath
@@ -99,6 +103,7 @@ export function normalizeDraftConfigForMode(
     ...normalized,
     leaderPoolSize: redDeath ? null : normalized.leaderPoolSize,
     leaderDataVersion: redDeath ? 'live' : normalized.leaderDataVersion,
+    blindBans: supportsBlindBans(mode, redDeath, targetSize) ? normalized.blindBans : true,
     simultaneousPick: mode === 'ffa' && !redDeath ? normalized.simultaneousPick : false,
     redDeath,
     dealOptionsSize: redDeath ? normalized.dealOptionsSize : null,
@@ -150,6 +155,7 @@ export function sameDraftConfig(a: LobbyDraftConfig, b: LobbyDraftConfig): boole
     && a.pickTimerSeconds === b.pickTimerSeconds
     && a.leaderPoolSize === b.leaderPoolSize
     && a.leaderDataVersion === b.leaderDataVersion
+    && a.blindBans === b.blindBans
     && a.simultaneousPick === b.simultaneousPick
     && a.redDeath === b.redDeath
     && a.dealOptionsSize === b.dealOptionsSize
@@ -200,6 +206,10 @@ function normalizeSimultaneousPick(value: unknown): boolean {
   return value === true
 }
 
+function normalizeBlindBans(value: unknown): boolean {
+  return value !== false
+}
+
 function normalizeRedDeath(value: unknown): boolean {
   return value === true
 }
@@ -217,4 +227,10 @@ function normalizeRandomDraft(value: unknown): boolean {
 
 function normalizeDuplicateFactions(value: unknown): boolean {
   return value === true
+}
+
+function supportsBlindBans(mode: GameMode, redDeath: boolean, targetSize?: number): boolean {
+  if (redDeath || mode === 'ffa') return false
+  if (mode === '2v2') return targetSize == null || targetSize === 4
+  return true
 }

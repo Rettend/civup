@@ -91,7 +91,7 @@ The leader pool consists of a random subset of leaders, and it's shared between 
 
 ![ban phase](images/ban-phase.webp)
 
-Bans are simultaneous and blind: everyone bans at the same time and the banned leaders are only revealed after everyone has finished banning. In team modes, only captains ban (the first seat in each team).
+By default, bans are simultaneous and blind: everyone bans at the same time and the banned leaders are only revealed after everyone has finished banning. In team modes, only captains ban (the first seat in each team). If `Blind Bans` is OFF, `1v1` uses `121212`, team modes use `122112` for the ban phase.
 
 ![ban phase with leaders](images/ban-phase-leaders.webp)
 
