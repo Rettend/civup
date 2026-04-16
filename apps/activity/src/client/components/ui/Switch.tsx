@@ -4,6 +4,7 @@ import { cn } from '~/client/lib/css'
 interface SwitchProps {
   label?: string
   description?: string
+  ariaLabel?: string
   checked?: boolean
   disabled?: boolean
   tone?: 'accent' | 'danger' | 'orange'
@@ -12,7 +13,7 @@ interface SwitchProps {
 }
 
 export function Switch(props: SwitchProps) {
-  const [local, rest] = splitProps(props, ['label', 'description', 'checked', 'disabled', 'tone', 'onChange', 'class'])
+  const [local, rest] = splitProps(props, ['label', 'description', 'ariaLabel', 'checked', 'disabled', 'tone', 'onChange', 'class'])
 
   const activeTrackClass = () => {
     if (local.tone === 'danger') {
@@ -34,6 +35,7 @@ export function Switch(props: SwitchProps) {
     <button
       type="button"
       role="switch"
+      aria-label={local.ariaLabel}
       aria-checked={local.checked ?? false}
       disabled={local.disabled}
       onClick={() => { if (!local.disabled) local.onChange?.(!local.checked) }}

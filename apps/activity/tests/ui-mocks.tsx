@@ -2,7 +2,7 @@
 
 import { getPickSeatForPlayer, type DraftState, type LeaderDataVersion } from '@civup/game'
 import type { LeaderTagCategory } from '../src/client/lib/leader-tags'
-import type { LobbySnapshot } from '../src/client/stores'
+import type { LobbyArrangeStrategy, LobbySnapshot, RankedRoleOptionSnapshot } from '../src/client/stores'
 import { getTagCategory } from '../src/client/lib/leader-tags'
 import { mock } from 'bun:test'
 import { createMutable } from 'solid-js/store'
@@ -29,10 +29,17 @@ export const storeSpies = {
     if (existingIndex >= 0) uiMockState.teamPlacementOrder.splice(existingIndex, 1)
     else uiMockState.teamPlacementOrder.push(team)
   }),
+  arrangeLobbySlots: mock(async (_mode: string, _lobbyId: string, _userId: string, _strategy: LobbyArrangeStrategy) => uiMockState.arrangeLobbySlotsResult),
+  cancelLobby: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.cancelLobbyResult),
+  canFillLobbyWithTestPlayers: mock(async (_mode: string) => uiMockState.canFillLobbyWithTestPlayersResult),
+  fetchLobbyRankedRoles: mock(async (_mode: string, _lobbyId: string) => uiMockState.fetchLobbyRankedRolesResult),
+  fillLobbyWithTestPlayers: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.fillLobbyWithTestPlayersResult),
+  startLobbyDraft: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.startLobbyDraftResult),
   updateLobbyConfig: mock(async (_mode: string, _lobbyId: string, _userId: string, patch: Partial<LobbySnapshot>) => ({
-    ok: true,
+    ...uiMockState.updateLobbyConfigResult,
     lobby: { steamLobbyLink: patch.steamLobbyLink ?? null },
   })),
+  updateLobbyMode: mock(async (_mode: string, _lobbyId: string, _userId: string, _nextMode: string) => uiMockState.updateLobbyModeResult),
 }
 
 export const discordSpies = {
@@ -79,6 +86,14 @@ type MockState = {
   swapWindowOpen: boolean
   incomingSwapSeatIndices: number[]
   tagFiltersState: Record<LeaderTagCategory, string[]>
+  arrangeLobbySlotsResult: { ok: true } | { ok: false, error: string }
+  cancelLobbyResult: { ok: true } | { ok: false, error: string }
+  canFillLobbyWithTestPlayersResult: boolean
+  fetchLobbyRankedRolesResult: { options: RankedRoleOptionSnapshot[] } | null
+  fillLobbyWithTestPlayersResult: { ok: true, addedCount: number } | { ok: false, error: string }
+  startLobbyDraftResult: { ok: true, matchId: string, roomAccessToken: string | null } | { ok: false, error: string }
+  updateLobbyConfigResult: { ok: true } | { ok: false, error: string }
+  updateLobbyModeResult: { ok: true } | { ok: false, error: string }
 }
 
 function emptyTagFilters(): Record<LeaderTagCategory, string[]> {
@@ -127,6 +142,14 @@ const defaults = (): MockState => ({
   swapWindowOpen: false,
   incomingSwapSeatIndices: [],
   tagFiltersState: emptyTagFilters(),
+  arrangeLobbySlotsResult: { ok: true },
+  cancelLobbyResult: { ok: true },
+  canFillLobbyWithTestPlayersResult: false,
+  fetchLobbyRankedRolesResult: null,
+  fillLobbyWithTestPlayersResult: { ok: true, addedCount: 0 },
+  startLobbyDraftResult: { ok: true, matchId: 'match-1', roomAccessToken: 'room-token' },
+  updateLobbyConfigResult: { ok: true },
+  updateLobbyModeResult: { ok: true },
 })
 
 export const uiMockState: MockState = createMutable(defaults())
@@ -260,12 +283,12 @@ mock.module('~/client/lib/clipboard', () => ({
 
 mock.module('~/client/stores', () => ({
   activeTagFilterCount: () => Object.values(uiMockState.tagFiltersState).reduce((count, tags) => count + tags.length, 0),
-  arrangeLobbySlots: async () => ({ ok: true }),
+  arrangeLobbySlots: (...args: Parameters<typeof storeSpies.arrangeLobbySlots>) => storeSpies.arrangeLobbySlots(...args),
   banSelections: () => uiMockState.banSelections,
   clearLeaderFavorites: () => { uiMockState.favoriteLeaderIds = [] },
   clearWinningTeam: () => { uiMockState.selectedWinningTeam = null },
-  cancelLobby: async () => ({ ok: true }),
-  canFillLobbyWithTestPlayers: async () => false,
+  cancelLobby: (...args: Parameters<typeof storeSpies.cancelLobby>) => storeSpies.cancelLobby(...args),
+  canFillLobbyWithTestPlayers: (...args: Parameters<typeof storeSpies.canFillLobbyWithTestPlayers>) => storeSpies.canFillLobbyWithTestPlayers(...args),
   canRequestSwapWith: (seatIndex: number) => uiMockState.canRequestSwapSeatIndices.includes(seatIndex),
   canSendPickPreview: () => false,
   avatarUrl: () => uiMockState.avatarUrl,
@@ -307,9 +330,9 @@ mock.module('~/client/stores', () => ({
     initVersion: 1,
   },
   favoriteLeaderIds: () => uiMockState.favoriteLeaderIds,
-  fetchLobbyRankedRoles: async () => null,
+  fetchLobbyRankedRoles: (...args: Parameters<typeof storeSpies.fetchLobbyRankedRoles>) => storeSpies.fetchLobbyRankedRoles(...args),
   ffaPlacementOrder: () => uiMockState.ffaPlacementOrder,
-  fillLobbyWithTestPlayers: async () => ({ ok: true, addedCount: 0 }),
+  fillLobbyWithTestPlayers: (...args: Parameters<typeof storeSpies.fillLobbyWithTestPlayers>) => storeSpies.fillLobbyWithTestPlayers(...args),
   getOptimisticSeatPick: () => null,
   getPreviewPickForSeat: (seatIndex: number) => uiMockState.previewPicks[seatIndex] ?? null,
   gridOpen: () => uiMockState.gridOpen,
@@ -362,7 +385,7 @@ mock.module('~/client/stores', () => ({
   setSearchQuery: (next: string) => { uiMockState.searchQuery = next },
   setSelectedLeader: (leaderId: string | null) => { setPickSelections(leaderId ? [leaderId] : []) },
   selectWinningTeam: (team: number | null) => { uiMockState.selectedWinningTeam = team },
-  startLobbyDraft: async () => ({ ok: true, matchId: 'match-1', roomAccessToken: 'room-token' }),
+  startLobbyDraft: (...args: Parameters<typeof storeSpies.startLobbyDraft>) => storeSpies.startLobbyDraft(...args),
   tagFilters: () => uiMockState.tagFiltersState,
   teamPlacementOrder: () => uiMockState.teamPlacementOrder,
   toggleDetail: (leaderId: string) => { uiMockState.detailLeaderId = uiMockState.detailLeaderId === leaderId ? null : leaderId },
@@ -399,7 +422,7 @@ mock.module('~/client/stores', () => ({
   toggleTeamPlacement: (...args: Parameters<typeof storeSpies.toggleTeamPlacement>) => storeSpies.toggleTeamPlacement(...args),
   toggleLobbyPremadeLink: async () => ({ ok: true }),
   updateLobbyConfig: (...args: Parameters<typeof storeSpies.updateLobbyConfig>) => storeSpies.updateLobbyConfig(...args),
-  updateLobbyMode: async () => ({ ok: true }),
+  updateLobbyMode: (...args: Parameters<typeof storeSpies.updateLobbyMode>) => storeSpies.updateLobbyMode(...args),
   userId: () => uiMockState.userId,
 }))
 type ConnectionStatus = 'disconnected' | 'connecting' | 'reconnecting' | 'connected' | 'error'
