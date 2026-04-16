@@ -12,7 +12,7 @@
     "build:prod": "bun --env-file=.prod.vars vite build",
     "preview": "wrangler dev --config wrangler.json --cwd dist/civup_activity --port 5173 --show-interactive-dev-session=false --log-level log",
     "test": "bun test --preload ./tests/setup-dom.ts tests",
-    "test:coverage": "bun test tests --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=coverage",
+    "test:coverage": "bun test --preload ./tests/setup-dom.ts tests --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=coverage",
     "check": "tsgo --noEmit",
     "portraits:webp": "bun ./scripts/convert-leaders-full-to-webp.ts --delete",
     "deploy": "bun run deploy:prod",

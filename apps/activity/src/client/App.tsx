@@ -10,20 +10,19 @@ import type {
   PartySocketTarget,
 } from './stores'
 import { batch, createEffect, createSignal, Match, onCleanup, onMount, Show, Switch, untrack } from 'solid-js'
-import { activityTargetOptionKey, ActivityTargetPicker, ConfigScreen, DraftView } from './components/draft'
+import { activityTargetOptionKey } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
 import { activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from './lib/activity-targets'
-import { cn } from './lib/css'
 import { relayDevLog } from './lib/dev-log'
+import { DraftPage } from './pages/draft/DraftPage'
+import { DraftSetupPage } from './pages/draft-setup/DraftSetupPage'
+import { LobbyOverviewPage } from './pages/lobby-overview/LobbyOverviewPage'
 import {
-  connectionError,
   connectionStatus,
   connectToRoom,
   disconnect,
   draftStore,
   fetchActivityLaunchSnapshot,
-  isMiniView,
-  isMobileLayout,
   resetDraft,
   selectActivityTarget,
   setAuthenticatedUser,
@@ -718,51 +717,18 @@ export default function App() {
         </Match>
 
         <Match when={state().status === 'overview'}>
-          <Show
-            when={isMiniView()}
-            fallback={(
-              <main class="text-text-primary bg-bg-primary font-sans min-h-screen relative overflow-y-auto">
-                <Show when={lastResolvedSelection()}>
-                  <button
-                    type="button"
-                    class={cn(
-                      'text-fg-muted border border-border-subtle rounded-md flex h-9 w-9 cursor-pointer transition-colors items-center justify-center z-20 absolute hover:text-fg hover:bg-bg-muted',
-                      isMobileLayout() ? 'top-12 right-4' : 'top-4 right-6',
-                    )}
-                    title="Return"
-                    aria-label="Return"
-                    onClick={() => void restoreLastSelection()}
-                  >
-                    <span class="i-ph-arrow-right-bold text-base" />
-                  </button>
-                </Show>
-                <div class="mx-auto px-6 py-4 max-w-5xl">
-                  <TargetPickerPanel
-                    options={availableTargets()}
-                    busy={pickerBusy()}
-                    selectedKey={currentTargetKey()}
-                    error={pickerError()}
-                    onSelect={handleTargetSelection}
-                    onResume={lastResolvedSelection() ? restoreLastSelection : undefined}
-                  />
-                </div>
-              </main>
-            )}
-          >
-            <TargetPickerPanel
-              mini
-              options={availableTargets()}
-              busy={pickerBusy()}
-              selectedKey={currentTargetKey()}
-              error={pickerError()}
-              onSelect={handleTargetSelection}
-              onResume={lastResolvedSelection() ? restoreLastSelection : undefined}
-            />
-          </Show>
+          <LobbyOverviewPage
+            options={availableTargets()}
+            busy={pickerBusy()}
+            selectedKey={currentTargetKey()}
+            error={pickerError()}
+            onSelect={handleTargetSelection}
+            onResume={lastResolvedSelection() ? restoreLastSelection : undefined}
+          />
         </Match>
 
         <Match when={state().status === 'lobby-waiting'}>
-          <ConfigScreen
+          <DraftSetupPage
             lobby={(state() as Extract<AppState, { status: 'lobby-waiting' }>).lobby}
             showJoinPending={(state() as Extract<AppState, { status: 'lobby-waiting' }>).joinPending}
             joinEligibility={(state() as Extract<AppState, { status: 'lobby-waiting' }>).joinEligibility}
@@ -774,7 +740,7 @@ export default function App() {
         </Match>
 
         <Match when={state().status === 'authenticated'}>
-          <DraftWithConnection
+          <DraftPage
             matchId={(state() as Extract<AppState, { status: 'authenticated' }>).matchId}
             autoStart={(state() as Extract<AppState, { status: 'authenticated' }>).autoStart}
             steamLobbyLink={(state() as Extract<AppState, { status: 'authenticated' }>).steamLobbyLink}
@@ -1017,139 +983,6 @@ function resolveLiveJoinEligibility(
   }
 }
 
-function DraftWithConnection(props: {
-  matchId: string
-  autoStart: boolean
-  steamLobbyLink: string | null
-  lobbyId: string | null
-  lobbyMode: string | null
-  onSwitchTarget?: () => void
-}) {
-  const hasDraftState = () => draftStore.state != null
-  const hasTerminalState = () => {
-    const status = draftStore.state?.status
-    return status === 'complete' || status === 'cancelled'
-  }
-  const shouldRenderDraftView = () => {
-    const status = connectionStatus()
-    return status === 'connected' || (status === 'reconnecting' && hasDraftState())
-  }
-
-  return (
-    <Switch>
-      <Match when={connectionStatus() === 'connecting'}>
-        <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
-          <div class="text-center">
-            <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
-            <div class="text-sm text-fg-muted">Joining draft room...</div>
-          </div>
-        </main>
-      </Match>
-
-      <Match when={shouldRenderDraftView()}>
-        <>
-          <DraftView
-            matchId={props.matchId}
-            autoStart={props.autoStart}
-            steamLobbyLink={props.steamLobbyLink}
-            lobbyId={props.lobbyId}
-            lobbyMode={props.lobbyMode}
-            onSwitchTarget={props.onSwitchTarget}
-          />
-          <Show when={connectionStatus() === 'reconnecting'}>
-            <div class="pointer-events-none bottom-3 left-3 fixed z-50 sm:bottom-4 sm:left-4">
-              <div class="text-xs text-fg px-3 py-1.5 border border-border rounded-full bg-bg-subtle/90 shadow-2xl shadow-black/30 backdrop-blur-sm">
-                Reconnecting...
-              </div>
-            </div>
-          </Show>
-        </>
-      </Match>
-
-      <Match when={connectionStatus() === 'reconnecting'}>
-        <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
-          <div class="text-center">
-            <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
-            <div class="text-sm text-fg-muted">Reconnecting to draft room...</div>
-          </div>
-        </main>
-      </Match>
-
-      <Match when={hasTerminalState() && (connectionStatus() === 'error' || connectionStatus() === 'disconnected')}>
-        <DraftView
-          matchId={props.matchId}
-          autoStart={props.autoStart}
-          steamLobbyLink={props.steamLobbyLink}
-          lobbyId={props.lobbyId}
-          lobbyMode={props.lobbyMode}
-          onSwitchTarget={props.onSwitchTarget}
-        />
-      </Match>
-
-      <Match when={connectionStatus() === 'error'}>
-        <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
-          <div class="p-6 text-center rounded-lg bg-bg-subtle max-w-md">
-            <div class="text-lg text-danger font-bold mb-2">Connection Error</div>
-            <div class="text-sm text-fg-muted">
-              {connectionError() ?? 'Failed to connect to draft room'}
-            </div>
-          </div>
-        </main>
-      </Match>
-
-      <Match when={connectionStatus() === 'disconnected'}>
-        <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
-          <div class="p-6 text-center rounded-lg bg-bg-subtle max-w-md">
-            <div class="text-lg text-fg-subtle font-bold mb-2">Disconnected</div>
-            <div class="text-sm text-fg-muted">Lost connection to the draft room.</div>
-          </div>
-        </main>
-      </Match>
-    </Switch>
-  )
-}
-
-function TargetPickerPanel(props: {
-  mini?: boolean
-  options: ActivityTargetOption[]
-  busy: boolean
-  selectedKey: string | null
-  error: string | null
-  onSelect: (option: ActivityTargetOption) => void
-  onResume?: () => void
-}) {
-  if (props.mini) {
-    return (
-      <ActivityTargetPicker
-        mini
-        error={props.error}
-        options={props.options}
-        busy={props.busy}
-        selectedKey={props.selectedKey}
-        onSelect={props.onSelect}
-        onClose={props.onResume}
-      />
-    )
-  }
-
-  return (
-    <div class="flex flex-col gap-4">
-      <ActivityTargetPicker
-        options={props.options}
-        busy={props.busy}
-        selectedKey={props.selectedKey}
-        onSelect={props.onSelect}
-        onClose={props.onResume}
-      />
-
-      <Show when={props.error}>
-        <div class="text-sm text-danger px-4 py-3 border border-danger/25 rounded-xl bg-danger/10">
-          {props.error}
-        </div>
-      </Show>
-    </div>
-  )
-}
 
 function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
   if (a.id !== b.id) return false

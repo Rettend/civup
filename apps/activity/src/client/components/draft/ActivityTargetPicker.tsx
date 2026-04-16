@@ -120,6 +120,7 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
               return (
                 <button
                   type="button"
+                  aria-pressed={selected()}
                   disabled={props.busy}
                   onClick={() => props.onSelect(option)}
                   class={cn(
