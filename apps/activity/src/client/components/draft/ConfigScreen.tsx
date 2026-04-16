@@ -1818,6 +1818,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                         Blind Bans
                       </span>
                       <Switch
+                        ariaLabel="Blind Bans"
                         checked={optimisticDraftConfig().blindBans}
                         disabled={lobbyActionPending() || blindBansPending()}
                         class="w-auto"
@@ -1832,6 +1833,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                         BBG Beta
                       </span>
                       <Switch
+                        ariaLabel="BBG Beta"
                         checked={normalizeAvailableLeaderDataVersion(optimisticDraftConfig().leaderDataVersion) === 'beta'}
                         disabled={lobbyActionPending() || leaderDataVersionPending()}
                         class="w-auto"
@@ -1846,6 +1848,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                         Simultaneous pick
                       </span>
                       <Switch
+                        ariaLabel="Simultaneous pick"
                         checked={optimisticDraftConfig().simultaneousPick}
                         disabled={lobbyActionPending() || simultaneousPickPending()}
                         class="w-auto"
@@ -1957,6 +1960,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                         <TextInput
                           type="number"
                           label={poolInputLabel()}
+                          ariaLabel={poolInputLabel()}
                           min={isRedDeathLobbyMode() ? '2' : String(leaderPoolMinimumValue())}
                           max={isRedDeathLobbyMode() ? '10' : String(MAX_LEADER_POOL_INPUT)}
                           step="1"
@@ -1980,6 +1984,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                         <TextInput
                           type="number"
                           label="Ban Timer (minutes)"
+                          ariaLabel="Ban Timer (minutes)"
                           min="0"
                           max={String(MAX_TIMER_MINUTES)}
                           step={timerInputStep(banMinutes())}
@@ -2003,6 +2008,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                       <TextInput
                         type="number"
                         label="Pick Timer (minutes)"
+                        ariaLabel="Pick Timer (minutes)"
                         min="0"
                         max={String(MAX_TIMER_MINUTES)}
                         step={timerInputStep(pickMinutes())}
@@ -2028,6 +2034,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                               Random draft
                             </span>
                             <Switch
+                              ariaLabel="Random draft"
                               checked={optimisticDraftConfig().randomDraft}
                               disabled={lobbyActionPending() || randomDraftPending()}
                               class="w-auto"
@@ -2040,6 +2047,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                               {duplicateOptionLabel()}
                             </span>
                             <Switch
+                              ariaLabel={duplicateOptionLabel()}
                               checked={optimisticDuplicateFactions()}
                               disabled={lobbyActionPending() || duplicateFactionsPending() || duplicateFactionsLocked()}
                               class="w-auto"
@@ -2052,6 +2060,7 @@ export function ConfigScreen(props: ConfigScreenProps) {
                               Red Death
                             </span>
                             <Switch
+                              ariaLabel="Red Death"
                               checked={optimisticDraftConfig().redDeath}
                               disabled={lobbyActionPending() || redDeathPending() || !canToggleRedDeath()}
                               class="w-auto"
