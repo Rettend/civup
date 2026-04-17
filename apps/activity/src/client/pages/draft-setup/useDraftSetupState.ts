@@ -554,7 +554,6 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     teamBalance,
     ffaColumns: () => [ffaFirstColumn(), ffaSecondColumn()],
     lowConfidence: () => Boolean(lobbyBalance()?.lowConfidence),
-    isDragging: () => draggingPlayerId() != null,
     dragOverSlot,
     pending,
     permissions: {
