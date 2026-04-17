@@ -47,11 +47,13 @@ const [uiState, setUiState] = createStore<UiMemoryState>({
   resultSelectionsLocked: false,
 })
 
-const [persistedUiState, setPersistedUiState] = makePersisted(createStore<UiPersistedState>({
+const [persistedUiStateBase, setPersistedUiStateBase] = createStore<UiPersistedState>({
   gridExpanded: false,
   gridViewMode: 'grid',
   favoriteLeaderIds: [],
-}), {
+})
+
+const [persistedUiState, setPersistedUiState] = makePersisted([persistedUiStateBase, setPersistedUiStateBase], {
   name: 'civup:activity:ui',
   storage: typeof window !== 'undefined' ? window.localStorage : undefined,
   serialize: value => JSON.stringify(unwrap(value)),
