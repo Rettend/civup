@@ -65,6 +65,7 @@ function DraftSetupPlayerColumn(props: ReturnType<typeof createPlayerColumnProps
               <PlayerChip
                 row={row}
                 pending={props.pending}
+                dragging={props.isDragging}
                 draggable={props.canDragRow(row)}
                 allowDrop={props.canDropOnRow(row)}
                 dropActive={props.canDropOnRow(row) && props.dragOverSlot === row.slot}
@@ -74,8 +75,7 @@ function DraftSetupPlayerColumn(props: ReturnType<typeof createPlayerColumnProps
                 onRemove={() => props.onRemove(row.slot)}
                 onDragStart={() => props.onDragStart(row.playerId)}
                 onDragEnd={props.onDragEnd}
-                onDragEnter={() => props.onDragEnter(row.slot)}
-                onDragLeave={() => props.onDragLeave(row.slot)}
+                onDragOver={() => props.onDragEnter(row.slot)}
                 onDrop={() => props.onDrop(row.slot)}
               />
               <Show when={props.showPremadeLinks && nextRow()}>
@@ -104,6 +104,7 @@ function DraftSetupPlayerColumn(props: ReturnType<typeof createPlayerColumnProps
 function PlayerChip(props: {
   row: PlayerRow
   pending: boolean
+  dragging: boolean
   draggable: boolean
   allowDrop: boolean
   dropActive: boolean
@@ -113,12 +114,12 @@ function PlayerChip(props: {
   onRemove?: () => void
   onDragStart?: () => void
   onDragEnd?: () => void
-  onDragEnter?: () => void
-  onDragLeave?: () => void
+  onDragOver?: () => void
   onDrop?: () => void
 }) {
   return (
     <div
+      data-slot={props.row.slot}
       class={cn(
         'group flex items-center gap-2 rounded-md px-3 py-2 border transition-colors',
         props.row.empty ? 'bg-white/4 text-fg-subtle border-transparent' : 'bg-white/8 border-transparent',
@@ -140,11 +141,7 @@ function PlayerChip(props: {
         if (!props.allowDrop) return
         event.preventDefault()
         if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
-        props.onDragEnter?.()
-      }}
-      onDragLeave={(event) => {
-        if (event.currentTarget.contains(event.relatedTarget as Node)) return
-        props.onDragLeave?.()
+        props.onDragOver?.()
       }}
       onDrop={(event) => {
         if (!props.allowDrop) return
@@ -152,7 +149,8 @@ function PlayerChip(props: {
         props.onDrop?.()
       }}
     >
-      <div class="flex shrink-0 h-5 w-5 items-center justify-center">
+      {/* Keep drag hit-testing on the row so nested chips/buttons do not flip drop state. */}
+      <div class={cn('flex shrink-0 h-5 w-5 items-center justify-center', props.dragging && 'pointer-events-none')}>
         <Show when={!props.row.empty && props.row.avatarUrl} fallback={<div class="i-ph-user-bold text-sm text-fg-subtle" />}>
           {avatar => (
             <img
@@ -165,11 +163,11 @@ function PlayerChip(props: {
         </Show>
       </div>
 
-      <span class="text-sm flex-1 truncate">{props.row.name}</span>
+      <span class={cn('text-sm flex-1 truncate', props.dragging && 'pointer-events-none')}>{props.row.name}</span>
 
       <Show when={props.showJoin && !props.pending}>
         <button
-          class="text-fg-muted rounded-sm opacity-0 flex h-5 w-5 transition-opacity items-center justify-center hover:text-fg hover:bg-white/8 group-hover:opacity-100"
+          class={cn('text-fg-muted rounded-sm opacity-0 flex h-5 w-5 transition-opacity items-center justify-center hover:text-fg hover:bg-white/8 group-hover:opacity-100', props.dragging && 'pointer-events-none')}
           onClick={(event) => {
             event.stopPropagation()
             props.onJoin?.()
@@ -181,7 +179,7 @@ function PlayerChip(props: {
 
       <Show when={props.showRemove && !props.pending}>
         <button
-          class="text-fg-muted rounded-sm opacity-0 flex h-5 w-5 transition-opacity items-center justify-center hover:text-danger hover:bg-white/8 group-hover:opacity-100"
+          class={cn('text-fg-muted rounded-sm opacity-0 flex h-5 w-5 transition-opacity items-center justify-center hover:text-danger hover:bg-white/8 group-hover:opacity-100', props.dragging && 'pointer-events-none')}
           onClick={(event) => {
             event.stopPropagation()
             props.onRemove?.()
@@ -192,7 +190,7 @@ function PlayerChip(props: {
       </Show>
 
       <Show when={!props.row.pendingSelf && !props.showJoin && !props.showRemove && props.row.isHost}>
-        <span class="text-[10px] text-accent tracking-wider font-bold uppercase">Host</span>
+        <span class={cn('text-[10px] text-accent tracking-wider font-bold uppercase', props.dragging && 'pointer-events-none')}>Host</span>
       </Show>
     </div>
   )
@@ -239,6 +237,7 @@ function createPlayerColumnProps(state: DraftSetupPlayersPanelState, rows: Playe
     rows,
     pending: state.pending.lobbyAction(),
     pendingWithActions: state.pending.lobbyAction() || state.pending.start() || state.pending.cancel(),
+    isDragging: state.isDragging(),
     dragOverSlot: state.dragOverSlot(),
     canDragRow: state.permissions.canDragRow,
     canDropOnRow: state.permissions.canDropOnRow,
@@ -251,7 +250,6 @@ function createPlayerColumnProps(state: DraftSetupPlayersPanelState, rows: Playe
     onDragStart: state.actions.dragStart,
     onDragEnd: state.actions.dragEnd,
     onDragEnter: state.actions.dragEnter,
-    onDragLeave: state.actions.dragLeave,
     onDrop: state.actions.drop,
     onTogglePremadeLink: state.actions.togglePremadeLink,
   }
