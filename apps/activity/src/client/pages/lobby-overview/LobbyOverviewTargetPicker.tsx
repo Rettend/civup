@@ -1,21 +1,21 @@
 import type { ActivityTargetOption } from '~/client/stores'
 import { formatModeLabel } from '@civup/game'
 import { For, Show } from 'solid-js'
+import { MiniFrame } from '~/client/components/draft/MiniLayout'
 import { cn } from '~/client/lib/css'
+import { activityTargetOptionKey } from '~/client/lib/activity-targets'
 import { isMobileLayout } from '~/client/stores'
-import { MiniFrame } from './MiniLayout'
 
-interface ActivityTargetPickerProps {
+interface LobbyOverviewTargetPickerProps {
   mini?: boolean
   error?: string | null
   options: ActivityTargetOption[]
   busy?: boolean
   selectedKey?: string | null
   onSelect: (option: ActivityTargetOption) => void
-  onClose?: () => void
 }
 
-export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
+export function LobbyOverviewTargetPicker(props: LobbyOverviewTargetPickerProps) {
   if (props.mini) {
     const visibleOptions = () => props.options.slice(0, 4)
     const hiddenCount = () => Math.max(0, props.options.length - visibleOptions().length)
@@ -87,7 +87,6 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
 
   return (
     <section class={cn('flex flex-col gap-6', isMobileLayout() && 'pt-12')}>
-      {/* Header: spacer | title | close button */}
       <div class="grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-center">
         <div class="h-9 w-9" />
         <div class="text-center">
@@ -120,6 +119,7 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
               return (
                 <button
                   type="button"
+                  aria-pressed={selected()}
                   disabled={props.busy}
                   onClick={() => props.onSelect(option)}
                   class={cn(
@@ -131,7 +131,6 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
                       : 'hover:border-accent/40 hover:bg-bg-subtle',
                   )}
                 >
-                  {/* Top: mode + title */}
                   <div class="flex gap-3 items-start justify-between">
                     <div>
                       <div class="text-[11px] text-accent tracking-[0.16em] font-semibold">
@@ -153,7 +152,6 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
                     </span>
                   </div>
 
-                  {/* Bottom: player count + host/member indicator — pinned to bottom */}
                   <div class="text-sm text-fg-muted mt-auto pt-3 flex items-center justify-between">
                     <span class="flex gap-1.5 items-center">
                       <span class="i-ph:users-duotone text-base" />
@@ -175,10 +173,6 @@ export function ActivityTargetPicker(props: ActivityTargetPickerProps) {
       </Show>
     </section>
   )
-}
-
-export function activityTargetOptionKey(option: Pick<ActivityTargetOption, 'kind' | 'id'>): string {
-  return `${option.kind}:${option.id}`
 }
 
 function formatTargetTitle(option: ActivityTargetOption): string {
