@@ -8,7 +8,7 @@ import { createActiveDraftState, createCancelledDraftState, createCompleteDraftS
 
 const onSwitchTarget = mock(() => {})
 
-const { DraftPage } = await import('../src/client/pages/draft/DraftPage')
+const { DraftPage } = await import('../src/client/pages/draft')
 
 describe('DraftPage UI', () => {
   beforeEach(() => {
@@ -51,6 +51,7 @@ describe('DraftPage UI', () => {
     render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
 
     expect(screen.getByRole('heading', { name: 'Draft Setup' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Open leader grid' })).toBeNull()
   })
 
   test('shows the active draft shell with reconnect banner in the background reconnect case', () => {

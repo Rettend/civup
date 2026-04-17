@@ -10,13 +10,12 @@ import type {
   PartySocketTarget,
 } from './stores'
 import { batch, createEffect, createSignal, Match, onCleanup, onMount, Show, Switch, untrack } from 'solid-js'
-import { activityTargetOptionKey } from './components/draft'
 import { discordSdk, setupDiscordSdk } from './discord'
-import { activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from './lib/activity-targets'
+import { activityTargetOptionKey, activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from './lib/activity-targets'
 import { relayDevLog } from './lib/dev-log'
-import { DraftPage } from './pages/draft/DraftPage'
-import { DraftSetupPage } from './pages/draft-setup/DraftSetupPage'
-import { LobbyOverviewPage } from './pages/lobby-overview/LobbyOverviewPage'
+import { DraftPage } from './pages/draft'
+import { DraftSetupPage } from './pages/draft-setup'
+import { LobbyOverviewPage } from './pages/lobby-overview'
 import {
   connectionStatus,
   connectToRoom,

@@ -6,7 +6,7 @@ import { cleanup, render, screen } from '@solidjs/testing-library'
 import { createActiveDraftState, createCancelledDraftState, createCompleteDraftState, createWaitingDraftState, TEST_LEADER_IDS } from './ui-fixtures'
 import { resetUiMocks, uiMockState } from './ui-mocks'
 
-const { DraftPage } = await import('../src/client/pages/draft/DraftPage')
+const { DraftPage } = await import('../src/client/pages/draft')
 
 describe('MiniView UI', () => {
   beforeEach(() => {

@@ -1,8 +1,8 @@
 import type { ActivityTargetOption } from '~/client/stores'
 import { Show } from 'solid-js'
-import { activityTargetOptionKey, ActivityTargetPicker } from '~/client/components/draft'
 import { cn } from '~/client/lib/css'
 import { isMiniView, isMobileLayout } from '~/client/stores'
+import { LobbyOverviewTargetPicker } from './LobbyOverviewTargetPicker'
 
 export interface LobbyOverviewPageProps {
   options: ActivityTargetOption[]
@@ -13,7 +13,6 @@ export interface LobbyOverviewPageProps {
   onResume?: () => void
 }
 
-/** Lobby overview page wrapper used while ActivityTargetPicker remains the implementation. */
 export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
   return (
     <Show
@@ -46,31 +45,18 @@ export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
 }
 
 function TargetPickerPanel(props: LobbyOverviewPageProps & { mini?: boolean }) {
-  if (props.mini) {
-    return (
-      <ActivityTargetPicker
-        mini
-        error={props.error}
-        options={props.options}
-        busy={props.busy}
-        selectedKey={props.selectedKey}
-        onSelect={props.onSelect}
-        onClose={props.onResume}
-      />
-    )
-  }
-
   return (
     <div class="flex flex-col gap-4">
-      <ActivityTargetPicker
+      <LobbyOverviewTargetPicker
+        mini={props.mini}
+        error={props.error}
         options={props.options}
         busy={props.busy}
         selectedKey={props.selectedKey ?? null}
         onSelect={props.onSelect}
-        onClose={props.onResume}
       />
 
-      <Show when={props.error}>
+      <Show when={!props.mini && props.error}>
         <div class="text-sm text-danger px-4 py-3 border border-danger/25 rounded-xl bg-danger/10">
           {props.error}
         </div>
@@ -78,5 +64,3 @@ function TargetPickerPanel(props: LobbyOverviewPageProps & { mini?: boolean }) {
     </div>
   )
 }
-
-export { activityTargetOptionKey }
