@@ -300,6 +300,7 @@ describe('DraftSetupPage UI', () => {
 
   test('keeps occupied-seat dragging on the row while leaving nested content interactive', async () => {
     const { container } = render(() => <DraftSetupPage lobby={createLobbySnapshot()} />)
+    const arrangeOverlay = container.querySelector('[aria-hidden]') as HTMLElement
 
     const hostChip = screen.getByText('Host Player').closest('[data-slot="0"]') as HTMLElement
     const playerChip = screen.getByText('Player 2').closest('[data-slot="1"]') as HTMLElement
@@ -326,7 +327,7 @@ describe('DraftSetupPage UI', () => {
     }))
 
     expect(hostBadge.className).toContain('text-[10px]')
-    expect(container.querySelector('.pointer-events-none')).toBeNull()
+    expect(arrangeOverlay.className).toContain('pointer-events-none')
   })
 
   test('blocks removing extra 2v2 teams while Teams C and D are occupied', () => {

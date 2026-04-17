@@ -30,6 +30,10 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
   let hasInitializedArrangeKey = false
   let lastRenderSignature: string | null = null
 
+  const pendingArrangeStrategy = () => state().pendingArrangeStrategy?.() ?? null
+  const overlayActive = () => arrangeOverlayActive() || pendingArrangeStrategy() != null
+  const overlayStrategy = () => pendingArrangeStrategy() ?? arrangeOverlayStrategy()
+
   const flip: PlayerFlipApi = {
     register: (playerId, element) => {
       elementsByPlayer.set(playerId, element)
@@ -132,6 +136,7 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
     armedArrangeKey = arrangeKey
 
     if (arrangeOverlayTimeout) clearTimeout(arrangeOverlayTimeout)
+    state().clearPendingArrangeStrategy?.()
     setArrangeOverlayStrategy(arrangeEvent.strategy)
     setArrangeOverlayActive(true)
     arrangeOverlayTimeout = setTimeout(() => {
@@ -194,8 +199,8 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
       <div
         aria-hidden
         class={cn(
-          'absolute inset-0 flex items-center justify-center transition-opacity duration-300',
-          arrangeOverlayActive() ? 'pointer-events-none opacity-100' : 'opacity-0',
+          'pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity duration-300',
+          overlayActive() ? 'opacity-100' : 'opacity-0',
         )}
       >
         <div class="absolute inset-0 bg-bg/14" />
@@ -207,7 +212,7 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
           }}
         />
         <span
-          class={cn(getArrangeOverlayIconClass(arrangeOverlayStrategy()), 'relative text-5xl')}
+          class={cn(getArrangeOverlayIconClass(overlayStrategy()), 'relative text-5xl')}
           style={{
             'color': '#b69a5c',
             'filter': 'drop-shadow(0 2px 10px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 22px rgba(200, 170, 110, 0.45))',
