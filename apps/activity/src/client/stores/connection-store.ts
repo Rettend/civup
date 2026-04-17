@@ -1,7 +1,7 @@
 import type { ClientMessage, CompetitiveTier, DraftAction, LeaderDataVersion, ServerMessage } from '@civup/game'
 import { api, ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import PartySocket from 'partysocket'
-import { createSignal } from 'solid-js'
+import { createSignal, untrack } from 'solid-js'
 import { buildActivitySessionHeaders, clearActivitySessionToken, getActivitySessionToken } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
 import { shouldForceReconnectForStaleDraft } from '../lib/stale-draft'
@@ -521,7 +521,8 @@ export function watchLobbyState(target: PartySocketTarget, options: LobbyStateWa
 // ── Send Messages ──────────────────────────────────────────
 
 export function sendMessage(msg: ClientMessage): boolean {
-  if (!socket || connectionStatus() !== 'connected') {
+  const status = untrack(connectionStatus)
+  if (!socket || status !== 'connected') {
     console.warn('Cannot send message: not connected')
     return false
   }
