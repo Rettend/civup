@@ -6,17 +6,22 @@ import {
   draftStore,
   gridOpen,
   hasSubmitted,
+  isMapVotePhase,
   isMiniView,
   isMobileLayout,
   isMyOwnPickTurn,
   isSpectator,
+  mapVoteEnabled,
+  resetMapVote,
   setGridOpen,
+  startMapVote,
   updateLobbyConfig,
   userId,
 } from '~/client/stores'
 import { DraftHeader } from './DraftHeader'
 import { DraftTimeline } from './DraftTimeline'
 import { LeaderGridOverlay } from './LeaderGridOverlay'
+import { MapVoteOverlay } from './MapVoteOverlay'
 import { MiniView } from './MiniView'
 import { SlotStrip } from './SlotStrip'
 import { SteamLobbyButton } from './SteamLobbyButton'
@@ -105,6 +110,28 @@ export function DraftView(props: DraftViewProps) {
     setGridOpen(false)
   })
 
+  // Trigger the dummy map-vote phase whenever a new active draft begins.
+  createEffect(() => {
+    const current = state()
+    if (!current || current.status !== 'active') return
+    if (!mapVoteEnabled()) return
+    startMapVote(current.matchId)
+  })
+
+  // Reset the map-vote store when the draft ends so the next draft starts fresh.
+  createEffect(() => {
+    const status = state()?.status
+    if (status === 'cancelled' || status === 'complete') {
+      resetMapVote()
+    }
+  })
+
+  // Keep the leader grid closed while the map-vote overlay is taking the screen.
+  createEffect(() => {
+    if (!isMapVotePhase()) return
+    setGridOpen(false)
+  })
+
   createEffect(() => {
     const current = state()
     const seatIndex = draftStore.seatIndex
@@ -113,6 +140,7 @@ export function DraftView(props: DraftViewProps) {
       return
     }
     if (isMiniView()) return
+    if (isMapVotePhase()) return
     if (!canOpenLeaderGrid()) return
     if (currentStep()?.action === 'pick' && !isMyOwnPickTurn()) return
 
@@ -170,12 +198,15 @@ export function DraftView(props: DraftViewProps) {
               {/* Main area */}
               <div class="flex flex-1 min-h-0 relative z-0">
                 <SlotStrip />
-                <Show when={state()?.status === 'active'}>
+                <Show when={state()?.status === 'active' && !isMapVotePhase()}>
                   <LeaderGridOverlay />
+                </Show>
+                <Show when={state()?.status === 'active' && isMapVotePhase()}>
+                  <MapVoteOverlay />
                 </Show>
 
                 {/* Grid toggle button */}
-                <Show when={state()?.status === 'active'}>
+                <Show when={state()?.status === 'active' && !isMapVotePhase()}>
                   <div class="flex inset-x-0 bottom-3 justify-center absolute z-50">
                     <button
                       class={cn(
