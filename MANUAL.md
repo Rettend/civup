@@ -131,7 +131,8 @@ The `/match` command group manages the lobby:
 > [!NOTE]
 >
 > - players can only join one lobby, consequently a host can only host one lobby, re-running `/match create` reuses that lobby
-> - team modes and regular FFA must be full to start (regular FFA is 8 players)
+> - team modes must be full to start
+> - regular `FFA` uses 8 seats and can start with 6 or 8 players
 > - expanded `2v2` lobbies can start with 6 players as `2v2v2`, or 8 players as `2v2v2v2`
 > - Red Death FFA can start with 4, 6, 8, or 10 players
 
@@ -234,7 +235,7 @@ Default leader pool sizes (and min allowed override):
 - `4v4`: 56 (min 14)
 - `5v5`: 64 (min 16)
 - `6v6`: 72 (min 18)
-- `FFA`: `6 x player count`: 36-60 for 6-10 players (min `3 x player count` 18-30 for 6-10 players)
+- `FFA`: `6 x player count`: 36-48 for 6 or 8 players (min `3 x player count` 18-24 for 6 or 8 players)
 
 Max allowed override is all leaders (85).
 
