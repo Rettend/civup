@@ -17,6 +17,8 @@ import {
   storeUserLobbyState,
   storeUserMatchMappings,
 } from '../../src/services/activity/index.ts'
+import { createLobby, setLobbySlots } from '../../src/services/lobby/index.ts'
+import { addToQueue } from '../../src/services/queue/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
@@ -247,6 +249,48 @@ describe('activity mapping behavior', () => {
       roomAccessToken: expect.any(String),
     }))
   })
+
+  test('getLobbyForUser repairs a stale mapping to the player\'s real open lobby', async () => {
+    const { kv } = createTrackedKv()
+
+    const currentLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-current',
+    })
+    const staleLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-2',
+      channelId: 'channel-2',
+      messageId: 'message-stale',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-2',
+      displayName: 'Host 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now() + 2,
+    })
+
+    await setLobbySlots(kv, currentLobby.id, ['host-1', 'player-1', null, null], currentLobby)
+    await storeUserLobbyMappings(kv, ['player-1'], staleLobby.id)
+
+    await expect(getLobbyForUser(kv, 'player-1')).resolves.toBe(currentLobby.id)
+    await expect(kv.get('activity-lobby-user:player-1')).resolves.toBe(currentLobby.id)
+  })
 })
 
 describe('draft room creation', () => {
@@ -327,7 +371,7 @@ describe('draft room creation', () => {
     expect(result.formatId).toBe('default-1v1')
   })
 
-  test('ignores duplicate leaders outside random drafts', async () => {
+  test('forwards duplicate leaders for standard draft rooms too', async () => {
     let postedConfig: { formatId?: unknown, duplicateFactions?: unknown } | null = null
     globalThis.fetch = (async (_input, init) => {
       postedConfig = JSON.parse(String(init?.body)) as { formatId?: unknown, duplicateFactions?: unknown }
@@ -343,7 +387,7 @@ describe('draft room creation', () => {
     })
 
     expect(postedConfig?.formatId).toBe('default-1v1')
-    expect(postedConfig?.duplicateFactions).toBe(false)
+    expect(postedConfig?.duplicateFactions).toBe(true)
     expect(result.formatId).toBe('default-1v1')
   })
 
@@ -372,5 +416,55 @@ describe('draft room creation', () => {
     expect(postedConfig?.formatId).toBe('red-death-6v6')
     expect(postedConfig?.duplicateFactions).toBe(true)
     expect(result.formatId).toBe('red-death-6v6')
+  })
+
+  test('uses a visible-ban format for supported modes when blind bans are disabled', async () => {
+    let postedConfig: { formatId?: unknown } | null = null
+    globalThis.fetch = (async (_input, init) => {
+      postedConfig = JSON.parse(String(init?.body)) as { formatId?: unknown }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const entries = baseFfaEntries.map((entry, index) => ({
+      ...entry,
+      playerId: `team-player-${index + 1}`,
+      displayName: `Team Player ${index + 1}`,
+    }))
+
+    const result = await createDraftRoom('1v1', entries.slice(0, 2), {
+      hostId: 'team-player-1',
+      blindBans: false,
+    })
+
+    expect(postedConfig?.formatId).toBe('default-1v1-visible-bans')
+    expect(result.formatId).toBe('default-1v1-visible-bans')
+  })
+
+  test('falls back to the default format when visible bans are unsupported for the seat count', async () => {
+    let postedConfig: { formatId?: unknown } | null = null
+    globalThis.fetch = (async (_input, init) => {
+      postedConfig = JSON.parse(String(init?.body)) as { formatId?: unknown }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const entries: QueueEntry[] = Array.from({ length: 8 }, (_, index) => ({
+      playerId: `p${index + 1}`,
+      displayName: `P${index + 1}`,
+      joinedAt: index,
+    }))
+
+    const result = await createDraftRoom('2v2', entries, {
+      hostId: 'p1',
+      blindBans: false,
+    })
+
+    expect(postedConfig?.formatId).toBe('default-2v2')
+    expect(result.formatId).toBe('default-2v2')
   })
 })

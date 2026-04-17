@@ -24,6 +24,7 @@ import {
   moveSlottedPremadeGroup,
   normalizeLobbySlots,
   rebuildQueueEntriesFromPremadeEdgeSet,
+  reconcileOpenLobbyState,
   sameLobbySlots,
   setLobbyDraftConfig,
   setLobbyLastActivityAt,
@@ -123,12 +124,13 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, simultaneousPick: simultaneousPickRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, duplicateFactions: duplicateFactionsRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
+    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, blindBans: blindBansRaw, simultaneousPick: simultaneousPickRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, duplicateFactions: duplicateFactionsRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
       userId?: string
       banTimerSeconds?: unknown
       pickTimerSeconds?: unknown
       leaderPoolSize?: unknown
       leaderDataVersion?: unknown
+      blindBans?: unknown
       simultaneousPick?: unknown
       redDeath?: unknown
       dealOptionsSize?: unknown
@@ -160,6 +162,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       : undefined
     const hasLeaderPoolSize = Object.prototype.hasOwnProperty.call(body, 'leaderPoolSize')
     const hasLeaderDataVersion = Object.prototype.hasOwnProperty.call(body, 'leaderDataVersion')
+    const hasBlindBans = Object.prototype.hasOwnProperty.call(body, 'blindBans')
     const hasSimultaneousPick = Object.prototype.hasOwnProperty.call(body, 'simultaneousPick')
     const hasRedDeath = Object.prototype.hasOwnProperty.call(body, 'redDeath')
     const hasDealOptionsSize = Object.prototype.hasOwnProperty.call(body, 'dealOptionsSize')
@@ -177,6 +180,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     const parsedLeaderDataVersion = hasLeaderDataVersion
       ? parseLobbyLeaderDataVersion(leaderDataVersionRaw)
+      : undefined
+    const parsedBlindBans = hasBlindBans
+      ? parseLobbyBlindBans(blindBansRaw)
       : undefined
     const parsedSimultaneousPick = hasSimultaneousPick
       ? parseLobbySimultaneousPick(simultaneousPickRaw)
@@ -198,6 +204,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       : undefined
     if (hasLeaderDataVersion && parsedLeaderDataVersion === undefined) {
       return c.json({ error: 'leaderDataVersion must be "live" or "beta"' }, 400)
+    }
+    if (hasBlindBans && parsedBlindBans === undefined) {
+      return c.json({ error: 'blindBans must be true or false' }, 400)
     }
     if (hasSimultaneousPick && parsedSimultaneousPick === undefined) {
       return c.json({ error: 'simultaneousPick must be true or false' }, 400)
@@ -261,6 +270,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const normalizedLeaderDataVersion = hasLeaderDataVersion
       ? parsedLeaderDataVersion ?? 'live'
       : lobby.draftConfig.leaderDataVersion
+    const normalizedBlindBans = hasBlindBans
+      ? parsedBlindBans ?? true
+      : lobby.draftConfig.blindBans
     const normalizedSimultaneousPick = hasSimultaneousPick
       ? parsedSimultaneousPick ?? false
       : lobby.draftConfig.simultaneousPick
@@ -306,7 +318,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       if (!hasSteamLobbyLink) {
         return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
       }
-      if (hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasSimultaneousPick || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasDuplicateFactions || hasTargetSize || hasMinRole || hasMaxRole) {
+      if (hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasBlindBans || hasSimultaneousPick || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasDuplicateFactions || hasTargetSize || hasMinRole || hasMaxRole) {
         return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
       }
 
@@ -369,27 +381,31 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       if (gateError) return c.json({ error: gateError }, 400)
     }
 
-    const draftUpdated = await setLobbyDraftConfig(kv, lobby.id, {
+    const nextDraftConfig = normalizeDraftConfigForMode(mode, {
       banTimerSeconds: resolvedBanTimerSeconds,
       pickTimerSeconds: resolvedPickTimerSeconds,
       leaderPoolSize: normalizedLeaderPoolSize,
       leaderDataVersion: normalizedLeaderDataVersion,
+      blindBans: normalizedBlindBans,
       simultaneousPick: normalizedSimultaneousPick,
       redDeath: normalizedRedDeath,
       dealOptionsSize: normalizedDealOptionsSize,
       randomDraft: normalizedRandomDraft,
       duplicateFactions: normalizedDuplicateFactions,
-    }, lobby)
+    }, requestedTargetSize)
+
+    if (!sameLobbySlots(slots, lobby.slots)) {
+      const resizedLobby = await setLobbySlots(kv, lobby.id, slots, lobby)
+      lobby = resizedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
+    }
+
+    const draftUpdated = await setLobbyDraftConfig(kv, lobby.id, nextDraftConfig, lobby)
 
     lobby = draftUpdated ?? lobby
     const minRoleUpdated = await setLobbyMinRole(kv, lobby.id, normalizedMinRole, lobby)
     lobby = minRoleUpdated ?? lobby
     const maxRoleUpdated = await setLobbyMaxRole(kv, lobby.id, normalizedMaxRole, lobby)
     lobby = maxRoleUpdated ?? lobby
-    if (!sameLobbySlots(slots, lobby.slots)) {
-      const resizedLobby = await setLobbySlots(kv, lobby.id, slots, lobby)
-      lobby = resizedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
-    }
     let updated = hasSteamLobbyLink
       ? (await setLobbySteamLobbyLink(kv, lobby.id, parsedSteamLobbyLink ?? null, lobby) ?? lobby)
       : lobby
@@ -466,7 +482,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!resolvedLobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
-    const lobby = resolvedLobby
+    const lobby = (await reconcileOpenLobbyState(kv, resolvedLobby))?.lobby ?? resolvedLobby
 
     if (lobby.hostId !== auth.identity.userId) {
       return c.json({ error: 'Only the lobby host can change game mode' }, 403)
@@ -477,18 +493,19 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const { queue, balanceSnapshot } = await getQueueStateWithLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
-    const lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
-    if (!lobbyQueueEntries.some(entry => entry.playerId === lobby.hostId)) {
-      return c.json({ error: 'Host is not in the queue anymore. Rejoin first.' }, 400)
+    const sourceLobby = (await reconcileOpenLobbyState(kv, lobby, { currentQueue: queue }))?.lobby ?? lobby
+    const lobbyQueueEntries = buildLobbyQueueEntries(sourceLobby, queue.entries)
+    if (!lobbyQueueEntries.some(entry => entry.playerId === sourceLobby.hostId)) {
+      return c.json({ error: 'Host is not in this lobby anymore.' }, 400)
     }
 
-    const normalizedSlots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
+    const normalizedSlots = normalizeLobbySlots(mode, sourceLobby.slots, lobbyQueueEntries)
     const orderedPlayers = normalizedSlots.filter((playerId): playerId is string => playerId != null)
     const orderedPlayerSet = new Set(orderedPlayers)
 
-    if (!orderedPlayerSet.has(lobby.hostId)) {
-      orderedPlayers.push(lobby.hostId)
-      orderedPlayerSet.add(lobby.hostId)
+    if (!orderedPlayerSet.has(sourceLobby.hostId)) {
+      orderedPlayers.push(sourceLobby.hostId)
+      orderedPlayerSet.add(sourceLobby.hostId)
     }
 
     for (const entry of lobbyQueueEntries) {
@@ -505,32 +522,32 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: nextLayout.error }, 400)
     }
     let nextSlots = nextLayout.slots
-    if (nextMode === 'ffa' && lobby.draftConfig.redDeath) {
+    if (nextMode === 'ffa' && sourceLobby.draftConfig.redDeath) {
       nextSlots = resizeLobbySlots(nextMode, nextSlots, 10)
     }
     const changedAt = Date.now()
 
     const nextLobby = {
-      ...lobby,
+      ...sourceLobby,
       mode: nextMode,
-      draftConfig: normalizeDraftConfigForMode(nextMode, lobby.draftConfig),
-      minRole: isUnrankedMode(nextMode) ? null : lobby.minRole,
-      maxRole: isUnrankedMode(nextMode) ? null : lobby.maxRole,
+      draftConfig: normalizeDraftConfigForMode(nextMode, sourceLobby.draftConfig, nextSlots.length),
+      minRole: isUnrankedMode(nextMode) ? null : sourceLobby.minRole,
+      maxRole: isUnrankedMode(nextMode) ? null : sourceLobby.maxRole,
       slots: nextSlots,
       lastActivityAt: changedAt,
       updatedAt: changedAt,
-      revision: lobby.revision + 1,
+      revision: sourceLobby.revision + 1,
     }
 
-    const movedQueue = await moveQueueEntriesBetweenModes(kv, mode, nextMode, lobby.memberPlayerIds)
-    const movedLobbyQueueEntries = buildLobbyQueueEntries({ ...lobby, mode: nextMode }, movedQueue.to.entries)
+    const movedQueue = await moveQueueEntriesBetweenModes(kv, mode, nextMode, sourceLobby.memberPlayerIds)
+    const movedLobbyQueueEntries = buildLobbyQueueEntries({ ...sourceLobby, mode: nextMode }, movedQueue.to.entries)
     const normalizedNextSlots = normalizeLobbySlots(nextMode, nextSlots, movedLobbyQueueEntries)
     const finalizedLobby = {
       ...nextLobby,
       slots: normalizedNextSlots,
     }
 
-    await stateStoreMdelete(kv, [modeIndexKey(mode, lobby.id)])
+    await stateStoreMdelete(kv, [modeIndexKey(mode, sourceLobby.id)])
     await upsertLobby(kv, finalizedLobby)
     const snapshot = await syncLobbyDerivedState(kv, finalizedLobby, {
       queueEntries: movedLobbyQueueEntries,
@@ -607,7 +624,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!resolvedLobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
-    let lobby = resolvedLobby
+    let lobby = (await reconcileOpenLobbyState(kv, resolvedLobby))?.lobby ?? resolvedLobby
 
     if (targetSlot >= lobby.slots.length) {
       return c.json({ error: 'Invalid target slot index' }, 400)
@@ -644,7 +661,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       blockingLobbyForPlayer = currentLobbiesForPlayer.find(candidate => candidate.status === 'open') ?? null
       if (blockingLobbyForPlayer) {
         if (movingPlayerId !== auth.identity.userId) {
-          return c.json({ error: 'That player is already in another open lobby.' }, 400)
+          return c.json({ error: 'That player is already in another lobby.' }, 400)
         }
         transferNotice = `Moved you from your previous ${formatModeLabel(blockingLobbyForPlayer.mode, blockingLobbyForPlayer.mode, { redDeath: blockingLobbyForPlayer.draftConfig.redDeath })} lobby.`
       }
@@ -748,18 +765,24 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       queue = joinResult.state ?? await getQueueState(kv, mode)
     }
 
-    if (!lobby.memberPlayerIds.includes(movingPlayerId)) {
-      const nextMemberIds = [...new Set([...lobby.memberPlayerIds, movingPlayerId])]
-      const updatedLobby = await setLobbyMemberPlayerIds(kv, lobby.id, nextMemberIds, lobby)
-      if (updatedLobby) lobby = updatedLobby
-    }
-
-    lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
+    const nextMemberIds = lobby.memberPlayerIds.includes(movingPlayerId)
+      ? lobby.memberPlayerIds
+      : [...new Set([...lobby.memberPlayerIds, movingPlayerId])]
+    lobbyQueueEntries = buildLobbyQueueEntries({ ...lobby, memberPlayerIds: nextMemberIds }, queue.entries)
     slots = normalizeLobbySlots(mode, slots, lobbyQueueEntries)
-
-    const updatedLobby = await setLobbySlots(kv, lobby.id, slots, lobby)
-    let nextLobby = updatedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
-    nextLobby = await setLobbyLastActivityAt(kv, nextLobby.id, actionAt, nextLobby) ?? nextLobby
+    let nextLobby = lobby
+    if (!sameLobbySlots(slots, lobby.slots) || nextMemberIds.length !== lobby.memberPlayerIds.length || lobby.lastActivityAt !== actionAt) {
+      nextLobby = {
+        ...lobby,
+        memberPlayerIds: nextMemberIds,
+        slots,
+        lastActivityAt: actionAt,
+        updatedAt: actionAt,
+        revision: lobby.revision + 1,
+      }
+      await upsertLobby(kv, nextLobby)
+    }
+    lobbyQueueEntries = buildLobbyQueueEntries(nextLobby, queue.entries)
     const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
       queueEntries: lobbyQueueEntries,
       slots,
@@ -1285,6 +1308,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       const { matchId, seats } = await createDraftRoom(mode, selectedEntries, {
         hostId: lobby.hostId,
         leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+        blindBans: lobby.draftConfig.blindBans,
         simultaneousPick: lobby.draftConfig.simultaneousPick,
         redDeath: lobby.draftConfig.redDeath,
         randomDraft: lobby.draftConfig.randomDraft,
@@ -1519,6 +1543,10 @@ function parseLobbyLeaderDataVersion(value: unknown): 'live' | 'beta' | undefine
 }
 
 function parseLobbySimultaneousPick(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function parseLobbyBlindBans(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
 }
 

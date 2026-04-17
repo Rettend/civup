@@ -46,6 +46,13 @@ const ffaSeats: DraftSeat[] = [
   { playerId: 'p3', displayName: 'Player 3' },
 ]
 
+const visibleTeamBanSteps = [
+  { action: 'ban', seats: [0], count: 1, timer: 45 },
+  { action: 'ban', seats: [1], count: 2, timer: 45 },
+  { action: 'ban', seats: [0], count: 2, timer: 45 },
+  { action: 'ban', seats: [1], count: 1, timer: 45 },
+] as const
+
 describe('draft formats', () => {
   test('2v2 full roster order stays A1, B1, B2, A2', () => {
     expect(default2v2.getSteps(4).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2]])
@@ -93,6 +100,73 @@ describe('draft formats', () => {
     expect(getDraftFormat('ffa', { simultaneousPick: true })).toBe(defaultFfaSimultaneous)
   })
 
+  test('keeps blind bans enabled by default for team drafts', () => {
+    expect(getDraftFormat('3v3').blindBans).toBe(true)
+  })
+
+  test('returns the visible-ban team format when blind bans are disabled', () => {
+    const format = getDraftFormat('3v3', { blindBans: false, seatCount: 6 })
+    expect(format.blindBans).toBe(false)
+    expect(format.id).toBe('default-3v3-visible-bans')
+  })
+
+  test('returns the visible-ban 1v1 format when blind bans are disabled', () => {
+    const format = getDraftFormat('1v1', { blindBans: false, seatCount: 2 })
+    expect(format.blindBans).toBe(false)
+    expect(format.id).toBe('default-1v1-visible-bans')
+  })
+
+  test('2v2 visible bans keep 3 bans each with the 122112 captain sequence', () => {
+    const format = getDraftFormat('2v2', { blindBans: false, seatCount: 4 })
+    const steps = format.getSteps(4)
+
+    expect(format.blindBans).toBe(false)
+    expect(format.id).toBe('default-2v2-visible-bans')
+    expect(steps.slice(0, 4)).toEqual(visibleTeamBanSteps)
+    expect(steps.slice(4).map(step => step.seats)).toEqual([[0], [1], [3], [2]])
+  })
+
+  test('1v1 visible bans alternate one at a time before picks', () => {
+    const steps = getDraftFormat('1v1', { blindBans: false, seatCount: 2 }).getSteps(2)
+    expect(steps.slice(0, 6)).toEqual([
+      { action: 'ban', seats: [0], count: 1, timer: 45 },
+      { action: 'ban', seats: [1], count: 1, timer: 45 },
+      { action: 'ban', seats: [0], count: 1, timer: 45 },
+      { action: 'ban', seats: [1], count: 1, timer: 45 },
+      { action: 'ban', seats: [0], count: 1, timer: 45 },
+      { action: 'ban', seats: [1], count: 1, timer: 45 },
+    ])
+    expect(steps.slice(6).map(step => step.seats)).toEqual([[0], [1]])
+  })
+
+  test('3v3 visible bans follow the 122112 captain sequence before picks', () => {
+    const steps = getDraftFormat('3v3', { blindBans: false, seatCount: 6 }).getSteps(6)
+    expect(steps.slice(0, 4)).toEqual(visibleTeamBanSteps)
+    expect(steps.slice(4).map(step => step.seats)).toEqual([[0], [1], [3], [2], [4], [5]])
+  })
+
+  test('4v4 visible bans use the same 122112 captain sequence before picks', () => {
+    const steps = getDraftFormat('4v4', { blindBans: false, seatCount: 8 }).getSteps(8)
+    expect(steps.slice(0, 4)).toEqual(visibleTeamBanSteps)
+    expect(steps.slice(4).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7]])
+  })
+
+  test('5v5 visible bans use the same 122112 captain sequence before picks', () => {
+    const steps = getDraftFormat('5v5', { blindBans: false, seatCount: 10 }).getSteps(10)
+    expect(steps.slice(0, 4)).toEqual(visibleTeamBanSteps)
+    expect(steps.slice(4).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7], [8], [9]])
+  })
+
+  test('6v6 visible bans use the same 122112 captain sequence before picks', () => {
+    const steps = getDraftFormat('6v6', { blindBans: false, seatCount: 12 }).getSteps(12)
+    expect(steps.slice(0, 4)).toEqual(visibleTeamBanSteps)
+    expect(steps.slice(4).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7], [9], [8], [10], [11]])
+  })
+
+  test('ignores visible bans for unsupported 2v2 multi-team drafts', () => {
+    expect(getDraftFormat('2v2', { blindBans: false, seatCount: 8 })).toBe(default2v2)
+  })
+
   test('Red Death 2v2 uses no bans and snakes across two teams for 4 players', () => {
     expect(redDeath2v2.getSteps(4).map(step => step.seats)).toEqual([[0], [1], [3], [2]])
   })
@@ -127,6 +201,38 @@ describe('draft formats', () => {
 })
 
 describe('formatDraftStepLabel', () => {
+  test('labels visible duel bans by team side', () => {
+    const steps = getDraftFormat('1v1', { blindBans: false, seatCount: 2 }).getSteps(2)
+    expect(steps.slice(0, 6).map(step => formatDraftStepLabel(step, duelSeats))).toEqual([
+      'BAN T1',
+      'BAN T2',
+      'BAN T1',
+      'BAN T2',
+      'BAN T1',
+      'BAN T2',
+    ])
+  })
+
+  test('labels visible team bans by captain team', () => {
+    const steps = getDraftFormat('3v3', { blindBans: false, seatCount: 6 }).getSteps(6)
+    expect(steps.slice(0, 4).map(step => formatDraftStepLabel(step, teamerSeats))).toEqual([
+      'BAN T1',
+      'BAN T2',
+      'BAN T1',
+      'BAN T2',
+    ])
+  })
+
+  test('labels simultaneous team blind bans generically', () => {
+    const steps = default3v3.getSteps(6)
+    expect(formatDraftStepLabel(steps[0]!, teamerSeats)).toBe('BAN')
+  })
+
+  test('keeps simultaneous FFA bans generic', () => {
+    const steps = defaultFfa.getSteps(3)
+    expect(formatDraftStepLabel(steps[0]!, ffaSeats)).toBe('BAN')
+  })
+
   test('labels duel picks by team side', () => {
     const steps = default1v1.getSteps(2)
     expect(formatDraftStepLabel(steps[1]!, duelSeats)).toBe('PICK T1')

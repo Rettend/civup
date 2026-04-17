@@ -179,7 +179,6 @@ function predictTeamProbabilities(teams: PlayerRating[][]): number[] | null {
   }
 }
 
-// Estimate how much each side's probability can swing within one sigma.
 function estimateProbabilityUncertainty(teams: PlayerRating[][], focusTeam: number, baseProbability: number): number {
   const optimistic = predictTeamProbabilities(adjustTeamRatings(teams, focusTeam, 1))
   const pessimistic = predictTeamProbabilities(adjustTeamRatings(teams, focusTeam, -1))
@@ -252,22 +251,8 @@ export function parseTimerMinutesInput(value: string): number | null | undefined
   return numeric
 }
 
-export function normalizeTimerMinutesInput(value: string): string {
-  const trimmed = value.trim()
-  if (!trimmed) return ''
-
-  const numeric = Number(trimmed)
-  if (!Number.isFinite(numeric)) return value
-
-  const bounded = Math.min(MAX_TIMER_MINUTES, Math.max(0, numeric))
-  return trimTrailingZeros(bounded.toFixed(3))
-}
-
 export function formatTimerValue(timerSeconds: number | null, defaultTimerSeconds: number | null = null): string {
-  if (timerSeconds == null && defaultTimerSeconds != null) {
-    return formatTimerDuration(defaultTimerSeconds)
-  }
-
+  if (timerSeconds == null && defaultTimerSeconds != null) return formatTimerDuration(defaultTimerSeconds)
   if (timerSeconds == null) return 'Server default'
   return formatTimerDuration(timerSeconds)
 }
@@ -279,7 +264,6 @@ function formatTimerMinutesInput(timerSeconds: number): string {
 function formatTimerDuration(timerSeconds: number): string {
   if (timerSeconds === 0) return 'Unlimited'
   if (timerSeconds < 60) return timerSeconds === 1 ? '1 second' : `${timerSeconds} seconds`
-
   const minutes = timerSeconds / 60
   if (Number.isInteger(minutes)) return minutes === 1 ? '1 minute' : `${minutes} minutes`
   return `${trimTrailingZeros(minutes.toFixed(2))} minutes`
@@ -302,6 +286,13 @@ export function getLeaderPoolSizeMinimum(mode: GameMode, playerCount: number): n
   return getMinimumLeaderPoolSize(mode, playerCount)
 }
 
+export function supportsBlindBansControl(mode: GameMode, options: { redDeath?: boolean, targetSize?: number } = {}): boolean {
+  if (options.redDeath) return false
+  if (mode === 'ffa') return false
+  if (mode === '2v2') return options.targetSize === 4
+  return true
+}
+
 export function parseLeaderPoolSizeInput(value: string, minimum: number, maximum: number = MAX_LEADER_POOL_INPUT): number | null | undefined {
   const trimmed = value.trim()
   if (!trimmed) return null
@@ -310,17 +301,6 @@ export function parseLeaderPoolSizeInput(value: string, minimum: number, maximum
   if (!Number.isFinite(numeric) || !Number.isInteger(numeric)) return undefined
   if (numeric < minimum || numeric > maximum) return undefined
   return numeric
-}
-
-export function normalizeLeaderPoolSizeInput(value: string, minimum: number, maximum: number = MAX_LEADER_POOL_INPUT): string {
-  const trimmed = value.trim()
-  if (!trimmed) return ''
-
-  const numeric = Number(trimmed)
-  if (!Number.isFinite(numeric)) return value
-
-  const bounded = Math.min(maximum, Math.max(minimum, Math.round(numeric)))
-  return String(bounded)
 }
 
 export function formatLeaderPoolValue(
@@ -333,10 +313,7 @@ export function formatLeaderPoolValue(
 }
 
 function resolveLeaderPoolDefaultPlayerCount(mode: GameMode, playerCount: number, targetSize?: number): number {
-  if (typeof targetSize === 'number' && Number.isFinite(targetSize) && targetSize > 0) {
-    return targetSize
-  }
-
+  if (typeof targetSize === 'number' && Number.isFinite(targetSize) && targetSize > 0) return targetSize
   return playerCount
 }
 
@@ -345,10 +322,7 @@ export function normalizeLobbyRankRoleValue(value: string): CompetitiveTier | nu
   return trimmed.length > 0 ? trimmed : null
 }
 
-export function findRankedRoleOptionByTier(
-  options: RankedRoleOptionSnapshot[],
-  tier: CompetitiveTier,
-): RankedRoleOptionSnapshot | null {
+export function findRankedRoleOptionByTier(options: RankedRoleOptionSnapshot[], tier: CompetitiveTier): RankedRoleOptionSnapshot | null {
   return options.find(option => option.tier === tier) ?? null
 }
 
@@ -369,7 +343,7 @@ export function buildRankDotStyle(color: string | null): Record<string, string> 
 export function buildRolePillStyle(color: string | null): Record<string, string> {
   if (!color) {
     return {
-      'color': 'rgb(229,229,229)',
+      color: 'rgb(229,229,229)',
       'background-color': 'rgba(255,255,255,0.06)',
       'border-color': 'rgba(255,255,255,0.22)',
     }
@@ -385,7 +359,7 @@ export function buildRolePillStyle(color: string | null): Record<string, string>
   }
 
   return {
-    'color': normalized,
+    color: normalized,
     'background-color': `${normalized}1F`,
     'border-color': `${normalized}66`,
   }
@@ -411,19 +385,15 @@ export function applyOptimisticLobbyAction(
 
   const movePlayer = (playerId: string, targetSlot: number): boolean => {
     if (targetSlot < 0 || targetSlot >= entries.length) return false
-
     const sourceSlot = entries.findIndex(entry => entry?.playerId === playerId)
     if (sourceSlot === targetSlot) return false
     const targetEntry = entries[targetSlot]
 
     if (sourceSlot < 0) {
       if (targetEntry && targetEntry.playerId !== playerId) return false
-
       entries[targetSlot] = {
         playerId,
-        displayName: typeof currentUserDisplayName === 'string' && currentUserDisplayName.trim().length > 0
-          ? currentUserDisplayName
-          : 'You',
+        displayName: typeof currentUserDisplayName === 'string' && currentUserDisplayName.trim().length > 0 ? currentUserDisplayName : 'You',
         avatarUrl: currentUserAvatarUrl || null,
       }
       return true
@@ -431,7 +401,6 @@ export function applyOptimisticLobbyAction(
 
     const sourceEntry = entries[sourceSlot]
     if (!sourceEntry) return false
-
     entries[sourceSlot] = targetEntry ?? null
     entries[targetSlot] = sourceEntry
     return true
