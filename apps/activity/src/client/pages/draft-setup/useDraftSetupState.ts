@@ -336,19 +336,28 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
       setLobbyActionPending(false)
     }
   }
-  const handlePlaceSelf = async (slot: number) => {
+  const handleMovePlayerToSlot = async (slot: number, draggedPlayerId: string) => {
     const lobby = currentLobby()
     const currentUserId = userId()
     if (!lobby || !currentUserId || lobbyActionPending()) return
-    const optimisticAction = resolveOptimisticLobbyPlacementAction(lobby, currentUserId, currentUserId, slot, amHost())
-    if (!isCurrentUserSlotted() && props.joinEligibility?.canJoin !== false) setPendingPlaceSelfSlot(slot)
+    const movingSelf = draggedPlayerId === currentUserId
+    const optimisticAction = resolveOptimisticLobbyPlacementAction(lobby, currentUserId, draggedPlayerId, slot, amHost())
+    if (movingSelf && !isCurrentUserSlotted() && props.joinEligibility?.canJoin !== false) setPendingPlaceSelfSlot(slot)
     if (optimisticAction) startOptimisticLobbyAction(optimisticAction)
     setLobbyActionPending(true)
     clearConfigMessage()
     try {
-      const result = await placeLobbySlot(lobby.mode, { lobbyId: lobby.id, userId: currentUserId, targetSlot: slot, displayName: currentDisplayName(), avatarUrl: currentAvatarUrl() })
+      const payload: { lobbyId: string, userId: string, targetSlot: number, playerId?: string, displayName?: string, avatarUrl?: string | null } = {
+        lobbyId: lobby.id,
+        userId: currentUserId,
+        targetSlot: slot,
+        displayName: currentDisplayName(),
+        avatarUrl: currentAvatarUrl(),
+      }
+      if (amHost() && draggedPlayerId !== currentUserId) payload.playerId = draggedPlayerId
+      const result = await placeLobbySlot(lobby.mode, payload)
       if (!result.ok) {
-        setPendingPlaceSelfSlot(null)
+        if (movingSelf) setPendingPlaceSelfSlot(null)
         if (optimisticAction) clearOptimisticLobbyAction()
         showErrorMessage(result.error)
       }
@@ -360,35 +369,18 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
       setLobbyActionPending(false)
     }
   }
-  const handleDropOnSlot = async (slot: number) => {
-    const lobby = currentLobby()
+  const handlePlaceSelf = async (slot: number) => {
     const currentUserId = userId()
+    if (!currentUserId) return
+    await handleMovePlayerToSlot(slot, currentUserId)
+  }
+  const handleDropOnSlot = async (slot: number) => {
     const draggedPlayerId = draggingPlayerId()
-    if (!lobby || !currentUserId || !draggedPlayerId || lobbyActionPending()) return
-    const payload: { lobbyId: string, userId: string, targetSlot: number, playerId?: string, displayName?: string, avatarUrl?: string | null } = {
-      lobbyId: lobby.id,
-      userId: currentUserId,
-      targetSlot: slot,
-      displayName: currentDisplayName(),
-      avatarUrl: currentAvatarUrl(),
-    }
-    if (amHost() && draggedPlayerId !== currentUserId) payload.playerId = draggedPlayerId
-    const optimisticAction = resolveOptimisticLobbyPlacementAction(lobby, currentUserId, draggedPlayerId, slot, amHost())
-    if (optimisticAction) startOptimisticLobbyAction(optimisticAction)
-    setLobbyActionPending(true)
-    clearConfigMessage()
+    if (!draggedPlayerId) return
     try {
-      const result = await placeLobbySlot(lobby.mode, payload)
-      if (!result.ok) {
-        if (optimisticAction) clearOptimisticLobbyAction()
-        showErrorMessage(result.error)
-      }
-      else if (result.transferNotice) {
-        showInfoMessage(result.transferNotice)
-      }
+      await handleMovePlayerToSlot(slot, draggedPlayerId)
     }
     finally {
-      setLobbyActionPending(false)
       setDraggingPlayerId(null)
       setDragOverSlot(null)
     }
@@ -520,9 +512,6 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     setDraggingPlayerId(null)
     setDragOverSlot(null)
   }
-  const handleDragLeave = (slot: number) => {
-    if (dragOverSlot() === slot) setDragOverSlot(null)
-  }
   const handleJoinLobby = async () => {
     const slot = joinLobbyTargetSlot()
     if (slot == null) return
@@ -565,6 +554,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     teamBalance,
     ffaColumns: () => [ffaFirstColumn(), ffaSecondColumn()],
     lowConfidence: () => Boolean(lobbyBalance()?.lowConfidence),
+    isDragging: () => draggingPlayerId() != null,
     dragOverSlot,
     pending,
     permissions: {
@@ -581,7 +571,6 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
       dragStart: handleDragStart,
       dragEnd: handleDragEnd,
       dragEnter: setDragOverSlot,
-      dragLeave: handleDragLeave,
       drop: handleDropOnSlot,
       togglePremadeLink: handleTogglePremadeLink,
     },

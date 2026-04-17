@@ -45,6 +45,19 @@ describe('DraftSetupPage UI', () => {
     expect(screen.getByRole('button', { name: 'Cancel Lobby' }).hasAttribute('disabled')).toBe(false)
   })
 
+  test('uses a constrained desktop shell so the action row stays in view', () => {
+    const { container } = render(() => <DraftSetupPage lobby={createLobbySnapshot({ mode: '2v2' })} />)
+
+    const shell = container.firstElementChild as HTMLElement
+    const content = shell.querySelector('.mx-auto') as HTMLElement
+
+    expect(shell.className).toContain('flex')
+    expect(shell.className).toContain('flex-col')
+    expect(content.className).toContain('flex-1')
+    expect(content.className).toContain('min-h-0')
+    expect(content.className.includes('lg:h-dvh')).toBe(false)
+  })
+
   test('shows host not-ready team lobby state when more players are required', () => {
     render(() => <DraftSetupPage lobby={createLobbySnapshot({
       mode: '2v2',
@@ -254,6 +267,34 @@ describe('DraftSetupPage UI', () => {
       lobbyId: 'lobby-1',
       userId: 'player-2',
       slot: 1,
+    }))
+  })
+
+  test('drops a dragged player when hovering the realistic chip surface', async () => {
+    render(() => <DraftSetupPage lobby={createLobbySnapshot()} />)
+
+    const draggedChip = screen.getByText('Player 2').closest('[data-slot="1"]') as HTMLElement
+    const emptyChip = screen.getAllByText('[empty]')[0]!.closest('[data-slot="2"]') as HTMLElement
+    const emptyLabel = emptyChip.querySelector('span') as HTMLElement
+    const dataTransfer = {
+      effectAllowed: 'all',
+      dropEffect: 'none',
+      setData: () => {},
+      getData: () => 'player-2',
+    }
+
+    fireEvent.dragStart(draggedChip, { dataTransfer })
+    fireEvent.dragOver(emptyChip, { dataTransfer })
+
+    fireEvent.drop(emptyLabel, { dataTransfer })
+
+    await waitFor(() => expect(storeSpies.placeLobbySlot).toHaveBeenCalledWith('ffa', {
+      lobbyId: 'lobby-1',
+      userId: 'host-1',
+      targetSlot: 2,
+      playerId: 'player-2',
+      displayName: 'Host Player',
+      avatarUrl: null,
     }))
   })
 

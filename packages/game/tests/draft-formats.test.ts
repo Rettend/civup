@@ -223,9 +223,9 @@ describe('formatDraftStepLabel', () => {
     ])
   })
 
-  test('labels simultaneous team blind bans with both teams', () => {
+  test('labels simultaneous team blind bans generically', () => {
     const steps = default3v3.getSteps(6)
-    expect(formatDraftStepLabel(steps[0]!, teamerSeats)).toBe('BAN T1 & T2')
+    expect(formatDraftStepLabel(steps[0]!, teamerSeats)).toBe('BAN')
   })
 
   test('keeps simultaneous FFA bans generic', () => {
