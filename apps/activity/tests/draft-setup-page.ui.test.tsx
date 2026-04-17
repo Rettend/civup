@@ -394,4 +394,5 @@ describe('DraftSetupPage UI', () => {
     expect(screen.getByText('Random draft')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Leave Lobby' })).toBeTruthy()
   })
+
 })

@@ -22,6 +22,7 @@ import {
   normalizeLobbySlots,
   reconcileOpenLobbyState,
   sameLobbySlots,
+  setLobbyArranged,
   setLobbyDraftConfig,
   setLobbyLastActivityAt,
   setLobbyMaxRole,
@@ -963,9 +964,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: arranged.error }, 400)
     }
 
-    const updatedLobby = await setLobbySlots(kv, lobby.id, arranged.slots, lobby)
-    let nextLobby = updatedLobby ?? { ...lobby, slots: arranged.slots, updatedAt: Date.now() }
-    nextLobby = await setLobbyLastActivityAt(kv, nextLobby.id, Date.now(), nextLobby) ?? nextLobby
+    const nextLobby = await setLobbyArranged(kv, lobby.id, {
+      slots: arranged.slots,
+      strategy: strategyRaw,
+    }, lobby) ?? lobby
     const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
       queueEntries: lobbyQueueEntries,
       slots: arranged.slots,
