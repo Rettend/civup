@@ -298,6 +298,37 @@ describe('DraftSetupPage UI', () => {
     }))
   })
 
+  test('keeps occupied-seat dragging on the row while leaving nested content interactive', async () => {
+    const { container } = render(() => <DraftSetupPage lobby={createLobbySnapshot()} />)
+
+    const hostChip = screen.getByText('Host Player').closest('[data-slot="0"]') as HTMLElement
+    const playerChip = screen.getByText('Player 2').closest('[data-slot="1"]') as HTMLElement
+    const hostBadge = screen.getByText('Host')
+    const dataTransfer = {
+      effectAllowed: 'all',
+      dropEffect: 'none',
+      setData: () => {},
+      getData: () => 'player-2',
+    }
+
+    fireEvent.dragStart(playerChip, { dataTransfer })
+    fireEvent.dragEnter(hostChip, { dataTransfer })
+    fireEvent.dragOver(hostChip, { dataTransfer })
+    fireEvent.drop(hostBadge, { dataTransfer })
+
+    await waitFor(() => expect(storeSpies.placeLobbySlot).toHaveBeenCalledWith('ffa', {
+      lobbyId: 'lobby-1',
+      userId: 'host-1',
+      targetSlot: 0,
+      playerId: 'player-2',
+      displayName: 'Host Player',
+      avatarUrl: null,
+    }))
+
+    expect(hostBadge.className).toContain('text-[10px]')
+    expect(container.querySelector('.pointer-events-none')).toBeNull()
+  })
+
   test('blocks removing extra 2v2 teams while Teams C and D are occupied', () => {
     render(() => <DraftSetupPage lobby={createLobbySnapshot({
       mode: '2v2',

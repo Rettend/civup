@@ -202,9 +202,10 @@ export async function createDraftRoom(
   const redDeathMode = options.redDeath === true
   const simultaneousPick = mode === 'ffa' && !redDeathMode && options.simultaneousPick === true
   const randomDraft = options.randomDraft === true
+  // Duplicate picks are a general draft-engine capability; only Red Death forces them on.
   const duplicateFactions = redDeathMode
     ? (requiresRedDeathDuplicateFactions(mode) || options.duplicateFactions === true)
-    : (randomDraft && options.duplicateFactions === true)
+    : (options.duplicateFactions === true)
   const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode, blindBans: options.blindBans, seatCount: seats.length })
   const civPool = redDeathMode
     ? [...allFactionIds]
