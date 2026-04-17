@@ -190,8 +190,8 @@ describe('lobby service KV write behavior', () => {
     } | null
 
     expect(snapshot?.revision).toBe(updated?.revision)
-    expect(snapshot?.entries?.[0]).toEqual({ playerId: 'host-1', displayName: 'Host', avatarUrl: null, partyIds: [] })
-    expect(snapshot?.entries?.[1]).toEqual({ playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, partyIds: [] })
+    expect(snapshot?.entries?.[0]).toEqual({ playerId: 'host-1', displayName: 'Host', avatarUrl: null })
+    expect(snapshot?.entries?.[1]).toEqual({ playerId: 'player-2', displayName: 'Player 2', avatarUrl: null })
   })
 
   test('removes live snapshots when a lobby stops being open', async () => {
@@ -282,13 +282,49 @@ describe('lobby service KV write behavior', () => {
       playerId: 'host-1',
       displayName: 'Host',
       avatarUrl: null,
-      partyIds: [],
       balanceRating: {
         mu: 31,
         sigma: 3,
         gamesPlayed: 12,
       },
     })
+  })
+
+  test('queue-backed lobby members ignore legacy party links', async () => {
+    const { kv } = createTrackedKv()
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-1',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+      partyIds: ['spectator'],
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'spectator',
+      displayName: 'Spectator',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+      partyIds: ['host-1'],
+    })
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await syncLobbyDerivedState(kv, lobby)
+
+    const storedLobby = await getLobbyById(kv, lobby.id)
+    expect(storedLobby?.memberPlayerIds).toEqual(['host-1'])
+    expect(storedLobby?.slots).toEqual(['host-1', null, null, null])
+
+    const snapshot = await kv.get(lobbySnapshotKey(lobby.id), 'json') as {
+      entries?: Array<{ playerId?: unknown } | null>
+    } | null
+    expect(snapshot?.entries?.map(entry => entry?.playerId ?? null)).toEqual(['host-1', null, null, null])
   })
 
   test('automatically refreshes the activity overview snapshot as lobby state changes', async () => {

@@ -26,7 +26,6 @@ import {
   sendCancel,
   sendStart,
   startLobbyDraft,
-  toggleLobbyPremadeLink,
   updateLobbyConfig,
   userId,
 } from '~/client/stores'
@@ -222,6 +221,8 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
 
   const arrangeTargetLabel = () => isTeamGameMode(lobbyMode()) ? 'teams' : 'seat order'
   const arrangeTargetTitle = () => isTeamGameMode(lobbyMode()) ? 'Teams' : 'Seat order'
+  const randomizeButtonLabel = () => isTeamGameMode(lobbyMode()) ? 'Shuffle players' : `Randomize ${arrangeTargetLabel()}`
+  const randomizeButtonTitle = () => isTeamGameMode(lobbyMode()) ? 'Shuffle players' : `Randomize ${arrangeTargetLabel()}`
   const show2v2TeamCountToggle = () => isLobbyMode() && lobbyMode() === '2v2'
   const hasExpanded2v2Teams = () => currentLobby()?.targetSize === 8
   const extra2v2SeatsOccupied = () => (currentLobby()?.entries.slice(4) ?? []).some(entry => entry != null)
@@ -236,16 +237,10 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     return slot >= 0 ? slot : null
   })
   const isCurrentUserSlotted = () => currentUserLobbySlot() != null
-  const currentUserLinkedPartySize = () => {
-    const id = userId()
-    if (!id) return 0
-    return currentLobby()?.entries.find(candidate => candidate?.playerId === id)?.partyIds?.length ?? 0
-  }
   const canCurrentUserPlaceSelf = () => {
     if (!isLobbyMode() || !userId()) return false
     if (props.showJoinPending && !isCurrentUserSlotted()) return false
     if (props.joinEligibility && !props.joinEligibility.canJoin && !isCurrentUserSlotted()) return false
-    if (!amHost() && currentUserLinkedPartySize() > 0) return false
     return true
   }
   const joinLobbyTargetSlot = createMemo(() => {
@@ -292,7 +287,6 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     const id = userId()
     if (!id) return false
     if (amHost()) return true
-    if (row.partyIds.length > 0) return false
     return row.playerId === id
   }
   const canDropOnRow = (row: PlayerRow) => {
@@ -301,7 +295,6 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     const id = userId()
     if (!dragged || !id) return false
     if (amHost()) return true
-    if (currentUserLinkedPartySize() > 0) return false
     return dragged === id && row.empty
   }
 
@@ -432,30 +425,13 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     try {
       const result = await arrangeLobbySlots(lobby.mode, lobby.id, currentUserId, strategy)
       if (!result.ok) return showErrorMessage(result.error)
-      showInfoMessage(strategy === 'randomize' ? `${arrangeTargetTitle()} randomized.` : `${arrangeTargetTitle()} auto-balanced.`)
-    }
-    finally {
-      setLobbyActionPending(false)
-    }
-  }
-  const areRowsPremadeLinked = (leftRow: PlayerRow, rightRow: PlayerRow) => Boolean(leftRow.playerId && rightRow.playerId && leftRow.partyIds.includes(rightRow.playerId) && rightRow.partyIds.includes(leftRow.playerId))
-  const canTogglePremadeLink = (leftRow: PlayerRow, rightRow: PlayerRow) => {
-    const currentUserId = userId()
-    if (!currentUserId || !isLobbyMode() || !isTeamMode() || !leftRow.playerId || !rightRow.playerId) return false
-    return amHost() || leftRow.playerId === currentUserId || rightRow.playerId === currentUserId
-  }
-  const handleTogglePremadeLink = async (leftRow: PlayerRow, rightRow: PlayerRow) => {
-    const lobby = currentLobby()
-    const currentUserId = userId()
-    if (!lobby || !currentUserId) return
-    if (!isTeamGameMode(inferGameMode(lobby.mode)) || lobbyActionPending() || startPending() || cancelPending() || !canTogglePremadeLink(leftRow, rightRow)) return
-    const currentlyLinked = areRowsPremadeLinked(leftRow, rightRow)
-    setLobbyActionPending(true)
-    clearConfigMessage()
-    try {
-      const result = await toggleLobbyPremadeLink(lobby.mode, lobby.id, currentUserId, leftRow.slot)
-      if (!result.ok) return showErrorMessage(result.error)
-      showInfoMessage(currentlyLinked ? 'Premade link removed.' : 'Premade link added.')
+      showInfoMessage(
+        strategy === 'balance'
+          ? `${arrangeTargetTitle()} auto-balanced.`
+          : strategy === 'shuffle-teams'
+            ? 'Teams shuffled.'
+            : `${arrangeTargetTitle()} randomized.`,
+      )
     }
     finally {
       setLobbyActionPending(false)
@@ -561,8 +537,6 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
       canDropOnRow,
       canJoinSlot,
       canRemoveSlot,
-      areRowsPremadeLinked,
-      canTogglePremadeLink,
     },
     actions: {
       join: handlePlaceSelf,
@@ -571,7 +545,6 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
       dragEnd: handleDragEnd,
       dragEnter: setDragOverSlot,
       drop: handleDropOnSlot,
-      togglePremadeLink: handleTogglePremadeLink,
     },
     teamCountToggle: {
       show: show2v2TeamCountToggle,
@@ -599,6 +572,8 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     pending,
     canStartLobby: configState.derived.canStartLobby,
     arrangeTargetLabel,
+    randomizeButtonLabel,
+    randomizeButtonTitle,
     fillTestPlayersAvailable: configState.derived.fillTestPlayersAvailable,
     sendStart: sendStartAction,
     cancel: handleCancelAction,
@@ -606,6 +581,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     leaveLobby: handleLeaveLobby,
     startLobbyDraft: handleStartLobbyDraftAction,
     randomizeLobby: () => handleArrangeLobby('randomize'),
+    shuffleTeamsLobby: () => handleArrangeLobby('shuffle-teams'),
     balanceLobby: () => handleArrangeLobby('balance'),
     fillTestPlayers: handleFillTestPlayers,
   }

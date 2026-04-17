@@ -4,7 +4,7 @@ import type { Embed } from 'discord-hono'
 import type { lobbyComponents } from '../../embeds/match.ts'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import { matches, matchParticipants } from '@civup/db'
-import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode, teamCount as modeTeamCount, teamSize as modeTeamSize, slotToTeamIndex } from '@civup/game'
+import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
@@ -43,11 +43,6 @@ export const LOBBY_STATUS_LABELS = {
 export interface MatchVar {
   mode?: string
   steam_link?: string
-  teammate?: string
-  teammate2?: string
-  teammate3?: string
-  teammate4?: string
-  teammate5?: string
   player?: string
   match_id?: string
   winner?: string
@@ -66,7 +61,6 @@ export interface MatchJoinEntry {
   playerId: string
   displayName: string
   avatarUrl: string
-  partyIds?: string[]
 }
 
 export function buildFfaPlacementOptions() {
@@ -199,14 +193,10 @@ export async function joinLobbyAndMaybeStartMatch(
     }
   }
 
-  const sameModeLobbyIds = [...new Set(
-    requestedEntries
-      .map(entry => lobbyByPlayerId.get(entry.playerId)?.id ?? null)
-      .filter((lobbyId): lobbyId is string => lobbyId != null),
-  )]
-  if (sameModeLobbyIds.length > 1) {
-    return { error: 'This premade is already split across different open lobbies.' }
-  }
+  const sameModeLobbyIds = [...new Set(requestedEntries
+    .map(entry => lobbyByPlayerId.get(entry.playerId)?.id ?? null)
+    .filter((lobbyId): lobbyId is string => lobbyId != null))]
+  if (sameModeLobbyIds.length > 1) return { error: 'Requested players are already split across different open lobbies.' }
 
   let currentOpenLobby = sameModeLobbyIds.length === 1
     ? openLobbies.find(lobby => lobby.id === sameModeLobbyIds[0]) ?? null
@@ -234,14 +224,12 @@ export async function joinLobbyAndMaybeStartMatch(
         .map(playerId => currentLobbiesByPlayerId.get(playerId)?.id ?? null)
         .filter((lobbyId): lobbyId is string => lobbyId != null),
     )]
-    if (conflictingOpenLobbies.length > 1) {
-      return { error: 'This premade is already split across different open lobbies.' }
-    }
+    if (conflictingOpenLobbies.length > 1) return { error: 'Requested players are already split across different open lobbies.' }
 
     if (conflictingOpenLobbies.length === 1) {
       const conflictingLobby = currentLobbiesByPlayerId.get(conflictingQueuePlayerIds[0]!) ?? null
       if (conflictingLobby && currentOpenLobby && conflictingLobby.id !== currentOpenLobby.id) {
-        return { error: 'This premade is already split across different open lobbies.' }
+        return { error: 'Requested players are already split across different open lobbies.' }
       }
       currentOpenLobby = conflictingLobby
     }
@@ -268,23 +256,17 @@ export async function joinLobbyAndMaybeStartMatch(
   let queueChanged = false
 
   for (const entry of requestedEntries) {
-    const normalizedPartyIds = normalizePartyIds(entry.playerId, entry.partyIds)
     const existingIndex = nextEntries.findIndex(candidate => candidate.playerId === entry.playerId)
 
     if (existingIndex >= 0) {
       const existing = nextEntries[existingIndex]
       if (!existing) continue
-      if (existing.partyIds && existing.partyIds.length > 0 && !samePartyIds(existing.partyIds, normalizedPartyIds)) {
-        return {
-          error: `<@${entry.playerId}> is already grouped with different teammates. Ask them to run \`/match leave\` first.`,
-        }
-      }
 
       const merged: QueueEntry = {
         ...existing,
         displayName: entry.displayName,
         avatarUrl: entry.avatarUrl,
-        partyIds: normalizedPartyIds,
+        partyIds: undefined,
       }
 
       if (!sameQueueEntry(existing, merged)) {
@@ -303,7 +285,6 @@ export async function joinLobbyAndMaybeStartMatch(
       displayName: entry.displayName,
       avatarUrl: entry.avatarUrl,
       joinedAt: nextJoinedAt,
-      partyIds: normalizedPartyIds,
     })
     nextJoinedAt += 1
     queueChanged = true
@@ -554,42 +535,11 @@ export function collectFfaPlacementUserIds(vars: Record<string, any>): string[] 
   return ordered
 }
 
-function normalizePartyIds(playerId: string, partyIds: string[] | undefined): string[] | undefined {
-  if (!partyIds || partyIds.length === 0) return undefined
-  const normalized: string[] = []
-  const seen = new Set<string>()
-
-  for (const candidate of partyIds) {
-    if (!candidate || candidate === playerId || seen.has(candidate)) continue
-    normalized.push(candidate)
-    seen.add(candidate)
-  }
-
-  return normalized.length > 0 ? normalized : undefined
-}
-
-function samePartyIds(left: string[] | undefined, right: string[] | undefined): boolean {
-  if (!left && !right) return true
-  if (!left || !right) return false
-  if (left.length !== right.length) return false
-
-  const sortedLeft = [...left].sort()
-  const sortedRight = [...right].sort()
-  for (let i = 0; i < sortedLeft.length; i++) {
-    const leftValue = sortedLeft[i]
-    const rightValue = sortedRight[i]
-    if (!leftValue || !rightValue || leftValue !== rightValue) return false
-  }
-
-  return true
-}
-
 function sameQueueEntry(left: QueueEntry, right: QueueEntry): boolean {
   return left.playerId === right.playerId
     && left.displayName === right.displayName
     && (left.avatarUrl ?? null) === (right.avatarUrl ?? null)
     && left.joinedAt === right.joinedAt
-    && samePartyIds(left.partyIds, right.partyIds)
 }
 
 function placeRequestedEntries(
@@ -612,81 +562,13 @@ function placeRequestedEntries(
     return { slots: nextSlots }
   }
 
-  if (requestedPlayerIds.length === 1) {
+  for (const playerId of unslottedPlayerIds) {
     const emptySlot = nextSlots.findIndex(slot => slot == null)
-    if (emptySlot >= 0) nextSlots[emptySlot] = requestedPlayerIds[0]!
-    return { slots: nextSlots }
-  }
-
-  const teamSize = modeTeamSize(mode) ?? 0
-  const totalTeams = modeTeamCount(mode, nextSlots.filter(slot => slot != null).length + unslottedPlayerIds.length)
-  const slottedTeamIndexes = requestedPlayerIds
-    .map((playerId) => {
-      const slotIndex = nextSlots.findIndex(slot => slot === playerId)
-      if (slotIndex < 0) return null
-      return slotToTeamIndex(mode, slotIndex, nextSlots.length)
-    })
-    .filter((teamIndex): teamIndex is Exclude<typeof teamIndex, null> => teamIndex != null)
-  const uniqueTeamIndexes = [...new Set(slottedTeamIndexes)]
-
-  let targetTeamIndex: number | null = null
-  if (uniqueTeamIndexes.length > 1) {
-    return { error: 'Your premade is already split across teams in this lobby. Ask the host to fix the team layout first.' }
-  }
-  if (uniqueTeamIndexes.length === 1) {
-    targetTeamIndex = uniqueTeamIndexes[0]!
-  }
-  else {
-    targetTeamIndex = chooseBestTeamForPremade(nextSlots, teamSize, totalTeams, unslottedPlayerIds.length)
-  }
-
-  if (targetTeamIndex == null) {
-    return { error: 'Your premade cannot be placed on the same team in the current lobby layout.' }
-  }
-
-  const start = targetTeamIndex * teamSize
-  const end = start + teamSize
-  const teamEmptySlots = nextSlots
-    .map((playerId, index) => ({ playerId, index }))
-    .filter(({ index, playerId }) => index >= start && index < end && playerId == null)
-    .map(({ index }) => index)
-
-  if (teamEmptySlots.length < unslottedPlayerIds.length) {
-    return { error: 'Your premade cannot be placed on the same team in the current lobby layout.' }
-  }
-
-  for (let index = 0; index < unslottedPlayerIds.length; index++) {
-    const slotIndex = teamEmptySlots[index]
-    const playerId = unslottedPlayerIds[index]
-    if (slotIndex == null || !playerId) continue
-    nextSlots[slotIndex] = playerId
+    if (emptySlot < 0) break
+    nextSlots[emptySlot] = playerId
   }
 
   return { slots: nextSlots }
-}
-
-function chooseBestTeamForPremade(
-  slots: (string | null)[],
-  teamSize: number,
-  totalTeams: number,
-  neededSlots: number,
-): number | null {
-  const candidates = Array.from({ length: totalTeams }, (_, teamIndex) => teamIndex)
-    .map((teamIndex) => {
-      const start = teamIndex * teamSize
-      const end = start + teamSize
-      const teamSlots = slots.slice(start, end)
-      const emptyCount = teamSlots.filter(slot => slot == null).length
-      const occupiedCount = teamSlots.filter(slot => slot != null).length
-      return { teamIndex, emptyCount, occupiedCount }
-    })
-    .filter(team => team.emptyCount >= neededSlots)
-    .sort((left, right) => {
-      if (right.occupiedCount !== left.occupiedCount) return right.occupiedCount - left.occupiedCount
-      return left.teamIndex - right.teamIndex
-    })
-
-  return candidates[0]?.teamIndex ?? null
 }
 
 function scoreLobbyCandidate(
