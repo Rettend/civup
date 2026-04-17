@@ -2,7 +2,7 @@ import type { LobbyArrangeStrategy, LobbySnapshot } from '~/client/stores'
 import type { OptimisticLobbyAction, PendingOptimisticLobbyAction, PlayerRow, RankRoleSetDetail } from './helpers'
 import type { DraftSetupPageProps } from './types'
 import { formatModeLabel, inferGameMode, isTeamMode as isTeamGameMode, slotToTeamIndex } from '@civup/game'
-import { createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
+import { createEffect, createMemo, createRenderEffect, createSignal, onCleanup } from 'solid-js'
 import { buildMiniColumns, buildTeamRows, buildFfaRows, splitFfaRows } from './draftSetupRows'
 import { useDraftSetupConfigState } from './useDraftSetupConfigState'
 import {
@@ -35,7 +35,7 @@ const CONFIG_MESSAGE_TIMEOUT_MS = 4000
 
 export function useDraftSetupState(props: DraftSetupPageProps) {
   const state = () => draftStore.state
-  const [lobbyState, setLobbyState] = createSignal<LobbySnapshot | null>(props.lobby ?? null)
+  const [lobbyState, setLobbyState] = createSignal<LobbySnapshot | null>(null)
   const [configMessage, setConfigMessage] = createSignal<string | null>(null)
   const [configMessageTone, setConfigMessageTone] = createSignal<'error' | 'info' | null>(null)
   const [rankRoleSetDetail, setRankRoleSetDetail] = createSignal<RankRoleSetDetail | null>(null)
@@ -49,7 +49,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   let optimisticLobbyActionTimeout: ReturnType<typeof setTimeout> | null = null
   let configMessageTimeout: ReturnType<typeof setTimeout> | null = null
 
-  createEffect(() => {
+  createRenderEffect(() => {
     const incomingLobby = props.lobby ?? null
     setLobbyState((current) => {
       if (!incomingLobby) return null
