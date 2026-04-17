@@ -94,6 +94,7 @@ export async function getCurrentLobbiesForPlayers(
   const uniquePlayerIds = [...new Set(playerIds.filter(playerId => playerId.length > 0))]
   const excludedLobbyIds = new Set(options?.excludeLobbyIds ?? [])
   const lobbyByPlayerId = new Map<string, LobbyState | null>()
+  const staleMappingKeys = new Set<string>()
   if (uniquePlayerIds.length === 0) return lobbyByPlayerId
 
   const rawMappedLobbyIds = await stateStoreMget(
@@ -145,16 +146,26 @@ export async function getCurrentLobbiesForPlayers(
     const lobby = mappedLobbyById.get(rawLobbyId)
     const queue = lobby?.status === 'open' ? await getModeQueue(lobby.mode) : null
     const memberPlayerIds = lobby && queue ? deriveQueueBackedLobbyMemberPlayerIds(lobby, queue.entries) : lobby?.memberPlayerIds ?? []
-    if (!lobby
+    const mappingLooksStale = !lobby
       || !isCurrentLobbyStatus(lobby.status)
-      || excludedLobbyIds.has(lobby.id)
-      || (options?.mode && lobby.mode !== options.mode)
-      || !memberPlayerIds.includes(playerId)) {
+      || !memberPlayerIds.includes(playerId)
+    const excludedMappedLobby = lobby ? excludedLobbyIds.has(lobby.id) : false
+    const mismatchedMappedMode = lobby ? options?.mode != null && lobby.mode !== options.mode : false
+    if (mappingLooksStale) {
+      staleMappingKeys.add(activityLobbyUserKey(playerId))
+    }
+    if (mappingLooksStale
+      || excludedMappedLobby
+      || mismatchedMappedMode) {
       unresolvedPlayerIds.push(playerId)
       continue
     }
 
     lobbyByPlayerId.set(playerId, lobby)
+  }
+
+  if (staleMappingKeys.size > 0) {
+    await stateStoreMdelete(kv, [...staleMappingKeys])
   }
 
   if (options?.fallbackToLobbyScan === false || unresolvedPlayerIds.length === 0) {

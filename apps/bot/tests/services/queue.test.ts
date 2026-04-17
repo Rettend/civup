@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   clearQueue,
   getPlayerQueueMode,
+  getQueueStateWithPlayerQueueModes,
   getQueueState,
   playerQueueKey,
   removeFromQueue,
@@ -122,6 +123,32 @@ describe('queue service KV behavior', () => {
 
     const writes = operations.filter(op => op.type === 'put' || op.type === 'delete')
     expect(writes).toHaveLength(0)
+  })
+
+  test('getPlayerQueueMode clears a stale player queue mapping when the queue no longer contains the player', async () => {
+    const { kv, operations, resetOperations } = createTrackedKv()
+
+    await kv.put(playerQueueKey('p1'), 'ffa')
+    resetOperations()
+
+    await expect(getPlayerQueueMode(kv, 'p1', { fallbackToQueueScan: false })).resolves.toBeNull()
+    await expect(kv.get(playerQueueKey('p1'))).resolves.toBeNull()
+
+    const deleteKeys = operations.filter(op => op.type === 'delete').map(op => op.key)
+    expect(deleteKeys).toEqual(['player-queue:p1'])
+  })
+
+  test('getQueueStateWithPlayerQueueModes ignores stale player queue mappings', async () => {
+    const { kv } = createTrackedKv()
+
+    await kv.put(playerQueueKey('p1'), '2v2')
+
+    const { queueModeByPlayerId } = await getQueueStateWithPlayerQueueModes(kv, 'ffa', ['p1'], {
+      fallbackToQueueScan: false,
+    })
+
+    expect(queueModeByPlayerId.get('p1')).toBeNull()
+    await expect(kv.get(playerQueueKey('p1'))).resolves.toBeNull()
   })
 })
 
