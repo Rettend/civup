@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import {
+  banSelectionStepToken,
   banSelections,
   clearFfaPlacements,
   clearLeaderFavorites,
@@ -18,6 +19,7 @@ import {
   setGridExpanded,
   setGridViewMode,
   selectWinningTeam,
+  setBanSelectionStepToken,
   setBanSelections,
   setDetailLeaderId,
   setPickSelections,
@@ -57,6 +59,7 @@ describe('ui-store helpers', () => {
     setSelectedLeader('civ-9')
     setPickSelections(['civ-9', 'civ-10'])
     setBanSelections(['civ-1', 'civ-2'])
+    setBanSelectionStepToken('draft:0:0')
     setSearchQuery('rome')
     setDetailLeaderId('civ-9')
     toggleTagFilter('econ:gold')
@@ -69,6 +72,7 @@ describe('ui-store helpers', () => {
     expect(selectedLeader()).toBeNull()
     expect(pickSelections()).toEqual([])
     expect(banSelections()).toEqual([])
+    expect(banSelectionStepToken()).toBeNull()
     expect(searchQuery()).toBe('')
     expect(detailLeaderId()).toBeNull()
     expect(tagFilters().econ).toEqual([])
