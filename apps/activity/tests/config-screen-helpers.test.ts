@@ -117,6 +117,7 @@ function createLobbySnapshot(
     steamLobbyLink: null,
     minRole: null,
     maxRole: null,
+    lastArrange: null,
     entries,
     minPlayers: 2,
     targetSize: overrides.targetSize ?? entries.length,

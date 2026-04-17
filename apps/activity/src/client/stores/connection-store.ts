@@ -38,6 +38,10 @@ export interface LobbySnapshot {
   steamLobbyLink: string | null
   minRole: CompetitiveTier | null
   maxRole: CompetitiveTier | null
+  lastArrange?: {
+    strategy: LobbyArrangeStrategy
+    at: number
+  } | null
   entries: ({
     playerId: string
     displayName: string

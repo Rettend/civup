@@ -99,6 +99,7 @@ export async function reopenLobbyAfterCancelledDraft(
     hostId: nextHostId,
     status: 'open',
     matchId: null,
+    lastArrange: null,
     memberPlayerIds: remainingMemberIds,
     slots: nextSlots,
     lastActivityAt: now,
