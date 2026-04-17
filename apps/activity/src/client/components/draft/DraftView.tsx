@@ -10,12 +10,10 @@ import {
   isMobileLayout,
   isMyOwnPickTurn,
   isSpectator,
-  sendStart,
   setGridOpen,
   updateLobbyConfig,
   userId,
 } from '~/client/stores'
-import { ConfigScreen } from './ConfigScreen'
 import { DraftHeader } from './DraftHeader'
 import { DraftTimeline } from './DraftTimeline'
 import { LeaderGridOverlay } from './LeaderGridOverlay'
@@ -25,7 +23,6 @@ import { SteamLobbyButton } from './SteamLobbyButton'
 
 interface DraftViewProps {
   matchId: string
-  autoStart?: boolean
   steamLobbyLink?: string | null
   lobbyId?: string | null
   lobbyMode?: string | null
@@ -35,12 +32,9 @@ interface DraftViewProps {
 /** Main draft layout */
 export function DraftView(props: DraftViewProps) {
   const state = () => draftStore.state
-  const [autoStartSent, setAutoStartSent] = createSignal(false)
   const [autoOpenedGridToken, setAutoOpenedGridToken] = createSignal<string | null>(null)
-  const [showAutoStartSplash, setShowAutoStartSplash] = createSignal(Boolean(props.autoStart))
   const [steamLobbyLink, setSteamLobbyLink] = createSignal<string | null>(props.steamLobbyLink ?? null)
   const [steamLobbySavePending, setSteamLobbySavePending] = createSignal(false)
-  let autoStartSplashTimeout: ReturnType<typeof setTimeout> | null = null
   let scrubRedirectTimeout: ReturnType<typeof setTimeout> | null = null
   const hostId = () => draftStore.hostId
   const amHost = () => {
@@ -51,32 +45,6 @@ export function DraftView(props: DraftViewProps) {
 
   createEffect(() => {
     setSteamLobbyLink(props.steamLobbyLink ?? null)
-  })
-
-  createEffect(() => {
-    const current = state()
-    if (!current || current.status === 'waiting') return
-    setShowAutoStartSplash(false)
-    if (!autoStartSplashTimeout) return
-    clearTimeout(autoStartSplashTimeout)
-    autoStartSplashTimeout = null
-  })
-
-  createEffect(() => {
-    if (!props.autoStart || autoStartSent()) return
-    if (state()?.status !== 'waiting') return
-    if (!amHost()) return
-
-    const sent = sendStart()
-    if (!sent) return
-
-    setShowAutoStartSplash(true)
-    if (autoStartSplashTimeout) clearTimeout(autoStartSplashTimeout)
-    autoStartSplashTimeout = setTimeout(() => {
-      setShowAutoStartSplash(false)
-      autoStartSplashTimeout = null
-    }, 5000)
-    setAutoStartSent(true)
   })
 
   createEffect(() => {
@@ -93,12 +61,6 @@ export function DraftView(props: DraftViewProps) {
       scrubRedirectTimeout = null
       props.onSwitchTarget?.()
     }, 5000)
-  })
-
-  onCleanup(() => {
-    if (!autoStartSplashTimeout) return
-    clearTimeout(autoStartSplashTimeout)
-    autoStartSplashTimeout = null
   })
 
   onCleanup(() => {
@@ -194,12 +156,7 @@ export function DraftView(props: DraftViewProps) {
           when={!isMiniView()}
           fallback={<MiniView />}
         >
-          <Show
-            when={isActiveOrComplete()}
-            fallback={showAutoStartSplash()
-              ? <AutoStartingDraftScreen />
-              : <ConfigScreen steamLobbyLink={props.steamLobbyLink ?? null} onSwitchTarget={props.onSwitchTarget} />}
-          >
+          <Show when={isActiveOrComplete()}>
             {/* Active + Complete draft view */}
             <div class="text-fg font-sans bg-bg flex flex-col h-screen relative overflow-hidden">
               <DraftHeader
@@ -286,17 +243,6 @@ export function DraftView(props: DraftViewProps) {
         />
       </Show>
     </Show>
-  )
-}
-
-function AutoStartingDraftScreen() {
-  return (
-    <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
-      <div class="text-center">
-        <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
-        <div class="text-sm text-fg-muted">Starting draft...</div>
-      </div>
-    </main>
   )
 }
 

@@ -9,7 +9,7 @@ import {
   supportsBlindBansControl,
   timerSecondsToMinutesInput,
   timerSecondsToMinutesPlaceholder,
-} from '../src/client/lib/config-screen/helpers'
+} from '../src/client/pages/draft-setup/helpers'
 
 describe('leader pool helper defaults', () => {
   test('uses full FFA target size for open-lobby placeholder defaults', () => {

@@ -2,6 +2,10 @@ import type { ActivityTargetOption } from '~/client/stores'
 
 export type ActivityTargetDescriptor = Pick<ActivityTargetOption, 'kind' | 'id'> | null | undefined
 
+export function activityTargetOptionKey(option: Pick<ActivityTargetOption, 'kind' | 'id'>): string {
+  return `${option.kind}:${option.id}`
+}
+
 export function activityTargetsMatch(
   left: ActivityTargetDescriptor,
   right: ActivityTargetDescriptor,
