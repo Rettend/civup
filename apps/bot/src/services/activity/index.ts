@@ -4,7 +4,7 @@ import { allFactionIds, getDraftFormat, isTeamMode, requiresRedDeathDuplicateFac
 import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
 import { syncActivityOverviewSnapshot } from './live-state.ts'
-import { getLobbiesByChannel } from '../lobby/index.ts'
+import { getLobbiesByChannel, getLobbyById, getOpenLobbyForPlayer } from '../lobby/index.ts'
 import { channelIndexKey, idKey, matchKey, modeIndexKey } from '../lobby/keys.ts'
 import { lobbySnapshotKey } from '../lobby/live-snapshot.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
@@ -20,6 +20,7 @@ export interface MatchCreationResult {
 export interface CreateDraftRoomOptions {
   hostId: string
   leaderDataVersion?: LeaderDataVersion
+  blindBans?: boolean
   simultaneousPick?: boolean
   redDeath?: boolean
   randomDraft?: boolean
@@ -197,14 +198,15 @@ export async function createDraftRoom(
   options: CreateDraftRoomOptions,
 ): Promise<MatchCreationResult> {
   const matchId = nanoid(12)
+  const seats: DraftSeat[] = buildSeats(mode, entries)
   const redDeathMode = options.redDeath === true
   const simultaneousPick = mode === 'ffa' && !redDeathMode && options.simultaneousPick === true
   const randomDraft = options.randomDraft === true
+  // Duplicate picks are a general draft-engine capability; only Red Death forces them on.
   const duplicateFactions = redDeathMode
     ? (requiresRedDeathDuplicateFactions(mode) || options.duplicateFactions === true)
-    : (randomDraft && options.duplicateFactions === true)
-  const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode })
-  const seats: DraftSeat[] = buildSeats(mode, entries)
+    : (options.duplicateFactions === true)
+  const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode, blindBans: options.blindBans, seatCount: seats.length })
   const civPool = redDeathMode
     ? [...allFactionIds]
     : sampleLeaderPool(resolveLeaderPoolSize(mode, seats.length, options.leaderPoolSize))
@@ -505,7 +507,23 @@ export async function getLobbyForUser(
   kv: KVNamespace,
   userId: string,
 ): Promise<string | null> {
-  return kv.get(`activity-lobby-user:${userId}`)
+  const mappedLobbyId = await kv.get(`activity-lobby-user:${userId}`)
+  if (!mappedLobbyId) return null
+
+  const mappedLobby = await getLobbyById(kv, mappedLobbyId)
+  if (mappedLobby?.status === 'open') {
+    const realLobby = await getOpenLobbyForPlayer(kv, userId, mappedLobby.mode)
+    if (realLobby?.id === mappedLobbyId) return mappedLobbyId
+  }
+
+  const realLobby = await getOpenLobbyForPlayer(kv, userId)
+  if (realLobby) {
+    await storeUserLobbyMappings(kv, [userId], realLobby.id)
+    return realLobby.id
+  }
+
+  await clearUserLobbyMappings(kv, [userId])
+  return null
 }
 
 /** Get a unique active match ID for a channel when only one exists. */
@@ -653,7 +671,7 @@ export async function clearLobbyMappingsIfMatchingLobby(
   if (userIds.length === 0) return
 
   const [mappedLobbyIds, targets] = await Promise.all([
-    Promise.all(userIds.map(userId => getLobbyForUser(kv, userId))),
+    Promise.all(userIds.map(userId => kv.get(`activity-lobby-user:${userId}`))),
     Promise.all(userIds.map(userId => getUserActivityTarget(kv, channelId, userId))),
   ])
 

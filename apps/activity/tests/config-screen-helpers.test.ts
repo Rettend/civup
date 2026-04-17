@@ -6,9 +6,10 @@ import {
   formatTimerValue,
   leaderPoolSizePlaceholder,
   parseTimerMinutesInput,
+  supportsBlindBansControl,
   timerSecondsToMinutesInput,
   timerSecondsToMinutesPlaceholder,
-} from '../src/client/lib/config-screen/helpers'
+} from '../src/client/pages/draft-setup/helpers'
 
 describe('leader pool helper defaults', () => {
   test('uses full FFA target size for open-lobby placeholder defaults', () => {
@@ -40,6 +41,19 @@ describe('timer helper formatting', () => {
     expect(formatTimerValue(45)).toBe('45 seconds')
     expect(formatTimerValue(90)).toBe('1.5 minutes')
     expect(formatTimerValue(null, 45)).toBe('45 seconds')
+  })
+})
+
+describe('Blind Bans control visibility', () => {
+  test('shows the control for supported lobby setups', () => {
+    expect(supportsBlindBansControl('ffa')).toBe(false)
+    expect(supportsBlindBansControl('1v1', { targetSize: 2 })).toBe(true)
+    expect(supportsBlindBansControl('2v2', { targetSize: 4 })).toBe(true)
+  })
+
+  test('hides the control for unsupported lobby setups', () => {
+    expect(supportsBlindBansControl('ffa', { redDeath: true, targetSize: 10 })).toBe(false)
+    expect(supportsBlindBansControl('2v2', { targetSize: 6 })).toBe(false)
   })
 })
 
@@ -111,6 +125,7 @@ function createLobbySnapshot(
       pickTimerSeconds: null,
       leaderPoolSize: null,
       leaderDataVersion: 'live',
+      blindBans: true,
       simultaneousPick: false,
       redDeath: false,
       dealOptionsSize: null,

@@ -1,6 +1,6 @@
 import type { ActivityTargetOption } from '../src/client/stores'
 import { describe, expect, test } from 'bun:test'
-import { activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from '../src/client/lib/activity-targets'
+import { activityTargetOptionKey, activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from '../src/client/lib/activity-targets'
 
 const joinedMatch: ActivityTargetOption = {
   kind: 'match',
@@ -67,6 +67,10 @@ describe('activity target helpers', () => {
   test('matches activity targets by kind and id', () => {
     expect(activityTargetsMatch(joinedMatch, { kind: 'match', id: 'match-1' })).toBe(true)
     expect(activityTargetsMatch(joinedMatch, { kind: 'lobby', id: 'match-1' })).toBe(false)
+  })
+
+  test('builds stable option keys from kind and id', () => {
+    expect(activityTargetOptionKey(joinedMatch)).toBe('match:match-1')
   })
 
   test('filters a cleared target out of the available options', () => {

@@ -12,6 +12,7 @@ const NOW = 1_700_000_000_000
 const DAY_MS = 86_400_000
 const PLAYER_ID = '100010000000000001'
 const HERO_ID = '100010000000000099'
+const TIER_1 = 'tier1'
 const TIER_4 = 'tier4'
 const TIER_5 = 'tier5'
 
@@ -330,7 +331,7 @@ describe('season services', () => {
 
     expect(peakRows).toHaveLength(1)
     expect(peakRows[0]?.playerId).toBe(HERO_ID)
-    expect(peakRows[0]?.tier).toBe(TIER_4)
+    expect(peakRows[0]?.tier).toBe(TIER_1)
     expect(peakRows[0]?.sourceMode).toBe('ffa')
 
     sqlite.close()

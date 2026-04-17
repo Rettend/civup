@@ -7,6 +7,7 @@ export interface LobbyDraftConfig {
   pickTimerSeconds: number | null
   leaderPoolSize: number | null
   leaderDataVersion: LeaderDataVersion
+  blindBans: boolean
   simultaneousPick: boolean
   redDeath: boolean
   dealOptionsSize: number | null

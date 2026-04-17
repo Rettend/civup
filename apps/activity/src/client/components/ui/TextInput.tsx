@@ -4,6 +4,7 @@ import { cn } from '~/client/lib/css'
 interface TextInputProps {
   type?: 'text' | 'number'
   label?: string
+  ariaLabel?: string
   value?: string | number
   placeholder?: string
   min?: string
@@ -59,6 +60,7 @@ export function TextInput(props: TextInputProps) {
       )}
       <input
         type={props.type ?? 'text'}
+        aria-label={props.ariaLabel ?? props.label}
         value={props.value ?? ''}
         placeholder={props.placeholder}
         min={props.min}

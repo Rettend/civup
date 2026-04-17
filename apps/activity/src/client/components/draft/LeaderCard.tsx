@@ -2,6 +2,7 @@ import type { Leader } from '@civup/game'
 import { Show, type JSX } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
+import { isDraftCardUnavailable } from './draftAvailability'
 import {
   banSelections,
   currentPickTargetSeatIndex,
@@ -105,8 +106,7 @@ function useLeaderCardState(props: LeaderCardProps) {
 
   const isBanned = (): boolean => state()?.bans.some(b => b.civId === props.leader.id) ?? false
   const isPicked = (): boolean => state()?.picks.some(p => p.civId === props.leader.id) ?? false
-  const allowsDuplicatePicks = (): boolean => isRedDeathDraft() && state()?.duplicateFactions === true
-  const isUnavailable = (): boolean => isBanned() || (isPicked() && !allowsDuplicatePicks())
+  const isUnavailable = (): boolean => isDraftCardUnavailable(state(), props.leader.id)
   const isSelected = (): boolean => selectedLeader() === props.leader.id
   const isBanSelected = (): boolean => banSelections().includes(props.leader.id)
   const hasSelectionVisual = (): boolean => isSelected() || isBanSelected()
@@ -180,6 +180,11 @@ function useLeaderCardState(props: LeaderCardProps) {
     props.onHoverMove?.(props.leader, event.clientX, event.clientY)
   }
 
+  const handleHoverFocus = (event: FocusEvent & { currentTarget: HTMLButtonElement }) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    props.onHoverMove?.(props.leader, rect.left + (rect.width / 2), rect.top + (rect.height / 2))
+  }
+
   const handleHoverLeave = () => {
     props.onHoverLeave?.()
   }
@@ -198,6 +203,7 @@ function useLeaderCardState(props: LeaderCardProps) {
     handleClick,
     handleContextMenu,
     handleHoverMove,
+    handleHoverFocus,
     handleHoverLeave,
   }
 }
@@ -223,6 +229,7 @@ export function LeaderCard(props: LeaderCardProps) {
     handleClick,
     handleContextMenu,
     handleHoverMove,
+    handleHoverFocus,
     handleHoverLeave,
   } = useLeaderCardState(props)
 
@@ -237,6 +244,7 @@ export function LeaderCard(props: LeaderCardProps) {
       )}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
+      onFocus={handleHoverFocus}
       onMouseEnter={handleHoverMove}
       onMouseMove={handleHoverMove}
       onMouseLeave={handleHoverLeave}
@@ -324,6 +332,7 @@ export function LeaderListItem(props: LeaderCardProps & { neighborState?: Leader
     handleClick,
     handleContextMenu,
     handleHoverMove,
+    handleHoverFocus,
     handleHoverLeave,
   } = useLeaderCardState(props)
 
@@ -347,6 +356,7 @@ export function LeaderListItem(props: LeaderCardProps & { neighborState?: Leader
       }}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
+      onFocus={handleHoverFocus}
       onMouseEnter={handleHoverMove}
       onMouseMove={handleHoverMove}
       onMouseLeave={handleHoverLeave}

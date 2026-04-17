@@ -8,7 +8,7 @@ import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLab
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayers, getLobbiesByMode, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots } from '../../services/lobby/index.ts'
+import { deriveQueueBackedLobbyMemberPlayerIds, filterQueueEntriesForLobby, getCurrentLobbiesForPlayers, getLobbiesByMode, isQueueBackedOpenLobbyState, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, reconcileOpenLobbyState, sameLobbySlots, upsertLobby } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { getQueueStateWithPlayerQueueModes, MAX_QUEUE_ENTRIES, setQueueEntries } from '../../services/queue/index.ts'
@@ -184,16 +184,17 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   const kv = createStateStore(c.env)
-  const [{ queueModeByPlayerId, queue: initialQueue }, openLobbies] = await Promise.all([
+  const [{ queueModeByPlayerId, queue: initialQueue }, modeLobbies] = await Promise.all([
     getQueueStateWithPlayerQueueModes(kv, mode, requestedEntries.map(entry => entry.playerId), { fallbackToQueueScan: false }),
-    getLobbiesByMode(kv, mode).then(lobbies => lobbies.filter(lobby => lobby.status === 'open')),
+    getLobbiesByMode(kv, mode),
   ])
   let queue = initialQueue
+  const openLobbies = modeLobbies.filter(lobby => lobby.status === 'open' && isQueueBackedOpenLobbyState(lobby, queue.entries))
   const queueByPlayerId = new Map<string, QueueEntry>(queue.entries.map(entry => [entry.playerId, entry]))
   const lobbyByPlayerId = new Map<string, LobbyState>()
 
   for (const lobby of openLobbies) {
-    for (const playerId of lobby.memberPlayerIds) {
+    for (const playerId of deriveQueueBackedLobbyMemberPlayerIds(lobby, queue.entries)) {
       if (!lobbyByPlayerId.has(playerId)) lobbyByPlayerId.set(playerId, lobby)
     }
   }
@@ -320,10 +321,22 @@ export async function joinLobbyAndMaybeStartMatch(
 
   const candidateResults = await Promise.all(candidateLobbies
     .map(async (lobby) => {
+      const candidateLobbyMemberPlayerIds = deriveQueueBackedLobbyMemberPlayerIds(lobby, nextEntries)
+      const candidateLobbyQueueEntries = filterQueueEntriesForLobby({
+        ...lobby,
+        memberPlayerIds: candidateLobbyMemberPlayerIds,
+      }, nextEntries)
+      const candidateCurrentSlots = normalizeLobbySlots(mode, lobby.slots, candidateLobbyQueueEntries)
+      const candidateLobby = {
+        ...lobby,
+        memberPlayerIds: candidateLobbyMemberPlayerIds,
+        slots: candidateCurrentSlots,
+      }
+
       const gateError = await getRoleGateErrorForLobby(
         c.env.DISCORD_TOKEN,
         kv,
-        lobby,
+        candidateLobby,
         requestedEntries,
         rankedRoleConfigByGuildId,
         memberRoleIdsByKey,
@@ -333,15 +346,13 @@ export async function joinLobbyAndMaybeStartMatch(
         return { gateError }
       }
 
-      const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, nextEntries)
-      const currentSlots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
-      const placement = placeRequestedEntries(mode, currentSlots, requestedEntries)
+      const placement = placeRequestedEntries(mode, candidateCurrentSlots, requestedEntries)
       if ('error' in placement) return null
 
       return {
-        lobby,
+        lobby: candidateLobby,
         slots: placement.slots,
-        score: scoreLobbyCandidate(lobby, currentSlots, placement.slots, requestedEntries.length),
+        score: scoreLobbyCandidate(candidateLobby, candidateCurrentSlots, placement.slots, requestedEntries.length),
       }
     }))
 
@@ -369,8 +380,20 @@ export async function joinLobbyAndMaybeStartMatch(
     }
   }
 
-  let nextLobby = chosen.lobby
-  const nextSlots = chosen.slots
+  const reconciledChosen = await reconcileOpenLobbyState(kv, chosen.lobby, { currentQueue: queue })
+  let nextLobby = reconciledChosen?.lobby ?? chosen.lobby
+  nextLobby = {
+    ...nextLobby,
+    memberPlayerIds: deriveQueueBackedLobbyMemberPlayerIds(nextLobby, nextEntries),
+  }
+  const nextLobbyQueueEntriesBeforePlacement = filterQueueEntriesForLobby(nextLobby, nextEntries)
+  nextLobby = {
+    ...nextLobby,
+    slots: normalizeLobbySlots(mode, nextLobby.slots, nextLobbyQueueEntriesBeforePlacement),
+  }
+  const chosenPlacement = placeRequestedEntries(mode, nextLobby.slots, requestedEntries)
+  if ('error' in chosenPlacement) return { error: chosenPlacement.error }
+  const nextSlots = chosenPlacement.slots
   const nextMemberPlayerIds = [...new Set([...nextLobby.memberPlayerIds, ...requestedEntries.map(entry => entry.playerId)])]
   const addedNewPlayers = nextMemberPlayerIds.length !== nextLobby.memberPlayerIds.length
 
@@ -384,16 +407,16 @@ export async function joinLobbyAndMaybeStartMatch(
     }
   }
 
-  if (nextMemberPlayerIds.length !== nextLobby.memberPlayerIds.length) {
-    nextLobby = await setLobbyMemberPlayerIds(kv, nextLobby.id, nextMemberPlayerIds, nextLobby) ?? nextLobby
-  }
-
-  if (!sameLobbySlots(nextSlots, nextLobby.slots)) {
-    nextLobby = await setLobbySlots(kv, nextLobby.id, nextSlots, nextLobby) ?? nextLobby
-  }
-
-  if (addedNewPlayers) {
-    nextLobby = await setLobbyLastActivityAt(kv, nextLobby.id, now, nextLobby) ?? nextLobby
+  if (nextMemberPlayerIds.length !== nextLobby.memberPlayerIds.length || !sameLobbySlots(nextSlots, nextLobby.slots) || addedNewPlayers) {
+    nextLobby = {
+      ...nextLobby,
+      memberPlayerIds: nextMemberPlayerIds,
+      slots: nextSlots,
+      lastActivityAt: addedNewPlayers ? now : nextLobby.lastActivityAt,
+      updatedAt: now,
+      revision: nextLobby.revision + 1,
+    }
+    await upsertLobby(kv, nextLobby)
   }
 
   const finalQueueEntries = filterQueueEntriesForLobby(nextLobby, queue.entries)

@@ -1,6 +1,6 @@
 import type { LobbySnapshot } from '../src/client/stores'
 import { describe, expect, test } from 'bun:test'
-import { resolveOptimisticLobbyPlacementAction, resolvePendingJoinGhostSlot } from '../src/client/lib/config-screen/helpers'
+import { resolveOptimisticLobbyPlacementAction, resolvePendingJoinGhostSlot } from '../src/client/pages/draft-setup/helpers'
 
 const baseLobby: LobbySnapshot = {
   id: 'lobby-1',
@@ -24,6 +24,7 @@ const baseLobby: LobbySnapshot = {
     pickTimerSeconds: null,
     leaderPoolSize: null,
     leaderDataVersion: 'live',
+    blindBans: true,
     simultaneousPick: false,
     redDeath: false,
     dealOptionsSize: 2,

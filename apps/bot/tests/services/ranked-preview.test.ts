@@ -37,8 +37,8 @@ describe('ranked preview summary', () => {
     expect(summary.bands[1]?.cumulativeKeepPercent).toBeCloseTo(0.065, 6)
     expect(summary.bands[2]?.keepPercent).toBeCloseTo(0.105, 6)
     expect(summary.bands[2]?.cumulativeKeepPercent).toBeCloseTo(0.17, 6)
-    expect(summary.bands[3]?.keepPercent).toBeCloseTo(0.205, 6)
-    expect(summary.bands[3]?.cumulativeKeepPercent).toBeCloseTo(0.375, 6)
+    expect(summary.bands[3]?.keepPercent).toBeCloseTo(0.305, 6)
+    expect(summary.bands[3]?.cumulativeKeepPercent).toBeCloseTo(0.475, 6)
     expect(summary.bands[4]).toMatchObject({
       tier: 'tier5',
       roleId: '11111111111111111',
@@ -49,12 +49,12 @@ describe('ranked preview summary', () => {
 
     const ffa = summary.modes.find(mode => mode.mode === 'ffa')
     expect(ffa?.rankedCount).toBe(100)
-    expect(ffa?.tiers.map(tier => tier.cutoffRank)).toEqual([1, 5, 15, 35, null])
+    expect(ffa?.tiers.map(tier => tier.cutoffRank)).toEqual([1, 5, 15, 45, null])
 
     sqlite.close()
   })
 
-  test('supports mode filters and reports locked tiers for smaller ladders', async () => {
+  test('supports mode filters and reports live cutoffs for smaller ladders', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedConfiguredRoles(kv)
@@ -72,14 +72,15 @@ describe('ranked preview summary', () => {
     expect(summary.modes[0]?.mode).toBe('duel')
     expect(summary.modes[0]?.tiers[0]).toMatchObject({
       tier: 'tier1',
-      locked: true,
-      unlockMinPlayers: 80,
-      playersNeededToUnlock: 70,
+      locked: false,
+      unlockMinPlayers: null,
+      playersNeededToUnlock: null,
+      cutoffRank: 1,
     })
     expect(summary.modes[0]?.tiers[3]).toMatchObject({
       tier: 'tier4',
       locked: false,
-      cutoffRank: 2,
+      cutoffRank: 6,
     })
 
     sqlite.close()
@@ -185,7 +186,7 @@ describe('ranked preview summary', () => {
     })
 
     expect(afterSummary.modes[0]?.rankedCount).toBe(9)
-    expect(after.playerPreviews[0]?.ladderTiers.duel).toBe('tier4')
+    expect(after.playerPreviews[0]?.ladderTiers.duel).toBe('tier1')
 
     await db.insert(playerRatings).values({
       playerId,
@@ -225,7 +226,7 @@ describe('ranked preview summary', () => {
     })
 
     expect(qualifiedSummary.modes[0]?.rankedCount).toBe(9)
-    expect(qualified.playerPreviews[0]?.ladderTiers.duel).toBe('tier4')
+    expect(qualified.playerPreviews[0]?.ladderTiers.duel).toBe('tier1')
 
     sqlite.close()
   })
@@ -284,15 +285,15 @@ describe('ranked preview summary', () => {
     expect(summaryFields).toContain('2.0% (Top 2.0%)')
     expect(summaryFields).toContain('4.5% (Top 6.5%)')
     expect(summaryFields).toContain('10.5% (Top 17.0%)')
-    expect(summaryFields).toContain('20.5% (Top 37.5%)')
+    expect(summaryFields).toContain('30.5% (Top 47.5%)')
     expect(summaryFields).toContain('Unranked')
 
     expect(modeEmbed?.title).toBe('Duel - 10 ranked')
     expect(modeEmbed?.footer?.text).toBe('Pending ranked sync')
     expect(modeFields).toContain('Cutoff')
     expect(modeFields).toContain('Score')
-    expect(modeFields).toContain('Locked')
-    expect(modeFields).toContain('needs 80 players (70 more)')
+    expect(modeFields).toContain('#1')
+    expect(modeFields).toContain('1504')
     expect(modeFields).toContain('The rest')
 
     sqlite.close()

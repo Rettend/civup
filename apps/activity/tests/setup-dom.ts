@@ -1,13 +1,44 @@
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { afterEach, mock } from 'bun:test'
+import solid from 'vite-plugin-solid'
 
 import * as LeaderTags from '../src/client/lib/leader-tags'
 
+const solidTransformPlugin = solid()
+const solidTransform = (
+  typeof solidTransformPlugin.transform === 'function'
+    ? solidTransformPlugin.transform
+    : solidTransformPlugin.transform?.handler
+) as ((source: string, id: string, options?: { ssr?: boolean }) => Promise<{ code: string } | null> | { code: string } | null) | undefined
+
+Bun.plugin({
+  name: 'activity-solid-tsx-test-transform',
+  setup(build) {
+    build.onLoad({ filter: /apps[\\/]activity[\\/].*\.tsx$/ }, async (args) => {
+      const source = await Bun.file(args.path).text()
+      const transformed = solidTransform ? await solidTransform(source, args.path, { ssr: false }) : null
+      return {
+        contents: typeof transformed === 'string' ? transformed : (transformed?.code ?? source),
+        loader: 'ts',
+      }
+    })
+  },
+})
+
+const solidWeb = await import('solid-js/web/dist/web.js')
+
+mock.module('solid-js/web', () => solidWeb)
 mock.module('~/client/lib/leader-tags', () => LeaderTags)
 
 GlobalRegistrator.register({
   url: 'http://localhost/',
 })
+
+if (!('__ASSET_REVISION_MAP__' in globalThis)) {
+  Object.assign(globalThis, { __ASSET_REVISION_MAP__: {} })
+}
+
+const { cleanup } = await import('@solidjs/testing-library')
 
 if (!globalThis.matchMedia) {
   globalThis.matchMedia = (query: string) => ({
@@ -54,5 +85,6 @@ if (!globalThis.requestAnimationFrame) {
 }
 
 afterEach(() => {
+  cleanup()
   document.body.innerHTML = ''
 })

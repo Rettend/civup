@@ -10,6 +10,7 @@ import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
 const HERO_ID = '100010000000000099'
+const TIER_1 = 'tier1'
 const TIER_2 = 'tier2'
 const TIER_4 = 'tier4'
 const TIER_5 = 'tier5'
@@ -35,14 +36,14 @@ describe('player rank views', () => {
 
     const profile = await getPlayerRankProfile(db, kv, 'guild-1', HERO_ID, NOW)
 
-    expect(profile.overallTier).toBe(TIER_4)
-    expect(profile.overallRoleId).toBe('22222222222222222')
+    expect(profile.overallTier).toBe(TIER_1)
+    expect(profile.overallRoleId).toBe('55555555555555555')
     expect(profile.modes.ffa.tier).toBe(TIER_5)
     expect(profile.modes.ffa.tierLabel).toBe('Role 5')
     expect(profile.modes.ffa.tierRoleId).toBe('11111111111111111')
-    expect(profile.modes.duel.tier).toBe(TIER_4)
-    expect(profile.modes.duel.tierLabel).toBe('Role 4')
-    expect(profile.modes.duel.tierRoleId).toBe('22222222222222222')
+    expect(profile.modes.duel.tier).toBe(TIER_1)
+    expect(profile.modes.duel.tierLabel).toBe('Role 1')
+    expect(profile.modes.duel.tierRoleId).toBe('55555555555555555')
     expect(profile.modes.duo.rating).toBeNull()
     expect(profile.modes.squad.rating).toBeNull()
 
@@ -121,17 +122,17 @@ describe('player rank views', () => {
       seasonHistory: history,
     })).toJSON()
 
-    expect(stats.description).toContain('<@100010000000000099> - <@&22222222222222222>')
+    expect(stats.description).toContain('<@100010000000000099> - <@&55555555555555555>')
     expect(JSON.stringify(stats.fields)).toContain('Rating: <@&11111111111111111> (964)')
-    expect(JSON.stringify(stats.fields)).toContain('Rating: <@&22222222222222222> (1540)')
+    expect(JSON.stringify(stats.fields)).toContain('Rating: <@&55555555555555555> (1540)')
 
-    expect(rank.description).toContain('<@100010000000000099> - <@&22222222222222222>')
+    expect(rank.description).toContain('<@100010000000000099> - <@&55555555555555555>')
     expect(rank.fields?.[0]?.name).toBe('S2')
     expect(JSON.stringify(rank.fields)).toContain('S2')
     expect(JSON.stringify(rank.fields)).toContain('FFA')
     expect(JSON.stringify(rank.fields)).toContain('Duel')
     expect(JSON.stringify(rank.fields)).toContain('Rating: <@&11111111111111111> (964)')
-    expect(JSON.stringify(rank.fields)).toContain('Rating: <@&22222222222222222> (1540)')
+    expect(JSON.stringify(rank.fields)).toContain('Rating: <@&55555555555555555> (1540)')
     expect(JSON.stringify(rank.fields)).toContain('S1')
     expect(JSON.stringify(rank.fields)).toContain('Rating: <@&11111111111111111> (631)')
     expect(JSON.stringify(rank.fields)).toContain('Rating: <@&44444444444444444> (711)')

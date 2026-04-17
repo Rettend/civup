@@ -53,6 +53,7 @@ import {
   tagFilters,
   toggleTagFilter,
 } from '~/client/stores'
+import { allowsDuplicateDraftPicks, isDraftCardUnavailable } from './draftAvailability'
 import { computeListItemBorderRadius, computeListItemBoxShadow, LeaderCard, LeaderListItem } from './LeaderCard'
 import { LeaderDetailPanel } from './LeaderDetailPanel'
 
@@ -227,10 +228,26 @@ export function LeaderGridOverlay() {
     })
   }
 
+  const clearHoverTooltip = () => {
+    setHoverTooltip(null)
+    setHoveredListIndex(null)
+  }
+
   const handleSearchInput = (value: string) => {
     const wasWideWangQuery = isWideWangQuery(searchQuery())
+    clearHoverTooltip()
     setSearchQuery(value)
     if (!wasWideWangQuery && isWideWangQuery(value)) startWideWangEasterEgg()
+  }
+
+  const handleClearTagFilters = () => {
+    clearHoverTooltip()
+    clearTagFilters()
+  }
+
+  const handleToggleTagFilter = (tag: string) => {
+    clearHoverTooltip()
+    toggleTagFilter(tag)
   }
 
   onCleanup(() => {
@@ -288,6 +305,13 @@ export function LeaderGridOverlay() {
   })
 
   createEffect(() => {
+    searchQuery()
+    tagFilters()
+    filteredLeaders()
+    clearHoverTooltip()
+  })
+
+  createEffect(() => {
     if (canOpenLeaderGrid()) return
     if (gridOpen()) setGridOpen(false)
   })
@@ -326,7 +350,7 @@ export function LeaderGridOverlay() {
     }
 
     const available = new Set(current.availableCivIds)
-    const allowsDuplicatePicks = current.duplicateFactions === true
+    const allowsDuplicatePicks = allowsDuplicateDraftPicks(current)
     const localPickSelections = pickSelections()
     const prunedLocalSelections = allowsDuplicatePicks
       ? localPickSelections
@@ -424,8 +448,7 @@ export function LeaderGridOverlay() {
 
   const randomLeaderPool = createMemo(() => {
     if (isRedDeathDraft()) return []
-    const available = new Set(state()?.availableCivIds ?? [])
-    return filteredLeaders().filter(leader => available.has(leader.id))
+    return filteredLeaders().filter(leader => !isDraftCardUnavailable(state(), leader.id))
   })
 
   const canUseRandom = () => {
@@ -443,8 +466,7 @@ export function LeaderGridOverlay() {
     if (isRandomSelected()) return true
     const id = selectedLeader()
     if (!id) return false
-    if (state()?.duplicateFactions === true) return true
-    return !state()?.picks.some(p => p.civId === id)
+    return !isDraftCardUnavailable(state(), id)
   }
 
   const pickConfirmLabel = () => {
@@ -464,7 +486,7 @@ export function LeaderGridOverlay() {
     if (!canUseRandom()) return
 
     setDetailLeaderId(null)
-    setHoverTooltip(null)
+    clearHoverTooltip()
 
     if (isRandomSelected()) {
       setIsRandomSelected(false)
@@ -498,7 +520,7 @@ export function LeaderGridOverlay() {
       sendPick(civId)
     }
     clearSelections()
-    setHoverTooltip(null)
+    clearHoverTooltip()
     setFiltersOpen(false)
     setGridOpen(false)
   }
@@ -518,14 +540,14 @@ export function LeaderGridOverlay() {
       sendBan(civIds)
     }
     clearSelections()
-    setHoverTooltip(null)
+    clearHoverTooltip()
     setFiltersOpen(false)
     setGridOpen(false)
   }
 
   const handleBackdropClick = () => {
     if (isMyTurn() && !hasSubmitted()) return
-    setHoverTooltip(null)
+    clearHoverTooltip()
     setFiltersOpen(false)
     setGridOpen(false)
   }
@@ -537,7 +559,7 @@ export function LeaderGridOverlay() {
   }
 
   const handleToggleGridExpanded = () => {
-    setHoverTooltip(null)
+    clearHoverTooltip()
     const next = !gridExpanded()
     skipNextOverlayAnimation = true
 
@@ -625,7 +647,7 @@ export function LeaderGridOverlay() {
             <button
               class="text-[10px] text-fg px-2.5 py-1 border border-border-hover rounded bg-bg-muted/70 transition-colors hover:border-fg-subtle hover:bg-bg disabled:opacity-40 disabled:cursor-default"
               disabled={activeTagFilterCount() === 0}
-              onClick={clearTagFilters}
+              onClick={handleClearTagFilters}
             >
               Clear all
             </button>
@@ -652,7 +674,7 @@ export function LeaderGridOverlay() {
                           <FilterTagButton
                             tag={option.id}
                             active={active()}
-                            onClick={() => toggleTagFilter(option.id)}
+                            onClick={() => handleToggleTagFilter(option.id)}
                           />
                         )
                       }}
@@ -734,7 +756,7 @@ export function LeaderGridOverlay() {
             <Show when={activeTagFilterCount() > 0}>
               <button
                 class="text-[11px] text-fg-subtle px-2 py-1 border border-border rounded cursor-pointer transition-colors hover:text-fg-muted hover:bg-bg-muted"
-                onClick={clearTagFilters}
+                onClick={handleClearTagFilters}
               >
                 Clear
               </button>
@@ -1057,6 +1079,7 @@ export function LeaderGridOverlay() {
             ref={(el) => {
               tooltipRef = el
             }}
+            role="tooltip"
             class="px-2 py-1 border border-border rounded bg-bg/95 max-w-56 pointer-events-none shadow-black/40 shadow-lg fixed z-30"
             style={{
               left: `${tooltipPosition().left}px`,
