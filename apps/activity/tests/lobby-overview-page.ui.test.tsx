@@ -8,7 +8,7 @@ import { createActivityTargetOption } from './ui-fixtures'
 const onSelect = mock(() => {})
 const onResume = mock(() => {})
 
-const { LobbyOverviewPage, activityTargetOptionKey } = await import('../src/client/pages/lobby-overview/LobbyOverviewPage')
+const { LobbyOverviewPage, activityTargetOptionKey } = await import('../src/client/pages/lobby-overview')
 
 describe('LobbyOverviewPage UI', () => {
   beforeEach(() => {

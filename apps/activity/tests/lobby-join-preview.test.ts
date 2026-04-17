@@ -1,6 +1,6 @@
 import type { LobbySnapshot } from '../src/client/stores'
 import { describe, expect, test } from 'bun:test'
-import { resolveOptimisticLobbyPlacementAction, resolvePendingJoinGhostSlot } from '../src/client/lib/config-screen/helpers'
+import { resolveOptimisticLobbyPlacementAction, resolvePendingJoinGhostSlot } from '../src/client/pages/draft-setup/helpers'
 
 const baseLobby: LobbySnapshot = {
   id: 'lobby-1',

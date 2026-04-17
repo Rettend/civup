@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-li
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 import { createJoinEligibility, createLobbySnapshot, createWaitingDraftState } from './ui-fixtures'
 
-const { DraftSetupPage } = await import('../src/client/pages/draft-setup/DraftSetupPage')
+const { DraftSetupPage } = await import('../src/client/pages/draft-setup')
 
 const onLobbyStarted = mock(() => {})
 
