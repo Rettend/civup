@@ -1,7 +1,7 @@
 import type { DraftState } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { activityOverviewKey, syncActivityOverviewSnapshot } from '../../src/services/activity/live-state.ts'
-import { attachLobbyMatch, clearLobbyById, createLobby, getCurrentLobbyHostedBy, getLobbyByChannel, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
+import { attachLobbyMatch, clearLobbyById, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobbyByChannel, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
 import { hostKey, idKey, LOBBY_TTL, matchKey } from '../../src/services/lobby/keys.ts'
 import { lobbySnapshotKey, syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
@@ -114,6 +114,15 @@ describe('lobby service KV write behavior', () => {
     expect(byChannel).not.toBeNull()
     expect(byChannel?.mode).toBe(created.mode)
     expect(byChannel?.hostId).toBe(created.hostId)
+  })
+
+  test('getCurrentLobbiesForPlayer clears a stale user lobby mapping when the mapped lobby is gone', async () => {
+    const { kv } = createTrackedKv()
+
+    await kv.put('activity-lobby-user:player-1', 'missing-lobby')
+
+    await expect(getCurrentLobbiesForPlayer(kv, 'player-1', { fallbackToLobbyScan: false })).resolves.toEqual([])
+    await expect(kv.get('activity-lobby-user:player-1')).resolves.toBeNull()
   })
 
   test('retains live lobby state longer than abandoned active matches', () => {

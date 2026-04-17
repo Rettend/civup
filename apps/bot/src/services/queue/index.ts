@@ -154,11 +154,12 @@ export async function getPlayerQueueModes(
     uniquePlayerIds.map(playerId => ({ key: playerQueueKey(playerId) })),
   )
 
-  for (let index = 0; index < uniquePlayerIds.length; index++) {
-    const playerId = uniquePlayerIds[index]
-    const rawMode = rawMappedModes[index]
-    if (!playerId || !isGameMode(rawMode)) continue
-    queueModeByPlayerId.set(playerId, rawMode)
+  const { queueModesByPlayerId, stalePlayerIds } = await resolveVerifiedMappedQueueModes(kv, uniquePlayerIds, rawMappedModes)
+  for (const [playerId, queueMode] of queueModesByPlayerId) {
+    queueModeByPlayerId.set(playerId, queueMode)
+  }
+  if (stalePlayerIds.length > 0) {
+    await stateStoreMdelete(kv, stalePlayerIds.map(playerId => playerQueueKey(playerId)))
   }
 
   const unresolvedPlayerIds = uniquePlayerIds.filter(playerId => !queueModeByPlayerId.has(playerId))
@@ -195,17 +196,29 @@ export async function getQueueStateWithPlayerQueueModes(
     { key: queueKey(mode), type: 'json' as const },
   ])
   const queue = parseQueueState(mode, rawEntries[uniquePlayerIds.length])
+  const rawMappedModes = rawEntries.slice(0, uniquePlayerIds.length)
   const queueModeByPlayerId = new Map<string, GameMode | null>()
   const unresolvedPlayerIds: string[] = []
+  const { queueModesByPlayerId, stalePlayerIds } = await resolveVerifiedMappedQueueModes(
+    kv,
+    uniquePlayerIds,
+    rawMappedModes,
+    {
+      knownQueueStates: new Map([[mode, queue]]),
+    },
+  )
+
+  for (const [playerId, queueMode] of queueModesByPlayerId) {
+    queueModeByPlayerId.set(playerId, queueMode)
+  }
+  if (stalePlayerIds.length > 0) {
+    await stateStoreMdelete(kv, stalePlayerIds.map(playerId => playerQueueKey(playerId)))
+  }
 
   for (let index = 0; index < uniquePlayerIds.length; index++) {
     const playerId = uniquePlayerIds[index]
-    const rawMode = rawEntries[index]
     if (!playerId) continue
-    if (isGameMode(rawMode)) {
-      queueModeByPlayerId.set(playerId, rawMode)
-      continue
-    }
+    if (queueModeByPlayerId.has(playerId)) continue
     if (queue.entries.some(entry => entry.playerId === playerId)) {
       queueModeByPlayerId.set(playerId, mode)
       continue
@@ -226,6 +239,52 @@ export async function getQueueStateWithPlayerQueueModes(
   }
 
   return { queue, queueModeByPlayerId }
+}
+
+async function resolveVerifiedMappedQueueModes(
+  kv: KVNamespace,
+  playerIds: string[],
+  rawMappedModes: unknown[],
+  options?: {
+    knownQueueStates?: Map<GameMode, QueueState>
+  },
+): Promise<{
+  queueModesByPlayerId: Map<string, GameMode>
+  stalePlayerIds: string[]
+}> {
+  const queueModesByPlayerId = new Map<string, GameMode>()
+  const stalePlayerIds: string[] = []
+  const queueStateByMode = new Map(options?.knownQueueStates ?? [])
+  const mappedModesToLoad = [...new Set(rawMappedModes.filter(isGameMode).filter(rawMode => !queueStateByMode.has(rawMode)))]
+
+  if (mappedModesToLoad.length > 0) {
+    const rawQueueStates = await stateStoreMget(
+      kv,
+      mappedModesToLoad.map(mappedMode => ({ key: queueKey(mappedMode), type: 'json' as const })),
+    )
+
+    for (let index = 0; index < mappedModesToLoad.length; index++) {
+      const mappedMode = mappedModesToLoad[index]
+      if (!mappedMode) continue
+      queueStateByMode.set(mappedMode, parseQueueState(mappedMode, rawQueueStates[index]))
+    }
+  }
+
+  for (let index = 0; index < playerIds.length; index++) {
+    const playerId = playerIds[index]
+    const rawMode = rawMappedModes[index]
+    if (!playerId || !isGameMode(rawMode)) continue
+
+    const mappedQueue = queueStateByMode.get(rawMode)
+    if (mappedQueue?.entries.some(entry => entry.playerId === playerId)) {
+      queueModesByPlayerId.set(playerId, rawMode)
+      continue
+    }
+
+    stalePlayerIds.push(playerId)
+  }
+
+  return { queueModesByPlayerId, stalePlayerIds }
 }
 
 export async function getPlayerQueueMode(

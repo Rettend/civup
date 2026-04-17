@@ -42,6 +42,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const [startPending, setStartPending] = createSignal(false)
   const [lobbyActionPending, setLobbyActionPending] = createSignal(false)
   const [pendingPlaceSelfSlot, setPendingPlaceSelfSlot] = createSignal<number | null>(null)
+  const [pendingArrangeStrategy, setPendingArrangeStrategy] = createSignal<LobbyArrangeStrategy | null>(null)
   const [draggingPlayerId, setDraggingPlayerId] = createSignal<string | null>(null)
   const [dragOverSlot, setDragOverSlot] = createSignal<number | null>(null)
   const [optimisticLobbyAction, setOptimisticLobbyAction] = createSignal<OptimisticLobbyAction | null>(null)
@@ -63,6 +64,9 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
       optimisticLobbyActionTimeout = null
     }
     setOptimisticLobbyAction(null)
+  }
+  const clearPendingArrangeStrategy = () => {
+    setPendingArrangeStrategy(null)
   }
 
   createEffect(() => {
@@ -140,6 +144,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
 
   onCleanup(() => {
     clearOptimisticLobbyAction()
+    clearPendingArrangeStrategy()
     if (configMessageTimeout) clearTimeout(configMessageTimeout)
   })
 
@@ -432,11 +437,15 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     const lobby = currentLobby()
     const currentUserId = userId()
     if (!lobby || !currentUserId || !amHost() || lobbyActionPending() || startPending() || cancelPending()) return
+    setPendingArrangeStrategy(strategy)
     setLobbyActionPending(true)
     clearConfigMessage()
     try {
       const result = await arrangeLobbySlots(lobby.mode, lobby.id, currentUserId, strategy)
-      if (!result.ok) return showErrorMessage(result.error)
+      if (!result.ok) {
+        clearPendingArrangeStrategy()
+        return showErrorMessage(result.error)
+      }
       showInfoMessage(
         strategy === 'balance'
           ? `${arrangeTargetTitle()} auto-balanced.`
@@ -545,6 +554,8 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     dragOverSlot,
     pending,
     arrangeEvent: () => currentLobby()?.lastArrange ?? null,
+    pendingArrangeStrategy,
+    clearPendingArrangeStrategy,
     permissions: {
       canDragRow,
       canDropOnRow,
