@@ -371,7 +371,7 @@ describe('draft room creation', () => {
     expect(result.formatId).toBe('default-1v1')
   })
 
-  test('ignores duplicate leaders outside random drafts', async () => {
+  test('forwards duplicate leaders for standard draft rooms too', async () => {
     let postedConfig: { formatId?: unknown, duplicateFactions?: unknown } | null = null
     globalThis.fetch = (async (_input, init) => {
       postedConfig = JSON.parse(String(init?.body)) as { formatId?: unknown, duplicateFactions?: unknown }
@@ -387,7 +387,7 @@ describe('draft room creation', () => {
     })
 
     expect(postedConfig?.formatId).toBe('default-1v1')
-    expect(postedConfig?.duplicateFactions).toBe(false)
+    expect(postedConfig?.duplicateFactions).toBe(true)
     expect(result.formatId).toBe('default-1v1')
   })
 
