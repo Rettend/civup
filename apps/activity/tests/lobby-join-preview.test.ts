@@ -11,6 +11,7 @@ const baseLobby: LobbySnapshot = {
   steamLobbyLink: null,
   minRole: null,
   maxRole: null,
+  lastArrange: null,
   entries: [
     { playerId: 'host-1', displayName: 'Host', avatarUrl: null },
     null,

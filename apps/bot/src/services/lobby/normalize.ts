@@ -1,5 +1,5 @@
 import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
-import type { LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
+import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
 import { defaultPlayerCount, MAX_LEADER_POOL_SIZE, normalizeAvailableLeaderDataVersion, playerCountOptions, requiresRedDeathDuplicateFactions } from '@civup/game'
 import { nanoid } from 'nanoid'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
@@ -43,6 +43,7 @@ export function normalizeLobby(raw: StoredLobbyState | LobbyState): LobbyState {
     draftConfig: normalizeDraftConfigForMode(raw.mode, raw.draftConfig, slots.length),
     minRole: normalizeCompetitiveTier(raw.minRole),
     maxRole: normalizeCompetitiveTier(raw.maxRole),
+    lastArrange: normalizeLobbyArrangeMarker(raw.lastArrange),
     lastActivityAt: normalizeLobbyLastActivityAt(
       raw.lastActivityAt,
       'lastJoinedAt' in raw ? raw.lastJoinedAt : undefined,
@@ -148,6 +149,19 @@ export function normalizeLobbyLastActivityAt(
     if (rounded > 0) return rounded
   }
   return updatedAt > 0 ? updatedAt : createdAt
+}
+
+function normalizeLobbyArrangeMarker(value: unknown): LobbyArrangeMarker | null {
+  if (!value || typeof value !== 'object') return null
+
+  const strategy = 'strategy' in value ? value.strategy : undefined
+  const at = 'at' in value ? value.at : undefined
+  if (strategy !== 'randomize' && strategy !== 'balance' && strategy !== 'shuffle-teams') return null
+  if (typeof at !== 'number' || !Number.isFinite(at)) return null
+
+  const roundedAt = Math.round(at)
+  if (roundedAt <= 0) return null
+  return { strategy, at: roundedAt }
 }
 
 export function sameDraftConfig(a: LobbyDraftConfig, b: LobbyDraftConfig): boolean {

@@ -1,5 +1,6 @@
 import type { GameMode, QueueEntry } from '@civup/game'
 import type { LobbyState } from './types.ts'
+import type { LobbyArrangeMarker } from './types.ts'
 import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import { syncActivityOverviewSnapshotForLobby } from '../activity/live-state.ts'
@@ -22,6 +23,7 @@ export interface LobbySnapshot {
   steamLobbyLink: string | null
   minRole: LobbyState['minRole']
   maxRole: LobbyState['maxRole']
+  lastArrange: LobbyArrangeMarker | null
   entries: ({
     playerId: string
     displayName: string
@@ -76,6 +78,7 @@ export async function buildLobbyLiveSnapshotFromParts(
     steamLobbyLink: lobby.steamLobbyLink,
     minRole: lobby.minRole,
     maxRole: lobby.maxRole,
+    lastArrange: lobby.lastArrange ?? null,
     entries: slotEntries.map((entry) => {
       if (!entry) return null
       return {

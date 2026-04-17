@@ -261,7 +261,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     return 'Join Lobby'
   }
 
-  const rowBuildInput = () => ({
+  const rowBuildInput = createMemo(() => ({
     lobby: currentLobby(),
     draftState: state(),
     hostId: hostId(),
@@ -269,11 +269,23 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     currentUserDisplayName: currentDisplayName(),
     currentUserAvatarUrl: currentAvatarUrl(),
     pendingSelfJoinSlot: pendingSelfJoinSlot(),
+  }))
+  // Memoized so that unrelated re-renders (e.g. `lobbyActionPending` toggling
+  // while the host is performing an arrange) don't rebuild the row objects and
+  // force `<For>` to remount chip DOM — that would cancel the FLIP animation
+  // in `DraftSetupPlayersPanel` mid-flight.
+  const teamRowsByTeam = createMemo(() => {
+    const input = rowBuildInput()
+    const map = new Map<number, PlayerRow[]>()
+    for (const team of teamIndices()) map.set(team, buildTeamRows(input, team))
+    return map
   })
-  const teamRows = (team: number) => buildTeamRows(rowBuildInput(), team)
-  const ffaRows = () => buildFfaRows(rowBuildInput())
-  const ffaFirstColumn = () => splitFfaRows(ffaRows())[0]
-  const ffaSecondColumn = () => splitFfaRows(ffaRows())[1]
+  const teamRows = (team: number) => teamRowsByTeam().get(team) ?? []
+  const ffaRows = createMemo(() => buildFfaRows(rowBuildInput()))
+  const ffaColumnsSplit = createMemo(() => splitFfaRows(ffaRows()))
+  const ffaFirstColumn = () => ffaColumnsSplit()[0]
+  const ffaSecondColumn = () => ffaColumnsSplit()[1]
+  const ffaColumnsPair = createMemo<[PlayerRow[], PlayerRow[]]>(() => [ffaFirstColumn(), ffaSecondColumn()])
 
   const canJoinSlot = (row: PlayerRow) => row.empty && canCurrentUserPlaceSelf()
   const canRemoveSlot = (row: PlayerRow) => {
@@ -528,10 +540,11 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     teamIndices,
     teamRows,
     teamBalance,
-    ffaColumns: () => [ffaFirstColumn(), ffaSecondColumn()],
+    ffaColumns: ffaColumnsPair,
     lowConfidence: () => Boolean(lobbyBalance()?.lowConfidence),
     dragOverSlot,
     pending,
+    arrangeEvent: () => currentLobby()?.lastArrange ?? null,
     permissions: {
       canDragRow,
       canDropOnRow,

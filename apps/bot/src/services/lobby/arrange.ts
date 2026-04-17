@@ -1,9 +1,8 @@
 import type { GameMode, QueueEntry } from '@civup/game'
 import type { PlayerRating } from '@civup/rating'
+import type { LobbyArrangeStrategy } from './types.ts'
 import { isTeamMode, teamCount as modeTeamCount, teamSize } from '@civup/game'
 import { createRating, predictWinProbabilities } from '@civup/rating'
-
-export type LobbyArrangeStrategy = 'randomize' | 'balance' | 'shuffle-teams'
 
 interface RatingSnapshot {
   mu: number

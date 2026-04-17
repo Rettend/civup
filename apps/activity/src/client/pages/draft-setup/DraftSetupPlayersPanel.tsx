@@ -1,56 +1,232 @@
 import type { PlayerRow } from './helpers'
 import type { useDraftSetupState } from './useDraftSetupState'
-import { For, Show } from 'solid-js'
+import type { LobbyArrangeStrategy } from '~/client/stores'
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 
 type DraftSetupPlayersPanelState = ReturnType<typeof useDraftSetupState>['players']
 
+interface PlayerFlipApi {
+  register: (playerId: string, element: HTMLElement) => void
+  unregister: (playerId: string, element: HTMLElement) => void
+}
+
+const FLIP_EASING = 'cubic-bezier(0.18, 0.88, 0.22, 1)'
+const FLIP_DURATION_MS = 1400
+const ARRANGE_OVERLAY_LEAD_MS = 360
+const ARRANGE_OVERLAY_TAIL_MS = 180
+const ARRANGE_OVERLAY_VISIBLE_MS = ARRANGE_OVERLAY_LEAD_MS + FLIP_DURATION_MS + ARRANGE_OVERLAY_TAIL_MS
+
 export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelState }) {
   const state = () => props.state
+
+  const elementsByPlayer = new Map<string, HTMLElement>()
+  const prevRectByPlayer = new Map<string, DOMRect>()
+  const [arrangeOverlayActive, setArrangeOverlayActive] = createSignal(false)
+  const [arrangeOverlayStrategy, setArrangeOverlayStrategy] = createSignal<LobbyArrangeStrategy | null>(null)
+  let arrangeOverlayTimeout: ReturnType<typeof setTimeout> | null = null
+  let armedArrangeKey: string | null = null
+  let lastSeenArrangeKey: string | null = null
+  let hasInitializedArrangeKey = false
+  let lastRenderSignature: string | null = null
+
+  const flip: PlayerFlipApi = {
+    register: (playerId, element) => {
+      elementsByPlayer.set(playerId, element)
+    },
+    unregister: (playerId, element) => {
+      if (elementsByPlayer.get(playerId) === element) elementsByPlayer.delete(playerId)
+    },
+  }
+
+  const playerSlotMap = createMemo(() => {
+    const map = new Map<string, number>()
+    if (state().isTeamMode()) {
+      for (const team of state().teamIndices()) {
+        for (const row of state().teamRows(team)) {
+          if (row.playerId) map.set(row.playerId, row.slot)
+        }
+      }
+    }
+    else {
+      for (const column of state().ffaColumns()) {
+        for (const row of column) {
+          if (row.playerId) map.set(row.playerId, row.slot)
+        }
+      }
+    }
+    return map
+  })
+
+  const renderSignature = createMemo(() => {
+    if (state().isTeamMode()) {
+      return `team:${state().teamIndices().map((team) => {
+        const rows = state().teamRows(team)
+        return `${team}[${rows.map(row => `${row.playerId ?? 'empty'}@${row.slot}`).join(',')}]`
+      }).join('|')}`
+    }
+
+    return `ffa:${state().ffaColumns().map((rows, columnIndex) => `${columnIndex}[${rows.map(row => `${row.playerId ?? 'empty'}@${row.slot}`).join(',')}]`).join('|')}`
+  })
+
+  createEffect(() => {
+    const signature = renderSignature()
+    const map = playerSlotMap()
+    queueMicrotask(() => {
+      const shouldAnimate = lastRenderSignature != null && signature !== lastRenderSignature && armedArrangeKey != null
+      const newRects = new Map<string, DOMRect>()
+
+      for (const playerId of map.keys()) {
+        const el = elementsByPlayer.get(playerId)
+        if (!el) continue
+        const newRect = el.getBoundingClientRect()
+        newRects.set(playerId, newRect)
+
+        const prevRect = prevRectByPlayer.get(playerId)
+        if (!prevRect) continue
+
+        const dx = prevRect.left - newRect.left
+        const dy = prevRect.top - newRect.top
+        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue
+        if (!shouldAnimate) continue
+
+        try {
+          el.animate(
+            [
+              { transform: `translate(${dx}px, ${dy}px)` },
+              { transform: 'translate(0, 0)' },
+            ],
+            {
+              duration: FLIP_DURATION_MS,
+              delay: ARRANGE_OVERLAY_LEAD_MS,
+              easing: FLIP_EASING,
+              fill: 'backwards',
+            },
+          )
+        }
+        catch {}
+      }
+
+      prevRectByPlayer.clear()
+      for (const [playerId, rect] of newRects) prevRectByPlayer.set(playerId, rect)
+      for (const playerId of [...prevRectByPlayer.keys()]) {
+        if (!map.has(playerId)) prevRectByPlayer.delete(playerId)
+      }
+      lastRenderSignature = signature
+      if (shouldAnimate) armedArrangeKey = null
+    })
+  })
+
+  createEffect(() => {
+    const arrangeEvent = state().arrangeEvent()
+    const arrangeKey = arrangeEvent ? `${arrangeEvent.strategy}:${arrangeEvent.at}` : null
+
+    if (!hasInitializedArrangeKey) {
+      hasInitializedArrangeKey = true
+      lastSeenArrangeKey = arrangeKey
+      return
+    }
+
+    if (!arrangeEvent || arrangeKey == null || arrangeKey === lastSeenArrangeKey) return
+    lastSeenArrangeKey = arrangeKey
+    armedArrangeKey = arrangeKey
+
+    if (arrangeOverlayTimeout) clearTimeout(arrangeOverlayTimeout)
+    setArrangeOverlayStrategy(arrangeEvent.strategy)
+    setArrangeOverlayActive(true)
+    arrangeOverlayTimeout = setTimeout(() => {
+      arrangeOverlayTimeout = null
+      setArrangeOverlayActive(false)
+    }, ARRANGE_OVERLAY_VISIBLE_MS)
+  })
+
+  onCleanup(() => {
+    if (arrangeOverlayTimeout) clearTimeout(arrangeOverlayTimeout)
+    elementsByPlayer.clear()
+    prevRectByPlayer.clear()
+  })
+
   return (
-    <Show
-      when={state().isTeamMode()}
-      fallback={(
-        <div class="gap-3 grid grid-cols-2">
-          <For each={state().ffaColumns()}>
-            {rows => <DraftSetupPlayerColumn {...createPlayerColumnProps(state(), rows)} />}
+    <div class="relative">
+      <Show
+        when={state().isTeamMode()}
+        fallback={(
+          <div class="gap-3 grid grid-cols-2">
+            <For each={state().ffaColumns()}>
+              {rows => <DraftSetupPlayerColumn {...createPlayerColumnProps(state(), rows, flip)} />}
+            </For>
+          </div>
+        )}
+      >
+        <div class={state().isLargeTeamLobbyMode()
+          ? 'flex flex-col gap-4 lg:flex-row lg:overflow-x-auto lg:pb-1'
+          : cn('gap-4 grid', state().teamIndices().length > 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2')}
+        >
+          <For each={state().teamIndices()}>
+            {team => (
+              <div class={state().isLargeTeamLobbyMode() ? 'min-w-0 lg:min-w-[280px] lg:flex-1' : undefined}>
+                <div class="mb-2 flex items-center justify-between gap-3">
+                  <div class="text-xs text-accent tracking-wider font-bold">
+                    Team{' '}{String.fromCharCode(65 + team)}
+                  </div>
+                  <Show when={state().teamBalance(team)}>
+                    {summary => (
+                      <div class="text-[11px] text-right text-accent font-semibold whitespace-nowrap">
+                        {Math.round(summary().probability * 100)}%
+                        <Show when={summary().uncertainty >= 0.01}>
+                          <span class="ml-1 text-fg-subtle font-normal">
+                            ±{Math.round(summary().uncertainty * 100)}
+                          </span>
+                        </Show>
+                      </div>
+                    )}
+                  </Show>
+                </div>
+                <DraftSetupPlayerColumn
+                  {...createPlayerColumnProps(state(), state().teamRows(team), flip)}
+                />
+              </div>
+            )}
           </For>
         </div>
-      )}
-    >
-      <div class={state().isLargeTeamLobbyMode()
-        ? 'flex flex-col gap-4 lg:flex-row lg:overflow-x-auto lg:pb-1'
-        : cn('gap-4 grid', state().teamIndices().length > 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2')}
+      </Show>
+
+      <div
+        aria-hidden
+        class={cn(
+          'absolute inset-0 flex items-center justify-center transition-opacity duration-300',
+          arrangeOverlayActive() ? 'pointer-events-none opacity-100' : 'opacity-0',
+        )}
       >
-        <For each={state().teamIndices()}>
-          {team => (
-            <div class={state().isLargeTeamLobbyMode() ? 'min-w-0 lg:min-w-[280px] lg:flex-1' : undefined}>
-              <div class="mb-2 flex items-center justify-between gap-3">
-                <div class="text-xs text-accent tracking-wider font-bold">
-                  Team{' '}{String.fromCharCode(65 + team)}
-                </div>
-                <Show when={state().teamBalance(team)}>
-                  {summary => (
-                    <div class="text-[11px] text-right text-accent font-semibold whitespace-nowrap">
-                      {Math.round(summary().probability * 100)}%
-                      <Show when={summary().uncertainty >= 0.01}>
-                        <span class="ml-1 text-fg-subtle font-normal">
-                          ±{Math.round(summary().uncertainty * 100)}
-                        </span>
-                      </Show>
-                    </div>
-                  )}
-                </Show>
-              </div>
-              <DraftSetupPlayerColumn
-                {...createPlayerColumnProps(state(), state().teamRows(team))}
-              />
-            </div>
-          )}
-        </For>
+        <div class="absolute inset-0 bg-bg/14" />
+        <div
+          class="h-64 w-64 absolute rounded-full"
+          style={{
+            'background': 'radial-gradient(circle, rgba(9, 9, 11, 0.78) 0%, rgba(9, 9, 11, 0.4) 38%, rgba(9, 9, 11, 0) 72%)',
+            'filter': 'blur(12px)',
+          }}
+        />
+        <span
+          class={cn(getArrangeOverlayIconClass(arrangeOverlayStrategy()), 'relative text-5xl')}
+          style={{
+            'color': '#b69a5c',
+            'filter': 'drop-shadow(0 2px 10px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 22px rgba(200, 170, 110, 0.45))',
+          }}
+        />
       </div>
-    </Show>
+    </div>
   )
+}
+
+function getArrangeOverlayIconClass(strategy: LobbyArrangeStrategy | null) {
+  switch (strategy) {
+    case 'balance':
+      return 'i-ph:scales-bold'
+    case 'shuffle-teams':
+      return 'i-ph:arrows-clockwise-bold'
+    default:
+      return 'i-ph:shuffle-simple-bold'
+  }
 }
 
 function DraftSetupPlayerColumn(props: ReturnType<typeof createPlayerColumnProps>) {
@@ -66,6 +242,7 @@ function DraftSetupPlayerColumn(props: ReturnType<typeof createPlayerColumnProps
             dropActive={props.canDropOnRow(row) && props.dragOverSlot === row.slot}
             showJoin={props.canJoinSlot(row)}
             showRemove={props.canRemoveSlot(row)}
+            flip={props.flip}
             onJoin={() => props.onJoin(row.slot)}
             onRemove={() => props.onRemove(row.slot)}
             onDragStart={() => props.onDragStart(row.playerId)}
@@ -87,6 +264,7 @@ function PlayerChip(props: {
   dropActive: boolean
   showJoin: boolean
   showRemove: boolean
+  flip: PlayerFlipApi
   onJoin?: () => void
   onRemove?: () => void
   onDragStart?: () => void
@@ -94,8 +272,19 @@ function PlayerChip(props: {
   onDragEnter?: () => void
   onDrop?: () => void
 }) {
+  let chipEl: HTMLDivElement | undefined
+
+  createEffect(() => {
+    const playerId = props.row.playerId
+    const el = chipEl
+    if (!el || !playerId) return
+    props.flip.register(playerId, el)
+    onCleanup(() => props.flip.unregister(playerId, el))
+  })
+
   return (
     <div
+      ref={chipEl}
       data-slot={props.row.slot}
       class={cn(
         'group flex items-center gap-2 rounded-md px-3 py-2 border transition-colors',
@@ -176,9 +365,10 @@ function PlayerChip(props: {
   )
 }
 
-function createPlayerColumnProps(state: DraftSetupPlayersPanelState, rows: PlayerRow[]) {
+function createPlayerColumnProps(state: DraftSetupPlayersPanelState, rows: PlayerRow[], flip: PlayerFlipApi) {
   return {
     rows,
+    flip,
     pending: state.pending.lobbyAction(),
     dragOverSlot: state.dragOverSlot(),
     canDragRow: state.permissions.canDragRow,

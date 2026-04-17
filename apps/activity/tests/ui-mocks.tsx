@@ -124,6 +124,7 @@ function mockLobbySnapshot(): LobbySnapshot {
     steamLobbyLink: 'steam://joinlobby/289070/example',
     minRole: null,
     maxRole: null,
+    lastArrange: null,
     entries: [],
     minPlayers: 2,
     targetSize: 4,
