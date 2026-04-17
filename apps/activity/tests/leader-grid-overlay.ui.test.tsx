@@ -281,6 +281,51 @@ describe('LeaderGridOverlay UI', () => {
     expect(uiMockState.gridOpen).toBe(false)
   })
 
+  test('keeps already-picked leaders available when duplicate factions are enabled', () => {
+    uiMockState.draftState = createActiveDraftState({
+      currentStepIndex: 1,
+      duplicateFactions: true,
+      picks: [{ seatIndex: 1, civId: TEST_LEADER_IDS.abrahamLincoln, stepIndex: 1 }],
+      availableCivIds: [TEST_LEADER_IDS.johnCurtin],
+    })
+
+    render(() => <LeaderGridOverlay />)
+
+    const abrahamCard = screen.getByAltText('Abraham Lincoln').closest('button') as HTMLButtonElement
+    const abrahamImage = screen.getByAltText('Abraham Lincoln')
+
+    expect(abrahamCard.hasAttribute('disabled')).toBe(false)
+    expect(abrahamImage.className.includes('opacity-25')).toBe(false)
+
+    fireEvent.click(abrahamCard)
+
+    expect(uiMockState.selectedLeaderId).toBe(TEST_LEADER_IDS.abrahamLincoln)
+  })
+
+  test('allows random pick to reuse an already-picked leader when duplicate factions are enabled', () => {
+    uiMockState.searchQuery = 'Abraham'
+    uiMockState.draftState = createActiveDraftState({
+      currentStepIndex: 1,
+      duplicateFactions: true,
+      picks: [{ seatIndex: 1, civId: TEST_LEADER_IDS.abrahamLincoln, stepIndex: 1 }],
+      availableCivIds: [TEST_LEADER_IDS.johnCurtin],
+    })
+
+    let unmount = () => {}
+    const mount = () => {
+      unmount()
+      ;({ unmount } = render(() => <LeaderGridOverlay />))
+    }
+
+    mount()
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Random' })[0]!)
+    mount()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Pick' }))
+
+    expect(storeSpies.sendPick).toHaveBeenCalledWith(TEST_LEADER_IDS.abrahamLincoln)
+  })
+
   test('keeps the overlay open on your turn but lets spectators close it from the backdrop', () => {
     render(() => <LeaderGridOverlay />)
 

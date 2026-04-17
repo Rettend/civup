@@ -439,5 +439,8 @@ export function formatDraftStepLabel(
     return [`P${seatIndex + 1}`]
   })))
 
+  // Simultaneous blind team bans read better as a generic BAN label.
+  if (step.action === 'ban' && actors.length > 1 && actors.every(actor => actor.startsWith('T'))) return actionLabel
+
   return actors.length > 0 ? `${actionLabel} ${actors.join(' & ')}` : actionLabel
 }
