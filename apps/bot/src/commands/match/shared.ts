@@ -8,10 +8,10 @@ import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLab
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { deriveQueueBackedLobbyMemberPlayerIds, filterQueueEntriesForLobby, getCurrentLobbiesForPlayers, getLobbiesByMode, isQueueBackedOpenLobbyState, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, reconcileOpenLobbyState, sameLobbySlots, upsertLobby } from '../../services/lobby/index.ts'
+import { deriveQueueBackedLobbyMemberPlayerIds, filterQueueEntriesForLobby, getCurrentLobbiesForPlayers, getLobbiesByMode, getOpenLobbyForPlayer, isQueueBackedOpenLobbyState, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, reconcileOpenLobbyState, sameLobbySlots, upsertLobby } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
-import { getQueueStateWithPlayerQueueModes, MAX_QUEUE_ENTRIES, setQueueEntries } from '../../services/queue/index.ts'
+import { getQueueState, getQueueStateWithPlayerQueueModes, MAX_QUEUE_ENTRIES, removeFromQueueAndUnlinkParty, setQueueEntries } from '../../services/queue/index.ts'
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds } from '../../services/ranked/roles.ts'
 import { createStateStore } from '../../services/state/store.ts'
 
@@ -476,6 +476,43 @@ export async function findActiveMatchIdsForPlayers(
   }
 
   return activeMatchIdsByPlayerId
+}
+
+/**
+ * Resolve whether `/match create` is blocked by a real current lobby, or only by stale queue residue.
+ */
+export async function preflightMatchCreateQueueState(
+  kv: KVNamespace,
+  mode: GameMode,
+  playerId: string,
+): Promise<
+  | { kind: 'continue', queue: Awaited<ReturnType<typeof getQueueState>> }
+  | { kind: 'reuse-hosted-open-lobby', queue: Awaited<ReturnType<typeof getQueueState>>, lobby: LobbyState }
+  | { kind: 'block-open-lobby', queue: Awaited<ReturnType<typeof getQueueState>>, lobby: LobbyState }
+> {
+  const { queue: initialQueue, queueModeByPlayerId } = await getQueueStateWithPlayerQueueModes(
+    kv,
+    mode,
+    [playerId],
+    { fallbackToQueueScan: false },
+  )
+  const existingQueueMode = queueModeByPlayerId.get(playerId) ?? null
+  if (!existingQueueMode) return { kind: 'continue', queue: initialQueue }
+
+  const currentOpenLobby = await getOpenLobbyForPlayer(kv, playerId, existingQueueMode)
+  if (currentOpenLobby) {
+    return {
+      kind: currentOpenLobby.hostId === playerId ? 'reuse-hosted-open-lobby' : 'block-open-lobby',
+      queue: initialQueue,
+      lobby: currentOpenLobby,
+    }
+  }
+
+  const removed = await removeFromQueueAndUnlinkParty(kv, playerId)
+  return {
+    kind: 'continue',
+    queue: removed.mode === mode ? await getQueueState(kv, mode) : initialQueue,
+  }
 }
 
 async function getRoleGateErrorForLobby(

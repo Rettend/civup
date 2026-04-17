@@ -16,7 +16,7 @@ import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { cancelMatchByModerator, getStoredGameModeContext, reportMatch } from '../../services/match/index.ts'
 import { clearMatchMessageMapping, storeMatchMessageMapping } from '../../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../../services/match/report-discord.ts'
-import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, getQueueStateWithPlayerQueueModes, removeFromQueue, removeFromQueueAndUnlinkParty } from '../../services/queue/index.ts'
+import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, removeFromQueue, removeFromQueueAndUnlinkParty } from '../../services/queue/index.ts'
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../../services/ranked/role-sync.ts'
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { syncSeasonPeaksForPlayers } from '../../services/season/index.ts'
@@ -24,7 +24,7 @@ import { createStateStore } from '../../services/state/store.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
 import { factory } from '../../setup.ts'
-import { buildFfaPlacementOptions, collectFfaPlacementUserIds, findActiveMatchIdsForPlayers, findLiveMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
+import { buildFfaPlacementOptions, collectFfaPlacementUserIds, findActiveMatchIdsForPlayers, findLiveMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS, preflightMatchCreateQueueState } from './shared.ts'
 
 const MATCH_MODE_CHOICES = GAME_MODE_CHOICES
 const MATCH_BUMP_RESPONSE_DELETE_MS = 5_000
@@ -120,30 +120,33 @@ export const command_match = factory.command<MatchVar>(
               return
             }
 
-            if (currentHostedLobby) {
+            const createPreflight = await preflightMatchCreateQueueState(kv, mode, identity.userId)
+            if (createPreflight.kind === 'reuse-hosted-open-lobby') {
+              const updatedLobby = steamLobbyLink !== null
+                ? (await setLobbySteamLobbyLink(kv, createPreflight.lobby.id, steamLobbyLink, createPreflight.lobby) ?? createPreflight.lobby)
+                : createPreflight.lobby
+
+              await storeUserLobbyState(kv, updatedLobby.channelId, [identity.userId], updatedLobby.id)
               await sendTransientEphemeralResponse(
                 c,
-                'You are already in a live match. Finish or cancel it before creating a new lobby.',
+                steamLobbyLink !== null
+                  ? `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>. Updated its Steam lobby link.`
+                  : `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>.`,
+                'info',
+              )
+              return
+            }
+
+            if (createPreflight.kind === 'block-open-lobby') {
+              await sendTransientEphemeralResponse(
+                c,
+                `You are already in an open ${formatModeLabel(createPreflight.lobby.mode)} lobby. Leave it first with \`/match leave\`.`,
                 'error',
               )
               return
             }
 
-            const { queue, queueModeByPlayerId } = await getQueueStateWithPlayerQueueModes(
-              kv,
-              mode,
-              [identity.userId],
-              { fallbackToQueueScan: false },
-            )
-            const existingQueueMode = queueModeByPlayerId.get(identity.userId) ?? null
-            if (existingQueueMode) {
-              await sendTransientEphemeralResponse(
-                c,
-                `You are already in an open ${formatModeLabel(existingQueueMode)} lobby. Leave it first with \`/match leave\`.`,
-                'error',
-              )
-              return
-            }
+            const queue = createPreflight.queue
 
             const db = createDb(c.env.DB)
             const liveMatchIdByPlayer = await findLiveMatchIdsForPlayers(db, [identity.userId])
@@ -162,7 +165,7 @@ export const command_match = factory.command<MatchVar>(
               avatarUrl: identity.avatarUrl,
               joinedAt: Date.now(),
             }, {
-              existingMode: existingQueueMode,
+              existingMode: null,
               currentState: queue,
             })
 

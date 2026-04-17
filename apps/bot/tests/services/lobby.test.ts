@@ -511,6 +511,13 @@ describe('lobby service KV write behavior', () => {
   test('tracks the current hosted lobby without scanning all modes', async () => {
     const { kv } = createTrackedKv()
 
+    await addToQueue(kv, 'ffa', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
     const lobby = await createLobby(kv, {
       mode: 'ffa',
       hostId: 'host-1',
@@ -529,6 +536,87 @@ describe('lobby service KV write behavior', () => {
       id: lobby.id,
       status: 'drafting',
     }))
+  })
+
+  test('ignores and clears a stale host index to an orphan open lobby', async () => {
+    const { kv } = createTrackedKv()
+
+    const orphanLobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toBeNull()
+    await expect(kv.get(hostKey('host-1'))).resolves.toBeNull()
+    await expect(getLobbyById(kv, orphanLobby.id)).resolves.toEqual(expect.objectContaining({
+      id: orphanLobby.id,
+      status: 'open',
+    }))
+  })
+
+  test('recovers a real hosted open lobby when the host index points at stale residue', async () => {
+    const { kv } = createTrackedKv()
+
+    await addToQueue(kv, 'ffa', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    const staleLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-stale',
+      messageId: 'message-stale',
+    })
+    await kv.put(hostKey('host-1'), staleLobby.id)
+
+    await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(expect.objectContaining({
+      id: lobby.id,
+      status: 'open',
+    }))
+    await expect(kv.get(hostKey('host-1'))).resolves.toBe(lobby.id)
+  })
+
+  test('prefers a real hosted open lobby over stale live residue when the host index is stale', async () => {
+    const { kv } = createTrackedKv()
+
+    await addToQueue(kv, 'ffa', {
+      playerId: 'host-1',
+      displayName: 'Host 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    const openLobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-open',
+      messageId: 'message-open',
+    })
+    const olderLiveLobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-live',
+      messageId: 'message-live',
+    })
+    const draftingLobby = await attachLobbyMatch(kv, olderLiveLobby.id, 'match-1', olderLiveLobby)
+
+    expect(draftingLobby).not.toBeNull()
+    await kv.put(hostKey('host-1'), 'stale-lobby-id')
+
+    await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(expect.objectContaining({
+      id: openLobby.id,
+      status: 'open',
+    }))
+    await expect(kv.get(hostKey('host-1'))).resolves.toBe(openLobby.id)
   })
 
   test('clears orphaned host and match indexes when the lobby record is gone', async () => {
