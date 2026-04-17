@@ -1,5 +1,6 @@
 /** @jsxImportSource solid-js */
 
+import type { DraftStep } from '@civup/game'
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library'
 import { createActiveDraftState, TEST_LEADER_IDS } from './ui-fixtures'
@@ -33,13 +34,17 @@ describe('LeaderGridOverlay UI', () => {
     uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1 })
   })
 
-  test('supports search, filters, list mode, and list selection flows', async () => {
-    setViewportWidth(1440)
+  function createMount() {
     let unmount = () => {}
-    const mount = () => {
+    return () => {
       unmount()
       ;({ unmount } = render(() => <LeaderGridOverlay />))
     }
+  }
+
+  test('supports search, filters, list mode, and list selection flows', async () => {
+    setViewportWidth(1440)
+    const mount = createMount()
 
     mount()
 
@@ -73,11 +78,7 @@ describe('LeaderGridOverlay UI', () => {
   })
 
   test('supports random toggle, direct card selection, and pick confirmation', async () => {
-    let unmount = () => {}
-    const mount = () => {
-      unmount()
-      ;({ unmount } = render(() => <LeaderGridOverlay />))
-    }
+    const mount = createMount()
 
     mount()
 
@@ -107,11 +108,7 @@ describe('LeaderGridOverlay UI', () => {
       availableCivIds: [TEST_LEADER_IDS.abrahamLincoln],
     })
 
-    let unmount = () => {}
-    const mount = () => {
-      unmount()
-      ;({ unmount } = render(() => <LeaderGridOverlay />))
-    }
+    const mount = createMount()
 
     mount()
 
@@ -130,11 +127,7 @@ describe('LeaderGridOverlay UI', () => {
       steps: [{ action: 'ban', count: 2, timer: 60, seats: 'all' }, { action: 'pick', count: 1, timer: 90, seats: [0] }],
     })
 
-    let unmount = () => {}
-    const mount = () => {
-      unmount()
-      ;({ unmount } = render(() => <LeaderGridOverlay />))
-    }
+    const mount = createMount()
 
     mount()
 
@@ -161,11 +154,7 @@ describe('LeaderGridOverlay UI', () => {
       steps: [{ action: 'ban', count: 1, timer: 60, seats: [0] }, { action: 'pick', count: 1, timer: 90, seats: [2] }],
     })
 
-    let unmount = () => {}
-    const mount = () => {
-      unmount()
-      ;({ unmount } = render(() => <LeaderGridOverlay />))
-    }
+    const mount = createMount()
 
     mount()
 
@@ -179,11 +168,7 @@ describe('LeaderGridOverlay UI', () => {
   })
 
   test('toggles the expanded overlay layout through the shared grid controls', async () => {
-    let unmount = () => {}
-    const mount = () => {
-      unmount()
-      ;({ unmount } = render(() => <LeaderGridOverlay />))
-    }
+    const mount = createMount()
 
     mount()
 
@@ -232,11 +217,7 @@ describe('LeaderGridOverlay UI', () => {
   })
 
   test('opens leader details from a grid card context menu and supports favorite toggling', () => {
-    let unmount = () => {}
-    const mount = () => {
-      unmount()
-      ;({ unmount } = render(() => <LeaderGridOverlay />))
-    }
+    const mount = createMount()
 
     mount()
 
@@ -262,11 +243,7 @@ describe('LeaderGridOverlay UI', () => {
       steps: [{ action: 'ban', count: 2, timer: 60, seats: 'all' }, { action: 'pick', count: 1, timer: 90, seats: [0] }],
     })
 
-    let unmount = () => {}
-    const mount = () => {
-      unmount()
-      ;({ unmount } = render(() => <LeaderGridOverlay />))
-    }
+    const mount = createMount()
 
     mount()
 
@@ -311,11 +288,7 @@ describe('LeaderGridOverlay UI', () => {
       availableCivIds: [TEST_LEADER_IDS.johnCurtin],
     })
 
-    let unmount = () => {}
-    const mount = () => {
-      unmount()
-      ;({ unmount } = render(() => <LeaderGridOverlay />))
-    }
+    const mount = createMount()
 
     mount()
 
@@ -339,5 +312,71 @@ describe('LeaderGridOverlay UI', () => {
     fireEvent.click(backdrop)
 
     expect(uiMockState.gridOpen).toBe(false)
+  })
+
+  test('keeps local bans when the overlay remounts during the same ban step', () => {
+    uiMockState.draftState = createActiveDraftState({
+      currentStepIndex: 0,
+      steps: [{ action: 'ban', count: 1, timer: 60, seats: [0] }, { action: 'pick', count: 1, timer: 90, seats: [0] }],
+    })
+
+    const mount = createMount()
+
+    mount()
+
+    fireEvent.click(screen.getByAltText('John Curtin').closest('button')!)
+    expect(uiMockState.banSelections).toEqual([TEST_LEADER_IDS.johnCurtin])
+
+    mount()
+
+    expect(uiMockState.banSelections).toEqual([TEST_LEADER_IDS.johnCurtin])
+  })
+
+  test('clears stale local bans when advancing to a new ban step without a preview', () => {
+    const steps: DraftStep[] = [
+      { action: 'ban', count: 1, timer: 60, seats: [0] },
+      { action: 'ban', count: 1, timer: 60, seats: [0] },
+      { action: 'pick', count: 1, timer: 90, seats: [0] },
+    ]
+
+    uiMockState.draftState = createActiveDraftState({ currentStepIndex: 0, steps: [...steps] })
+
+    const mount = createMount()
+
+    mount()
+
+    fireEvent.click(screen.getByAltText('John Curtin').closest('button')!)
+    expect(uiMockState.banSelections).toEqual([TEST_LEADER_IDS.johnCurtin])
+
+    uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1, steps: [...steps] })
+    uiMockState.draftPreviewBans = {}
+
+    mount()
+
+    expect(uiMockState.banSelections).toEqual([])
+  })
+
+  test('hydrates the next ban step preview instead of keeping the previous local selection', () => {
+    const steps: DraftStep[] = [
+      { action: 'ban', count: 1, timer: 60, seats: [0] },
+      { action: 'ban', count: 1, timer: 60, seats: [0] },
+      { action: 'pick', count: 1, timer: 90, seats: [0] },
+    ]
+
+    uiMockState.draftState = createActiveDraftState({ currentStepIndex: 0, steps: [...steps] })
+
+    const mount = createMount()
+
+    mount()
+
+    fireEvent.click(screen.getByAltText('John Curtin').closest('button')!)
+    expect(uiMockState.banSelections).toEqual([TEST_LEADER_IDS.johnCurtin])
+
+    uiMockState.draftPreviewBans = { 0: [TEST_LEADER_IDS.hammurabi] }
+    uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1, steps: [...steps] })
+
+    mount()
+
+    expect(uiMockState.banSelections).toEqual([TEST_LEADER_IDS.hammurabi])
   })
 })

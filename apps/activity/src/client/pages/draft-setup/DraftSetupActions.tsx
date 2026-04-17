@@ -102,7 +102,7 @@ function HostLobbyActions(props: { actions: DraftSetupActionsState }) {
           disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.lobbyAction()}
           onClick={() => void actions().shuffleTeamsLobby()}
         >
-          <span class="i-ph:arrows-clockwise text-lg" />
+          <span class="i-ph:arrows-clockwise-bold text-lg" />
         </button>
       </Show>
       <button

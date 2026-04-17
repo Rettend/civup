@@ -76,6 +76,7 @@ type MockState = {
   detailLeaderId: string | null
   pickSelections: string[]
   banSelections: string[]
+  banSelectionStepToken: string | null
   isRandomSelected: boolean
   favoriteLeaderIds: string[]
   ffaPlacementOrder: number[]
@@ -169,6 +170,7 @@ const defaults = (): MockState => ({
   detailLeaderId: null,
   pickSelections: [],
   banSelections: [],
+  banSelectionStepToken: null,
   isRandomSelected: false,
   favoriteLeaderIds: [],
   ffaPlacementOrder: [],
@@ -209,6 +211,7 @@ export function resetUiMocks() {
   uiMockState.detailLeaderId = null
   uiMockState.pickSelections = []
   uiMockState.banSelections = []
+  uiMockState.banSelectionStepToken = null
   uiMockState.isRandomSelected = false
   uiMockState.favoriteLeaderIds = []
   uiMockState.ffaPlacementOrder = []
@@ -299,6 +302,7 @@ function setPickSelections(next: string[]) {
 function clearSelections() {
   setPickSelections([])
   uiMockState.banSelections = []
+  uiMockState.banSelectionStepToken = null
   uiMockState.isRandomSelected = false
   uiMockState.searchQuery = ''
   uiMockState.tagFiltersState = emptyTagFilters()
@@ -331,6 +335,7 @@ mock.module('~/client/lib/clipboard', () => ({
 mock.module('~/client/stores', () => ({
   activeTagFilterCount: () => Object.values(uiMockState.tagFiltersState).reduce((count, tags) => count + tags.length, 0),
   arrangeLobbySlots: (...args: Parameters<typeof storeSpies.arrangeLobbySlots>) => storeSpies.arrangeLobbySlots(...args),
+  banSelectionStepToken: () => uiMockState.banSelectionStepToken,
   banSelections: () => uiMockState.banSelections,
   clearLeaderFavorites: () => { uiMockState.favoriteLeaderIds = [] },
   clearWinningTeam: () => { uiMockState.selectedWinningTeam = null },
@@ -438,6 +443,7 @@ mock.module('~/client/stores', () => ({
   setSelectedLeader: (leaderId: string | null) => { setPickSelections(leaderId ? [leaderId] : []) },
   selectWinningTeam: (team: number | null) => { uiMockState.selectedWinningTeam = team },
   startLobbyDraft: (...args: Parameters<typeof storeSpies.startLobbyDraft>) => storeSpies.startLobbyDraft(...args),
+  setBanSelectionStepToken: (next: string | null) => { uiMockState.banSelectionStepToken = next },
   tagFilters: () => uiMockState.tagFiltersState,
   teamPlacementOrder: () => uiMockState.teamPlacementOrder,
   toggleDetail: (leaderId: string) => { uiMockState.detailLeaderId = uiMockState.detailLeaderId === leaderId ? null : leaderId },
