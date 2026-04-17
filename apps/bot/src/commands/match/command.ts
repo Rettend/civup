@@ -2,7 +2,7 @@ import type { DraftSeat, GameMode, QueueEntry } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { MatchJoinEntry, MatchVar } from './shared.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, isTeamMode, maxPlayerCount, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
+import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, isTeamMode, maxPlayerCount, minPlayerCount, parseGameMode, slotToTeamIndex, startPlayerCountOptions } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/match.ts'
@@ -672,9 +672,8 @@ export const command_match = factory.command<MatchVar>(
                 const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
                 const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
                 const filled = slots.filter(slot => slot != null).length
-                const minPlayers = minPlayerCount(mode)
-                const maxPlayers = maxPlayerCount(mode)
-                const target = minPlayers === maxPlayers ? String(maxPlayers) : `${minPlayers}-${maxPlayers}`
+                const validCounts = startPlayerCountOptions(mode, slots.length, { redDeath: lobby.draftConfig.redDeath })
+                const target = formatPlayerCountList(validCounts, slots.length)
                 lines.push(`- ${formatModeLabel(mode)} - ${label} (${filled}/${target}) - ${link} - \`${lobby.id}\``)
                 continue
               }
@@ -760,14 +759,13 @@ export const command_match = factory.command<MatchVar>(
 
           const mode = matchContext.mode
           const fallbackLobby = await getLobbyByMatch(kv, match.id)
-          const multiTeamMatch = isTeamMode(mode)
-            ? (await db
-                .select({ team: matchParticipants.team })
-                .from(matchParticipants)
-                .where(eq(matchParticipants.matchId, match.id)))
-                .flatMap(participant => participant.team == null ? [] : [participant.team])
-            : []
-          const uniqueTeams = new Set(multiTeamMatch)
+          const participantRows = await db
+            .select({ playerId: matchParticipants.playerId, team: matchParticipants.team })
+            .from(matchParticipants)
+            .where(eq(matchParticipants.matchId, match.id))
+          const uniqueTeams = new Set(isTeamMode(mode)
+            ? participantRows.flatMap(participant => participant.team == null ? [] : [participant.team])
+            : [])
 
           let placements: string
           if (mode === 'ffa') {
@@ -775,7 +773,7 @@ export const command_match = factory.command<MatchVar>(
               await sendTransientEphemeralResponse(c, 'For FFA reporting, you must provide a `winner` (1st place) user.', 'error')
               return
             }
-            const requiredPlacements = matchContext.redDeath ? 4 : minPlayerCount(mode)
+            const requiredPlacements = matchContext.redDeath ? 4 : (participantRows.length > 0 ? participantRows.length : minPlayerCount(mode))
             const placementLabelByCount: Record<number, string> = {
               2: 'second',
               3: 'third',
@@ -953,6 +951,13 @@ export const command_match = factory.command<MatchVar>(
     }
   },
 )
+
+function formatPlayerCountList(counts: readonly number[], fallback: number): string {
+  if (counts.length === 0) return String(fallback)
+  if (counts.length === 1) return String(counts[0]!)
+  if (counts.length === 2) return `${counts[0]!} or ${counts[1]!}`
+  return `${counts.slice(0, -1).join(', ')}, or ${counts[counts.length - 1]!}`
+}
 
 async function sendMatchBumpResponse(
   c: Parameters<typeof sendEphemeralResponse>[0],

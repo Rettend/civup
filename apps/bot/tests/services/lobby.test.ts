@@ -248,6 +248,34 @@ describe('lobby service KV write behavior', () => {
     expect(snapshot?.targetSize).toBe(8)
   })
 
+  test('stores six players as the regular FFA minimum start size for 8 seats', async () => {
+    const { kv } = createTrackedKv()
+
+    await addToQueue(kv, 'ffa', {
+      playerId: 'host-1',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await syncLobbyDerivedState(kv, lobby)
+
+    const snapshot = await kv.get(lobbySnapshotKey(lobby.id), 'json') as {
+      minPlayers?: unknown
+      targetSize?: unknown
+    } | null
+
+    expect(snapshot?.minPlayers).toBe(6)
+    expect(snapshot?.targetSize).toBe(8)
+  })
+
   test('stores live snapshots with attached balance ratings', async () => {
     const { kv } = createTrackedKv()
 
