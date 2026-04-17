@@ -129,4 +129,25 @@ export {
   toggleTagFilter,
   toggleTeamPlacement,
 } from './ui-store'
+export {
+  confirmMapVote,
+  finishMapVote,
+  getSeatMapVote,
+  isMapVotePhase,
+  type MapVotePhase,
+  mapVoteEnabled,
+  mapVoteHasConfirmed,
+  mapVotePhase,
+  mapVoteReadyToConfirm,
+  mapVoteSeatVotes,
+  mapVoteSelectedScript,
+  mapVoteSelectedType,
+  mapVoteWinningScript,
+  mapVoteWinningType,
+  resetMapVote,
+  setMapVoteEnabled,
+  setMapVoteSelectedScript,
+  setMapVoteSelectedType,
+  startMapVote,
+} from './map-vote-store'
 export { avatarUrl, displayName, setAuthenticatedUser, user, userId } from './user-store'

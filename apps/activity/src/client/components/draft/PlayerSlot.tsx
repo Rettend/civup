@@ -3,9 +3,10 @@ import { getLeader } from '@civup/game'
 import { createEffect, createSignal, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
+import { MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '~/client/lib/map-vote'
 import { placementIconClass } from '~/client/lib/placement-icons'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
-import { canRequestSwapWith, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, isMobileLayout, isSwapWindowOpen, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
+import { canRequestSwapWith, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, isMapVotePhase, isMobileLayout, isSwapWindowOpen, mapVoteHasConfirmed, mapVotePhase, mapVoteWinningScript, mapVoteWinningType, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -445,6 +446,131 @@ export function PlayerSlot(props: PlayerSlotProps) {
           {props.seatIndex + 1}
         </span>
       </div>
+
+      {/* Map vote overlay — hides the slot contents during the MAP phase */}
+      <Show when={isMapVotePhase()}>
+        <MapVoteSlotOverlay seatIndex={props.seatIndex} compact={props.compact} />
+      </Show>
+    </div>
+  )
+}
+
+function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
+  const state = () => draftStore.state
+  const seat = () => state()?.seats[props.seatIndex]
+  const seatAvatarUrl = () => seat()?.avatarUrl ?? null
+
+  const isRevealing = () => mapVotePhase() === 'reveal'
+  const vote = () => isRevealing() ? getSeatMapVote(props.seatIndex) : null
+  const mapType = () => {
+    const id = vote()?.mapType
+    return id ? MAP_TYPE_BY_ID[id] : null
+  }
+  const mapScript = () => {
+    const id = vote()?.mapScript
+    return id ? MAP_SCRIPT_BY_ID[id] : null
+  }
+
+  const isWinningType = () => vote()?.mapType === mapVoteWinningType()
+  const isWinningScript = () => vote()?.mapScript === mapVoteWinningScript()
+  const isWinningBallot = () => isRevealing() && isWinningType() && isWinningScript()
+
+  const isMe = () => {
+    const uid = userId()
+    return !!uid && seat()?.playerId === uid
+  }
+  const showConfirmedBadge = () => mapVotePhase() === 'voting' && isMe() && mapVoteHasConfirmed()
+
+  return (
+    <div
+      class={cn(
+        'inset-0 absolute z-40 flex flex-col overflow-hidden bg-bg-subtle',
+        isRevealing() && isWinningBallot() && 'ring-2 ring-accent/60',
+      )}
+    >
+      <Show when={isRevealing() && isWinningBallot()}>
+        <div
+          class="anim-fade-in pointer-events-none inset-0 absolute z-10"
+          style={{
+            background: [
+              'radial-gradient(ellipse farthest-side at 50% 130%, var(--glow-gold) 0%, var(--glow-gold-dim) 40%, transparent 72%)',
+              'linear-gradient(to top, var(--glow-gold-dim) 0%, transparent 40%)',
+            ].join(', '),
+          }}
+        />
+      </Show>
+
+      {/* Dim non-winning ballots a little during reveal */}
+      <Show when={isRevealing() && !isWinningBallot()}>
+        <div class="bg-black/30 pointer-events-none inset-0 absolute z-10" />
+      </Show>
+
+      <div class="relative z-20 flex flex-1 flex-col items-center justify-center gap-2 px-2 text-center">
+        <Show
+          when={isRevealing() && vote()}
+          fallback={(
+            <>
+              <div
+                class={cn(
+                  'i-ph-map-trifold-bold opacity-40',
+                  props.compact ? 'text-3xl' : 'text-5xl',
+                )}
+              />
+              <div class={cn('text-fg-muted/70 tracking-widest font-semibold uppercase', props.compact ? 'text-[10px]' : 'text-xs')}>
+                <Show when={showConfirmedBadge()} fallback="Voting...">
+                  <span class="flex gap-1 items-center justify-center text-accent">
+                    <span class="i-ph-check-bold" />
+                    Voted
+                  </span>
+                </Show>
+              </div>
+            </>
+          )}
+        >
+          <div
+            class={cn(
+              'flex flex-col gap-1 items-center justify-center',
+              isWinningBallot() ? 'text-fg' : 'text-fg-muted',
+            )}
+          >
+            <div class={cn('font-semibold leading-tight', props.compact ? 'text-xs' : 'text-sm')}>
+              {mapType()?.name ?? '—'}
+            </div>
+            <div class={cn('leading-tight', props.compact ? 'text-[10px]' : 'text-xs', isWinningBallot() ? 'text-accent font-semibold' : 'text-fg-muted/80')}>
+              {mapScript()?.name ?? '—'}
+            </div>
+            <Show when={mapScript()?.hint}>
+              <div class={cn('text-fg-muted/60', props.compact ? 'text-[9px]' : 'text-[10px]')}>
+                {mapScript()?.hint}
+              </div>
+            </Show>
+          </div>
+        </Show>
+      </div>
+
+      {/* Name row at the bottom */}
+      <Show when={seat()} keyed>
+        {s => (
+          <div class={cn(
+            'relative z-20 flex items-center gap-2 px-2 pb-2 pt-6',
+            'bg-gradient-to-t from-black/70 to-transparent',
+          )}
+          >
+            <Show when={seatAvatarUrl()} keyed>
+              {url => (
+                <img
+                  src={url}
+                  alt=""
+                  class="rounded-full shrink-0 h-5 w-5 object-cover"
+                />
+              )}
+            </Show>
+            <span class={cn('text-sm leading-tight truncate', isWinningBallot() ? 'text-fg' : 'text-fg-muted')}>
+              {s.displayName}
+            </span>
+          </div>
+        )}
+      </Show>
     </div>
   )
 }
