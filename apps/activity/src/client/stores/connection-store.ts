@@ -42,7 +42,6 @@ export interface LobbySnapshot {
     playerId: string
     displayName: string
     avatarUrl?: string | null
-    partyIds?: string[]
     balanceRating?: {
       mu: number
       sigma: number
@@ -86,7 +85,7 @@ export interface LobbyRankedRolesSnapshot {
   options: RankedRoleOptionSnapshot[]
 }
 
-export type LobbyArrangeStrategy = 'randomize' | 'balance'
+export type LobbyArrangeStrategy = 'randomize' | 'balance' | 'shuffle-teams'
 
 interface StateWatchMessage {
   type: 'state-changed' | 'error'
@@ -804,24 +803,6 @@ export async function arrangeLobbySlots(
     console.error('Failed to arrange lobby slots:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while arranging lobby slots' }
-  }
-}
-
-/** Toggle a visible premade link between neighboring team slots. */
-export async function toggleLobbyPremadeLink(
-  mode: string,
-  lobbyId: string,
-  userId: string,
-  leftSlot: number,
-): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
-  try {
-    const lobby = await activityApiPost<LobbySnapshot>(`/api/lobby/${mode}/link`, { lobbyId, userId, leftSlot })
-    return { ok: true, lobby }
-  }
-  catch (err) {
-    console.error('Failed to toggle lobby premade link:', err)
-    if (err instanceof ApiError) return { ok: false, error: err.message }
-    return { ok: false, error: 'Network error while toggling premade link' }
   }
 }
 

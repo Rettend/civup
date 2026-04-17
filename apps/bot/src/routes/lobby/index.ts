@@ -11,9 +11,7 @@ import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTime
 import {
   arrangeLobbySlots,
   attachLobbyMatch,
-  buildActivePremadeEdgeSet,
   buildOpenLobbyRenderPayload,
-  buildSlottedPremadeGroups,
   clearLobbyById,
   compactSlottedPremadesForMode,
   getCurrentLobbiesForPlayer,
@@ -21,9 +19,7 @@ import {
   getLobbyById,
   leaveOpenLobbyForLobbyJoin,
   mapLobbySlotsToEntries,
-  moveSlottedPremadeGroup,
   normalizeLobbySlots,
-  rebuildQueueEntriesFromPremadeEdgeSet,
   reconcileOpenLobbyState,
   sameLobbySlots,
   setLobbyDraftConfig,
@@ -40,7 +36,6 @@ import {
 import { modeIndexKey } from '../../services/lobby/keys.ts'
 import { findPersistedLiveMatchIdsForPlayers } from '../../services/match/live.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
-import { arePremadeGroupsAdjacent } from '../../services/lobby/premades.ts'
 import { normalizeDraftConfigForMode } from '../../services/lobby/normalize.ts'
 import { createDraftMatch } from '../../services/match/index.ts'
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
@@ -690,10 +685,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     const sourceSlot = slots.findIndex(playerId => playerId === movingPlayerId)
     const targetPlayerId = slots[targetSlot]
-    const movingPremadeGroup = isTeamMode(mode) && sourceSlot >= 0
-      ? buildSlottedPremadeGroups(mode, slots, lobbyQueueEntries).find(group => group.playerIds.includes(movingPlayerId)) ?? null
-      : null
-
     if (targetPlayerId === movingPlayerId) {
       await storeUserLobbyState(kv, lobby.channelId, [movingPlayerId], lobby.id)
       return c.json({
@@ -703,10 +694,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     if (!isHost) {
-      if (movingPremadeGroup && movingPremadeGroup.playerIds.length > 1) {
-        return c.json({ error: 'Only the host can move linked premades.' }, 403)
-      }
-
       if (targetPlayerId != null) {
         return c.json({ error: 'You can only move to empty slots.' }, 403)
       }
@@ -714,14 +701,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       slots[targetSlot] = movingPlayerId
     }
     else {
-      if (movingPremadeGroup && movingPremadeGroup.playerIds.length > 1) {
-        const movedGroup = moveSlottedPremadeGroup(mode, slots, movingPremadeGroup, sourceSlot, targetSlot)
-        if ('error' in movedGroup) {
-          return c.json({ error: movedGroup.error }, 400)
-        }
-        slots = movedGroup.slots
-      }
-      else if (sourceSlot < 0) {
+      if (sourceSlot < 0) {
         if (targetPlayerId != null) {
           return c.json({ error: 'Choose an empty slot for this spectator.' }, 400)
         }
@@ -731,10 +711,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         slots[sourceSlot] = targetPlayerId ?? null
         slots[targetSlot] = movingPlayerId
       }
-    }
-
-    if (isTeamMode(mode) && !arePremadeGroupsAdjacent(mode, slots, lobbyQueueEntries)) {
-      return c.json({ error: 'This move would split a linked premade.' }, 400)
     }
 
     if (blockingLobbyForPlayer?.status === 'open') {
@@ -873,14 +849,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const queueAfterRemoval = removed.mode ? await getQueueState(kv, mode) : queue
 
     slots[slot] = null
-    let nextEntries = queueAfterRemoval.entries
-    if (isTeamMode(mode)) {
-      const nextEdges = buildActivePremadeEdgeSet(mode, slots, queueAfterRemoval.entries)
-      nextEntries = rebuildQueueEntriesFromPremadeEdgeSet(mode, slots, queueAfterRemoval.entries, nextEdges)
-      await setQueueEntries(kv, mode, nextEntries, {
-        currentState: queueAfterRemoval,
-      })
-    }
+    const nextEntries = queueAfterRemoval.entries
 
     const nextMemberIds = lobby.memberPlayerIds.filter(playerId => playerId !== targetPlayerId)
     let nextLobby = await setLobbyMemberPlayerIds(kv, lobby.id, nextMemberIds, lobby) ?? lobby
@@ -906,98 +875,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         components: renderPayload.components,
       })
     }, `Failed to update lobby embed after slot removal in ${mode}:`)
-
-    return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextLobbyQueueEntries, slots))
-  })
-
-  app.post('/api/lobby/:mode/link', async (c) => {
-    const auth = requireAuthenticatedActivity(c)
-    if (!auth.ok) return auth.response
-
-    const mode = parseGameMode(c.req.param('mode'))
-    const kv = createStateStore(c.env)
-    if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
-    if (!isTeamMode(mode)) {
-      return c.json({ error: 'Premade links are only available in team modes.' }, 400)
-    }
-
-    let body: unknown
-    try {
-      body = await c.req.json()
-    }
-    catch {
-      return c.json({ error: 'Invalid JSON payload' }, 400)
-    }
-
-    if (!body || typeof body !== 'object') {
-      return c.json({ error: 'Invalid request body' }, 400)
-    }
-
-    const { userId, leftSlot: leftSlotRaw, lobbyId } = body as {
-      userId?: unknown
-      leftSlot?: unknown
-      lobbyId?: unknown
-    }
-
-    if (typeof userId !== 'string' || userId.length === 0) {
-      return c.json({ error: 'userId is required' }, 400)
-    }
-
-    const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
-    if (mismatch) return mismatch
-
-    const leftSlot = parseSlotIndex(leftSlotRaw)
-    const rightSlot = leftSlot == null ? null : leftSlot + 1
-    if (leftSlot == null || rightSlot == null) {
-      return c.json({ error: 'Invalid premade link position' }, 400)
-    }
-
-    const lobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
-    if (!lobby) {
-      return c.json({ error: 'No open lobby for this mode' }, 404)
-    }
-
-    if (rightSlot >= lobby.slots.length) {
-      return c.json({ error: 'Invalid premade link position' }, 400)
-    }
-
-    if (slotToTeamIndex(mode, leftSlot, lobby.slots.length) == null || slotToTeamIndex(mode, leftSlot, lobby.slots.length) !== slotToTeamIndex(mode, rightSlot, lobby.slots.length)) {
-      return c.json({ error: 'Premade links must stay on one team.' }, 400)
-    }
-
-    const { queue, balanceSnapshot } = await getQueueStateWithLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
-    const lobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
-    const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
-    const leftPlayerId = slots[leftSlot]
-    const rightPlayerId = slots[rightSlot]
-    if (!leftPlayerId || !rightPlayerId) {
-      return c.json({ error: 'Both slots must be occupied.' }, 400)
-    }
-
-    const isHost = lobby.hostId === auth.identity.userId
-    if (!isHost && auth.identity.userId !== leftPlayerId && auth.identity.userId !== rightPlayerId) {
-      return c.json({ error: 'You can only link yourself with a neighbor.' }, 403)
-    }
-
-    const nextEdges = buildActivePremadeEdgeSet(mode, slots, lobbyQueueEntries)
-    if (nextEdges.has(leftSlot)) {
-      nextEdges.delete(leftSlot)
-    }
-    else {
-      nextEdges.add(leftSlot)
-    }
-
-    const nextEntries = rebuildQueueEntriesFromPremadeEdgeSet(mode, slots, queue.entries, nextEdges)
-    await setQueueEntries(kv, mode, nextEntries, {
-      currentState: queue,
-    })
-    const nextLobby = await setLobbyLastActivityAt(kv, lobby.id, Date.now(), lobby) ?? lobby
-    const nextLobbyQueueEntries = buildLobbyQueueEntries(nextLobby, nextEntries)
-    const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
-      queueEntries: nextLobbyQueueEntries,
-      slots,
-      balanceSnapshot,
-    })
 
     return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextLobbyQueueEntries, slots))
   })
@@ -1035,8 +912,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
     if (mismatch) return mismatch
 
-    if (strategyRaw !== 'randomize' && strategyRaw !== 'balance') {
-      return c.json({ error: 'strategy must be one of randomize or balance' }, 400)
+    if (strategyRaw !== 'randomize' && strategyRaw !== 'balance' && strategyRaw !== 'shuffle-teams') {
+      return c.json({ error: 'strategy must be one of randomize, balance, or shuffle-teams' }, 400)
     }
 
     const lobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })

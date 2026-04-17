@@ -365,8 +365,11 @@ describe('DraftSetupPage UI', () => {
       onLobbyStarted={onLobbyStarted}
     />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Randomize teams' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Shuffle players' }))
     await waitFor(() => expect(storeSpies.arrangeLobbySlots).toHaveBeenCalledWith('2v2', 'lobby-1', 'host-1', 'randomize'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Shuffle teams' }))
+    await waitFor(() => expect(storeSpies.arrangeLobbySlots).toHaveBeenCalledWith('2v2', 'lobby-1', 'host-1', 'shuffle-teams'))
 
     fireEvent.click(screen.getByRole('button', { name: 'Auto-balance teams' }))
     await waitFor(() => expect(storeSpies.arrangeLobbySlots).toHaveBeenCalledWith('2v2', 'lobby-1', 'host-1', 'balance'))

@@ -122,7 +122,7 @@ The `/match` command group manages the lobby:
 
 - `/match activity` opens the Activity showing the Lobby Overview or your previous match
 - `/match create mode:... [steam_link]` creates an open lobby and auto-joins as host
-- `/match join mode:... [teammates]` joins the best open lobby for that mode, specifying teammates will treat them as premades
+- `/match join mode:...` joins the best open lobby for that mode
 - `/match status` lists active lobbies and IDs
 - `/match leave` leaves the active lobby
 - `/match bump` reposts the current lobby embed again
@@ -150,8 +150,8 @@ The host can:
 
 - change game mode anytime before the draft has started
 - place and remove players from slots
-- link or unlink premades in team modes
-- randomize seats, premades will be kept together
+- shuffle players across the full slot order
+- shuffle teams while keeping current players and re-splitting them evenly
 - auto-balance teams, this uses players' ratings
 - set Matchmaking Min and Max Rank (only affects `/match join`, any player can directly join any lobby)
 - set the leader pool size
@@ -164,7 +164,6 @@ Players can:
 
 - move themselves into open seats
 - leave their own slot
-- link themselves as premades to others
 - see the current config and draft state
 
 #### Spectators
