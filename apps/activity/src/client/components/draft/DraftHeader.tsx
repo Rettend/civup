@@ -1,12 +1,16 @@
 import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
+import { MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '~/client/lib/map-vote'
 import {
   clearFfaPlacements,
   clearResultSelections,
   currentStepDuration,
   draftStore,
   ffaPlacementOrder,
+  isMapVotePhase,
   isMobileLayout,
+  mapVoteWinningScript,
+  mapVoteWinningType,
   phaseAccent,
   phaseAccentColor,
   phaseHeaderBg,
@@ -53,6 +57,19 @@ export function DraftHeader(props: DraftHeaderProps) {
   const teamCount = () => new Set((state()?.seats ?? []).flatMap(seat => seat.team == null ? [] : [seat.team])).size
   const isComplete = () => state()?.status === 'complete'
   const seatCount = () => state()?.seats.length ?? 0
+
+  // Map-vote phase overrides the normal "BAN PHASE" label while the overlay is up.
+  const displayPhaseLabel = () => isMapVotePhase() ? 'MAP VOTE' : phaseLabel()
+  const winningMapTypeOption = () => {
+    const id = mapVoteWinningType()
+    return id ? MAP_TYPE_BY_ID[id] : null
+  }
+  const winningMapScriptOption = () => {
+    const id = mapVoteWinningScript()
+    return id ? MAP_SCRIPT_BY_ID[id] : null
+  }
+  const hasWinningMap = () => winningMapTypeOption() != null && winningMapScriptOption() != null
+  const showWinningMapBadge = () => hasWinningMap() && !isMapVotePhase() && state()?.status !== 'waiting'
 
   const clearPhaseFlashTimeout = () => {
     if (phaseFlashTimeout == null) return
@@ -459,14 +476,17 @@ export function DraftHeader(props: DraftHeaderProps) {
       <Show when={isMobileLayout()}>
         <div class="flex flex-col relative z-10">
           <div class="px-12 pb-1.5 pt-2 text-center flex flex-col pointer-events-none items-center justify-center">
-            <div class="flex min-h-4 items-center justify-center">
+            <div class="flex min-h-4 gap-2 items-center justify-center">
               <span class={cn(
                 'text-xs font-bold tracking-widest uppercase',
                 accent() === 'red' ? 'text-danger' : 'text-accent',
               )}
               >
-                {phaseLabel()}
+                {displayPhaseLabel()}
               </span>
+              <Show when={showWinningMapBadge()}>
+                <WinningMapBadge compact />
+              </Show>
             </div>
 
             <div class="flex min-h-5 items-center justify-center">
@@ -546,10 +566,10 @@ export function DraftHeader(props: DraftHeaderProps) {
                   accent() === 'red' ? 'text-danger' : 'text-accent',
                 )}
                 >
-                  {phaseLabel()}
+                  {displayPhaseLabel()}
                 </span>
 
-                <Show when={draftStore.timerEndsAt != null}>
+                <Show when={draftStore.timerEndsAt != null && !isMapVotePhase()}>
                   <span class={cn(
                     'font-mono text-lg font-bold tabular-nums leading-none',
                     isExpired() && 'text-fg-subtle',
@@ -561,6 +581,10 @@ export function DraftHeader(props: DraftHeaderProps) {
                     {seconds()}
                     s
                   </span>
+                </Show>
+
+                <Show when={showWinningMapBadge()}>
+                  <WinningMapBadge />
                 </Show>
 
                 <Show when={amHost() && state()?.status === 'active'}>
@@ -597,4 +621,46 @@ export function DraftHeader(props: DraftHeaderProps) {
 
 function teamIndexToken(team: number): string {
   return String.fromCharCode(65 + team)
+}
+
+/**
+ * Compact badge showing the map that was voted in. Rendered near the phase
+ * label so the picked map is visible throughout the ban/pick draft.
+ */
+function WinningMapBadge(props: { compact?: boolean }) {
+  const mapType = () => {
+    const id = mapVoteWinningType()
+    return id ? MAP_TYPE_BY_ID[id] : null
+  }
+  const mapScript = () => {
+    const id = mapVoteWinningScript()
+    return id ? MAP_SCRIPT_BY_ID[id] : null
+  }
+  const title = () => {
+    const type = mapType()?.name ?? ''
+    const script = mapScript()?.name ?? ''
+    const hint = mapScript()?.hint
+    return hint ? `${type} · ${script} (${hint})` : `${type} · ${script}`
+  }
+
+  return (
+    <div
+      class={cn(
+        'rounded-full bg-bg/60 border border-border flex gap-1.5 items-center',
+        props.compact ? 'px-2 py-0.5' : 'mt-0.5 px-2.5 py-0.5',
+      )}
+      title={title()}
+      aria-label={title()}
+    >
+      <span class={cn(mapType()?.icon ?? 'i-ph-map-trifold-bold', 'text-accent', props.compact ? 'text-[11px]' : 'text-xs')} />
+      <span class={cn('text-fg font-medium tracking-wide', props.compact ? 'text-[10px]' : 'text-[11px]')}>
+        {mapScript()?.name}
+      </span>
+      <Show when={mapScript()?.hint}>
+        <span class={cn('text-fg-muted/80', props.compact ? 'text-[9px]' : 'text-[10px]')}>
+          {mapScript()?.hint}
+        </span>
+      </Show>
+    </div>
+  )
 }

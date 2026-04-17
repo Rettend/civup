@@ -6,6 +6,7 @@ import { Show } from 'solid-js'
 import { hasBetaLeaderData, inferGameMode, normalizeAvailableLeaderDataVersion } from '@civup/game'
 import { buildRankDotStyle, buildRolePillStyle, MAX_LEADER_POOL_INPUT, MAX_TIMER_MINUTES } from './helpers'
 import { cn } from '~/client/lib/css'
+import { mapVoteEnabled, setMapVoteEnabled } from '~/client/stores'
 
 type DraftSetupConfigState = ReturnType<typeof useDraftSetupState>['config']
 
@@ -46,6 +47,15 @@ export function DraftSetupConfigPanel(props: { state: DraftSetupConfigState }) {
       </div>
 
       <div class="pr-4 flex flex-1 flex-col gap-3 min-h-0 overflow-y-auto -mr-3">
+        <Show when={state().isLobbyMode() && state().isHost() && !state().derived.isRedDeath()}>
+          <SwitchRow
+            label="Map Vote"
+            active={mapVoteEnabled()}
+            disabled={false}
+            onChange={checked => setMapVoteEnabled(checked)}
+          />
+        </Show>
+
         <Show when={state().isLobbyMode() && state().isHost() && state().derived.supportsBlindBans()}>
           <SwitchRow
             label="Blind Bans"
