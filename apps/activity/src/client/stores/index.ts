@@ -45,7 +45,6 @@ export {
   sendSwapCancel,
   sendSwapRequest,
   startLobbyDraft,
-  toggleLobbyPremadeLink,
   updateLobbyConfig,
   updateLobbyMode,
   watchLobbyState,

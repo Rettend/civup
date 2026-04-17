@@ -12,7 +12,7 @@ const baseLobby: LobbySnapshot = {
   minRole: null,
   maxRole: null,
   entries: [
-    { playerId: 'host-1', displayName: 'Host', avatarUrl: null, partyIds: [] },
+    { playerId: 'host-1', displayName: 'Host', avatarUrl: null },
     null,
     null,
     null,
@@ -66,8 +66,8 @@ describe('resolvePendingJoinGhostSlot', () => {
     const joinedLobby = {
       ...baseLobby,
       entries: [
-        { playerId: 'host-1', displayName: 'Host', avatarUrl: null, partyIds: [] },
-        { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, partyIds: [] },
+        { playerId: 'host-1', displayName: 'Host', avatarUrl: null },
+        { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
         null,
         null,
       ],
@@ -93,17 +93,20 @@ describe('resolveOptimisticLobbyPlacementAction', () => {
     expect(resolveOptimisticLobbyPlacementAction(baseLobby, 'player-2', 'player-2', 1, false)).toBeNull()
   })
 
-  test('returns null for linked self-moves in team lobbies', () => {
-    const linkedLobby: LobbySnapshot = {
+  test('allows optimistic self-moves to another team slot', () => {
+    const teamLobby: LobbySnapshot = {
       ...baseLobby,
       entries: [
-        { playerId: 'host-1', displayName: 'Host', avatarUrl: null, partyIds: ['player-2'] },
-        { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, partyIds: ['host-1'] },
+        { playerId: 'host-1', displayName: 'Host', avatarUrl: null },
+        { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
         null,
         null,
       ],
     }
 
-    expect(resolveOptimisticLobbyPlacementAction(linkedLobby, 'host-1', 'host-1', 2, true)).toBeNull()
+    expect(resolveOptimisticLobbyPlacementAction(teamLobby, 'host-1', 'host-1', 2, true)).toEqual({
+      kind: 'place-self',
+      targetSlot: 2,
+    })
   })
 })

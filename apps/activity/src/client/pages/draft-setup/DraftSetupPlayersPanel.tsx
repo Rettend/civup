@@ -44,7 +44,6 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
               </div>
               <DraftSetupPlayerColumn
                 {...createPlayerColumnProps(state(), state().teamRows(team))}
-                showPremadeLinks
               />
             </div>
           )}
@@ -54,47 +53,27 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
   )
 }
 
-function DraftSetupPlayerColumn(props: ReturnType<typeof createPlayerColumnProps> & { showPremadeLinks?: boolean }) {
+function DraftSetupPlayerColumn(props: ReturnType<typeof createPlayerColumnProps>) {
   return (
     <div class="flex flex-col gap-2">
       <For each={props.rows}>
-        {(row, index) => {
-          const nextRow = () => props.rows[index() + 1] ?? null
-          return (
-            <>
-              <PlayerChip
-                row={row}
-                pending={props.pending}
-                draggable={props.canDragRow(row)}
-                allowDrop={props.canDropOnRow(row)}
-                dropActive={props.canDropOnRow(row) && props.dragOverSlot === row.slot}
-                showJoin={props.canJoinSlot(row)}
-                showRemove={props.canRemoveSlot(row)}
-                onJoin={() => props.onJoin(row.slot)}
-                onRemove={() => props.onRemove(row.slot)}
-                onDragStart={() => props.onDragStart(row.playerId)}
-                onDragEnd={props.onDragEnd}
-                onDragEnter={() => props.onDragEnter(row.slot)}
-                onDrop={() => props.onDrop(row.slot)}
-              />
-              <Show when={props.showPremadeLinks && nextRow()}>
-                {next => {
-                  const linked = () => props.areRowsPremadeLinked(row, next())
-                  const canToggle = () => props.canTogglePremadeLink(row, next())
-                  return (
-                    <PremadeLinkButton
-                      linked={linked()}
-                      interactive={canToggle()}
-                      pending={props.pendingWithActions}
-                      title={linked() ? 'Unlink premade' : 'Link premade'}
-                      onToggle={() => props.onTogglePremadeLink(row, next())}
-                    />
-                  )
-                }}
-              </Show>
-            </>
-          )
-        }}
+        {row => (
+          <PlayerChip
+            row={row}
+            pending={props.pending}
+            draggable={props.canDragRow(row)}
+            allowDrop={props.canDropOnRow(row)}
+            dropActive={props.canDropOnRow(row) && props.dragOverSlot === row.slot}
+            showJoin={props.canJoinSlot(row)}
+            showRemove={props.canRemoveSlot(row)}
+            onJoin={() => props.onJoin(row.slot)}
+            onRemove={() => props.onRemove(row.slot)}
+            onDragStart={() => props.onDragStart(row.playerId)}
+            onDragEnd={props.onDragEnd}
+            onDragEnter={() => props.onDragEnter(row.slot)}
+            onDrop={() => props.onDrop(row.slot)}
+          />
+        )}
       </For>
     </div>
   )
@@ -197,60 +176,20 @@ function PlayerChip(props: {
   )
 }
 
-function PremadeLinkButton(props: {
-  linked: boolean
-  interactive: boolean
-  pending: boolean
-  title: string
-  onToggle?: () => void
-}) {
-  return (
-    <button
-      type="button"
-      class={cn(
-        'group flex h-2 w-full items-center justify-center rounded-sm transition-colors',
-        props.interactive && !props.pending ? 'cursor-pointer hover:bg-white/3' : 'cursor-default',
-        props.pending && 'pointer-events-none',
-      )}
-      disabled={!props.interactive || props.pending}
-      title={props.title}
-      aria-label={props.title}
-      onClick={() => props.onToggle?.()}
-    >
-      <span
-        class={cn(
-          'h-[2px] w-12 rounded-full transition-colors',
-          props.linked
-            ? props.interactive && !props.pending
-              ? 'bg-accent/55 group-hover:bg-accent/65'
-              : 'bg-accent/50'
-            : props.interactive
-              ? 'bg-white/16 group-hover:bg-white/28'
-              : 'bg-white/6',
-        )}
-      />
-    </button>
-  )
-}
-
 function createPlayerColumnProps(state: DraftSetupPlayersPanelState, rows: PlayerRow[]) {
   return {
     rows,
     pending: state.pending.lobbyAction(),
-    pendingWithActions: state.pending.lobbyAction() || state.pending.start() || state.pending.cancel(),
     dragOverSlot: state.dragOverSlot(),
     canDragRow: state.permissions.canDragRow,
     canDropOnRow: state.permissions.canDropOnRow,
     canJoinSlot: state.permissions.canJoinSlot,
     canRemoveSlot: state.permissions.canRemoveSlot,
-    areRowsPremadeLinked: state.permissions.areRowsPremadeLinked,
-    canTogglePremadeLink: state.permissions.canTogglePremadeLink,
     onJoin: state.actions.join,
     onRemove: state.actions.remove,
     onDragStart: state.actions.dragStart,
     onDragEnd: state.actions.dragEnd,
     onDragEnter: state.actions.dragEnter,
     onDrop: state.actions.drop,
-    onTogglePremadeLink: state.actions.togglePremadeLink,
   }
 }

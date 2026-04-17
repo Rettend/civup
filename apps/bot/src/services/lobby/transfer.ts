@@ -41,10 +41,6 @@ export async function leaveOpenLobbyForLobbyJoin(
 
   const sourceQueue = reconciled?.queue ?? await getQueueState(kv, currentLobby.mode)
   const sourceLobbyQueueEntries = reconciled?.lobbyQueueEntries ?? filterQueueEntriesForLobby(currentLobby, sourceQueue.entries)
-  if (hasCrossLobbyPartyLinks(sourceQueue.entries, movingPlayerIdSet)) {
-    return { ok: false, error: 'This premade is linked to other teammates. Ask them to leave first.' }
-  }
-
   const nextQueue = currentLobby.mode !== targetMode
     ? await clearQueue(kv, currentLobby.mode, uniqueMovingPlayerIds, { currentState: sourceQueue })
     : sourceQueue
@@ -128,16 +124,6 @@ export async function leaveOpenLobbyForLobbyJoin(
       mode: currentLobby.mode,
     },
   }
-}
-
-function hasCrossLobbyPartyLinks(entries: QueueEntry[], movingPlayerIds: ReadonlySet<string>): boolean {
-  for (const entry of entries) {
-    const linkedPartyIds = entry.partyIds ?? []
-    const hasMovingPlayer = movingPlayerIds.has(entry.playerId)
-    if (hasMovingPlayer && linkedPartyIds.some(playerId => !movingPlayerIds.has(playerId))) return true
-    if (!hasMovingPlayer && linkedPartyIds.some(playerId => movingPlayerIds.has(playerId))) return true
-  }
-  return false
 }
 
 function buildCancelledLobbyParticipants(lobby: { mode: GameMode, slots: (string | null)[] }, entries: QueueEntry[]) {

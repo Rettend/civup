@@ -328,7 +328,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(['host', 'player-1', 'player-2', null])
   })
 
-  test('ignores orphan open lobbies when no queue-backed lobby can fit the join', async () => {
+  test('ignores orphan open lobbies and still joins when group constraints are gone', async () => {
     const { kv } = createTrackedKv()
     await createLobby(kv, {
       mode: '2v2',
@@ -374,15 +374,17 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       playerId: 'player-1',
       displayName: 'Player 1',
       avatarUrl: '',
-      partyIds: ['player-2'],
     }, {
       playerId: 'player-2',
       displayName: 'Player 2',
       avatarUrl: '',
-      partyIds: ['player-1'],
     }])
 
-    expect(result).toEqual({ error: 'No compatible open lobby could fit this join.' })
+    expect('stage' in result).toBe(true)
+    if (!('stage' in result)) return
+    expect(result.lobby.id).toBe(crowdedLobby.id)
+    expect(result.lobby.slots).toEqual(['host', 'ally', 'enemy', 'player-1'])
+    expect(result.lobby.memberPlayerIds).toEqual(['host', 'ally', 'enemy', 'player-1', 'player-2'])
   })
 
   test('rejects joins for players who are already in a live match', async () => {

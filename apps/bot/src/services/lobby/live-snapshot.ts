@@ -26,7 +26,6 @@ export interface LobbySnapshot {
     playerId: string
     displayName: string
     avatarUrl?: string | null
-    partyIds?: string[]
     balanceRating?: {
       mu: number
       sigma: number
@@ -83,7 +82,6 @@ export async function buildLobbyLiveSnapshotFromParts(
         playerId: entry.playerId,
         displayName: entry.displayName,
         avatarUrl: entry.avatarUrl ?? null,
-        partyIds: entry.partyIds ?? [],
       }
     }),
     minPlayers,

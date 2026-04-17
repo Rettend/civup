@@ -2,7 +2,7 @@ import type { DraftSeat, GameMode, QueueEntry } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { MatchJoinEntry, MatchVar } from './shared.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, isTeamMode, maxPlayerCount, maxTeammatesForMode, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
+import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, isTeamMode, maxPlayerCount, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/match.ts'
@@ -24,7 +24,7 @@ import { createStateStore } from '../../services/state/store.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
 import { factory } from '../../setup.ts'
-import { buildFfaPlacementOptions, collectFfaPlacementUserIds, findActiveMatchIdsForPlayers, findLiveMatchIdsForPlayers, getIdentity, getIdentityByUserId, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
+import { buildFfaPlacementOptions, collectFfaPlacementUserIds, findActiveMatchIdsForPlayers, findLiveMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
 
 const MATCH_MODE_CHOICES = GAME_MODE_CHOICES
 const MATCH_BUMP_RESPONSE_DELETE_MS = 5_000
@@ -41,11 +41,6 @@ export const command_match = factory.command<MatchVar>(
       new Option('mode', 'Game mode to queue for')
         .required()
         .choices(...MATCH_MODE_CHOICES),
-      new Option('teammate', 'Teammate for team modes', 'User'),
-      new Option('teammate2', 'Second teammate for 3v3/4v4/5v5/6v6', 'User'),
-      new Option('teammate3', 'Third teammate for 4v4/5v5/6v6', 'User'),
-      new Option('teammate4', 'Fourth teammate for 5v5/6v6', 'User'),
-      new Option('teammate5', 'Fifth teammate for 6v6', 'User'),
     ),
     new SubCommand('activity', 'Open the activity for this channel'),
     new SubCommand('cancel', 'Cancel your hosted open or live lobby').options(
@@ -1053,7 +1048,6 @@ function orderLobbyParticipantsBySlots<T extends { playerId: string }>(
 
 function buildMatchJoinRequest(
   c: {
-    var: Pick<MatchVar, 'teammate' | 'teammate2' | 'teammate3' | 'teammate4' | 'teammate5'>
     interaction: {
       member?: { user?: { id?: string, global_name?: string | null, username?: string, avatar?: string | null } }
       user?: { id?: string, global_name?: string | null, username?: string, avatar?: string | null }
@@ -1063,63 +1057,17 @@ function buildMatchJoinRequest(
   mode: GameMode,
   identity: { userId: string, displayName: string, avatarUrl: string },
 ):
-  | { entries: MatchJoinEntry[], teammateIds: string[] }
+  | { entries: MatchJoinEntry[] }
   | { error: string } {
-  const rawTeammateIds = [c.var.teammate, c.var.teammate2, c.var.teammate3, c.var.teammate4, c.var.teammate5]
-    .filter((value): value is string => typeof value === 'string' && value.length > 0)
-  const teammateLimit = maxTeammatesForMode(mode)
-
-  if (rawTeammateIds.length > teammateLimit) {
-    if (teammateLimit === 0) {
-      return { error: 'Teammate options are only available for team modes.' }
-    }
-    return {
-      error: `${formatModeLabel(mode)} supports up to ${teammateLimit} teammate option${teammateLimit === 1 ? '' : 's'}.`,
-    }
+  void c
+  void mode
+  return {
+    entries: [{
+      playerId: identity.userId,
+      displayName: identity.displayName,
+      avatarUrl: identity.avatarUrl,
+    }],
   }
-
-  const teammateIds: string[] = []
-  const seen = new Set<string>([identity.userId])
-  for (const teammateId of rawTeammateIds) {
-    if (teammateId === identity.userId) {
-      return { error: 'You cannot select yourself as a teammate.' }
-    }
-    if (seen.has(teammateId)) {
-      return { error: 'Duplicate teammate selected. Please choose distinct users.' }
-    }
-    seen.add(teammateId)
-    teammateIds.push(teammateId)
-  }
-
-  const identityByPlayerId = new Map<string, { userId: string, displayName: string, avatarUrl: string }>([
-    [identity.userId, identity],
-  ])
-  for (const teammateId of teammateIds) {
-    const teammateIdentity = getIdentityByUserId(c, teammateId)
-    if (!teammateIdentity) {
-      return { error: `Could not resolve teammate <@${teammateId}> from this command payload. Re-select the user and try again.` }
-    }
-    identityByPlayerId.set(teammateId, teammateIdentity)
-  }
-
-  const playerIds = [identity.userId, ...teammateIds]
-  const entries: MatchJoinEntry[] = []
-  for (const playerId of playerIds) {
-    const joinedIdentity = identityByPlayerId.get(playerId)
-    if (!joinedIdentity) {
-      return { error: `Could not load player data for <@${playerId}>.` }
-    }
-
-    const partyIds = playerIds.filter(candidateId => candidateId !== playerId)
-    entries.push({
-      playerId,
-      displayName: joinedIdentity.displayName,
-      avatarUrl: joinedIdentity.avatarUrl,
-      partyIds: partyIds.length > 0 ? partyIds : undefined,
-    })
-  }
-
-  return { entries, teammateIds }
 }
 
 async function findHostedOpenLobby(kv: KVNamespace, hostId: string) {

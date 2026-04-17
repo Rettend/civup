@@ -15,7 +15,6 @@ export interface PlayerRow {
   name: string
   playerId: string | null
   avatarUrl: string | null
-  partyIds: string[]
   isHost: boolean
   empty: boolean
   pendingSelf: boolean
@@ -210,16 +209,13 @@ export function resolveOptimisticLobbyPlacementAction(
   if (!lobby || !currentUserId || !movingPlayerId) return null
   if (targetSlot < 0 || targetSlot >= lobby.entries.length) return null
 
-  const movingEntry = lobby.entries.find(entry => entry?.playerId === movingPlayerId) ?? null
-  const isLinkedMove = lobby.mode !== 'ffa' && (movingEntry?.partyIds?.length ?? 0) > 0
-
   if (movingPlayerId === currentUserId) {
     const currentUserSlot = lobby.entries.findIndex(entry => entry?.playerId === currentUserId)
-    if (currentUserSlot < 0 || currentUserSlot === targetSlot || isLinkedMove) return null
+    if (currentUserSlot < 0 || currentUserSlot === targetSlot) return null
     return { kind: 'place-self', targetSlot }
   }
 
-  if (!isHostUser || isLinkedMove) return null
+  if (!isHostUser) return null
   return { kind: 'move-player', playerId: movingPlayerId, targetSlot }
 }
 
