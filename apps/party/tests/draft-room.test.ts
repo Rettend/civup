@@ -1,7 +1,7 @@
 import type { LeaderSwapState } from '@civup/game'
-import { createDraft, default2v2, DEFAULT_MAP_VOTE_SELECTION, redDeath2v2 } from '@civup/game'
+import { createDraft, default2v2, DEFAULT_MAP_VOTE_SELECTION, pickRandomMapScript, pickRandomMapType, redDeath2v2 } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { applyMapVoteSelectionUpdate, isValidMapVoteSelectionInput, type StoredMapVoteState } from '../src/map-vote-room-state.ts'
+import { applyMapVoteSelectionUpdate, isMapVoteInProgress, isValidMapVoteSelectionInput, type StoredMapVoteState } from '../src/map-vote-room-state.ts'
 import { resolveAcceptedSwapState } from '../src/leader-swaps.ts'
 import { buildRandomDraftResult } from '../src/random-draft.ts'
 
@@ -139,5 +139,19 @@ describe('map vote room helpers', () => {
     expect(isValidMapVoteSelectionInput({ mapType: 'standard', mapScript: 'lakes' })).toBe(true)
     expect(isValidMapVoteSelectionInput({ mapType: 'bogus', mapScript: 'lakes' })).toBe(false)
     expect(isValidMapVoteSelectionInput({ mapType: 'standard', mapScript: 'bogus' })).toBe(false)
+  })
+
+  test('debug bot votes resolve away from random placeholders before confirmation', () => {
+    const rng = () => 0
+
+    expect(pickRandomMapType(rng)).toBe('standard')
+    expect(pickRandomMapScript(rng)).toBe('pangaea-ultima')
+  })
+
+  test('treats reveal as an in-progress map vote for host reverts', () => {
+    const state = createMapVoteState()
+    state.phase = 'reveal'
+
+    expect(isMapVoteInProgress(state)).toBe(true)
   })
 })

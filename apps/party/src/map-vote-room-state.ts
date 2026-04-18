@@ -29,6 +29,14 @@ export const EMPTY_STORED_MAP_VOTE_STATE: StoredMapVoteState = {
   result: null,
 }
 
+export function isMapVoteVoting(mapVoteState: StoredMapVoteState): boolean {
+  return mapVoteState.enabled && mapVoteState.phase === 'voting'
+}
+
+export function isMapVoteInProgress(mapVoteState: StoredMapVoteState): boolean {
+  return mapVoteState.enabled && (mapVoteState.phase === 'voting' || mapVoteState.phase === 'reveal')
+}
+
 export function isValidMapVoteSelectionInput(selection: { mapType?: unknown, mapScript?: unknown } | null | undefined): selection is MapVoteSelection {
   return isMapTypeId(typeof selection?.mapType === 'string' ? selection.mapType : null)
     && isMapScriptId(typeof selection?.mapScript === 'string' ? selection.mapScript : null)

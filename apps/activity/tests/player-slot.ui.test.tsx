@@ -63,4 +63,18 @@ describe('PlayerSlot UI', () => {
 
     expect(storeSpies.sendSwapAccept).toHaveBeenCalledTimes(1)
   })
+
+  test('keeps the map-vote breathing nodes mounted and grays out a submitted self vote', () => {
+    uiMockState.userId = 'host-1'
+    uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
+    uiMockState.draftState.status = 'waiting'
+    uiMockState.mapVotePhase = 'voting'
+    uiMockState.mapVoteHasConfirmed = true
+
+    const { container } = render(() => <PlayerSlot seatIndex={0} />)
+    const mapIcon = container.querySelector('.i-ph-map-trifold-fill')
+
+    expect(container.querySelectorAll('.anim-glow-breathe')).toHaveLength(0)
+    expect(mapIcon?.className).toContain('text-fg-muted/55')
+  })
 })

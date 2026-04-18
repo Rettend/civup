@@ -48,6 +48,52 @@ describe('DraftHeader UI', () => {
     await waitFor(() => expect(storeSpies.sendScrub).toHaveBeenCalledTimes(1))
   })
 
+  test('shows host controls during map voting while the draft is still waiting', async () => {
+    const user = userEvent.setup()
+    uiMockState.userId = 'host-1'
+    uiMockState.draftHostId = 'host-1'
+    uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1, formatId: '2v2' })
+    uiMockState.draftState.status = 'waiting'
+    uiMockState.mapVotePhase = 'voting'
+    uiMockState.mapVoteVotingEndsAt = Date.now() + 30_000
+
+    render(() => <DraftHeader steamLobbyLink="steam://joinlobby/289070/example" onSwitchTarget={onSwitchTarget} />)
+
+    await user.click(screen.getByRole('button', { name: 'Revert' }))
+    await user.click(screen.getByRole('button', { name: 'Revert' }))
+
+    await waitFor(() => expect(storeSpies.sendRevert).toHaveBeenCalledTimes(1))
+    expect(screen.getByRole('button', { name: 'Scrub' })).toBeTruthy()
+  })
+
+  test('keeps host controls available during map-vote reveal', async () => {
+    const user = userEvent.setup()
+    uiMockState.userId = 'host-1'
+    uiMockState.draftHostId = 'host-1'
+    uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1, formatId: '2v2' })
+    uiMockState.draftState.status = 'waiting'
+    uiMockState.mapVotePhase = 'reveal'
+    uiMockState.mapVoteRevealEndsAt = Date.now() + 5_000
+
+    render(() => <DraftHeader steamLobbyLink="steam://joinlobby/289070/example" onSwitchTarget={onSwitchTarget} />)
+
+    await user.click(screen.getByRole('button', { name: 'Revert' }))
+    await user.click(screen.getByRole('button', { name: 'Revert' }))
+
+    await waitFor(() => expect(storeSpies.sendRevert).toHaveBeenCalledTimes(1))
+    expect(screen.getByRole('button', { name: 'Scrub' })).toBeTruthy()
+  })
+
+  test('shows the winning map badge on the completed result header', () => {
+    uiMockState.mapVoteWinningType = 'east-vs-west'
+    uiMockState.mapVoteWinningScript = 'lakes'
+    uiMockState.draftState = createCompleteDraftState({ formatId: '2v2' })
+
+    render(() => <DraftHeader steamLobbyLink="steam://joinlobby/289070/example" />)
+
+    expect(screen.getAllByText('EvW Lakes').length).toBeGreaterThan(0)
+  })
+
   test('submits a completed team result for participants and reports success', async () => {
     const user = userEvent.setup()
     uiMockState.userId = 'player-2'
