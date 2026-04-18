@@ -21,8 +21,6 @@ export interface MapTypeOption {
   id: MapTypeId
   name: string
   description: string
-  /** Phosphor icon class used while real artwork is not available. */
-  icon: string
 }
 
 export interface MapScriptOption {
@@ -41,32 +39,29 @@ export const MAP_TYPES: readonly MapTypeOption[] = [
     id: 'standard',
     name: 'Standard',
     description: 'Teams scattered across the map',
-    icon: 'i-ph-dots-nine-bold',
   },
   {
     id: 'east-vs-west',
     name: 'East vs West',
     description: 'Teams on opposite sides',
-    icon: 'i-ph-arrows-horizontal-bold',
   },
   {
     id: 'random',
     name: 'Random',
     description: 'Picks one at random',
-    icon: 'i-ph-question-bold',
   },
 ]
 
 export const MAP_SCRIPTS: readonly MapScriptOption[] = [
-  { id: 'pangaea-ultima', name: 'Pangaea Ultima', hint: 'Wrap' },
-  { id: 'pangaea-ultima-no-wrap', name: 'Pangaea Ultima', hint: 'No Wrap' },
-  { id: 'seven-seas', name: 'Seven Seas' },
-  { id: 'rich-highlands', name: 'Rich Highlands' },
-  { id: 'lakes', name: 'Lakes' },
-  { id: 'tilted-axis', name: 'Tilted Axis' },
-  { id: 'primordial', name: 'Primordial' },
-  { id: 'inland-sea', name: 'Inland Sea' },
-  { id: 'random', name: 'Random', icon: 'i-ph-question-bold' },
+  { id: 'pangaea-ultima', name: 'Pangaea Ultima', hint: 'Wrap', imageUrl: '/assets/maps/Map_Pangaea.webp' },
+  { id: 'pangaea-ultima-no-wrap', name: 'Pangaea Ultima', hint: 'No Wrap', imageUrl: '/assets/maps/Map_Pangaea.webp' },
+  { id: 'seven-seas', name: 'Seven Seas', imageUrl: '/assets/maps/Map_Seven_Seas.webp' },
+  { id: 'rich-highlands', name: 'Rich Highlands', imageUrl: '/assets/maps/Map_4_Leaf.webp' },
+  { id: 'lakes', name: 'Lakes', imageUrl: '/assets/maps/Map_Lakes.webp' },
+  { id: 'tilted-axis', name: 'Tilted Axis', imageUrl: '/assets/maps/Map_Tilted_Axis.webp' },
+  { id: 'primordial', name: 'Primordial', imageUrl: '/assets/maps/Map_Primodial.webp' },
+  { id: 'inland-sea', name: 'Inland Sea', imageUrl: '/assets/maps/Map_Inland_Sea.webp' },
+  { id: 'random', name: 'Random', icon: 'i-ph-dice-five-bold' },
 ]
 
 export const MAP_TYPE_BY_ID: Record<MapTypeId, MapTypeOption> = Object.fromEntries(
@@ -84,6 +79,28 @@ export interface MapVote {
 
 export interface SeatMapVote extends MapVote {
   seatIndex: number
+}
+
+export function formatMapVoteResultLabel(mapType: MapTypeId | null | undefined, mapScript: MapScriptId | null | undefined): string {
+  const scriptOption = mapScript ? MAP_SCRIPT_BY_ID[mapScript] : null
+  const typePrefix = mapTypePrefix(mapType)
+  const scriptName = scriptOption?.name ?? ''
+  if (!scriptName) return typePrefix
+  const scriptLabel = scriptOption?.hint ? `${scriptName} (${scriptOption.hint})` : scriptName
+  return typePrefix ? `${typePrefix} ${scriptLabel}` : scriptLabel
+}
+
+function mapTypePrefix(mapType: MapTypeId | null | undefined): string {
+  switch (mapType) {
+    case 'east-vs-west':
+      return 'EvW'
+    case 'standard':
+    case null:
+    case undefined:
+      return ''
+    default:
+      return MAP_TYPE_BY_ID[mapType]?.name ?? mapType
+  }
 }
 
 /**

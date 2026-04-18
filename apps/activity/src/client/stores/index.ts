@@ -130,6 +130,8 @@ export {
   toggleTeamPlacement,
 } from './ui-store'
 export {
+  MAP_VOTE_REVEAL_DURATION_SECONDS,
+  MAP_VOTE_VOTING_DURATION_SECONDS,
   confirmMapVote,
   finishMapVote,
   getSeatMapVote,
@@ -138,10 +140,12 @@ export {
   mapVoteEnabled,
   mapVoteHasConfirmed,
   mapVotePhase,
+  mapVoteRevealEndsAt,
   mapVoteReadyToConfirm,
   mapVoteSeatVotes,
   mapVoteSelectedScript,
   mapVoteSelectedType,
+  mapVoteVotingEndsAt,
   mapVoteWinningScript,
   mapVoteWinningType,
   resetMapVote,
