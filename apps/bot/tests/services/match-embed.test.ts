@@ -120,11 +120,11 @@ describe('match result embed', () => {
       { playerId: '4', team: 1, civId: null },
     ], {
       mapType: 'east-vs-west',
-      mapScript: 'pangaea-ultima-no-wrap',
+      mapScript: 'seven-seas',
       winningSeatCount: 3,
     }).toJSON()
 
-    expect(embed.fields?.[0]).toEqual({ name: 'Map', value: 'EvW Pangaea Ultima (No Wrap)', inline: false })
+    expect(embed.fields?.[0]).toEqual({ name: 'Map', value: 'Seven Seas EvW', inline: false })
     expect(embed.fields?.[1]?.name).toBe('Team A')
   })
 })

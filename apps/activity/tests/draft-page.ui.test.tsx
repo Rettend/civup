@@ -76,7 +76,7 @@ describe('DraftPage UI', () => {
     uiMockState.draftState = createWaitingDraftState({ formatId: '3v3' })
     uiMockState.mapVotePhase = 'voting'
     uiMockState.mapVoteSelectedType = 'random'
-    uiMockState.mapVoteSelectedScript = 'random'
+    uiMockState.mapVoteSelectedScripts = []
     uiMockState.mapVoteVotingEndsAt = Date.now() + 30_000
     uiMockState.gridOpen = true
 
