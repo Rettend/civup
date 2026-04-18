@@ -3,7 +3,7 @@ import type { LeaderListNeighborState } from './LeaderCard'
 import type { LeaderTagCategory } from '~/client/lib/leader-tags'
 import { factions, getLeaders, searchFactions, searchLeaders } from '@civup/game'
 import { throttle } from '@solid-primitives/scheduled'
-import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
+import { createEffect, createMemo, createRenderEffect, createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import {
@@ -16,6 +16,7 @@ import {
 import { isWideWangQuery, WIDE_WANG_AUDIO_URL, WIDE_WANG_TRANSCRIPT } from '~/client/lib/wide-wang-easter-egg'
 import {
   activeTagFilterCount,
+  banSelectionStepToken,
   banSelections,
   canOpenLeaderGrid,
   canSendPickPreview,
@@ -41,6 +42,7 @@ import {
   sendBan,
   sendPick,
   sendPreview,
+  setBanSelectionStepToken,
   setBanSelections,
   setDetailLeaderId,
   setGridExpanded,
@@ -316,6 +318,33 @@ export function LeaderGridOverlay() {
     if (gridOpen()) setGridOpen(false)
   })
 
+  createRenderEffect(() => {
+    const current = state()
+    const currentStep = step()
+    const seatIndex = ownSeatIndex()
+    const hydrationToken = current && seatIndex != null ? `${draftStore.initVersion}:${current.currentStepIndex}:${seatIndex}` : null
+
+    if (!current || current.status !== 'active' || seatIndex == null || currentStep?.action !== 'ban') {
+      if (banSelections().length > 0) setBanSelections([])
+      if (banSelectionStepToken() !== null) setBanSelectionStepToken(null)
+      if (hydratedBanPreviewToken() !== null) setHydratedBanPreviewToken(null)
+      return
+    }
+
+    const serverBanPreview = draftStore.previews.bans[seatIndex] ?? []
+    if (banSelectionStepToken() !== hydrationToken) {
+      if (!sameCivIdList(banSelections(), serverBanPreview)) {
+        setBanSelections([...serverBanPreview])
+      }
+      setBanSelectionStepToken(hydrationToken)
+      setHydratedBanPreviewToken(serverBanPreview.length > 0 ? hydrationToken : null)
+    }
+    else if (banSelections().length === 0 && serverBanPreview.length > 0 && hydratedBanPreviewToken() !== hydrationToken) {
+      setBanSelections([...serverBanPreview])
+      setHydratedBanPreviewToken(hydrationToken)
+    }
+  })
+
   createEffect(() => {
     const current = state()
     const currentStep = step()
@@ -323,20 +352,8 @@ export function LeaderGridOverlay() {
     const hydrationToken = current && seatIndex != null ? `${draftStore.initVersion}:${current.currentStepIndex}:${seatIndex}` : null
 
     if (!current || current.status !== 'active' || seatIndex == null) {
-      if (banSelections().length > 0) setBanSelections([])
       if (pickSelections().length > 0) setPickSelections([])
       return
-    }
-
-    if (currentStep?.action === 'ban') {
-      const serverBanPreview = draftStore.previews.bans[seatIndex] ?? []
-      if (banSelections().length === 0 && serverBanPreview.length > 0 && hydratedBanPreviewToken() !== hydrationToken) {
-        setBanSelections([...serverBanPreview])
-        setHydratedBanPreviewToken(hydrationToken)
-      }
-    }
-    else if (banSelections().length > 0) {
-      setBanSelections([])
     }
 
     if (currentStep?.action !== 'pick') {

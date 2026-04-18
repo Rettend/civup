@@ -239,6 +239,7 @@ export function startPlayerCountOptions(
     return RED_DEATH_FFA_START_PLAYER_COUNTS.filter(count => count <= targetSize)
   }
 
+  if (mode === 'ffa' && targetSize === 8) return [6, 8]
   if (mode === '2v2' && targetSize === 8) return [6, 8]
   return playerCountOptions(mode).includes(targetSize) ? [targetSize] : []
 }

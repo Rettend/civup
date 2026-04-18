@@ -60,10 +60,10 @@ describe('Blind Bans control visibility', () => {
 describe('lobby balance summary', () => {
   test('calculates expected team winrates and uncertainty from balance ratings', () => {
     const summary = buildLobbyBalanceSummary(createLobbySnapshot([
-      { playerId: 'a1', displayName: 'A1', avatarUrl: null, partyIds: [], balanceRating: { mu: 36, sigma: 2, gamesPlayed: 20 } },
-      { playerId: 'b1', displayName: 'B1', avatarUrl: null, partyIds: [], balanceRating: { mu: 22, sigma: 2, gamesPlayed: 18 } },
-      { playerId: 'a2', displayName: 'A2', avatarUrl: null, partyIds: [], balanceRating: { mu: 34, sigma: 2, gamesPlayed: 16 } },
-      { playerId: 'b2', displayName: 'B2', avatarUrl: null, partyIds: [], balanceRating: { mu: 21, sigma: 2, gamesPlayed: 14 } },
+      { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 36, sigma: 2, gamesPlayed: 20 } },
+      { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 22, sigma: 2, gamesPlayed: 18 } },
+      { playerId: 'a2', displayName: 'A2', avatarUrl: null, balanceRating: { mu: 34, sigma: 2, gamesPlayed: 16 } },
+      { playerId: 'b2', displayName: 'B2', avatarUrl: null, balanceRating: { mu: 21, sigma: 2, gamesPlayed: 14 } },
     ]))
 
     expect(summary).not.toBeNull()
@@ -76,10 +76,10 @@ describe('lobby balance summary', () => {
 
   test('flags low confidence when a slotted player has fewer than 10 games', () => {
     const summary = buildLobbyBalanceSummary(createLobbySnapshot([
-      { playerId: 'a1', displayName: 'A1', avatarUrl: null, partyIds: [], balanceRating: { mu: 30, sigma: 3, gamesPlayed: 9 } },
-      { playerId: 'b1', displayName: 'B1', avatarUrl: null, partyIds: [], balanceRating: { mu: 29, sigma: 3, gamesPlayed: 12 } },
-      { playerId: 'a2', displayName: 'A2', avatarUrl: null, partyIds: [], balanceRating: { mu: 28, sigma: 3, gamesPlayed: 15 } },
-      { playerId: 'b2', displayName: 'B2', avatarUrl: null, partyIds: [], balanceRating: { mu: 27, sigma: 3, gamesPlayed: 13 } },
+      { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 30, sigma: 3, gamesPlayed: 9 } },
+      { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 29, sigma: 3, gamesPlayed: 12 } },
+      { playerId: 'a2', displayName: 'A2', avatarUrl: null, balanceRating: { mu: 28, sigma: 3, gamesPlayed: 15 } },
+      { playerId: 'b2', displayName: 'B2', avatarUrl: null, balanceRating: { mu: 27, sigma: 3, gamesPlayed: 13 } },
     ]))
 
     expect(summary).not.toBeNull()
@@ -90,8 +90,8 @@ describe('lobby balance summary', () => {
 
   test('falls back to default ratings when balance data is missing', () => {
     const summary = buildLobbyBalanceSummary(createLobbySnapshot([
-      { playerId: 'a1', displayName: 'A1', avatarUrl: null, partyIds: [] },
-      { playerId: 'b1', displayName: 'B1', avatarUrl: null, partyIds: [], balanceRating: { mu: 30, sigma: 4, gamesPlayed: 12 } },
+      { playerId: 'a1', displayName: 'A1', avatarUrl: null },
+      { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 30, sigma: 4, gamesPlayed: 12 } },
     ], {
       mode: '1v1',
       targetSize: 2,
@@ -117,6 +117,7 @@ function createLobbySnapshot(
     steamLobbyLink: null,
     minRole: null,
     maxRole: null,
+    lastArrange: null,
     entries,
     minPlayers: 2,
     targetSize: overrides.targetSize ?? entries.length,

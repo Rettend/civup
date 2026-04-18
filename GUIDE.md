@@ -74,7 +74,7 @@ To actually join a lobby you need to click on a seat.
 
 ![open seat](images/open-seat.webp)
 
-- **Using the `/match join` command**: this will try to find the best open lobby based on your rank.
+- **Using the `/match join` command**: this will try to find the best open lobby for you based on your rank.
 
 ## Completing a draft
 

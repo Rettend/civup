@@ -1014,7 +1014,6 @@ function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
     if (aEntry.playerId !== bEntry.playerId) return false
     if (aEntry.displayName !== bEntry.displayName) return false
     if ((aEntry.avatarUrl ?? null) !== (bEntry.avatarUrl ?? null)) return false
-    if ((aEntry.partyIds ?? []).join(',') !== (bEntry.partyIds ?? []).join(',')) return false
   }
 
   return true

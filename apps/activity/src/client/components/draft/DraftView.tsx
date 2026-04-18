@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
+import { createEffect, createRenderEffect, createSignal, onCleanup, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import {
   canOpenLeaderGrid,
@@ -33,7 +33,7 @@ interface DraftViewProps {
 export function DraftView(props: DraftViewProps) {
   const state = () => draftStore.state
   const [autoOpenedGridToken, setAutoOpenedGridToken] = createSignal<string | null>(null)
-  const [steamLobbyLink, setSteamLobbyLink] = createSignal<string | null>(props.steamLobbyLink ?? null)
+  const [steamLobbyLink, setSteamLobbyLink] = createSignal<string | null>(null)
   const [steamLobbySavePending, setSteamLobbySavePending] = createSignal(false)
   let scrubRedirectTimeout: ReturnType<typeof setTimeout> | null = null
   const hostId = () => draftStore.hostId
@@ -43,7 +43,7 @@ export function DraftView(props: DraftViewProps) {
     return currentUserId === hostId()
   }
 
-  createEffect(() => {
+  createRenderEffect(() => {
     setSteamLobbyLink(props.steamLobbyLink ?? null)
   })
 

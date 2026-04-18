@@ -11,6 +11,7 @@ interface UiMemoryState {
   searchQuery: string
   tagFilters: TagFilterState
   banSelections: string[]
+  banSelectionStepToken: string | null
   isRandomSelected: boolean
   gridOpen: boolean
   detailLeaderId: string | null
@@ -37,6 +38,7 @@ const [uiState, setUiState] = createStore<UiMemoryState>({
   searchQuery: '',
   tagFilters: createEmptyTagFilters(),
   banSelections: [],
+  banSelectionStepToken: null,
   isRandomSelected: false,
   gridOpen: false,
   detailLeaderId: null,
@@ -47,11 +49,13 @@ const [uiState, setUiState] = createStore<UiMemoryState>({
   resultSelectionsLocked: false,
 })
 
-const [persistedUiState, setPersistedUiState] = makePersisted(createStore<UiPersistedState>({
+const [persistedUiStateBase, setPersistedUiStateBase] = createStore<UiPersistedState>({
   gridExpanded: false,
   gridViewMode: 'grid',
   favoriteLeaderIds: [],
-}), {
+})
+
+const [persistedUiState, setPersistedUiState] = makePersisted([persistedUiStateBase, setPersistedUiStateBase], {
   name: 'civup:activity:ui',
   storage: typeof window !== 'undefined' ? window.localStorage : undefined,
   serialize: value => JSON.stringify(unwrap(value)),
@@ -64,6 +68,7 @@ export const searchQuery = () => uiState.searchQuery
 export const tagFilters = () => uiState.tagFilters
 export const activeTagFilterCount = createMemo(() => countActiveTagFilters(tagFilters()))
 export const banSelections = () => uiState.banSelections
+export const banSelectionStepToken = () => uiState.banSelectionStepToken
 export const isRandomSelected = () => uiState.isRandomSelected
 export const gridOpen = () => uiState.gridOpen
 export const gridExpanded = () => persistedUiState.gridExpanded
@@ -87,6 +92,10 @@ export function setTagFilters(next: TagFilterState | ((prev: TagFilterState) => 
 
 export function setBanSelections(next: string[] | ((prev: string[]) => string[])) {
   setUiState('banSelections', next)
+}
+
+export function setBanSelectionStepToken(next: string | null | ((prev: string | null) => string | null)) {
+  setUiState('banSelectionStepToken', next)
 }
 
 export function setIsRandomSelected(next: boolean | ((prev: boolean) => boolean)) {
@@ -167,6 +176,7 @@ export function toggleBanSelection(civId: string, maxBans: number) {
 export function clearSelections() {
   setPickSelections([])
   setBanSelections([])
+  setBanSelectionStepToken(null)
   setIsRandomSelected(false)
   setSearchQuery('')
   setTagFilters(createEmptyTagFilters())

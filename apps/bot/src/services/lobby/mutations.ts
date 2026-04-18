@@ -1,5 +1,5 @@
 import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
-import type { LobbyDraftConfig, LobbyState, LobbyStatus } from './types.ts'
+import type { LobbyArrangeStrategy, LobbyDraftConfig, LobbyState, LobbyStatus } from './types.ts'
 import { nanoid } from 'nanoid'
 import { syncActivityOverviewSnapshotForLobby } from '../activity/live-state.ts'
 import { getQueueState } from '../queue/index.ts'
@@ -51,6 +51,7 @@ export async function createLobby(
     steamLobbyLink: input.steamLobbyLink ?? null,
     minRole: null,
     maxRole: null,
+    lastArrange: null,
     lastActivityAt: now,
     memberPlayerIds: [input.hostId],
     slots,
@@ -263,6 +264,33 @@ export async function setLobbySlots(
     ...lobby,
     slots: normalizedSlots,
     updatedAt: Date.now(),
+    revision: lobby.revision + 1,
+  }
+  await putLobby(kv, updated)
+  return updated
+}
+
+export async function setLobbyArranged(
+  kv: KVNamespace,
+  lobbyId: string,
+  input: {
+    slots: (string | null)[]
+    strategy: LobbyArrangeStrategy
+    at?: number
+  },
+  currentLobby?: LobbyState,
+): Promise<LobbyState | null> {
+  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
+  if (!lobby) return null
+
+  const now = input.at == null ? Date.now() : Math.max(1, Math.round(input.at))
+  const normalizedSlots = normalizeStoredSlots(lobby.mode, input.slots)
+  const updated: LobbyState = {
+    ...lobby,
+    slots: normalizedSlots,
+    lastArrange: { strategy: input.strategy, at: now },
+    lastActivityAt: now,
+    updatedAt: now,
     revision: lobby.revision + 1,
   }
   await putLobby(kv, updated)

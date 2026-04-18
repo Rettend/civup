@@ -15,7 +15,7 @@ export function DraftSetupActions(props: { actions: DraftSetupActionsState, stat
           <div class="flex flex-col gap-2 items-center">
             <span class="text-sm text-fg-subtle">{status().text()}</span>
             <div class="flex gap-3 items-center">
-              <button class="text-sm text-bg font-bold px-8 py-2.5 rounded-lg bg-accent cursor-pointer transition-colors hover:brightness-110" onClick={actions().sendStart}>
+              <button class="text-sm text-bg font-bold px-8 py-2.5 rounded-lg bg-accent cursor-pointer transition-colors hover:brightness-110" onClick={() => void actions().sendStart()}>
                 Start Draft
               </button>
               <button class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50" onClick={() => void actions().cancel()}>
@@ -87,13 +87,24 @@ function HostLobbyActions(props: { actions: DraftSetupActionsState }) {
       </button>
       <button
         class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
-        title={`Randomize ${actions().arrangeTargetLabel()}`}
-        aria-label={`Randomize ${actions().arrangeTargetLabel()}`}
+        title={actions().randomizeButtonTitle()}
+        aria-label={actions().randomizeButtonLabel()}
         disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.lobbyAction()}
         onClick={() => void actions().randomizeLobby()}
       >
         <span class="i-ph:shuffle-simple-bold text-lg" />
       </button>
+      <Show when={actions().arrangeTargetLabel() === 'teams'}>
+        <button
+          class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
+          title="Shuffle teams"
+          aria-label="Shuffle teams"
+          disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.lobbyAction()}
+          onClick={() => void actions().shuffleTeamsLobby()}
+        >
+          <span class="i-ph:arrows-clockwise-bold text-lg" />
+        </button>
+      </Show>
       <button
         class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
         title={`Auto-balance ${actions().arrangeTargetLabel()}`}

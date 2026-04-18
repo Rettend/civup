@@ -2,8 +2,8 @@ import type { ActivityTargetOption } from '~/client/stores'
 import { formatModeLabel } from '@civup/game'
 import { For, Show } from 'solid-js'
 import { MiniFrame } from '~/client/components/draft/MiniLayout'
-import { cn } from '~/client/lib/css'
 import { activityTargetOptionKey } from '~/client/lib/activity-targets'
+import { cn } from '~/client/lib/css'
 import { isMobileLayout } from '~/client/stores'
 
 interface LobbyOverviewTargetPickerProps {
@@ -16,75 +16,83 @@ interface LobbyOverviewTargetPickerProps {
 }
 
 export function LobbyOverviewTargetPicker(props: LobbyOverviewTargetPickerProps) {
-  if (props.mini) {
-    const visibleOptions = () => props.options.slice(0, 4)
-    const hiddenCount = () => Math.max(0, props.options.length - visibleOptions().length)
+  return (
+    <Show when={props.mini} fallback={<LobbyOverviewTargetPickerFull {...props} />}>
+      <LobbyOverviewTargetPickerMini {...props} />
+    </Show>
+  )
+}
 
-    return (
-      <MiniFrame title="Lobby Overview" titleAccent="gold">
-        <Show
-          when={visibleOptions().length > 0}
-          fallback={(
-            <div class="px-4 text-center border border-border-subtle rounded-lg bg-bg-subtle/90 flex flex-1 items-center justify-center">
-              <span class="text-[10px] text-fg-muted">No active lobbies</span>
-            </div>
-          )}
-        >
-          <div class="flex flex-1 flex-col gap-1.5 min-h-0 overflow-hidden">
-            <div class="gap-1.5 grid grid-cols-2">
-              <For each={visibleOptions()}>
-                {option => (
-                  <div class="px-2 py-1.5 border border-border-subtle rounded bg-bg-subtle/92 flex flex-col gap-1 min-w-0 overflow-hidden">
-                    <div class="flex gap-1 min-w-0 items-center justify-between">
-                      <span class="text-[10px] text-fg tracking-[0.14em] font-bold truncate uppercase">
-                        {formatModeLabel(option.mode, option.mode, { redDeath: option.redDeath })}
-                      </span>
-                      <span class={cn(
-                        'text-[6px] font-semibold uppercase shrink-0',
-                        option.kind === 'lobby'
-                          ? 'text-note'
-                          : option.status === 'drafting'
-                            ? 'text-info'
-                            : 'text-accent',
-                      )}
-                      >
-                        {formatMiniTargetStatus(option)}
-                      </span>
-                    </div>
+function LobbyOverviewTargetPickerMini(props: LobbyOverviewTargetPickerProps) {
+  const visibleOptions = () => props.options.slice(0, 4)
+  const hiddenCount = () => Math.max(0, props.options.length - visibleOptions().length)
 
-                    <div class="text-[10px] text-fg-muted leading-none flex gap-1 items-center justify-between">
-                      <span>
-                        {option.participantCount}
-                        /
-                        {option.targetSize}
-                      </span>
-                      <Show when={option.isHost || option.isMember}>
-                        <span class="text-[8px] text-accent tracking-[0.1em] font-semibold uppercase">
-                          {option.isHost ? 'Host' : 'Joined'}
-                        </span>
-                      </Show>
-                    </div>
-                  </div>
-                )}
-              </For>
-            </div>
-
-            <Show when={hiddenCount() > 0 || props.error}>
-              <div class="text-[9px] leading-none px-1 flex gap-2 items-center justify-between">
-                <span class="text-fg-muted/80">
-                  {hiddenCount() > 0 ? `+${hiddenCount()} more` : ''}
-                </span>
-                <Show when={props.error}>
-                  {error => <span class="text-danger truncate">{error()}</span>}
-                </Show>
-              </div>
-            </Show>
+  return (
+    <MiniFrame title="Lobby Overview" titleAccent="gold">
+      <Show
+        when={visibleOptions().length > 0}
+        fallback={(
+          <div class="px-4 text-center border border-border-subtle rounded-lg bg-bg-subtle/90 flex flex-1 items-center justify-center">
+            <span class="text-[10px] text-fg-muted">No active lobbies</span>
           </div>
-        </Show>
-      </MiniFrame>
-    )
-  }
+        )}
+      >
+        <div class="flex flex-1 flex-col gap-1.5 min-h-0 overflow-hidden">
+          <div class="gap-1.5 grid grid-cols-2">
+            <For each={visibleOptions()}>
+              {option => (
+                <div class="px-2 py-1.5 border border-border-subtle rounded bg-bg-subtle/92 flex flex-col gap-1 min-w-0 overflow-hidden">
+                  <div class="flex gap-1 min-w-0 items-center justify-between">
+                    <span class="text-[10px] text-fg tracking-[0.14em] font-bold truncate uppercase">
+                      {formatModeLabel(option.mode, option.mode, { redDeath: option.redDeath })}
+                    </span>
+                    <span class={cn(
+                      'text-[6px] font-semibold uppercase shrink-0',
+                      option.kind === 'lobby'
+                        ? 'text-note'
+                        : option.status === 'drafting'
+                          ? 'text-info'
+                          : 'text-accent',
+                    )}
+                    >
+                      {formatMiniTargetStatus(option)}
+                    </span>
+                  </div>
 
+                  <div class="text-[10px] text-fg-muted leading-none flex gap-1 items-center justify-between">
+                    <span>
+                      {option.participantCount}
+                      /
+                      {option.targetSize}
+                    </span>
+                    <Show when={option.isHost || option.isMember}>
+                      <span class="text-[8px] text-accent tracking-[0.1em] font-semibold uppercase">
+                        {option.isHost ? 'Host' : 'Joined'}
+                      </span>
+                    </Show>
+                  </div>
+                </div>
+              )}
+            </For>
+          </div>
+
+          <Show when={hiddenCount() > 0 || props.error}>
+            <div class="text-[9px] leading-none px-1 flex gap-2 items-center justify-between">
+              <span class="text-fg-muted/80">
+                {hiddenCount() > 0 ? `+${hiddenCount()} more` : ''}
+              </span>
+              <Show when={props.error}>
+                {error => <span class="text-danger truncate">{error()}</span>}
+              </Show>
+            </div>
+          </Show>
+        </div>
+      </Show>
+    </MiniFrame>
+  )
+}
+
+function LobbyOverviewTargetPickerFull(props: LobbyOverviewTargetPickerProps) {
   return (
     <section class={cn('flex flex-col gap-6', isMobileLayout() && 'pt-12')}>
       <div class="grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-center">

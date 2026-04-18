@@ -2,7 +2,7 @@ import type { DraftSeat, GameMode, QueueEntry } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { MatchJoinEntry, MatchVar } from './shared.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, isTeamMode, maxPlayerCount, maxTeammatesForMode, minPlayerCount, parseGameMode, slotToTeamIndex } from '@civup/game'
+import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, isTeamMode, maxPlayerCount, minPlayerCount, parseGameMode, slotToTeamIndex, startPlayerCountOptions } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/match.ts'
@@ -16,7 +16,7 @@ import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { cancelMatchByModerator, getStoredGameModeContext, reportMatch } from '../../services/match/index.ts'
 import { clearMatchMessageMapping, storeMatchMessageMapping } from '../../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../../services/match/report-discord.ts'
-import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, getQueueStateWithPlayerQueueModes, removeFromQueue, removeFromQueueAndUnlinkParty } from '../../services/queue/index.ts'
+import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, removeFromQueue, removeFromQueueAndUnlinkParty } from '../../services/queue/index.ts'
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../../services/ranked/role-sync.ts'
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { syncSeasonPeaksForPlayers } from '../../services/season/index.ts'
@@ -24,7 +24,7 @@ import { createStateStore } from '../../services/state/store.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
 import { factory } from '../../setup.ts'
-import { buildFfaPlacementOptions, collectFfaPlacementUserIds, findActiveMatchIdsForPlayers, findLiveMatchIdsForPlayers, getIdentity, getIdentityByUserId, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS } from './shared.ts'
+import { buildFfaPlacementOptions, collectFfaPlacementUserIds, findActiveMatchIdsForPlayers, findLiveMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS, preflightMatchCreateQueueState } from './shared.ts'
 
 const MATCH_MODE_CHOICES = GAME_MODE_CHOICES
 const MATCH_BUMP_RESPONSE_DELETE_MS = 5_000
@@ -41,11 +41,6 @@ export const command_match = factory.command<MatchVar>(
       new Option('mode', 'Game mode to queue for')
         .required()
         .choices(...MATCH_MODE_CHOICES),
-      new Option('teammate', 'Teammate for team modes', 'User'),
-      new Option('teammate2', 'Second teammate for 3v3/4v4/5v5/6v6', 'User'),
-      new Option('teammate3', 'Third teammate for 4v4/5v5/6v6', 'User'),
-      new Option('teammate4', 'Fourth teammate for 5v5/6v6', 'User'),
-      new Option('teammate5', 'Fifth teammate for 6v6', 'User'),
     ),
     new SubCommand('activity', 'Open the activity for this channel'),
     new SubCommand('cancel', 'Cancel your hosted open or live lobby').options(
@@ -125,30 +120,33 @@ export const command_match = factory.command<MatchVar>(
               return
             }
 
-            if (currentHostedLobby) {
+            const createPreflight = await preflightMatchCreateQueueState(kv, mode, identity.userId)
+            if (createPreflight.kind === 'reuse-hosted-open-lobby') {
+              const updatedLobby = steamLobbyLink !== null
+                ? (await setLobbySteamLobbyLink(kv, createPreflight.lobby.id, steamLobbyLink, createPreflight.lobby) ?? createPreflight.lobby)
+                : createPreflight.lobby
+
+              await storeUserLobbyState(kv, updatedLobby.channelId, [identity.userId], updatedLobby.id)
               await sendTransientEphemeralResponse(
                 c,
-                'You are already in a live match. Finish or cancel it before creating a new lobby.',
+                steamLobbyLink !== null
+                  ? `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>. Updated its Steam lobby link.`
+                  : `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>.`,
+                'info',
+              )
+              return
+            }
+
+            if (createPreflight.kind === 'block-open-lobby') {
+              await sendTransientEphemeralResponse(
+                c,
+                `You are already in an open ${formatModeLabel(createPreflight.lobby.mode)} lobby. Leave it first with \`/match leave\`.`,
                 'error',
               )
               return
             }
 
-            const { queue, queueModeByPlayerId } = await getQueueStateWithPlayerQueueModes(
-              kv,
-              mode,
-              [identity.userId],
-              { fallbackToQueueScan: false },
-            )
-            const existingQueueMode = queueModeByPlayerId.get(identity.userId) ?? null
-            if (existingQueueMode) {
-              await sendTransientEphemeralResponse(
-                c,
-                `You are already in an open ${formatModeLabel(existingQueueMode)} lobby. Leave it first with \`/match leave\`.`,
-                'error',
-              )
-              return
-            }
+            const queue = createPreflight.queue
 
             const db = createDb(c.env.DB)
             const liveMatchIdByPlayer = await findLiveMatchIdsForPlayers(db, [identity.userId])
@@ -167,7 +165,7 @@ export const command_match = factory.command<MatchVar>(
               avatarUrl: identity.avatarUrl,
               joinedAt: Date.now(),
             }, {
-              existingMode: existingQueueMode,
+              existingMode: null,
               currentState: queue,
             })
 
@@ -677,9 +675,8 @@ export const command_match = factory.command<MatchVar>(
                 const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
                 const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
                 const filled = slots.filter(slot => slot != null).length
-                const minPlayers = minPlayerCount(mode)
-                const maxPlayers = maxPlayerCount(mode)
-                const target = minPlayers === maxPlayers ? String(maxPlayers) : `${minPlayers}-${maxPlayers}`
+                const validCounts = startPlayerCountOptions(mode, slots.length, { redDeath: lobby.draftConfig.redDeath })
+                const target = formatPlayerCountList(validCounts, slots.length)
                 lines.push(`- ${formatModeLabel(mode)} - ${label} (${filled}/${target}) - ${link} - \`${lobby.id}\``)
                 continue
               }
@@ -765,14 +762,13 @@ export const command_match = factory.command<MatchVar>(
 
           const mode = matchContext.mode
           const fallbackLobby = await getLobbyByMatch(kv, match.id)
-          const multiTeamMatch = isTeamMode(mode)
-            ? (await db
-                .select({ team: matchParticipants.team })
-                .from(matchParticipants)
-                .where(eq(matchParticipants.matchId, match.id)))
-                .flatMap(participant => participant.team == null ? [] : [participant.team])
-            : []
-          const uniqueTeams = new Set(multiTeamMatch)
+          const participantRows = await db
+            .select({ playerId: matchParticipants.playerId, team: matchParticipants.team })
+            .from(matchParticipants)
+            .where(eq(matchParticipants.matchId, match.id))
+          const uniqueTeams = new Set(isTeamMode(mode)
+            ? participantRows.flatMap(participant => participant.team == null ? [] : [participant.team])
+            : [])
 
           let placements: string
           if (mode === 'ffa') {
@@ -780,7 +776,7 @@ export const command_match = factory.command<MatchVar>(
               await sendTransientEphemeralResponse(c, 'For FFA reporting, you must provide a `winner` (1st place) user.', 'error')
               return
             }
-            const requiredPlacements = matchContext.redDeath ? 4 : minPlayerCount(mode)
+            const requiredPlacements = matchContext.redDeath ? 4 : (participantRows.length > 0 ? participantRows.length : minPlayerCount(mode))
             const placementLabelByCount: Record<number, string> = {
               2: 'second',
               3: 'third',
@@ -959,6 +955,13 @@ export const command_match = factory.command<MatchVar>(
   },
 )
 
+function formatPlayerCountList(counts: readonly number[], fallback: number): string {
+  if (counts.length === 0) return String(fallback)
+  if (counts.length === 1) return String(counts[0]!)
+  if (counts.length === 2) return `${counts[0]!} or ${counts[1]!}`
+  return `${counts.slice(0, -1).join(', ')}, or ${counts[counts.length - 1]!}`
+}
+
 async function sendMatchBumpResponse(
   c: Parameters<typeof sendEphemeralResponse>[0],
   message: string,
@@ -1053,7 +1056,6 @@ function orderLobbyParticipantsBySlots<T extends { playerId: string }>(
 
 function buildMatchJoinRequest(
   c: {
-    var: Pick<MatchVar, 'teammate' | 'teammate2' | 'teammate3' | 'teammate4' | 'teammate5'>
     interaction: {
       member?: { user?: { id?: string, global_name?: string | null, username?: string, avatar?: string | null } }
       user?: { id?: string, global_name?: string | null, username?: string, avatar?: string | null }
@@ -1063,63 +1065,17 @@ function buildMatchJoinRequest(
   mode: GameMode,
   identity: { userId: string, displayName: string, avatarUrl: string },
 ):
-  | { entries: MatchJoinEntry[], teammateIds: string[] }
+  | { entries: MatchJoinEntry[] }
   | { error: string } {
-  const rawTeammateIds = [c.var.teammate, c.var.teammate2, c.var.teammate3, c.var.teammate4, c.var.teammate5]
-    .filter((value): value is string => typeof value === 'string' && value.length > 0)
-  const teammateLimit = maxTeammatesForMode(mode)
-
-  if (rawTeammateIds.length > teammateLimit) {
-    if (teammateLimit === 0) {
-      return { error: 'Teammate options are only available for team modes.' }
-    }
-    return {
-      error: `${formatModeLabel(mode)} supports up to ${teammateLimit} teammate option${teammateLimit === 1 ? '' : 's'}.`,
-    }
+  void c
+  void mode
+  return {
+    entries: [{
+      playerId: identity.userId,
+      displayName: identity.displayName,
+      avatarUrl: identity.avatarUrl,
+    }],
   }
-
-  const teammateIds: string[] = []
-  const seen = new Set<string>([identity.userId])
-  for (const teammateId of rawTeammateIds) {
-    if (teammateId === identity.userId) {
-      return { error: 'You cannot select yourself as a teammate.' }
-    }
-    if (seen.has(teammateId)) {
-      return { error: 'Duplicate teammate selected. Please choose distinct users.' }
-    }
-    seen.add(teammateId)
-    teammateIds.push(teammateId)
-  }
-
-  const identityByPlayerId = new Map<string, { userId: string, displayName: string, avatarUrl: string }>([
-    [identity.userId, identity],
-  ])
-  for (const teammateId of teammateIds) {
-    const teammateIdentity = getIdentityByUserId(c, teammateId)
-    if (!teammateIdentity) {
-      return { error: `Could not resolve teammate <@${teammateId}> from this command payload. Re-select the user and try again.` }
-    }
-    identityByPlayerId.set(teammateId, teammateIdentity)
-  }
-
-  const playerIds = [identity.userId, ...teammateIds]
-  const entries: MatchJoinEntry[] = []
-  for (const playerId of playerIds) {
-    const joinedIdentity = identityByPlayerId.get(playerId)
-    if (!joinedIdentity) {
-      return { error: `Could not load player data for <@${playerId}>.` }
-    }
-
-    const partyIds = playerIds.filter(candidateId => candidateId !== playerId)
-    entries.push({
-      playerId,
-      displayName: joinedIdentity.displayName,
-      avatarUrl: joinedIdentity.avatarUrl,
-      partyIds: partyIds.length > 0 ? partyIds : undefined,
-    })
-  }
-
-  return { entries, teammateIds }
 }
 
 async function findHostedOpenLobby(kv: KVNamespace, hostId: string) {

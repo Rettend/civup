@@ -1,16 +1,15 @@
 import type { GameMode, QueueEntry } from '@civup/game'
 import type { PlayerRating } from '@civup/rating'
+import type { LobbyArrangeStrategy } from './types.ts'
 import { isTeamMode, teamCount as modeTeamCount, teamSize } from '@civup/game'
 import { createRating, predictWinProbabilities } from '@civup/rating'
-
-export type LobbyArrangeStrategy = 'randomize' | 'balance'
 
 interface RatingSnapshot {
   mu: number
   sigma: number
 }
 
-interface PremadeGroup {
+interface PlayerGroup {
   playerIds: string[]
   size: number
 }
@@ -38,6 +37,9 @@ export interface ArrangeLobbySlotsInput {
 export function arrangeLobbySlots(
   input: ArrangeLobbySlotsInput,
 ): { slots: (string | null)[] } | { error: string } {
+  if (input.strategy === 'shuffle-teams' && !isTeamMode(input.mode)) {
+    return { error: 'Shuffle teams is only available in team lobbies.' }
+  }
   if (isTeamMode(input.mode)) return arrangeTeamLobbySlots(input)
   return arrangeSeatLobbySlots(input)
 }
@@ -79,7 +81,6 @@ function arrangeTeamLobbySlots(
   if (!teamSlotCount) {
     return { error: 'Team arrange actions are only available in team lobbies.' }
   }
-  const queueByPlayerId = new Map(input.queueEntries.map(entry => [entry.playerId, entry]))
   const slottedPlayerIds = input.slots.filter((playerId): playerId is string => playerId != null)
   const activeTeamCount = modeTeamCount(input.mode, slottedPlayerIds.length)
 
@@ -89,17 +90,23 @@ function arrangeTeamLobbySlots(
 
   const slotOrderByPlayerId = buildSlotOrderByPlayerId(input.slots)
 
-  const groups = buildPremadeGroups(slottedPlayerIds, queueByPlayerId, slotOrderByPlayerId)
-  for (const group of groups) {
-    if (group.size > teamSlotCount) {
-      return { error: 'One premade is larger than the lobby team size.' }
-    }
+  if (input.strategy === 'randomize') {
+    const random = input.random ?? Math.random
+    return { slots: shuffle(input.slots, random) }
   }
 
-  const assignments = enumerateAssignments(groups, teamSlotCount, activeTeamCount)
-  if (assignments.length === 0) {
-    return { error: 'Could not find a valid team layout for the current premades.' }
+  if (input.strategy === 'shuffle-teams') {
+    const random = input.random ?? Math.random
+    const groups = buildRelativeOrderGroups(slottedPlayerIds, activeTeamCount)
+    return { slots: buildShuffledTeamSlots(teamSlotCount, groups, activeTeamCount, input.slots.length, random) }
   }
+
+  const groups = slottedPlayerIds.map((playerId) => ({
+    playerIds: [playerId],
+    size: 1,
+  } satisfies PlayerGroup))
+  const assignments = enumerateAssignments(groups, teamSlotCount, activeTeamCount)
+  if (assignments.length === 0) return { error: 'Could not auto-balance teams for this lobby.' }
 
   const minSizeDiff = Math.min(...assignments.map((assignment) => {
     const minCount = Math.min(...assignment.teamCounts)
@@ -115,9 +122,7 @@ function arrangeTeamLobbySlots(
   const ratingsByPlayerId = input.ratingsByPlayerId ?? new Map<string, RatingSnapshot>()
   const scoredCandidates = candidateAssignments.map((assignment) => {
     const teamIdsByTeam = assignmentToTeams(assignment, groups, activeTeamCount)
-    const score = input.strategy === 'balance'
-      ? scoreBalancedCandidate(teamIdsByTeam, ratingsByPlayerId)
-      : 0
+    const score = scoreBalancedCandidate(teamIdsByTeam, ratingsByPlayerId)
     const key = teamIdsByTeam.map(teamIds => teamIds.join(',')).join('|')
 
     return {
@@ -126,16 +131,6 @@ function arrangeTeamLobbySlots(
       key,
     } satisfies ArrangementCandidate
   })
-
-  if (input.strategy === 'randomize') {
-    const random = input.random ?? Math.random
-    const index = Math.floor(random() * scoredCandidates.length)
-    const chosen = scoredCandidates[index] ?? scoredCandidates[0]
-    if (!chosen) return { error: 'Could not randomize teams for this lobby.' }
-    const teamIdsByTeam = assignmentToTeams(chosen.assignment, groups, activeTeamCount)
-    const randomizedTeams = shuffle(teamIdsByTeam, random).map(teamIds => buildRandomizedTeamSegment(teamIds, groups, teamSlotCount, random))
-    return { slots: buildTeamSlotsFromSegments(teamSlotCount, randomizedTeams, input.slots.length) }
-  }
 
   const minScore = Math.min(...scoredCandidates.map(candidate => candidate.score))
   const tied = scoredCandidates
@@ -158,68 +153,24 @@ function buildSlotOrderByPlayerId(slots: readonly (string | null)[]): Map<string
   return slotOrderByPlayerId
 }
 
-function buildPremadeGroups(
-  slottedPlayerIds: string[],
-  queueByPlayerId: Map<string, QueueEntry>,
-  slotOrderByPlayerId: Map<string, number>,
-): PremadeGroup[] {
-  const slottedSet = new Set(slottedPlayerIds)
-  const adjacency = new Map<string, Set<string>>()
+function buildRelativeOrderGroups(slottedPlayerIds: string[], activeTeamCount: number): string[][] {
+  if (slottedPlayerIds.length === 0 || activeTeamCount <= 0) return []
 
-  for (const playerId of slottedPlayerIds) {
-    adjacency.set(playerId, adjacency.get(playerId) ?? new Set<string>())
-    const partyIds = queueByPlayerId.get(playerId)?.partyIds ?? []
+  const baseSize = Math.floor(slottedPlayerIds.length / activeTeamCount)
+  const remainder = slottedPlayerIds.length % activeTeamCount
+  const groups: string[][] = []
+  let offset = 0
 
-    for (const teammateId of partyIds) {
-      if (!slottedSet.has(teammateId)) continue
-      adjacency.get(playerId)?.add(teammateId)
-      const reverse = adjacency.get(teammateId) ?? new Set<string>()
-      reverse.add(playerId)
-      adjacency.set(teammateId, reverse)
-    }
+  for (let team = 0; team < activeTeamCount; team++) {
+    const groupSize = baseSize + (team < remainder ? 1 : 0)
+    groups.push(slottedPlayerIds.slice(offset, offset + groupSize))
+    offset += groupSize
   }
 
-  const groups: PremadeGroup[] = []
-  const visited = new Set<string>()
-
-  for (const playerId of slottedPlayerIds) {
-    if (visited.has(playerId)) continue
-
-    const stack = [playerId]
-    const members: string[] = []
-    visited.add(playerId)
-
-    while (stack.length > 0) {
-      const current = stack.pop()
-      if (!current) continue
-      members.push(current)
-
-      const neighbors = adjacency.get(current)
-      if (!neighbors) continue
-      for (const neighbor of neighbors) {
-        if (visited.has(neighbor)) continue
-        visited.add(neighbor)
-        stack.push(neighbor)
-      }
-    }
-
-    members.sort((left, right) => {
-      const leftOrder = slotOrderByPlayerId.get(left) ?? Number.MAX_SAFE_INTEGER
-      const rightOrder = slotOrderByPlayerId.get(right) ?? Number.MAX_SAFE_INTEGER
-      if (leftOrder !== rightOrder) return leftOrder - rightOrder
-      return left.localeCompare(right)
-    })
-
-    groups.push({
-      playerIds: members,
-      size: members.length,
-    })
-  }
-
-  return groups
+  return groups.filter(group => group.length > 0)
 }
 
-function enumerateAssignments(groups: PremadeGroup[], teamSize: number, teamTotal: number): GroupAssignment[] {
+function enumerateAssignments(groups: PlayerGroup[], teamSize: number, teamTotal: number): GroupAssignment[] {
   if (groups.length === 0) {
     return [{ teamByGroup: [], teamCounts: Array.from({ length: teamTotal }, () => 0) }]
   }
@@ -258,7 +209,7 @@ function enumerateAssignments(groups: PremadeGroup[], teamSize: number, teamTota
 
 function assignmentToTeams(
   assignment: GroupAssignment,
-  groups: PremadeGroup[],
+  groups: PlayerGroup[],
   teamTotal: number,
 ): string[][] {
   const teamIdsByTeam = Array.from({ length: teamTotal }, () => [] as string[])
@@ -321,25 +272,24 @@ function getArrangeSkill(ratingsByPlayerId: Map<string, RatingSnapshot>, playerI
   return toPlayerRating(playerId, ratingsByPlayerId).mu
 }
 
-function buildRandomizedTeamSegment(
-  teamIds: string[],
-  groups: PremadeGroup[],
+function buildShuffledTeamSlots(
   teamSize: number,
+  groups: string[][],
+  activeTeamCount: number,
+  slotCount: number,
   random: () => number,
 ): (string | null)[] {
-  const emptySlotCount = Math.max(0, teamSize - teamIds.length)
+  const shuffledGroups = shuffle(groups, random)
+  const slots = Array.from({ length: slotCount }, () => null as string | null)
 
-  const playerSet = new Set(teamIds)
-  const teamGroups = groups
-    .map(group => group.playerIds.filter(playerId => playerSet.has(playerId)))
-    .filter(group => group.length > 0)
+  for (let team = 0; team < activeTeamCount; team++) {
+    const teamPlayers = shuffledGroups[team] ?? []
+    for (let index = 0; index < teamSize; index++) {
+      slots[(team * teamSize) + index] = teamPlayers[index] ?? null
+    }
+  }
 
-  const segmentItems = [
-    ...teamGroups.map(group => shuffle(group, random) as (string | null)[]),
-    ...Array.from({ length: emptySlotCount }, () => [null] as (string | null)[]),
-  ]
-
-  return shuffle(segmentItems, random).flat()
+  return slots
 }
 
 function shuffle<T>(values: T[], random: () => number): T[] {
@@ -360,19 +310,6 @@ function buildTeamSlots(teamSize: number, teamIdsByTeam: string[][], slotCount: 
     const teamIds = teamIdsByTeam[team] ?? []
     for (let index = 0; index < teamSize; index++) {
       slots[team * teamSize + index] = teamIds[index] ?? null
-    }
-  }
-
-  return slots
-}
-
-function buildTeamSlotsFromSegments(teamSize: number, teamSegments: (string | null)[][], slotCount: number): (string | null)[] {
-  const slots = Array.from({ length: slotCount }, () => null as string | null)
-
-  for (let team = 0; team < teamSegments.length; team++) {
-    const teamSegment = teamSegments[team] ?? []
-    for (let index = 0; index < teamSize; index++) {
-      slots[team * teamSize + index] = teamSegment[index] ?? null
     }
   }
 
