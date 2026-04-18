@@ -1,6 +1,7 @@
 import type { LeaderSwapState } from '@civup/game'
-import { createDraft, default2v2, redDeath2v2 } from '@civup/game'
+import { createDraft, default2v2, DEFAULT_MAP_VOTE_SELECTION, redDeath2v2 } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
+import { applyMapVoteSelectionUpdate, isValidMapVoteSelectionInput, type StoredMapVoteState } from '../src/map-vote-room-state.ts'
 import { resolveAcceptedSwapState } from '../src/leader-swaps.ts'
 import { buildRandomDraftResult } from '../src/random-draft.ts'
 
@@ -102,5 +103,41 @@ describe('resolveAcceptedSwapState', () => {
       { fromSeat: 4, toSeat: 5 },
       { fromSeat: 1, toSeat: 3, expiresAt: 1001 },
     ])
+  })
+})
+
+describe('map vote room helpers', () => {
+  function createMapVoteState(): StoredMapVoteState {
+    return {
+      enabled: true,
+      phase: 'voting',
+      endsAt: 1,
+      selections: {
+        0: { ...DEFAULT_MAP_VOTE_SELECTION },
+      },
+      confirmations: {
+        0: false,
+      },
+      revealedVotes: null,
+      result: null,
+    }
+  }
+
+  test('does not allow changing a confirmed ballot', () => {
+    const state = createMapVoteState()
+    state.confirmations[0] = true
+
+    const result = applyMapVoteSelectionUpdate(state, 0, {
+      mapType: 'east-vs-west',
+      mapScript: 'lakes',
+    })
+
+    expect(result).toBe('locked')
+  })
+
+  test('rejects invalid map-vote ids', () => {
+    expect(isValidMapVoteSelectionInput({ mapType: 'standard', mapScript: 'lakes' })).toBe(true)
+    expect(isValidMapVoteSelectionInput({ mapType: 'bogus', mapScript: 'lakes' })).toBe(false)
+    expect(isValidMapVoteSelectionInput({ mapType: 'standard', mapScript: 'bogus' })).toBe(false)
   })
 })

@@ -1,12 +1,9 @@
 import type { JSXElement } from 'solid-js'
-import type { MapScriptOption, MapTypeOption } from '~/client/lib/map-vote'
+import type { MapScriptOption, MapTypeOption } from '@civup/game'
 import { For, Show } from 'solid-js'
+import { MAP_SCRIPTS, MAP_TYPES } from '@civup/game'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
-import {
-  MAP_SCRIPTS,
-  MAP_TYPES,
-} from '~/client/lib/map-vote'
 import {
   confirmMapVote,
   draftStore,
@@ -256,12 +253,6 @@ function MapVoteOptionCard(props: {
               {value()}
             </span>
           )}
-        </Show>
-
-        <Show when={props.selected}>
-          <div class="px-1.5 py-1 rounded-bl-lg top-0 right-0 absolute z-10 shadow-[0_2px_8px_rgba(0,0,0,0.35)] flex items-center justify-center bg-black/45">
-            <span class="i-ph-check-bold text-sm text-accent" />
-          </div>
         </Show>
       </div>
 

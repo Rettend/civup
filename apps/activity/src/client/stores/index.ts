@@ -36,6 +36,8 @@ export {
   sendCancel,
   sendConfig,
   sendMessage,
+  sendMapVoteConfirm,
+  sendMapVoteSelection,
   sendPick,
   sendPreview,
   sendRevert,
@@ -133,7 +135,6 @@ export {
   MAP_VOTE_REVEAL_DURATION_SECONDS,
   MAP_VOTE_VOTING_DURATION_SECONDS,
   confirmMapVote,
-  finishMapVote,
   getSeatMapVote,
   isMapVotePhase,
   type MapVotePhase,
@@ -148,10 +149,7 @@ export {
   mapVoteVotingEndsAt,
   mapVoteWinningScript,
   mapVoteWinningType,
-  resetMapVote,
-  setMapVoteEnabled,
   setMapVoteSelectedScript,
   setMapVoteSelectedType,
-  startMapVote,
 } from './map-vote-store'
 export { avatarUrl, displayName, setAuthenticatedUser, user, userId } from './user-store'

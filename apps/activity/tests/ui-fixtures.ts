@@ -66,6 +66,7 @@ export function createLobbySnapshot(overrides: Partial<LobbySnapshot> = {}): Lob
       pickTimerSeconds: 90,
       leaderPoolSize: 6,
       leaderDataVersion: 'live',
+      mapVoteEnabled: true,
       blindBans: true,
       simultaneousPick: false,
       redDeath: false,

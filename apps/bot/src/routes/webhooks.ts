@@ -49,6 +49,7 @@ export function registerWebhookRoutes(app: Hono<Env>) {
         state: payload.state,
         completedAt: payload.completedAt,
         hostId,
+        mapVoteResult: payload.mapVoteResult ?? null,
       })
 
       if ('error' in result) {
@@ -98,6 +99,7 @@ export function registerWebhookRoutes(app: Hono<Env>) {
       cancelledAt: payload.cancelledAt,
       reason: payload.reason,
       hostId,
+      mapVoteResult: payload.mapVoteResult ?? null,
     })
 
     if ('error' in cancelled) {

@@ -1,5 +1,5 @@
-import type { DraftEvent, DraftPreviewState, DraftSelection, DraftState, DraftStep, LeaderDataVersion, LeaderSwapState, PendingLeaderSwapRequest } from '@civup/game'
-import { getPickSeatForPlayer, inferGameMode, isRedDeathFormatId } from '@civup/game'
+import type { DraftEvent, DraftPreviewState, DraftSelection, DraftState, DraftStep, LeaderDataVersion, LeaderSwapState, MapVoteSnapshot, PendingLeaderSwapRequest } from '@civup/game'
+import { EMPTY_MAP_VOTE_SNAPSHOT, getPickSeatForPlayer, inferGameMode, isRedDeathFormatId } from '@civup/game'
 import { createStore, produce } from 'solid-js/store'
 
 const EMPTY_DRAFT_PREVIEWS: DraftPreviewState = {
@@ -32,6 +32,8 @@ export interface DraftStore {
   previews: DraftPreviewState
   /** Post-draft teammate swap state, when the swap window is open. */
   swapState: LeaderSwapState | null
+  /** Server-authoritative pre-draft map vote state. */
+  mapVote: MapVoteSnapshot
   /** Recently swapped seats for transient portrait flash effects. */
   swapFlashSeatIndices: number[]
   /** Increments whenever the socket receives a fresh init payload. */
@@ -51,6 +53,7 @@ const [draftStore, setDraftStore] = createStore<DraftStore>({
   optimisticSeatPicks: {},
   previews: EMPTY_DRAFT_PREVIEWS,
   swapState: null,
+  mapVote: EMPTY_MAP_VOTE_SNAPSHOT,
   swapFlashSeatIndices: [],
   initVersion: 0,
 })
@@ -70,6 +73,7 @@ export function initDraft(
   completedAt: number | null,
   previews: DraftPreviewState,
   swapState: LeaderSwapState | null,
+  mapVote: MapVoteSnapshot = EMPTY_MAP_VOTE_SNAPSHOT,
 ) {
   clearSwapFlash()
   const nextInitVersion = draftStore.initVersion + 1
@@ -84,6 +88,7 @@ export function initDraft(
     optimisticSeatPicks: {},
     previews,
     swapState,
+    mapVote,
     swapFlashSeatIndices: [],
     initVersion: nextInitVersion,
   })
@@ -102,6 +107,7 @@ export function resetDraft() {
     optimisticSeatPicks: {},
     previews: EMPTY_DRAFT_PREVIEWS,
     swapState: null,
+    mapVote: EMPTY_MAP_VOTE_SNAPSHOT,
     swapFlashSeatIndices: [],
     initVersion: 0,
   })
@@ -116,6 +122,7 @@ export function updateDraft(
   completedAt: number | null,
   previews: DraftPreviewState,
   swapState: LeaderSwapState | null,
+  mapVote: MapVoteSnapshot = EMPTY_MAP_VOTE_SNAPSHOT,
 ) {
   setDraftStore(produce((s) => {
     s.state = state
@@ -127,6 +134,7 @@ export function updateDraft(
     s.optimisticSeatPicks = {}
     s.previews = previews
     s.swapState = swapState
+    s.mapVote = mapVote
   }))
 }
 

@@ -6,12 +6,34 @@ import type {
   DraftWebhookPayload,
   LeaderSwapRequest,
   LeaderSwapState,
+  MapVoteSelection,
+  MapVoteSnapshot,
+  RevealedMapVoteSeatBallot,
   PendingLeaderSwapRequest,
   RoomConfig,
   ServerMessage,
 } from '@civup/game'
 import type { Connection, ConnectionContext, WSMessage } from 'partyserver'
-import { createDraft, draftFormatMap, getCurrentStep, getPickSeatForPlayer, isDraftError, isRedDeathFormatId, MAX_TIMER_SECONDS, processDraftInput, swapSeatPicks } from '@civup/game'
+import {
+  createDraft,
+  createMapVoteRng,
+  DEFAULT_MAP_VOTE_SELECTION,
+  draftFormatMap,
+  EMPTY_MAP_VOTE_SNAPSHOT,
+  getCurrentStep,
+  getPickSeatForPlayer,
+  isDraftError,
+  isMapVoteSupportedForMode,
+  isRedDeathFormatId,
+  MAP_VOTE_REVEAL_DURATION_MS,
+  MAP_VOTE_VOTING_DURATION_MS,
+  MAX_TIMER_SECONDS,
+  normalizeMapVoteEnabled,
+  processDraftInput,
+  resolveMapVoteSelection,
+  resolveMapVoteWinner,
+  swapSeatPicks,
+} from '@civup/game'
 import {
   api,
   ApiError,
@@ -42,6 +64,14 @@ import {
   getSwapWindowAlarmAction,
 } from './swap-window.ts'
 import { resolveAcceptedSwapState } from './leader-swaps.ts'
+import {
+  applyMapVoteSelectionUpdate,
+  createInitialMapVoteState,
+  EMPTY_STORED_MAP_VOTE_STATE,
+  isValidMapVoteSelectionInput,
+  type MapVoteSelectionUpdateResult,
+  type StoredMapVoteState,
+} from './map-vote-room-state.ts'
 
 interface PartyEnv extends Cloudflare.Env {
   CIVUP_SECRET?: string
@@ -113,9 +143,14 @@ export class Main extends Server<PartyEnv> {
       dealOptionsSize: config.dealOptionsSize,
       duplicateFactions: config.duplicateFactions,
     })
+    const mapVoteEnabled = normalizeMapVoteEnabled(format.gameMode, config.mapVoteEnabled === true, { redDeath: format.redDeath })
     const state = withWaitingTimerConfig(format, baseState, config.timerConfig)
+    const nextConfig: RoomConfig = {
+      ...config,
+      mapVoteEnabled,
+    }
 
-    await this.ctx.storage.put('config', config)
+    await this.ctx.storage.put('config', nextConfig)
     await this.ctx.storage.put('state', state)
     await this.ctx.storage.put('timerEndsAt', null)
     await this.ctx.storage.put('alarmStepIndex', -1)
@@ -127,6 +162,7 @@ export class Main extends Server<PartyEnv> {
     await this.ctx.storage.put('swapPendingExpiresAt', null)
     await this.ctx.storage.put('swapDisconnectFinalizeAt', null)
     await this.ctx.storage.put('swapSafetyEndsAt', null)
+    await this.ctx.storage.put('mapVote', createInitialMapVoteState(state, nextConfig, format.redDeath))
 
     return json({ ok: true, matchId: config.matchId }, 201)
   }
@@ -156,6 +192,7 @@ export class Main extends Server<PartyEnv> {
     const cancelledAt = await this.ctx.storage.get<number | null>('cancelledAt')
     const swapWindowOpen = await this.ctx.storage.get<boolean>('swapWindowOpen') === true
     const seatIndex = state.seats.findIndex(seat => seat.playerId === activityUserId)
+    const mapVote = await this.getMapVoteSnapshot(state, seatIndex)
     const previews = sanitizeDraftPreviews(
       state,
       await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
@@ -163,6 +200,7 @@ export class Main extends Server<PartyEnv> {
     return json({
       state: this.censorState(state, seatIndex),
       timerEndsAt,
+      mapVote,
       completedAt,
       cancelledAt,
       previews: censorDraftPreviews(state, previews, seatIndex),
@@ -223,10 +261,12 @@ export class Main extends Server<PartyEnv> {
     const seatIndex = playerId
       ? state.seats.findIndex(s => s.playerId === playerId)
       : -1
+    const mapVote = await this.getMapVoteSnapshot(state, seatIndex)
 
     this.send(connection, {
       type: 'init',
       state: this.censorState(state, seatIndex),
+      mapVote,
       leaderDataVersion: config?.leaderDataVersion ?? 'live',
       hostId,
       seatIndex: seatIndex >= 0 ? seatIndex : null,
@@ -293,17 +333,49 @@ export class Main extends Server<PartyEnv> {
           this.send(sender, { type: 'error', message: 'Only the host can start the draft' })
           return
         }
-        if (config.randomDraft) {
-          const result = buildRandomDraftResult(state)
-          await this.applyResult(result.state, result.events)
+        const startResult = await this.handleStart(state, config, format)
+        if (startResult) {
+          this.send(sender, { type: 'error', message: startResult })
+        }
+        break
+      }
+
+      case 'map-vote-selection': {
+        if (seatIndex < 0) {
+          this.send(sender, { type: 'error', message: 'Not a participant' })
           return
         }
-        const result = processDraftInput(state, { type: 'START' }, format.blindBans)
-        if (isDraftError(result)) {
-          this.send(sender, { type: 'error', message: result.error })
+        if (!isValidMapVoteSelectionInput(msg.selection)) {
+          this.send(sender, { type: 'error', message: 'Invalid map vote selection' })
           return
         }
-        await this.applyResult(result.state, result.events)
+        const nextMapVote = await this.updateMapVoteSelection(state, config, seatIndex, msg.selection)
+        if (nextMapVote === 'inactive') {
+          this.send(sender, { type: 'error', message: 'Map voting is not active' })
+          return
+        }
+        if (nextMapVote === 'locked') {
+          this.send(sender, { type: 'error', message: 'Map vote already confirmed' })
+          return
+        }
+        await this.broadcastRoomState(state, config, [])
+        break
+      }
+
+      case 'map-vote-confirm': {
+        if (seatIndex < 0) {
+          this.send(sender, { type: 'error', message: 'Not a participant' })
+          return
+        }
+        const confirmResult = await this.confirmMapVote(state, config, seatIndex)
+        if (confirmResult === 'inactive') {
+          this.send(sender, { type: 'error', message: 'Map voting is not active' })
+          return
+        }
+        if (confirmResult === 'invalid-selection') {
+          this.send(sender, { type: 'error', message: 'Map vote selection is incomplete' })
+          return
+        }
         break
       }
 
@@ -536,7 +608,8 @@ export class Main extends Server<PartyEnv> {
           await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
         )
         await this.ctx.storage.put('previews', previews)
-        this.broadcastUpdate(nextState, config.hostId, config.leaderDataVersion ?? 'live', [], timerEndsAt ?? null, completedAt ?? null, previews, null)
+        const mapVoteState = await this.getStoredMapVoteState()
+        this.broadcastUpdate(nextState, config.hostId, config.leaderDataVersion ?? 'live', [], timerEndsAt ?? null, completedAt ?? null, previews, null, mapVoteState)
         break
       }
 
@@ -574,6 +647,13 @@ export class Main extends Server<PartyEnv> {
   override async onAlarm() {
     const state = await this.ctx.storage.get<DraftState>('state')
     if (!state) return
+
+    const config = await this.ctx.storage.get<RoomConfig>('config')
+    if (!config) return
+
+    if (await this.handleMapVoteAlarm(state, config)) {
+      return
+    }
 
     if (state.status === 'complete' && await this.isSwapWindowOpen()) {
       const now = Date.now()
@@ -614,9 +694,6 @@ export class Main extends Server<PartyEnv> {
     // Guard against stale alarms (step already advanced)
     const alarmStepIndex = await this.ctx.storage.get<number>('alarmStepIndex')
     if (alarmStepIndex !== state.currentStepIndex) return
-
-    const config = await this.ctx.storage.get<RoomConfig>('config')
-    if (!config) return
 
     const format = draftFormatMap.get(config.formatId)
     if (!format) return
@@ -729,7 +806,8 @@ export class Main extends Server<PartyEnv> {
     }
 
     const hostId = config?.hostId ?? newState.seats[0]?.playerId ?? ''
-    this.broadcastUpdate(newState, hostId, config?.leaderDataVersion ?? 'live', events, timerEndsAt ?? null, completedAt ?? null, previews, swapState)
+    const mapVoteState = await this.getStoredMapVoteState()
+    this.broadcastUpdate(newState, hostId, config?.leaderDataVersion ?? 'live', events, timerEndsAt ?? null, completedAt ?? null, previews, swapState, mapVoteState)
 
     if (immediateSwapWindowSyncTask) {
       await immediateSwapWindowSyncTask
@@ -909,6 +987,189 @@ export class Main extends Server<PartyEnv> {
     }))
   }
 
+  private async handleStart(state: DraftState, config: RoomConfig, format: NonNullable<ReturnType<typeof draftFormatMap.get>>): Promise<string | null> {
+    if (state.status !== 'waiting') {
+      const result = processDraftInput(state, { type: 'START' }, format.blindBans)
+      if (isDraftError(result)) return result.error
+      await this.applyResult(result.state, result.events)
+      return null
+    }
+
+    const mapVoteState = await this.getStoredMapVoteState()
+    if (mapVoteState.enabled && mapVoteState.phase === 'idle') {
+      const nextMapVote: StoredMapVoteState = {
+        ...mapVoteState,
+        phase: 'voting',
+        endsAt: Date.now() + MAP_VOTE_VOTING_DURATION_MS,
+      }
+      await this.ctx.storage.put('mapVote', nextMapVote)
+      await this.ctx.storage.put('timerEndsAt', null)
+      await this.ctx.storage.put('alarmStepIndex', -1)
+      await this.ctx.storage.setAlarm(nextMapVote.endsAt!)
+      await this.broadcastRoomState(state, config, [])
+      return null
+    }
+
+    if (mapVoteState.enabled && mapVoteState.phase !== 'done') {
+      return 'Map voting is already in progress'
+    }
+
+    return await this.startActualDraft(state, config, format)
+  }
+
+  private async handleMapVoteAlarm(state: DraftState, config: RoomConfig): Promise<boolean> {
+    const mapVoteState = await this.getStoredMapVoteState()
+    if (!mapVoteState.enabled || mapVoteState.endsAt == null) return false
+
+    if (mapVoteState.phase === 'voting') {
+      await this.finishMapVoteVoting(state, config, mapVoteState)
+      return true
+    }
+
+    if (mapVoteState.phase === 'reveal') {
+      await this.finishMapVoteReveal(state, config, mapVoteState)
+      return true
+    }
+
+    return false
+  }
+
+  private async updateMapVoteSelection(
+    state: DraftState,
+    config: RoomConfig,
+    seatIndex: number,
+    selection: MapVoteSelection,
+  ): Promise<MapVoteSelectionUpdateResult> {
+    const mapVoteState = await this.getStoredMapVoteState()
+    const nextMapVote = applyMapVoteSelectionUpdate(mapVoteState, seatIndex, selection)
+    if (typeof nextMapVote === 'string') return nextMapVote
+
+    await this.ctx.storage.put('mapVote', nextMapVote)
+    return nextMapVote
+  }
+
+  private async confirmMapVote(
+    state: DraftState,
+    config: RoomConfig,
+    seatIndex: number,
+  ): Promise<'inactive' | 'invalid-selection' | 'ok'> {
+    const mapVoteState = await this.getStoredMapVoteState()
+    if (!mapVoteState.enabled || mapVoteState.phase !== 'voting') return 'inactive'
+
+    const selection = mapVoteState.selections[seatIndex]
+    if (!selection?.mapType || !selection?.mapScript) return 'invalid-selection'
+
+    const nextMapVote: StoredMapVoteState = {
+      ...mapVoteState,
+      confirmations: {
+        ...mapVoteState.confirmations,
+        [seatIndex]: true,
+      },
+    }
+    await this.ctx.storage.put('mapVote', nextMapVote)
+
+    if (state.seats.every((_, index) => nextMapVote.confirmations[index] === true)) {
+      await this.finishMapVoteVoting(state, config, nextMapVote)
+      return 'ok'
+    }
+
+    await this.broadcastRoomState(state, config, [])
+    return 'ok'
+  }
+
+  private async finishMapVoteVoting(state: DraftState, config: RoomConfig, currentMapVote?: StoredMapVoteState) {
+    const mapVoteState = currentMapVote ?? await this.getStoredMapVoteState()
+    if (!mapVoteState.enabled || mapVoteState.phase !== 'voting') return
+
+    const rng = createMapVoteRng(`${state.matchId}:map-vote`)
+    const revealedVotes = state.seats.map((_, seatIndex) => {
+      const selection = mapVoteState.selections[seatIndex] ?? DEFAULT_MAP_VOTE_SELECTION
+      const resolved = resolveMapVoteSelection(selection, rng)
+      return {
+        seatIndex,
+        confirmed: mapVoteState.confirmations[seatIndex] === true,
+        mapType: resolved.mapType,
+        mapScript: resolved.mapScript,
+      } satisfies RevealedMapVoteSeatBallot
+    })
+    const result = resolveMapVoteWinner(revealedVotes, rng)
+    const nextMapVote: StoredMapVoteState = {
+      ...mapVoteState,
+      phase: 'reveal',
+      endsAt: Date.now() + MAP_VOTE_REVEAL_DURATION_MS,
+      revealedVotes,
+      result,
+    }
+    await this.ctx.storage.put('mapVote', nextMapVote)
+    await this.ctx.storage.setAlarm(nextMapVote.endsAt!)
+    await this.broadcastRoomState(state, config, [])
+  }
+
+  private async finishMapVoteReveal(state: DraftState, config: RoomConfig, currentMapVote?: StoredMapVoteState) {
+    const mapVoteState = currentMapVote ?? await this.getStoredMapVoteState()
+    if (!mapVoteState.enabled || mapVoteState.phase !== 'reveal') return
+
+    const nextMapVote: StoredMapVoteState = {
+      ...mapVoteState,
+      phase: 'done',
+      endsAt: null,
+    }
+    await this.ctx.storage.put('mapVote', nextMapVote)
+
+    const format = draftFormatMap.get(config.formatId)
+    if (!format) return
+    await this.startActualDraft(state, config, format)
+  }
+
+  private async startActualDraft(state: DraftState, config: RoomConfig, format: NonNullable<ReturnType<typeof draftFormatMap.get>>): Promise<string | null> {
+    if (config.randomDraft) {
+      const result = buildRandomDraftResult(state)
+      await this.applyResult(result.state, result.events)
+      return null
+    }
+
+    const result = processDraftInput(state, { type: 'START' }, format.blindBans)
+    if (isDraftError(result)) return result.error
+    await this.applyResult(result.state, result.events)
+    return null
+  }
+
+  private async broadcastRoomState(state: DraftState, config: RoomConfig, events: DraftEvent[]) {
+    const previews = sanitizeDraftPreviews(
+      state,
+      await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
+    )
+    const timerEndsAt = await this.ctx.storage.get<number | null>('timerEndsAt')
+    const completedAt = await this.ctx.storage.get<number | null>('completedAt')
+    const swapState = await this.isSwapWindowOpen() ? await this.getSwapState() : null
+    const mapVoteState = await this.getStoredMapVoteState()
+    this.broadcastUpdate(state, config.hostId, config.leaderDataVersion ?? 'live', events, timerEndsAt ?? null, completedAt ?? null, previews, swapState, mapVoteState)
+  }
+
+  private async getStoredMapVoteState(): Promise<StoredMapVoteState> {
+    const state = await this.ctx.storage.get<StoredMapVoteState>('mapVote')
+    return state ?? { ...EMPTY_STORED_MAP_VOTE_STATE }
+  }
+
+  private async getMapVoteSnapshot(state: DraftState, seatIndex: number): Promise<MapVoteSnapshot> {
+    return this.buildMapVoteSnapshot(await this.getStoredMapVoteState(), seatIndex, state)
+  }
+
+  private buildMapVoteSnapshot(mapVoteState: StoredMapVoteState, seatIndex: number, state?: DraftState): MapVoteSnapshot {
+    if (!mapVoteState.enabled) return { ...EMPTY_MAP_VOTE_SNAPSHOT }
+    const resolvedSeatIndex = seatIndex >= 0 ? seatIndex : null
+    return {
+      enabled: mapVoteState.enabled,
+      supported: state ? isMapVoteSupportedForMode(draftFormatMap.get(state.formatId)?.gameMode ?? 'ffa', { redDeath: isRedDeathFormatId(state.formatId) }) : mapVoteState.enabled,
+      phase: mapVoteState.phase,
+      endsAt: mapVoteState.endsAt,
+      selection: resolvedSeatIndex == null ? null : (mapVoteState.selections[resolvedSeatIndex] ?? DEFAULT_MAP_VOTE_SELECTION),
+      hasConfirmed: resolvedSeatIndex == null ? false : mapVoteState.confirmations[resolvedSeatIndex] === true,
+      revealedVotes: mapVoteState.phase === 'reveal' || mapVoteState.phase === 'done' ? mapVoteState.revealedVotes : null,
+      result: mapVoteState.phase === 'reveal' || mapVoteState.phase === 'done' ? mapVoteState.result : null,
+    }
+  }
+
   private getConnectedParticipantCount(state: DraftState, excludedConnection?: Connection): number {
     return countConnectedDraftParticipants(
       state.seats.map(seat => seat.playerId),
@@ -929,6 +1190,7 @@ export class Main extends Server<PartyEnv> {
     completedAt: number | null,
     previews: DraftPreviewState,
     swapState: LeaderSwapState | null,
+    mapVoteState: StoredMapVoteState,
   ) {
     for (const conn of this.getConnections()) {
       const connState = conn.state as ConnectionState | null
@@ -940,6 +1202,7 @@ export class Main extends Server<PartyEnv> {
       this.send(conn, {
         type: 'update',
         state: this.censorState(state, seatIndex),
+        mapVote: this.buildMapVoteSnapshot(mapVoteState, seatIndex),
         leaderDataVersion: leaderDataVersion ?? 'live',
         hostId,
         events: this.censorEvents(events, seatIndex),
@@ -1063,6 +1326,7 @@ export class Main extends Server<PartyEnv> {
       completedAt,
       finalized: options.finalized === true ? true : undefined,
       state,
+      mapVoteResult: (await this.getStoredMapVoteState()).result,
     }
     await this.sendDraftWebhook(state.matchId, config, payload)
   }
@@ -1076,6 +1340,7 @@ export class Main extends Server<PartyEnv> {
       cancelledAt,
       reason: state.cancelReason ?? 'scrub',
       state,
+      mapVoteResult: (await this.getStoredMapVoteState()).result,
     }
     await this.sendDraftWebhook(state.matchId, config, payload)
   }

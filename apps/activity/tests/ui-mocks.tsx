@@ -1,8 +1,7 @@
 /** @jsxImportSource solid-js */
 
-import { getPickSeatForPlayer, type DraftState, type LeaderDataVersion } from '@civup/game'
+import { getPickSeatForPlayer, type DraftState, type LeaderDataVersion, type MapScriptId, type MapTypeId, type RevealedMapVoteSeatBallot } from '@civup/game'
 import type { LeaderTagCategory } from '../src/client/lib/leader-tags'
-import type { MapScriptId, MapTypeId, SeatMapVote } from '../src/client/lib/map-vote'
 import type { LobbyArrangeStrategy, LobbySnapshot, RankedRoleOptionSnapshot } from '../src/client/stores'
 import { getTagCategory } from '../src/client/lib/leader-tags'
 import { mock } from 'bun:test'
@@ -16,6 +15,8 @@ export const storeSpies = {
   sendBan: mock((_civIds: string[]) => {}),
   sendPick: mock((_civId: string) => {}),
   sendPreview: mock((_kind: 'ban' | 'pick', _civIds: string[]) => {}),
+  sendMapVoteConfirm: mock(() => true),
+  sendMapVoteSelection: mock((_selection: { mapType: MapTypeId, mapScript: MapScriptId }) => true),
   sendSwapAccept: mock(() => {}),
   sendSwapRequest: mock((_seatIndex: number) => {}),
   reportMatchResult: mock(async () => ({ ok: true })),
@@ -90,7 +91,7 @@ type MockState = {
   mapVoteSelectedType: MapTypeId | null
   mapVoteSelectedScript: MapScriptId | null
   mapVoteHasConfirmed: boolean
-  mapVoteSeatVotes: SeatMapVote[]
+  mapVoteSeatVotes: RevealedMapVoteSeatBallot[]
   mapVoteWinningType: MapTypeId | null
   mapVoteWinningScript: MapScriptId | null
   mapVoteVotingEndsAt: number | null
@@ -144,6 +145,7 @@ function mockLobbySnapshot(): LobbySnapshot {
       pickTimerSeconds: 90,
       leaderPoolSize: 6,
       leaderDataVersion: 'live',
+      mapVoteEnabled: false,
       blindBans: true,
       simultaneousPick: false,
       redDeath: false,
@@ -381,20 +383,7 @@ function startMapVote(_matchId: string) {
 
 function confirmMapVote() {
   if (!mapVoteReadyToConfirm()) return
-  const seatCount = Math.max(uiMockState.draftState?.seats.length ?? 0, 1)
-  const mapType = uiMockState.mapVoteSelectedType!
-  const mapScript = uiMockState.mapVoteSelectedScript!
-  uiMockState.mapVoteSeatVotes = Array.from({ length: seatCount }, (_, seatIndex) => ({
-    seatIndex,
-    mapType,
-    mapScript,
-  }))
-  uiMockState.mapVoteWinningType = mapType
-  uiMockState.mapVoteWinningScript = mapScript
-  uiMockState.mapVoteHasConfirmed = true
-  uiMockState.mapVotePhase = 'reveal'
-  uiMockState.mapVoteVotingEndsAt = null
-  uiMockState.mapVoteRevealEndsAt = Date.now() + 5000
+  storeSpies.sendMapVoteConfirm()
 }
 
 function finishMapVote() {
@@ -536,6 +525,8 @@ mock.module('~/client/stores', () => ({
   sendBan: (...args: Parameters<typeof storeSpies.sendBan>) => storeSpies.sendBan(...args),
   confirmMapVote,
   sendConfig: async () => {},
+  sendMapVoteConfirm: (...args: Parameters<typeof storeSpies.sendMapVoteConfirm>) => storeSpies.sendMapVoteConfirm(...args),
+  sendMapVoteSelection: (...args: Parameters<typeof storeSpies.sendMapVoteSelection>) => storeSpies.sendMapVoteSelection(...args),
   sendPick: (...args: Parameters<typeof storeSpies.sendPick>) => storeSpies.sendPick(...args),
   sendPreview: (...args: Parameters<typeof storeSpies.sendPreview>) => storeSpies.sendPreview(...args),
   sendRevert: (...args: Parameters<typeof storeSpies.sendRevert>) => storeSpies.sendRevert(...args),
@@ -552,8 +543,14 @@ mock.module('~/client/stores', () => ({
   setGridViewMode: (next: 'grid' | 'multi-list' | 'list') => { uiMockState.gridViewMode = next },
   setIsRandomSelected: (next: boolean) => { uiMockState.isRandomSelected = next },
   setMapVoteEnabled: (next: boolean) => { uiMockState.mapVoteEnabled = next },
-  setMapVoteSelectedScript: (next: MapScriptId | null) => { uiMockState.mapVoteSelectedScript = next },
-  setMapVoteSelectedType: (next: MapTypeId | null) => { uiMockState.mapVoteSelectedType = next },
+  setMapVoteSelectedScript: (next: MapScriptId | null) => {
+    uiMockState.mapVoteSelectedScript = next
+    if (next != null && uiMockState.mapVoteSelectedType != null) storeSpies.sendMapVoteSelection({ mapType: uiMockState.mapVoteSelectedType, mapScript: next })
+  },
+  setMapVoteSelectedType: (next: MapTypeId | null) => {
+    uiMockState.mapVoteSelectedType = next
+    if (next != null && uiMockState.mapVoteSelectedScript != null) storeSpies.sendMapVoteSelection({ mapType: next, mapScript: uiMockState.mapVoteSelectedScript })
+  },
   setPickSelections,
   setResultSelectionsLocked: (next: boolean) => { uiMockState.resultSelectionsLocked = next },
   setSearchQuery: (next: string) => { uiMockState.searchQuery = next },

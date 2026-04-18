@@ -1,6 +1,6 @@
 import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
+import { MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '@civup/game'
 import { cn } from '~/client/lib/css'
-import { MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '~/client/lib/map-vote'
 import {
   MAP_VOTE_REVEAL_DURATION_SECONDS,
   MAP_VOTE_VOTING_DURATION_SECONDS,
