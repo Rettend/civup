@@ -52,9 +52,10 @@ export function createLobbySnapshot(overrides: Partial<LobbySnapshot> = {}): Lob
     steamLobbyLink: 'steam://joinlobby/289070/example',
     minRole: null,
     maxRole: null,
+    lastArrange: null,
     entries: [
-      { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null, partyIds: ['party-host'] },
-      { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, partyIds: ['party-2'] },
+      { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+      { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
       null,
       null,
     ],

@@ -122,7 +122,7 @@ The `/match` command group manages the lobby:
 
 - `/match activity` opens the Activity showing the Lobby Overview or your previous match
 - `/match create mode:... [steam_link]` creates an open lobby and auto-joins as host
-- `/match join mode:... [teammates]` joins the best open lobby for that mode, specifying teammates will treat them as premades
+- `/match join mode:...` joins the best open lobby for that mode
 - `/match status` lists active lobbies and IDs
 - `/match leave` leaves the active lobby
 - `/match bump` reposts the current lobby embed again
@@ -131,7 +131,8 @@ The `/match` command group manages the lobby:
 > [!NOTE]
 >
 > - players can only join one lobby, consequently a host can only host one lobby, re-running `/match create` reuses that lobby
-> - team modes and regular FFA must be full to start (regular FFA is 8 players)
+> - team modes must be full to start
+> - regular `FFA` uses 8 seats and can start with 6 or 8 players
 > - expanded `2v2` lobbies can start with 6 players as `2v2v2`, or 8 players as `2v2v2v2`
 > - Red Death FFA can start with 4, 6, 8, or 10 players
 
@@ -150,8 +151,8 @@ The host can:
 
 - change game mode anytime before the draft has started
 - place and remove players from slots
-- link or unlink premades in team modes
-- randomize seats, premades will be kept together
+- shuffle players across the full slot order
+- shuffle teams while keeping current players and re-splitting them evenly
 - auto-balance teams, this uses players' ratings
 - set Matchmaking Min and Max Rank (only affects `/match join`, any player can directly join any lobby)
 - set the leader pool size
@@ -164,7 +165,6 @@ Players can:
 
 - move themselves into open seats
 - leave their own slot
-- link themselves as premades to others
 - see the current config and draft state
 
 #### Spectators
@@ -235,7 +235,7 @@ Default leader pool sizes (and min allowed override):
 - `4v4`: 56 (min 14)
 - `5v5`: 64 (min 16)
 - `6v6`: 72 (min 18)
-- `FFA`: `6 x player count`: 36-60 for 6-10 players (min `3 x player count` 18-30 for 6-10 players)
+- `FFA`: `6 x player count`: 36-48 for 6 or 8 players (min `3 x player count` 18-24 for 6 or 8 players)
 
 Max allowed override is all leaders (85).
 

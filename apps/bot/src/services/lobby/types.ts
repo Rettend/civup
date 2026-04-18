@@ -1,6 +1,12 @@
 import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 
 export type LobbyStatus = 'open' | 'drafting' | 'active' | 'completed' | 'cancelled' | 'scrubbed'
+export type LobbyArrangeStrategy = 'randomize' | 'balance' | 'shuffle-teams'
+
+export interface LobbyArrangeMarker {
+  strategy: LobbyArrangeStrategy
+  at: number
+}
 
 export interface LobbyDraftConfig {
   banTimerSeconds: number | null
@@ -27,6 +33,7 @@ export interface LobbyState {
   steamLobbyLink: string | null
   minRole: CompetitiveTier | null
   maxRole: CompetitiveTier | null
+  lastArrange?: LobbyArrangeMarker | null
   lastActivityAt: number
   /** Player IDs currently attached to this lobby (slotted or spectator). */
   memberPlayerIds: string[]
@@ -38,11 +45,12 @@ export interface LobbyState {
   revision: number
 }
 
-export interface StoredLobbyState extends Omit<LobbyState, 'draftConfig' | 'slots' | 'revision' | 'memberPlayerIds' | 'steamLobbyLink' | 'lastActivityAt'> {
+export interface StoredLobbyState extends Omit<LobbyState, 'draftConfig' | 'slots' | 'revision' | 'memberPlayerIds' | 'steamLobbyLink' | 'lastActivityAt' | 'lastArrange'> {
   steamLobbyLink?: unknown
   draftConfig?: Partial<LobbyDraftConfig> | null
   slots?: unknown
   revision?: unknown
+  lastArrange?: unknown
   lastActivityAt?: unknown
   lastJoinedAt?: unknown
   memberPlayerIds?: unknown

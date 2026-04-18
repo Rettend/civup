@@ -23,11 +23,6 @@ export function deriveQueueBackedLobbyMemberPlayerIds(
   for (const playerId of lobby.slots) append(playerId)
   append(lobby.hostId)
 
-  for (let index = 0; index < memberIds.length; index++) {
-    const entry = queueByPlayerId.get(memberIds[index] ?? '')
-    for (const partyId of entry?.partyIds ?? []) append(partyId)
-  }
-
   return memberIds
 }
 

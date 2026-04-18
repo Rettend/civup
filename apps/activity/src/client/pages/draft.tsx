@@ -1,7 +1,7 @@
-import { createEffect, createSignal, Match, onCleanup, Show, Switch } from 'solid-js'
+import { createEffect, createRenderEffect, createSignal, Match, onCleanup, Show, Switch } from 'solid-js'
 import { DraftView } from '~/client/components/draft'
-import { DraftSetupPage } from './draft-setup'
 import { connectionError, connectionStatus, draftStore, sendStart, userId } from '~/client/stores'
+import { DraftSetupPage } from './draft-setup'
 
 export interface DraftPageProps {
   matchId: string
@@ -14,7 +14,7 @@ export interface DraftPageProps {
 
 export function DraftPage(props: DraftPageProps) {
   const [autoStartSent, setAutoStartSent] = createSignal(false)
-  const [showAutoStartSplash, setShowAutoStartSplash] = createSignal(Boolean(props.autoStart))
+  const [showAutoStartSplash, setShowAutoStartSplash] = createSignal(false)
   let autoStartSplashTimeout: ReturnType<typeof setTimeout> | null = null
 
   const hasDraftState = () => draftStore.state != null
@@ -36,6 +36,12 @@ export function DraftPage(props: DraftPageProps) {
     clearTimeout(autoStartSplashTimeout)
     autoStartSplashTimeout = null
   }
+
+  createRenderEffect(() => {
+    if (autoStartSent()) return
+    if (draftStore.state?.status !== 'waiting') return
+    setShowAutoStartSplash(Boolean(props.autoStart))
+  })
 
   createEffect(() => {
     const current = draftStore.state
