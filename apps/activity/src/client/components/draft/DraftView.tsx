@@ -2,8 +2,10 @@ import { createEffect, createRenderEffect, createSignal, onCleanup, Show } from 
 import { cn } from '~/client/lib/css'
 import {
   canOpenLeaderGrid,
+  confirmMapVote,
   currentStep,
   draftStore,
+  finishMapVote,
   gridOpen,
   hasSubmitted,
   isMapVotePhase,
@@ -12,6 +14,9 @@ import {
   isMyOwnPickTurn,
   isSpectator,
   mapVoteEnabled,
+  mapVotePhase,
+  mapVoteRevealEndsAt,
+  mapVoteVotingEndsAt,
   resetMapVote,
   setGridOpen,
   startMapVote,
@@ -38,6 +43,7 @@ interface DraftViewProps {
 export function DraftView(props: DraftViewProps) {
   const state = () => draftStore.state
   const [autoOpenedGridToken, setAutoOpenedGridToken] = createSignal<string | null>(null)
+  const [autoOpenedMapVoteToken, setAutoOpenedMapVoteToken] = createSignal<string | null>(null)
   const [steamLobbyLink, setSteamLobbyLink] = createSignal<string | null>(null)
   const [steamLobbySavePending, setSteamLobbySavePending] = createSignal(false)
   let scrubRedirectTimeout: ReturnType<typeof setTimeout> | null = null
@@ -118,6 +124,30 @@ export function DraftView(props: DraftViewProps) {
     startMapVote(current.matchId)
   })
 
+  createEffect(() => {
+    if (mapVotePhase() !== 'voting') return
+    if (draftStore.seatIndex == null) return
+    const endsAt = mapVoteVotingEndsAt()
+    if (endsAt == null) return
+
+    const timeout = setTimeout(() => confirmMapVote(), Math.max(0, endsAt - Date.now()))
+    onCleanup(() => clearTimeout(timeout))
+  })
+
+  createEffect(() => {
+    if (mapVotePhase() !== 'reveal') return
+    const endsAt = mapVoteRevealEndsAt()
+    if (endsAt == null) return
+
+    const timeout = setTimeout(() => finishMapVote(), Math.max(0, endsAt - Date.now()))
+    onCleanup(() => clearTimeout(timeout))
+  })
+
+  createEffect(() => {
+    if (mapVotePhase() !== 'reveal') return
+    setGridOpen(false)
+  })
+
   // Reset the map-vote store when the draft ends so the next draft starts fresh.
   createEffect(() => {
     const status = state()?.status
@@ -126,10 +156,19 @@ export function DraftView(props: DraftViewProps) {
     }
   })
 
-  // Keep the leader grid closed while the map-vote overlay is taking the screen.
   createEffect(() => {
-    if (!isMapVotePhase()) return
-    setGridOpen(false)
+    const current = state()
+    if (!current || current.status !== 'active' || !isMapVotePhase()) {
+      setAutoOpenedMapVoteToken(null)
+      return
+    }
+    if (isMiniView()) return
+
+    const nextToken = `${draftStore.initVersion}:${current.matchId}:map-vote`
+    if (autoOpenedMapVoteToken() === nextToken) return
+
+    setGridOpen(true)
+    setAutoOpenedMapVoteToken(nextToken)
   })
 
   createEffect(() => {
@@ -153,6 +192,11 @@ export function DraftView(props: DraftViewProps) {
 
   const isActiveOrComplete = () => state()?.status === 'active' || state()?.status === 'complete'
   const canSaveSteamLobbyLink = () => amHost() && Boolean(props.lobbyId) && Boolean(props.lobbyMode)
+  const canToggleOverlay = () => isMapVotePhase() || canOpenLeaderGrid()
+  const overlayToggleLabel = () => {
+    if (isMapVotePhase()) return gridOpen() ? 'Close map vote' : 'Open map vote'
+    return gridOpen() ? 'Close leader grid' : 'Open leader grid'
+  }
 
   const handleSaveSteamLink = async (link: string | null) => {
     const currentUserId = userId()
@@ -206,20 +250,20 @@ export function DraftView(props: DraftViewProps) {
                 </Show>
 
                 {/* Grid toggle button */}
-                <Show when={state()?.status === 'active' && !isMapVotePhase()}>
+                <Show when={state()?.status === 'active'}>
                   <div class="flex inset-x-0 bottom-3 justify-center absolute z-50">
                     <button
                       class={cn(
                         'flex items-center gap-1 rounded-full px-5 py-1.5 text-xs font-medium cursor-pointer',
                         'bg-bg-subtle border border-border text-fg-muted',
-                        canOpenLeaderGrid() && 'hover:bg-bg-muted hover:text-fg transition-colors',
-                        !canOpenLeaderGrid() && 'cursor-default opacity-50',
+                        canToggleOverlay() && 'hover:bg-bg-muted hover:text-fg transition-colors',
+                        !canToggleOverlay() && 'cursor-default opacity-50',
                       )}
-                      title={gridOpen() ? 'Close leader grid' : 'Open leader grid'}
-                      aria-label={gridOpen() ? 'Close leader grid' : 'Open leader grid'}
-                      disabled={!canOpenLeaderGrid()}
+                      title={overlayToggleLabel()}
+                      aria-label={overlayToggleLabel()}
+                      disabled={!canToggleOverlay()}
                       onClick={() => {
-                        if (!canOpenLeaderGrid()) return
+                        if (!canToggleOverlay()) return
                         setGridOpen(!gridOpen())
                       }}
                     >
