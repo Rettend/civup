@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library'
 import { createActiveDraftState } from './ui-fixtures'
-import { resetUiMocks, uiMockState } from './ui-mocks'
+import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const { DraftPage } = await import('../src/client/pages/draft')
 
@@ -20,7 +20,7 @@ describe('Map vote UI', () => {
     uiMockState.mapVoteVotingEndsAt = Date.now() + 30_000
   })
 
-  test('shows map as the first phase and survives confirm into reveal', async () => {
+  test('shows map as the first phase and confirms through the authoritative action', async () => {
     render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
 
     expect(screen.getByText('MAP VOTING')).toBeTruthy()
@@ -29,7 +29,15 @@ describe('Map vote UI', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Confirm Vote' }))
 
-    await waitFor(() => expect(uiMockState.mapVotePhase).toBe('reveal'))
-    expect(screen.getByText('MAP VOTING')).toBeTruthy()
+    await waitFor(() => expect(storeSpies.sendMapVoteConfirm).toHaveBeenCalledTimes(1))
+  })
+
+  test('sends authoritative selection updates when cards are clicked', async () => {
+    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'East vs West' }))
+    fireEvent.click(screen.getByRole('button', { name: /Lakes/ }))
+
+    await waitFor(() => expect(storeSpies.sendMapVoteSelection).toHaveBeenCalled())
   })
 })

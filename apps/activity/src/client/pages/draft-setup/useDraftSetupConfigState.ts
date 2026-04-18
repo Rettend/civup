@@ -2,7 +2,7 @@ import type { Accessor, Setter } from 'solid-js'
 import type { LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
 import type { DraftSetupPageProps, EditableConfigField, LobbyEditableDraftConfig } from './types'
 import type { DraftTimerConfig, LobbyModeValue, RankRoleSetDetail } from './helpers'
-import { canStartWithPlayerCount, formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isUnrankedMode, maxPlayerCount, normalizeAvailableLeaderDataVersion, normalizeCompetitiveTierBounds, requiresRedDeathDuplicateFactions } from '@civup/game'
+import { canStartWithPlayerCount, formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isMapVoteSupportedForMode, isUnrankedMode, maxPlayerCount, normalizeAvailableLeaderDataVersion, normalizeCompetitiveTierBounds, requiresRedDeathDuplicateFactions } from '@civup/game'
 import { createEffect, createSignal, onCleanup } from 'solid-js'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
 import {
@@ -40,6 +40,7 @@ function sameLobbyDraftConfig(a: LobbyEditableDraftConfig, b: LobbyEditableDraft
     && a.pickTimerSeconds === b.pickTimerSeconds
     && a.leaderPoolSize === b.leaderPoolSize
     && a.leaderDataVersion === b.leaderDataVersion
+    && a.mapVoteEnabled === b.mapVoteEnabled
     && a.blindBans === b.blindBans
     && a.simultaneousPick === b.simultaneousPick
     && a.redDeath === b.redDeath
@@ -69,6 +70,7 @@ export function useDraftSetupConfigState(input: {
   const [leaderPoolInput, setLeaderPoolInput] = createSignal('')
   const [editingField, setEditingField] = createSignal<EditableConfigField | null>(null)
   const [leaderDataVersionPending, setLeaderDataVersionPending] = createSignal(false)
+  const [mapVoteEnabledPending, setMapVoteEnabledPending] = createSignal(false)
   const [blindBansPending, setBlindBansPending] = createSignal(false)
   const [simultaneousPickPending, setSimultaneousPickPending] = createSignal(false)
   const [redDeathPending, setRedDeathPending] = createSignal(false)
@@ -166,6 +168,7 @@ export function useDraftSetupConfigState(input: {
       ...getTimerConfigFromDraft(state()),
       leaderPoolSize: null,
       leaderDataVersion: 'live',
+      mapVoteEnabled: false,
       blindBans: true,
       simultaneousPick: state()?.formatId === 'default-ffa-simultaneous',
       redDeath: isRedDeathDraft(),
@@ -251,6 +254,7 @@ export function useDraftSetupConfigState(input: {
     return Boolean(lobby && lobby.mode === 'ffa' && optimisticDraftConfig().redDeath && (lobby.entries.slice(8) ?? []).some(entry => entry != null))
   }
   const canToggleRedDeath = () => !redDeathExtraFfaSeatsOccupied()
+  const supportsMapVoteToggle = () => input.isLobbyMode() && isMapVoteSupportedForMode(input.lobbyMode(), { redDeath: isRedDeathLobbyMode() })
   const supportsBlindBansToggle = () => input.isLobbyMode() && supportsBlindBansControl(input.lobbyMode(), { redDeath: isRedDeathLobbyMode(), targetSize: input.currentLobby()?.targetSize })
 
   createEffect(() => {
@@ -279,6 +283,7 @@ export function useDraftSetupConfigState(input: {
           pickTimerSeconds: nextConfig.pickTimerSeconds,
           leaderPoolSize: nextConfig.leaderPoolSize,
           leaderDataVersion: nextConfig.leaderDataVersion,
+          mapVoteEnabled: nextConfig.mapVoteEnabled,
           blindBans: nextConfig.blindBans,
           simultaneousPick: nextConfig.simultaneousPick,
           redDeath: nextConfig.redDeath,
@@ -335,6 +340,7 @@ export function useDraftSetupConfigState(input: {
         pickTimerSeconds,
         leaderPoolSize,
         leaderDataVersion: current.leaderDataVersion,
+        mapVoteEnabled: current.mapVoteEnabled,
         blindBans: current.blindBans,
         simultaneousPick: current.simultaneousPick,
         redDeath: current.redDeath,
@@ -362,6 +368,10 @@ export function useDraftSetupConfigState(input: {
   }
 
   const handleLeaderDataVersionChange = async (checked: boolean) => commitToggleConfigChange(checked ? 'beta' : 'live', optimisticDraftConfig().leaderDataVersion, setLeaderDataVersionPending, current => ({ ...current, leaderDataVersion: checked ? 'beta' : 'live' }))
+  const handleMapVoteEnabledChange = async (checked: boolean) => {
+    if (!input.isLobbyMode() || !input.amHost() || input.lobbyActionPending() || mapVoteEnabledPending() || !supportsMapVoteToggle()) return
+    await commitToggleConfigChange(checked, optimisticDraftConfig().mapVoteEnabled, setMapVoteEnabledPending, current => ({ ...current, mapVoteEnabled: checked }))
+  }
   const handleBlindBansChange = async (checked: boolean) => {
     if (!input.isLobbyMode() || !input.amHost() || input.lobbyActionPending() || blindBansPending() || !supportsBlindBansToggle()) return
     await commitToggleConfigChange(checked, optimisticDraftConfig().blindBans, setBlindBansPending, current => ({ ...current, blindBans: checked }))
@@ -382,6 +392,7 @@ export function useDraftSetupConfigState(input: {
         pickTimerSeconds: current.pickTimerSeconds,
         leaderPoolSize: checked ? null : current.leaderPoolSize,
         leaderDataVersion: checked ? 'live' : current.leaderDataVersion,
+        mapVoteEnabled: checked ? false : current.mapVoteEnabled,
         blindBans: checked ? true : current.blindBans,
         simultaneousPick: checked ? false : current.simultaneousPick,
         redDeath: checked,
@@ -532,6 +543,7 @@ export function useDraftSetupConfigState(input: {
 
   const pending = {
     leaderDataVersion: leaderDataVersionPending,
+    mapVoteEnabled: mapVoteEnabledPending,
     blindBans: blindBansPending,
     simultaneousPick: simultaneousPickPending,
     redDeath: redDeathPending,
@@ -548,6 +560,7 @@ export function useDraftSetupConfigState(input: {
     isUnranked: isUnrankedLobbyMode,
     canStartLobby,
     canToggleRedDeath,
+    supportsMapVote: supportsMapVoteToggle,
     supportsBlindBans: supportsBlindBansToggle,
     leaderPoolMinimum: leaderPoolMinimumValue,
     leaderPoolPlaceholder: leaderPoolPlaceholderValue,
@@ -586,6 +599,7 @@ export function useDraftSetupConfigState(input: {
     inputBanMinutes: handleBanMinutesInput,
     inputPickMinutes: handlePickMinutesInput,
     changeLeaderDataVersion: handleLeaderDataVersionChange,
+    changeMapVoteEnabled: handleMapVoteEnabledChange,
     changeBlindBans: handleBlindBansChange,
     changeSimultaneousPick: handleSimultaneousPickChange,
     changeRedDeath: handleRedDeathChange,
@@ -612,6 +626,7 @@ export function buildEditableLobbyDraftConfig(lobby: LobbySnapshot): LobbyEditab
     pickTimerSeconds: lobby.draftConfig.pickTimerSeconds,
     leaderPoolSize: lobby.draftConfig.leaderPoolSize,
     leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+    mapVoteEnabled: lobby.draftConfig.mapVoteEnabled,
     blindBans: lobby.draftConfig.blindBans,
     simultaneousPick: lobby.draftConfig.simultaneousPick,
     redDeath: lobby.draftConfig.redDeath,

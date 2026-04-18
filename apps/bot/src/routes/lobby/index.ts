@@ -120,13 +120,14 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, blindBans: blindBansRaw, simultaneousPick: simultaneousPickRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, duplicateFactions: duplicateFactionsRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
-      userId?: string
-      banTimerSeconds?: unknown
-      pickTimerSeconds?: unknown
-      leaderPoolSize?: unknown
-      leaderDataVersion?: unknown
-      blindBans?: unknown
+      const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, mapVoteEnabled: mapVoteEnabledRaw, blindBans: blindBansRaw, simultaneousPick: simultaneousPickRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, duplicateFactions: duplicateFactionsRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
+        userId?: string
+        banTimerSeconds?: unknown
+        pickTimerSeconds?: unknown
+        leaderPoolSize?: unknown
+        leaderDataVersion?: unknown
+        mapVoteEnabled?: unknown
+        blindBans?: unknown
       simultaneousPick?: unknown
       redDeath?: unknown
       dealOptionsSize?: unknown
@@ -158,6 +159,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       : undefined
     const hasLeaderPoolSize = Object.prototype.hasOwnProperty.call(body, 'leaderPoolSize')
     const hasLeaderDataVersion = Object.prototype.hasOwnProperty.call(body, 'leaderDataVersion')
+    const hasMapVoteEnabled = Object.prototype.hasOwnProperty.call(body, 'mapVoteEnabled')
     const hasBlindBans = Object.prototype.hasOwnProperty.call(body, 'blindBans')
     const hasSimultaneousPick = Object.prototype.hasOwnProperty.call(body, 'simultaneousPick')
     const hasRedDeath = Object.prototype.hasOwnProperty.call(body, 'redDeath')
@@ -176,6 +178,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     const parsedLeaderDataVersion = hasLeaderDataVersion
       ? parseLobbyLeaderDataVersion(leaderDataVersionRaw)
+      : undefined
+    const parsedMapVoteEnabled = hasMapVoteEnabled
+      ? parseLobbyMapVoteEnabled(mapVoteEnabledRaw)
       : undefined
     const parsedBlindBans = hasBlindBans
       ? parseLobbyBlindBans(blindBansRaw)
@@ -203,6 +208,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     if (hasBlindBans && parsedBlindBans === undefined) {
       return c.json({ error: 'blindBans must be true or false' }, 400)
+    }
+    if (hasMapVoteEnabled && parsedMapVoteEnabled === undefined) {
+      return c.json({ error: 'mapVoteEnabled must be true or false' }, 400)
     }
     if (hasSimultaneousPick && parsedSimultaneousPick === undefined) {
       return c.json({ error: 'simultaneousPick must be true or false' }, 400)
@@ -266,6 +274,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const normalizedLeaderDataVersion = hasLeaderDataVersion
       ? parsedLeaderDataVersion ?? 'live'
       : lobby.draftConfig.leaderDataVersion
+    const normalizedMapVoteEnabled = hasMapVoteEnabled
+      ? parsedMapVoteEnabled ?? false
+      : lobby.draftConfig.mapVoteEnabled
     const normalizedBlindBans = hasBlindBans
       ? parsedBlindBans ?? true
       : lobby.draftConfig.blindBans
@@ -314,7 +325,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       if (!hasSteamLobbyLink) {
         return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
       }
-      if (hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasBlindBans || hasSimultaneousPick || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasDuplicateFactions || hasTargetSize || hasMinRole || hasMaxRole) {
+      if (hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasMapVoteEnabled || hasBlindBans || hasSimultaneousPick || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasDuplicateFactions || hasTargetSize || hasMinRole || hasMaxRole) {
         return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
       }
 
@@ -382,6 +393,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       pickTimerSeconds: resolvedPickTimerSeconds,
       leaderPoolSize: normalizedLeaderPoolSize,
       leaderDataVersion: normalizedLeaderDataVersion,
+      mapVoteEnabled: normalizedMapVoteEnabled,
       blindBans: normalizedBlindBans,
       simultaneousPick: normalizedSimultaneousPick,
       redDeath: normalizedRedDeath,
@@ -1190,6 +1202,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         blindBans: lobby.draftConfig.blindBans,
         simultaneousPick: lobby.draftConfig.simultaneousPick,
         redDeath: lobby.draftConfig.redDeath,
+        mapVoteEnabled: lobby.draftConfig.mapVoteEnabled,
         randomDraft: lobby.draftConfig.randomDraft,
         duplicateFactions: lobby.draftConfig.duplicateFactions,
         partyHost: c.env.PARTY_HOST,
@@ -1426,6 +1439,10 @@ function parseLobbySimultaneousPick(value: unknown): boolean | undefined {
 }
 
 function parseLobbyBlindBans(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function parseLobbyMapVoteEnabled(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
 }
 

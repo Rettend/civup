@@ -1,13 +1,47 @@
 import type { DraftState } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { activityOverviewKey, syncActivityOverviewSnapshot } from '../../src/services/activity/live-state.ts'
-import { attachLobbyMatch, clearLobbyById, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobbyByChannel, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
+import { attachLobbyMatch, clearLobbyById, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobbyByChannel, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
 import { hostKey, idKey, LOBBY_TTL, matchKey } from '../../src/services/lobby/keys.ts'
 import { lobbySnapshotKey, syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../../src/services/match/retention.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
+
+test('normalizes unsupported map vote config off for ffa lobbies', async () => {
+  const { kv } = createTrackedKv()
+  const lobby = await createLobby(kv, {
+    mode: 'ffa',
+    hostId: 'host-1',
+    channelId: 'channel-1',
+    messageId: 'message-1',
+  })
+
+  const updated = await setLobbyDraftConfig(kv, lobby.id, {
+    ...lobby.draftConfig,
+    mapVoteEnabled: true,
+  }, lobby)
+
+  expect(updated?.draftConfig.mapVoteEnabled).toBe(false)
+})
+
+test('keeps supported map vote config for team lobbies', async () => {
+  const { kv } = createTrackedKv()
+  const lobby = await createLobby(kv, {
+    mode: '2v2',
+    hostId: 'host-1',
+    channelId: 'channel-1',
+    messageId: 'message-1',
+  })
+
+  const updated = await setLobbyDraftConfig(kv, lobby.id, {
+    ...lobby.draftConfig,
+    mapVoteEnabled: true,
+  }, lobby)
+
+  expect(updated?.draftConfig.mapVoteEnabled).toBe(true)
+})
 
 describe('lobby service KV write behavior', () => {
   test('setLobbySlots skips KV writes when slots are unchanged', async () => {

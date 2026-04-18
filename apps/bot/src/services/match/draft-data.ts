@@ -6,6 +6,7 @@ interface ParsedDraftData {
   completedAt?: unknown
   hostId?: unknown
   reportedById?: unknown
+  mapVoteResult?: unknown
   redDeath?: unknown
   state?: {
     seats?: Array<{ playerId?: unknown, displayName?: unknown, avatarUrl?: unknown }>
