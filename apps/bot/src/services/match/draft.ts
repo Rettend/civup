@@ -1,5 +1,5 @@
 import type { Database } from '@civup/db'
-import type { DraftState, GameMode } from '@civup/game'
+import type { DraftState, GameMode, ResolvedMapVoteResult } from '@civup/game'
 import type { ActivateDraftInput, ActivateDraftResult, CancelDraftInput, CancelDraftResult, CreateDraftMatchInput, ParticipantRow } from './types.ts'
 import { matchBans, matches, matchParticipants, players } from '@civup/db'
 import { isRedDeathFormatId, isTeamMode } from '@civup/game'
@@ -131,6 +131,7 @@ export async function activateDraftMatch(
   const draftData = JSON.stringify({
     completedAt: input.completedAt,
     hostId: input.hostId,
+    mapVoteResult: input.mapVoteResult ?? null,
     redDeath: isRedDeathFormatId(input.state.formatId),
     state: input.state,
   })
@@ -289,6 +290,7 @@ export async function cancelDraftMatch(
           cancelledAt: input.cancelledAt,
           reason: input.reason,
           hostId: input.hostId,
+          mapVoteResult: input.mapVoteResult ?? null,
           redDeath: isRedDeathFormatId(input.state.formatId),
           state: input.state,
         }),

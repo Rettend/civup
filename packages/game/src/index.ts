@@ -6,6 +6,30 @@ export { betaLeaderDataVersionLabel, hasBetaLeaderData, liveLeaderDataVersionLab
 export { getDefaultLeaderPoolSize, getMinimumLeaderPoolSize, MAX_LEADER_POOL_SIZE, resolveLeaderPoolSize, sampleLeaderPool } from './leader-pool.ts'
 export { allLeaderIds, getLeader, getLeaderMap, getLeaders, leaderBetaMap, leaderMap, leaders, leadersBeta, redDeathLeaderMap, redDeathLeaders, searchLeaders } from './leader-registry.ts'
 export {
+  createMapVoteRng,
+  DEFAULT_MAP_VOTE_SELECTION,
+  EMPTY_MAP_VOTE_SNAPSHOT,
+  formatMapVoteResultLabel,
+  isMapScriptId,
+  isMapTypeId,
+  isMapVoteSupportedForMode,
+  MAP_SCRIPT_IDS,
+  MAP_SCRIPT_BY_ID,
+  MAP_SCRIPTS,
+  MAP_TYPE_IDS,
+  MAP_TYPE_BY_ID,
+  MAP_TYPES,
+  MAP_VOTE_REVEAL_DURATION_MS,
+  MAP_VOTE_REVEAL_DURATION_SECONDS,
+  MAP_VOTE_VOTING_DURATION_MS,
+  MAP_VOTE_VOTING_DURATION_SECONDS,
+  normalizeMapVoteEnabled,
+  pickRandomMapScript,
+  pickRandomMapType,
+  resolveMapVoteSelection,
+  resolveMapVoteWinner,
+} from './map-vote.ts'
+export {
   canStartWithPlayerCount,
   defaultPlayerCount,
   formatLeaderboardModeLabel,
@@ -34,7 +58,25 @@ export {
   toBalanceLeaderboardMode,
   toLeaderboardMode,
 } from './mode.ts'
-export type { ClientMessage, DraftCancelledWebhookPayload, DraftCompleteWebhookPayload, DraftWebhookPayload, RoomConfig, ServerMessage } from './protocol.ts'
+export type {
+  ClientMessage,
+  DraftCancelledWebhookPayload,
+  DraftCompleteWebhookPayload,
+  DraftWebhookPayload,
+  RoomConfig,
+  ServerMessage,
+} from './protocol.ts'
+export type {
+  MapScriptId,
+  MapScriptOption,
+  MapTypeId,
+  MapTypeOption,
+  MapVotePhase,
+  MapVoteSelection,
+  MapVoteSnapshot,
+  ResolvedMapVoteResult,
+  RevealedMapVoteSeatBallot,
+} from './map-vote.ts'
 export type {
   CompetitiveTier,
   DraftAction,

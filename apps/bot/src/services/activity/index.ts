@@ -1,6 +1,6 @@
 import type { DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry, RoomConfig } from '@civup/game'
 import type { LobbyState } from '../lobby/types.ts'
-import { allFactionIds, getDraftFormat, isTeamMode, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
+import { allFactionIds, getDraftFormat, isTeamMode, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
 import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
 import { syncActivityOverviewSnapshot } from './live-state.ts'
@@ -23,6 +23,7 @@ export interface CreateDraftRoomOptions {
   blindBans?: boolean
   simultaneousPick?: boolean
   redDeath?: boolean
+  mapVoteEnabled?: boolean
   randomDraft?: boolean
   duplicateFactions?: boolean
   partyHost?: string
@@ -206,6 +207,7 @@ export async function createDraftRoom(
   const duplicateFactions = redDeathMode
     ? (requiresRedDeathDuplicateFactions(mode) || options.duplicateFactions === true)
     : (options.duplicateFactions === true)
+  const mapVoteEnabled = normalizeMapVoteEnabled(mode, options.mapVoteEnabled === true, { redDeath: redDeathMode })
   const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode, blindBans: options.blindBans, seatCount: seats.length })
   const civPool = redDeathMode
     ? [...allFactionIds]
@@ -219,6 +221,7 @@ export async function createDraftRoom(
     dealOptionsSize: redDeathMode ? options.dealOptionsSize ?? undefined : undefined,
     randomDraft,
     duplicateFactions,
+    mapVoteEnabled,
     leaderDataVersion: options.leaderDataVersion ?? 'live',
     timerConfig: options.timerConfig,
     webhookUrl: buildDraftWebhookUrl(options.botHost, options.partyHost),

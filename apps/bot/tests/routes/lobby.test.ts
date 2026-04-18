@@ -905,6 +905,7 @@ describe('lobby routes', () => {
       pickTimerSeconds: 60,
       leaderPoolSize: 12,
       leaderDataVersion: 'live',
+      mapVoteEnabled: false,
       blindBans: true,
       simultaneousPick: false,
       redDeath: false,

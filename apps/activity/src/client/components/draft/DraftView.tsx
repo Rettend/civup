@@ -2,10 +2,8 @@ import { createEffect, createRenderEffect, createSignal, onCleanup, Show } from 
 import { cn } from '~/client/lib/css'
 import {
   canOpenLeaderGrid,
-  confirmMapVote,
   currentStep,
   draftStore,
-  finishMapVote,
   gridOpen,
   hasSubmitted,
   isMapVotePhase,
@@ -13,13 +11,7 @@ import {
   isMobileLayout,
   isMyOwnPickTurn,
   isSpectator,
-  mapVoteEnabled,
-  mapVotePhase,
-  mapVoteRevealEndsAt,
-  mapVoteVotingEndsAt,
-  resetMapVote,
   setGridOpen,
-  startMapVote,
   updateLobbyConfig,
   userId,
 } from '~/client/stores'
@@ -116,49 +108,9 @@ export function DraftView(props: DraftViewProps) {
     setGridOpen(false)
   })
 
-  // Trigger the dummy map-vote phase whenever a new active draft begins.
   createEffect(() => {
     const current = state()
-    if (!current || current.status !== 'active') return
-    if (!mapVoteEnabled()) return
-    startMapVote(current.matchId)
-  })
-
-  createEffect(() => {
-    if (mapVotePhase() !== 'voting') return
-    if (draftStore.seatIndex == null) return
-    const endsAt = mapVoteVotingEndsAt()
-    if (endsAt == null) return
-
-    const timeout = setTimeout(() => confirmMapVote(), Math.max(0, endsAt - Date.now()))
-    onCleanup(() => clearTimeout(timeout))
-  })
-
-  createEffect(() => {
-    if (mapVotePhase() !== 'reveal') return
-    const endsAt = mapVoteRevealEndsAt()
-    if (endsAt == null) return
-
-    const timeout = setTimeout(() => finishMapVote(), Math.max(0, endsAt - Date.now()))
-    onCleanup(() => clearTimeout(timeout))
-  })
-
-  createEffect(() => {
-    if (mapVotePhase() !== 'reveal') return
-    setGridOpen(false)
-  })
-
-  // Reset the map-vote store when the draft ends so the next draft starts fresh.
-  createEffect(() => {
-    const status = state()?.status
-    if (status === 'cancelled' || status === 'complete') {
-      resetMapVote()
-    }
-  })
-
-  createEffect(() => {
-    const current = state()
-    if (!current || current.status !== 'active' || !isMapVotePhase()) {
+    if (!current || !isMapVotePhase()) {
       setAutoOpenedMapVoteToken(null)
       return
     }
@@ -190,7 +142,7 @@ export function DraftView(props: DraftViewProps) {
     setAutoOpenedGridToken(nextToken)
   })
 
-  const isActiveOrComplete = () => state()?.status === 'active' || state()?.status === 'complete'
+  const isActiveOrComplete = () => isMapVotePhase() || state()?.status === 'active' || state()?.status === 'complete'
   const canSaveSteamLobbyLink = () => amHost() && Boolean(props.lobbyId) && Boolean(props.lobbyMode)
   const canToggleOverlay = () => isMapVotePhase() || canOpenLeaderGrid()
   const overlayToggleLabel = () => {
@@ -245,12 +197,12 @@ export function DraftView(props: DraftViewProps) {
                 <Show when={state()?.status === 'active' && !isMapVotePhase()}>
                   <LeaderGridOverlay />
                 </Show>
-                <Show when={state()?.status === 'active' && isMapVotePhase()}>
+                <Show when={isMapVotePhase()}>
                   <MapVoteOverlay />
                 </Show>
 
                 {/* Grid toggle button */}
-                <Show when={state()?.status === 'active'}>
+                <Show when={state()?.status === 'active' || isMapVotePhase()}>
                   <div class="flex inset-x-0 bottom-3 justify-center absolute z-50">
                     <button
                       class={cn(
@@ -275,7 +227,7 @@ export function DraftView(props: DraftViewProps) {
                 </Show>
 
                 {/* Status indicator */}
-                <Show when={!gridOpen() && state()?.status === 'active'}>
+                <Show when={!gridOpen() && (state()?.status === 'active' || isMapVotePhase())}>
                   <div class="flex inset-x-0 bottom-12 justify-center absolute z-5">
                     <Show when={isSpectator()}>
                       <span class="text-xs text-fg-subtle px-3 py-1 rounded-full bg-bg-subtle/80">Spectating</span>
