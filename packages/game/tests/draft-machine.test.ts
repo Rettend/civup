@@ -235,6 +235,18 @@ describe('processDraftInput — CANCEL', () => {
     expect(result.events).toContainEqual({ type: 'DRAFT_CANCELLED', reason: 'scrub' })
   })
 
+  test('preserves revert while still waiting', () => {
+    const draft = createDraft('match-revert', default2v2, create2v2Seats(), createTestCivPool())
+    const result = processDraftInput(draft, { type: 'CANCEL', reason: 'revert' })
+
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.state.status).toBe('cancelled')
+    expect(result.state.cancelReason).toBe('revert')
+    expect(result.events).toContainEqual({ type: 'DRAFT_CANCELLED', reason: 'revert' })
+  })
+
   test('allows scrubbing after draft completion', () => {
     let state = startDraft(createDraft('match-duel', default1v1, createDuelSeats(), createTestCivPool()))
 

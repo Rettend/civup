@@ -58,7 +58,7 @@ export interface MapVoteSnapshot {
   result: ResolvedMapVoteResult | null
 }
 
-export const MAP_VOTE_VOTING_DURATION_MS = 2 * 60_000
+export const MAP_VOTE_VOTING_DURATION_MS = 1 * 60_000
 export const MAP_VOTE_REVEAL_DURATION_MS = 5_000
 export const MAP_VOTE_VOTING_DURATION_SECONDS = MAP_VOTE_VOTING_DURATION_MS / 1000
 export const MAP_VOTE_REVEAL_DURATION_SECONDS = MAP_VOTE_REVEAL_DURATION_MS / 1000

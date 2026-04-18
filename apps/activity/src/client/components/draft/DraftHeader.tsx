@@ -1,5 +1,5 @@
 import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
-import { MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '@civup/game'
+import { formatMapVoteResultLabel, MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '@civup/game'
 import { cn } from '~/client/lib/css'
 import {
   MAP_VOTE_REVEAL_DURATION_SECONDS,
@@ -75,7 +75,8 @@ export function DraftHeader(props: DraftHeaderProps) {
     return id ? MAP_SCRIPT_BY_ID[id] : null
   }
   const hasWinningMap = () => winningMapTypeOption() != null && winningMapScriptOption() != null
-  const showWinningMapBadge = () => hasWinningMap() && !isMapVotePhase() && state()?.status === 'active'
+  const showWinningMapBadge = () => hasWinningMap() && !isMapVotePhase() && (state()?.status === 'active' || state()?.status === 'complete')
+  const showHostActions = () => amHost() && (state()?.status === 'active' || isMapVotePhase())
 
   const clearPhaseFlashTimeout = () => {
     if (phaseFlashTimeout == null) return
@@ -276,7 +277,7 @@ export function DraftHeader(props: DraftHeaderProps) {
 
   const revertDraft = () => {
     const s = state()
-    if (!amHost() || !s || s.status !== 'active') return
+    if (!amHost() || !s || (s.status !== 'active' && !isMapVotePhase())) return
 
     setResultStatus('submitting:revert')
     sendRevert()
@@ -284,7 +285,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   }
 
   const confirmHostAction = (action: DraftHostAction) => {
-    if (!canManageDraft()) return
+    if (!canManageDraftPhase()) return
     if (armedHostAction() !== action) {
       armHostAction(action)
       return
@@ -299,6 +300,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   }
 
   const canManageDraft = () => amHost() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
+  const canManageDraftPhase = () => showHostActions() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
   const canSubmitResult = () => isParticipant() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
   const resultSelectionReady = () => {
     if (!isTeamMode()) return ffaPlacementOrder().length === seatCount()
@@ -307,7 +309,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   }
   const showMobileActionRow = () => {
     if (!isMobileLayout()) return false
-    if (state()?.status === 'active') return amHost()
+    if (showHostActions()) return true
     if (isComplete()) return isParticipant()
     return false
   }
@@ -363,7 +365,7 @@ export function DraftHeader(props: DraftHeaderProps) {
           ? 'border-danger/70 bg-danger/20 text-danger hover:border-danger hover:bg-danger/25'
           : 'border-border text-fg-muted hover:border-border-hover hover:bg-bg-muted/50',
       )}
-      disabled={!canManageDraft()}
+      disabled={!canManageDraftPhase()}
       title={label}
       aria-label={label}
       onClick={() => confirmHostAction(action)}
@@ -537,7 +539,7 @@ export function DraftHeader(props: DraftHeaderProps) {
                   </div>
                 </Show>
 
-                <Show when={state()?.status === 'active'} fallback={renderResultActions()}>
+                <Show when={showHostActions()} fallback={renderResultActions()}>
                   {renderActiveHostActions(true)}
                 </Show>
               </div>
@@ -569,6 +571,11 @@ export function DraftHeader(props: DraftHeaderProps) {
               when={!isComplete()}
               fallback={(
                 <div class="flex gap-3 items-center relative">
+                  <Show when={showWinningMapBadge()}>
+                    <div class="mr-3 right-full top-1/2 absolute min-w-0 -translate-y-1/2">
+                      <WinningMapBadge />
+                    </div>
+                  </Show>
                   <Show
                     when={isParticipant()}
                     fallback={
@@ -610,7 +617,7 @@ export function DraftHeader(props: DraftHeaderProps) {
                     </span>
                   </Show>
 
-                  <Show when={amHost() && state()?.status === 'active'}>
+                  <Show when={showHostActions()}>
                     <div class="ml-6 left-full top-1/2 absolute -translate-y-1/2">
                       {renderActiveHostActions(false)}
                     </div>
@@ -652,24 +659,7 @@ function teamIndexToken(team: number): string {
  * label so the picked map is visible throughout the ban/pick draft.
  */
 function WinningMapBadge(props: { compact?: boolean }) {
-  const typeSuffix = () => {
-    const mapType = mapVoteWinningType()
-    if (mapType == null || mapType === 'standard') return ''
-    if (mapType === 'east-vs-west') return 'EvW'
-    return MAP_TYPE_BY_ID[mapType]?.name ?? mapType
-  }
-  const scriptLabel = () => {
-    const mapScript = mapVoteWinningScript()
-    const script = mapScript ? MAP_SCRIPT_BY_ID[mapScript] : null
-    if (!script) return ''
-    return script.hint ? `${script.name} ${script.hint}` : script.name
-  }
-  const label = () => {
-    const script = scriptLabel()
-    const suffix = typeSuffix()
-    if (!script) return suffix
-    return suffix ? `${script} ${suffix}` : script
-  }
+  const label = () => formatMapVoteResultLabel(mapVoteWinningType(), mapVoteWinningScript())
 
   return (
     <div
