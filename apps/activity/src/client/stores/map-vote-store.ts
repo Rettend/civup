@@ -10,6 +10,12 @@ import {
 } from '~/client/lib/map-vote'
 import { draftStore } from './draft-store'
 
+const VOTING_DURATION_MS = 300000
+const REVEAL_DURATION_MS = 5000
+
+export const MAP_VOTE_VOTING_DURATION_SECONDS = VOTING_DURATION_MS / 1000
+export const MAP_VOTE_REVEAL_DURATION_SECONDS = REVEAL_DURATION_MS / 1000
+
 /**
  * Map vote store — frontend-only dummy state.
  *
@@ -38,6 +44,10 @@ interface MapVoteMemoryState {
   winningMapType: MapTypeId | null
   /** Resolved winning map script (after random tiebreak). */
   winningMapScript: MapScriptId | null
+  /** Local voting countdown end timestamp. */
+  votingEndsAt: number | null
+  /** Local reveal countdown end timestamp. */
+  revealEndsAt: number | null
 }
 
 interface MapVotePersistedState {
@@ -54,6 +64,8 @@ const INITIAL_MEMORY: MapVoteMemoryState = {
   seatVotes: [],
   winningMapType: null,
   winningMapScript: null,
+  votingEndsAt: null,
+  revealEndsAt: null,
 }
 
 const [memoryState, setMemoryState] = createStore<MapVoteMemoryState>({ ...INITIAL_MEMORY })
@@ -88,6 +100,8 @@ export const mapVoteHasConfirmed = () => memoryState.hasConfirmed
 export const mapVoteSeatVotes = () => memoryState.seatVotes
 export const mapVoteWinningType = () => memoryState.winningMapType
 export const mapVoteWinningScript = () => memoryState.winningMapScript
+export const mapVoteVotingEndsAt = () => memoryState.votingEndsAt
+export const mapVoteRevealEndsAt = () => memoryState.revealEndsAt
 export const mapVoteEnabled = () => persistedState.mapVoteEnabled
 
 export const isMapVotePhase = createMemo(() => {
@@ -132,6 +146,9 @@ export function startMapVote(matchId: string) {
     ...INITIAL_MEMORY,
     matchId,
     phase: 'voting',
+    selectedMapType: 'random',
+    selectedMapScript: 'random',
+    votingEndsAt: Date.now() + VOTING_DURATION_MS,
   })
 }
 
@@ -143,8 +160,10 @@ export function startMapVote(matchId: string) {
 export function confirmMapVote() {
   if (memoryState.phase !== 'voting') return
   if (memoryState.hasConfirmed) return
-  const mapType = memoryState.selectedMapType
-  const mapScript = memoryState.selectedMapScript
+  const selectedMapType = memoryState.selectedMapType
+  const selectedMapScript = memoryState.selectedMapScript
+  const mapType = selectedMapType === 'random' ? resolveRandomMapType() : selectedMapType
+  const mapScript = selectedMapScript === 'random' ? resolveRandomMapScript() : selectedMapScript
   if (mapType == null || mapScript == null) return
 
   const mySeatIndex = draftStore.seatIndex ?? 0
@@ -173,13 +192,19 @@ export function confirmMapVote() {
     seatVotes,
     winningMapType: resolvedType,
     winningMapScript: resolvedScript,
+    votingEndsAt: null,
+    revealEndsAt: Date.now() + REVEAL_DURATION_MS,
   })
 }
 
 /** Called by the reveal timer to complete the map vote. */
 export function finishMapVote() {
   if (memoryState.phase !== 'reveal') return
-  setMemoryState('phase', 'done')
+  setMemoryState({
+    phase: 'done',
+    votingEndsAt: null,
+    revealEndsAt: null,
+  })
 }
 
 /** Reset the whole store (for leaving a draft, cancelling, etc.). */
