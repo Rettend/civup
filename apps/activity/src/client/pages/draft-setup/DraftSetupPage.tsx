@@ -17,7 +17,7 @@ export function DraftSetupPage(props: DraftSetupPageProps) {
         <DraftSetupHeader header={state.header} isMobileLayout={state.layout.isMobileLayout()} onSwitchTarget={props.onSwitchTarget} />
 
         <div class={cn('mx-auto px-6 py-4 flex w-full max-w-5xl flex-1 min-h-0 flex-col gap-6', state.layout.isMobileLayout() && 'pt-12')}>
-          <div class={cn('gap-4 grid grid-cols-1 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)]', state.layout.desktopSetupPanelMaxHeightClass())}>
+          <div class={cn('gap-4 grid grid-cols-1 lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)]', state.layout.desktopSetupPanelMaxHeightClass())}>
             <div class="p-4 rounded-lg bg-bg-subtle flex flex-col min-h-0 overflow-hidden lg:h-full">
               <div class="mb-3 flex items-center justify-between gap-3 text-xs text-fg-subtle tracking-widest font-bold uppercase">
                 <span>Players</span>
