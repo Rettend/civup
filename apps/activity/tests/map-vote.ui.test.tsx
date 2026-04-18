@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library'
-import { createActiveDraftState } from './ui-fixtures'
+import { createWaitingDraftState } from './ui-fixtures'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const { DraftPage } = await import('../src/client/pages/draft')
@@ -13,7 +13,7 @@ describe('Map vote UI', () => {
     resetUiMocks()
     uiMockState.connectionStatus = 'connected'
     uiMockState.gridOpen = true
-    uiMockState.draftState = createActiveDraftState({ currentStepIndex: 0 })
+    uiMockState.draftState = createWaitingDraftState({ formatId: '3v3' })
     uiMockState.mapVotePhase = 'voting'
     uiMockState.mapVoteSelectedType = 'random'
     uiMockState.mapVoteSelectedScript = 'random'
@@ -25,7 +25,7 @@ describe('Map vote UI', () => {
 
     expect(screen.getByText('MAP VOTING')).toBeTruthy()
     expect(screen.getByText('MAP')).toBeTruthy()
-    expect(screen.getByText((_, element) => /^\d+s$/.test(element?.textContent ?? ''))).toBeTruthy()
+    expect(screen.getAllByText((_, element) => /^\d+s$/.test(element?.textContent ?? '')).length).toBeGreaterThan(0)
 
     fireEvent.click(screen.getByRole('button', { name: 'Confirm Vote' }))
 
