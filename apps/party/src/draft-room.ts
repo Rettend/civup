@@ -29,6 +29,8 @@ import {
   MAP_VOTE_VOTING_DURATION_MS,
   MAX_TIMER_SECONDS,
   normalizeMapVoteEnabled,
+  pickRandomMapScript,
+  pickRandomMapType,
   processDraftInput,
   resolveMapVoteSelection,
   resolveMapVoteWinner,
@@ -68,6 +70,8 @@ import {
   applyMapVoteSelectionUpdate,
   createInitialMapVoteState,
   EMPTY_STORED_MAP_VOTE_STATE,
+  isMapVoteInProgress,
+  isMapVoteVoting,
   isValidMapVoteSelectionInput,
   type MapVoteSelectionUpdateResult,
   type StoredMapVoteState,
@@ -463,7 +467,7 @@ export class Main extends Server<PartyEnv> {
           return
         }
 
-        if (msg.reason === 'revert' && state.status !== 'active') {
+        if (msg.reason === 'revert' && state.status !== 'active' && !isMapVoteInProgress(await this.getStoredMapVoteState())) {
           this.send(sender, { type: 'error', message: 'Draft can only be reverted during an active draft' })
           return
         }
@@ -852,6 +856,23 @@ export class Main extends Server<PartyEnv> {
     }
   }
 
+  private scheduleDebugMapVoteBotActions(state: DraftState, config: RoomConfig) {
+    let delayMs = DEBUG_ACTIVE_BOT_DELAY_MS
+    for (let seatIndex = 0; seatIndex < state.seats.length; seatIndex++) {
+      const playerId = state.seats[seatIndex]?.playerId
+      if (!isDebugActiveBotPlayerId(playerId)) continue
+
+      const scheduledDelayMs = delayMs
+      delayMs += DEBUG_ACTIVE_BOT_STAGGER_MS
+
+      this.ctx.waitUntil(wait(scheduledDelayMs)
+        .then(() => this.runDebugMapVoteBotAction(seatIndex, config))
+        .catch((error) => {
+          console.error(`Debug map vote bot action failed for seat ${seatIndex} in match ${state.matchId}:`, error)
+        }))
+    }
+  }
+
   private async runDebugActiveBotAction(stepIndex: number, seatIndex: number, blindBans: boolean) {
     const state = await this.ctx.storage.get<DraftState>('state')
     if (!state || state.status !== 'active') return
@@ -913,6 +934,30 @@ export class Main extends Server<PartyEnv> {
           console.error(`Debug active bot follow-up action failed for seat ${seatIndex} in match ${nextState.matchId}:`, error)
         }))
     }
+  }
+
+  private async runDebugMapVoteBotAction(seatIndex: number, config: RoomConfig) {
+    const state = await this.ctx.storage.get<DraftState>('state')
+    if (!state) return
+
+    const seat = state.seats[seatIndex]
+    if (!seat || !isDebugActiveBotPlayerId(seat.playerId)) return
+
+    const mapVoteState = await this.getStoredMapVoteState()
+    if (!isMapVoteVoting(mapVoteState) || mapVoteState.confirmations[seatIndex] === true) return
+
+    const selection = mapVoteState.selections[seatIndex] ?? DEFAULT_MAP_VOTE_SELECTION
+    const nextSelection: MapVoteSelection = {
+      mapType: selection.mapType === 'random' ? pickRandomMapType(Math.random) : selection.mapType,
+      mapScript: selection.mapScript === 'random' ? pickRandomMapScript(Math.random) : selection.mapScript,
+    }
+
+    const updated = await this.updateMapVoteSelection(state, config, seatIndex, nextSelection)
+    if (typeof updated !== 'string') {
+      await this.broadcastRoomState(state, config, [])
+    }
+
+    await this.confirmMapVote(state, config, seatIndex)
   }
 
   private shouldOpenSwapWindow(state: DraftState): boolean {
@@ -1007,6 +1052,7 @@ export class Main extends Server<PartyEnv> {
       await this.ctx.storage.put('alarmStepIndex', -1)
       await this.ctx.storage.setAlarm(nextMapVote.endsAt!)
       await this.broadcastRoomState(state, config, [])
+      this.scheduleDebugMapVoteBotActions(state, config)
       return null
     }
 

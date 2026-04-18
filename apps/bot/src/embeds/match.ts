@@ -1,5 +1,5 @@
-import type { DraftCancelReason, DraftSeat, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
-import { formatModeLabel, getLeader, hasBetaLeaderData, isTeamMode, normalizeAvailableLeaderDataVersion, teamSize as modeTeamSize } from '@civup/game'
+import type { DraftCancelReason, DraftSeat, GameMode, LeaderDataVersion, QueueEntry, ResolvedMapVoteResult } from '@civup/game'
+import { formatMapVoteResultLabel, formatModeLabel, getLeader, hasBetaLeaderData, isTeamMode, normalizeAvailableLeaderDataVersion, teamSize as modeTeamSize } from '@civup/game'
 import { displayRating } from '@civup/rating'
 import { Button, Components, Embed } from 'discord-hono'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
@@ -144,10 +144,11 @@ export function lobbyDraftingEmbed(mode: GameMode, seats: DraftSeat[], leaderDat
 export function lobbyDraftCompleteEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
+  mapVoteResult?: ResolvedMapVoteResult | null,
   leaderDataVersion?: LeaderDataVersion | null,
   redDeath = false,
 ): Embed {
-  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'draft-complete', undefined, leaderDataVersion, redDeath, participants.length)
+  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'draft-complete', undefined, mapVoteResult, leaderDataVersion, redDeath, participants.length)
 }
 
 export function lobbyCancelledEmbed(
@@ -164,6 +165,7 @@ export function lobbyCancelledEmbed(
     participants,
     stage,
     moderation,
+    undefined,
     stage === 'scrubbed' ? undefined : leaderDataVersion,
     redDeath,
     participants.length,
@@ -176,7 +178,7 @@ export function lobbyTimeoutEmbed(
   leaderDataVersion?: LeaderDataVersion | null,
   redDeath = false,
 ): Embed {
-  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'timeout', undefined, leaderDataVersion, redDeath, participants.length)
+  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'timeout', undefined, undefined, leaderDataVersion, redDeath, participants.length)
 }
 
 export function lobbyResultEmbed(
@@ -216,6 +218,7 @@ function lobbyDraftCompleteLeaderEmbed(
   participants: LobbyParticipant[],
   stage: Extract<LobbyStage, 'draft-complete' | 'cancelled' | 'scrubbed' | 'timeout'> = 'draft-complete',
   moderation?: ModerationContext,
+  mapVoteResult?: ResolvedMapVoteResult | null,
   leaderDataVersion?: LeaderDataVersion | null,
   redDeath = false,
   targetSize?: number,
@@ -223,6 +226,7 @@ function lobbyDraftCompleteLeaderEmbed(
   const embed = baseLobbyEmbed(mode, stage, leaderDataVersion, redDeath, targetSize)
   const hasTeams = participants.some(participant => participant.team != null)
   const moderationField = buildModerationField(moderation)
+  const mapField = buildMapField(mapVoteResult)
 
   if (hasTeams) {
     const teamIndexes = Array.from(new Set(participants.flatMap(participant => participant.team == null ? [] : [participant.team]))).sort((a, b) => a - b)
@@ -234,7 +238,8 @@ function lobbyDraftCompleteLeaderEmbed(
         inline: true,
       }
     }))
-    return moderationField ? embed.fields(moderationField, ...teamFields) : embed.fields(...teamFields)
+    const fields = [mapField, moderationField, ...teamFields].filter((field): field is Exclude<typeof field, null> => field !== null)
+    return embed.fields(...fields)
   }
 
   const lines = participants
@@ -242,7 +247,17 @@ function lobbyDraftCompleteLeaderEmbed(
     .join('\n')
 
   const playerField = { name: 'Players', value: lines || '`[empty]`', inline: false }
-  return moderationField ? embed.fields(moderationField, playerField) : embed.fields(playerField)
+  const fields = [mapField, moderationField, playerField].filter((field): field is Exclude<typeof field, null> => field !== null)
+  return embed.fields(...fields)
+}
+
+function buildMapField(mapVoteResult?: ResolvedMapVoteResult | null): { name: string, value: string, inline: false } | null {
+  if (!mapVoteResult) return null
+  return {
+    name: 'Map',
+    value: formatMapVoteResultLabel(mapVoteResult.mapType, mapVoteResult.mapScript) || '`[unknown]`',
+    inline: false,
+  }
 }
 
 const LEADERBOARD_UPDATE_TRACKED_PERCENT = 0.10

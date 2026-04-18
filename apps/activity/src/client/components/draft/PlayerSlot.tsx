@@ -478,7 +478,8 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
     const uid = userId()
     return !!uid && seat()?.playerId === uid
   }
-  const showVotingGlow = () => isVoting() && (!isMe() || !mapVoteHasConfirmed())
+  const isSubmittedBallot = () => isVoting() && isMe() && mapVoteHasConfirmed()
+  const showVotingGlow = () => isVoting() && !isSubmittedBallot()
   const mapScriptArtworkUrl = () => {
     const url = mapScript()?.imageUrl ?? null
     return resolveAssetUrl(url) ?? url
@@ -535,25 +536,35 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
         isRevealing() && isWinningBallot() ? 'bg-bg-muted ring-2 ring-accent/60' : 'bg-bg-subtle',
       )}
     >
-      <Show when={showVotingGlow()}>
-        <>
-          <div
-            class="anim-glow-breathe w-6 pointer-events-none inset-y-0 left-0 absolute z-10 from-[var(--slot-glow)] to-transparent bg-gradient-to-r"
-            style={{
-              '-webkit-mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
-              'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
-            }}
-          />
-          <div
-            class="anim-glow-breathe w-6 pointer-events-none inset-y-0 right-0 absolute z-10 from-[var(--slot-glow)] to-transparent bg-gradient-to-l"
-            style={{
-              '-webkit-mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
-              'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
-            }}
-          />
-          <div class="anim-bar-breathe rounded-full bg-[var(--slot-glow)] h-[2px] pointer-events-none left-1/2 top-2 absolute z-10 -translate-x-1/2" />
-        </>
-      </Show>
+      <div
+        class="w-6 pointer-events-none inset-y-0 left-0 absolute z-10 from-[var(--slot-glow)] to-transparent bg-gradient-to-r"
+        classList={{
+          'anim-glow-breathe': showVotingGlow(),
+          'opacity-0': !showVotingGlow(),
+        }}
+        style={{
+          '-webkit-mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
+          'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
+        }}
+      />
+      <div
+        class="w-6 pointer-events-none inset-y-0 right-0 absolute z-10 from-[var(--slot-glow)] to-transparent bg-gradient-to-l"
+        classList={{
+          'anim-glow-breathe': showVotingGlow(),
+          'opacity-0': !showVotingGlow(),
+        }}
+        style={{
+          '-webkit-mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
+          'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
+        }}
+      />
+      <div
+        class="rounded-full bg-[var(--slot-glow)] h-[2px] pointer-events-none left-1/2 top-2 absolute z-10 -translate-x-1/2"
+        classList={{
+          'anim-bar-breathe': showVotingGlow(),
+          'opacity-0': !showVotingGlow(),
+        }}
+      />
 
       <Show when={showWinnerFlash()}>
         <div
@@ -573,7 +584,12 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
         <Show
           when={isRevealing() && vote()}
           fallback={(
-            <div class={cn('i-ph-map-trifold-fill text-accent/90 drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]', iconClass())} />
+            <div class={cn(
+              'i-ph-map-trifold-fill drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]',
+              isSubmittedBallot() ? 'text-fg-muted/55' : 'text-accent/90',
+              iconClass(),
+            )}
+            />
           )}
         >
           <div
@@ -647,6 +663,9 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
             <span class={cn('text-sm leading-tight truncate', isWinningBallot() ? 'text-fg' : 'text-fg-muted')}>
               {s.displayName}
             </span>
+            <Show when={isSubmittedBallot()}>
+              <span class="i-ph-lock-simple-fill text-[12px] text-fg-muted/55 shrink-0" aria-hidden="true" />
+            </Show>
           </div>
         )}
       </Show>
