@@ -1,11 +1,11 @@
 import type { Leader } from '@civup/game'
 import { getLeader, MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '@civup/game'
-import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
+import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { placementIconClass } from '~/client/lib/placement-icons'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
-import { MAP_VOTE_REVEAL_DURATION_SECONDS, canRequestSwapWith, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, isMapVotePhase, isMobileLayout, isSwapWindowOpen, mapVoteHasConfirmed, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScript, mapVoteWinningType, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
+import { MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, canRequestSwapWith, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, isMapVotePhase, isMobileLayout, isSwapWindowOpen, mapVoteHasConfirmed, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScript, mapVoteWinningType, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -13,6 +13,8 @@ interface PlayerSlotProps {
   /** Whether this is a half-height FFA slot */
   compact?: boolean
 }
+
+const SLOT_BREATHE_CYCLE_MS = 3000
 
 /** Individual player slot */
 export function PlayerSlot(props: PlayerSlotProps) {
@@ -465,13 +467,13 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
   const isVoting = () => mapVotePhase() === 'voting'
   const isRevealing = () => mapVotePhase() === 'reveal'
   const vote = () => isRevealing() ? getSeatMapVote(props.seatIndex) : null
-  const mapScript = () => {
-    const id = vote()?.mapScript
-    return id ? MAP_SCRIPT_BY_ID[id] : null
-  }
+  const approvedScripts = () => (vote()?.mapScripts ?? []).map(id => MAP_SCRIPT_BY_ID[id]).filter(Boolean)
 
   const isWinningType = () => vote()?.mapType === mapVoteWinningType()
-  const isWinningScript = () => vote()?.mapScript === mapVoteWinningScript()
+  const isWinningScript = () => {
+    const winningScript = mapVoteWinningScript()
+    return winningScript != null && (vote()?.mapScripts ?? []).includes(winningScript)
+  }
   const isWinningBallot = () => isRevealing() && isWinningType() && isWinningScript()
 
   const isMe = () => {
@@ -480,22 +482,31 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
   }
   const isSubmittedBallot = () => isVoting() && isMe() && mapVoteHasConfirmed()
   const showVotingGlow = () => isVoting() && !isSubmittedBallot()
-  const mapScriptArtworkUrl = () => {
-    const url = mapScript()?.imageUrl ?? null
-    return resolveAssetUrl(url) ?? url
-  }
-  const mapTitleLabel = () => {
-    const script = mapScript()
-    if (!script) return ''
-    return script.hint ? `${script.name} (${script.hint})` : script.name
+  const approvedMaps = () => approvedScripts().map((script) => {
+    const label = script.hint ? `${script.name} (${script.hint})` : script.name
+    return {
+      ...script,
+      label,
+      imageSrc: script.imageUrl ? (resolveAssetUrl(script.imageUrl) ?? script.imageUrl) : null,
+    }
+  })
+  const hasApprovedMaps = () => approvedMaps().length > 0
+  const winningMapScript = () => {
+    const winningScript = mapVoteWinningScript()
+    return winningScript ?? null
   }
   const mapTypeLabel = () => {
     const mapType = vote()?.mapType
     if (!mapType) return ''
     return MAP_TYPE_BY_ID[mapType]?.name ?? mapType
   }
-  const artworkSizeClass = () => props.compact ? 'max-h-12 max-w-12' : 'max-h-18 max-w-18'
   const iconClass = () => props.compact ? 'text-3xl' : 'text-5xl'
+  const breatheAnimationStyle = () => createStableBreatheAnimationStyle({
+    active: showVotingGlow(),
+    endsAt: isVoting() ? draftStore.mapVote.endsAt : null,
+    durationSeconds: MAP_VOTE_VOTING_DURATION_SECONDS,
+    seed: props.seatIndex,
+  })
 
   const clearWinnerFlashTimeout = () => {
     if (winnerFlashTimeout == null) return
@@ -543,6 +554,7 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
           'opacity-0': !showVotingGlow(),
         }}
         style={{
+          ...breatheAnimationStyle(),
           '-webkit-mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
           'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
         }}
@@ -554,6 +566,7 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
           'opacity-0': !showVotingGlow(),
         }}
         style={{
+          ...breatheAnimationStyle(),
           '-webkit-mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
           'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
         }}
@@ -564,6 +577,7 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
           'anim-bar-breathe': showVotingGlow(),
           'opacity-0': !showVotingGlow(),
         }}
+        style={breatheAnimationStyle()}
       />
 
       <Show when={showWinnerFlash()}>
@@ -598,45 +612,62 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
               isWinningBallot() ? 'text-fg' : 'text-fg-muted',
             )}
           >
-            <div class={cn('relative flex items-center justify-center', artworkSizeClass())}>
-              <Show
-                when={mapScriptArtworkUrl()}
-                fallback={<div class={cn('i-ph-map-trifold-fill text-accent/90 drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]', iconClass())} />}
-              >
-                {url => (
-                  <img
-                    src={url()}
-                    alt={mapScript()?.name ?? 'Map'}
-                    class={cn(
-                      'max-h-full max-w-full object-contain drop-shadow-[0_2px_10px_rgba(0,0,0,0.25)]',
-                      isWinningBallot() && 'drop-shadow-[0_4px_16px_rgba(212,175,55,0.35)]',
-                    )}
-                  />
-                )}
-              </Show>
-            </div>
+            <div class={cn('i-ph-map-trifold-fill text-accent/90 drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]', iconClass())} />
 
-            <div class="flex max-w-full flex-col items-center gap-0.5 text-center">
-              <div class={cn(
-                'max-w-full truncate font-semibold leading-tight',
-                props.compact ? 'text-[12px]' : 'text-base',
-                isWinningBallot() ? 'text-accent' : 'text-fg-muted/90',
-              )}
-              >
-                {mapTitleLabel() || '—'}
-              </div>
+              <div class="flex max-w-full flex-col items-center gap-2 text-center">
+                <Show when={hasApprovedMaps()}>
+                  <div class={cn(
+                    'max-w-full truncate font-semibold leading-tight',
+                  props.compact ? 'text-[12px]' : 'text-base',
+                  isWinningBallot() ? 'text-accent' : 'text-fg-muted/90',
+                )}
+                >
+                  {mapTypeLabel() || '—'}
+                </div>
+              </Show>
 
               <div
                 class={cn(
-                  'max-w-full truncate font-medium leading-none',
-                  isWinningBallot() ? 'text-accent/80' : 'text-fg-muted/70',
+                  'flex max-w-full items-start justify-center gap-2',
+                  isMobileLayout() ? 'flex-row' : 'flex-col',
                 )}
-                style={{
-                  'font-size': props.compact ? '10px' : '12px',
-                  'line-height': '1',
-                }}
               >
-                {mapTypeLabel() || '—'}
+                <Show
+                  when={hasApprovedMaps()}
+                  fallback={<span class="text-[10px] font-medium leading-none text-fg-muted/65">No map approved</span>}
+                >
+                  <For each={approvedMaps()}>
+                    {map => (
+                      <div
+                        class={cn(
+                          'flex min-w-0 flex-col items-center gap-1.5 rounded-md border bg-bg/60 p-1.5',
+                          props.compact ? 'w-16' : 'w-20',
+                          isWinningBallot() && map.id === winningMapScript()
+                            ? 'border-accent/60 bg-accent/12 text-accent'
+                            : 'border-border-subtle text-fg-muted/80',
+                        )}
+                      >
+                        <div class="relative aspect-square w-full overflow-hidden rounded-sm bg-bg-muted/45">
+                          <Show
+                            when={map.imageSrc}
+                            fallback={<div class="i-ph-map-trifold-fill text-accent/90 inset-0 absolute flex items-center justify-center text-2xl" />}
+                          >
+                            {src => (
+                              <img
+                                src={src()}
+                                alt={map.label}
+                                class="inset-0 absolute h-full w-full object-cover"
+                              />
+                            )}
+                          </Show>
+                        </div>
+                        <span class="max-w-full text-[10px] font-medium leading-tight text-center">
+                          {map.label}
+                        </span>
+                      </div>
+                    )}
+                  </For>
+                </Show>
               </div>
             </div>
           </div>
@@ -671,4 +702,15 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
       </Show>
     </div>
   )
+}
+
+function createStableBreatheAnimationStyle(props: { active: boolean, endsAt: number | null, durationSeconds: number, seed: number }) {
+  if (!props.active || props.endsAt == null || props.durationSeconds <= 0) return {}
+
+  const phaseStartedAt = props.endsAt - (props.durationSeconds * 1000)
+  const phaseElapsedMs = Math.max(0, Date.now() - phaseStartedAt)
+  const seatOffsetMs = (props.seed * 197) % SLOT_BREATHE_CYCLE_MS
+  const animationDelayMs = -((phaseElapsedMs + seatOffsetMs) % SLOT_BREATHE_CYCLE_MS)
+
+  return { 'animation-delay': `${animationDelayMs}ms` }
 }

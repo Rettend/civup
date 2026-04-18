@@ -135,6 +135,7 @@ export {
   MAP_VOTE_REVEAL_DURATION_SECONDS,
   MAP_VOTE_VOTING_DURATION_SECONDS,
   confirmMapVote,
+  getNextMapVoteSelection,
   getSeatMapVote,
   isMapVotePhase,
   type MapVotePhase,
@@ -144,12 +145,13 @@ export {
   mapVoteRevealEndsAt,
   mapVoteReadyToConfirm,
   mapVoteSeatVotes,
-  mapVoteSelectedScript,
+  mapVoteSelectedScriptCount,
+  mapVoteSelectedScripts,
   mapVoteSelectedType,
   mapVoteVotingEndsAt,
   mapVoteWinningScript,
   mapVoteWinningType,
-  setMapVoteSelectedScript,
   setMapVoteSelectedType,
+  toggleMapVoteSelectedScript,
 } from './map-vote-store'
 export { avatarUrl, displayName, setAuthenticatedUser, user, userId } from './user-store'

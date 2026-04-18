@@ -66,6 +66,28 @@ describe('DraftHeader UI', () => {
     expect(screen.getByRole('button', { name: 'Scrub' })).toBeTruthy()
   })
 
+  test('uses a shared desktop center cluster for the active phase badge and host actions', () => {
+    uiMockState.userId = 'host-1'
+    uiMockState.draftHostId = 'host-1'
+    uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1, formatId: '2v2' })
+    uiMockState.timerEndsAt = Date.now() + 30_000
+    uiMockState.mapVoteWinningType = 'east-vs-west'
+    uiMockState.mapVoteWinningScript = 'lakes'
+
+    render(() => <DraftHeader steamLobbyLink="steam://joinlobby/289070/example" onSwitchTarget={onSwitchTarget} />)
+
+    const cluster = screen.getByTestId('draft-header-desktop-phase-cluster')
+    const leftCluster = cluster.querySelector('[data-testid="draft-header-desktop-phase-cluster-left"]') as HTMLElement
+    const rightCluster = cluster.querySelector('[data-testid="draft-header-desktop-phase-cluster-right"]') as HTMLElement
+
+    expect(cluster.className).toContain('items-stretch')
+    expect(leftCluster.className).toContain('items-center')
+    expect(rightCluster.className).toContain('items-center')
+    expect(leftCluster.textContent).toContain('Lakes EvW')
+    expect(rightCluster.textContent).toContain('Revert')
+    expect(cluster.textContent).toContain('Pick Phase')
+  })
+
   test('keeps host controls available during map-vote reveal', async () => {
     const user = userEvent.setup()
     uiMockState.userId = 'host-1'
@@ -91,7 +113,7 @@ describe('DraftHeader UI', () => {
 
     render(() => <DraftHeader steamLobbyLink="steam://joinlobby/289070/example" />)
 
-    expect(screen.getAllByText('EvW Lakes').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Lakes EvW').length).toBeGreaterThan(0)
   })
 
   test('submits a completed team result for participants and reports success', async () => {
