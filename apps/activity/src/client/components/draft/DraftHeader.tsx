@@ -1,12 +1,21 @@
 import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
+import { MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '~/client/lib/map-vote'
 import {
+  MAP_VOTE_REVEAL_DURATION_SECONDS,
+  MAP_VOTE_VOTING_DURATION_SECONDS,
   clearFfaPlacements,
   clearResultSelections,
   currentStepDuration,
   draftStore,
   ffaPlacementOrder,
+  isMapVotePhase,
   isMobileLayout,
+  mapVotePhase,
+  mapVoteRevealEndsAt,
+  mapVoteVotingEndsAt,
+  mapVoteWinningScript,
+  mapVoteWinningType,
   phaseAccent,
   phaseAccentColor,
   phaseHeaderBg,
@@ -36,7 +45,9 @@ export function DraftHeader(props: DraftHeaderProps) {
   type DraftHostAction = 'scrub' | 'revert'
 
   const state = () => draftStore.state
-  const accent = () => phaseAccent()
+  const accent = () => isMapVotePhase() ? ('gold' as const) : phaseAccent()
+  const accentColor = () => isMapVotePhase() ? 'var(--accent)' : phaseAccentColor()
+  const headerBg = () => isComplete() ? 'bg-bg-subtle' : isMapVotePhase() ? 'bg-bg-subtle' : phaseHeaderBg()
   const amHost = () => userId() === draftStore.hostId
   const isParticipant = () => {
     const uid = userId()
@@ -53,6 +64,18 @@ export function DraftHeader(props: DraftHeaderProps) {
   const teamCount = () => new Set((state()?.seats ?? []).flatMap(seat => seat.team == null ? [] : [seat.team])).size
   const isComplete = () => state()?.status === 'complete'
   const seatCount = () => state()?.seats.length ?? 0
+
+  const displayPhaseLabel = () => isMapVotePhase() ? 'MAP VOTING' : phaseLabel()
+  const winningMapTypeOption = () => {
+    const id = mapVoteWinningType()
+    return id ? MAP_TYPE_BY_ID[id] : null
+  }
+  const winningMapScriptOption = () => {
+    const id = mapVoteWinningScript()
+    return id ? MAP_SCRIPT_BY_ID[id] : null
+  }
+  const hasWinningMap = () => winningMapTypeOption() != null && winningMapScriptOption() != null
+  const showWinningMapBadge = () => hasWinningMap() && !isMapVotePhase() && state()?.status === 'active'
 
   const clearPhaseFlashTimeout = () => {
     if (phaseFlashTimeout == null) return
@@ -100,30 +123,39 @@ export function DraftHeader(props: DraftHeaderProps) {
   }
 
   const [remaining, setRemaining] = createSignal(0)
+  const timerEndsAt = () => {
+    if (!isMapVotePhase()) return draftStore.timerEndsAt
+    return mapVotePhase() === 'voting' ? mapVoteVotingEndsAt() : mapVoteRevealEndsAt()
+  }
 
   createEffect(() => {
-    const endsAt = draftStore.timerEndsAt
+    const endsAt = timerEndsAt()
     if (endsAt == null) {
       setRemaining(0)
       return
     }
+    const nextEndsAt = endsAt
 
-    function tick() { setRemaining(Math.max(0, endsAt! - Date.now())) }
+    function tick() { setRemaining(Math.max(0, nextEndsAt - Date.now())) }
     tick()
     const interval = setInterval(tick, 100)
     onCleanup(() => clearInterval(interval))
   })
 
   const seconds = () => Math.ceil(remaining() / 1000)
-  const duration = () => currentStepDuration()
+  const duration = () => {
+    if (!isMapVotePhase()) return currentStepDuration()
+    return mapVotePhase() === 'voting' ? MAP_VOTE_VOTING_DURATION_SECONDS : MAP_VOTE_REVEAL_DURATION_SECONDS
+  }
   const progress = () => {
-    if (!draftStore.timerEndsAt || duration() <= 0) return 0
+    if (!timerEndsAt() || duration() <= 0) return 0
     return Math.min(1, remaining() / (duration() * 1000))
   }
 
-  const isUrgent = () => seconds() <= 10 && seconds() > 5
-  const isCritical = () => seconds() <= 5 && seconds() > 0
-  const isExpired = () => draftStore.timerEndsAt != null && remaining() <= 0
+  const usesDangerTimerState = () => !isMapVotePhase()
+  const isUrgent = () => usesDangerTimerState() && seconds() <= 10 && seconds() > 5
+  const isCritical = () => usesDangerTimerState() && seconds() <= 5 && seconds() > 0
+  const isExpired = () => timerEndsAt() != null && remaining() <= 0
 
   // Brief phase flash on ban/pick transitions
   createEffect(on(accent, (next, prev) => {
@@ -164,7 +196,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   })
 
   createEffect(on(
-    () => `${state()?.status ?? 'none'}:${state()?.currentStepIndex ?? -1}`,
+    () => `${state()?.status ?? 'none'}:${state()?.currentStepIndex ?? -1}:${isMapVotePhase() ? mapVotePhase() : 'draft'}`,
     () => disarmHostAction(),
     { defer: true },
   ))
@@ -447,7 +479,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   )
 
   return (
-    <header class={cn('relative z-30 flex flex-col shrink-0 overflow-x-clip', isComplete() ? 'bg-bg-subtle' : phaseHeaderBg(), 'transition-colors duration-200')}>
+    <header class={cn('relative z-30 flex flex-col shrink-0 overflow-x-clip', headerBg(), 'transition-colors duration-200')}>
       <Show when={phaseFlash()}>
         <div class={cn(
           'pointer-events-none absolute inset-0 z-0 anim-phase-flash',
@@ -459,18 +491,18 @@ export function DraftHeader(props: DraftHeaderProps) {
       <Show when={isMobileLayout()}>
         <div class="flex flex-col relative z-10">
           <div class="px-12 pb-1.5 pt-2 text-center flex flex-col pointer-events-none items-center justify-center">
-            <div class="flex min-h-4 items-center justify-center">
+            <div class="flex min-h-4 gap-2 items-center justify-center">
               <span class={cn(
                 'text-xs font-bold tracking-widest uppercase',
                 accent() === 'red' ? 'text-danger' : 'text-accent',
               )}
               >
-                {phaseLabel()}
+                {displayPhaseLabel()}
               </span>
             </div>
 
-            <div class="flex min-h-5 items-center justify-center">
-              <Show when={draftStore.timerEndsAt != null}>
+            <div class="flex min-h-5 items-center justify-center relative">
+              <Show when={timerEndsAt() != null}>
                 <span class={cn(
                   'font-mono text-base font-bold tabular-nums leading-none',
                   isExpired() && 'text-fg-subtle',
@@ -498,9 +530,17 @@ export function DraftHeader(props: DraftHeaderProps) {
 
           <Show when={showMobileActionRow()}>
             <div class="px-3 pb-2 flex justify-center">
-              <Show when={state()?.status === 'active'} fallback={renderResultActions()}>
-                {renderActiveHostActions(true)}
-              </Show>
+              <div class="relative w-fit">
+                <Show when={showWinningMapBadge()}>
+                  <div class="mr-2 right-full top-1/2 absolute min-w-0 -translate-y-1/2">
+                    <WinningMapBadge compact />
+                  </div>
+                </Show>
+
+                <Show when={state()?.status === 'active'} fallback={renderResultActions()}>
+                  {renderActiveHostActions(true)}
+                </Show>
+              </div>
             </div>
           </Show>
         </div>
@@ -546,28 +586,36 @@ export function DraftHeader(props: DraftHeaderProps) {
                   accent() === 'red' ? 'text-danger' : 'text-accent',
                 )}
                 >
-                  {phaseLabel()}
+                  {displayPhaseLabel()}
                 </span>
 
-                <Show when={draftStore.timerEndsAt != null}>
-                  <span class={cn(
-                    'font-mono text-lg font-bold tabular-nums leading-none',
-                    isExpired() && 'text-fg-subtle',
-                    isCritical() && 'text-danger animate-pulse',
-                    isUrgent() && !isCritical() && 'text-danger',
-                    !isUrgent() && !isCritical() && !isExpired() && 'text-fg',
-                  )}
-                  >
-                    {seconds()}
-                    s
-                  </span>
-                </Show>
+                <div class="min-h-6 relative flex items-center justify-center">
+                  <Show when={showWinningMapBadge()}>
+                    <div class="mr-6 right-full top-1/2 absolute min-w-0 -translate-y-1/2">
+                      <WinningMapBadge />
+                    </div>
+                  </Show>
 
-                <Show when={amHost() && state()?.status === 'active'}>
-                  <div class="ml-6 left-full top-1/2 absolute -translate-y-1/2">
-                    {renderActiveHostActions(false)}
-                  </div>
-                </Show>
+                  <Show when={timerEndsAt() != null}>
+                    <span class={cn(
+                      'font-mono text-lg font-bold tabular-nums leading-none',
+                      isExpired() && 'text-fg-subtle',
+                      isCritical() && 'text-danger animate-pulse',
+                      isUrgent() && !isCritical() && 'text-danger',
+                      !isUrgent() && !isCritical() && !isExpired() && 'text-fg',
+                    )}
+                    >
+                      {seconds()}
+                      s
+                    </span>
+                  </Show>
+
+                  <Show when={amHost() && state()?.status === 'active'}>
+                    <div class="ml-6 left-full top-1/2 absolute -translate-y-1/2">
+                      {renderActiveHostActions(false)}
+                    </div>
+                  </Show>
+                </div>
               </div>
             </Show>
 
@@ -577,7 +625,7 @@ export function DraftHeader(props: DraftHeaderProps) {
       </Show>
 
       {/* Shrinking timer line */}
-      <Show when={draftStore.timerEndsAt != null && !isExpired()}>
+      <Show when={timerEndsAt() != null && !isExpired()}>
         <div class="flex h-0.5 w-full items-center justify-center relative z-0">
           <div
             class={cn(
@@ -586,7 +634,7 @@ export function DraftHeader(props: DraftHeaderProps) {
             )}
             style={{
               'width': `${progress() * 100}%`,
-              'background-color': isCritical() || isUrgent() ? 'var(--danger)' : phaseAccentColor(),
+              'background-color': isCritical() || isUrgent() ? 'var(--danger)' : accentColor(),
             }}
           />
         </div>
@@ -597,4 +645,44 @@ export function DraftHeader(props: DraftHeaderProps) {
 
 function teamIndexToken(team: number): string {
   return String.fromCharCode(65 + team)
+}
+
+/**
+ * Compact badge showing the map that was voted in. Rendered near the phase
+ * label so the picked map is visible throughout the ban/pick draft.
+ */
+function WinningMapBadge(props: { compact?: boolean }) {
+  const typeSuffix = () => {
+    const mapType = mapVoteWinningType()
+    if (mapType == null || mapType === 'standard') return ''
+    if (mapType === 'east-vs-west') return 'EvW'
+    return MAP_TYPE_BY_ID[mapType]?.name ?? mapType
+  }
+  const scriptLabel = () => {
+    const mapScript = mapVoteWinningScript()
+    const script = mapScript ? MAP_SCRIPT_BY_ID[mapScript] : null
+    if (!script) return ''
+    return script.hint ? `${script.name} ${script.hint}` : script.name
+  }
+  const label = () => {
+    const script = scriptLabel()
+    const suffix = typeSuffix()
+    if (!script) return suffix
+    return suffix ? `${script} ${suffix}` : script
+  }
+
+  return (
+    <div
+      class={cn(
+        'rounded-full bg-bg/60 border border-border flex max-w-full items-center overflow-hidden',
+        props.compact ? 'max-w-[calc(50vw-3rem)] px-2 py-0.5' : 'mt-0.5 max-w-[14rem] px-2.5 py-0.5',
+      )}
+      title={label()}
+      aria-label={label()}
+    >
+      <span class={cn('block truncate whitespace-nowrap text-fg font-medium tracking-wide', props.compact ? 'text-[10px]' : 'text-[11px]')}>
+        {label()}
+      </span>
+    </div>
+  )
 }

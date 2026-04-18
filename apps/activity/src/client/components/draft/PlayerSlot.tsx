@@ -1,11 +1,12 @@
 import type { Leader } from '@civup/game'
 import { getLeader } from '@civup/game'
-import { createEffect, createSignal, Show } from 'solid-js'
+import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
+import { MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '~/client/lib/map-vote'
 import { placementIconClass } from '~/client/lib/placement-icons'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
-import { canRequestSwapWith, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, isMobileLayout, isSwapWindowOpen, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
+import { MAP_VOTE_REVEAL_DURATION_SECONDS, canRequestSwapWith, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, isMapVotePhase, isMobileLayout, isSwapWindowOpen, mapVoteHasConfirmed, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScript, mapVoteWinningType, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -445,6 +446,211 @@ export function PlayerSlot(props: PlayerSlotProps) {
           {props.seatIndex + 1}
         </span>
       </div>
+
+      {/* Map vote overlay — hides the slot contents during the MAP phase */}
+      <Show when={isMapVotePhase()}>
+        <MapVoteSlotOverlay seatIndex={props.seatIndex} compact={props.compact} />
+      </Show>
+    </div>
+  )
+}
+
+function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
+  const state = () => draftStore.state
+  const seat = () => state()?.seats[props.seatIndex]
+  const seatAvatarUrl = () => seat()?.avatarUrl ?? null
+  const [showWinnerFlash, setShowWinnerFlash] = createSignal(false)
+  let lastWinnerFlashRevealEndsAt: number | null = null
+  let winnerFlashTimeout: ReturnType<typeof setTimeout> | null = null
+
+  const isVoting = () => mapVotePhase() === 'voting'
+  const isRevealing = () => mapVotePhase() === 'reveal'
+  const vote = () => isRevealing() ? getSeatMapVote(props.seatIndex) : null
+  const mapScript = () => {
+    const id = vote()?.mapScript
+    return id ? MAP_SCRIPT_BY_ID[id] : null
+  }
+
+  const isWinningType = () => vote()?.mapType === mapVoteWinningType()
+  const isWinningScript = () => vote()?.mapScript === mapVoteWinningScript()
+  const isWinningBallot = () => isRevealing() && isWinningType() && isWinningScript()
+
+  const isMe = () => {
+    const uid = userId()
+    return !!uid && seat()?.playerId === uid
+  }
+  const showVotingGlow = () => isVoting() && (!isMe() || !mapVoteHasConfirmed())
+  const mapScriptArtworkUrl = () => {
+    const url = mapScript()?.imageUrl ?? null
+    return resolveAssetUrl(url) ?? url
+  }
+  const mapTitleLabel = () => {
+    const script = mapScript()
+    if (!script) return ''
+    return script.hint ? `${script.name} (${script.hint})` : script.name
+  }
+  const mapTypeLabel = () => {
+    const mapType = vote()?.mapType
+    if (!mapType) return ''
+    return MAP_TYPE_BY_ID[mapType]?.name ?? mapType
+  }
+  const artworkSizeClass = () => props.compact ? 'max-h-12 max-w-12' : 'max-h-18 max-w-18'
+  const iconClass = () => props.compact ? 'text-3xl' : 'text-5xl'
+
+  const clearWinnerFlashTimeout = () => {
+    if (winnerFlashTimeout == null) return
+    clearTimeout(winnerFlashTimeout)
+    winnerFlashTimeout = null
+  }
+
+  createEffect(() => {
+    const revealEndsAt = mapVoteRevealEndsAt()
+    const isCurrentWinner = revealEndsAt != null && isRevealing() && isWinningBallot()
+
+    clearWinnerFlashTimeout()
+    setShowWinnerFlash(false)
+    if (!isCurrentWinner) {
+      if (!isRevealing()) lastWinnerFlashRevealEndsAt = null
+      return
+    }
+    if (lastWinnerFlashRevealEndsAt === revealEndsAt) return
+
+    const revealStartedAt = revealEndsAt - (MAP_VOTE_REVEAL_DURATION_SECONDS * 1000)
+    const flashRemainingMs = (revealStartedAt + 420) - Date.now()
+    lastWinnerFlashRevealEndsAt = revealEndsAt
+    if (flashRemainingMs <= 0) return
+
+    setShowWinnerFlash(true)
+    winnerFlashTimeout = setTimeout(() => {
+      setShowWinnerFlash(false)
+      winnerFlashTimeout = null
+    }, flashRemainingMs)
+  })
+
+  onCleanup(() => clearWinnerFlashTimeout())
+
+  return (
+    <div
+      class={cn(
+        'slot-accent-gold inset-0 absolute z-40 flex flex-col overflow-hidden',
+        isRevealing() && isWinningBallot() ? 'bg-bg-muted ring-2 ring-accent/60' : 'bg-bg-subtle',
+      )}
+    >
+      <Show when={showVotingGlow()}>
+        <>
+          <div
+            class="anim-glow-breathe w-6 pointer-events-none inset-y-0 left-0 absolute z-10 from-[var(--slot-glow)] to-transparent bg-gradient-to-r"
+            style={{
+              '-webkit-mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
+              'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
+            }}
+          />
+          <div
+            class="anim-glow-breathe w-6 pointer-events-none inset-y-0 right-0 absolute z-10 from-[var(--slot-glow)] to-transparent bg-gradient-to-l"
+            style={{
+              '-webkit-mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
+              'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
+            }}
+          />
+          <div class="anim-bar-breathe rounded-full bg-[var(--slot-glow)] h-[2px] pointer-events-none left-1/2 top-2 absolute z-10 -translate-x-1/2" />
+        </>
+      </Show>
+
+      <Show when={showWinnerFlash()}>
+        <div
+          class="anim-swap-focus-flash pointer-events-none inset-0 absolute z-10"
+          style={{
+            background: 'radial-gradient(ellipse at center, rgba(244,220,168,0.44) 0%, rgba(200,170,110,0.28) 48%, rgba(200,170,110,0.12) 100%)',
+          }}
+        />
+      </Show>
+
+      {/* Dim non-winning ballots a little during reveal */}
+      <Show when={isRevealing() && !isWinningBallot()}>
+        <div class="bg-black/30 pointer-events-none inset-0 absolute z-10" />
+      </Show>
+
+      <div class="relative z-20 flex flex-1 flex-col items-center justify-center px-3 py-4 text-center">
+        <Show
+          when={isRevealing() && vote()}
+          fallback={(
+            <div class={cn('i-ph-map-trifold-fill text-accent/90 drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]', iconClass())} />
+          )}
+        >
+          <div
+            class={cn(
+              'flex max-w-full flex-col items-center justify-center gap-3',
+              isWinningBallot() ? 'text-fg' : 'text-fg-muted',
+            )}
+          >
+            <div class={cn('relative flex items-center justify-center', artworkSizeClass())}>
+              <Show
+                when={mapScriptArtworkUrl()}
+                fallback={<div class={cn('i-ph-map-trifold-fill text-accent/90 drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]', iconClass())} />}
+              >
+                {url => (
+                  <img
+                    src={url()}
+                    alt={mapScript()?.name ?? 'Map'}
+                    class={cn(
+                      'max-h-full max-w-full object-contain drop-shadow-[0_2px_10px_rgba(0,0,0,0.25)]',
+                      isWinningBallot() && 'drop-shadow-[0_4px_16px_rgba(212,175,55,0.35)]',
+                    )}
+                  />
+                )}
+              </Show>
+            </div>
+
+            <div class="flex max-w-full flex-col items-center gap-0.5 text-center">
+              <div class={cn(
+                'max-w-full truncate font-semibold leading-tight',
+                props.compact ? 'text-[12px]' : 'text-base',
+                isWinningBallot() ? 'text-accent' : 'text-fg-muted/90',
+              )}
+              >
+                {mapTitleLabel() || '—'}
+              </div>
+
+              <div
+                class={cn(
+                  'max-w-full truncate font-medium leading-none',
+                  isWinningBallot() ? 'text-accent/80' : 'text-fg-muted/70',
+                )}
+                style={{
+                  'font-size': props.compact ? '10px' : '12px',
+                  'line-height': '1',
+                }}
+              >
+                {mapTypeLabel() || '—'}
+              </div>
+            </div>
+          </div>
+        </Show>
+      </div>
+
+      {/* Name row at the bottom */}
+      <Show when={seat()} keyed>
+        {s => (
+          <div class={cn(
+            'relative z-20 flex items-center gap-2 px-2 pb-2 pt-6',
+            'bg-gradient-to-t from-black/70 to-transparent',
+          )}
+          >
+            <Show when={seatAvatarUrl()} keyed>
+              {url => (
+                <img
+                  src={url}
+                  alt=""
+                  class="rounded-full shrink-0 h-5 w-5 object-cover"
+                />
+              )}
+            </Show>
+            <span class={cn('text-sm leading-tight truncate', isWinningBallot() ? 'text-fg' : 'text-fg-muted')}>
+              {s.displayName}
+            </span>
+          </div>
+        )}
+      </Show>
     </div>
   )
 }

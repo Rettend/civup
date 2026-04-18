@@ -2,21 +2,31 @@ import { createEffect, createRenderEffect, createSignal, onCleanup, Show } from 
 import { cn } from '~/client/lib/css'
 import {
   canOpenLeaderGrid,
+  confirmMapVote,
   currentStep,
   draftStore,
+  finishMapVote,
   gridOpen,
   hasSubmitted,
+  isMapVotePhase,
   isMiniView,
   isMobileLayout,
   isMyOwnPickTurn,
   isSpectator,
+  mapVoteEnabled,
+  mapVotePhase,
+  mapVoteRevealEndsAt,
+  mapVoteVotingEndsAt,
+  resetMapVote,
   setGridOpen,
+  startMapVote,
   updateLobbyConfig,
   userId,
 } from '~/client/stores'
 import { DraftHeader } from './DraftHeader'
 import { DraftTimeline } from './DraftTimeline'
 import { LeaderGridOverlay } from './LeaderGridOverlay'
+import { MapVoteOverlay } from './MapVoteOverlay'
 import { MiniView } from './MiniView'
 import { SlotStrip } from './SlotStrip'
 import { SteamLobbyButton } from './SteamLobbyButton'
@@ -33,6 +43,7 @@ interface DraftViewProps {
 export function DraftView(props: DraftViewProps) {
   const state = () => draftStore.state
   const [autoOpenedGridToken, setAutoOpenedGridToken] = createSignal<string | null>(null)
+  const [autoOpenedMapVoteToken, setAutoOpenedMapVoteToken] = createSignal<string | null>(null)
   const [steamLobbyLink, setSteamLobbyLink] = createSignal<string | null>(null)
   const [steamLobbySavePending, setSteamLobbySavePending] = createSignal(false)
   let scrubRedirectTimeout: ReturnType<typeof setTimeout> | null = null
@@ -105,6 +116,61 @@ export function DraftView(props: DraftViewProps) {
     setGridOpen(false)
   })
 
+  // Trigger the dummy map-vote phase whenever a new active draft begins.
+  createEffect(() => {
+    const current = state()
+    if (!current || current.status !== 'active') return
+    if (!mapVoteEnabled()) return
+    startMapVote(current.matchId)
+  })
+
+  createEffect(() => {
+    if (mapVotePhase() !== 'voting') return
+    if (draftStore.seatIndex == null) return
+    const endsAt = mapVoteVotingEndsAt()
+    if (endsAt == null) return
+
+    const timeout = setTimeout(() => confirmMapVote(), Math.max(0, endsAt - Date.now()))
+    onCleanup(() => clearTimeout(timeout))
+  })
+
+  createEffect(() => {
+    if (mapVotePhase() !== 'reveal') return
+    const endsAt = mapVoteRevealEndsAt()
+    if (endsAt == null) return
+
+    const timeout = setTimeout(() => finishMapVote(), Math.max(0, endsAt - Date.now()))
+    onCleanup(() => clearTimeout(timeout))
+  })
+
+  createEffect(() => {
+    if (mapVotePhase() !== 'reveal') return
+    setGridOpen(false)
+  })
+
+  // Reset the map-vote store when the draft ends so the next draft starts fresh.
+  createEffect(() => {
+    const status = state()?.status
+    if (status === 'cancelled' || status === 'complete') {
+      resetMapVote()
+    }
+  })
+
+  createEffect(() => {
+    const current = state()
+    if (!current || current.status !== 'active' || !isMapVotePhase()) {
+      setAutoOpenedMapVoteToken(null)
+      return
+    }
+    if (isMiniView()) return
+
+    const nextToken = `${draftStore.initVersion}:${current.matchId}:map-vote`
+    if (autoOpenedMapVoteToken() === nextToken) return
+
+    setGridOpen(true)
+    setAutoOpenedMapVoteToken(nextToken)
+  })
+
   createEffect(() => {
     const current = state()
     const seatIndex = draftStore.seatIndex
@@ -113,6 +179,7 @@ export function DraftView(props: DraftViewProps) {
       return
     }
     if (isMiniView()) return
+    if (isMapVotePhase()) return
     if (!canOpenLeaderGrid()) return
     if (currentStep()?.action === 'pick' && !isMyOwnPickTurn()) return
 
@@ -125,6 +192,11 @@ export function DraftView(props: DraftViewProps) {
 
   const isActiveOrComplete = () => state()?.status === 'active' || state()?.status === 'complete'
   const canSaveSteamLobbyLink = () => amHost() && Boolean(props.lobbyId) && Boolean(props.lobbyMode)
+  const canToggleOverlay = () => isMapVotePhase() || canOpenLeaderGrid()
+  const overlayToggleLabel = () => {
+    if (isMapVotePhase()) return gridOpen() ? 'Close map vote' : 'Open map vote'
+    return gridOpen() ? 'Close leader grid' : 'Open leader grid'
+  }
 
   const handleSaveSteamLink = async (link: string | null) => {
     const currentUserId = userId()
@@ -170,8 +242,11 @@ export function DraftView(props: DraftViewProps) {
               {/* Main area */}
               <div class="flex flex-1 min-h-0 relative z-0">
                 <SlotStrip />
-                <Show when={state()?.status === 'active'}>
+                <Show when={state()?.status === 'active' && !isMapVotePhase()}>
                   <LeaderGridOverlay />
+                </Show>
+                <Show when={state()?.status === 'active' && isMapVotePhase()}>
+                  <MapVoteOverlay />
                 </Show>
 
                 {/* Grid toggle button */}
@@ -181,14 +256,14 @@ export function DraftView(props: DraftViewProps) {
                       class={cn(
                         'flex items-center gap-1 rounded-full px-5 py-1.5 text-xs font-medium cursor-pointer',
                         'bg-bg-subtle border border-border text-fg-muted',
-                        canOpenLeaderGrid() && 'hover:bg-bg-muted hover:text-fg transition-colors',
-                        !canOpenLeaderGrid() && 'cursor-default opacity-50',
+                        canToggleOverlay() && 'hover:bg-bg-muted hover:text-fg transition-colors',
+                        !canToggleOverlay() && 'cursor-default opacity-50',
                       )}
-                      title={gridOpen() ? 'Close leader grid' : 'Open leader grid'}
-                      aria-label={gridOpen() ? 'Close leader grid' : 'Open leader grid'}
-                      disabled={!canOpenLeaderGrid()}
+                      title={overlayToggleLabel()}
+                      aria-label={overlayToggleLabel()}
+                      disabled={!canToggleOverlay()}
                       onClick={() => {
-                        if (!canOpenLeaderGrid()) return
+                        if (!canToggleOverlay()) return
                         setGridOpen(!gridOpen())
                       }}
                     >
