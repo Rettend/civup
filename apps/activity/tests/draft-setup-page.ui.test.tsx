@@ -50,12 +50,19 @@ describe('DraftSetupPage UI', () => {
 
     const shell = container.firstElementChild as HTMLElement
     const content = shell.querySelector('.mx-auto') as HTMLElement
+    const grid = content.querySelector('.grid') as HTMLElement
+    const playersCard = screen.getByText('Players').closest('.bg-bg-subtle') as HTMLElement
+    const configCard = screen.getByText('Config').closest('.bg-bg-subtle') as HTMLElement
 
     expect(shell.className).toContain('flex')
     expect(shell.className).toContain('flex-col')
     expect(content.className).toContain('flex-1')
     expect(content.className).toContain('min-h-0')
     expect(content.className.includes('lg:h-dvh')).toBe(false)
+    expect(grid.className.includes('lg:flex-1')).toBe(false)
+    expect(grid.className).toContain('lg:max-h-[432px]')
+    expect(playersCard.className).toContain('lg:h-full')
+    expect(configCard.className).toContain('lg:h-full')
   })
 
   test('shows host not-ready team lobby state when more players are required', () => {
