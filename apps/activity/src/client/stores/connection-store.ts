@@ -1,7 +1,7 @@
 import type { ClientMessage, CompetitiveTier, DraftAction, LeaderDataVersion, ServerMessage } from '@civup/game'
 import { api, ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import PartySocket from 'partysocket'
-import { createSignal } from 'solid-js'
+import { createSignal, untrack } from 'solid-js'
 import { buildActivitySessionHeaders, clearActivitySessionToken, getActivitySessionToken } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
 import { shouldForceReconnectForStaleDraft } from '../lib/stale-draft'
@@ -38,11 +38,14 @@ export interface LobbySnapshot {
   steamLobbyLink: string | null
   minRole: CompetitiveTier | null
   maxRole: CompetitiveTier | null
+  lastArrange?: {
+    strategy: LobbyArrangeStrategy
+    at: number
+  } | null
   entries: ({
     playerId: string
     displayName: string
     avatarUrl?: string | null
-    partyIds?: string[]
     balanceRating?: {
       mu: number
       sigma: number
@@ -86,7 +89,7 @@ export interface LobbyRankedRolesSnapshot {
   options: RankedRoleOptionSnapshot[]
 }
 
-export type LobbyArrangeStrategy = 'randomize' | 'balance'
+export type LobbyArrangeStrategy = 'randomize' | 'balance' | 'shuffle-teams'
 
 interface StateWatchMessage {
   type: 'state-changed' | 'error'
@@ -521,7 +524,8 @@ export function watchLobbyState(target: PartySocketTarget, options: LobbyStateWa
 // ── Send Messages ──────────────────────────────────────────
 
 export function sendMessage(msg: ClientMessage): boolean {
-  if (!socket || connectionStatus() !== 'connected') {
+  const status = untrack(connectionStatus)
+  if (!socket || status !== 'connected') {
     console.warn('Cannot send message: not connected')
     return false
   }
@@ -803,24 +807,6 @@ export async function arrangeLobbySlots(
     console.error('Failed to arrange lobby slots:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while arranging lobby slots' }
-  }
-}
-
-/** Toggle a visible premade link between neighboring team slots. */
-export async function toggleLobbyPremadeLink(
-  mode: string,
-  lobbyId: string,
-  userId: string,
-  leftSlot: number,
-): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
-  try {
-    const lobby = await activityApiPost<LobbySnapshot>(`/api/lobby/${mode}/link`, { lobbyId, userId, leftSlot })
-    return { ok: true, lobby }
-  }
-  catch (err) {
-    console.error('Failed to toggle lobby premade link:', err)
-    if (err instanceof ApiError) return { ok: false, error: err.message }
-    return { ok: false, error: 'Network error while toggling premade link' }
   }
 }
 

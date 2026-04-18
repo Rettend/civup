@@ -41,6 +41,7 @@ import {
   getSwapDisconnectFinalizeAtAfterDisconnect,
   getSwapWindowAlarmAction,
 } from './swap-window.ts'
+import { resolveAcceptedSwapState } from './leader-swaps.ts'
 
 interface PartyEnv extends Cloudflare.Env {
   CIVUP_SECRET?: string
@@ -462,10 +463,7 @@ export class Main extends Server<PartyEnv> {
           ...state,
           picks: swappedPicks,
         }
-        const nextSwapState: LeaderSwapState = {
-          pendingSwaps: swapState.pendingSwaps.filter(swap => !isSamePendingSwap(swap, pendingSwap)),
-          completedSwaps: [...swapState.completedSwaps, pendingSwap],
-        }
+        const nextSwapState = resolveAcceptedSwapState(swapState, pendingSwap)
 
         await this.ctx.storage.put('state', nextState)
         await this.ctx.storage.put('swapState', nextSwapState)

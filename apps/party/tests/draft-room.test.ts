@@ -1,5 +1,7 @@
+import type { LeaderSwapState } from '@civup/game'
 import { createDraft, default2v2, redDeath2v2 } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
+import { resolveAcceptedSwapState } from '../src/leader-swaps.ts'
 import { buildRandomDraftResult } from '../src/random-draft.ts'
 
 const originalRandom = Math.random
@@ -57,5 +59,48 @@ describe('buildRandomDraftResult', () => {
     expect(result.state.picks).toHaveLength(4)
     expect(result.state.picks.map(pick => pick.civId)).toEqual(['rd-a', 'rd-a', 'rd-a', 'rd-a'])
     expect(result.state.availableCivIds).toEqual(['rd-a', 'rd-b', 'rd-c', 'rd-d'])
+  })
+})
+
+describe('resolveAcceptedSwapState', () => {
+  test('clears stale pending swaps for both accepted seats', () => {
+    const swapState: LeaderSwapState = {
+      pendingSwaps: [
+        { fromSeat: 0, toSeat: 1, expiresAt: 1000 },
+        { fromSeat: 1, toSeat: 3, expiresAt: 1001 },
+        { fromSeat: 2, toSeat: 0, expiresAt: 1002 },
+        { fromSeat: 3, toSeat: 2, expiresAt: 1003 },
+      ],
+      completedSwaps: [],
+    }
+
+    const nextSwapState = resolveAcceptedSwapState(swapState, swapState.pendingSwaps[1]!)
+
+    expect(nextSwapState.pendingSwaps).toEqual([
+      { fromSeat: 2, toSeat: 0, expiresAt: 1002 },
+    ])
+    expect(nextSwapState.completedSwaps).toEqual([
+      { fromSeat: 1, toSeat: 3, expiresAt: 1001 },
+    ])
+  })
+
+  test('keeps independent pending swaps available', () => {
+    const swapState: LeaderSwapState = {
+      pendingSwaps: [
+        { fromSeat: 1, toSeat: 3, expiresAt: 1001 },
+        { fromSeat: 0, toSeat: 2, expiresAt: 1002 },
+      ],
+      completedSwaps: [{ fromSeat: 4, toSeat: 5 }],
+    }
+
+    const nextSwapState = resolveAcceptedSwapState(swapState, swapState.pendingSwaps[0]!)
+
+    expect(nextSwapState.pendingSwaps).toEqual([
+      { fromSeat: 0, toSeat: 2, expiresAt: 1002 },
+    ])
+    expect(nextSwapState.completedSwaps).toEqual([
+      { fromSeat: 4, toSeat: 5 },
+      { fromSeat: 1, toSeat: 3, expiresAt: 1001 },
+    ])
   })
 })

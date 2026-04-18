@@ -9,11 +9,13 @@ import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
+const originalMathRandom = Math.random
 const TITAN_ROLE_ID = '99999999999999999'
 const GLADIATOR_ROLE_ID = '11111111111111111'
 
 afterEach(() => {
   globalThis.fetch = originalFetch
+  Math.random = originalMathRandom
 })
 
 describe('lobby routes', () => {
@@ -507,6 +509,133 @@ describe('lobby routes', () => {
 
     expect(response.status).toBe(200)
     expect((await getLobbyById(kv, targetLobby.id))?.slots).toEqual(['host', null, 'player-2', null, 'player-1', null, null, null])
+  })
+
+  test('slot removal ignores legacy party ids', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+      partyIds: ['player-2'],
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-2',
+      displayName: 'Player 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 2,
+      partyIds: ['player-1'],
+    })
+
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'player-1', 'player-2'], lobby)
+    await setLobbySlots(kv, lobby.id, ['host', 'player-1', 'player-2', null], withMembers ?? lobby)
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/2v2/remove', {
+      method: 'POST',
+      headers: buildAuthHeaders('player-1', 'Player 1'),
+      body: JSON.stringify({ userId: 'player-1', slot: 1, lobbyId: lobby.id }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(['host', null, 'player-2', null])
+  })
+
+  test('arrange route accepts shuffle-teams', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    for (const [index, playerId] of ['host', 'p2', 'p3', 'p4'].entries()) {
+      await addToQueue(kv, '2v2', {
+        playerId,
+        displayName: playerId,
+        avatarUrl: null,
+        joinedAt: Date.now() + index,
+      })
+    }
+
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'p2', 'p3', 'p4'], lobby)
+    await setLobbySlots(kv, lobby.id, ['host', 'p2', 'p3', 'p4'], withMembers ?? lobby)
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+    Math.random = () => 0
+
+    const response = await app.request('/api/lobby/2v2/arrange', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, strategy: 'shuffle-teams' }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.slots).toEqual(expect.arrayContaining(['host', 'p2', 'p3', 'p4']))
+    expect(updatedLobby?.slots).not.toEqual(['host', 'p2', 'p3', 'p4'])
+  })
+
+  test('arrange route rejects shuffle-teams in FFA', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, 'ffa', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/ffa/arrange', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, strategy: 'shuffle-teams' }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'Shuffle teams is only available in team lobbies.' })
   })
 
   test('direct lobby joins ignore matchmaking max rank', async () => {
