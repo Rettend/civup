@@ -33,7 +33,7 @@ export interface MapScriptOption {
 
 export interface MapVoteSelection {
   mapType: MapTypeId
-  mapScript: MapScriptId
+  mapScripts: MapScriptId[]
 }
 
 export interface RevealedMapVoteSeatBallot extends MapVoteSelection {
@@ -41,7 +41,9 @@ export interface RevealedMapVoteSeatBallot extends MapVoteSelection {
   confirmed: boolean
 }
 
-export interface ResolvedMapVoteResult extends MapVoteSelection {
+export interface ResolvedMapVoteResult {
+  mapType: Exclude<MapTypeId, 'random'>
+  mapScript: Exclude<MapScriptId, 'random'>
   winningSeatCount: number
 }
 
@@ -59,9 +61,10 @@ export interface MapVoteSnapshot {
 }
 
 export const MAP_VOTE_VOTING_DURATION_MS = 1 * 60_000
-export const MAP_VOTE_REVEAL_DURATION_MS = 5_000
+export const MAP_VOTE_REVEAL_DURATION_MS = 10 * 5_000
 export const MAP_VOTE_VOTING_DURATION_SECONDS = MAP_VOTE_VOTING_DURATION_MS / 1000
 export const MAP_VOTE_REVEAL_DURATION_SECONDS = MAP_VOTE_REVEAL_DURATION_MS / 1000
+export const MAX_MAP_VOTE_MAP_SCRIPT_PICKS = 3
 
 export const MAP_TYPES: readonly MapTypeOption[] = [
   { id: 'standard', name: 'Standard', description: 'Teams scattered across the map' },
@@ -91,7 +94,7 @@ export const MAP_SCRIPT_BY_ID: Record<MapScriptId, MapScriptOption> = Object.fro
 
 export const DEFAULT_MAP_VOTE_SELECTION: MapVoteSelection = {
   mapType: 'random',
-  mapScript: 'random',
+  mapScripts: [],
 }
 
 export const EMPTY_MAP_VOTE_SNAPSHOT: MapVoteSnapshot = {
@@ -124,11 +127,12 @@ export function normalizeMapVoteEnabled(mode: GameMode, enabled: boolean, option
 
 export function formatMapVoteResultLabel(mapType: MapTypeId | null | undefined, mapScript: MapScriptId | null | undefined): string {
   const scriptOption = mapScript ? MAP_SCRIPT_BY_ID[mapScript] : null
-  const typePrefix = mapTypePrefix(mapType)
   const scriptName = scriptOption?.name ?? ''
-  if (!scriptName) return typePrefix
+  if (!scriptName) return mapTypeLabel(mapType)
   const scriptLabel = scriptOption?.hint ? `${scriptName} (${scriptOption.hint})` : scriptName
-  return typePrefix ? `${typePrefix} ${scriptLabel}` : scriptLabel
+  if (mapType === 'east-vs-west') return `${scriptLabel} EvW`
+  const typeLabel = mapTypeLabel(mapType)
+  return typeLabel ? `${typeLabel} ${scriptLabel}` : scriptLabel
 }
 
 export function createMapVoteRng(seed: string): () => number {
@@ -163,11 +167,41 @@ export function pickRandomMapScript(rng: () => number, exclude: readonly MapScri
   )
 }
 
-export function resolveMapVoteSelection(selection: MapVoteSelection, rng: () => number): Omit<MapVoteSelection, 'mapType' | 'mapScript'> & { mapType: Exclude<MapTypeId, 'random'>, mapScript: Exclude<MapScriptId, 'random'> } {
-  return {
-    mapType: selection.mapType === 'random' ? pickRandomMapType(rng) : selection.mapType,
-    mapScript: selection.mapScript === 'random' ? pickRandomMapScript(rng) : selection.mapScript,
+export function normalizeMapVoteSelection(selection: MapVoteSelection): MapVoteSelection {
+  const mapScripts: MapScriptId[] = []
+  for (const mapScript of selection.mapScripts) {
+    if (!isMapScriptId(mapScript) || mapScripts.includes(mapScript)) continue
+    if (mapScript === 'random') {
+      mapScripts.length = 0
+      mapScripts.push('random')
+      break
+    }
+    mapScripts.push(mapScript)
+    if (mapScripts.length >= MAX_MAP_VOTE_MAP_SCRIPT_PICKS) break
   }
+
+  return {
+    mapType: isMapTypeId(selection.mapType) ? selection.mapType : DEFAULT_MAP_VOTE_SELECTION.mapType,
+    mapScripts,
+  }
+}
+
+export function isMapVoteSelectionConfirmable(selection: MapVoteSelection | null | undefined): boolean {
+  if (selection == null) return false
+  return normalizeMapVoteSelection(selection).mapScripts.length > 0
+}
+
+export function resolveMapVoteSelection(selection: MapVoteSelection, rng: () => number): Omit<MapVoteSelection, 'mapType'> & { mapType: Exclude<MapTypeId, 'random'> } {
+  const normalizedSelection = normalizeMapVoteSelection(selection)
+  return {
+    mapType: normalizedSelection.mapType === 'random' ? pickRandomMapType(rng) : normalizedSelection.mapType,
+    mapScripts: resolveMapVoteScripts(normalizedSelection.mapScripts, rng),
+  }
+}
+
+function resolveMapVoteScripts(mapScripts: readonly MapScriptId[], rng: () => number): Exclude<MapScriptId, 'random'>[] {
+  if (mapScripts.length === 1 && mapScripts[0] === 'random') return [pickRandomMapScript(rng)]
+  return mapScripts.filter((mapScript): mapScript is Exclude<MapScriptId, 'random'> => mapScript !== 'random')
 }
 
 export function resolveMapVoteWinner(votes: readonly MapVoteSelection[], rng: () => number): ResolvedMapVoteResult {
@@ -179,17 +213,32 @@ export function resolveMapVoteWinner(votes: readonly MapVoteSelection[], rng: ()
     }
   }
 
-  const resolvedVotes = votes.map(vote => resolveMapVoteSelection(vote, rng))
+  const resolvedVotes = votes
+    .map(vote => resolveMapVoteSelection(vote, rng))
+    .filter(vote => vote.mapScripts.length > 0)
+
+  if (resolvedVotes.length === 0) {
+    return {
+      mapType: 'standard',
+      mapScript: 'pangaea-ultima',
+      winningSeatCount: 0,
+    }
+  }
+
   const mapType = resolveMajority(resolvedVotes.map(vote => vote.mapType), 'standard', rng)
-  const mapScript = resolveMajority(resolvedVotes.map(vote => vote.mapScript), 'pangaea-ultima', rng)
-  const winningSeatCount = resolvedVotes.filter(vote => vote.mapType === mapType && vote.mapScript === mapScript).length
+  const sameTypeVotes = resolvedVotes.filter(vote => vote.mapType === mapType)
+  const approvedScripts = sameTypeVotes
+    .flatMap(vote => vote.mapScripts)
+    .filter((mapScript): mapScript is Exclude<MapScriptId, 'random'> => mapScript !== 'random')
+  const mapScript = approvedScripts.length > 0
+    ? resolveMajority(approvedScripts, 'pangaea-ultima', rng)
+    : 'pangaea-ultima'
+  const winningSeatCount = sameTypeVotes.filter(vote => vote.mapScripts.includes(mapScript)).length
   return { mapType, mapScript, winningSeatCount }
 }
 
-function mapTypePrefix(mapType: MapTypeId | null | undefined): string {
+function mapTypeLabel(mapType: MapTypeId | null | undefined): string {
   switch (mapType) {
-    case 'east-vs-west':
-      return 'EvW'
     case 'standard':
     case null:
     case undefined:

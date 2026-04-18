@@ -2,9 +2,12 @@ import type { DraftState, MapVotePhase, MapVoteSelection, ResolvedMapVoteResult,
 import {
   DEFAULT_MAP_VOTE_SELECTION,
   draftFormatMap,
+  isMapVoteSelectionConfirmable,
   isMapScriptId,
   isMapTypeId,
+  MAX_MAP_VOTE_MAP_SCRIPT_PICKS,
   normalizeMapVoteEnabled,
+  normalizeMapVoteSelection,
 } from '@civup/game'
 
 export interface StoredMapVoteState {
@@ -37,9 +40,12 @@ export function isMapVoteInProgress(mapVoteState: StoredMapVoteState): boolean {
   return mapVoteState.enabled && (mapVoteState.phase === 'voting' || mapVoteState.phase === 'reveal')
 }
 
-export function isValidMapVoteSelectionInput(selection: { mapType?: unknown, mapScript?: unknown } | null | undefined): selection is MapVoteSelection {
+export function isValidMapVoteSelectionInput(selection: { mapType?: unknown, mapScripts?: unknown } | null | undefined): selection is MapVoteSelection {
   return isMapTypeId(typeof selection?.mapType === 'string' ? selection.mapType : null)
-    && isMapScriptId(typeof selection?.mapScript === 'string' ? selection.mapScript : null)
+    && Array.isArray(selection?.mapScripts)
+    && selection.mapScripts.length <= MAX_MAP_VOTE_MAP_SCRIPT_PICKS
+    && selection.mapScripts.every(mapScript => typeof mapScript === 'string' && isMapScriptId(mapScript))
+    && new Set(selection.mapScripts).size === selection.mapScripts.length
 }
 
 export function applyMapVoteSelectionUpdate(
@@ -49,18 +55,21 @@ export function applyMapVoteSelectionUpdate(
 ): MapVoteSelectionUpdateResult {
   if (!mapVoteState.enabled || mapVoteState.phase !== 'voting') return 'inactive'
   if (mapVoteState.confirmations[seatIndex] === true) return 'locked'
+  const normalizedSelection = normalizeMapVoteSelection(selection)
 
   return {
     ...mapVoteState,
     selections: {
       ...mapVoteState.selections,
       [seatIndex]: {
-        mapType: selection.mapType,
-        mapScript: selection.mapScript,
+        mapType: normalizedSelection.mapType,
+        mapScripts: [...normalizedSelection.mapScripts],
       },
     },
   }
 }
+
+export { isMapVoteSelectionConfirmable }
 
 export function createInitialMapVoteState(state: DraftState, config: RoomConfig, redDeath: boolean): StoredMapVoteState {
   const enabled = normalizeMapVoteEnabled(draftFormatMap.get(config.formatId)?.gameMode ?? 'ffa', config.mapVoteEnabled === true, { redDeath })

@@ -1,7 +1,7 @@
 import type { JSXElement } from 'solid-js'
 import type { MapScriptOption, MapTypeOption } from '@civup/game'
 import { For, Show } from 'solid-js'
-import { MAP_SCRIPTS, MAP_TYPES } from '@civup/game'
+import { MAP_SCRIPTS, MAP_TYPES, MAX_MAP_VOTE_MAP_SCRIPT_PICKS } from '@civup/game'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import {
@@ -13,12 +13,13 @@ import {
   mapVoteHasConfirmed,
   mapVotePhase,
   mapVoteReadyToConfirm,
-  mapVoteSelectedScript,
+  mapVoteSelectedScriptCount,
+  mapVoteSelectedScripts,
   mapVoteSelectedType,
   setGridExpanded,
   setGridOpen,
-  setMapVoteSelectedScript,
   setMapVoteSelectedType,
+  toggleMapVoteSelectedScript,
 } from '~/client/stores'
 
 const MAP_TYPES_WITH_RANDOM_FIRST = [...MAP_TYPES].sort((left, right) => Number(right.id === 'random') - Number(left.id === 'random'))
@@ -99,6 +100,7 @@ function MapVotePanelFrame(props: { children: JSXElement, footer?: JSXElement, f
 function VotePanel() {
   const canVote = () => draftStore.seatIndex != null
   const isRevealing = () => mapVotePhase() === 'reveal'
+  const confirmLabel = () => `Confirm Vote (${mapVoteSelectedScriptCount()}/${MAX_MAP_VOTE_MAP_SCRIPT_PICKS})`
 
   return (
     <MapVotePanelFrame
@@ -120,10 +122,12 @@ function VotePanel() {
               : 'bg-accent/20 text-accent/50 cursor-default',
           )}
           disabled={isRevealing() || !mapVoteReadyToConfirm() || !canVote()}
-          onClick={() => confirmMapVote()}
+          onClick={() => {
+            if (confirmMapVote()) setGridOpen(false)
+          }}
         >
           <Show when={!mapVoteHasConfirmed()} fallback="Vote Submitted">
-            Confirm Vote
+            {confirmLabel()}
           </Show>
         </button>
       )}
@@ -151,12 +155,12 @@ function MapTypeColumn(props: { disabled: boolean }) {
     >
       <For each={MAP_TYPES_WITH_RANDOM_FIRST}>
         {option => (
-          <MapTypeOptionButton
-            option={option}
-            selected={mapVoteSelectedType() === option.id}
-            disabled={props.disabled}
-            onSelect={() => setMapVoteSelectedType(option.id)}
-          />
+            <MapTypeOptionButton
+              option={option}
+              selected={mapVoteSelectedType() === option.id}
+              disabled={props.disabled}
+              onSelect={() => setMapVoteSelectedType(option.id)}
+            />
         )}
       </For>
     </MapOptionSection>
@@ -171,12 +175,12 @@ function MapScriptColumn(props: { disabled: boolean }) {
     >
       <For each={MAP_SCRIPTS_WITH_RANDOM_FIRST}>
         {option => (
-          <MapVoteOptionCard
-            option={option}
-            selected={mapVoteSelectedScript() === option.id}
-            disabled={props.disabled}
-            onSelect={() => setMapVoteSelectedScript(option.id)}
-          />
+            <MapVoteOptionCard
+              option={option}
+              selected={mapVoteSelectedScripts().includes(option.id)}
+              disabled={props.disabled}
+              onSelect={() => toggleMapVoteSelectedScript(option.id)}
+            />
         )}
       </For>
     </MapOptionSection>

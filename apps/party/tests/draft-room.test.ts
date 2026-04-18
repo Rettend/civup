@@ -1,7 +1,7 @@
 import type { LeaderSwapState } from '@civup/game'
 import { createDraft, default2v2, DEFAULT_MAP_VOTE_SELECTION, pickRandomMapScript, pickRandomMapType, redDeath2v2 } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { applyMapVoteSelectionUpdate, isMapVoteInProgress, isValidMapVoteSelectionInput, type StoredMapVoteState } from '../src/map-vote-room-state.ts'
+import { applyMapVoteSelectionUpdate, isMapVoteInProgress, isMapVoteSelectionConfirmable, isValidMapVoteSelectionInput, type StoredMapVoteState } from '../src/map-vote-room-state.ts'
 import { resolveAcceptedSwapState } from '../src/leader-swaps.ts'
 import { buildRandomDraftResult } from '../src/random-draft.ts'
 
@@ -129,16 +129,48 @@ describe('map vote room helpers', () => {
 
     const result = applyMapVoteSelectionUpdate(state, 0, {
       mapType: 'east-vs-west',
-      mapScript: 'lakes',
+      mapScripts: ['lakes'],
     })
 
     expect(result).toBe('locked')
   })
 
   test('rejects invalid map-vote ids', () => {
-    expect(isValidMapVoteSelectionInput({ mapType: 'standard', mapScript: 'lakes' })).toBe(true)
-    expect(isValidMapVoteSelectionInput({ mapType: 'bogus', mapScript: 'lakes' })).toBe(false)
-    expect(isValidMapVoteSelectionInput({ mapType: 'standard', mapScript: 'bogus' })).toBe(false)
+    expect(isValidMapVoteSelectionInput({ mapType: 'standard', mapScripts: ['lakes'] })).toBe(true)
+    expect(isValidMapVoteSelectionInput({ mapType: 'standard', mapScripts: ['random'] })).toBe(true)
+    expect(isValidMapVoteSelectionInput({ mapType: 'bogus', mapScripts: ['lakes'] })).toBe(false)
+    expect(isValidMapVoteSelectionInput({ mapType: 'standard', mapScripts: ['bogus'] })).toBe(false)
+    expect(isValidMapVoteSelectionInput({ mapType: 'standard', mapScripts: ['lakes', 'lakes'] })).toBe(false)
+  })
+
+  test('normalizes random script submissions as an exclusive special case', () => {
+    const state = createMapVoteState()
+
+    const result = applyMapVoteSelectionUpdate(state, 0, {
+      mapType: 'east-vs-west',
+      mapScripts: ['lakes', 'random', 'seven-seas'],
+    })
+
+    expect(result).not.toBe('inactive')
+    expect(result).not.toBe('locked')
+    expect((result as StoredMapVoteState).selections[0]).toEqual({
+      mapType: 'east-vs-west',
+      mapScripts: ['random'],
+    })
+  })
+
+  test('allows saving an unconfirmed empty approval list but not confirming it', () => {
+    const state = createMapVoteState()
+
+    const result = applyMapVoteSelectionUpdate(state, 0, {
+      mapType: 'east-vs-west',
+      mapScripts: [],
+    })
+
+    expect(result).not.toBe('inactive')
+    expect(result).not.toBe('locked')
+    expect(typeof result).toBe('object')
+    expect(isMapVoteSelectionConfirmable((result as StoredMapVoteState).selections[0])).toBe(false)
   })
 
   test('debug bot votes resolve away from random placeholders before confirmation', () => {

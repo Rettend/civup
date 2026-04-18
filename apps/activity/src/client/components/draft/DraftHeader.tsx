@@ -480,6 +480,51 @@ export function DraftHeader(props: DraftHeaderProps) {
     </HorizontalScroller>
   )
 
+  const renderDesktopActiveCenterCluster = () => (
+    <div
+      data-testid="draft-header-desktop-phase-cluster"
+      class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-4"
+    >
+      <div data-testid="draft-header-desktop-phase-cluster-left" class="flex min-w-0 items-center justify-end">
+        <Show when={showWinningMapBadge()}>
+          <WinningMapBadge />
+        </Show>
+      </div>
+
+      <div class="flex flex-col items-center justify-center gap-0.5">
+        <span class={cn(
+          'text-xs font-bold tracking-widest uppercase',
+          accent() === 'red' ? 'text-danger' : 'text-accent',
+        )}
+        >
+          {displayPhaseLabel()}
+        </span>
+
+        <div class="min-h-6 flex items-center justify-center">
+          <Show when={timerEndsAt() != null}>
+            <span class={cn(
+              'font-mono text-lg font-bold tabular-nums leading-none',
+              isExpired() && 'text-fg-subtle',
+              isCritical() && 'text-danger animate-pulse',
+              isUrgent() && !isCritical() && 'text-danger',
+              !isUrgent() && !isCritical() && !isExpired() && 'text-fg',
+            )}
+            >
+              {seconds()}
+              s
+            </span>
+          </Show>
+        </div>
+      </div>
+
+      <div data-testid="draft-header-desktop-phase-cluster-right" class="flex min-w-0 items-center justify-start">
+        <Show when={showHostActions()}>
+          {renderActiveHostActions(false)}
+        </Show>
+      </div>
+    </div>
+  )
+
   return (
     <header class={cn('relative z-30 flex flex-col shrink-0 overflow-x-clip', headerBg(), 'transition-colors duration-200')}>
       <Show when={phaseFlash()}>
@@ -587,43 +632,7 @@ export function DraftHeader(props: DraftHeaderProps) {
                 </div>
               )}
             >
-              <div class="flex flex-col gap-0.5 items-center relative">
-                <span class={cn(
-                  'text-xs font-bold tracking-widest uppercase',
-                  accent() === 'red' ? 'text-danger' : 'text-accent',
-                )}
-                >
-                  {displayPhaseLabel()}
-                </span>
-
-                <div class="min-h-6 relative flex items-center justify-center">
-                  <Show when={showWinningMapBadge()}>
-                    <div class="mr-6 right-full top-1/2 absolute min-w-0 -translate-y-1/2">
-                      <WinningMapBadge />
-                    </div>
-                  </Show>
-
-                  <Show when={timerEndsAt() != null}>
-                    <span class={cn(
-                      'font-mono text-lg font-bold tabular-nums leading-none',
-                      isExpired() && 'text-fg-subtle',
-                      isCritical() && 'text-danger animate-pulse',
-                      isUrgent() && !isCritical() && 'text-danger',
-                      !isUrgent() && !isCritical() && !isExpired() && 'text-fg',
-                    )}
-                    >
-                      {seconds()}
-                      s
-                    </span>
-                  </Show>
-
-                  <Show when={showHostActions()}>
-                    <div class="ml-6 left-full top-1/2 absolute -translate-y-1/2">
-                      {renderActiveHostActions(false)}
-                    </div>
-                  </Show>
-                </div>
-              </div>
+              {renderDesktopActiveCenterCluster()}
             </Show>
 
             {renderBanRail('right', rightBans(), showRightNoBans())}

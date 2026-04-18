@@ -29,6 +29,7 @@ import {
   MAP_VOTE_VOTING_DURATION_MS,
   MAX_TIMER_SECONDS,
   normalizeMapVoteEnabled,
+  normalizeMapVoteSelection,
   pickRandomMapScript,
   pickRandomMapType,
   processDraftInput,
@@ -71,6 +72,7 @@ import {
   createInitialMapVoteState,
   EMPTY_STORED_MAP_VOTE_STATE,
   isMapVoteInProgress,
+  isMapVoteSelectionConfirmable,
   isMapVoteVoting,
   isValidMapVoteSelectionInput,
   type MapVoteSelectionUpdateResult,
@@ -947,9 +949,10 @@ export class Main extends Server<PartyEnv> {
     if (!isMapVoteVoting(mapVoteState) || mapVoteState.confirmations[seatIndex] === true) return
 
     const selection = mapVoteState.selections[seatIndex] ?? DEFAULT_MAP_VOTE_SELECTION
+    const normalizedSelection = normalizeMapVoteSelection(selection)
     const nextSelection: MapVoteSelection = {
-      mapType: selection.mapType === 'random' ? pickRandomMapType(Math.random) : selection.mapType,
-      mapScript: selection.mapScript === 'random' ? pickRandomMapScript(Math.random) : selection.mapScript,
+      mapType: normalizedSelection.mapType === 'random' ? pickRandomMapType(Math.random) : normalizedSelection.mapType,
+      mapScripts: normalizedSelection.mapScripts.length > 0 ? normalizedSelection.mapScripts : [pickRandomMapScript(Math.random)],
     }
 
     const updated = await this.updateMapVoteSelection(state, config, seatIndex, nextSelection)
@@ -1103,7 +1106,7 @@ export class Main extends Server<PartyEnv> {
     if (!mapVoteState.enabled || mapVoteState.phase !== 'voting') return 'inactive'
 
     const selection = mapVoteState.selections[seatIndex]
-    if (!selection?.mapType || !selection?.mapScript) return 'invalid-selection'
+    if (!isMapVoteSelectionConfirmable(selection)) return 'invalid-selection'
 
     const nextMapVote: StoredMapVoteState = {
       ...mapVoteState,
@@ -1130,12 +1133,22 @@ export class Main extends Server<PartyEnv> {
     const rng = createMapVoteRng(`${state.matchId}:map-vote`)
     const revealedVotes = state.seats.map((_, seatIndex) => {
       const selection = mapVoteState.selections[seatIndex] ?? DEFAULT_MAP_VOTE_SELECTION
+      const confirmed = mapVoteState.confirmations[seatIndex] === true
+      if (!isMapVoteSelectionConfirmable(selection)) {
+        return {
+          seatIndex,
+          confirmed,
+          mapType: normalizeMapVoteSelection(selection).mapType,
+          mapScripts: [],
+        } satisfies RevealedMapVoteSeatBallot
+      }
+
       const resolved = resolveMapVoteSelection(selection, rng)
       return {
         seatIndex,
-        confirmed: mapVoteState.confirmations[seatIndex] === true,
+        confirmed,
         mapType: resolved.mapType,
-        mapScript: resolved.mapScript,
+        mapScripts: [...resolved.mapScripts],
       } satisfies RevealedMapVoteSeatBallot
     })
     const result = resolveMapVoteWinner(revealedVotes, rng)
