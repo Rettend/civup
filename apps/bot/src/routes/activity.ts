@@ -488,11 +488,11 @@ export async function resolveLobbyJoinEligibility(
     ? options.existingQueueMode
     : await getPlayerQueueMode(kv, userId, { fallbackToQueueScan: false })
   if (existingQueueMode && existingQueueMode !== lobby.mode) {
-      return {
-        canJoin: false,
-        blockedReason: `You're already in a ${formatModeLabel(existingQueueMode)} lobby.`,
-        pendingSlot: null,
-      }
+    return {
+      canJoin: false,
+      blockedReason: `You're already in a ${formatModeLabel(existingQueueMode)} lobby.`,
+      pendingSlot: null,
+    }
   }
 
   const pendingSlot = lobbySnapshot.entries.findIndex(entry => entry == null)

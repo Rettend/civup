@@ -1,4 +1,4 @@
-import { matches, matchParticipants, playerRatingSeeds, playerRatings, players } from '@civup/db'
+import { matches, matchParticipants, playerRatings, playerRatingSeeds, players } from '@civup/db'
 import { DEFAULT_MU, DEFAULT_SIGMA, displayRating } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'

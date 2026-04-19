@@ -1,7 +1,7 @@
 import type { GameMode, QueueEntry } from '@civup/game'
 import type { LobbyState } from './types.ts'
-import { deriveQueueBackedLobbyMemberPlayerIds } from './reconcile.ts'
 import { normalizeStoredSlots } from './normalize.ts'
+import { deriveQueueBackedLobbyMemberPlayerIds } from './reconcile.ts'
 
 export function normalizeLobbySlots(
   mode: GameMode,

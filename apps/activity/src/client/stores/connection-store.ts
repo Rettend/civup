@@ -385,9 +385,7 @@ function startStaleDraftReconnectWatchdog() {
       timerEndsAt: draftStore.timerEndsAt,
       lastSocketActivityAt,
       lastForcedReconnectTimerEndsAt,
-    })) {
-      return
-    }
+    })) { return }
 
     const currentRoom = currentRoomConnection
     if (!currentRoom) return

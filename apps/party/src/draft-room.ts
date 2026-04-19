@@ -8,12 +8,13 @@ import type {
   LeaderSwapState,
   MapVoteSelection,
   MapVoteSnapshot,
-  RevealedMapVoteSeatBallot,
   PendingLeaderSwapRequest,
+  RevealedMapVoteSeatBallot,
   RoomConfig,
   ServerMessage,
 } from '@civup/game'
 import type { Connection, ConnectionContext, WSMessage } from 'partyserver'
+import type { MapVoteSelectionUpdateResult, StoredMapVoteState } from './map-vote-room-state.ts'
 import {
   createDraft,
   createMapVoteRng,
@@ -54,6 +55,17 @@ import {
   resolveTimeoutWithPreviews,
   sanitizeDraftPreviews,
 } from './draft-previews.ts'
+import { resolveAcceptedSwapState } from './leader-swaps.ts'
+import {
+  applyMapVoteSelectionUpdate,
+  createInitialMapVoteState,
+  EMPTY_STORED_MAP_VOTE_STATE,
+  isMapVoteInProgress,
+  isMapVoteSelectionConfirmable,
+  isMapVoteVoting,
+  isValidMapVoteSelectionInput,
+
+} from './map-vote-room-state.ts'
 import {
   buildRandomDraftResult,
   pickRandomDistinct,
@@ -65,18 +77,6 @@ import {
   getSwapDisconnectFinalizeAtAfterDisconnect,
   getSwapWindowAlarmAction,
 } from './swap-window.ts'
-import { resolveAcceptedSwapState } from './leader-swaps.ts'
-import {
-  applyMapVoteSelectionUpdate,
-  createInitialMapVoteState,
-  EMPTY_STORED_MAP_VOTE_STATE,
-  isMapVoteInProgress,
-  isMapVoteSelectionConfirmable,
-  isMapVoteVoting,
-  isValidMapVoteSelectionInput,
-  type MapVoteSelectionUpdateResult,
-  type StoredMapVoteState,
-} from './map-vote-room-state.ts'
 
 interface PartyEnv extends Cloudflare.Env {
   CIVUP_SECRET?: string
@@ -393,7 +393,6 @@ export class Main extends Server<PartyEnv> {
         }
         if (confirmResult === 'invalid-selection') {
           this.send(sender, { type: 'error', message: 'Map vote selection is incomplete' })
-          return
         }
         break
       }
@@ -1226,6 +1225,12 @@ export class Main extends Server<PartyEnv> {
   private buildMapVoteSnapshot(mapVoteState: StoredMapVoteState, seatIndex: number, state?: DraftState): MapVoteSnapshot {
     if (!mapVoteState.enabled) return { ...EMPTY_MAP_VOTE_SNAPSHOT }
     const resolvedSeatIndex = seatIndex >= 0 ? seatIndex : null
+    const confirmedSeatIndices = Object.entries(mapVoteState.confirmations)
+      .filter(([, confirmed]) => confirmed === true)
+      .map(([index]) => Number(index))
+      .filter(index => Number.isInteger(index) && index >= 0)
+      .sort((left, right) => left - right)
+
     return {
       enabled: mapVoteState.enabled,
       supported: state ? isMapVoteSupportedForMode(draftFormatMap.get(state.formatId)?.gameMode ?? 'ffa', { redDeath: isRedDeathFormatId(state.formatId) }) : mapVoteState.enabled,
@@ -1233,6 +1238,7 @@ export class Main extends Server<PartyEnv> {
       endsAt: mapVoteState.endsAt,
       selection: resolvedSeatIndex == null ? null : normalizeMapVoteSelection(mapVoteState.selections[resolvedSeatIndex] ?? DEFAULT_MAP_VOTE_SELECTION),
       hasConfirmed: resolvedSeatIndex == null ? false : mapVoteState.confirmations[resolvedSeatIndex] === true,
+      confirmedSeatIndices,
       revealedVotes: mapVoteState.phase === 'reveal' || mapVoteState.phase === 'done' ? mapVoteState.revealedVotes : null,
       result: mapVoteState.phase === 'reveal' || mapVoteState.phase === 'done' ? mapVoteState.result : null,
     }
