@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  DEFAULT_MAP_VOTE_SELECTION,
   createMapVoteRng,
   formatMapVoteResultLabel,
   isMapVoteSelectionConfirmable,
@@ -62,6 +63,8 @@ describe('map vote helpers', () => {
   })
 
   test('requires at least one approved map before confirm', () => {
+    expect(DEFAULT_MAP_VOTE_SELECTION).toEqual({ mapType: 'random', mapScripts: ['random'] })
+    expect(isMapVoteSelectionConfirmable(DEFAULT_MAP_VOTE_SELECTION)).toBe(true)
     expect(isMapVoteSelectionConfirmable({ mapType: 'random', mapScripts: [] })).toBe(false)
     expect(isMapVoteSelectionConfirmable({ mapType: 'random', mapScripts: ['lakes'] })).toBe(true)
   })

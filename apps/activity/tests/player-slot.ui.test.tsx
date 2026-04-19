@@ -76,6 +76,7 @@ describe('PlayerSlot UI', () => {
 
     expect(container.querySelectorAll('.anim-glow-breathe')).toHaveLength(0)
     expect(mapIcon?.className).toContain('text-fg-muted/55')
+    expect(container.querySelector('.i-ph-lock-simple-fill')).toBeNull()
   })
 
   test('keeps the map-vote breathing phase stable across authoritative refresh remounts', () => {
@@ -122,13 +123,19 @@ describe('PlayerSlot UI', () => {
     uiMockState.mapVoteWinningScript = 'seven-seas'
 
     const { container } = render(() => <PlayerSlot seatIndex={0} />)
+    const revealLayout = screen.getByTestId('map-vote-reveal-layout')
+    const artworkList = screen.getByTestId('map-vote-reveal-artworks')
 
-    expect(screen.getByText('East vs West')).toBeTruthy()
+    expect(screen.getByTestId('map-vote-reveal-type').textContent).toBe('East vs West')
     expect(screen.getByText('Lakes')).toBeTruthy()
     expect(screen.getByText('Seven Seas')).toBeTruthy()
     expect(screen.getByAltText('Lakes')).toBeTruthy()
     expect(screen.getByAltText('Seven Seas')).toBeTruthy()
-    expect(container.querySelector('.items-start.justify-center.gap-2')?.className).toContain('flex-col')
+    expect(screen.getByText('Seven Seas').className).toContain('text-accent')
+    expect(screen.getAllByTestId('map-vote-reveal-winning-glow')).toHaveLength(1)
+    expect(revealLayout.className).toContain('justify-between')
+    expect(artworkList.className).toContain('flex-col')
+    expect(container.querySelectorAll('.i-ph-map-trifold-fill')).toHaveLength(0)
   })
 
   test('lays out revealed approved maps horizontally on compact/mobile slots', () => {
@@ -141,9 +148,9 @@ describe('PlayerSlot UI', () => {
       { seatIndex: 0, confirmed: true, mapType: 'east-vs-west', mapScripts: ['lakes', 'seven-seas'] },
     ]
 
-    const { container } = render(() => <PlayerSlot seatIndex={0} compact />)
+    render(() => <PlayerSlot seatIndex={0} compact />)
 
-    expect(container.querySelector('.items-start.justify-center.gap-2')?.className).toContain('flex-row')
+    expect(screen.getByTestId('map-vote-reveal-artworks').className).toContain('flex-row')
   })
 
   test('does not show a concrete map type for zero-pick reveal ballots', () => {

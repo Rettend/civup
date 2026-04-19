@@ -78,7 +78,10 @@ export function createInitialMapVoteState(state: DraftState, config: RoomConfig,
   const selections: Record<number, MapVoteSelection> = {}
   const confirmations: Record<number, boolean> = {}
   for (let seatIndex = 0; seatIndex < state.seats.length; seatIndex++) {
-    selections[seatIndex] = { ...DEFAULT_MAP_VOTE_SELECTION }
+    selections[seatIndex] = {
+      mapType: DEFAULT_MAP_VOTE_SELECTION.mapType,
+      mapScripts: [...DEFAULT_MAP_VOTE_SELECTION.mapScripts],
+    }
     confirmations[seatIndex] = false
   }
 

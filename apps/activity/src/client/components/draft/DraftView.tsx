@@ -11,6 +11,7 @@ import {
   isMobileLayout,
   isMyOwnPickTurn,
   isSpectator,
+  mapVotePhase,
   setGridOpen,
   updateLobbyConfig,
   userId,
@@ -108,9 +109,12 @@ export function DraftView(props: DraftViewProps) {
     setGridOpen(false)
   })
 
+  const isMapVoteVoting = () => mapVotePhase() === 'voting'
+  const isMapVoteReveal = () => mapVotePhase() === 'reveal'
+
   createEffect(() => {
     const current = state()
-    if (!current || !isMapVotePhase()) {
+    if (!current || !isMapVoteVoting()) {
       setAutoOpenedMapVoteToken(null)
       return
     }
@@ -121,6 +125,12 @@ export function DraftView(props: DraftViewProps) {
 
     setGridOpen(true)
     setAutoOpenedMapVoteToken(nextToken)
+  })
+
+  createEffect(() => {
+    if (!isMapVoteReveal()) return
+    if (!gridOpen()) return
+    setGridOpen(false)
   })
 
   createEffect(() => {
@@ -144,9 +154,10 @@ export function DraftView(props: DraftViewProps) {
 
   const isActiveOrComplete = () => isMapVotePhase() || state()?.status === 'active' || state()?.status === 'complete'
   const canSaveSteamLobbyLink = () => amHost() && Boolean(props.lobbyId) && Boolean(props.lobbyMode)
-  const canToggleOverlay = () => isMapVotePhase() || canOpenLeaderGrid()
+  const canToggleOverlay = () => isMapVoteVoting() || canOpenLeaderGrid()
+  const showOverlayToggle = () => state()?.status === 'active' || isMapVoteVoting()
   const overlayToggleLabel = () => {
-    if (isMapVotePhase()) return gridOpen() ? 'Close map vote' : 'Open map vote'
+    if (isMapVoteVoting()) return gridOpen() ? 'Close map vote' : 'Open map vote'
     return gridOpen() ? 'Close leader grid' : 'Open leader grid'
   }
 
@@ -197,12 +208,12 @@ export function DraftView(props: DraftViewProps) {
                 <Show when={state()?.status === 'active' && !isMapVotePhase()}>
                   <LeaderGridOverlay />
                 </Show>
-                <Show when={isMapVotePhase()}>
+                <Show when={isMapVoteVoting()}>
                   <MapVoteOverlay />
                 </Show>
 
                 {/* Grid toggle button */}
-                <Show when={state()?.status === 'active' || isMapVotePhase()}>
+                <Show when={showOverlayToggle()}>
                   <div class="flex inset-x-0 bottom-3 justify-center absolute z-50">
                     <button
                       class={cn(
@@ -227,7 +238,7 @@ export function DraftView(props: DraftViewProps) {
                 </Show>
 
                 {/* Status indicator */}
-                <Show when={!gridOpen() && (state()?.status === 'active' || isMapVotePhase())}>
+                <Show when={!gridOpen() && showOverlayToggle()}>
                   <div class="flex inset-x-0 bottom-12 justify-center absolute z-5">
                     <Show when={isSpectator()}>
                       <span class="text-xs text-fg-subtle px-3 py-1 rounded-full bg-bg-subtle/80">Spectating</span>

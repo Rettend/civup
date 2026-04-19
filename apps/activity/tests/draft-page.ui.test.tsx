@@ -87,6 +87,24 @@ describe('DraftPage UI', () => {
     expect(screen.queryByText('Waiting for host to start draft...')).toBeNull()
   })
 
+  test('closes the map vote overlay and hides the toggle while reveal results are showing', async () => {
+    uiMockState.connectionStatus = 'connected'
+    uiMockState.draftState = createWaitingDraftState({ formatId: '3v3' })
+    uiMockState.mapVotePhase = 'reveal'
+    uiMockState.mapVoteSeatVotes = [
+      { seatIndex: 0, confirmed: true, mapType: 'east-vs-west', mapScripts: ['seven-seas'] },
+    ]
+    uiMockState.mapVoteWinningType = 'east-vs-west'
+    uiMockState.mapVoteWinningScript = 'seven-seas'
+    uiMockState.mapVoteRevealEndsAt = Date.now() + 5_000
+    uiMockState.gridOpen = true
+
+    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Close map vote' })).toBeNull())
+    expect(screen.queryByRole('button', { name: /map vote/i })).toBeNull()
+  })
+
   test('shows the active draft shell with reconnect banner in the background reconnect case', () => {
     uiMockState.connectionStatus = 'reconnecting'
     uiMockState.timerEndsAt = Date.now() + 30_000
