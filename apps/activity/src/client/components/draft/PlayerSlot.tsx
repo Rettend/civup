@@ -495,12 +495,23 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
     const winningScript = mapVoteWinningScript()
     return winningScript ?? null
   }
+  const isWinningMap = (mapId: string) => {
+    const winningScript = winningMapScript()
+    return winningScript != null && vote()?.mapType === mapVoteWinningType() && mapId === winningScript
+  }
   const mapTypeLabel = () => {
     const mapType = vote()?.mapType
     if (!mapType) return ''
     return MAP_TYPE_BY_ID[mapType]?.name ?? mapType
   }
   const iconClass = () => props.compact ? 'text-3xl' : 'text-5xl'
+  const winningBallotBackdropStyle = {
+    background: [
+      'radial-gradient(120% 88% at 50% 30%, rgba(244,220,168,0.08) 0%, rgba(212,176,103,0.04) 34%, rgba(212,176,103,0.01) 58%, transparent 78%)',
+      'radial-gradient(72% 44% at 50% 76%, rgba(244,220,168,0.05) 0%, rgba(244,220,168,0.02) 38%, transparent 72%)',
+      'linear-gradient(to bottom, rgba(255,255,255,0.015) 0%, transparent 32%)',
+    ].join(', '),
+  }
   const breatheAnimationStyle = () => createStableBreatheAnimationStyle({
     active: showVotingGlow(),
     endsAt: isVoting() ? draftStore.mapVote.endsAt : null,
@@ -543,10 +554,16 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
   return (
     <div
       class={cn(
-        'slot-accent-gold inset-0 absolute z-40 flex flex-col overflow-hidden',
-        isRevealing() && isWinningBallot() ? 'bg-bg-muted ring-2 ring-accent/60' : 'bg-bg-subtle',
+        'slot-accent-gold inset-0 absolute z-40 flex flex-col overflow-hidden bg-bg-subtle',
       )}
     >
+      <Show when={isRevealing() && isWinningBallot()}>
+        <div
+          class="pointer-events-none inset-0 absolute z-0"
+          style={winningBallotBackdropStyle}
+        />
+      </Show>
+
       <div
         class="w-6 pointer-events-none inset-y-0 left-0 absolute z-10 from-[var(--slot-glow)] to-transparent bg-gradient-to-r"
         classList={{
@@ -584,7 +601,7 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
         <div
           class="anim-swap-focus-flash pointer-events-none inset-0 absolute z-10"
           style={{
-            background: 'radial-gradient(ellipse at center, rgba(244,220,168,0.44) 0%, rgba(200,170,110,0.28) 48%, rgba(200,170,110,0.12) 100%)',
+            background: 'radial-gradient(ellipse at center, rgba(244,220,168,0.24) 0%, rgba(200,170,110,0.14) 48%, rgba(200,170,110,0.05) 100%)',
           }}
         />
       </Show>
@@ -594,7 +611,10 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
         <div class="bg-black/30 pointer-events-none inset-0 absolute z-10" />
       </Show>
 
-      <div class="relative z-20 flex flex-1 flex-col items-center justify-center px-3 py-4 text-center">
+      <div class={cn(
+        'relative z-20 flex flex-1 flex-col px-3 text-center',
+        isRevealing() ? 'py-3' : 'items-center justify-center py-4',
+      )}>
         <Show
           when={isRevealing() && vote()}
           fallback={(
@@ -607,47 +627,39 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
           )}
         >
           <div
+            data-testid="map-vote-reveal-layout"
             class={cn(
-              'flex max-w-full flex-col items-center justify-center gap-3',
+              'flex h-full min-h-0 max-w-full flex-col',
+              hasApprovedMaps() ? 'justify-between' : 'justify-center',
               isWinningBallot() ? 'text-fg' : 'text-fg-muted',
             )}
           >
-            <div class={cn('i-ph-map-trifold-fill text-accent/90 drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]', iconClass())} />
-
-              <div class="flex max-w-full flex-col items-center gap-2 text-center">
-                <Show when={hasApprovedMaps()}>
-                  <div class={cn(
-                    'max-w-full truncate font-semibold leading-tight',
-                  props.compact ? 'text-[12px]' : 'text-base',
-                  isWinningBallot() ? 'text-accent' : 'text-fg-muted/90',
-                )}
-                >
-                  {mapTypeLabel() || '—'}
-                </div>
-              </Show>
-
-              <div
-                class={cn(
-                  'flex max-w-full items-start justify-center gap-2',
-                  isMobileLayout() ? 'flex-row' : 'flex-col',
-                )}
+            <div class="flex min-h-0 flex-1 items-center justify-center">
+              <Show
+                when={hasApprovedMaps()}
+                fallback={<span class="text-[10px] font-medium leading-none text-fg-muted/65">No map approved</span>}
               >
-                <Show
-                  when={hasApprovedMaps()}
-                  fallback={<span class="text-[10px] font-medium leading-none text-fg-muted/65">No map approved</span>}
+                <div
+                  data-testid="map-vote-reveal-artworks"
+                  class={cn(
+                    'flex max-w-full items-center justify-center text-center',
+                    props.compact ? 'gap-2' : 'gap-3',
+                    isMobileLayout() ? 'flex-row' : 'flex-col',
+                  )}
                 >
                   <For each={approvedMaps()}>
                     {map => (
                       <div
                         class={cn(
-                          'flex min-w-0 flex-col items-center gap-1.5 rounded-md border bg-bg/60 p-1.5',
-                          props.compact ? 'w-16' : 'w-20',
-                          isWinningBallot() && map.id === winningMapScript()
-                            ? 'border-accent/60 bg-accent/12 text-accent'
-                            : 'border-border-subtle text-fg-muted/80',
+                          'flex min-w-0 max-w-full flex-col items-center',
+                          isMobileLayout() ? 'flex-1 basis-0' : 'w-full',
+                          props.compact ? 'gap-1.5' : 'gap-2',
                         )}
                       >
-                        <div class="relative aspect-square w-full overflow-hidden rounded-sm bg-bg-muted/45">
+                        <div
+                          class={cn('relative aspect-square', props.compact ? 'w-16' : 'w-20')}
+                          data-testid={isWinningMap(map.id) ? 'map-vote-reveal-winning-glow' : undefined}
+                        >
                           <Show
                             when={map.imageSrc}
                             fallback={<div class="i-ph-map-trifold-fill text-accent/90 inset-0 absolute flex items-center justify-center text-2xl" />}
@@ -656,20 +668,42 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
                               <img
                                 src={src()}
                                 alt={map.label}
-                                class="inset-0 absolute h-full w-full object-cover"
+                                class="inset-0 absolute h-full w-full object-contain"
+                                style={isWinningMap(map.id) ? {
+                                  filter: 'drop-shadow(0 0 4px rgba(255,233,164,0.16)) drop-shadow(0 0 10px rgba(208,172,98,0.08))',
+                                } : undefined}
                               />
                             )}
                           </Show>
                         </div>
-                        <span class="max-w-full text-[10px] font-medium leading-tight text-center">
+
+                        <span class={cn(
+                          'mx-auto max-w-full w-fit font-semibold leading-tight text-center',
+                          props.compact ? 'text-[10px]' : 'text-[13px]',
+                          isWinningMap(map.id) ? 'text-accent' : 'text-fg/90',
+                        )}
+                        >
                           {map.label}
                         </span>
                       </div>
                     )}
                   </For>
-                </Show>
-              </div>
+                </div>
+              </Show>
             </div>
+
+            <Show when={hasApprovedMaps()}>
+              <div
+                data-testid="map-vote-reveal-type"
+                class={cn(
+                  'mx-auto max-w-full truncate pt-2 font-semibold leading-none',
+                  props.compact ? 'text-[11px]' : 'text-sm',
+                  isWinningBallot() ? 'text-accent/85' : 'text-fg-muted/65',
+                )}
+              >
+                {mapTypeLabel() || '—'}
+              </div>
+            </Show>
           </div>
         </Show>
       </div>
@@ -691,12 +725,9 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
                 />
               )}
             </Show>
-            <span class={cn('text-sm leading-tight truncate', isWinningBallot() ? 'text-fg' : 'text-fg-muted')}>
+            <span class="text-sm leading-tight truncate text-fg-muted">
               {s.displayName}
             </span>
-            <Show when={isSubmittedBallot()}>
-              <span class="i-ph-lock-simple-fill text-[12px] text-fg-muted/55 shrink-0" aria-hidden="true" />
-            </Show>
           </div>
         )}
       </Show>
