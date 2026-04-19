@@ -1,11 +1,11 @@
-import type { RankedRoleOptionSnapshot } from '~/client/stores'
-import type { useDraftSetupState } from './useDraftSetupState'
 import type { RankRoleSetDetail } from './helpers'
-import { Dropdown, Switch, TextInput } from '~/client/components/ui'
-import { Show } from 'solid-js'
+import type { useDraftSetupState } from './useDraftSetupState'
+import type { RankedRoleOptionSnapshot } from '~/client/stores'
 import { hasBetaLeaderData, inferGameMode, normalizeAvailableLeaderDataVersion } from '@civup/game'
-import { buildRankDotStyle, buildRolePillStyle, MAX_LEADER_POOL_INPUT, MAX_TIMER_MINUTES } from './helpers'
+import { Show } from 'solid-js'
+import { Dropdown, Switch, TextInput } from '~/client/components/ui'
 import { cn } from '~/client/lib/css'
+import { buildRankDotStyle, buildRolePillStyle, MAX_LEADER_POOL_INPUT, MAX_TIMER_MINUTES } from './helpers'
 
 type DraftSetupConfigState = ReturnType<typeof useDraftSetupState>['config']
 
@@ -128,7 +128,7 @@ export function DraftSetupConfigPanel(props: { state: DraftSetupConfigState }) {
                 placeholder={state().derived.leaderPoolPlaceholder()}
                 onFocus={() => state().actions.setEditingField('leaderPool')}
                 onClamp={() => state().actions.clampField('leaderPool')}
-                onInput={(event) => state().actions.inputLeaderPool(event.currentTarget.value)}
+                onInput={event => state().actions.inputLeaderPool(event.currentTarget.value)}
                 onBlur={() => void state().actions.saveOnBlur()}
               />
             </Show>
@@ -146,7 +146,7 @@ export function DraftSetupConfigPanel(props: { state: DraftSetupConfigState }) {
                 placeholder={state().derived.banTimerPlaceholder()}
                 onFocus={() => state().actions.setEditingField('ban')}
                 onClamp={() => state().actions.clampField('ban')}
-                onInput={(event) => state().actions.inputBanMinutes(event.currentTarget.value)}
+                onInput={event => state().actions.inputBanMinutes(event.currentTarget.value)}
                 onBlur={() => void state().actions.saveOnBlur()}
               />
             </Show>
@@ -163,7 +163,7 @@ export function DraftSetupConfigPanel(props: { state: DraftSetupConfigState }) {
               placeholder={state().derived.pickTimerPlaceholder()}
               onFocus={() => state().actions.setEditingField('pick')}
               onClamp={() => state().actions.clampField('pick')}
-              onInput={(event) => state().actions.inputPickMinutes(event.currentTarget.value)}
+              onInput={event => state().actions.inputPickMinutes(event.currentTarget.value)}
               onBlur={() => void state().actions.saveOnBlur()}
             />
 
@@ -197,7 +197,7 @@ export function DraftSetupConfigPanel(props: { state: DraftSetupConfigState }) {
         </Show>
       </div>
 
-      <div class="min-h-5 shrink-0">
+      <div class="shrink-0 min-h-5">
         <Show when={state().message.text()}>
           <div class="text-xs text-fg flex gap-1.5 items-center">
             <span

@@ -1,16 +1,8 @@
-import type { LobbyArrangeStrategy, LobbySnapshot } from '~/client/stores'
 import type { OptimisticLobbyAction, PendingOptimisticLobbyAction, PlayerRow, RankRoleSetDetail } from './helpers'
 import type { DraftSetupPageProps } from './types'
+import type { LobbyArrangeStrategy, LobbySnapshot } from '~/client/stores'
 import { formatModeLabel, inferGameMode, isTeamMode as isTeamGameMode, slotToTeamIndex } from '@civup/game'
 import { createEffect, createMemo, createRenderEffect, createSignal, onCleanup } from 'solid-js'
-import { buildMiniColumns, buildTeamRows, buildFfaRows, splitFfaRows } from './draftSetupRows'
-import { useDraftSetupConfigState } from './useDraftSetupConfigState'
-import {
-  applyOptimisticLobbyAction,
-  buildLobbyBalanceSummary,
-  resolveOptimisticLobbyPlacementAction,
-  resolvePendingJoinGhostSlot,
-} from './helpers'
 import {
   arrangeLobbySlots,
   cancelLobby,
@@ -29,6 +21,14 @@ import {
   updateLobbyConfig,
   userId,
 } from '~/client/stores'
+import { buildFfaRows, buildMiniColumns, buildTeamRows, splitFfaRows } from './draftSetupRows'
+import {
+  applyOptimisticLobbyAction,
+  buildLobbyBalanceSummary,
+  resolveOptimisticLobbyPlacementAction,
+  resolvePendingJoinGhostSlot,
+} from './helpers'
+import { useDraftSetupConfigState } from './useDraftSetupConfigState'
 
 const CONFIG_MESSAGE_TIMEOUT_MS = 4000
 
@@ -102,7 +102,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     const next = { ...action, baseRevision, expiresAt } as OptimisticLobbyAction
     setOptimisticLobbyAction(next)
     optimisticLobbyActionTimeout = setTimeout(() => {
-      setOptimisticLobbyAction((current) => current && current.expiresAt === expiresAt ? null : current)
+      setOptimisticLobbyAction(current => current && current.expiresAt === expiresAt ? null : current)
       optimisticLobbyActionTimeout = null
     }, 2500)
   }

@@ -2,7 +2,7 @@ import type { GameMode } from '@civup/game'
 import type { Hono } from 'hono'
 import type { Env } from '../../env.ts'
 import { createDb, playerRatings } from '@civup/db'
-import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isTeamMode, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, playerCountOptions, slotToTeamIndex, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
+import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import { createDraftRoomAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
@@ -35,10 +35,10 @@ import {
   upsertLobbyMessage,
 } from '../../services/lobby/index.ts'
 import { modeIndexKey } from '../../services/lobby/keys.ts'
-import { findPersistedLiveMatchIdsForPlayers } from '../../services/match/live.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { normalizeDraftConfigForMode } from '../../services/lobby/normalize.ts'
 import { createDraftMatch } from '../../services/match/index.ts'
+import { findPersistedLiveMatchIdsForPlayers } from '../../services/match/live.ts'
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { addToQueue, clearQueue, getQueueState, moveQueueEntriesBetweenModes, removeFromQueueAndUnlinkParty, setQueueEntries } from '../../services/queue/index.ts'
 import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
@@ -120,14 +120,14 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-      const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, mapVoteEnabled: mapVoteEnabledRaw, blindBans: blindBansRaw, simultaneousPick: simultaneousPickRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, duplicateFactions: duplicateFactionsRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
-        userId?: string
-        banTimerSeconds?: unknown
-        pickTimerSeconds?: unknown
-        leaderPoolSize?: unknown
-        leaderDataVersion?: unknown
-        mapVoteEnabled?: unknown
-        blindBans?: unknown
+    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, mapVoteEnabled: mapVoteEnabledRaw, blindBans: blindBansRaw, simultaneousPick: simultaneousPickRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, duplicateFactions: duplicateFactionsRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
+      userId?: string
+      banTimerSeconds?: unknown
+      pickTimerSeconds?: unknown
+      leaderPoolSize?: unknown
+      leaderDataVersion?: unknown
+      mapVoteEnabled?: unknown
+      blindBans?: unknown
       simultaneousPick?: unknown
       redDeath?: unknown
       dealOptionsSize?: unknown
@@ -632,7 +632,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!resolvedLobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
-    let lobby = (await reconcileOpenLobbyState(kv, resolvedLobby))?.lobby ?? resolvedLobby
+    const lobby = (await reconcileOpenLobbyState(kv, resolvedLobby))?.lobby ?? resolvedLobby
 
     if (targetSlot >= lobby.slots.length) {
       return c.json({ error: 'Invalid target slot index' }, 400)
@@ -663,7 +663,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         ? currentLobbiesForPlayer.some(candidate => candidate.status !== 'open')
         : persistedLiveMatchIds.has(movingPlayerId)
       if (hasLiveMatch) {
-          return c.json({ error: 'That player is already in a live match.' }, 400)
+        return c.json({ error: 'That player is already in a live match.' }, 400)
       }
 
       blockingLobbyForPlayer = currentLobbiesForPlayer.find(candidate => candidate.status === 'open') ?? null
@@ -1349,12 +1349,12 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     queueBackgroundTask(c, async () => {
-        await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-          embeds: [{
-            title: `LOBBY CANCELLED  -  ${formatModeLabel(mode, mode, { redDeath: lobby.draftConfig.redDeath })}`,
-            description: 'Host cancelled this lobby before draft start.',
-            color: 0x6B7280,
-          }],
+      await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
+        embeds: [{
+          title: `LOBBY CANCELLED  -  ${formatModeLabel(mode, mode, { redDeath: lobby.draftConfig.redDeath })}`,
+          description: 'Host cancelled this lobby before draft start.',
+          color: 0x6B7280,
+        }],
         components: [],
       })
     }, `Failed to update cancelled lobby embed for mode ${mode}:`)

@@ -61,13 +61,15 @@ export function DraftPage(props: DraftPageProps) {
             when={shouldShowDraftView()}
             fallback={autoStartSent() || (props.autoStart && amHost())
               ? <AutoStartingDraftScreen />
-              : <WaitingForDraftStartScreen
-                  isHost={amHost()}
-                  onStart={() => {
-                    const sent = sendStart()
-                    if (sent) setAutoStartSent(true)
-                  }}
-                />}
+              : (
+                  <WaitingForDraftStartScreen
+                    isHost={amHost()}
+                    onStart={() => {
+                      const sent = sendStart()
+                      if (sent) setAutoStartSent(true)
+                    }}
+                  />
+                )}
           >
             <DraftView
               matchId={props.matchId}
@@ -143,7 +145,7 @@ function AutoStartingDraftScreen() {
 function WaitingForDraftStartScreen(props: { isHost: boolean, onStart: () => void }) {
   return (
     <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
-      <div class="p-6 text-center rounded-lg border border-border-subtle bg-bg-subtle max-w-md flex flex-col items-center gap-3">
+      <div class="p-6 text-center border border-border-subtle rounded-lg bg-bg-subtle flex flex-col gap-3 max-w-md items-center">
         <div class="text-2xl text-accent font-bold">CivUp</div>
         <div class="text-sm text-fg-muted">
           {props.isHost ? 'Preparing draft room...' : 'Waiting for host to start draft...'}
@@ -151,7 +153,7 @@ function WaitingForDraftStartScreen(props: { isHost: boolean, onStart: () => voi
         <Show when={props.isHost}>
           <button
             type="button"
-            class="rounded bg-accent px-4 py-1.5 text-sm font-semibold text-black cursor-pointer hover:bg-accent/85 transition-colors"
+            class="text-sm text-black font-semibold px-4 py-1.5 rounded bg-accent cursor-pointer transition-colors hover:bg-accent/85"
             onClick={props.onStart}
           >
             Start Draft

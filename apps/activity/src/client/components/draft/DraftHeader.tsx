@@ -1,9 +1,7 @@
-import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
 import { formatMapVoteResultLabel, MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '@civup/game'
+import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import {
-  MAP_VOTE_REVEAL_DURATION_SECONDS,
-  MAP_VOTE_VOTING_DURATION_SECONDS,
   clearFfaPlacements,
   clearResultSelections,
   currentStepDuration,
@@ -11,6 +9,8 @@ import {
   ffaPlacementOrder,
   isMapVotePhase,
   isMobileLayout,
+  MAP_VOTE_REVEAL_DURATION_SECONDS,
+  MAP_VOTE_VOTING_DURATION_SECONDS,
   mapVotePhase,
   mapVoteRevealEndsAt,
   mapVoteVotingEndsAt,
@@ -483,7 +483,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   const renderDesktopActiveCenterCluster = () => (
     <div
       data-testid="draft-header-desktop-phase-cluster"
-      class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-4"
+      class="gap-4 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch"
     >
       <div data-testid="draft-header-desktop-phase-cluster-left" class="flex min-w-0 items-center justify-end">
         <Show when={showWinningMapBadge()}>
@@ -491,7 +491,7 @@ export function DraftHeader(props: DraftHeaderProps) {
         </Show>
       </div>
 
-      <div class="flex flex-col items-center justify-center gap-0.5">
+      <div class="flex flex-col gap-0.5 items-center justify-center">
         <span class={cn(
           'text-xs font-bold tracking-widest uppercase',
           accent() === 'red' ? 'text-danger' : 'text-accent',
@@ -500,7 +500,7 @@ export function DraftHeader(props: DraftHeaderProps) {
           {displayPhaseLabel()}
         </span>
 
-        <div class="min-h-6 flex items-center justify-center">
+        <div class="flex min-h-6 items-center justify-center">
           <Show when={timerEndsAt() != null}>
             <span class={cn(
               'font-mono text-lg font-bold tabular-nums leading-none',
@@ -538,7 +538,7 @@ export function DraftHeader(props: DraftHeaderProps) {
       <Show when={isMobileLayout()}>
         <div class="flex flex-col relative z-10">
           <div class="px-12 pb-1.5 pt-2 text-center flex flex-col pointer-events-none items-center justify-center">
-            <div class="flex min-h-4 gap-2 items-center justify-center">
+            <div class="flex gap-2 min-h-4 items-center justify-center">
               <span class={cn(
                 'text-xs font-bold tracking-widest uppercase',
                 accent() === 'red' ? 'text-danger' : 'text-accent',
@@ -577,9 +577,9 @@ export function DraftHeader(props: DraftHeaderProps) {
 
           <Show when={showMobileActionRow()}>
             <div class="px-3 pb-2 flex justify-center">
-              <div class="relative w-fit">
+              <div class="w-fit relative">
                 <Show when={showWinningMapBadge()}>
-                  <div class="mr-2 right-full top-1/2 absolute min-w-0 -translate-y-1/2">
+                  <div class="mr-2 min-w-0 right-full top-1/2 absolute -translate-y-1/2">
                     <WinningMapBadge compact />
                   </div>
                 </Show>
@@ -617,7 +617,7 @@ export function DraftHeader(props: DraftHeaderProps) {
               fallback={(
                 <div class="flex gap-3 items-center relative">
                   <Show when={showWinningMapBadge()}>
-                    <div class="mr-3 right-full top-1/2 absolute min-w-0 -translate-y-1/2">
+                    <div class="mr-3 min-w-0 right-full top-1/2 absolute -translate-y-1/2">
                       <WinningMapBadge />
                     </div>
                   </Show>

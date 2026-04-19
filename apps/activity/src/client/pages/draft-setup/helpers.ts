@@ -339,7 +339,7 @@ export function buildRankDotStyle(color: string | null): Record<string, string> 
 export function buildRolePillStyle(color: string | null): Record<string, string> {
   if (!color) {
     return {
-      color: 'rgb(229,229,229)',
+      'color': 'rgb(229,229,229)',
       'background-color': 'rgba(255,255,255,0.06)',
       'border-color': 'rgba(255,255,255,0.22)',
     }
@@ -355,7 +355,7 @@ export function buildRolePillStyle(color: string | null): Record<string, string>
   }
 
   return {
-    color: normalized,
+    'color': normalized,
     'background-color': `${normalized}1F`,
     'border-color': `${normalized}66`,
   }

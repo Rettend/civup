@@ -1,10 +1,9 @@
 /** @jsxImportSource solid-js */
 
-import { beforeEach, describe, expect, mock, test } from 'bun:test'
 import { fireEvent, render, screen, waitFor } from '@solidjs/testing-library'
 import userEvent from '@testing-library/user-event'
-import { uiMockState } from './ui-mocks'
-import { clipboardSpies, discordSpies, resetUiMocks } from './ui-mocks'
+import { beforeEach, describe, expect, mock, test } from 'bun:test'
+import { clipboardSpies, discordSpies, resetUiMocks, uiMockState } from './ui-mocks'
 
 const onSaveSteamLink = mock(() => {})
 

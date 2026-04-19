@@ -1,7 +1,7 @@
 /** @jsxImportSource solid-js */
 
-import { beforeEach, describe, expect, test } from 'bun:test'
 import { fireEvent, render, screen } from '@solidjs/testing-library'
+import { beforeEach, describe, expect, test } from 'bun:test'
 import { createActiveDraftState, createCompleteDraftState } from './ui-fixtures'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
@@ -64,12 +64,13 @@ describe('PlayerSlot UI', () => {
     expect(storeSpies.sendSwapAccept).toHaveBeenCalledTimes(1)
   })
 
-  test('keeps the map-vote breathing nodes mounted and grays out a submitted self vote', () => {
+  test('keeps the map-vote breathing nodes mounted and grays out a confirmed seat during voting', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'voting'
     uiMockState.mapVoteHasConfirmed = true
+    uiMockState.mapVoteConfirmedSeatIndices = [0]
 
     const { container } = render(() => <PlayerSlot seatIndex={0} />)
     const mapIcon = container.querySelector('.i-ph-map-trifold-fill')
@@ -77,6 +78,20 @@ describe('PlayerSlot UI', () => {
     expect(container.querySelectorAll('.anim-glow-breathe')).toHaveLength(0)
     expect(mapIcon?.className).toContain('text-fg-muted/55')
     expect(container.querySelector('.i-ph-lock-simple-fill')).toBeNull()
+  })
+
+  test('stops the gold breathing glow for other confirmed seats too', () => {
+    uiMockState.userId = 'host-1'
+    uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
+    uiMockState.draftState.status = 'waiting'
+    uiMockState.mapVotePhase = 'voting'
+    uiMockState.mapVoteConfirmedSeatIndices = [1]
+
+    const { container } = render(() => <PlayerSlot seatIndex={1} />)
+    const mapIcon = container.querySelector('.i-ph-map-trifold-fill')
+
+    expect(container.querySelectorAll('.anim-glow-breathe')).toHaveLength(0)
+    expect(mapIcon?.className).toContain('text-fg-muted/55')
   })
 
   test('keeps the map-vote breathing phase stable across authoritative refresh remounts', () => {
@@ -135,6 +150,25 @@ describe('PlayerSlot UI', () => {
     expect(screen.getAllByTestId('map-vote-reveal-winning-glow')).toHaveLength(1)
     expect(revealLayout.className).toContain('justify-center')
     expect(container.querySelectorAll('.i-ph-map-trifold-fill')).toHaveLength(0)
+  })
+
+  test('highlights a supporting ballot that only ranked the winning script', () => {
+    uiMockState.userId = 'host-1'
+    uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
+    uiMockState.draftState.status = 'waiting'
+    uiMockState.mapVotePhase = 'reveal'
+    uiMockState.mapVoteSeatVotes = [
+      { seatIndex: 0, confirmed: true, mapTypes: [], mapScripts: ['seven-seas'] },
+    ]
+    uiMockState.mapVoteWinningType = 'standard'
+    uiMockState.mapVoteWinningScript = 'seven-seas'
+    uiMockState.mapVoteWinningTypeCandidate = 'standard'
+    uiMockState.mapVoteWinningScriptCandidate = 'seven-seas'
+
+    render(() => <PlayerSlot seatIndex={0} />)
+
+    expect(screen.getByText('Seven Seas').className).toContain('text-accent')
+    expect(screen.getAllByTestId('map-vote-reveal-winning-glow')).toHaveLength(1)
   })
 
   test('shows the same final winning map on compact/mobile reveal slots', () => {

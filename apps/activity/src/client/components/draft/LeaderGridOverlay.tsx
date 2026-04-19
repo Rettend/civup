@@ -16,8 +16,8 @@ import {
 import { isWideWangQuery, WIDE_WANG_AUDIO_URL, WIDE_WANG_TRANSCRIPT } from '~/client/lib/wide-wang-easter-egg'
 import {
   activeTagFilterCount,
-  banSelectionStepToken,
   banSelections,
+  banSelectionStepToken,
   canOpenLeaderGrid,
   canSendPickPreview,
   clearSelections,
@@ -42,8 +42,8 @@ import {
   sendBan,
   sendPick,
   sendPreview,
-  setBanSelectionStepToken,
   setBanSelections,
+  setBanSelectionStepToken,
   setDetailLeaderId,
   setGridExpanded,
   setGridOpen,
@@ -839,7 +839,7 @@ export function LeaderGridOverlay() {
         </div>
       </div>
 
-      <div class="p-1.5 flex-1 min-h-0 overflow-y-auto relative">
+      <div class="p-1.5 flex-1 min-h-0 relative overflow-y-auto">
         <Show when={showWideWangTranscript()}>
           <WideWangTranscriptBanner
             mode={gridViewMode() === 'grid' ? 'grid' : 'list'}

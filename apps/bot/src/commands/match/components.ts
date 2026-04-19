@@ -1,8 +1,8 @@
 import type { GameMode } from '@civup/game'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { formatModeLabel } from '@civup/game'
 import { Button } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
+import { isQueueBackedOpenLobby } from '../../routes/lobby/snapshot.ts'
 import { clearLobbyMappingsIfMatchingLobby, getMatchForUser, storeMatchActivityState, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { clearLobbyById, filterQueueEntriesForLobby, getLobbyById } from '../../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
@@ -11,7 +11,6 @@ import { sendTransientEphemeralResponse } from '../../services/response/ephemera
 import { createStateStore } from '../../services/state/store.ts'
 import { factory } from '../../setup.ts'
 import { findLiveMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
-import { isQueueBackedOpenLobby } from '../../routes/lobby/snapshot.ts'
 
 export const component_match_join = factory.component(
   new Button('match-join', 'Join', 'Primary'),
