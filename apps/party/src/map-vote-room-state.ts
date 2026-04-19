@@ -2,11 +2,11 @@ import type { DraftState, MapVotePhase, MapVoteSelection, ResolvedMapVoteResult,
 import {
   DEFAULT_MAP_VOTE_SELECTION,
   draftFormatMap,
-  isMapVoteSelectionConfirmable,
   isMapScriptId,
   isMapTypeId,
-  MAX_MAP_VOTE_MAP_TYPE_PICKS,
+  isMapVoteSelectionConfirmable,
   MAX_MAP_VOTE_MAP_SCRIPT_PICKS,
+  MAX_MAP_VOTE_MAP_TYPE_PICKS,
   normalizeMapVoteEnabled,
   normalizeMapVoteSelection,
 } from '@civup/game'

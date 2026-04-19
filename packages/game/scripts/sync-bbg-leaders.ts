@@ -458,7 +458,7 @@ function buildLeaders(rosterRows: SourceRosterRow[], localizationDb: Database, i
     const existingIndex = liveLeaderIndexByKey.get(key)
     if (existingIndex == null) continue
 
-     const existing = nextLeaders[existingIndex]!
+    const existing = nextLeaders[existingIndex]!
     const updated = buildLeaderFromRoster(row, localizationDb, itemAssetIndex, existing)
     nextLeaders[existingIndex] = updated
   }
@@ -481,8 +481,8 @@ function buildLeaderFromRoster(row: SourceRosterRow, localizationDb: Database, i
     const categoryIndex = item.Type.startsWith('UNIT_')
       ? unitIndex
       : item.Type.startsWith('IMPROVEMENT_')
-          ? improvementIndex
-          : buildingIndex
+        ? improvementIndex
+        : buildingIndex
     const normalized = buildUniqueFromItem(item, localizationDb, itemAssetIndex, existing, categoryIndex)
     if (!normalized) continue
 

@@ -156,10 +156,7 @@ export async function getCurrentLobbiesForPlayers(
     }
     if (mappingLooksStale
       || excludedMappedLobby
-      || mismatchedMappedMode) {
-      unresolvedPlayerIds.push(playerId)
-      continue
-    }
+      || mismatchedMappedMode) { unresolvedPlayerIds.push(playerId); continue }
 
     lobbyByPlayerId.set(playerId, lobby)
   }

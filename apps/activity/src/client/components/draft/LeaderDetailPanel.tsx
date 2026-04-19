@@ -35,9 +35,9 @@ export function LeaderDetailPanel() {
     <Show when={leader()}>
       {l => (
         <div class="p-4 h-full w-full select-text relative overflow-x-hidden overflow-y-auto sm:overflow-x-visible">
-          <div class="top-2 right-4 absolute z-10 flex flex-col items-end gap-1">
+          <div class="flex flex-col gap-1 items-end right-4 top-2 absolute z-10">
             <button
-              class="text-fg-subtle rounded-full h-8 w-8 flex items-center justify-center cursor-pointer hover:bg-bg-muted hover:text-fg-muted"
+              class="text-fg-subtle rounded-full flex h-8 w-8 cursor-pointer items-center justify-center hover:text-fg-muted hover:bg-bg-muted"
               title="Close leader details"
               aria-label="Close leader details"
               onClick={() => setDetailLeaderId(null)}
@@ -61,7 +61,7 @@ export function LeaderDetailPanel() {
           </div>
 
           {/* Header: portrait + name */}
-          <div class="mb-3 flex gap-3 items-center pr-12">
+          <div class="mb-3 pr-12 flex gap-3 items-center">
             <Show when={l().portraitUrl}>
               {url => (
                 <img src={resolveAssetUrl(url()) ?? url()} alt={l().name} class="rounded shrink-0 h-12 w-12 object-cover" />

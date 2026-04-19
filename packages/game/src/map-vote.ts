@@ -84,6 +84,7 @@ export interface MapVoteSnapshot {
   endsAt: number | null
   selection: MapVoteSelection | null
   hasConfirmed: boolean
+  confirmedSeatIndices: number[]
   revealedVotes: RevealedMapVoteSeatBallot[] | null
   result: ResolvedMapVoteResult | null
 }
@@ -100,8 +101,8 @@ interface RankedChoiceResolution<T extends string> {
   finalVotes: number
 }
 
-export const MAP_VOTE_VOTING_DURATION_MS = 10 * 60_000 // TODO: for testing, remove 10x when done
-export const MAP_VOTE_REVEAL_DURATION_MS = 10 * 5_000 // TODO: for testing, remove 10x when done
+export const MAP_VOTE_VOTING_DURATION_MS = 60_000
+export const MAP_VOTE_REVEAL_DURATION_MS = 5_000
 export const MAP_VOTE_VOTING_DURATION_SECONDS = MAP_VOTE_VOTING_DURATION_MS / 1000
 export const MAP_VOTE_REVEAL_DURATION_SECONDS = MAP_VOTE_REVEAL_DURATION_MS / 1000
 export const MAX_MAP_VOTE_MAP_TYPE_PICKS = MAP_TYPE_IDS.length
@@ -145,6 +146,7 @@ export const EMPTY_MAP_VOTE_SNAPSHOT: MapVoteSnapshot = {
   endsAt: null,
   selection: null,
   hasConfirmed: false,
+  confirmedSeatIndices: [],
   revealedVotes: null,
   result: null,
 }

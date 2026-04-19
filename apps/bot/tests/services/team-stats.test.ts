@@ -1,4 +1,4 @@
-import { matchParticipants, matches, playerRatings, players } from '@civup/db'
+import { matches, matchParticipants, playerRatings, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { teamCardEmbed } from '../../src/embeds/team-card.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'

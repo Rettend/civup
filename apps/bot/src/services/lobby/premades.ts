@@ -1,5 +1,5 @@
 import type { GameMode, QueueEntry } from '@civup/game'
-import { playerCountOptions, teamCount as modeTeamCount, teamSize as modeTeamSize, slotToTeamIndex } from '@civup/game'
+import { teamCount as modeTeamCount, teamSize as modeTeamSize, playerCountOptions, slotToTeamIndex } from '@civup/game'
 
 interface CompactModeChangeOptions {
   sourceMode?: GameMode

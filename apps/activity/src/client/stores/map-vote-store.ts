@@ -1,14 +1,14 @@
 import type { MapScriptId, MapTypeId, RevealedMapVoteSeatBallot } from '@civup/game'
-import { createMemo } from 'solid-js'
 import {
   DEFAULT_MAP_VOTE_SELECTION,
   isMapVoteSelectionConfirmable,
-  MAX_MAP_VOTE_MAP_SCRIPT_PICKS,
-  MAX_MAP_VOTE_MAP_TYPE_PICKS,
   MAP_VOTE_REVEAL_DURATION_SECONDS,
   MAP_VOTE_VOTING_DURATION_SECONDS,
+  MAX_MAP_VOTE_MAP_SCRIPT_PICKS,
+  MAX_MAP_VOTE_MAP_TYPE_PICKS,
   normalizeMapVoteSelection,
 } from '@civup/game'
+import { createMemo } from 'solid-js'
 import { sendMapVoteConfirm, sendMapVoteSelection } from './connection-store'
 import { draftStore } from './draft-store'
 
@@ -23,6 +23,7 @@ export const mapVoteSelectedScripts = () => draftStore.mapVote.selection?.mapScr
 export const mapVoteSelectedTypeCount = () => mapVoteSelectedTypes().length
 export const mapVoteSelectedScriptCount = () => mapVoteSelectedScripts().length
 export const mapVoteHasConfirmed = () => draftStore.mapVote.hasConfirmed
+export const mapVoteConfirmedSeatIndices = () => draftStore.mapVote.confirmedSeatIndices ?? []
 export const mapVoteSeatVotes = () => draftStore.mapVote.revealedVotes ?? []
 export const mapVoteWinningType = () => draftStore.mapVote.result?.mapType ?? null
 export const mapVoteWinningScript = () => draftStore.mapVote.result?.mapScript ?? null
@@ -75,6 +76,10 @@ export const mapVoteReadyToConfirm = createMemo(() => {
 
 export function getSeatMapVote(seatIndex: number): RevealedMapVoteSeatBallot | null {
   return mapVoteSeatVotes().find(vote => vote.seatIndex === seatIndex) ?? null
+}
+
+export function isSeatMapVoteConfirmed(seatIndex: number): boolean {
+  return mapVoteConfirmedSeatIndices().includes(seatIndex)
 }
 
 export function getNextMapVoteSelection(partial: { mapTypes?: MapTypeId[] | null, mapScripts?: MapScriptId[] | null }): MapVoteSelectionUpdate | null {

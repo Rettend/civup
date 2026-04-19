@@ -1,6 +1,7 @@
 /* eslint-disable no-console */
 import type { DraftInput, DraftSeat, DraftState, GameMode, QueueEntry } from '@civup/game'
 import type { CapacityModel, DailyUsage, MetricBreakpoint, OverageRatesPerMillion, UsageLimits } from './capacity/model.ts'
+import type { CapacityScenario, CapacitySnapshot, CapacitySnapshotBreakpoint, ScenarioReport, SimulationResult, UsageSample } from './capacity/types.ts'
 import { readFile as readFileText, writeFile as writeFileText } from 'node:fs/promises'
 import { matches, matchParticipants, playerRatings, players } from '@civup/db'
 import {
@@ -56,7 +57,6 @@ import { installStateCoordinatorHarness } from '../helpers/state-coordinator-har
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
-import type { CapacityScenario, CapacitySnapshot, CapacitySnapshotBreakpoint, ScenarioReport, SimulationResult, UsageSample } from './capacity/types.ts'
 import {
   addUsage,
   estimateDailyUsage,

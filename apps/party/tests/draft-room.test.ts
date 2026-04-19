@@ -1,8 +1,9 @@
 import type { LeaderSwapState } from '@civup/game'
+import type { StoredMapVoteState } from '../src/map-vote-room-state.ts'
 import { createDraft, default2v2, DEFAULT_MAP_VOTE_SELECTION, pickRandomMapScript, pickRandomMapType, redDeath2v2 } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { applyMapVoteSelectionUpdate, isMapVoteInProgress, isMapVoteSelectionConfirmable, isValidMapVoteSelectionInput, type StoredMapVoteState } from '../src/map-vote-room-state.ts'
 import { resolveAcceptedSwapState } from '../src/leader-swaps.ts'
+import { applyMapVoteSelectionUpdate, isMapVoteInProgress, isMapVoteSelectionConfirmable, isValidMapVoteSelectionInput } from '../src/map-vote-room-state.ts'
 import { buildRandomDraftResult } from '../src/random-draft.ts'
 
 const originalRandom = Math.random

@@ -9,8 +9,8 @@ import { upsertLobbyMessage } from './message.ts'
 import { setLobbyStatus } from './mutations.ts'
 import { reconcileOpenLobbyState } from './reconcile.ts'
 import { buildOpenLobbyRenderPayload } from './render.ts'
-import { clearLobbyById, upsertLobby } from './store.ts'
 import { filterQueueEntriesForLobby, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots } from './slots.ts'
+import { clearLobbyById, upsertLobby } from './store.ts'
 
 export async function leaveOpenLobbyForLobbyJoin(
   kv: KVNamespace,

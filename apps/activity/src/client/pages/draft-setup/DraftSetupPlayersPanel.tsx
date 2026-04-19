@@ -170,17 +170,21 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
           <For each={state().teamIndices()}>
             {team => (
               <div class={state().isLargeTeamLobbyMode() ? 'min-w-0 lg:min-w-[280px] lg:flex-1' : undefined}>
-                <div class="mb-2 flex items-center justify-between gap-3">
+                <div class="mb-2 flex gap-3 items-center justify-between">
                   <div class="text-xs text-accent tracking-wider font-bold">
-                    Team{' '}{String.fromCharCode(65 + team)}
+                    Team
+                    {' '}
+                    {String.fromCharCode(65 + team)}
                   </div>
                   <Show when={state().teamBalance(team)}>
                     {summary => (
-                      <div class="text-[11px] text-right text-accent font-semibold whitespace-nowrap">
-                        {Math.round(summary().probability * 100)}%
+                      <div class="text-[11px] text-accent font-semibold text-right whitespace-nowrap">
+                        {Math.round(summary().probability * 100)}
+                        %
                         <Show when={summary().uncertainty >= 0.01}>
-                          <span class="ml-1 text-fg-subtle font-normal">
-                            ±{Math.round(summary().uncertainty * 100)}
+                          <span class="text-fg-subtle font-normal ml-1">
+                            ±
+                            {Math.round(summary().uncertainty * 100)}
                           </span>
                         </Show>
                       </div>
@@ -203,19 +207,19 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
           overlayActive() ? 'opacity-100' : 'opacity-0',
         )}
       >
-        <div class="absolute inset-0 bg-bg/14" />
+        <div class="bg-bg/14 inset-0 absolute" />
         <div
-          class="h-64 w-64 absolute rounded-full"
+          class="rounded-full h-64 w-64 absolute"
           style={{
-            'background': 'radial-gradient(circle, rgba(9, 9, 11, 0.78) 0%, rgba(9, 9, 11, 0.4) 38%, rgba(9, 9, 11, 0) 72%)',
-            'filter': 'blur(12px)',
+            background: 'radial-gradient(circle, rgba(9, 9, 11, 0.78) 0%, rgba(9, 9, 11, 0.4) 38%, rgba(9, 9, 11, 0) 72%)',
+            filter: 'blur(12px)',
           }}
         />
         <span
           class={cn(getArrangeOverlayIconClass(overlayStrategy()), 'relative text-5xl')}
           style={{
-            'color': '#b69a5c',
-            'filter': 'drop-shadow(0 2px 10px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 22px rgba(200, 170, 110, 0.45))',
+            color: '#b69a5c',
+            filter: 'drop-shadow(0 2px 10px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 22px rgba(200, 170, 110, 0.45))',
           }}
         />
       </div>

@@ -1,7 +1,7 @@
-import type { MiniSeatItem } from '~/client/components/draft/MiniLayout'
 import type { DraftState } from '@civup/game'
-import type { LobbySnapshot } from '~/client/stores'
 import type { PlayerRow } from './helpers'
+import type { MiniSeatItem } from '~/client/components/draft/MiniLayout'
+import type { LobbySnapshot } from '~/client/stores'
 import { inferGameMode, slotToTeamIndex } from '@civup/game'
 
 interface BuildRowsInput {
@@ -52,16 +52,18 @@ export function buildTeamRows(input: BuildRowsInput, team: number): PlayerRow[] 
     return rows
   }
 
-  return (input.draftState?.seats ?? []).flatMap((seat, seatIndex) => seat.team !== team ? [] : [{
-    key: `room-${team}-${seat.playerId}`,
-    slot: seatIndex,
-    name: seat.displayName,
-    playerId: seat.playerId,
-    avatarUrl: seat.avatarUrl ?? null,
-    isHost: seat.playerId === input.hostId,
-    empty: false,
-    pendingSelf: false,
-  }])
+  return (input.draftState?.seats ?? []).flatMap((seat, seatIndex) => seat.team !== team
+    ? []
+    : [{
+        key: `room-${team}-${seat.playerId}`,
+        slot: seatIndex,
+        name: seat.displayName,
+        playerId: seat.playerId,
+        avatarUrl: seat.avatarUrl ?? null,
+        isHost: seat.playerId === input.hostId,
+        empty: false,
+        pendingSelf: false,
+      }])
 }
 
 export function buildFfaRows(input: BuildRowsInput): PlayerRow[] {

@@ -1,8 +1,8 @@
 import type { DraftState } from '@civup/game'
 import { createDraft, default2v2, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
-import { isFatalSocketClose, isUnauthorizedSocketClose } from '../src/client/stores/connection-store'
 import { shouldForceReconnectForStaleDraft } from '../src/client/lib/stale-draft'
+import { isFatalSocketClose, isUnauthorizedSocketClose } from '../src/client/stores/connection-store'
 
 function create2v2Seats() {
   return [

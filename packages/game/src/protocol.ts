@@ -1,3 +1,4 @@
+import type { MapVoteSelection, MapVoteSnapshot, ResolvedMapVoteResult } from './map-vote.ts'
 import type {
   DraftAction,
   DraftCancelReason,
@@ -7,10 +8,9 @@ import type {
   DraftSelection,
   DraftState,
   DraftTimerConfig,
-  LeaderSwapState,
   LeaderDataVersion,
+  LeaderSwapState,
 } from './types.ts'
-import type { MapVoteSelection, MapVoteSnapshot, ResolvedMapVoteResult } from './map-vote.ts'
 
 // ── Room Configuration (sent by bot via HTTP POST) ──────────
 

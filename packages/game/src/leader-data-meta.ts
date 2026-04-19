@@ -1,7 +1,7 @@
 import type { LeaderDataVersion } from './types.ts'
 
 /** Installed live BBG version label used by the UI. */
-export const liveLeaderDataVersionLabel = "7.4.2"
+export const liveLeaderDataVersionLabel = '7.4.2'
 
 /** Installed beta BBG version label, or null when no beta is active. */
 export const betaLeaderDataVersionLabel = null

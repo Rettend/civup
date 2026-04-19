@@ -1,5 +1,5 @@
 import type { Database } from '@civup/db'
-import type { DraftState, GameMode, ResolvedMapVoteResult } from '@civup/game'
+import type { DraftState, GameMode } from '@civup/game'
 import type { ActivateDraftInput, ActivateDraftResult, CancelDraftInput, CancelDraftResult, CreateDraftMatchInput, ParticipantRow } from './types.ts'
 import { matchBans, matches, matchParticipants, players } from '@civup/db'
 import { isRedDeathFormatId, isTeamMode } from '@civup/game'
@@ -203,10 +203,10 @@ export async function activateDraftMatch(
 
   await db
     .update(matches)
-      .set({
-        status: 'active',
-        draftData,
-      })
+    .set({
+      status: 'active',
+      draftData,
+    })
     .where(eq(matches.id, matchId))
 
   return {
@@ -283,18 +283,18 @@ export async function cancelDraftMatch(
 
   await db
     .update(matches)
-      .set({
-        status: 'cancelled',
-        completedAt: input.cancelledAt,
-        draftData: JSON.stringify({
-          cancelledAt: input.cancelledAt,
-          reason: input.reason,
-          hostId: input.hostId,
-          mapVoteResult: input.mapVoteResult ?? null,
-          redDeath: isRedDeathFormatId(input.state.formatId),
-          state: input.state,
-        }),
-      })
+    .set({
+      status: 'cancelled',
+      completedAt: input.cancelledAt,
+      draftData: JSON.stringify({
+        cancelledAt: input.cancelledAt,
+        reason: input.reason,
+        hostId: input.hostId,
+        mapVoteResult: input.mapVoteResult ?? null,
+        redDeath: isRedDeathFormatId(input.state.formatId),
+        state: input.state,
+      }),
+    })
     .where(eq(matches.id, matchId))
 
   const channelId = await getChannelForMatch(kv, matchId)

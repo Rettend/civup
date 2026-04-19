@@ -1,9 +1,9 @@
 /** @jsxImportSource solid-js */
 
-import { beforeEach, describe, expect, mock, test } from 'bun:test'
 import { render, screen } from '@solidjs/testing-library'
-import { resetUiMocks, uiMockState } from './ui-mocks'
+import { beforeEach, describe, expect, mock, test } from 'bun:test'
 import { createActivityTargetOption } from './ui-fixtures'
+import { resetUiMocks, uiMockState } from './ui-mocks'
 
 const onSelect = mock(() => {})
 const onResume = mock(() => {})

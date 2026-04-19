@@ -1,9 +1,9 @@
 /** @jsxImportSource solid-js */
 
-import { beforeEach, describe, expect, mock, test } from 'bun:test'
 import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library'
-import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
+import { beforeEach, describe, expect, mock, test } from 'bun:test'
 import { createJoinEligibility, createLobbySnapshot, createWaitingDraftState } from './ui-fixtures'
+import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const { DraftSetupPage } = await import('../src/client/pages/draft-setup')
 
@@ -27,16 +27,19 @@ describe('DraftSetupPage UI', () => {
   })
 
   test('shows the host open-lobby flow with start and cancel affordances', () => {
-    render(() => <DraftSetupPage lobby={createLobbySnapshot({
-      mode: '2v2',
-      targetSize: 4,
-      entries: [
-        { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
-        { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
-        { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
-        { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
-      ],
-    })} />)
+    render(() => (
+      <DraftSetupPage lobby={createLobbySnapshot({
+        mode: '2v2',
+        targetSize: 4,
+        entries: [
+          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+          { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
+          { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
+        ],
+      })}
+      />
+    ))
 
     expect(screen.getByRole('heading', { name: 'Draft Setup' })).toBeTruthy()
     expect(screen.getByText('Players')).toBeTruthy()
@@ -66,17 +69,20 @@ describe('DraftSetupPage UI', () => {
   })
 
   test('shows host not-ready team lobby state when more players are required', () => {
-    render(() => <DraftSetupPage lobby={createLobbySnapshot({
-      mode: '2v2',
-      minPlayers: 4,
-      targetSize: 4,
-      entries: [
-        { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
-        null,
-        null,
-        null,
-      ],
-    })} />)
+    render(() => (
+      <DraftSetupPage lobby={createLobbySnapshot({
+        mode: '2v2',
+        minPlayers: 4,
+        targetSize: 4,
+        entries: [
+          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+          null,
+          null,
+          null,
+        ],
+      })}
+      />
+    ))
 
     expect(screen.getByText('Team A')).toBeTruthy()
     expect(screen.getByText('Team B')).toBeTruthy()
@@ -145,16 +151,19 @@ describe('DraftSetupPage UI', () => {
   })
 
   test('lets the host update real config toggles and numeric fields in a 2v2 lobby', async () => {
-    render(() => <DraftSetupPage lobby={createLobbySnapshot({
-      mode: '2v2',
-      targetSize: 4,
-      entries: [
-        { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
-        { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
-        { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
-        { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
-      ],
-    })} />)
+    render(() => (
+      <DraftSetupPage lobby={createLobbySnapshot({
+        mode: '2v2',
+        targetSize: 4,
+        entries: [
+          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+          { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
+          { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
+        ],
+      })}
+      />
+    ))
 
     fireEvent.click(screen.getByRole('switch', { name: 'Blind Bans' }))
     fireEvent.click(screen.getByRole('switch', { name: 'Random draft' }))
@@ -191,16 +200,19 @@ describe('DraftSetupPage UI', () => {
   })
 
   test('covers the host 2v2 extra-team toggle flow', async () => {
-    render(() => <DraftSetupPage lobby={createLobbySnapshot({
-      mode: '2v2',
-      targetSize: 4,
-      entries: [
-        { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
-        { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
-        { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
-        { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
-      ],
-    })} />)
+    render(() => (
+      <DraftSetupPage lobby={createLobbySnapshot({
+        mode: '2v2',
+        targetSize: 4,
+        entries: [
+          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+          { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
+          { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
+        ],
+      })}
+      />
+    ))
 
     fireEvent.click(screen.getByRole('button', { name: 'Add two extra teams' }))
 
@@ -338,20 +350,23 @@ describe('DraftSetupPage UI', () => {
   })
 
   test('blocks removing extra 2v2 teams while Teams C and D are occupied', () => {
-    render(() => <DraftSetupPage lobby={createLobbySnapshot({
-      mode: '2v2',
-      targetSize: 8,
-      entries: [
-        { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
-        { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
-        { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
-        { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
-        { playerId: 'player-5', displayName: 'Player 5', avatarUrl: null },
-        { playerId: 'player-6', displayName: 'Player 6', avatarUrl: null },
-        null,
-        null,
-      ],
-    })} />)
+    render(() => (
+      <DraftSetupPage lobby={createLobbySnapshot({
+        mode: '2v2',
+        targetSize: 8,
+        entries: [
+          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+          { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
+          { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
+          { playerId: 'player-5', displayName: 'Player 5', avatarUrl: null },
+          { playerId: 'player-6', displayName: 'Player 6', avatarUrl: null },
+          null,
+          null,
+        ],
+      })}
+      />
+    ))
 
     const removeExtraTeamsButton = screen.getByRole('button', { name: 'Remove extra teams' })
     expect(removeExtraTeamsButton.hasAttribute('disabled')).toBe(true)
@@ -359,19 +374,21 @@ describe('DraftSetupPage UI', () => {
   })
 
   test('covers host lobby actions and non-host read-only config states through the page shell', async () => {
-    render(() => <DraftSetupPage
-      lobby={createLobbySnapshot({
-        mode: '2v2',
-        targetSize: 4,
-        entries: [
-          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
-          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
-          { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
-          { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
-        ],
-      })}
-      onLobbyStarted={onLobbyStarted}
-    />)
+    render(() => (
+      <DraftSetupPage
+        lobby={createLobbySnapshot({
+          mode: '2v2',
+          targetSize: 4,
+          entries: [
+            { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+            { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+            { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
+            { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
+          ],
+        })}
+        onLobbyStarted={onLobbyStarted}
+      />
+    ))
 
     fireEvent.click(screen.getByRole('button', { name: 'Shuffle players' }))
     await waitFor(() => expect(storeSpies.arrangeLobbySlots).toHaveBeenCalledWith('2v2', 'lobby-1', 'host-1', 'randomize'))
@@ -402,5 +419,4 @@ describe('DraftSetupPage UI', () => {
     expect(screen.getByText('Random draft')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Leave Lobby' })).toBeTruthy()
   })
-
 })

@@ -1,11 +1,11 @@
 import type { Leader } from '@civup/game'
 import { getLeader, MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '@civup/game'
-import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { placementIconClass } from '~/client/lib/placement-icons'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
-import { MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, canRequestSwapWith, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, isMapVotePhase, isMobileLayout, isSwapWindowOpen, mapVoteHasConfirmed, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
+import { canRequestSwapWith, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, isMapVotePhase, isMobileLayout, isSeatMapVoteConfirmed, isSwapWindowOpen, MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -478,14 +478,17 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
     const winningScript = winningScriptCandidate()
     return winningScript != null && (vote()?.mapScripts ?? []).includes(winningScript)
   }
-  const isWinningBallot = () => isRevealing() && isWinningType() && isWinningScript()
-
-  const isMe = () => {
-    const uid = userId()
-    return !!uid && seat()?.playerId === uid
+  const hasTypeVote = () => (vote()?.mapTypes.length ?? 0) > 0
+  const hasScriptVote = () => (vote()?.mapScripts.length ?? 0) > 0
+  const isWinningBallot = () => {
+    if (!isRevealing()) return false
+    if (!hasTypeVote() && !hasScriptVote()) return false
+    return (!hasTypeVote() || isWinningType())
+      && (!hasScriptVote() || isWinningScript())
   }
-  const isSubmittedBallot = () => isVoting() && isMe() && mapVoteHasConfirmed()
-  const showVotingGlow = () => isVoting() && !isSubmittedBallot()
+
+  const isConfirmedSeat = () => isVoting() && isSeatMapVoteConfirmed(props.seatIndex)
+  const showVotingGlow = () => isVoting() && !isConfirmedSeat()
   const displayedMap = () => {
     const displayedScriptId = isWinningBallot()
       ? mapVoteResult()?.mapScript
@@ -617,13 +620,14 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
       <div class={cn(
         'relative z-20 flex flex-1 flex-col px-3 text-center',
         isRevealing() ? 'py-3' : 'items-center justify-center py-4',
-      )}>
+      )}
+      >
         <Show
           when={isRevealing() && vote()}
           fallback={(
             <div class={cn(
               'i-ph-map-trifold-fill drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]',
-              isSubmittedBallot() ? 'text-fg-muted/55' : 'text-accent/90',
+              isConfirmedSeat() ? 'text-fg-muted/55' : 'text-accent/90',
               iconClass(),
             )}
             />
@@ -636,7 +640,7 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
               isWinningBallot() ? 'text-fg' : 'text-fg-muted',
             )}
           >
-            <div class="flex min-h-0 flex-1 items-center justify-center">
+            <div class="flex flex-1 min-h-0 items-center justify-center">
               <Show
                 when={displayedMap()}
                 fallback={(
@@ -655,16 +659,28 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
                     >
                       <Show
                         when={map().imageSrc}
-                        fallback={<div class={cn(map().isRandom ? 'i-ph-dice-five-bold' : 'i-ph-map-trifold-fill', 'text-accent/90 inset-0 absolute flex items-center justify-center text-2xl')} />}
+                        fallback={(
+                          <div class="inset-0 absolute flex items-center justify-center">
+                            <span
+                              class={cn(
+                                map().isRandom ? 'i-ph-dice-five-bold' : 'i-ph-map-trifold-fill',
+                                props.compact ? 'h-10 w-10' : 'h-12 w-12',
+                                'block text-accent/90',
+                              )}
+                            />
+                          </div>
+                        )}
                       >
                         {src => (
                           <img
                             src={src()}
                             alt={map().label}
-                            class="inset-0 absolute h-full w-full object-contain"
-                            style={isWinningBallot() ? {
-                              filter: 'drop-shadow(0 0 4px rgba(255,233,164,0.16)) drop-shadow(0 0 10px rgba(208,172,98,0.08))',
-                            } : undefined}
+                            class="h-full w-full inset-0 absolute object-contain"
+                            style={isWinningBallot()
+                              ? {
+                                  filter: 'drop-shadow(0 0 4px rgba(255,233,164,0.16)) drop-shadow(0 0 10px rgba(208,172,98,0.08))',
+                                }
+                              : undefined}
                           />
                         )}
                       </Show>
@@ -716,7 +732,7 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
                 />
               )}
             </Show>
-            <span class="text-sm leading-tight truncate text-fg-muted">
+            <span class="text-sm text-fg-muted leading-tight truncate">
               {s.displayName}
             </span>
           </div>

@@ -635,13 +635,13 @@ async function buildRankedRolePreviewState({
 
   const laddersByMode = new Map<LeaderboardMode, LadderSnapshots>()
   for (const mode of LEADERBOARD_MODES) {
-      laddersByMode.set(mode, buildLadderSnapshots(
-        ratings.filter(row => row.mode === mode),
-        mode,
-        config,
-        rankedMinGames,
-        rankedEligibilityOverrideKeys,
-      ))
+    laddersByMode.set(mode, buildLadderSnapshots(
+      ratings.filter(row => row.mode === mode),
+      mode,
+      config,
+      rankedMinGames,
+      rankedEligibilityOverrideKeys,
+    ))
   }
 
   const knownPlayerIds = new Set<string>()

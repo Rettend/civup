@@ -1,7 +1,7 @@
-import type { JSXElement } from 'solid-js'
 import type { MapScriptOption, MapTypeOption } from '@civup/game'
-import { For, Show } from 'solid-js'
+import type { JSXElement } from 'solid-js'
 import { MAP_SCRIPTS, MAP_TYPES } from '@civup/game'
+import { For, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import {
@@ -17,8 +17,8 @@ import {
   mapVoteSelectedTypes,
   setGridExpanded,
   setGridOpen,
-  toggleMapVoteSelectedType,
   toggleMapVoteSelectedScript,
+  toggleMapVoteSelectedType,
 } from '~/client/stores'
 
 const MAP_TYPES_WITH_RANDOM_FIRST = [...MAP_TYPES].sort((left, right) => Number(right.id === 'random') - Number(left.id === 'random'))
@@ -61,7 +61,7 @@ function MapVotePanelFrame(props: { children: JSXElement, footer?: JSXElement, f
         gridExpanded() ? 'h-full' : 'max-h-[50vh] sm:max-h-[56vh] lg:max-h-[62vh] xl:max-h-[68vh]',
       )}
     >
-      <div class="px-3 pb-3 pt-2 border-b border-border-subtle flex items-center justify-between shrink-0">
+      <div class="px-3 pb-3 pt-2 border-b border-border-subtle flex shrink-0 items-center justify-between">
         <button
           class="text-fg-subtle shrink-0 cursor-pointer hover:text-fg-muted"
           title={expandLabel()}
@@ -137,7 +137,7 @@ function VotePanel() {
 function MapOptionSection(props: { title: string, gridClass: string, children: JSXElement }) {
   return (
     <div class="flex flex-col gap-2">
-      <div class="px-1 text-sm text-white font-semibold leading-none">{props.title}</div>
+      <div class="text-sm text-white leading-none font-semibold px-1">{props.title}</div>
       <div class={cn('pr-1', props.gridClass)}>{props.children}</div>
     </div>
   )
@@ -151,13 +151,13 @@ function MapTypeColumn(props: { disabled: boolean }) {
     >
       <For each={MAP_TYPES_WITH_RANDOM_FIRST}>
         {option => (
-            <MapTypeOptionButton
-              option={option}
-              rank={mapVoteSelectedTypes().indexOf(option.id) + 1}
-              selected={mapVoteSelectedTypes().includes(option.id)}
-              disabled={props.disabled}
-              onSelect={() => toggleMapVoteSelectedType(option.id)}
-            />
+          <MapTypeOptionButton
+            option={option}
+            rank={mapVoteSelectedTypes().indexOf(option.id) + 1}
+            selected={mapVoteSelectedTypes().includes(option.id)}
+            disabled={props.disabled}
+            onSelect={() => toggleMapVoteSelectedType(option.id)}
+          />
         )}
       </For>
     </MapOptionSection>
@@ -172,13 +172,13 @@ function MapScriptColumn(props: { disabled: boolean }) {
     >
       <For each={MAP_SCRIPTS_WITH_RANDOM_FIRST}>
         {option => (
-            <MapVoteOptionCard
-              option={option}
-              rank={mapVoteSelectedScripts().indexOf(option.id) + 1}
-              selected={mapVoteSelectedScripts().includes(option.id)}
-              disabled={props.disabled}
-              onSelect={() => toggleMapVoteSelectedScript(option.id)}
-            />
+          <MapVoteOptionCard
+            option={option}
+            rank={mapVoteSelectedScripts().indexOf(option.id) + 1}
+            selected={mapVoteSelectedScripts().includes(option.id)}
+            disabled={props.disabled}
+            onSelect={() => toggleMapVoteSelectedScript(option.id)}
+          />
         )}
       </For>
     </MapOptionSection>
@@ -233,7 +233,7 @@ function MapVoteOptionCard(props: {
       )}
       onClick={() => props.onSelect()}
     >
-      <div class="relative flex aspect-square w-full items-center justify-center overflow-hidden bg-bg-muted/45">
+      <div class="bg-bg-muted/45 flex w-full aspect-square items-center justify-center relative overflow-hidden">
         <MapVoteSelectionRankBadge rank={props.rank} />
         <Show
           when={'imageUrl' in props.option ? props.option.imageUrl : undefined}
@@ -243,17 +243,18 @@ function MapVoteOptionCard(props: {
             <img
               src={resolveAssetUrl(url()) ?? url()}
               alt={props.option.name}
-              class="inset-0 h-full w-full object-cover absolute"
+              class="h-full w-full inset-0 absolute object-cover"
             />
           )}
         </Show>
 
         <Show when={hint()}>
           {value => (
-            <span class={cn(
-              'px-1.5 py-0.5 rounded-tr-lg bottom-0 left-0 absolute z-10 font-medium leading-none whitespace-nowrap bg-black/65',
-              props.selected ? 'text-accent' : 'text-fg-muted/90',
-            )}
+            <span
+              class={cn(
+                'px-1.5 py-0.5 rounded-tr-lg bottom-0 left-0 absolute z-10 font-medium leading-none whitespace-nowrap bg-black/65',
+                props.selected ? 'text-accent' : 'text-fg-muted/90',
+              )}
               style={{ 'font-size': '10px' }}
             >
               {value()}
@@ -262,7 +263,7 @@ function MapVoteOptionCard(props: {
         </Show>
       </div>
 
-      <div class="px-2 py-1 border-t border-border-subtle h-8 flex items-center justify-center">
+      <div class="px-2 py-1 border-t border-border-subtle flex h-8 items-center justify-center">
         <div class={cn('text-xs text-center font-semibold leading-tight', props.selected ? 'text-accent' : 'text-fg-muted')}>
           {props.option.name}
         </div>
@@ -288,7 +289,7 @@ function MapVoteSelectionRankBadge(props: { rank: number }) {
   return (
     <Show when={iconClass()} keyed>
       {icon => (
-        <span class="rounded-bl-lg right-0 top-0 absolute z-10 bg-black/65 px-1.5 py-0.5">
+        <span class="px-1.5 py-0.5 rounded-bl-lg bg-black/65 right-0 top-0 absolute z-10">
           <span class={cn(icon, 'block h-3.5 w-3.5 text-accent')} />
         </span>
       )}

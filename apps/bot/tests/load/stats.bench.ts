@@ -7,9 +7,9 @@ import { describe, expect, test } from 'bun:test'
 import { playerCardEmbed } from '../../src/embeds/player-card.ts'
 import { getPlayerStatsRankProfile } from '../../src/services/player/rank.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
-import { createTestDatabase } from '../helpers/test-env.ts'
 
 const SHOULD_PRINT_REPORT = Bun.env.CIVUP_STATS_REPORT === '1'
 const STATS_SNAPSHOT_FILE = new URL('./stats.snapshot.json', import.meta.url)

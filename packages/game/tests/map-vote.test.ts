@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  DEFAULT_MAP_VOTE_SELECTION,
   createMapVoteRng,
+  DEFAULT_MAP_VOTE_SELECTION,
   formatMapVoteResultLabel,
   isMapVoteSelectionConfirmable,
   isMapVoteSupportedForMode,
