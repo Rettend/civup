@@ -5,7 +5,7 @@ import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { placementIconClass } from '~/client/lib/placement-icons'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
-import { MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, canRequestSwapWith, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, isMapVotePhase, isMobileLayout, isSwapWindowOpen, mapVoteHasConfirmed, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScript, mapVoteWinningType, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
+import { MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, canRequestSwapWith, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, isMapVotePhase, isMobileLayout, isSwapWindowOpen, mapVoteHasConfirmed, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -467,11 +467,15 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
   const isVoting = () => mapVotePhase() === 'voting'
   const isRevealing = () => mapVotePhase() === 'reveal'
   const vote = () => isRevealing() ? getSeatMapVote(props.seatIndex) : null
-  const approvedScripts = () => (vote()?.mapScripts ?? []).map(id => MAP_SCRIPT_BY_ID[id]).filter(Boolean)
-
-  const isWinningType = () => vote()?.mapType === mapVoteWinningType()
+  const mapVoteResult = () => draftStore.mapVote.result
+  const winningTypeCandidate = () => mapVoteWinningTypeCandidate()
+  const winningScriptCandidate = () => mapVoteWinningScriptCandidate()
+  const isWinningType = () => {
+    const winningType = winningTypeCandidate()
+    return winningType != null && (vote()?.mapTypes ?? []).includes(winningType)
+  }
   const isWinningScript = () => {
-    const winningScript = mapVoteWinningScript()
+    const winningScript = winningScriptCandidate()
     return winningScript != null && (vote()?.mapScripts ?? []).includes(winningScript)
   }
   const isWinningBallot = () => isRevealing() && isWinningType() && isWinningScript()
@@ -482,27 +486,26 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
   }
   const isSubmittedBallot = () => isVoting() && isMe() && mapVoteHasConfirmed()
   const showVotingGlow = () => isVoting() && !isSubmittedBallot()
-  const approvedMaps = () => approvedScripts().map((script) => {
-    const label = script.hint ? `${script.name} (${script.hint})` : script.name
+  const displayedMap = () => {
+    const displayedScriptId = isWinningBallot()
+      ? mapVoteResult()?.mapScript
+      : vote()?.mapScripts[0] ?? mapVoteResult()?.mapScript
+    if (!displayedScriptId) return null
+    const script = MAP_SCRIPT_BY_ID[displayedScriptId]
+    if (!script) return null
     return {
       ...script,
-      label,
+      label: script.hint ? `${script.name} (${script.hint})` : script.name,
       imageSrc: script.imageUrl ? (resolveAssetUrl(script.imageUrl) ?? script.imageUrl) : null,
+      isRandom: script.id === 'random',
     }
-  })
-  const hasApprovedMaps = () => approvedMaps().length > 0
-  const winningMapScript = () => {
-    const winningScript = mapVoteWinningScript()
-    return winningScript ?? null
   }
-  const isWinningMap = (mapId: string) => {
-    const winningScript = winningMapScript()
-    return winningScript != null && vote()?.mapType === mapVoteWinningType() && mapId === winningScript
-  }
-  const mapTypeLabel = () => {
-    const mapType = vote()?.mapType
-    if (!mapType) return ''
-    return MAP_TYPE_BY_ID[mapType]?.name ?? mapType
+  const displayedMapTypeLabel = () => {
+    const displayedTypeId = isWinningBallot()
+      ? mapVoteResult()?.mapType
+      : vote()?.mapTypes[0] ?? mapVoteResult()?.mapType
+    if (!displayedTypeId) return ''
+    return MAP_TYPE_BY_ID[displayedTypeId]?.name ?? displayedTypeId
   }
   const iconClass = () => props.compact ? 'text-3xl' : 'text-5xl'
   const winningBallotBackdropStyle = {
@@ -629,81 +632,69 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
           <div
             data-testid="map-vote-reveal-layout"
             class={cn(
-              'flex h-full min-h-0 max-w-full flex-col',
-              hasApprovedMaps() ? 'justify-between' : 'justify-center',
+              'flex h-full min-h-0 max-w-full flex-col items-center justify-center',
               isWinningBallot() ? 'text-fg' : 'text-fg-muted',
             )}
           >
             <div class="flex min-h-0 flex-1 items-center justify-center">
               <Show
-                when={hasApprovedMaps()}
-                fallback={<span class="text-[10px] font-medium leading-none text-fg-muted/65">No map approved</span>}
-              >
-                <div
-                  data-testid="map-vote-reveal-artworks"
-                  class={cn(
-                    'flex max-w-full items-center justify-center text-center',
-                    props.compact ? 'gap-2' : 'gap-3',
-                    isMobileLayout() ? 'flex-row' : 'flex-col',
+                when={displayedMap()}
+                fallback={(
+                  <div class={cn(
+                    'i-ph-map-trifold-fill drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)] text-accent/90',
+                    iconClass(),
                   )}
-                >
-                  <For each={approvedMaps()}>
-                    {map => (
-                      <div
-                        class={cn(
-                          'flex min-w-0 max-w-full flex-col items-center',
-                          isMobileLayout() ? 'flex-1 basis-0' : 'w-full',
-                          props.compact ? 'gap-1.5' : 'gap-2',
-                        )}
-                      >
-                        <div
-                          class={cn('relative aspect-square', props.compact ? 'w-16' : 'w-20')}
-                          data-testid={isWinningMap(map.id) ? 'map-vote-reveal-winning-glow' : undefined}
-                        >
-                          <Show
-                            when={map.imageSrc}
-                            fallback={<div class="i-ph-map-trifold-fill text-accent/90 inset-0 absolute flex items-center justify-center text-2xl" />}
-                          >
-                            {src => (
-                              <img
-                                src={src()}
-                                alt={map.label}
-                                class="inset-0 absolute h-full w-full object-contain"
-                                style={isWinningMap(map.id) ? {
-                                  filter: 'drop-shadow(0 0 4px rgba(255,233,164,0.16)) drop-shadow(0 0 10px rgba(208,172,98,0.08))',
-                                } : undefined}
-                              />
-                            )}
-                          </Show>
-                        </div>
-
-                        <span class={cn(
-                          'mx-auto max-w-full w-fit font-semibold leading-tight text-center',
-                          props.compact ? 'text-[10px]' : 'text-[13px]',
-                          isWinningMap(map.id) ? 'text-accent' : 'text-fg/90',
-                        )}
-                        >
-                          {map.label}
-                        </span>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </Show>
-            </div>
-
-            <Show when={hasApprovedMaps()}>
-              <div
-                data-testid="map-vote-reveal-type"
-                class={cn(
-                  'mx-auto max-w-full truncate pt-2 font-semibold leading-none',
-                  props.compact ? 'text-[11px]' : 'text-sm',
-                  isWinningBallot() ? 'text-accent/85' : 'text-fg-muted/65',
+                  />
                 )}
               >
-                {mapTypeLabel() || '—'}
-              </div>
-            </Show>
+                {map => (
+                  <div class={cn('flex w-full min-w-0 max-w-full flex-col items-center', props.compact ? 'gap-1.5' : 'gap-2')}>
+                    <div
+                      class={cn('relative aspect-square', props.compact ? 'w-16' : 'w-20')}
+                      data-testid={isWinningBallot() ? 'map-vote-reveal-winning-glow' : undefined}
+                    >
+                      <Show
+                        when={map().imageSrc}
+                        fallback={<div class={cn(map().isRandom ? 'i-ph-dice-five-bold' : 'i-ph-map-trifold-fill', 'text-accent/90 inset-0 absolute flex items-center justify-center text-2xl')} />}
+                      >
+                        {src => (
+                          <img
+                            src={src()}
+                            alt={map().label}
+                            class="inset-0 absolute h-full w-full object-contain"
+                            style={isWinningBallot() ? {
+                              filter: 'drop-shadow(0 0 4px rgba(255,233,164,0.16)) drop-shadow(0 0 10px rgba(208,172,98,0.08))',
+                            } : undefined}
+                          />
+                        )}
+                      </Show>
+                    </div>
+
+                    <span class={cn(
+                      'mx-auto max-w-full w-fit font-semibold leading-tight text-center',
+                      props.compact ? 'text-[10px]' : 'text-[13px]',
+                      isWinningBallot() ? 'text-accent' : 'text-fg/90',
+                    )}
+                    >
+                      {map().label}
+                    </span>
+
+                    <Show when={displayedMapTypeLabel()}>
+                      {label => (
+                        <span class={cn(
+                          'mx-auto max-w-full truncate text-center font-semibold leading-none',
+                          props.compact ? 'text-[9px]' : 'text-[11px]',
+                          isWinningBallot() ? 'text-accent/80' : 'text-fg-muted/70',
+                        )}
+                        >
+                          {label()}
+                        </span>
+                      )}
+                    </Show>
+                  </div>
+                )}
+              </Show>
+            </div>
           </div>
         </Show>
       </div>

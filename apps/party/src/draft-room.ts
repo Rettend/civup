@@ -25,15 +25,14 @@ import {
   isDraftError,
   isMapVoteSupportedForMode,
   isRedDeathFormatId,
+  MAP_SCRIPT_IDS,
+  MAP_TYPE_IDS,
   MAP_VOTE_REVEAL_DURATION_MS,
   MAP_VOTE_VOTING_DURATION_MS,
   MAX_TIMER_SECONDS,
   normalizeMapVoteEnabled,
   normalizeMapVoteSelection,
-  pickRandomMapScript,
-  pickRandomMapType,
   processDraftInput,
-  resolveMapVoteSelection,
   resolveMapVoteWinner,
   swapSeatPicks,
 } from '@civup/game'
@@ -98,6 +97,20 @@ const DEBUG_ACTIVE_BOT_STAGGER_MS = 150
 const SWAP_REQUEST_TIMEOUT_MS = 30_000
 const SWAP_DISCONNECT_GRACE_MS = 5_000
 const SWAP_WINDOW_TIMEOUT_MS = 5 * 60_000
+
+function buildMapVoteSeed(matchId: string, ballots: readonly RevealedMapVoteSeatBallot[]): string {
+  const serialized = ballots
+    .map(ballot => `${ballot.seatIndex}:${ballot.confirmed ? 1 : 0}:${ballot.mapTypes.join(',')}:${ballot.mapScripts.join(',')}`)
+    .join('|')
+
+  let hash = 2166136261
+  for (let index = 0; index < serialized.length; index++) {
+    hash ^= serialized.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+
+  return `${matchId}:${(hash >>> 0).toString(16).padStart(8, '0')}`
+}
 
 // ── Draft Room Server ────────────────────────────────────────
 
@@ -951,8 +964,12 @@ export class Main extends Server<PartyEnv> {
     const selection = mapVoteState.selections[seatIndex] ?? DEFAULT_MAP_VOTE_SELECTION
     const normalizedSelection = normalizeMapVoteSelection(selection)
     const nextSelection: MapVoteSelection = {
-      mapType: normalizedSelection.mapType === 'random' ? pickRandomMapType(Math.random) : normalizedSelection.mapType,
-      mapScripts: normalizedSelection.mapScripts.length > 0 ? normalizedSelection.mapScripts : [pickRandomMapScript(Math.random)],
+      mapTypes: normalizedSelection.mapTypes.length > 0
+        ? normalizedSelection.mapTypes
+        : pickRandomDistinct([...MAP_TYPE_IDS], 1 + Math.floor(Math.random() * MAP_TYPE_IDS.length)),
+      mapScripts: normalizedSelection.mapScripts.length > 0
+        ? normalizedSelection.mapScripts
+        : pickRandomDistinct([...MAP_SCRIPT_IDS], 1 + Math.floor(Math.random() * 3)),
     }
 
     const updated = await this.updateMapVoteSelection(state, config, seatIndex, nextSelection)
@@ -1130,28 +1147,20 @@ export class Main extends Server<PartyEnv> {
     const mapVoteState = currentMapVote ?? await this.getStoredMapVoteState()
     if (!mapVoteState.enabled || mapVoteState.phase !== 'voting') return
 
-    const rng = createMapVoteRng(`${state.matchId}:map-vote`)
     const revealedVotes = state.seats.map((_, seatIndex) => {
       const selection = mapVoteState.selections[seatIndex] ?? DEFAULT_MAP_VOTE_SELECTION
       const confirmed = mapVoteState.confirmations[seatIndex] === true
-      if (!isMapVoteSelectionConfirmable(selection)) {
-        return {
-          seatIndex,
-          confirmed,
-          mapType: normalizeMapVoteSelection(selection).mapType,
-          mapScripts: [],
-        } satisfies RevealedMapVoteSeatBallot
-      }
-
-      const resolved = resolveMapVoteSelection(selection, rng)
+      const normalizedSelection = normalizeMapVoteSelection(selection)
       return {
         seatIndex,
         confirmed,
-        mapType: resolved.mapType,
-        mapScripts: [...resolved.mapScripts],
+        mapTypes: [...normalizedSelection.mapTypes],
+        mapScripts: [...normalizedSelection.mapScripts],
       } satisfies RevealedMapVoteSeatBallot
     })
-    const result = resolveMapVoteWinner(revealedVotes, rng)
+    const seed = buildMapVoteSeed(state.matchId, revealedVotes)
+    const rng = createMapVoteRng(seed)
+    const result = resolveMapVoteWinner(revealedVotes, rng, seed)
     const nextMapVote: StoredMapVoteState = {
       ...mapVoteState,
       phase: 'reveal',
@@ -1222,7 +1231,7 @@ export class Main extends Server<PartyEnv> {
       supported: state ? isMapVoteSupportedForMode(draftFormatMap.get(state.formatId)?.gameMode ?? 'ffa', { redDeath: isRedDeathFormatId(state.formatId) }) : mapVoteState.enabled,
       phase: mapVoteState.phase,
       endsAt: mapVoteState.endsAt,
-      selection: resolvedSeatIndex == null ? null : (mapVoteState.selections[resolvedSeatIndex] ?? DEFAULT_MAP_VOTE_SELECTION),
+      selection: resolvedSeatIndex == null ? null : normalizeMapVoteSelection(mapVoteState.selections[resolvedSeatIndex] ?? DEFAULT_MAP_VOTE_SELECTION),
       hasConfirmed: resolvedSeatIndex == null ? false : mapVoteState.confirmations[resolvedSeatIndex] === true,
       revealedVotes: mapVoteState.phase === 'reveal' || mapVoteState.phase === 'done' ? mapVoteState.revealedVotes : null,
       result: mapVoteState.phase === 'reveal' || mapVoteState.phase === 'done' ? mapVoteState.result : null,
