@@ -374,7 +374,7 @@ function startMapVote(_matchId: string) {
   if (uiMockState.mapVotePhase !== 'idle') return
   uiMockState.mapVotePhase = 'voting'
   uiMockState.mapVoteSelectedType = 'random'
-  uiMockState.mapVoteSelectedScripts = []
+  uiMockState.mapVoteSelectedScripts = ['random']
   uiMockState.mapVoteHasConfirmed = false
   uiMockState.mapVoteSeatVotes = []
   uiMockState.mapVoteWinningType = null

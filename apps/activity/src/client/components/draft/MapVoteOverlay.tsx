@@ -27,7 +27,7 @@ const MAP_SCRIPTS_WITH_RANDOM_FIRST = [...MAP_SCRIPTS].sort((left, right) => Num
 
 export function MapVoteOverlay() {
   return (
-    <Show when={mapVotePhase() === 'voting' || mapVotePhase() === 'reveal'}>
+    <Show when={mapVotePhase() === 'voting'}>
       <Show when={gridOpen()}>
         <div class="bg-black/40 inset-0 absolute z-10" onClick={() => setGridOpen(false)} />
         <div

@@ -94,7 +94,7 @@ export const MAP_SCRIPT_BY_ID: Record<MapScriptId, MapScriptOption> = Object.fro
 
 export const DEFAULT_MAP_VOTE_SELECTION: MapVoteSelection = {
   mapType: 'random',
-  mapScripts: [],
+  mapScripts: ['random'],
 }
 
 export const EMPTY_MAP_VOTE_SNAPSHOT: MapVoteSnapshot = {
