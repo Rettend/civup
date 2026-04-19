@@ -5,6 +5,7 @@ import {
   isMapVoteSelectionConfirmable,
   isMapScriptId,
   isMapTypeId,
+  MAX_MAP_VOTE_MAP_TYPE_PICKS,
   MAX_MAP_VOTE_MAP_SCRIPT_PICKS,
   normalizeMapVoteEnabled,
   normalizeMapVoteSelection,
@@ -40,8 +41,11 @@ export function isMapVoteInProgress(mapVoteState: StoredMapVoteState): boolean {
   return mapVoteState.enabled && (mapVoteState.phase === 'voting' || mapVoteState.phase === 'reveal')
 }
 
-export function isValidMapVoteSelectionInput(selection: { mapType?: unknown, mapScripts?: unknown } | null | undefined): selection is MapVoteSelection {
-  return isMapTypeId(typeof selection?.mapType === 'string' ? selection.mapType : null)
+export function isValidMapVoteSelectionInput(selection: { mapTypes?: unknown, mapScripts?: unknown } | null | undefined): selection is MapVoteSelection {
+  return Array.isArray(selection?.mapTypes)
+    && selection.mapTypes.length <= MAX_MAP_VOTE_MAP_TYPE_PICKS
+    && selection.mapTypes.every(mapType => typeof mapType === 'string' && isMapTypeId(mapType))
+    && new Set(selection.mapTypes).size === selection.mapTypes.length
     && Array.isArray(selection?.mapScripts)
     && selection.mapScripts.length <= MAX_MAP_VOTE_MAP_SCRIPT_PICKS
     && selection.mapScripts.every(mapScript => typeof mapScript === 'string' && isMapScriptId(mapScript))
@@ -62,7 +66,7 @@ export function applyMapVoteSelectionUpdate(
     selections: {
       ...mapVoteState.selections,
       [seatIndex]: {
-        mapType: normalizedSelection.mapType,
+        mapTypes: [...normalizedSelection.mapTypes],
         mapScripts: [...normalizedSelection.mapScripts],
       },
     },
@@ -79,7 +83,7 @@ export function createInitialMapVoteState(state: DraftState, config: RoomConfig,
   const confirmations: Record<number, boolean> = {}
   for (let seatIndex = 0; seatIndex < state.seats.length; seatIndex++) {
     selections[seatIndex] = {
-      mapType: DEFAULT_MAP_VOTE_SELECTION.mapType,
+      mapTypes: [...DEFAULT_MAP_VOTE_SELECTION.mapTypes],
       mapScripts: [...DEFAULT_MAP_VOTE_SELECTION.mapScripts],
     }
     confirmations[seatIndex] = false

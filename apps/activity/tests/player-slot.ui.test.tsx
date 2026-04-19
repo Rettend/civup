@@ -90,7 +90,7 @@ describe('PlayerSlot UI', () => {
       uiMockState.draftState.status = 'waiting'
       uiMockState.mapVotePhase = 'voting'
       uiMockState.mapVoteVotingEndsAt = Date.now() + 30_000
-      uiMockState.mapVoteSelectedType = 'random'
+      uiMockState.mapVoteSelectedTypes = []
       uiMockState.mapVoteSelectedScripts = []
 
       const firstRender = render(() => <PlayerSlot seatIndex={0} />)
@@ -110,61 +110,94 @@ describe('PlayerSlot UI', () => {
     }
   })
 
-  test('shows every approved map during reveal and keeps zero-pick ballots truthful', () => {
+  test('shows only the final winning map during reveal and highlights supporting ballots', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
-      { seatIndex: 0, confirmed: true, mapType: 'east-vs-west', mapScripts: ['lakes', 'seven-seas'] },
-      { seatIndex: 1, confirmed: false, mapType: 'east-vs-west', mapScripts: [] },
+      { seatIndex: 0, confirmed: true, mapTypes: ['east-vs-west'], mapScripts: ['lakes', 'seven-seas'] },
+      { seatIndex: 1, confirmed: false, mapTypes: ['east-vs-west'], mapScripts: [] },
     ]
     uiMockState.mapVoteWinningType = 'east-vs-west'
     uiMockState.mapVoteWinningScript = 'seven-seas'
+    uiMockState.mapVoteWinningTypeCandidate = 'east-vs-west'
+    uiMockState.mapVoteWinningScriptCandidate = 'seven-seas'
 
     const { container } = render(() => <PlayerSlot seatIndex={0} />)
     const revealLayout = screen.getByTestId('map-vote-reveal-layout')
-    const artworkList = screen.getByTestId('map-vote-reveal-artworks')
 
-    expect(screen.getByTestId('map-vote-reveal-type').textContent).toBe('East vs West')
-    expect(screen.getByText('Lakes')).toBeTruthy()
     expect(screen.getByText('Seven Seas')).toBeTruthy()
-    expect(screen.getByAltText('Lakes')).toBeTruthy()
     expect(screen.getByAltText('Seven Seas')).toBeTruthy()
+    expect(screen.getByText('East vs West')).toBeTruthy()
+    expect(screen.queryByText('Lakes')).toBeNull()
     expect(screen.getByText('Seven Seas').className).toContain('text-accent')
     expect(screen.getAllByTestId('map-vote-reveal-winning-glow')).toHaveLength(1)
-    expect(revealLayout.className).toContain('justify-between')
-    expect(artworkList.className).toContain('flex-col')
+    expect(revealLayout.className).toContain('justify-center')
     expect(container.querySelectorAll('.i-ph-map-trifold-fill')).toHaveLength(0)
   })
 
-  test('lays out revealed approved maps horizontally on compact/mobile slots', () => {
+  test('shows the same final winning map on compact/mobile reveal slots', () => {
     uiMockState.userId = 'host-1'
     uiMockState.isMobileLayout = true
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
-      { seatIndex: 0, confirmed: true, mapType: 'east-vs-west', mapScripts: ['lakes', 'seven-seas'] },
+      { seatIndex: 0, confirmed: true, mapTypes: ['east-vs-west'], mapScripts: ['lakes', 'seven-seas'] },
     ]
+    uiMockState.mapVoteWinningType = 'east-vs-west'
+    uiMockState.mapVoteWinningScript = 'seven-seas'
+    uiMockState.mapVoteWinningTypeCandidate = 'east-vs-west'
+    uiMockState.mapVoteWinningScriptCandidate = 'seven-seas'
 
     render(() => <PlayerSlot seatIndex={0} compact />)
 
-    expect(screen.getByTestId('map-vote-reveal-artworks').className).toContain('flex-row')
+    expect(screen.getByText('Seven Seas')).toBeTruthy()
+    expect(screen.getByAltText('Seven Seas')).toBeTruthy()
+    expect(screen.getByText('East vs West')).toBeTruthy()
   })
 
-  test('does not show a concrete map type for zero-pick reveal ballots', () => {
+  test('shows a non-supporting ballot\'s first-ranked map instead of the final winner', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
-      { seatIndex: 0, confirmed: false, mapType: 'east-vs-west', mapScripts: [] },
+      { seatIndex: 0, confirmed: true, mapTypes: ['east-vs-west'], mapScripts: ['lakes'] },
     ]
+    uiMockState.mapVoteWinningType = 'east-vs-west'
+    uiMockState.mapVoteWinningScript = 'seven-seas'
+    uiMockState.mapVoteWinningTypeCandidate = 'east-vs-west'
+    uiMockState.mapVoteWinningScriptCandidate = 'seven-seas'
 
     render(() => <PlayerSlot seatIndex={0} />)
 
-    expect(screen.getByText('No map approved')).toBeTruthy()
-    expect(screen.queryByText('East vs West')).toBeNull()
+    expect(screen.getByText('Lakes')).toBeTruthy()
+    expect(screen.getByAltText('Lakes')).toBeTruthy()
+    expect(screen.getByText('East vs West')).toBeTruthy()
+    expect(screen.queryByText('Seven Seas')).toBeNull()
+    expect(screen.queryAllByTestId('map-vote-reveal-winning-glow')).toHaveLength(0)
+  })
+
+  test('shows the final winner even for seats that did not cast a ballot', () => {
+    uiMockState.userId = 'host-1'
+    uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
+    uiMockState.draftState.status = 'waiting'
+    uiMockState.mapVotePhase = 'reveal'
+    uiMockState.mapVoteSeatVotes = [
+      { seatIndex: 0, confirmed: false, mapTypes: ['east-vs-west'], mapScripts: [] },
+    ]
+    uiMockState.mapVoteWinningType = 'east-vs-west'
+    uiMockState.mapVoteWinningScript = 'seven-seas'
+    uiMockState.mapVoteWinningTypeCandidate = 'east-vs-west'
+    uiMockState.mapVoteWinningScriptCandidate = 'seven-seas'
+
+    render(() => <PlayerSlot seatIndex={0} />)
+
+    expect(screen.getByText('Seven Seas')).toBeTruthy()
+    expect(screen.getByAltText('Seven Seas')).toBeTruthy()
+    expect(screen.getByText('East vs West')).toBeTruthy()
+    expect(screen.queryAllByTestId('map-vote-reveal-winning-glow')).toHaveLength(0)
   })
 })

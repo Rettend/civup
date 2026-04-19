@@ -147,11 +147,14 @@ export {
   mapVoteSeatVotes,
   mapVoteSelectedScriptCount,
   mapVoteSelectedScripts,
-  mapVoteSelectedType,
+  mapVoteSelectedTypeCount,
+  mapVoteSelectedTypes,
   mapVoteVotingEndsAt,
+  mapVoteWinningScriptCandidate,
   mapVoteWinningScript,
+  mapVoteWinningTypeCandidate,
   mapVoteWinningType,
-  setMapVoteSelectedType,
+  toggleMapVoteSelectedType,
   toggleMapVoteSelectedScript,
 } from './map-vote-store'
 export { avatarUrl, displayName, setAuthenticatedUser, user, userId } from './user-store'

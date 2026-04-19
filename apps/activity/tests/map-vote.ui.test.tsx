@@ -17,7 +17,7 @@ describe('Map vote UI', () => {
     uiMockState.gridOpen = true
     uiMockState.draftState = createWaitingDraftState({ formatId: '3v3' })
     uiMockState.mapVotePhase = 'voting'
-    uiMockState.mapVoteSelectedType = 'random'
+    uiMockState.mapVoteSelectedTypes = []
     uiMockState.mapVoteSelectedScripts = []
     uiMockState.mapVoteVotingEndsAt = Date.now() + 30_000
   })
@@ -32,7 +32,7 @@ describe('Map vote UI', () => {
     expect(screen.queryByText(/pick 1-3/i)).toBeNull()
     expect(screen.getAllByText((_, element) => /^\d+s$/.test(element?.textContent ?? '')).length).toBeGreaterThan(0)
 
-    fireEvent.click(screen.getByRole('button', { name: /Confirm Vote \(1\/3\)/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Vote' }))
 
     await waitFor(() => expect(storeSpies.sendMapVoteConfirm).toHaveBeenCalledTimes(1))
   })
@@ -54,31 +54,30 @@ describe('Map vote UI', () => {
 
     expect(uiMockState.gridOpen).toBe(true)
 
-    fireEvent.click(screen.getByRole('button', { name: /Confirm Vote \(1\/3\)/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Vote' }))
 
     await waitFor(() => expect(uiMockState.gridOpen).toBe(false))
   })
 
-  test('keeps the map vote overlay open on a no-op selection click', async () => {
-    uiMockState.mapVoteSelectedType = 'east-vs-west'
+  test('deselecting a ranked map shifts later picks up instead of resetting the chain', async () => {
+    uiMockState.mapVoteSelectedScripts = ['lakes', 'seven-seas', 'rich-highlands']
 
     render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'East vs West' }))
+    fireEvent.click(mapButton('Seven Seas'))
 
-    await waitFor(() => expect(storeSpies.sendMapVoteSelection).toHaveBeenCalledTimes(0))
-    expect(uiMockState.gridOpen).toBe(true)
+    await waitFor(() => expect(uiMockState.mapVoteSelectedScripts).toEqual(['lakes', 'rich-highlands']))
   })
 
-  test('shows progress and allows confirm with fewer than three map approvals', async () => {
+  test('allows confirm with fewer than three ranked maps', async () => {
     uiMockState.mapVoteSelectedScripts = ['lakes', 'seven-seas']
 
     render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
 
-    expect(screen.getByRole('button', { name: /Confirm Vote \(2\/3\)/ })).toHaveProperty('disabled', false)
+    expect(screen.getByRole('button', { name: 'Confirm Vote' })).toHaveProperty('disabled', false)
   })
 
-  test('caps map approvals at three picks', async () => {
+  test('caps map rankings at three picks and keeps their order stable', async () => {
     render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
 
     fireEvent.click(mapButton('Lakes'))
@@ -88,25 +87,18 @@ describe('Map vote UI', () => {
 
     await waitFor(() => expect(uiMockState.mapVoteSelectedScripts).toEqual(['lakes', 'seven-seas', 'rich-highlands']))
     expect(storeSpies.sendMapVoteSelection).toHaveBeenCalledWith({
-      mapType: 'random',
+      mapTypes: [],
       mapScripts: ['lakes', 'seven-seas', 'rich-highlands'],
     })
   })
 
-  test('keeps random as an exclusive toggleable script option', async () => {
+  test('ranks map types in order and removes only the clicked type', async () => {
     render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
-    const randomScriptButton = () => screen.getAllByRole('button', { name: /^Random$/ })[1]!
 
-    fireEvent.click(randomScriptButton())
-    await waitFor(() => expect(uiMockState.mapVoteSelectedScripts).toEqual(['random']))
+    fireEvent.click(screen.getByRole('button', { name: 'Standard' }))
+    fireEvent.click(screen.getByRole('button', { name: 'East vs West' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Standard' }))
 
-    fireEvent.click(mapButton('Lakes'))
-    await waitFor(() => expect(uiMockState.mapVoteSelectedScripts).toEqual(['lakes']))
-
-    fireEvent.click(randomScriptButton())
-    await waitFor(() => expect(uiMockState.mapVoteSelectedScripts).toEqual(['random']))
-
-    fireEvent.click(randomScriptButton())
-    await waitFor(() => expect(uiMockState.mapVoteSelectedScripts).toEqual([]))
+    await waitFor(() => expect(uiMockState.mapVoteSelectedTypes).toEqual(['east-vs-west']))
   })
 })

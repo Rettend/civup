@@ -128,7 +128,7 @@ describe('map vote room helpers', () => {
     state.confirmations[0] = true
 
     const result = applyMapVoteSelectionUpdate(state, 0, {
-      mapType: 'east-vs-west',
+      mapTypes: ['east-vs-west'],
       mapScripts: ['lakes'],
     })
 
@@ -136,41 +136,44 @@ describe('map vote room helpers', () => {
   })
 
   test('rejects invalid map-vote ids', () => {
-    expect(isValidMapVoteSelectionInput({ mapType: 'standard', mapScripts: ['lakes'] })).toBe(true)
-    expect(isValidMapVoteSelectionInput({ mapType: 'standard', mapScripts: ['random'] })).toBe(true)
-    expect(isValidMapVoteSelectionInput({ mapType: 'bogus', mapScripts: ['lakes'] })).toBe(false)
-    expect(isValidMapVoteSelectionInput({ mapType: 'standard', mapScripts: ['bogus'] })).toBe(false)
-    expect(isValidMapVoteSelectionInput({ mapType: 'standard', mapScripts: ['lakes', 'lakes'] })).toBe(false)
+    expect(isValidMapVoteSelectionInput({ mapTypes: ['standard'], mapScripts: ['lakes'] })).toBe(true)
+    expect(isValidMapVoteSelectionInput({ mapTypes: ['standard', 'random'], mapScripts: ['random'] })).toBe(true)
+    expect(isValidMapVoteSelectionInput({ mapTypes: ['bogus'], mapScripts: ['lakes'] })).toBe(false)
+    expect(isValidMapVoteSelectionInput({ mapTypes: ['standard'], mapScripts: ['bogus'] })).toBe(false)
+    expect(isValidMapVoteSelectionInput({ mapTypes: ['standard', 'standard'], mapScripts: ['lakes'] })).toBe(false)
+    expect(isValidMapVoteSelectionInput({ mapTypes: ['standard'], mapScripts: ['lakes', 'lakes'] })).toBe(false)
   })
 
-  test('normalizes random script submissions as an exclusive special case', () => {
+  test('normalizes ranked submissions as ordered unique choices', () => {
     const state = createMapVoteState()
 
     const result = applyMapVoteSelectionUpdate(state, 0, {
-      mapType: 'east-vs-west',
-      mapScripts: ['lakes', 'random', 'seven-seas'],
+      mapTypes: ['east-vs-west', 'random', 'east-vs-west'],
+      mapScripts: ['lakes', 'random', 'lakes'],
     })
 
     expect(result).not.toBe('inactive')
     expect(result).not.toBe('locked')
     expect((result as StoredMapVoteState).selections[0]).toEqual({
-      mapType: 'east-vs-west',
-      mapScripts: ['random'],
+      mapTypes: ['east-vs-west', 'random'],
+      mapScripts: ['lakes', 'random'],
     })
   })
 
-  test('allows saving an unconfirmed empty approval list but not confirming it', () => {
+  test('allows partial ranked ballots to be confirmed but keeps a fully empty ballot as no vote', () => {
     const state = createMapVoteState()
 
-    const result = applyMapVoteSelectionUpdate(state, 0, {
-      mapType: 'east-vs-west',
-      mapScripts: [],
-    })
+    const emptyResult = applyMapVoteSelectionUpdate(state, 0, { mapTypes: [], mapScripts: [] })
+    const typeOnlyResult = applyMapVoteSelectionUpdate(state, 0, { mapTypes: ['east-vs-west'], mapScripts: [] })
 
-    expect(result).not.toBe('inactive')
-    expect(result).not.toBe('locked')
-    expect(typeof result).toBe('object')
-    expect(isMapVoteSelectionConfirmable((result as StoredMapVoteState).selections[0])).toBe(false)
+    expect(emptyResult).not.toBe('inactive')
+    expect(emptyResult).not.toBe('locked')
+    expect(typeOnlyResult).not.toBe('inactive')
+    expect(typeOnlyResult).not.toBe('locked')
+    expect(typeof emptyResult).toBe('object')
+    expect(typeof typeOnlyResult).toBe('object')
+    expect(isMapVoteSelectionConfirmable((emptyResult as StoredMapVoteState).selections[0])).toBe(false)
+    expect(isMapVoteSelectionConfirmable((typeOnlyResult as StoredMapVoteState).selections[0])).toBe(true)
   })
 
   test('debug bot votes resolve away from random placeholders before confirmation', () => {

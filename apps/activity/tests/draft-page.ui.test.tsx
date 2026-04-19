@@ -75,7 +75,7 @@ describe('DraftPage UI', () => {
     uiMockState.connectionStatus = 'connected'
     uiMockState.draftState = createWaitingDraftState({ formatId: '3v3' })
     uiMockState.mapVotePhase = 'voting'
-    uiMockState.mapVoteSelectedType = 'random'
+    uiMockState.mapVoteSelectedTypes = []
     uiMockState.mapVoteSelectedScripts = []
     uiMockState.mapVoteVotingEndsAt = Date.now() + 30_000
     uiMockState.gridOpen = true
@@ -92,10 +92,12 @@ describe('DraftPage UI', () => {
     uiMockState.draftState = createWaitingDraftState({ formatId: '3v3' })
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
-      { seatIndex: 0, confirmed: true, mapType: 'east-vs-west', mapScripts: ['seven-seas'] },
+      { seatIndex: 0, confirmed: true, mapTypes: ['east-vs-west'], mapScripts: ['seven-seas'] },
     ]
     uiMockState.mapVoteWinningType = 'east-vs-west'
     uiMockState.mapVoteWinningScript = 'seven-seas'
+    uiMockState.mapVoteWinningTypeCandidate = 'east-vs-west'
+    uiMockState.mapVoteWinningScriptCandidate = 'seven-seas'
     uiMockState.mapVoteRevealEndsAt = Date.now() + 5_000
     uiMockState.gridOpen = true
 

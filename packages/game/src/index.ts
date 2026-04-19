@@ -14,6 +14,7 @@ export {
   isMapScriptId,
   isMapTypeId,
   isMapVoteSupportedForMode,
+  MAX_MAP_VOTE_MAP_TYPE_PICKS,
   MAX_MAP_VOTE_MAP_SCRIPT_PICKS,
   MAP_SCRIPT_IDS,
   MAP_SCRIPT_BY_ID,
@@ -29,7 +30,6 @@ export {
   normalizeMapVoteSelection,
   pickRandomMapScript,
   pickRandomMapType,
-  resolveMapVoteSelection,
   resolveMapVoteWinner,
 } from './map-vote.ts'
 export {
@@ -77,6 +77,9 @@ export type {
   MapVotePhase,
   MapVoteSelection,
   MapVoteSnapshot,
+  RankedChoiceRound,
+  RankedChoiceRoundTally,
+  RankedChoiceTieBreak,
   ResolvedMapVoteResult,
   RevealedMapVoteSeatBallot,
 } from './map-vote.ts'

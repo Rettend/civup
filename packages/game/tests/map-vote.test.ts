@@ -25,77 +25,168 @@ describe('map vote helpers', () => {
     expect(normalizeMapVoteEnabled('3v3', true, { redDeath: true })).toBe(false)
   })
 
-  test('resolves random ballots and ties deterministically from the provided rng', () => {
-    const rngA = createMapVoteRng('match-1')
-    const rngB = createMapVoteRng('match-1')
+  test('normalizes ranked ballots and still accepts legacy stored ballots', () => {
+    expect(normalizeMapVoteSelection({
+      mapTypes: ['standard', 'random', 'standard', 'east-vs-west'],
+      mapScripts: ['lakes', 'random', 'lakes', 'inland-sea', 'tilted-axis'],
+    })).toEqual({
+      mapTypes: ['standard', 'random', 'east-vs-west'],
+      mapScripts: ['lakes', 'random', 'inland-sea'],
+    })
 
-    const votes = [
-      { mapType: 'random', mapScripts: [] },
-      { mapType: 'standard', mapScripts: ['lakes'] },
-      { mapType: 'east-vs-west', mapScripts: ['inland-sea'] },
-      { mapType: 'east-vs-west', mapScripts: ['lakes', 'inland-sea'] },
-    ] as const
-
-    expect(resolveMapVoteWinner(votes, rngA)).toEqual(resolveMapVoteWinner(votes, rngB))
-  })
-
-  test('normalizes script approvals to explicit unique picks', () => {
     expect(normalizeMapVoteSelection({
       mapType: 'random',
-      mapScripts: ['lakes', 'random', 'lakes', 'inland-sea', 'tilted-axis', 'primordial'],
+      mapScripts: ['seven-seas'],
     })).toEqual({
-      mapType: 'random',
-      mapScripts: ['random'],
+      mapTypes: ['random'],
+      mapScripts: ['seven-seas'],
     })
   })
 
-  test('resolves random script ballots to one concrete reveal script', () => {
-    const result = resolveMapVoteWinner([
-      { mapType: 'east-vs-west', mapScripts: ['random'] },
-      { mapType: 'east-vs-west', mapScripts: ['seven-seas'] },
-    ], () => 0)
-
-    expect(result).toEqual({
-      mapType: 'east-vs-west',
-      mapScript: 'pangaea-ultima',
-      winningSeatCount: 1,
-    })
+  test('treats empty ballots as no vote and allows confirming partial ranked ballots', () => {
+    expect(DEFAULT_MAP_VOTE_SELECTION).toEqual({ mapTypes: [], mapScripts: [] })
+    expect(isMapVoteSelectionConfirmable(DEFAULT_MAP_VOTE_SELECTION)).toBe(false)
+    expect(isMapVoteSelectionConfirmable({ mapTypes: ['standard'], mapScripts: [] })).toBe(true)
+    expect(isMapVoteSelectionConfirmable({ mapTypes: [], mapScripts: ['lakes'] })).toBe(true)
   })
 
-  test('requires at least one approved map before confirm', () => {
-    expect(DEFAULT_MAP_VOTE_SELECTION).toEqual({ mapType: 'random', mapScripts: ['random'] })
-    expect(isMapVoteSelectionConfirmable(DEFAULT_MAP_VOTE_SELECTION)).toBe(true)
-    expect(isMapVoteSelectionConfirmable({ mapType: 'random', mapScripts: [] })).toBe(false)
-    expect(isMapVoteSelectionConfirmable({ mapType: 'random', mapScripts: ['lakes'] })).toBe(true)
-  })
-
-  test('resolves scripts by approval within the winning map type', () => {
+  test('resolves ranked-choice map scripts through elimination rounds', () => {
     const result = resolveMapVoteWinner([
-      { mapType: 'east-vs-west', mapScripts: ['lakes', 'seven-seas'] },
-      { mapType: 'east-vs-west', mapScripts: ['seven-seas'] },
-      { mapType: 'east-vs-west', mapScripts: [] },
-      { mapType: 'standard', mapScripts: ['lakes'] },
-    ], () => 0)
-
-    expect(result).toEqual({
-      mapType: 'east-vs-west',
-      mapScript: 'seven-seas',
-      winningSeatCount: 2,
-    })
-  })
-
-  test('ignores zero-pick ballots when resolving the winning map type', () => {
-    const result = resolveMapVoteWinner([
-      { mapType: 'east-vs-west', mapScripts: [] },
-      { mapType: 'east-vs-west', mapScripts: [] },
-      { mapType: 'standard', mapScripts: ['seven-seas'] },
-    ], () => 0)
+      { mapTypes: ['standard'], mapScripts: ['pangaea-ultima'] },
+      { mapTypes: ['standard'], mapScripts: ['pangaea-ultima'] },
+      { mapTypes: ['standard'], mapScripts: ['pangaea-ultima'] },
+      { mapTypes: ['standard'], mapScripts: ['pangaea-ultima'] },
+      { mapTypes: ['standard'], mapScripts: ['seven-seas'] },
+      { mapTypes: ['standard'], mapScripts: ['seven-seas'] },
+      { mapTypes: ['standard'], mapScripts: ['seven-seas'] },
+      { mapTypes: ['standard'], mapScripts: ['lakes', 'seven-seas'] },
+      { mapTypes: ['standard'], mapScripts: ['lakes', 'seven-seas'] },
+      { mapTypes: ['standard'], mapScripts: ['rich-highlands', 'seven-seas'] },
+    ], () => 0, 'seed-1')
 
     expect(result).toEqual({
       mapType: 'standard',
       mapScript: 'seven-seas',
-      winningSeatCount: 1,
+      winningSeatCount: 6,
+      seed: 'seed-1',
+      mapTypeWinner: 'standard',
+      mapScriptWinner: 'seven-seas',
+      mapTypeRounds: [
+        {
+          round: 1,
+          tallies: [{ id: 'standard', votes: 10 }],
+          activeBallotCount: 10,
+          majorityThreshold: 6,
+          eliminatedId: null,
+          winnerId: 'standard',
+          tieBreak: null,
+        },
+      ],
+      mapScriptRounds: [
+        {
+          round: 1,
+          tallies: [
+            { id: 'pangaea-ultima', votes: 4 },
+            { id: 'seven-seas', votes: 3 },
+            { id: 'lakes', votes: 2 },
+            { id: 'rich-highlands', votes: 1 },
+          ],
+          activeBallotCount: 10,
+          majorityThreshold: 6,
+          eliminatedId: 'rich-highlands',
+          winnerId: null,
+          tieBreak: null,
+        },
+        {
+          round: 2,
+          tallies: [
+            { id: 'pangaea-ultima', votes: 4 },
+            { id: 'seven-seas', votes: 4 },
+            { id: 'lakes', votes: 2 },
+          ],
+          activeBallotCount: 10,
+          majorityThreshold: 6,
+          eliminatedId: 'lakes',
+          winnerId: null,
+          tieBreak: null,
+        },
+        {
+          round: 3,
+          tallies: [
+            { id: 'seven-seas', votes: 6 },
+            { id: 'pangaea-ultima', votes: 4 },
+          ],
+          activeBallotCount: 10,
+          majorityThreshold: 6,
+          eliminatedId: null,
+          winnerId: 'seven-seas',
+          tieBreak: null,
+        },
+      ],
+      resolvedRandomMapType: null,
+      resolvedRandomMapScript: null,
     })
+  })
+
+  test('keeps random as a candidate until it wins and only then resolves it', () => {
+    const result = resolveMapVoteWinner([
+      { mapTypes: ['random'], mapScripts: ['random'] },
+      { mapTypes: ['random'], mapScripts: ['random'] },
+      { mapTypes: ['standard'], mapScripts: ['lakes'] },
+    ], () => 0, 'seed-2')
+
+    expect(result).toEqual({
+      mapType: 'standard',
+      mapScript: 'pangaea-ultima',
+      winningSeatCount: 2,
+      seed: 'seed-2',
+      mapTypeWinner: 'random',
+      mapScriptWinner: 'random',
+      mapTypeRounds: [
+        {
+          round: 1,
+          tallies: [
+            { id: 'random', votes: 2 },
+            { id: 'standard', votes: 1 },
+          ],
+          activeBallotCount: 3,
+          majorityThreshold: 2,
+          eliminatedId: null,
+          winnerId: 'random',
+          tieBreak: null,
+        },
+      ],
+      mapScriptRounds: [
+        {
+          round: 1,
+          tallies: [
+            { id: 'random', votes: 2 },
+            { id: 'lakes', votes: 1 },
+          ],
+          activeBallotCount: 3,
+          majorityThreshold: 2,
+          eliminatedId: null,
+          winnerId: 'random',
+          tieBreak: null,
+        },
+      ],
+      resolvedRandomMapType: 'standard',
+      resolvedRandomMapScript: 'pangaea-ultima',
+    })
+  })
+
+  test('breaks final ties deterministically from the provided rng and seed rules', () => {
+    const rngA = createMapVoteRng('match-1')
+    const rngB = createMapVoteRng('match-1')
+
+    const votes = [
+      { mapTypes: ['standard'], mapScripts: ['seven-seas'] },
+      { mapTypes: ['standard'], mapScripts: ['seven-seas'] },
+      { mapTypes: ['east-vs-west'], mapScripts: ['lakes'] },
+      { mapTypes: ['east-vs-west'], mapScripts: ['lakes'] },
+    ] as const
+
+    expect(resolveMapVoteWinner(votes, rngA, 'match-1')).toEqual(resolveMapVoteWinner(votes, rngB, 'match-1'))
   })
 
   test('formats east-vs-west labels compactly', () => {
