@@ -18,12 +18,12 @@ export async function findPersistedLiveMatchIdsForPlayers(
 
   try {
     const response = await db.prepare(`
-      SELECT match_participants.playerId AS playerId, match_participants.matchId AS matchId
+      SELECT match_participants.player_id AS playerId, match_participants.match_id AS matchId
       FROM match_participants
-      INNER JOIN matches ON match_participants.matchId = matches.id
-      WHERE match_participants.playerId IN (${placeholders})
+      INNER JOIN matches ON match_participants.match_id = matches.id
+      WHERE match_participants.player_id IN (${placeholders})
         AND matches.status IN ('drafting', 'active')
-      ORDER BY matches.createdAt DESC
+      ORDER BY matches.created_at DESC
     `)
       .bind(...uniquePlayerIds)
       .all<{ playerId?: unknown, matchId?: unknown }>()

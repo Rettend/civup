@@ -9,7 +9,6 @@ import { and, eq, gt } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
-import { clearLobbyByMatch } from '../lobby/index.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
 import { buildRankByPlayer, recalculateLeaderboardMode } from './ratings.ts'
@@ -448,7 +447,6 @@ async function ensureReportedMatchCleanup(
     participantRows.map(participant => participant.playerId),
     channelId ?? undefined,
   )
-  await clearLobbyByMatch(kv, matchId)
 }
 
 async function rollbackReportedRatedMatch(
