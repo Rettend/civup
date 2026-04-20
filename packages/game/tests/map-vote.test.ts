@@ -189,9 +189,14 @@ describe('map vote helpers', () => {
     expect(resolveMapVoteWinner(votes, rngA, 'match-1')).toEqual(resolveMapVoteWinner(votes, rngB, 'match-1'))
   })
 
-  test('formats east-vs-west labels compactly', () => {
+  test('formats map type labels compactly', () => {
     expect(formatMapVoteResultLabel('east-vs-west', 'pangaea-ultima-no-wrap')).toBe('Pangaea Ultima (No Wrap) EvW')
-    expect(formatMapVoteResultLabel('standard', 'seven-seas')).toBe('Seven Seas')
+    expect(formatMapVoteResultLabel('standard', 'seven-seas')).toBe('Seven Seas Stnd')
     expect(formatMapVoteResultLabel('east-vs-west', 'seven-seas')).toBe('Seven Seas EvW')
+  })
+
+  test('formats map type titles fully', () => {
+    expect(formatMapVoteResultTitle('east-vs-west', 'pangaea-ultima-no-wrap')).toBe('Pangaea Ultima (No Wrap) East vs West')
+    expect(formatMapVoteResultTitle('standard', 'seven-seas')).toBe('Seven Seas Standard')
   })
 })

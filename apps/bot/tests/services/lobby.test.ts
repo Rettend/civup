@@ -2,7 +2,7 @@ import type { DraftState } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { activityOverviewKey, syncActivityOverviewSnapshot } from '../../src/services/activity/live-state.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
-import { attachLobbyMatch, clearLobbyById, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobbyByChannel, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
+import { attachLobbyMatch, clearLobbyById, clearLobbyByMatch, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobbyByChannel, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
 import { hostKey, idKey, LOBBY_TTL, matchKey } from '../../src/services/lobby/keys.ts'
 import { lobbySnapshotKey, syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../../src/services/match/retention.ts'
@@ -670,6 +670,25 @@ describe('lobby service KV write behavior', () => {
 
     await expect(kv.get(hostKey('host-1'))).resolves.toBeNull()
     await expect(getLobbyByMatch(kv, 'match-1')).resolves.toBeNull()
+    await expect(kv.get(matchKey('match-1'))).resolves.toBeNull()
+  })
+
+  test('clearLobbyByMatch falls back to scanning lobbies when the match index is gone', async () => {
+    const { kv } = createTrackedKv()
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    await kv.delete(matchKey('match-1'))
+
+    await clearLobbyByMatch(kv, 'match-1')
+
+    await expect(getLobbyById(kv, lobby.id)).resolves.toBeNull()
+    await expect(kv.get(hostKey('host-1'))).resolves.toBeNull()
     await expect(kv.get(matchKey('match-1'))).resolves.toBeNull()
   })
 

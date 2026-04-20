@@ -590,8 +590,11 @@ export async function clearActivityMappings(
     keys.add(`activity-user:${userId}`)
   }
   if (effectiveChannelId) {
-    for (const userId of allUserIds) {
-      if (!userId) continue
+    const currentTargets = await getUserActivityTargets(kv, effectiveChannelId, allUserIds)
+    for (let index = 0; index < allUserIds.length; index++) {
+      const userId = allUserIds[index]
+      const target = currentTargets[index]
+      if (!userId || target?.kind !== 'match' || target.id !== matchId) continue
       keys.add(targetUserKey(userId, effectiveChannelId))
     }
     for (const userId of targetedUserIds) {

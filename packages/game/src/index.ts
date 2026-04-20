@@ -10,6 +10,7 @@ export {
   DEFAULT_MAP_VOTE_SELECTION,
   EMPTY_MAP_VOTE_SNAPSHOT,
   formatMapVoteResultLabel,
+  formatMapVoteResultTitle,
   isMapScriptId,
   isMapTypeId,
   isMapVoteSelectionConfirmable,
