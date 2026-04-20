@@ -872,9 +872,6 @@ export const command_match = factory.command<MatchVar>(
               lobby,
               archivePolicy: 'if-missing',
             })
-            if (lobby) {
-              await clearLobbyById(kv, lobby.id, lobby)
-            }
             await sendTransientEphemeralResponse(c, `Match **${result.match.id}** was already reported. Checked Discord result state.`, 'info')
             return
           }
@@ -925,9 +922,6 @@ export const command_match = factory.command<MatchVar>(
             },
             archivePolicy: 'always',
           })
-          if (lobby) {
-            await clearLobbyById(kv, lobby.id, lobby)
-          }
 
           if (isRankedResult) {
             try {

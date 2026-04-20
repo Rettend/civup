@@ -8,10 +8,10 @@ import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel, GAME_MODES, toBalanceLeaderboardMode } from '@civup/game'
 import { createDraftRoomAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { clearUserActivityTargets, getLobbyForUser, getMatchForChannel, getMatchForUser, getUserActivityTarget, storeUserActivityTarget, storeUserMatchMappings } from '../services/activity/index.ts'
+import { clearActivityMappings, clearUserActivityTargets, getLobbyForUser, getMatchForUser, getUserActivityTarget, storeUserActivityTarget, storeUserMatchMappings } from '../services/activity/index.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
-import { findPersistedLiveMatchIdsForPlayers } from '../services/match/live.ts'
+import { clearStalePersistedLiveLobbies, findPersistedLiveMatchIds, findPersistedLiveMatchIdsForPlayers } from '../services/match/live.ts'
 import { getPlayerQueueMode, getPlayerQueueModeFromStates, parseQueueState, queueKey } from '../services/queue/index.ts'
 import { createStateStore, stateStoreMget } from '../services/state/store.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
@@ -86,7 +86,13 @@ export function registerActivityRoutes(app: Hono<Env>) {
 
     const channelId = c.req.param('channelId')
     const kv = createStateStore(c.env)
-    const matchId = await getMatchForChannel(kv, channelId)
+    const channelLobbies = await loadActivityChannelLobbies(kv, channelId, c.env.DB)
+    const liveMatchIds = [...new Set(channelLobbies.flatMap(lobby => (
+      (lobby.status === 'drafting' || lobby.status === 'active') && lobby.matchId
+        ? [lobby.matchId]
+        : []
+    )))]
+    const matchId = liveMatchIds.length === 1 ? liveMatchIds[0] : null
 
     if (!matchId) {
       return c.json({ error: 'No active match for this channel' }, 404)
@@ -104,7 +110,19 @@ export function registerActivityRoutes(app: Hono<Env>) {
 
     const userId = auth.identity.userId
     const kv = createStateStore(c.env)
-    const matchId = await getMatchForUser(kv, userId)
+    let matchId = await getMatchForUser(kv, userId)
+
+    if (matchId) {
+      const persistedLiveMatchIds = await findPersistedLiveMatchIds(c.env.DB, [matchId])
+      if (persistedLiveMatchIds?.has(matchId)) {
+        return c.json({ matchId })
+      }
+
+      if (persistedLiveMatchIds != null) {
+        await clearActivityMappings(kv, matchId, [userId])
+        matchId = null
+      }
+    }
 
     if (matchId) {
       return c.json({ matchId })
@@ -237,6 +255,8 @@ export function registerActivityRoutes(app: Hono<Env>) {
       kind,
       id,
       activitySecret: c.env.CIVUP_SECRET,
+    }, {
+      db: c.env.DB,
     })
     if (!result.ok) {
       return c.json({ error: result.error }, result.status)
@@ -255,6 +275,9 @@ export async function selectActivityTargetForUser(
     id: string
     activitySecret?: string | undefined
   },
+  options?: {
+    db?: D1Database | null
+  },
 ): Promise<{ ok: true } | { ok: false, error: string, status: 409 }> {
   if (target.kind === 'lobby') {
     const lobby = await getLobbyById(kv, target.id)
@@ -269,6 +292,12 @@ export async function selectActivityTargetForUser(
 
   const lobby = await getLobbyByMatch(kv, target.id)
   if (!lobby || lobby.channelId !== channelId || (lobby.status !== 'drafting' && lobby.status !== 'active')) {
+    await clearUserActivityTargets(kv, channelId, [userId])
+    return { ok: false, error: 'That target is no longer available.', status: 409 }
+  }
+
+  const clearedLobbyIds = await clearStalePersistedLiveLobbies(options?.db, kv, [lobby])
+  if (clearedLobbyIds?.has(lobby.id)) {
     await clearUserActivityTargets(kv, channelId, [userId])
     return { ok: false, error: 'That target is no longer available.', status: 409 }
   }
@@ -294,9 +323,20 @@ export async function buildActivityLaunchSnapshot(
     db?: D1Database | null
   },
 ): Promise<ActivityLaunchSnapshot> {
-  const context = await loadActivityLaunchContext(token, kv, channelId, userId)
+  const context = await loadActivityLaunchContext(token, kv, channelId, userId, options?.db)
   const selection = await resolveActivityLaunchSelection(kv, channelId, userId, context.targets)
   return buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, selection, options?.db)
+}
+
+async function loadActivityChannelLobbies(
+  kv: KVNamespace,
+  channelId: string,
+  db: D1Database | null | undefined,
+): Promise<LobbyState[]> {
+  const channelLobbies = await getLobbiesByChannel(kv, channelId)
+  const clearedLobbyIds = await clearStalePersistedLiveLobbies(db, kv, channelLobbies)
+  if (clearedLobbyIds == null || clearedLobbyIds.size === 0) return channelLobbies
+  return channelLobbies.filter(lobby => !clearedLobbyIds.has(lobby.id))
 }
 
 async function buildActivityLaunchSnapshotFromTargets(
@@ -516,8 +556,9 @@ async function loadActivityLaunchContext(
   kv: KVNamespace,
   channelId: string,
   userId: string,
+  db: D1Database | null | undefined,
 ): Promise<ActivityLaunchContext> {
-  const channelLobbies = await getLobbiesByChannel(kv, channelId)
+  const channelLobbies = await loadActivityChannelLobbies(kv, channelId, db)
   const { queueStates, balanceSnapshots } = await loadActivityLaunchState(kv, channelLobbies)
   const targets: ChannelActivityTarget[] = []
   const lobbiesByMode = new Map<GameMode, LobbyState[]>()
