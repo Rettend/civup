@@ -9,7 +9,7 @@ import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDra
 import { clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
-import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
+import { clearLobbyById, clearLobbyByMatch, createLobby, filterQueueEntriesForLobby, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
@@ -872,6 +872,7 @@ export const command_match = factory.command<MatchVar>(
               lobby,
               archivePolicy: 'if-missing',
             })
+            await clearLobbyByMatch(kv, result.match.id)
             await sendTransientEphemeralResponse(c, `Match **${result.match.id}** was already reported. Checked Discord result state.`, 'info')
             return
           }
@@ -922,6 +923,7 @@ export const command_match = factory.command<MatchVar>(
             },
             archivePolicy: 'always',
           })
+          await clearLobbyByMatch(kv, result.match.id)
 
           if (isRankedResult) {
             try {
