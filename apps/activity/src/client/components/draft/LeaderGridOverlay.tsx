@@ -61,6 +61,8 @@ import { LeaderDetailPanel } from './LeaderDetailPanel'
 
 const DOCKED_PANEL_MIN_WIDTH = 1280
 const PREVIEW_THROTTLE_MS = 60
+const RETTEND_QUERY = 'rettend'
+const RETTEND_LEADER_ID = 'ottomans-suleiman-kanuni'
 
 interface HoverTooltip {
   name: string
@@ -73,6 +75,14 @@ interface HoverTooltip {
 interface TooltipPosition {
   left: number
   top: number
+}
+
+function normalizeRettendQuery(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+function isRettendQuery(value: string): boolean {
+  return normalizeRettendQuery(value) === RETTEND_QUERY
 }
 
 function resolveTooltipPosition(x: number, y: number, width: number, height: number): TooltipPosition {
@@ -427,10 +437,15 @@ export function LeaderGridOverlay() {
     const query = isRedDeathDraft() ? '' : searchQuery().trim()
     const filters = tagFilters()
     const leaderPoolIds = draftLeaderPoolIds()
+    const isRettendSearch = isRettendQuery(query)
     let result = query
-      ? (isRedDeathDraft() ? searchFactions(query) : searchLeaders(query, leaderDataVersion()))
+      ? (isRedDeathDraft()
+          ? searchFactions(query)
+          : isRettendSearch
+            ? allLeaders().filter(leader => leader.id === RETTEND_LEADER_ID)
+            : searchLeaders(query, leaderDataVersion()))
       : [...allEntries()]
-    result = result.filter(leader => leaderPoolIds.has(leader.id) && (isRedDeathDraft() || leaderMatchesTagFilters(leader.tags, filters)))
+    result = result.filter(leader => leaderPoolIds.has(leader.id) && (isRedDeathDraft() || isRettendSearch || leaderMatchesTagFilters(leader.tags, filters)))
     return result.sort((a, b) => a.name.localeCompare(b.name))
   })
 
