@@ -25,6 +25,7 @@ const baseLobby: LobbySnapshot = {
     pickTimerSeconds: null,
     leaderPoolSize: null,
     leaderDataVersion: 'live',
+    mapVoteEnabled: true,
     blindBans: true,
     simultaneousPick: false,
     redDeath: false,

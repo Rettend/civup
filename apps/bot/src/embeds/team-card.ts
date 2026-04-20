@@ -210,8 +210,8 @@ function resolveTeamModeContext(playerCount: number, modeFilter: GameMode | 'all
   const gameModes = modeFilter === 'all'
     ? TEAM_STATS_GAME_MODES.filter(mode => (teamSize(mode) ?? 0) >= playerCount)
     : isTeamMode(modeFilter)
-        ? [modeFilter]
-        : []
+      ? [modeFilter]
+      : []
   const exactModeOnly = gameModes.length > 0 && gameModes.every(mode => teamSize(mode) === playerCount)
   const firstMode = gameModes[0] ?? null
   const rawLeaderboardMode = exactModeOnly && firstMode ? toLeaderboardMode(firstMode) : null
@@ -238,7 +238,7 @@ function formatProjectedRating(visual: TeamRatingVisual, rating: number): string
 function formatProjectedRoleMention(visual: TeamRatingVisual): string | null {
   if (visual.roleId) return `<@&${visual.roleId}>`
   const label = visual.label?.trim()
-  return label ? label : null
+  return label || null
 }
 
 function buildCommonMatches(rows: TeamParticipantRow[], playerIds: string[]): TeamMatchGroup[] {

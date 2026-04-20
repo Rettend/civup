@@ -2,8 +2,8 @@ import type { QueueEntry, QueueState } from '@civup/game'
 import type { LobbyState } from './types.ts'
 import { getQueueState } from '../queue/index.ts'
 import { sameStringArray } from './normalize.ts'
-import { getLobbyById, upsertLobby } from './store.ts'
 import { normalizeLobbySlots, sameLobbySlots } from './slots.ts'
+import { getLobbyById, upsertLobby } from './store.ts'
 
 /** Build the best queue-backed roster for an open lobby. */
 export function deriveQueueBackedLobbyMemberPlayerIds(

@@ -1,11 +1,12 @@
 /** @jsxImportSource solid-js */
 
-import { getPickSeatForPlayer, type DraftState, type LeaderDataVersion } from '@civup/game'
+import type { DraftState, LeaderDataVersion, MapScriptId, MapTypeId, RankedChoiceRound, RevealedMapVoteSeatBallot } from '@civup/game'
 import type { LeaderTagCategory } from '../src/client/lib/leader-tags'
 import type { LobbyArrangeStrategy, LobbySnapshot, RankedRoleOptionSnapshot } from '../src/client/stores'
-import { getTagCategory } from '../src/client/lib/leader-tags'
+import { getPickSeatForPlayer } from '@civup/game'
 import { mock } from 'bun:test'
 import { createMutable } from 'solid-js/store'
+import { getTagCategory } from '../src/client/lib/leader-tags'
 
 export const storeSpies = {
   sendStart: mock(() => true),
@@ -15,6 +16,8 @@ export const storeSpies = {
   sendBan: mock((_civIds: string[]) => {}),
   sendPick: mock((_civId: string) => {}),
   sendPreview: mock((_kind: 'ban' | 'pick', _civIds: string[]) => {}),
+  sendMapVoteConfirm: mock(() => true),
+  sendMapVoteSelection: mock((_selection: { mapTypes: MapTypeId[], mapScripts: MapScriptId[] }) => true),
   sendSwapAccept: mock(() => {}),
   sendSwapRequest: mock((_seatIndex: number) => {}),
   reportMatchResult: mock(async () => ({ ok: true })),
@@ -52,7 +55,7 @@ export const clipboardSpies = {
   copyTextToClipboard: mock(async () => true),
 }
 
-type MockState = {
+interface MockState {
   userId: string | null
   displayName: string
   avatarUrl: string | null
@@ -84,6 +87,21 @@ type MockState = {
   canOpenLeaderGrid: boolean
   canSendPickPreview: boolean
   sendStartResult: boolean
+  mapVoteEnabled: boolean
+  mapVotePhase: 'idle' | 'voting' | 'reveal' | 'done'
+  mapVoteSelectedTypes: MapTypeId[]
+  mapVoteSelectedScripts: MapScriptId[]
+  mapVoteHasConfirmed: boolean
+  mapVoteConfirmedSeatIndices: number[]
+  mapVoteSeatVotes: RevealedMapVoteSeatBallot[]
+  mapVoteWinningType: MapTypeId | null
+  mapVoteWinningScript: MapScriptId | null
+  mapVoteWinningTypeCandidate: MapTypeId | null
+  mapVoteWinningScriptCandidate: MapScriptId | null
+  mapVoteTypeRounds: RankedChoiceRound<MapTypeId>[]
+  mapVoteScriptRounds: RankedChoiceRound<MapScriptId>[]
+  mapVoteVotingEndsAt: number | null
+  mapVoteRevealEndsAt: number | null
   searchQuery: string
   previewPicks: Record<number, string | null>
   draftPreviewBans: Record<number, string[]>
@@ -133,6 +151,7 @@ function mockLobbySnapshot(): LobbySnapshot {
       pickTimerSeconds: 90,
       leaderPoolSize: 6,
       leaderDataVersion: 'live',
+      mapVoteEnabled: false,
       blindBans: true,
       simultaneousPick: false,
       redDeath: false,
@@ -147,57 +166,74 @@ function mockLobbySnapshot(): LobbySnapshot {
   }
 }
 
-const defaults = (): MockState => ({
-  userId: 'host-1',
-  displayName: 'Host Player',
-  avatarUrl: null,
-  isMiniView: false,
-  isMobileLayout: false,
-  isRedDeathDraft: false,
-  isSpectator: false,
-  connectionStatus: 'connected',
-  connectionError: null,
-  draftState: null,
-  draftHostId: 'host-1',
-  draftSeatIndex: 0,
-  draftLeaderDataVersion: 'live',
-  timerEndsAt: null,
-  gridOpen: false,
-  gridExpanded: false,
-  gridViewMode: 'grid',
-  resultSelectionsLocked: false,
-  selectedWinningTeam: null,
-  selectedLeaderId: null,
-  detailLeaderId: null,
-  pickSelections: [],
-  banSelections: [],
-  banSelectionStepToken: null,
-  isRandomSelected: false,
-  favoriteLeaderIds: [],
-  ffaPlacementOrder: [],
-  teamPlacementOrder: [],
-  canOpenLeaderGrid: true,
-  canSendPickPreview: false,
-  sendStartResult: true,
-  searchQuery: '',
-  previewPicks: {},
-  draftPreviewBans: {},
-  draftPreviewPicks: {},
-  canRequestSwapSeatIndices: [],
-  swapWindowOpen: false,
-  incomingSwapSeatIndices: [],
-  tagFiltersState: emptyTagFilters(),
-  arrangeLobbySlotsResult: { ok: true },
-  cancelLobbyResult: { ok: true },
-  canFillLobbyWithTestPlayersResult: false,
-  fetchLobbyRankedRolesResult: null,
-  fillLobbyWithTestPlayersResult: { ok: true, addedCount: 0 },
-  placeLobbySlotResult: { ok: true, lobby: mockLobbySnapshot(), transferNotice: null },
-  removeLobbySlotResult: { ok: true, lobby: mockLobbySnapshot() },
-  startLobbyDraftResult: { ok: true, matchId: 'match-1', roomAccessToken: 'room-token' },
-  updateLobbyConfigResult: { ok: true },
-  updateLobbyModeResult: { ok: true },
-})
+function defaults(): MockState {
+  return {
+    userId: 'host-1',
+    displayName: 'Host Player',
+    avatarUrl: null,
+    isMiniView: false,
+    isMobileLayout: false,
+    isRedDeathDraft: false,
+    isSpectator: false,
+    connectionStatus: 'connected',
+    connectionError: null,
+    draftState: null,
+    draftHostId: 'host-1',
+    draftSeatIndex: 0,
+    draftLeaderDataVersion: 'live',
+    timerEndsAt: null,
+    gridOpen: false,
+    gridExpanded: false,
+    gridViewMode: 'grid',
+    resultSelectionsLocked: false,
+    selectedWinningTeam: null,
+    selectedLeaderId: null,
+    detailLeaderId: null,
+    pickSelections: [],
+    banSelections: [],
+    banSelectionStepToken: null,
+    isRandomSelected: false,
+    favoriteLeaderIds: [],
+    ffaPlacementOrder: [],
+    teamPlacementOrder: [],
+    canOpenLeaderGrid: true,
+    canSendPickPreview: false,
+    sendStartResult: true,
+    mapVoteEnabled: true,
+    mapVotePhase: 'idle',
+  mapVoteSelectedTypes: [],
+  mapVoteSelectedScripts: [],
+  mapVoteHasConfirmed: false,
+  mapVoteConfirmedSeatIndices: [],
+  mapVoteSeatVotes: [],
+    mapVoteWinningType: null,
+    mapVoteWinningScript: null,
+    mapVoteWinningTypeCandidate: null,
+    mapVoteWinningScriptCandidate: null,
+    mapVoteTypeRounds: [],
+    mapVoteScriptRounds: [],
+    mapVoteVotingEndsAt: null,
+    mapVoteRevealEndsAt: null,
+    searchQuery: '',
+    previewPicks: {},
+    draftPreviewBans: {},
+    draftPreviewPicks: {},
+    canRequestSwapSeatIndices: [],
+    swapWindowOpen: false,
+    incomingSwapSeatIndices: [],
+    tagFiltersState: emptyTagFilters(),
+    arrangeLobbySlotsResult: { ok: true },
+    cancelLobbyResult: { ok: true },
+    canFillLobbyWithTestPlayersResult: false,
+    fetchLobbyRankedRolesResult: null,
+    fillLobbyWithTestPlayersResult: { ok: true, addedCount: 0 },
+    placeLobbySlotResult: { ok: true, lobby: mockLobbySnapshot(), transferNotice: null },
+    removeLobbySlotResult: { ok: true, lobby: mockLobbySnapshot() },
+    startLobbyDraftResult: { ok: true, matchId: 'match-1', roomAccessToken: 'room-token' },
+    updateLobbyConfigResult: { ok: true },
+    updateLobbyModeResult: { ok: true },
+  }
+}
 
 export const uiMockState: MockState = createMutable(defaults())
 
@@ -220,6 +256,21 @@ export function resetUiMocks() {
   uiMockState.canOpenLeaderGrid = true
   uiMockState.canSendPickPreview = false
   uiMockState.sendStartResult = true
+  uiMockState.mapVoteEnabled = true
+  uiMockState.mapVotePhase = 'idle'
+  uiMockState.mapVoteSelectedTypes = []
+  uiMockState.mapVoteSelectedScripts = []
+  uiMockState.mapVoteHasConfirmed = false
+  uiMockState.mapVoteConfirmedSeatIndices = []
+  uiMockState.mapVoteSeatVotes = []
+  uiMockState.mapVoteWinningType = null
+  uiMockState.mapVoteWinningScript = null
+  uiMockState.mapVoteWinningTypeCandidate = null
+  uiMockState.mapVoteWinningScriptCandidate = null
+  uiMockState.mapVoteTypeRounds = []
+  uiMockState.mapVoteScriptRounds = []
+  uiMockState.mapVoteVotingEndsAt = null
+  uiMockState.mapVoteRevealEndsAt = null
   uiMockState.searchQuery = ''
   uiMockState.previewPicks = {}
   uiMockState.draftPreviewBans = {}
@@ -321,6 +372,79 @@ function currentStepDuration() {
   return currentStep()?.timer ?? 0
 }
 
+function getSeatMapVote(seatIndex: number) {
+  return uiMockState.mapVoteSeatVotes.find(vote => vote.seatIndex === seatIndex) ?? null
+}
+
+function isMapVotePhase() {
+  return uiMockState.mapVotePhase === 'voting' || uiMockState.mapVotePhase === 'reveal'
+}
+
+function toggleRankedChoice<T extends string>(current: readonly T[], next: T, max: number): T[] {
+  const existingIndex = current.indexOf(next)
+  if (existingIndex >= 0) return current.filter(value => value !== next)
+  if (current.length >= max) return [...current]
+  return [...current, next]
+}
+
+function mapVoteReadyToConfirm() {
+  return uiMockState.mapVotePhase === 'voting'
+    && uiMockState.draftSeatIndex != null
+    && (uiMockState.mapVoteSelectedTypes.length > 0 || uiMockState.mapVoteSelectedScripts.length > 0)
+    && !uiMockState.mapVoteHasConfirmed
+}
+
+function startMapVote(_matchId: string) {
+  if (uiMockState.mapVotePhase !== 'idle') return
+  uiMockState.mapVotePhase = 'voting'
+  uiMockState.mapVoteSelectedTypes = []
+  uiMockState.mapVoteSelectedScripts = []
+  uiMockState.mapVoteHasConfirmed = false
+  uiMockState.mapVoteConfirmedSeatIndices = []
+  uiMockState.mapVoteSeatVotes = []
+  uiMockState.mapVoteWinningType = null
+  uiMockState.mapVoteWinningScript = null
+  uiMockState.mapVoteWinningTypeCandidate = null
+  uiMockState.mapVoteWinningScriptCandidate = null
+  uiMockState.mapVoteTypeRounds = []
+  uiMockState.mapVoteScriptRounds = []
+  uiMockState.mapVoteVotingEndsAt = Date.now() + 30000
+  uiMockState.mapVoteRevealEndsAt = null
+}
+
+function confirmMapVote() {
+  if (!mapVoteReadyToConfirm()) return false
+  uiMockState.mapVoteHasConfirmed = true
+  if (uiMockState.draftSeatIndex != null && !uiMockState.mapVoteConfirmedSeatIndices.includes(uiMockState.draftSeatIndex)) {
+    uiMockState.mapVoteConfirmedSeatIndices = [...uiMockState.mapVoteConfirmedSeatIndices, uiMockState.draftSeatIndex].sort((left, right) => left - right)
+  }
+  return storeSpies.sendMapVoteConfirm()
+}
+
+function finishMapVote() {
+  if (uiMockState.mapVotePhase !== 'reveal') return
+  uiMockState.mapVotePhase = 'done'
+  uiMockState.mapVoteVotingEndsAt = null
+  uiMockState.mapVoteRevealEndsAt = null
+}
+
+function resetMapVote() {
+  uiMockState.mapVotePhase = 'idle'
+  uiMockState.mapVoteSelectedTypes = []
+  uiMockState.mapVoteSelectedScripts = []
+  uiMockState.mapVoteHasConfirmed = false
+  uiMockState.mapVoteConfirmedSeatIndices = []
+  uiMockState.mapVoteSeatVotes = []
+  uiMockState.mapVoteWinningType = null
+  uiMockState.mapVoteWinningScript = null
+  uiMockState.mapVoteWinningTypeCandidate = null
+  uiMockState.mapVoteWinningScriptCandidate = null
+  uiMockState.mapVoteTypeRounds = []
+  uiMockState.mapVoteScriptRounds = []
+  uiMockState.mapVoteVotingEndsAt = null
+  uiMockState.mapVoteRevealEndsAt = null
+}
+
 mock.module('~/client/discord', () => ({
   discordSdk: {
     commands: {
@@ -334,6 +458,8 @@ mock.module('~/client/lib/clipboard', () => ({
 }))
 
 mock.module('~/client/stores', () => ({
+  MAP_VOTE_REVEAL_DURATION_SECONDS: 5,
+  MAP_VOTE_VOTING_DURATION_SECONDS: 30,
   activeTagFilterCount: () => Object.values(uiMockState.tagFiltersState).reduce((count, tags) => count + tags.length, 0),
   arrangeLobbySlots: (...args: Parameters<typeof storeSpies.arrangeLobbySlots>) => storeSpies.arrangeLobbySlots(...args),
   banSelectionStepToken: () => uiMockState.banSelectionStepToken,
@@ -378,6 +504,30 @@ mock.module('~/client/stores', () => ({
     get leaderDataVersion() {
       return uiMockState.draftLeaderDataVersion
     },
+    get mapVote() {
+      const hasResult = uiMockState.mapVoteWinningType != null && uiMockState.mapVoteWinningScript != null
+      return {
+        endsAt: uiMockState.mapVotePhase === 'voting'
+          ? uiMockState.mapVoteVotingEndsAt
+          : uiMockState.mapVotePhase === 'reveal'
+            ? uiMockState.mapVoteRevealEndsAt
+            : null,
+        result: hasResult
+          ? {
+              mapType: uiMockState.mapVoteWinningType!,
+              mapScript: uiMockState.mapVoteWinningScript!,
+              winningSeatCount: 0,
+              seed: 'mock-seed',
+              mapTypeWinner: uiMockState.mapVoteWinningTypeCandidate ?? uiMockState.mapVoteWinningType!,
+              mapScriptWinner: uiMockState.mapVoteWinningScriptCandidate ?? uiMockState.mapVoteWinningScript!,
+              mapTypeRounds: uiMockState.mapVoteTypeRounds,
+              mapScriptRounds: uiMockState.mapVoteScriptRounds,
+              resolvedRandomMapType: null,
+              resolvedRandomMapScript: null,
+            }
+          : null,
+      }
+    },
     get previews() {
       return {
         bans: uiMockState.draftPreviewBans,
@@ -391,6 +541,8 @@ mock.module('~/client/stores', () => ({
   fetchLobbyRankedRoles: (...args: Parameters<typeof storeSpies.fetchLobbyRankedRoles>) => storeSpies.fetchLobbyRankedRoles(...args),
   ffaPlacementOrder: () => uiMockState.ffaPlacementOrder,
   fillLobbyWithTestPlayers: (...args: Parameters<typeof storeSpies.fillLobbyWithTestPlayers>) => storeSpies.fillLobbyWithTestPlayers(...args),
+  finishMapVote,
+  getSeatMapVote,
   getOptimisticSeatPick: () => null,
   getPreviewPickForSeat: (seatIndex: number) => uiMockState.previewPicks[seatIndex] ?? null,
   gridOpen: () => uiMockState.gridOpen,
@@ -398,6 +550,8 @@ mock.module('~/client/stores', () => ({
   gridViewMode: () => uiMockState.gridViewMode,
   hasSubmitted,
   isMiniView: () => uiMockState.isMiniView,
+  isMapVotePhase,
+  isSeatMapVoteConfirmed: (seatIndex: number) => uiMockState.mapVoteConfirmedSeatIndices.includes(seatIndex),
   isLeaderFavorited: (leaderId: string) => uiMockState.favoriteLeaderIds.includes(leaderId),
   isMyTurn,
   isMobileLayout: () => uiMockState.isMobileLayout,
@@ -406,6 +560,22 @@ mock.module('~/client/stores', () => ({
   isRedDeathDraft: () => uiMockState.isRedDeathDraft,
   isSpectator: () => uiMockState.isSpectator,
   isSwapWindowOpen: () => uiMockState.swapWindowOpen,
+  mapVoteConfirmedSeatIndices: () => uiMockState.mapVoteConfirmedSeatIndices,
+  mapVoteEnabled: () => uiMockState.mapVoteEnabled,
+  mapVoteHasConfirmed: () => uiMockState.mapVoteHasConfirmed,
+  mapVotePhase: () => uiMockState.mapVotePhase,
+  mapVoteReadyToConfirm,
+  mapVoteRevealEndsAt: () => uiMockState.mapVoteRevealEndsAt,
+  mapVoteSeatVotes: () => uiMockState.mapVoteSeatVotes,
+  mapVoteSelectedScriptCount: () => uiMockState.mapVoteSelectedScripts.length,
+  mapVoteSelectedScripts: () => uiMockState.mapVoteSelectedScripts,
+  mapVoteSelectedTypeCount: () => uiMockState.mapVoteSelectedTypes.length,
+  mapVoteSelectedTypes: () => uiMockState.mapVoteSelectedTypes,
+  mapVoteVotingEndsAt: () => uiMockState.mapVoteVotingEndsAt,
+  mapVoteWinningScriptCandidate: () => uiMockState.mapVoteWinningScriptCandidate,
+  mapVoteWinningScript: () => uiMockState.mapVoteWinningScript,
+  mapVoteWinningTypeCandidate: () => uiMockState.mapVoteWinningTypeCandidate,
+  mapVoteWinningType: () => uiMockState.mapVoteWinningType,
   phaseAccent,
   phaseAccentColor,
   phaseHeaderBg,
@@ -414,6 +584,7 @@ mock.module('~/client/stores', () => ({
   placeLobbySlot: (...args: Parameters<typeof storeSpies.placeLobbySlot>) => storeSpies.placeLobbySlot(...args),
   removeLobbySlot: (...args: Parameters<typeof storeSpies.removeLobbySlot>) => storeSpies.removeLobbySlot(...args),
   reportMatchResult: (...args: Parameters<typeof storeSpies.reportMatchResult>) => storeSpies.reportMatchResult(...args),
+  resetMapVote,
   resultSelectionsLocked: () => uiMockState.resultSelectionsLocked,
   scrubMatchResult: (...args: Parameters<typeof storeSpies.scrubMatchResult>) => storeSpies.scrubMatchResult(...args),
   searchQuery: () => uiMockState.searchQuery,
@@ -422,7 +593,10 @@ mock.module('~/client/stores', () => ({
   seatHasIncomingSwap: (seatIndex: number) => uiMockState.incomingSwapSeatIndices.includes(seatIndex),
   sendCancel: (...args: Parameters<typeof storeSpies.sendCancel>) => storeSpies.sendCancel(...args),
   sendBan: (...args: Parameters<typeof storeSpies.sendBan>) => storeSpies.sendBan(...args),
+  confirmMapVote,
   sendConfig: async () => {},
+  sendMapVoteConfirm: (...args: Parameters<typeof storeSpies.sendMapVoteConfirm>) => storeSpies.sendMapVoteConfirm(...args),
+  sendMapVoteSelection: (...args: Parameters<typeof storeSpies.sendMapVoteSelection>) => storeSpies.sendMapVoteSelection(...args),
   sendPick: (...args: Parameters<typeof storeSpies.sendPick>) => storeSpies.sendPick(...args),
   sendPreview: (...args: Parameters<typeof storeSpies.sendPreview>) => storeSpies.sendPreview(...args),
   sendRevert: (...args: Parameters<typeof storeSpies.sendRevert>) => storeSpies.sendRevert(...args),
@@ -438,12 +612,32 @@ mock.module('~/client/stores', () => ({
   setGridOpen: (next: boolean) => { uiMockState.gridOpen = next },
   setGridViewMode: (next: 'grid' | 'multi-list' | 'list') => { uiMockState.gridViewMode = next },
   setIsRandomSelected: (next: boolean) => { uiMockState.isRandomSelected = next },
+  setMapVoteEnabled: (next: boolean) => { uiMockState.mapVoteEnabled = next },
+  toggleMapVoteSelectedScript: (next: MapScriptId | null) => {
+    if (uiMockState.mapVotePhase !== 'voting' || uiMockState.mapVoteHasConfirmed || uiMockState.draftSeatIndex == null || next == null) return { changed: false, readyToConfirm: false }
+    const currentScripts = uiMockState.mapVoteSelectedScripts
+    const nextScripts = toggleRankedChoice(currentScripts, next, 3)
+    if (nextScripts.join('|') === currentScripts.join('|')) return { changed: false, readyToConfirm: mapVoteReadyToConfirm() }
+    uiMockState.mapVoteSelectedScripts = nextScripts
+    storeSpies.sendMapVoteSelection({ mapTypes: uiMockState.mapVoteSelectedTypes, mapScripts: nextScripts })
+    return { changed: true, readyToConfirm: mapVoteReadyToConfirm() }
+  },
+  toggleMapVoteSelectedType: (next: MapTypeId | null) => {
+    if (uiMockState.mapVotePhase !== 'voting' || uiMockState.mapVoteHasConfirmed || uiMockState.draftSeatIndex == null || next == null) return { changed: false, readyToConfirm: false }
+    const currentTypes = uiMockState.mapVoteSelectedTypes
+    const nextTypes = toggleRankedChoice(currentTypes, next, 3)
+    if (nextTypes.join('|') === currentTypes.join('|')) return { changed: false, readyToConfirm: mapVoteReadyToConfirm() }
+    uiMockState.mapVoteSelectedTypes = nextTypes
+    storeSpies.sendMapVoteSelection({ mapTypes: nextTypes, mapScripts: uiMockState.mapVoteSelectedScripts })
+    return { changed: true, readyToConfirm: mapVoteReadyToConfirm() }
+  },
   setPickSelections,
   setResultSelectionsLocked: (next: boolean) => { uiMockState.resultSelectionsLocked = next },
   setSearchQuery: (next: string) => { uiMockState.searchQuery = next },
   setSelectedLeader: (leaderId: string | null) => { setPickSelections(leaderId ? [leaderId] : []) },
   selectWinningTeam: (team: number | null) => { uiMockState.selectedWinningTeam = team },
   startLobbyDraft: (...args: Parameters<typeof storeSpies.startLobbyDraft>) => storeSpies.startLobbyDraft(...args),
+  startMapVote,
   setBanSelectionStepToken: (next: string | null) => { uiMockState.banSelectionStepToken = next },
   tagFilters: () => uiMockState.tagFiltersState,
   teamPlacementOrder: () => uiMockState.teamPlacementOrder,

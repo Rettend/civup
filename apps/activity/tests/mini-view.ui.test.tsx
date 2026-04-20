@@ -1,8 +1,8 @@
 /** @jsxImportSource solid-js */
 
 import type { DraftState } from '@civup/game'
-import { beforeEach, describe, expect, test } from 'bun:test'
 import { cleanup, render, screen } from '@solidjs/testing-library'
+import { beforeEach, describe, expect, test } from 'bun:test'
 import { createActiveDraftState, createCancelledDraftState, createCompleteDraftState, createWaitingDraftState, TEST_LEADER_IDS } from './ui-fixtures'
 import { resetUiMocks, uiMockState } from './ui-mocks'
 
@@ -26,6 +26,14 @@ describe('MiniView UI', () => {
 
     mount(createWaitingDraftState())
     expect(screen.getByText('Draft Setup')).toBeTruthy()
+
+    uiMockState.mapVotePhase = 'voting'
+    uiMockState.mapVoteVotingEndsAt = Date.now() + 30_000
+    mount(createWaitingDraftState({ formatId: '3v3' }))
+    expect(screen.getByText('Map Voting')).toBeTruthy()
+
+    uiMockState.mapVotePhase = 'idle'
+    uiMockState.mapVoteVotingEndsAt = null
 
     mount(createCompleteDraftState())
     expect(screen.getByText('Draft Complete')).toBeTruthy()

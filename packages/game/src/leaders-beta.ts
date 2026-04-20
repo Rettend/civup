@@ -9,2760 +9,2760 @@ import { applyLeaderTags } from './leader-tags.ts'
  */
 export const leaders: Leader[] = [
   {
-    "id": "america-abraham-lincoln",
-    "name": "Abraham Lincoln",
-    "civilization": "America",
-    "portraitUrl": "/assets/bbg/leaders/America%20Abraham%20Lincoln.webp",
-    "civilizationAbility": {
-      "name": "Founding Fathers",
-      "description": "All Diplomatic policy slots in the current :government: government are converted to Wildcard slots. +1 :favor: Diplomatic Favor per turn for every Wildcard slot in their :government: government. - Bias: T4 Grassland and Plains Mountain."
+    id: 'america-abraham-lincoln',
+    name: 'Abraham Lincoln',
+    civilization: 'America',
+    portraitUrl: '/assets/bbg/leaders/America%20Abraham%20Lincoln.webp',
+    civilizationAbility: {
+      name: 'Founding Fathers',
+      description: 'All Diplomatic policy slots in the current :government: government are converted to Wildcard slots. +1 :favor: Diplomatic Favor per turn for every Wildcard slot in their :government: government. - Bias: T4 Grassland and Plains Mountain.',
     },
-    "ability": {
-      "name": "Emancipation Proclamation",
-      "description": "+100% :production: Production to Industrial Zone and Aqueduct districts. Industrial Zones give +2 :amenities: Amenities and +3 Loyalty per turn. Plantations give -2 Loyalty per turn. Receive a free Melee unit after completing an Industrial Zone and their buildings. The free unit does not require strategic resources when created or to maintain."
+    ability: {
+      name: 'Emancipation Proclamation',
+      description: '+100% :production: Production to Industrial Zone and Aqueduct districts. Industrial Zones give +2 :amenities: Amenities and +3 Loyalty per turn. Plantations give -2 Loyalty per turn. Receive a free Melee unit after completing an Industrial Zone and their buildings. The free unit does not require strategic resources when created or to maintain.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "P-51 Mustang",
-        "description": "American unique Atomic era air unit that replaces the Fighter. Gains +5 :strength: Combat Strength against fighter aircraft, has +2 flight range, and gains +50% experience.",
-        "replaces": "Fighter",
-        "iconUrl": "/assets/bbg/items/P-51%20Mustang.webp"
-      }
+        name: 'P-51 Mustang',
+        description: 'American unique Atomic era air unit that replaces the Fighter. Gains +5 :strength: Combat Strength against fighter aircraft, has +2 flight range, and gains +50% experience.',
+        replaces: 'Fighter',
+        iconUrl: '/assets/bbg/items/P-51%20Mustang.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Film Studio",
-        "description": "A building unique to America. +30% :tourism: Tourism pressure from this city towards other civilizations who reached the Modern era.",
-        "iconUrl": "/assets/bbg/items/Film%20Studio.webp"
-      }
+        name: 'Film Studio',
+        description: 'A building unique to America. +30% :tourism: Tourism pressure from this city towards other civilizations who reached the Modern era.',
+        iconUrl: '/assets/bbg/items/Film%20Studio.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "america-teddy-roosevelt-bull-moose",
-    "name": "Teddy Roosevelt (Bull Moose)",
-    "civilization": "America",
-    "portraitUrl": "/assets/bbg/leaders/America%20Teddy%20Roosevelt%20(Bull%20Moose).webp",
-    "civilizationAbility": {
-      "name": "Founding Fathers",
-      "description": "All Diplomatic policy slots in the current :government: government are converted to Wildcard slots. +1 :favor: Diplomatic Favor per turn for every Wildcard slot in their :government: government. - Bias: T4 Grassland and Plains Mountain."
+    id: 'america-teddy-roosevelt-bull-moose',
+    name: 'Teddy Roosevelt (Bull Moose)',
+    civilization: 'America',
+    portraitUrl: '/assets/bbg/leaders/America%20Teddy%20Roosevelt%20(Bull%20Moose).webp',
+    civilizationAbility: {
+      name: 'Founding Fathers',
+      description: 'All Diplomatic policy slots in the current :government: government are converted to Wildcard slots. +1 :favor: Diplomatic Favor per turn for every Wildcard slot in their :government: government. - Bias: T4 Grassland and Plains Mountain.',
     },
-    "ability": {
-      "name": "Antiquities and Parks",
-      "description": "After Code of Laws, breathtaking tiles receive: - +1 :science: Science when adjacent to either a Natural Wonder or a Mountain, doubled with Astronomy. - +1 :culture: Culture when adjacent to either a World Wonder or Woods, doubled with Enlightenment. Woods can be planted with Medieval Faires."
+    ability: {
+      name: 'Antiquities and Parks',
+      description: 'After Code of Laws, breathtaking tiles receive: - +1 :science: Science when adjacent to either a Natural Wonder or a Mountain, doubled with Astronomy. - +1 :culture: Culture when adjacent to either a World Wonder or Woods, doubled with Enlightenment. Woods can be planted with Medieval Faires.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "P-51 Mustang",
-        "description": "American unique Atomic era air unit that replaces the Fighter. Gains +5 :strength: Combat Strength against fighter aircraft, has +2 flight range, and gains +50% experience.",
-        "replaces": "Fighter",
-        "iconUrl": "/assets/bbg/items/P-51%20Mustang.webp"
+        name: 'P-51 Mustang',
+        description: 'American unique Atomic era air unit that replaces the Fighter. Gains +5 :strength: Combat Strength against fighter aircraft, has +2 flight range, and gains +50% experience.',
+        replaces: 'Fighter',
+        iconUrl: '/assets/bbg/items/P-51%20Mustang.webp',
       },
       {
-        "name": "Rough Rider",
-        "description": "American unique Industrial era unit that replaces Cuirassier when Teddy Roosevelt (Rough Rider) is their leader. Combat victories on their :capital: Capital's continent provide :culture: Culture equal to 25% of the :strength: Combat Strength of the defeated unit (on Online speed). +5 :strength: Combat Strength when fighting on Hills. Lower maintenance cost.",
-        "replaces": "Cuirassier",
-        "iconUrl": "/assets/bbg/items/Rough%20Rider.webp"
-      }
+        name: 'Rough Rider',
+        description: 'American unique Industrial era unit that replaces Cuirassier when Teddy Roosevelt (Rough Rider) is their leader. Combat victories on their :capital: Capital\'s continent provide :culture: Culture equal to 25% of the :strength: Combat Strength of the defeated unit (on Online speed). +5 :strength: Combat Strength when fighting on Hills. Lower maintenance cost.',
+        replaces: 'Cuirassier',
+        iconUrl: '/assets/bbg/items/Rough%20Rider.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Film Studio",
-        "description": "A building unique to America. +30% :tourism: Tourism pressure from this city towards other civilizations who reached the Modern era.",
-        "iconUrl": "/assets/bbg/items/Film%20Studio.webp"
-      }
+        name: 'Film Studio',
+        description: 'A building unique to America. +30% :tourism: Tourism pressure from this city towards other civilizations who reached the Modern era.',
+        iconUrl: '/assets/bbg/items/Film%20Studio.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "america-teddy-roosevelt-rough-rider",
-    "name": "Teddy Roosevelt (Rough Rider)",
-    "civilization": "America",
-    "portraitUrl": "/assets/bbg/leaders/America%20Teddy%20Roosevelt%20(Rough%20Rider).webp",
-    "civilizationAbility": {
-      "name": "Founding Fathers",
-      "description": "All Diplomatic policy slots in the current :government: government are converted to Wildcard slots. +1 :favor: Diplomatic Favor per turn for every Wildcard slot in their :government: government. - Bias: T4 Grassland and Plains Mountain."
+    id: 'america-teddy-roosevelt-rough-rider',
+    name: 'Teddy Roosevelt (Rough Rider)',
+    civilization: 'America',
+    portraitUrl: '/assets/bbg/leaders/America%20Teddy%20Roosevelt%20(Rough%20Rider).webp',
+    civilizationAbility: {
+      name: 'Founding Fathers',
+      description: 'All Diplomatic policy slots in the current :government: government are converted to Wildcard slots. +1 :favor: Diplomatic Favor per turn for every Wildcard slot in their :government: government. - Bias: T4 Grassland and Plains Mountain.',
     },
-    "ability": {
-      "name": "Roosevelt Corollary",
-      "description": "Units receive +1 :strength: Combat Strength per player era reached by technologies or civics (starting in Ancient Era up to Industrial Era, capped at +5). Envoys sent to City-states you have a :traderoute: Trade Route to count as two :envoy: Envoys. Gain the Rough Rider unique unit with Ballistics technology."
+    ability: {
+      name: 'Roosevelt Corollary',
+      description: 'Units receive +1 :strength: Combat Strength per player era reached by technologies or civics (starting in Ancient Era up to Industrial Era, capped at +5). Envoys sent to City-states you have a :traderoute: Trade Route to count as two :envoy: Envoys. Gain the Rough Rider unique unit with Ballistics technology.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "P-51 Mustang",
-        "description": "American unique Atomic era air unit that replaces the Fighter. Gains +5 :strength: Combat Strength against fighter aircraft, has +2 flight range, and gains +50% experience.",
-        "replaces": "Fighter",
-        "iconUrl": "/assets/bbg/items/P-51%20Mustang.webp"
+        name: 'P-51 Mustang',
+        description: 'American unique Atomic era air unit that replaces the Fighter. Gains +5 :strength: Combat Strength against fighter aircraft, has +2 flight range, and gains +50% experience.',
+        replaces: 'Fighter',
+        iconUrl: '/assets/bbg/items/P-51%20Mustang.webp',
       },
       {
-        "name": "Rough Rider",
-        "description": "American unique Industrial era unit that replaces Cuirassier when Teddy Roosevelt (Rough Rider) is their leader. Combat victories on their :capital: Capital's continent provide :culture: Culture equal to 25% of the :strength: Combat Strength of the defeated unit (on Online speed). +5 :strength: Combat Strength when fighting on Hills. Lower maintenance cost.",
-        "replaces": "Cuirassier",
-        "iconUrl": "/assets/bbg/items/Rough%20Rider.webp"
-      }
+        name: 'Rough Rider',
+        description: 'American unique Industrial era unit that replaces Cuirassier when Teddy Roosevelt (Rough Rider) is their leader. Combat victories on their :capital: Capital\'s continent provide :culture: Culture equal to 25% of the :strength: Combat Strength of the defeated unit (on Online speed). +5 :strength: Combat Strength when fighting on Hills. Lower maintenance cost.',
+        replaces: 'Cuirassier',
+        iconUrl: '/assets/bbg/items/Rough%20Rider.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Film Studio",
-        "description": "A building unique to America. +30% :tourism: Tourism pressure from this city towards other civilizations who reached the Modern era.",
-        "iconUrl": "/assets/bbg/items/Film%20Studio.webp"
-      }
+        name: 'Film Studio',
+        description: 'A building unique to America. +30% :tourism: Tourism pressure from this city towards other civilizations who reached the Modern era.',
+        iconUrl: '/assets/bbg/items/Film%20Studio.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "arabia-saladin-vizier",
-    "name": "Saladin (Vizier)",
-    "civilization": "Arabia",
-    "portraitUrl": "/assets/bbg/leaders/Arabia%20Saladin%20(Vizier).webp",
-    "civilizationAbility": {
-      "name": "The Last Prophet",
-      "description": "+1 :greatprophet: Great Prophet point per turn after researching Astrology. The last available :greatprophet: Great Prophet will automatically go to Arabia, if they have not already recruited one. +1 :science: Science for each foreign city following Arabia's Religion. Campuses receive +1 :science: Science for each adjacent Holy Site and Holy Sites receive +1 :faith: Faith for each adjacent Campus. - Bias: None."
+    id: 'arabia-saladin-vizier',
+    name: 'Saladin (Vizier)',
+    civilization: 'Arabia',
+    portraitUrl: '/assets/bbg/leaders/Arabia%20Saladin%20(Vizier).webp',
+    civilizationAbility: {
+      name: 'The Last Prophet',
+      description: '+1 :greatprophet: Great Prophet point per turn after researching Astrology. The last available :greatprophet: Great Prophet will automatically go to Arabia, if they have not already recruited one. +1 :science: Science for each foreign city following Arabia\'s Religion. Campuses receive +1 :science: Science for each adjacent Holy Site and Holy Sites receive +1 :faith: Faith for each adjacent Campus. - Bias: None.',
     },
-    "ability": {
-      "name": "Righteousness of the Faith",
-      "description": "The worship building for their :religion: Religion can be purchased by any player for just one-tenth of the usual :faith: Faith cost. It adds 5% to the :science: Science, :culture: Culture, and :faith: Faith to the city's output. Increasing an additional 5% with Reformed Church and an additional 5% when completing your religion."
+    ability: {
+      name: 'Righteousness of the Faith',
+      description: 'The worship building for their :religion: Religion can be purchased by any player for just one-tenth of the usual :faith: Faith cost. It adds 5% to the :science: Science, :culture: Culture, and :faith: Faith to the city\'s output. Increasing an additional 5% with Reformed Church and an additional 5% when completing your religion.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Mamluk",
-        "description": "Arabian unique Medieval era unit that replaces the Knight. Heals at the end of every turn, even after moving or attacking.",
-        "replaces": "Knight",
-        "iconUrl": "/assets/bbg/items/Mamluk.webp"
-      }
+        name: 'Mamluk',
+        description: 'Arabian unique Medieval era unit that replaces the Knight. Heals at the end of every turn, even after moving or attacking.',
+        replaces: 'Knight',
+        iconUrl: '/assets/bbg/items/Mamluk.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Madrasa",
-        "description": "A building unique to Arabia. Bonus :faith: Faith equal to the adjacency bonus of the Campus district.",
-        "iconUrl": "/assets/bbg/items/Madrasa.webp"
-      }
+        name: 'Madrasa',
+        description: 'A building unique to Arabia. Bonus :faith: Faith equal to the adjacency bonus of the Campus district.',
+        iconUrl: '/assets/bbg/items/Madrasa.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "arabia-saladin-sultan",
-    "name": "Saladin (Sultan)",
-    "civilization": "Arabia",
-    "portraitUrl": "/assets/bbg/leaders/Arabia%20Saladin%20(Sultan).webp",
-    "civilizationAbility": {
-      "name": "The Last Prophet",
-      "description": "+1 :greatprophet: Great Prophet point per turn after researching Astrology. The last available :greatprophet: Great Prophet will automatically go to Arabia, if they have not already recruited one. +1 :science: Science for each foreign city following Arabia's Religion. Campuses receive +1 :science: Science for each adjacent Holy Site and Holy Sites receive +1 :faith: Faith for each adjacent Campus. - Bias: None."
+    id: 'arabia-saladin-sultan',
+    name: 'Saladin (Sultan)',
+    civilization: 'Arabia',
+    portraitUrl: '/assets/bbg/leaders/Arabia%20Saladin%20(Sultan).webp',
+    civilizationAbility: {
+      name: 'The Last Prophet',
+      description: '+1 :greatprophet: Great Prophet point per turn after researching Astrology. The last available :greatprophet: Great Prophet will automatically go to Arabia, if they have not already recruited one. +1 :science: Science for each foreign city following Arabia\'s Religion. Campuses receive +1 :science: Science for each adjacent Holy Site and Holy Sites receive +1 :faith: Faith for each adjacent Campus. - Bias: None.',
     },
-    "ability": {
-      "name": "The Victorious",
-      "description": "+100% Flanking and Support Bonus to all Combat and Religious Units. All Units cost 1 :gold: Gold less maintenance per turn."
+    ability: {
+      name: 'The Victorious',
+      description: '+100% Flanking and Support Bonus to all Combat and Religious Units. All Units cost 1 :gold: Gold less maintenance per turn.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Mamluk",
-        "description": "Arabian unique Medieval era unit that replaces the Knight. Heals at the end of every turn, even after moving or attacking.",
-        "replaces": "Knight",
-        "iconUrl": "/assets/bbg/items/Mamluk.webp"
-      }
+        name: 'Mamluk',
+        description: 'Arabian unique Medieval era unit that replaces the Knight. Heals at the end of every turn, even after moving or attacking.',
+        replaces: 'Knight',
+        iconUrl: '/assets/bbg/items/Mamluk.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Madrasa",
-        "description": "A building unique to Arabia. Bonus :faith: Faith equal to the adjacency bonus of the Campus district.",
-        "iconUrl": "/assets/bbg/items/Madrasa.webp"
-      }
+        name: 'Madrasa',
+        description: 'A building unique to Arabia. Bonus :faith: Faith equal to the adjacency bonus of the Campus district.',
+        iconUrl: '/assets/bbg/items/Madrasa.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "australia-john-curtin",
-    "name": "John Curtin",
-    "civilization": "Australia",
-    "portraitUrl": "/assets/bbg/leaders/Australia%20John%20Curtin.webp",
-    "civilizationAbility": {
-      "name": "Land Down Under",
-      "description": "+3 :housing: Housing in coastal cities. +1 :production: Production on Pastures at Political Philosophy. Pastures trigger a Culture Bomb. Unlocked at Early Empire, City Centers gain +1 :amenities: Amenity if they are Charming, doubled if Breathtaking. Campuses, Theater Squares, Commercial Hubs, and Holy Sites receive +1 Adjacency in tiles with Charming Appeal, +3 in Breathtaking. - Bias:T1 Coast, T4 Horse, Cattle, Sheep, -T2 Floodplains, -T4 Rainforest. Special \"I am Salty\", may spawn coastal without freshwater."
+    id: 'australia-john-curtin',
+    name: 'John Curtin',
+    civilization: 'Australia',
+    portraitUrl: '/assets/bbg/leaders/Australia%20John%20Curtin.webp',
+    civilizationAbility: {
+      name: 'Land Down Under',
+      description: '+3 :housing: Housing in coastal cities. +1 :production: Production on Pastures at Political Philosophy. Pastures trigger a Culture Bomb. Unlocked at Early Empire, City Centers gain +1 :amenities: Amenity if they are Charming, doubled if Breathtaking. Campuses, Theater Squares, Commercial Hubs, and Holy Sites receive +1 Adjacency in tiles with Charming Appeal, +3 in Breathtaking. - Bias:T1 Coast, T4 Horse, Cattle, Sheep, -T2 Floodplains, -T4 Rainforest. Special "I am Salty", may spawn coastal without freshwater.',
     },
-    "ability": {
-      "name": "Citadel of Civilization",
-      "description": "+50% :production: Production for 10 :turn: turns after liberating a city."
+    ability: {
+      name: 'Citadel of Civilization',
+      description: '+50% :production: Production for 10 :turn: turns after liberating a city.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Digger",
-        "description": "Australian unique Modern era unit that replaces Infantry. +10 :strength: Combat Strength when fighting on Coastal tiles. +5 :strength: Combat Strength when fighting on Neutral or Foreign Territory.",
-        "replaces": "Infantry",
-        "iconUrl": "/assets/bbg/items/Digger.webp"
-      }
+        name: 'Digger',
+        description: 'Australian unique Modern era unit that replaces Infantry. +10 :strength: Combat Strength when fighting on Coastal tiles. +5 :strength: Combat Strength when fighting on Neutral or Foreign Territory.',
+        replaces: 'Infantry',
+        iconUrl: '/assets/bbg/items/Digger.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Outback Station",
-        "description": "Australian unique builder improvement unlocked at Guilds. Can only be built in Desert, Grassland and Plains tiles. +1 :food: Food and +1 :production: Production. +1 :food: Food for each adjacent Pasture. +1 :food: Food for every adjacent Outback Stations with Rapid Deployment. +1 :production: Production for every 2 adjacent Outback Stations with Industrialization. +1 Appeal to adjacent tiles.",
-        "iconUrl": "/assets/bbg/items/Outback%20Station.webp"
-      }
+        name: 'Outback Station',
+        description: 'Australian unique builder improvement unlocked at Guilds. Can only be built in Desert, Grassland and Plains tiles. +1 :food: Food and +1 :production: Production. +1 :food: Food for each adjacent Pasture. +1 :food: Food for every adjacent Outback Stations with Rapid Deployment. +1 :production: Production for every 2 adjacent Outback Stations with Industrialization. +1 Appeal to adjacent tiles.',
+        iconUrl: '/assets/bbg/items/Outback%20Station.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "aztec-montezuma",
-    "name": "Montezuma",
-    "civilization": "Aztec",
-    "portraitUrl": "/assets/bbg/leaders/Aztec%20Montezuma.webp",
-    "civilizationAbility": {
-      "name": "Legend of the Five Suns",
-      "description": "Spend a Builder :charges: charge to complete 30% of the original :district: district cost. +50% :production: Production towards land melee units. - Bias: None."
+    id: 'aztec-montezuma',
+    name: 'Montezuma',
+    civilization: 'Aztec',
+    portraitUrl: '/assets/bbg/leaders/Aztec%20Montezuma.webp',
+    civilizationAbility: {
+      name: 'Legend of the Five Suns',
+      description: 'Spend a Builder :charges: charge to complete 30% of the original :district: district cost. +50% :production: Production towards land melee units. - Bias: None.',
     },
-    "ability": {
-      "name": "Gifts for the Tlatoani",
-      "description": "Luxury resources in his territory provide an :amenities: Amenity to 2 extra cities. Land (non-GDR) and Naval units receive +1 :strength: Combat Strength when attacking for each different Luxury resource improved in Aztec lands and retained by the Aztec."
+    ability: {
+      name: 'Gifts for the Tlatoani',
+      description: 'Luxury resources in his territory provide an :amenities: Amenity to 2 extra cities. Land (non-GDR) and Naval units receive +1 :strength: Combat Strength when attacking for each different Luxury resource improved in Aztec lands and retained by the Aztec.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Eagle Warrior",
-        "description": "Aztec unique Ancient era unit that replaces the Warrior. Has a chance to capture other civilization's military units by turning them into Builders.",
-        "replaces": "Warrior",
-        "iconUrl": "/assets/bbg/items/Eagle%20Warrior.webp"
-      }
+        name: 'Eagle Warrior',
+        description: 'Aztec unique Ancient era unit that replaces the Warrior. Has a chance to capture other civilization\'s military units by turning them into Builders.',
+        replaces: 'Warrior',
+        iconUrl: '/assets/bbg/items/Eagle%20Warrior.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Tlachtli",
-        "description": "A building unique to the Aztecs. Provides +1 :amenities: Amenity and +1 :culture: Culture to each City Center within 6 tiles. This bonus applies once to a city, and multiple copies of this building within 6 tiles of a City Center do not provide additional bonuses. +1 :greatgeneral: Great General Point per turn and +3 :tourism: Tourism.",
-        "iconUrl": "/assets/bbg/items/Tlachtli.webp"
-      }
+        name: 'Tlachtli',
+        description: 'A building unique to the Aztecs. Provides +1 :amenities: Amenity and +1 :culture: Culture to each City Center within 6 tiles. This bonus applies once to a city, and multiple copies of this building within 6 tiles of a City Center do not provide additional bonuses. +1 :greatgeneral: Great General Point per turn and +3 :tourism: Tourism.',
+        iconUrl: '/assets/bbg/items/Tlachtli.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "babylon-hammurabi",
-    "name": "Hammurabi",
-    "civilization": "Babylon",
-    "portraitUrl": "/assets/bbg/leaders/Babylon%20Hammurabi.webp",
-    "civilizationAbility": {
-      "name": "Enuma Anu Enlil",
-      "description": "Receive a free :techboosted: Eureka after constructing each Library. - Bias: T3 Rivers."
+    id: 'babylon-hammurabi',
+    name: 'Hammurabi',
+    civilization: 'Babylon',
+    portraitUrl: '/assets/bbg/leaders/Babylon%20Hammurabi.webp',
+    civilizationAbility: {
+      name: 'Enuma Anu Enlil',
+      description: 'Receive a free :techboosted: Eureka after constructing each Library. - Bias: T3 Rivers.',
     },
-    "ability": {
-      "name": "Ninu Ilu Sirum",
-      "description": "When each :district: specialty district type except the Government Plaza is constructed for the first time, receive the lowest :production: Production cost building that can currently be constructed in that district."
+    ability: {
+      name: 'Ninu Ilu Sirum',
+      description: 'When each :district: specialty district type except the Government Plaza is constructed for the first time, receive the lowest :production: Production cost building that can currently be constructed in that district.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Sabum Kibittum",
-        "description": "Babylonian unique Ancient era melee unit. +17 :strength: Combat Strength against Heavy and Light Cavalry promotion class units. This unit has 3 :movement: Movement and sight.",
-        "iconUrl": "/assets/bbg/items/Sabum%20Kibittum.webp"
-      }
+        name: 'Sabum Kibittum',
+        description: 'Babylonian unique Ancient era melee unit. +17 :strength: Combat Strength against Heavy and Light Cavalry promotion class units. This unit has 3 :movement: Movement and sight.',
+        iconUrl: '/assets/bbg/items/Sabum%20Kibittum.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Palgum",
-        "description": "A building unique to Babylon. +2 :production: Production. +1 :food: Food to improved Freshwater tiles, except Farms. +1 :production: Production to all farms in the city.",
-        "iconUrl": "/assets/bbg/items/Palgum.webp"
-      }
+        name: 'Palgum',
+        description: 'A building unique to Babylon. +2 :production: Production. +1 :food: Food to improved Freshwater tiles, except Farms. +1 :production: Production to all farms in the city.',
+        iconUrl: '/assets/bbg/items/Palgum.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "brazil-pedro-ii",
-    "name": "Pedro II",
-    "civilization": "Brazil",
-    "portraitUrl": "/assets/bbg/leaders/Brazil%20Pedro%20II.webp",
-    "civilizationAbility": {
-      "name": "Amazon",
-      "description": "Rainforest tiles provide +1 adjacency bonus for Campuses, Theater Squares, Commercial Hubs, and Holy Sites, and grant +1 Appeal to adjacent tiles, instead of the usual -1. Unimproved Rainforest tiles gain +1 :production: Production at Construction. - Bias: T2 Rainforest."
+    id: 'brazil-pedro-ii',
+    name: 'Pedro II',
+    civilization: 'Brazil',
+    portraitUrl: '/assets/bbg/leaders/Brazil%20Pedro%20II.webp',
+    civilizationAbility: {
+      name: 'Amazon',
+      description: 'Rainforest tiles provide +1 adjacency bonus for Campuses, Theater Squares, Commercial Hubs, and Holy Sites, and grant +1 Appeal to adjacent tiles, instead of the usual -1. Unimproved Rainforest tiles gain +1 :production: Production at Construction. - Bias: T2 Rainforest.',
     },
-    "ability": {
-      "name": "Magnanimous",
-      "description": "After recruiting or patronizing a :greatperson: Great Person, 20% of its :greatperson: Great Person point cost is refunded."
+    ability: {
+      name: 'Magnanimous',
+      description: 'After recruiting or patronizing a :greatperson: Great Person, 20% of its :greatperson: Great Person point cost is refunded.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Minas Geraes",
-        "description": "Brazilian unique Industrial era unit that replaces the Battleship and is unlocked by Nationalism. +10 :ranged: Ranged and :strength: Melee Combat Strength with Refining.",
-        "replaces": "Battleship",
-        "iconUrl": "/assets/bbg/items/Minas%20Geraes.webp"
-      }
+        name: 'Minas Geraes',
+        description: 'Brazilian unique Industrial era unit that replaces the Battleship and is unlocked by Nationalism. +10 :ranged: Ranged and :strength: Melee Combat Strength with Refining.',
+        replaces: 'Battleship',
+        iconUrl: '/assets/bbg/items/Minas%20Geraes.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Street Carnival",
-        "description": "A district unique to Brazil that doesn't cost a district population slot and is not a specialty district. Replaces the Entertainment Complex district, and provides +2 :amenities: Amenities. Cannot be built in a city with a Copacabana. Unlocks the Carnival project, which grants an additional +1 :amenities: Amenity when underway and a earns :greatengineer: Great Engineer, :greatmerchant: Great Merchant, :greatwriter: Great Writer, :greatartist: Great Artist, :greatmusician: Great Musician points upon completion.",
-        "replaces": "Entertainment Complex district",
-        "iconUrl": "/assets/bbg/items/Street%20Carnival.webp"
+        name: 'Street Carnival',
+        description: 'A district unique to Brazil that doesn\'t cost a district population slot and is not a specialty district. Replaces the Entertainment Complex district, and provides +2 :amenities: Amenities. Cannot be built in a city with a Copacabana. Unlocks the Carnival project, which grants an additional +1 :amenities: Amenity when underway and a earns :greatengineer: Great Engineer, :greatmerchant: Great Merchant, :greatwriter: Great Writer, :greatartist: Great Artist, :greatmusician: Great Musician points upon completion.',
+        replaces: 'Entertainment Complex district',
+        iconUrl: '/assets/bbg/items/Street%20Carnival.webp',
       },
       {
-        "name": "Copacabana",
-        "description": "A district unique to Brazil that doesn't cost a district population slot and is not a specialty district. Replaces the Water Park district, and provides +2 :amenities: Amenities. Cannot be built in a city with a Street Carnival. Cannot be built on Reef. Unlocks the Carnival project, which grants an additional +1 :amenities: Amenity when underway and a earns :greatengineer: Great Engineer, :greatmerchant: Great Merchant, :greatwriter: Great Writer, :greatartist: Great Artist, :greatmusician: Great Musician points upon completion.",
-        "replaces": "Water Park district",
-        "iconUrl": "/assets/bbg/items/Copacabana.webp"
-      }
+        name: 'Copacabana',
+        description: 'A district unique to Brazil that doesn\'t cost a district population slot and is not a specialty district. Replaces the Water Park district, and provides +2 :amenities: Amenities. Cannot be built in a city with a Street Carnival. Cannot be built on Reef. Unlocks the Carnival project, which grants an additional +1 :amenities: Amenity when underway and a earns :greatengineer: Great Engineer, :greatmerchant: Great Merchant, :greatwriter: Great Writer, :greatartist: Great Artist, :greatmusician: Great Musician points upon completion.',
+        replaces: 'Water Park district',
+        iconUrl: '/assets/bbg/items/Copacabana.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "byzantium-basil-ii",
-    "name": "Basil II",
-    "civilization": "Byzantium",
-    "portraitUrl": "/assets/bbg/leaders/Byzantium%20Basil%20II.webp",
-    "civilizationAbility": {
-      "name": "Taxis",
-      "description": "Units receive +2 :strength: Combat Strength or :religion: Religious Strength for each Holy City converted to Byzantium's Religion (including Byzantium's Holy City). +1 :greatprophet: Great Prophet point from cities with a Holy Site district. When defeating a unit, spreads Byzantium's Religion pressure (based on melee :strength: Combat Strength of the defeated unit) within 5 tiles. - Bias: None."
+    id: 'byzantium-basil-ii',
+    name: 'Basil II',
+    civilization: 'Byzantium',
+    portraitUrl: '/assets/bbg/leaders/Byzantium%20Basil%20II.webp',
+    civilizationAbility: {
+      name: 'Taxis',
+      description: 'Units receive +2 :strength: Combat Strength or :religion: Religious Strength for each Holy City converted to Byzantium\'s Religion (including Byzantium\'s Holy City). +1 :greatprophet: Great Prophet point from cities with a Holy Site district. When defeating a unit, spreads Byzantium\'s Religion pressure (based on melee :strength: Combat Strength of the defeated unit) within 5 tiles. - Bias: None.',
     },
-    "ability": {
-      "name": "Porphyrogénnētos",
-      "description": "Heavy and Light Cavalry units do full damage against cities following the same religion as Byzantium. Gain the Tagma unique unit when the Divine Right civic is discovered."
+    ability: {
+      name: 'Porphyrogénnētos',
+      description: 'Heavy and Light Cavalry units do full damage against cities following the same religion as Byzantium. Gain the Tagma unique unit when the Divine Right civic is discovered.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Dromon",
-        "description": "Byzantine unique Classical era unit that replaces the Quadrireme and has additional range. +5 :strength: Combat Strength against land and naval units.",
-        "replaces": "Quadrireme",
-        "iconUrl": "/assets/bbg/items/Dromon.webp"
+        name: 'Dromon',
+        description: 'Byzantine unique Classical era unit that replaces the Quadrireme and has additional range. +5 :strength: Combat Strength against land and naval units.',
+        replaces: 'Quadrireme',
+        iconUrl: '/assets/bbg/items/Dromon.webp',
       },
       {
-        "name": "Tagma",
-        "description": "Basil II's unique Medieval era unit that replaces the Knight. Land units within 1 tile of the Tagma receive +2 :strength: Combat Strength or :religion: Religious Strength.",
-        "replaces": "Knight",
-        "iconUrl": "/assets/bbg/items/Tagma.webp"
-      }
+        name: 'Tagma',
+        description: 'Basil II\'s unique Medieval era unit that replaces the Knight. Land units within 1 tile of the Tagma receive +2 :strength: Combat Strength or :religion: Religious Strength.',
+        replaces: 'Knight',
+        iconUrl: '/assets/bbg/items/Tagma.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Hippodrome",
-        "description": "A district unique to Byzantium. Replaces the Entertainment Complex district, provides +3 :amenities: Amenities, and is cheaper to build. When buildings in this district are constructed, receive a Heavy Cavalry unit. Cannot be built in a city with a Water Park.",
-        "replaces": "Entertainment Complex district",
-        "iconUrl": "/assets/bbg/items/Hippodrome.webp"
-      }
+        name: 'Hippodrome',
+        description: 'A district unique to Byzantium. Replaces the Entertainment Complex district, provides +3 :amenities: Amenities, and is cheaper to build. When buildings in this district are constructed, receive a Heavy Cavalry unit. Cannot be built in a city with a Water Park.',
+        replaces: 'Entertainment Complex district',
+        iconUrl: '/assets/bbg/items/Hippodrome.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "byzantium-theodora",
-    "name": "Theodora",
-    "civilization": "Byzantium",
-    "portraitUrl": "/assets/bbg/leaders/Byzantium%20Theodora.webp",
-    "civilizationAbility": {
-      "name": "Taxis",
-      "description": "Units receive +2 :strength: Combat Strength or :religion: Religious Strength for each Holy City converted to Byzantium's Religion (including Byzantium's Holy City). +1 :greatprophet: Great Prophet point from cities with a Holy Site district. When defeating a unit, spreads Byzantium's Religion pressure (based on melee :strength: Combat Strength of the defeated unit) within 5 tiles. - Bias: None."
+    id: 'byzantium-theodora',
+    name: 'Theodora',
+    civilization: 'Byzantium',
+    portraitUrl: '/assets/bbg/leaders/Byzantium%20Theodora.webp',
+    civilizationAbility: {
+      name: 'Taxis',
+      description: 'Units receive +2 :strength: Combat Strength or :religion: Religious Strength for each Holy City converted to Byzantium\'s Religion (including Byzantium\'s Holy City). +1 :greatprophet: Great Prophet point from cities with a Holy Site district. When defeating a unit, spreads Byzantium\'s Religion pressure (based on melee :strength: Combat Strength of the defeated unit) within 5 tiles. - Bias: None.',
     },
-    "ability": {
-      "name": "Metanoia",
-      "description": "After researching Political Philosophy, Holy Sites provide +1 :culture: Culture for each adjacent district. Farms provide a +1 :faith: Faith adjacency to Hippodromes and Holy Sites."
+    ability: {
+      name: 'Metanoia',
+      description: 'After researching Political Philosophy, Holy Sites provide +1 :culture: Culture for each adjacent district. Farms provide a +1 :faith: Faith adjacency to Hippodromes and Holy Sites.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Dromon",
-        "description": "Byzantine unique Classical era unit that replaces the Quadrireme and has additional range. +5 :strength: Combat Strength against land and naval units.",
-        "replaces": "Quadrireme",
-        "iconUrl": "/assets/bbg/items/Dromon.webp"
-      }
+        name: 'Dromon',
+        description: 'Byzantine unique Classical era unit that replaces the Quadrireme and has additional range. +5 :strength: Combat Strength against land and naval units.',
+        replaces: 'Quadrireme',
+        iconUrl: '/assets/bbg/items/Dromon.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Hippodrome",
-        "description": "A district unique to Byzantium. Replaces the Entertainment Complex district, provides +3 :amenities: Amenities, and is cheaper to build. When buildings in this district are constructed, receive a Heavy Cavalry unit. Cannot be built in a city with a Water Park.",
-        "replaces": "Entertainment Complex district",
-        "iconUrl": "/assets/bbg/items/Hippodrome.webp"
-      }
+        name: 'Hippodrome',
+        description: 'A district unique to Byzantium. Replaces the Entertainment Complex district, provides +3 :amenities: Amenities, and is cheaper to build. When buildings in this district are constructed, receive a Heavy Cavalry unit. Cannot be built in a city with a Water Park.',
+        replaces: 'Entertainment Complex district',
+        iconUrl: '/assets/bbg/items/Hippodrome.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "canada-wilfrid-laurier",
-    "name": "Wilfrid Laurier",
-    "civilization": "Canada",
-    "portraitUrl": "/assets/bbg/leaders/Canada%20Wilfrid%20Laurier.webp",
-    "civilizationAbility": {
-      "name": "Four Faces of Peace",
-      "description": "Cannot declare war on City-states or surprise wars. Surprise wars cannot be declared on Canada. For every 100 :tourism: Tourism per turn earn 1 :favor: Diplomatic Favor per turn. Receive +100% :favor: Diplomatic Favor from successfully completing an Emergency or Scored Competition. - Bias: T1 Tundra."
+    id: 'canada-wilfrid-laurier',
+    name: 'Wilfrid Laurier',
+    civilization: 'Canada',
+    portraitUrl: '/assets/bbg/leaders/Canada%20Wilfrid%20Laurier.webp',
+    civilizationAbility: {
+      name: 'Four Faces of Peace',
+      description: 'Cannot declare war on City-states or surprise wars. Surprise wars cannot be declared on Canada. For every 100 :tourism: Tourism per turn earn 1 :favor: Diplomatic Favor per turn. Receive +100% :favor: Diplomatic Favor from successfully completing an Emergency or Scored Competition. - Bias: T1 Tundra.',
     },
-    "ability": {
-      "name": "The Last Best West",
-      "description": "City Centers in Tundra receive +1 :food: Food. Farms can be constructed in Tundra. After Civil Engineering is unlocked, Farms can be built on Tundra Hills. Improvements in Tundra and Snow receive the following bonuses: Mines and Lumber Mills +2 :production: Production, Farms and Camps +2 :food: Food, Pastures +1 :food: Food. Receive double the normal accumulation rate for Strategic Resources improved in tundra and snow. -50% of the normal cost to purchase Snow and Tundra tiles."
+    ability: {
+      name: 'The Last Best West',
+      description: 'City Centers in Tundra receive +1 :food: Food. Farms can be constructed in Tundra. After Civil Engineering is unlocked, Farms can be built on Tundra Hills. Improvements in Tundra and Snow receive the following bonuses: Mines and Lumber Mills +2 :production: Production, Farms and Camps +2 :food: Food, Pastures +1 :food: Food. Receive double the normal accumulation rate for Strategic Resources improved in tundra and snow. -50% of the normal cost to purchase Snow and Tundra tiles.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Mountie",
-        "description": "Canadian unique Modern era unit. Has Sight of 4. Can create 2 National Parks. +5 :strength: Combat Strength when fighting within 4 tiles of a National Park. Additional +5 :strength: Combat Strength when fighting within 4 tiles of an Owned National Park.",
-        "iconUrl": "/assets/bbg/items/Mountie.webp"
-      }
+        name: 'Mountie',
+        description: 'Canadian unique Modern era unit. Has Sight of 4. Can create 2 National Parks. +5 :strength: Combat Strength when fighting within 4 tiles of a National Park. Additional +5 :strength: Combat Strength when fighting within 4 tiles of an Owned National Park.',
+        iconUrl: '/assets/bbg/items/Mountie.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Ice Hockey Rink",
-        "description": "Canadian unique Builder improvement unlocked with Diplomatic Service. Can be built on Tundra, Tundra Hills, Snow, and Snow Hills. One per city. +1 :culture: Culture for each adjacent Tundra, Tundra Hills, Snow, and Snow Hills tile. +1 :amenities: Amenity and +2 Appeal to adjacent tiles. +2 :food: Food and :production: Production with Professional Sports. +4 :culture: Culture if adjacent to a Stadium building. Provides :tourism: Tourism from Culture once Flight is unlocked.",
-        "iconUrl": "/assets/bbg/items/Ice%20Hockey%20Rink.webp"
-      }
+        name: 'Ice Hockey Rink',
+        description: 'Canadian unique Builder improvement unlocked with Diplomatic Service. Can be built on Tundra, Tundra Hills, Snow, and Snow Hills. One per city. +1 :culture: Culture for each adjacent Tundra, Tundra Hills, Snow, and Snow Hills tile. +1 :amenities: Amenity and +2 Appeal to adjacent tiles. +2 :food: Food and :production: Production with Professional Sports. +4 :culture: Culture if adjacent to a Stadium building. Provides :tourism: Tourism from Culture once Flight is unlocked.',
+        iconUrl: '/assets/bbg/items/Ice%20Hockey%20Rink.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "china-kublai-khan-china",
-    "name": "Kublai Khan (China)",
-    "civilization": "China",
-    "portraitUrl": "/assets/bbg/leaders/China%20Kublai%20Khan%20(China).webp",
-    "civilizationAbility": {
-      "name": "Dynastic Cycle",
-      "description": ":techboosted: Eurekas and :civicboosted: Inspirations provide 45% of civics and technologies instead of 40%. - Bias: None."
+    id: 'china-kublai-khan-china',
+    name: 'Kublai Khan (China)',
+    civilization: 'China',
+    portraitUrl: '/assets/bbg/leaders/China%20Kublai%20Khan%20(China).webp',
+    civilizationAbility: {
+      name: 'Dynastic Cycle',
+      description: ':techboosted: Eurekas and :civicboosted: Inspirations provide 45% of civics and technologies instead of 40%. - Bias: None.',
     },
-    "ability": {
-      "name": "Gerege",
-      "description": "One extra Economic policy slot in any :government: government. +1 :science: Science and +1 :culture: Culture per international trade route and +1 :science: Science and +1 :culture: Culture for each 25 tiles traveled on all trade routes. Receive a random :techboosted: Eureka and :civicboosted: Inspiration when establishing a :tradingpost: Trading Post in another Civilization's city for the first time."
+    ability: {
+      name: 'Gerege',
+      description: 'One extra Economic policy slot in any :government: government. +1 :science: Science and +1 :culture: Culture per international trade route and +1 :science: Science and +1 :culture: Culture for each 25 tiles traveled on all trade routes. Receive a random :techboosted: Eureka and :civicboosted: Inspiration when establishing a :tradingpost: Trading Post in another Civilization\'s city for the first time.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Crouching Tiger",
-        "description": "Chinese unique unit that replaces the Crossbowman. +7 :ranged: Ranged Strength when attacking adjacent enemy units.",
-        "replaces": "Crossbowman",
-        "iconUrl": "/assets/bbg/items/Crouching%20Tiger.webp"
-      }
+        name: 'Crouching Tiger',
+        description: 'Chinese unique unit that replaces the Crossbowman. +7 :ranged: Ranged Strength when attacking adjacent enemy units.',
+        replaces: 'Crossbowman',
+        iconUrl: '/assets/bbg/items/Crouching%20Tiger.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Great Wall",
-        "description": "Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 1 turn of fortification.",
-        "iconUrl": "/assets/bbg/items/Great%20Wall.webp"
-      }
+        name: 'Great Wall',
+        description: 'Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 1 turn of fortification.',
+        iconUrl: '/assets/bbg/items/Great%20Wall.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "china-qin-mandate-of-heaven",
-    "name": "Qin (Mandate of Heaven)",
-    "civilization": "China",
-    "portraitUrl": "/assets/bbg/leaders/China%20Qin%20(Mandate%20of%20Heaven).webp",
-    "civilizationAbility": {
-      "name": "Dynastic Cycle",
-      "description": ":techboosted: Eurekas and :civicboosted: Inspirations provide 45% of civics and technologies instead of 40%. - Bias: None."
+    id: 'china-qin-mandate-of-heaven',
+    name: 'Qin (Mandate of Heaven)',
+    civilization: 'China',
+    portraitUrl: '/assets/bbg/leaders/China%20Qin%20(Mandate%20of%20Heaven).webp',
+    civilizationAbility: {
+      name: 'Dynastic Cycle',
+      description: ':techboosted: Eurekas and :civicboosted: Inspirations provide 45% of civics and technologies instead of 40%. - Bias: None.',
     },
-    "ability": {
-      "name": "The First Emperor",
-      "description": "Builder receive an additional :charges: charge. When building Ancient and Classical Wonders you may spend Builder :charges: charge to complete 15% of the Wonder :production: Production cost. +1 :food: Food per wonder built in each city. Canals are unlocked with the Masonry technology. When completing a wonder receive a random :techboosted: Eureka and :civicboosted: Inspiration from the era of the wonder if available."
+    ability: {
+      name: 'The First Emperor',
+      description: 'Builder receive an additional :charges: charge. When building Ancient and Classical Wonders you may spend Builder :charges: charge to complete 15% of the Wonder :production: Production cost. +1 :food: Food per wonder built in each city. Canals are unlocked with the Masonry technology. When completing a wonder receive a random :techboosted: Eureka and :civicboosted: Inspiration from the era of the wonder if available.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Crouching Tiger",
-        "description": "Chinese unique unit that replaces the Crossbowman. +7 :ranged: Ranged Strength when attacking adjacent enemy units.",
-        "replaces": "Crossbowman",
-        "iconUrl": "/assets/bbg/items/Crouching%20Tiger.webp"
-      }
+        name: 'Crouching Tiger',
+        description: 'Chinese unique unit that replaces the Crossbowman. +7 :ranged: Ranged Strength when attacking adjacent enemy units.',
+        replaces: 'Crossbowman',
+        iconUrl: '/assets/bbg/items/Crouching%20Tiger.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Great Wall",
-        "description": "Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 1 turn of fortification.",
-        "iconUrl": "/assets/bbg/items/Great%20Wall.webp"
-      }
+        name: 'Great Wall',
+        description: 'Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 1 turn of fortification.',
+        iconUrl: '/assets/bbg/items/Great%20Wall.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "china-qin-unifier",
-    "name": "Qin (Unifier)",
-    "civilization": "China",
-    "portraitUrl": "/assets/bbg/leaders/China%20Qin%20(Unifier).webp",
-    "civilizationAbility": {
-      "name": "Dynastic Cycle",
-      "description": ":techboosted: Eurekas and :civicboosted: Inspirations provide 45% of civics and technologies instead of 40%. - Bias: None."
+    id: 'china-qin-unifier',
+    name: 'Qin (Unifier)',
+    civilization: 'China',
+    portraitUrl: '/assets/bbg/leaders/China%20Qin%20(Unifier).webp',
+    civilizationAbility: {
+      name: 'Dynastic Cycle',
+      description: ':techboosted: Eurekas and :civicboosted: Inspirations provide 45% of civics and technologies instead of 40%. - Bias: None.',
     },
-    "ability": {
-      "name": "Thirty-Six Stratagems",
-      "description": "Melee units receive the Convert Barbarians action, which consumes the melee unit. +50% :production: Production towards Encampment buildings. +1 :greatwriter: Great Writer point from Encampment districts. Barracks and Stable buildings provide 2 slots for :greatworkwriting: Great Works of Writing. Great Works of Writing provide +1 :food: Food. When recruiting a Great General or Great Writer receive a random :techboosted: Eureka and :civicboosted: Inspiration."
+    ability: {
+      name: 'Thirty-Six Stratagems',
+      description: 'Melee units receive the Convert Barbarians action, which consumes the melee unit. +50% :production: Production towards Encampment buildings. +1 :greatwriter: Great Writer point from Encampment districts. Barracks and Stable buildings provide 2 slots for :greatworkwriting: Great Works of Writing. Great Works of Writing provide +1 :food: Food. When recruiting a Great General or Great Writer receive a random :techboosted: Eureka and :civicboosted: Inspiration.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Crouching Tiger",
-        "description": "Chinese unique unit that replaces the Crossbowman. +7 :ranged: Ranged Strength when attacking adjacent enemy units.",
-        "replaces": "Crossbowman",
-        "iconUrl": "/assets/bbg/items/Crouching%20Tiger.webp"
-      }
+        name: 'Crouching Tiger',
+        description: 'Chinese unique unit that replaces the Crossbowman. +7 :ranged: Ranged Strength when attacking adjacent enemy units.',
+        replaces: 'Crossbowman',
+        iconUrl: '/assets/bbg/items/Crouching%20Tiger.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Great Wall",
-        "description": "Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 1 turn of fortification.",
-        "iconUrl": "/assets/bbg/items/Great%20Wall.webp"
-      }
+        name: 'Great Wall',
+        description: 'Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 1 turn of fortification.',
+        iconUrl: '/assets/bbg/items/Great%20Wall.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "china-wu-zetian",
-    "name": "Wu Zetian",
-    "civilization": "China",
-    "portraitUrl": "/assets/bbg/leaders/China%20Wu%20Zetian.webp",
-    "civilizationAbility": {
-      "name": "Dynastic Cycle",
-      "description": ":techboosted: Eurekas and :civicboosted: Inspirations provide 45% of civics and technologies instead of 40%. - Bias: None."
+    id: 'china-wu-zetian',
+    name: 'Wu Zetian',
+    civilization: 'China',
+    portraitUrl: '/assets/bbg/leaders/China%20Wu%20Zetian.webp',
+    civilizationAbility: {
+      name: 'Dynastic Cycle',
+      description: ':techboosted: Eurekas and :civicboosted: Inspirations provide 45% of civics and technologies instead of 40%. - Bias: None.',
     },
-    "ability": {
-      "name": "Manual of Entrapment",
-      "description": "Receive a free spy (and extra spy capacity) after discovering Civil Service. Can purchase Spies with :faith: Faith. All offensive Spies operate at 1 level higher. Whenever an offensive spy mission is successful, you also gain 100% of the :science: Science, :culture: Culture, and :faith: Faith that the targeted city earned that turn. Land units within 3 tiles of a Recon unit receive +3 :strength: Combat Strength. When completing a Government Plaza building or Diplomatic Quarter building receive a random :techboosted: Eureka and :civicboosted: Inspiration."
+    ability: {
+      name: 'Manual of Entrapment',
+      description: 'Receive a free spy (and extra spy capacity) after discovering Civil Service. Can purchase Spies with :faith: Faith. All offensive Spies operate at 1 level higher. Whenever an offensive spy mission is successful, you also gain 100% of the :science: Science, :culture: Culture, and :faith: Faith that the targeted city earned that turn. Land units within 3 tiles of a Recon unit receive +3 :strength: Combat Strength. When completing a Government Plaza building or Diplomatic Quarter building receive a random :techboosted: Eureka and :civicboosted: Inspiration.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Crouching Tiger",
-        "description": "Chinese unique unit that replaces the Crossbowman. +7 :ranged: Ranged Strength when attacking adjacent enemy units.",
-        "replaces": "Crossbowman",
-        "iconUrl": "/assets/bbg/items/Crouching%20Tiger.webp"
-      }
+        name: 'Crouching Tiger',
+        description: 'Chinese unique unit that replaces the Crossbowman. +7 :ranged: Ranged Strength when attacking adjacent enemy units.',
+        replaces: 'Crossbowman',
+        iconUrl: '/assets/bbg/items/Crouching%20Tiger.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Great Wall",
-        "description": "Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 1 turn of fortification.",
-        "iconUrl": "/assets/bbg/items/Great%20Wall.webp"
-      }
+        name: 'Great Wall',
+        description: 'Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 1 turn of fortification.',
+        iconUrl: '/assets/bbg/items/Great%20Wall.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "china-yongle",
-    "name": "Yongle",
-    "civilization": "China",
-    "portraitUrl": "/assets/bbg/leaders/China%20Yongle.webp",
-    "civilizationAbility": {
-      "name": "Dynastic Cycle",
-      "description": ":techboosted: Eurekas and :civicboosted: Inspirations provide 45% of civics and technologies instead of 40%. - Bias: None."
+    id: 'china-yongle',
+    name: 'Yongle',
+    civilization: 'China',
+    portraitUrl: '/assets/bbg/leaders/China%20Yongle.webp',
+    civilizationAbility: {
+      name: 'Dynastic Cycle',
+      description: ':techboosted: Eurekas and :civicboosted: Inspirations provide 45% of civics and technologies instead of 40%. - Bias: None.',
     },
-    "ability": {
-      "name": "Lijia",
-      "description": "Cities with 10 or more :citizen: Population receive +0.7 :science: Science, +0.5 :culture: Culture, and +1 :gold: Gold per turn for each :citizen: Population in the city. All cities receive unique city projects where that converts 70% of their :production: Production into :food: Food or :faith: Faith, or 150% if it is :gold: Gold. When each city reaches 13 :citizen: population for the first time receive a random :techboosted: Eureka; at 18 :citizen: Population receive a random :civicboosted: Inspiration."
+    ability: {
+      name: 'Lijia',
+      description: 'Cities with 10 or more :citizen: Population receive +0.7 :science: Science, +0.5 :culture: Culture, and +1 :gold: Gold per turn for each :citizen: Population in the city. All cities receive unique city projects where that converts 70% of their :production: Production into :food: Food or :faith: Faith, or 150% if it is :gold: Gold. When each city reaches 13 :citizen: population for the first time receive a random :techboosted: Eureka; at 18 :citizen: Population receive a random :civicboosted: Inspiration.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Crouching Tiger",
-        "description": "Chinese unique unit that replaces the Crossbowman. +7 :ranged: Ranged Strength when attacking adjacent enemy units.",
-        "replaces": "Crossbowman",
-        "iconUrl": "/assets/bbg/items/Crouching%20Tiger.webp"
-      }
+        name: 'Crouching Tiger',
+        description: 'Chinese unique unit that replaces the Crossbowman. +7 :ranged: Ranged Strength when attacking adjacent enemy units.',
+        replaces: 'Crossbowman',
+        iconUrl: '/assets/bbg/items/Crouching%20Tiger.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Great Wall",
-        "description": "Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 1 turn of fortification.",
-        "iconUrl": "/assets/bbg/items/Great%20Wall.webp"
-      }
+        name: 'Great Wall',
+        description: 'Chinese unique builder improvement unlocked with Masonry. Must be built in a line along the borders of your empire. Can only be pillaged (never destroyed) by natural disasters. +1 :production: Production. +1 :gold: Gold for each adjacent Great Wall. +1 :culture: Culture for each adjacent Great Wall with Castles. Varied yields when lead by each leader of China and adjacent to 2 other Great Wall tiles: +1 :faith: Faith and +1 :gold: Gold when lead by Qin Shi, Mandate of Heaven +1 :production: Prodution when lead by Qin Shi, Unifier +1 :culture: Culture when lead by Kublai Khan +1 :science: Science when lead by Wu Zetian +1 :food: Food when lead by Yongle Provides :tourism: Tourism after researching Flight. An occupying unit receives +1 Sight and +4 :strength: Defense Strength and automatically gains 1 turn of fortification.',
+        iconUrl: '/assets/bbg/items/Great%20Wall.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "cree-poundmaker",
-    "name": "Poundmaker",
-    "civilization": "Cree",
-    "portraitUrl": "/assets/bbg/leaders/Cree%20Poundmaker.webp",
-    "civilizationAbility": {
-      "name": "Nîhithaw",
-      "description": "+1 :traderoute: Trade Route capacity with the Pottery technology. Unclaimed tiles within 3 tiles of a Cree city come under Cree control when a Trader first moves into them. - Bias: T4 Deer, Cattle, Horses, Sheep."
+    id: 'cree-poundmaker',
+    name: 'Poundmaker',
+    civilization: 'Cree',
+    portraitUrl: '/assets/bbg/leaders/Cree%20Poundmaker.webp',
+    civilizationAbility: {
+      name: 'Nîhithaw',
+      description: '+1 :traderoute: Trade Route capacity with the Pottery technology. Unclaimed tiles within 3 tiles of a Cree city come under Cree control when a Trader first moves into them. - Bias: T4 Deer, Cattle, Horses, Sheep.',
     },
-    "ability": {
-      "name": "Favorable Terms",
-      "description": "All Alliance types provide Shared Visibility. Your outgoing :traderoute: Trade Routes grant +1 :food: Food to Poundmaker per Camp or Pasture at the destination. :traderoute: Trade Routes sent to your cities grant +1 :gold: Gold to Poundmaker per Camp or Pasture at the destination."
+    ability: {
+      name: 'Favorable Terms',
+      description: 'All Alliance types provide Shared Visibility. Your outgoing :traderoute: Trade Routes grant +1 :food: Food to Poundmaker per Camp or Pasture at the destination. :traderoute: Trade Routes sent to your cities grant +1 :gold: Gold to Poundmaker per Camp or Pasture at the destination.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Okihtcitaw",
-        "description": "Cree unique Ancient era unit that replaces the Scout. Starts with a :promotion: free promotion. +5 :strength: Combat Strength when fighting units with a higher base Combat Strength.",
-        "replaces": "Scout",
-        "iconUrl": "/assets/bbg/items/Okihtcitaw.webp"
-      }
+        name: 'Okihtcitaw',
+        description: 'Cree unique Ancient era unit that replaces the Scout. Starts with a :promotion: free promotion. +5 :strength: Combat Strength when fighting units with a higher base Combat Strength.',
+        replaces: 'Scout',
+        iconUrl: '/assets/bbg/items/Okihtcitaw.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Mekewap",
-        "description": "Cree unique builder improvement unlocked with Pottery. Must be placed adjacent to a Bonus or Luxury resource. Cannot be built adjacent to another Mekewap. +1 :production: Production and +1 :housing: Housing. +1 :production: Production and +1 :housing: Housing with Civil Service. +1 :food: Food for every 2 adjacent Bonus Resources, increasing to +1 :food: Food for every adjacent Bonus Resource with Conservation. +1 :gold: Gold if adjacent to a Luxury resource. +2 :gold: Gold for every adjacent Luxury resource with Cartography.",
-        "iconUrl": "/assets/bbg/items/Mekewap.webp"
-      }
+        name: 'Mekewap',
+        description: 'Cree unique builder improvement unlocked with Pottery. Must be placed adjacent to a Bonus or Luxury resource. Cannot be built adjacent to another Mekewap. +1 :production: Production and +1 :housing: Housing. +1 :production: Production and +1 :housing: Housing with Civil Service. +1 :food: Food for every 2 adjacent Bonus Resources, increasing to +1 :food: Food for every adjacent Bonus Resource with Conservation. +1 :gold: Gold if adjacent to a Luxury resource. +2 :gold: Gold for every adjacent Luxury resource with Cartography.',
+        iconUrl: '/assets/bbg/items/Mekewap.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "egypt-cleopatra-egyptian",
-    "name": "Cleopatra (Egyptian)",
-    "civilization": "Egypt",
-    "portraitUrl": "/assets/bbg/leaders/Egypt%20Cleopatra%20(Egyptian).webp",
-    "civilizationAbility": {
-      "name": "Iteru",
-      "description": "+15% :production: Production towards :district: districts and wonders if placed next to a River. Does not receive damage from Floods. - Bias: T2 Floodplains, T5 Rivers"
+    id: 'egypt-cleopatra-egyptian',
+    name: 'Cleopatra (Egyptian)',
+    civilization: 'Egypt',
+    portraitUrl: '/assets/bbg/leaders/Egypt%20Cleopatra%20(Egyptian).webp',
+    civilizationAbility: {
+      name: 'Iteru',
+      description: '+15% :production: Production towards :district: districts and wonders if placed next to a River. Does not receive damage from Floods. - Bias: T2 Floodplains, T5 Rivers',
     },
-    "ability": {
-      "name": "Mediterranean's Bride",
-      "description": "Your :traderoute: Trade Routes to other civilizations provide +6 :gold: Gold for Egypt. Other civilizations' :traderoute: Trade Routes to Egypt provide +1 :food: Food for them and +2 :gold: Gold for Egypt. Trading with Allies earns twice as many bonus Alliance Points. +15% :production: production toward Commercial Hubs and Theater Squares when the city is settled on a river."
+    ability: {
+      name: 'Mediterranean\'s Bride',
+      description: 'Your :traderoute: Trade Routes to other civilizations provide +6 :gold: Gold for Egypt. Other civilizations\' :traderoute: Trade Routes to Egypt provide +1 :food: Food for them and +2 :gold: Gold for Egypt. Trading with Allies earns twice as many bonus Alliance Points. +15% :production: production toward Commercial Hubs and Theater Squares when the city is settled on a river.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Maryannu Chariot Archer",
-        "description": "Egyptian unique Ancient era ranged cavalry unit. 4 :movement: Movement when starting in open terrain.",
-        "iconUrl": "/assets/bbg/items/Maryannu%20Chariot%20Archer.webp"
-      }
+        name: 'Maryannu Chariot Archer',
+        description: 'Egyptian unique Ancient era ranged cavalry unit. 4 :movement: Movement when starting in open terrain.',
+        iconUrl: '/assets/bbg/items/Maryannu%20Chariot%20Archer.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Sphinx",
-        "description": "Egyptian unique builder improvement unlocked with Craftsmanship. Cannot be built next to another Sphinx. Cannot be built on Snow tiles. +1 :culture: Culture and +2 :faith: Faith. +1 :culture: Culture if built on Floodplains. +1 :culture: Culture with Diplomatic Service. +1 :faith: Faith and +1 :culture: Culture if built next to a wonder. +1 :food: Food and +1 :production: Production if built on Desert (not Floodplains) or Desert Hills. +2 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.",
-        "iconUrl": "/assets/bbg/items/Sphinx.webp"
-      }
+        name: 'Sphinx',
+        description: 'Egyptian unique builder improvement unlocked with Craftsmanship. Cannot be built next to another Sphinx. Cannot be built on Snow tiles. +1 :culture: Culture and +2 :faith: Faith. +1 :culture: Culture if built on Floodplains. +1 :culture: Culture with Diplomatic Service. +1 :faith: Faith and +1 :culture: Culture if built next to a wonder. +1 :food: Food and +1 :production: Production if built on Desert (not Floodplains) or Desert Hills. +2 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.',
+        iconUrl: '/assets/bbg/items/Sphinx.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "egypt-cleopatra-ptolemaic",
-    "name": "Cleopatra (Ptolemaic)",
-    "civilization": "Egypt",
-    "portraitUrl": "/assets/bbg/leaders/Egypt%20Cleopatra%20(Ptolemaic).webp",
-    "civilizationAbility": {
-      "name": "Iteru",
-      "description": "+15% :production: Production towards :district: districts and wonders if placed next to a River. Does not receive damage from Floods. - Bias: T2 Floodplains, T5 Rivers"
+    id: 'egypt-cleopatra-ptolemaic',
+    name: 'Cleopatra (Ptolemaic)',
+    civilization: 'Egypt',
+    portraitUrl: '/assets/bbg/leaders/Egypt%20Cleopatra%20(Ptolemaic).webp',
+    civilizationAbility: {
+      name: 'Iteru',
+      description: '+15% :production: Production towards :district: districts and wonders if placed next to a River. Does not receive damage from Floods. - Bias: T2 Floodplains, T5 Rivers',
     },
-    "ability": {
-      "name": "Arrival of Hapi",
-      "description": "Military units can cross rivers without movement or combat penalty starting in the classical era. +15% production bonus for Campuses and Encampments when the city is settled on a river. Campus and Encampments receive major :science: Science adjacency from rivers."
+    ability: {
+      name: 'Arrival of Hapi',
+      description: 'Military units can cross rivers without movement or combat penalty starting in the classical era. +15% production bonus for Campuses and Encampments when the city is settled on a river. Campus and Encampments receive major :science: Science adjacency from rivers.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Maryannu Chariot Archer",
-        "description": "Egyptian unique Ancient era ranged cavalry unit. 4 :movement: Movement when starting in open terrain.",
-        "iconUrl": "/assets/bbg/items/Maryannu%20Chariot%20Archer.webp"
-      }
+        name: 'Maryannu Chariot Archer',
+        description: 'Egyptian unique Ancient era ranged cavalry unit. 4 :movement: Movement when starting in open terrain.',
+        iconUrl: '/assets/bbg/items/Maryannu%20Chariot%20Archer.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Sphinx",
-        "description": "Egyptian unique builder improvement unlocked with Craftsmanship. Cannot be built next to another Sphinx. Cannot be built on Snow tiles. +1 :culture: Culture and +2 :faith: Faith. +1 :culture: Culture if built on Floodplains. +1 :culture: Culture with Diplomatic Service. +1 :faith: Faith and +1 :culture: Culture if built next to a wonder. +1 :food: Food and +1 :production: Production if built on Desert (not Floodplains) or Desert Hills. +2 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.",
-        "iconUrl": "/assets/bbg/items/Sphinx.webp"
-      }
+        name: 'Sphinx',
+        description: 'Egyptian unique builder improvement unlocked with Craftsmanship. Cannot be built next to another Sphinx. Cannot be built on Snow tiles. +1 :culture: Culture and +2 :faith: Faith. +1 :culture: Culture if built on Floodplains. +1 :culture: Culture with Diplomatic Service. +1 :faith: Faith and +1 :culture: Culture if built next to a wonder. +1 :food: Food and +1 :production: Production if built on Desert (not Floodplains) or Desert Hills. +2 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.',
+        iconUrl: '/assets/bbg/items/Sphinx.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "egypt-ramses-ii",
-    "name": "Ramses II",
-    "civilization": "Egypt",
-    "portraitUrl": "/assets/bbg/leaders/Egypt%20Ramses%20II.webp",
-    "civilizationAbility": {
-      "name": "Iteru",
-      "description": "+15% :production: Production towards :district: districts and wonders if placed next to a River. Does not receive damage from Floods. - Bias: T2 Floodplains, T5 Rivers"
+    id: 'egypt-ramses-ii',
+    name: 'Ramses II',
+    civilization: 'Egypt',
+    portraitUrl: '/assets/bbg/leaders/Egypt%20Ramses%20II.webp',
+    civilizationAbility: {
+      name: 'Iteru',
+      description: '+15% :production: Production towards :district: districts and wonders if placed next to a River. Does not receive damage from Floods. - Bias: T2 Floodplains, T5 Rivers',
     },
-    "ability": {
-      "name": "Abu Simbel",
-      "description": "Gain :culture: Culture equal to 10% of the construction cost when finishing Buildings, doubled for cities with a wonder and 25% :culture: Culture when completing Wonders. Holy Sites are granted +1 :production: Production if built adjacent to a River. +15% production bonus for Holy Sites and Industrial Zones when the city is settled on a river."
+    ability: {
+      name: 'Abu Simbel',
+      description: 'Gain :culture: Culture equal to 10% of the construction cost when finishing Buildings, doubled for cities with a wonder and 25% :culture: Culture when completing Wonders. Holy Sites are granted +1 :production: Production if built adjacent to a River. +15% production bonus for Holy Sites and Industrial Zones when the city is settled on a river.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Maryannu Chariot Archer",
-        "description": "Egyptian unique Ancient era ranged cavalry unit. 4 :movement: Movement when starting in open terrain.",
-        "iconUrl": "/assets/bbg/items/Maryannu%20Chariot%20Archer.webp"
-      }
+        name: 'Maryannu Chariot Archer',
+        description: 'Egyptian unique Ancient era ranged cavalry unit. 4 :movement: Movement when starting in open terrain.',
+        iconUrl: '/assets/bbg/items/Maryannu%20Chariot%20Archer.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Sphinx",
-        "description": "Egyptian unique builder improvement unlocked with Craftsmanship. Cannot be built next to another Sphinx. Cannot be built on Snow tiles. +1 :culture: Culture and +2 :faith: Faith. +1 :culture: Culture if built on Floodplains. +1 :culture: Culture with Diplomatic Service. +1 :faith: Faith and +1 :culture: Culture if built next to a wonder. +1 :food: Food and +1 :production: Production if built on Desert (not Floodplains) or Desert Hills. +2 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.",
-        "iconUrl": "/assets/bbg/items/Sphinx.webp"
-      }
+        name: 'Sphinx',
+        description: 'Egyptian unique builder improvement unlocked with Craftsmanship. Cannot be built next to another Sphinx. Cannot be built on Snow tiles. +1 :culture: Culture and +2 :faith: Faith. +1 :culture: Culture if built on Floodplains. +1 :culture: Culture with Diplomatic Service. +1 :faith: Faith and +1 :culture: Culture if built next to a wonder. +1 :food: Food and +1 :production: Production if built on Desert (not Floodplains) or Desert Hills. +2 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.',
+        iconUrl: '/assets/bbg/items/Sphinx.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "england-eleanor-of-aquitaine-england",
-    "name": "Eleanor of Aquitaine (England)",
-    "civilization": "England",
-    "portraitUrl": "/assets/bbg/leaders/England%20Eleanor%20of%20Aquitaine%20(England).webp",
-    "civilizationAbility": {
-      "name": "Workshop of the World",
-      "description": ":resourceiron: Iron and :resourcecoal: Coal Mines accumulate 2 more resources per turn. Harbor buildings increase Strategic Resource Stockpiles by +10 (on Standard speed). +100% :production: Production towards Military Engineers. Military Engineers receive +2 :charges: charges. - Bias: T1 Coast, T5 Iron and Coal."
+    id: 'england-eleanor-of-aquitaine-england',
+    name: 'Eleanor of Aquitaine (England)',
+    civilization: 'England',
+    portraitUrl: '/assets/bbg/leaders/England%20Eleanor%20of%20Aquitaine%20(England).webp',
+    civilizationAbility: {
+      name: 'Workshop of the World',
+      description: ':resourceiron: Iron and :resourcecoal: Coal Mines accumulate 2 more resources per turn. Harbor buildings increase Strategic Resource Stockpiles by +10 (on Standard speed). +100% :production: Production towards Military Engineers. Military Engineers receive +2 :charges: charges. - Bias: T1 Coast, T5 Iron and Coal.',
     },
-    "ability": {
-      "name": "Court of Love",
-      "description": "+100% :production: Production to Theater Square Buildings. Great Works receive additional yields based on the districts built in this city (+1 for :greatworkwriting: Writings and :greatworkrelic: Relics, +2 for :greatworklandscape: Art and :greatworkartifact: Artifacts, +4 for :greatworkmusic: Music): :science: Science for Campus. :culture: Culture for Theater Square. :gold: Gold for Harbor or Commercial Hub. :faith: Faith for Holy Site. :production: Production for Industrial Zone. :food: Food for Neighborhood. (Can't receive bonus yields on great works from Anshan) Great Works in Eleanor's cities each cause -1 Loyalty per turn in foreign cities within 9 tiles. A city that leaves another civilization due to a loss of Loyalty and is currently receiving the most Loyalty per turn from Eleanor's civilization skips the Free City step to join this civilization. When Eleanor leads France receive +20% :production: Production toward ancient and classical wonders."
+    ability: {
+      name: 'Court of Love',
+      description: '+100% :production: Production to Theater Square Buildings. Great Works receive additional yields based on the districts built in this city (+1 for :greatworkwriting: Writings and :greatworkrelic: Relics, +2 for :greatworklandscape: Art and :greatworkartifact: Artifacts, +4 for :greatworkmusic: Music): :science: Science for Campus. :culture: Culture for Theater Square. :gold: Gold for Harbor or Commercial Hub. :faith: Faith for Holy Site. :production: Production for Industrial Zone. :food: Food for Neighborhood. (Can\'t receive bonus yields on great works from Anshan) Great Works in Eleanor\'s cities each cause -1 Loyalty per turn in foreign cities within 9 tiles. A city that leaves another civilization due to a loss of Loyalty and is currently receiving the most Loyalty per turn from Eleanor\'s civilization skips the Free City step to join this civilization. When Eleanor leads France receive +20% :production: Production toward ancient and classical wonders.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Sea Dog",
-        "description": "English unique Renaissance era naval unit that replaces the Privateer. Has a chance to capture defeated enemy ships. Can only be seen by other Naval Raiders unless adjacent to it. Reveals Naval Raiders within sight range.",
-        "replaces": "Privateer",
-        "iconUrl": "/assets/bbg/items/Sea%20Dog.webp"
-      }
+        name: 'Sea Dog',
+        description: 'English unique Renaissance era naval unit that replaces the Privateer. Has a chance to capture defeated enemy ships. Can only be seen by other Naval Raiders unless adjacent to it. Reveals Naval Raiders within sight range.',
+        replaces: 'Privateer',
+        iconUrl: '/assets/bbg/items/Sea%20Dog.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Royal Navy Dockyard",
-        "description": "A district unique to England for naval activity in your city. Replaces the Harbor district. Also removes the :movement: Movement penalty for embarking and disembarking to and from this tile. Must be built on Coast or Lake Terrain adjacent to land. +1 :movement: Movement for all naval units built in Dockyard +2 :gold: Gold as adjacency and +4 Loyalty per turn when built on a foreign continent. Cannot be built on Reef.",
-        "replaces": "Harbor district",
-        "iconUrl": "/assets/bbg/items/Royal%20Navy%20Dockyard.webp"
-      }
+        name: 'Royal Navy Dockyard',
+        description: 'A district unique to England for naval activity in your city. Replaces the Harbor district. Also removes the :movement: Movement penalty for embarking and disembarking to and from this tile. Must be built on Coast or Lake Terrain adjacent to land. +1 :movement: Movement for all naval units built in Dockyard +2 :gold: Gold as adjacency and +4 Loyalty per turn when built on a foreign continent. Cannot be built on Reef.',
+        replaces: 'Harbor district',
+        iconUrl: '/assets/bbg/items/Royal%20Navy%20Dockyard.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "england-elizabeth-i",
-    "name": "Elizabeth I",
-    "civilization": "England",
-    "portraitUrl": "/assets/bbg/leaders/England%20Elizabeth%20I.webp",
-    "civilizationAbility": {
-      "name": "Workshop of the World",
-      "description": ":resourceiron: Iron and :resourcecoal: Coal Mines accumulate 2 more resources per turn. Harbor buildings increase Strategic Resource Stockpiles by +10 (on Standard speed). +100% :production: Production towards Military Engineers. Military Engineers receive +2 :charges: charges. - Bias: T1 Coast, T5 Iron and Coal."
+    id: 'england-elizabeth-i',
+    name: 'Elizabeth I',
+    civilization: 'England',
+    portraitUrl: '/assets/bbg/leaders/England%20Elizabeth%20I.webp',
+    civilizationAbility: {
+      name: 'Workshop of the World',
+      description: ':resourceiron: Iron and :resourcecoal: Coal Mines accumulate 2 more resources per turn. Harbor buildings increase Strategic Resource Stockpiles by +10 (on Standard speed). +100% :production: Production towards Military Engineers. Military Engineers receive +2 :charges: charges. - Bias: T1 Coast, T5 Iron and Coal.',
     },
-    "ability": {
-      "name": "Drake's Legacy",
-      "description": "+1 :traderoute: Trade Route capacity with Shipbuilding technology, Exploration civic and Mercantilism civic. :traderoute: Trade Routes to City-states provide +3 :gold: Gold for every :district: specialty district in the origin city. All Naval Raider units gain +1 :movement: Movement and +1 Sight. Naval Raiders can attack and promote in the same turn. +100% :gold: Gold from Plundering :traderoute: Trade Routes with Naval Units."
+    ability: {
+      name: 'Drake\'s Legacy',
+      description: '+1 :traderoute: Trade Route capacity with Shipbuilding technology, Exploration civic and Mercantilism civic. :traderoute: Trade Routes to City-states provide +3 :gold: Gold for every :district: specialty district in the origin city. All Naval Raider units gain +1 :movement: Movement and +1 Sight. Naval Raiders can attack and promote in the same turn. +100% :gold: Gold from Plundering :traderoute: Trade Routes with Naval Units.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Sea Dog",
-        "description": "English unique Renaissance era naval unit that replaces the Privateer. Has a chance to capture defeated enemy ships. Can only be seen by other Naval Raiders unless adjacent to it. Reveals Naval Raiders within sight range.",
-        "replaces": "Privateer",
-        "iconUrl": "/assets/bbg/items/Sea%20Dog.webp"
-      }
+        name: 'Sea Dog',
+        description: 'English unique Renaissance era naval unit that replaces the Privateer. Has a chance to capture defeated enemy ships. Can only be seen by other Naval Raiders unless adjacent to it. Reveals Naval Raiders within sight range.',
+        replaces: 'Privateer',
+        iconUrl: '/assets/bbg/items/Sea%20Dog.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Royal Navy Dockyard",
-        "description": "A district unique to England for naval activity in your city. Replaces the Harbor district. Also removes the :movement: Movement penalty for embarking and disembarking to and from this tile. Must be built on Coast or Lake Terrain adjacent to land. +1 :movement: Movement for all naval units built in Dockyard +2 :gold: Gold as adjacency and +4 Loyalty per turn when built on a foreign continent. Cannot be built on Reef.",
-        "replaces": "Harbor district",
-        "iconUrl": "/assets/bbg/items/Royal%20Navy%20Dockyard.webp"
-      }
+        name: 'Royal Navy Dockyard',
+        description: 'A district unique to England for naval activity in your city. Replaces the Harbor district. Also removes the :movement: Movement penalty for embarking and disembarking to and from this tile. Must be built on Coast or Lake Terrain adjacent to land. +1 :movement: Movement for all naval units built in Dockyard +2 :gold: Gold as adjacency and +4 Loyalty per turn when built on a foreign continent. Cannot be built on Reef.',
+        replaces: 'Harbor district',
+        iconUrl: '/assets/bbg/items/Royal%20Navy%20Dockyard.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "england-victoria-age-of-empire",
-    "name": "Victoria (Age of Empire)",
-    "civilization": "England",
-    "portraitUrl": "/assets/bbg/leaders/England%20Victoria%20(Age%20of%20Empire).webp",
-    "civilizationAbility": {
-      "name": "Workshop of the World",
-      "description": ":resourceiron: Iron and :resourcecoal: Coal Mines accumulate 2 more resources per turn. Harbor buildings increase Strategic Resource Stockpiles by +10 (on Standard speed). +100% :production: Production towards Military Engineers. Military Engineers receive +2 :charges: charges. - Bias: T1 Coast, T5 Iron and Coal."
+    id: 'england-victoria-age-of-empire',
+    name: 'Victoria (Age of Empire)',
+    civilization: 'England',
+    portraitUrl: '/assets/bbg/leaders/England%20Victoria%20(Age%20of%20Empire).webp',
+    civilizationAbility: {
+      name: 'Workshop of the World',
+      description: ':resourceiron: Iron and :resourcecoal: Coal Mines accumulate 2 more resources per turn. Harbor buildings increase Strategic Resource Stockpiles by +10 (on Standard speed). +100% :production: Production towards Military Engineers. Military Engineers receive +2 :charges: charges. - Bias: T1 Coast, T5 Iron and Coal.',
     },
-    "ability": {
-      "name": "Pax Britannica",
-      "description": "Cities settled 10 or more tiles from your capital receive a free melee unit. Constructing Royal Navy Dockyard grants you the strongest naval unit you can build. Naval melee units may escort civilian units at their higher movement speed. Gain the Redcoat unique unit when the Military Science technology is researched. Lighthouse grants +1 :greatadmiral: Great Admiral point per turn."
+    ability: {
+      name: 'Pax Britannica',
+      description: 'Cities settled 10 or more tiles from your capital receive a free melee unit. Constructing Royal Navy Dockyard grants you the strongest naval unit you can build. Naval melee units may escort civilian units at their higher movement speed. Gain the Redcoat unique unit when the Military Science technology is researched. Lighthouse grants +1 :greatadmiral: Great Admiral point per turn.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Redcoat",
-        "description": "English unique Industrial era unit when Victoria is their leader that replaces the Line Infantry. +5 :strength: Combat Strength when fighting on a continent other than that of your capital's. No disembark cost.",
-        "replaces": "Line Infantry",
-        "iconUrl": "/assets/bbg/items/Redcoat.webp"
+        name: 'Redcoat',
+        description: 'English unique Industrial era unit when Victoria is their leader that replaces the Line Infantry. +5 :strength: Combat Strength when fighting on a continent other than that of your capital\'s. No disembark cost.',
+        replaces: 'Line Infantry',
+        iconUrl: '/assets/bbg/items/Redcoat.webp',
       },
       {
-        "name": "Sea Dog",
-        "description": "English unique Renaissance era naval unit that replaces the Privateer. Has a chance to capture defeated enemy ships. Can only be seen by other Naval Raiders unless adjacent to it. Reveals Naval Raiders within sight range.",
-        "replaces": "Privateer",
-        "iconUrl": "/assets/bbg/items/Sea%20Dog.webp"
-      }
+        name: 'Sea Dog',
+        description: 'English unique Renaissance era naval unit that replaces the Privateer. Has a chance to capture defeated enemy ships. Can only be seen by other Naval Raiders unless adjacent to it. Reveals Naval Raiders within sight range.',
+        replaces: 'Privateer',
+        iconUrl: '/assets/bbg/items/Sea%20Dog.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Royal Navy Dockyard",
-        "description": "A district unique to England for naval activity in your city. Replaces the Harbor district. Also removes the :movement: Movement penalty for embarking and disembarking to and from this tile. Must be built on Coast or Lake Terrain adjacent to land. +1 :movement: Movement for all naval units built in Dockyard +2 :gold: Gold as adjacency and +4 Loyalty per turn when built on a foreign continent. Cannot be built on Reef.",
-        "replaces": "Harbor district",
-        "iconUrl": "/assets/bbg/items/Royal%20Navy%20Dockyard.webp"
-      }
+        name: 'Royal Navy Dockyard',
+        description: 'A district unique to England for naval activity in your city. Replaces the Harbor district. Also removes the :movement: Movement penalty for embarking and disembarking to and from this tile. Must be built on Coast or Lake Terrain adjacent to land. +1 :movement: Movement for all naval units built in Dockyard +2 :gold: Gold as adjacency and +4 Loyalty per turn when built on a foreign continent. Cannot be built on Reef.',
+        replaces: 'Harbor district',
+        iconUrl: '/assets/bbg/items/Royal%20Navy%20Dockyard.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "england-victoria-age-of-steam",
-    "name": "Victoria (Age of Steam)",
-    "civilization": "England",
-    "portraitUrl": "/assets/bbg/leaders/England%20Victoria%20(Age%20of%20Steam).webp",
-    "civilizationAbility": {
-      "name": "Workshop of the World",
-      "description": ":resourceiron: Iron and :resourcecoal: Coal Mines accumulate 2 more resources per turn. Harbor buildings increase Strategic Resource Stockpiles by +10 (on Standard speed). +100% :production: Production towards Military Engineers. Military Engineers receive +2 :charges: charges. - Bias: T1 Coast, T5 Iron and Coal."
+    id: 'england-victoria-age-of-steam',
+    name: 'Victoria (Age of Steam)',
+    civilization: 'England',
+    portraitUrl: '/assets/bbg/leaders/England%20Victoria%20(Age%20of%20Steam).webp',
+    civilizationAbility: {
+      name: 'Workshop of the World',
+      description: ':resourceiron: Iron and :resourcecoal: Coal Mines accumulate 2 more resources per turn. Harbor buildings increase Strategic Resource Stockpiles by +10 (on Standard speed). +100% :production: Production towards Military Engineers. Military Engineers receive +2 :charges: charges. - Bias: T1 Coast, T5 Iron and Coal.',
     },
-    "ability": {
-      "name": "Age of Steam",
-      "description": "+5% :production: Production in Cities for each Factory and Power Plant in that city. Buildings that provide additional yields when :power: Powered receive +4 of that yield. Industrial Zones receive standard adjacency from Royal Navy Dockyards. +20% :production: Production towards Industrial Zone buildings. Lighthouse grants +1 :greatengineer: Great Engineer point per turn."
+    ability: {
+      name: 'Age of Steam',
+      description: '+5% :production: Production in Cities for each Factory and Power Plant in that city. Buildings that provide additional yields when :power: Powered receive +4 of that yield. Industrial Zones receive standard adjacency from Royal Navy Dockyards. +20% :production: Production towards Industrial Zone buildings. Lighthouse grants +1 :greatengineer: Great Engineer point per turn.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Sea Dog",
-        "description": "English unique Renaissance era naval unit that replaces the Privateer. Has a chance to capture defeated enemy ships. Can only be seen by other Naval Raiders unless adjacent to it. Reveals Naval Raiders within sight range.",
-        "replaces": "Privateer",
-        "iconUrl": "/assets/bbg/items/Sea%20Dog.webp"
-      }
+        name: 'Sea Dog',
+        description: 'English unique Renaissance era naval unit that replaces the Privateer. Has a chance to capture defeated enemy ships. Can only be seen by other Naval Raiders unless adjacent to it. Reveals Naval Raiders within sight range.',
+        replaces: 'Privateer',
+        iconUrl: '/assets/bbg/items/Sea%20Dog.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Royal Navy Dockyard",
-        "description": "A district unique to England for naval activity in your city. Replaces the Harbor district. Also removes the :movement: Movement penalty for embarking and disembarking to and from this tile. Must be built on Coast or Lake Terrain adjacent to land. +1 :movement: Movement for all naval units built in Dockyard +2 :gold: Gold as adjacency and +4 Loyalty per turn when built on a foreign continent. Cannot be built on Reef.",
-        "replaces": "Harbor district",
-        "iconUrl": "/assets/bbg/items/Royal%20Navy%20Dockyard.webp"
-      }
+        name: 'Royal Navy Dockyard',
+        description: 'A district unique to England for naval activity in your city. Replaces the Harbor district. Also removes the :movement: Movement penalty for embarking and disembarking to and from this tile. Must be built on Coast or Lake Terrain adjacent to land. +1 :movement: Movement for all naval units built in Dockyard +2 :gold: Gold as adjacency and +4 Loyalty per turn when built on a foreign continent. Cannot be built on Reef.',
+        replaces: 'Harbor district',
+        iconUrl: '/assets/bbg/items/Royal%20Navy%20Dockyard.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "ethiopia-menelik-ii",
-    "name": "Menelik II",
-    "civilization": "Ethiopia",
-    "portraitUrl": "/assets/bbg/leaders/Ethiopia%20Menelik%20II.webp",
-    "civilizationAbility": {
-      "name": "Aksumite Legacy",
-      "description": "Ethiopia's International Trade Routes grant +0.5 :faith: Faith per resource at the origin. Improved Resources provide +1 :faith: Faith after unlocking Political Philosophy. Can purchase Archaeological Museums and Archaeologists with :faith: Faith. - Bias: T3 Grassland and Plains Hills."
+    id: 'ethiopia-menelik-ii',
+    name: 'Menelik II',
+    civilization: 'Ethiopia',
+    portraitUrl: '/assets/bbg/leaders/Ethiopia%20Menelik%20II.webp',
+    civilizationAbility: {
+      name: 'Aksumite Legacy',
+      description: 'Ethiopia\'s International Trade Routes grant +0.5 :faith: Faith per resource at the origin. Improved Resources provide +1 :faith: Faith after unlocking Political Philosophy. Can purchase Archaeological Museums and Archaeologists with :faith: Faith. - Bias: T3 Grassland and Plains Hills.',
     },
-    "ability": {
-      "name": "Council of Ministers",
-      "description": "Receive :science: Science and :culture: Culture equal to 10% of your :faith: Faith generation in cities founded on Hills or Resources."
+    ability: {
+      name: 'Council of Ministers',
+      description: 'Receive :science: Science and :culture: Culture equal to 10% of your :faith: Faith generation in cities founded on Hills or Resources.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Oromo Cavalry",
-        "description": "Ethiopian unique Medieval era unit that replaces the Courser. +1 :movement: Movement if starts in Hills and +4 :strength: Combat Strength when fighting in Hills. Has Sight of 3.",
-        "replaces": "Courser",
-        "iconUrl": "/assets/bbg/items/Oromo%20Cavalry.webp"
-      }
+        name: 'Oromo Cavalry',
+        description: 'Ethiopian unique Medieval era unit that replaces the Courser. +1 :movement: Movement if starts in Hills and +4 :strength: Combat Strength when fighting in Hills. Has Sight of 3.',
+        replaces: 'Courser',
+        iconUrl: '/assets/bbg/items/Oromo%20Cavalry.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Rock-Hewn Church",
-        "description": "Ethiopian unique builder improvement unlocked with Drama and Poetry. Can only be built on Hills or Volcanic Soil not adjacent to another Rock-Hewn Church. Can only be pillaged (never destroyed) by natural disasters. +1 :faith: Faith for every adjacent Mountain and Hills tile. +1 Appeal to adjacent tiles. Provides :tourism: Tourism from :faith: Faith after researching Flight.",
-        "iconUrl": "/assets/bbg/items/Rock-Hewn%20Church.webp"
-      }
+        name: 'Rock-Hewn Church',
+        description: 'Ethiopian unique builder improvement unlocked with Drama and Poetry. Can only be built on Hills or Volcanic Soil not adjacent to another Rock-Hewn Church. Can only be pillaged (never destroyed) by natural disasters. +1 :faith: Faith for every adjacent Mountain and Hills tile. +1 Appeal to adjacent tiles. Provides :tourism: Tourism from :faith: Faith after researching Flight.',
+        iconUrl: '/assets/bbg/items/Rock-Hewn%20Church.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "france-catherine-de-medici-black-queen",
-    "name": "Catherine de Medici (Black Queen)",
-    "civilization": "France",
-    "portraitUrl": "/assets/bbg/leaders/France%20Catherine%20de%20Medici%20(Black%20Queen).webp",
-    "civilizationAbility": {
-      "name": "Grand Tour",
-      "description": "Receives a free Spy (and extra spy capacity) with the Castles technology. All spies start with a :promotion: free promotion. +20% :production: Production toward Medieval, Renaissance, and Industrial era Wonders. +50% :tourism: Tourism from Wonders of any era. - Bias: T4 Rivers."
+    id: 'france-catherine-de-medici-black-queen',
+    name: 'Catherine de Medici (Black Queen)',
+    civilization: 'France',
+    portraitUrl: '/assets/bbg/leaders/France%20Catherine%20de%20Medici%20(Black%20Queen).webp',
+    civilizationAbility: {
+      name: 'Grand Tour',
+      description: 'Receives a free Spy (and extra spy capacity) with the Castles technology. All spies start with a :promotion: free promotion. +20% :production: Production toward Medieval, Renaissance, and Industrial era Wonders. +50% :tourism: Tourism from Wonders of any era. - Bias: T4 Rivers.',
     },
-    "ability": {
-      "name": "Catherine's Flying Squadron",
-      "description": "Has 1 level of :vislimited: Diplomatic Visibility greater than normal with every civilization that she's met."
+    ability: {
+      name: 'Catherine\'s Flying Squadron',
+      description: 'Has 1 level of :vislimited: Diplomatic Visibility greater than normal with every civilization that she\'s met.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Garde Impériale",
-        "description": "French unique Industrial era melee unit that replaces the Line Infantry. +5 :strength: Combat Strength when fighting on your capital's continent. +10 :greatgeneral: Great General points when killing an enemy unit.",
-        "replaces": "Line Infantry",
-        "iconUrl": "/assets/bbg/items/Garde%20Imp%C3%A9riale.webp"
-      }
+        name: 'Garde Impériale',
+        description: 'French unique Industrial era melee unit that replaces the Line Infantry. +5 :strength: Combat Strength when fighting on your capital\'s continent. +10 :greatgeneral: Great General points when killing an enemy unit.',
+        replaces: 'Line Infantry',
+        iconUrl: '/assets/bbg/items/Garde%20Imp%C3%A9riale.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Château",
-        "description": "French unique builder improvement unlocked at Feudalism. Cannot be built adjacent to another Chateau. +1 :food: Food, +1 :culture: Culture, +1 :gold: Gold +1 :housing: Housing and +1 Appeal to adjacent tiles. +1 :culture: Culture for each adjacent wonder, increasing to +2 :culture: Culture with the Flight technology. +1 :culture: Culture and +1 :gold: Gold for each adjacent Luxury resource. +2 :gold: Gold if built next to River. Provides :tourism: Tourism after researching Flight.",
-        "iconUrl": "/assets/bbg/items/Ch%C3%A2teau.webp"
-      }
+        name: 'Château',
+        description: 'French unique builder improvement unlocked at Feudalism. Cannot be built adjacent to another Chateau. +1 :food: Food, +1 :culture: Culture, +1 :gold: Gold +1 :housing: Housing and +1 Appeal to adjacent tiles. +1 :culture: Culture for each adjacent wonder, increasing to +2 :culture: Culture with the Flight technology. +1 :culture: Culture and +1 :gold: Gold for each adjacent Luxury resource. +2 :gold: Gold if built next to River. Provides :tourism: Tourism after researching Flight.',
+        iconUrl: '/assets/bbg/items/Ch%C3%A2teau.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "france-catherine-de-medici-magnificence",
-    "name": "Catherine de Medici (Magnificence)",
-    "civilization": "France",
-    "portraitUrl": "/assets/bbg/leaders/France%20Catherine%20de%20Medici%20(Magnificence).webp",
-    "civilizationAbility": {
-      "name": "Grand Tour",
-      "description": "Receives a free Spy (and extra spy capacity) with the Castles technology. All spies start with a :promotion: free promotion. +20% :production: Production toward Medieval, Renaissance, and Industrial era Wonders. +50% :tourism: Tourism from Wonders of any era. - Bias: T4 Rivers."
+    id: 'france-catherine-de-medici-magnificence',
+    name: 'Catherine de Medici (Magnificence)',
+    civilization: 'France',
+    portraitUrl: '/assets/bbg/leaders/France%20Catherine%20de%20Medici%20(Magnificence).webp',
+    civilizationAbility: {
+      name: 'Grand Tour',
+      description: 'Receives a free Spy (and extra spy capacity) with the Castles technology. All spies start with a :promotion: free promotion. +20% :production: Production toward Medieval, Renaissance, and Industrial era Wonders. +50% :tourism: Tourism from Wonders of any era. - Bias: T4 Rivers.',
     },
-    "ability": {
-      "name": "Catherine’s Magnificences",
-      "description": "Improved resources receive +1 :culture: Culture after unlocking Craftsmanship. Improved resources adjacent to a Theater Square receive +1 :culture: Culture. Chateau adjacent to a luxury resource receive +1 :amenities: Amenity. Happy cities gain +5% Culture, doubled if the city is ecstatic, tripled if the city is euphoric (+8 amenity). Cities with a Theater Square gain these great people based on happiness level: +1 :greatwriter: Great Writer point if happy, +1 :greatartist: Great Artist point if ecstatic, and +1 :greatmusician: Great Musician point if euphoric. May initiate the Court Festival unique project in any city with a Theater Square district."
+    ability: {
+      name: 'Catherine’s Magnificences',
+      description: 'Improved resources receive +1 :culture: Culture after unlocking Craftsmanship. Improved resources adjacent to a Theater Square receive +1 :culture: Culture. Chateau adjacent to a luxury resource receive +1 :amenities: Amenity. Happy cities gain +5% Culture, doubled if the city is ecstatic, tripled if the city is euphoric (+8 amenity). Cities with a Theater Square gain these great people based on happiness level: +1 :greatwriter: Great Writer point if happy, +1 :greatartist: Great Artist point if ecstatic, and +1 :greatmusician: Great Musician point if euphoric. May initiate the Court Festival unique project in any city with a Theater Square district.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Garde Impériale",
-        "description": "French unique Industrial era melee unit that replaces the Line Infantry. +5 :strength: Combat Strength when fighting on your capital's continent. +10 :greatgeneral: Great General points when killing an enemy unit.",
-        "replaces": "Line Infantry",
-        "iconUrl": "/assets/bbg/items/Garde%20Imp%C3%A9riale.webp"
-      }
+        name: 'Garde Impériale',
+        description: 'French unique Industrial era melee unit that replaces the Line Infantry. +5 :strength: Combat Strength when fighting on your capital\'s continent. +10 :greatgeneral: Great General points when killing an enemy unit.',
+        replaces: 'Line Infantry',
+        iconUrl: '/assets/bbg/items/Garde%20Imp%C3%A9riale.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Château",
-        "description": "French unique builder improvement unlocked at Feudalism. Cannot be built adjacent to another Chateau. +1 :food: Food, +1 :culture: Culture, +1 :gold: Gold +1 :housing: Housing and +1 Appeal to adjacent tiles. +1 :culture: Culture for each adjacent wonder, increasing to +2 :culture: Culture with the Flight technology. +1 :culture: Culture and +1 :gold: Gold for each adjacent Luxury resource. +2 :gold: Gold if built next to River. Provides :tourism: Tourism after researching Flight.",
-        "iconUrl": "/assets/bbg/items/Ch%C3%A2teau.webp"
-      }
+        name: 'Château',
+        description: 'French unique builder improvement unlocked at Feudalism. Cannot be built adjacent to another Chateau. +1 :food: Food, +1 :culture: Culture, +1 :gold: Gold +1 :housing: Housing and +1 Appeal to adjacent tiles. +1 :culture: Culture for each adjacent wonder, increasing to +2 :culture: Culture with the Flight technology. +1 :culture: Culture and +1 :gold: Gold for each adjacent Luxury resource. +2 :gold: Gold if built next to River. Provides :tourism: Tourism after researching Flight.',
+        iconUrl: '/assets/bbg/items/Ch%C3%A2teau.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "france-eleanor-of-aquitaine-france",
-    "name": "Eleanor of Aquitaine (France)",
-    "civilization": "France",
-    "portraitUrl": "/assets/bbg/leaders/France%20Eleanor%20of%20Aquitaine%20(France).webp",
-    "civilizationAbility": {
-      "name": "Grand Tour",
-      "description": "Receives a free Spy (and extra spy capacity) with the Castles technology. All spies start with a :promotion: free promotion. +20% :production: Production toward Medieval, Renaissance, and Industrial era Wonders. +50% :tourism: Tourism from Wonders of any era. - Bias: T4 Rivers."
+    id: 'france-eleanor-of-aquitaine-france',
+    name: 'Eleanor of Aquitaine (France)',
+    civilization: 'France',
+    portraitUrl: '/assets/bbg/leaders/France%20Eleanor%20of%20Aquitaine%20(France).webp',
+    civilizationAbility: {
+      name: 'Grand Tour',
+      description: 'Receives a free Spy (and extra spy capacity) with the Castles technology. All spies start with a :promotion: free promotion. +20% :production: Production toward Medieval, Renaissance, and Industrial era Wonders. +50% :tourism: Tourism from Wonders of any era. - Bias: T4 Rivers.',
     },
-    "ability": {
-      "name": "Court of Love",
-      "description": "+100% :production: Production to Theater Square Buildings. Great Works receive additional yields based on the districts built in this city (+1 for :greatworkwriting: Writings and :greatworkrelic: Relics, +2 for :greatworklandscape: Art and :greatworkartifact: Artifacts, +4 for :greatworkmusic: Music): :science: Science for Campus. :culture: Culture for Theater Square. :gold: Gold for Harbor or Commercial Hub. :faith: Faith for Holy Site. :production: Production for Industrial Zone. :food: Food for Neighborhood. (Can't receive bonus yields on great works from Anshan) Great Works in Eleanor's cities each cause -1 Loyalty per turn in foreign cities within 9 tiles. A city that leaves another civilization due to a loss of Loyalty and is currently receiving the most Loyalty per turn from Eleanor's civilization skips the Free City step to join this civilization. When Eleanor leads France receive +20% :production: Production toward ancient and classical wonders."
+    ability: {
+      name: 'Court of Love',
+      description: '+100% :production: Production to Theater Square Buildings. Great Works receive additional yields based on the districts built in this city (+1 for :greatworkwriting: Writings and :greatworkrelic: Relics, +2 for :greatworklandscape: Art and :greatworkartifact: Artifacts, +4 for :greatworkmusic: Music): :science: Science for Campus. :culture: Culture for Theater Square. :gold: Gold for Harbor or Commercial Hub. :faith: Faith for Holy Site. :production: Production for Industrial Zone. :food: Food for Neighborhood. (Can\'t receive bonus yields on great works from Anshan) Great Works in Eleanor\'s cities each cause -1 Loyalty per turn in foreign cities within 9 tiles. A city that leaves another civilization due to a loss of Loyalty and is currently receiving the most Loyalty per turn from Eleanor\'s civilization skips the Free City step to join this civilization. When Eleanor leads France receive +20% :production: Production toward ancient and classical wonders.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Garde Impériale",
-        "description": "French unique Industrial era melee unit that replaces the Line Infantry. +5 :strength: Combat Strength when fighting on your capital's continent. +10 :greatgeneral: Great General points when killing an enemy unit.",
-        "replaces": "Line Infantry",
-        "iconUrl": "/assets/bbg/items/Garde%20Imp%C3%A9riale.webp"
-      }
+        name: 'Garde Impériale',
+        description: 'French unique Industrial era melee unit that replaces the Line Infantry. +5 :strength: Combat Strength when fighting on your capital\'s continent. +10 :greatgeneral: Great General points when killing an enemy unit.',
+        replaces: 'Line Infantry',
+        iconUrl: '/assets/bbg/items/Garde%20Imp%C3%A9riale.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Château",
-        "description": "French unique builder improvement unlocked at Feudalism. Cannot be built adjacent to another Chateau. +1 :food: Food, +1 :culture: Culture, +1 :gold: Gold +1 :housing: Housing and +1 Appeal to adjacent tiles. +1 :culture: Culture for each adjacent wonder, increasing to +2 :culture: Culture with the Flight technology. +1 :culture: Culture and +1 :gold: Gold for each adjacent Luxury resource. +2 :gold: Gold if built next to River. Provides :tourism: Tourism after researching Flight.",
-        "iconUrl": "/assets/bbg/items/Ch%C3%A2teau.webp"
-      }
+        name: 'Château',
+        description: 'French unique builder improvement unlocked at Feudalism. Cannot be built adjacent to another Chateau. +1 :food: Food, +1 :culture: Culture, +1 :gold: Gold +1 :housing: Housing and +1 Appeal to adjacent tiles. +1 :culture: Culture for each adjacent wonder, increasing to +2 :culture: Culture with the Flight technology. +1 :culture: Culture and +1 :gold: Gold for each adjacent Luxury resource. +2 :gold: Gold if built next to River. Provides :tourism: Tourism after researching Flight.',
+        iconUrl: '/assets/bbg/items/Ch%C3%A2teau.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "gaul-ambiorix",
-    "name": "Ambiorix",
-    "civilization": "Gaul",
-    "portraitUrl": "/assets/bbg/leaders/Gaul%20Ambiorix.webp",
-    "civilizationAbility": {
-      "name": "Hallstatt Culture",
-      "description": "Quarries grant a standard adjacency bonus for all :district: districts (doubled for the Oppidum) and Mines grant a minor adjacency bonus for all :district: districts. Specialty :district: districts do not receive a minor adjacency for being adjacent to another district and these districts cannot be built adjacent to the City Center. - Bias: T3 Iron, T4 Quarry Resources, T5 Minable Resources."
+    id: 'gaul-ambiorix',
+    name: 'Ambiorix',
+    civilization: 'Gaul',
+    portraitUrl: '/assets/bbg/leaders/Gaul%20Ambiorix.webp',
+    civilizationAbility: {
+      name: 'Hallstatt Culture',
+      description: 'Quarries grant a standard adjacency bonus for all :district: districts (doubled for the Oppidum) and Mines grant a minor adjacency bonus for all :district: districts. Specialty :district: districts do not receive a minor adjacency for being adjacent to another district and these districts cannot be built adjacent to the City Center. - Bias: T3 Iron, T4 Quarry Resources, T5 Minable Resources.',
     },
-    "ability": {
-      "name": "King of the Eburones",
-      "description": "Mines trigger a culture bomb when built, claiming surrounding unowned tiles. Melee and anti-cavalry units receive +1 :strength: Combat Strength for each adjacent military unit. Receive :culture: culture equal to 25% of the production cost of all military units you train after unlocking Bronze Working."
+    ability: {
+      name: 'King of the Eburones',
+      description: 'Mines trigger a culture bomb when built, claiming surrounding unowned tiles. Melee and anti-cavalry units receive +1 :strength: Combat Strength for each adjacent military unit. Receive :culture: culture equal to 25% of the production cost of all military units you train after unlocking Bronze Working.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Gaesatae",
-        "description": "Gallic unique Ancient era unit that replaces the Warrior. This unit has increased cost and receives +10 :strength: Combat Strength when fighting units with a higher base Combat Strength. +5 :strength: Combat Strength vs. district defenses.",
-        "replaces": "Warrior",
-        "iconUrl": "/assets/bbg/items/Gaesatae.webp"
-      }
+        name: 'Gaesatae',
+        description: 'Gallic unique Ancient era unit that replaces the Warrior. This unit has increased cost and receives +10 :strength: Combat Strength when fighting units with a higher base Combat Strength. +5 :strength: Combat Strength vs. district defenses.',
+        replaces: 'Warrior',
+        iconUrl: '/assets/bbg/items/Gaesatae.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Oppidum",
-        "description": "A district unique to Gaul that is cheaper and available earlier than the district it replaces, the Industrial Zone. The Oppidum district is defensible with a ranged attack. +2 :production: Production adjacency bonus from Quarries and Strategic resources. Triggers a Culture Bomb of unowned territory when completed.",
-        "iconUrl": "/assets/bbg/items/Oppidum.webp"
-      }
+        name: 'Oppidum',
+        description: 'A district unique to Gaul that is cheaper and available earlier than the district it replaces, the Industrial Zone. The Oppidum district is defensible with a ranged attack. +2 :production: Production adjacency bonus from Quarries and Strategic resources. Triggers a Culture Bomb of unowned territory when completed.',
+        iconUrl: '/assets/bbg/items/Oppidum.webp',
+      },
     ],
-    "uniqueImprovements": [
+    uniqueImprovements: [
       {
-        "name": "Dūnon",
-        "description": "Unlocks the Builder ability to construct a Dūnon, unique to Gaul. +1 :food: Food, +1 :housing: Housing. +1 :production: Production if built on a Hill. Friendly units within 1 tile of a Dūnon receive +5 :strength: Combat Strength. The Dūnon must be built on a Camp or Pasture resource and provides that resource’s yield modifier to adjacent tiles. One per City. Tiles with Dūnons cannot be swapped.",
-        "iconUrl": "/assets/bbg/items/D%C5%ABnon.webp"
-      }
+        name: 'Dūnon',
+        description: 'Unlocks the Builder ability to construct a Dūnon, unique to Gaul. +1 :food: Food, +1 :housing: Housing. +1 :production: Production if built on a Hill. Friendly units within 1 tile of a Dūnon receive +5 :strength: Combat Strength. The Dūnon must be built on a Camp or Pasture resource and provides that resource’s yield modifier to adjacent tiles. One per City. Tiles with Dūnons cannot be swapped.',
+        iconUrl: '/assets/bbg/items/D%C5%ABnon.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "gaul-vercingetorix",
-    "name": "Vercingetorix",
-    "civilization": "Gaul",
-    "portraitUrl": "/assets/bbg/leaders/Gaul%20Vercingetorix.webp",
-    "civilizationAbility": {
-      "name": "Hallstatt Culture",
-      "description": "Quarries grant a standard adjacency bonus for all :district: districts (doubled for the Oppidum) and Mines grant a minor adjacency bonus for all :district: districts. Specialty :district: districts do not receive a minor adjacency for being adjacent to another district and these districts cannot be built adjacent to the City Center. - Bias: T3 Iron, T4 Quarry Resources, T5 Minable Resources."
+    id: 'gaul-vercingetorix',
+    name: 'Vercingetorix',
+    civilization: 'Gaul',
+    portraitUrl: '/assets/bbg/leaders/Gaul%20Vercingetorix.webp',
+    civilizationAbility: {
+      name: 'Hallstatt Culture',
+      description: 'Quarries grant a standard adjacency bonus for all :district: districts (doubled for the Oppidum) and Mines grant a minor adjacency bonus for all :district: districts. Specialty :district: districts do not receive a minor adjacency for being adjacent to another district and these districts cannot be built adjacent to the City Center. - Bias: T3 Iron, T4 Quarry Resources, T5 Minable Resources.',
     },
-    "ability": {
-      "name": "Gallic Confederation",
-      "description": "+1 :culture: Culture on mines with Bronze Working. +1 :influenceperturn: Influence per turn per Workshop and Recruiting a :greatengineer: Great Engineer grants 1 :envoy: envoy."
+    ability: {
+      name: 'Gallic Confederation',
+      description: '+1 :culture: Culture on mines with Bronze Working. +1 :influenceperturn: Influence per turn per Workshop and Recruiting a :greatengineer: Great Engineer grants 1 :envoy: envoy.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Gaesatae",
-        "description": "Gallic unique Ancient era unit that replaces the Warrior. This unit has increased cost and receives +10 :strength: Combat Strength when fighting units with a higher base Combat Strength. +5 :strength: Combat Strength vs. district defenses.",
-        "replaces": "Warrior",
-        "iconUrl": "/assets/bbg/items/Gaesatae.webp"
-      }
+        name: 'Gaesatae',
+        description: 'Gallic unique Ancient era unit that replaces the Warrior. This unit has increased cost and receives +10 :strength: Combat Strength when fighting units with a higher base Combat Strength. +5 :strength: Combat Strength vs. district defenses.',
+        replaces: 'Warrior',
+        iconUrl: '/assets/bbg/items/Gaesatae.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Oppidum",
-        "description": "A district unique to Gaul that is cheaper and available earlier than the district it replaces, the Industrial Zone. The Oppidum district is defensible with a ranged attack. +2 :production: Production adjacency bonus from Quarries and Strategic resources. Triggers a Culture Bomb of unowned territory when completed.",
-        "iconUrl": "/assets/bbg/items/Oppidum.webp"
-      }
+        name: 'Oppidum',
+        description: 'A district unique to Gaul that is cheaper and available earlier than the district it replaces, the Industrial Zone. The Oppidum district is defensible with a ranged attack. +2 :production: Production adjacency bonus from Quarries and Strategic resources. Triggers a Culture Bomb of unowned territory when completed.',
+        iconUrl: '/assets/bbg/items/Oppidum.webp',
+      },
     ],
-    "uniqueImprovements": [
+    uniqueImprovements: [
       {
-        "name": "Dūnon",
-        "description": "Unlocks the Builder ability to construct a Dūnon, unique to Gaul. +1 :food: Food, +1 :housing: Housing. +1 :production: Production if built on a Hill. Friendly units within 1 tile of a Dūnon receive +5 :strength: Combat Strength. The Dūnon must be built on a Camp or Pasture resource and provides that resource’s yield modifier to adjacent tiles. One per City. Tiles with Dūnons cannot be swapped.",
-        "iconUrl": "/assets/bbg/items/D%C5%ABnon.webp"
-      }
+        name: 'Dūnon',
+        description: 'Unlocks the Builder ability to construct a Dūnon, unique to Gaul. +1 :food: Food, +1 :housing: Housing. +1 :production: Production if built on a Hill. Friendly units within 1 tile of a Dūnon receive +5 :strength: Combat Strength. The Dūnon must be built on a Camp or Pasture resource and provides that resource’s yield modifier to adjacent tiles. One per City. Tiles with Dūnons cannot be swapped.',
+        iconUrl: '/assets/bbg/items/D%C5%ABnon.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "georgia-tamar",
-    "name": "Tamar",
-    "civilization": "Georgia",
-    "portraitUrl": "/assets/bbg/leaders/Georgia%20Tamar.webp",
-    "civilizationAbility": {
-      "name": "Strength in Unity",
-      "description": "When making Dedications at the beginning of a :glorygoldenage: Golden Age or :glorysupergoldenage: Heroic Age, receive the :glorynormalage: Normal Age bonus towards improving Era Score in addition to the other bonus. +50% :production: Production towards walls. - Bias: T4 Quarry Resources."
+    id: 'georgia-tamar',
+    name: 'Tamar',
+    civilization: 'Georgia',
+    portraitUrl: '/assets/bbg/leaders/Georgia%20Tamar.webp',
+    civilizationAbility: {
+      name: 'Strength in Unity',
+      description: 'When making Dedications at the beginning of a :glorygoldenage: Golden Age or :glorysupergoldenage: Heroic Age, receive the :glorynormalage: Normal Age bonus towards improving Era Score in addition to the other bonus. +50% :production: Production towards walls. - Bias: T4 Quarry Resources.',
     },
-    "ability": {
-      "name": "Glory of the World, Kingdom and Faith",
-      "description": "Killing a unit provides :faith: Faith equal to 50% of the defeated unit's base :strength: Combat Strength (on Online speed). Each :envoy: Envoy you send to a City-state of your majority Religion counts as two :envoy: Envoys (must have a majority Religion). Earn +1 :faith: Faith per Envoy in a City-state."
+    ability: {
+      name: 'Glory of the World, Kingdom and Faith',
+      description: 'Killing a unit provides :faith: Faith equal to 50% of the defeated unit\'s base :strength: Combat Strength (on Online speed). Each :envoy: Envoy you send to a City-state of your majority Religion counts as two :envoy: Envoys (must have a majority Religion). Earn +1 :faith: Faith per Envoy in a City-state.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Khevsur",
-        "description": "Georgian unique Medieval Era unit that replaces the Man-At-Arms. +7 :strength: Combat Strength bonus when fighting in hill terrain. No :movement: Movement penalty in hill terrain.",
-        "replaces": "Man-At-Arms",
-        "iconUrl": "/assets/bbg/items/Khevsur.webp"
-      }
+        name: 'Khevsur',
+        description: 'Georgian unique Medieval Era unit that replaces the Man-At-Arms. +7 :strength: Combat Strength bonus when fighting in hill terrain. No :movement: Movement penalty in hill terrain.',
+        replaces: 'Man-At-Arms',
+        iconUrl: '/assets/bbg/items/Khevsur.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Tsikhe",
-        "description": "A building unique to Georgia which replaces and is stronger than Ancient Walls. +4 :faith: Faith and +1 :culture: Culture. +1 :tourism: Tourism with Conservation. +3 :faith: Faith and +100% :tourism: Tourism when in a :glorygoldenage: Golden or :glorysupergoldenage: Heroic Age.",
-        "replaces": "and is stronger than Ancient Walls",
-        "iconUrl": "/assets/bbg/items/Tsikhe.webp"
-      }
+        name: 'Tsikhe',
+        description: 'A building unique to Georgia which replaces and is stronger than Ancient Walls. +4 :faith: Faith and +1 :culture: Culture. +1 :tourism: Tourism with Conservation. +3 :faith: Faith and +100% :tourism: Tourism when in a :glorygoldenage: Golden or :glorysupergoldenage: Heroic Age.',
+        replaces: 'and is stronger than Ancient Walls',
+        iconUrl: '/assets/bbg/items/Tsikhe.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "germany-frederick-barbarossa",
-    "name": "Frederick Barbarossa",
-    "civilization": "Germany",
-    "portraitUrl": "/assets/bbg/leaders/Germany%20Frederick%20Barbarossa.webp",
-    "civilizationAbility": {
-      "name": "Free Imperial Cities",
-      "description": "After unlocking Guilds, each city can build one more :district: District than usual (exceeding the normal limit based on :citizen: Population). - Bias: T3 Rivers."
+    id: 'germany-frederick-barbarossa',
+    name: 'Frederick Barbarossa',
+    civilization: 'Germany',
+    portraitUrl: '/assets/bbg/leaders/Germany%20Frederick%20Barbarossa.webp',
+    civilizationAbility: {
+      name: 'Free Imperial Cities',
+      description: 'After unlocking Guilds, each city can build one more :district: District than usual (exceeding the normal limit based on :citizen: Population). - Bias: T3 Rivers.',
     },
-    "ability": {
-      "name": "Holy Roman Emperor",
-      "description": "One extra Military policy slot in any :government: government. +7 :strength: Combat Strength versus City-states. Hansa receives major adjacency bonus from Encampments. Gain the Tiger I unique unit when Combustion is researched."
+    ability: {
+      name: 'Holy Roman Emperor',
+      description: 'One extra Military policy slot in any :government: government. +7 :strength: Combat Strength versus City-states. Hansa receives major adjacency bonus from Encampments. Gain the Tiger I unique unit when Combustion is researched.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "U-Boat",
-        "description": "German unique Modern era naval unit that replaces the Submarine. Cheaper to produce, +1 Sight, and +10 :strength: Combat Strength when fighting on Ocean tiles. Able to reveal other stealthed units.",
-        "replaces": "Submarine",
-        "iconUrl": "/assets/bbg/items/U-Boat.webp"
-      }
+        name: 'U-Boat',
+        description: 'German unique Modern era naval unit that replaces the Submarine. Cheaper to produce, +1 Sight, and +10 :strength: Combat Strength when fighting on Ocean tiles. Able to reveal other stealthed units.',
+        replaces: 'Submarine',
+        iconUrl: '/assets/bbg/items/U-Boat.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Hansa",
-        "description": "A district unique to Germany for industrial activity. Replaces the Industrial Zone district and cheaper to build. + 2 :production: Production bonus for each adjacent Aqueduct, Canal, and Dam district. +1 :production: Production bonus for each adjacent resource. +1 :production: Production bonus for every two adjacent district tiles.",
-        "replaces": "Industrial Zone district",
-        "iconUrl": "/assets/bbg/items/Hansa.webp"
-      }
+        name: 'Hansa',
+        description: 'A district unique to Germany for industrial activity. Replaces the Industrial Zone district and cheaper to build. + 2 :production: Production bonus for each adjacent Aqueduct, Canal, and Dam district. +1 :production: Production bonus for each adjacent resource. +1 :production: Production bonus for every two adjacent district tiles.',
+        replaces: 'Industrial Zone district',
+        iconUrl: '/assets/bbg/items/Hansa.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "germany-ludwig-ii",
-    "name": "Ludwig II",
-    "civilization": "Germany",
-    "portraitUrl": "/assets/bbg/leaders/Germany%20Ludwig%20II.webp",
-    "civilizationAbility": {
-      "name": "Free Imperial Cities",
-      "description": "After unlocking Guilds, each city can build one more :district: District than usual (exceeding the normal limit based on :citizen: Population). - Bias: T3 Rivers."
+    id: 'germany-ludwig-ii',
+    name: 'Ludwig II',
+    civilization: 'Germany',
+    portraitUrl: '/assets/bbg/leaders/Germany%20Ludwig%20II.webp',
+    civilizationAbility: {
+      name: 'Free Imperial Cities',
+      description: 'After unlocking Guilds, each city can build one more :district: District than usual (exceeding the normal limit based on :citizen: Population). - Bias: T3 Rivers.',
     },
-    "ability": {
-      "name": "Swan King",
-      "description": "Wonders (complete and incomplete) receive +1 :culture: Culture for every adjacent :district: District as adjacency bonus. All :culture: Culture adjacencies provide :tourism: Tourism with Castles. Hansa receives major adjacency bonus from Commercial Hubs."
+    ability: {
+      name: 'Swan King',
+      description: 'Wonders (complete and incomplete) receive +1 :culture: Culture for every adjacent :district: District as adjacency bonus. All :culture: Culture adjacencies provide :tourism: Tourism with Castles. Hansa receives major adjacency bonus from Commercial Hubs.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "U-Boat",
-        "description": "German unique Modern era naval unit that replaces the Submarine. Cheaper to produce, +1 Sight, and +10 :strength: Combat Strength when fighting on Ocean tiles. Able to reveal other stealthed units.",
-        "replaces": "Submarine",
-        "iconUrl": "/assets/bbg/items/U-Boat.webp"
-      }
+        name: 'U-Boat',
+        description: 'German unique Modern era naval unit that replaces the Submarine. Cheaper to produce, +1 Sight, and +10 :strength: Combat Strength when fighting on Ocean tiles. Able to reveal other stealthed units.',
+        replaces: 'Submarine',
+        iconUrl: '/assets/bbg/items/U-Boat.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Hansa",
-        "description": "A district unique to Germany for industrial activity. Replaces the Industrial Zone district and cheaper to build. + 2 :production: Production bonus for each adjacent Aqueduct, Canal, and Dam district. +1 :production: Production bonus for each adjacent resource. +1 :production: Production bonus for every two adjacent district tiles.",
-        "replaces": "Industrial Zone district",
-        "iconUrl": "/assets/bbg/items/Hansa.webp"
-      }
+        name: 'Hansa',
+        description: 'A district unique to Germany for industrial activity. Replaces the Industrial Zone district and cheaper to build. + 2 :production: Production bonus for each adjacent Aqueduct, Canal, and Dam district. +1 :production: Production bonus for each adjacent resource. +1 :production: Production bonus for every two adjacent district tiles.',
+        replaces: 'Industrial Zone district',
+        iconUrl: '/assets/bbg/items/Hansa.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "gran-colombia-simon-bolivar",
-    "name": "Simón Bolívar",
-    "civilization": "Gran Colombia",
-    "portraitUrl": "/assets/bbg/leaders/Gran%20Colombia%20Sim%C3%B3n%20Bol%C3%ADvar.webp",
-    "civilizationAbility": {
-      "name": "Ejército Patriota",
-      "description": "+1 :movement: Movement for all military units after researching Political Philosophy. Promoting Cavalry units, Air units and Spies does not end these units' turn. - Bias: T5 Plantation Resources."
+    id: 'gran-colombia-simon-bolivar',
+    name: 'Simón Bolívar',
+    civilization: 'Gran Colombia',
+    portraitUrl: '/assets/bbg/leaders/Gran%20Colombia%20Sim%C3%B3n%20Bol%C3%ADvar.webp',
+    civilizationAbility: {
+      name: 'Ejército Patriota',
+      description: '+1 :movement: Movement for all military units after researching Political Philosophy. Promoting Cavalry units, Air units and Spies does not end these units\' turn. - Bias: T5 Plantation Resources.',
     },
-    "ability": {
-      "name": "Campaña Admirable",
-      "description": "Earn a Comandante General when the game enters a new era. May not recruit :greatgeneral: Great Generals."
+    ability: {
+      name: 'Campaña Admirable',
+      description: 'Earn a Comandante General when the game enters a new era. May not recruit :greatgeneral: Great Generals.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Comandante General",
-        "description": "A special type of Great Person only available to Simón Bolívar. Each has unique abilities, including a passive effect, and a Retire effect.",
-        "replaces": "Cavalry",
-        "iconUrl": "/assets/bbg/items/Comandante%20General.webp"
+        name: 'Comandante General',
+        description: 'A special type of Great Person only available to Simón Bolívar. Each has unique abilities, including a passive effect, and a Retire effect.',
+        replaces: 'Cavalry',
+        iconUrl: '/assets/bbg/items/Comandante%20General.webp',
       },
       {
-        "name": "Llanero",
-        "description": "Gran Colombian Industrial era unique unit that replaces the Cavalry. Low maintenance cost. +2 :strength: Combat Strength for every adjacent Llanero. Fully heals when in range of a Comandante General that activates its retire ability.",
-        "replaces": "Cavalry",
-        "iconUrl": "/assets/bbg/items/Llanero.webp"
-      }
+        name: 'Llanero',
+        description: 'Gran Colombian Industrial era unique unit that replaces the Cavalry. Low maintenance cost. +2 :strength: Combat Strength for every adjacent Llanero. Fully heals when in range of a Comandante General that activates its retire ability.',
+        replaces: 'Cavalry',
+        iconUrl: '/assets/bbg/items/Llanero.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Hacienda",
-        "description": "Colombian unique builder improvement unlocked with Medieval Faires. Can be built on Plains and Grassland flat tiles. +1 :production: Production, +2 :gold: Gold, and +0.5 :housing: Housing. +1 :food: Food for every 2 adjacent Plantations, increasing to +1 :food: Food for every adjacent Plantation with Replaceable Parts. +1 :production: Production on Plantations and Haciendas for every 2 adjacent Haciendas, increasing to +1 :production: Production for every adjacent Hacienda with Mercantilism.",
-        "iconUrl": "/assets/bbg/items/Hacienda.webp"
-      }
+        name: 'Hacienda',
+        description: 'Colombian unique builder improvement unlocked with Medieval Faires. Can be built on Plains and Grassland flat tiles. +1 :production: Production, +2 :gold: Gold, and +0.5 :housing: Housing. +1 :food: Food for every 2 adjacent Plantations, increasing to +1 :food: Food for every adjacent Plantation with Replaceable Parts. +1 :production: Production on Plantations and Haciendas for every 2 adjacent Haciendas, increasing to +1 :production: Production for every adjacent Hacienda with Mercantilism.',
+        iconUrl: '/assets/bbg/items/Hacienda.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "greece-gorgo",
-    "name": "Gorgo",
-    "civilization": "Greece",
-    "portraitUrl": "/assets/bbg/leaders/Greece%20Gorgo.webp",
-    "civilizationAbility": {
-      "name": "Plato's Republic",
-      "description": "One extra Wildcard policy slot in any :government: government with Early Empire. - Bias: T4 Grassland and Plains Hills."
+    id: 'greece-gorgo',
+    name: 'Gorgo',
+    civilization: 'Greece',
+    portraitUrl: '/assets/bbg/leaders/Greece%20Gorgo.webp',
+    civilizationAbility: {
+      name: 'Plato\'s Republic',
+      description: 'One extra Wildcard policy slot in any :government: government with Early Empire. - Bias: T4 Grassland and Plains Hills.',
     },
-    "ability": {
-      "name": "Thermopylae",
-      "description": "Combat victories provide :culture: Culture equal to 50% of the :strength: Combat Strength of the defeated unit (on Online speed). +1 :strength: Combat Strength for each Military policy slot in your :government: government."
+    ability: {
+      name: 'Thermopylae',
+      description: 'Combat victories provide :culture: Culture equal to 50% of the :strength: Combat Strength of the defeated unit (on Online speed). +1 :strength: Combat Strength for each Military policy slot in your :government: government.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Hoplite",
-        "description": "Greek unique Ancient era anti-cavalry unit that replaces the Spearman. +7 :strength: Combat Strength if there is at least one adjacent Hoplite unit.",
-        "replaces": "Spearman",
-        "iconUrl": "/assets/bbg/items/Hoplite.webp"
-      }
+        name: 'Hoplite',
+        description: 'Greek unique Ancient era anti-cavalry unit that replaces the Spearman. +7 :strength: Combat Strength if there is at least one adjacent Hoplite unit.',
+        replaces: 'Spearman',
+        iconUrl: '/assets/bbg/items/Hoplite.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Acropolis",
-        "description": "A district unique to Greece that replaces the Theater Square district and is cheaper to build. Can only be built on Hills. +1 :culture: Culture for each adjacent district. +1 :culture: Culture for an adjacent City Center. +2 :culture: Culture bonus for each adjacent wonder, Entertainment Complex, and Water Park.",
-        "replaces": "Theater Square district",
-        "iconUrl": "/assets/bbg/items/Acropolis.webp"
-      }
+        name: 'Acropolis',
+        description: 'A district unique to Greece that replaces the Theater Square district and is cheaper to build. Can only be built on Hills. +1 :culture: Culture for each adjacent district. +1 :culture: Culture for an adjacent City Center. +2 :culture: Culture bonus for each adjacent wonder, Entertainment Complex, and Water Park.',
+        replaces: 'Theater Square district',
+        iconUrl: '/assets/bbg/items/Acropolis.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "greece-pericles",
-    "name": "Pericles",
-    "civilization": "Greece",
-    "portraitUrl": "/assets/bbg/leaders/Greece%20Pericles.webp",
-    "civilizationAbility": {
-      "name": "Plato's Republic",
-      "description": "One extra Wildcard policy slot in any :government: government with Early Empire. - Bias: T4 Grassland and Plains Hills."
+    id: 'greece-pericles',
+    name: 'Pericles',
+    civilization: 'Greece',
+    portraitUrl: '/assets/bbg/leaders/Greece%20Pericles.webp',
+    civilizationAbility: {
+      name: 'Plato\'s Republic',
+      description: 'One extra Wildcard policy slot in any :government: government with Early Empire. - Bias: T4 Grassland and Plains Hills.',
     },
-    "ability": {
-      "name": "Surrounded by Glory",
-      "description": "+5% :culture: Culture and +5% :tourism: Tourism per City-state you are Suzerain of. Awards 1 :envoy: envoy when an Amphitheater is completed. Acropolis receives standard production adjacency from wonders and minor production adjacency from districts."
+    ability: {
+      name: 'Surrounded by Glory',
+      description: '+5% :culture: Culture and +5% :tourism: Tourism per City-state you are Suzerain of. Awards 1 :envoy: envoy when an Amphitheater is completed. Acropolis receives standard production adjacency from wonders and minor production adjacency from districts.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Hoplite",
-        "description": "Greek unique Ancient era anti-cavalry unit that replaces the Spearman. +7 :strength: Combat Strength if there is at least one adjacent Hoplite unit.",
-        "replaces": "Spearman",
-        "iconUrl": "/assets/bbg/items/Hoplite.webp"
-      }
+        name: 'Hoplite',
+        description: 'Greek unique Ancient era anti-cavalry unit that replaces the Spearman. +7 :strength: Combat Strength if there is at least one adjacent Hoplite unit.',
+        replaces: 'Spearman',
+        iconUrl: '/assets/bbg/items/Hoplite.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Acropolis",
-        "description": "A district unique to Greece that replaces the Theater Square district and is cheaper to build. Can only be built on Hills. +1 :culture: Culture for each adjacent district. +1 :culture: Culture for an adjacent City Center. +2 :culture: Culture bonus for each adjacent wonder, Entertainment Complex, and Water Park.",
-        "replaces": "Theater Square district",
-        "iconUrl": "/assets/bbg/items/Acropolis.webp"
-      }
+        name: 'Acropolis',
+        description: 'A district unique to Greece that replaces the Theater Square district and is cheaper to build. Can only be built on Hills. +1 :culture: Culture for each adjacent district. +1 :culture: Culture for an adjacent City Center. +2 :culture: Culture bonus for each adjacent wonder, Entertainment Complex, and Water Park.',
+        replaces: 'Theater Square district',
+        iconUrl: '/assets/bbg/items/Acropolis.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "hungary-matthias-corvinus",
-    "name": "Matthias Corvinus",
-    "civilization": "Hungary",
-    "portraitUrl": "/assets/bbg/leaders/Hungary%20Matthias%20Corvinus.webp",
-    "civilizationAbility": {
-      "name": "Pearl of the Danube",
-      "description": "+50% :production: Production to :district: Districts and Buildings constructed directly across a river from a City Center. - Bias: T4 Rivers, T5 Geothermal Fissures."
+    id: 'hungary-matthias-corvinus',
+    name: 'Matthias Corvinus',
+    civilization: 'Hungary',
+    portraitUrl: '/assets/bbg/leaders/Hungary%20Matthias%20Corvinus.webp',
+    civilizationAbility: {
+      name: 'Pearl of the Danube',
+      description: '+50% :production: Production to :district: Districts and Buildings constructed directly across a river from a City Center. - Bias: T4 Rivers, T5 Geothermal Fissures.',
     },
-    "ability": {
-      "name": "Raven King",
-      "description": "Levied units gain an ability giving them +1 :movement: Movement. It cost 75% less :gold: Gold and resources to upgrade Levied units. If you Levy troops from a City-state, receive 1 :envoy: Envoys with that City-state. Gain the Black Army unique unit when the Castles technology is researched."
+    ability: {
+      name: 'Raven King',
+      description: 'Levied units gain an ability giving them +1 :movement: Movement. It cost 75% less :gold: Gold and resources to upgrade Levied units. If you Levy troops from a City-state, receive 1 :envoy: Envoys with that City-state. Gain the Black Army unique unit when the Castles technology is researched.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Huszár",
-        "description": "Hungarian unique Industrial era unit that replaces Cavalry. +2 :strength: Combat Strength from every City-state of which you are suzerain.",
-        "replaces": "Cavalry",
-        "iconUrl": "/assets/bbg/items/Husz%C3%A1r.webp"
+        name: 'Huszár',
+        description: 'Hungarian unique Industrial era unit that replaces Cavalry. +2 :strength: Combat Strength from every City-state of which you are suzerain.',
+        replaces: 'Cavalry',
+        iconUrl: '/assets/bbg/items/Husz%C3%A1r.webp',
       },
       {
-        "name": "Black Army",
-        "description": "Hungarian unique Medieval Era unit that replaces the Courser. +2 :strength: Combat Strength from each adjacent Levied unit.",
-        "replaces": "Courser",
-        "iconUrl": "/assets/bbg/items/Black%20Army.webp"
-      }
+        name: 'Black Army',
+        description: 'Hungarian unique Medieval Era unit that replaces the Courser. +2 :strength: Combat Strength from each adjacent Levied unit.',
+        replaces: 'Courser',
+        iconUrl: '/assets/bbg/items/Black%20Army.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Thermal Bath",
-        "description": "A building unique to Hungary. +2 :amenities: Amenities and +2 :production: Production extends to each city center within 6 tiles. These bonuses apply once to a city, and multiple copies of this building within 6 tiles of a city center do not provide additional bonuses. This city receives +3 :tourism: Tourism and +2 additional :amenities: Amenities if there is at least one Geothermal Fissure in this city's borders.",
-        "iconUrl": "/assets/bbg/items/Thermal%20Bath.webp"
-      }
+        name: 'Thermal Bath',
+        description: 'A building unique to Hungary. +2 :amenities: Amenities and +2 :production: Production extends to each city center within 6 tiles. These bonuses apply once to a city, and multiple copies of this building within 6 tiles of a city center do not provide additional bonuses. This city receives +3 :tourism: Tourism and +2 additional :amenities: Amenities if there is at least one Geothermal Fissure in this city\'s borders.',
+        iconUrl: '/assets/bbg/items/Thermal%20Bath.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "inca-pachacuti",
-    "name": "Pachacuti",
-    "civilization": "Inca",
-    "portraitUrl": "/assets/bbg/leaders/Inca%20Pachacuti.webp",
-    "civilizationAbility": {
-      "name": "Mit’a",
-      "description": "Citizens can work Mountain tiles. Mountain tiles provide +2 :production: Production, increasing to +3 :production: Production after you reach the Industrial Era, and +1 :food: Food for each adjacent Terrace Farm. Cities do not suffer penalties on non-food yields for being negative amenities. - Bias: T3 Grassland and Plains Mountains. Special \"Mountain Lover\"."
+    id: 'inca-pachacuti',
+    name: 'Pachacuti',
+    civilization: 'Inca',
+    portraitUrl: '/assets/bbg/leaders/Inca%20Pachacuti.webp',
+    civilizationAbility: {
+      name: 'Mit’a',
+      description: 'Citizens can work Mountain tiles. Mountain tiles provide +2 :production: Production, increasing to +3 :production: Production after you reach the Industrial Era, and +1 :food: Food for each adjacent Terrace Farm. Cities do not suffer penalties on non-food yields for being negative amenities. - Bias: T3 Grassland and Plains Mountains. Special "Mountain Lover".',
     },
-    "ability": {
-      "name": "Qhapaq Ñan",
-      "description": "Domestic :traderoute: Trade Routes gain +1 :food: Food for every Mountain tile in the origin city. International :traderoute: Trade Routes gain +1 :gold: Gold for every Mountain tile in the origin city. -50% of the normal :gold: Gold cost to purchase Mountain tiles. Gain the Qhapaq Ñan improvement with Foreign Trade. Recon units gain +1 :charges: build charge to build a Qhapaq Ñan."
+    ability: {
+      name: 'Qhapaq Ñan',
+      description: 'Domestic :traderoute: Trade Routes gain +1 :food: Food for every Mountain tile in the origin city. International :traderoute: Trade Routes gain +1 :gold: Gold for every Mountain tile in the origin city. -50% of the normal :gold: Gold cost to purchase Mountain tiles. Gain the Qhapaq Ñan improvement with Foreign Trade. Recon units gain +1 :charges: build charge to build a Qhapaq Ñan.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Warak’aq",
-        "description": "Incan unique Medieval Era unit that replaces the Skirmisher. Stronger at ranged combat than the Skirmisher and +1 additional attack per turn.",
-        "replaces": "Skirmisher",
-        "iconUrl": "/assets/bbg/items/Warak%E2%80%99aq.webp"
-      }
+        name: 'Warak’aq',
+        description: 'Incan unique Medieval Era unit that replaces the Skirmisher. Stronger at ranged combat than the Skirmisher and +1 additional attack per turn.',
+        replaces: 'Skirmisher',
+        iconUrl: '/assets/bbg/items/Warak%E2%80%99aq.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Terrace Farm",
-        "description": "Incan unique builder improvement available at the start of the game. Can be placed on Grassland Hills, Plains Hills, Desert Hills, or Volcanic Soil. +1 :food: Food +1 :housing: Housing. +1 :food: Food for each adjacent Mountain. +1 :food: Food for every 2 adjacent Terrace Farms, increasing to +1 Food for every Terrace Farm with Replaceable Parts. +1 :production: Production if adjacent to Fresh Water and not an Aqueduct. +2 :production: Production for each adjacent Aqueduct.",
-        "iconUrl": "/assets/bbg/items/Terrace%20Farm.webp"
+        name: 'Terrace Farm',
+        description: 'Incan unique builder improvement available at the start of the game. Can be placed on Grassland Hills, Plains Hills, Desert Hills, or Volcanic Soil. +1 :food: Food +1 :housing: Housing. +1 :food: Food for each adjacent Mountain. +1 :food: Food for every 2 adjacent Terrace Farms, increasing to +1 Food for every Terrace Farm with Replaceable Parts. +1 :production: Production if adjacent to Fresh Water and not an Aqueduct. +2 :production: Production for each adjacent Aqueduct.',
+        iconUrl: '/assets/bbg/items/Terrace%20Farm.webp',
       },
       {
-        "name": "Qhapaq Ñan",
-        "description": "Unlocks the Builder ability to construct a Qhapaq Ñan, unique to Pachacuti. Acts as a movement portal on a mountain range, allowing units to move into it and exit from another portal at the cost of 2 :movement: Movement. :traderoute: Trade Routes traveling through it can multiply the :gold: Gold they get from districts at their destination. Can only be built on an adjacent Mountain tile. Cannot be pillaged or removed.",
-        "iconUrl": "/assets/bbg/items/Qhapaq%20%C3%91an.webp"
-      }
+        name: 'Qhapaq Ñan',
+        description: 'Unlocks the Builder ability to construct a Qhapaq Ñan, unique to Pachacuti. Acts as a movement portal on a mountain range, allowing units to move into it and exit from another portal at the cost of 2 :movement: Movement. :traderoute: Trade Routes traveling through it can multiply the :gold: Gold they get from districts at their destination. Can only be built on an adjacent Mountain tile. Cannot be pillaged or removed.',
+        iconUrl: '/assets/bbg/items/Qhapaq%20%C3%91an.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "india-chandragupta",
-    "name": "Chandragupta",
-    "civilization": "India",
-    "portraitUrl": "/assets/bbg/leaders/India%20Chandragupta.webp",
-    "civilizationAbility": {
-      "name": "Dharma",
-      "description": "Receives Follower Belief bonuses in a city from each Religion that has at least 1 Follower. Cities gain +1 :amenities: Amenity if they follow your majority religion. Missionaries have +2 spreads. +100% Religious pressure from your :traderoute: Trade Routes. - Bias: None."
+    id: 'india-chandragupta',
+    name: 'Chandragupta',
+    civilization: 'India',
+    portraitUrl: '/assets/bbg/leaders/India%20Chandragupta.webp',
+    civilizationAbility: {
+      name: 'Dharma',
+      description: 'Receives Follower Belief bonuses in a city from each Religion that has at least 1 Follower. Cities gain +1 :amenities: Amenity if they follow your majority religion. Missionaries have +2 spreads. +100% Religious pressure from your :traderoute: Trade Routes. - Bias: None.',
     },
-    "ability": {
-      "name": "Arthashastra",
-      "description": "Shrines grant +1 :movement: Movement and Temples grant +1 Sight for all newly trained military units in the city. Units receive +1 :strength: Combat Strength for each Holy Site building in the city when produced."
+    ability: {
+      name: 'Arthashastra',
+      description: 'Shrines grant +1 :movement: Movement and Temples grant +1 Sight for all newly trained military units in the city. Units receive +1 :strength: Combat Strength for each Holy Site building in the city when produced.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Varu",
-        "description": "Indian unique Classical era heavy cavalry unit. Has Sight of 3. Adjacent enemy units receive -5 :strength: Combat Strength.",
-        "iconUrl": "/assets/bbg/items/Varu.webp"
-      }
+        name: 'Varu',
+        description: 'Indian unique Classical era heavy cavalry unit. Has Sight of 3. Adjacent enemy units receive -5 :strength: Combat Strength.',
+        iconUrl: '/assets/bbg/items/Varu.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Stepwell",
-        "description": "Indian unique builder improvement unlocked with Irrigation. +1 :food: Food, +1 :faith: Faith, and +1 :housing: Housing. +1 :food: Food and +1 :faith: Faith with Feudalism. +1 :food: Food for each adjacent Farm. +1 :faith: Faith if adjacent to a Holy Site district. +1 :housing: Housing with Sanitation. Cannot be built on Hills or adjacent to another Stepwell.",
-        "iconUrl": "/assets/bbg/items/Stepwell.webp"
-      }
+        name: 'Stepwell',
+        description: 'Indian unique builder improvement unlocked with Irrigation. +1 :food: Food, +1 :faith: Faith, and +1 :housing: Housing. +1 :food: Food and +1 :faith: Faith with Feudalism. +1 :food: Food for each adjacent Farm. +1 :faith: Faith if adjacent to a Holy Site district. +1 :housing: Housing with Sanitation. Cannot be built on Hills or adjacent to another Stepwell.',
+        iconUrl: '/assets/bbg/items/Stepwell.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "india-gandhi",
-    "name": "Gandhi",
-    "civilization": "India",
-    "portraitUrl": "/assets/bbg/leaders/India%20Gandhi.webp",
-    "civilizationAbility": {
-      "name": "Dharma",
-      "description": "Receives Follower Belief bonuses in a city from each Religion that has at least 1 Follower. Cities gain +1 :amenities: Amenity if they follow your majority religion. Missionaries have +2 spreads. +100% Religious pressure from your :traderoute: Trade Routes. - Bias: None."
+    id: 'india-gandhi',
+    name: 'Gandhi',
+    civilization: 'India',
+    portraitUrl: '/assets/bbg/leaders/India%20Gandhi.webp',
+    civilizationAbility: {
+      name: 'Dharma',
+      description: 'Receives Follower Belief bonuses in a city from each Religion that has at least 1 Follower. Cities gain +1 :amenities: Amenity if they follow your majority religion. Missionaries have +2 spreads. +100% Religious pressure from your :traderoute: Trade Routes. - Bias: None.',
     },
-    "ability": {
-      "name": "Satyagraha",
-      "description": "Grants an extra belief when founding a :religion: Religion. +5 :faith: Faith for each civilization (including India) they have met that has founded a Religion and is not currently at war. Settlers and Builders produced in cities with a Holy Site receive +1 :movement: Movement. Opposing civilizations receive +50% war weariness for fighting against Gandhi."
+    ability: {
+      name: 'Satyagraha',
+      description: 'Grants an extra belief when founding a :religion: Religion. +5 :faith: Faith for each civilization (including India) they have met that has founded a Religion and is not currently at war. Settlers and Builders produced in cities with a Holy Site receive +1 :movement: Movement. Opposing civilizations receive +50% war weariness for fighting against Gandhi.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Varu",
-        "description": "Indian unique Classical era heavy cavalry unit. Has Sight of 3. Adjacent enemy units receive -5 :strength: Combat Strength.",
-        "iconUrl": "/assets/bbg/items/Varu.webp"
-      }
+        name: 'Varu',
+        description: 'Indian unique Classical era heavy cavalry unit. Has Sight of 3. Adjacent enemy units receive -5 :strength: Combat Strength.',
+        iconUrl: '/assets/bbg/items/Varu.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Stepwell",
-        "description": "Indian unique builder improvement unlocked with Irrigation. +1 :food: Food, +1 :faith: Faith, and +1 :housing: Housing. +1 :food: Food and +1 :faith: Faith with Feudalism. +1 :food: Food for each adjacent Farm. +1 :faith: Faith if adjacent to a Holy Site district. +1 :housing: Housing with Sanitation. Cannot be built on Hills or adjacent to another Stepwell.",
-        "iconUrl": "/assets/bbg/items/Stepwell.webp"
-      }
+        name: 'Stepwell',
+        description: 'Indian unique builder improvement unlocked with Irrigation. +1 :food: Food, +1 :faith: Faith, and +1 :housing: Housing. +1 :food: Food and +1 :faith: Faith with Feudalism. +1 :food: Food for each adjacent Farm. +1 :faith: Faith if adjacent to a Holy Site district. +1 :housing: Housing with Sanitation. Cannot be built on Hills or adjacent to another Stepwell.',
+        iconUrl: '/assets/bbg/items/Stepwell.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "indonesia-gitarja",
-    "name": "Gitarja",
-    "civilization": "Indonesia",
-    "portraitUrl": "/assets/bbg/leaders/Indonesia%20Gitarja.webp",
-    "civilizationAbility": {
-      "name": "Great Nusantara",
-      "description": "Coast and Lake tiles provide a minor adjacency bonus for Campus, Theater Square, Holy Site, and Industrial Zone districts. +1 :amenities: Amenity from entertainment to each Entertainment Complex adjacent to a Coast or Lake tile. - Bias: T1 Coast."
+    id: 'indonesia-gitarja',
+    name: 'Gitarja',
+    civilization: 'Indonesia',
+    portraitUrl: '/assets/bbg/leaders/Indonesia%20Gitarja.webp',
+    civilizationAbility: {
+      name: 'Great Nusantara',
+      description: 'Coast and Lake tiles provide a minor adjacency bonus for Campus, Theater Square, Holy Site, and Industrial Zone districts. +1 :amenities: Amenity from entertainment to each Entertainment Complex adjacent to a Coast or Lake tile. - Bias: T1 Coast.',
     },
-    "ability": {
-      "name": "Exalted Goddess of the Three Worlds",
-      "description": "Naval units and Harbor buildings can be purchased with :faith: Faith. Religious units pay no movement to embark or disembark. After unlocking Sailing, City Centers next to Coast and Lake tiles provide +2 :faith: Faith and other Districts next to Coast and Lake tiles provide +1 :faith: Faith, increasing to +2 :faith: Faith when Shipbuilding is unlocked."
+    ability: {
+      name: 'Exalted Goddess of the Three Worlds',
+      description: 'Naval units and Harbor buildings can be purchased with :faith: Faith. Religious units pay no movement to embark or disembark. After unlocking Sailing, City Centers next to Coast and Lake tiles provide +2 :faith: Faith and other Districts next to Coast and Lake tiles provide +1 :faith: Faith, increasing to +2 :faith: Faith when Shipbuilding is unlocked.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Jong",
-        "description": "Indonesian unique Renaissance era naval unit that replaces the Frigate. Formation units all inherit escort's :movement: Movement speed and +5 :strength: Combat Strength when in a formation.",
-        "replaces": "Frigate",
-        "iconUrl": "/assets/bbg/items/Jong.webp"
-      }
+        name: 'Jong',
+        description: 'Indonesian unique Renaissance era naval unit that replaces the Frigate. Formation units all inherit escort\'s :movement: Movement speed and +5 :strength: Combat Strength when in a formation.',
+        replaces: 'Frigate',
+        iconUrl: '/assets/bbg/items/Jong.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Kampung",
-        "description": "Indonesian unique builder improvement unlocked at Shipbuilding. Must be placed on a Coast or Lake tile adjacent to a sea resource. +1 :production: Production and +1 :housing: Housing. +1 :food: Food and +1 :faith: Faith for each adjacent Fishing Boat. +1 :production: Production with Civil Engineering. +1 :housing: Housing with Mass Production. Provides :tourism: Tourism from :food: Food after researching Flight.",
-        "iconUrl": "/assets/bbg/items/Kampung.webp"
-      }
+        name: 'Kampung',
+        description: 'Indonesian unique builder improvement unlocked at Shipbuilding. Must be placed on a Coast or Lake tile adjacent to a sea resource. +1 :production: Production and +1 :housing: Housing. +1 :food: Food and +1 :faith: Faith for each adjacent Fishing Boat. +1 :production: Production with Civil Engineering. +1 :housing: Housing with Mass Production. Provides :tourism: Tourism from :food: Food after researching Flight.',
+        iconUrl: '/assets/bbg/items/Kampung.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "japan-hojo-tokimune",
-    "name": "Hojo Tokimune",
-    "civilization": "Japan",
-    "portraitUrl": "/assets/bbg/leaders/Japan%20Hojo%20Tokimune.webp",
-    "civilizationAbility": {
-      "name": "Meiji Restoration",
-      "description": "All districts other than Commercial Hubs and Harbors receive an additional standard adjacency bonus for being adjacent to another district."
+    id: 'japan-hojo-tokimune',
+    name: 'Hojo Tokimune',
+    civilization: 'Japan',
+    portraitUrl: '/assets/bbg/leaders/Japan%20Hojo%20Tokimune.webp',
+    civilizationAbility: {
+      name: 'Meiji Restoration',
+      description: 'All districts other than Commercial Hubs and Harbors receive an additional standard adjacency bonus for being adjacent to another district.',
     },
-    "ability": {
-      "name": "Divine Wind",
-      "description": "+100% :production: Production to Theater Square, Holy Site, and Encampment districts. Commercial Hubs and Harbors receive standard adjacency bonus for being adjacent to another :district: district. Land units receive +3 :strength: Combat Strength in land tiles adjacent to Coast; naval units receive +3 :strength: Combat Strength in shallow water tiles. Units do not receive damage from Hurricanes. Civilizations that are at war with Japan receive +100% unit damage from Hurricanes in Japanese territory."
+    ability: {
+      name: 'Divine Wind',
+      description: '+100% :production: Production to Theater Square, Holy Site, and Encampment districts. Commercial Hubs and Harbors receive standard adjacency bonus for being adjacent to another :district: district. Land units receive +3 :strength: Combat Strength in land tiles adjacent to Coast; naval units receive +3 :strength: Combat Strength in shallow water tiles. Units do not receive damage from Hurricanes. Civilizations that are at war with Japan receive +100% unit damage from Hurricanes in Japanese territory.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Samurai",
-        "description": "Japanese unique Medieval era melee unit that replaces the Man-At-Arms. Does not suffer combat penalties when damaged.",
-        "replaces": "Man-At-Arms",
-        "iconUrl": "/assets/bbg/items/Samurai.webp"
-      }
+        name: 'Samurai',
+        description: 'Japanese unique Medieval era melee unit that replaces the Man-At-Arms. Does not suffer combat penalties when damaged.',
+        replaces: 'Man-At-Arms',
+        iconUrl: '/assets/bbg/items/Samurai.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Electronics Factory",
-        "description": "A building unique to Japan. Provides +4 :culture: Culture to this city after researching the Electricity technology. Its :production: Production bonus is extended to all City Centers within 6 tiles that do not already have a bonus from this building type.",
-        "iconUrl": "/assets/bbg/items/Electronics%20Factory.webp"
-      }
+        name: 'Electronics Factory',
+        description: 'A building unique to Japan. Provides +4 :culture: Culture to this city after researching the Electricity technology. Its :production: Production bonus is extended to all City Centers within 6 tiles that do not already have a bonus from this building type.',
+        iconUrl: '/assets/bbg/items/Electronics%20Factory.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "japan-tokugawa",
-    "name": "Tokugawa",
-    "civilization": "Japan",
-    "portraitUrl": "/assets/bbg/leaders/Japan%20Tokugawa.webp",
-    "civilizationAbility": {
-      "name": "Meiji Restoration",
-      "description": "All districts other than Commercial Hubs and Harbors receive an additional standard adjacency bonus for being adjacent to another district."
+    id: 'japan-tokugawa',
+    name: 'Tokugawa',
+    civilization: 'Japan',
+    portraitUrl: '/assets/bbg/leaders/Japan%20Tokugawa.webp',
+    civilizationAbility: {
+      name: 'Meiji Restoration',
+      description: 'All districts other than Commercial Hubs and Harbors receive an additional standard adjacency bonus for being adjacent to another district.',
     },
-    "ability": {
-      "name": "Bakuhan",
-      "description": "International :traderoute: Trade Routes receive -25% Yields and :tourism: Tourism, but Domestic :traderoute: Trade Routes provide +0.5 :culture: Culture increasing to +1 with Humanism, and +0.5 :science: Science increasing to +1 with Education for every Specialty District at the Destination. Cities within 6 tiles of Japan's capital receive 100% Loyalty and after researching Flight receive +1 :tourism: Tourism for every District."
+    ability: {
+      name: 'Bakuhan',
+      description: 'International :traderoute: Trade Routes receive -25% Yields and :tourism: Tourism, but Domestic :traderoute: Trade Routes provide +0.5 :culture: Culture increasing to +1 with Humanism, and +0.5 :science: Science increasing to +1 with Education for every Specialty District at the Destination. Cities within 6 tiles of Japan\'s capital receive 100% Loyalty and after researching Flight receive +1 :tourism: Tourism for every District.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Samurai",
-        "description": "Japanese unique Medieval era melee unit that replaces the Man-At-Arms. Does not suffer combat penalties when damaged.",
-        "replaces": "Man-At-Arms",
-        "iconUrl": "/assets/bbg/items/Samurai.webp"
-      }
+        name: 'Samurai',
+        description: 'Japanese unique Medieval era melee unit that replaces the Man-At-Arms. Does not suffer combat penalties when damaged.',
+        replaces: 'Man-At-Arms',
+        iconUrl: '/assets/bbg/items/Samurai.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Electronics Factory",
-        "description": "A building unique to Japan. Provides +4 :culture: Culture to this city after researching the Electricity technology. Its :production: Production bonus is extended to all City Centers within 6 tiles that do not already have a bonus from this building type.",
-        "iconUrl": "/assets/bbg/items/Electronics%20Factory.webp"
-      }
+        name: 'Electronics Factory',
+        description: 'A building unique to Japan. Provides +4 :culture: Culture to this city after researching the Electricity technology. Its :production: Production bonus is extended to all City Centers within 6 tiles that do not already have a bonus from this building type.',
+        iconUrl: '/assets/bbg/items/Electronics%20Factory.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "khmer-jayavarman-vii",
-    "name": "Jayavarman VII",
-    "civilization": "Khmer",
-    "portraitUrl": "/assets/bbg/leaders/Khmer%20Jayavarman%20VII.webp",
-    "civilizationAbility": {
-      "name": "Grand Barays",
-      "description": "Cities with an Aqueduct receive +1 :amenities: Amenity. Farms provide +2 :food: Food if adjacent to an Aqueduct and +1 :faith: Faith if adjacent to a Holy Site. - Bias: T3 Rivers."
+    id: 'khmer-jayavarman-vii',
+    name: 'Jayavarman VII',
+    civilization: 'Khmer',
+    portraitUrl: '/assets/bbg/leaders/Khmer%20Jayavarman%20VII.webp',
+    civilizationAbility: {
+      name: 'Grand Barays',
+      description: 'Cities with an Aqueduct receive +1 :amenities: Amenity. Farms provide +2 :food: Food if adjacent to an Aqueduct and +1 :faith: Faith if adjacent to a Holy Site. - Bias: T3 Rivers.',
     },
-    "ability": {
-      "name": "Monasteries of the King",
-      "description": "Holy Sites grant +1 :food: Food and +2 :housing: Housing if built adjacent to a River, and trigger a Culture Bomb when completed."
+    ability: {
+      name: 'Monasteries of the King',
+      description: 'Holy Sites grant +1 :food: Food and +2 :housing: Housing if built adjacent to a River, and trigger a Culture Bomb when completed.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Domrey",
-        "description": "Khmer unique Medieval era siege unit that replaces the Trebuchet. This unit has a higher :strength: Melee and Range Strength than the Trebuchet. It can move and shoot in the same turn and exerts zone of control.",
-        "replaces": "Trebuchet",
-        "iconUrl": "/assets/bbg/items/Domrey.webp"
-      }
+        name: 'Domrey',
+        description: 'Khmer unique Medieval era siege unit that replaces the Trebuchet. This unit has a higher :strength: Melee and Range Strength than the Trebuchet. It can move and shoot in the same turn and exerts zone of control.',
+        replaces: 'Trebuchet',
+        iconUrl: '/assets/bbg/items/Domrey.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Prasat",
-        "description": "A building unique to Khmer that replaces the Temple. Required to purchase Apostles and Inquisitors with :faith: Faith. +6 :faith: Faith. +0.3 :culture: Culture for every :citizen: population in this city. Once Flight is researched receive +10 :tourism: Tourism if the city :citizen: population is 10 or higher and +20 :tourism: Tourism if the city :citizen: population is 20 or higher.",
-        "replaces": "Temple",
-        "iconUrl": "/assets/bbg/items/Prasat.webp"
-      }
+        name: 'Prasat',
+        description: 'A building unique to Khmer that replaces the Temple. Required to purchase Apostles and Inquisitors with :faith: Faith. +6 :faith: Faith. +0.3 :culture: Culture for every :citizen: population in this city. Once Flight is researched receive +10 :tourism: Tourism if the city :citizen: population is 10 or higher and +20 :tourism: Tourism if the city :citizen: population is 20 or higher.',
+        replaces: 'Temple',
+        iconUrl: '/assets/bbg/items/Prasat.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "kongo-mvemba-a-nzinga",
-    "name": "Mvemba a Nzinga",
-    "civilization": "Kongo",
-    "portraitUrl": "/assets/bbg/leaders/Kongo%20Mvemba%20a%20Nzinga.webp",
-    "civilizationAbility": {
-      "name": "Nkisi",
-      "description": ":greatworkartifact: Artifacts, :greatworksculpture: Sculptures, and :greatworkrelic: Relics grant +2 :food: Food, +2 :production: Production, +4 :gold: Gold and +2 :faith: Faith. Palace has slots for 5 Great Works. Receive a :greatworkrelic: Relic when completing each Government Plaza building. Receive 50% more :greatwriter: Great Writer, :greatartist: Great Artist, and :greatmusician: Great Musician points. +100% :production: Production to Archaeologists. - Bias: T3 Rainforest, T5 Woods."
+    id: 'kongo-mvemba-a-nzinga',
+    name: 'Mvemba a Nzinga',
+    civilization: 'Kongo',
+    portraitUrl: '/assets/bbg/leaders/Kongo%20Mvemba%20a%20Nzinga.webp',
+    civilizationAbility: {
+      name: 'Nkisi',
+      description: ':greatworkartifact: Artifacts, :greatworksculpture: Sculptures, and :greatworkrelic: Relics grant +2 :food: Food, +2 :production: Production, +4 :gold: Gold and +2 :faith: Faith. Palace has slots for 5 Great Works. Receive a :greatworkrelic: Relic when completing each Government Plaza building. Receive 50% more :greatwriter: Great Writer, :greatartist: Great Artist, and :greatmusician: Great Musician points. +100% :production: Production to Archaeologists. - Bias: T3 Rainforest, T5 Woods.',
     },
-    "ability": {
-      "name": "Religious Convert",
-      "description": "May not build Holy Site districts, gain :greatprophet: Great Prophets, or found Religions. Receives +0.2 :culture: Culture and +1 :gold: Gold per citizen in a city following any religion. Receives an Apostle (of that city's majority Religion) each time he finishes a Mbanza or Theater Square district. Once you enter the classical era, all land combat units and :greatgeneral: Great Generals ignore the Rainforest and Woods :movement: Movement penalty. +1 :greatgeneral: Great General points on barracks or stables. Rainforest and Woods tiles adjacent to an Encampment receive +1 :production: Production. These tiles also receive +1 :food: Food once the city has constructed a Mbanza."
+    ability: {
+      name: 'Religious Convert',
+      description: 'May not build Holy Site districts, gain :greatprophet: Great Prophets, or found Religions. Receives +0.2 :culture: Culture and +1 :gold: Gold per citizen in a city following any religion. Receives an Apostle (of that city\'s majority Religion) each time he finishes a Mbanza or Theater Square district. Once you enter the classical era, all land combat units and :greatgeneral: Great Generals ignore the Rainforest and Woods :movement: Movement penalty. +1 :greatgeneral: Great General points on barracks or stables. Rainforest and Woods tiles adjacent to an Encampment receive +1 :production: Production. These tiles also receive +1 :food: Food once the city has constructed a Mbanza.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Ngao Mbeba",
-        "description": "Kongo unique Classical era unit that replaces the Swordsman. +10 :strength: Combat Strength when defending against ranged attacks. Can see through Woods and Rainforests.",
-        "replaces": "Swordsman",
-        "iconUrl": "/assets/bbg/items/Ngao%20Mbeba.webp"
-      }
+        name: 'Ngao Mbeba',
+        description: 'Kongo unique Classical era unit that replaces the Swordsman. +10 :strength: Combat Strength when defending against ranged attacks. Can see through Woods and Rainforests.',
+        replaces: 'Swordsman',
+        iconUrl: '/assets/bbg/items/Ngao%20Mbeba.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Mbanza",
-        "description": "A district unique to Kongo that can only be constructed in Rainforest or Woods. Replaces the Neighborhood district but is available earlier and cheaper to build. Provides +5 :housing: Housing, +2 :food: Food, and +4 :gold: Gold, regardless of Appeal.",
-        "replaces": "Neighborhood district but is available earlier",
-        "iconUrl": "/assets/bbg/items/Mbanza.webp"
-      }
+        name: 'Mbanza',
+        description: 'A district unique to Kongo that can only be constructed in Rainforest or Woods. Replaces the Neighborhood district but is available earlier and cheaper to build. Provides +5 :housing: Housing, +2 :food: Food, and +4 :gold: Gold, regardless of Appeal.',
+        replaces: 'Neighborhood district but is available earlier',
+        iconUrl: '/assets/bbg/items/Mbanza.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "kongo-nzinga-mbande",
-    "name": "Nzinga Mbande",
-    "civilization": "Kongo",
-    "portraitUrl": "/assets/bbg/leaders/Kongo%20Nzinga%20Mbande.webp",
-    "civilizationAbility": {
-      "name": "Nkisi",
-      "description": ":greatworkartifact: Artifacts, :greatworksculpture: Sculptures, and :greatworkrelic: Relics grant +2 :food: Food, +2 :production: Production, +4 :gold: Gold and +2 :faith: Faith. Palace has slots for 5 Great Works. Receive a :greatworkrelic: Relic when completing each Government Plaza building. Receive 50% more :greatwriter: Great Writer, :greatartist: Great Artist, and :greatmusician: Great Musician points. +100% :production: Production to Archaeologists. - Bias: T3 Rainforest, T5 Woods."
+    id: 'kongo-nzinga-mbande',
+    name: 'Nzinga Mbande',
+    civilization: 'Kongo',
+    portraitUrl: '/assets/bbg/leaders/Kongo%20Nzinga%20Mbande.webp',
+    civilizationAbility: {
+      name: 'Nkisi',
+      description: ':greatworkartifact: Artifacts, :greatworksculpture: Sculptures, and :greatworkrelic: Relics grant +2 :food: Food, +2 :production: Production, +4 :gold: Gold and +2 :faith: Faith. Palace has slots for 5 Great Works. Receive a :greatworkrelic: Relic when completing each Government Plaza building. Receive 50% more :greatwriter: Great Writer, :greatartist: Great Artist, and :greatmusician: Great Musician points. +100% :production: Production to Archaeologists. - Bias: T3 Rainforest, T5 Woods.',
     },
-    "ability": {
-      "name": "Queen of Ndongo and Matamba",
-      "description": "+15% :gold: Gold and 15% :culture: Culture in cities with a Mbanza (does not stack with multiples). Mbanza provides +2 adjacency to Theater Squares and Commercial Hubs. Archaeologists are 50% cheaper to purchase. All civilian units ignore the Rainforest and Woods :movement: Movement penalty. Receive 50% more :greatmerchant: Great Merchant points."
+    ability: {
+      name: 'Queen of Ndongo and Matamba',
+      description: '+15% :gold: Gold and 15% :culture: Culture in cities with a Mbanza (does not stack with multiples). Mbanza provides +2 adjacency to Theater Squares and Commercial Hubs. Archaeologists are 50% cheaper to purchase. All civilian units ignore the Rainforest and Woods :movement: Movement penalty. Receive 50% more :greatmerchant: Great Merchant points.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Ngao Mbeba",
-        "description": "Kongo unique Classical era unit that replaces the Swordsman. +10 :strength: Combat Strength when defending against ranged attacks. Can see through Woods and Rainforests.",
-        "replaces": "Swordsman",
-        "iconUrl": "/assets/bbg/items/Ngao%20Mbeba.webp"
-      }
+        name: 'Ngao Mbeba',
+        description: 'Kongo unique Classical era unit that replaces the Swordsman. +10 :strength: Combat Strength when defending against ranged attacks. Can see through Woods and Rainforests.',
+        replaces: 'Swordsman',
+        iconUrl: '/assets/bbg/items/Ngao%20Mbeba.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Mbanza",
-        "description": "A district unique to Kongo that can only be constructed in Rainforest or Woods. Replaces the Neighborhood district but is available earlier and cheaper to build. Provides +5 :housing: Housing, +2 :food: Food, and +4 :gold: Gold, regardless of Appeal.",
-        "replaces": "Neighborhood district but is available earlier",
-        "iconUrl": "/assets/bbg/items/Mbanza.webp"
-      }
+        name: 'Mbanza',
+        description: 'A district unique to Kongo that can only be constructed in Rainforest or Woods. Replaces the Neighborhood district but is available earlier and cheaper to build. Provides +5 :housing: Housing, +2 :food: Food, and +4 :gold: Gold, regardless of Appeal.',
+        replaces: 'Neighborhood district but is available earlier',
+        iconUrl: '/assets/bbg/items/Mbanza.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "korea-sejong",
-    "name": "Sejong",
-    "civilization": "Korea",
-    "portraitUrl": "/assets/bbg/leaders/Korea%20Sejong.webp",
-    "civilizationAbility": {
-      "name": "Three Kingdoms",
-      "description": "Mines receive +1 :science: Science for every adjacent Seowon district. Farms receive +1 :food: Food for every adjacent Seowon district. - Bias: T4 Grassland and Plains Hills"
+    id: 'korea-sejong',
+    name: 'Sejong',
+    civilization: 'Korea',
+    portraitUrl: '/assets/bbg/leaders/Korea%20Sejong.webp',
+    civilizationAbility: {
+      name: 'Three Kingdoms',
+      description: 'Mines receive +1 :science: Science for every adjacent Seowon district. Farms receive +1 :food: Food for every adjacent Seowon district. - Bias: T4 Grassland and Plains Hills',
     },
-    "ability": {
-      "name": "Hangul",
-      "description": "When you complete your first Technology from a new Era, receive double your :science: Science per turn as :culture: Culture. Seowons receive -1 :science: Science for each adjacent District. Seowons and Theater Squares receive major adjacency from each other. Cities with a Seowon and a Theater Square receive +1 :culture: Culture and +2 :tourism: Tourism per district. +30% :production: Production toward builders in cities without :governor: Governors after Feudalism."
+    ability: {
+      name: 'Hangul',
+      description: 'When you complete your first Technology from a new Era, receive double your :science: Science per turn as :culture: Culture. Seowons receive -1 :science: Science for each adjacent District. Seowons and Theater Squares receive major adjacency from each other. Cities with a Seowon and a Theater Square receive +1 :culture: Culture and +2 :tourism: Tourism per district. +30% :production: Production toward builders in cities without :governor: Governors after Feudalism.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Hwacha",
-        "description": "Korean unique Renaissance Era unit that replaces the Field Cannon. High :ranged: Ranged Attack Strength. Cannot move and attack in the same turn.",
-        "replaces": "Field Cannon",
-        "iconUrl": "/assets/bbg/items/Hwacha.webp"
-      }
+        name: 'Hwacha',
+        description: 'Korean unique Renaissance Era unit that replaces the Field Cannon. High :ranged: Ranged Attack Strength. Cannot move and attack in the same turn.',
+        replaces: 'Field Cannon',
+        iconUrl: '/assets/bbg/items/Hwacha.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Seowon",
-        "description": "A district unique to Korea that replaces the Campus and has unique adjacencies. Culture bombs adjacent tiles when completed. Science Specialists grant +1 :food: Food. +1 :science: Science base adjacency. +1 :science: Science for every 2 adjacent mines. +2 :science: Science for each adjacent Geothermal Fissure.",
-        "replaces": "Campus",
-        "iconUrl": "/assets/bbg/items/Seowon.webp"
-      }
+        name: 'Seowon',
+        description: 'A district unique to Korea that replaces the Campus and has unique adjacencies. Culture bombs adjacent tiles when completed. Science Specialists grant +1 :food: Food. +1 :science: Science base adjacency. +1 :science: Science for every 2 adjacent mines. +2 :science: Science for each adjacent Geothermal Fissure.',
+        replaces: 'Campus',
+        iconUrl: '/assets/bbg/items/Seowon.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "korea-seondeok",
-    "name": "Seondeok",
-    "civilization": "Korea",
-    "portraitUrl": "/assets/bbg/leaders/Korea%20Seondeok.webp",
-    "civilizationAbility": {
-      "name": "Three Kingdoms",
-      "description": "Mines receive +1 :science: Science for every adjacent Seowon district. Farms receive +1 :food: Food for every adjacent Seowon district. - Bias: T4 Grassland and Plains Hills"
+    id: 'korea-seondeok',
+    name: 'Seondeok',
+    civilization: 'Korea',
+    portraitUrl: '/assets/bbg/leaders/Korea%20Seondeok.webp',
+    civilizationAbility: {
+      name: 'Three Kingdoms',
+      description: 'Mines receive +1 :science: Science for every adjacent Seowon district. Farms receive +1 :food: Food for every adjacent Seowon district. - Bias: T4 Grassland and Plains Hills',
     },
-    "ability": {
-      "name": "Hwarang",
-      "description": "+1 :amenities: Amenity for cities with a :governor: Governor. +30% yield to Seowon buildings for each :governor: Governor promotion in the city. When you unlock Feudalism, cities you founded without a :governor: Governor receive -10% to all yields. +1 :governor: Governor Title at Feudalism."
+    ability: {
+      name: 'Hwarang',
+      description: '+1 :amenities: Amenity for cities with a :governor: Governor. +30% yield to Seowon buildings for each :governor: Governor promotion in the city. When you unlock Feudalism, cities you founded without a :governor: Governor receive -10% to all yields. +1 :governor: Governor Title at Feudalism.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Hwacha",
-        "description": "Korean unique Renaissance Era unit that replaces the Field Cannon. High :ranged: Ranged Attack Strength. Cannot move and attack in the same turn.",
-        "replaces": "Field Cannon",
-        "iconUrl": "/assets/bbg/items/Hwacha.webp"
-      }
+        name: 'Hwacha',
+        description: 'Korean unique Renaissance Era unit that replaces the Field Cannon. High :ranged: Ranged Attack Strength. Cannot move and attack in the same turn.',
+        replaces: 'Field Cannon',
+        iconUrl: '/assets/bbg/items/Hwacha.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Seowon",
-        "description": "A district unique to Korea that replaces the Campus and has unique adjacencies. Culture bombs adjacent tiles when completed. Science Specialists grant +1 :food: Food. +1 :science: Science base adjacency. +1 :science: Science for every 2 adjacent mines. +2 :science: Science for each adjacent Geothermal Fissure.",
-        "replaces": "Campus",
-        "iconUrl": "/assets/bbg/items/Seowon.webp"
-      }
+        name: 'Seowon',
+        description: 'A district unique to Korea that replaces the Campus and has unique adjacencies. Culture bombs adjacent tiles when completed. Science Specialists grant +1 :food: Food. +1 :science: Science base adjacency. +1 :science: Science for every 2 adjacent mines. +2 :science: Science for each adjacent Geothermal Fissure.',
+        replaces: 'Campus',
+        iconUrl: '/assets/bbg/items/Seowon.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "macedon-alexander",
-    "name": "Alexander",
-    "civilization": "Macedon",
-    "portraitUrl": "/assets/bbg/leaders/Macedon%20Alexander.webp",
-    "civilizationAbility": {
-      "name": "Hellenistic Fusion",
-      "description": "Receive boosts upon city conquest: +20% :production: Production in all cities for 10 :turn: turns, as well as a :techboosted: Eureka for each Encampment or Campus in the conquered city and an :civicboosted: Inspiration for each Holy Site or Theater Square. - Bias: None."
+    id: 'macedon-alexander',
+    name: 'Alexander',
+    civilization: 'Macedon',
+    portraitUrl: '/assets/bbg/leaders/Macedon%20Alexander.webp',
+    civilizationAbility: {
+      name: 'Hellenistic Fusion',
+      description: 'Receive boosts upon city conquest: +20% :production: Production in all cities for 10 :turn: turns, as well as a :techboosted: Eureka for each Encampment or Campus in the conquered city and an :civicboosted: Inspiration for each Holy Site or Theater Square. - Bias: None.',
     },
-    "ability": {
-      "name": "To World's End",
-      "description": "Combat victories provide :science: Science equal to 20% of the :strength: Combat Strength of the defeated unit (on Online speed). Cities do not incur war weariness. All military units heal completely when this player captures a city with a world wonder. Gain the Hetairoi unique unit after unlocking Horseback Riding."
+    ability: {
+      name: 'To World\'s End',
+      description: 'Combat victories provide :science: Science equal to 20% of the :strength: Combat Strength of the defeated unit (on Online speed). Cities do not incur war weariness. All military units heal completely when this player captures a city with a world wonder. Gain the Hetairoi unique unit after unlocking Horseback Riding.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Hypaspist",
-        "description": "Macedonian unique melee unit that replaces the Swordsman. +10 :strength: Combat Strength when besieging districts. Receives +50% Additional Support Bonus.",
-        "replaces": "Swordsman",
-        "iconUrl": "/assets/bbg/items/Hypaspist.webp"
+        name: 'Hypaspist',
+        description: 'Macedonian unique melee unit that replaces the Swordsman. +10 :strength: Combat Strength when besieging districts. Receives +50% Additional Support Bonus.',
+        replaces: 'Swordsman',
+        iconUrl: '/assets/bbg/items/Hypaspist.webp',
       },
       {
-        "name": "Hetairos",
-        "description": "A unique heavy cavalry unit when Macedon is lead by Alexander. Additional +5 :strength: Combat Strength when adjacent to a :greatgeneral: Great General from any era. +5 :greatgeneral: Great General points when killing an enemy unit. Starts with :promotion: free Promotion.",
-        "replaces": "Swordsman",
-        "iconUrl": "/assets/bbg/items/Hetairoi.webp"
-      }
+        name: 'Hetairos',
+        description: 'A unique heavy cavalry unit when Macedon is lead by Alexander. Additional +5 :strength: Combat Strength when adjacent to a :greatgeneral: Great General from any era. +5 :greatgeneral: Great General points when killing an enemy unit. Starts with :promotion: free Promotion.',
+        replaces: 'Swordsman',
+        iconUrl: '/assets/bbg/items/Hetairoi.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Basilikoi Paides",
-        "description": "A building unique to Macedon. +25% combat experience for all melee, ranged land units, and Hetairoi trained in this city. Gain :science: Science equal to 20% of the unit's :production: Production cost when a non-civilian unit is trained in this city. Strategic Resource Stockpiles increased +10 (on Standard speed). May not be built in an Encampment district that already has a Stable. +2 :resourceiron: Iron per turn once discovered.",
-        "iconUrl": "/assets/bbg/items/Basilikoi%20Paides.webp"
-      }
+        name: 'Basilikoi Paides',
+        description: 'A building unique to Macedon. +25% combat experience for all melee, ranged land units, and Hetairoi trained in this city. Gain :science: Science equal to 20% of the unit\'s :production: Production cost when a non-civilian unit is trained in this city. Strategic Resource Stockpiles increased +10 (on Standard speed). May not be built in an Encampment district that already has a Stable. +2 :resourceiron: Iron per turn once discovered.',
+        iconUrl: '/assets/bbg/items/Basilikoi%20Paides.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "macedon-olympias",
-    "name": "Olympias",
-    "civilization": "Macedon",
-    "portraitUrl": "/assets/bbg/leaders/Macedon%20Olympias.webp",
-    "civilizationAbility": {
-      "name": "Hellenistic Fusion",
-      "description": "Receive boosts upon city conquest: +20% :production: Production in all cities for 10 :turn: turns, as well as a :techboosted: Eureka for each Encampment or Campus in the conquered city and an :civicboosted: Inspiration for each Holy Site or Theater Square. - Bias: None."
+    id: 'macedon-olympias',
+    name: 'Olympias',
+    civilization: 'Macedon',
+    portraitUrl: '/assets/bbg/leaders/Macedon%20Olympias.webp',
+    civilizationAbility: {
+      name: 'Hellenistic Fusion',
+      description: 'Receive boosts upon city conquest: +20% :production: Production in all cities for 10 :turn: turns, as well as a :techboosted: Eureka for each Encampment or Campus in the conquered city and an :civicboosted: Inspiration for each Holy Site or Theater Square. - Bias: None.',
     },
-    "ability": {
-      "name": "Cabeiri Mysteries",
-      "description": "Cities with a Basilikoi and Holy Site give 0.5 :science: science per :citizen: population. +1 :envoy: envoy when a city first has both a Basilikoi and Holy Site. +2 :strength: Combat Strength when attacking for melee and heavy cavalry units per City-state you are Suzerain of."
+    ability: {
+      name: 'Cabeiri Mysteries',
+      description: 'Cities with a Basilikoi and Holy Site give 0.5 :science: science per :citizen: population. +1 :envoy: envoy when a city first has both a Basilikoi and Holy Site. +2 :strength: Combat Strength when attacking for melee and heavy cavalry units per City-state you are Suzerain of.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Hypaspist",
-        "description": "Macedonian unique melee unit that replaces the Swordsman. +10 :strength: Combat Strength when besieging districts. Receives +50% Additional Support Bonus.",
-        "replaces": "Swordsman",
-        "iconUrl": "/assets/bbg/items/Hypaspist.webp"
-      }
+        name: 'Hypaspist',
+        description: 'Macedonian unique melee unit that replaces the Swordsman. +10 :strength: Combat Strength when besieging districts. Receives +50% Additional Support Bonus.',
+        replaces: 'Swordsman',
+        iconUrl: '/assets/bbg/items/Hypaspist.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Basilikoi Paides",
-        "description": "A building unique to Macedon. +25% combat experience for all melee, ranged land units, and Hetairoi trained in this city. Gain :science: Science equal to 20% of the unit's :production: Production cost when a non-civilian unit is trained in this city. Strategic Resource Stockpiles increased +10 (on Standard speed). May not be built in an Encampment district that already has a Stable. +2 :resourceiron: Iron per turn once discovered.",
-        "iconUrl": "/assets/bbg/items/Basilikoi%20Paides.webp"
-      }
+        name: 'Basilikoi Paides',
+        description: 'A building unique to Macedon. +25% combat experience for all melee, ranged land units, and Hetairoi trained in this city. Gain :science: Science equal to 20% of the unit\'s :production: Production cost when a non-civilian unit is trained in this city. Strategic Resource Stockpiles increased +10 (on Standard speed). May not be built in an Encampment district that already has a Stable. +2 :resourceiron: Iron per turn once discovered.',
+        iconUrl: '/assets/bbg/items/Basilikoi%20Paides.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "mali-mansa-musa",
-    "name": "Mansa Musa",
-    "civilization": "Mali",
-    "portraitUrl": "/assets/bbg/leaders/Mali%20Mansa%20Musa.webp",
-    "civilizationAbility": {
-      "name": "Songs of the Jeli",
-      "description": "-5% :production: Production. +2 :food: Food on all featureless Desert tiles other than City Centers. After Foreign Trade, your capital and any cities settled on Desert tiles gain +2 :faith: Faith. Farms can be constructed in Desert. After Civil Engineering is unlocked, Farms can be built on Desert Hills. Mines on desert tiles grant +2 :gold: Gold. Can purchase Suguba buildings with :faith: Faith. - Bias: T1 Desert, T5 Minable Resources."
+    id: 'mali-mansa-musa',
+    name: 'Mansa Musa',
+    civilization: 'Mali',
+    portraitUrl: '/assets/bbg/leaders/Mali%20Mansa%20Musa.webp',
+    civilizationAbility: {
+      name: 'Songs of the Jeli',
+      description: '-5% :production: Production. +2 :food: Food on all featureless Desert tiles other than City Centers. After Foreign Trade, your capital and any cities settled on Desert tiles gain +2 :faith: Faith. Farms can be constructed in Desert. After Civil Engineering is unlocked, Farms can be built on Desert Hills. Mines on desert tiles grant +2 :gold: Gold. Can purchase Suguba buildings with :faith: Faith. - Bias: T1 Desert, T5 Minable Resources.',
     },
-    "ability": {
-      "name": "Sahel Merchants",
-      "description": "+1 :traderoute: Trade Route capacity after Banking. Holy Sites grant major adjacency to Sugubas instead of standard adjacency. +15% :production: Production toward Holy Sites and their buildings."
+    ability: {
+      name: 'Sahel Merchants',
+      description: '+1 :traderoute: Trade Route capacity after Banking. Holy Sites grant major adjacency to Sugubas instead of standard adjacency. +15% :production: Production toward Holy Sites and their buildings.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Mandekalu Cavalry",
-        "description": "Mali unique Medieval Era unit that replaces the Knight. Trader units are immune to being plundered if they are within 4 tiles of a Mandekalu Cavalry and on a land tile. Combat victories provide :gold: Gold equal to 50% of that unit's base :strength: Combat Strength (on Online speed).",
-        "replaces": "Knight",
-        "iconUrl": "/assets/bbg/items/Mandekalu%20Cavalry.webp"
-      }
+        name: 'Mandekalu Cavalry',
+        description: 'Mali unique Medieval Era unit that replaces the Knight. Trader units are immune to being plundered if they are within 4 tiles of a Mandekalu Cavalry and on a land tile. Combat victories provide :gold: Gold equal to 50% of that unit\'s base :strength: Combat Strength (on Online speed).',
+        replaces: 'Knight',
+        iconUrl: '/assets/bbg/items/Mandekalu%20Cavalry.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Suguba",
-        "description": "A district unique to Mali that replaces the Commercial Hub. Units, Buildings, and Districts are 20% cheaper to purchase with :gold: Gold and :faith: Faith in this City. Standard adjacency from Holy Sites. +1 :gold: Gold bonus from a tile containing a City Center, River Edge, or an Oasis. +1 :gold: Gold bonus for every two adjacent district tiles.",
-        "replaces": "Commercial Hub",
-        "iconUrl": "/assets/bbg/items/Suguba.webp"
-      }
+        name: 'Suguba',
+        description: 'A district unique to Mali that replaces the Commercial Hub. Units, Buildings, and Districts are 20% cheaper to purchase with :gold: Gold and :faith: Faith in this City. Standard adjacency from Holy Sites. +1 :gold: Gold bonus from a tile containing a City Center, River Edge, or an Oasis. +1 :gold: Gold bonus for every two adjacent district tiles.',
+        replaces: 'Commercial Hub',
+        iconUrl: '/assets/bbg/items/Suguba.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "mali-sundiata-keita",
-    "name": "Sundiata Keita",
-    "civilization": "Mali",
-    "portraitUrl": "/assets/bbg/leaders/Mali%20Sundiata%20Keita.webp",
-    "civilizationAbility": {
-      "name": "Songs of the Jeli",
-      "description": "-5% :production: Production. +2 :food: Food on all featureless Desert tiles other than City Centers. After Foreign Trade, your capital and any cities settled on Desert tiles gain +2 :faith: Faith. Farms can be constructed in Desert. After Civil Engineering is unlocked, Farms can be built on Desert Hills. Mines on desert tiles grant +2 :gold: Gold. Can purchase Suguba buildings with :faith: Faith. - Bias: T1 Desert, T5 Minable Resources."
+    id: 'mali-sundiata-keita',
+    name: 'Sundiata Keita',
+    civilization: 'Mali',
+    portraitUrl: '/assets/bbg/leaders/Mali%20Sundiata%20Keita.webp',
+    civilizationAbility: {
+      name: 'Songs of the Jeli',
+      description: '-5% :production: Production. +2 :food: Food on all featureless Desert tiles other than City Centers. After Foreign Trade, your capital and any cities settled on Desert tiles gain +2 :faith: Faith. Farms can be constructed in Desert. After Civil Engineering is unlocked, Farms can be built on Desert Hills. Mines on desert tiles grant +2 :gold: Gold. Can purchase Suguba buildings with :faith: Faith. - Bias: T1 Desert, T5 Minable Resources.',
     },
-    "ability": {
-      "name": "Sogolon",
-      "description": "Patronage of :greatperson: Great People costs 30% less :gold: Gold. Theater Squares grant standard adjacency to Sugubas. Cities with a Theater Square and Suguba receive +1 :greatwriter: Great Writer point. Markets gain 2 slots for :greatworkwriting: Great Works of Writing in cities founded by Sundiata. :greatworkwriting: Great Works of Writing grant +2 :culture: Culture and +4 :gold: Gold."
+    ability: {
+      name: 'Sogolon',
+      description: 'Patronage of :greatperson: Great People costs 30% less :gold: Gold. Theater Squares grant standard adjacency to Sugubas. Cities with a Theater Square and Suguba receive +1 :greatwriter: Great Writer point. Markets gain 2 slots for :greatworkwriting: Great Works of Writing in cities founded by Sundiata. :greatworkwriting: Great Works of Writing grant +2 :culture: Culture and +4 :gold: Gold.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Mandekalu Cavalry",
-        "description": "Mali unique Medieval Era unit that replaces the Knight. Trader units are immune to being plundered if they are within 4 tiles of a Mandekalu Cavalry and on a land tile. Combat victories provide :gold: Gold equal to 50% of that unit's base :strength: Combat Strength (on Online speed).",
-        "replaces": "Knight",
-        "iconUrl": "/assets/bbg/items/Mandekalu%20Cavalry.webp"
-      }
+        name: 'Mandekalu Cavalry',
+        description: 'Mali unique Medieval Era unit that replaces the Knight. Trader units are immune to being plundered if they are within 4 tiles of a Mandekalu Cavalry and on a land tile. Combat victories provide :gold: Gold equal to 50% of that unit\'s base :strength: Combat Strength (on Online speed).',
+        replaces: 'Knight',
+        iconUrl: '/assets/bbg/items/Mandekalu%20Cavalry.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Suguba",
-        "description": "A district unique to Mali that replaces the Commercial Hub. Units, Buildings, and Districts are 20% cheaper to purchase with :gold: Gold and :faith: Faith in this City. Standard adjacency from Holy Sites. +1 :gold: Gold bonus from a tile containing a City Center, River Edge, or an Oasis. +1 :gold: Gold bonus for every two adjacent district tiles.",
-        "replaces": "Commercial Hub",
-        "iconUrl": "/assets/bbg/items/Suguba.webp"
-      }
+        name: 'Suguba',
+        description: 'A district unique to Mali that replaces the Commercial Hub. Units, Buildings, and Districts are 20% cheaper to purchase with :gold: Gold and :faith: Faith in this City. Standard adjacency from Holy Sites. +1 :gold: Gold bonus from a tile containing a City Center, River Edge, or an Oasis. +1 :gold: Gold bonus for every two adjacent district tiles.',
+        replaces: 'Commercial Hub',
+        iconUrl: '/assets/bbg/items/Suguba.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "maori-kupe",
-    "name": "Kupe",
-    "civilization": "Māori",
-    "portraitUrl": "/assets/bbg/leaders/M%C4%81ori%20Kupe.webp",
-    "civilizationAbility": {
-      "name": "Mana",
-      "description": "Embarked units gain +2 :movement: Movement with Ship Building. Fishing Boats Culture Bomb adjacent tiles and provide +1 :food: Food with Celestial Navigation. Resources cannot be harvested. :greatwriter: Great Writers cannot be earned. Unimproved Woods and Rainforest tiles gain: +1 :production: Production with Early Empire. +1 :production: Production with Mercantilism. +2 :production: Production with Conservation. - Bias: T1 Coast."
+    id: 'maori-kupe',
+    name: 'Kupe',
+    civilization: 'Māori',
+    portraitUrl: '/assets/bbg/leaders/M%C4%81ori%20Kupe.webp',
+    civilizationAbility: {
+      name: 'Mana',
+      description: 'Embarked units gain +2 :movement: Movement with Ship Building. Fishing Boats Culture Bomb adjacent tiles and provide +1 :food: Food with Celestial Navigation. Resources cannot be harvested. :greatwriter: Great Writers cannot be earned. Unimproved Woods and Rainforest tiles gain: +1 :production: Production with Early Empire. +1 :production: Production with Mercantilism. +2 :production: Production with Conservation. - Bias: T1 Coast.',
     },
-    "ability": {
-      "name": "Kupe's Voyage",
-      "description": "Settlers can embark after researching the Sailing technology. The Palace grants +3 :housing: Housing."
+    ability: {
+      name: 'Kupe\'s Voyage',
+      description: 'Settlers can embark after researching the Sailing technology. The Palace grants +3 :housing: Housing.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Toa",
-        "description": "Māori unique Classical era melee unit. Adjacent enemy units receive -5 :strength: Combat Strength. Has 1 :charges: charge to build Pā improvement.",
-        "iconUrl": "/assets/bbg/items/Toa.webp"
-      }
+        name: 'Toa',
+        description: 'Māori unique Classical era melee unit. Adjacent enemy units receive -5 :strength: Combat Strength. Has 1 :charges: charge to build Pā improvement.',
+        iconUrl: '/assets/bbg/items/Toa.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Marae",
-        "description": "A building unique to the Māori. +1 :culture: Culture and :faith: Faith to all of this city's tiles with a passable feature or natural wonder. After Flight is researched receive +1 :tourism: Tourism to all of this city's tiles with a feature or natural wonder. Costs no maintenance. Has no Great Work slots.",
-        "iconUrl": "/assets/bbg/items/Marae.webp"
-      }
+        name: 'Marae',
+        description: 'A building unique to the Māori. +1 :culture: Culture and :faith: Faith to all of this city\'s tiles with a passable feature or natural wonder. After Flight is researched receive +1 :tourism: Tourism to all of this city\'s tiles with a feature or natural wonder. Costs no maintenance. Has no Great Work slots.',
+        iconUrl: '/assets/bbg/items/Marae.webp',
+      },
     ],
-    "uniqueImprovements": [
+    uniqueImprovements: [
       {
-        "name": "Pā",
-        "description": "Maori unique improvement built by the Toa. Occupying units receive +1 Sight and +4 :strength: Defense Strength, and automatically gains 1 turn of fortification. A Māori unit occupying a Pā heals even if they just moved or attacked. Must be built on a Hill tile.",
-        "iconUrl": "/assets/bbg/items/P%C4%81.webp"
-      }
+        name: 'Pā',
+        description: 'Maori unique improvement built by the Toa. Occupying units receive +1 Sight and +4 :strength: Defense Strength, and automatically gains 1 turn of fortification. A Māori unit occupying a Pā heals even if they just moved or attacked. Must be built on a Hill tile.',
+        iconUrl: '/assets/bbg/items/P%C4%81.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "mapuche-lautaro",
-    "name": "Lautaro",
-    "civilization": "Mapuche",
-    "portraitUrl": "/assets/bbg/leaders/Mapuche%20Lautaro.webp",
-    "civilizationAbility": {
-      "name": "Toqui",
-      "description": "Cities with an Established :governor: Governor provide +5% :culture: Culture, +5% :production: Production, and +10% experience in combat towards all units trained in this city. These numbers are tripled in cities not founded by the Mapuche. All cities within 9 tiles of a city with your :governor: Governor gain +4 Loyalty per turn towards your civilization. - Bias: T4 Grassland and Plains Mountain, -T3 Floodplains."
+    id: 'mapuche-lautaro',
+    name: 'Lautaro',
+    civilization: 'Mapuche',
+    portraitUrl: '/assets/bbg/leaders/Mapuche%20Lautaro.webp',
+    civilizationAbility: {
+      name: 'Toqui',
+      description: 'Cities with an Established :governor: Governor provide +5% :culture: Culture, +5% :production: Production, and +10% experience in combat towards all units trained in this city. These numbers are tripled in cities not founded by the Mapuche. All cities within 9 tiles of a city with your :governor: Governor gain +4 Loyalty per turn towards your civilization. - Bias: T4 Grassland and Plains Mountain, -T3 Floodplains.',
     },
-    "ability": {
-      "name": "Swift Hawk",
-      "description": "+3 :strength: Combat Strength when fighting Free Cities or civilizations that are in a :glorygoldenage: Golden or :glorysupergoldenage: Heroic Age. Defeating an enemy unit within the borders of an enemy city causes that city to lose 15 Loyalty, doubled if that civilization is in a :glorygoldenage: Golden or :glorysupergoldenage: Heroic Age. Tiles in cities with an Encampment receive +1 Appeal."
+    ability: {
+      name: 'Swift Hawk',
+      description: '+3 :strength: Combat Strength when fighting Free Cities or civilizations that are in a :glorygoldenage: Golden or :glorysupergoldenage: Heroic Age. Defeating an enemy unit within the borders of an enemy city causes that city to lose 15 Loyalty, doubled if that civilization is in a :glorygoldenage: Golden or :glorysupergoldenage: Heroic Age. Tiles in cities with an Encampment receive +1 Appeal.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Malón Raider",
-        "description": "Mapuche unique Medieval Era unit that replaces the Courser. +1 :movement: Movement when starting on flat terrain. Starts with :promotion: free Promotion.",
-        "replaces": "Courser",
-        "iconUrl": "/assets/bbg/items/Mal%C3%B3n%20Raider.webp"
-      }
+        name: 'Malón Raider',
+        description: 'Mapuche unique Medieval Era unit that replaces the Courser. +1 :movement: Movement when starting on flat terrain. Starts with :promotion: free Promotion.',
+        replaces: 'Courser',
+        iconUrl: '/assets/bbg/items/Mal%C3%B3n%20Raider.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Chemamull",
-        "description": "Mapuche unique builder improvement unlocked with Craftsmanship. Requires a minimum Appeal of Breathtaking (+4 Appeal). +1 :production: Production. :culture: Culture equal to 75% of the tile's Appeal. +1 :production: Production with Civil Service. Provides :tourism: Tourism after researching Flight.",
-        "iconUrl": "/assets/bbg/items/Chemamull.webp"
-      }
+        name: 'Chemamull',
+        description: 'Mapuche unique builder improvement unlocked with Craftsmanship. Requires a minimum Appeal of Breathtaking (+4 Appeal). +1 :production: Production. :culture: Culture equal to 75% of the tile\'s Appeal. +1 :production: Production with Civil Service. Provides :tourism: Tourism after researching Flight.',
+        iconUrl: '/assets/bbg/items/Chemamull.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "maya-lady-six-sky",
-    "name": "Lady Six Sky",
-    "civilization": "Maya",
-    "portraitUrl": "/assets/bbg/leaders/Maya%20Lady%20Six%20Sky.webp",
-    "civilizationAbility": {
-      "name": "Mayab",
-      "description": "Settling adjacent to Fresh Water and Coast does not provide extra :housing: Housing. The Palace receives +1 :housing: Housing. +1 :amenities: Amenity for every Luxury adjacent to the City Center. Farms provides an additional +1 :housing: Housing, +1 :production: Production for every adjacent Observatory, and +1 :gold: Gold. Plantations provide +1 :science: Science for each adjacent Observatory and an additional +1 :science: Science with Education. - Bias: T3 Plantation Luxuries, T4 Bananas. Special \"Hydrophobic\"."
+    id: 'maya-lady-six-sky',
+    name: 'Lady Six Sky',
+    civilization: 'Maya',
+    portraitUrl: '/assets/bbg/leaders/Maya%20Lady%20Six%20Sky.webp',
+    civilizationAbility: {
+      name: 'Mayab',
+      description: 'Settling adjacent to Fresh Water and Coast does not provide extra :housing: Housing. The Palace receives +1 :housing: Housing. +1 :amenities: Amenity for every Luxury adjacent to the City Center. Farms provides an additional +1 :housing: Housing, +1 :production: Production for every adjacent Observatory, and +1 :gold: Gold. Plantations provide +1 :science: Science for each adjacent Observatory and an additional +1 :science: Science with Education. - Bias: T3 Plantation Luxuries, T4 Bananas. Special "Hydrophobic".',
     },
-    "ability": {
-      "name": "Ix Mutal Ajaw",
-      "description": "Non-capital cities within 6 tiles of the :capital: Capital gain +5% to all yields. Other non-capital cities receive -10% to all yields. +3 :strength: Combat Strength for units within 6 tiles of your :capital: capital."
+    ability: {
+      name: 'Ix Mutal Ajaw',
+      description: 'Non-capital cities within 6 tiles of the :capital: Capital gain +5% to all yields. Other non-capital cities receive -10% to all yields. +3 :strength: Combat Strength for units within 6 tiles of your :capital: capital.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Hul'che",
-        "description": "Mayan unique Ancient Era ranged unit that replaces the Archer. Strong ranged attack. +5 :strength: Combat Strength when fighting a wounded opponent.",
-        "replaces": "Archer",
-        "iconUrl": "/assets/bbg/items/Hul'che.webp"
-      }
+        name: 'Hul\'che',
+        description: 'Mayan unique Ancient Era ranged unit that replaces the Archer. Strong ranged attack. +5 :strength: Combat Strength when fighting a wounded opponent.',
+        replaces: 'Archer',
+        iconUrl: '/assets/bbg/items/Hul\'che.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Observatory",
-        "description": "A district unique to Maya that replaces the Campus and has unique adjacencies. +1 :science: Science for each adjacent Plantation. +1 :science: Science for every two adjacent Farm or district tiles. +2 :science: Science for each adjacent Geothermal Fissure. +1 :housing: Housing.",
-        "replaces": "Campus",
-        "iconUrl": "/assets/bbg/items/Observatory.webp"
-      }
+        name: 'Observatory',
+        description: 'A district unique to Maya that replaces the Campus and has unique adjacencies. +1 :science: Science for each adjacent Plantation. +1 :science: Science for every two adjacent Farm or district tiles. +2 :science: Science for each adjacent Geothermal Fissure. +1 :housing: Housing.',
+        replaces: 'Campus',
+        iconUrl: '/assets/bbg/items/Observatory.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "maya-te-k-inich-ii",
-    "name": "Te' K'inich II",
-    "civilization": "Maya",
-    "portraitUrl": "/assets/bbg/leaders/Maya%20Te'%20K'inich%20II.webp",
-    "civilizationAbility": {
-      "name": "Mayab",
-      "description": "Settling adjacent to Fresh Water and Coast does not provide extra :housing: Housing. The Palace receives +1 :housing: Housing. +1 :amenities: Amenity for every Luxury adjacent to the City Center. Farms provides an additional +1 :housing: Housing, +1 :production: Production for every adjacent Observatory, and +1 :gold: Gold. Plantations provide +1 :science: Science for each adjacent Observatory and an additional +1 :science: Science with Education. - Bias: T3 Plantation Luxuries, T4 Bananas. Special \"Hydrophobic\"."
+    id: 'maya-te-k-inich-ii',
+    name: 'Te\' K\'inich II',
+    civilization: 'Maya',
+    portraitUrl: '/assets/bbg/leaders/Maya%20Te\'%20K\'inich%20II.webp',
+    civilizationAbility: {
+      name: 'Mayab',
+      description: 'Settling adjacent to Fresh Water and Coast does not provide extra :housing: Housing. The Palace receives +1 :housing: Housing. +1 :amenities: Amenity for every Luxury adjacent to the City Center. Farms provides an additional +1 :housing: Housing, +1 :production: Production for every adjacent Observatory, and +1 :gold: Gold. Plantations provide +1 :science: Science for each adjacent Observatory and an additional +1 :science: Science with Education. - Bias: T3 Plantation Luxuries, T4 Bananas. Special "Hydrophobic".',
     },
-    "ability": {
-      "name": "Wrath of Venus",
-      "description": "Once you enter the classical era, receive -2 :strength: combat strength for all units within six tiles of your :capital: capital. Units beyond 6 tiles receive +4 :strength: combat strength. Units heal 5hp and gain 2 experience points upon completing an :techboosted: eureka."
+    ability: {
+      name: 'Wrath of Venus',
+      description: 'Once you enter the classical era, receive -2 :strength: combat strength for all units within six tiles of your :capital: capital. Units beyond 6 tiles receive +4 :strength: combat strength. Units heal 5hp and gain 2 experience points upon completing an :techboosted: eureka.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Hul'che",
-        "description": "Mayan unique Ancient Era ranged unit that replaces the Archer. Strong ranged attack. +5 :strength: Combat Strength when fighting a wounded opponent.",
-        "replaces": "Archer",
-        "iconUrl": "/assets/bbg/items/Hul'che.webp"
-      }
+        name: 'Hul\'che',
+        description: 'Mayan unique Ancient Era ranged unit that replaces the Archer. Strong ranged attack. +5 :strength: Combat Strength when fighting a wounded opponent.',
+        replaces: 'Archer',
+        iconUrl: '/assets/bbg/items/Hul\'che.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Observatory",
-        "description": "A district unique to Maya that replaces the Campus and has unique adjacencies. +1 :science: Science for each adjacent Plantation. +1 :science: Science for every two adjacent Farm or district tiles. +2 :science: Science for each adjacent Geothermal Fissure. +1 :housing: Housing.",
-        "replaces": "Campus",
-        "iconUrl": "/assets/bbg/items/Observatory.webp"
-      }
+        name: 'Observatory',
+        description: 'A district unique to Maya that replaces the Campus and has unique adjacencies. +1 :science: Science for each adjacent Plantation. +1 :science: Science for every two adjacent Farm or district tiles. +2 :science: Science for each adjacent Geothermal Fissure. +1 :housing: Housing.',
+        replaces: 'Campus',
+        iconUrl: '/assets/bbg/items/Observatory.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "mongolia-genghis-khan",
-    "name": "Genghis Khan",
-    "civilization": "Mongolia",
-    "portraitUrl": "/assets/bbg/leaders/Mongolia%20Genghis%20Khan.webp",
-    "civilizationAbility": {
-      "name": "Örtöö",
-      "description": "All Mongolian units double the usual :strength: Combat Bonus for having a higher level of :vislimited: Diplomatic Visibility than their opponent. Starting a :traderoute: Trade Route immediately creates a :tradingpost: Trading Post in the destination city. - Bias: T4 Horses."
+    id: 'mongolia-genghis-khan',
+    name: 'Genghis Khan',
+    civilization: 'Mongolia',
+    portraitUrl: '/assets/bbg/leaders/Mongolia%20Genghis%20Khan.webp',
+    civilizationAbility: {
+      name: 'Örtöö',
+      description: 'All Mongolian units double the usual :strength: Combat Bonus for having a higher level of :vislimited: Diplomatic Visibility than their opponent. Starting a :traderoute: Trade Route immediately creates a :tradingpost: Trading Post in the destination city. - Bias: T4 Horses.',
     },
-    "ability": {
-      "name": "Mongol Horde",
-      "description": "Light cavalry units and Keshig gain +3 :strength: Combat Strength and a chance to capture defeated enemy cavalry class units."
+    ability: {
+      name: 'Mongol Horde',
+      description: 'Light cavalry units and Keshig gain +3 :strength: Combat Strength and a chance to capture defeated enemy cavalry class units.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Keshig",
-        "description": "Mongolian unique Medieval Era Ranged Cavalry unit. Can escort moving civilian and support units at their higher :movement: Movement speed.",
-        "iconUrl": "/assets/bbg/items/Keshig.webp"
-      }
+        name: 'Keshig',
+        description: 'Mongolian unique Medieval Era Ranged Cavalry unit. Can escort moving civilian and support units at their higher :movement: Movement speed.',
+        iconUrl: '/assets/bbg/items/Keshig.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Ordu",
-        "description": "A building unique to Mongolia. Grants an ability that gives +1 :movement: Movement to Heavy and Light Cavalry trained in this city. +25% combat experience for all cavalry and siege class units trained in this city. Strategic Resource Stockpiles increased +10 (on Standard Speed). May not be built in an Encampment district that already has a Barracks.",
-        "iconUrl": "/assets/bbg/items/Ordu.webp"
-      }
+        name: 'Ordu',
+        description: 'A building unique to Mongolia. Grants an ability that gives +1 :movement: Movement to Heavy and Light Cavalry trained in this city. +25% combat experience for all cavalry and siege class units trained in this city. Strategic Resource Stockpiles increased +10 (on Standard Speed). May not be built in an Encampment district that already has a Barracks.',
+        iconUrl: '/assets/bbg/items/Ordu.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "mongolia-kublai-khan-mongolia",
-    "name": "Kublai Khan (Mongolia)",
-    "civilization": "Mongolia",
-    "portraitUrl": "/assets/bbg/leaders/Mongolia%20Kublai%20Khan%20(Mongolia).webp",
-    "civilizationAbility": {
-      "name": "Örtöö",
-      "description": "All Mongolian units double the usual :strength: Combat Bonus for having a higher level of :vislimited: Diplomatic Visibility than their opponent. Starting a :traderoute: Trade Route immediately creates a :tradingpost: Trading Post in the destination city. - Bias: T4 Horses."
+    id: 'mongolia-kublai-khan-mongolia',
+    name: 'Kublai Khan (Mongolia)',
+    civilization: 'Mongolia',
+    portraitUrl: '/assets/bbg/leaders/Mongolia%20Kublai%20Khan%20(Mongolia).webp',
+    civilizationAbility: {
+      name: 'Örtöö',
+      description: 'All Mongolian units double the usual :strength: Combat Bonus for having a higher level of :vislimited: Diplomatic Visibility than their opponent. Starting a :traderoute: Trade Route immediately creates a :tradingpost: Trading Post in the destination city. - Bias: T4 Horses.',
     },
-    "ability": {
-      "name": "Gerege",
-      "description": "One extra Economic policy slot in any :government: government. +1 :science: Science and +1 :culture: Culture per international trade route and +1 :science: Science and +1 :culture: Culture for each 25 tiles traveled on all trade routes. Receive a random :techboosted: Eureka and :civicboosted: Inspiration when establishing a :tradingpost: Trading Post in another Civilization's city for the first time."
+    ability: {
+      name: 'Gerege',
+      description: 'One extra Economic policy slot in any :government: government. +1 :science: Science and +1 :culture: Culture per international trade route and +1 :science: Science and +1 :culture: Culture for each 25 tiles traveled on all trade routes. Receive a random :techboosted: Eureka and :civicboosted: Inspiration when establishing a :tradingpost: Trading Post in another Civilization\'s city for the first time.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Keshig",
-        "description": "Mongolian unique Medieval Era Ranged Cavalry unit. Can escort moving civilian and support units at their higher :movement: Movement speed.",
-        "iconUrl": "/assets/bbg/items/Keshig.webp"
-      }
+        name: 'Keshig',
+        description: 'Mongolian unique Medieval Era Ranged Cavalry unit. Can escort moving civilian and support units at their higher :movement: Movement speed.',
+        iconUrl: '/assets/bbg/items/Keshig.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Ordu",
-        "description": "A building unique to Mongolia. Grants an ability that gives +1 :movement: Movement to Heavy and Light Cavalry trained in this city. +25% combat experience for all cavalry and siege class units trained in this city. Strategic Resource Stockpiles increased +10 (on Standard Speed). May not be built in an Encampment district that already has a Barracks.",
-        "iconUrl": "/assets/bbg/items/Ordu.webp"
-      }
+        name: 'Ordu',
+        description: 'A building unique to Mongolia. Grants an ability that gives +1 :movement: Movement to Heavy and Light Cavalry trained in this city. +25% combat experience for all cavalry and siege class units trained in this city. Strategic Resource Stockpiles increased +10 (on Standard Speed). May not be built in an Encampment district that already has a Barracks.',
+        iconUrl: '/assets/bbg/items/Ordu.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "netherlands-wilhelmina",
-    "name": "Wilhelmina",
-    "civilization": "Netherlands",
-    "portraitUrl": "/assets/bbg/leaders/Netherlands%20Wilhelmina.webp",
-    "civilizationAbility": {
-      "name": "Grote Rivieren",
-      "description": "Major adjacency bonus for Campuses, Theater Squares, and Industrial Zones if next to a river. Culture Bomb adjacent tiles when completing a Harbor. +50% :production: Production toward the Dam district and Flood Barrier building. - Bias: T2 Rivers, T3 Coast."
+    id: 'netherlands-wilhelmina',
+    name: 'Wilhelmina',
+    civilization: 'Netherlands',
+    portraitUrl: '/assets/bbg/leaders/Netherlands%20Wilhelmina.webp',
+    civilizationAbility: {
+      name: 'Grote Rivieren',
+      description: 'Major adjacency bonus for Campuses, Theater Squares, and Industrial Zones if next to a river. Culture Bomb adjacent tiles when completing a Harbor. +50% :production: Production toward the Dam district and Flood Barrier building. - Bias: T2 Rivers, T3 Coast.',
     },
-    "ability": {
-      "name": "Radio Oranje",
-      "description": "Your :traderoute: Trade Routes to your own cities provide +2 Loyalty per turn for the origin city. :traderoute: Trade Routes to foreign cities or from foreign cities provide +2 :culture: Culture to you and +1 :culture: Culture for the sender. +3 :strength: Combat Strength for all naval units when defending on a Polder improvement. Dutch campuses provide +1 :greatadmiral: Great Admiral point."
+    ability: {
+      name: 'Radio Oranje',
+      description: 'Your :traderoute: Trade Routes to your own cities provide +2 Loyalty per turn for the origin city. :traderoute: Trade Routes to foreign cities or from foreign cities provide +2 :culture: Culture to you and +1 :culture: Culture for the sender. +3 :strength: Combat Strength for all naval units when defending on a Polder improvement. Dutch campuses provide +1 :greatadmiral: Great Admiral point.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "De Zeven Provinciën",
-        "description": "Netherlands unique Renaissance Era unit that replaces the Frigate. +7 :strength: Combat Strength when attacking defensible districts.",
-        "replaces": "Frigate",
-        "iconUrl": "/assets/bbg/items/De%20Zeven%20Provinci%C3%ABn.webp"
-      }
+        name: 'De Zeven Provinciën',
+        description: 'Netherlands unique Renaissance Era unit that replaces the Frigate. +7 :strength: Combat Strength when attacking defensible districts.',
+        replaces: 'Frigate',
+        iconUrl: '/assets/bbg/items/De%20Zeven%20Provinci%C3%ABn.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Polder",
-        "description": "Dutch unique builder improvement unlocked at Feudalism. Must be placed on a Coast or Lake tile adjacent to 1 or more passable land tiles. +1 :food: Food, +1 :production: Production, and +0.5 :housing: Housing. +1 :food: Food for every adjacent Polder, increasing to +2 :food: Food for every adjacent Polder with Replaceable Parts. +1 :production: Production for every adjacent Harbor. +1 :production: Production for every 2 adjacent Polders, increasing to +1 :production: Production for every adjacent Polder with Replaceable Parts. +4 :gold: Gold with Civil Engineering. +3 :strength: Combat Strength for Dutch naval units on Polder tiles.",
-        "iconUrl": "/assets/bbg/items/Polder.webp"
-      }
+        name: 'Polder',
+        description: 'Dutch unique builder improvement unlocked at Feudalism. Must be placed on a Coast or Lake tile adjacent to 1 or more passable land tiles. +1 :food: Food, +1 :production: Production, and +0.5 :housing: Housing. +1 :food: Food for every adjacent Polder, increasing to +2 :food: Food for every adjacent Polder with Replaceable Parts. +1 :production: Production for every adjacent Harbor. +1 :production: Production for every 2 adjacent Polders, increasing to +1 :production: Production for every adjacent Polder with Replaceable Parts. +4 :gold: Gold with Civil Engineering. +3 :strength: Combat Strength for Dutch naval units on Polder tiles.',
+        iconUrl: '/assets/bbg/items/Polder.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "norway-harald-hardrada-varangian",
-    "name": "Harald Hardrada (Varangian)",
-    "civilization": "Norway",
-    "portraitUrl": "/assets/bbg/leaders/Norway%20Harald%20Hardrada%20(Varangian).webp",
-    "civilizationAbility": {
-      "name": "Knarr",
-      "description": "Naval melee units heal in neutral territory if they are on coast. Units ignore additional :movement: Movement costs from embarking and disembarking. +50% :production: Production toward Holy Site districts. Coast and Lake tiles provide a standard adjacency bonus to Holy Site districts. Harbors receive a major adjacency bonus from Holy Sites. - Bias: T1 Coast, T5 Woods."
+    id: 'norway-harald-hardrada-varangian',
+    name: 'Harald Hardrada (Varangian)',
+    civilization: 'Norway',
+    portraitUrl: '/assets/bbg/leaders/Norway%20Harald%20Hardrada%20(Varangian).webp',
+    civilizationAbility: {
+      name: 'Knarr',
+      description: 'Naval melee units heal in neutral territory if they are on coast. Units ignore additional :movement: Movement costs from embarking and disembarking. +50% :production: Production toward Holy Site districts. Coast and Lake tiles provide a standard adjacency bonus to Holy Site districts. Harbors receive a major adjacency bonus from Holy Sites. - Bias: T1 Coast, T5 Woods.',
     },
-    "ability": {
-      "name": "Varangian Guard",
-      "description": "+1 :strength: Combat Strength on naval units when attacking per City-state you are suzerain of. 75% Discount on Levying units and levied units receive :science: Science, :culture: Culture, and :faith: Faith from kills equal to 50% of the opponent's :strength: Combat Strength. +1 Movement to levied units. +25% production to Holy Site buildings. Stave Church generates +1 :influenceperturn: Influence point. +10 :science: Science and +10 :culture: Culture (standard speed) per population when converting a city to your religion for the first time using a religious unit."
+    ability: {
+      name: 'Varangian Guard',
+      description: '+1 :strength: Combat Strength on naval units when attacking per City-state you are suzerain of. 75% Discount on Levying units and levied units receive :science: Science, :culture: Culture, and :faith: Faith from kills equal to 50% of the opponent\'s :strength: Combat Strength. +1 Movement to levied units. +25% production to Holy Site buildings. Stave Church generates +1 :influenceperturn: Influence point. +10 :science: Science and +10 :culture: Culture (standard speed) per population when converting a city to your religion for the first time using a religious unit.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Berserker",
-        "description": "Norwegian unique Medieval era unit. +2 :movement: Movement if this unit starts in enemy territory or is embarked. +10 :strength: Combat Strength when attacking. Can be purchased with :faith: Faith.",
-        "iconUrl": "/assets/bbg/items/Berserker.webp"
-      }
+        name: 'Berserker',
+        description: 'Norwegian unique Medieval era unit. +2 :movement: Movement if this unit starts in enemy territory or is embarked. +10 :strength: Combat Strength when attacking. Can be purchased with :faith: Faith.',
+        iconUrl: '/assets/bbg/items/Berserker.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Stave Church",
-        "description": "A building unique to Norway that replaces the Temple. Required to purchase Apostles and Inquisitors with :faith: Faith. +1 :production: Production for each coastal resource tile in this city. +1 :faith: Faith to each resource tile in this city.",
-        "replaces": "Temple",
-        "iconUrl": "/assets/bbg/items/Stave%20Church.webp"
-      }
+        name: 'Stave Church',
+        description: 'A building unique to Norway that replaces the Temple. Required to purchase Apostles and Inquisitors with :faith: Faith. +1 :production: Production for each coastal resource tile in this city. +1 :faith: Faith to each resource tile in this city.',
+        replaces: 'Temple',
+        iconUrl: '/assets/bbg/items/Stave%20Church.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "norway-harald-hardrada-konge",
-    "name": "Harald Hardrada (Konge)",
-    "civilization": "Norway",
-    "portraitUrl": "/assets/bbg/leaders/Norway%20Harald%20Hardrada%20(Konge).webp",
-    "civilizationAbility": {
-      "name": "Knarr",
-      "description": "Naval melee units heal in neutral territory if they are on coast. Units ignore additional :movement: Movement costs from embarking and disembarking. +50% :production: Production toward Holy Site districts. Coast and Lake tiles provide a standard adjacency bonus to Holy Site districts. Harbors receive a major adjacency bonus from Holy Sites. - Bias: T1 Coast, T5 Woods."
+    id: 'norway-harald-hardrada-konge',
+    name: 'Harald Hardrada (Konge)',
+    civilization: 'Norway',
+    portraitUrl: '/assets/bbg/leaders/Norway%20Harald%20Hardrada%20(Konge).webp',
+    civilizationAbility: {
+      name: 'Knarr',
+      description: 'Naval melee units heal in neutral territory if they are on coast. Units ignore additional :movement: Movement costs from embarking and disembarking. +50% :production: Production toward Holy Site districts. Coast and Lake tiles provide a standard adjacency bonus to Holy Site districts. Harbors receive a major adjacency bonus from Holy Sites. - Bias: T1 Coast, T5 Woods.',
     },
-    "ability": {
-      "name": "Thunderbolt of the North",
-      "description": "+3 :strength: Combat Strength and +25% :production: Production to Naval Melee Units. Naval Melee units can perform coastal raids. Receive additional yields from pillaging or performing coastal raids: :science: Science from Mines, :culture: Culture from Quarries, Pastures, Plantations, and Camps. Units gain the ability to enter Ocean tiles after researching the Shipbuilding technology."
+    ability: {
+      name: 'Thunderbolt of the North',
+      description: '+3 :strength: Combat Strength and +25% :production: Production to Naval Melee Units. Naval Melee units can perform coastal raids. Receive additional yields from pillaging or performing coastal raids: :science: Science from Mines, :culture: Culture from Quarries, Pastures, Plantations, and Camps. Units gain the ability to enter Ocean tiles after researching the Shipbuilding technology.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Berserker",
-        "description": "Norwegian unique Medieval era unit. +2 :movement: Movement if this unit starts in enemy territory or is embarked. +10 :strength: Combat Strength when attacking. Can be purchased with :faith: Faith.",
-        "iconUrl": "/assets/bbg/items/Berserker.webp"
+        name: 'Berserker',
+        description: 'Norwegian unique Medieval era unit. +2 :movement: Movement if this unit starts in enemy territory or is embarked. +10 :strength: Combat Strength when attacking. Can be purchased with :faith: Faith.',
+        iconUrl: '/assets/bbg/items/Berserker.webp',
       },
       {
-        "name": "Viking Longship",
-        "description": "Norwegian unique Ancient era naval unit that replaces the Galley. Can pillage enemy coastal lands and capture civilians if adjacent using its coastal raiding ability. Ignores enemy Zone of Control. 4 :movement: Movement while in coastal waters.",
-        "replaces": "Galley",
-        "iconUrl": "/assets/bbg/items/Viking%20Longship.webp"
-      }
+        name: 'Viking Longship',
+        description: 'Norwegian unique Ancient era naval unit that replaces the Galley. Can pillage enemy coastal lands and capture civilians if adjacent using its coastal raiding ability. Ignores enemy Zone of Control. 4 :movement: Movement while in coastal waters.',
+        replaces: 'Galley',
+        iconUrl: '/assets/bbg/items/Viking%20Longship.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Stave Church",
-        "description": "A building unique to Norway that replaces the Temple. Required to purchase Apostles and Inquisitors with :faith: Faith. +1 :production: Production for each coastal resource tile in this city. +1 :faith: Faith to each resource tile in this city.",
-        "replaces": "Temple",
-        "iconUrl": "/assets/bbg/items/Stave%20Church.webp"
-      }
+        name: 'Stave Church',
+        description: 'A building unique to Norway that replaces the Temple. Required to purchase Apostles and Inquisitors with :faith: Faith. +1 :production: Production for each coastal resource tile in this city. +1 :faith: Faith to each resource tile in this city.',
+        replaces: 'Temple',
+        iconUrl: '/assets/bbg/items/Stave%20Church.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "nubia-amanitore",
-    "name": "Amanitore",
-    "civilization": "Nubia",
-    "portraitUrl": "/assets/bbg/leaders/Nubia%20Amanitore.webp",
-    "civilizationAbility": {
-      "name": "Ta-Seti",
-      "description": "+30% :production: Production toward Ranged and Naval Ranged units. All Ranged and Naval Ranged units gain +50% combat experience. Mines over strategic resources provide +1 :production: . Mines over bonus and luxury resources provide +2 :gold: Gold. - Bias: T2 Plains, T5 Minable Resources."
+    id: 'nubia-amanitore',
+    name: 'Amanitore',
+    civilization: 'Nubia',
+    portraitUrl: '/assets/bbg/leaders/Nubia%20Amanitore.webp',
+    civilizationAbility: {
+      name: 'Ta-Seti',
+      description: '+30% :production: Production toward Ranged and Naval Ranged units. All Ranged and Naval Ranged units gain +50% combat experience. Mines over strategic resources provide +1 :production: . Mines over bonus and luxury resources provide +2 :gold: Gold. - Bias: T2 Plains, T5 Minable Resources.',
     },
-    "ability": {
-      "name": "Kandake of Meroë",
-      "description": "+20% :production: Production towards all :district: districts, increasing to +40% :production: Production if there is a Nubian Pyramid in the city."
+    ability: {
+      name: 'Kandake of Meroë',
+      description: '+20% :production: Production towards all :district: districts, increasing to +40% :production: Production if there is a Nubian Pyramid in the city.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Pítati Archer",
-        "description": "Nubian unique Ancient era unit that replaces the Archer. Stronger than the Archer with extra :movement: Movement. Upgrades to Crossbowman.",
-        "replaces": "Archer",
-        "iconUrl": "/assets/bbg/items/P%C3%ADtati%20Archer.webp"
-      }
+        name: 'Pítati Archer',
+        description: 'Nubian unique Ancient era unit that replaces the Archer. Stronger than the Archer with extra :movement: Movement. Upgrades to Crossbowman.',
+        replaces: 'Archer',
+        iconUrl: '/assets/bbg/items/P%C3%ADtati%20Archer.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Nubian Pyramid",
-        "description": "Nubian unique builder improvement unlocked at Craftsmanship and limited to 1 per city. Nubian Districts receive standard adjacency from Nubian Pyramids. Can be built on any flat tile or desert hill. Cannot be built next to another Nubian Pyramid. +2 :food: Food and +2 :faith: Faith. Receives additional yields from adjacent districts: +1 :food: Food for the City Center. +1 :science: Science per adjacent Campus. +1 :culture: Culture per adjacent Theater Square. +1 :faith: Faith per adjacent Holy Site. +1 :gold: Gold per adjacent Commercial Hub and Harbor. +1 :production: Production per adjacent Industrial Zone, Encampment, and Aerodrome. +1 :culture: Culture and +2 :gold: Gold per adjacent Government Plaza and Diplomatic Quarter.",
-        "iconUrl": "/assets/bbg/items/Nubian%20Pyramid.webp"
-      }
+        name: 'Nubian Pyramid',
+        description: 'Nubian unique builder improvement unlocked at Craftsmanship and limited to 1 per city. Nubian Districts receive standard adjacency from Nubian Pyramids. Can be built on any flat tile or desert hill. Cannot be built next to another Nubian Pyramid. +2 :food: Food and +2 :faith: Faith. Receives additional yields from adjacent districts: +1 :food: Food for the City Center. +1 :science: Science per adjacent Campus. +1 :culture: Culture per adjacent Theater Square. +1 :faith: Faith per adjacent Holy Site. +1 :gold: Gold per adjacent Commercial Hub and Harbor. +1 :production: Production per adjacent Industrial Zone, Encampment, and Aerodrome. +1 :culture: Culture and +2 :gold: Gold per adjacent Government Plaza and Diplomatic Quarter.',
+        iconUrl: '/assets/bbg/items/Nubian%20Pyramid.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "ottomans-suleiman-kanuni",
-    "name": "Suleiman (Kanuni)",
-    "civilization": "Ottomans",
-    "portraitUrl": "/assets/bbg/leaders/Ottomans%20Suleiman%20(Kanuni).webp",
-    "civilizationAbility": {
-      "name": "Great Turkish Bombard",
-      "description": "+50% :production: Production toward siege units. All siege units gain +3 :strength: Combat Strength. Conquered cities do not lose :citizen: population. Cities not founded by the Ottomans gain +1 :amenities: Amenity and +4 Loyalty per turn. - Bias: T3 Rivers, T5 Niter."
+    id: 'ottomans-suleiman-kanuni',
+    name: 'Suleiman (Kanuni)',
+    civilization: 'Ottomans',
+    portraitUrl: '/assets/bbg/leaders/Ottomans%20Suleiman%20(Kanuni).webp',
+    civilizationAbility: {
+      name: 'Great Turkish Bombard',
+      description: '+50% :production: Production toward siege units. All siege units gain +3 :strength: Combat Strength. Conquered cities do not lose :citizen: population. Cities not founded by the Ottomans gain +1 :amenities: Amenity and +4 Loyalty per turn. - Bias: T3 Rivers, T5 Niter.',
     },
-    "ability": {
-      "name": "Grand Vizier",
-      "description": "Exclusive unique Governor with military and diplomatic abilities. Gain the Janissary unique unit and a :governor: Governor Title when the Gunpowder technology is researched."
+    ability: {
+      name: 'Grand Vizier',
+      description: 'Exclusive unique Governor with military and diplomatic abilities. Gain the Janissary unique unit and a :governor: Governor Title when the Gunpowder technology is researched.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Barbary Corsair",
-        "description": "Ottoman unique Medieval era naval unit that replaces the Privateer. Can enter Ocean tiles regardless of researched Technologies. It costs no :movement: Movement to coastal raid. Can only be seen by other Naval Raiders unless adjacent to it. Reveals Naval Raiders within sight range.",
-        "replaces": "Privateer",
-        "iconUrl": "/assets/bbg/items/Barbary%20Corsair.webp"
+        name: 'Barbary Corsair',
+        description: 'Ottoman unique Medieval era naval unit that replaces the Privateer. Can enter Ocean tiles regardless of researched Technologies. It costs no :movement: Movement to coastal raid. Can only be seen by other Naval Raiders unless adjacent to it. Reveals Naval Raiders within sight range.',
+        replaces: 'Privateer',
+        iconUrl: '/assets/bbg/items/Barbary%20Corsair.webp',
       },
       {
-        "name": "Janissary",
-        "description": "Ottoman unique Renaissance Era unit that replaces the Musketman. Starts with a :promotion: free promotion. Stronger and cheaper than the Musketman. To train a Janissary a city must have a population of at least 2. If a city is founded by the Ottomans and trains a Janissary it loses a population.",
-        "replaces": "Musketman",
-        "iconUrl": "/assets/bbg/items/Janissary.webp"
-      }
+        name: 'Janissary',
+        description: 'Ottoman unique Renaissance Era unit that replaces the Musketman. Starts with a :promotion: free promotion. Stronger and cheaper than the Musketman. To train a Janissary a city must have a population of at least 2. If a city is founded by the Ottomans and trains a Janissary it loses a population.',
+        replaces: 'Musketman',
+        iconUrl: '/assets/bbg/items/Janissary.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Grand Bazaar",
-        "description": "A building unique to the Ottomans that replaces the Bank. Accumulate 1 extra Strategic resource for every different type of Strategic resource this city has improved. Receive +1 :amenities: Amenity for every Luxury resource this city has improved. Grants a :governor: Governor Title when constructed for the first time. +1 :traderoute: Trade route capacity. +6 :gold: Gold. +2 :gold: Gold for each :traderoute: trade route from this city. +1 :gold: Gold for each :traderoute: trade routes to this city. +2 :greatmerchant: Great Merchant points per turn.",
-        "replaces": "Bank",
-        "iconUrl": "/assets/bbg/items/Grand%20Bazaar.webp"
-      }
+        name: 'Grand Bazaar',
+        description: 'A building unique to the Ottomans that replaces the Bank. Accumulate 1 extra Strategic resource for every different type of Strategic resource this city has improved. Receive +1 :amenities: Amenity for every Luxury resource this city has improved. Grants a :governor: Governor Title when constructed for the first time. +1 :traderoute: Trade route capacity. +6 :gold: Gold. +2 :gold: Gold for each :traderoute: trade route from this city. +1 :gold: Gold for each :traderoute: trade routes to this city. +2 :greatmerchant: Great Merchant points per turn.',
+        replaces: 'Bank',
+        iconUrl: '/assets/bbg/items/Grand%20Bazaar.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "ottomans-suleiman-muhtesem",
-    "name": "Suleiman (Muhteşem)",
-    "civilization": "Ottomans",
-    "portraitUrl": "/assets/bbg/leaders/Ottomans%20Suleiman%20(Muhte%C5%9Fem).webp",
-    "civilizationAbility": {
-      "name": "Great Turkish Bombard",
-      "description": "+50% :production: Production toward siege units. All siege units gain +3 :strength: Combat Strength. Conquered cities do not lose :citizen: population. Cities not founded by the Ottomans gain +1 :amenities: Amenity and +4 Loyalty per turn. - Bias: T3 Rivers, T5 Niter."
+    id: 'ottomans-suleiman-muhtesem',
+    name: 'Suleiman (Muhteşem)',
+    civilization: 'Ottomans',
+    portraitUrl: '/assets/bbg/leaders/Ottomans%20Suleiman%20(Muhte%C5%9Fem).webp',
+    civilizationAbility: {
+      name: 'Great Turkish Bombard',
+      description: '+50% :production: Production toward siege units. All siege units gain +3 :strength: Combat Strength. Conquered cities do not lose :citizen: population. Cities not founded by the Ottomans gain +1 :amenities: Amenity and +4 Loyalty per turn. - Bias: T3 Rivers, T5 Niter.',
     },
-    "ability": {
-      "name": "The Magnificent",
-      "description": "+10% :science: Science and :culture: Culture when in a :glorygoldenage: Golden Age or :glorysupergoldenage: Heroic Age. +2 :strength: Combat Strength when not in a :glorygoldenage: Golden Age or :glorysupergoldenage: Heroic Age, doubled against Civilizations who are also not in a :glorygoldenage: Golden Age or :glorysupergoldenage: Heroic Age."
+    ability: {
+      name: 'The Magnificent',
+      description: '+10% :science: Science and :culture: Culture when in a :glorygoldenage: Golden Age or :glorysupergoldenage: Heroic Age. +2 :strength: Combat Strength when not in a :glorygoldenage: Golden Age or :glorysupergoldenage: Heroic Age, doubled against Civilizations who are also not in a :glorygoldenage: Golden Age or :glorysupergoldenage: Heroic Age.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Barbary Corsair",
-        "description": "Ottoman unique Medieval era naval unit that replaces the Privateer. Can enter Ocean tiles regardless of researched Technologies. It costs no :movement: Movement to coastal raid. Can only be seen by other Naval Raiders unless adjacent to it. Reveals Naval Raiders within sight range.",
-        "replaces": "Privateer",
-        "iconUrl": "/assets/bbg/items/Barbary%20Corsair.webp"
-      }
+        name: 'Barbary Corsair',
+        description: 'Ottoman unique Medieval era naval unit that replaces the Privateer. Can enter Ocean tiles regardless of researched Technologies. It costs no :movement: Movement to coastal raid. Can only be seen by other Naval Raiders unless adjacent to it. Reveals Naval Raiders within sight range.',
+        replaces: 'Privateer',
+        iconUrl: '/assets/bbg/items/Barbary%20Corsair.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Grand Bazaar",
-        "description": "A building unique to the Ottomans that replaces the Bank. Accumulate 1 extra Strategic resource for every different type of Strategic resource this city has improved. Receive +1 :amenities: Amenity for every Luxury resource this city has improved. Grants a :governor: Governor Title when constructed for the first time. +1 :traderoute: Trade route capacity. +6 :gold: Gold. +2 :gold: Gold for each :traderoute: trade route from this city. +1 :gold: Gold for each :traderoute: trade routes to this city. +2 :greatmerchant: Great Merchant points per turn.",
-        "replaces": "Bank",
-        "iconUrl": "/assets/bbg/items/Grand%20Bazaar.webp"
-      }
+        name: 'Grand Bazaar',
+        description: 'A building unique to the Ottomans that replaces the Bank. Accumulate 1 extra Strategic resource for every different type of Strategic resource this city has improved. Receive +1 :amenities: Amenity for every Luxury resource this city has improved. Grants a :governor: Governor Title when constructed for the first time. +1 :traderoute: Trade route capacity. +6 :gold: Gold. +2 :gold: Gold for each :traderoute: trade route from this city. +1 :gold: Gold for each :traderoute: trade routes to this city. +2 :greatmerchant: Great Merchant points per turn.',
+        replaces: 'Bank',
+        iconUrl: '/assets/bbg/items/Grand%20Bazaar.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "persia-cyrus",
-    "name": "Cyrus",
-    "civilization": "Persia",
-    "portraitUrl": "/assets/bbg/leaders/Persia%20Cyrus.webp",
-    "civilizationAbility": {
-      "name": "Satrapies",
-      "description": "+1 :traderoute: Trade Route capacity with Political Philosophy. Receive +2 :gold: Gold for domestic Trade Routes, and an additional +2 :gold: Gold with Banking and Economics. Roads built in your territory are one level more advanced than usual. - Bias: None."
+    id: 'persia-cyrus',
+    name: 'Cyrus',
+    civilization: 'Persia',
+    portraitUrl: '/assets/bbg/leaders/Persia%20Cyrus.webp',
+    civilizationAbility: {
+      name: 'Satrapies',
+      description: '+1 :traderoute: Trade Route capacity with Political Philosophy. Receive +2 :gold: Gold for domestic Trade Routes, and an additional +2 :gold: Gold with Banking and Economics. Roads built in your territory are one level more advanced than usual. - Bias: None.',
     },
-    "ability": {
-      "name": "Fall of Babylon",
-      "description": "All units get +3 :strength: Combat Strength when attacking. +5 Loyalty per turn in occupied cities with a garrisoned unit. Declaring a Surprise War counts as a Formal War for the purposes of :statgrievance: Grievances and warmongering. Receive +1 :culture: Culture for domestic Trade Routes, and an additional +2 :culture: Culture with Medieval Faires and Urbanization."
+    ability: {
+      name: 'Fall of Babylon',
+      description: 'All units get +3 :strength: Combat Strength when attacking. +5 Loyalty per turn in occupied cities with a garrisoned unit. Declaring a Surprise War counts as a Formal War for the purposes of :statgrievance: Grievances and warmongering. Receive +1 :culture: Culture for domestic Trade Routes, and an additional +2 :culture: Culture with Medieval Faires and Urbanization.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Immortal",
-        "description": "Persian unique melee unit that replaces the Swordsman. Melee class unit with a ranged attack, :range: Range 2. Strong defense strength.",
-        "replaces": "Swordsman",
-        "iconUrl": "/assets/bbg/items/Immortal.webp"
-      }
+        name: 'Immortal',
+        description: 'Persian unique melee unit that replaces the Swordsman. Melee class unit with a ranged attack, :range: Range 2. Strong defense strength.',
+        replaces: 'Swordsman',
+        iconUrl: '/assets/bbg/items/Immortal.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Pairidaeza",
-        "description": "Persian unique builder improvement unlocked with Early Empire. Cannot be built on Snow tiles, Tundra tiles or Floodplains. Cannot be build next to another Pairidaeza. +1 :culture: Culture, +2 :gold: Gold, +1 :housing: Housing. +1 :culture: Culture with Diplomatic Service. +1 :culture: Culture for each adjacent City Center, Holy Site, Campus, and Theater Square. +1 :gold: Gold for each adjacent City Center, Commercial Hub, Harbor, and Industrial Zone. +1 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.",
-        "iconUrl": "/assets/bbg/items/Pairidaeza.webp"
-      }
+        name: 'Pairidaeza',
+        description: 'Persian unique builder improvement unlocked with Early Empire. Cannot be built on Snow tiles, Tundra tiles or Floodplains. Cannot be build next to another Pairidaeza. +1 :culture: Culture, +2 :gold: Gold, +1 :housing: Housing. +1 :culture: Culture with Diplomatic Service. +1 :culture: Culture for each adjacent City Center, Holy Site, Campus, and Theater Square. +1 :gold: Gold for each adjacent City Center, Commercial Hub, Harbor, and Industrial Zone. +1 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.',
+        iconUrl: '/assets/bbg/items/Pairidaeza.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "persia-nader-shah",
-    "name": "Nader Shah",
-    "civilization": "Persia",
-    "portraitUrl": "/assets/bbg/leaders/Persia%20Nader%20Shah.webp",
-    "civilizationAbility": {
-      "name": "Satrapies",
-      "description": "+1 :traderoute: Trade Route capacity with Political Philosophy. Receive +2 :gold: Gold for domestic Trade Routes, and an additional +2 :gold: Gold with Banking and Economics. Roads built in your territory are one level more advanced than usual. - Bias: None."
+    id: 'persia-nader-shah',
+    name: 'Nader Shah',
+    civilization: 'Persia',
+    portraitUrl: '/assets/bbg/leaders/Persia%20Nader%20Shah.webp',
+    civilizationAbility: {
+      name: 'Satrapies',
+      description: '+1 :traderoute: Trade Route capacity with Political Philosophy. Receive +2 :gold: Gold for domestic Trade Routes, and an additional +2 :gold: Gold with Banking and Economics. Roads built in your territory are one level more advanced than usual. - Bias: None.',
     },
-    "ability": {
-      "name": "Sword of Persia",
-      "description": "+5 :strength: Combat Strength when attacking Defensible Districts and full health Units. Receive +1 :science: Science for domestic Trade Routes, and an additional +2 :science: Science with Education and Scientific Theory."
+    ability: {
+      name: 'Sword of Persia',
+      description: '+5 :strength: Combat Strength when attacking Defensible Districts and full health Units. Receive +1 :science: Science for domestic Trade Routes, and an additional +2 :science: Science with Education and Scientific Theory.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Immortal",
-        "description": "Persian unique melee unit that replaces the Swordsman. Melee class unit with a ranged attack, :range: Range 2. Strong defense strength.",
-        "replaces": "Swordsman",
-        "iconUrl": "/assets/bbg/items/Immortal.webp"
-      }
+        name: 'Immortal',
+        description: 'Persian unique melee unit that replaces the Swordsman. Melee class unit with a ranged attack, :range: Range 2. Strong defense strength.',
+        replaces: 'Swordsman',
+        iconUrl: '/assets/bbg/items/Immortal.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Pairidaeza",
-        "description": "Persian unique builder improvement unlocked with Early Empire. Cannot be built on Snow tiles, Tundra tiles or Floodplains. Cannot be build next to another Pairidaeza. +1 :culture: Culture, +2 :gold: Gold, +1 :housing: Housing. +1 :culture: Culture with Diplomatic Service. +1 :culture: Culture for each adjacent City Center, Holy Site, Campus, and Theater Square. +1 :gold: Gold for each adjacent City Center, Commercial Hub, Harbor, and Industrial Zone. +1 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.",
-        "iconUrl": "/assets/bbg/items/Pairidaeza.webp"
-      }
+        name: 'Pairidaeza',
+        description: 'Persian unique builder improvement unlocked with Early Empire. Cannot be built on Snow tiles, Tundra tiles or Floodplains. Cannot be build next to another Pairidaeza. +1 :culture: Culture, +2 :gold: Gold, +1 :housing: Housing. +1 :culture: Culture with Diplomatic Service. +1 :culture: Culture for each adjacent City Center, Holy Site, Campus, and Theater Square. +1 :gold: Gold for each adjacent City Center, Commercial Hub, Harbor, and Industrial Zone. +1 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.',
+        iconUrl: '/assets/bbg/items/Pairidaeza.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "phoenicia-dido",
-    "name": "Dido",
-    "civilization": "Phoenicia",
-    "portraitUrl": "/assets/bbg/leaders/Phoenicia%20Dido.webp",
-    "civilizationAbility": {
-      "name": "Mediterranean Colonies",
-      "description": "Begin the game with the Writing technology :techboosted: Eureka. Coastal cities founded by Phoenicia and located on the same continent as the Phoenician :capital: Capital are 100% Loyal. - Bias: T1 Coast."
+    id: 'phoenicia-dido',
+    name: 'Dido',
+    civilization: 'Phoenicia',
+    portraitUrl: '/assets/bbg/leaders/Phoenicia%20Dido.webp',
+    civilizationAbility: {
+      name: 'Mediterranean Colonies',
+      description: 'Begin the game with the Writing technology :techboosted: Eureka. Coastal cities founded by Phoenicia and located on the same continent as the Phoenician :capital: Capital are 100% Loyal. - Bias: T1 Coast.',
     },
-    "ability": {
-      "name": "Founder of Carthage",
-      "description": "Settlers gain +2 :movement: Movement and +2 sight range while embarked. Settlers ignore additional :movement: Movement costs from embarking and disembarking. +1 :traderoute: Trade Route capacity for each Government Plaza building. +50% :production: Production toward :district: districts in the city with the Government Plaza."
+    ability: {
+      name: 'Founder of Carthage',
+      description: 'Settlers gain +2 :movement: Movement and +2 sight range while embarked. Settlers ignore additional :movement: Movement costs from embarking and disembarking. +1 :traderoute: Trade Route capacity for each Government Plaza building. +50% :production: Production toward :district: districts in the city with the Government Plaza.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Bireme",
-        "description": "Phoenician unique Ancient Era unit that replaces the Galley. Increased :strength: Combat Strength and :movement: Movement. Trader units are immune to being plundered if they are within 4 tiles of a Bireme and on a water tile.",
-        "replaces": "Galley",
-        "iconUrl": "/assets/bbg/items/Bireme.webp"
-      }
+        name: 'Bireme',
+        description: 'Phoenician unique Ancient Era unit that replaces the Galley. Increased :strength: Combat Strength and :movement: Movement. Trader units are immune to being plundered if they are within 4 tiles of a Bireme and on a water tile.',
+        replaces: 'Galley',
+        iconUrl: '/assets/bbg/items/Bireme.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Cothon",
-        "description": "A district unique to Phoenicia for naval activity in your city. Replaces the Harbor district and cheaper to build. Must be built on Coast or Lake Terrain adjacent to land. +25% :production: Production towards naval units and Settlers in this city.",
-        "replaces": "Harbor district",
-        "iconUrl": "/assets/bbg/items/Cothon.webp"
-      }
+        name: 'Cothon',
+        description: 'A district unique to Phoenicia for naval activity in your city. Replaces the Harbor district and cheaper to build. Must be built on Coast or Lake Terrain adjacent to land. +25% :production: Production towards naval units and Settlers in this city.',
+        replaces: 'Harbor district',
+        iconUrl: '/assets/bbg/items/Cothon.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "phoenicia-ahiram",
-    "name": "Ahiram",
-    "civilization": "Phoenicia",
-    "portraitUrl": "/assets/bbg/leaders/Phoenicia%20Ahiram.webp",
-    "civilizationAbility": {
-      "name": "Mediterranean Colonies",
-      "description": "Begin the game with the Writing technology :techboosted: Eureka. Coastal cities founded by Phoenicia and located on the same continent as the Phoenician :capital: Capital are 100% Loyal. - Bias: T1 Coast."
+    id: 'phoenicia-ahiram',
+    name: 'Ahiram',
+    civilization: 'Phoenicia',
+    portraitUrl: '/assets/bbg/leaders/Phoenicia%20Ahiram.webp',
+    civilizationAbility: {
+      name: 'Mediterranean Colonies',
+      description: 'Begin the game with the Writing technology :techboosted: Eureka. Coastal cities founded by Phoenicia and located on the same continent as the Phoenician :capital: Capital are 100% Loyal. - Bias: T1 Coast.',
     },
-    "ability": {
-      "name": "Merchant Princes",
-      "description": "International :traderoute: trade routes provides +0.5 :production: Production and +2 :gold: Gold for each Luxury resource in the origin city. Unlock the Royal Tomb unique building."
+    ability: {
+      name: 'Merchant Princes',
+      description: 'International :traderoute: trade routes provides +0.5 :production: Production and +2 :gold: Gold for each Luxury resource in the origin city. Unlock the Royal Tomb unique building.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Bireme",
-        "description": "Phoenician unique Ancient Era unit that replaces the Galley. Increased :strength: Combat Strength and :movement: Movement. Trader units are immune to being plundered if they are within 4 tiles of a Bireme and on a water tile.",
-        "replaces": "Galley",
-        "iconUrl": "/assets/bbg/items/Bireme.webp"
-      }
+        name: 'Bireme',
+        description: 'Phoenician unique Ancient Era unit that replaces the Galley. Increased :strength: Combat Strength and :movement: Movement. Trader units are immune to being plundered if they are within 4 tiles of a Bireme and on a water tile.',
+        replaces: 'Galley',
+        iconUrl: '/assets/bbg/items/Bireme.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Cothon",
-        "description": "A district unique to Phoenicia for naval activity in your city. Replaces the Harbor district and cheaper to build. Must be built on Coast or Lake Terrain adjacent to land. +25% :production: Production towards naval units and Settlers in this city.",
-        "replaces": "Harbor district",
-        "iconUrl": "/assets/bbg/items/Cothon.webp"
+        name: 'Cothon',
+        description: 'A district unique to Phoenicia for naval activity in your city. Replaces the Harbor district and cheaper to build. Must be built on Coast or Lake Terrain adjacent to land. +25% :production: Production towards naval units and Settlers in this city.',
+        replaces: 'Harbor district',
+        iconUrl: '/assets/bbg/items/Cothon.webp',
       },
       {
-        "name": "Royal Tomb",
-        "description": "Replaces the Library. +1 :science: Science per Great Admiral recruited by Ahiram after this city was founded or conquered. Doesn't cost maintenance.",
-        "replaces": "Library",
-        "iconUrl": "/assets/bbg/items/Royal%20Tomb.webp"
-      }
+        name: 'Royal Tomb',
+        description: 'Replaces the Library. +1 :science: Science per Great Admiral recruited by Ahiram after this city was founded or conquered. Doesn\'t cost maintenance.',
+        replaces: 'Library',
+        iconUrl: '/assets/bbg/items/Royal%20Tomb.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "poland-jadwiga",
-    "name": "Jadwiga",
-    "civilization": "Poland",
-    "portraitUrl": "/assets/bbg/leaders/Poland%20Jadwiga.webp",
-    "civilizationAbility": {
-      "name": "Golden Liberty",
-      "description": "One Military policy slot in the current :government: government is converted to a Wildcard policy slot. Culture Bomb adjacent tiles when completing an Encampment or Fort inside friendly territory. - Bias: None."
+    id: 'poland-jadwiga',
+    name: 'Jadwiga',
+    civilization: 'Poland',
+    portraitUrl: '/assets/bbg/leaders/Poland%20Jadwiga.webp',
+    civilizationAbility: {
+      name: 'Golden Liberty',
+      description: 'One Military policy slot in the current :government: government is converted to a Wildcard policy slot. Culture Bomb adjacent tiles when completing an Encampment or Fort inside friendly territory. - Bias: None.',
     },
-    "ability": {
-      "name": "Lithuanian Union",
-      "description": "Holy Sites gain standard Faith adjacency from adjacent :district: Districts. All :greatworkrelic: Relics generate an additional +2 :faith: Faith, +2 :culture: Culture, and +4 :gold: Gold. Receive a :greatworkrelic: Relic when founding and when completing a Religion. The Religion founded by Poland becomes the majority in an adjacent city that loses a tile to a Polish Culture Bomb."
+    ability: {
+      name: 'Lithuanian Union',
+      description: 'Holy Sites gain standard Faith adjacency from adjacent :district: Districts. All :greatworkrelic: Relics generate an additional +2 :faith: Faith, +2 :culture: Culture, and +4 :gold: Gold. Receive a :greatworkrelic: Relic when founding and when completing a Religion. The Religion founded by Poland becomes the majority in an adjacent city that loses a tile to a Polish Culture Bomb.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Winged Hussar",
-        "description": "Polish unique Renaissance era unit that replaces the Cuirassier. Pushes defending enemy units back from their hex in any battle where they score more damage. Defenders that cannot retreat suffer additional damage.",
-        "replaces": "Cuirassier",
-        "iconUrl": "/assets/bbg/items/Winged%20Hussar.webp"
-      }
+        name: 'Winged Hussar',
+        description: 'Polish unique Renaissance era unit that replaces the Cuirassier. Pushes defending enemy units back from their hex in any battle where they score more damage. Defenders that cannot retreat suffer additional damage.',
+        replaces: 'Cuirassier',
+        iconUrl: '/assets/bbg/items/Winged%20Hussar.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Sukiennice",
-        "description": "A building unique to Poland. International :traderoute: Trade Routes from this city gain +2 :production: Production; domestic :traderoute: Trade Routes gain +4 :gold: Gold. +1 :traderoute: Trade Route capacity, if this city does not yet have a Lighthouse building.",
-        "iconUrl": "/assets/bbg/items/Sukiennice.webp"
-      }
+        name: 'Sukiennice',
+        description: 'A building unique to Poland. International :traderoute: Trade Routes from this city gain +2 :production: Production; domestic :traderoute: Trade Routes gain +4 :gold: Gold. +1 :traderoute: Trade Route capacity, if this city does not yet have a Lighthouse building.',
+        iconUrl: '/assets/bbg/items/Sukiennice.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "portugal-joao-iii",
-    "name": "João III",
-    "civilization": "Portugal",
-    "portraitUrl": "/assets/bbg/leaders/Portugal%20Jo%C3%A3o%20III.webp",
-    "civilizationAbility": {
-      "name": "Casa da Índia",
-      "description": "International :traderoute: Trade Routes must originate from a coastal city and can only travel over water or canal tiles, but receive +50% :gold: Gold with Cartography, +50% :science: Science with Education, and +50% :culture: Culture with Medieval Faires. Trader units have +50% range over water, and can embark as soon as they are unlocked. - Bias: T1 Coast."
+    id: 'portugal-joao-iii',
+    name: 'João III',
+    civilization: 'Portugal',
+    portraitUrl: '/assets/bbg/leaders/Portugal%20Jo%C3%A3o%20III.webp',
+    civilizationAbility: {
+      name: 'Casa da Índia',
+      description: 'International :traderoute: Trade Routes must originate from a coastal city and can only travel over water or canal tiles, but receive +50% :gold: Gold with Cartography, +50% :science: Science with Education, and +50% :culture: Culture with Medieval Faires. Trader units have +50% range over water, and can embark as soon as they are unlocked. - Bias: T1 Coast.',
     },
-    "ability": {
-      "name": "Porta do Cerco",
-      "description": "All units receive +1 Sight. +1 :traderoute: Trade Route capacity when entering a new era (ancient era included). Open Borders with all City-states."
+    ability: {
+      name: 'Porta do Cerco',
+      description: 'All units receive +1 Sight. +1 :traderoute: Trade Route capacity when entering a new era (ancient era included). Open Borders with all City-states.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Nau",
-        "description": "Portuguese unique naval melee unit that replaces the Caravel. Starts with :promotion: free Promotion and is less maintenance. Has 2 :charges: charge to build Feitorias.",
-        "replaces": "Caravel",
-        "iconUrl": "/assets/bbg/items/Nau.webp"
-      }
+        name: 'Nau',
+        description: 'Portuguese unique naval melee unit that replaces the Caravel. Starts with :promotion: free Promotion and is less maintenance. Has 2 :charges: charge to build Feitorias.',
+        replaces: 'Caravel',
+        iconUrl: '/assets/bbg/items/Nau.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Navigation School",
-        "description": "A building unique to Portugal. +25% :production: Production towards naval units in this city. +1 :science: Science for every two coast or lake tiles in this city. +1 :greatadmiral: Great Admiral and +1 :greatscientist: Great Scientist point per turn.",
-        "iconUrl": "/assets/bbg/items/Navigation%20School.webp"
-      }
+        name: 'Navigation School',
+        description: 'A building unique to Portugal. +25% :production: Production towards naval units in this city. +1 :science: Science for every two coast or lake tiles in this city. +1 :greatadmiral: Great Admiral and +1 :greatscientist: Great Scientist point per turn.',
+        iconUrl: '/assets/bbg/items/Navigation%20School.webp',
+      },
     ],
-    "uniqueImprovements": [
+    uniqueImprovements: [
       {
-        "name": "Feitoria",
-        "description": "Portuguese unique improvement built by the Nau. Can only be built adjacent to Luxury or Bonus resources in territory belonging to other Civilizations or City-states that you have Open Borders with. Must be built on a Coast or Lake tile adjacent to land and not adjacent to another Feitoria. Feitorias cannot be removed. +4 :gold: Gold and +1 :production: Production. Trade routes sent to this city from Portugal gain +2 :gold: Gold and +1 :production: Production.",
-        "iconUrl": "/assets/bbg/items/Feitoria.webp"
-      }
+        name: 'Feitoria',
+        description: 'Portuguese unique improvement built by the Nau. Can only be built adjacent to Luxury or Bonus resources in territory belonging to other Civilizations or City-states that you have Open Borders with. Must be built on a Coast or Lake tile adjacent to land and not adjacent to another Feitoria. Feitorias cannot be removed. +4 :gold: Gold and +1 :production: Production. Trade routes sent to this city from Portugal gain +2 :gold: Gold and +1 :production: Production.',
+        iconUrl: '/assets/bbg/items/Feitoria.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "rome-julius-caesar",
-    "name": "Julius Caesar",
-    "civilization": "Rome",
-    "portraitUrl": "/assets/bbg/leaders/Rome%20Julius%20Caesar.webp",
-    "civilizationAbility": {
-      "name": "All Roads Lead to Rome",
-      "description": "All cities you found or conquer start with a Trading Post. If in :traderoute: Trade Route range of your :capital: Capital, they also start with a road to it. Your :traderoute: Trade Routes earn +1 :gold: Gold for passing through Trading Posts in your own cities. - Bias: None."
+    id: 'rome-julius-caesar',
+    name: 'Julius Caesar',
+    civilization: 'Rome',
+    portraitUrl: '/assets/bbg/leaders/Rome%20Julius%20Caesar.webp',
+    civilizationAbility: {
+      name: 'All Roads Lead to Rome',
+      description: 'All cities you found or conquer start with a Trading Post. If in :traderoute: Trade Route range of your :capital: Capital, they also start with a road to it. Your :traderoute: Trade Routes earn +1 :gold: Gold for passing through Trading Posts in your own cities. - Bias: None.',
     },
-    "ability": {
-      "name": "Veni, Vidi, Vici",
-      "description": "Melee, Siege, Ranged and Heavy Cavalry units receive +50% Combat Experience, increasing to +100% when entering the medieval era. These units receive +1 Combat Strength per promotion received. Receive a free melee unit each time you found a non-capital city and in your capital after researching Code of Laws. Gain an extra Wildcard Policy slot when capturing and retaining at least one city founded by a major civilization and owned by a major civilization at the time of capture (maximum 1 extra wildcard slot). Gain the Onager unique unit when Engineering is researched."
+    ability: {
+      name: 'Veni, Vidi, Vici',
+      description: 'Melee, Siege, Ranged and Heavy Cavalry units receive +50% Combat Experience, increasing to +100% when entering the medieval era. These units receive +1 Combat Strength per promotion received. Receive a free melee unit each time you found a non-capital city and in your capital after researching Code of Laws. Gain an extra Wildcard Policy slot when capturing and retaining at least one city founded by a major civilization and owned by a major civilization at the time of capture (maximum 1 extra wildcard slot). Gain the Onager unique unit when Engineering is researched.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Legion",
-        "description": "Roman unique Classical era melee unit that replaces the Swordsman. Has 1 :charges: charge to build a Roman Fort.",
-        "replaces": "Swordsman",
-        "iconUrl": "/assets/bbg/items/Legion.webp"
-      }
+        name: 'Legion',
+        description: 'Roman unique Classical era melee unit that replaces the Swordsman. Has 1 :charges: charge to build a Roman Fort.',
+        replaces: 'Swordsman',
+        iconUrl: '/assets/bbg/items/Legion.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Bath",
-        "description": "A district unique to Rome for city growth. Replaces the Aqueduct district and cheaper to build. It provides this city with a source of fresh water from an adjacent River, Lake, Oasis, or Mountain. Cities that do not yet have existing fresh water receive up to 6 :housing: Housing. Cities that already have existing fresh water will instead get +2 :housing: Housing. Must be built adjacent to the City Center. In either case, the Bath provides an additional bonus of +2 :housing: Housing. +1 :culture: Culture from every 2 adjacent districts. Must be built adjacent to the City Center.",
-        "replaces": "Aqueduct district",
-        "iconUrl": "/assets/bbg/items/Bath.webp"
-      }
+        name: 'Bath',
+        description: 'A district unique to Rome for city growth. Replaces the Aqueduct district and cheaper to build. It provides this city with a source of fresh water from an adjacent River, Lake, Oasis, or Mountain. Cities that do not yet have existing fresh water receive up to 6 :housing: Housing. Cities that already have existing fresh water will instead get +2 :housing: Housing. Must be built adjacent to the City Center. In either case, the Bath provides an additional bonus of +2 :housing: Housing. +1 :culture: Culture from every 2 adjacent districts. Must be built adjacent to the City Center.',
+        replaces: 'Aqueduct district',
+        iconUrl: '/assets/bbg/items/Bath.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "rome-trajan",
-    "name": "Trajan",
-    "civilization": "Rome",
-    "portraitUrl": "/assets/bbg/leaders/Rome%20Trajan.webp",
-    "civilizationAbility": {
-      "name": "All Roads Lead to Rome",
-      "description": "All cities you found or conquer start with a Trading Post. If in :traderoute: Trade Route range of your :capital: Capital, they also start with a road to it. Your :traderoute: Trade Routes earn +1 :gold: Gold for passing through Trading Posts in your own cities. - Bias: None."
+    id: 'rome-trajan',
+    name: 'Trajan',
+    civilization: 'Rome',
+    portraitUrl: '/assets/bbg/leaders/Rome%20Trajan.webp',
+    civilizationAbility: {
+      name: 'All Roads Lead to Rome',
+      description: 'All cities you found or conquer start with a Trading Post. If in :traderoute: Trade Route range of your :capital: Capital, they also start with a road to it. Your :traderoute: Trade Routes earn +1 :gold: Gold for passing through Trading Posts in your own cities. - Bias: None.',
     },
-    "ability": {
-      "name": "Trajan's Column",
-      "description": "All founded cities receive a free building in the City Center after unlocking Early Empire."
+    ability: {
+      name: 'Trajan\'s Column',
+      description: 'All founded cities receive a free building in the City Center after unlocking Early Empire.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Legion",
-        "description": "Roman unique Classical era melee unit that replaces the Swordsman. Has 1 :charges: charge to build a Roman Fort.",
-        "replaces": "Swordsman",
-        "iconUrl": "/assets/bbg/items/Legion.webp"
-      }
+        name: 'Legion',
+        description: 'Roman unique Classical era melee unit that replaces the Swordsman. Has 1 :charges: charge to build a Roman Fort.',
+        replaces: 'Swordsman',
+        iconUrl: '/assets/bbg/items/Legion.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Bath",
-        "description": "A district unique to Rome for city growth. Replaces the Aqueduct district and cheaper to build. It provides this city with a source of fresh water from an adjacent River, Lake, Oasis, or Mountain. Cities that do not yet have existing fresh water receive up to 6 :housing: Housing. Cities that already have existing fresh water will instead get +2 :housing: Housing. Must be built adjacent to the City Center. In either case, the Bath provides an additional bonus of +2 :housing: Housing. +1 :culture: Culture from every 2 adjacent districts. Must be built adjacent to the City Center.",
-        "replaces": "Aqueduct district",
-        "iconUrl": "/assets/bbg/items/Bath.webp"
-      }
+        name: 'Bath',
+        description: 'A district unique to Rome for city growth. Replaces the Aqueduct district and cheaper to build. It provides this city with a source of fresh water from an adjacent River, Lake, Oasis, or Mountain. Cities that do not yet have existing fresh water receive up to 6 :housing: Housing. Cities that already have existing fresh water will instead get +2 :housing: Housing. Must be built adjacent to the City Center. In either case, the Bath provides an additional bonus of +2 :housing: Housing. +1 :culture: Culture from every 2 adjacent districts. Must be built adjacent to the City Center.',
+        replaces: 'Aqueduct district',
+        iconUrl: '/assets/bbg/items/Bath.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "russia-peter",
-    "name": "Peter",
-    "civilization": "Russia",
-    "portraitUrl": "/assets/bbg/leaders/Russia%20Peter.webp",
-    "civilizationAbility": {
-      "name": "Mother Russia",
-      "description": "Extra territory upon founding cities. +1 :production: Production from Tundra tiles. Cities in Tundra with a Shrine receive +1 :food: Food. Units do not receive damage from Blizzards. Civilizations that are at war with Russia receive +100% unit damage from Blizzards in Russian territory. - Bias: T1 Tundra."
+    id: 'russia-peter',
+    name: 'Peter',
+    civilization: 'Russia',
+    portraitUrl: '/assets/bbg/leaders/Russia%20Peter.webp',
+    civilizationAbility: {
+      name: 'Mother Russia',
+      description: 'Extra territory upon founding cities. +1 :production: Production from Tundra tiles. Cities in Tundra with a Shrine receive +1 :food: Food. Units do not receive damage from Blizzards. Civilizations that are at war with Russia receive +100% unit damage from Blizzards in Russian territory. - Bias: T1 Tundra.',
     },
-    "ability": {
-      "name": "The Grand Embassy",
-      "description": "Receives :science: Science or :culture: Culture from :traderoute: Trade Routes to civilizations that are more advanced than Russia. +1 per 3 technologies or civics ahead."
+    ability: {
+      name: 'The Grand Embassy',
+      description: 'Receives :science: Science or :culture: Culture from :traderoute: Trade Routes to civilizations that are more advanced than Russia. +1 per 3 technologies or civics ahead.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Cossack",
-        "description": "Russian unique Industrial era unit that replaces Cavalry. +5 :strength: Combat Strength when fighting in or adjacent to its home territory. Can move after attacking if :movement: Movement points remain.",
-        "replaces": "Cavalry",
-        "iconUrl": "/assets/bbg/items/Cossack.webp"
-      }
+        name: 'Cossack',
+        description: 'Russian unique Industrial era unit that replaces Cavalry. +5 :strength: Combat Strength when fighting in or adjacent to its home territory. Can move after attacking if :movement: Movement points remain.',
+        replaces: 'Cavalry',
+        iconUrl: '/assets/bbg/items/Cossack.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Lavra",
-        "description": "A district unique to Russia that replaces the Holy Site district and is cheaper to build. Your city border grows by one tile each time a :greatperson: Great Person is used in one of this city's :district: districts. The Lavra provides +1 :greatwriter: Great Writer point per turn with a Temple and +1 :greatartist: Great Artist point per turn with a Worship building.",
-        "replaces": "Holy Site district",
-        "iconUrl": "/assets/bbg/items/Lavra.webp"
-      }
+        name: 'Lavra',
+        description: 'A district unique to Russia that replaces the Holy Site district and is cheaper to build. Your city border grows by one tile each time a :greatperson: Great Person is used in one of this city\'s :district: districts. The Lavra provides +1 :greatwriter: Great Writer point per turn with a Temple and +1 :greatartist: Great Artist point per turn with a Worship building.',
+        replaces: 'Holy Site district',
+        iconUrl: '/assets/bbg/items/Lavra.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "scotland-robert-the-bruce",
-    "name": "Robert the Bruce",
-    "civilization": "Scotland",
-    "portraitUrl": "/assets/bbg/leaders/Scotland%20Robert%20the%20Bruce.webp",
-    "civilizationAbility": {
-      "name": "Scottish Enlightenment",
-      "description": "Happy cities receive an additional +5% :science: Science and +5% :production: Production. Happy cities generate +1 :greatscientist: Great Scientist point per Campus and +1 :greatengineer: Great Engineer point per Industrial Zone. Ecstatic cities double all these amounts. Euphoric (+8 amenity) cities triple these amounts. - Bias: None."
+    id: 'scotland-robert-the-bruce',
+    name: 'Robert the Bruce',
+    civilization: 'Scotland',
+    portraitUrl: '/assets/bbg/leaders/Scotland%20Robert%20the%20Bruce.webp',
+    civilizationAbility: {
+      name: 'Scottish Enlightenment',
+      description: 'Happy cities receive an additional +5% :science: Science and +5% :production: Production. Happy cities generate +1 :greatscientist: Great Scientist point per Campus and +1 :greatengineer: Great Engineer point per Industrial Zone. Ecstatic cities double all these amounts. Euphoric (+8 amenity) cities triple these amounts. - Bias: None.',
     },
-    "ability": {
-      "name": "Bannockburn",
-      "description": "Recon units receive +50% combat experience."
+    ability: {
+      name: 'Bannockburn',
+      description: 'Recon units receive +50% combat experience.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Highlander",
-        "description": "Scottish unique Industrial Era unit that replaces the Ranger. Strong reconnaissance unit. +5 :strength: Combat Strength bonus when fighting in Hill and Forest terrain.",
-        "replaces": "Ranger",
-        "iconUrl": "/assets/bbg/items/Highlander.webp"
-      }
+        name: 'Highlander',
+        description: 'Scottish unique Industrial Era unit that replaces the Ranger. Strong reconnaissance unit. +5 :strength: Combat Strength bonus when fighting in Hill and Forest terrain.',
+        replaces: 'Ranger',
+        iconUrl: '/assets/bbg/items/Highlander.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Golf Course",
-        "description": "Scottish unique builder improvement unlocked with Games and Recreation. Cannot be placed on Desert or Desert Hills. One per City. Tiles with Golf Courses cannot be swapped. +1 :culture: Culture, +2 :gold: Gold, +1 :amenities: Amenity. +1 :culture: Culture and +1 :gold: Gold if adjacent to a City Center. +1 :culture: Culture and +1 :amenities: Amenity if adjacent to an Entertainment Complex. +1 :culture: Culture and +1 :gold: Gold with Enlightenment. +1 :amenities: Amenity with Guilds. +1 :housing: Housing with Globalization. +1 Appeal to adjacent tiles",
-        "iconUrl": "/assets/bbg/items/Golf%20Course.webp"
-      }
+        name: 'Golf Course',
+        description: 'Scottish unique builder improvement unlocked with Games and Recreation. Cannot be placed on Desert or Desert Hills. One per City. Tiles with Golf Courses cannot be swapped. +1 :culture: Culture, +2 :gold: Gold, +1 :amenities: Amenity. +1 :culture: Culture and +1 :gold: Gold if adjacent to a City Center. +1 :culture: Culture and +1 :amenities: Amenity if adjacent to an Entertainment Complex. +1 :culture: Culture and +1 :gold: Gold with Enlightenment. +1 :amenities: Amenity with Guilds. +1 :housing: Housing with Globalization. +1 Appeal to adjacent tiles',
+        iconUrl: '/assets/bbg/items/Golf%20Course.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "scythia-tomyris",
-    "name": "Tomyris",
-    "civilization": "Scythia",
-    "portraitUrl": "/assets/bbg/leaders/Scythia%20Tomyris.webp",
-    "civilizationAbility": {
-      "name": "People of the Steppe",
-      "description": "May purchase Light, Heavy, and Ranged Cavalry units with :faith: Faith. - Bias: T3 Horses, T4 Cattle and Sheep, T5 Grassland and Plains."
+    id: 'scythia-tomyris',
+    name: 'Tomyris',
+    civilization: 'Scythia',
+    portraitUrl: '/assets/bbg/leaders/Scythia%20Tomyris.webp',
+    civilizationAbility: {
+      name: 'People of the Steppe',
+      description: 'May purchase Light, Heavy, and Ranged Cavalry units with :faith: Faith. - Bias: T3 Horses, T4 Cattle and Sheep, T5 Grassland and Plains.',
     },
-    "ability": {
-      "name": "Killer of Cyrus",
-      "description": "All units receive +3 :strength: Combat Strength when attacking wounded units, increasing to +5 :strength: Combat Strength after you enter the Medieval Era. When they eliminate a unit, they heal up to 30 hit points."
+    ability: {
+      name: 'Killer of Cyrus',
+      description: 'All units receive +3 :strength: Combat Strength when attacking wounded units, increasing to +5 :strength: Combat Strength after you enter the Medieval Era. When they eliminate a unit, they heal up to 30 hit points.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Saka Horse Archer",
-        "description": "Scythian unique Classical Era ranged cavalry unit with 4 :movement: Movement and a :range: Range of 2.",
-        "iconUrl": "/assets/bbg/items/Saka%20Horse%20Archer.webp"
-      }
+        name: 'Saka Horse Archer',
+        description: 'Scythian unique Classical Era ranged cavalry unit with 4 :movement: Movement and a :range: Range of 2.',
+        iconUrl: '/assets/bbg/items/Saka%20Horse%20Archer.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Kurgan",
-        "description": "Scythian unique builder improvement unlocked with Animal Husbandry. +1 :faith: Faith and +3 :gold: Gold. +1 :faith: Faith for each adjacent Pasture, increasing to +2 :faith: Faith for each adjacent Pasture with Stirrups. +1 :production: Production for each adjacent Pasture. Provides :tourism: Tourism from :faith: Faith after researching Flight.",
-        "iconUrl": "/assets/bbg/items/Kurgan.webp"
-      }
+        name: 'Kurgan',
+        description: 'Scythian unique builder improvement unlocked with Animal Husbandry. +1 :faith: Faith and +3 :gold: Gold. +1 :faith: Faith for each adjacent Pasture, increasing to +2 :faith: Faith for each adjacent Pasture with Stirrups. +1 :production: Production for each adjacent Pasture. Provides :tourism: Tourism from :faith: Faith after researching Flight.',
+        iconUrl: '/assets/bbg/items/Kurgan.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "spain-philip-ii",
-    "name": "Philip II",
-    "civilization": "Spain",
-    "portraitUrl": "/assets/bbg/leaders/Spain%20Philip%20II.webp",
-    "civilizationAbility": {
-      "name": "Treasure Fleet",
-      "description": "May form :corps: Fleets and :army: Armadas earlier than usual (Mercenaries and Nationalism). :traderoute: Trade Routes receive +3 :gold: Gold, +2 :faith: Faith, and +1 :production: Production. International :traderoute: Trade Routes between multiple continents receive double these numbers. Cities at least 8 tiles away from :capital: Capital receive +25% :production: Production towards :district: districts. - Bias: T1 Coast, T3 Geothermal Fissure. Special \"Continent Split\"."
+    id: 'spain-philip-ii',
+    name: 'Philip II',
+    civilization: 'Spain',
+    portraitUrl: '/assets/bbg/leaders/Spain%20Philip%20II.webp',
+    civilizationAbility: {
+      name: 'Treasure Fleet',
+      description: 'May form :corps: Fleets and :army: Armadas earlier than usual (Mercenaries and Nationalism). :traderoute: Trade Routes receive +3 :gold: Gold, +2 :faith: Faith, and +1 :production: Production. International :traderoute: Trade Routes between multiple continents receive double these numbers. Cities at least 8 tiles away from :capital: Capital receive +25% :production: Production towards :district: districts. - Bias: T1 Coast, T3 Geothermal Fissure. Special "Continent Split".',
     },
-    "ability": {
-      "name": "El Escorial",
-      "description": "Inquisitors can Remove Heresy one extra time. Inquisitors eliminate 100% of the presence of other Religions. Combat and Religious units have a bonus of +3 :strength: Combat Strength against players following other Religions. Missionaries are 25% cheaper to purchase."
+    ability: {
+      name: 'El Escorial',
+      description: 'Inquisitors can Remove Heresy one extra time. Inquisitors eliminate 100% of the presence of other Religions. Combat and Religious units have a bonus of +3 :strength: Combat Strength against players following other Religions. Missionaries are 25% cheaper to purchase.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Conquistador",
-        "description": "Spanish unique Renaissance era unit that replaces the Musketman. +5 :strength: Combat Strength when there is a religious unit within 1 hex. If this unit captures a city or is adjacent to a city when it is captured, the city will automatically adopt the Conquistador player's majority religion.",
-        "replaces": "Musketman",
-        "iconUrl": "/assets/bbg/items/Conquistador.webp"
-      }
+        name: 'Conquistador',
+        description: 'Spanish unique Renaissance era unit that replaces the Musketman. +5 :strength: Combat Strength when there is a religious unit within 1 hex. If this unit captures a city or is adjacent to a city when it is captured, the city will automatically adopt the Conquistador player\'s majority religion.',
+        replaces: 'Musketman',
+        iconUrl: '/assets/bbg/items/Conquistador.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Mission",
-        "description": "Spanish unique builder improvement unlocked with Theology. Cannot be built next to another Mission. +2 :faith: Faith. +1 :housing: Housing if built 7 tiles or less from current :capital: Capital. +1 :faith: Faith and +1 :production: Production if built 8 tiles or more from current :capital: Capital. +1 :science: Science for every adjacent Campus and Holy Site district. +2 :science: Science with Enlightenment.",
-        "iconUrl": "/assets/bbg/items/Mission.webp"
-      }
+        name: 'Mission',
+        description: 'Spanish unique builder improvement unlocked with Theology. Cannot be built next to another Mission. +2 :faith: Faith. +1 :housing: Housing if built 7 tiles or less from current :capital: Capital. +1 :faith: Faith and +1 :production: Production if built 8 tiles or more from current :capital: Capital. +1 :science: Science for every adjacent Campus and Holy Site district. +2 :science: Science with Enlightenment.',
+        iconUrl: '/assets/bbg/items/Mission.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "sumeria-gilgamesh",
-    "name": "Gilgamesh",
-    "civilization": "Sumeria",
-    "portraitUrl": "/assets/bbg/leaders/Sumeria%20Gilgamesh.webp",
-    "civilizationAbility": {
-      "name": "The Cradle of Civilization",
-      "description": "Farms receive +1 :food: Food when adjacent to a River, and an additional +1 :production: Production if adjacent to a Ziggurat with Early Empire. Does not receive damage from Floods. - Bias: T3 Rivers, T4 Floodplains."
+    id: 'sumeria-gilgamesh',
+    name: 'Gilgamesh',
+    civilization: 'Sumeria',
+    portraitUrl: '/assets/bbg/leaders/Sumeria%20Gilgamesh.webp',
+    civilizationAbility: {
+      name: 'The Cradle of Civilization',
+      description: 'Farms receive +1 :food: Food when adjacent to a River, and an additional +1 :production: Production if adjacent to a Ziggurat with Early Empire. Does not receive damage from Floods. - Bias: T3 Rivers, T4 Floodplains.',
     },
-    "ability": {
-      "name": "Adventures of Enkidu",
-      "description": "When at war with a common foe, they and their allies share pillage rewards and combat experience gains if within 5 tiles. Their Alliances gain additional Alliance Points for being at war with a common foe. Receive bonus :influenceperturn: influence points from your maximum alliance level (2/4/6). When you capture a :barbarian: Barbarian Outpost, receive a Tribal Village reward in addition to the usual :gold: Gold reward. Pay half the usual cost to levy City-state units."
+    ability: {
+      name: 'Adventures of Enkidu',
+      description: 'When at war with a common foe, they and their allies share pillage rewards and combat experience gains if within 5 tiles. Their Alliances gain additional Alliance Points for being at war with a common foe. Receive bonus :influenceperturn: influence points from your maximum alliance level (2/4/6). When you capture a :barbarian: Barbarian Outpost, receive a Tribal Village reward in addition to the usual :gold: Gold reward. Pay half the usual cost to levy City-state units.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "War-Cart",
-        "description": "Sumerian unique Ancient era unit. 4 :movement: Movement if this unit starts in open terrain. Can escort civilian and support units at their higher :movement: Movement speed. No penalties against anti-cavalry units. +4 :strength: Combat Strength when fighting :barbarian: Barbarians.",
-        "iconUrl": "/assets/bbg/items/War-Cart.webp"
-      }
+        name: 'War-Cart',
+        description: 'Sumerian unique Ancient era unit. 4 :movement: Movement if this unit starts in open terrain. Can escort civilian and support units at their higher :movement: Movement speed. No penalties against anti-cavalry units. +4 :strength: Combat Strength when fighting :barbarian: Barbarians.',
+        iconUrl: '/assets/bbg/items/War-Cart.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Ziggurat",
-        "description": "Sumerian unique builder improvement available from the start of the game. Cannot be built on Hills or adjacent to another Ziggurat. +2 :science: Science and +1 :housing: Housing. +1 :culture: Culture if built next to River. +1 :faith: Faith after Early Empire for each adjacent district or for every 2 adjacent Farms.",
-        "iconUrl": "/assets/bbg/items/Ziggurat.webp"
-      }
+        name: 'Ziggurat',
+        description: 'Sumerian unique builder improvement available from the start of the game. Cannot be built on Hills or adjacent to another Ziggurat. +2 :science: Science and +1 :housing: Housing. +1 :culture: Culture if built next to River. +1 :faith: Faith after Early Empire for each adjacent district or for every 2 adjacent Farms.',
+        iconUrl: '/assets/bbg/items/Ziggurat.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "swahili-al-hasan-ibn-sulaiman",
-    "name": "Al-Hasan ibn Sulaiman",
-    "civilization": "Swahili",
-    "portraitUrl": "/assets/bbg/leaders/Swahili%20Al-Hasan%20ibn%20Sulaiman.webp",
-    "civilizationAbility": {
-      "name": "Coral Construction",
-      "description": "Coastal cities gain +25% :production: Production toward districts. +1 :production: Production for unimproved reef tiles with Sailing. Bias: T1 Coast."
+    id: 'swahili-al-hasan-ibn-sulaiman',
+    name: 'Al-Hasan ibn Sulaiman',
+    civilization: 'Swahili',
+    portraitUrl: '/assets/bbg/leaders/Swahili%20Al-Hasan%20ibn%20Sulaiman.webp',
+    civilizationAbility: {
+      name: 'Coral Construction',
+      description: 'Coastal cities gain +25% :production: Production toward districts. +1 :production: Production for unimproved reef tiles with Sailing. Bias: T1 Coast.',
     },
-    "ability": {
-      "name": "Palace of Husuni Kubwa",
-      "description": ":traderoute: Trade Route capacity +1 for each Harbor adjacent to a World Wonder."
+    ability: {
+      name: 'Palace of Husuni Kubwa',
+      description: ':traderoute: Trade Route capacity +1 for each Harbor adjacent to a World Wonder.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Jahazi",
-        "description": "Swahili unique ancient era support naval unit can set up a fishing boat, which will provide +2 :gold: Gold (2 :charges: Charges). Units embarked within 2 tiles gain 1 :movement: Movement Point and ignore terrain costs. Can be captured.",
-        "iconUrl": "/assets/bbg/items/Jahazi.webp"
-      }
+        name: 'Jahazi',
+        description: 'Swahili unique ancient era support naval unit can set up a fishing boat, which will provide +2 :gold: Gold (2 :charges: Charges). Units embarked within 2 tiles gain 1 :movement: Movement Point and ignore terrain costs. Can be captured.',
+        iconUrl: '/assets/bbg/items/Jahazi.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Pillar Tomb",
-        "description": "Replaces the Monument. +1 Culture, +1 Loyalty. If Loyalty is already at maximum, +1 :culture: Culture. +2 :gold: Gold and +1 :science: Science for outgoing International :traderoute: Trade Routes for every 2 districts within 2 tiles of the City Center (maximum 6 districts).",
-        "replaces": "Monument",
-        "iconUrl": "/assets/bbg/items/Pillar%20Tomb.webp"
-      }
+        name: 'Pillar Tomb',
+        description: 'Replaces the Monument. +1 Culture, +1 Loyalty. If Loyalty is already at maximum, +1 :culture: Culture. +2 :gold: Gold and +1 :science: Science for outgoing International :traderoute: Trade Routes for every 2 districts within 2 tiles of the City Center (maximum 6 districts).',
+        replaces: 'Monument',
+        iconUrl: '/assets/bbg/items/Pillar%20Tomb.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "sweden-kristina",
-    "name": "Kristina",
-    "civilization": "Sweden",
-    "portraitUrl": "/assets/bbg/leaders/Sweden%20Kristina.webp",
-    "civilizationAbility": {
-      "name": "Nobel Prize",
-      "description": "Sweden gains 20 :favor: Diplomatic Favor (on Standard speed) when earning a :greatperson: Great Person. Having Sweden in the game adds three unique World Congress competitions starting in the Renaissance Era. +50% :production: Production towards Libraries, Workshops, Universities, Factories and Government Plaza buildings. +1 :greatengineer: Great Engineer point from Factories. +1 :greatscientist: Great Scientist point from Universities. +2 :greatwriter: Great Writer points from tier 1 Gov't Plaza building. +2 :greatartist: Great Artist points from tier 2 Gov't Plaza building. +2 :greatmusician: Great Musician points from tier 3 Gov't Plaza building. +2 :greatscientist: Great Scientist points and +2 :greatengineer: Great Engineer points per tier of Government Plaza building. - Bias: Special \"King of the North\""
+    id: 'sweden-kristina',
+    name: 'Kristina',
+    civilization: 'Sweden',
+    portraitUrl: '/assets/bbg/leaders/Sweden%20Kristina.webp',
+    civilizationAbility: {
+      name: 'Nobel Prize',
+      description: 'Sweden gains 20 :favor: Diplomatic Favor (on Standard speed) when earning a :greatperson: Great Person. Having Sweden in the game adds three unique World Congress competitions starting in the Renaissance Era. +50% :production: Production towards Libraries, Workshops, Universities, Factories and Government Plaza buildings. +1 :greatengineer: Great Engineer point from Factories. +1 :greatscientist: Great Scientist point from Universities. +2 :greatwriter: Great Writer points from tier 1 Gov\'t Plaza building. +2 :greatartist: Great Artist points from tier 2 Gov\'t Plaza building. +2 :greatmusician: Great Musician points from tier 3 Gov\'t Plaza building. +2 :greatscientist: Great Scientist points and +2 :greatengineer: Great Engineer points per tier of Government Plaza building. - Bias: Special "King of the North"',
     },
-    "ability": {
-      "name": "Minerva of the North",
-      "description": "Buildings with at least three Great Work slots and wonders with at least two Great Work slots are automatically themed when they have all their slots filled. She may construct the Queen's Bibliotheque in the Government Plaza."
+    ability: {
+      name: 'Minerva of the North',
+      description: 'Buildings with at least three Great Work slots and wonders with at least two Great Work slots are automatically themed when they have all their slots filled. She may construct the Queen\'s Bibliotheque in the Government Plaza.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Carolean",
-        "description": "Swedish unique Renaissance Era unit that replaces the Pike and Shot. Faster than the Pike and Shot. +3 :strength: Combat Strength per unused :movement: Movement.",
-        "replaces": "Pike",
-        "iconUrl": "/assets/bbg/items/Carolean.webp"
-      }
+        name: 'Carolean',
+        description: 'Swedish unique Renaissance Era unit that replaces the Pike and Shot. Faster than the Pike and Shot. +3 :strength: Combat Strength per unused :movement: Movement.',
+        replaces: 'Pike',
+        iconUrl: '/assets/bbg/items/Carolean.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Queen's Bibliotheque",
-        "description": "A building unique to Sweden. +6 Great Work slots (any type). This building is not mutually exclusive with other buildings in Government Plaza. Awards +1 :governor: Governor Title.",
-        "iconUrl": "/assets/bbg/items/Queen's%20Bibliotheque.webp"
-      }
+        name: 'Queen\'s Bibliotheque',
+        description: 'A building unique to Sweden. +6 Great Work slots (any type). This building is not mutually exclusive with other buildings in Government Plaza. Awards +1 :governor: Governor Title.',
+        iconUrl: '/assets/bbg/items/Queen\'s%20Bibliotheque.webp',
+      },
     ],
-    "uniqueImprovements": [
+    uniqueImprovements: [
       {
-        "name": "Open-Air Museum",
-        "description": "Swedish unique builder improvement unlocked with Diplomatic Service. Limited to one per city. Tiles with Open-Air Museums cannot be swapped. +2 :culture: Culture and +2 :tourism: Tourism for each type of terrain (Snow, Tundra, Desert, Plains or Grassland) in which at least one Swedish city is founded. +2 Loyalty per turn in this city.",
-        "iconUrl": "/assets/bbg/items/Open-Air%20Museum.webp"
-      }
+        name: 'Open-Air Museum',
+        description: 'Swedish unique builder improvement unlocked with Diplomatic Service. Limited to one per city. Tiles with Open-Air Museums cannot be swapped. +2 :culture: Culture and +2 :tourism: Tourism for each type of terrain (Snow, Tundra, Desert, Plains or Grassland) in which at least one Swedish city is founded. +2 Loyalty per turn in this city.',
+        iconUrl: '/assets/bbg/items/Open-Air%20Museum.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "teotihuacan-spearthrower-owl",
-    "name": "Spearthrower Owl",
-    "civilization": "Teotihuacán",
-    "portraitUrl": "/assets/bbg/leaders/Teotihuac%C3%A1n%20Spearthrower%20Owl.webp",
-    "civilizationAbility": {
-      "name": "Where Men Become Gods",
-      "description": "When you are Suzerain of a City-state, all :traderoute: Trade Routes receive additional yields based on the type of City-state. If you are suzerain to 2 or more City-states of that type, triple these yields. +1 :food: Food for Religious +1 :production: Production for Millitaristic and Industrial +3 :gold: Gold for Commercial +1 :science: Science for Scientific +1 :culture: Culture for Cultural. - Bias: None."
+    id: 'teotihuacan-spearthrower-owl',
+    name: 'Spearthrower Owl',
+    civilization: 'Teotihuacán',
+    portraitUrl: '/assets/bbg/leaders/Teotihuac%C3%A1n%20Spearthrower%20Owl.webp',
+    civilizationAbility: {
+      name: 'Where Men Become Gods',
+      description: 'When you are Suzerain of a City-state, all :traderoute: Trade Routes receive additional yields based on the type of City-state. If you are suzerain to 2 or more City-states of that type, triple these yields. +1 :food: Food for Religious +1 :production: Production for Millitaristic and Industrial +3 :gold: Gold for Commercial +1 :science: Science for Scientific +1 :culture: Culture for Cultural. - Bias: None.',
     },
-    "ability": {
-      "name": "Lord of the West",
-      "description": "+1 :traderoute: Trade route capacity when completing the Pochteca Enclave and the Chancery. Unlock the unique :governor: Governor, Fire is Born."
+    ability: {
+      name: 'Lord of the West',
+      description: '+1 :traderoute: Trade route capacity when completing the Pochteca Enclave and the Chancery. Unlock the unique :governor: Governor, Fire is Born.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Ehuatl Wearer",
-        "description": "Unique Swordsman unlocked at Political Philosophy, +1 sight range and does not require strategic resources.",
-        "replaces": "Swordsmen",
-        "iconUrl": "/assets/bbg/items/Ehuatl%20Wearer.webp"
-      }
+        name: 'Ehuatl Wearer',
+        description: 'Unique Swordsman unlocked at Political Philosophy, +1 sight range and does not require strategic resources.',
+        replaces: 'Swordsmen',
+        iconUrl: '/assets/bbg/items/Ehuatl%20Wearer.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Pochteca Enclave",
-        "description": "Unlocked at State Workforce and replaces the Diplomatic Quarter. +1 :envoy: Envoy when built next to a city center. Grants a :governor: Governor Title when first completed. Does not count towards district limit based on :citizen: population and does not provide yields on internal :traderoute: trade routes.",
-        "replaces": "Diplomatic Quarter",
-        "iconUrl": "/assets/bbg/items/Pochteca%20Enclave.webp"
-      }
+        name: 'Pochteca Enclave',
+        description: 'Unlocked at State Workforce and replaces the Diplomatic Quarter. +1 :envoy: Envoy when built next to a city center. Grants a :governor: Governor Title when first completed. Does not count towards district limit based on :citizen: population and does not provide yields on internal :traderoute: trade routes.',
+        replaces: 'Diplomatic Quarter',
+        iconUrl: '/assets/bbg/items/Pochteca%20Enclave.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "thule-kiviuq",
-    "name": "Kiviuq",
-    "civilization": "Thule",
-    "portraitUrl": "/assets/bbg/leaders/Thule%20Kiviuq.webp",
-    "civilizationAbility": {
-      "name": "Hunting of the Bowhead",
-      "description": "Builders can consume one :charges: Charge and one :citizen: Citizen to create a :resourcewhales: Whales tile. City Centers adjacent to a Hunter's House receive +1 :food: Food. At sailing, tundra tiles adjacent to a Hunter's House receive +1 :food: Food (doubled for snow). Adjacent Camps and Fishing boats receive +1 :food: Food and +1 :production: Production. A tile may only benefit from a single Hunter's House. Bias: T1 Tundra, T2 Coast."
+    id: 'thule-kiviuq',
+    name: 'Kiviuq',
+    civilization: 'Thule',
+    portraitUrl: '/assets/bbg/leaders/Thule%20Kiviuq.webp',
+    civilizationAbility: {
+      name: 'Hunting of the Bowhead',
+      description: 'Builders can consume one :charges: Charge and one :citizen: Citizen to create a :resourcewhales: Whales tile. City Centers adjacent to a Hunter\'s House receive +1 :food: Food. At sailing, tundra tiles adjacent to a Hunter\'s House receive +1 :food: Food (doubled for snow). Adjacent Camps and Fishing boats receive +1 :food: Food and +1 :production: Production. A tile may only benefit from a single Hunter\'s House. Bias: T1 Tundra, T2 Coast.',
     },
-    "ability": {
-      "name": "Heart Not Stone",
-      "description": "+5 :strength: Combat Strength and +1 :movement: Movement for Recon units starting their turn on Tundra or Snow tiles."
+    ability: {
+      name: 'Heart Not Stone',
+      description: '+5 :strength: Combat Strength and +1 :movement: Movement for Recon units starting their turn on Tundra or Snow tiles.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Dogsled Hunter",
-        "description": "Thule unique Ancient era ranged Recon unit, replaces the Scout. Has 1 :charges: Charge to establish a Hunter's House.",
-        "replaces": "Scout",
-        "iconUrl": "/assets/bbg/items/Dogsled%20Hunter.webp"
-      }
+        name: 'Dogsled Hunter',
+        description: 'Thule unique Ancient era ranged Recon unit, replaces the Scout. Has 1 :charges: Charge to establish a Hunter\'s House.',
+        replaces: 'Scout',
+        iconUrl: '/assets/bbg/items/Dogsled%20Hunter.webp',
+      },
     ],
-    "uniqueBuildings": [],
-    "uniqueImprovements": [
+    uniqueBuildings: [],
+    uniqueImprovements: [
       {
-        "name": "Hunter's House",
-        "description": "Unique improvement for Thule. +1 :housing: Housing +1 :food: Food if built on a Tundra tile (doubled on snow) +1 :culture: Culture and +1 :faith: Faith for each adjacent sea resource and Camp tile after Foreign Trade. Must be built adjacent to a resource tile. Can be placed on forests. Cannot be placed next to another Hunter's House.",
-        "iconUrl": "/assets/bbg/items/Hunter's%20House.webp"
-      }
+        name: 'Hunter\'s House',
+        description: 'Unique improvement for Thule. +1 :housing: Housing +1 :food: Food if built on a Tundra tile (doubled on snow) +1 :culture: Culture and +1 :faith: Faith for each adjacent sea resource and Camp tile after Foreign Trade. Must be built adjacent to a resource tile. Can be placed on forests. Cannot be placed next to another Hunter\'s House.',
+        iconUrl: '/assets/bbg/items/Hunter\'s%20House.webp',
+      },
     ],
-    "tags": []
+    tags: [],
   },
   {
-    "id": "tibet-trisong-detsen",
-    "name": "Trisong Detsen",
-    "civilization": "Tibet",
-    "portraitUrl": "/assets/bbg/leaders/Tibet%20Trisong%20Detsen.webp",
-    "civilizationAbility": {
-      "name": "Roof of the World",
-      "description": "Citizens may work mountain tiles. Mountain tiles gain additional yields for each district within 2 tiles: +2 :food: Food per City Center, +1 :production: Production per Industrial Zone, +1 :gold: Gold per Harbor and Commercial Hub, +1 :science: Science per Campus, +1 :culture: Culture per Theater Square, +1 :faith: Faith +1 per Holy Site. Can purchase buildings in specialty districts adjacent to a mountain tile with :faith: Faith, excluding the Government Plaza district. +5% :faith: Faith in cities with a :governor: Governor for each promotion it has. Bias: T3 Mountains (plain, grassland, and tundra)."
+    id: 'tibet-trisong-detsen',
+    name: 'Trisong Detsen',
+    civilization: 'Tibet',
+    portraitUrl: '/assets/bbg/leaders/Tibet%20Trisong%20Detsen.webp',
+    civilizationAbility: {
+      name: 'Roof of the World',
+      description: 'Citizens may work mountain tiles. Mountain tiles gain additional yields for each district within 2 tiles: +2 :food: Food per City Center, +1 :production: Production per Industrial Zone, +1 :gold: Gold per Harbor and Commercial Hub, +1 :science: Science per Campus, +1 :culture: Culture per Theater Square, +1 :faith: Faith +1 per Holy Site. Can purchase buildings in specialty districts adjacent to a mountain tile with :faith: Faith, excluding the Government Plaza district. +5% :faith: Faith in cities with a :governor: Governor for each promotion it has. Bias: T3 Mountains (plain, grassland, and tundra).',
     },
-    "ability": {
-      "name": "Capture of Chang'an",
-      "description": "Land military units trained in a city with an Encampment and a Worship Building start with a :promotion: Promotion."
+    ability: {
+      name: 'Capture of Chang\'an',
+      description: 'Land military units trained in a city with an Encampment and a Worship Building start with a :promotion: Promotion.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Rta Pa",
-        "description": "Tibet unique Renaissance era ranged cavalry unit unlocked at Astronomy. Has a ranged attack with 1 :range: Range, can move after attacking.",
-        "iconUrl": "/assets/bbg/items/Rta%20Pa.webp"
-      }
+        name: 'Rta Pa',
+        description: 'Tibet unique Renaissance era ranged cavalry unit unlocked at Astronomy. Has a ranged attack with 1 :range: Range, can move after attacking.',
+        iconUrl: '/assets/bbg/items/Rta%20Pa.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Dzong",
-        "description": "A district unique to Tibet that replaces the Holy Site district and is cheaper to build. Occupying units receives +5 :strength: Defensive Combat Strength. Buildings in the Dzong are 10% cheaper to purchase with :gold: Gold and :faith: Faith.",
-        "replaces": "Holy Site district",
-        "iconUrl": "/assets/bbg/items/Dzong.webp"
-      }
+        name: 'Dzong',
+        description: 'A district unique to Tibet that replaces the Holy Site district and is cheaper to build. Occupying units receives +5 :strength: Defensive Combat Strength. Buildings in the Dzong are 10% cheaper to purchase with :gold: Gold and :faith: Faith.',
+        replaces: 'Holy Site district',
+        iconUrl: '/assets/bbg/items/Dzong.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "vietnam-ba-trieu",
-    "name": "Bà Triệu",
-    "civilization": "Vietnam",
-    "portraitUrl": "/assets/bbg/leaders/Vietnam%20B%C3%A0%20Tri%E1%BB%87u.webp",
-    "civilizationAbility": {
-      "name": "Nine Dragon River Delta",
-      "description": "All land specialty districts can only be built on Rainforest, Woods, Marsh, or Floodplains. Receive the following yields for every building on these features: +1 :science: Science in Rainforest, +1 :culture: Culture in Woods, and +1 :production: Production in Marsh, and no additional yields on Floodplains. Woods can be planted with Medieval Faires. - Bias: T3 Rainforest, Woods, Marsh."
+    id: 'vietnam-ba-trieu',
+    name: 'Bà Triệu',
+    civilization: 'Vietnam',
+    portraitUrl: '/assets/bbg/leaders/Vietnam%20B%C3%A0%20Tri%E1%BB%87u.webp',
+    civilizationAbility: {
+      name: 'Nine Dragon River Delta',
+      description: 'All land specialty districts can only be built on Rainforest, Woods, Marsh, or Floodplains. Receive the following yields for every building on these features: +1 :science: Science in Rainforest, +1 :culture: Culture in Woods, and +1 :production: Production in Marsh, and no additional yields on Floodplains. Woods can be planted with Medieval Faires. - Bias: T3 Rainforest, Woods, Marsh.',
     },
-    "ability": {
-      "name": "Drive Out The Aggressors",
-      "description": "+2 :movement: Movement for all units beginning their turn in Rainforest, Woods, or Marsh tiles within your empire. +2 :strength: Combat Strength when combat takes place on a forest, rainforest, or marsh tile. +4 :strength: Combat Strength on these tiles within your own empire."
+    ability: {
+      name: 'Drive Out The Aggressors',
+      description: '+2 :movement: Movement for all units beginning their turn in Rainforest, Woods, or Marsh tiles within your empire. +2 :strength: Combat Strength when combat takes place on a forest, rainforest, or marsh tile. +4 :strength: Combat Strength on these tiles within your own empire.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Voi Chiến",
-        "description": "Vietnamese unique Medieval era ranged unit that replaces the Crossbowman. Has Sight of 3 and can move after attacking. +1 :movement: Movement when beginning their turn in Rainforest, Marsh, or Woods tiles in any territory. They are also stronger when defending and more expensive.",
-        "replaces": "Crossbowman",
-        "iconUrl": "/assets/bbg/items/Voi%20Chi%E1%BA%BFn.webp"
-      }
+        name: 'Voi Chiến',
+        description: 'Vietnamese unique Medieval era ranged unit that replaces the Crossbowman. Has Sight of 3 and can move after attacking. +1 :movement: Movement when beginning their turn in Rainforest, Marsh, or Woods tiles in any territory. They are also stronger when defending and more expensive.',
+        replaces: 'Crossbowman',
+        iconUrl: '/assets/bbg/items/Voi%20Chi%E1%BA%BFn.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Thành",
-        "description": "A district unique to Vietnam which replaces the Encampment. This district does not require population, is cheaper to build, cannot be built adjacent to the City Center, does not provide :greatperson: Great People points, and is not a specialty district. Triggers a Culture Bomb that captures neutral, adjacent tiles. +2 :culture: Culture for each adjacent district. After Flight is researched receive :tourism: Tourism equal to the :culture: Culture output.",
-        "replaces": "Encampment",
-        "iconUrl": "/assets/bbg/items/Th%C3%A0nh.webp"
-      }
+        name: 'Thành',
+        description: 'A district unique to Vietnam which replaces the Encampment. This district does not require population, is cheaper to build, cannot be built adjacent to the City Center, does not provide :greatperson: Great People points, and is not a specialty district. Triggers a Culture Bomb that captures neutral, adjacent tiles. +2 :culture: Culture for each adjacent district. After Flight is researched receive :tourism: Tourism equal to the :culture: Culture output.',
+        replaces: 'Encampment',
+        iconUrl: '/assets/bbg/items/Th%C3%A0nh.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
+    uniqueImprovements: [],
+    tags: [],
   },
   {
-    "id": "zulu-shaka",
-    "name": "Shaka",
-    "civilization": "Zulu",
-    "portraitUrl": "/assets/bbg/leaders/Zulu%20Shaka.webp",
-    "civilizationAbility": {
-      "name": "Isibongo",
-      "description": "Cities with a garrisoned unit get +3 Loyalty per turn, or +5 if it is a :corps: Corps or :army: Army. Conquering a city with a unit will upgrade it into a :corps: Corps/Fleet or :army: Army/Armada if that unit was already a Corp/Fleet, if the proper Civics are unlocked. - Bias: None."
+    id: 'zulu-shaka',
+    name: 'Shaka',
+    civilization: 'Zulu',
+    portraitUrl: '/assets/bbg/leaders/Zulu%20Shaka.webp',
+    civilizationAbility: {
+      name: 'Isibongo',
+      description: 'Cities with a garrisoned unit get +3 Loyalty per turn, or +5 if it is a :corps: Corps or :army: Army. Conquering a city with a unit will upgrade it into a :corps: Corps/Fleet or :army: Army/Armada if that unit was already a Corp/Fleet, if the proper Civics are unlocked. - Bias: None.',
     },
-    "ability": {
-      "name": "Amabutho",
-      "description": "May form :corps: Corps at the Mercenaries Civic and :army: Armies at the Nationalism Civic. Corps and Armies both gain +2 :strength: base Combat Strength at the Mobilization Civic."
+    ability: {
+      name: 'Amabutho',
+      description: 'May form :corps: Corps at the Mercenaries Civic and :army: Armies at the Nationalism Civic. Corps and Armies both gain +2 :strength: base Combat Strength at the Mobilization Civic.',
     },
-    "uniqueUnits": [
+    uniqueUnits: [
       {
-        "name": "Impi",
-        "description": "Zulu unique Medieval Era unit that replaces the Pikeman. Increased Flanking bonus, low cost and low maintenance. Earns XP faster.",
-        "replaces": "Pikeman",
-        "iconUrl": "/assets/bbg/items/Impi.webp"
-      }
+        name: 'Impi',
+        description: 'Zulu unique Medieval Era unit that replaces the Pikeman. Increased Flanking bonus, low cost and low maintenance. Earns XP faster.',
+        replaces: 'Pikeman',
+        iconUrl: '/assets/bbg/items/Impi.webp',
+      },
     ],
-    "uniqueBuildings": [
+    uniqueBuildings: [
       {
-        "name": "Ikanda",
-        "description": "A district unique to Zulu which replaces the Encampment. Provides +1 :housing: Housing. Buildings in the Ikanda receive +2 :gold: Gold and +1 :culture: Culture. Once required Civics are unlocked, allows :corps: Corps or :army: Armies to be trained directly and their costs are reduced by 5%, increasing by an additional 5% at Mercenaries, 5% at Nationalism, 5% at Mobilization, and 5% at Ideology.",
-        "replaces": "Encampment",
-        "iconUrl": "/assets/bbg/items/Ikanda.webp"
-      }
+        name: 'Ikanda',
+        description: 'A district unique to Zulu which replaces the Encampment. Provides +1 :housing: Housing. Buildings in the Ikanda receive +2 :gold: Gold and +1 :culture: Culture. Once required Civics are unlocked, allows :corps: Corps or :army: Armies to be trained directly and their costs are reduced by 5%, increasing by an additional 5% at Mercenaries, 5% at Nationalism, 5% at Mobilization, and 5% at Ideology.',
+        replaces: 'Encampment',
+        iconUrl: '/assets/bbg/items/Ikanda.webp',
+      },
     ],
-    "uniqueImprovements": [],
-    "tags": []
-  }
+    uniqueImprovements: [],
+    tags: [],
+  },
 ]
 
 applyLeaderTags(leaders)
