@@ -105,9 +105,6 @@ export function registerMatchRoutes(app: Hono<Env>) {
         lobby,
         archivePolicy: 'if-missing',
       })
-      if (lobby) {
-        await clearLobbyById(kv, lobby.id, lobby)
-      }
       return c.json({ ok: true, alreadyReported: true, match: result.match, participants: result.participants })
     }
 
@@ -157,9 +154,6 @@ export function registerMatchRoutes(app: Hono<Env>) {
       },
       archivePolicy: 'always',
     })
-    if (lobby) {
-      await clearLobbyById(kv, lobby.id, lobby)
-    }
 
     if (isRankedResult) {
       try {

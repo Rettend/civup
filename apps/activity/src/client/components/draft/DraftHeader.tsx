@@ -1,4 +1,4 @@
-import { formatMapVoteResultLabel, MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '@civup/game'
+import { formatMapVoteResultLabel, formatMapVoteResultTitle, MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '@civup/game'
 import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import {
@@ -669,6 +669,7 @@ function teamIndexToken(team: number): string {
  */
 function WinningMapBadge(props: { compact?: boolean }) {
   const label = () => formatMapVoteResultLabel(mapVoteWinningType(), mapVoteWinningScript())
+  const title = () => formatMapVoteResultTitle(mapVoteWinningType(), mapVoteWinningScript())
 
   return (
     <div
@@ -676,8 +677,8 @@ function WinningMapBadge(props: { compact?: boolean }) {
         'rounded-full bg-bg/60 border border-border flex max-w-full items-center overflow-hidden',
         props.compact ? 'max-w-[calc(50vw-3rem)] px-2 py-0.5' : 'mt-0.5 max-w-[14rem] px-2.5 py-0.5',
       )}
-      title={label()}
-      aria-label={label()}
+      title={title()}
+      aria-label={title()}
     >
       <span class={cn('block truncate whitespace-nowrap text-fg font-medium tracking-wide', props.compact ? 'text-[10px]' : 'text-[11px]')}>
         {label()}

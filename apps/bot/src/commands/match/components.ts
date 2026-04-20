@@ -3,8 +3,9 @@ import { createDb, matches, matchParticipants } from '@civup/db'
 import { Button } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { isQueueBackedOpenLobby } from '../../routes/lobby/snapshot.ts'
-import { clearLobbyMappingsIfMatchingLobby, getMatchForUser, storeMatchActivityState, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
+import { clearActivityMappings, clearLobbyMappingsIfMatchingLobby, getMatchForUser, storeMatchActivityState, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { clearLobbyById, filterQueueEntriesForLobby, getLobbyById } from '../../services/lobby/index.ts'
+import { findPersistedLiveMatchIds } from '../../services/match/live.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { getQueueState } from '../../services/queue/index.ts'
 import { sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
@@ -36,6 +37,13 @@ export const component_match_join = factory.component(
       const lobby = await getLobbyById(kv, lobbyId)
       if (!lobby) {
         let userMatchId = await getMatchForUser(kv, identity.userId)
+        if (userMatchId) {
+          const persistedLiveMatchIds = await findPersistedLiveMatchIds(env.DB, [userMatchId])
+          if (persistedLiveMatchIds && !persistedLiveMatchIds.has(userMatchId)) {
+            await clearActivityMappings(kv, userMatchId, [identity.userId])
+            userMatchId = null
+          }
+        }
         if (!userMatchId) {
           const db = createDb(env.DB)
           const [active] = await db
@@ -72,6 +80,16 @@ export const component_match_join = factory.component(
 
       if (lobby.status !== 'open') {
         if (!lobby.matchId) {
+          await clearLobbyById(kv, lobby.id, lobby)
+          if (interactionChannelId) {
+            await clearLobbyMappingsIfMatchingLobby(kv, [identity.userId], lobby.id, interactionChannelId)
+          }
+          return
+        }
+
+        const persistedLiveMatchIds = await findPersistedLiveMatchIds(env.DB, [lobby.matchId])
+        if (persistedLiveMatchIds && !persistedLiveMatchIds.has(lobby.matchId)) {
+          await clearActivityMappings(kv, lobby.matchId, lobby.memberPlayerIds, lobby.channelId)
           await clearLobbyById(kv, lobby.id, lobby)
           if (interactionChannelId) {
             await clearLobbyMappingsIfMatchingLobby(kv, [identity.userId], lobby.id, interactionChannelId)

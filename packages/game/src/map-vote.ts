@@ -171,11 +171,27 @@ export function normalizeMapVoteEnabled(mode: GameMode, enabled: boolean, option
 export function formatMapVoteResultLabel(mapType: MapTypeId | null | undefined, mapScript: MapScriptId | null | undefined): string {
   const scriptOption = mapScript ? MAP_SCRIPT_BY_ID[mapScript] : null
   const scriptName = scriptOption?.name ?? ''
-  if (!scriptName) return mapTypeLabel(mapType)
+  if (!scriptName) {
+    if (mapType === 'standard') return 'Stnd'
+    if (mapType === 'east-vs-west') return 'EvW'
+    return mapTypeLabel(mapType)
+  }
   const scriptLabel = scriptOption?.hint ? `${scriptName} (${scriptOption.hint})` : scriptName
   if (mapType === 'east-vs-west') return `${scriptLabel} EvW`
+  if (mapType === 'standard') return `${scriptLabel} Stnd`
   const typeLabel = mapTypeLabel(mapType)
   return typeLabel ? `${typeLabel} ${scriptLabel}` : scriptLabel
+}
+
+export function formatMapVoteResultTitle(mapType: MapTypeId | null | undefined, mapScript: MapScriptId | null | undefined): string {
+  const scriptOption = mapScript ? MAP_SCRIPT_BY_ID[mapScript] : null
+  const scriptName = scriptOption?.name ?? ''
+  const scriptLabel = scriptOption?.hint ? `${scriptName} (${scriptOption.hint})` : scriptName
+
+  const typeLabel = mapTypeLabel(mapType)
+  if (!scriptLabel) return typeLabel
+  if (!typeLabel) return scriptLabel
+  return `${scriptLabel} ${typeLabel}`
 }
 
 export function createMapVoteRng(seed: string): () => number {
@@ -454,14 +470,8 @@ function chooseRankedChoiceCandidates<T extends string>(
 }
 
 function mapTypeLabel(mapType: MapTypeId | null | undefined): string {
-  switch (mapType) {
-    case 'standard':
-    case null:
-    case undefined:
-      return ''
-    default:
-      return MAP_TYPE_BY_ID[mapType]?.name ?? mapType
-  }
+  if (!mapType) return ''
+  return MAP_TYPE_BY_ID[mapType]?.name ?? mapType
 }
 
 function pickRandomId<T extends string>(pool: readonly T[], fallback: T, rng: () => number): T {
