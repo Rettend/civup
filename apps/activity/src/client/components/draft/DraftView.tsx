@@ -6,10 +6,12 @@ import {
   draftStore,
   gridOpen,
   hasSubmitted,
+  isMapVotePhase,
   isMiniView,
   isMobileLayout,
   isMyOwnPickTurn,
   isSpectator,
+  mapVotePhase,
   setGridOpen,
   updateLobbyConfig,
   userId,
@@ -17,6 +19,7 @@ import {
 import { DraftHeader } from './DraftHeader'
 import { DraftTimeline } from './DraftTimeline'
 import { LeaderGridOverlay } from './LeaderGridOverlay'
+import { MapVoteOverlay } from './MapVoteOverlay'
 import { MiniView } from './MiniView'
 import { SlotStrip } from './SlotStrip'
 import { SteamLobbyButton } from './SteamLobbyButton'
@@ -33,6 +36,7 @@ interface DraftViewProps {
 export function DraftView(props: DraftViewProps) {
   const state = () => draftStore.state
   const [autoOpenedGridToken, setAutoOpenedGridToken] = createSignal<string | null>(null)
+  const [autoOpenedMapVoteToken, setAutoOpenedMapVoteToken] = createSignal<string | null>(null)
   const [steamLobbyLink, setSteamLobbyLink] = createSignal<string | null>(null)
   const [steamLobbySavePending, setSteamLobbySavePending] = createSignal(false)
   let scrubRedirectTimeout: ReturnType<typeof setTimeout> | null = null
@@ -105,6 +109,30 @@ export function DraftView(props: DraftViewProps) {
     setGridOpen(false)
   })
 
+  const isMapVoteVoting = () => mapVotePhase() === 'voting'
+  const isMapVoteReveal = () => mapVotePhase() === 'reveal'
+
+  createEffect(() => {
+    const current = state()
+    if (!current || !isMapVoteVoting()) {
+      setAutoOpenedMapVoteToken(null)
+      return
+    }
+    if (isMiniView()) return
+
+    const nextToken = `${draftStore.initVersion}:${current.matchId}:map-vote`
+    if (autoOpenedMapVoteToken() === nextToken) return
+
+    setGridOpen(true)
+    setAutoOpenedMapVoteToken(nextToken)
+  })
+
+  createEffect(() => {
+    if (!isMapVoteReveal()) return
+    if (!gridOpen()) return
+    setGridOpen(false)
+  })
+
   createEffect(() => {
     const current = state()
     const seatIndex = draftStore.seatIndex
@@ -113,6 +141,7 @@ export function DraftView(props: DraftViewProps) {
       return
     }
     if (isMiniView()) return
+    if (isMapVotePhase()) return
     if (!canOpenLeaderGrid()) return
     if (currentStep()?.action === 'pick' && !isMyOwnPickTurn()) return
 
@@ -123,8 +152,14 @@ export function DraftView(props: DraftViewProps) {
     setAutoOpenedGridToken(nextToken)
   })
 
-  const isActiveOrComplete = () => state()?.status === 'active' || state()?.status === 'complete'
+  const isActiveOrComplete = () => isMapVotePhase() || state()?.status === 'active' || state()?.status === 'complete'
   const canSaveSteamLobbyLink = () => amHost() && Boolean(props.lobbyId) && Boolean(props.lobbyMode)
+  const canToggleOverlay = () => isMapVoteVoting() || canOpenLeaderGrid()
+  const showOverlayToggle = () => state()?.status === 'active' || isMapVoteVoting()
+  const overlayToggleLabel = () => {
+    if (isMapVoteVoting()) return gridOpen() ? 'Close map vote' : 'Open map vote'
+    return gridOpen() ? 'Close leader grid' : 'Open leader grid'
+  }
 
   const handleSaveSteamLink = async (link: string | null) => {
     const currentUserId = userId()
@@ -170,25 +205,28 @@ export function DraftView(props: DraftViewProps) {
               {/* Main area */}
               <div class="flex flex-1 min-h-0 relative z-0">
                 <SlotStrip />
-                <Show when={state()?.status === 'active'}>
+                <Show when={state()?.status === 'active' && !isMapVotePhase()}>
                   <LeaderGridOverlay />
+                </Show>
+                <Show when={isMapVoteVoting()}>
+                  <MapVoteOverlay />
                 </Show>
 
                 {/* Grid toggle button */}
-                <Show when={state()?.status === 'active'}>
+                <Show when={showOverlayToggle()}>
                   <div class="flex inset-x-0 bottom-3 justify-center absolute z-50">
                     <button
                       class={cn(
                         'flex items-center gap-1 rounded-full px-5 py-1.5 text-xs font-medium cursor-pointer',
                         'bg-bg-subtle border border-border text-fg-muted',
-                        canOpenLeaderGrid() && 'hover:bg-bg-muted hover:text-fg transition-colors',
-                        !canOpenLeaderGrid() && 'cursor-default opacity-50',
+                        canToggleOverlay() && 'hover:bg-bg-muted hover:text-fg transition-colors',
+                        !canToggleOverlay() && 'cursor-default opacity-50',
                       )}
-                      title={gridOpen() ? 'Close leader grid' : 'Open leader grid'}
-                      aria-label={gridOpen() ? 'Close leader grid' : 'Open leader grid'}
-                      disabled={!canOpenLeaderGrid()}
+                      title={overlayToggleLabel()}
+                      aria-label={overlayToggleLabel()}
+                      disabled={!canToggleOverlay()}
                       onClick={() => {
-                        if (!canOpenLeaderGrid()) return
+                        if (!canToggleOverlay()) return
                         setGridOpen(!gridOpen())
                       }}
                     >
@@ -200,7 +238,7 @@ export function DraftView(props: DraftViewProps) {
                 </Show>
 
                 {/* Status indicator */}
-                <Show when={!gridOpen() && state()?.status === 'active'}>
+                <Show when={!gridOpen() && showOverlayToggle()}>
                   <div class="flex inset-x-0 bottom-12 justify-center absolute z-5">
                     <Show when={isSpectator()}>
                       <span class="text-xs text-fg-subtle px-3 py-1 rounded-full bg-bg-subtle/80">Spectating</span>

@@ -4,7 +4,7 @@ import { createDb, matches, matchParticipants } from '@civup/db'
 import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed } from '../embeds/match.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
-import { clearLobbyById, getLobbyByMatch, upsertLobbyMessage } from '../services/lobby/index.ts'
+import { clearLobbyByMatch, getLobbyByMatch, upsertLobbyMessage } from '../services/lobby/index.ts'
 import { cancelMatchByModerator, getHostIdFromDraftData, getStoredGameModeContext, reportMatch } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
@@ -105,9 +105,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
         lobby,
         archivePolicy: 'if-missing',
       })
-      if (lobby) {
-        await clearLobbyById(kv, lobby.id, lobby)
-      }
+      await clearLobbyByMatch(kv, result.match.id)
       return c.json({ ok: true, alreadyReported: true, match: result.match, participants: result.participants })
     }
 
@@ -157,9 +155,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       },
       archivePolicy: 'always',
     })
-    if (lobby) {
-      await clearLobbyById(kv, lobby.id, lobby)
-    }
+    await clearLobbyByMatch(kv, result.match.id)
 
     if (isRankedResult) {
       try {

@@ -1,4 +1,4 @@
-import { matchParticipants, matches, playerRatings, players } from '@civup/db'
+import { matches, matchParticipants, playerRatings, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { buildLeaderboardCommandPayload } from '../../src/commands/leaderboard.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
@@ -92,9 +92,24 @@ describe('leaderboard command payload', () => {
 
     try {
       await seedPlayers(db, [
-        'd1', 'd2', 'd3', 'd4',
-        's31', 's32', 's33', 's34', 's35', 's36',
-        's41', 's42', 's43', 's44', 's45', 's46', 's47', 's48',
+        'd1',
+        'd2',
+        'd3',
+        'd4',
+        's31',
+        's32',
+        's33',
+        's34',
+        's35',
+        's36',
+        's41',
+        's42',
+        's43',
+        's44',
+        's45',
+        's46',
+        's47',
+        's48',
       ])
       await seedRatings(db, [
         { playerId: 'd1', mode: 'duo', mu: 30, sigma: 6, gamesPlayed: 6, wins: 4 },
@@ -331,8 +346,28 @@ describe('leaderboard command payload', () => {
 
     try {
       await seedPlayers(db, [
-        's51', 's52', 's53', 's54', 's55', 's56', 's57', 's58', 's59', 's5a',
-        's61', 's62', 's63', 's64', 's65', 's66', 's67', 's68', 's69', 's6a', 's6b', 's6c',
+        's51',
+        's52',
+        's53',
+        's54',
+        's55',
+        's56',
+        's57',
+        's58',
+        's59',
+        's5a',
+        's61',
+        's62',
+        's63',
+        's64',
+        's65',
+        's66',
+        's67',
+        's68',
+        's69',
+        's6a',
+        's6b',
+        's6c',
       ])
       await seedRatings(db, [
         { playerId: 's51', mode: 'squad', mu: 33, sigma: 6, gamesPlayed: 7, wins: 5 },

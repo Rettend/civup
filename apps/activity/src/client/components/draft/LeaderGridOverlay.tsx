@@ -16,8 +16,8 @@ import {
 import { isWideWangQuery, WIDE_WANG_AUDIO_URL, WIDE_WANG_TRANSCRIPT } from '~/client/lib/wide-wang-easter-egg'
 import {
   activeTagFilterCount,
-  banSelectionStepToken,
   banSelections,
+  banSelectionStepToken,
   canOpenLeaderGrid,
   canSendPickPreview,
   clearSelections,
@@ -42,8 +42,8 @@ import {
   sendBan,
   sendPick,
   sendPreview,
-  setBanSelectionStepToken,
   setBanSelections,
+  setBanSelectionStepToken,
   setDetailLeaderId,
   setGridExpanded,
   setGridOpen,
@@ -61,6 +61,8 @@ import { LeaderDetailPanel } from './LeaderDetailPanel'
 
 const DOCKED_PANEL_MIN_WIDTH = 1280
 const PREVIEW_THROTTLE_MS = 60
+const RETTEND_QUERY = 'rettend'
+const RETTEND_LEADER_ID = 'ottomans-suleiman-kanuni'
 
 interface HoverTooltip {
   name: string
@@ -73,6 +75,14 @@ interface HoverTooltip {
 interface TooltipPosition {
   left: number
   top: number
+}
+
+function normalizeRettendQuery(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+function isRettendQuery(value: string): boolean {
+  return normalizeRettendQuery(value) === RETTEND_QUERY
 }
 
 function resolveTooltipPosition(x: number, y: number, width: number, height: number): TooltipPosition {
@@ -427,10 +437,15 @@ export function LeaderGridOverlay() {
     const query = isRedDeathDraft() ? '' : searchQuery().trim()
     const filters = tagFilters()
     const leaderPoolIds = draftLeaderPoolIds()
+    const isRettendSearch = isRettendQuery(query)
     let result = query
-      ? (isRedDeathDraft() ? searchFactions(query) : searchLeaders(query, leaderDataVersion()))
+      ? (isRedDeathDraft()
+          ? searchFactions(query)
+          : isRettendSearch
+            ? allLeaders().filter(leader => leader.id === RETTEND_LEADER_ID)
+            : searchLeaders(query, leaderDataVersion()))
       : [...allEntries()]
-    result = result.filter(leader => leaderPoolIds.has(leader.id) && (isRedDeathDraft() || leaderMatchesTagFilters(leader.tags, filters)))
+    result = result.filter(leader => leaderPoolIds.has(leader.id) && (isRedDeathDraft() || isRettendSearch || leaderMatchesTagFilters(leader.tags, filters)))
     return result.sort((a, b) => a.name.localeCompare(b.name))
   })
 
@@ -839,7 +854,7 @@ export function LeaderGridOverlay() {
         </div>
       </div>
 
-      <div class="p-1.5 flex-1 min-h-0 overflow-y-auto relative">
+      <div class="p-1.5 flex-1 min-h-0 relative overflow-y-auto">
         <Show when={showWideWangTranscript()}>
           <WideWangTranscriptBanner
             mode={gridViewMode() === 'grid' ? 'grid' : 'list'}

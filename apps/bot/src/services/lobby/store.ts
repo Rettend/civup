@@ -156,10 +156,7 @@ export async function getCurrentLobbiesForPlayers(
     }
     if (mappingLooksStale
       || excludedMappedLobby
-      || mismatchedMappedMode) {
-      unresolvedPlayerIds.push(playerId)
-      continue
-    }
+      || mismatchedMappedMode) { unresolvedPlayerIds.push(playerId); continue }
 
     lobbyByPlayerId.set(playerId, lobby)
   }
@@ -315,11 +312,18 @@ export async function clearLobbiesByMode(kv: KVNamespace, mode: GameMode): Promi
 
 export async function clearLobbyByMatch(kv: KVNamespace, matchId: string): Promise<void> {
   const lobbyId = await kv.get(matchKey(matchId))
-  if (!lobbyId) {
-    await stateStoreMdelete(kv, [matchKey(matchId)])
+  if (lobbyId) {
+    await clearLobbyById(kv, lobbyId)
     return
   }
-  await clearLobbyById(kv, lobbyId)
+
+  const fallbackLobby = (await getAllLobbies(kv)).find(lobby => lobby.matchId === matchId) ?? null
+  if (fallbackLobby) {
+    await clearLobbyById(kv, fallbackLobby.id, fallbackLobby)
+    return
+  }
+
+  await stateStoreMdelete(kv, [matchKey(matchId)])
 }
 
 export async function putLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {

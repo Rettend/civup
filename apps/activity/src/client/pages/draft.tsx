@@ -1,7 +1,6 @@
-import { createEffect, createRenderEffect, createSignal, Match, onCleanup, Show, Switch } from 'solid-js'
+import { createEffect, createSignal, Match, Show, Switch } from 'solid-js'
 import { DraftView } from '~/client/components/draft'
-import { connectionError, connectionStatus, draftStore, sendStart, userId } from '~/client/stores'
-import { DraftSetupPage } from './draft-setup'
+import { connectionError, connectionStatus, draftStore, isMapVotePhase, isMiniView, sendStart, userId } from '~/client/stores'
 
 export interface DraftPageProps {
   matchId: string
@@ -14,8 +13,6 @@ export interface DraftPageProps {
 
 export function DraftPage(props: DraftPageProps) {
   const [autoStartSent, setAutoStartSent] = createSignal(false)
-  const [showAutoStartSplash, setShowAutoStartSplash] = createSignal(false)
-  let autoStartSplashTimeout: ReturnType<typeof setTimeout> | null = null
 
   const hasDraftState = () => draftStore.state != null
   const hasTerminalState = () => {
@@ -31,43 +28,21 @@ export function DraftPage(props: DraftPageProps) {
     const status = connectionStatus()
     return status === 'connected' || (status === 'reconnecting' && hasDraftState())
   }
-  const clearAutoStartSplashTimeout = () => {
-    if (!autoStartSplashTimeout) return
-    clearTimeout(autoStartSplashTimeout)
-    autoStartSplashTimeout = null
-  }
-
-  createRenderEffect(() => {
-    if (autoStartSent()) return
-    if (draftStore.state?.status !== 'waiting') return
-    setShowAutoStartSplash(Boolean(props.autoStart))
-  })
-
-  createEffect(() => {
-    const current = draftStore.state
-    if (!current || current.status === 'waiting') return
-    setShowAutoStartSplash(false)
-    clearAutoStartSplashTimeout()
-  })
+  const isWaitingForDraftStart = () => draftStore.state?.status === 'waiting' && !isMapVotePhase()
+  const shouldShowDraftView = () => draftStore.state != null && (isMiniView() || !isWaitingForDraftStart())
 
   createEffect(() => {
     if (!props.autoStart || autoStartSent()) return
+    if (connectionStatus() !== 'connected') return
     if (draftStore.state?.status !== 'waiting') return
+    if (isMapVotePhase()) return
     if (!amHost()) return
 
     const sent = sendStart()
     if (!sent) return
 
-    setShowAutoStartSplash(true)
-    clearAutoStartSplashTimeout()
-    autoStartSplashTimeout = setTimeout(() => {
-      setShowAutoStartSplash(false)
-      autoStartSplashTimeout = null
-    }, 5000)
     setAutoStartSent(true)
   })
-
-  onCleanup(() => clearAutoStartSplashTimeout())
 
   return (
     <Switch>
@@ -83,10 +58,18 @@ export function DraftPage(props: DraftPageProps) {
       <Match when={shouldRenderDraftView()}>
         <>
           <Show
-            when={draftStore.state?.status !== 'waiting'}
-            fallback={showAutoStartSplash()
+            when={shouldShowDraftView()}
+            fallback={autoStartSent() || (props.autoStart && amHost())
               ? <AutoStartingDraftScreen />
-              : <DraftSetupPage steamLobbyLink={props.steamLobbyLink ?? null} onSwitchTarget={props.onSwitchTarget} />}
+              : (
+                  <WaitingForDraftStartScreen
+                    isHost={amHost()}
+                    onStart={() => {
+                      const sent = sendStart()
+                      if (sent) setAutoStartSent(true)
+                    }}
+                  />
+                )}
           >
             <DraftView
               matchId={props.matchId}
@@ -154,6 +137,28 @@ function AutoStartingDraftScreen() {
       <div class="text-center">
         <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
         <div class="text-sm text-fg-muted">Starting draft...</div>
+      </div>
+    </main>
+  )
+}
+
+function WaitingForDraftStartScreen(props: { isHost: boolean, onStart: () => void }) {
+  return (
+    <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
+      <div class="p-6 text-center border border-border-subtle rounded-lg bg-bg-subtle flex flex-col gap-3 max-w-md items-center">
+        <div class="text-2xl text-accent font-bold">CivUp</div>
+        <div class="text-sm text-fg-muted">
+          {props.isHost ? 'Preparing draft room...' : 'Waiting for host to start draft...'}
+        </div>
+        <Show when={props.isHost}>
+          <button
+            type="button"
+            class="text-sm text-black font-semibold px-4 py-1.5 rounded bg-accent cursor-pointer transition-colors hover:bg-accent/85"
+            onClick={props.onStart}
+          >
+            Start Draft
+          </button>
+        </Show>
       </div>
     </main>
   )

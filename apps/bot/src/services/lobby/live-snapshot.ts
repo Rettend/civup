@@ -1,7 +1,6 @@
 import type { GameMode, QueueEntry } from '@civup/game'
-import type { LobbyState } from './types.ts'
-import type { LobbyArrangeMarker } from './types.ts'
 import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
+import type { LobbyArrangeMarker, LobbyState } from './types.ts'
 import { startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import { syncActivityOverviewSnapshotForLobby } from '../activity/live-state.ts'
 import { getServerDraftTimerDefaults } from '../config/index.ts'

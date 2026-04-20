@@ -288,7 +288,9 @@ async function applyIncrementalRatedReport(
 
   for (const participant of participantRows) {
     const existing = leaderboardSnapshotByPlayerId.get(participant.playerId)
-    if (existing) playerRatingMap.set(participant.playerId, { mu: existing.mu, sigma: existing.sigma })
+    if (existing) {
+      playerRatingMap.set(participant.playerId, { mu: existing.mu, sigma: existing.sigma })
+    }
     else {
       const fresh = createRating(participant.playerId)
       playerRatingMap.set(participant.playerId, { mu: fresh.mu, sigma: fresh.sigma })
