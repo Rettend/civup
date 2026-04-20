@@ -1,15 +1,15 @@
-import type { DraftSeat, GameMode, QueueEntry } from '@civup/game'
+import type { DraftSeat, GameMode, QueueEntry, ResolvedMapVoteResult } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { MatchJoinEntry, MatchVar } from './shared.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
-import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, isTeamMode, maxPlayerCount, minPlayerCount, parseGameMode, slotToTeamIndex, startPlayerCountOptions } from '@civup/game'
+import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, isTeamMode, minPlayerCount, parseGameMode, slotToTeamIndex, startPlayerCountOptions } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/match.ts'
 import { clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
-import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
+import { clearLobbyById, clearLobbyByMatch, createLobby, filterQueueEntriesForLobby, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
@@ -872,9 +872,7 @@ export const command_match = factory.command<MatchVar>(
               lobby,
               archivePolicy: 'if-missing',
             })
-            if (lobby) {
-              await clearLobbyById(kv, lobby.id, lobby)
-            }
+            await clearLobbyByMatch(kv, result.match.id)
             await sendTransientEphemeralResponse(c, `Match **${result.match.id}** was already reported. Checked Discord result state.`, 'info')
             return
           }
@@ -925,9 +923,7 @@ export const command_match = factory.command<MatchVar>(
             },
             archivePolicy: 'always',
           })
-          if (lobby) {
-            await clearLobbyById(kv, lobby.id, lobby)
-          }
+          await clearLobbyByMatch(kv, result.match.id)
 
           if (isRankedResult) {
             try {
@@ -992,6 +988,12 @@ async function buildLobbyBumpRenderPayload(
   if (lobby.status === 'active') {
     if (!lobby.matchId) return { error: 'This match no longer has a tracked lobby message.' }
 
+    const [match] = await db
+      .select({ draftData: matches.draftData })
+      .from(matches)
+      .where(eq(matches.id, lobby.matchId))
+      .limit(1)
+
     const participants = await db
       .select()
       .from(matchParticipants)
@@ -1002,12 +1004,27 @@ async function buildLobbyBumpRenderPayload(
     }
 
     return {
-      embeds: [lobbyDraftCompleteEmbed(lobby.mode, orderLobbyParticipantsBySlots(lobby, participants), lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
+      embeds: [lobbyDraftCompleteEmbed(lobby.mode, orderLobbyParticipantsBySlots(lobby, participants), getMapVoteResultFromDraftData(match?.draftData ?? null), lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
       components: lobbyComponents(lobby.mode, lobby.id),
     }
   }
 
   return { error: 'Only open, drafting, or active lobbies can be bumped.' }
+}
+
+function getMapVoteResultFromDraftData(draftData: string | null | undefined): ResolvedMapVoteResult | null {
+  if (!draftData) return null
+  try {
+    const parsed = JSON.parse(draftData) as { mapVoteResult?: unknown }
+    const result = parsed.mapVoteResult
+    if (!result || typeof result !== 'object') return null
+    const candidate = result as Partial<ResolvedMapVoteResult>
+    if (typeof candidate.mapType !== 'string' || typeof candidate.mapScript !== 'string' || typeof candidate.winningSeatCount !== 'number') return null
+    return candidate as ResolvedMapVoteResult
+  }
+  catch {
+    return null
+  }
 }
 
 function buildDraftSeatsFromLobby(

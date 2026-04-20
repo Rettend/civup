@@ -1,8 +1,8 @@
 /** @jsxImportSource solid-js */
 
 import type { DraftStep } from '@civup/game'
-import { beforeEach, describe, expect, test } from 'bun:test'
 import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library'
+import { beforeEach, describe, expect, test } from 'bun:test'
 import { createActiveDraftState, TEST_LEADER_IDS } from './ui-fixtures'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 

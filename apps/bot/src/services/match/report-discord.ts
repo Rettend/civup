@@ -1,14 +1,13 @@
 import type { Database } from '@civup/db'
-import type { MatchReporterIdentity } from './types.ts'
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from '../lobby/index.ts'
-import type { ParticipantRow } from './types.ts'
+import type { MatchReporterIdentity, ParticipantRow } from './types.ts'
 import { lobbyResultEmbed } from '../../embeds/match.ts'
 import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
 import { upsertLobbyMessage } from '../lobby/index.ts'
+import { getSystemChannel } from '../system/channels.ts'
 import { getReporterIdentityFromDraftData } from './draft-data.ts'
 import { listMatchMessageIds, storeMatchMessageMapping } from './message.ts'
-import { getSystemChannel } from '../system/channels.ts'
 
 type ArchivePolicy = 'always' | 'if-missing'
 
@@ -47,7 +46,7 @@ export async function syncReportedMatchDiscordMessages({
 
   if (lobby) {
     try {
-        const updatedLobby = await upsertLobbyMessage(kv, token, lobby, {
+      const updatedLobby = await upsertLobbyMessage(kv, token, lobby, {
         embeds: [lobbyResultEmbed(lobby.mode, participants, undefined, {
           rankedRoleLines,
           reporter: resolvedReporter,

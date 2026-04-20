@@ -49,6 +49,7 @@ export function registerWebhookRoutes(app: Hono<Env>) {
         state: payload.state,
         completedAt: payload.completedAt,
         hostId,
+        mapVoteResult: payload.mapVoteResult ?? null,
       })
 
       if ('error' in result) {
@@ -78,7 +79,7 @@ export function registerWebhookRoutes(app: Hono<Env>) {
       }
       try {
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, activeLobby, {
-          embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants, activeLobby.draftConfig.leaderDataVersion, activeLobby.draftConfig.redDeath)],
+          embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants, payload.mapVoteResult ?? null, activeLobby.draftConfig.leaderDataVersion, activeLobby.draftConfig.redDeath)],
           components: lobbyComponents(activeLobby.mode, activeLobby.id),
         })
         await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
@@ -93,18 +94,21 @@ export function registerWebhookRoutes(app: Hono<Env>) {
     const hostId = payload.hostId ?? payload.state.seats[0]?.playerId
     if (!hostId) return c.json({ error: 'Draft webhook missing host identity' }, 400)
 
+    const fallbackLobby = await getLobbyByMatch(kv, payload.matchId)
+
     const cancelled = await cancelDraftMatch(db, kv, {
       state: payload.state,
       cancelledAt: payload.cancelledAt,
       reason: payload.reason,
       hostId,
+      mapVoteResult: payload.mapVoteResult ?? null,
     })
 
     if ('error' in cancelled) {
       return c.json({ error: cancelled.error }, 400)
     }
 
-    const lobby = await getLobbyByMatch(kv, payload.matchId)
+    const lobby = await getLobbyByMatch(kv, payload.matchId) ?? fallbackLobby
     if (!lobby) {
       console.warn(`No lobby mapping found for cancelled match ${payload.matchId}`)
       return c.json({ ok: true })

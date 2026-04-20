@@ -1,8 +1,8 @@
 import type { Leader } from '@civup/game'
-import { Show, type JSX } from 'solid-js'
+import type { JSX } from 'solid-js'
+import { Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
-import { isDraftCardUnavailable } from './draftAvailability'
 import {
   banSelections,
   currentPickTargetSeatIndex,
@@ -12,13 +12,14 @@ import {
   isMyTurn,
   isRandomSelected,
   isRedDeathDraft,
+  selectedLeader,
   setDetailLeaderId,
   setIsRandomSelected,
-  selectedLeader,
   toggleBanSelection,
   toggleDetail,
   togglePickSelection,
 } from '~/client/stores'
+import { isDraftCardUnavailable } from './draftAvailability'
 
 const ZOOMED_LEADERS = [
   'Ahiram',
@@ -252,7 +253,7 @@ export function LeaderCard(props: LeaderCardProps) {
       disabled={isBanned()}
     >
       <Show when={isFavorited()}>
-        <LeaderCornerBadge class="right-1 top-1 min-w-4 bg-bg-subtle px-1 py-0.5 shadow shadow-black/30">
+        <LeaderCornerBadge class="px-1 py-0.5 bg-bg-subtle min-w-4 shadow shadow-black/30 right-1 top-1">
           <span class="i-ph-star-fill text-[11px] text-accent" />
         </LeaderCornerBadge>
       </Show>
@@ -363,14 +364,14 @@ export function LeaderListItem(props: LeaderCardProps & { neighborState?: Leader
       onBlur={handleHoverLeave}
       disabled={isBanned()}
     >
-      <div class="relative h-7 w-7 shrink-0">
+      <div class="shrink-0 h-7 w-7 relative">
         <Show when={isFavorited()}>
-          <LeaderCornerBadge class="-right-1 top-0 h-4 w-4 border border-border/60 bg-bg/92 shadow shadow-black/30">
+          <LeaderCornerBadge class="border border-border/60 bg-bg/92 h-4 w-4 shadow shadow-black/30 top-0 -right-1">
             <span class="i-ph-star-fill text-[8px] text-accent" />
           </LeaderCornerBadge>
         </Show>
 
-        <div class="relative h-full w-full overflow-hidden rounded-full">
+        <div class="rounded-full h-full w-full relative overflow-hidden">
           <Show
             when={props.leader.portraitUrl}
             fallback={(

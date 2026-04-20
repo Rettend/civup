@@ -46,7 +46,7 @@ export function RichLeaderText(props: RichLeaderTextProps) {
               alt={token.replace(/_/g, ' ')}
               class={cn(
                 'mx-0.5 inline-block object-contain',
-                isResource ? 'h-[1.2em] w-[1.2em] align-[-0.25em]' : 'h-[0.95em] w-[0.95em] align-[-0.125em]'
+                isResource ? 'h-[1.2em] w-[1.2em] align-[-0.25em]' : 'h-[0.95em] w-[0.95em] align-[-0.125em]',
               )}
             />
           )

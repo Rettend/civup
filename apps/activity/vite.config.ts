@@ -1,7 +1,6 @@
 import type { Plugin } from 'vite'
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
-import { readdirSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { cloudflare } from '@cloudflare/vite-plugin'

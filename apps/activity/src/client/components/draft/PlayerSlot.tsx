@@ -1,11 +1,11 @@
 import type { Leader } from '@civup/game'
-import { getLeader } from '@civup/game'
-import { createEffect, createSignal, Show } from 'solid-js'
+import { getLeader, MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '@civup/game'
+import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { placementIconClass } from '~/client/lib/placement-icons'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
-import { canRequestSwapWith, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, isMobileLayout, isSwapWindowOpen, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
+import { canRequestSwapWith, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, isMapVotePhase, isMobileLayout, isSeatMapVoteConfirmed, isSwapWindowOpen, MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -13,6 +13,8 @@ interface PlayerSlotProps {
   /** Whether this is a half-height FFA slot */
   compact?: boolean
 }
+
+const SLOT_BREATHE_CYCLE_MS = 3000
 
 /** Individual player slot */
 export function PlayerSlot(props: PlayerSlotProps) {
@@ -445,6 +447,308 @@ export function PlayerSlot(props: PlayerSlotProps) {
           {props.seatIndex + 1}
         </span>
       </div>
+
+      {/* Map vote overlay — hides the slot contents during the MAP phase */}
+      <Show when={isMapVotePhase()}>
+        <MapVoteSlotOverlay seatIndex={props.seatIndex} compact={props.compact} />
+      </Show>
     </div>
   )
+}
+
+function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
+  const state = () => draftStore.state
+  const seat = () => state()?.seats[props.seatIndex]
+  const seatAvatarUrl = () => seat()?.avatarUrl ?? null
+  const [showWinnerFlash, setShowWinnerFlash] = createSignal(false)
+  let lastWinnerFlashRevealEndsAt: number | null = null
+  let winnerFlashTimeout: ReturnType<typeof setTimeout> | null = null
+
+  const isVoting = () => mapVotePhase() === 'voting'
+  const isRevealing = () => mapVotePhase() === 'reveal'
+  const vote = () => isRevealing() ? getSeatMapVote(props.seatIndex) : null
+  const mapVoteResult = () => draftStore.mapVote.result
+  const winningTypeCandidate = () => mapVoteWinningTypeCandidate()
+  const winningScriptCandidate = () => mapVoteWinningScriptCandidate()
+  const isWinningType = () => {
+    const winningType = winningTypeCandidate()
+    return winningType != null && (vote()?.mapTypes ?? []).includes(winningType)
+  }
+  const isWinningScript = () => {
+    const winningScript = winningScriptCandidate()
+    return winningScript != null && (vote()?.mapScripts ?? []).includes(winningScript)
+  }
+  const hasTypeVote = () => (vote()?.mapTypes.length ?? 0) > 0
+  const hasScriptVote = () => (vote()?.mapScripts.length ?? 0) > 0
+  const isWinningBallot = () => {
+    if (!isRevealing()) return false
+    if (!hasTypeVote() && !hasScriptVote()) return false
+    return (!hasTypeVote() || isWinningType())
+      && (!hasScriptVote() || isWinningScript())
+  }
+
+  const isConfirmedSeat = () => isVoting() && isSeatMapVoteConfirmed(props.seatIndex)
+  const showVotingGlow = () => isVoting() && !isConfirmedSeat()
+  const displayedMap = () => {
+    const displayedScriptId = isWinningBallot()
+      ? mapVoteResult()?.mapScript
+      : vote()?.mapScripts[0] ?? mapVoteResult()?.mapScript
+    if (!displayedScriptId) return null
+    const script = MAP_SCRIPT_BY_ID[displayedScriptId]
+    if (!script) return null
+    return {
+      ...script,
+      label: script.hint ? `${script.name} (${script.hint})` : script.name,
+      imageSrc: script.imageUrl ? (resolveAssetUrl(script.imageUrl) ?? script.imageUrl) : null,
+      isRandom: script.id === 'random',
+    }
+  }
+  const displayedMapTypeLabel = () => {
+    const displayedTypeId = isWinningBallot()
+      ? mapVoteResult()?.mapType
+      : vote()?.mapTypes[0] ?? mapVoteResult()?.mapType
+    if (!displayedTypeId) return ''
+    return MAP_TYPE_BY_ID[displayedTypeId]?.name ?? displayedTypeId
+  }
+  const iconClass = () => props.compact ? 'text-3xl' : 'text-5xl'
+  const winningBallotBackdropStyle = {
+    background: [
+      'radial-gradient(120% 88% at 50% 30%, rgba(244,220,168,0.08) 0%, rgba(212,176,103,0.04) 34%, rgba(212,176,103,0.01) 58%, transparent 78%)',
+      'radial-gradient(72% 44% at 50% 76%, rgba(244,220,168,0.05) 0%, rgba(244,220,168,0.02) 38%, transparent 72%)',
+      'linear-gradient(to bottom, rgba(255,255,255,0.015) 0%, transparent 32%)',
+    ].join(', '),
+  }
+  const breatheAnimationStyle = () => createStableBreatheAnimationStyle({
+    active: showVotingGlow(),
+    endsAt: isVoting() ? draftStore.mapVote.endsAt : null,
+    durationSeconds: MAP_VOTE_VOTING_DURATION_SECONDS,
+    seed: props.seatIndex,
+  })
+
+  const clearWinnerFlashTimeout = () => {
+    if (winnerFlashTimeout == null) return
+    clearTimeout(winnerFlashTimeout)
+    winnerFlashTimeout = null
+  }
+
+  createEffect(() => {
+    const revealEndsAt = mapVoteRevealEndsAt()
+    const isCurrentWinner = revealEndsAt != null && isRevealing() && isWinningBallot()
+
+    clearWinnerFlashTimeout()
+    setShowWinnerFlash(false)
+    if (!isCurrentWinner) {
+      if (!isRevealing()) lastWinnerFlashRevealEndsAt = null
+      return
+    }
+    if (lastWinnerFlashRevealEndsAt === revealEndsAt) return
+
+    const revealStartedAt = revealEndsAt - (MAP_VOTE_REVEAL_DURATION_SECONDS * 1000)
+    const flashRemainingMs = (revealStartedAt + 420) - Date.now()
+    lastWinnerFlashRevealEndsAt = revealEndsAt
+    if (flashRemainingMs <= 0) return
+
+    setShowWinnerFlash(true)
+    winnerFlashTimeout = setTimeout(() => {
+      setShowWinnerFlash(false)
+      winnerFlashTimeout = null
+    }, flashRemainingMs)
+  })
+
+  onCleanup(() => clearWinnerFlashTimeout())
+
+  return (
+    <div
+      class={cn(
+        'slot-accent-gold inset-0 absolute z-40 flex flex-col overflow-hidden bg-bg-subtle',
+      )}
+    >
+      <Show when={isRevealing() && isWinningBallot()}>
+        <div
+          class="pointer-events-none inset-0 absolute z-0"
+          style={winningBallotBackdropStyle}
+        />
+      </Show>
+
+      <div
+        class="w-6 pointer-events-none inset-y-0 left-0 absolute z-10 from-[var(--slot-glow)] to-transparent bg-gradient-to-r"
+        classList={{
+          'anim-glow-breathe': showVotingGlow(),
+          'opacity-0': !showVotingGlow(),
+        }}
+        style={{
+          ...breatheAnimationStyle(),
+          '-webkit-mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
+          'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
+        }}
+      />
+      <div
+        class="w-6 pointer-events-none inset-y-0 right-0 absolute z-10 from-[var(--slot-glow)] to-transparent bg-gradient-to-l"
+        classList={{
+          'anim-glow-breathe': showVotingGlow(),
+          'opacity-0': !showVotingGlow(),
+        }}
+        style={{
+          ...breatheAnimationStyle(),
+          '-webkit-mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
+          'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
+        }}
+      />
+      <div
+        class="rounded-full bg-[var(--slot-glow)] h-[2px] pointer-events-none left-1/2 top-2 absolute z-10 -translate-x-1/2"
+        classList={{
+          'anim-bar-breathe': showVotingGlow(),
+          'opacity-0': !showVotingGlow(),
+        }}
+        style={breatheAnimationStyle()}
+      />
+
+      <Show when={showWinnerFlash()}>
+        <div
+          class="anim-swap-focus-flash pointer-events-none inset-0 absolute z-10"
+          style={{
+            background: 'radial-gradient(ellipse at center, rgba(244,220,168,0.24) 0%, rgba(200,170,110,0.14) 48%, rgba(200,170,110,0.05) 100%)',
+          }}
+        />
+      </Show>
+
+      {/* Dim non-winning ballots a little during reveal */}
+      <Show when={isRevealing() && !isWinningBallot()}>
+        <div class="bg-black/30 pointer-events-none inset-0 absolute z-10" />
+      </Show>
+
+      <div class={cn(
+        'relative z-20 flex flex-1 flex-col px-3 text-center',
+        isRevealing() ? 'py-3' : 'items-center justify-center py-4',
+      )}
+      >
+        <Show
+          when={isRevealing() && vote()}
+          fallback={(
+            <div class={cn(
+              'i-ph-map-trifold-fill drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]',
+              isConfirmedSeat() ? 'text-fg-muted/55' : 'text-accent/90',
+              iconClass(),
+            )}
+            />
+          )}
+        >
+          <div
+            data-testid="map-vote-reveal-layout"
+            class={cn(
+              'flex h-full min-h-0 max-w-full flex-col items-center justify-center',
+              isWinningBallot() ? 'text-fg' : 'text-fg-muted',
+            )}
+          >
+            <div class="flex flex-1 min-h-0 items-center justify-center">
+              <Show
+                when={displayedMap()}
+                fallback={(
+                  <div class={cn(
+                    'i-ph-map-trifold-fill drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)] text-accent/90',
+                    iconClass(),
+                  )}
+                  />
+                )}
+              >
+                {map => (
+                  <div class={cn('flex w-full min-w-0 max-w-full flex-col items-center', props.compact ? 'gap-1.5' : 'gap-2')}>
+                    <div
+                      class={cn('relative aspect-square', props.compact ? 'w-16' : 'w-20')}
+                      data-testid={isWinningBallot() ? 'map-vote-reveal-winning-glow' : undefined}
+                    >
+                      <Show
+                        when={map().imageSrc}
+                        fallback={(
+                          <div class="inset-0 absolute flex items-center justify-center">
+                            <span
+                              class={cn(
+                                map().isRandom ? 'i-ph-dice-five-bold' : 'i-ph-map-trifold-fill',
+                                props.compact ? 'h-10 w-10' : 'h-12 w-12',
+                                'block text-accent/90',
+                              )}
+                            />
+                          </div>
+                        )}
+                      >
+                        {src => (
+                          <img
+                            src={src()}
+                            alt={map().label}
+                            class="h-full w-full inset-0 absolute object-contain"
+                            style={isWinningBallot()
+                              ? {
+                                  filter: 'drop-shadow(0 0 4px rgba(255,233,164,0.16)) drop-shadow(0 0 10px rgba(208,172,98,0.08))',
+                                }
+                              : undefined}
+                          />
+                        )}
+                      </Show>
+                    </div>
+
+                    <span class={cn(
+                      'mx-auto max-w-full w-fit font-semibold leading-tight text-center',
+                      props.compact ? 'text-[10px]' : 'text-[13px]',
+                      isWinningBallot() ? 'text-accent' : 'text-fg/90',
+                    )}
+                    >
+                      {map().label}
+                    </span>
+
+                    <Show when={displayedMapTypeLabel()}>
+                      {label => (
+                        <span class={cn(
+                          'mx-auto max-w-full truncate text-center font-semibold leading-none',
+                          props.compact ? 'text-[9px]' : 'text-[11px]',
+                          isWinningBallot() ? 'text-accent/80' : 'text-fg-muted/70',
+                        )}
+                        >
+                          {label()}
+                        </span>
+                      )}
+                    </Show>
+                  </div>
+                )}
+              </Show>
+            </div>
+          </div>
+        </Show>
+      </div>
+
+      {/* Name row at the bottom */}
+      <Show when={seat()} keyed>
+        {s => (
+          <div class={cn(
+            'relative z-20 flex items-center gap-2 px-2 pb-2 pt-6',
+            'bg-gradient-to-t from-black/70 to-transparent',
+          )}
+          >
+            <Show when={seatAvatarUrl()} keyed>
+              {url => (
+                <img
+                  src={url}
+                  alt=""
+                  class="rounded-full shrink-0 h-5 w-5 object-cover"
+                />
+              )}
+            </Show>
+            <span class="text-sm text-fg-muted leading-tight truncate">
+              {s.displayName}
+            </span>
+          </div>
+        )}
+      </Show>
+    </div>
+  )
+}
+
+function createStableBreatheAnimationStyle(props: { active: boolean, endsAt: number | null, durationSeconds: number, seed: number }) {
+  if (!props.active || props.endsAt == null || props.durationSeconds <= 0) return {}
+
+  const phaseStartedAt = props.endsAt - (props.durationSeconds * 1000)
+  const phaseElapsedMs = Math.max(0, Date.now() - phaseStartedAt)
+  const seatOffsetMs = (props.seed * 197) % SLOT_BREATHE_CYCLE_MS
+  const animationDelayMs = -((phaseElapsedMs + seatOffsetMs) % SLOT_BREATHE_CYCLE_MS)
+
+  return { 'animation-delay': `${animationDelayMs}ms` }
 }

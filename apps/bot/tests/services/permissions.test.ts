@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test'
+import { command_admin } from '../../src/commands/admin/index.ts'
 import {
-  ADMIN_COMMAND_DEFAULT_MEMBER_PERMISSIONS,
   addModRole,
+  ADMIN_COMMAND_DEFAULT_MEMBER_PERMISSIONS,
   canUseModCommands,
   getModRoleIds,
   hasAdminPermission,
   removeModRole,
 } from '../../src/services/permissions/index.ts'
-import { command_admin } from '../../src/commands/admin/index.ts'
 import { factory } from '../../src/setup.ts'
 import { createTestKv } from '../helpers/test-env.ts'
 

@@ -1,7 +1,7 @@
 import type { MiniSeatItem } from './MiniLayout'
 import { formatModeLabel, inferGameMode } from '@civup/game'
 import { createEffect, createSignal, onCleanup } from 'solid-js'
-import { draftStore, isRedDeathDraft, phaseAccent, phaseLabel } from '~/client/stores'
+import { draftStore, isMapVotePhase, isRedDeathDraft, mapVotePhase, mapVoteRevealEndsAt, mapVoteVotingEndsAt, phaseAccent, phaseLabel } from '~/client/stores'
 import { MiniFrame, MiniSeatGrid } from './MiniLayout'
 
 /** Minimized PiP view */
@@ -11,7 +11,9 @@ export function MiniView() {
 
   const [remaining, setRemaining] = createSignal(0)
   createEffect(() => {
-    const endsAt = draftStore.timerEndsAt
+    const endsAt = isMapVotePhase()
+      ? (mapVotePhase() === 'voting' ? mapVoteVotingEndsAt() : mapVoteRevealEndsAt())
+      : draftStore.timerEndsAt
     if (endsAt == null) {
       setRemaining(0)
       return
@@ -29,7 +31,7 @@ export function MiniView() {
     targetSize: state()?.seats.length,
   })
   const timerLabel = () => {
-    if (state()?.status !== 'active' || draftStore.timerEndsAt == null) return null
+    if (!isMapVotePhase() && (state()?.status !== 'active' || draftStore.timerEndsAt == null)) return null
 
     const seconds = Math.ceil(remaining() / 1000)
     const minutes = Math.floor(seconds / 60)
@@ -39,6 +41,7 @@ export function MiniView() {
   const title = () => {
     const current = state()
     if (!current) return 'Draft'
+    if (isMapVotePhase()) return 'Map Voting'
     if (current.status === 'waiting') return 'Draft Setup'
     if (current.status === 'complete') return 'Draft Complete'
     if (current.status === 'cancelled') {

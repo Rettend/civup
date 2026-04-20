@@ -1,3 +1,4 @@
+import type { MapVoteSelection, MapVoteSnapshot, ResolvedMapVoteResult } from './map-vote.ts'
 import type {
   DraftAction,
   DraftCancelReason,
@@ -7,8 +8,8 @@ import type {
   DraftSelection,
   DraftState,
   DraftTimerConfig,
-  LeaderSwapState,
   LeaderDataVersion,
+  LeaderSwapState,
 } from './types.ts'
 
 // ── Room Configuration (sent by bot via HTTP POST) ──────────
@@ -23,6 +24,7 @@ export interface RoomConfig {
   dealOptionsSize?: number
   randomDraft?: boolean
   duplicateFactions?: boolean
+  mapVoteEnabled?: boolean
   leaderDataVersion?: LeaderDataVersion
   timerConfig?: DraftTimerConfig
   webhookUrl?: string
@@ -36,6 +38,7 @@ export interface DraftCompleteWebhookPayload {
   completedAt: number
   finalized?: boolean
   state: DraftState
+  mapVoteResult?: ResolvedMapVoteResult | null
 }
 
 export interface DraftCancelledWebhookPayload {
@@ -45,6 +48,7 @@ export interface DraftCancelledWebhookPayload {
   cancelledAt: number
   reason: DraftCancelReason
   state: DraftState
+  mapVoteResult?: ResolvedMapVoteResult | null
 }
 
 export type DraftWebhookPayload = DraftCompleteWebhookPayload | DraftCancelledWebhookPayload
@@ -53,6 +57,8 @@ export type DraftWebhookPayload = DraftCompleteWebhookPayload | DraftCancelledWe
 
 export type ClientMessage
   = | { type: 'start' }
+    | { type: 'map-vote-selection', selection: MapVoteSelection }
+    | { type: 'map-vote-confirm' }
     | { type: 'ban', civIds: string[] }
     | { type: 'pick', civId: string }
     | { type: 'preview', action: DraftAction, civIds: string[] }
@@ -72,6 +78,7 @@ export type ServerMessage
   = | {
     type: 'init'
     state: DraftState
+    mapVote: MapVoteSnapshot
     leaderDataVersion?: LeaderDataVersion
     hostId?: string
     seatIndex: number | null
@@ -83,6 +90,7 @@ export type ServerMessage
   | {
     type: 'update'
     state: DraftState
+    mapVote: MapVoteSnapshot
     leaderDataVersion?: LeaderDataVersion
     hostId?: string
     events: DraftEvent[]

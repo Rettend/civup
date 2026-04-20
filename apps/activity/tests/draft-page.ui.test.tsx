@@ -1,10 +1,10 @@
 /** @jsxImportSource solid-js */
 
-import { beforeEach, describe, expect, mock, test } from 'bun:test'
 import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library'
 import userEvent from '@testing-library/user-event'
-import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
+import { beforeEach, describe, expect, mock, test } from 'bun:test'
 import { createActiveDraftState, createCancelledDraftState, createCompleteDraftState, createWaitingDraftState, TEST_LEADER_IDS } from './ui-fixtures'
+import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const onSwitchTarget = mock(() => {})
 
@@ -44,14 +44,67 @@ describe('DraftPage UI', () => {
     expect(screen.getByText('Starting draft...')).toBeTruthy()
   })
 
-  test('shows the waiting draft setup shell when auto-start is not active', () => {
+  test('shows the waiting shell instead of the old draft-setup half state', () => {
     uiMockState.connectionStatus = 'connected'
     uiMockState.draftState = createWaitingDraftState()
+    uiMockState.userId = 'player-2'
+    uiMockState.draftHostId = 'host-1'
 
     render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
 
-    expect(screen.getByRole('heading', { name: 'Draft Setup' })).toBeTruthy()
+    expect(screen.getByText('Waiting for host to start draft...')).toBeTruthy()
+    expect(screen.queryByText('Ready to start')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Open leader grid' })).toBeNull()
+  })
+
+  test('lets the host manually start from the waiting shell without showing draft setup config', () => {
+    uiMockState.connectionStatus = 'connected'
+    uiMockState.draftState = createWaitingDraftState()
+    uiMockState.userId = 'host-1'
+    uiMockState.draftHostId = 'host-1'
+
+    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start Draft' }))
+
+    expect(storeSpies.sendStart).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('Ready to start')).toBeNull()
+  })
+
+  test('renders the map vote view while the draft state is still waiting', () => {
+    uiMockState.connectionStatus = 'connected'
+    uiMockState.draftState = createWaitingDraftState({ formatId: '3v3' })
+    uiMockState.mapVotePhase = 'voting'
+    uiMockState.mapVoteSelectedTypes = []
+    uiMockState.mapVoteSelectedScripts = []
+    uiMockState.mapVoteVotingEndsAt = Date.now() + 30_000
+    uiMockState.gridOpen = true
+
+    render(() => <DraftPage matchId="match-1" autoStart steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
+
+    expect(screen.getByText('MAP VOTING')).toBeTruthy()
+    expect(screen.queryByText('Starting draft...')).toBeNull()
+    expect(screen.queryByText('Waiting for host to start draft...')).toBeNull()
+  })
+
+  test('closes the map vote overlay and hides the toggle while reveal results are showing', async () => {
+    uiMockState.connectionStatus = 'connected'
+    uiMockState.draftState = createWaitingDraftState({ formatId: '3v3' })
+    uiMockState.mapVotePhase = 'reveal'
+    uiMockState.mapVoteSeatVotes = [
+      { seatIndex: 0, confirmed: true, mapTypes: ['east-vs-west'], mapScripts: ['seven-seas'] },
+    ]
+    uiMockState.mapVoteWinningType = 'east-vs-west'
+    uiMockState.mapVoteWinningScript = 'seven-seas'
+    uiMockState.mapVoteWinningTypeCandidate = 'east-vs-west'
+    uiMockState.mapVoteWinningScriptCandidate = 'seven-seas'
+    uiMockState.mapVoteRevealEndsAt = Date.now() + 5_000
+    uiMockState.gridOpen = true
+
+    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Close map vote' })).toBeNull())
+    expect(screen.queryByRole('button', { name: /map vote/i })).toBeNull()
   })
 
   test('shows the active draft shell with reconnect banner in the background reconnect case', () => {

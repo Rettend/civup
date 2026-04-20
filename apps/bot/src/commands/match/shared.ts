@@ -203,7 +203,7 @@ export async function joinLobbyAndMaybeStartMatch(
     : null
 
   const conflictingQueuePlayerIds = requestedEntries
-    .map(entry => {
+    .map((entry) => {
       const existingMode = queueByPlayerId.has(entry.playerId) ? mode : (queueModeByPlayerId.get(entry.playerId) ?? null)
       return existingMode && existingMode !== mode ? entry.playerId : null
     })
@@ -211,7 +211,7 @@ export async function joinLobbyAndMaybeStartMatch(
 
   if (conflictingQueuePlayerIds.length > 0) {
     const currentLobbiesByPlayerId = await getCurrentLobbiesForPlayers(kv, conflictingQueuePlayerIds)
-    const liveLobbyPlayerId = conflictingQueuePlayerIds.find(playerId => {
+    const liveLobbyPlayerId = conflictingQueuePlayerIds.find((playerId) => {
       const lobby = currentLobbiesByPlayerId.get(playerId)
       return lobby != null && lobby.status !== 'open'
     })

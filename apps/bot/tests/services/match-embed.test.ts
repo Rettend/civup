@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { lobbyCancelledEmbed, lobbyOpenEmbed, lobbyResultEmbed } from '../../src/embeds/match.ts'
+import { lobbyCancelledEmbed, lobbyDraftCompleteEmbed, lobbyOpenEmbed, lobbyResultEmbed } from '../../src/embeds/match.ts'
 
 describe('match result embed', () => {
   test('limits leaderboard movement lines to tracked top ranks while always keeping new entrants', () => {
@@ -110,5 +110,21 @@ describe('match result embed', () => {
       'Team D',
       '\u200B',
     ])
+  })
+
+  test('shows the chosen map above draft-complete roster fields', () => {
+    const embed = lobbyDraftCompleteEmbed('2v2', [
+      { playerId: '1', team: 0, civId: null },
+      { playerId: '2', team: 1, civId: null },
+      { playerId: '3', team: 0, civId: null },
+      { playerId: '4', team: 1, civId: null },
+    ], {
+      mapType: 'east-vs-west',
+      mapScript: 'seven-seas',
+      winningSeatCount: 3,
+    }).toJSON()
+
+    expect(embed.fields?.[0]).toEqual({ name: 'Map', value: 'Seven Seas EvW', inline: false })
+    expect(embed.fields?.[1]?.name).toBe('Team A')
   })
 })

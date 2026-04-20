@@ -16,6 +16,7 @@ export interface LobbyEditableDraftConfig {
   pickTimerSeconds: number | null
   leaderPoolSize: number | null
   leaderDataVersion: 'live' | 'beta'
+  mapVoteEnabled: boolean
   blindBans: boolean
   simultaneousPick: boolean
   redDeath: boolean

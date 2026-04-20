@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'bun:test'
 import type { LobbySnapshot } from '../src/client/stores'
+import { describe, expect, test } from 'bun:test'
 import {
   buildLobbyBalanceSummary,
   formatLeaderPoolValue,
@@ -126,6 +126,7 @@ function createLobbySnapshot(
       pickTimerSeconds: null,
       leaderPoolSize: null,
       leaderDataVersion: 'live',
+      mapVoteEnabled: true,
       blindBans: true,
       simultaneousPick: false,
       redDeath: false,

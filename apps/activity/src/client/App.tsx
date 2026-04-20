@@ -9,7 +9,7 @@ import type {
   LobbyStateWatch,
   PartySocketTarget,
 } from './stores'
-import { batch, createEffect, createSignal, Match, onCleanup, onMount, Show, Switch, untrack } from 'solid-js'
+import { batch, createEffect, createSignal, Match, onCleanup, onMount, Switch, untrack } from 'solid-js'
 import { discordSdk, setupDiscordSdk } from './discord'
 import { activityTargetOptionKey, activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from './lib/activity-targets'
 import { relayDevLog } from './lib/dev-log'
@@ -981,7 +981,6 @@ function resolveLiveJoinEligibility(
     pendingSlot,
   }
 }
-
 
 function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
   if (a.id !== b.id) return false

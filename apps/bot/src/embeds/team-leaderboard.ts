@@ -4,8 +4,8 @@ import { Embed } from 'discord-hono'
 import { getTeamLeaderboardBucketContext, TEAM_LEADERBOARD_MIN_GAMES } from '../services/leaderboard/team-snapshot.ts'
 
 const TEAM_LEADERBOARD_COLORS = {
-  'duo': 0x06B6D4,
-  'squad': 0x8B5CF6,
+  duo: 0x06B6D4,
+  squad: 0x8B5CF6,
 } as const
 
 export function teamLeaderboardEmbed(

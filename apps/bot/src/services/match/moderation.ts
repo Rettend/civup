@@ -1,6 +1,6 @@
 import type { Database } from '@civup/db'
-import type { CancelMatchInput, CancelMatchResult, MatchRow, ParticipantRow, ResolveMatchInput, ResolveMatchResult } from './types.ts'
 import type { LeaderboardMode } from '@civup/game'
+import type { CancelMatchInput, CancelMatchResult, MatchRow, ParticipantRow, ResolveMatchInput, ResolveMatchResult } from './types.ts'
 import { matchBans, matches, matchParticipants } from '@civup/db'
 import { and, eq } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
@@ -12,7 +12,7 @@ import { parseModerationPlacements } from './placements.ts'
 import { recalculateLeaderboardMode } from './ratings.ts'
 
 type BatchItem = Parameters<Database['batch']>[0][number]
-type MatchBanRow = {
+interface MatchBanRow {
   matchId: string
   civId: string
   bannedBy: string

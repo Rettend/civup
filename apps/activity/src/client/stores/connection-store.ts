@@ -1,4 +1,4 @@
-import type { ClientMessage, CompetitiveTier, DraftAction, LeaderDataVersion, ServerMessage } from '@civup/game'
+import type { ClientMessage, CompetitiveTier, DraftAction, LeaderDataVersion, MapVoteSelection, ServerMessage } from '@civup/game'
 import { api, ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import PartySocket from 'partysocket'
 import { createSignal, untrack } from 'solid-js'
@@ -59,6 +59,7 @@ export interface LobbySnapshot {
     pickTimerSeconds: number | null
     leaderPoolSize: number | null
     leaderDataVersion: LeaderDataVersion
+    mapVoteEnabled: boolean
     blindBans: boolean
     simultaneousPick: boolean
     redDeath: boolean
@@ -384,9 +385,7 @@ function startStaleDraftReconnectWatchdog() {
       timerEndsAt: draftStore.timerEndsAt,
       lastSocketActivityAt,
       lastForcedReconnectTimerEndsAt,
-    })) {
-      return
-    }
+    })) { return }
 
     const currentRoom = currentRoomConnection
     if (!currentRoom) return
@@ -537,6 +536,14 @@ export function sendStart() {
   return sendMessage({ type: 'start' })
 }
 
+export function sendMapVoteSelection(selection: MapVoteSelection) {
+  return sendMessage({ type: 'map-vote-selection', selection })
+}
+
+export function sendMapVoteConfirm() {
+  return sendMessage({ type: 'map-vote-confirm' })
+}
+
 export function sendBan(civIds: string[]) {
   sendMessage({ type: 'ban', civIds })
 }
@@ -677,6 +684,7 @@ export async function updateLobbyConfig(
     pickTimerSeconds?: number | null
     leaderPoolSize?: number | null
     leaderDataVersion?: LeaderDataVersion
+    mapVoteEnabled?: boolean
     blindBans?: boolean
     simultaneousPick?: boolean
     redDeath?: boolean
@@ -697,6 +705,7 @@ export async function updateLobbyConfig(
       pickTimerSeconds: draftConfig.pickTimerSeconds,
       leaderPoolSize: draftConfig.leaderPoolSize,
       leaderDataVersion: draftConfig.leaderDataVersion,
+      mapVoteEnabled: draftConfig.mapVoteEnabled,
       blindBans: draftConfig.blindBans,
       simultaneousPick: draftConfig.simultaneousPick,
       redDeath: draftConfig.redDeath,
@@ -989,7 +998,7 @@ function handleServerMessage(msg: ServerMessage) {
       clearSelections()
       syncForcedReconnectTimer(msg.timerEndsAt)
       syncPreviewCache(msg.previews, msg.seatIndex)
-      initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null)
+      initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote)
       if (shouldDisconnectAfterState(msg.state.status, msg.swapState ?? null)) {
         disconnect()
       }
@@ -997,7 +1006,7 @@ function handleServerMessage(msg: ServerMessage) {
     case 'update':
       syncForcedReconnectTimer(msg.timerEndsAt)
       syncPreviewCache(msg.previews)
-      updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null)
+      updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote)
       if (pendingConfigAck) {
         clearTimeout(pendingConfigAck.timeout)
         pendingConfigAck.resolve()

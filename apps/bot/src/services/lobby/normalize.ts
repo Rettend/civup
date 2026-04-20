@@ -1,6 +1,6 @@
 import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
-import { defaultPlayerCount, MAX_LEADER_POOL_SIZE, normalizeAvailableLeaderDataVersion, playerCountOptions, requiresRedDeathDuplicateFactions } from '@civup/game'
+import { defaultPlayerCount, MAX_LEADER_POOL_SIZE, normalizeAvailableLeaderDataVersion, normalizeMapVoteEnabled, playerCountOptions, requiresRedDeathDuplicateFactions } from '@civup/game'
 import { nanoid } from 'nanoid'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 import { normalizeSteamLobbyLink } from '../steam-link.ts'
@@ -10,6 +10,7 @@ export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   pickTimerSeconds: null,
   leaderPoolSize: null,
   leaderDataVersion: 'live',
+  mapVoteEnabled: false,
   blindBans: true,
   simultaneousPick: false,
   redDeath: false,
@@ -84,6 +85,7 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
     pickTimerSeconds: normalizeTimerSeconds(config?.pickTimerSeconds),
     leaderPoolSize: normalizeLeaderPoolSize(config?.leaderPoolSize),
     leaderDataVersion: normalizeLeaderDataVersion(config?.leaderDataVersion),
+    mapVoteEnabled: normalizeMapVoteFlag(config?.mapVoteEnabled),
     blindBans: normalizeBlindBans(config?.blindBans),
     simultaneousPick: normalizeSimultaneousPick(config?.simultaneousPick),
     redDeath: normalizeRedDeath(config?.redDeath),
@@ -104,6 +106,7 @@ export function normalizeDraftConfigForMode(
     ...normalized,
     leaderPoolSize: redDeath ? null : normalized.leaderPoolSize,
     leaderDataVersion: redDeath ? 'live' : normalized.leaderDataVersion,
+    mapVoteEnabled: normalizeMapVoteEnabled(mode, normalized.mapVoteEnabled, { redDeath }),
     blindBans: supportsBlindBans(mode, redDeath, targetSize) ? normalized.blindBans : true,
     simultaneousPick: mode === 'ffa' && !redDeath ? normalized.simultaneousPick : false,
     redDeath,
@@ -169,6 +172,7 @@ export function sameDraftConfig(a: LobbyDraftConfig, b: LobbyDraftConfig): boole
     && a.pickTimerSeconds === b.pickTimerSeconds
     && a.leaderPoolSize === b.leaderPoolSize
     && a.leaderDataVersion === b.leaderDataVersion
+    && a.mapVoteEnabled === b.mapVoteEnabled
     && a.blindBans === b.blindBans
     && a.simultaneousPick === b.simultaneousPick
     && a.redDeath === b.redDeath
@@ -222,6 +226,10 @@ function normalizeSimultaneousPick(value: unknown): boolean {
 
 function normalizeBlindBans(value: unknown): boolean {
   return value !== false
+}
+
+function normalizeMapVoteFlag(value: unknown): boolean {
+  return value === true
 }
 
 function normalizeRedDeath(value: unknown): boolean {

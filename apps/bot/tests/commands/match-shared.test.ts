@@ -494,7 +494,6 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     expect((await getLobbyById(kv, sourceLobby.id))?.memberPlayerIds).toEqual(['source-host'])
     expect((await getLobbyById(kv, targetLobby.id))?.memberPlayerIds).toEqual(['target-host', 'pleb'])
   })
-
 })
 
 describe('preflightMatchCreateQueueState', () => {

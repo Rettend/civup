@@ -101,7 +101,7 @@ function arrangeTeamLobbySlots(
     return { slots: buildShuffledTeamSlots(teamSlotCount, groups, activeTeamCount, input.slots.length, random) }
   }
 
-  const groups = slottedPlayerIds.map((playerId) => ({
+  const groups = slottedPlayerIds.map(playerId => ({
     playerIds: [playerId],
     size: 1,
   } satisfies PlayerGroup))

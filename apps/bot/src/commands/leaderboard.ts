@@ -1,6 +1,7 @@
 import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import type { Embed } from 'discord-hono'
+import type { TeamLeaderboardBucket } from '../services/leaderboard/team-snapshot.ts'
 import { createDb } from '@civup/db'
 import { LEADERBOARD_MODE_CHOICES, LEADERBOARD_MODES, parseLeaderboardMode } from '@civup/game'
 import { getLeaderboardMinGames } from '@civup/rating'
@@ -12,7 +13,7 @@ import {
   ensureTeamLeaderboardBucketSnapshots,
   TEAM_LEADERBOARD_BUCKETS,
   TEAM_LEADERBOARD_MIN_GAMES,
-  type TeamLeaderboardBucket,
+
 } from '../services/leaderboard/team-snapshot.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { factory } from '../setup.ts'

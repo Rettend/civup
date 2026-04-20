@@ -76,6 +76,7 @@ function createLobbyState() {
       pickTimerSeconds: null,
       leaderPoolSize: null,
       leaderDataVersion: 'live' as const,
+      mapVoteEnabled: false,
       blindBans: true,
       simultaneousPick: false,
       redDeath: false,

@@ -126,6 +126,52 @@ describe('activity lobby join eligibility', () => {
     })
   })
 
+  test('clears stale live lobbies before building launch options for a new join target', async () => {
+    const { kv } = createTrackedKv()
+    const liveLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'player-1',
+      channelId: 'channel-1',
+      messageId: 'message-live',
+    })
+    const openLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-2',
+      channelId: 'channel-1',
+      messageId: 'message-open',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-2',
+      displayName: 'Host 2',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await attachLobbyMatch(kv, liveLobby.id, 'match-stale', liveLobby)
+    await storeUserLobbyState(kv, 'channel-1', ['player-1'], openLobby.id, { pendingJoin: true })
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'player-1', {
+      db: buildDb({ liveMatchIds: [] }),
+    })
+
+    expect(snapshot.selection?.kind).toBe('lobby')
+    if (snapshot.selection?.kind !== 'lobby') return
+
+    expect(snapshot.selection.option.id).toBe(openLobby.id)
+    expect(snapshot.selection.joinEligibility).toEqual({
+      canJoin: true,
+      blockedReason: null,
+      pendingSlot: 1,
+    })
+    expect(snapshot.options).toEqual([
+      expect.objectContaining({
+        kind: 'lobby',
+        id: openLobby.id,
+      }),
+    ])
+    await expect(getLobbyById(kv, liveLobby.id)).resolves.toBeNull()
+  })
+
   test('allows joining another open lobby when the viewer is not the source host', async () => {
     const { kv } = createTrackedKv()
     const sourceLobby = await createLobby(kv, {
@@ -377,6 +423,29 @@ describe('activity target selection', () => {
     expect(response.status).toBe(409)
     await expect(response.json()).resolves.toEqual({ error: 'That target is no longer available.' })
     await expect(getUserActivityTarget(kv, 'channel-1', 'spectator-1')).resolves.toBeNull()
+  })
+
+  test('rejects stale live match targets when D1 shows the match already ended', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await attachLobbyMatch(kv, lobby.id, 'match-stale', lobby)
+
+    await expect(selectActivityTargetForUser(kv, 'channel-1', 'spectator-1', {
+      kind: 'match',
+      id: 'match-stale',
+      activitySecret: 'secret',
+    }, {
+      db: buildDb({ liveMatchIds: [] }),
+    })).resolves.toEqual({ ok: false, error: 'That target is no longer available.', status: 409 })
+
+    await expect(getUserActivityTarget(kv, 'channel-1', 'spectator-1')).resolves.toBeNull()
+    await expect(getLobbyById(kv, lobby.id)).resolves.toBeNull()
   })
 
   test('ignores stale user lobby mappings that no longer include the viewer', async () => {
@@ -829,16 +898,37 @@ function buildEnv(kv: KVNamespace) {
   } as any
 }
 
-function buildDb(liveMatchPlayerIds: string[] | null): D1Database {
-  if (liveMatchPlayerIds == null) return {} as D1Database
+function buildDb(
+  liveMatches:
+    | string[]
+    | {
+      liveMatchPlayerIds?: string[] | null
+      liveMatchIds?: string[] | null
+    }
+    | null,
+): D1Database {
+  if (liveMatches == null) return {} as D1Database
 
-  const livePlayerIdSet = new Set(liveMatchPlayerIds)
+  const config = Array.isArray(liveMatches)
+    ? { liveMatchPlayerIds: liveMatches, liveMatchIds: [] }
+    : liveMatches
+  const livePlayerIdSet = new Set(config.liveMatchPlayerIds ?? [])
+  const liveMatchIdSet = new Set(config.liveMatchIds ?? [])
+
   return {
-    prepare() {
+    prepare(query?: string) {
       return {
         bind(...values: unknown[]) {
           return {
             async all() {
+              if (typeof query === 'string' && query.includes('FROM matches') && query.includes('WHERE id IN')) {
+                return {
+                  results: values
+                    .filter((value): value is string => typeof value === 'string' && liveMatchIdSet.has(value))
+                    .map(id => ({ id })),
+                }
+              }
+
               return {
                 results: values
                   .filter((value): value is string => typeof value === 'string' && livePlayerIdSet.has(value))

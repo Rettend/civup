@@ -131,6 +131,7 @@ export async function activateDraftMatch(
   const draftData = JSON.stringify({
     completedAt: input.completedAt,
     hostId: input.hostId,
+    mapVoteResult: input.mapVoteResult ?? null,
     redDeath: isRedDeathFormatId(input.state.formatId),
     state: input.state,
   })
@@ -202,10 +203,10 @@ export async function activateDraftMatch(
 
   await db
     .update(matches)
-      .set({
-        status: 'active',
-        draftData,
-      })
+    .set({
+      status: 'active',
+      draftData,
+    })
     .where(eq(matches.id, matchId))
 
   return {
@@ -282,17 +283,18 @@ export async function cancelDraftMatch(
 
   await db
     .update(matches)
-      .set({
-        status: 'cancelled',
-        completedAt: input.cancelledAt,
-        draftData: JSON.stringify({
-          cancelledAt: input.cancelledAt,
-          reason: input.reason,
-          hostId: input.hostId,
-          redDeath: isRedDeathFormatId(input.state.formatId),
-          state: input.state,
-        }),
-      })
+    .set({
+      status: 'cancelled',
+      completedAt: input.cancelledAt,
+      draftData: JSON.stringify({
+        cancelledAt: input.cancelledAt,
+        reason: input.reason,
+        hostId: input.hostId,
+        mapVoteResult: input.mapVoteResult ?? null,
+        redDeath: isRedDeathFormatId(input.state.formatId),
+        state: input.state,
+      }),
+    })
     .where(eq(matches.id, matchId))
 
   const channelId = await getChannelForMatch(kv, matchId)
