@@ -94,6 +94,8 @@ export function registerWebhookRoutes(app: Hono<Env>) {
     const hostId = payload.hostId ?? payload.state.seats[0]?.playerId
     if (!hostId) return c.json({ error: 'Draft webhook missing host identity' }, 400)
 
+    const fallbackLobby = await getLobbyByMatch(kv, payload.matchId)
+
     const cancelled = await cancelDraftMatch(db, kv, {
       state: payload.state,
       cancelledAt: payload.cancelledAt,
@@ -106,7 +108,7 @@ export function registerWebhookRoutes(app: Hono<Env>) {
       return c.json({ error: cancelled.error }, 400)
     }
 
-    const lobby = await getLobbyByMatch(kv, payload.matchId)
+    const lobby = await getLobbyByMatch(kv, payload.matchId) ?? fallbackLobby
     if (!lobby) {
       console.warn(`No lobby mapping found for cancelled match ${payload.matchId}`)
       return c.json({ ok: true })

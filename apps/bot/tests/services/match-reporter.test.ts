@@ -97,7 +97,7 @@ describe('match reporter identity', () => {
     }
   })
 
-  test('reportMatch clears live lobby and activity residue immediately', async () => {
+  test('reportMatch clears activity residue but leaves the lobby available for message sync', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
@@ -147,9 +147,9 @@ describe('match reporter identity', () => {
       expect('error' in result).toBe(false)
       if ('error' in result) return
 
-      expect(await getLobbyById(kv, lobby.id)).toBeNull()
-      expect(await kv.get('lobby:match:m2')).toBeNull()
-      expect(await kv.get('lobby:host:p1')).toBeNull()
+      expect(await getLobbyById(kv, lobby.id)).not.toBeNull()
+      expect(await kv.get('lobby:match:m2')).toBe(lobby.id)
+      expect(await kv.get('lobby:host:p1')).toBe(lobby.id)
       expect(await getChannelForMatch(kv, 'm2')).toBeNull()
       expect(await kv.get('activity-user:p1')).toBeNull()
       expect(await kv.get('activity-user:p2')).toBeNull()
