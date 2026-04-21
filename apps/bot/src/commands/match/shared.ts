@@ -7,7 +7,7 @@ import { matches, matchParticipants } from '@civup/db'
 import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { deriveQueueBackedLobbyMemberPlayerIds, filterQueueEntriesForLobby, getCurrentLobbiesForPlayers, getLobbiesByMode, getOpenLobbyForPlayer, isQueueBackedOpenLobbyState, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, reconcileOpenLobbyState, sameLobbySlots, upsertLobby } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
@@ -416,7 +416,9 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 }
 
-export async function findLiveMatchIdsForPlayers(
+const DRAFT_COMPLETED_AT_SQL = sql<number | null>`json_extract(${matches.draftData}, '$.completedAt')`
+
+export async function findBlockingDraftMatchIdsForPlayers(
   db: ReturnType<typeof createDb>,
   playerIds: string[],
 ): Promise<Map<string, string>> {
@@ -432,19 +434,26 @@ export async function findLiveMatchIdsForPlayers(
     .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
     .where(and(
       inArray(matchParticipants.playerId, uniquePlayerIds),
-      inArray(matches.status, ['drafting', 'active']),
+      or(
+        eq(matches.status, 'drafting'),
+        and(
+          eq(matches.status, 'active'),
+          sql`${DRAFT_COMPLETED_AT_SQL} is null`,
+        ),
+      ),
     ))
+    .orderBy(desc(matches.createdAt))
 
-  const liveMatchIdByPlayerId = new Map<string, string>()
+  const blockingMatchIdByPlayerId = new Map<string, string>()
   for (const row of rows) {
-    if (!liveMatchIdByPlayerId.has(row.playerId)) {
-      liveMatchIdByPlayerId.set(row.playerId, row.matchId)
+    if (!blockingMatchIdByPlayerId.has(row.playerId)) {
+      blockingMatchIdByPlayerId.set(row.playerId, row.matchId)
     }
   }
-  return liveMatchIdByPlayerId
+  return blockingMatchIdByPlayerId
 }
 
-export async function findActiveMatchIdsForPlayers(
+export async function findReportableMatchIdsForPlayers(
   db: ReturnType<typeof createDb>,
   playerIds: string[],
 ): Promise<Map<string, string[]>> {
@@ -461,21 +470,48 @@ export async function findActiveMatchIdsForPlayers(
     .where(and(
       inArray(matchParticipants.playerId, uniquePlayerIds),
       eq(matches.status, 'active'),
+      sql`${DRAFT_COMPLETED_AT_SQL} is not null`,
     ))
     .orderBy(desc(matches.createdAt))
 
-  const activeMatchIdsByPlayerId = new Map<string, string[]>()
+  const reportableMatchIdsByPlayerId = new Map<string, string[]>()
   for (const row of rows) {
-    const existing = activeMatchIdsByPlayerId.get(row.playerId)
+    const existing = reportableMatchIdsByPlayerId.get(row.playerId)
     if (existing) {
       existing.push(row.matchId)
       continue
     }
 
-    activeMatchIdsByPlayerId.set(row.playerId, [row.matchId])
+    reportableMatchIdsByPlayerId.set(row.playerId, [row.matchId])
   }
 
-  return activeMatchIdsByPlayerId
+  return reportableMatchIdsByPlayerId
+}
+
+export async function resolveReportableMatchIdForPlayer(
+  db: ReturnType<typeof createDb>,
+  playerId: string,
+  requestedMatchId?: string | null,
+): Promise<{ matchId: string | null, error: string | null }> {
+  const matchId = requestedMatchId?.trim() ?? null
+  if (matchId) return { matchId, error: null }
+
+  const reportableMatchIds = (await findReportableMatchIdsForPlayers(db, [playerId])).get(playerId) ?? []
+  if (reportableMatchIds.length > 1) {
+    return {
+      matchId: null,
+      error: 'You have multiple draft-complete matches to report. Pass `match_id` to pick the right one.',
+    }
+  }
+
+  if (reportableMatchIds.length === 0) {
+    return {
+      matchId: null,
+      error: 'Could not find a draft-complete match for you. You can pass `match_id` explicitly.',
+    }
+  }
+
+  return { matchId: reportableMatchIds[0] ?? null, error: null }
 }
 
 /**

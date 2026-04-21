@@ -5,7 +5,7 @@ import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEl
 import { buildOpenLobbySnapshot, resolveOpenLobbyFromBody } from '../../src/routes/lobby/snapshot.ts'
 import { getUserActivityTarget, handoffLobbySpectatorsToMatchActivity, storeMatchActivityState, storeUserActivityTarget, storeUserLobbyMappings, storeUserLobbyState } from '../../src/services/activity/index.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
-import { attachLobbyMatch, createLobby, getLobbyById, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../../src/services/lobby/index.ts'
+import { attachLobbyMatch, createLobby, getLobbyById, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus } from '../../src/services/lobby/index.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -117,6 +117,48 @@ describe('activity lobby join eligibility', () => {
     const snapshot = await buildOpenLobbySnapshot(kv, '2v2', openLobby)
     const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', openLobby, snapshot, {
       db: buildDb([]),
+    })
+
+    expect(eligibility).toEqual({
+      canJoin: true,
+      blockedReason: null,
+      pendingSlot: 1,
+    })
+  })
+
+  test('allows joining when the only other lobby is draft-complete active', async () => {
+    const { kv } = createTrackedKv()
+    const liveLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'player-1',
+      channelId: 'channel-1',
+      messageId: 'message-live',
+    })
+    const openLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-2',
+      channelId: 'channel-2',
+      messageId: 'message-open',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'host-2',
+      displayName: 'Host 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    const draftingLobby = await attachLobbyMatch(kv, liveLobby.id, 'match-complete', liveLobby)
+    await setLobbyStatus(kv, liveLobby.id, 'active', draftingLobby ?? liveLobby)
+
+    const snapshot = await buildOpenLobbySnapshot(kv, '2v2', openLobby)
+    const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', openLobby, snapshot, {
+      db: buildDb({ liveMatchPlayerIds: [] }),
     })
 
     expect(eligibility).toEqual({

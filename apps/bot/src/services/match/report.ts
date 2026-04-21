@@ -9,7 +9,7 @@ import { and, eq, gt } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
-import { getStoredGameModeContext } from './draft-data.ts'
+import { getCompletedAtFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
 import { buildRankByPlayer, recalculateLeaderboardMode } from './ratings.ts'
 
@@ -36,6 +36,10 @@ export async function reportMatch(
   const isParticipant = participantRows.some(p => p.playerId === input.reporterId)
   if (!isParticipant) {
     return { error: 'Only match participants can report results.' }
+  }
+
+  if (match.status === 'active' && getCompletedAtFromDraftData(match.draftData) == null) {
+    return { error: `Match **${input.matchId}** is not ready to report until the draft is complete.` }
   }
 
   if (match.status === 'completed') {

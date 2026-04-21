@@ -11,7 +11,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import { clearActivityMappings, clearUserActivityTargets, getLobbyForUser, getMatchForUser, getUserActivityTarget, storeUserActivityTarget, storeUserMatchMappings } from '../services/activity/index.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
-import { filterPersistedLiveLobbies, findPersistedLiveMatchIds, findPersistedLiveMatchIdsForPlayers } from '../services/match/live.ts'
+import { filterPersistedLiveLobbies, findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIds, findPersistedLiveMatchIdsForPlayers } from '../services/match/live.ts'
 import { getPlayerQueueMode, getPlayerQueueModeFromStates, parseQueueState, queueKey } from '../services/queue/index.ts'
 import { createStateStore, stateStoreMget } from '../services/state/store.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
@@ -486,10 +486,10 @@ export async function resolveLobbyJoinEligibility(
   const otherCurrentLobbies = await getCurrentLobbiesForPlayer(kv, userId, {
     excludeLobbyIds: [lobby.id],
   })
-  const persistedLiveMatchIds = await findPersistedLiveMatchIdsForPlayers(options?.db, [userId])
-  const hasLiveMatch = persistedLiveMatchIds == null
+  const blockingDraftMatchIds = await findPersistedBlockingDraftMatchIdsForPlayers(options?.db, [userId])
+  const hasLiveMatch = blockingDraftMatchIds == null
     ? otherCurrentLobbies.some(candidate => candidate.status !== 'open')
-    : persistedLiveMatchIds.has(userId)
+    : blockingDraftMatchIds.has(userId)
   if (hasLiveMatch) {
     return {
       canJoin: false,
