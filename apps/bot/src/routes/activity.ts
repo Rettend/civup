@@ -11,7 +11,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import { clearActivityMappings, clearUserActivityTargets, getLobbyForUser, getMatchForUser, getUserActivityTarget, storeUserActivityTarget, storeUserMatchMappings } from '../services/activity/index.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
-import { clearStalePersistedLiveLobbies, findPersistedLiveMatchIds, findPersistedLiveMatchIdsForPlayers } from '../services/match/live.ts'
+import { filterPersistedLiveLobbies, findPersistedLiveMatchIds, findPersistedLiveMatchIdsForPlayers } from '../services/match/live.ts'
 import { getPlayerQueueMode, getPlayerQueueModeFromStates, parseQueueState, queueKey } from '../services/queue/index.ts'
 import { createStateStore, stateStoreMget } from '../services/state/store.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
@@ -295,9 +295,13 @@ export async function selectActivityTargetForUser(
     await clearUserActivityTargets(kv, channelId, [userId])
     return { ok: false, error: 'That target is no longer available.', status: 409 }
   }
+  if (!lobby.matchId) {
+    await clearUserActivityTargets(kv, channelId, [userId])
+    return { ok: false, error: 'That target is no longer available.', status: 409 }
+  }
 
-  const clearedLobbyIds = await clearStalePersistedLiveLobbies(options?.db, kv, [lobby])
-  if (clearedLobbyIds?.has(lobby.id)) {
+  const persistedLiveMatchIds = await findPersistedLiveMatchIds(options?.db, [lobby.matchId])
+  if (persistedLiveMatchIds && !persistedLiveMatchIds.has(lobby.matchId)) {
     await clearUserActivityTargets(kv, channelId, [userId])
     return { ok: false, error: 'That target is no longer available.', status: 409 }
   }
@@ -334,9 +338,8 @@ async function loadActivityChannelLobbies(
   db: D1Database | null | undefined,
 ): Promise<LobbyState[]> {
   const channelLobbies = await getLobbiesByChannel(kv, channelId)
-  const clearedLobbyIds = await clearStalePersistedLiveLobbies(db, kv, channelLobbies)
-  if (clearedLobbyIds == null || clearedLobbyIds.size === 0) return channelLobbies
-  return channelLobbies.filter(lobby => !clearedLobbyIds.has(lobby.id))
+  const filtered = await filterPersistedLiveLobbies(db, channelLobbies)
+  return filtered?.lobbies ?? channelLobbies
 }
 
 async function buildActivityLaunchSnapshotFromTargets(
