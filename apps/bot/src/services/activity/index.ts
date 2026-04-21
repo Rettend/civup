@@ -57,6 +57,18 @@ const DEFAULT_PARTY_HOST = 'http://localhost:1999'
 const DEFAULT_BOT_HOST = 'http://localhost:8787'
 const ACTIVITY_MAPPING_TTL = 48 * 60 * 60
 
+export function activityLobbyUserKey(userId: string): string {
+  return `activity-lobby-user:${userId}`
+}
+
+export function activityUserKey(userId: string): string {
+  return `activity-user:${userId}`
+}
+
+export function activityMatchKey(matchId: string): string {
+  return `activity-match:${matchId}`
+}
+
 function targetUserKey(userId: string, channelId: string): string {
   return `activity-target-user:${userId}:${channelId}`
 }
@@ -163,14 +175,14 @@ async function getExistingTargetCleanupKeys(
   if (options?.clearLobbyMappings === true) {
     for (const userId of userIds) {
       if (!userId) continue
-      keys.add(`activity-lobby-user:${userId}`)
+      keys.add(activityLobbyUserKey(userId))
     }
   }
 
   if (options?.clearMatchMappings === true) {
     for (const userId of userIds) {
       if (!userId) continue
-      keys.add(`activity-user:${userId}`)
+      keys.add(activityUserKey(userId))
     }
   }
 
@@ -300,7 +312,7 @@ export async function storeMatchMapping(
 ): Promise<void> {
   await stateStoreMput(kv, [
     {
-      key: `activity-match:${matchId}`,
+      key: activityMatchKey(matchId),
       value: channelId,
       expirationTtl: ACTIVITY_MAPPING_TTL,
     },
@@ -316,7 +328,7 @@ export async function storeUserMatchMappings(
   await stateStoreMput(
     kv,
     userIds.map(userId => ({
-      key: `activity-user:${userId}`,
+      key: activityUserKey(userId),
       value: matchId,
       expirationTtl: ACTIVITY_MAPPING_TTL,
     })),
@@ -376,7 +388,7 @@ export async function storeUserLobbyState(
 
   await stateStoreMput(kv, [
     ...userIds.map(userId => ({
-      key: `activity-lobby-user:${userId}`,
+      key: activityLobbyUserKey(userId),
       value: lobbyId,
       expirationTtl: ACTIVITY_MAPPING_TTL,
     })),
@@ -415,12 +427,12 @@ export async function storeMatchActivityState(
 
   await stateStoreMput(kv, [
     {
-      key: `activity-match:${target.matchId}`,
+      key: activityMatchKey(target.matchId),
       value: channelId,
       expirationTtl: ACTIVITY_MAPPING_TTL,
     },
     ...userIds.map(userId => ({
-      key: `activity-user:${userId}`,
+      key: activityUserKey(userId),
       value: target.matchId,
       expirationTtl: ACTIVITY_MAPPING_TTL,
     })),
@@ -498,7 +510,7 @@ export async function storeUserLobbyMappings(
   await stateStoreMput(
     kv,
     userIds.map(userId => ({
-      key: `activity-lobby-user:${userId}`,
+      key: activityLobbyUserKey(userId),
       value: lobbyId,
       expirationTtl: ACTIVITY_MAPPING_TTL,
     })),
@@ -510,7 +522,7 @@ export async function getLobbyForUser(
   kv: KVNamespace,
   userId: string,
 ): Promise<string | null> {
-  const mappedLobbyId = await kv.get(`activity-lobby-user:${userId}`)
+  const mappedLobbyId = await kv.get(activityLobbyUserKey(userId))
   if (!mappedLobbyId) return null
 
   const mappedLobby = await getLobbyById(kv, mappedLobbyId)
@@ -552,11 +564,11 @@ export async function getMatchForUser(
   kv: KVNamespace,
   userId: string,
 ): Promise<string | null> {
-  const key = `activity-user:${userId}`
+  const key = activityUserKey(userId)
   const matchId = await kv.get(key)
   if (!matchId) return null
 
-  const activeChannelId = await kv.get(`activity-match:${matchId}`)
+  const activeChannelId = await kv.get(activityMatchKey(matchId))
   if (activeChannelId) {
     return matchId
   }
@@ -570,7 +582,7 @@ export async function getChannelForMatch(
   kv: KVNamespace,
   matchId: string,
 ): Promise<string | null> {
-  return kv.get(`activity-match:${matchId}`)
+  return kv.get(activityMatchKey(matchId))
 }
 
 /** Remove activity mappings once draft lifecycle moves to in-game */
@@ -585,9 +597,9 @@ export async function clearActivityMappings(
     ? await getUserIdsTargetingTarget(kv, 'match', effectiveChannelId, matchId)
     : []
   const allUserIds = [...new Set([...userIds, ...targetedUserIds])]
-  const keys = new Set<string>([`activity-match:${matchId}`])
+  const keys = new Set<string>([activityMatchKey(matchId)])
   for (const userId of allUserIds) {
-    keys.add(`activity-user:${userId}`)
+    keys.add(activityUserKey(userId))
   }
   if (effectiveChannelId) {
     const currentTargets = await getUserActivityTargets(kv, effectiveChannelId, allUserIds)
@@ -612,7 +624,7 @@ export async function clearLobbyMappings(
   channelId?: string,
 ): Promise<void> {
   if (userIds.length === 0) return
-  const keys = new Set(userIds.map(userId => `activity-lobby-user:${userId}`))
+  const keys = new Set(userIds.map(userId => activityLobbyUserKey(userId)))
   if (channelId) {
     const targets = await getUserActivityTargets(kv, channelId, userIds)
     for (let index = 0; index < userIds.length; index++) {
@@ -645,14 +657,14 @@ export async function clearLobbyAndActivityMappings(
     lobbySnapshotKey(lobby.id),
     modeIndexKey(lobby.mode, lobby.id),
     channelIndexKey(lobby.channelId, lobby.id),
-    ...allUserIds.map(userId => `activity-lobby-user:${userId}`),
+    ...allUserIds.map(userId => activityLobbyUserKey(userId)),
     ...allUserIds.map(userId => targetUserKey(userId, lobby.channelId)),
     ...spectatorUserIds.map(userId => targetSelectionKey('lobby', lobby.channelId, lobby.id, userId)),
   ]
   if (lobby.matchId) {
     keys.push(matchKey(lobby.matchId))
-    keys.push(`activity-match:${lobby.matchId}`)
-    keys.push(...allUserIds.map(userId => `activity-user:${userId}`))
+    keys.push(activityMatchKey(lobby.matchId))
+    keys.push(...allUserIds.map(userId => activityUserKey(userId)))
     keys.push(...targetedMatchUserIds.map(userId => targetSelectionKey('match', lobby.channelId, lobby.matchId!, userId)))
   }
   await stateStoreMdelete(kv, keys)
@@ -665,7 +677,7 @@ export async function clearUserLobbyMappings(
   userIds: string[],
 ): Promise<void> {
   if (userIds.length === 0) return
-  await stateStoreMdelete(kv, userIds.map(userId => `activity-lobby-user:${userId}`))
+  await stateStoreMdelete(kv, userIds.map(userId => activityLobbyUserKey(userId)))
 }
 
 export async function clearLobbyMappingsIfMatchingLobby(
@@ -677,7 +689,7 @@ export async function clearLobbyMappingsIfMatchingLobby(
   if (userIds.length === 0) return
 
   const [mappedLobbyIds, targets] = await Promise.all([
-    Promise.all(userIds.map(userId => kv.get(`activity-lobby-user:${userId}`))),
+    Promise.all(userIds.map(userId => kv.get(activityLobbyUserKey(userId)))),
     Promise.all(userIds.map(userId => getUserActivityTarget(kv, channelId, userId))),
   ])
 
@@ -687,7 +699,7 @@ export async function clearLobbyMappingsIfMatchingLobby(
     if (!userId) continue
 
     if (mappedLobbyIds[index] === lobbyId) {
-      keys.add(`activity-lobby-user:${userId}`)
+      keys.add(activityLobbyUserKey(userId))
     }
 
     const target = targets[index]
