@@ -647,6 +647,77 @@ describe('system scenarios', () => {
     expect(await world.inspect.matchMapping('p2')).toBeNull()
   })
 
+  test('activity launch recovers a canonical lobby when its own channel index is missing and poisoned elsewhere', async () => {
+    const world = await createTrackedWorld()
+    const canonicalLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'host' }],
+      hostId: 'host',
+      channelId: 'channel-canonical',
+    })
+    const otherLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'other-host' }],
+      hostId: 'other-host',
+      channelId: 'channel-other',
+    })
+
+    await world.corrupt.lobbyChannel(canonicalLobby.id, otherLobby.channelId)
+
+    const [canonicalLaunch, otherLaunch] = await Promise.all([
+      world.activity.launch({ channelId: canonicalLobby.channelId, userId: 'spectator' }),
+      world.activity.launch({ channelId: otherLobby.channelId, userId: 'spectator' }),
+    ])
+
+    expect(canonicalLaunch.status).toBe(200)
+    expect(canonicalLaunch.body).toMatchObject({
+      selection: null,
+      options: [
+        expect.objectContaining({ id: canonicalLobby.id, kind: 'lobby' }),
+      ],
+    })
+    expect(otherLaunch.status).toBe(200)
+    expect(otherLaunch.body).toMatchObject({
+      options: [
+        expect.objectContaining({ id: otherLobby.id, kind: 'lobby' }),
+      ],
+    })
+    expect((otherLaunch.body as { options?: Array<{ id: string }> }).options?.some(option => option.id === canonicalLobby.id)).toBe(false)
+
+    const joinResponse = await world.lobby.place('1v1', {
+      userId: 'spectator',
+      lobbyId: canonicalLobby.id,
+      targetSlot: 1,
+      displayName: 'spectator',
+    })
+    await world.flushBackgroundTasks()
+
+    expect(joinResponse.status).toBe(200)
+    expect(await world.inspect.lobbyMapping('spectator')).toBe(canonicalLobby.id)
+  })
+
+  test('replaying a webhook repairs a missing lobby-match link from the canonical lobby record', async () => {
+    const world = await createTrackedWorld()
+    const activeLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      channelId: 'channel-match-link-repair',
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: activeLobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    await world.corrupt.lobbyMatch(started.matchId, null)
+
+    expect((await world.party.completeDraft(started.matchId, { finalized: true })).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    expect(await world.inspect.matchLobbyLink(started.matchId)).toBe(activeLobby.id)
+    expect(await world.inspect.lobbyByMatch(started.matchId)).toMatchObject({ id: activeLobby.id, matchId: started.matchId })
+  })
+
   test('match lookup still serves the canonical live match through D1 fallback when activity-match is missing', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
@@ -1173,7 +1244,7 @@ describe('system scenarios', () => {
     })
   })
 
-  test('real join route blocks a live player, then ignores stale live-match residue once D1 says the match is over', async () => {
+  test('real join route blocks a drafting player, then ignores stale live-match residue once D1 says the match is over', async () => {
     const world = await createTrackedWorld()
     const liveLobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -1182,8 +1253,6 @@ describe('system scenarios', () => {
     })
 
     const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: liveLobby.id })
-    await world.flushBackgroundTasks()
-    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
     await world.flushBackgroundTasks()
 
     const freshLobby = await world.lobby.createOpen({

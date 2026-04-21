@@ -12,7 +12,7 @@ import { addToQueue, getQueueState, setQueueEntries } from '../../../src/service
 import { createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobby, getLobbyById, getLobbyByMatch, setLobbyMemberPlayerIds, setLobbySlots } from '../../../src/services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../../src/services/lobby/live-snapshot.ts'
 import { lobbySnapshotKey } from '../../../src/services/lobby/live-snapshot.ts'
-import { hostKey, matchKey } from '../../../src/services/lobby/keys.ts'
+import { channelIndexKey, hostKey, matchKey } from '../../../src/services/lobby/keys.ts'
 import { listMatchMessageIds } from '../../../src/services/match/message.ts'
 import { createStateStore } from '../../../src/services/state/store.ts'
 import { setSystemChannel } from '../../../src/services/system/channels.ts'
@@ -131,6 +131,7 @@ export interface SystemWorld {
     lobbySnapshot: (lobbyId: string, snapshot: unknown | null) => Promise<void>
     lobbyHost: (hostId: string, lobbyId: string | null) => Promise<void>
     lobbyMatch: (matchId: string, lobbyId: string | null) => Promise<void>
+    lobbyChannel: (lobbyId: string, indexedChannelId: string | null) => Promise<void>
     openLobbyResidue: (lobbyId: string, input: { memberPlayerIds: string[], slots: (string | null)[] }) => Promise<LobbyState | null>
     queueEntries: (mode: Parameters<typeof getQueueState>[1], entries: QueueEntry[]) => Promise<void>
   }
@@ -560,6 +561,15 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       },
       lobbyMatch(matchId, lobbyId) {
         return putOrDeleteKv(kv, matchKey(matchId), lobbyId)
+      },
+      async lobbyChannel(lobbyId, indexedChannelId) {
+        const lobby = await getLobbyById(kv, lobbyId)
+        if (!lobby) return
+
+        await kv.delete(channelIndexKey(lobby.channelId, lobbyId))
+        if (indexedChannelId) {
+          await kv.put(channelIndexKey(indexedChannelId, lobbyId), String(lobby.revision))
+        }
       },
       async openLobbyResidue(lobbyId, input) {
         const lobby = await getLobbyById(kv, lobbyId)

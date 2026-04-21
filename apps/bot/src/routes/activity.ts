@@ -11,7 +11,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import { clearActivityMappings, clearUserActivityTargets, getLobbyForUser, getMatchForUser, getUserActivityTarget, storeUserActivityTarget, storeUserMatchMappings } from '../services/activity/index.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
-import { filterPersistedLiveLobbies, findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIds, findPersistedLiveMatchIdsForPlayers } from '../services/match/live.ts'
+import { clearStalePersistedLiveLobbies, filterPersistedLiveLobbies, findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIds, findPersistedLiveMatchIdsForPlayers } from '../services/match/live.ts'
 import { getPlayerQueueMode, getPlayerQueueModeFromStates, parseQueueState, queueKey } from '../services/queue/index.ts'
 import { createStateStore, stateStoreMget } from '../services/state/store.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
@@ -339,7 +339,15 @@ async function loadActivityChannelLobbies(
 ): Promise<LobbyState[]> {
   const channelLobbies = await getLobbiesByChannel(kv, channelId)
   const filtered = await filterPersistedLiveLobbies(db, channelLobbies)
-  return filtered?.lobbies ?? channelLobbies
+  if (filtered == null) return channelLobbies
+  if (filtered.staleLobbyIds.size === 0) return filtered.lobbies
+
+  const clearedLobbyIds = await clearStalePersistedLiveLobbies(db, kv, channelLobbies)
+  if (clearedLobbyIds == null || clearedLobbyIds.size === 0) return filtered.lobbies
+
+  const refreshedLobbies = await getLobbiesByChannel(kv, channelId)
+  const refreshedFiltered = await filterPersistedLiveLobbies(db, refreshedLobbies)
+  return refreshedFiltered?.lobbies ?? refreshedLobbies
 }
 
 async function buildActivityLaunchSnapshotFromTargets(

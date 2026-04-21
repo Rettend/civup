@@ -5,3 +5,5 @@
 Use it for end-to-end lobby/draft/match scenarios without booting Wrangler or a real Party server.
 
 The suite intentionally focuses on shared cross-boundary lifecycle paths: open-lobby launch targeting, start handoff into live match selection, webhook-driven state changes, reporting idempotency, and cleanup/recovery behavior.
+
+Recent coverage especially leans on projection-recovery scenarios where stale or missing KV indexes must be repaired from canonical lobby or match state, with channel-index recovery focused on suspicious empty-index cases rather than every read path.
