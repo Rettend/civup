@@ -167,7 +167,7 @@ export function registerWebhookRoutes(app: Hono<Env>) {
       console.error(`Failed to update cancelled embed for match ${payload.matchId}:`, error)
     }
 
-    await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
+    await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId, lobby.id)
     await clearLobbyById(kv, lobby.id, lobby)
     return c.json({ ok: true })
   })

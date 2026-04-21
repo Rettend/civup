@@ -6,7 +6,7 @@ import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeader
 import { createDraftRoomAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
-import { clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, createDraftRoom, handoffLobbySpectatorsToMatchActivity, storeMatchActivityState, storeUserLobbyMappings, storeUserLobbyState } from '../../services/activity/index.ts'
+import { clearLobbyMappings, clearUserLobbyMappings, createDraftRoom, handoffLobbySpectatorsToMatchActivity, storeMatchActivityState, storeUserLobbyMappings, storeUserLobbyState } from '../../services/activity/index.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from '../../services/config/index.ts'
 import {
   arrangeLobbySlots,
@@ -1372,7 +1372,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       })
     }, `Failed to update cancelled lobby embed for mode ${mode}:`)
 
-    await clearLobbyMappingsIfMatchingLobby(kv, activePlayerIds, lobby.id, lobby.channelId)
+    await clearLobbyMappings(kv, activePlayerIds, lobby.channelId, lobby.id)
     await clearLobbyById(kv, lobby.id, lobby)
     return c.json({ ok: true })
   })

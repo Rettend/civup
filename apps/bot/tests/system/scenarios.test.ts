@@ -1316,6 +1316,109 @@ describe('system scenarios', () => {
     expect(await world.match.getMessageIds(started.matchId)).toEqual(messageIdsAfterFirstReport)
   })
 
+  test('stale old scrub replay after players move on to a newer open lobby does not clear the newer lobby bindings or message', async () => {
+    const world = await createTrackedWorld()
+    const oldLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      channelId: 'channel-stale-old-scrub',
+    })
+
+    const oldMatch = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: oldLobby.id })
+    await world.flushBackgroundTasks()
+    world.party.draftCancel(oldMatch.matchId, { reason: 'scrub' })
+
+    const newLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'fresh-host' }, { id: 'p1' }],
+      hostId: 'fresh-host',
+      channelId: oldLobby.channelId,
+    })
+    await world.activity.targetLobby({
+      channelId: newLobby.channelId,
+      userId: 'spectator-1',
+      lobbyId: newLobby.id,
+    })
+    await world.corrupt.activityLobbyUser('p1', newLobby.id)
+
+    const requestsBeforeReplay = world.discord.requests().length
+    const messageBeforeReplay = await world.discord.currentLobbyMessage(newLobby.id)
+
+    expect(await world.inspect.lobbyMapping('p1')).toBe(newLobby.id)
+    expect(await world.inspect.activityTarget(newLobby.channelId, 'spectator-1')).toMatchObject({ kind: 'lobby', id: newLobby.id })
+
+    expect((await world.party.replayDraftCancel(oldMatch.matchId, { index: 0 })).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const replayRequests = world.discord.requests().slice(requestsBeforeReplay)
+    const launch = await world.activity.launch({ channelId: newLobby.channelId, userId: 'spectator-1' })
+
+    expect((await world.match.get(oldMatch.matchId))?.status).toBe('cancelled')
+    expect(await world.lobby.getById(oldLobby.id)).toBeNull()
+    expect((await world.lobby.getById(newLobby.id))?.status).toBe('open')
+    expect(await world.inspect.lobbyMapping('p1')).toBe(newLobby.id)
+    expect(await world.inspect.lobbyMapping('p2')).toBeNull()
+    expect(await world.inspect.activityTarget(newLobby.channelId, 'spectator-1')).toMatchObject({ kind: 'lobby', id: newLobby.id })
+    expect(launch.body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        option: {
+          id: newLobby.id,
+        },
+      },
+    })
+    expect((await world.discord.currentLobbyMessage(newLobby.id))?.id).toBe(messageBeforeReplay?.id)
+    expect(replayRequests.some(request => request.url.includes(newLobby.messageId))).toBe(false)
+  })
+
+  test('duplicate old report after players move on leaves the newer live draft bindings and message untouched', async () => {
+    const world = await createTrackedWorld()
+    const oldLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      channelId: 'channel-stale-old-report',
+    })
+
+    const oldMatch = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: oldLobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.completeDraft(oldMatch.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+    expect((await world.match.report(oldMatch.matchId, {
+      reporterId: 'p1',
+      placements: 'A',
+    })).ok).toBe(true)
+    await world.flushBackgroundTasks()
+
+    const newLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'fresh-host' }, { id: 'p1' }],
+      hostId: 'fresh-host',
+      channelId: oldLobby.channelId,
+    })
+    await world.activity.targetLobby({
+      channelId: newLobby.channelId,
+      userId: 'spectator-1',
+      lobbyId: newLobby.id,
+    })
+
+    const newMatch = await world.lobby.start('1v1', { hostId: 'fresh-host', lobbyId: newLobby.id })
+    await world.flushBackgroundTasks()
+
+    const requestsBeforeDuplicateReport = world.discord.requests().length
+    expect((await world.match.report(oldMatch.matchId, {
+      reporterId: 'p1',
+      placements: 'A',
+    })).ok).toBe(true)
+    await world.flushBackgroundTasks()
+
+    const duplicateReportRequests = world.discord.requests().slice(requestsBeforeDuplicateReport)
+    expect(await world.inspect.matchMapping('p1')).toBe(newMatch.matchId)
+    expect(await world.inspect.matchMapping('fresh-host')).toBe(newMatch.matchId)
+    expect(await world.inspect.matchMapping('spectator-1')).toBe(newMatch.matchId)
+    expect(await world.inspect.activityTarget(newLobby.channelId, 'spectator-1')).toMatchObject({ kind: 'match', id: newMatch.matchId })
+    expect(duplicateReportRequests.some(request => request.url.includes(newLobby.messageId))).toBe(false)
+  })
+
   test('reported players get a fresh activity launch without reusing stale match bindings', async () => {
     const world = await createTrackedWorld()
     const initialLobby = await world.lobby.createOpen({
