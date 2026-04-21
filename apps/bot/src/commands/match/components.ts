@@ -80,7 +80,6 @@ export const component_match_join = factory.component(
 
       if (lobby.status !== 'open') {
         if (!lobby.matchId) {
-          await clearLobbyById(kv, lobby.id, lobby)
           if (interactionChannelId) {
             await clearLobbyMappingsIfMatchingLobby(kv, [identity.userId], lobby.id, interactionChannelId)
           }
@@ -89,8 +88,6 @@ export const component_match_join = factory.component(
 
         const persistedLiveMatchIds = await findPersistedLiveMatchIds(env.DB, [lobby.matchId])
         if (persistedLiveMatchIds && !persistedLiveMatchIds.has(lobby.matchId)) {
-          await clearActivityMappings(kv, lobby.matchId, lobby.memberPlayerIds, lobby.channelId)
-          await clearLobbyById(kv, lobby.id, lobby)
           if (interactionChannelId) {
             await clearLobbyMappingsIfMatchingLobby(kv, [identity.userId], lobby.id, interactionChannelId)
           }
@@ -110,7 +107,6 @@ export const component_match_join = factory.component(
 
       const queue = await getQueueState(kv, mode)
       if (!isQueueBackedOpenLobby(lobby, filterQueueEntriesForLobby(lobby, queue.entries))) {
-        await clearLobbyById(kv, lobby.id, lobby)
         if (interactionChannelId) {
           await clearLobbyMappingsIfMatchingLobby(kv, [identity.userId], lobby.id, interactionChannelId)
         }
