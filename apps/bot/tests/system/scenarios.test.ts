@@ -1,47 +1,172 @@
+import type { GameMode, ResolvedMapVoteResult } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { swapSeatPicks } from '@civup/game'
+import { formatMapVoteResultLabel, swapSeatPicks } from '@civup/game'
 import { getQueueState } from '../../src/services/queue/index.ts'
 import { createSystemWorld } from './helpers/world.ts'
 
 const worlds: Array<Awaited<ReturnType<typeof createSystemWorld>>> = []
+
+const CORE_MODE_CASES = [
+  { mode: '1v1', playerCount: 2 },
+  { mode: '2v2', playerCount: 4 },
+  { mode: '3v3', playerCount: 6 },
+  { mode: 'ffa', playerCount: 8 },
+] as const satisfies readonly { mode: GameMode, playerCount: number }[]
+
+const MAP_VOTE_RESULT: ResolvedMapVoteResult = {
+  mapType: 'standard',
+  mapScript: 'lakes',
+  winningSeatCount: 2,
+  seed: 'system-test-seed',
+  mapTypeWinner: 'standard',
+  mapScriptWinner: 'lakes',
+  mapTypeRounds: [],
+  mapScriptRounds: [],
+  resolvedRandomMapType: null,
+  resolvedRandomMapScript: null,
+}
 
 afterEach(async () => {
   await Promise.all(worlds.splice(0).map(world => world.dispose()))
 })
 
 describe('system scenarios', () => {
-  test('happy path runs start, complete, and report through real routes', async () => {
-    const world = await createTrackedWorld()
-    await world.lobby.createOpen({
+  for (const { mode, playerCount } of CORE_MODE_CASES) {
+    test(`core ${mode} lifecycle completes, reports, and archives cleanly`, async () => {
+      const world = await createTrackedWorld()
+      const result = await runReportedLifecycle(world, {
+        mode,
+        players: createPlayers(playerCount),
+      })
+
+      if (mode === 'ffa') {
+        expectOrderedPlacements(result.reportedParticipants, result.activeParticipants.map(participant => participant.playerId))
+      }
+      else {
+        expectTeamPlacements(result.reportedParticipants, new Map([[0, 1], [1, 2]]))
+      }
+
+      if (mode === '1v1') {
+        expect(parseDraftData(result.reportedMatch)?.reportedById).toBe('p1')
+      }
+    })
+  }
+
+  test('variant matrix covers simultaneous FFA, red death deal options, random draft, duplicate factions, and map vote propagation', async () => {
+    const simultaneousWorld = await createTrackedWorld()
+    const simultaneous = await runReportedLifecycle(simultaneousWorld, {
+      mode: 'ffa',
+      players: createPlayers(8, 'sim'),
+      config: { simultaneousPick: true },
+      placements: participants => buildOrderedMentions([...participants].reverse()),
+    })
+    expect(findRoomConfig(simultaneousWorld, simultaneous.matchId)?.formatId).toBe('default-ffa-simultaneous')
+    expect(parseDraftData(simultaneous.reportedMatch)?.state).toMatchObject({ formatId: 'default-ffa-simultaneous' })
+    expectOrderedPlacements(simultaneous.reportedParticipants, [...simultaneous.activeParticipants].reverse().map(participant => participant.playerId))
+
+    const redDeathWorld = await createTrackedWorld()
+    const redDeath = await runReportedLifecycle(redDeathWorld, {
+      mode: '3v3',
+      players: createPlayers(6, 'rd'),
+      config: { redDeath: true, dealOptionsSize: 3 },
+    })
+    const redDeathRoom = findRoomConfig(redDeathWorld, redDeath.matchId)
+    expect(redDeathRoom?.dealOptionsSize).toBe(3)
+    expect(parseDraftData(redDeath.reportedMatch)?.redDeath).toBe(true)
+    expect(redDeath.reportedParticipants.every(participant => participant.civId != null)).toBe(true)
+
+    const randomWorld = await createTrackedWorld()
+    const randomDraft = await runReportedLifecycle(randomWorld, {
       mode: '1v1',
-      players: [{ id: 'p1' }, { id: 'p2' }],
+      players: createPlayers(2, 'rnd'),
+      config: { randomDraft: true },
+    })
+    const randomRoom = findRoomConfig(randomWorld, randomDraft.matchId)
+    expect(randomRoom?.randomDraft).toBe(true)
+    expect(randomDraft.reportedParticipants.every(participant => participant.civId != null)).toBe(true)
+
+    const duplicateWorld = await createTrackedWorld()
+    const duplicate = await runReportedLifecycle(duplicateWorld, {
+      mode: '1v1',
+      players: createPlayers(2, 'dup'),
+      config: { duplicateFactions: true },
+    })
+    const duplicateCivs = [...new Set(duplicate.reportedParticipants.map(participant => participant.civId))]
+    expect(findRoomConfig(duplicateWorld, duplicate.matchId)?.duplicateFactions).toBe(true)
+    expect(duplicate.reportedParticipants.every(participant => participant.civId != null)).toBe(true)
+    expect(duplicateCivs).toHaveLength(1)
+
+    const mapVoteWorld = await createTrackedWorld()
+    const mapVote = await runReportedLifecycle(mapVoteWorld, {
+      mode: '2v2',
+      players: createPlayers(4, 'map'),
+      config: { mapVoteEnabled: true },
+      completeDraftOptions: { mapVoteResult: MAP_VOTE_RESULT },
+    })
+    const mapVotePayloads = (await Promise.all(
+      (await mapVoteWorld.match.getMessageIds(mapVote.matchId)).map(async messageId => mapVoteWorld.discord.message(messageId)?.payload ?? null),
+    )).filter((payload): payload is Record<string, unknown> => payload != null && typeof payload === 'object')
+
+    expect(findRoomConfig(mapVoteWorld, mapVote.matchId)?.mapVoteEnabled).toBe(true)
+    expect(parseDraftData(mapVote.reportedMatch)?.mapVoteResult).toEqual(MAP_VOTE_RESULT)
+    expect(mapVotePayloads.some(payload => payloadHasEmbedField(payload, 'Map', formatMapVoteResultLabel(MAP_VOTE_RESULT.mapType, MAP_VOTE_RESULT.mapScript)))).toBe(true)
+  })
+
+  test('FFA ordered participant reporting respects the submitted real placement order', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: 'ffa',
+      players: createPlayers(8, 'ffa-order'),
     })
 
-    const started = await world.lobby.start('1v1', { hostId: 'p1' })
+    const started = await world.lobby.start('ffa', { hostId: 'ffa-order1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
     await world.flushBackgroundTasks()
 
-    const draftResponse = await world.party.completeDraft(started.matchId)
-    expect(draftResponse.status).toBe(200)
+    const participants = await world.match.getParticipants(started.matchId)
+    const orderedIds = [
+      participants[3]!.playerId,
+      participants[0]!.playerId,
+      participants[6]!.playerId,
+      participants[1]!.playerId,
+      participants[7]!.playerId,
+      participants[2]!.playerId,
+      participants[5]!.playerId,
+      participants[4]!.playerId,
+    ]
 
-    const afterDraft = await world.match.get(started.matchId)
-    expect(afterDraft?.status).toBe('active')
-
-    const reportResult = await world.match.report(started.matchId, {
-      reporterId: 'p1',
-      placements: 'A',
-    })
-    expect(reportResult.ok).toBe(true)
+    expect((await world.match.report(started.matchId, {
+      reporterId: 'ffa-order1',
+      placements: buildOrderedMentions(orderedIds.map(playerId => ({ playerId }))),
+    })).ok).toBe(true)
+    await world.flushBackgroundTasks()
 
     const reportedMatch = await world.match.get(started.matchId)
-    const participants = await world.match.getParticipants(started.matchId)
-    const queue = await getQueueState(world.kv, '1v1')
-    const messageIds = await world.match.getMessageIds(started.matchId)
-
+    const reportedParticipants = await world.match.getParticipants(started.matchId)
     expect(reportedMatch?.status).toBe('completed')
-    expect(participants.map(participant => participant.placement)).toEqual([1, 2])
-    expect(queue.entries).toEqual([])
-    expect(messageIds).toHaveLength(2)
-    expect(world.discord.requests().some(request => request.method === 'POST' && request.url.includes('/channels/channel-archive/messages'))).toBe(true)
+    expectOrderedPlacements(reportedParticipants, orderedIds)
+  })
+
+  test('expanded 2v2 reporting accepts ordered team results from real participant mentions', async () => {
+    const world = await createTrackedWorld()
+    const result = await runReportedLifecycle(world, {
+      mode: '2v2',
+      players: createPlayers(8, 'team'),
+      config: { targetSize: 8 },
+      placements: participants => {
+        const teams = groupParticipantsByTeam(participants)
+        const thirdTeamPlayer = teams.get(2)?.[0]?.playerId
+        const firstTeamPlayer = teams.get(0)?.[0]?.playerId
+        if (!thirdTeamPlayer || !firstTeamPlayer) throw new Error('Expected 4 teams in expanded 2v2 scenario')
+        return `<@${thirdTeamPlayer}>, <@${firstTeamPlayer}>`
+      },
+    })
+
+    const placementsByTeam = placementsByTeamIndex(result.reportedParticipants)
+    expect(placementsByTeam.get(2)).toBe(1)
+    expect(placementsByTeam.get(0)).toBe(2)
+    expect(new Set([placementsByTeam.get(1), placementsByTeam.get(3)])).toEqual(new Set([3, 4]))
   })
 
   test('completion replay is idempotent and finalized webhook can refresh active match civ assignments', async () => {
@@ -750,4 +875,151 @@ async function createTrackedWorld() {
 
 function countDiscordMessageUpdates(world: Awaited<ReturnType<typeof createSystemWorld>>, method: 'PATCH' | 'POST') {
   return world.discord.requests().filter(request => request.method === method && request.url.includes('/channels/')).length
+}
+
+function createPlayers(count: number, prefix = 'p') {
+  return Array.from({ length: count }, (_, index) => ({ id: `${prefix}${index + 1}` }))
+}
+
+async function runReportedLifecycle(
+  world: Awaited<ReturnType<typeof createSystemWorld>>,
+  input: {
+    mode: GameMode
+    players: Array<{ id: string }>
+    config?: {
+      simultaneousPick?: boolean
+      redDeath?: boolean
+      dealOptionsSize?: number
+      randomDraft?: boolean
+      duplicateFactions?: boolean
+      mapVoteEnabled?: boolean
+      targetSize?: number
+    }
+    completeDraftOptions?: Parameters<Awaited<ReturnType<typeof createSystemWorld>>['party']['completeDraft']>[1]
+    placements?: string | ((participants: Awaited<ReturnType<typeof world.match.getParticipants>>) => string)
+    reporterId?: string
+  },
+) {
+  const hostId = input.players[0]!.id
+  const lobby = await world.lobby.createOpen({
+    mode: input.mode,
+    players: input.players,
+    hostId,
+  })
+
+  if (input.config) {
+    const configResponse = await world.lobby.config(input.mode, {
+      hostId,
+      lobbyId: lobby.id,
+      ...input.config,
+    })
+    expect(configResponse.status).toBe(200)
+    await world.flushBackgroundTasks()
+  }
+
+  const started = await world.lobby.start(input.mode, { hostId, lobbyId: lobby.id })
+  await world.flushBackgroundTasks()
+
+  expect((await world.party.completeDraft(started.matchId, input.completeDraftOptions)).status).toBe(200)
+  await world.flushBackgroundTasks()
+
+  const activeMatch = await world.match.get(started.matchId)
+  const activeParticipants = await world.match.getParticipants(started.matchId)
+  expect(activeMatch?.status).toBe('active')
+
+  const placements = typeof input.placements === 'function'
+    ? input.placements(activeParticipants)
+    : (input.placements ?? defaultPlacementsForMode(input.mode, activeParticipants))
+
+  expect((await world.match.report(started.matchId, {
+    reporterId: input.reporterId ?? hostId,
+    placements,
+  })).ok).toBe(true)
+  await world.flushBackgroundTasks()
+
+  const reportedMatch = await world.match.get(started.matchId)
+  const reportedParticipants = await world.match.getParticipants(started.matchId)
+  const queue = await getQueueState(world.kv, input.mode)
+  const messageIds = await world.match.getMessageIds(started.matchId)
+
+  expect(reportedMatch?.status).toBe('completed')
+  expect(queue.entries).toEqual([])
+  expect(messageIds.length).toBeGreaterThanOrEqual(2)
+  expect(world.discord.requests().some(request => request.method === 'PATCH' && request.url.includes('/channels/'))).toBe(true)
+  expect(world.discord.requests().some(request => request.method === 'POST' && request.url.includes('/channels/channel-archive/messages'))).toBe(true)
+
+  return {
+    lobby,
+    matchId: started.matchId,
+    activeMatch,
+    activeParticipants,
+    reportedMatch,
+    reportedParticipants,
+  }
+}
+
+function defaultPlacementsForMode(mode: GameMode, participants: Array<{ playerId: string }>) {
+  return mode === 'ffa'
+    ? buildOrderedMentions(participants)
+    : 'A'
+}
+
+function buildOrderedMentions(participants: Array<{ playerId: string }>) {
+  return participants.map(participant => `<@${participant.playerId}>`).join('\n')
+}
+
+function expectOrderedPlacements(participants: Array<{ playerId: string, placement: number | null }>, orderedIds: string[]) {
+  const placements = new Map(participants.map(participant => [participant.playerId, participant.placement]))
+  orderedIds.forEach((playerId, index) => {
+    expect(placements.get(playerId)).toBe(index + 1)
+  })
+}
+
+function expectTeamPlacements(participants: Array<{ team: number | null, placement: number | null }>, expectedByTeam: Map<number, number>) {
+  for (const participant of participants) {
+    expect(participant.team).not.toBeNull()
+    expect(participant.placement).toBe(expectedByTeam.get(participant.team!))
+  }
+}
+
+function groupParticipantsByTeam<T extends { team: number | null }>(participants: T[]) {
+  const grouped = new Map<number, T[]>()
+  for (const participant of participants) {
+    if (participant.team == null) continue
+    const teamParticipants = grouped.get(participant.team) ?? []
+    teamParticipants.push(participant)
+    grouped.set(participant.team, teamParticipants)
+  }
+  return grouped
+}
+
+function placementsByTeamIndex(participants: Array<{ team: number | null, placement: number | null }>) {
+  return new Map(
+    [...groupParticipantsByTeam(participants)].map(([team, teamParticipants]) => [team, teamParticipants[0]?.placement ?? null]),
+  )
+}
+
+function parseDraftData(match: { draftData: string | null } | null) {
+  return match?.draftData ? JSON.parse(match.draftData) as Record<string, any> : null
+}
+
+function findRoomConfig(world: Awaited<ReturnType<typeof createSystemWorld>>, matchId: string) {
+  return world.party.rooms().find(room => room.config.matchId === matchId)?.config ?? null
+}
+
+function payloadHasEmbedField(payload: Record<string, unknown>, name: string, value: string) {
+  const embeds = payload.embeds
+  if (!Array.isArray(embeds)) return false
+
+  return embeds.some((embed) => {
+    if (!embed || typeof embed !== 'object') return false
+    const fields = (embed as { fields?: unknown }).fields
+    if (!Array.isArray(fields)) return false
+
+    return fields.some((field) => {
+      if (!field || typeof field !== 'object') return false
+      const candidate = field as { name?: unknown, value?: unknown }
+      return candidate.name === name && candidate.value === value
+    })
+  })
 }

@@ -1,5 +1,5 @@
 import type { Database as CivupDatabase, Database } from '@civup/db'
-import type { DraftCancelledWebhookPayload, DraftCompleteWebhookPayload, DraftState, DraftWebhookPayload, RoomConfig } from '@civup/game'
+import type { DraftCancelledWebhookPayload, DraftCompleteWebhookPayload, DraftState, DraftWebhookPayload, GameMode, RoomConfig } from '@civup/game'
 import type { Env } from '../../../src/env.ts'
 import type { ActivityTargetSelection, MatchActivityTargetSelection } from '../../../src/services/activity/index.ts'
 import type { LobbyState } from '../../../src/services/lobby/index.ts'
@@ -49,6 +49,7 @@ interface PartyRoomRecord {
 interface CompleteDraftOptions {
   finalized?: boolean
   transformState?: (state: DraftState) => DraftState
+  mapVoteResult?: DraftCompleteWebhookPayload['mapVoteResult']
 }
 
 interface WorldPlayerInput {
@@ -76,6 +77,8 @@ export interface SystemWorld {
     createOpen: (input: { mode: Parameters<typeof getQueueState>[1], players: WorldPlayerInput[], hostId?: string, channelId?: string, guildId?: string | null }) => Promise<LobbyState>
     get: (mode: Parameters<typeof getLobby>[1]) => Promise<LobbyState | null>
     getById: (lobbyId: string) => Promise<LobbyState | null>
+    config: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, banTimerSeconds?: number | null, pickTimerSeconds?: number | null, leaderPoolSize?: number | null, leaderDataVersion?: 'live' | 'beta' | null, mapVoteEnabled?: boolean, blindBans?: boolean, simultaneousPick?: boolean, redDeath?: boolean, dealOptionsSize?: number | null, randomDraft?: boolean, duplicateFactions?: boolean, steamLobbyLink?: string | null, targetSize?: number | null }) => Promise<RouteResult>
+    changeMode: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, nextMode: GameMode }) => Promise<RouteResult>
     start: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string }) => Promise<{ ok: boolean, matchId: string, roomAccessToken: string | null, idempotent?: boolean }>
     place: (mode: Parameters<typeof getQueueState>[1], input: { userId: string, targetSlot: number, lobbyId?: string, playerId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, transferNotice?: string | null, error?: string }>>
     remove: (mode: Parameters<typeof getQueueState>[1], input: { userId: string, slot: number, lobbyId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, error?: string }>>
@@ -267,6 +270,44 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       },
       getById(lobbyId) {
         return getLobbyById(kv, lobbyId)
+      },
+      config(mode, input) {
+        return requestJsonAs(`/api/lobby/${mode}/config`, {
+          method: 'POST',
+          body: JSON.stringify({
+            userId: input.hostId,
+            lobbyId: input.lobbyId,
+            banTimerSeconds: input.banTimerSeconds,
+            pickTimerSeconds: input.pickTimerSeconds,
+            leaderPoolSize: input.leaderPoolSize,
+            leaderDataVersion: input.leaderDataVersion,
+            mapVoteEnabled: input.mapVoteEnabled,
+            blindBans: input.blindBans,
+            simultaneousPick: input.simultaneousPick,
+            redDeath: input.redDeath,
+            dealOptionsSize: input.dealOptionsSize,
+            randomDraft: input.randomDraft,
+            duplicateFactions: input.duplicateFactions,
+            steamLobbyLink: input.steamLobbyLink,
+            targetSize: input.targetSize,
+          }),
+        }, {
+          userId: input.hostId,
+          displayName: input.hostId,
+        })
+      },
+      changeMode(mode, input) {
+        return requestJsonAs(`/api/lobby/${mode}/mode`, {
+          method: 'POST',
+          body: JSON.stringify({
+            userId: input.hostId,
+            lobbyId: input.lobbyId,
+            nextMode: input.nextMode,
+          }),
+        }, {
+          userId: input.hostId,
+          displayName: input.hostId,
+        })
       },
       async start(mode, input) {
         const response = await requestAs(`/api/lobby/${mode}/start`, {
@@ -510,7 +551,7 @@ function buildCompletedPayload(config: RoomConfig, options: CompleteDraftOptions
     completedAt: Date.now(),
     finalized: options.finalized === true,
     state,
-    mapVoteResult: null,
+    mapVoteResult: options.mapVoteResult ?? null,
   }
 }
 
@@ -561,10 +602,12 @@ function buildCompletedDraftState(config: RoomConfig) {
     }
 
     state = assignTestDealOptions(state, config)
+    const reserved = new Set<string>()
     for (const seatIndex of pendingSeats) {
-      const civId = state.dealtCivIds?.[0] ?? state.availableCivIds[0]
+      const civId = pickDraftCiv(state.dealtCivIds?.length ? state.dealtCivIds : state.availableCivIds, reserved, config.duplicateFactions === true)
       if (!civId) throw new Error(`No civ available for seat ${seatIndex} in match ${config.matchId}`)
       state = applyDraftInput(state, { type: 'PICK', seatIndex, civId }, format.blindBans)
+      if (config.duplicateFactions !== true) reserved.add(civId)
     }
   }
 
@@ -646,6 +689,15 @@ function pickUniqueCivs(availableCivIds: string[], count: number, reserved: Set<
 
   if (picks.length !== count) throw new Error(`Expected ${count} unique civs, got ${picks.length}`)
   return picks
+}
+
+function pickDraftCiv(availableCivIds: string[], reserved: Set<string>, allowDuplicate: boolean): string | null {
+  for (const civId of availableCivIds) {
+    if (!allowDuplicate && reserved.has(civId)) continue
+    return civId
+  }
+
+  return null
 }
 
 function applyDraftInput(
