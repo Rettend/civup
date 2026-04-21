@@ -539,6 +539,207 @@ describe('system scenarios', () => {
     expect(await world.inspect.lobbyMapping('pleb')).toBe(lobby.id)
     expect(await world.inspect.activityTarget(lobby.channelId, 'pleb')).toMatchObject({ kind: 'lobby', id: lobby.id })
   })
+
+  test('duplicate join requests settle to one coherent member, queue, and embed state', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'host' }],
+    })
+
+    const [firstJoin, secondJoin] = await Promise.all([
+      world.lobby.place('1v1', {
+        userId: 'p2',
+        lobbyId: lobby.id,
+        targetSlot: 1,
+        displayName: 'p2',
+      }),
+      world.lobby.place('1v1', {
+        userId: 'p2',
+        lobbyId: lobby.id,
+        targetSlot: 1,
+        displayName: 'p2',
+      }),
+    ])
+    await world.flushBackgroundTasks()
+
+    const finalLobby = await world.lobby.getById(lobby.id)
+    const queue = await getQueueState(world.kv, '1v1')
+    const message = await world.discord.currentLobbyMessage(lobby.id)
+
+    expect(firstJoin.status).toBe(200)
+    expect(secondJoin.status).toBe(200)
+    expect(finalLobby?.memberPlayerIds).toEqual(['host', 'p2'])
+    expect(finalLobby?.slots).toEqual(['host', 'p2'])
+    expect(queue.entries.map(entry => entry.playerId)).toEqual(['host', 'p2'])
+    expect(await world.inspect.lobbyMapping('p2')).toBe(lobby.id)
+    expect(JSON.stringify(message?.payload)).toContain('<@p2>')
+  })
+
+  test('concurrent joins for the last slot settle to one winner without leaving stale queue or embed state', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'host' }],
+    })
+
+    const joinResults = await Promise.all([
+      world.lobby.place('1v1', {
+        userId: 'p2',
+        lobbyId: lobby.id,
+        targetSlot: 1,
+        displayName: 'p2',
+      }),
+      world.lobby.place('1v1', {
+        userId: 'p3',
+        lobbyId: lobby.id,
+        targetSlot: 1,
+        displayName: 'p3',
+      }),
+    ])
+    await world.flushBackgroundTasks()
+
+    const finalLobby = await world.lobby.getById(lobby.id)
+    const winner = finalLobby?.slots[1] ?? null
+    const loser = winner === 'p2' ? 'p3' : 'p2'
+    const queue = await getQueueState(world.kv, '1v1')
+    const message = await world.discord.currentLobbyMessage(lobby.id)
+    const payloadText = JSON.stringify(message?.payload)
+
+    expect(joinResults.map(result => result.status).every(status => status < 500)).toBe(true)
+    expect(winner === 'p2' || winner === 'p3').toBe(true)
+    expect(finalLobby?.memberPlayerIds).toEqual(['host', winner!])
+    expect(finalLobby?.slots).toEqual(['host', winner!])
+    expect(queue.entries.map(entry => entry.playerId)).toEqual(['host', winner!])
+    expect(await world.inspect.lobbyMapping(winner!)).toBe(lobby.id)
+    expect(await world.inspect.lobbyMapping(loser)).toBeNull()
+    expect(payloadText).toContain(`<@${winner}>`)
+    expect(payloadText).not.toContain(`<@${loser}>`)
+  })
+
+  test('join racing with host start leaves a clean drafting match state instead of reviving lobby membership', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'host' }, { id: 'p2' }],
+    })
+
+    const [started, duplicateJoin] = await Promise.all([
+      world.lobby.start('1v1', { hostId: 'host', lobbyId: lobby.id }),
+      world.lobby.place('1v1', {
+        userId: 'p2',
+        lobbyId: lobby.id,
+        targetSlot: 1,
+        displayName: 'p2',
+      }),
+    ])
+    await world.flushBackgroundTasks()
+
+    const finalLobby = await world.lobby.getById(lobby.id)
+    const queue = await getQueueState(world.kv, '1v1')
+
+    expect(duplicateJoin.status).toBe(200)
+    expect(finalLobby?.status).toBe('drafting')
+    expect(finalLobby?.matchId).toBe(started.matchId)
+    expect(finalLobby?.memberPlayerIds).toEqual(['host', 'p2'])
+    expect(queue.entries).toEqual([])
+    expect(await world.inspect.lobbyMapping('p2')).toBeNull()
+    expect(await world.inspect.matchMapping('p2')).toBe(started.matchId)
+    expect(await world.inspect.activityTarget(lobby.channelId, 'p2')).toMatchObject({ kind: 'match', id: started.matchId })
+  })
+
+  test('report racing with a late join rejects the join cleanly and still allows a fresh later join', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+
+    const [reportResult, lateJoin] = await Promise.all([
+      world.match.report(started.matchId, {
+        reporterId: 'p1',
+        placements: 'A',
+      }),
+      world.lobby.place('1v1', {
+        userId: 'p3',
+        lobbyId: lobby.id,
+        targetSlot: 1,
+        displayName: 'p3',
+      }),
+    ])
+    await world.flushBackgroundTasks()
+
+    expect(reportResult.ok).toBe(true)
+    expect(lateJoin.status).toBe(404)
+    expect(lateJoin.body).toEqual({ error: 'No open lobby for this mode' })
+    expect(await world.lobby.getById(lobby.id)).toBeNull()
+    expect(await world.inspect.lobbyMapping('p3')).toBeNull()
+
+    const freshLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'fresh-host' }],
+      hostId: 'fresh-host',
+    })
+
+    const freshJoin = await world.lobby.place('1v1', {
+      userId: 'p3',
+      lobbyId: freshLobby.id,
+      targetSlot: 1,
+      displayName: 'p3',
+    })
+    await world.flushBackgroundTasks()
+
+    expect(freshJoin.status).toBe(200)
+    expect((await world.lobby.getById(freshLobby.id))?.memberPlayerIds).toEqual(['fresh-host', 'p3'])
+    expect(await world.inspect.lobbyMapping('p3')).toBe(freshLobby.id)
+  })
+
+  test('duplicate timeout webhook after a reopened lobby gains a new joiner does not strand players or rewrite the embed', async () => {
+    const world = await createTrackedWorld()
+    await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1' })
+    await world.flushBackgroundTasks()
+    expect((await world.party.timeoutDraft(started.matchId)).status).toBe(200)
+
+    const reopenedLobby = await world.lobby.get('1v1')
+    expect(reopenedLobby?.memberPlayerIds).toEqual(['p2'])
+
+    expect((await world.lobby.place('1v1', {
+      userId: 'p3',
+      lobbyId: reopenedLobby!.id,
+      targetSlot: 0,
+      displayName: 'p3',
+    })).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const requestCountBeforeReplay = world.discord.requests().length
+    const messageBeforeReplay = await world.discord.currentLobbyMessage(reopenedLobby!.id)
+
+    expect((await world.party.replayDraftCancel(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const finalLobby = await world.lobby.getById(reopenedLobby!.id)
+    const queue = await getQueueState(world.kv, '1v1')
+    const messageAfterReplay = await world.discord.currentLobbyMessage(reopenedLobby!.id)
+
+    expect(finalLobby?.status).toBe('open')
+    expect(finalLobby?.hostId).toBe('p2')
+    expect(finalLobby?.memberPlayerIds).toEqual(['p2', 'p3'])
+    expect(finalLobby?.slots).toEqual(['p3', 'p2'])
+    expect(queue.entries.map(entry => entry.playerId)).toEqual(['p2', 'p3'])
+    expect(await world.inspect.lobbyMapping('p2')).toBe(reopenedLobby?.id)
+    expect(await world.inspect.lobbyMapping('p3')).toBe(reopenedLobby?.id)
+    expect(world.discord.requests()).toHaveLength(requestCountBeforeReplay)
+    expect(messageAfterReplay?.id).toBe(messageBeforeReplay?.id)
+  })
 })
 
 async function createTrackedWorld() {

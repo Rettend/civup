@@ -86,6 +86,7 @@ export interface SystemWorld {
     timeoutDraft: (matchId: string) => Promise<Response>
     cancelDraft: (matchId: string, options?: { reason?: 'cancel' | 'scrub' | 'revert' }) => Promise<Response>
     replayDraftComplete: (matchId: string, options?: { index?: number }) => Promise<Response>
+    replayDraftCancel: (matchId: string, options?: { index?: number }) => Promise<Response>
   }
   match: {
     report: (matchId: string, input: { reporterId: string, placements: string }) => Promise<{ ok: boolean }>
@@ -337,6 +338,12 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         const room = getPartyRoom(partyRooms, matchId)
         const payload = room.completionPayloads[options.index ?? room.completionPayloads.length - 1]
         if (!payload) throw new Error(`No completion payload recorded for match ${matchId}`)
+        return sendWebhook(room, payload)
+      },
+      async replayDraftCancel(matchId, options = {}) {
+        const room = getPartyRoom(partyRooms, matchId)
+        const payload = room.cancellationPayloads[options.index ?? room.cancellationPayloads.length - 1]
+        if (!payload) throw new Error(`No cancellation payload recorded for match ${matchId}`)
         return sendWebhook(room, payload)
       },
     },
