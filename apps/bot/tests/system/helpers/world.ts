@@ -62,6 +62,8 @@ interface WorldPlayerInput {
   id: string
   displayName?: string
   avatarUrl?: string | null
+  partyIds?: string[]
+  joinedAt?: number
 }
 
 interface RequestAsOptions {
@@ -80,11 +82,12 @@ export interface SystemWorld {
   env: Env['Bindings']
   kv: KVNamespace
   lobby: {
-    createOpen: (input: { mode: Parameters<typeof getQueueState>[1], players: WorldPlayerInput[], hostId?: string, channelId?: string, guildId?: string | null }) => Promise<LobbyState>
+    createOpen: (input: { mode: Parameters<typeof getQueueState>[1], players: WorldPlayerInput[], hostId?: string, channelId?: string, guildId?: string | null, memberPlayerIds?: string[], slots?: (string | null)[] }) => Promise<LobbyState>
     get: (mode: Parameters<typeof getLobby>[1]) => Promise<LobbyState | null>
     getById: (lobbyId: string) => Promise<LobbyState | null>
     config: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, banTimerSeconds?: number | null, pickTimerSeconds?: number | null, leaderPoolSize?: number | null, leaderDataVersion?: 'live' | 'beta' | null, mapVoteEnabled?: boolean, blindBans?: boolean, simultaneousPick?: boolean, redDeath?: boolean, dealOptionsSize?: number | null, randomDraft?: boolean, duplicateFactions?: boolean, steamLobbyLink?: string | null, targetSize?: number | null }) => Promise<RouteResult>
     changeMode: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, nextMode: GameMode }) => Promise<RouteResult>
+    arrange: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, strategy: 'randomize' | 'balance' | 'shuffle-teams' }) => Promise<RouteResult>
     start: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string }) => Promise<{ ok: boolean, matchId: string, roomAccessToken: string | null, idempotent?: boolean }>
     place: (mode: Parameters<typeof getQueueState>[1], input: { userId: string, targetSlot: number, lobbyId?: string, playerId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, transferNotice?: string | null, error?: string }>>
     remove: (mode: Parameters<typeof getQueueState>[1], input: { userId: string, slot: number, lobbyId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, error?: string }>>
@@ -253,7 +256,8 @@ export async function createSystemWorld(): Promise<SystemWorld> {
           playerId: player.id,
           displayName: player.displayName ?? player.id,
           avatarUrl: player.avatarUrl ?? null,
-          joinedAt: index + 1,
+          joinedAt: player.joinedAt ?? index + 1,
+          partyIds: player.partyIds,
         }))
 
         for (const entry of entries) {
@@ -274,10 +278,12 @@ export async function createSystemWorld(): Promise<SystemWorld> {
           payload: null,
         })
 
-        const memberPlayerIds = entries.map(entry => entry.playerId)
-        const slots = [...lobby.slots]
-        for (let index = 0; index < memberPlayerIds.length; index++) {
-          slots[index] = memberPlayerIds[index] ?? null
+        const memberPlayerIds = input.memberPlayerIds ?? entries.map(entry => entry.playerId)
+        const slots = input.slots ? [...input.slots] : [...lobby.slots]
+        if (!input.slots) {
+          for (let index = 0; index < memberPlayerIds.length; index++) {
+            slots[index] = memberPlayerIds[index] ?? null
+          }
         }
 
         const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, memberPlayerIds, lobby) ?? lobby
@@ -323,6 +329,19 @@ export async function createSystemWorld(): Promise<SystemWorld> {
             userId: input.hostId,
             lobbyId: input.lobbyId,
             nextMode: input.nextMode,
+          }),
+        }, {
+          userId: input.hostId,
+          displayName: input.hostId,
+        })
+      },
+      arrange(mode, input) {
+        return requestJsonAs(`/api/lobby/${mode}/arrange`, {
+          method: 'POST',
+          body: JSON.stringify({
+            userId: input.hostId,
+            lobbyId: input.lobbyId,
+            strategy: input.strategy,
           }),
         }, {
           userId: input.hostId,

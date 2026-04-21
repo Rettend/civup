@@ -1121,7 +1121,7 @@ describe('system scenarios', () => {
     expect(await world.inspect.matchMapping('p1')).toBeNull()
   })
 
-  test('steam lobby link survives open-lobby start handoff into live match activity selection', async () => {
+  test('steam lobby link add update and clear survives open to live activity handoff', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -1145,6 +1145,38 @@ describe('system scenarios', () => {
     const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
     await world.flushBackgroundTasks()
 
+    const [participantInitialLaunch, spectatorInitialLaunch] = await Promise.all([
+      world.activity.launch({ channelId: lobby.channelId, userId: 'p1' }),
+      world.activity.launch({ channelId: lobby.channelId, userId: 'spectator' }),
+    ])
+
+    expect(participantInitialLaunch.body).toMatchObject({
+      selection: {
+        kind: 'match',
+        matchId: started.matchId,
+        steamLobbyLink: 'steam://joinlobby/289070/123456789/987654321',
+      },
+    })
+    expect(spectatorInitialLaunch.body).toMatchObject({
+      selection: {
+        kind: 'match',
+        matchId: started.matchId,
+        steamLobbyLink: 'steam://joinlobby/289070/123456789/987654321',
+      },
+    })
+
+    expect((await world.lobby.config('1v1', {
+      hostId: 'p1',
+      lobbyId: lobby.id,
+      steamLobbyLink: 'steam://joinlobby/289070/222222222/111111111',
+    })).status).toBe(200)
+    expect((await world.lobby.config('1v1', {
+      hostId: 'p1',
+      lobbyId: lobby.id,
+      pickTimerSeconds: 45,
+    })).status).toBe(409)
+    await world.flushBackgroundTasks()
+
     const [participantLaunch, spectatorLaunch] = await Promise.all([
       world.activity.launch({ channelId: lobby.channelId, userId: 'p1' }),
       world.activity.launch({ channelId: lobby.channelId, userId: 'spectator' }),
@@ -1154,14 +1186,46 @@ describe('system scenarios', () => {
       selection: {
         kind: 'match',
         matchId: started.matchId,
-        steamLobbyLink: 'steam://joinlobby/289070/123456789/987654321',
+        steamLobbyLink: 'steam://joinlobby/289070/222222222/111111111',
       },
     })
     expect(spectatorLaunch.body).toMatchObject({
       selection: {
         kind: 'match',
         matchId: started.matchId,
-        steamLobbyLink: 'steam://joinlobby/289070/123456789/987654321',
+        steamLobbyLink: 'steam://joinlobby/289070/222222222/111111111',
+      },
+    })
+
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    expect((await world.lobby.config('1v1', {
+      hostId: 'p1',
+      lobbyId: lobby.id,
+      steamLobbyLink: null,
+    })).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const [participantAfterClear, spectatorAfterClear] = await Promise.all([
+      world.activity.launch({ channelId: lobby.channelId, userId: 'p1' }),
+      world.activity.launch({ channelId: lobby.channelId, userId: 'spectator' }),
+    ])
+
+    expect((await world.lobby.getById(lobby.id))?.status).toBe('active')
+    expect((await world.lobby.getById(lobby.id))?.steamLobbyLink).toBeNull()
+    expect(participantAfterClear.body).toMatchObject({
+      selection: {
+        kind: 'match',
+        matchId: started.matchId,
+        steamLobbyLink: null,
+      },
+    })
+    expect(spectatorAfterClear.body).toMatchObject({
+      selection: {
+        kind: 'match',
+        matchId: started.matchId,
+        steamLobbyLink: null,
       },
     })
   })
@@ -1398,6 +1462,75 @@ describe('system scenarios', () => {
     expect(world.discord.requests()).toHaveLength(beforeRequests)
   })
 
+  test('direct joins fill canonical open-lobby membership across 1v1, team, and FFA modes', async () => {
+    const oneVOneWorld = await createTrackedWorld()
+    const oneVOneLobby = await oneVOneWorld.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'duel-host' }],
+      hostId: 'duel-host',
+      channelId: 'channel-direct-1v1',
+    })
+
+    expect((await oneVOneWorld.lobby.place('1v1', {
+      userId: 'duel-join',
+      lobbyId: oneVOneLobby.id,
+      targetSlot: 1,
+      displayName: 'duel-join',
+    })).status).toBe(200)
+    await oneVOneWorld.flushBackgroundTasks()
+
+    expect((await oneVOneWorld.lobby.getById(oneVOneLobby.id))?.memberPlayerIds).toEqual(['duel-host', 'duel-join'])
+    expect((await oneVOneWorld.lobby.getById(oneVOneLobby.id))?.slots).toEqual(['duel-host', 'duel-join'])
+    await expectQueuePlayers(oneVOneWorld, '1v1', ['duel-host', 'duel-join'])
+    expect(await oneVOneWorld.inspect.activityTarget(oneVOneLobby.channelId, 'duel-join')).toMatchObject({ kind: 'lobby', id: oneVOneLobby.id })
+
+    const teamWorld = await createTrackedWorld()
+    const teamLobby = await teamWorld.lobby.createOpen({
+      mode: '2v2',
+      players: [{ id: 'team-host' }],
+      hostId: 'team-host',
+      channelId: 'channel-direct-team',
+    })
+
+    for (const [userId, targetSlot] of [['team-2', 1], ['team-3', 2], ['team-4', 3]] as const) {
+      expect((await teamWorld.lobby.place('2v2', {
+        userId,
+        lobbyId: teamLobby.id,
+        targetSlot,
+        displayName: userId,
+      })).status).toBe(200)
+    }
+    await teamWorld.flushBackgroundTasks()
+
+    expect((await teamWorld.lobby.getById(teamLobby.id))?.memberPlayerIds).toEqual(['team-host', 'team-2', 'team-3', 'team-4'])
+    expect((await teamWorld.lobby.getById(teamLobby.id))?.slots).toEqual(['team-host', 'team-2', 'team-3', 'team-4'])
+    await expectQueuePlayers(teamWorld, '2v2', ['team-host', 'team-2', 'team-3', 'team-4'])
+    expect(await teamWorld.inspect.activityTarget(teamLobby.channelId, 'team-4')).toMatchObject({ kind: 'lobby', id: teamLobby.id })
+
+    const ffaWorld = await createTrackedWorld()
+    const ffaLobby = await ffaWorld.lobby.createOpen({
+      mode: 'ffa',
+      players: [{ id: 'ffa-host' }],
+      hostId: 'ffa-host',
+      channelId: 'channel-direct-ffa',
+    })
+
+    for (const [userId, targetSlot] of [['ffa-2', 4], ['ffa-3', 1], ['ffa-4', 7]] as const) {
+      expect((await ffaWorld.lobby.place('ffa', {
+        userId,
+        lobbyId: ffaLobby.id,
+        targetSlot,
+        displayName: userId,
+      })).status).toBe(200)
+    }
+    await ffaWorld.flushBackgroundTasks()
+
+    expect((await ffaWorld.lobby.getById(ffaLobby.id))?.memberPlayerIds).toEqual(['ffa-host', 'ffa-2', 'ffa-3', 'ffa-4'])
+    expect((await ffaWorld.lobby.getById(ffaLobby.id))?.slots).toEqual(['ffa-host', 'ffa-3', null, null, 'ffa-2', null, null, 'ffa-4'])
+    await expectQueuePlayers(ffaWorld, 'ffa', ['ffa-host', 'ffa-2', 'ffa-3', 'ffa-4'])
+    expect(await ffaWorld.inspect.activityTarget(ffaLobby.channelId, 'ffa-4')).toMatchObject({ kind: 'lobby', id: ffaLobby.id })
+  })
+
   test('remove self then rejoin keeps queue and activity state coherent', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
@@ -1521,6 +1654,226 @@ describe('system scenarios', () => {
     expect(await world.inspect.lobbyMapping(loser)).toBeNull()
     expect(payloadText).toContain(`<@${winner}>`)
     expect(payloadText).not.toContain(`<@${loser}>`)
+  })
+
+  test('mode changes preserve host order, team splits, and compact stale-member lobbies without losing queued players', async () => {
+    const hostOrderWorld = await createTrackedWorld()
+    const hostOrderLobby = await hostOrderWorld.lobby.createOpen({
+      mode: '4v4',
+      players: [{ id: 'host' }, { id: 'p1' }, { id: 'p2' }, { id: 'p3' }, { id: 'p5' }, { id: 'p6' }],
+      hostId: 'host',
+      slots: ['p1', 'p2', 'p3', 'host', 'p5', 'p6', null, null],
+      channelId: 'channel-mode-host-order',
+    })
+
+    expect((await hostOrderWorld.lobby.changeMode('4v4', {
+      hostId: 'host',
+      lobbyId: hostOrderLobby.id,
+      nextMode: '3v3',
+    })).status).toBe(200)
+    await hostOrderWorld.flushBackgroundTasks()
+
+    expect((await hostOrderWorld.lobby.getById(hostOrderLobby.id))?.mode).toBe('3v3')
+    expect((await hostOrderWorld.lobby.getById(hostOrderLobby.id))?.slots).toEqual(['p1', 'p2', 'p3', 'host', 'p5', 'p6'])
+    await expectQueuePlayers(hostOrderWorld, '4v4', [])
+    await expectQueuePlayers(hostOrderWorld, '3v3', ['host', 'p1', 'p2', 'p3', 'p5', 'p6'])
+
+    const expandWorld = await createTrackedWorld()
+    const expandLobby = await expandWorld.lobby.createOpen({
+      mode: '3v3',
+      players: createPlayers(6),
+      hostId: 'p1',
+      slots: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'],
+      channelId: 'channel-mode-expand',
+    })
+
+    expect((await expandWorld.lobby.changeMode('3v3', {
+      hostId: 'p1',
+      lobbyId: expandLobby.id,
+      nextMode: '4v4',
+    })).status).toBe(200)
+    await expandWorld.flushBackgroundTasks()
+
+    expect((await expandWorld.lobby.getById(expandLobby.id))?.mode).toBe('4v4')
+    expect((await expandWorld.lobby.getById(expandLobby.id))?.slots).toEqual(['p1', 'p2', 'p3', null, 'p4', 'p5', 'p6', null])
+    await expectQueuePlayers(expandWorld, '3v3', [])
+    await expectQueuePlayers(expandWorld, '4v4', ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'])
+
+    const compactWorld = await createTrackedWorld()
+    const compactLobby = await compactWorld.lobby.createOpen({
+      mode: '3v3',
+      players: createPlayers(6),
+      hostId: 'p1',
+      memberPlayerIds: ['p1', 'p2', 'p3', 'p4', 'p5'],
+      slots: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'],
+      channelId: 'channel-mode-compact',
+    })
+
+    expect((await compactWorld.lobby.changeMode('3v3', {
+      hostId: 'p1',
+      lobbyId: compactLobby.id,
+      nextMode: '2v2',
+    })).status).toBe(200)
+    await compactWorld.flushBackgroundTasks()
+
+    expect((await compactWorld.lobby.getById(compactLobby.id))?.mode).toBe('2v2')
+    expect((await compactWorld.lobby.getById(compactLobby.id))?.memberPlayerIds).toEqual(['p1', 'p2', 'p3', 'p4', 'p5', 'p6'])
+    expect((await compactWorld.lobby.getById(compactLobby.id))?.slots).toEqual(['p1', 'p2', 'p3', 'p4', 'p5', 'p6', null, null])
+    await expectQueuePlayers(compactWorld, '3v3', [])
+    await expectQueuePlayers(compactWorld, '2v2', ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'])
+  })
+
+  test('mode changes preserve Red Death settings and normalize unsupported toggles on the destination mode', async () => {
+    const redDeathWorld = await createTrackedWorld()
+    const redDeathLobby = await redDeathWorld.lobby.createOpen({
+      mode: '2v2',
+      players: [{ id: 'host' }],
+      hostId: 'host',
+      channelId: 'channel-mode-red-death',
+    })
+
+    expect((await redDeathWorld.lobby.config('2v2', {
+      hostId: 'host',
+      lobbyId: redDeathLobby.id,
+      redDeath: true,
+      dealOptionsSize: 4,
+      randomDraft: true,
+      duplicateFactions: false,
+    })).status).toBe(200)
+    expect((await redDeathWorld.lobby.changeMode('2v2', {
+      hostId: 'host',
+      lobbyId: redDeathLobby.id,
+      nextMode: '1v1',
+    })).status).toBe(200)
+    await redDeathWorld.flushBackgroundTasks()
+
+    expect((await redDeathWorld.lobby.getById(redDeathLobby.id))?.draftConfig).toMatchObject({
+      redDeath: true,
+      randomDraft: true,
+      duplicateFactions: false,
+    })
+
+    const duplicateWorld = await createTrackedWorld()
+    const duplicateLobby = await duplicateWorld.lobby.createOpen({
+      mode: '5v5',
+      players: [{ id: 'host' }],
+      hostId: 'host',
+      channelId: 'channel-mode-duplicate',
+    })
+
+    expect((await duplicateWorld.lobby.config('5v5', {
+      hostId: 'host',
+      lobbyId: duplicateLobby.id,
+      redDeath: true,
+      dealOptionsSize: 4,
+      duplicateFactions: false,
+    })).status).toBe(200)
+    expect((await duplicateWorld.lobby.changeMode('5v5', {
+      hostId: 'host',
+      lobbyId: duplicateLobby.id,
+      nextMode: '6v6',
+    })).status).toBe(200)
+    await duplicateWorld.flushBackgroundTasks()
+
+    expect((await duplicateWorld.lobby.getById(duplicateLobby.id))?.draftConfig).toMatchObject({
+      redDeath: true,
+      duplicateFactions: true,
+    })
+
+    const simultaneousWorld = await createTrackedWorld()
+    const simultaneousLobby = await simultaneousWorld.lobby.createOpen({
+      mode: 'ffa',
+      players: [{ id: 'host' }],
+      hostId: 'host',
+      channelId: 'channel-mode-simultaneous',
+    })
+
+    expect((await simultaneousWorld.lobby.config('ffa', {
+      hostId: 'host',
+      lobbyId: simultaneousLobby.id,
+      simultaneousPick: true,
+    })).status).toBe(200)
+    expect((await simultaneousWorld.lobby.changeMode('ffa', {
+      hostId: 'host',
+      lobbyId: simultaneousLobby.id,
+      nextMode: '1v1',
+    })).status).toBe(200)
+    await simultaneousWorld.flushBackgroundTasks()
+
+    expect((await simultaneousWorld.lobby.getById(simultaneousLobby.id))?.draftConfig.simultaneousPick).toBe(false)
+
+    const blindBansWorld = await createTrackedWorld()
+    const blindBansLobby = await blindBansWorld.lobby.createOpen({
+      mode: '3v3',
+      players: [{ id: 'host' }],
+      hostId: 'host',
+      channelId: 'channel-mode-blind-bans',
+    })
+
+    expect((await blindBansWorld.lobby.config('3v3', {
+      hostId: 'host',
+      lobbyId: blindBansLobby.id,
+      blindBans: false,
+    })).status).toBe(200)
+    expect((await blindBansWorld.lobby.changeMode('3v3', {
+      hostId: 'host',
+      lobbyId: blindBansLobby.id,
+      nextMode: 'ffa',
+    })).status).toBe(200)
+    await blindBansWorld.flushBackgroundTasks()
+
+    expect((await blindBansWorld.lobby.getById(blindBansLobby.id))?.draftConfig.blindBans).toBe(true)
+  })
+
+  test('arrange keeps canonical membership coherent when slot order diverges from queue order', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '2v2',
+      players: [
+        { id: 'p1', displayName: 'Alpha' },
+        { id: 'p2', displayName: 'Bravo' },
+        { id: 'p3', displayName: 'Charlie' },
+        { id: 'p4', displayName: 'Delta' },
+      ],
+      hostId: 'p1',
+      slots: ['p1', 'p3', 'p2', 'p4'],
+      channelId: 'channel-arrange-diverged',
+    })
+
+    const originalRandom = Math.random
+    let arrangeResponse: Awaited<ReturnType<typeof world.lobby.arrange>>
+    try {
+      Math.random = () => 0
+      arrangeResponse = await world.lobby.arrange('2v2', {
+        hostId: 'p1',
+        lobbyId: lobby.id,
+        strategy: 'shuffle-teams',
+      })
+    }
+    finally {
+      Math.random = originalRandom
+    }
+    await world.flushBackgroundTasks()
+
+    const arrangedLobby = await world.lobby.getById(lobby.id)
+    const arrangedSlots = arrangedLobby?.slots ?? []
+    const launch = await world.activity.launch({ channelId: lobby.channelId, userId: 'p3' })
+
+    expect(arrangeResponse.status).toBe(200)
+    expect(arrangedLobby?.memberPlayerIds).toEqual(['p1', 'p2', 'p3', 'p4'])
+    await expectQueuePlayers(world, '2v2', ['p1', 'p2', 'p3', 'p4'])
+    expect(arrangedLobby?.lastArrange).toMatchObject({ strategy: 'shuffle-teams' })
+    expect(arrangedSlots).not.toEqual(['p1', 'p3', 'p2', 'p4'])
+    expect(new Set(arrangedSlots.filter((playerId): playerId is string => playerId != null))).toEqual(new Set(['p1', 'p2', 'p3', 'p4']))
+    expect(launch.body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        option: {
+          id: lobby.id,
+          isMember: true,
+        },
+      },
+    })
   })
 
   test('join racing with host start leaves a clean drafting match state instead of reviving lobby membership', async () => {
@@ -1759,6 +2112,14 @@ function countDiscordMessageUpdates(world: Awaited<ReturnType<typeof createSyste
 
 function createPlayers(count: number, prefix = 'p') {
   return Array.from({ length: count }, (_, index) => ({ id: `${prefix}${index + 1}` }))
+}
+
+async function expectQueuePlayers(
+  world: Awaited<ReturnType<typeof createSystemWorld>>,
+  mode: GameMode,
+  playerIds: string[],
+) {
+  expect((await getQueueState(world.kv, mode)).entries.map(entry => entry.playerId)).toEqual(playerIds)
 }
 
 async function runReportedLifecycle(
