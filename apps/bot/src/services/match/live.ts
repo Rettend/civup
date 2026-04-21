@@ -78,24 +78,51 @@ export async function findPersistedLiveMatchIds(
   }
 }
 
-export async function clearStalePersistedLiveLobbies(
+export async function filterPersistedLiveLobbies(
   db: D1Database | null | undefined,
-  kv: KVNamespace,
   lobbies: LobbyState[],
-): Promise<Set<string> | null> {
+): Promise<{ lobbies: LobbyState[], staleLobbyIds: Set<string> } | null> {
   const liveLobbies = lobbies.filter((lobby): lobby is LobbyState & { matchId: string } => (
     (lobby.status === 'drafting' || lobby.status === 'active')
     && typeof lobby.matchId === 'string'
     && lobby.matchId.length > 0
   ))
-  if (liveLobbies.length === 0) return new Set()
+  if (liveLobbies.length === 0) {
+    return {
+      lobbies,
+      staleLobbyIds: new Set(),
+    }
+  }
 
   const persistedLiveMatchIds = await findPersistedLiveMatchIds(db, liveLobbies.map(lobby => lobby.matchId))
   if (persistedLiveMatchIds == null) return null
 
-  const clearedLobbyIds = new Set<string>()
+  const staleLobbyIds = new Set<string>()
   for (const lobby of liveLobbies) {
     if (persistedLiveMatchIds.has(lobby.matchId)) continue
+    staleLobbyIds.add(lobby.id)
+  }
+
+  return {
+    lobbies: staleLobbyIds.size === 0
+      ? lobbies
+      : lobbies.filter(lobby => !staleLobbyIds.has(lobby.id)),
+    staleLobbyIds,
+  }
+}
+
+export async function clearStalePersistedLiveLobbies(
+  db: D1Database | null | undefined,
+  kv: KVNamespace,
+  lobbies: LobbyState[],
+): Promise<Set<string> | null> {
+  const filtered = await filterPersistedLiveLobbies(db, lobbies)
+  if (filtered == null) return null
+
+  const staleLiveLobbies = lobbies.filter((lobby) => filtered.staleLobbyIds.has(lobby.id))
+  const clearedLobbyIds = new Set<string>()
+  for (const lobby of staleLiveLobbies) {
+    if (!lobby.matchId) continue
 
     await clearActivityMappings(kv, lobby.matchId, lobby.memberPlayerIds, lobby.channelId)
     await clearLobbyById(kv, lobby.id, lobby)
