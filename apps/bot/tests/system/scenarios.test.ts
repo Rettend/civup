@@ -305,6 +305,37 @@ describe('system scenarios', () => {
     expect(afterFinalized.get('p4')).toBe(beforeFinalized.get('p4'))
   })
 
+  test('draft completion recreates a deleted tracked lobby message during activation', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+    })
+    const staleMessageId = lobby.messageId
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+
+    await world.discord.deleteCurrentLobbyMessage(lobby.id)
+    const requestsBeforeComplete = world.discord.requests().length
+
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const activeLobby = await world.lobby.getById(lobby.id)
+    const reboundMessage = await world.discord.currentLobbyMessage(lobby.id)
+    const messageIds = await world.match.getMessageIds(started.matchId)
+    const completeRequests = world.discord.requests().slice(requestsBeforeComplete)
+
+    expect(activeLobby?.status).toBe('active')
+    expect(activeLobby?.messageId).not.toBe(staleMessageId)
+    expect(reboundMessage?.id).toBe(activeLobby?.messageId)
+    expect(world.discord.message(staleMessageId)).toBeNull()
+    expect(messageIds).toContain(activeLobby?.messageId)
+    expect(completeRequests.some(request => request.method === 'PATCH' && request.url.includes(staleMessageId))).toBe(true)
+    expect(completeRequests.some(request => request.method === 'POST' && request.url.includes(`/channels/${lobby.channelId}/messages`))).toBe(true)
+  })
+
   test('timeout draft reopens lobby and removes the timed out player', async () => {
     const world = await createTrackedWorld()
     await world.lobby.createOpen({
@@ -324,6 +355,74 @@ describe('system scenarios', () => {
     expect(reopenedLobby?.hostId).toBe('p2')
     expect(reopenedLobby?.memberPlayerIds).toEqual(['p2'])
     expect(queue.entries.map(entry => entry.playerId)).toEqual(['p2'])
+    expect((await world.match.get(started.matchId))?.status).toBe('cancelled')
+  })
+
+  test('pre-start cancel route clears live lobby state and leaves the mode ready for a fresh lobby', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      channelId: 'channel-pre-start-cancel',
+    })
+
+    const cancelled = await world.lobby.cancel('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+
+    expect(cancelled.status).toBe(200)
+    expect(cancelled.body).toEqual({ ok: true })
+    expect(await world.lobby.get('1v1')).toBeNull()
+    expect(await world.lobby.getById(lobby.id)).toBeNull()
+    await expectQueuePlayers(world, '1v1', [])
+    expect(await world.inspect.currentHostedLobby('p1')).toBeNull()
+    expect(await world.inspect.lobbyMapping('p1')).toBeNull()
+    expect(await world.inspect.lobbyMapping('p2')).toBeNull()
+    expect(world.discord.requests().some(request => request.method === 'PATCH' && request.url.includes(lobby.messageId))).toBe(true)
+
+    const freshLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      channelId: 'channel-pre-start-cancel-fresh',
+    })
+    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: freshLobby.id })
+    await world.flushBackgroundTasks()
+
+    expect(started.ok).toBe(true)
+    expect((await world.lobby.getById(freshLobby.id))?.status).toBe('drafting')
+    await expectQueuePlayers(world, '1v1', [])
+  })
+
+  test('timeout cancellation repairs drifted queue state without duplicating affected players', async () => {
+    const world = await createTrackedWorld()
+    await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      channelId: 'channel-timeout-drift',
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1' })
+    await world.flushBackgroundTasks()
+
+    await world.corrupt.queueEntries('1v1', [
+      { playerId: 'p9', displayName: 'p9', avatarUrl: null, joinedAt: 1 },
+      { playerId: 'p1', displayName: 'p1', avatarUrl: null, joinedAt: 2 },
+    ])
+
+    await expectQueuePlayers(world, '1v1', ['p9', 'p1'])
+
+    expect((await world.party.timeoutDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const reopenedLobby = await world.lobby.get('1v1')
+    const queue = await getQueueState(world.kv, '1v1')
+
+    expect(reopenedLobby?.status).toBe('open')
+    expect(reopenedLobby?.hostId).toBe('p2')
+    expect(reopenedLobby?.memberPlayerIds).toEqual(['p2'])
+    expect(reopenedLobby?.slots.filter((playerId): playerId is string => playerId != null)).toEqual(['p2'])
+    expect(queue.entries.map(entry => entry.playerId)).toEqual(['p9', 'p2'])
+    expect(await world.inspect.lobbyMapping('p2')).toBe(reopenedLobby?.id)
+    expect(await world.inspect.lobbyMapping('p1')).toBeNull()
     expect((await world.match.get(started.matchId))?.status).toBe('cancelled')
   })
 
@@ -2097,6 +2196,98 @@ describe('system scenarios', () => {
     expect(await world.inspect.lobbyMapping('p3')).toBe(reopenedLobby?.id)
     expect(world.discord.requests()).toHaveLength(requestCountBeforeReplay)
     expect(messageAfterReplay?.id).toBe(messageBeforeReplay?.id)
+  })
+
+  test('blind-ban 1v1 lifecycle keeps the default blind format through completion and report', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: createPlayers(2, 'blind'),
+    })
+    const started = await world.lobby.start('1v1', { hostId: 'blind1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const activeMatch = await world.match.get(started.matchId)
+    const activeParticipants = await world.match.getParticipants(started.matchId)
+    const bans = await world.match.getBans(started.matchId)
+    const draftState = parseDraftData(activeMatch)?.state as {
+      formatId?: string
+      steps?: Array<{ action?: string, seats?: 'all' | number[], count?: number }>
+      bans?: Array<{ stepIndex?: number }>
+    } | null
+    const bansByPlayer = new Map<string, number>()
+    for (const ban of bans) {
+      bansByPlayer.set(ban.bannedBy, (bansByPlayer.get(ban.bannedBy) ?? 0) + 1)
+    }
+
+    expect(findRoomConfig(world, started.matchId)?.formatId).toBe('default-1v1')
+    expect(draftState?.formatId).toBe('default-1v1')
+    expect(activeParticipants.every(participant => participant.civId != null)).toBe(true)
+    expect(bans).toHaveLength(6)
+    expect(bansByPlayer).toEqual(new Map([['blind1', 3], ['blind2', 3]]))
+    expect(draftState?.steps?.[0]).toMatchObject({ action: 'ban', seats: 'all', count: 3 })
+    expect(new Set((draftState?.bans ?? []).map(ban => ban.stepIndex))).toEqual(new Set([0]))
+
+    expect((await world.match.report(started.matchId, {
+      reporterId: 'blind1',
+      placements: 'A',
+    })).ok).toBe(true)
+    await world.flushBackgroundTasks()
+
+    expect((await world.match.get(started.matchId))?.status).toBe('completed')
+  })
+
+  test('visible-ban 1v1 lifecycle uses the visible-ban format through completion and report', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: createPlayers(2, 'visible'),
+    })
+    expect((await world.lobby.config('1v1', {
+      hostId: 'visible1',
+      lobbyId: lobby.id,
+      blindBans: false,
+    })).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const started = await world.lobby.start('1v1', { hostId: 'visible1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const activeMatch = await world.match.get(started.matchId)
+    const activeParticipants = await world.match.getParticipants(started.matchId)
+    const bans = await world.match.getBans(started.matchId)
+    const draftState = parseDraftData(activeMatch)?.state as {
+      formatId?: string
+      steps?: Array<{ action?: string, seats?: 'all' | number[], count?: number }>
+      bans?: Array<{ stepIndex?: number }>
+    } | null
+    const bansByPlayer = new Map<string, number>()
+    for (const ban of bans) {
+      bansByPlayer.set(ban.bannedBy, (bansByPlayer.get(ban.bannedBy) ?? 0) + 1)
+    }
+
+    expect(findRoomConfig(world, started.matchId)?.formatId).toBe('default-1v1-visible-bans')
+    expect(draftState?.formatId).toBe('default-1v1-visible-bans')
+    expect(activeParticipants.every(participant => participant.civId != null)).toBe(true)
+    expect(bans).toHaveLength(6)
+    expect(bansByPlayer).toEqual(new Map([['visible1', 3], ['visible2', 3]]))
+    expect(draftState?.steps?.[0]).toMatchObject({ action: 'ban', seats: [0], count: 1 })
+    expect(draftState?.steps?.[1]).toMatchObject({ action: 'ban', seats: [1], count: 1 })
+    expect(new Set((draftState?.bans ?? []).map(ban => ban.stepIndex))).toEqual(new Set([0, 1, 2, 3, 4, 5]))
+
+    expect((await world.match.report(started.matchId, {
+      reporterId: 'visible1',
+      placements: 'A',
+    })).ok).toBe(true)
+    await world.flushBackgroundTasks()
+
+    expect((await world.match.get(started.matchId))?.status).toBe('completed')
   })
 })
 

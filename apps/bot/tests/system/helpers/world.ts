@@ -1,14 +1,14 @@
 import type { Database as CivupDatabase, Database } from '@civup/db'
-import type { DraftCancelledWebhookPayload, DraftCompleteWebhookPayload, DraftState, DraftWebhookPayload, GameMode, RoomConfig } from '@civup/game'
+import type { DraftCancelledWebhookPayload, DraftCompleteWebhookPayload, DraftState, DraftWebhookPayload, GameMode, QueueEntry, RoomConfig } from '@civup/game'
 import type { Env } from '../../../src/env.ts'
 import type { ActivityTargetSelection, MatchActivityTargetSelection } from '../../../src/services/activity/index.ts'
 import type { LobbyState } from '../../../src/services/lobby/index.ts'
-import { matchParticipants, matches } from '@civup/db'
+import { matchBans, matchParticipants, matches } from '@civup/db'
 import { allLeaderIds, createDraft, draftFormatMap, getCurrentStep, getPendingSeats, isDraftError, processDraftInput } from '@civup/game'
 import { CIVUP_INTERNAL_SECRET_HEADER, createSignedWebhookHeaders } from '@civup/utils'
 import { and, eq } from 'drizzle-orm'
 import { activityLobbyUserKey, activityMatchKey, activityUserKey, getLobbyForUser, getMatchForUser, getUserActivityTarget } from '../../../src/services/activity/index.ts'
-import { addToQueue, getQueueState } from '../../../src/services/queue/index.ts'
+import { addToQueue, getQueueState, setQueueEntries } from '../../../src/services/queue/index.ts'
 import { createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobby, getLobbyById, getLobbyByMatch, setLobbyMemberPlayerIds, setLobbySlots } from '../../../src/services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../../src/services/lobby/live-snapshot.ts'
 import { lobbySnapshotKey } from '../../../src/services/lobby/live-snapshot.ts'
@@ -88,6 +88,7 @@ export interface SystemWorld {
     config: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, banTimerSeconds?: number | null, pickTimerSeconds?: number | null, leaderPoolSize?: number | null, leaderDataVersion?: 'live' | 'beta' | null, mapVoteEnabled?: boolean, blindBans?: boolean, simultaneousPick?: boolean, redDeath?: boolean, dealOptionsSize?: number | null, randomDraft?: boolean, duplicateFactions?: boolean, steamLobbyLink?: string | null, targetSize?: number | null }) => Promise<RouteResult>
     changeMode: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, nextMode: GameMode }) => Promise<RouteResult>
     arrange: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, strategy: 'randomize' | 'balance' | 'shuffle-teams' }) => Promise<RouteResult>
+    cancel: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string }) => Promise<RouteResult>
     start: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string }) => Promise<{ ok: boolean, matchId: string, roomAccessToken: string | null, idempotent?: boolean }>
     place: (mode: Parameters<typeof getQueueState>[1], input: { userId: string, targetSlot: number, lobbyId?: string, playerId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, transferNotice?: string | null, error?: string }>>
     remove: (mode: Parameters<typeof getQueueState>[1], input: { userId: string, slot: number, lobbyId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, error?: string }>>
@@ -104,6 +105,7 @@ export interface SystemWorld {
     report: (matchId: string, input: { reporterId: string, placements: string }) => Promise<{ ok: boolean }>
     get: (matchId: string) => Promise<(typeof matches.$inferSelect) | null>
     getParticipants: (matchId: string) => Promise<(typeof matchParticipants.$inferSelect)[]>
+    getBans: (matchId: string) => Promise<(typeof matchBans.$inferSelect)[]>
     getMessageIds: (matchId: string) => Promise<string[]>
   }
   activity: {
@@ -130,6 +132,7 @@ export interface SystemWorld {
     lobbyHost: (hostId: string, lobbyId: string | null) => Promise<void>
     lobbyMatch: (matchId: string, lobbyId: string | null) => Promise<void>
     openLobbyResidue: (lobbyId: string, input: { memberPlayerIds: string[], slots: (string | null)[] }) => Promise<LobbyState | null>
+    queueEntries: (mode: Parameters<typeof getQueueState>[1], entries: QueueEntry[]) => Promise<void>
   }
   inspect: {
     lobbyMapping: (userId: string) => Promise<string | null>
@@ -348,6 +351,18 @@ export async function createSystemWorld(): Promise<SystemWorld> {
           displayName: input.hostId,
         })
       },
+      cancel(mode, input) {
+        return requestJsonAs(`/api/lobby/${mode}/cancel`, {
+          method: 'POST',
+          body: JSON.stringify({
+            userId: input.hostId,
+            lobbyId: input.lobbyId,
+          }),
+        }, {
+          userId: input.hostId,
+          displayName: input.hostId,
+        })
+      },
       async start(mode, input) {
         const response = await requestAs(`/api/lobby/${mode}/start`, {
           method: 'POST',
@@ -446,6 +461,9 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       },
       getParticipants(matchId) {
         return db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
+      },
+      getBans(matchId) {
+        return db.select().from(matchBans).where(eq(matchBans.matchId, matchId))
       },
       getMessageIds(matchId) {
         return listMatchMessageIds(db as Database, matchId)
@@ -548,6 +566,9 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         if (!lobby) return null
         const withMembers = await setLobbyMemberPlayerIds(kv, lobbyId, input.memberPlayerIds, lobby)
         return setLobbySlots(kv, lobbyId, input.slots, withMembers ?? lobby)
+      },
+      queueEntries(mode, entries) {
+        return setQueueEntries(kv, mode, entries)
       },
     },
     inspect: {
