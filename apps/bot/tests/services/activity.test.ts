@@ -172,6 +172,38 @@ describe('activity mapping behavior', () => {
     await expect(kv.get('activity-target-match:channel-1:match-1:spectator-1')).resolves.toBeNull()
   })
 
+  test('clearActivityMappings keeps a newer activity-user mapping for the same player', async () => {
+    const { kv } = createTrackedKv()
+
+    await storeMatchMapping(kv, 'channel-1', 'match-old')
+    await storeUserMatchMappings(kv, ['user-1'], 'match-old')
+    await storeMatchActivityState(kv, 'channel-1', ['user-1'], {
+      matchId: 'match-old',
+      lobbyId: 'lobby-1',
+      mode: '1v1',
+      activitySecret: 'secret',
+    })
+
+    await storeMatchMapping(kv, 'channel-1', 'match-new')
+    await storeMatchActivityState(kv, 'channel-1', ['user-1'], {
+      matchId: 'match-new',
+      lobbyId: 'lobby-1',
+      mode: '1v1',
+      activitySecret: 'secret',
+    })
+    await kv.put('activity-target-match:channel-1:match-old:user-1', String(Date.now()))
+
+    await clearActivityMappings(kv, 'match-old', ['user-1'], 'channel-1')
+
+    await expect(getMatchForUser(kv, 'user-1')).resolves.toBe('match-new')
+    await expect(getUserActivityTarget(kv, 'channel-1', 'user-1')).resolves.toEqual(expect.objectContaining({
+      kind: 'match',
+      id: 'match-new',
+    }))
+    await expect(kv.get('activity-match:match-old')).resolves.toBeNull()
+    await expect(kv.get('activity-target-match:channel-1:match-old:user-1')).resolves.toBeNull()
+  })
+
   test('clearLobbyMappings removes lobby reopen mapping and channel target', async () => {
     const { kv, operations, resetOperations } = createTrackedKv()
 

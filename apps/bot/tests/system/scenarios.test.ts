@@ -870,6 +870,48 @@ describe('system scenarios', () => {
     expect(await world.inspect.matchMapping('p1')).toBe(started.matchId)
   })
 
+  test('match lookup repairs a poisoned older cancelled match mapping after the lobby has moved on to a newer live draft', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      channelId: 'channel-poisoned-current-match',
+    })
+
+    const oldMatch = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.timeoutDraft(oldMatch.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const reopenedLobby = await world.lobby.getById(lobby.id)
+    expect((await world.lobby.place('1v1', {
+      userId: 'p1',
+      lobbyId: reopenedLobby!.id,
+      targetSlot: 0,
+      displayName: 'p1',
+    })).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const liveMatch = await world.lobby.start('1v1', { hostId: 'p2', lobbyId: reopenedLobby!.id })
+    await world.flushBackgroundTasks()
+
+    await world.corrupt.activityUser('p2', oldMatch.matchId)
+    await world.corrupt.activityMatch(oldMatch.matchId, lobby.channelId)
+
+    const currentMatch = await world.activity.currentMatch({ userId: 'p2' })
+    const launch = await world.activity.launch({ channelId: lobby.channelId, userId: 'p2' })
+
+    expect(currentMatch.status).toBe(200)
+    expect(currentMatch.body).toEqual({ matchId: liveMatch.matchId })
+    expect(await world.inspect.matchMapping('p2')).toBe(liveMatch.matchId)
+    expect(launch.body).toMatchObject({
+      selection: {
+        kind: 'match',
+        matchId: liveMatch.matchId,
+      },
+    })
+  })
+
   test('host lookup repairs a stale lobby-host mapping to the canonical lobby', async () => {
     const world = await createTrackedWorld()
     const realLobby = await world.lobby.createOpen({
@@ -2394,6 +2436,62 @@ describe('system scenarios', () => {
     expect(queue.entries.map(entry => entry.playerId)).toEqual(['p2', 'p3'])
     expect(await world.inspect.lobbyMapping('p2')).toBe(reopenedLobby?.id)
     expect(await world.inspect.lobbyMapping('p3')).toBe(reopenedLobby?.id)
+    expect(world.discord.requests()).toHaveLength(requestCountBeforeReplay)
+    expect(messageAfterReplay?.id).toBe(messageBeforeReplay?.id)
+  })
+
+  test('stale old timeout replay after lobby reuse does not clear the newer live match mapping or rewrite the newer message', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      channelId: 'channel-stale-timeout-reuse',
+    })
+
+    const oldMatch = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.timeoutDraft(oldMatch.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const reopenedLobby = await world.lobby.getById(lobby.id)
+    expect((await world.lobby.place('1v1', {
+      userId: 'p1',
+      lobbyId: reopenedLobby!.id,
+      targetSlot: 0,
+      displayName: 'p1',
+    })).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const liveMatch = await world.lobby.start('1v1', { hostId: 'p2', lobbyId: reopenedLobby!.id })
+    await world.flushBackgroundTasks()
+
+    await world.corrupt.activityMatch(oldMatch.matchId, lobby.channelId)
+
+    const requestCountBeforeReplay = world.discord.requests().length
+    const messageBeforeReplay = await world.discord.currentLobbyMessage(reopenedLobby!.id)
+
+    expect((await world.party.replayDraftCancel(oldMatch.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const liveLobby = await world.lobby.getById(reopenedLobby!.id)
+    const messageAfterReplay = await world.discord.currentLobbyMessage(reopenedLobby!.id)
+    const launch = await world.activity.launch({ channelId: lobby.channelId, userId: 'p2' })
+
+    expect(liveLobby).toMatchObject({
+      id: reopenedLobby?.id,
+      status: 'drafting',
+      matchId: liveMatch.matchId,
+    })
+    expect(liveLobby?.memberPlayerIds).toEqual(expect.arrayContaining(['p1', 'p2']))
+    expect(await world.inspect.matchMapping('p2')).toBe(liveMatch.matchId)
+    expect(await world.inspect.activityTarget(lobby.channelId, 'p2')).toMatchObject({ kind: 'match', id: liveMatch.matchId })
+    expect(await world.inspect.matchChannel(oldMatch.matchId)).toBeNull()
+    expect(launch.body).toMatchObject({
+      selection: {
+        kind: 'match',
+        matchId: liveMatch.matchId,
+      },
+    })
     expect(world.discord.requests()).toHaveLength(requestCountBeforeReplay)
     expect(messageAfterReplay?.id).toBe(messageBeforeReplay?.id)
   })

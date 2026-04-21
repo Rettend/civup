@@ -598,8 +598,13 @@ export async function clearActivityMappings(
     : []
   const allUserIds = [...new Set([...userIds, ...targetedUserIds])]
   const keys = new Set<string>([activityMatchKey(matchId)])
-  for (const userId of allUserIds) {
-    keys.add(activityUserKey(userId))
+  if (allUserIds.length > 0) {
+    const currentMatchIds = await Promise.all(allUserIds.map(userId => kv.get(activityUserKey(userId))))
+    for (let index = 0; index < allUserIds.length; index++) {
+      const userId = allUserIds[index]
+      if (!userId || currentMatchIds[index] !== matchId) continue
+      keys.add(activityUserKey(userId))
+    }
   }
   if (effectiveChannelId) {
     const currentTargets = await getUserActivityTargets(kv, effectiveChannelId, allUserIds)
