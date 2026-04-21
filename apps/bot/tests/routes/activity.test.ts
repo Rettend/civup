@@ -126,7 +126,7 @@ describe('activity lobby join eligibility', () => {
     })
   })
 
-  test('clears stale live lobbies before building launch options for a new join target', async () => {
+  test('filters stale live lobbies before building launch options for a new join target', async () => {
     const { kv } = createTrackedKv()
     const liveLobby = await createLobby(kv, {
       mode: '2v2',
@@ -169,7 +169,7 @@ describe('activity lobby join eligibility', () => {
         id: openLobby.id,
       }),
     ])
-    await expect(getLobbyById(kv, liveLobby.id)).resolves.toBeNull()
+    await expect(getLobbyById(kv, liveLobby.id)).resolves.not.toBeNull()
   })
 
   test('allows joining another open lobby when the viewer is not the source host', async () => {
@@ -445,7 +445,7 @@ describe('activity target selection', () => {
     })).resolves.toEqual({ ok: false, error: 'That target is no longer available.', status: 409 })
 
     await expect(getUserActivityTarget(kv, 'channel-1', 'spectator-1')).resolves.toBeNull()
-    await expect(getLobbyById(kv, lobby.id)).resolves.toBeNull()
+    await expect(getLobbyById(kv, lobby.id)).resolves.not.toBeNull()
   })
 
   test('ignores stale user lobby mappings that no longer include the viewer', async () => {
