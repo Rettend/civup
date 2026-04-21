@@ -38,7 +38,7 @@ import { modeIndexKey } from '../../services/lobby/keys.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { normalizeDraftConfigForMode } from '../../services/lobby/normalize.ts'
 import { createDraftMatch } from '../../services/match/index.ts'
-import { findPersistedLiveMatchIdsForPlayers } from '../../services/match/live.ts'
+import { findPersistedBlockingDraftMatchIdsForPlayers } from '../../services/match/live.ts'
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { addToQueue, clearQueue, getQueueState, moveQueueEntriesBetweenModes, removeFromQueueAndUnlinkParty, setQueueEntries } from '../../services/queue/index.ts'
 import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
@@ -658,10 +658,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       const currentLobbiesForPlayer = await getCurrentLobbiesForPlayer(kv, movingPlayerId, {
         excludeLobbyIds: [lobby.id],
       })
-      const persistedLiveMatchIds = await findPersistedLiveMatchIdsForPlayers(c.env.DB, [movingPlayerId])
-      const hasLiveMatch = persistedLiveMatchIds == null
+      const blockingDraftMatchIds = await findPersistedBlockingDraftMatchIdsForPlayers(c.env.DB, [movingPlayerId])
+      const hasLiveMatch = blockingDraftMatchIds == null
         ? currentLobbiesForPlayer.some(candidate => candidate.status !== 'open')
-        : persistedLiveMatchIds.has(movingPlayerId)
+        : blockingDraftMatchIds.has(movingPlayerId)
       if (hasLiveMatch) {
         return c.json({ error: 'That player is already in a live match.' }, 400)
       }

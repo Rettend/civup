@@ -17,7 +17,7 @@ import {
 } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
-import { findLiveMatchIdsForPlayers, joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
+import { findBlockingDraftMatchIdsForPlayers, joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
 import { buildActivityLaunchSnapshot, selectActivityTargetForUser } from '../../src/routes/activity.ts'
 import { getQueueStateWithLobbyBalanceSnapshot } from '../../src/routes/lobby/snapshot.ts'
 import {
@@ -724,7 +724,7 @@ async function simulateMatchCreate(
 
   await getCurrentLobbyHostedBy(kv, HOST_ID)
   const { queue } = await getQueueStateWithPlayerQueueModes(kv, mode.mode, [HOST_ID], { fallbackToQueueScan: false })
-  await findLiveMatchIdsForPlayers(db, [HOST_ID])
+  await findBlockingDraftMatchIdsForPlayers(db, [HOST_ID])
 
   const hostEntry = buildQueueEntry(HOST_ID, 1)
   const addResult = await addToQueue(kv, mode.mode, hostEntry, { currentState: queue })
@@ -748,7 +748,7 @@ async function simulateMatchJoin(
   mode: CapacityScenario,
   group: string[],
 ): Promise<void> {
-  const liveMatchIdByPlayer = await findLiveMatchIdsForPlayers(db, group)
+  const liveMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, group)
   const outcome = await joinLobbyAndMaybeStartMatch(
     { env: { KV: kv } },
     mode.mode,

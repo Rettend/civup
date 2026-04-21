@@ -34,6 +34,7 @@ describe('match reporter identity', () => {
         completedAt: null,
         seasonId: null,
         draftData: JSON.stringify({
+          completedAt: 1,
           state: {
             seats: [
               {
@@ -114,6 +115,7 @@ describe('match reporter identity', () => {
         completedAt: null,
         seasonId: null,
         draftData: JSON.stringify({
+          completedAt: 1,
           state: {
             seats: [
               { playerId: 'p1', displayName: 'Player One', avatarUrl: null, team: 0 },
@@ -153,6 +155,82 @@ describe('match reporter identity', () => {
       expect(await getChannelForMatch(kv, 'm2')).toBeNull()
       expect(await kv.get('activity-user:p1')).toBeNull()
       expect(await kv.get('activity-user:p2')).toBeNull()
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('completed explicit report requests still use the idempotent repair path', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await db.insert(players).values([
+        { id: 'p1', displayName: 'Player One', avatarUrl: null, createdAt: 1 },
+        { id: 'p2', displayName: 'Player Two', avatarUrl: null, createdAt: 1 },
+      ])
+      await db.insert(matches).values({
+        id: 'm3',
+        gameMode: '1v1',
+        status: 'completed',
+        createdAt: 1,
+        completedAt: 2,
+        seasonId: null,
+        draftData: JSON.stringify({ completedAt: 1 }),
+      })
+      await db.insert(matchParticipants).values([
+        { matchId: 'm3', playerId: 'p1', team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'm3', playerId: 'p2', team: 1, civId: null, placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ])
+
+      const result = await reportMatch(db, kv, {
+        matchId: 'm3',
+        reporterId: 'p1',
+        placements: '',
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+
+      expect(result.idempotent).toBe(true)
+      expect(result.participants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('active matches without draft completion cannot be reported yet', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await db.insert(players).values([
+        { id: 'p1', displayName: 'Player One', avatarUrl: null, createdAt: 1 },
+        { id: 'p2', displayName: 'Player Two', avatarUrl: null, createdAt: 1 },
+      ])
+      await db.insert(matches).values({
+        id: 'm4',
+        gameMode: '1v1',
+        status: 'active',
+        createdAt: 1,
+        completedAt: null,
+        seasonId: null,
+        draftData: JSON.stringify({ state: { seats: [{ playerId: 'p1' }, { playerId: 'p2' }] } }),
+      })
+      await db.insert(matchParticipants).values([
+        { matchId: 'm4', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'm4', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ])
+
+      await expect(reportMatch(db, kv, {
+        matchId: 'm4',
+        reporterId: 'p1',
+        placements: '<@p1>',
+      })).resolves.toEqual({
+        error: 'Match **m4** is not ready to report until the draft is complete.',
+      })
     }
     finally {
       sqlite.close()
