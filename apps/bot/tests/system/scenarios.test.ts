@@ -115,6 +115,100 @@ describe('system scenarios', () => {
     expect(mapVotePayloads.some(payload => payloadHasEmbedField(payload, 'Map', formatMapVoteResultLabel(MAP_VOTE_RESULT.mapType, MAP_VOTE_RESULT.mapScript)))).toBe(true)
   })
 
+  test('starting a valid 1v1 lobby creates exactly one draft room and one drafting match', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: createPlayers(2),
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+
+    const persistedMatches = await world.db.select().from(matches)
+
+    expect(started.ok).toBe(true)
+    expect(world.party.rooms()).toHaveLength(1)
+    expect(world.party.rooms()[0]?.config.matchId).toBe(started.matchId)
+    expect(persistedMatches).toHaveLength(1)
+    expect(persistedMatches[0]).toMatchObject({ id: started.matchId, status: 'drafting', gameMode: '1v1' })
+    expect((await world.lobby.getById(lobby.id))?.matchId).toBe(started.matchId)
+  })
+
+  test('starting a valid 2v2 lobby keeps the expected seat and team order', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '2v2',
+      players: createPlayers(4),
+    })
+
+    const started = await world.lobby.start('2v2', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+
+    expect(findRoomConfig(world, started.matchId)?.seats).toEqual([
+      expect.objectContaining({ playerId: 'p1', team: 0 }),
+      expect.objectContaining({ playerId: 'p3', team: 1 }),
+      expect.objectContaining({ playerId: 'p2', team: 0 }),
+      expect.objectContaining({ playerId: 'p4', team: 1 }),
+    ])
+  })
+
+  test('starting FFA in seat-order mode chooses the default FFA format', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: 'ffa',
+      players: createPlayers(8),
+    })
+
+    const started = await world.lobby.start('ffa', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+
+    expect(findRoomConfig(world, started.matchId)?.formatId).toBe('default-ffa')
+  })
+
+  test('duplicate host start requests are idempotent', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: createPlayers(2),
+    })
+
+    const first = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+    const duplicate = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+
+    const persistedMatches = await world.db.select().from(matches)
+
+    expect(duplicate).toMatchObject({ ok: true, matchId: first.matchId, idempotent: true })
+    expect(world.party.rooms()).toHaveLength(1)
+    expect(persistedMatches).toHaveLength(1)
+    expect(persistedMatches[0]?.id).toBe(first.matchId)
+  })
+
+  test('concurrent lobby starts settle to one live match for the lobby', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: createPlayers(2),
+    })
+
+    const [first, second] = await Promise.all([
+      world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id }),
+      world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id }),
+    ])
+    await world.flushBackgroundTasks()
+
+    const finalLobby = await world.lobby.getById(lobby.id)
+    const liveMatches = (await world.db.select().from(matches)).filter(match => match.status === 'drafting' || match.status === 'active')
+
+    expect([first, second].some(result => result.idempotent === true)).toBe(true)
+    expect(new Set([first.matchId, second.matchId])).toEqual(new Set([finalLobby?.matchId]))
+    expect(world.party.rooms()).toHaveLength(1)
+    expect(liveMatches).toHaveLength(1)
+    expect(liveMatches[0]?.id).toBe(finalLobby?.matchId)
+  })
+
   test('FFA ordered participant reporting respects the submitted real placement order', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
@@ -231,6 +325,19 @@ describe('system scenarios', () => {
     expect(reopenedLobby?.memberPlayerIds).toEqual(['p2'])
     expect(queue.entries.map(entry => entry.playerId)).toEqual(['p2'])
     expect((await world.match.get(started.matchId))?.status).toBe('cancelled')
+  })
+
+  test('queue entries are removed on successful draft start', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '2v2',
+      players: createPlayers(4),
+    })
+
+    await world.lobby.start('2v2', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+
+    expect((await getQueueState(world.kv, '2v2')).entries).toEqual([])
   })
 
   test('scrubbed draft closes and clears the terminal lobby state', async () => {
@@ -462,6 +569,49 @@ describe('system scenarios', () => {
     expect(currentMatch.body).toEqual({ matchId: started.matchId })
     expect(await world.inspect.matchMapping('p1')).toBeNull()
     expect(await world.inspect.matchChannel(started.matchId)).toBeNull()
+  })
+
+  test('match lookup repairs a missing activity-user mapping from canonical live match state', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    await world.corrupt.activityUser('p1', null)
+
+    const currentMatch = await world.activity.currentMatch({ userId: 'p1' })
+
+    expect(currentMatch.status).toBe(200)
+    expect(currentMatch.body).toEqual({ matchId: started.matchId })
+    expect(await world.inspect.matchMapping('p1')).toBe(started.matchId)
+  })
+
+  test('host lookup repairs a stale lobby-host mapping to the canonical lobby', async () => {
+    const world = await createTrackedWorld()
+    const realLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'host' }, { id: 'p2' }],
+      hostId: 'host',
+    })
+    const otherLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'other-host' }],
+      hostId: 'other-host',
+      channelId: 'channel-other-host',
+    })
+
+    await world.corrupt.lobbyHost('host', otherLobby.id)
+
+    const repairedLobby = await world.inspect.currentHostedLobby('host')
+
+    expect(repairedLobby?.id).toBe(realLobby.id)
+    expect(await world.inspect.currentHostedLobby('host')).toMatchObject({ id: realLobby.id })
   })
 
   test('real start flow hands spectators off to the match with a valid room token', async () => {

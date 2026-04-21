@@ -9,7 +9,7 @@ import { CIVUP_INTERNAL_SECRET_HEADER, createSignedWebhookHeaders } from '@civup
 import { and, eq } from 'drizzle-orm'
 import { activityLobbyUserKey, activityMatchKey, activityUserKey, getLobbyForUser, getMatchForUser, getUserActivityTarget } from '../../../src/services/activity/index.ts'
 import { addToQueue, getQueueState } from '../../../src/services/queue/index.ts'
-import { createLobby, getCurrentLobbiesForPlayer, getLobby, getLobbyById, getLobbyByMatch, setLobbyMemberPlayerIds, setLobbySlots } from '../../../src/services/lobby/index.ts'
+import { createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobby, getLobbyById, getLobbyByMatch, setLobbyMemberPlayerIds, setLobbySlots } from '../../../src/services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../../src/services/lobby/live-snapshot.ts'
 import { lobbySnapshotKey } from '../../../src/services/lobby/live-snapshot.ts'
 import { hostKey, matchKey } from '../../../src/services/lobby/keys.ts'
@@ -130,6 +130,7 @@ export interface SystemWorld {
   }
   inspect: {
     lobbyMapping: (userId: string) => Promise<string | null>
+    currentHostedLobby: (hostId: string) => Promise<LobbyState | null>
     matchMapping: (userId: string) => Promise<string | null>
     matchChannel: (matchId: string) => Promise<string | null>
     matchLobbyLink: (matchId: string) => Promise<string | null>
@@ -152,6 +153,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
   const discordPatchFailures = new Set<string>()
   const discordPostFailures = new Map<string, number>()
   const partyRooms = new Map<string, PartyRoomRecord>()
+  let stateStoreRequestQueue = Promise.resolve()
   let nextDiscordMessageId = 1
 
   const env = buildBotTestEnv({
@@ -186,7 +188,9 @@ export async function createSystemWorld(): Promise<SystemWorld> {
     }
 
     if (url.origin === PARTY_HOST && request.method === 'POST' && url.pathname === '/parties/state/global') {
-      return handleStateStoreRequest(request, kv)
+      const response = stateStoreRequestQueue.then(() => handleStateStoreRequest(request, kv))
+      stateStoreRequestQueue = response.then(() => undefined, () => undefined)
+      return response
     }
 
     if (url.origin === 'https://discord.com' && url.pathname.startsWith('/api/v10/')) {
@@ -531,6 +535,9 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       lobbyMapping(userId) {
         return getLobbyForUser(kv, userId)
       },
+      currentHostedLobby(hostId) {
+        return getCurrentLobbyHostedBy(kv, hostId)
+      },
       matchMapping(userId) {
         return getMatchForUser(kv, userId)
       },
@@ -843,6 +850,12 @@ async function handleStateStoreRequest(request: Request, kv: KVNamespace): Promi
     case 'put':
       await kv.put(payload.key!, payload.value!, { expirationTtl: payload.expirationTtl } as any)
       return jsonResponse({ ok: true })
+    case 'putIfAbsent': {
+      const existing = await kv.get(payload.key!)
+      if (existing != null) return jsonResponse({ inserted: false })
+      await kv.put(payload.key!, payload.value!, { expirationTtl: payload.expirationTtl } as any)
+      return jsonResponse({ inserted: true })
+    }
     case 'delete':
       await kv.delete(payload.key!)
       return jsonResponse({ ok: true })
