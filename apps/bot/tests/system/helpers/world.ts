@@ -21,6 +21,7 @@ import { createSqliteD1Database } from '../../helpers/d1.ts'
 import { installFetchHandler } from '../../helpers/fetch-router.ts'
 import { createTestDatabase } from '../../helpers/test-env.ts'
 import { createTrackedKv } from '../../helpers/tracked-kv.ts'
+import { createRuntimeControls } from './runtime-controls.ts'
 
 const BOT_HOST = 'https://bot.test'
 const PARTY_HOST = 'https://party.test'
@@ -95,6 +96,9 @@ export interface SystemWorld {
   }
   party: {
     rooms: () => PartyRoomRecord[]
+    draftComplete: (matchId: string, options?: CompleteDraftOptions) => DraftCompleteWebhookPayload
+    draftTimeout: (matchId: string) => DraftCancelledWebhookPayload
+    draftCancel: (matchId: string, options?: { reason?: 'cancel' | 'scrub' | 'revert' }) => DraftCancelledWebhookPayload
     completeDraft: (matchId: string, options?: CompleteDraftOptions) => Promise<Response>
     timeoutDraft: (matchId: string) => Promise<Response>
     cancelDraft: (matchId: string, options?: { reason?: 'cancel' | 'scrub' | 'revert' }) => Promise<Response>
@@ -146,6 +150,19 @@ export interface SystemWorld {
     lobbyByMatch: (matchId: string) => Promise<LobbyState | null>
     lobbySnapshot: (lobbyId: string) => Promise<unknown | null>
   }
+  runtime: {
+    clock: {
+      freeze: (now: number) => number
+      advance: (ms: number) => number
+      now: () => number
+      reset: () => void
+    }
+    random: {
+      seed: (value: number | string) => void
+      next: () => number
+      reset: () => void
+    }
+  }
   flushBackgroundTasks: () => Promise<void>
   dispose: () => Promise<void>
 }
@@ -160,6 +177,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
   const discordPatchFailures = new Set<string>()
   const discordPostFailures = new Map<string, number>()
   const partyRooms = new Map<string, PartyRoomRecord>()
+  const runtime = createRuntimeControls()
   let stateStoreRequestQueue = Promise.resolve()
   let nextDiscordMessageId = 1
 
@@ -412,22 +430,37 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       rooms() {
         return [...partyRooms.values()]
       },
-      async completeDraft(matchId, options = {}) {
+      draftComplete(matchId, options = {}) {
         const room = getPartyRoom(partyRooms, matchId)
         const payload = buildCompletedPayload(room.config, options)
         room.completionPayloads.push(payload)
+        return payload
+      },
+      draftTimeout(matchId) {
+        const room = getPartyRoom(partyRooms, matchId)
+        const payload = buildTimeoutPayload(room.config)
+        room.cancellationPayloads.push(payload)
+        return payload
+      },
+      draftCancel(matchId, options = {}) {
+        const room = getPartyRoom(partyRooms, matchId)
+        const payload = buildCancelledPayload(room.config, options.reason ?? 'scrub')
+        room.cancellationPayloads.push(payload)
+        return payload
+      },
+      async completeDraft(matchId, options = {}) {
+        const room = getPartyRoom(partyRooms, matchId)
+        const payload = this.draftComplete(matchId, options)
         return sendWebhook(room, payload)
       },
       async timeoutDraft(matchId) {
         const room = getPartyRoom(partyRooms, matchId)
-        const payload = buildTimeoutPayload(room.config)
-        room.cancellationPayloads.push(payload)
+        const payload = this.draftTimeout(matchId)
         return sendWebhook(room, payload)
       },
       async cancelDraft(matchId, options = {}) {
         const room = getPartyRoom(partyRooms, matchId)
-        const payload = buildCancelledPayload(room.config, options.reason ?? 'scrub')
-        room.cancellationPayloads.push(payload)
+        const payload = this.draftCancel(matchId, options)
         return sendWebhook(room, payload)
       },
       async replayDraftComplete(matchId, options = {}) {
@@ -610,8 +643,13 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         return kv.get(lobbySnapshotKey(lobbyId), 'json')
       },
     },
+    runtime: {
+      clock: runtime.clock,
+      random: runtime.random,
+    },
     flushBackgroundTasks: execution.flushBackgroundTasks,
     async dispose() {
+      runtime.restore()
       restoreFetchHandler()
       sqlite.close()
     },

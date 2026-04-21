@@ -305,6 +305,66 @@ describe('system scenarios', () => {
     expect(afterFinalized.get('p4')).toBe(beforeFinalized.get('p4'))
   })
 
+  test('dropped completion webhook keeps the draft live until indexed replay, then applies stored activation and finalization payloads', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '2v2',
+      players: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }, { id: 'p4' }],
+      channelId: 'channel-dropped-complete',
+    })
+
+    const started = await world.lobby.start('2v2', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+
+    world.party.draftComplete(started.matchId)
+    world.party.draftComplete(started.matchId, {
+      finalized: true,
+      transformState: (state) => {
+        const swappedPicks = swapSeatPicks(state, 0, 2)
+        if ('error' in swappedPicks) throw new Error(swappedPicks.error)
+        return { ...state, picks: swappedPicks }
+      },
+    })
+    const requestsBeforeReplay = world.discord.requests().length
+
+    await expectDraftAndLobbyState(world, {
+      mode: '2v2',
+      lobbyId: lobby.id,
+      matchId: started.matchId,
+      lobbyStatus: 'drafting',
+      matchStatus: 'drafting',
+      queuePlayerIds: [],
+    })
+
+    expect((await world.party.replayDraftComplete(started.matchId, { index: 0 })).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const beforeFinalized = new Map((await world.match.getParticipants(started.matchId)).map(participant => [participant.playerId, participant.civId]))
+    const requestsAfterActivation = world.discord.requests().length
+
+    await expectDraftAndLobbyState(world, {
+      mode: '2v2',
+      lobbyId: lobby.id,
+      matchId: started.matchId,
+      lobbyStatus: 'active',
+      matchStatus: 'active',
+      queuePlayerIds: [],
+    })
+    expect([...beforeFinalized.values()].every(civId => civId != null)).toBe(true)
+    expect(requestsAfterActivation).toBeGreaterThan(requestsBeforeReplay)
+
+    expect((await world.party.replayDraftComplete(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const afterFinalized = new Map((await world.match.getParticipants(started.matchId)).map(participant => [participant.playerId, participant.civId]))
+
+    expect(afterFinalized.get('p1')).toBe(beforeFinalized.get('p2'))
+    expect(afterFinalized.get('p2')).toBe(beforeFinalized.get('p1'))
+    expect(afterFinalized.get('p3')).toBe(beforeFinalized.get('p3'))
+    expect(afterFinalized.get('p4')).toBe(beforeFinalized.get('p4'))
+    expect(world.discord.requests().length).toBeGreaterThan(requestsAfterActivation)
+  })
+
   test('draft completion recreates a deleted tracked lobby message during activation', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
@@ -356,6 +416,54 @@ describe('system scenarios', () => {
     expect(reopenedLobby?.memberPlayerIds).toEqual(['p2'])
     expect(queue.entries.map(entry => entry.playerId)).toEqual(['p2'])
     expect((await world.match.get(started.matchId))?.status).toBe('cancelled')
+  })
+
+  test('dropped timeout webhook leaves the draft live until indexed delivery, then repairs reopen state from canonical data', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      channelId: 'channel-dropped-timeout',
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+
+    world.party.draftTimeout(started.matchId)
+    world.party.draftCancel(started.matchId, { reason: 'scrub' })
+    await world.corrupt.queueEntries('1v1', [
+      { playerId: 'p9', displayName: 'p9', avatarUrl: null, joinedAt: 1 },
+      { playerId: 'p1', displayName: 'p1', avatarUrl: null, joinedAt: 2 },
+    ])
+
+    await expectDraftAndLobbyState(world, {
+      mode: '1v1',
+      lobbyId: lobby.id,
+      matchId: started.matchId,
+      lobbyStatus: 'drafting',
+      matchStatus: 'drafting',
+      queuePlayerIds: ['p9', 'p1'],
+    })
+
+    expect((await world.party.replayDraftCancel(started.matchId, { index: 0 })).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const reopenedLobby = await world.lobby.get('1v1')
+
+    expect(reopenedLobby?.id).toBe(lobby.id)
+    await expectDraftAndLobbyState(world, {
+      mode: '1v1',
+      lobbyId: lobby.id,
+      matchId: started.matchId,
+      lobbyStatus: 'open',
+      matchStatus: 'cancelled',
+      queuePlayerIds: ['p9', 'p2'],
+    })
+    expect(reopenedLobby?.hostId).toBe('p2')
+    expect(reopenedLobby?.memberPlayerIds).toEqual(['p2'])
+    expect(reopenedLobby?.slots.filter((playerId): playerId is string => playerId != null)).toEqual(['p2'])
+    expect(await world.inspect.lobbyMapping('p2')).toBe(lobby.id)
+    expect(await world.inspect.lobbyMapping('p1')).toBeNull()
   })
 
   test('pre-start cancel route clears live lobby state and leaves the mode ready for a fresh lobby', async () => {
@@ -2044,6 +2152,29 @@ describe('system scenarios', () => {
     })
   })
 
+  test('deterministic arrange uses seeded runtime controls and preserves activity targeting metadata', async () => {
+    const first = await runSeededArrangeScenario('arrange-deterministic-a', 'channel-arrange-deterministic-a')
+    const second = await runSeededArrangeScenario('arrange-deterministic-a', 'channel-arrange-deterministic-b')
+    const third = await runSeededArrangeScenario('arrange-deterministic-b', 'channel-arrange-deterministic-c')
+
+    expect(first.arranged.status).toBe(200)
+    expect(second.arranged.status).toBe(200)
+    expect(third.arranged.status).toBe(200)
+    expect(first.selectedTarget).toMatchObject({ kind: 'lobby', id: first.lobby.id, selectedAt: 1_700_000_000_000 })
+    expect(first.arrangedLobby?.lastArrange).toEqual({ strategy: 'shuffle-teams', at: 1_700_000_005_000 })
+    expect(first.arrangedLobby?.slots).toEqual(second.arrangedLobby?.slots)
+    expect(first.arrangedLobby?.slots).not.toEqual(third.arrangedLobby?.slots)
+    expect(await first.world.inspect.activityTarget(first.lobby.channelId, 'spectator')).toMatchObject({ kind: 'lobby', id: first.lobby.id, selectedAt: 1_700_000_000_000 })
+    expect(first.launch.body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        option: {
+          id: first.lobby.id,
+        },
+      },
+    })
+  })
+
   test('join racing with host start leaves a clean drafting match state instead of reviving lobby membership', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
@@ -2380,6 +2511,61 @@ async function expectQueuePlayers(
   playerIds: string[],
 ) {
   expect((await getQueueState(world.kv, mode)).entries.map(entry => entry.playerId)).toEqual(playerIds)
+}
+
+async function runSeededArrangeScenario(seed: string, channelId: string) {
+  const world = await createTrackedWorld()
+  const lobby = await world.lobby.createOpen({
+    mode: '2v2',
+    players: [
+      { id: 'p1', displayName: 'Alpha' },
+      { id: 'p2', displayName: 'Bravo' },
+      { id: 'p3', displayName: 'Charlie' },
+      { id: 'p4', displayName: 'Delta' },
+    ],
+    hostId: 'p1',
+    slots: ['p1', 'p3', 'p2', 'p4'],
+    channelId,
+  })
+
+  world.runtime.clock.freeze(1_700_000_000_000)
+  await world.activity.targetLobby({ channelId: lobby.channelId, userId: 'spectator', lobbyId: lobby.id })
+  const selectedTarget = await world.inspect.activityTarget(lobby.channelId, 'spectator')
+
+  world.runtime.clock.advance(5_000)
+  world.runtime.random.seed(seed)
+
+  const arranged = await world.lobby.arrange('2v2', {
+    hostId: 'p1',
+    lobbyId: lobby.id,
+    strategy: 'shuffle-teams',
+  })
+  await world.flushBackgroundTasks()
+
+  return {
+    world,
+    lobby,
+    arranged,
+    selectedTarget,
+    arrangedLobby: await world.lobby.getById(lobby.id),
+    launch: await world.activity.launch({ channelId: lobby.channelId, userId: 'spectator' }),
+  }
+}
+
+async function expectDraftAndLobbyState(
+  world: Awaited<ReturnType<typeof createSystemWorld>>,
+  input: {
+    mode: GameMode
+    lobbyId: string
+    matchId: string
+    lobbyStatus: 'open' | 'drafting' | 'active'
+    matchStatus: 'drafting' | 'active' | 'cancelled'
+    queuePlayerIds: string[]
+  },
+) {
+  expect((await world.lobby.getById(input.lobbyId))?.status).toBe(input.lobbyStatus)
+  expect((await world.match.get(input.matchId))?.status).toBe(input.matchStatus)
+  await expectQueuePlayers(world, input.mode, input.queuePlayerIds)
 }
 
 async function runReportedLifecycle(
