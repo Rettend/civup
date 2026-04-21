@@ -1,6 +1,6 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { findActiveMatchIdsForPlayers, joinLobbyAndMaybeStartMatch, preflightMatchCreateQueueState } from '../../src/commands/match/shared.ts'
+import { findBlockingDraftMatchIdsForPlayers, findReportableMatchIdsForPlayers, joinLobbyAndMaybeStartMatch, preflightMatchCreateQueueState, resolveReportableMatchIdForPlayer } from '../../src/commands/match/shared.ts'
 import { attachLobbyMatch, createLobby, getLobbyById, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../../src/services/lobby/index.ts'
 import { hostKey } from '../../src/services/lobby/keys.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
@@ -388,9 +388,9 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     expect(result.lobby.memberPlayerIds).toEqual(['host', 'ally', 'enemy', 'player-1', 'player-2'])
   })
 
-  test('rejects joins for players who are already in a live match', async () => {
+  test('allows joins for draft-complete active matches but still blocks drafting matches', async () => {
     const { kv } = createTrackedKv()
-    const liveLobby = await createLobby(kv, {
+    const draftingLobby = await createLobby(kv, {
       mode: '2v2',
       hostId: 'player-1',
       channelId: 'channel-1',
@@ -415,9 +415,9 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
-    await attachLobbyMatch(kv, liveLobby.id, 'match-1', liveLobby)
+    await attachLobbyMatch(kv, draftingLobby.id, 'match-1', draftingLobby)
 
-    const result = await joinLobbyAndMaybeStartMatch({
+    const blocked = await joinLobbyAndMaybeStartMatch({
       env: {
         KV: kv,
         DISCORD_TOKEN: 'token',
@@ -430,7 +430,22 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       liveMatchPlayerIds: new Set(['player-1']),
     })
 
-    expect(result).toEqual({ error: '<@player-1> is already in a live match.' })
+    expect(blocked).toEqual({ error: '<@player-1> is already in a live match.' })
+
+    const allowed = await joinLobbyAndMaybeStartMatch({
+      env: {
+        KV: kv,
+        DISCORD_TOKEN: 'token',
+      },
+    }, '2v2', [{
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: '',
+    }], {
+      liveMatchPlayerIds: new Set(),
+    })
+
+    expect('stage' in allowed).toBe(true)
   })
 
   test('moves a player from another open lobby into the preferred lobby', async () => {
@@ -593,8 +608,8 @@ describe('preflightMatchCreateQueueState', () => {
   })
 })
 
-describe('findActiveMatchIdsForPlayers', () => {
-  test('returns only active matches and preserves newest-first ordering', async () => {
+describe('match blocker/reportable discovery', () => {
+  test('returns only blocking draft matches', async () => {
     const { db, sqlite } = await createTestDatabase()
 
     try {
@@ -606,27 +621,90 @@ describe('findActiveMatchIdsForPlayers', () => {
 
       await db.insert(matches).values([
         { id: 'draft-1', gameMode: '1v1', status: 'drafting', createdAt: 1, completedAt: null, seasonId: null, draftData: null },
-        { id: 'active-1', gameMode: '1v1', status: 'active', createdAt: 2, completedAt: null, seasonId: null, draftData: null },
+        { id: 'active-complete-1', gameMode: '1v1', status: 'active', createdAt: 2, completedAt: null, seasonId: null, draftData: JSON.stringify({ completedAt: 2 }) },
         { id: 'completed-1', gameMode: '1v1', status: 'completed', createdAt: 3, completedAt: 4, seasonId: null, draftData: null },
-        { id: 'active-2', gameMode: '1v1', status: 'active', createdAt: 4, completedAt: null, seasonId: null, draftData: null },
+        { id: 'active-anomalous-2', gameMode: '1v1', status: 'active', createdAt: 4, completedAt: null, seasonId: null, draftData: null },
       ])
 
       await db.insert(matchParticipants).values([
         { matchId: 'draft-1', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
         { matchId: 'draft-1', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'active-1', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'active-1', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'active-complete-1', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'active-complete-1', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
         { matchId: 'completed-1', playerId: 'p1', team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
         { matchId: 'completed-1', playerId: 'p3', team: 1, civId: null, placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'active-2', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'active-2', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'active-anomalous-2', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'active-anomalous-2', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
       ])
 
-      const activeMatchIdsByPlayer = await findActiveMatchIdsForPlayers(db, ['p1', 'p2', 'p3'])
+      const blockingMatchIdsByPlayer = await findBlockingDraftMatchIdsForPlayers(db, ['p1', 'p2', 'p3'])
 
-      expect(activeMatchIdsByPlayer.get('p1')).toEqual(['active-2', 'active-1'])
-      expect(activeMatchIdsByPlayer.get('p2')).toEqual(['active-2', 'active-1'])
-      expect(activeMatchIdsByPlayer.get('p3')).toBeUndefined()
+      expect(blockingMatchIdsByPlayer).toEqual(new Map([
+        ['p1', 'active-anomalous-2'],
+        ['p2', 'active-anomalous-2'],
+      ]))
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('returns reportable matches newest-first and excludes drafting/completed', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await db.insert(players).values([
+        { id: 'p1', displayName: 'Player 1', avatarUrl: null, createdAt: 1 },
+        { id: 'p2', displayName: 'Player 2', avatarUrl: null, createdAt: 1 },
+      ])
+
+      await db.insert(matches).values([
+        { id: 'draft-1', gameMode: '1v1', status: 'drafting', createdAt: 1, completedAt: null, seasonId: null, draftData: null },
+        { id: 'reportable-1', gameMode: '1v1', status: 'active', createdAt: 2, completedAt: null, seasonId: null, draftData: JSON.stringify({ completedAt: 2 }) },
+        { id: 'completed-1', gameMode: '1v1', status: 'completed', createdAt: 3, completedAt: 4, seasonId: null, draftData: JSON.stringify({ completedAt: 2 }) },
+        { id: 'reportable-2', gameMode: '1v1', status: 'active', createdAt: 4, completedAt: null, seasonId: null, draftData: JSON.stringify({ completedAt: 4 }) },
+      ])
+
+      await db.insert(matchParticipants).values([
+        { matchId: 'draft-1', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'reportable-1', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'completed-1', playerId: 'p1', team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'reportable-2', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'reportable-2', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ])
+
+      const reportableMatchIdsByPlayer = await findReportableMatchIdsForPlayers(db, ['p1', 'p2'])
+
+      expect(reportableMatchIdsByPlayer.get('p1')).toEqual(['reportable-2', 'reportable-1'])
+      expect(reportableMatchIdsByPlayer.get('p2')).toEqual(['reportable-2'])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('requires match_id when multiple reportable matches exist', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await db.insert(players).values([{ id: 'p1', displayName: 'Player 1', avatarUrl: null, createdAt: 1 }])
+      await db.insert(matches).values([
+        { id: 'reportable-1', gameMode: '1v1', status: 'active', createdAt: 2, completedAt: null, seasonId: null, draftData: JSON.stringify({ completedAt: 2 }) },
+        { id: 'reportable-2', gameMode: '1v1', status: 'active', createdAt: 3, completedAt: null, seasonId: null, draftData: JSON.stringify({ completedAt: 3 }) },
+      ])
+      await db.insert(matchParticipants).values([
+        { matchId: 'reportable-1', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'reportable-2', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ])
+
+      await expect(resolveReportableMatchIdForPlayer(db, 'p1')).resolves.toEqual({
+        matchId: null,
+        error: 'You have multiple draft-complete matches to report. Pass `match_id` to pick the right one.',
+      })
+      await expect(resolveReportableMatchIdForPlayer(db, 'p1', 'reportable-1')).resolves.toEqual({
+        matchId: 'reportable-1',
+        error: null,
+      })
     }
     finally {
       sqlite.close()

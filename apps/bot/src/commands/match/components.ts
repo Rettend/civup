@@ -1,17 +1,17 @@
 import type { GameMode } from '@civup/game'
-import { createDb, matches, matchParticipants } from '@civup/db'
+import { createDb } from '@civup/db'
 import { Button } from 'discord-hono'
-import { and, desc, eq, inArray } from 'drizzle-orm'
 import { isQueueBackedOpenLobby } from '../../routes/lobby/snapshot.ts'
 import { clearActivityMappings, clearLobbyMappingsIfMatchingLobby, getMatchForUser, storeMatchActivityState, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { clearLobbyById, filterQueueEntriesForLobby, getLobbyById } from '../../services/lobby/index.ts'
-import { findPersistedLiveMatchIds } from '../../services/match/live.ts'
+import { findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIds } from '../../services/match/live.ts'
+import { getMatchIdForMessage } from '../../services/match/message.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { getQueueState } from '../../services/queue/index.ts'
 import { sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { createStateStore } from '../../services/state/store.ts'
 import { factory } from '../../setup.ts'
-import { findLiveMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
+import { findBlockingDraftMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
 
 export const component_match_join = factory.component(
   new Button('match-join', 'Join', 'Primary'),
@@ -36,29 +36,7 @@ export const component_match_join = factory.component(
     queueBackgroundTask(c, async () => {
       const lobby = await getLobbyById(kv, lobbyId)
       if (!lobby) {
-        let userMatchId = await getMatchForUser(kv, identity.userId)
-        if (userMatchId) {
-          const persistedLiveMatchIds = await findPersistedLiveMatchIds(env.DB, [userMatchId])
-          if (persistedLiveMatchIds && !persistedLiveMatchIds.has(userMatchId)) {
-            await clearActivityMappings(kv, userMatchId, [identity.userId])
-            userMatchId = null
-          }
-        }
-        if (!userMatchId) {
-          const db = createDb(env.DB)
-          const [active] = await db
-            .select({ matchId: matchParticipants.matchId })
-            .from(matchParticipants)
-            .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-            .where(and(
-              eq(matchParticipants.playerId, identity.userId),
-              inArray(matches.status, ['drafting', 'active']),
-            ))
-            .orderBy(desc(matches.createdAt))
-            .limit(1)
-
-          userMatchId = active?.matchId ?? null
-        }
+        const userMatchId = await resolveJoinButtonLiveMatchId(kv, env.DB, identity.userId, c.interaction.message?.id ?? null)
 
         if (userMatchId) {
           if (interactionChannelId) {
@@ -114,8 +92,8 @@ export const component_match_join = factory.component(
       }
 
       const db = createDb(env.DB)
-      const liveMatchIdByPlayer = await findLiveMatchIdsForPlayers(db, [identity.userId])
-      const currentMatchId = liveMatchIdByPlayer.get(identity.userId) ?? null
+      const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, [identity.userId])
+      const currentMatchId = blockingDraftMatchIdByPlayer.get(identity.userId) ?? null
       if (currentMatchId) {
         await storeMatchActivityState(kv, lobby.channelId, [identity.userId], {
           matchId: currentMatchId,
@@ -136,7 +114,7 @@ export const component_match_join = factory.component(
         {
           preferredLobbyId: lobby.id,
           skipMatchmakingRankGate: true,
-          liveMatchPlayerIds: new Set(liveMatchIdByPlayer.keys()),
+          liveMatchPlayerIds: new Set(blockingDraftMatchIdByPlayer.keys()),
         },
       )
       if ('error' in outcome) {
@@ -169,6 +147,33 @@ export const component_draft_activity = factory.component(
   new Button('draft-activity', 'Open Draft Activity', 'Primary'),
   c => c.resActivity(),
 )
+
+export async function resolveJoinButtonLiveMatchId(
+  kv: KVNamespace,
+  d1: D1Database,
+  userId: string,
+  messageId: string | null,
+  db = createDb(d1),
+): Promise<string | null> {
+  let userMatchId = messageId ? await getMatchIdForMessage(db, messageId) : null
+  if (userMatchId) {
+    const persistedLiveMatchIds = await findPersistedLiveMatchIds(d1, [userMatchId])
+    if (persistedLiveMatchIds?.has(userMatchId)) return userMatchId
+    userMatchId = null
+  }
+
+  userMatchId = await getMatchForUser(kv, userId)
+  if (userMatchId) {
+    const persistedLiveMatchIds = await findPersistedLiveMatchIds(d1, [userMatchId])
+    if (persistedLiveMatchIds?.has(userMatchId)) return userMatchId
+    if (persistedLiveMatchIds != null) {
+      await clearActivityMappings(kv, userMatchId, [userId])
+    }
+  }
+
+  const blockingDraftMatchIds = await findPersistedBlockingDraftMatchIdsForPlayers(d1, [userId])
+  return blockingDraftMatchIds?.get(userId) ?? null
+}
 
 function queueBackgroundTask(context: { executionCtx: { waitUntil: (promise: Promise<unknown>) => void } }, run: () => Promise<void>, errorMessage: string): void {
   const task = (async () => {

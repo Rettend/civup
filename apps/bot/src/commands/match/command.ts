@@ -24,7 +24,7 @@ import { createStateStore } from '../../services/state/store.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
 import { factory } from '../../setup.ts'
-import { buildFfaPlacementOptions, collectFfaPlacementUserIds, findActiveMatchIdsForPlayers, findLiveMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS, preflightMatchCreateQueueState } from './shared.ts'
+import { buildFfaPlacementOptions, collectFfaPlacementUserIds, findBlockingDraftMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS, preflightMatchCreateQueueState, resolveReportableMatchIdForPlayer } from './shared.ts'
 
 const MATCH_MODE_CHOICES = GAME_MODE_CHOICES
 const MATCH_BUMP_RESPONSE_DELETE_MS = 5_000
@@ -51,7 +51,7 @@ export const command_match = factory.command<MatchVar>(
       new Option('match_id', 'Optional match or lobby ID override'),
     ),
     new SubCommand('status', 'Show all active lobbies'),
-    new SubCommand('report', 'Report your active match result').options(
+    new SubCommand('report', 'Report your draft-complete match result').options(
       new Option('match_id', 'Optional match ID override'),
       new Option('winner', 'Winner or 1st place', 'User'),
       ...buildFfaPlacementOptions(),
@@ -149,8 +149,8 @@ export const command_match = factory.command<MatchVar>(
             const queue = createPreflight.queue
 
             const db = createDb(c.env.DB)
-            const liveMatchIdByPlayer = await findLiveMatchIdsForPlayers(db, [identity.userId])
-            if (liveMatchIdByPlayer.has(identity.userId)) {
+            const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, [identity.userId])
+            if (blockingDraftMatchIdByPlayer.has(identity.userId)) {
               await sendTransientEphemeralResponse(
                 c,
                 'You are already in a live match. Finish or cancel it before creating a new lobby.',
@@ -296,18 +296,7 @@ export const command_match = factory.command<MatchVar>(
           let userMatchId = await getMatchForUser(kv, identity.userId)
           if (!userMatchId) {
             const db = createDb(c.env.DB)
-            const [active] = await db
-              .select({ matchId: matchParticipants.matchId })
-              .from(matchParticipants)
-              .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-              .where(and(
-                eq(matchParticipants.playerId, identity.userId),
-                inArray(matches.status, ['drafting', 'active']),
-              ))
-              .orderBy(desc(matches.createdAt))
-              .limit(1)
-
-            userMatchId = active?.matchId ?? null
+            userMatchId = (await findBlockingDraftMatchIdsForPlayers(db, [identity.userId])).get(identity.userId) ?? null
           }
 
           if (userMatchId) {
@@ -328,11 +317,11 @@ export const command_match = factory.command<MatchVar>(
         }
 
         const db = createDb(c.env.DB)
-        const liveMatchIdByPlayer = await findLiveMatchIdsForPlayers(db, joinRequest.entries.map(entry => entry.playerId))
-        if (liveMatchIdByPlayer.size > 0) {
+        const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, joinRequest.entries.map(entry => entry.playerId))
+        if (blockingDraftMatchIdByPlayer.size > 0) {
           const playersInLiveMatch = joinRequest.entries
             .map(entry => entry.playerId)
-            .filter(playerId => liveMatchIdByPlayer.has(playerId))
+            .filter(playerId => blockingDraftMatchIdByPlayer.has(playerId))
           if (playersInLiveMatch.length > 0) {
             const mentions = playersInLiveMatch.map(playerId => `<@${playerId}>`).join(', ')
             return c.flags('EPHEMERAL').resDefer(async (c) => {
@@ -346,7 +335,7 @@ export const command_match = factory.command<MatchVar>(
             c,
             mode,
             joinRequest.entries,
-            { liveMatchPlayerIds: new Set(liveMatchIdByPlayer.keys()) },
+            { liveMatchPlayerIds: new Set(blockingDraftMatchIdByPlayer.keys()) },
           )
           if ('error' in outcome) {
             await sendTransientEphemeralResponse(c, outcome.error, 'error')
@@ -708,23 +697,16 @@ export const command_match = factory.command<MatchVar>(
           const db = createDb(c.env.DB)
           const kv = createStateStore(c.env)
 
-          let matchId = c.var.match_id?.trim() ?? null
-          if (!matchId) {
-            const activeMatchIds = (await findActiveMatchIdsForPlayers(db, [identity.userId])).get(identity.userId) ?? []
-            if (activeMatchIds.length > 1) {
-              await sendTransientEphemeralResponse(c, 'You are in multiple active matches. Pass `match_id` to pick the right one.', 'error')
-              return
-            }
-
-            matchId = activeMatchIds[0] ?? null
-            if (matchId) {
-              c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], matchId))
-            }
-          }
-
-          if (!matchId) {
-            await sendTransientEphemeralResponse(c, 'Could not find an active match for you. You can pass `match_id` explicitly.', 'error')
+          const resolvedReportableMatch = await resolveReportableMatchIdForPlayer(db, identity.userId, c.var.match_id)
+          if (resolvedReportableMatch.error) {
+            await sendTransientEphemeralResponse(c, resolvedReportableMatch.error, 'error')
             return
+          }
+          const matchId = resolvedReportableMatch.matchId
+          if (!matchId) return
+
+          if (!c.var.match_id?.trim()) {
+            c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], matchId))
           }
 
           const [match] = await db
@@ -738,65 +720,56 @@ export const command_match = factory.command<MatchVar>(
             return
           }
 
-          if (match.status === 'completed') {
-            console.log('[idempotency] duplicate slash report request', {
-              matchId: match.id,
-              reporterId: identity.userId,
-            })
-            await sendTransientEphemeralResponse(c, `Match **${match.id}** was already reported.`, 'info')
-            return
-          }
-
-          if (match.status !== 'active') {
+          if (match.status !== 'active' && match.status !== 'completed') {
             await sendTransientEphemeralResponse(c, `Match **${match.id}** is not active (status: ${match.status}).`, 'error')
             return
           }
 
-          const orderedFfaIds = collectFfaPlacementUserIds(c.var)
-          const winnerId = c.var.winner ?? null
-          const matchContext = getStoredGameModeContext(match.gameMode, match.draftData)
-          if (!matchContext) {
-            await sendTransientEphemeralResponse(c, `Match **${match.id}** has unsupported game mode: ${match.gameMode}.`, 'error')
-            return
-          }
-
-          const mode = matchContext.mode
           const fallbackLobby = await getLobbyByMatch(kv, match.id)
-          const participantRows = await db
-            .select({ playerId: matchParticipants.playerId, team: matchParticipants.team })
-            .from(matchParticipants)
-            .where(eq(matchParticipants.matchId, match.id))
-          const uniqueTeams = new Set(isTeamMode(mode)
-            ? participantRows.flatMap(participant => participant.team == null ? [] : [participant.team])
-            : [])
+          let placements = ''
+          if (match.status === 'active') {
+            const orderedFfaIds = collectFfaPlacementUserIds(c.var)
+            const winnerId = c.var.winner ?? null
+            const matchContext = getStoredGameModeContext(match.gameMode, match.draftData)
+            if (!matchContext) {
+              await sendTransientEphemeralResponse(c, `Match **${match.id}** has unsupported game mode: ${match.gameMode}.`, 'error')
+              return
+            }
 
-          let placements: string
-          if (mode === 'ffa') {
-            if (!winnerId) {
-              await sendTransientEphemeralResponse(c, 'For FFA reporting, you must provide a `winner` (1st place) user.', 'error')
-              return
+            const mode = matchContext.mode
+            const participantRows = await db
+              .select({ playerId: matchParticipants.playerId, team: matchParticipants.team })
+              .from(matchParticipants)
+              .where(eq(matchParticipants.matchId, match.id))
+            const uniqueTeams = new Set(isTeamMode(mode)
+              ? participantRows.flatMap(participant => participant.team == null ? [] : [participant.team])
+              : [])
+
+            if (mode === 'ffa') {
+              if (!winnerId) {
+                await sendTransientEphemeralResponse(c, 'For FFA reporting, you must provide a `winner` (1st place) user.', 'error')
+                return
+              }
+              const requiredPlacements = matchContext.redDeath ? 4 : (participantRows.length > 0 ? participantRows.length : minPlayerCount(mode))
+              const placementLabelByCount: Record<number, string> = {
+                2: 'second',
+                3: 'third',
+                4: 'fourth',
+                5: 'fifth',
+                6: 'sixth',
+                7: 'seventh',
+                8: 'eighth',
+                9: 'ninth',
+                10: 'tenth',
+              }
+              const lastRequiredPlacement = placementLabelByCount[requiredPlacements] ?? `${requiredPlacements}th`
+              if (orderedFfaIds.length < requiredPlacements) {
+                await sendTransientEphemeralResponse(c, `FFA reporting needs at least ${requiredPlacements} ordered users (\`winner\` + \`second\` to \`${lastRequiredPlacement}\`).`, 'error')
+                return
+              }
+              placements = orderedFfaIds.map(playerId => `<@${playerId}>`).join('\n')
             }
-            const requiredPlacements = matchContext.redDeath ? 4 : (participantRows.length > 0 ? participantRows.length : minPlayerCount(mode))
-            const placementLabelByCount: Record<number, string> = {
-              2: 'second',
-              3: 'third',
-              4: 'fourth',
-              5: 'fifth',
-              6: 'sixth',
-              7: 'seventh',
-              8: 'eighth',
-              9: 'ninth',
-              10: 'tenth',
-            }
-            const lastRequiredPlacement = placementLabelByCount[requiredPlacements] ?? `${requiredPlacements}th`
-            if (orderedFfaIds.length < requiredPlacements) {
-              await sendTransientEphemeralResponse(c, `FFA reporting needs at least ${requiredPlacements} ordered users (\`winner\` + \`second\` to \`${lastRequiredPlacement}\`).`, 'error')
-              return
-            }
-            placements = orderedFfaIds.map(playerId => `<@${playerId}>`).join('\n')
-          }
-          else {
-            if (uniqueTeams.size > 2) {
+            else if (uniqueTeams.size > 2) {
               if (!winnerId) {
                 await sendTransientEphemeralResponse(c, 'For multi-team team reporting, provide `winner` and one player from each remaining team in placement order.', 'error')
                 return
