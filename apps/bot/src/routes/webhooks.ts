@@ -105,6 +105,10 @@ export function registerWebhookRoutes(app: Hono<Env>) {
     })
 
     if ('error' in cancelled) {
+      if (isIgnorableDraftCancelError(cancelled.error)) {
+        console.warn(`Ignoring stale draft-cancelled webhook for match ${payload.matchId}: ${cancelled.error}`)
+        return c.json({ ok: true, ignored: true })
+      }
       return c.json({ error: cancelled.error }, 400)
     }
 
@@ -172,6 +176,11 @@ export function registerWebhookRoutes(app: Hono<Env>) {
 function isIgnorableDraftCompleteError(error: string): boolean {
   return error.includes('cannot be activated (status: cancelled)')
     || error.includes('cannot be activated (status: completed)')
+}
+
+function isIgnorableDraftCancelError(error: string): boolean {
+  return error.includes('cannot be cancelled (status: active)')
+    || error.includes('cannot be cancelled (status: completed)')
 }
 
 function isDraftWebhookPayload(value: unknown): value is DraftWebhookPayload {

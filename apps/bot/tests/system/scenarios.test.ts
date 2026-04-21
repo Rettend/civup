@@ -546,6 +546,116 @@ describe('system scenarios', () => {
     expect(await world.discord.currentLobbyMessage(lobby.id)).toMatchObject({ id: reboundLobby?.messageId })
   })
 
+  test('initial drafting embed update failure does not break the draft lifecycle', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+    })
+    const staleMessageId = lobby.messageId
+    world.discord.failNextPatch(staleMessageId)
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+
+    const draftingLobby = await world.lobby.getById(lobby.id)
+    expect(draftingLobby?.status).toBe('drafting')
+    expect(draftingLobby?.messageId).not.toBe(staleMessageId)
+    expect(world.discord.message(staleMessageId)).toBeNull()
+
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+    expect((await world.match.report(started.matchId, {
+      reporterId: 'p1',
+      placements: 'A',
+    })).ok).toBe(true)
+    await world.flushBackgroundTasks()
+
+    expect((await world.match.get(started.matchId))?.status).toBe('completed')
+    expect(await world.inspect.matchMapping('p1')).toBeNull()
+    expect(await world.inspect.matchMapping('p2')).toBeNull()
+  })
+
+  test('draft-complete embed update failure does not break activation or report flows', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+    world.discord.failNextPatch(lobby.messageId)
+
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const activeLobby = await world.lobby.getById(lobby.id)
+    expect((await world.match.get(started.matchId))?.status).toBe('active')
+    expect(activeLobby?.status).toBe('active')
+    expect(activeLobby?.messageId).not.toBe(lobby.messageId)
+    expect(world.discord.message(activeLobby!.messageId)).not.toBeNull()
+
+    expect((await world.match.report(started.matchId, {
+      reporterId: 'p1',
+      placements: 'A',
+    })).ok).toBe(true)
+    await world.flushBackgroundTasks()
+
+    expect((await world.match.get(started.matchId))?.status).toBe('completed')
+    expect((await world.match.getMessageIds(started.matchId)).length).toBeGreaterThanOrEqual(2)
+  })
+
+  test('cancelled embed update failure does not leave stale live mappings behind', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+    world.discord.failNextPatch(lobby.messageId)
+
+    expect((await world.party.cancelDraft(started.matchId, { reason: 'scrub' })).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    expect(await world.lobby.getById(lobby.id)).toBeNull()
+    expect(await world.inspect.lobbyByMatch(started.matchId)).toBeNull()
+    expect(await world.inspect.lobbyMapping('p1')).toBeNull()
+    expect(await world.inspect.lobbyMapping('p2')).toBeNull()
+    expect(await world.inspect.matchMapping('p1')).toBeNull()
+    expect(await world.inspect.matchMapping('p2')).toBeNull()
+    expect((await world.match.get(started.matchId))?.status).toBe('cancelled')
+  })
+
+  test('archive message failure during report does not reopen or corrupt a completed match', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+    world.discord.failNextPost('channel-archive')
+
+    expect((await world.match.report(started.matchId, {
+      reporterId: 'p1',
+      placements: 'A',
+    })).ok).toBe(true)
+    await world.flushBackgroundTasks()
+
+    expect((await world.match.get(started.matchId))?.status).toBe('completed')
+    expect(await world.lobby.getById(lobby.id)).toBeNull()
+    expect(await world.inspect.matchMapping('p1')).toBeNull()
+    expect(await world.inspect.matchMapping('p2')).toBeNull()
+    expect((await world.match.getMessageIds(started.matchId))).toHaveLength(1)
+    expect(world.discord.messages().some(message => message.channelId === 'channel-archive')).toBe(false)
+  })
+
   test('moving from one open lobby to another uses the real join path and keeps mappings coherent', async () => {
     const world = await createTrackedWorld()
     const sourceLobby = await world.lobby.createOpen({
@@ -821,6 +931,105 @@ describe('system scenarios', () => {
     expect(freshJoin.status).toBe(200)
     expect((await world.lobby.getById(freshLobby.id))?.memberPlayerIds).toEqual(['fresh-host', 'p3'])
     expect(await world.inspect.lobbyMapping('p3')).toBe(freshLobby.id)
+  })
+
+  test('out-of-order completion then cancellation is ignored without disturbing the active match', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const requestsBeforeCancel = world.discord.requests().length
+    const messageBeforeCancel = await world.discord.currentLobbyMessage(lobby.id)
+
+    const staleCancel = await world.party.cancelDraft(started.matchId, { reason: 'scrub' })
+    await world.flushBackgroundTasks()
+
+    expect(staleCancel.status).toBe(200)
+    await expect(staleCancel.json()).resolves.toEqual({ ok: true, ignored: true })
+    expect((await world.match.get(started.matchId))?.status).toBe('active')
+    expect((await world.lobby.getById(lobby.id))?.status).toBe('active')
+    expect(await world.discord.currentLobbyMessage(lobby.id)).toMatchObject({ id: messageBeforeCancel?.id })
+    expect(world.discord.requests()).toHaveLength(requestsBeforeCancel)
+  })
+
+  test('out-of-order cancellation then completion is ignored without reviving the cancelled match', async () => {
+    const world = await createTrackedWorld()
+    await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1' })
+    await world.flushBackgroundTasks()
+    expect((await world.party.timeoutDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const reopenedLobby = await world.lobby.get('1v1')
+    const queueBeforeReplay = await getQueueState(world.kv, '1v1')
+    const requestsBeforeReplay = world.discord.requests().length
+
+    const staleComplete = await world.party.completeDraft(started.matchId)
+    await world.flushBackgroundTasks()
+
+    expect(staleComplete.status).toBe(200)
+    await expect(staleComplete.json()).resolves.toEqual({ ok: true, ignored: true })
+    expect((await world.match.get(started.matchId))?.status).toBe('cancelled')
+    expect((await world.lobby.getById(reopenedLobby!.id))?.status).toBe('open')
+    expect((await getQueueState(world.kv, '1v1')).entries.map(entry => entry.playerId)).toEqual(queueBeforeReplay.entries.map(entry => entry.playerId))
+    expect(world.discord.requests()).toHaveLength(requestsBeforeReplay)
+  })
+
+  test('delayed webhook delivery after report cleanup is ignored safely', async () => {
+    const world = await createTrackedWorld()
+    const result = await runReportedLifecycle(world, {
+      mode: '1v1',
+      players: createPlayers(2),
+    })
+
+    const requestsBeforeReplay = world.discord.requests().length
+    const messageIdsBeforeReplay = await world.match.getMessageIds(result.matchId)
+
+    const delayedComplete = await world.party.replayDraftComplete(result.matchId)
+    const delayedCancel = await world.party.cancelDraft(result.matchId, { reason: 'scrub' })
+    await world.flushBackgroundTasks()
+
+    expect(delayedComplete.status).toBe(200)
+    await expect(delayedComplete.json()).resolves.toEqual({ ok: true, ignored: true })
+    expect(delayedCancel.status).toBe(200)
+    await expect(delayedCancel.json()).resolves.toEqual({ ok: true, ignored: true })
+    expect((await world.match.get(result.matchId))?.status).toBe('completed')
+    expect(await world.lobby.getById(result.lobby.id)).toBeNull()
+    expect(await world.inspect.matchMapping('p1')).toBeNull()
+    expect(await world.inspect.matchMapping('p2')).toBeNull()
+    expect(await world.match.getMessageIds(result.matchId)).toEqual(messageIdsBeforeReplay)
+    expect(world.discord.requests()).toHaveLength(requestsBeforeReplay)
+  })
+
+  test('webhook signature failure is rejected cleanly', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const rejected = await world.party.replayDraftComplete(started.matchId, { sign: false })
+
+    expect(rejected.status).toBe(401)
+    expect(await rejected.json()).toEqual({ error: 'Unauthorized webhook' })
+    expect((await world.match.get(started.matchId))?.status).toBe('active')
+    expect((await world.lobby.getById(lobby.id))?.status).toBe('active')
   })
 
   test('duplicate timeout webhook after a reopened lobby gains a new joiner does not strand players or rewrite the embed', async () => {

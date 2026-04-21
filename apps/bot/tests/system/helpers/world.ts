@@ -52,6 +52,12 @@ interface CompleteDraftOptions {
   mapVoteResult?: DraftCompleteWebhookPayload['mapVoteResult']
 }
 
+interface WebhookDeliveryOptions {
+  sign?: boolean
+  secret?: string
+  rawBody?: string
+}
+
 interface WorldPlayerInput {
   id: string
   displayName?: string
@@ -88,8 +94,8 @@ export interface SystemWorld {
     completeDraft: (matchId: string, options?: CompleteDraftOptions) => Promise<Response>
     timeoutDraft: (matchId: string) => Promise<Response>
     cancelDraft: (matchId: string, options?: { reason?: 'cancel' | 'scrub' | 'revert' }) => Promise<Response>
-    replayDraftComplete: (matchId: string, options?: { index?: number }) => Promise<Response>
-    replayDraftCancel: (matchId: string, options?: { index?: number }) => Promise<Response>
+    replayDraftComplete: (matchId: string, options?: { index?: number } & WebhookDeliveryOptions) => Promise<Response>
+    replayDraftCancel: (matchId: string, options?: { index?: number } & WebhookDeliveryOptions) => Promise<Response>
   }
   match: {
     report: (matchId: string, input: { reporterId: string, placements: string }) => Promise<{ ok: boolean }>
@@ -108,6 +114,7 @@ export interface SystemWorld {
     message: (messageId: string) => DiscordMessageRecord | null
     deleteMessage: (messageId: string) => void
     failNextPatch: (messageId: string) => void
+    failNextPost: (channelId: string, status?: number) => void
     currentLobbyMessage: (lobbyId: string) => Promise<DiscordMessageRecord | null>
     deleteCurrentLobbyMessage: (lobbyId: string) => Promise<void>
   }
@@ -138,6 +145,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
   const discordRequests: DiscordRequestRecord[] = []
   const discordMessages = new Map<string, DiscordMessageRecord>()
   const discordPatchFailures = new Set<string>()
+  const discordPostFailures = new Map<string, number>()
   const partyRooms = new Map<string, PartyRoomRecord>()
   let nextDiscordMessageId = 1
 
@@ -177,7 +185,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
     }
 
     if (url.origin === 'https://discord.com' && url.pathname.startsWith('/api/v10/')) {
-      return handleDiscordRequest(request, discordRequests, discordMessages, discordPatchFailures, () => `discord-message-${nextDiscordMessageId++}`)
+      return handleDiscordRequest(request, discordRequests, discordMessages, discordPatchFailures, discordPostFailures, () => `discord-message-${nextDiscordMessageId++}`)
     }
 
     return undefined
@@ -193,15 +201,18 @@ export async function createSystemWorld(): Promise<SystemWorld> {
     return app.fetch(new Request(`${BOT_HOST}${path}`, { ...init, headers }), env, execution.executionCtx)
   }
 
-  const sendWebhook = async (room: PartyRoomRecord, payload: DraftWebhookPayload): Promise<Response> => {
+  const sendWebhook = async (room: PartyRoomRecord, payload: DraftWebhookPayload, options: WebhookDeliveryOptions = {}): Promise<Response> => {
     if (!room.config.webhookUrl) throw new Error(`Captured Party room ${room.config.matchId} has no webhookUrl configured`)
 
-    const body = JSON.stringify(payload)
-    const headers = new Headers(
-      room.config.webhookSecret
-        ? await createSignedWebhookHeaders(room.config.webhookSecret, body)
-        : undefined,
-    )
+    const body = options.rawBody ?? JSON.stringify(payload)
+    const signingSecret = options.secret ?? room.config.webhookSecret
+    const headers = new Headers()
+    if (options.sign !== false && signingSecret) {
+      const signedHeaders = await createSignedWebhookHeaders(signingSecret, body)
+      for (const [key, value] of Object.entries(signedHeaders)) {
+        headers.set(key, value)
+      }
+    }
     headers.set('Content-Type', 'application/json')
 
     return fetch(new Request(room.config.webhookUrl, {
@@ -379,13 +390,13 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         const room = getPartyRoom(partyRooms, matchId)
         const payload = room.completionPayloads[options.index ?? room.completionPayloads.length - 1]
         if (!payload) throw new Error(`No completion payload recorded for match ${matchId}`)
-        return sendWebhook(room, payload)
+        return sendWebhook(room, payload, options)
       },
       async replayDraftCancel(matchId, options = {}) {
         const room = getPartyRoom(partyRooms, matchId)
         const payload = room.cancellationPayloads[options.index ?? room.cancellationPayloads.length - 1]
         if (!payload) throw new Error(`No cancellation payload recorded for match ${matchId}`)
-        return sendWebhook(room, payload)
+        return sendWebhook(room, payload, options)
       },
     },
     match: {
@@ -463,6 +474,9 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       },
       failNextPatch(messageId) {
         discordPatchFailures.add(messageId)
+      },
+      failNextPost(channelId, status = 400) {
+        discordPostFailures.set(channelId, status)
       },
       async currentLobbyMessage(lobbyId) {
         const lobby = await getLobbyById(kv, lobbyId)
@@ -715,6 +729,7 @@ async function handleDiscordRequest(
   requests: DiscordRequestRecord[],
   messages: Map<string, DiscordMessageRecord>,
   patchFailures: Set<string>,
+  postFailures: Map<string, number>,
   createMessageId: () => string,
 ): Promise<Response> {
   const url = new URL(request.url)
@@ -725,6 +740,11 @@ async function handleDiscordRequest(
   if (channelMatch) {
     const [, channelId, messageId] = channelMatch
     if (request.method === 'POST' && !messageId) {
+      const failureStatus = postFailures.get(channelId!)
+      if (failureStatus != null) {
+        postFailures.delete(channelId!)
+        return jsonResponse({ error: 'Injected message create failure' }, failureStatus)
+      }
       const id = createMessageId()
       messages.set(id, {
         id,
