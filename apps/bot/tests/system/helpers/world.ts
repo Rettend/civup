@@ -106,6 +106,7 @@ export interface SystemWorld {
   activity: {
     launch: (input: { channelId: string, userId: string }) => Promise<RouteResult>
     currentLobby: (input: { userId: string }) => Promise<RouteResult>
+    currentMatch: (input: { userId: string }) => Promise<RouteResult>
     targetLobby: (input: { channelId: string, userId: string, lobbyId: string }) => Promise<void>
   }
   discord: {
@@ -121,6 +122,7 @@ export interface SystemWorld {
   corrupt: {
     activityLobbyUser: (userId: string, lobbyId: string | null) => Promise<void>
     activityUser: (userId: string, matchId: string | null) => Promise<void>
+    activityMatch: (matchId: string, channelId: string | null) => Promise<void>
     lobbySnapshot: (lobbyId: string, snapshot: unknown | null) => Promise<void>
     lobbyHost: (hostId: string, lobbyId: string | null) => Promise<void>
     lobbyMatch: (matchId: string, lobbyId: string | null) => Promise<void>
@@ -129,9 +131,12 @@ export interface SystemWorld {
   inspect: {
     lobbyMapping: (userId: string) => Promise<string | null>
     matchMapping: (userId: string) => Promise<string | null>
+    matchChannel: (matchId: string) => Promise<string | null>
+    matchLobbyLink: (matchId: string) => Promise<string | null>
     activityTarget: (channelId: string, userId: string) => Promise<ActivityTargetSelection | MatchActivityTargetSelection | null>
     lobbiesForPlayer: (userId: string) => Promise<LobbyState[]>
     lobbyByMatch: (matchId: string) => Promise<LobbyState | null>
+    lobbySnapshot: (lobbyId: string) => Promise<unknown | null>
   }
   flushBackgroundTasks: () => Promise<void>
   dispose: () => Promise<void>
@@ -440,6 +445,14 @@ export async function createSystemWorld(): Promise<SystemWorld> {
           displayName: input.userId,
         })
       },
+      currentMatch(input) {
+        return requestJsonAs(`/api/match/user/${input.userId}`, {
+          method: 'GET',
+        }, {
+          userId: input.userId,
+          displayName: input.userId,
+        })
+      },
       async targetLobby(input) {
         const response = await requestAs('/api/activity/target', {
           method: 'POST',
@@ -495,6 +508,9 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       activityUser(userId, matchId) {
         return putOrDeleteKv(kv, activityUserKey(userId), matchId)
       },
+      activityMatch(matchId, channelId) {
+        return putOrDeleteKv(kv, activityMatchKey(matchId), channelId)
+      },
       lobbySnapshot(lobbyId, snapshot) {
         return putOrDeleteKv(kv, lobbySnapshotKey(lobbyId), snapshot)
       },
@@ -518,6 +534,12 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       matchMapping(userId) {
         return getMatchForUser(kv, userId)
       },
+      matchChannel(matchId) {
+        return kv.get(activityMatchKey(matchId))
+      },
+      matchLobbyLink(matchId) {
+        return kv.get(matchKey(matchId))
+      },
       activityTarget(channelId, userId) {
         return getUserActivityTarget(kv, channelId, userId)
       },
@@ -526,6 +548,9 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       },
       lobbyByMatch(matchId) {
         return getLobbyByMatch(kv, matchId)
+      },
+      lobbySnapshot(lobbyId) {
+        return kv.get(lobbySnapshotKey(lobbyId), 'json')
       },
     },
     flushBackgroundTasks: execution.flushBackgroundTasks,

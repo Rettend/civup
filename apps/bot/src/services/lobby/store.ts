@@ -256,11 +256,22 @@ export async function getLobbyByMatch(kv: KVNamespace, matchId: string): Promise
   const lobbyId = await kv.get(matchKey(matchId))
   if (!lobbyId) return null
   const lobby = await getLobbyById(kv, lobbyId)
-  if (!lobby || lobby.matchId !== matchId) {
-    await stateStoreMdelete(kv, [matchKey(matchId)])
-    return null
+  if (lobby?.matchId === matchId) {
+    return lobby
   }
-  return lobby
+
+  const recoveredLobby = (await getAllLobbies(kv)).find(candidate => candidate.matchId === matchId) ?? null
+  if (recoveredLobby) {
+    await stateStoreMput(kv, [{
+      key: matchKey(matchId),
+      value: recoveredLobby.id,
+      expirationTtl: LOBBY_TTL,
+    }])
+    return recoveredLobby
+  }
+
+  await stateStoreMdelete(kv, [matchKey(matchId)])
+  return null
 }
 
 export async function upsertLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
