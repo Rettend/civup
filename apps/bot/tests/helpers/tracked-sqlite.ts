@@ -23,18 +23,20 @@ export function trackSqlite(sqlite: Database): {
   counts: SqlOperationCounts
   reset: () => void
   restore: () => void
+  runWithoutTracking: <T>(callback: () => Promise<T> | T) => Promise<T>
 } {
   const counts: SqlOperationCounts = {
     rowsRead: 0,
     rowsWritten: 0,
   }
+  let trackingEnabled = true
 
   const originalPrepare = sqlite.prepare.bind(sqlite)
 
   sqlite.prepare = ((sql: string, ...rest: unknown[]) => {
     const statement = originalPrepare(sql, ...rest) as TrackedStatement
     const kind = classifyStatement(sql)
-    return wrapStatement(statement, kind, counts)
+    return wrapStatement(statement, kind, counts, () => trackingEnabled)
   }) as typeof sqlite.prepare
 
   return {
@@ -42,6 +44,16 @@ export function trackSqlite(sqlite: Database): {
     reset() {
       counts.rowsRead = 0
       counts.rowsWritten = 0
+    },
+    async runWithoutTracking<T>(callback: () => Promise<T> | T): Promise<T> {
+      const previous = trackingEnabled
+      trackingEnabled = false
+      try {
+        return await callback()
+      }
+      finally {
+        trackingEnabled = previous
+      }
     },
     restore() {
       sqlite.prepare = originalPrepare as typeof sqlite.prepare
@@ -67,12 +79,13 @@ function wrapStatement(
   statement: TrackedStatement,
   kind: StatementKind,
   counts: SqlOperationCounts,
+  isTrackingEnabled: () => boolean,
 ): TrackedStatement {
   if (statement.all) {
     const original = statement.all.bind(statement)
     statement.all = (...args: any[]) => {
       const rows = original(...args)
-      if (kind === 'read' && Array.isArray(rows)) counts.rowsRead += rows.length
+      if (isTrackingEnabled() && kind === 'read' && Array.isArray(rows)) counts.rowsRead += rows.length
       return rows
     }
   }
@@ -81,7 +94,7 @@ function wrapStatement(
     const original = statement.get.bind(statement)
     statement.get = (...args: any[]) => {
       const row = original(...args)
-      if (kind === 'read' && row != null) counts.rowsRead += 1
+      if (isTrackingEnabled() && kind === 'read' && row != null) counts.rowsRead += 1
       return row
     }
   }
@@ -90,7 +103,7 @@ function wrapStatement(
     const original = statement.values.bind(statement)
     statement.values = (...args: any[]) => {
       const rows = original(...args)
-      if (kind === 'read' && Array.isArray(rows)) counts.rowsRead += rows.length
+      if (isTrackingEnabled() && kind === 'read' && Array.isArray(rows)) counts.rowsRead += rows.length
       return rows
     }
   }
@@ -107,7 +120,7 @@ function wrapStatement(
           return {
             next() {
               const result = iterator.next()
-              if (!result.done) counts.rowsRead += 1
+              if (isTrackingEnabled() && !result.done) counts.rowsRead += 1
               return result
             },
           }
@@ -120,7 +133,7 @@ function wrapStatement(
     const original = statement.run.bind(statement)
     statement.run = (...args: any[]) => {
       const result = original(...args)
-      if (kind === 'write' && typeof result?.changes === 'number') {
+      if (isTrackingEnabled() && kind === 'write' && typeof result?.changes === 'number') {
         counts.rowsWritten += result.changes
       }
       return result
