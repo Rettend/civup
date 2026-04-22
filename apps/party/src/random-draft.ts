@@ -1,26 +1,26 @@
-import type { DraftEvent, DraftState } from '@civup/game'
+import type { DraftEvent, DraftState, RandomSource } from '@civup/game'
 
-export function pickRandomDistinct<T>(items: T[], count: number): T[] {
+export function pickRandomDistinct<T>(items: T[], count: number, random: RandomSource = Math.random): T[] {
   const pool = [...items]
   const picks: T[] = []
   const target = Math.max(0, Math.min(count, pool.length))
   for (let i = 0; i < target; i++) {
-    const index = Math.floor(Math.random() * pool.length)
+    const index = Math.floor(random() * pool.length)
     const [next] = pool.splice(index, 1)
     if (next != null) picks.push(next)
   }
   return picks
 }
 
-function pickRandomWithReplacement<T>(items: T[], count: number): T[] {
+function pickRandomWithReplacement<T>(items: T[], count: number, random: RandomSource): T[] {
   if (items.length === 0 || count <= 0) return []
-  return Array.from({ length: count }, () => items[Math.floor(Math.random() * items.length)]!)
+  return Array.from({ length: count }, () => items[Math.floor(random() * items.length)]!)
 }
 
-export function buildRandomDraftResult(state: DraftState): { state: DraftState, events: DraftEvent[] } {
+export function buildRandomDraftResult(state: DraftState, random: RandomSource = Math.random): { state: DraftState, events: DraftEvent[] } {
   const assignedIds = state.duplicateFactions === true
-    ? pickRandomWithReplacement(state.availableCivIds, state.seats.length)
-    : pickRandomDistinct(state.availableCivIds, state.seats.length)
+    ? pickRandomWithReplacement(state.availableCivIds, state.seats.length, random)
+    : pickRandomDistinct(state.availableCivIds, state.seats.length, random)
   const picks = state.seats.map((_, seatIndex) => ({
     civId: assignedIds[seatIndex]!,
     seatIndex,

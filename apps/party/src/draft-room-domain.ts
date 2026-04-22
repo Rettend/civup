@@ -8,6 +8,7 @@ import type {
   LeaderSwapState,
   MapVoteSelection,
   PendingLeaderSwapRequest,
+  RandomSource,
   RevealedMapVoteSeatBallot,
   RoomConfig,
 } from '@civup/game'
@@ -100,6 +101,7 @@ export interface ApplyDraftResultCommand {
   nextState: DraftState
   events: DraftEvent[]
   now: number
+  random?: RandomSource
 }
 
 export interface UpdatePreviewsCommand {
@@ -244,7 +246,7 @@ export function applyDraftResultCommand(
   const stepAdvanced = command.events.some(
     event => event.type === 'STEP_ADVANCED' || event.type === 'DRAFT_STARTED',
   )
-  const nextState = assignDealtCivIds(command.nextState, room.config)
+  const nextState = assignDealtCivIds(command.nextState, room.config, command.random)
   let nextRoom: RoomRecord = {
     ...room,
     state: nextState,
@@ -846,7 +848,7 @@ function getDraftWebhookPayloadTimestamp(payload: DraftWebhookPayload): number {
     : payload.cancelledAt
 }
 
-function assignDealtCivIds(state: DraftState, config: RoomConfig | null): DraftState {
+function assignDealtCivIds(state: DraftState, config: RoomConfig | null, random: RandomSource = Math.random): DraftState {
   if (!config || !isRedDeathDraftConfig(config)) {
     if (state.dealtCivIds == null) return state
     return { ...state, dealtCivIds: null }
@@ -868,7 +870,7 @@ function assignDealtCivIds(state: DraftState, config: RoomConfig | null): DraftS
   const dealSize = normalizeDealOptionsSize(config.dealOptionsSize)
   return {
     ...state,
-    dealtCivIds: pickRandomDistinct(state.availableCivIds, Math.min(dealSize, state.availableCivIds.length)),
+    dealtCivIds: pickRandomDistinct(state.availableCivIds, Math.min(dealSize, state.availableCivIds.length), random),
   }
 }
 
