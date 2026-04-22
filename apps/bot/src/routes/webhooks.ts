@@ -37,7 +37,8 @@ export function registerWebhookRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid draft webhook payload' }, 400)
     }
 
-    console.log(`Received draft webhook (${payload.outcome}) for match ${payload.matchId}`)
+    const webhookContext = buildDraftWebhookRouteContext(payload)
+    console.log('[draft-webhook] received', webhookContext)
 
     const db = createDb(c.env.DB)
 
@@ -54,7 +55,10 @@ export function registerWebhookRoutes(app: Hono<Env>) {
 
       if ('error' in result) {
         if (isIgnorableDraftCompleteError(result.error)) {
-          console.warn(`Ignoring stale draft-complete webhook for match ${payload.matchId}: ${result.error}`)
+          console.warn('[draft-webhook] ignoring stale completion', {
+            ...webhookContext,
+            error: result.error,
+          })
           return c.json({ ok: true, ignored: true })
         }
         return c.json({ error: result.error }, 400)
@@ -66,7 +70,7 @@ export function registerWebhookRoutes(app: Hono<Env>) {
 
       const lobby = await getLobbyByMatch(kv, payload.matchId)
       if (!lobby) {
-        console.warn(`No lobby mapping found for draft-complete match ${payload.matchId}`)
+        console.warn('[draft-webhook] no lobby mapping for completion', webhookContext)
         return c.json({ ok: true })
       }
 
@@ -85,7 +89,7 @@ export function registerWebhookRoutes(app: Hono<Env>) {
         await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
       }
       catch (error) {
-        console.error(`Failed to update draft-complete embed for match ${payload.matchId}:`, error)
+        console.error('[draft-webhook] failed to update completion embed', webhookContext, error)
       }
 
       return c.json({ ok: true })
@@ -106,7 +110,10 @@ export function registerWebhookRoutes(app: Hono<Env>) {
 
     if ('error' in cancelled) {
       if (isIgnorableDraftCancelError(cancelled.error)) {
-        console.warn(`Ignoring stale draft-cancelled webhook for match ${payload.matchId}: ${cancelled.error}`)
+        console.warn('[draft-webhook] ignoring stale cancellation', {
+          ...webhookContext,
+          error: cancelled.error,
+        })
         return c.json({ ok: true, ignored: true })
       }
       return c.json({ error: cancelled.error }, 400)
@@ -114,7 +121,7 @@ export function registerWebhookRoutes(app: Hono<Env>) {
 
     const lobby = await getLobbyByMatch(kv, payload.matchId) ?? fallbackLobby
     if (!lobby) {
-      console.warn(`No lobby mapping found for cancelled match ${payload.matchId}`)
+      console.warn('[draft-webhook] no lobby mapping for cancellation', webhookContext)
       return c.json({ ok: true })
     }
 
@@ -148,7 +155,7 @@ export function registerWebhookRoutes(app: Hono<Env>) {
           await clearMatchMessageMapping(db, updatedLobby.messageId)
         }
         catch (error) {
-          console.error(`Failed to update reopened lobby embed for cancelled match ${payload.matchId}:`, error)
+          console.error('[draft-webhook] failed to update reopened lobby embed', webhookContext, error)
         }
 
         return c.json({ ok: true })
@@ -164,7 +171,7 @@ export function registerWebhookRoutes(app: Hono<Env>) {
       await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
     }
     catch (error) {
-      console.error(`Failed to update cancelled embed for match ${payload.matchId}:`, error)
+      console.error('[draft-webhook] failed to update cancelled embed', webhookContext, error)
     }
 
     await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId, lobby.id)
@@ -205,4 +212,14 @@ function isDraftWebhookPayload(value: unknown): value is DraftWebhookPayload {
   }
 
   return false
+}
+
+function buildDraftWebhookRouteContext(payload: DraftWebhookPayload): Record<string, unknown> {
+  return {
+    matchId: payload.matchId,
+    outcome: payload.outcome,
+    finalized: payload.outcome === 'complete' ? payload.finalized === true : false,
+    stateStatus: payload.state.status,
+    currentStepIndex: payload.state.currentStepIndex,
+  }
 }
