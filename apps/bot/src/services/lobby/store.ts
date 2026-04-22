@@ -3,6 +3,7 @@ import type { LobbyState } from './types.ts'
 import { syncActivityOverviewSnapshot } from '../activity/live-state.ts'
 import { getQueueState, getQueueStates } from '../queue/index.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
+import { assertLobbyInvariants } from './invariants.ts'
 import { bumpCooldownKey, channelIndexKey, channelPrefix, hostKey, idKey, LOBBY_HOST_KEY_PREFIX, LOBBY_MODE_KEY_PREFIX, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
 import { lobbySnapshotKey } from './live-snapshot.ts'
 import { normalizeLobby, parseLobbyState } from './normalize.ts'
@@ -345,6 +346,12 @@ export async function putLobbyEntries(
   lobby: LobbyState,
   additionalEntries: LobbyStoreEntry[] = [],
 ): Promise<void> {
+  const hostEntry = isCurrentLobbyStatus(lobby.status)
+    ? lobby.id
+    : null
+  const matchEntry = lobby.matchId
+    ? lobby.id
+    : null
   const entries: LobbyStoreEntry[] = [
     {
       key: idKey(lobby.id),
@@ -362,21 +369,32 @@ export async function putLobbyEntries(
       expirationTtl: LOBBY_TTL,
     },
   ]
-  if (isCurrentLobbyStatus(lobby.status)) {
+  if (hostEntry) {
     entries.push({
       key: hostKey(lobby.hostId),
-      value: lobby.id,
+      value: hostEntry,
       expirationTtl: LOBBY_TTL,
     })
   }
-  if (lobby.matchId) {
+  if (matchEntry && lobby.matchId) {
     entries.push({
       key: matchKey(lobby.matchId),
-      value: lobby.id,
+      value: matchEntry,
       expirationTtl: LOBBY_TTL,
     })
   }
   entries.push(...additionalEntries)
+  assertLobbyInvariants(lobby, {
+    context: {
+      source: 'putLobbyEntries',
+    },
+    projection: {
+      channelIndexed: true,
+      hostLobbyId: hostEntry,
+      matchLobbyId: matchEntry,
+      modeIndexed: true,
+    },
+  })
   await stateStoreMput(kv, entries)
 }
 
