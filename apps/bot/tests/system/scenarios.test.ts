@@ -266,7 +266,7 @@ describe('system scenarios', () => {
     expect(new Set([placementsByTeam.get(1), placementsByTeam.get(3)])).toEqual(new Set([3, 4]))
   })
 
-  test('completion replay is idempotent and finalized webhook can refresh active match civ assignments', async () => {
+  test('complete -> swap -> finalized activates once and only refreshes projections afterward', async () => {
     const world = await createTrackedWorld()
     await world.lobby.createOpen({
       mode: '2v2',
@@ -278,10 +278,13 @@ describe('system scenarios', () => {
 
     expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
     const beforeFinalized = new Map((await world.match.getParticipants(started.matchId)).map(participant => [participant.playerId, participant.civId]))
+    const bansBeforeFinalized = await world.match.getBans(started.matchId)
     const firstPatchCount = countDiscordMessageUpdates(world, 'PATCH')
+    const firstPostCount = countDiscordMessageUpdates(world, 'POST')
 
     expect((await world.party.replayDraftComplete(started.matchId)).status).toBe(200)
     const replayPatchCount = countDiscordMessageUpdates(world, 'PATCH')
+    const replayPostCount = countDiscordMessageUpdates(world, 'POST')
 
     expect((await world.party.completeDraft(started.matchId, {
       finalized: true,
@@ -292,13 +295,18 @@ describe('system scenarios', () => {
       },
     })).status).toBe(200)
     const finalizedPatchCount = countDiscordMessageUpdates(world, 'PATCH')
+    const finalizedPostCount = countDiscordMessageUpdates(world, 'POST')
     const messageIds = await world.match.getMessageIds(started.matchId)
     const afterFinalized = new Map((await world.match.getParticipants(started.matchId)).map(participant => [participant.playerId, participant.civId]))
+    const bansAfterFinalized = await world.match.getBans(started.matchId)
 
     expect(replayPatchCount).toBe(firstPatchCount)
+    expect(replayPostCount).toBe(firstPostCount)
     expect(finalizedPatchCount).toBe(firstPatchCount + 1)
+    expect(finalizedPostCount).toBe(firstPostCount)
     expect(messageIds).toEqual([expect.any(String)])
     expect((await world.match.get(started.matchId))?.status).toBe('active')
+    expect(bansAfterFinalized).toEqual(bansBeforeFinalized)
     expect(afterFinalized.get('p1')).toBe(beforeFinalized.get('p2'))
     expect(afterFinalized.get('p2')).toBe(beforeFinalized.get('p1'))
     expect(afterFinalized.get('p3')).toBe(beforeFinalized.get('p3'))

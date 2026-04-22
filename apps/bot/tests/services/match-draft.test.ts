@@ -75,6 +75,10 @@ describe('draft match activation', () => {
         hostId: seats[0]?.playerId ?? 'p1',
       })
       if ('error' in activated) throw new Error(activated.error)
+      const bansBeforeSync = await db
+        .select()
+        .from(matchBans)
+        .where(eq(matchBans.matchId, matchId))
 
       const swappedPicks = swapSeatPicks(completedState, 0, 2)
       if ('error' in swappedPicks) throw new Error(swappedPicks.error)
@@ -100,8 +104,13 @@ describe('draft match activation', () => {
         .select()
         .from(matchParticipants)
         .where(eq(matchParticipants.matchId, matchId))
+      const bansAfterSync = await db
+        .select()
+        .from(matchBans)
+        .where(eq(matchBans.matchId, matchId))
       const civByPlayer = new Map(storedParticipants.map(participant => [participant.playerId, participant.civId]))
 
+      expect(bansAfterSync).toEqual(bansBeforeSync)
       expect(civByPlayer.get('p1')).toBe(completedState.picks.find(pick => pick.seatIndex === 2)?.civId ?? null)
       expect(civByPlayer.get('p3')).toBe(completedState.picks.find(pick => pick.seatIndex === 0)?.civId ?? null)
       expect(civByPlayer.get('p2')).toBe(completedState.picks.find(pick => pick.seatIndex === 1)?.civId ?? null)
