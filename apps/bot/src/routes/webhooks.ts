@@ -1,5 +1,5 @@
-import type { DraftWebhookPayload } from '@civup/game'
-import type { Hono } from 'hono'
+import type { Context, Hono } from 'hono'
+import type { ParsedDraftWebhookPayload } from '../services/match/draft-webhook-events.ts'
 import type { Env } from '../env.ts'
 import { createDb } from '@civup/db'
 import { verifySignedWebhookRequest } from '@civup/utils'
@@ -7,6 +7,7 @@ import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed } from '.
 import { clearActivityMappings, clearLobbyMappings, storeUserLobbyState } from '../services/activity/index.ts'
 import { buildOpenLobbyRenderPayload, clearLobbyById, getLobbyByMatch, getLobbyDraftRoster, mapLobbySlotsToEntries, reopenLobbyAfterCancelledDraft, reopenLobbyAfterTimedOutDraft, setLobbyStatus, upsertLobbyMessage } from '../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../services/lobby/live-snapshot.ts'
+import { claimDraftWebhookEvent, markDraftWebhookEventProcessed, parseDraftWebhookPayload, releaseDraftWebhookEventClaim } from '../services/match/draft-webhook-events.ts'
 import { activateDraftMatch, cancelDraftMatch } from '../services/match/index.ts'
 import { clearMatchMessageMapping, storeMatchMessageMapping } from '../services/match/message.ts'
 import { getQueueState, setQueueEntries } from '../services/queue/index.ts'
@@ -25,158 +26,55 @@ export function registerWebhookRoutes(app: Hono<Env>) {
       return c.json({ error: 'Unauthorized webhook' }, 401)
     }
 
-    let payload: unknown
+    let rawPayload: unknown
     try {
-      payload = JSON.parse(payloadText)
+      rawPayload = JSON.parse(payloadText)
     }
     catch {
       return c.json({ error: 'Invalid JSON payload' }, 400)
     }
 
-    if (!isDraftWebhookPayload(payload)) {
+    const payload = parseDraftWebhookPayload(rawPayload)
+    if (!payload) {
       return c.json({ error: 'Invalid draft webhook payload' }, 400)
     }
 
     const webhookContext = buildDraftWebhookRouteContext(payload)
     console.log('[draft-webhook] received', webhookContext)
 
+    const claimResult = await claimDraftWebhookEvent(c.env.DB, payload)
+    if (claimResult === 'in-flight') {
+      console.warn('[draft-webhook] ignoring in-flight replay', webhookContext)
+      return c.json({ ok: true, pending: true })
+    }
+    if (claimResult === 'processed') {
+      console.warn('[draft-webhook] replaying processed event for repair', webhookContext)
+    }
+
     const db = createDb(c.env.DB)
+    let response: Response
 
-    if (payload.outcome === 'complete') {
-      const hostId = payload.hostId ?? payload.state.seats[0]?.playerId
-      if (!hostId) return c.json({ error: 'Draft webhook missing host identity' }, 400)
-
-      const result = await activateDraftMatch(db, {
-        state: payload.state,
-        completedAt: payload.completedAt,
-        hostId,
-        mapVoteResult: payload.mapVoteResult ?? null,
-      })
-
-      if ('error' in result) {
-        if (isIgnorableDraftCompleteError(result.error)) {
-          console.warn('[draft-webhook] ignoring stale completion', {
-            ...webhookContext,
-            error: result.error,
-          })
-          return c.json({ ok: true, ignored: true })
-        }
-        return c.json({ error: result.error }, 400)
-      }
-
-      if (result.alreadyActive && payload.finalized !== true) {
-        return c.json({ ok: true, synced: true })
-      }
-
-      const lobby = await getLobbyByMatch(kv, payload.matchId)
-      if (!lobby) {
-        console.warn('[draft-webhook] no lobby mapping for completion', webhookContext)
-        return c.json({ ok: true })
-      }
-
-      const shouldRefreshEmbedOnly = result.alreadyActive && payload.finalized === true
-      const activeLobby = shouldRefreshEmbedOnly
-        ? lobby
-        : await setLobbyStatus(kv, lobby.id, 'active', lobby) ?? lobby
-      if (!shouldRefreshEmbedOnly) {
-        await syncLobbyDerivedState(kv, activeLobby)
-      }
-      try {
-        const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, activeLobby, {
-          embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants, payload.mapVoteResult ?? null, activeLobby.draftConfig.leaderDataVersion, activeLobby.draftConfig.redDeath)],
-          components: lobbyComponents(activeLobby.mode, activeLobby.id),
-        })
-        await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
-      }
-      catch (error) {
-        console.error('[draft-webhook] failed to update completion embed', webhookContext, error)
-      }
-
-      return c.json({ ok: true })
-    }
-
-    const hostId = payload.hostId ?? payload.state.seats[0]?.playerId
-    if (!hostId) return c.json({ error: 'Draft webhook missing host identity' }, 400)
-
-    const fallbackLobby = await getLobbyByMatch(kv, payload.matchId)
-
-    const cancelled = await cancelDraftMatch(db, kv, {
-      state: payload.state,
-      cancelledAt: payload.cancelledAt,
-      reason: payload.reason,
-      hostId,
-      mapVoteResult: payload.mapVoteResult ?? null,
-    })
-
-    if ('error' in cancelled) {
-      if (isIgnorableDraftCancelError(cancelled.error)) {
-        console.warn('[draft-webhook] ignoring stale cancellation', {
-          ...webhookContext,
-          error: cancelled.error,
-        })
-        return c.json({ ok: true, ignored: true })
-      }
-      return c.json({ error: cancelled.error }, 400)
-    }
-
-    const lobby = await getLobbyByMatch(kv, payload.matchId) ?? fallbackLobby
-    if (!lobby) {
-      console.warn('[draft-webhook] no lobby mapping for cancellation', webhookContext)
-      return c.json({ ok: true })
-    }
-
-    await clearActivityMappings(kv, payload.matchId, lobby.memberPlayerIds, lobby.channelId)
-
-    if (payload.reason === 'timeout' || payload.reason === 'revert') {
-      const queue = await getQueueState(kv, lobby.mode)
-      const draftRoster = await getLobbyDraftRoster(kv, lobby.id)
-      const recovered = payload.reason === 'timeout'
-        ? await reopenLobbyAfterTimedOutDraft(kv, lobby, payload.state, { draftRoster })
-        : await reopenLobbyAfterCancelledDraft(kv, lobby, payload.state, { draftRoster })
-
-      if (recovered) {
-        const affectedPlayerIds = new Set(lobby.memberPlayerIds)
-        const nextQueueEntries = [
-          ...queue.entries.filter(entry => !affectedPlayerIds.has(entry.playerId)),
-          ...recovered.queueEntries,
-        ]
-
-        await setQueueEntries(kv, lobby.mode, nextQueueEntries, { currentState: queue })
-        await syncLobbyDerivedState(kv, recovered.lobby, {
-          queueEntries: recovered.queueEntries,
-          slots: recovered.lobby.slots,
-        })
-        await storeUserLobbyState(kv, recovered.lobby.channelId, recovered.lobby.memberPlayerIds, recovered.lobby.id)
-
-        try {
-          const slottedEntries = mapLobbySlotsToEntries(recovered.lobby.slots, recovered.queueEntries)
-          const renderPayload = await buildOpenLobbyRenderPayload(kv, recovered.lobby, slottedEntries)
-          const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, recovered.lobby, renderPayload)
-          await clearMatchMessageMapping(db, updatedLobby.messageId)
-        }
-        catch (error) {
-          console.error('[draft-webhook] failed to update reopened lobby embed', webhookContext, error)
-        }
-
-        return c.json({ ok: true })
-      }
-    }
-
-    const closedLobby = await setLobbyStatus(kv, lobby.id, payload.reason === 'cancel' ? 'cancelled' : 'scrubbed', lobby) ?? lobby
     try {
-      const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, closedLobby, {
-        embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason, undefined, closedLobby.draftConfig.leaderDataVersion, closedLobby.draftConfig.redDeath)],
-        components: [],
-      })
-      await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
+      response = payload.outcome === 'complete'
+        ? await handleDraftCompleteWebhook(c, db, kv, payload, webhookContext)
+        : await handleDraftCancelledWebhook(c, db, kv, payload, webhookContext)
     }
     catch (error) {
-      console.error('[draft-webhook] failed to update cancelled embed', webhookContext, error)
+      if (claimResult === 'claimed') {
+        await releaseDraftWebhookEventClaim(c.env.DB, payload.eventId)
+      }
+      throw error
     }
 
-    await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId, lobby.id)
-    await clearLobbyById(kv, lobby.id, lobby)
-    return c.json({ ok: true })
+    if (response.status >= 400 && claimResult === 'claimed') {
+      await releaseDraftWebhookEventClaim(c.env.DB, payload.eventId)
+      return response
+    }
+
+    if (claimResult === 'claimed') {
+      await markDraftWebhookEventProcessed(c.env.DB, payload.eventId)
+    }
+    return response
   })
 }
 
@@ -190,36 +88,173 @@ function isIgnorableDraftCancelError(error: string): boolean {
     || error.includes('cannot be cancelled (status: completed)')
 }
 
-function isDraftWebhookPayload(value: unknown): value is DraftWebhookPayload {
-  if (!value || typeof value !== 'object') return false
-  const payload = value as Partial<DraftWebhookPayload> & {
-    outcome?: unknown
-    cancelledAt?: unknown
-    reason?: unknown
-  }
-
-  if (typeof payload.matchId !== 'string') return false
-  if (!payload.state || typeof payload.state !== 'object') return false
-
-  if (payload.outcome === 'complete') {
-    return typeof payload.completedAt === 'number' && payload.state.status === 'complete'
-  }
-
-  if (payload.outcome === 'cancelled') {
-    if (typeof payload.cancelledAt !== 'number') return false
-    if (payload.reason !== 'cancel' && payload.reason !== 'scrub' && payload.reason !== 'timeout' && payload.reason !== 'revert') return false
-    return payload.state.status === 'cancelled'
-  }
-
-  return false
-}
-
-function buildDraftWebhookRouteContext(payload: DraftWebhookPayload): Record<string, unknown> {
+function buildDraftWebhookRouteContext(payload: ParsedDraftWebhookPayload): Record<string, unknown> {
   return {
+    eventId: payload.eventId,
+    eventKind: payload.eventKind,
+    eventSequence: payload.eventSequence,
     matchId: payload.matchId,
     outcome: payload.outcome,
     finalized: payload.outcome === 'complete' ? payload.finalized === true : false,
     stateStatus: payload.state.status,
     currentStepIndex: payload.state.currentStepIndex,
   }
+}
+
+async function handleDraftCompleteWebhook(
+  c: Context<Env>,
+  db: ReturnType<typeof createDb>,
+  kv: KVNamespace,
+  payload: ParsedDraftWebhookPayload,
+  webhookContext: Record<string, unknown>,
+): Promise<Response> {
+  if (payload.outcome !== 'complete') {
+    return c.json({ error: 'Expected completion webhook payload' }, 400)
+  }
+
+  const hostId = payload.hostId ?? payload.state.seats[0]?.playerId
+  if (!hostId) return c.json({ error: 'Draft webhook missing host identity' }, 400)
+
+  const result = await activateDraftMatch(db, {
+    state: payload.state,
+    completedAt: payload.completedAt,
+    hostId,
+    mapVoteResult: payload.mapVoteResult ?? null,
+  })
+
+  if ('error' in result) {
+    if (isIgnorableDraftCompleteError(result.error)) {
+      console.warn('[draft-webhook] ignoring stale completion', {
+        ...webhookContext,
+        error: result.error,
+      })
+      return c.json({ ok: true, ignored: true })
+    }
+    return c.json({ error: result.error }, 400)
+  }
+
+  if (result.alreadyActive && payload.finalized !== true) {
+    return c.json({ ok: true, synced: true })
+  }
+
+  const lobby = await getLobbyByMatch(kv, payload.matchId)
+  if (!lobby) {
+    console.warn('[draft-webhook] no lobby mapping for completion', webhookContext)
+    return c.json({ ok: true })
+  }
+
+  const shouldRefreshEmbedOnly = result.alreadyActive && payload.finalized === true
+  const activeLobby = shouldRefreshEmbedOnly
+    ? lobby
+    : await setLobbyStatus(kv, lobby.id, 'active', lobby) ?? lobby
+  if (!shouldRefreshEmbedOnly) {
+    await syncLobbyDerivedState(kv, activeLobby)
+  }
+  try {
+    const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, activeLobby, {
+      embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants, payload.mapVoteResult ?? null, activeLobby.draftConfig.leaderDataVersion, activeLobby.draftConfig.redDeath)],
+      components: lobbyComponents(activeLobby.mode, activeLobby.id),
+    })
+    await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
+  }
+  catch (error) {
+    console.error('[draft-webhook] failed to update completion embed', webhookContext, error)
+  }
+
+  return c.json({ ok: true })
+}
+
+async function handleDraftCancelledWebhook(
+  c: Context<Env>,
+  db: ReturnType<typeof createDb>,
+  kv: KVNamespace,
+  payload: ParsedDraftWebhookPayload,
+  webhookContext: Record<string, unknown>,
+): Promise<Response> {
+  if (payload.outcome !== 'cancelled') {
+    return c.json({ error: 'Expected cancellation webhook payload' }, 400)
+  }
+
+  const hostId = payload.hostId ?? payload.state.seats[0]?.playerId
+  if (!hostId) return c.json({ error: 'Draft webhook missing host identity' }, 400)
+
+  const fallbackLobby = await getLobbyByMatch(kv, payload.matchId)
+
+  const cancelled = await cancelDraftMatch(db, kv, {
+    state: payload.state,
+    cancelledAt: payload.cancelledAt,
+    reason: payload.reason,
+    hostId,
+    mapVoteResult: payload.mapVoteResult ?? null,
+  })
+
+  if ('error' in cancelled) {
+    if (isIgnorableDraftCancelError(cancelled.error)) {
+      console.warn('[draft-webhook] ignoring stale cancellation', {
+        ...webhookContext,
+        error: cancelled.error,
+      })
+      return c.json({ ok: true, ignored: true })
+    }
+    return c.json({ error: cancelled.error }, 400)
+  }
+
+  const lobby = await getLobbyByMatch(kv, payload.matchId) ?? fallbackLobby
+  if (!lobby) {
+    console.warn('[draft-webhook] no lobby mapping for cancellation', webhookContext)
+    return c.json({ ok: true })
+  }
+
+  await clearActivityMappings(kv, payload.matchId, lobby.memberPlayerIds, lobby.channelId)
+
+  if (payload.reason === 'timeout' || payload.reason === 'revert') {
+    const queue = await getQueueState(kv, lobby.mode)
+    const draftRoster = await getLobbyDraftRoster(kv, lobby.id)
+    const recovered = payload.reason === 'timeout'
+      ? await reopenLobbyAfterTimedOutDraft(kv, lobby, payload.state, { draftRoster })
+      : await reopenLobbyAfterCancelledDraft(kv, lobby, payload.state, { draftRoster })
+
+    if (recovered) {
+      const affectedPlayerIds = new Set(lobby.memberPlayerIds)
+      const nextQueueEntries = [
+        ...queue.entries.filter(entry => !affectedPlayerIds.has(entry.playerId)),
+        ...recovered.queueEntries,
+      ]
+
+      await setQueueEntries(kv, lobby.mode, nextQueueEntries, { currentState: queue })
+      await syncLobbyDerivedState(kv, recovered.lobby, {
+        queueEntries: recovered.queueEntries,
+        slots: recovered.lobby.slots,
+      })
+      await storeUserLobbyState(kv, recovered.lobby.channelId, recovered.lobby.memberPlayerIds, recovered.lobby.id)
+
+      try {
+        const slottedEntries = mapLobbySlotsToEntries(recovered.lobby.slots, recovered.queueEntries)
+        const renderPayload = await buildOpenLobbyRenderPayload(kv, recovered.lobby, slottedEntries)
+        const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, recovered.lobby, renderPayload)
+        await clearMatchMessageMapping(db, updatedLobby.messageId)
+      }
+      catch (error) {
+        console.error('[draft-webhook] failed to update reopened lobby embed', webhookContext, error)
+      }
+
+      return c.json({ ok: true })
+    }
+  }
+
+  const closedLobby = await setLobbyStatus(kv, lobby.id, payload.reason === 'cancel' ? 'cancelled' : 'scrubbed', lobby) ?? lobby
+  try {
+    const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, closedLobby, {
+      embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason, undefined, closedLobby.draftConfig.leaderDataVersion, closedLobby.draftConfig.redDeath)],
+      components: [],
+    })
+    await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
+  }
+  catch (error) {
+    console.error('[draft-webhook] failed to update cancelled embed', webhookContext, error)
+  }
+
+  await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId, lobby.id)
+  await clearLobbyById(kv, lobby.id, lobby)
+  return c.json({ ok: true })
 }

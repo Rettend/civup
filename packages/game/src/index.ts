@@ -78,12 +78,14 @@ export {
 } from './mode.ts'
 export type {
   ClientMessage,
+  DraftWebhookEventKind,
   DraftCancelledWebhookPayload,
   DraftCompleteWebhookPayload,
   DraftWebhookPayload,
   RoomConfig,
   ServerMessage,
 } from './protocol.ts'
+export { DRAFT_WEBHOOK_EVENT_KINDS } from './protocol.ts'
 export type {
   CompetitiveTier,
   DraftAction,

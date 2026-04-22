@@ -31,7 +31,20 @@ export interface RoomConfig {
   webhookSecret?: string
 }
 
+export const DRAFT_WEBHOOK_EVENT_KINDS = [
+  'DraftCompleted',
+  'SwapWindowOpened',
+  'SwapAccepted',
+  'DraftFinalized',
+  'DraftCancelled',
+] as const
+
+export type DraftWebhookEventKind = (typeof DRAFT_WEBHOOK_EVENT_KINDS)[number]
+
 export interface DraftCompleteWebhookPayload {
+  eventId: string
+  eventKind: DraftWebhookEventKind
+  eventSequence: number
   outcome: 'complete'
   matchId: string
   hostId?: string
@@ -42,6 +55,9 @@ export interface DraftCompleteWebhookPayload {
 }
 
 export interface DraftCancelledWebhookPayload {
+  eventId: string
+  eventKind: DraftWebhookEventKind
+  eventSequence: number
   outcome: 'cancelled'
   matchId: string
   hostId?: string

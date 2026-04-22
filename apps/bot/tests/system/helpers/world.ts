@@ -45,6 +45,7 @@ interface PartyRoomRecord {
   config: RoomConfig
   completionPayloads: DraftCompleteWebhookPayload[]
   cancellationPayloads: DraftCancelledWebhookPayload[]
+  nextWebhookEventSequence: number
 }
 
 interface CompleteDraftOptions {
@@ -208,6 +209,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         config: body,
         completionPayloads: [],
         cancellationPayloads: [],
+        nextWebhookEventSequence: 0,
       })
       return jsonResponse({ ok: true })
     }
@@ -432,19 +434,19 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       },
       draftComplete(matchId, options = {}) {
         const room = getPartyRoom(partyRooms, matchId)
-        const payload = buildCompletedPayload(room.config, options)
+        const payload = buildCompletedPayload(room, options)
         room.completionPayloads.push(payload)
         return payload
       },
       draftTimeout(matchId) {
         const room = getPartyRoom(partyRooms, matchId)
-        const payload = buildTimeoutPayload(room.config)
+        const payload = buildTimeoutPayload(room)
         room.cancellationPayloads.push(payload)
         return payload
       },
       draftCancel(matchId, options = {}) {
         const room = getPartyRoom(partyRooms, matchId)
-        const payload = buildCancelledPayload(room.config, options.reason ?? 'scrub')
+        const payload = buildCancelledPayload(room, options.reason ?? 'scrub')
         room.cancellationPayloads.push(payload)
         return payload
       },
@@ -674,11 +676,21 @@ function getPartyRoom(rooms: Map<string, PartyRoomRecord>, matchId: string): Par
   return room
 }
 
-function buildCompletedPayload(config: RoomConfig, options: CompleteDraftOptions = {}): DraftCompleteWebhookPayload {
+function buildCompletedPayload(room: PartyRoomRecord, options: CompleteDraftOptions = {}): DraftCompleteWebhookPayload {
+  const { config } = room
   const baseState = buildCompletedDraftState(config)
   const state = options.transformState ? options.transformState(baseState) : baseState
+  const eventSequence = nextTestWebhookSequence(room)
+  const eventKind = options.finalized === true
+    ? 'DraftFinalized'
+    : options.transformState
+      ? 'SwapAccepted'
+      : 'DraftCompleted'
 
   return {
+    eventId: `${config.matchId}:test:${eventSequence}`,
+    eventKind,
+    eventSequence,
     outcome: 'complete',
     matchId: config.matchId,
     hostId: config.hostId,
@@ -689,8 +701,13 @@ function buildCompletedPayload(config: RoomConfig, options: CompleteDraftOptions
   }
 }
 
-function buildTimeoutPayload(config: RoomConfig): DraftCancelledWebhookPayload {
+function buildTimeoutPayload(room: PartyRoomRecord): DraftCancelledWebhookPayload {
+  const { config } = room
+  const eventSequence = nextTestWebhookSequence(room)
   return {
+    eventId: `${config.matchId}:test:${eventSequence}`,
+    eventKind: 'DraftCancelled',
+    eventSequence,
     outcome: 'cancelled',
     matchId: config.matchId,
     hostId: config.hostId,
@@ -701,8 +718,13 @@ function buildTimeoutPayload(config: RoomConfig): DraftCancelledWebhookPayload {
   }
 }
 
-function buildCancelledPayload(config: RoomConfig, reason: 'cancel' | 'scrub' | 'revert'): DraftCancelledWebhookPayload {
+function buildCancelledPayload(room: PartyRoomRecord, reason: 'cancel' | 'scrub' | 'revert'): DraftCancelledWebhookPayload {
+  const { config } = room
+  const eventSequence = nextTestWebhookSequence(room)
   return {
+    eventId: `${config.matchId}:test:${eventSequence}`,
+    eventKind: 'DraftCancelled',
+    eventSequence,
     outcome: 'cancelled',
     matchId: config.matchId,
     hostId: config.hostId,
@@ -711,6 +733,11 @@ function buildCancelledPayload(config: RoomConfig, reason: 'cancel' | 'scrub' | 
     state: buildCancelledDraftState(config, reason === 'cancel' ? 'cancel' : reason),
     mapVoteResult: null,
   }
+}
+
+function nextTestWebhookSequence(room: PartyRoomRecord): number {
+  room.nextWebhookEventSequence += 1
+  return room.nextWebhookEventSequence
 }
 
 function buildCompletedDraftState(config: RoomConfig) {

@@ -102,14 +102,14 @@ interface ConnectionState {
   playerId: string | null
 }
 
-const WEBHOOK_MAX_ATTEMPTS = 4
-const WEBHOOK_RETRY_BASE_MS = 250
-const WEBHOOK_RETRY_MAX_MS = 1500
 const DEBUG_ACTIVE_BOT_PLAYER_ID_PREFIX = 'bot:'
 const DEBUG_ACTIVE_BOT_DELAY_MS = 5000
 const DEBUG_ACTIVE_BOT_STAGGER_MS = 150
 const SWAP_REQUEST_TIMEOUT_MS = 30_000
 const SWAP_DISCONNECT_GRACE_MS = 5_000
+const WEBHOOK_OUTBOX_ATTEMPT_LEASE_MS = 5_000
+const WEBHOOK_OUTBOX_RETRY_BASE_MS = 1_000
+const WEBHOOK_OUTBOX_RETRY_MAX_MS = 60_000
 
 // ── Draft Room Server ────────────────────────────────────────
 
@@ -294,18 +294,20 @@ export class Main extends Server<PartyEnv> {
   }
 
   private async executeRoomEffects(room: RoomRecord, effects: RoomEffect[], action: string) {
+    let needsAlarmReschedule = false
+
     for (const effect of effects) {
       switch (effect.type) {
         case 'set-alarm':
-          await this.ctx.storage.setAlarm(effect.at)
+          needsAlarmReschedule = true
           break
 
         case 'delete-alarm':
-          await this.ctx.storage.deleteAlarm()
+          needsAlarmReschedule = true
           break
 
         case 'schedule-swap-alarm':
-          await this.scheduleSwapAlarm()
+          needsAlarmReschedule = true
           break
 
         case 'broadcast-update':
@@ -316,10 +318,8 @@ export class Main extends Server<PartyEnv> {
           this.broadcastSwapUpdate(room.state, this.getNormalizedSwapState(room), effect.picks)
           break
 
-        case 'notify-draft-complete': {
-          const task = this.notifyDraftComplete(room.state, room.config, effect.completedAt, {
-            finalized: effect.finalized,
-          })
+        case 'flush-webhook-outbox': {
+          const task = this.flushWebhookOutbox(action)
           if (effect.delivery === 'await') {
             await task
           }
@@ -327,20 +327,11 @@ export class Main extends Server<PartyEnv> {
             this.ctx.waitUntil(task.catch((error) => {
               console.error('[draft-room] room effect failed', buildDraftRoomLogContext(action, room.state, {
                 effect: effect.type,
-                finalized: effect.finalized === true,
               }), error)
             }))
           }
           break
         }
-
-        case 'notify-draft-cancelled':
-          this.ctx.waitUntil(this.notifyDraftCancelled(room.state, room.config, effect.cancelledAt).catch((error) => {
-            console.error('[draft-room] room effect failed', buildDraftRoomLogContext(action, room.state, {
-              effect: effect.type,
-            }), error)
-          }))
-          break
 
         case 'schedule-debug-active-bots':
           this.scheduleDebugActiveBotActions(room.state, effect.blindBans)
@@ -354,6 +345,10 @@ export class Main extends Server<PartyEnv> {
           this.closeAllConnections(effect.reason)
           break
       }
+    }
+
+    if (needsAlarmReschedule) {
+      await this.rescheduleRoomAlarm()
     }
   }
 
@@ -820,13 +815,19 @@ export class Main extends Server<PartyEnv> {
   // ── Timer: Alarm ───────────────────────────────────────────
 
   override async onAlarm() {
-    const room = await this.getRoomRecord()
+    let room = await this.getRoomRecord()
     if (!room) return
+    await this.assertRoomInvariants(room.state, room.config, {
+      context: buildDraftRoomLogContext('before-alarm', room.state),
+    })
+
+    await this.flushWebhookOutbox('alarm')
+
+    room = await this.getRoomRecord()
+    if (!room) return
+
     const state = room.state
     const config = room.config
-    await this.assertRoomInvariants(state, config, {
-      context: buildDraftRoomLogContext('before-alarm', state),
-    })
 
     if (await this.handleMapVoteAlarm(state, config)) {
       return
@@ -865,7 +866,7 @@ export class Main extends Server<PartyEnv> {
         return
       }
 
-      await this.scheduleSwapAlarm()
+      await this.rescheduleRoomAlarm()
       return
     }
 
@@ -1051,19 +1052,81 @@ export class Main extends Server<PartyEnv> {
     return this.getNormalizedSwapState(room)
   }
 
-  private async scheduleSwapAlarm() {
+  private async flushWebhookOutbox(action: string) {
+    while (true) {
+      const claimed = await this.claimNextWebhookOutboxEntry()
+      if (!claimed) break
+
+      const { entry, room } = claimed
+      const delivery = await this.sendDraftWebhook(room.config, entry.payload)
+      if (delivery === 'delivered' || delivery === 'drop') {
+        await this.updateRoomRecord(currentRoom => ({
+          ...currentRoom,
+          webhookOutbox: currentRoom.webhookOutbox.filter(candidate => candidate.payload.eventId !== entry.payload.eventId),
+        }))
+        continue
+      }
+
+      const nextAttemptAt = Date.now() + getWebhookOutboxRetryDelay(entry.attempts)
+      await this.updateRoomRecord(currentRoom => ({
+        ...currentRoom,
+        webhookOutbox: currentRoom.webhookOutbox.map((candidate) => {
+          if (candidate.payload.eventId !== entry.payload.eventId) return candidate
+          return {
+            ...candidate,
+            attempts: entry.attempts,
+            nextAttemptAt,
+          }
+        }),
+      }))
+
+      console.warn('[draft-room] webhook retry deferred', buildDraftWebhookLogContext(entry.payload, {
+        action,
+        nextAttemptAt,
+      }))
+      break
+    }
+
+    await this.rescheduleRoomAlarm()
+  }
+
+  private async claimNextWebhookOutboxEntry(): Promise<{ room: RoomRecord, entry: RoomRecord['webhookOutbox'][number] } | null> {
+    const now = Date.now()
+    let claimedEntry: RoomRecord['webhookOutbox'][number] | null = null
+    const room = await this.updateRoomRecord((currentRoom) => {
+      const nextEntry = getNextWebhookOutboxEntry(currentRoom)
+      if (!nextEntry || nextEntry.nextAttemptAt > now) return currentRoom
+
+      claimedEntry = {
+        ...nextEntry,
+        attempts: nextEntry.attempts + 1,
+        nextAttemptAt: now + WEBHOOK_OUTBOX_ATTEMPT_LEASE_MS,
+      }
+
+      return {
+        ...currentRoom,
+        webhookOutbox: currentRoom.webhookOutbox.map((candidate) => {
+          if (candidate.payload.eventId !== nextEntry.payload.eventId) return candidate
+          return claimedEntry!
+        }),
+      }
+    })
+
+    if (!claimedEntry) return null
+    return {
+      room,
+      entry: claimedEntry,
+    }
+  }
+
+  private async rescheduleRoomAlarm() {
     const room = await this.getRoomRecord()
-    if (!room?.swapWindowOpen) {
+    if (!room) {
       await this.ctx.storage.deleteAlarm()
       return
     }
 
-    const nextAlarm = getNextSwapLifecycleAlarmAt({
-      swapState: this.getNormalizedSwapState(room),
-      disconnectFinalizeAt: room.swapDisconnectFinalizeAt,
-      safetyEndsAt: room.swapSafetyEndsAt,
-    })
-
+    const nextAlarm = getNextRoomAlarmAt(room, this.getNormalizedSwapState(room))
     if (nextAlarm == null) {
       await this.ctx.storage.deleteAlarm()
       return
@@ -1406,52 +1469,16 @@ export class Main extends Server<PartyEnv> {
     }
   }
 
-  private async notifyDraftComplete(
-    state: DraftState,
-    config: RoomConfig,
-    completedAt: number,
-    options: {
-      finalized?: boolean
-    } = {},
-  ) {
-    const hostId = config.hostId || state.seats[0]?.playerId || undefined
-    const payload: DraftWebhookPayload = {
-      outcome: 'complete',
-      matchId: state.matchId,
-      hostId,
-      completedAt,
-      finalized: options.finalized === true ? true : undefined,
-      state,
-      mapVoteResult: (await this.getStoredMapVoteState()).result,
-    }
-    await this.sendDraftWebhook(state.matchId, config, payload)
-  }
-
-  private async notifyDraftCancelled(state: DraftState, config: RoomConfig, cancelledAt: number) {
-    const hostId = config.hostId || state.seats[0]?.playerId || undefined
-    const payload: DraftWebhookPayload = {
-      outcome: 'cancelled',
-      matchId: state.matchId,
-      hostId,
-      cancelledAt,
-      reason: state.cancelReason ?? 'scrub',
-      state,
-      mapVoteResult: (await this.getStoredMapVoteState()).result,
-    }
-    await this.sendDraftWebhook(state.matchId, config, payload)
-  }
-
   private async sendDraftWebhook(
-    matchId: string,
     config: RoomConfig,
     payload: DraftWebhookPayload,
-  ) {
+  ): Promise<'delivered' | 'retry' | 'drop'> {
     const webhookContext = buildDraftWebhookLogContext(payload, {
       webhookUrl: config.webhookUrl ?? null,
     })
     if (!config.webhookUrl) {
       console.warn('[draft-room] missing webhook URL', webhookContext)
-      return
+      return 'drop'
     }
 
     console.log('[draft-room] sending webhook', webhookContext)
@@ -1462,35 +1489,26 @@ export class Main extends Server<PartyEnv> {
       ...(config.webhookSecret ? await createSignedWebhookHeaders(config.webhookSecret, body) : {}),
     }
 
-    for (let attempt = 1; attempt <= WEBHOOK_MAX_ATTEMPTS; attempt++) {
-      try {
-        await api.post(config.webhookUrl, body, { headers })
-        console.log('[draft-room] webhook delivered', {
-          ...webhookContext,
-          attempt,
-        })
-        return
-      }
-      catch (err) {
-        const status = err instanceof ApiError ? err.status : 'Unknown'
-        if (attempt >= WEBHOOK_MAX_ATTEMPTS) {
-          console.error('[draft-room] webhook failed', {
-            ...webhookContext,
-            attempt,
-            status,
-          }, err)
-          return
-        }
-
-        const retryDelay = Math.min(WEBHOOK_RETRY_BASE_MS * 2 ** (attempt - 1), WEBHOOK_RETRY_MAX_MS)
+    try {
+      await api.post(config.webhookUrl, body, { headers })
+      console.log('[draft-room] webhook delivered', webhookContext)
+      return 'delivered'
+    }
+    catch (err) {
+      const status = err instanceof ApiError ? err.status : 'Unknown'
+      if (isRetryableWebhookStatus(status)) {
         console.error('[draft-room] webhook retry scheduled', {
           ...webhookContext,
-          attempt,
-          retryDelay,
           status,
         }, err)
-        await wait(retryDelay)
+        return 'retry'
       }
+
+      console.error('[draft-room] webhook delivery dropped', {
+        ...webhookContext,
+        status,
+      }, err)
+      return 'drop'
     }
   }
 }
@@ -1520,10 +1538,68 @@ function buildDraftWebhookLogContext(
   extra: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return buildDraftRoomLogContext('webhook', payload.state, {
+    eventId: payload.eventId,
+    eventKind: payload.eventKind,
+    eventSequence: payload.eventSequence,
     outcome: payload.outcome,
     finalized: payload.outcome === 'complete' ? payload.finalized === true : false,
     ...extra,
   })
+}
+
+function getNextRoomAlarmAt(room: RoomRecord, swapState: LeaderSwapState): number | null {
+  const candidates: number[] = []
+
+  if (
+    room.state.status === 'active'
+    && room.timerEndsAt != null
+    && room.alarmStepIndex === room.state.currentStepIndex
+  ) {
+    candidates.push(room.timerEndsAt)
+  }
+
+  if (
+    room.mapVote.enabled
+    && (room.mapVote.phase === 'voting' || room.mapVote.phase === 'reveal')
+    && room.mapVote.endsAt != null
+  ) {
+    candidates.push(room.mapVote.endsAt)
+  }
+
+  if (room.state.status === 'complete' && room.swapWindowOpen) {
+    const swapAlarmAt = getNextSwapLifecycleAlarmAt({
+      swapState,
+      disconnectFinalizeAt: room.swapDisconnectFinalizeAt,
+      safetyEndsAt: room.swapSafetyEndsAt,
+    })
+    if (swapAlarmAt != null) {
+      candidates.push(swapAlarmAt)
+    }
+  }
+
+  const nextWebhookAttempt = getNextWebhookOutboxEntry(room)?.nextAttemptAt ?? null
+  if (nextWebhookAttempt != null) {
+    candidates.push(nextWebhookAttempt)
+  }
+
+  if (candidates.length === 0) return null
+  return Math.min(...candidates)
+}
+
+function getNextWebhookOutboxEntry(room: RoomRecord): RoomRecord['webhookOutbox'][number] | null {
+  if (room.webhookOutbox.length === 0) return null
+  return [...room.webhookOutbox].sort((left, right) => left.payload.eventSequence - right.payload.eventSequence)[0] ?? null
+}
+
+function getWebhookOutboxRetryDelay(attempts: number): number {
+  return Math.min(WEBHOOK_OUTBOX_RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1), WEBHOOK_OUTBOX_RETRY_MAX_MS)
+}
+
+function isRetryableWebhookStatus(status: number | 'Unknown'): boolean {
+  return status === 'Unknown'
+    || status === 408
+    || status === 429
+    || status >= 500
 }
 
 function isSeatInStep(step: DraftState['steps'][number], seatIndex: number, totalSeats: number): boolean {
