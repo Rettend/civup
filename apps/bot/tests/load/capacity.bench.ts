@@ -23,6 +23,8 @@ import { getQueueStateWithLobbyBalanceSnapshot } from '../../src/routes/lobby/sn
 import {
   clearLobbyAndActivityMappings,
   clearUserLobbyMappings,
+  getLobbyForUser,
+  getMatchForUser,
   handoffLobbySpectatorsToMatchActivity,
   storeMatchActivityState,
   storeUserLobbyState,
@@ -31,6 +33,7 @@ import { resolveDraftTimerConfig } from '../../src/services/config/index.ts'
 import { markLeaderboardsDirty, refreshDirtyLeaderboards } from '../../src/services/leaderboard/message.ts'
 import {
   attachLobbyMatch,
+  assertLobbyInvariants,
   createLobby,
   filterQueueEntriesForLobby,
   getCurrentLobbyHostedBy,
@@ -45,6 +48,7 @@ import {
 } from '../../src/services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
+import { assertPersistedMatchInvariants } from '../../src/services/match/invariants.ts'
 import { activateDraftMatch, createDraftMatch, reportMatch } from '../../src/services/match/index.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
 import { addToQueue, clearQueue, getQueueState, getQueueStateWithPlayerQueueModes } from '../../src/services/queue/index.ts'
@@ -559,7 +563,7 @@ async function simulateScenarioLifecycle(input: {
 }): Promise<SimulationResult> {
   const { db, sqlite } = await createTestDatabase()
   const sqlTracker = trackSqlite(sqlite)
-  const { kv: rawKv, operations, resetOperations } = createTrackedKv({ trackReads: true })
+  const { kv: rawKv, operations, resetOperations, runWithoutTracking: runKvWithoutTracking } = createTrackedKv({ trackReads: true })
   const stateCoordinator = installStateCoordinatorHarness()
   const kv = createStateStore({
     KV: rawKv,
@@ -590,12 +594,23 @@ async function simulateScenarioLifecycle(input: {
     sqlTracker.reset()
     stateCoordinator.reset()
 
+    const runUnmetered = async <T>(callback: () => Promise<T>): Promise<T> =>
+      runKvWithoutTracking(() =>
+        sqlTracker.runWithoutTracking(() =>
+          stateCoordinator.runWithoutTracking(callback),
+        ),
+      )
+
     botRequests += 1
     await simulateMatchCreate(db, kv, input.mode)
+    const queuedPlayerIds = [HOST_ID]
+    await runUnmetered(() => assertOpenCapacityState(kv, input.mode.mode, queuedPlayerIds))
 
     for (const group of input.mode.joinGroups) {
       botRequests += 1
       await simulateMatchJoin(db, kv, input.mode, group)
+      queuedPlayerIds.push(...group)
+      await runUnmetered(() => assertOpenCapacityState(kv, input.mode.mode, queuedPlayerIds))
     }
 
     const playerIds = scenarioPlayerIds(input.mode)
@@ -622,10 +637,12 @@ async function simulateScenarioLifecycle(input: {
     activityRequests += openLobbyMutationRequests
     botRequests += openLobbyMutationRequests
     const legacySelectedLobbyRefetchRequests = viewerIds.length * openLobbyMutationRequests
+    await runUnmetered(() => assertOpenCapacityState(kv, input.mode.mode, scenarioPlayerIds(input.mode)))
 
     activityRequests += 1
     botRequests += 1
     const started = await startDraftFromOpenLobby(db, kv, input.mode)
+    await runUnmetered(() => assertDraftingCapacityState(db, kv, input.mode.mode, started.matchId, playerIds))
     let completedDraftState = started.completedDraftState
     let draftRoomIncomingMessages = started.draftRoomIncomingMessages
     let draftRoomIncomingMessagesWithSelectionPreviews = started.draftRoomIncomingMessagesWithSelectionPreviews
@@ -633,12 +650,14 @@ async function simulateScenarioLifecycle(input: {
 
     botRequests += 1
     await handleDraftCompleteWebhook(db, kv, started.matchId, completedDraftState)
+    await runUnmetered(() => assertActiveCapacityState(db, kv, started.matchId, playerIds))
 
     const acceptedSwaps = isTeamMode(input.mode.mode) ? Math.max(0, Math.trunc(input.acceptedSwaps ?? 0)) : 0
     for (let index = 0; index < acceptedSwaps; index++) {
       completedDraftState = applyAcceptedTeamSwap(completedDraftState)
       botRequests += 1
       await handleDraftCompleteWebhook(db, kv, started.matchId, completedDraftState)
+      await runUnmetered(() => assertActiveCapacityState(db, kv, started.matchId, playerIds))
       draftRoomIncomingMessages += ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES
       draftRoomIncomingMessagesWithSelectionPreviews += ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES
       draftRoomIncomingMessagesWithTeamPickPreviews += ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES
@@ -647,6 +666,7 @@ async function simulateScenarioLifecycle(input: {
     if (isTeamMode(input.mode.mode)) {
       botRequests += 1
       await handleDraftCompleteWebhook(db, kv, started.matchId, completedDraftState, { finalized: true })
+      await runUnmetered(() => assertActiveCapacityState(db, kv, started.matchId, playerIds))
     }
 
     // Each viewer reconnects through the activity proxy to the draft room after match handoff.
@@ -661,6 +681,7 @@ async function simulateScenarioLifecycle(input: {
     activityRequests += 1
     botRequests += 1
     await handleMatchReport(db, kv, input.mode, started.matchId)
+    await runUnmetered(() => assertCompletedCapacityState(db, kv, started.matchId, playerIds))
 
     const kvReads = operations.filter(op => op.type === 'get').length
     const kvWrites = operations.filter(op => op.type === 'put').length
@@ -805,6 +826,124 @@ async function simulateOpenLobbyConfigEdit(kv: KVNamespace, mode: CapacityScenar
   const queueEntries = filterQueueEntriesForLobby(updatedLobby, queue.entries)
   const slots = normalizeLobbySlots(mode.mode, updatedLobby.slots, queueEntries)
   await syncLobbyDerivedState(kv, updatedLobby, { queueEntries, slots, balanceSnapshot })
+}
+
+async function assertOpenCapacityState(
+  kv: KVNamespace,
+  mode: GameMode,
+  expectedPlayerIds: string[],
+): Promise<void> {
+  const queue = await getQueueState(kv, mode)
+  const lobby = await getLobby(kv, mode)
+
+  expect(lobby).not.toBeNull()
+  if (!lobby) throw new Error(`Expected open ${mode} lobby during capacity simulation`)
+
+  expect(lobby.status).toBe('open')
+  expect(queue.entries.map(entry => entry.playerId)).toEqual(expectedPlayerIds)
+  expect(lobby.memberPlayerIds).toEqual(expectedPlayerIds)
+  assertLobbyInvariants(lobby, {
+    checkOpenRoster: true,
+    checkSlotNormalization: true,
+    queueEntries: queue.entries,
+    strict: true,
+    context: {
+      source: 'capacity-bench',
+      stage: 'open',
+    },
+  })
+
+  for (const playerId of expectedPlayerIds) {
+    expect(await getLobbyForUser(kv, playerId)).toBe(lobby.id)
+    expect(await getMatchForUser(kv, playerId)).toBeNull()
+  }
+}
+
+async function assertDraftingCapacityState(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  kv: KVNamespace,
+  mode: GameMode,
+  matchId: string,
+  expectedPlayerIds: string[],
+): Promise<void> {
+  await assertPersistedMatchInvariants(db, matchId, {
+    strict: true,
+    context: {
+      source: 'capacity-bench',
+      stage: 'drafting',
+    },
+  })
+
+  const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
+  const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
+  const lobby = await getLobbyByMatch(kv, matchId)
+
+  expect(match?.status).toBe('drafting')
+  expect(participants.map(participant => participant.playerId)).toEqual(expectedPlayerIds)
+  expect((await getQueueState(kv, mode)).entries).toEqual([])
+  expect(lobby?.status).toBe('drafting')
+
+  for (const playerId of expectedPlayerIds) {
+    expect(await getLobbyForUser(kv, playerId)).toBeNull()
+    expect(await getMatchForUser(kv, playerId)).toBe(matchId)
+  }
+}
+
+async function assertActiveCapacityState(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  kv: KVNamespace,
+  matchId: string,
+  expectedPlayerIds: string[],
+): Promise<void> {
+  await assertPersistedMatchInvariants(db, matchId, {
+    strict: true,
+    context: {
+      source: 'capacity-bench',
+      stage: 'active',
+    },
+  })
+
+  const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
+  const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
+  const lobby = await getLobbyByMatch(kv, matchId)
+
+  expect(match?.status).toBe('active')
+  expect(participants.map(participant => participant.playerId)).toEqual(expectedPlayerIds)
+  expect(participants.every(participant => participant.civId != null)).toBe(true)
+  expect(lobby?.status).toBe('active')
+
+  for (const playerId of expectedPlayerIds) {
+    expect(await getLobbyForUser(kv, playerId)).toBeNull()
+    expect(await getMatchForUser(kv, playerId)).toBe(matchId)
+  }
+}
+
+async function assertCompletedCapacityState(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  kv: KVNamespace,
+  matchId: string,
+  expectedPlayerIds: string[],
+): Promise<void> {
+  await assertPersistedMatchInvariants(db, matchId, {
+    strict: true,
+    context: {
+      source: 'capacity-bench',
+      stage: 'completed',
+    },
+  })
+
+  const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
+  const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
+
+  expect(match?.status).toBe('completed')
+  expect(participants.map(participant => participant.playerId)).toEqual(expectedPlayerIds)
+  expect(participants.every(participant => participant.civId != null && participant.placement != null)).toBe(true)
+  expect(await getLobbyByMatch(kv, matchId)).toBeNull()
+
+  for (const playerId of expectedPlayerIds) {
+    expect(await getLobbyForUser(kv, playerId)).toBeNull()
+    expect(await getMatchForUser(kv, playerId)).toBeNull()
+  }
 }
 
 async function startDraftFromOpenLobby(
