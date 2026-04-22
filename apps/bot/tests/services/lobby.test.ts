@@ -2,8 +2,8 @@ import type { DraftState } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { activityOverviewKey, syncActivityOverviewSnapshot } from '../../src/services/activity/live-state.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
-import { attachLobbyMatch, clearLobbyById, clearLobbyByMatch, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobbyByChannel, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
-import { channelIndexKey, hostKey, idKey, LOBBY_TTL, matchKey } from '../../src/services/lobby/keys.ts'
+import { attachLobbyMatch, clearLobbyById, clearLobbyByMatch, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyByChannel, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
+import { channelIndexKey, hostKey, idKey, LOBBY_TTL, matchKey, modeIndexKey } from '../../src/services/lobby/keys.ts'
 import { lobbySnapshotKey, syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../../src/services/match/retention.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
@@ -150,6 +150,25 @@ describe('lobby service KV write behavior', () => {
     expect(byChannel?.hostId).toBe(created.hostId)
   })
 
+  test('getLobbiesByMode repairs a missing mode index from canonical lobby records', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    await kv.delete(modeIndexKey('ffa', lobby.id))
+
+    await expect(getLobbiesByMode(kv, 'ffa')).resolves.toEqual([
+      expect.objectContaining({
+        id: lobby.id,
+        mode: 'ffa',
+      }),
+    ])
+    await expect(kv.get(modeIndexKey('ffa', lobby.id))).resolves.toBe(String(lobby.revision))
+  })
+
   test('getCurrentLobbiesForPlayer clears a stale user lobby mapping when the mapped lobby is gone', async () => {
     const { kv } = createTrackedKv()
 
@@ -256,8 +275,9 @@ describe('lobby service KV write behavior', () => {
 
     expect(await kv.get(lobbySnapshotKey(lobby.id), 'json')).not.toBeNull()
 
-    const updated = await setLobbyStatus(kv, lobby.id, 'drafting')
-    await syncLobbyDerivedState(kv, updated ?? lobby)
+    const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    expect(draftingLobby).not.toBeNull()
+    await syncLobbyDerivedState(kv, draftingLobby ?? lobby)
 
     expect(await kv.get(lobbySnapshotKey(lobby.id), 'json')).toBeNull()
   })
@@ -540,6 +560,30 @@ describe('lobby service KV write behavior', () => {
     await syncActivityOverviewSnapshot(kv, 'channel-1')
 
     expect(await kv.get(activityOverviewKey('channel-1'), 'json')).toBeNull()
+  })
+
+  test('rebuilds the activity overview snapshot from canonical lobby records when the channel index is missing', async () => {
+    const { kv } = createTrackedKv()
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    await kv.delete(channelIndexKey('channel-1', lobby.id))
+
+    await syncActivityOverviewSnapshot(kv, 'channel-1')
+
+    expect(await kv.get(activityOverviewKey('channel-1'), 'json')).toEqual(expect.objectContaining({
+      options: [
+        expect.objectContaining({
+          kind: 'lobby',
+          id: lobby.id,
+          hostId: 'host-1',
+        }),
+      ],
+    }))
   })
 
   test('tracks the current hosted lobby without scanning all modes', async () => {

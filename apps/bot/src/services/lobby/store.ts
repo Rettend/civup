@@ -4,7 +4,7 @@ import { syncActivityOverviewSnapshot } from '../activity/live-state.ts'
 import { getQueueState, getQueueStates } from '../queue/index.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
 import { assertLobbyInvariants } from './invariants.ts'
-import { bumpCooldownKey, channelIndexKey, channelPrefix, hostKey, idKey, LOBBY_HOST_KEY_PREFIX, LOBBY_MODE_KEY_PREFIX, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
+import { bumpCooldownKey, channelIndexKey, channelPrefix, hostKey, idKey, LOBBY_HOST_KEY_PREFIX, LOBBY_ID_KEY_PREFIX, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
 import { lobbySnapshotKey } from './live-snapshot.ts'
 import { normalizeLobby, parseLobbyState } from './normalize.ts'
 import { deriveQueueBackedLobbyMemberPlayerIds, isQueueBackedOpenLobbyState } from './reconcile.ts'
@@ -25,18 +25,26 @@ export async function getLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise
     .map(entry => entry.name.slice(modePrefix(mode).length))
     .filter((lobbyId): lobbyId is string => lobbyId.length > 0)
 
-  if (lobbyIds.length === 0) return []
+  if (lobbyIds.length === 0) {
+    return await recoverLobbiesByMode(kv, mode)
+  }
 
   const rawLobbies = await stateStoreMget(
     kv,
     lobbyIds.map(lobbyId => ({ key: idKey(lobbyId), type: 'json' })),
   )
 
-  return rawLobbies
+  const lobbies = rawLobbies
     .map(raw => parseLobbyState(raw))
     .filter((lobby): lobby is LobbyState => lobby != null)
     .filter(lobby => lobby.mode === mode)
     .sort((left, right) => left.createdAt - right.createdAt)
+
+  if (lobbies.length === 0) {
+    return await recoverLobbiesByMode(kv, mode)
+  }
+
+  return lobbies
 }
 
 /** Temporary convenience lookup for the most recently updated lobby in a mode. */
@@ -184,13 +192,26 @@ export async function getCurrentLobbiesForPlayers(
 
   const fallbackLobbies = await getCurrentLobbies(kv, options?.mode)
   const fallbackQueues = await getQueueStates(kv, [...new Set(fallbackLobbies.filter(lobby => lobby.status === 'open').map(lobby => lobby.mode))])
+  const repairedOpenLobbyMappings: LobbyStoreEntry[] = []
   for (const playerId of unresolvedPlayerIds) {
     if (!playerId) continue
-    lobbyByPlayerId.set(playerId, fallbackLobbies.find((lobby) => {
+    const fallbackLobby = fallbackLobbies.find((lobby) => {
       if (excludedLobbyIds.has(lobby.id)) return false
       if (lobby.status !== 'open') return lobby.memberPlayerIds.includes(playerId)
       return deriveQueueBackedLobbyMemberPlayerIds(lobby, fallbackQueues.get(lobby.mode)?.entries ?? []).includes(playerId)
-    }) ?? null)
+    }) ?? null
+    lobbyByPlayerId.set(playerId, fallbackLobby)
+    if (fallbackLobby?.status === 'open') {
+      repairedOpenLobbyMappings.push({
+        key: activityLobbyUserKey(playerId),
+        value: fallbackLobby.id,
+        expirationTtl: LOBBY_TTL,
+      })
+    }
+  }
+
+  if (repairedOpenLobbyMappings.length > 0) {
+    await stateStoreMput(kv, repairedOpenLobbyMappings)
   }
 
   return lobbyByPlayerId
@@ -249,16 +270,8 @@ export async function getOpenLobbyForPlayer(
   playerId: string,
   mode?: GameMode,
 ): Promise<LobbyState | null> {
-  const mappedLobby = (await getCurrentLobbiesForPlayers(kv, [playerId], {
-    mode,
-    fallbackToLobbyScan: false,
-  })).get(playerId) ?? null
-  if (mappedLobby?.status === 'open') return mappedLobby
-
-  const lobbies = mode ? await getLobbiesByMode(kv, mode) : await getAllLobbies(kv)
-  const queueStates = await getQueueStates(kv, [...new Set(lobbies.filter(lobby => lobby.status === 'open').map(lobby => lobby.mode))])
-  return lobbies.find(lobby => lobby.status === 'open'
-    && deriveQueueBackedLobbyMemberPlayerIds(lobby, queueStates.get(lobby.mode)?.entries ?? []).includes(playerId)) ?? null
+  return (await getCurrentLobbiesForPlayer(kv, playerId, { mode }))
+    .find((lobby): lobby is LobbyState => lobby.status === 'open') ?? null
 }
 
 export async function getLobbyByMatch(kv: KVNamespace, matchId: string): Promise<LobbyState | null> {
@@ -358,31 +371,8 @@ export async function putLobbyEntries(
       value: JSON.stringify(lobby),
       expirationTtl: LOBBY_TTL,
     },
-    {
-      key: modeIndexKey(lobby.mode, lobby.id),
-      value: String(lobby.revision),
-      expirationTtl: LOBBY_TTL,
-    },
-    {
-      key: channelIndexKey(lobby.channelId, lobby.id),
-      value: String(lobby.revision),
-      expirationTtl: LOBBY_TTL,
-    },
   ]
-  if (hostEntry) {
-    entries.push({
-      key: hostKey(lobby.hostId),
-      value: hostEntry,
-      expirationTtl: LOBBY_TTL,
-    })
-  }
-  if (matchEntry && lobby.matchId) {
-    entries.push({
-      key: matchKey(lobby.matchId),
-      value: matchEntry,
-      expirationTtl: LOBBY_TTL,
-    })
-  }
+  entries.push(...buildLobbyProjectionEntries(lobby))
   entries.push(...additionalEntries)
   assertLobbyInvariants(lobby, {
     context: {
@@ -399,10 +389,10 @@ export async function putLobbyEntries(
 }
 
 async function getAllLobbies(kv: KVNamespace): Promise<LobbyState[]> {
-  const listed = await kv.list({ prefix: LOBBY_MODE_KEY_PREFIX })
-  const lobbyIds = [...new Set(listed.keys
-    .map(entry => entry.name.slice(entry.name.lastIndexOf(':') + 1))
-    .filter((lobbyId): lobbyId is string => lobbyId.length > 0))]
+  const listed = await kv.list({ prefix: LOBBY_ID_KEY_PREFIX })
+  const lobbyIds = listed.keys
+    .map(entry => entry.name.slice(LOBBY_ID_KEY_PREFIX.length))
+    .filter((lobbyId): lobbyId is string => lobbyId.length > 0)
 
   if (lobbyIds.length === 0) return []
 
@@ -417,6 +407,17 @@ async function getAllLobbies(kv: KVNamespace): Promise<LobbyState[]> {
     .sort((left, right) => left.createdAt - right.createdAt)
 }
 
+async function recoverLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise<LobbyState[]> {
+  const recoveredLobbies = (await getAllLobbies(kv))
+    .filter(lobby => lobby.mode === mode)
+    .sort((left, right) => left.createdAt - right.createdAt)
+
+  if (recoveredLobbies.length === 0) return []
+
+  await repairLobbyProjectionEntries(kv, recoveredLobbies)
+  return recoveredLobbies
+}
+
 async function recoverLobbiesByChannel(kv: KVNamespace, channelId: string): Promise<LobbyState[]> {
   const recoveredLobbies = (await getAllLobbies(kv))
     .filter(lobby => lobby.channelId === channelId)
@@ -424,11 +425,7 @@ async function recoverLobbiesByChannel(kv: KVNamespace, channelId: string): Prom
 
   if (recoveredLobbies.length === 0) return []
 
-  await stateStoreMput(kv, recoveredLobbies.map(lobby => ({
-    key: channelIndexKey(channelId, lobby.id),
-    value: String(lobby.revision),
-    expirationTtl: LOBBY_TTL,
-  })))
+  await repairLobbyProjectionEntries(kv, recoveredLobbies)
 
   return recoveredLobbies
 }
@@ -436,11 +433,7 @@ async function recoverLobbiesByChannel(kv: KVNamespace, channelId: string): Prom
 async function recoverLobbyByMatch(kv: KVNamespace, matchId: string): Promise<LobbyState | null> {
   const recoveredLobby = (await getAllLobbies(kv)).find(candidate => candidate.matchId === matchId) ?? null
   if (recoveredLobby) {
-    await stateStoreMput(kv, [{
-      key: matchKey(matchId),
-      value: recoveredLobby.id,
-      expirationTtl: LOBBY_TTL,
-    }])
+    await repairLobbyProjectionEntries(kv, recoveredLobby)
     return recoveredLobby
   }
 
@@ -472,11 +465,56 @@ async function recoverCurrentLobbyHostedBy(kv: KVNamespace, hostId: string): Pro
   const recoveredLobby = recoveredOpenLobby ?? hostedLobbies.find(lobby => lobby.status !== 'open')
   if (!recoveredLobby) return null
 
-  await stateStoreMput(kv, [{
-    key: hostKey(hostId),
-    value: recoveredLobby.id,
-    expirationTtl: LOBBY_TTL,
-  }])
+  await repairLobbyProjectionEntries(kv, recoveredLobby)
 
   return recoveredLobby
+}
+
+function buildLobbyProjectionEntries(lobby: LobbyState): LobbyStoreEntry[] {
+  const entries: LobbyStoreEntry[] = [
+    {
+      key: modeIndexKey(lobby.mode, lobby.id),
+      value: String(lobby.revision),
+      expirationTtl: LOBBY_TTL,
+    },
+    {
+      key: channelIndexKey(lobby.channelId, lobby.id),
+      value: String(lobby.revision),
+      expirationTtl: LOBBY_TTL,
+    },
+  ]
+
+  if (isCurrentLobbyStatus(lobby.status)) {
+    entries.push({
+      key: hostKey(lobby.hostId),
+      value: lobby.id,
+      expirationTtl: LOBBY_TTL,
+    })
+  }
+
+  if (lobby.matchId) {
+    entries.push({
+      key: matchKey(lobby.matchId),
+      value: lobby.id,
+      expirationTtl: LOBBY_TTL,
+    })
+  }
+
+  return entries
+}
+
+async function repairLobbyProjectionEntries(
+  kv: KVNamespace,
+  lobbies: LobbyState | readonly LobbyState[],
+): Promise<void> {
+  const recoveredLobbies = Array.isArray(lobbies) ? lobbies : [lobbies]
+  const entryByKey = new Map<string, LobbyStoreEntry>()
+  for (const lobby of recoveredLobbies) {
+    for (const entry of buildLobbyProjectionEntries(lobby)) {
+      entryByKey.set(entry.key, entry)
+    }
+  }
+
+  if (entryByKey.size === 0) return
+  await stateStoreMput(kv, [...entryByKey.values()])
 }

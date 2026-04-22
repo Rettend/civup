@@ -1,6 +1,6 @@
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from '../lobby/types.ts'
-import { channelPrefix, idKey, LOBBY_TTL } from '../lobby/keys.ts'
+import { idKey, LOBBY_ID_KEY_PREFIX, LOBBY_TTL } from '../lobby/keys.ts'
 import { parseLobbyState } from '../lobby/normalize.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
 
@@ -89,9 +89,9 @@ async function buildActivityOverviewSnapshot(kv: KVNamespace, channelId: string)
 }
 
 async function getChannelLobbiesForOverview(kv: KVNamespace, channelId: string): Promise<LobbyState[]> {
-  const listed = await kv.list({ prefix: channelPrefix(channelId) })
+  const listed = await kv.list({ prefix: LOBBY_ID_KEY_PREFIX })
   const lobbyIds = listed.keys
-    .map(entry => entry.name.slice(channelPrefix(channelId).length))
+    .map(entry => entry.name.slice(LOBBY_ID_KEY_PREFIX.length))
     .filter((lobbyId): lobbyId is string => lobbyId.length > 0)
 
   if (lobbyIds.length === 0) return []
