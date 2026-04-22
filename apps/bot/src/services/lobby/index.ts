@@ -4,6 +4,7 @@ export { getLobbyBumpCooldownRemainingMs, LOBBY_BUMP_COOLDOWN_MS, markLobbyBumpe
 export { isLobbyInactive, LOBBY_INACTIVITY_TIMEOUT_MS, LOBBY_TIMEOUT_MESSAGE, pruneInactiveOpenLobbies } from './cleanup.ts'
 export { canApplyQueuedLobbyMessageUpdate, getCurrentLobbyForQueuedMessageUpdate, repostLobbyMessage, upsertLobbyMessage } from './message.ts'
 export { attachLobbyMatch, canTransitionLobbyStatus, createLobby, setLobbyArranged, setLobbyDraftConfig, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMessage, setLobbyMinRole, setLobbySlots, setLobbyStatus, setLobbySteamLobbyLink } from './mutations.ts'
+export { assertLobbyInvariants, getLobbyInvariantViolations } from './invariants.ts'
 export { parseLobbyState } from './normalize.ts'
 export { compactSlottedPremadesForMode } from './premades.ts'
 export { getLobbyAndQueueState } from './queue.ts'

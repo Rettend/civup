@@ -8,6 +8,7 @@ import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
 import { clearLobbyByMatch } from '../lobby/index.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
+import { assertPersistedMatchInvariants } from './invariants.ts'
 import { parseModerationPlacements } from './placements.ts'
 import { recalculateLeaderboardMode } from './ratings.ts'
 
@@ -148,6 +149,13 @@ export async function resolveMatchByModerator(
     )
     await clearLobbyByMatch(kv, input.matchId)
   }
+
+  await assertPersistedMatchInvariants(db, input.matchId, {
+    context: {
+      previousStatus,
+      source: 'resolveMatchByModerator',
+    },
+  })
 
   return {
     match: updatedMatch,
@@ -307,6 +315,13 @@ export async function cancelMatchByModerator(
     .select()
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, input.matchId))
+
+  await assertPersistedMatchInvariants(db, input.matchId, {
+    context: {
+      previousStatus,
+      source: 'cancelMatchByModerator',
+    },
+  })
 
   return {
     match: updatedMatch!,

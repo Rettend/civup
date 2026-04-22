@@ -1,6 +1,7 @@
 export { pruneAbandonedMatches } from './cleanup.ts'
 export { getCompletedAtFromDraftData, getHostIdFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 export { activateDraftMatch, cancelDraftMatch, createDraftMatch } from './draft.ts'
+export { assertMatchAggregateInvariants, assertPersistedMatchInvariants, getMatchInvariantViolations } from './invariants.ts'
 export { cancelMatchByModerator, resolveMatchByModerator } from './moderation.ts'
 export { parseModerationPlacements, parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
 export { buildRankByPlayer, recalculateLeaderboardMode } from './ratings.ts'
