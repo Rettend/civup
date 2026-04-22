@@ -759,6 +759,17 @@ describe('full FFA draft flow', () => {
 // ── TIMEOUT with Random Selection ───────────────────────────
 
 describe('processDraftInput — TIMEOUT', () => {
+  function withFixedRandom<T>(value: number, run: () => T): T {
+    const originalRandom = Math.random
+    Math.random = () => value
+    try {
+      return run()
+    }
+    finally {
+      Math.random = originalRandom
+    }
+  }
+
   test('auto-selects random civs for missing submissions', () => {
     let state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
 
@@ -782,6 +793,42 @@ describe('processDraftInput — TIMEOUT', () => {
     expect(result.state.bans).toHaveLength(6)
     expect(result.state.currentStepIndex).toBe(1) // Advanced to next step
   })
+
+  test('timeout bans stay unique within a timed-out seat submission', () => withFixedRandom(0, () => {
+    let state = startDraft(createDraft('match-timeout-unique-seat', default2v2, create2v2Seats(), createTestCivPool()))
+
+    const submitted = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
+    if (isDraftError(submitted)) throw new Error(submitted.error)
+    state = submitted.state
+
+    const timedOut = processDraftInput(state, { type: 'TIMEOUT' }, true)
+    expect(isDraftError(timedOut)).toBe(false)
+    if (isDraftError(timedOut)) return
+
+    const timeoutSelections = timedOut.events
+      .filter((event): event is Extract<(typeof timedOut.events)[number], { type: 'TIMEOUT_APPLIED' }> => event.type === 'TIMEOUT_APPLIED')
+      .flatMap(event => event.selections)
+
+    expect(timeoutSelections).toHaveLength(3)
+    expect(new Set(timeoutSelections).size).toBe(timeoutSelections.length)
+    expect(timedOut.state.bans.filter(ban => ban.seatIndex === 1).map(ban => ban.civId)).toEqual(timeoutSelections)
+  }))
+
+  test('timeout bans stay unique across all timed-out seats in the same step', () => withFixedRandom(0, () => {
+    const state = startDraft(createDraft('match-timeout-unique-step', defaultFfaSimultaneous, createFfaSeats(4), createTestCivPool()))
+
+    const timedOut = processDraftInput(state, { type: 'TIMEOUT' }, true)
+    expect(isDraftError(timedOut)).toBe(false)
+    if (isDraftError(timedOut)) return
+
+    const timeoutSelections = timedOut.events
+      .filter((event): event is Extract<(typeof timedOut.events)[number], { type: 'TIMEOUT_APPLIED' }> => event.type === 'TIMEOUT_APPLIED')
+      .flatMap(event => event.selections)
+
+    expect(timeoutSelections).toHaveLength(8)
+    expect(new Set(timeoutSelections).size).toBe(timeoutSelections.length)
+    expect(new Set(timedOut.state.bans.map(ban => ban.civId)).size).toBe(timedOut.state.bans.length)
+  }))
 
   test('timeout on pick phase cancels draft instead of random picking', () => {
     let state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))

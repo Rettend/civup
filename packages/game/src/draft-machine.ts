@@ -428,7 +428,9 @@ function processTimeout(
     for (let i = 0; i < needed; i++) {
       if (available.length === 0) break
       const idx = Math.floor(Math.random() * available.length)
-      randomPicks.push(available[idx]!)
+      const [pickedCivId] = available.splice(idx, 1)
+      if (!pickedCivId) break
+      randomPicks.push(pickedCivId)
     }
 
     newSubmissions[seat] = [...(existing ?? []), ...randomPicks]
