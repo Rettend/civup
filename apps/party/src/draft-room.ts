@@ -118,6 +118,14 @@ export class Main extends Server<PartyEnv> {
     hibernate: true,
   }
 
+  protected now(): number {
+    return Date.now()
+  }
+
+  protected random(): number {
+    return Math.random()
+  }
+
   // ── HTTP: Room initialization & status ─────────────────────
 
   override async onRequest(req: Request): Promise<Response> {
@@ -658,7 +666,7 @@ export class Main extends Server<PartyEnv> {
         }
 
         const swapState = await this.getSwapState()
-        const nextSwapState = createPendingSwap(state, swapState, seatIndex, msg.toSeat, Date.now() + SWAP_REQUEST_TIMEOUT_MS)
+        const nextSwapState = createPendingSwap(state, swapState, seatIndex, msg.toSeat, this.now() + SWAP_REQUEST_TIMEOUT_MS)
         if ('error' in nextSwapState) {
           this.send(sender, { type: 'error', message: nextSwapState.error })
           return
@@ -795,7 +803,7 @@ export class Main extends Server<PartyEnv> {
     const nextDisconnectFinalizeAt = getSwapDisconnectFinalizeAtAfterDisconnect({
       connectedParticipantCount: this.getConnectedParticipantCount(room.state, connection),
       existingDisconnectFinalizeAt: disconnectFinalizeAt,
-      now: Date.now(),
+      now: this.now(),
       graceMs: SWAP_DISCONNECT_GRACE_MS,
     })
     if (nextDisconnectFinalizeAt == null || nextDisconnectFinalizeAt === disconnectFinalizeAt) return
@@ -834,7 +842,7 @@ export class Main extends Server<PartyEnv> {
     }
 
     if (state.status === 'complete' && room.swapWindowOpen) {
-      const now = Date.now()
+      const now = this.now()
       const disconnectFinalizeAt = room.swapDisconnectFinalizeAt
       const safetyEndsAt = room.swapSafetyEndsAt
       const swapState = this.getNormalizedSwapState(room)
@@ -879,7 +887,7 @@ export class Main extends Server<PartyEnv> {
     if (!format) return
 
     const previews = sanitizeDraftPreviews(state, room.previews)
-    const result = resolveTimeoutWithPreviews(state, format.blindBans, previews)
+    const result = resolveTimeoutWithPreviews(state, format.blindBans, previews, () => this.random())
     if (isDraftError(result)) return
 
     await this.applyResult(result.state, result.events)
@@ -893,7 +901,8 @@ export class Main extends Server<PartyEnv> {
       type: 'apply-draft-result',
       nextState: newState,
       events,
-      now: Date.now(),
+      now: this.now(),
+      random: () => this.random(),
     })
     console.log('[draft-room] transition', buildDraftRoomLogContext('apply-result', transition.room.state, {
       eventTypes: events.map(event => event.type),
@@ -974,7 +983,7 @@ export class Main extends Server<PartyEnv> {
       const remainingCount = Math.min(step.count - submittedCount, availablePool.length)
       if (remainingCount <= 0) return
 
-      const civIds = pickRandomDistinct(availablePool, remainingCount)
+      const civIds = pickRandomDistinct(availablePool, remainingCount, () => this.random())
       result = processDraftInput(
         state,
         { type: 'BAN', seatIndex, civIds },
@@ -982,7 +991,7 @@ export class Main extends Server<PartyEnv> {
       )
     }
     else {
-      const [civId] = pickRandomDistinct(availablePool, 1)
+      const [civId] = pickRandomDistinct(availablePool, 1, () => this.random())
       if (!civId) return
       result = processDraftInput(
         state,
@@ -1028,10 +1037,10 @@ export class Main extends Server<PartyEnv> {
     const nextSelection: MapVoteSelection = {
       mapTypes: normalizedSelection.mapTypes.length > 0
         ? normalizedSelection.mapTypes
-        : pickRandomDistinct([...MAP_TYPE_IDS], 1 + Math.floor(Math.random() * MAP_TYPE_IDS.length)),
+        : pickRandomDistinct([...MAP_TYPE_IDS], 1 + Math.floor(this.random() * MAP_TYPE_IDS.length), () => this.random()),
       mapScripts: normalizedSelection.mapScripts.length > 0
         ? normalizedSelection.mapScripts
-        : pickRandomDistinct([...MAP_SCRIPT_IDS], 1 + Math.floor(Math.random() * 3)),
+        : pickRandomDistinct([...MAP_SCRIPT_IDS], 1 + Math.floor(this.random() * 3), () => this.random()),
     }
 
     const updated = await this.updateMapVoteSelection(state, config, seatIndex, nextSelection)
@@ -1067,7 +1076,7 @@ export class Main extends Server<PartyEnv> {
         continue
       }
 
-      const nextAttemptAt = Date.now() + getWebhookOutboxRetryDelay(entry.attempts)
+      const nextAttemptAt = this.now() + getWebhookOutboxRetryDelay(entry.attempts)
       await this.updateRoomRecord(currentRoom => ({
         ...currentRoom,
         webhookOutbox: currentRoom.webhookOutbox.map((candidate) => {
@@ -1091,7 +1100,7 @@ export class Main extends Server<PartyEnv> {
   }
 
   private async claimNextWebhookOutboxEntry(): Promise<{ room: RoomRecord, entry: RoomRecord['webhookOutbox'][number] } | null> {
-    const now = Date.now()
+    const now = this.now()
     let claimedEntry: RoomRecord['webhookOutbox'][number] | null = null
     const room = await this.updateRoomRecord((currentRoom) => {
       const nextEntry = getNextWebhookOutboxEntry(currentRoom)
@@ -1140,7 +1149,7 @@ export class Main extends Server<PartyEnv> {
     if (!room?.swapWindowOpen) return
     await this.applyRoomTransition(finalizeCompletedDraftCommand(room, {
       type: 'finalize-completed-draft',
-      now: Date.now(),
+      now: this.now(),
     }), 'finalize-complete', {
       finalized: true,
     })
@@ -1159,7 +1168,7 @@ export class Main extends Server<PartyEnv> {
     if (mapVoteState.enabled && mapVoteState.phase === 'idle') {
       await this.applyRoomTransition(startMapVoteCommand(room, {
         type: 'start-map-vote',
-        now: Date.now(),
+        now: this.now(),
       }), 'start-map-vote')
       return null
     }
@@ -1218,7 +1227,7 @@ export class Main extends Server<PartyEnv> {
       type: 'confirm-map-vote',
       state,
       seatIndex,
-      now: Date.now(),
+      now: this.now(),
     })
     if (transition.response !== 'ok') return transition.response
 
@@ -1233,7 +1242,7 @@ export class Main extends Server<PartyEnv> {
     const transition = finishMapVoteVotingCommand(room, {
       type: 'finish-map-vote-voting',
       state,
-      now: Date.now(),
+      now: this.now(),
     })
     if (!transition.response) return
 
@@ -1255,7 +1264,7 @@ export class Main extends Server<PartyEnv> {
 
   private async startActualDraft(state: DraftState, config: RoomConfig, format: NonNullable<ReturnType<typeof draftFormatMap.get>>): Promise<string | null> {
     if (config.randomDraft) {
-      const result = buildRandomDraftResult(state)
+      const result = buildRandomDraftResult(state, () => this.random())
       await this.applyResult(result.state, result.events)
       return null
     }

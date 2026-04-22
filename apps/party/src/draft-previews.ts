@@ -1,4 +1,4 @@
-import type { DraftAction, DraftError, DraftEvent, DraftPreviewState, DraftResult, DraftState, DraftStep } from '@civup/game'
+import type { DraftAction, DraftError, DraftEvent, DraftPreviewState, DraftResult, DraftState, DraftStep, RandomSource } from '@civup/game'
 import { getCurrentStep, isDraftError, processDraftInput } from '@civup/game'
 
 export function createEmptyDraftPreviews(): DraftPreviewState {
@@ -71,13 +71,14 @@ export function resolveTimeoutWithPreviews(
   state: DraftState,
   blindBans: boolean,
   previews: DraftPreviewState,
+  random: RandomSource = Math.random,
 ): DraftResult | DraftError {
   const step = getCurrentStep(state)
-  if (!step) return processDraftInput(state, { type: 'TIMEOUT' }, blindBans)
+  if (!step) return processDraftInput(state, { type: 'TIMEOUT' }, { blindBans, random })
 
   return step.action === 'ban'
-    ? resolveBanTimeoutWithPreviews(state, step, blindBans, previews.bans)
-    : resolvePickTimeoutWithPreviews(state, step, blindBans, previews.picks)
+    ? resolveBanTimeoutWithPreviews(state, step, blindBans, previews.bans, random)
+    : resolvePickTimeoutWithPreviews(state, step, blindBans, previews.picks, random)
 }
 
 export function resolvePickSubmissionWithPreviews(
@@ -184,6 +185,7 @@ function resolveBanTimeoutWithPreviews(
   step: DraftStep,
   blindBans: boolean,
   previews: DraftPreviewState['bans'],
+  random: RandomSource,
 ): DraftResult | DraftError {
   let nextState = state
   const events: DraftEvent[] = []
@@ -192,8 +194,8 @@ function resolveBanTimeoutWithPreviews(
   for (const seatIndex of getActiveSeats(step, state.seats.length)) {
     if (nextState.submissions[seatIndex]) continue
 
-    const civIds = buildTimeoutBanSelections(nextState, step.count, previews[seatIndex] ?? [], reserved)
-    if (civIds.length !== step.count) return processDraftInput(nextState, { type: 'TIMEOUT' }, blindBans)
+    const civIds = buildTimeoutBanSelections(nextState, step.count, previews[seatIndex] ?? [], reserved, random)
+    if (civIds.length !== step.count) return processDraftInput(nextState, { type: 'TIMEOUT' }, { blindBans, random })
 
     events.push({ type: 'TIMEOUT_APPLIED', seatIndex, selections: civIds })
 
@@ -218,6 +220,7 @@ function resolvePickTimeoutWithPreviews(
   step: DraftStep,
   blindBans: boolean,
   previews: DraftPreviewState['picks'],
+  random: RandomSource,
 ): DraftResult | DraftError {
   let nextState = state
   const events: DraftEvent[] = []
@@ -234,11 +237,11 @@ function resolvePickTimeoutWithPreviews(
     if (nextState.status !== 'active' || nextState.currentStepIndex !== state.currentStepIndex) break
   }
 
-  if (!appliedPreviewPick) return processDraftInput(state, { type: 'TIMEOUT' }, blindBans)
+  if (!appliedPreviewPick) return processDraftInput(state, { type: 'TIMEOUT' }, { blindBans, random })
   if (nextState.status !== 'active' || nextState.currentStepIndex !== state.currentStepIndex) return { state: nextState, events }
   if (getPendingSeats(step, nextState).length === 0) return { state: nextState, events }
 
-  const timeoutResult = processDraftInput(nextState, { type: 'TIMEOUT' }, blindBans)
+  const timeoutResult = processDraftInput(nextState, { type: 'TIMEOUT' }, { blindBans, random })
   if (isDraftError(timeoutResult)) return timeoutResult
 
   return {
@@ -266,6 +269,7 @@ function buildTimeoutBanSelections(
   count: number,
   previewSelections: string[],
   reserved: Set<string> | null,
+  random: RandomSource,
 ): string[] {
   const available = state.availableCivIds.filter((civId) => {
     if (reserved?.has(civId)) return false
@@ -285,7 +289,7 @@ function buildTimeoutBanSelections(
 
   const remainingPool = available.filter(civId => !selectedSet.has(civId))
   while (selected.length < count && remainingPool.length > 0) {
-    const index = Math.floor(Math.random() * remainingPool.length)
+    const index = Math.floor(random() * remainingPool.length)
     const [civId] = remainingPool.splice(index, 1)
     if (!civId) continue
     selected.push(civId)

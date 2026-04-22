@@ -10,6 +10,12 @@ import type {
   DraftState,
   DraftStep,
 } from './types.ts'
+import type { RandomSource } from './random.ts'
+
+export interface DraftProcessOptions {
+  blindBans?: boolean
+  random?: RandomSource
+}
 
 // ── Create ──────────────────────────────────────────────────
 
@@ -61,8 +67,9 @@ export function createDraft(
 export function processDraftInput(
   state: DraftState,
   input: DraftInput,
-  blindBans: boolean = false,
+  options: boolean | DraftProcessOptions = false,
 ): DraftResult | DraftError {
+  const { blindBans, random } = normalizeDraftProcessOptions(options)
   switch (input.type) {
     case 'START':
       return processStart(state)
@@ -73,7 +80,7 @@ export function processDraftInput(
     case 'PICK':
       return processPick(state, input.seatIndex, input.civId)
     case 'TIMEOUT':
-      return processTimeout(state, blindBans)
+      return processTimeout(state, blindBans, random)
   }
 }
 
@@ -334,6 +341,7 @@ function processPick(
 function processTimeout(
   state: DraftState,
   blindBans: boolean,
+  random: RandomSource,
 ): DraftResult | DraftError {
   if (state.status !== 'active') {
     return { error: 'Draft is not active' }
@@ -363,7 +371,7 @@ function processTimeout(
         return { error: 'No dealt factions available for timeout pick' }
       }
 
-      const randomPick = timedOutPool[Math.floor(Math.random() * timedOutPool.length)]
+      const randomPick = timedOutPool[Math.floor(random() * timedOutPool.length)]
       if (!randomPick) return { error: 'Failed to resolve timeout pick' }
 
       const timeoutEvents: DraftEvent[] = [{
@@ -427,7 +435,7 @@ function processTimeout(
     const randomPicks: string[] = []
     for (let i = 0; i < needed; i++) {
       if (available.length === 0) break
-      const idx = Math.floor(Math.random() * available.length)
+      const idx = Math.floor(random() * available.length)
       const [pickedCivId] = available.splice(idx, 1)
       if (!pickedCivId) break
       randomPicks.push(pickedCivId)
@@ -444,6 +452,20 @@ function processTimeout(
     events,
     blindBans,
   )
+}
+
+function normalizeDraftProcessOptions(options: boolean | DraftProcessOptions): { blindBans: boolean, random: RandomSource } {
+  if (typeof options === 'boolean') {
+    return {
+      blindBans: options,
+      random: Math.random,
+    }
+  }
+
+  return {
+    blindBans: options.blindBans === true,
+    random: options.random ?? Math.random,
+  }
 }
 
 // ── Internal Helpers ────────────────────────────────────────
