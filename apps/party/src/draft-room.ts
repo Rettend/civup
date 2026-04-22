@@ -83,6 +83,23 @@ interface PartyEnv extends Cloudflare.Env {
   CIVUP_SECRET?: string
 }
 
+interface RoomRecord {
+  version: number
+  config: RoomConfig
+  state: DraftState
+  timerEndsAt: number | null
+  alarmStepIndex: number
+  completedAt: number | null
+  cancelledAt: number | null
+  previews: DraftPreviewState
+  swapWindowOpen: boolean
+  swapState: LeaderSwapState | null
+  swapPendingExpiresAt: number | null
+  swapDisconnectFinalizeAt: number | null
+  swapSafetyEndsAt: number | null
+  mapVote: StoredMapVoteState
+}
+
 // ── Connection State ─────────────────────────────────────────
 
 interface ConnectionState {
@@ -95,6 +112,8 @@ const WEBHOOK_RETRY_MAX_MS = 1500
 const DEBUG_ACTIVE_BOT_PLAYER_ID_PREFIX = 'bot:'
 const DEBUG_ACTIVE_BOT_DELAY_MS = 5000
 const DEBUG_ACTIVE_BOT_STAGGER_MS = 150
+const ROOM_RECORD_KEY = 'room'
+const ROOM_RECORD_VERSION = 1
 const SWAP_REQUEST_TIMEOUT_MS = 30_000
 const SWAP_DISCONNECT_GRACE_MS = 5_000
 const SWAP_WINDOW_TIMEOUT_MS = 5 * 60_000
@@ -137,7 +156,7 @@ export class Main extends Server<PartyEnv> {
       return json({ error: 'Unauthorized' }, 401)
     }
 
-    const existing = await this.ctx.storage.get<DraftState>('state')
+    const existing = await this.getRoomRecord()
     if (existing) {
       return json({ error: 'Room already initialized' }, 409)
     }
@@ -171,40 +190,31 @@ export class Main extends Server<PartyEnv> {
     }
     const previews = createEmptyDraftPreviews()
     const mapVote = createInitialMapVoteState(state, nextConfig, format.redDeath)
-
-    await this.ctx.storage.put('config', nextConfig)
-    await this.ctx.storage.put('state', state)
-    await this.ctx.storage.put('timerEndsAt', null)
-    await this.ctx.storage.put('alarmStepIndex', -1)
-    await this.ctx.storage.put('completedAt', null)
-    await this.ctx.storage.put('cancelledAt', null)
-    await this.ctx.storage.put('previews', previews)
-    await this.ctx.storage.put('swapWindowOpen', false)
-    await this.ctx.storage.put('swapState', null)
-    await this.ctx.storage.put('swapPendingExpiresAt', null)
-    await this.ctx.storage.put('swapDisconnectFinalizeAt', null)
-    await this.ctx.storage.put('swapSafetyEndsAt', null)
-    await this.ctx.storage.put('mapVote', mapVote)
-    await this.assertRoomInvariants(state, nextConfig, {
-      alarmStepIndex: -1,
-      cancelledAt: null,
-      completedAt: null,
-      context: buildDraftRoomLogContext('handleCreate', state),
-      mapVote,
+    const room = createRoomRecord(nextConfig, state, mapVote, {
       previews,
-      swapDisconnectFinalizeAt: null,
-      swapSafetyEndsAt: null,
-      swapState: null,
-      swapWindowOpen: false,
-      timerEndsAt: null,
+    })
+
+    await this.setRoomRecord(room)
+    await this.assertRoomInvariants(room.state, room.config, {
+      alarmStepIndex: room.alarmStepIndex,
+      cancelledAt: room.cancelledAt,
+      completedAt: room.completedAt,
+      context: buildDraftRoomLogContext('handleCreate', room.state),
+      mapVote: room.mapVote,
+      previews: room.previews,
+      swapDisconnectFinalizeAt: room.swapDisconnectFinalizeAt,
+      swapSafetyEndsAt: room.swapSafetyEndsAt,
+      swapState: room.swapState,
+      swapWindowOpen: room.swapWindowOpen,
+      timerEndsAt: room.timerEndsAt,
     })
 
     return json({ ok: true, matchId: config.matchId }, 201)
   }
 
   private async handleStatus(req: Request): Promise<Response> {
-    const state = await this.ctx.storage.get<DraftState>('state')
-    if (!state) {
+    const room = await this.getRoomRecord()
+    if (!room) {
       return json({ error: 'Room not initialized' }, 404)
     }
 
@@ -215,32 +225,78 @@ export class Main extends Server<PartyEnv> {
 
     const requestUrl = new URL(req.url)
     const hasAccess = await verifyDraftRoomAccessToken(this.env.CIVUP_SECRET, requestUrl.searchParams.get('accessToken'), {
-      roomId: state.matchId,
+      roomId: room.state.matchId,
       userId: activityUserId,
     })
     if (!hasAccess) {
       return json({ error: 'Forbidden' }, 403)
     }
 
-    const timerEndsAt = await this.ctx.storage.get<number | null>('timerEndsAt')
-    const completedAt = await this.ctx.storage.get<number | null>('completedAt')
-    const cancelledAt = await this.ctx.storage.get<number | null>('cancelledAt')
-    const swapWindowOpen = await this.ctx.storage.get<boolean>('swapWindowOpen') === true
-    const seatIndex = state.seats.findIndex(seat => seat.playerId === activityUserId)
-    const mapVote = await this.getMapVoteSnapshot(state, seatIndex)
-    const previews = sanitizeDraftPreviews(
-      state,
-      await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
-    )
+    const seatIndex = room.state.seats.findIndex(seat => seat.playerId === activityUserId)
+    const mapVote = this.buildMapVoteSnapshot(room.mapVote, seatIndex, room.state)
     return json({
-      state: this.censorState(state, seatIndex),
-      timerEndsAt,
+      state: this.censorState(room.state, seatIndex),
+      timerEndsAt: room.timerEndsAt,
       mapVote,
-      completedAt,
-      cancelledAt,
-      previews: censorDraftPreviews(state, previews, seatIndex),
-      swapState: swapWindowOpen ? await this.getSwapState() : null,
+      completedAt: room.completedAt,
+      cancelledAt: room.cancelledAt,
+      previews: censorDraftPreviews(room.state, room.previews, seatIndex),
+      swapState: room.swapWindowOpen ? this.getNormalizedSwapState(room) : null,
     })
+  }
+
+  private async getRoomRecord(): Promise<RoomRecord | null> {
+    const stored = normalizeStoredRoomRecord(await this.ctx.storage.get<unknown>(ROOM_RECORD_KEY))
+    if (stored) return stored
+    return await this.migrateLegacyRoomRecord()
+  }
+
+  private async requireRoomRecord(): Promise<RoomRecord> {
+    const room = await this.getRoomRecord()
+    if (!room) {
+      throw new Error('Room not initialized')
+    }
+    return room
+  }
+
+  private async setRoomRecord(room: RoomRecord): Promise<RoomRecord> {
+    await this.ctx.storage.put(ROOM_RECORD_KEY, room)
+    return room
+  }
+
+  private async updateRoomRecord(updater: (room: RoomRecord) => RoomRecord): Promise<RoomRecord> {
+    return await this.setRoomRecord(updater(await this.requireRoomRecord()))
+  }
+
+  private getNormalizedSwapState(room: Pick<RoomRecord, 'swapState' | 'swapPendingExpiresAt'>): LeaderSwapState {
+    return normalizeStoredSwapState(room.swapState, room.swapPendingExpiresAt)
+  }
+
+  private async migrateLegacyRoomRecord(): Promise<RoomRecord | null> {
+    const state = await this.ctx.storage.get<DraftState>('state')
+    if (!state) return null
+
+    const config = await this.ctx.storage.get<RoomConfig>('config')
+    if (!config) return null
+
+    const room = createRoomRecord(config, state, await this.ctx.storage.get<StoredMapVoteState>('mapVote') ?? { ...EMPTY_STORED_MAP_VOTE_STATE }, {
+      timerEndsAt: await this.ctx.storage.get<number | null>('timerEndsAt') ?? null,
+      alarmStepIndex: await this.ctx.storage.get<number>('alarmStepIndex') ?? -1,
+      completedAt: await this.ctx.storage.get<number | null>('completedAt') ?? null,
+      cancelledAt: await this.ctx.storage.get<number | null>('cancelledAt') ?? null,
+      previews: sanitizeDraftPreviews(
+        state,
+        await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
+      ),
+      swapWindowOpen: await this.ctx.storage.get<boolean>('swapWindowOpen') === true,
+      swapState: await this.ctx.storage.get<LeaderSwapState | null>('swapState'),
+      swapPendingExpiresAt: await this.ctx.storage.get<number | null>('swapPendingExpiresAt') ?? null,
+      swapDisconnectFinalizeAt: await this.ctx.storage.get<number | null>('swapDisconnectFinalizeAt') ?? null,
+      swapSafetyEndsAt: await this.ctx.storage.get<number | null>('swapSafetyEndsAt') ?? null,
+    })
+
+    await this.setRoomRecord(room)
+    return room
   }
 
   // ── WebSocket: Connection ──────────────────────────────────
@@ -259,8 +315,8 @@ export class Main extends Server<PartyEnv> {
 
     connection.setState({ playerId } satisfies ConnectionState)
 
-    const state = await this.ctx.storage.get<DraftState>('state')
-    if (!state) {
+    const room = await this.getRoomRecord()
+    if (!room) {
       this.send(connection, { type: 'error', message: 'Room not initialized' })
       connection.close(4000, 'Room not initialized')
       return
@@ -268,7 +324,7 @@ export class Main extends Server<PartyEnv> {
 
     const requestUrl = new URL(ctx.request.url)
     const hasAccess = await verifyDraftRoomAccessToken(this.env.CIVUP_SECRET, requestUrl.searchParams.get('accessToken'), {
-      roomId: state.matchId,
+      roomId: room.state.matchId,
       userId: playerId,
     })
     if (!hasAccess) {
@@ -277,46 +333,31 @@ export class Main extends Server<PartyEnv> {
       return
     }
 
-    const config = await this.ctx.storage.get<RoomConfig>('config')
-    const hostId = config?.hostId ?? state.seats[0]?.playerId ?? ''
-
-    const timerEndsAt = await this.ctx.storage.get<number | null>('timerEndsAt')
-    const completedAt = await this.ctx.storage.get<number | null>('completedAt')
-    const swapWindowOpen = await this.ctx.storage.get<boolean>('swapWindowOpen') === true
-    const swapDisconnectFinalizeAt = swapWindowOpen
-      ? await this.ctx.storage.get<number | null>('swapDisconnectFinalizeAt')
-      : null
-    const swapState = swapWindowOpen
-      ? await this.getSwapState()
-      : null
-    const previews = sanitizeDraftPreviews(
-      state,
-      await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
-    )
+    const hostId = room.config.hostId ?? room.state.seats[0]?.playerId ?? ''
     const seatIndex = playerId
-      ? state.seats.findIndex(s => s.playerId === playerId)
+      ? room.state.seats.findIndex(s => s.playerId === playerId)
       : -1
-    const mapVote = await this.getMapVoteSnapshot(state, seatIndex)
+    const mapVote = this.buildMapVoteSnapshot(room.mapVote, seatIndex, room.state)
 
     this.send(connection, {
       type: 'init',
-      state: this.censorState(state, seatIndex),
+      state: this.censorState(room.state, seatIndex),
       mapVote,
-      leaderDataVersion: config?.leaderDataVersion ?? 'live',
+      leaderDataVersion: room.config.leaderDataVersion ?? 'live',
       hostId,
       seatIndex: seatIndex >= 0 ? seatIndex : null,
-      timerEndsAt: timerEndsAt ?? null,
-      completedAt: completedAt ?? null,
-      previews: censorDraftPreviews(state, previews, seatIndex),
-      swapState,
+      timerEndsAt: room.timerEndsAt,
+      completedAt: room.completedAt,
+      previews: censorDraftPreviews(room.state, room.previews, seatIndex),
+      swapState: room.swapWindowOpen ? this.getNormalizedSwapState(room) : null,
     })
 
-    if (swapWindowOpen && seatIndex >= 0 && swapDisconnectFinalizeAt != null) {
+    if (room.swapWindowOpen && seatIndex >= 0 && room.swapDisconnectFinalizeAt != null) {
       await this.clearSwapDisconnectFinalizeAt()
       await this.scheduleSwapAlarm()
     }
 
-    if ((state.status === 'complete' && !swapWindowOpen) || state.status === 'cancelled') {
+    if ((room.state.status === 'complete' && !room.swapWindowOpen) || room.state.status === 'cancelled') {
       connection.close(1000, 'Draft closed')
     }
   }
@@ -335,17 +376,14 @@ export class Main extends Server<PartyEnv> {
       return
     }
 
-    const state = await this.ctx.storage.get<DraftState>('state')
-    if (!state) {
+    const room = await this.getRoomRecord()
+    if (!room) {
       this.send(sender, { type: 'error', message: 'Room not initialized' })
       return
     }
 
-    const config = await this.ctx.storage.get<RoomConfig>('config')
-    if (!config) {
-      this.send(sender, { type: 'error', message: 'Room config missing' })
-      return
-    }
+    const state = room.state
+    const config = room.config
 
     const format = draftFormatMap.get(config.formatId)
     if (!format) {
@@ -452,7 +490,7 @@ export class Main extends Server<PartyEnv> {
         }
         const previews = sanitizeDraftPreviews(
           state,
-          await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
+          room.previews,
         )
         const pickSeatIndex = getPickSeatForPlayer(state, seatIndex) ?? seatIndex
         const result = resolvePickSubmissionWithPreviews(
@@ -478,7 +516,7 @@ export class Main extends Server<PartyEnv> {
 
         const previews = sanitizeDraftPreviews(
           state,
-          await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
+          room.previews,
         )
         const nextPreviews = applyDraftPreview(state, previews, seatIndex, msg.action, msg.civIds)
         if ('error' in nextPreviews) {
@@ -487,7 +525,10 @@ export class Main extends Server<PartyEnv> {
         }
         if (draftPreviewsEqual(previews, nextPreviews)) return
 
-        await this.ctx.storage.put('previews', nextPreviews)
+        await this.updateRoomRecord(current => ({
+          ...current,
+          previews: nextPreviews,
+        }))
         await this.assertRoomInvariants(state, config, {
           context: buildDraftRoomLogContext('preview-update', state, {
             actor: playerId,
@@ -549,19 +590,22 @@ export class Main extends Server<PartyEnv> {
           return
         }
 
-        await this.ctx.storage.put('swapState', nextSwapState)
+        const nextRoom = await this.updateRoomRecord(current => ({
+          ...current,
+          swapState: nextSwapState,
+        }))
         await this.scheduleSwapAlarm()
         await this.assertRoomInvariants(state, config, {
-          completedAt: await this.ctx.storage.get<number | null>('completedAt') ?? null,
+          completedAt: nextRoom.completedAt,
           context: buildDraftRoomLogContext('swap-request', state, {
             fromSeat: seatIndex,
             toSeat: msg.toSeat,
           }),
-          swapDisconnectFinalizeAt: await this.ctx.storage.get<number | null>('swapDisconnectFinalizeAt') ?? null,
-          swapSafetyEndsAt: await this.ctx.storage.get<number | null>('swapSafetyEndsAt') ?? null,
+          swapDisconnectFinalizeAt: nextRoom.swapDisconnectFinalizeAt,
+          swapSafetyEndsAt: nextRoom.swapSafetyEndsAt,
           swapState: nextSwapState,
           swapWindowOpen: true,
-          timerEndsAt: await this.ctx.storage.get<number | null>('timerEndsAt') ?? null,
+          timerEndsAt: nextRoom.timerEndsAt,
         })
         this.broadcastSwapUpdate(state, nextSwapState)
         break
@@ -596,25 +640,27 @@ export class Main extends Server<PartyEnv> {
         }
         const nextSwapState = resolveAcceptedSwapState(swapState, pendingSwap)
 
-        await this.ctx.storage.put('state', nextState)
-        await this.ctx.storage.put('swapState', nextSwapState)
+        const nextRoom = await this.updateRoomRecord(current => ({
+          ...current,
+          state: nextState,
+          swapState: nextSwapState,
+        }))
         await this.scheduleSwapAlarm()
         await this.assertRoomInvariants(nextState, config, {
-          completedAt: await this.ctx.storage.get<number | null>('completedAt') ?? null,
+          completedAt: nextRoom.completedAt,
           context: buildDraftRoomLogContext('swap-accept', nextState, {
             fromSeat: pendingSwap.fromSeat,
             toSeat: pendingSwap.toSeat,
           }),
-          swapDisconnectFinalizeAt: await this.ctx.storage.get<number | null>('swapDisconnectFinalizeAt') ?? null,
-          swapSafetyEndsAt: await this.ctx.storage.get<number | null>('swapSafetyEndsAt') ?? null,
+          swapDisconnectFinalizeAt: nextRoom.swapDisconnectFinalizeAt,
+          swapSafetyEndsAt: nextRoom.swapSafetyEndsAt,
           swapState: nextSwapState,
           swapWindowOpen: true,
-          timerEndsAt: await this.ctx.storage.get<number | null>('timerEndsAt') ?? null,
+          timerEndsAt: nextRoom.timerEndsAt,
         })
         this.broadcastSwapUpdate(nextState, nextSwapState, swappedPicks)
-        const completedAt = await this.ctx.storage.get<number | null>('completedAt')
-        if (config && completedAt != null) {
-          await this.notifyDraftComplete(nextState, config, completedAt)
+        if (nextRoom.completedAt != null) {
+          await this.notifyDraftComplete(nextState, config, nextRoom.completedAt)
         }
         break
       }
@@ -641,19 +687,22 @@ export class Main extends Server<PartyEnv> {
           pendingSwaps: swapState.pendingSwaps.filter(swap => !isSamePendingSwap(swap, pendingSwap)),
           completedSwaps: swapState.completedSwaps,
         }
-        await this.ctx.storage.put('swapState', nextSwapState)
+        const nextRoom = await this.updateRoomRecord(current => ({
+          ...current,
+          swapState: nextSwapState,
+        }))
         await this.scheduleSwapAlarm()
         await this.assertRoomInvariants(state, config, {
-          completedAt: await this.ctx.storage.get<number | null>('completedAt') ?? null,
+          completedAt: nextRoom.completedAt,
           context: buildDraftRoomLogContext('swap-cancel', state, {
             fromSeat: pendingSwap.fromSeat,
             toSeat: pendingSwap.toSeat,
           }),
-          swapDisconnectFinalizeAt: await this.ctx.storage.get<number | null>('swapDisconnectFinalizeAt') ?? null,
-          swapSafetyEndsAt: await this.ctx.storage.get<number | null>('swapSafetyEndsAt') ?? null,
+          swapDisconnectFinalizeAt: nextRoom.swapDisconnectFinalizeAt,
+          swapSafetyEndsAt: nextRoom.swapSafetyEndsAt,
           swapState: nextSwapState,
           swapWindowOpen: true,
-          timerEndsAt: await this.ctx.storage.get<number | null>('timerEndsAt') ?? null,
+          timerEndsAt: nextRoom.timerEndsAt,
         })
         this.broadcastSwapUpdate(state, nextSwapState)
         break
@@ -678,31 +727,31 @@ export class Main extends Server<PartyEnv> {
 
         const timerConfig = { banTimerSeconds, pickTimerSeconds }
         const nextState = withWaitingTimerConfig(format, state, timerConfig)
-        await this.ctx.storage.put('state', nextState)
         const nextConfig = {
           ...config,
           timerConfig,
         } satisfies RoomConfig
-        await this.ctx.storage.put('config', nextConfig)
-
-        const timerEndsAt = await this.ctx.storage.get<number | null>('timerEndsAt')
-        const completedAt = await this.ctx.storage.get<number | null>('completedAt')
         const previews = sanitizeDraftPreviews(
           nextState,
-          await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
+          room.previews,
         )
-        await this.ctx.storage.put('previews', previews)
-        const mapVoteState = await this.getStoredMapVoteState()
+        const nextRoom = await this.updateRoomRecord(current => ({
+          ...current,
+          state: nextState,
+          config: nextConfig,
+          previews,
+        }))
+        const mapVoteState = nextRoom.mapVote
         await this.assertRoomInvariants(nextState, nextConfig, {
-          completedAt: completedAt ?? null,
+          completedAt: nextRoom.completedAt,
           context: buildDraftRoomLogContext('config-update', nextState, {
             actor: playerId,
           }),
           mapVote: mapVoteState,
           previews,
-          timerEndsAt: timerEndsAt ?? null,
+          timerEndsAt: nextRoom.timerEndsAt,
         })
-        this.broadcastUpdate(nextState, config.hostId, config.leaderDataVersion ?? 'live', [], timerEndsAt ?? null, completedAt ?? null, previews, null, mapVoteState)
+        this.broadcastUpdate(nextState, nextConfig.hostId, nextConfig.leaderDataVersion ?? 'live', [], nextRoom.timerEndsAt, nextRoom.completedAt, previews, null, mapVoteState)
         break
       }
 
@@ -714,32 +763,33 @@ export class Main extends Server<PartyEnv> {
   // ── WebSocket: Disconnect ──────────────────────────────────
 
   override async onClose(connection: Connection) {
-    const state = await this.ctx.storage.get<DraftState>('state')
-    if (!state || state.status !== 'complete') return
-    if (!(await this.isSwapWindowOpen())) return
+    const room = await this.getRoomRecord()
+    if (!room || room.state.status !== 'complete' || !room.swapWindowOpen) return
 
-    const disconnectFinalizeAt = await this.ctx.storage.get<number | null>('swapDisconnectFinalizeAt') ?? null
+    const disconnectFinalizeAt = room.swapDisconnectFinalizeAt
     const nextDisconnectFinalizeAt = getSwapDisconnectFinalizeAtAfterDisconnect({
-      connectedParticipantCount: this.getConnectedParticipantCount(state, connection),
+      connectedParticipantCount: this.getConnectedParticipantCount(room.state, connection),
       existingDisconnectFinalizeAt: disconnectFinalizeAt,
       now: Date.now(),
       graceMs: SWAP_DISCONNECT_GRACE_MS,
     })
     if (nextDisconnectFinalizeAt == null || nextDisconnectFinalizeAt === disconnectFinalizeAt) return
 
-    await this.ctx.storage.put('swapDisconnectFinalizeAt', nextDisconnectFinalizeAt)
+    const nextRoom = await this.updateRoomRecord(current => ({
+      ...current,
+      swapDisconnectFinalizeAt: nextDisconnectFinalizeAt,
+    }))
     await this.scheduleSwapAlarm()
-    const config = await this.ctx.storage.get<RoomConfig>('config')
-    await this.assertRoomInvariants(state, config ?? null, {
-      completedAt: await this.ctx.storage.get<number | null>('completedAt') ?? null,
-      context: buildDraftRoomLogContext('connection-close', state, {
+    await this.assertRoomInvariants(room.state, nextRoom.config, {
+      completedAt: nextRoom.completedAt,
+      context: buildDraftRoomLogContext('connection-close', room.state, {
         disconnectedPlayerId: (connection.state as ConnectionState | null)?.playerId ?? null,
       }),
       swapDisconnectFinalizeAt: nextDisconnectFinalizeAt,
-      swapSafetyEndsAt: await this.ctx.storage.get<number | null>('swapSafetyEndsAt') ?? null,
-      swapState: await this.getSwapState(),
+      swapSafetyEndsAt: nextRoom.swapSafetyEndsAt,
+      swapState: this.getNormalizedSwapState(nextRoom),
       swapWindowOpen: true,
-      timerEndsAt: await this.ctx.storage.get<number | null>('timerEndsAt') ?? null,
+      timerEndsAt: nextRoom.timerEndsAt,
     })
   }
 
@@ -750,11 +800,10 @@ export class Main extends Server<PartyEnv> {
   // ── Timer: Alarm ───────────────────────────────────────────
 
   override async onAlarm() {
-    const state = await this.ctx.storage.get<DraftState>('state')
-    if (!state) return
-
-    const config = await this.ctx.storage.get<RoomConfig>('config')
-    if (!config) return
+    const room = await this.getRoomRecord()
+    if (!room) return
+    const state = room.state
+    const config = room.config
     await this.assertRoomInvariants(state, config, {
       context: buildDraftRoomLogContext('before-alarm', state),
     })
@@ -763,19 +812,21 @@ export class Main extends Server<PartyEnv> {
       return
     }
 
-    if (state.status === 'complete' && await this.isSwapWindowOpen()) {
+    if (state.status === 'complete' && room.swapWindowOpen) {
       const now = Date.now()
-      const disconnectFinalizeAt = await this.ctx.storage.get<number | null>('swapDisconnectFinalizeAt') ?? null
-      const safetyEndsAt = await this.ctx.storage.get<number | null>('swapSafetyEndsAt') ?? null
-
-      const swapState = await this.getSwapState()
+      const disconnectFinalizeAt = room.swapDisconnectFinalizeAt
+      const safetyEndsAt = room.swapSafetyEndsAt
+      const swapState = this.getNormalizedSwapState(room)
       const nextPendingSwaps = swapState.pendingSwaps.filter(swap => swap.expiresAt > now)
       if (nextPendingSwaps.length !== swapState.pendingSwaps.length) {
         const nextSwapState: LeaderSwapState = {
           pendingSwaps: nextPendingSwaps,
           completedSwaps: swapState.completedSwaps,
         }
-        await this.ctx.storage.put('swapState', nextSwapState)
+        await this.updateRoomRecord(current => ({
+          ...current,
+          swapState: nextSwapState,
+        }))
         this.broadcastSwapUpdate(state, nextSwapState)
       }
 
@@ -800,16 +851,12 @@ export class Main extends Server<PartyEnv> {
     if (state.status !== 'active') return
 
     // Guard against stale alarms (step already advanced)
-    const alarmStepIndex = await this.ctx.storage.get<number>('alarmStepIndex')
-    if (alarmStepIndex !== state.currentStepIndex) return
+    if (room.alarmStepIndex !== state.currentStepIndex) return
 
     const format = draftFormatMap.get(config.formatId)
     if (!format) return
 
-    const previews = sanitizeDraftPreviews(
-      state,
-      await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
-    )
+    const previews = sanitizeDraftPreviews(state, room.previews)
     const result = resolveTimeoutWithPreviews(state, format.blindBans, previews)
     if (isDraftError(result)) return
 
@@ -819,32 +866,33 @@ export class Main extends Server<PartyEnv> {
   // ── Internal: Apply result & broadcast ─────────────────────
 
   private async applyResult(newState: DraftState, events: DraftEvent[]) {
-    await this.ctx.storage.put('state', newState)
-    const config = await this.ctx.storage.get<RoomConfig>('config')
-    const format = config ? draftFormatMap.get(config.formatId) : null
+    const room = await this.requireRoomRecord()
+    const config = room.config
+    const format = draftFormatMap.get(config.formatId)
     let webhookTask: Promise<void> | null = null
     let immediateSwapWindowSyncTask: Promise<void> | null = null
-    const previews = sanitizeDraftPreviews(
-      newState,
-      await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
-    )
-    await this.ctx.storage.put('previews', previews)
 
     // Set timer when a new step starts
     const stepAdvanced = events.some(
       e => e.type === 'STEP_ADVANCED' || e.type === 'DRAFT_STARTED',
     )
 
-    let alarmStepIndex = await this.ctx.storage.get<number>('alarmStepIndex') ?? -1
-    let timerEndsAt = await this.ctx.storage.get<number | null>('timerEndsAt')
-    let completedAt = await this.ctx.storage.get<number | null>('completedAt')
-    let cancelledAt = await this.ctx.storage.get<number | null>('cancelledAt')
+    let alarmMode: 'preserve' | 'set-step' | 'delete' | 'swap-window' = 'preserve'
+    let alarmStepIndex = room.alarmStepIndex
+    let timerEndsAt = room.timerEndsAt
+    let completedAt = room.completedAt
+    let cancelledAt = room.cancelledAt
     let swapState: LeaderSwapState | null = null
 
-    const nextState = this.assignDealtCivIds(newState, config ?? null)
+    const nextState = this.assignDealtCivIds(newState, config)
     if (nextState !== newState) {
       newState = nextState
-      await this.ctx.storage.put('state', newState)
+    }
+    const previews = sanitizeDraftPreviews(newState, room.previews)
+    let nextRoom: RoomRecord = {
+      ...room,
+      state: newState,
+      previews,
     }
 
     if (stepAdvanced && newState.status === 'active') {
@@ -852,16 +900,18 @@ export class Main extends Server<PartyEnv> {
       if (step && step.timer > 0) {
         timerEndsAt = Date.now() + step.timer * 1000
         alarmStepIndex = newState.currentStepIndex
-        await this.ctx.storage.put('alarmStepIndex', alarmStepIndex)
-        await this.ctx.storage.setAlarm(timerEndsAt)
+        alarmMode = 'set-step'
       }
       else {
         timerEndsAt = null
         alarmStepIndex = -1
-        await this.ctx.storage.put('alarmStepIndex', alarmStepIndex)
-        await this.ctx.storage.deleteAlarm()
+        alarmMode = 'delete'
       }
-      await this.ctx.storage.put('timerEndsAt', timerEndsAt)
+      nextRoom = {
+        ...nextRoom,
+        alarmStepIndex,
+        timerEndsAt,
+      }
       if (format) {
         this.scheduleDebugActiveBotActions(newState, format.blindBans)
       }
@@ -870,63 +920,99 @@ export class Main extends Server<PartyEnv> {
     if (newState.status === 'complete') {
       timerEndsAt = null
       alarmStepIndex = -1
-      await this.ctx.storage.deleteAlarm()
-      await this.ctx.storage.put('alarmStepIndex', alarmStepIndex)
-      await this.ctx.storage.put('timerEndsAt', null)
       if (completedAt == null) {
         completedAt = Date.now()
-        await this.ctx.storage.put('completedAt', completedAt)
+      }
+      nextRoom = {
+        ...nextRoom,
+        alarmStepIndex,
+        timerEndsAt: null,
+        completedAt,
       }
 
       if (this.shouldOpenSwapWindow(newState)) {
         swapState = createEmptySwapState()
-        await this.ctx.storage.put('swapWindowOpen', true)
-        await this.ctx.storage.put('swapState', swapState)
-        await this.ctx.storage.put('swapDisconnectFinalizeAt', null)
-        await this.ctx.storage.put('swapSafetyEndsAt', completedAt + SWAP_WINDOW_TIMEOUT_MS)
-        await this.scheduleSwapAlarm()
-        if (config) immediateSwapWindowSyncTask = this.notifyDraftComplete(newState, config, completedAt)
+        nextRoom = {
+          ...nextRoom,
+          swapWindowOpen: true,
+          swapState,
+          swapPendingExpiresAt: null,
+          swapDisconnectFinalizeAt: null,
+          swapSafetyEndsAt: completedAt + SWAP_WINDOW_TIMEOUT_MS,
+        }
+        alarmMode = 'swap-window'
+        immediateSwapWindowSyncTask = this.notifyDraftComplete(newState, config, completedAt)
       }
       else {
-        await this.clearSwapWindowState()
-        if (config) {
-          webhookTask = this.notifyDraftComplete(newState, config, completedAt)
+        nextRoom = {
+          ...nextRoom,
+          swapWindowOpen: false,
+          swapState: null,
+          swapPendingExpiresAt: null,
+          swapDisconnectFinalizeAt: null,
+          swapSafetyEndsAt: null,
         }
+        alarmMode = 'delete'
+        webhookTask = this.notifyDraftComplete(newState, config, completedAt)
       }
     }
 
     if (newState.status === 'cancelled') {
       timerEndsAt = null
       alarmStepIndex = -1
-      await this.ctx.storage.deleteAlarm()
-      await this.ctx.storage.put('alarmStepIndex', alarmStepIndex)
-      await this.ctx.storage.put('timerEndsAt', null)
       if (cancelledAt == null) {
         cancelledAt = Date.now()
-        await this.ctx.storage.put('cancelledAt', cancelledAt)
       }
-      await this.clearSwapWindowState()
-      if (config) {
-        webhookTask = this.notifyDraftCancelled(newState, config, cancelledAt)
+      nextRoom = {
+        ...nextRoom,
+        alarmStepIndex,
+        timerEndsAt: null,
+        cancelledAt,
+        swapWindowOpen: false,
+        swapState: null,
+        swapPendingExpiresAt: null,
+        swapDisconnectFinalizeAt: null,
+        swapSafetyEndsAt: null,
       }
+      alarmMode = 'delete'
+      webhookTask = this.notifyDraftCancelled(newState, config, cancelledAt)
     }
 
     if (newState.status !== 'complete') {
-      await this.clearSwapWindowState()
+      nextRoom = {
+        ...nextRoom,
+        swapWindowOpen: false,
+        swapState: null,
+        swapPendingExpiresAt: null,
+        swapDisconnectFinalizeAt: null,
+        swapSafetyEndsAt: null,
+      }
     }
 
-    if (newState.status === 'complete' && swapState == null && await this.isSwapWindowOpen()) {
-      swapState = await this.getSwapState()
+    await this.setRoomRecord(nextRoom)
+
+    if (alarmMode === 'set-step' && timerEndsAt != null) {
+      await this.ctx.storage.setAlarm(timerEndsAt)
+    }
+    else if (alarmMode === 'delete') {
+      await this.ctx.storage.deleteAlarm()
+    }
+    else if (alarmMode === 'swap-window') {
+      await this.scheduleSwapAlarm()
     }
 
-    const hostId = config?.hostId ?? newState.seats[0]?.playerId ?? ''
-    const mapVoteState = await this.getStoredMapVoteState()
-    const swapWindowOpen = newState.status === 'complete' && await this.isSwapWindowOpen()
+    if (newState.status === 'complete' && swapState == null && nextRoom.swapWindowOpen) {
+      swapState = this.getNormalizedSwapState(nextRoom)
+    }
+
+    const hostId = config.hostId ?? newState.seats[0]?.playerId ?? ''
+    const mapVoteState = nextRoom.mapVote
+    const swapWindowOpen = newState.status === 'complete' && nextRoom.swapWindowOpen
     const swapDisconnectFinalizeAt = swapWindowOpen
-      ? await this.ctx.storage.get<number | null>('swapDisconnectFinalizeAt') ?? null
+      ? nextRoom.swapDisconnectFinalizeAt
       : null
     const swapSafetyEndsAt = swapWindowOpen
-      ? await this.ctx.storage.get<number | null>('swapSafetyEndsAt') ?? null
+      ? nextRoom.swapSafetyEndsAt
       : null
     const transitionContext = buildDraftRoomLogContext('apply-result', newState, {
       eventTypes: events.map(event => event.type),
@@ -945,7 +1031,7 @@ export class Main extends Server<PartyEnv> {
       swapWindowOpen,
       timerEndsAt: timerEndsAt ?? null,
     })
-    this.broadcastUpdate(newState, hostId, config?.leaderDataVersion ?? 'live', events, timerEndsAt ?? null, completedAt ?? null, previews, swapState, mapVoteState)
+    this.broadcastUpdate(newState, hostId, config.leaderDataVersion ?? 'live', events, timerEndsAt ?? null, completedAt ?? null, previews, swapState, mapVoteState)
 
     if (immediateSwapWindowSyncTask) {
       await immediateSwapWindowSyncTask
@@ -1008,7 +1094,8 @@ export class Main extends Server<PartyEnv> {
   }
 
   private async runDebugActiveBotAction(stepIndex: number, seatIndex: number, blindBans: boolean) {
-    const state = await this.ctx.storage.get<DraftState>('state')
+    const room = await this.getRoomRecord()
+    const state = room?.state
     if (!state || state.status !== 'active') return
     if (state.currentStepIndex !== stepIndex) return
 
@@ -1071,13 +1158,14 @@ export class Main extends Server<PartyEnv> {
   }
 
   private async runDebugMapVoteBotAction(seatIndex: number, config: RoomConfig) {
-    const state = await this.ctx.storage.get<DraftState>('state')
-    if (!state) return
+    const room = await this.getRoomRecord()
+    const state = room?.state
+    if (!state || !room) return
 
     const seat = state.seats[seatIndex]
     if (!seat || !isDebugActiveBotPlayerId(seat.playerId)) return
 
-    const mapVoteState = await this.getStoredMapVoteState()
+    const mapVoteState = room.mapVote
     if (!isMapVoteVoting(mapVoteState) || mapVoteState.confirmations[seatIndex] === true) return
 
     const selection = mapVoteState.selections[seatIndex] ?? DEFAULT_MAP_VOTE_SELECTION
@@ -1104,40 +1192,44 @@ export class Main extends Server<PartyEnv> {
   }
 
   private async isSwapWindowOpen(): Promise<boolean> {
-    return await this.ctx.storage.get<boolean>('swapWindowOpen') === true
+    return (await this.getRoomRecord())?.swapWindowOpen === true
   }
 
   private async getSwapState(): Promise<LeaderSwapState> {
-    const storedSwapState = await this.ctx.storage.get<unknown>('swapState')
-    const legacyPendingExpiresAt = await this.ctx.storage.get<number | null>('swapPendingExpiresAt') ?? null
-    return normalizeStoredSwapState(storedSwapState, legacyPendingExpiresAt)
+    const room = await this.getRoomRecord()
+    if (!room) return createEmptySwapState()
+    return this.getNormalizedSwapState(room)
   }
 
   private async clearSwapWindowState() {
-    await this.ctx.storage.put('swapWindowOpen', false)
-    await this.ctx.storage.put('swapState', null)
-    await this.ctx.storage.put('swapPendingExpiresAt', null)
-    await this.ctx.storage.put('swapDisconnectFinalizeAt', null)
-    await this.ctx.storage.put('swapSafetyEndsAt', null)
+    await this.updateRoomRecord(room => ({
+      ...room,
+      swapWindowOpen: false,
+      swapState: null,
+      swapPendingExpiresAt: null,
+      swapDisconnectFinalizeAt: null,
+      swapSafetyEndsAt: null,
+    }))
   }
 
   private async clearSwapDisconnectFinalizeAt() {
-    await this.ctx.storage.put('swapDisconnectFinalizeAt', null)
+    await this.updateRoomRecord(room => ({
+      ...room,
+      swapDisconnectFinalizeAt: null,
+    }))
   }
 
   private async scheduleSwapAlarm() {
-    if (!(await this.isSwapWindowOpen())) {
+    const room = await this.getRoomRecord()
+    if (!room?.swapWindowOpen) {
       await this.ctx.storage.deleteAlarm()
       return
     }
 
-    const swapState = await this.getSwapState()
-    const disconnectFinalizeAt = await this.ctx.storage.get<number | null>('swapDisconnectFinalizeAt') ?? null
-    const safetyEndsAt = await this.ctx.storage.get<number | null>('swapSafetyEndsAt') ?? null
     const nextAlarm = getNextSwapLifecycleAlarmAt({
-      swapState,
-      disconnectFinalizeAt,
-      safetyEndsAt,
+      swapState: this.getNormalizedSwapState(room),
+      disconnectFinalizeAt: room.swapDisconnectFinalizeAt,
+      safetyEndsAt: room.swapSafetyEndsAt,
     })
 
     if (nextAlarm == null) {
@@ -1149,20 +1241,24 @@ export class Main extends Server<PartyEnv> {
   }
 
   private async finalizeCompletedDraft(state: DraftState) {
-    if (!(await this.isSwapWindowOpen())) return
+    const room = await this.getRoomRecord()
+    if (!room?.swapWindowOpen) return
     await this.ctx.storage.deleteAlarm()
-    await this.ctx.storage.put('alarmStepIndex', -1)
-    await this.ctx.storage.put('timerEndsAt', null)
 
-    let completedAt = await this.ctx.storage.get<number | null>('completedAt')
-    if (completedAt == null) {
-      completedAt = Date.now()
-      await this.ctx.storage.put('completedAt', completedAt)
-    }
-
-    const config = await this.ctx.storage.get<RoomConfig>('config')
-    await this.clearSwapWindowState()
-    await this.assertRoomInvariants(state, config ?? null, {
+    const completedAt = room.completedAt ?? Date.now()
+    const nextRoom = {
+      ...room,
+      alarmStepIndex: -1,
+      timerEndsAt: null,
+      completedAt,
+      swapWindowOpen: false,
+      swapState: null,
+      swapPendingExpiresAt: null,
+      swapDisconnectFinalizeAt: null,
+      swapSafetyEndsAt: null,
+    } satisfies RoomRecord
+    await this.setRoomRecord(nextRoom)
+    await this.assertRoomInvariants(state, nextRoom.config, {
       alarmStepIndex: -1,
       completedAt,
       context: buildDraftRoomLogContext('finalize-complete', state, {
@@ -1175,10 +1271,7 @@ export class Main extends Server<PartyEnv> {
       timerEndsAt: null,
     })
     this.closeAllConnections('Draft closed')
-
-    if (!config) return
-
-    this.ctx.waitUntil(this.notifyDraftComplete(state, config, completedAt, { finalized: true }).catch((error) => {
+    this.ctx.waitUntil(this.notifyDraftComplete(state, nextRoom.config, completedAt, { finalized: true }).catch((error) => {
       console.error('[draft-room] finalized webhook delivery failed', buildDraftRoomLogContext('finalize-complete', state, {
         finalized: true,
       }), error)
@@ -1200,9 +1293,12 @@ export class Main extends Server<PartyEnv> {
         phase: 'voting',
         endsAt: Date.now() + MAP_VOTE_VOTING_DURATION_MS,
       }
-      await this.ctx.storage.put('mapVote', nextMapVote)
-      await this.ctx.storage.put('timerEndsAt', null)
-      await this.ctx.storage.put('alarmStepIndex', -1)
+      await this.updateRoomRecord(room => ({
+        ...room,
+        mapVote: nextMapVote,
+        timerEndsAt: null,
+        alarmStepIndex: -1,
+      }))
       await this.ctx.storage.setAlarm(nextMapVote.endsAt!)
       await this.broadcastRoomState(state, config, [])
       this.scheduleDebugMapVoteBotActions(state, config)
@@ -1243,7 +1339,10 @@ export class Main extends Server<PartyEnv> {
     const nextMapVote = applyMapVoteSelectionUpdate(mapVoteState, seatIndex, selection)
     if (typeof nextMapVote === 'string') return nextMapVote
 
-    await this.ctx.storage.put('mapVote', nextMapVote)
+    await this.updateRoomRecord(room => ({
+      ...room,
+      mapVote: nextMapVote,
+    }))
     return nextMapVote
   }
 
@@ -1265,7 +1364,10 @@ export class Main extends Server<PartyEnv> {
         [seatIndex]: true,
       },
     }
-    await this.ctx.storage.put('mapVote', nextMapVote)
+    await this.updateRoomRecord(room => ({
+      ...room,
+      mapVote: nextMapVote,
+    }))
 
     if (state.seats.every((_, index) => nextMapVote.confirmations[index] === true)) {
       await this.finishMapVoteVoting(state, config, nextMapVote)
@@ -1301,7 +1403,10 @@ export class Main extends Server<PartyEnv> {
       revealedVotes,
       result,
     }
-    await this.ctx.storage.put('mapVote', nextMapVote)
+    await this.updateRoomRecord(room => ({
+      ...room,
+      mapVote: nextMapVote,
+    }))
     await this.ctx.storage.setAlarm(nextMapVote.endsAt!)
     await this.broadcastRoomState(state, config, [])
   }
@@ -1315,7 +1420,10 @@ export class Main extends Server<PartyEnv> {
       phase: 'done',
       endsAt: null,
     }
-    await this.ctx.storage.put('mapVote', nextMapVote)
+    await this.updateRoomRecord(room => ({
+      ...room,
+      mapVote: nextMapVote,
+    }))
 
     const format = draftFormatMap.get(config.formatId)
     if (!format) return
@@ -1336,33 +1444,29 @@ export class Main extends Server<PartyEnv> {
   }
 
   private async broadcastRoomState(state: DraftState, config: RoomConfig, events: DraftEvent[]) {
-    const previews = sanitizeDraftPreviews(
-      state,
-      await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
-    )
-    const timerEndsAt = await this.ctx.storage.get<number | null>('timerEndsAt')
-    const completedAt = await this.ctx.storage.get<number | null>('completedAt')
-    const swapWindowOpen = await this.isSwapWindowOpen()
-    const swapState = swapWindowOpen ? await this.getSwapState() : null
-    const mapVoteState = await this.getStoredMapVoteState()
+    const room = await this.requireRoomRecord()
+    const previews = sanitizeDraftPreviews(state, room.previews)
+    const swapWindowOpen = room.swapWindowOpen
+    const swapState = swapWindowOpen ? this.getNormalizedSwapState(room) : null
+    const mapVoteState = room.mapVote
     await this.assertRoomInvariants(state, config, {
-      completedAt: completedAt ?? null,
+      completedAt: room.completedAt,
       context: buildDraftRoomLogContext('broadcast-room-state', state, {
         eventTypes: events.map(event => event.type),
       }),
       mapVote: mapVoteState,
       previews,
       swapDisconnectFinalizeAt: swapWindowOpen
-        ? await this.ctx.storage.get<number | null>('swapDisconnectFinalizeAt') ?? null
+        ? room.swapDisconnectFinalizeAt
         : null,
       swapSafetyEndsAt: swapWindowOpen
-        ? await this.ctx.storage.get<number | null>('swapSafetyEndsAt') ?? null
+        ? room.swapSafetyEndsAt
         : null,
       swapState,
       swapWindowOpen,
-      timerEndsAt: timerEndsAt ?? null,
+      timerEndsAt: room.timerEndsAt,
     })
-    this.broadcastUpdate(state, config.hostId, config.leaderDataVersion ?? 'live', events, timerEndsAt ?? null, completedAt ?? null, previews, swapState, mapVoteState)
+    this.broadcastUpdate(state, config.hostId, config.leaderDataVersion ?? 'live', events, room.timerEndsAt, room.completedAt, previews, swapState, mapVoteState)
   }
 
   private async assertRoomInvariants(
@@ -1382,38 +1486,38 @@ export class Main extends Server<PartyEnv> {
       timerEndsAt?: number | null
     } = {},
   ) {
-    const swapWindowOpen = options.swapWindowOpen ?? await this.isSwapWindowOpen()
+    const room = await this.getRoomRecord()
+    const swapWindowOpen = options.swapWindowOpen ?? room?.swapWindowOpen ?? false
     assertDraftRoomInvariants({
-      alarmStepIndex: options.alarmStepIndex ?? await this.ctx.storage.get<number>('alarmStepIndex') ?? -1,
-      cancelledAt: options.cancelledAt ?? await this.ctx.storage.get<number | null>('cancelledAt') ?? null,
-      completedAt: options.completedAt ?? await this.ctx.storage.get<number | null>('completedAt') ?? null,
+      alarmStepIndex: options.alarmStepIndex ?? room?.alarmStepIndex ?? -1,
+      cancelledAt: options.cancelledAt ?? room?.cancelledAt ?? null,
+      completedAt: options.completedAt ?? room?.completedAt ?? null,
       config,
-      mapVote: options.mapVote ?? await this.getStoredMapVoteState(),
+      mapVote: options.mapVote ?? room?.mapVote ?? { ...EMPTY_STORED_MAP_VOTE_STATE },
       matchId: state.matchId,
       previews: options.previews ?? sanitizeDraftPreviews(
         state,
-        await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
+        room?.previews ?? createEmptyDraftPreviews(),
       ),
       state,
       swapDisconnectFinalizeAt: options.swapDisconnectFinalizeAt ?? (swapWindowOpen
-        ? await this.ctx.storage.get<number | null>('swapDisconnectFinalizeAt') ?? null
+        ? room?.swapDisconnectFinalizeAt ?? null
         : null),
       swapSafetyEndsAt: options.swapSafetyEndsAt ?? (swapWindowOpen
-        ? await this.ctx.storage.get<number | null>('swapSafetyEndsAt') ?? null
+        ? room?.swapSafetyEndsAt ?? null
         : null),
       swapState: options.swapState !== undefined
         ? options.swapState
-        : (swapWindowOpen ? await this.getSwapState() : null),
+        : (swapWindowOpen && room ? this.getNormalizedSwapState(room) : null),
       swapWindowOpen,
-      timerEndsAt: options.timerEndsAt ?? await this.ctx.storage.get<number | null>('timerEndsAt') ?? null,
+      timerEndsAt: options.timerEndsAt ?? room?.timerEndsAt ?? null,
     }, {
       context: options.context,
     })
   }
 
   private async getStoredMapVoteState(): Promise<StoredMapVoteState> {
-    const state = await this.ctx.storage.get<StoredMapVoteState>('mapVote')
-    return state ?? { ...EMPTY_STORED_MAP_VOTE_STATE }
+    return (await this.getRoomRecord())?.mapVote ?? { ...EMPTY_STORED_MAP_VOTE_STATE }
   }
 
   private async getMapVoteSnapshot(state: DraftState, seatIndex: number): Promise<MapVoteSnapshot> {
@@ -1672,6 +1776,60 @@ export class Main extends Server<PartyEnv> {
 }
 
 // ── Utility ──────────────────────────────────────────────────
+
+function createRoomRecord(
+  config: RoomConfig,
+  state: DraftState,
+  mapVote: StoredMapVoteState,
+  overrides: Partial<Omit<RoomRecord, 'version' | 'config' | 'state' | 'mapVote'>> = {},
+): RoomRecord {
+  return {
+    version: ROOM_RECORD_VERSION,
+    config,
+    state,
+    timerEndsAt: overrides.timerEndsAt ?? null,
+    alarmStepIndex: overrides.alarmStepIndex ?? -1,
+    completedAt: overrides.completedAt ?? null,
+    cancelledAt: overrides.cancelledAt ?? null,
+    previews: overrides.previews ?? createEmptyDraftPreviews(),
+    swapWindowOpen: overrides.swapWindowOpen ?? false,
+    swapState: overrides.swapState ?? null,
+    swapPendingExpiresAt: overrides.swapPendingExpiresAt ?? null,
+    swapDisconnectFinalizeAt: overrides.swapDisconnectFinalizeAt ?? null,
+    swapSafetyEndsAt: overrides.swapSafetyEndsAt ?? null,
+    mapVote,
+  }
+}
+
+function normalizeStoredRoomRecord(value: unknown): RoomRecord | null {
+  if (!value || typeof value !== 'object') return null
+
+  const raw = value as Partial<RoomRecord>
+  if (!raw.config || !raw.state) return null
+
+  return createRoomRecord(
+    raw.config,
+    raw.state,
+    raw.mapVote && typeof raw.mapVote === 'object'
+      ? raw.mapVote
+      : { ...EMPTY_STORED_MAP_VOTE_STATE },
+    {
+      timerEndsAt: typeof raw.timerEndsAt === 'number' && Number.isFinite(raw.timerEndsAt) ? raw.timerEndsAt : null,
+      alarmStepIndex: typeof raw.alarmStepIndex === 'number' && Number.isFinite(raw.alarmStepIndex) ? raw.alarmStepIndex : -1,
+      completedAt: typeof raw.completedAt === 'number' && Number.isFinite(raw.completedAt) ? raw.completedAt : null,
+      cancelledAt: typeof raw.cancelledAt === 'number' && Number.isFinite(raw.cancelledAt) ? raw.cancelledAt : null,
+      previews: sanitizeDraftPreviews(
+        raw.state,
+        raw.previews ?? createEmptyDraftPreviews(),
+      ),
+      swapWindowOpen: raw.swapWindowOpen === true,
+      swapState: raw.swapState ?? null,
+      swapPendingExpiresAt: typeof raw.swapPendingExpiresAt === 'number' && Number.isFinite(raw.swapPendingExpiresAt) ? raw.swapPendingExpiresAt : null,
+      swapDisconnectFinalizeAt: typeof raw.swapDisconnectFinalizeAt === 'number' && Number.isFinite(raw.swapDisconnectFinalizeAt) ? raw.swapDisconnectFinalizeAt : null,
+      swapSafetyEndsAt: typeof raw.swapSafetyEndsAt === 'number' && Number.isFinite(raw.swapSafetyEndsAt) ? raw.swapSafetyEndsAt : null,
+    },
+  )
+}
 
 function isDebugActiveBotPlayerId(playerId: string | null | undefined): boolean {
   return typeof playerId === 'string' && playerId.startsWith(DEBUG_ACTIVE_BOT_PLAYER_ID_PREFIX)
