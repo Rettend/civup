@@ -56,7 +56,7 @@ describe('live match lookup', () => {
         { matchId: 'active-anomalous', playerId: 'p3', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
       ])
 
-      const blockingMatchIds = await findPersistedBlockingDraftMatchIdsForPlayers(createTestD1Adapter(db), ['p1', 'p2', 'p3'])
+      const blockingMatchIds = await findPersistedBlockingDraftMatchIdsForPlayers(createSqliteD1Database(sqlite), ['p1', 'p2', 'p3'])
 
       expect(blockingMatchIds).toEqual(new Map([
         ['p1', 'draft-1'],
@@ -90,7 +90,7 @@ describe('live match lookup', () => {
         { matchId: 'reportable-2', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
       ])
 
-      const reportableMatchIds = await findPersistedReportableMatchIdsForPlayers(createTestD1Adapter(db), ['p1', 'p2'])
+      const reportableMatchIds = await findPersistedReportableMatchIdsForPlayers(createSqliteD1Database(sqlite), ['p1', 'p2'])
 
       expect(reportableMatchIds.get('p1')).toEqual(['reportable-2', 'reportable-1'])
       expect(reportableMatchIds.get('p2')).toEqual(['reportable-2'])

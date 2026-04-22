@@ -1542,6 +1542,99 @@ describe('system scenarios', () => {
     expect(await world.inspect.matchMapping('p1')).toBeNull()
   })
 
+  test('real join route repairs stale member ids when a queued player is already slotted in the target lobby', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '2v2',
+      players: [{ id: 'host' }, { id: 'player-1' }],
+      hostId: 'host',
+      slots: ['host', 'player-1', null, null],
+      channelId: 'channel-join-repair-existing',
+    })
+
+    await world.corrupt.openLobbyResidue(lobby.id, {
+      memberPlayerIds: [],
+      slots: ['host', 'player-1', null, null],
+    })
+
+    const joinResponse = await world.lobby.place('2v2', {
+      userId: 'player-1',
+      lobbyId: lobby.id,
+      targetSlot: 1,
+      displayName: 'player-1',
+    })
+    await world.flushBackgroundTasks()
+
+    expect(joinResponse.status).toBe(200)
+    expect((await world.lobby.getById(lobby.id))?.memberPlayerIds).toEqual(['host', 'player-1'])
+    expect((await world.lobby.getById(lobby.id))?.slots).toEqual(['host', 'player-1', null, null])
+    await expectQueuePlayers(world, '2v2', ['host', 'player-1'])
+    expect(await world.inspect.lobbyMapping('player-1')).toBe(lobby.id)
+    expect(await world.inspect.activityTarget(lobby.channelId, 'player-1')).toMatchObject({ kind: 'lobby', id: lobby.id })
+  })
+
+  test('real join route keeps already slotted queued players when another player joins a lobby with stale member ids', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '2v2',
+      players: [{ id: 'host' }, { id: 'player-1' }],
+      hostId: 'host',
+      slots: ['host', 'player-1', null, null],
+      channelId: 'channel-join-repair-add',
+    })
+
+    await world.corrupt.openLobbyResidue(lobby.id, {
+      memberPlayerIds: [],
+      slots: ['host', 'player-1', null, null],
+    })
+
+    const joinResponse = await world.lobby.place('2v2', {
+      userId: 'player-2',
+      lobbyId: lobby.id,
+      targetSlot: 2,
+      displayName: 'player-2',
+    })
+    await world.flushBackgroundTasks()
+
+    expect(joinResponse.status).toBe(200)
+    expect((await world.lobby.getById(lobby.id))?.memberPlayerIds).toEqual(['host', 'player-1', 'player-2'])
+    expect((await world.lobby.getById(lobby.id))?.slots).toEqual(['host', 'player-1', 'player-2', null])
+    await expectQueuePlayers(world, '2v2', ['host', 'player-1', 'player-2'])
+    expect(await world.inspect.lobbyMapping('player-1')).toBe(lobby.id)
+    expect(await world.inspect.lobbyMapping('player-2')).toBe(lobby.id)
+    expect(await world.inspect.activityTarget(lobby.channelId, 'player-2')).toMatchObject({ kind: 'lobby', id: lobby.id })
+  })
+
+  test('real join route compacts ghost target-lobby residue before placing a new player', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '2v2',
+      players: [{ id: 'host' }],
+      hostId: 'host',
+      channelId: 'channel-join-repair-ghost',
+    })
+
+    await world.corrupt.openLobbyResidue(lobby.id, {
+      memberPlayerIds: ['host', 'ghost-player'],
+      slots: ['host', 'ghost-player', null, null],
+    })
+
+    const joinResponse = await world.lobby.place('2v2', {
+      userId: 'player-2',
+      lobbyId: lobby.id,
+      targetSlot: 1,
+      displayName: 'player-2',
+    })
+    await world.flushBackgroundTasks()
+
+    expect(joinResponse.status).toBe(200)
+    expect((await world.lobby.getById(lobby.id))?.memberPlayerIds).toEqual(['host', 'player-2'])
+    expect((await world.lobby.getById(lobby.id))?.slots).toEqual(['host', 'player-2', null, null])
+    await expectQueuePlayers(world, '2v2', ['host', 'player-2'])
+    expect(await world.inspect.lobbyMapping('player-2')).toBe(lobby.id)
+    expect(await world.inspect.lobbiesForPlayer('ghost-player')).toEqual([])
+  })
+
   test('steam lobby link add update and clear survives open to live activity handoff', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({

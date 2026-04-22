@@ -779,6 +779,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       balanceSnapshot,
     })
 
+    await storeUserLobbyMappings(kv, nextLobby.memberPlayerIds, nextLobby.id)
     await storeUserLobbyState(kv, nextLobby.channelId, [movingPlayerId], nextLobby.id)
 
     const slottedEntries = mapLobbySlotsToEntries(slots, lobbyQueueEntries)
