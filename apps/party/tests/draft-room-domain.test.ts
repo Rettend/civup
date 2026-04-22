@@ -9,6 +9,7 @@ import {
 } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import {
+  acceptSwapCommand,
   applyDraftResultCommand,
   confirmMapVoteCommand,
   createRoomRecord,
@@ -72,10 +73,15 @@ describe('draft room domain transitions', () => {
     expect(transition.room.swapWindowOpen).toBe(true)
     expect(transition.room.swapState?.pendingSwaps).toEqual([])
     expect(transition.room.completedAt).toBe(123_456)
+    expect(transition.room.webhookOutbox).toHaveLength(1)
+    expect(transition.room.webhookOutbox[0]?.payload).toMatchObject({
+      eventKind: 'DraftCompleted',
+      eventSequence: 1,
+      completedAt: 123_456,
+    })
     expect(transition.effects).toContainEqual({ type: 'schedule-swap-alarm' })
     expect(transition.effects).toContainEqual({
-      type: 'notify-draft-complete',
-      completedAt: 123_456,
+      type: 'flush-webhook-outbox',
       delivery: 'await',
     })
   })
@@ -112,9 +118,16 @@ describe('draft room domain transitions', () => {
     expect(transition.room.swapState).toBeNull()
     expect(transition.room.timerEndsAt).toBeNull()
     expect(transition.room.cancelledAt).toBe(222_000)
+    expect(transition.room.webhookOutbox).toHaveLength(1)
+    expect(transition.room.webhookOutbox[0]?.payload).toMatchObject({
+      eventKind: 'DraftCancelled',
+      eventSequence: 1,
+      cancelledAt: 222_000,
+      reason: transition.room.state.cancelReason,
+    })
     expect(transition.effects).toContainEqual({ type: 'delete-alarm' })
     expect(transition.effects).toContainEqual({ type: 'close-connections', reason: 'Draft closed' })
-    expect(transition.effects).toContainEqual({ type: 'notify-draft-cancelled', cancelledAt: 222_000 })
+    expect(transition.effects).toContainEqual({ type: 'flush-webhook-outbox', delivery: 'background' })
   })
 
   test('confirmMapVoteCommand moves the final confirmation straight into reveal', () => {
@@ -173,14 +186,60 @@ describe('draft room domain transitions', () => {
     expect(transition.response).toBe(true)
     expect(transition.room.swapWindowOpen).toBe(false)
     expect(transition.room.swapState).toBeNull()
+    expect(transition.room.webhookOutbox).toHaveLength(1)
+    expect(transition.room.webhookOutbox[0]?.payload).toMatchObject({
+      eventKind: 'DraftFinalized',
+      eventSequence: 1,
+      completedAt: 11_000,
+      finalized: true,
+    })
     expect(transition.effects).toContainEqual({ type: 'delete-alarm' })
     expect(transition.effects).toContainEqual({ type: 'close-connections', reason: 'Draft closed' })
     expect(transition.effects).toContainEqual({
-      type: 'notify-draft-complete',
-      completedAt: 11_000,
-      finalized: true,
+      type: 'flush-webhook-outbox',
       delivery: 'background',
     })
+  })
+
+  test('acceptSwapCommand enqueues a swap-accepted sync event without reusing the completion id', () => {
+    const waitingState = createDraft('match-room-swap', default2v2, create2v2Seats(), createCivPool())
+    const completed = buildRandomDraftResult(waitingState)
+    const room = createRoomRecord(createConfig(completed.state), completed.state, disabledMapVote(), {
+      completedAt: 50_000,
+      swapWindowOpen: true,
+      swapState: {
+        pendingSwaps: [],
+        completedSwaps: [],
+      },
+      webhookEventSequence: 1,
+    })
+
+    const swappedState = {
+      ...completed.state,
+      picks: completed.state.picks.map((pick, index) => index === 0
+        ? { ...pick, seatIndex: 1 }
+        : index === 1
+          ? { ...pick, seatIndex: 0 }
+          : pick),
+    }
+
+    const transition = acceptSwapCommand(room, {
+      type: 'accept-swap',
+      nextState: swappedState,
+      swapState: {
+        pendingSwaps: [],
+        completedSwaps: [{ fromSeat: 0, toSeat: 1 }],
+      },
+      picks: swappedState.picks,
+    })
+
+    expect(transition.room.webhookOutbox).toHaveLength(1)
+    expect(transition.room.webhookOutbox[0]?.payload).toMatchObject({
+      eventKind: 'SwapAccepted',
+      eventSequence: 2,
+      completedAt: 50_000,
+    })
+    expect(transition.effects).toContainEqual({ type: 'flush-webhook-outbox', delivery: 'await' })
   })
 })
 
