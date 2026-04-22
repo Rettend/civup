@@ -54,6 +54,7 @@ import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/seaso
 import { createStateStore } from '../../src/services/state/store.ts'
 import { getSystemChannel, setSystemChannel } from '../../src/services/system/channels.ts'
 import { installStateCoordinatorHarness } from '../helpers/state-coordinator-harness.ts'
+import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
@@ -768,26 +769,9 @@ async function simulateActivityLaunchSnapshot(
   userId: string,
 ): Promise<void> {
   await buildActivityLaunchSnapshot(undefined, activitySecret, kv, channelId, userId, {
-    db: createCapacityD1Adapter(db),
-  })
-}
-
-function createCapacityD1Adapter(db: Awaited<ReturnType<typeof createTestDatabase>>['db']): D1Database {
-  const sqlite = (db as { $client?: { query?: (sql: string) => { all: (...values: unknown[]) => unknown[] } } }).$client
-  return {
-    prepare(query: string) {
-      return {
-        bind(...values: unknown[]) {
-          return {
-            async all<T = Record<string, unknown>>() {
-              return { results: sqlite?.query?.(query).all(...values) as T[] | undefined }
-            },
-          }
-        },
-      }
-    },
-  } as D1Database
-}
+      db: createSqliteD1Database(db),
+    })
+  }
 
 async function simulateSpectatorLobbySelection(kv: KVNamespace, mode: CapacityScenario, spectatorId: string): Promise<void> {
   const lobby = await getLobby(kv, mode.mode)

@@ -19,6 +19,13 @@ interface StateKvPutRequest {
   expirationTtl?: number
 }
 
+interface StateKvPutIfAbsentRequest {
+  op: 'putIfAbsent'
+  key: string
+  value: string
+  expirationTtl?: number
+}
+
 interface StateKvDeleteRequest {
   op: 'delete'
   key: string
@@ -58,6 +65,7 @@ interface StateKvMdeleteRequest {
 type StateKvRequest
   = | StateKvGetRequest
     | StateKvPutRequest
+    | StateKvPutIfAbsentRequest
     | StateKvDeleteRequest
     | StateKvListRequest
     | StateKvMgetRequest
@@ -78,10 +86,15 @@ interface StateKvResponseMget {
   values: unknown[]
 }
 
+interface StateKvResponsePutIfAbsent {
+  inserted: boolean
+}
+
 interface StateStoreBatchCapableKv extends KVNamespace {
   mget?: (entries: StateStoreBatchGetEntry[]) => Promise<unknown[]>
   mput?: (entries: StateStoreBatchPutEntry[]) => Promise<void>
   mdelete?: (keys: string[]) => Promise<void>
+  putIfAbsent?: (key: string, value: string, options?: { expirationTtl?: number }) => Promise<boolean>
 }
 
 const DEFAULT_PARTY_HOST = 'http://localhost:1999'
@@ -95,6 +108,7 @@ const HOT_KEY_PREFIXES = [
   'lobby:channel:',
   'lobby:match:',
   'lobby:host:',
+  'lobby:start-lock:',
   'lobby:bump:',
   'lobby:snapshot:',
   'activity:',
@@ -140,6 +154,23 @@ export function createStateStore(env: StateStoreEnv): KVNamespace {
         value,
         expirationTtl: options?.expirationTtl,
       }, debugStateStore)
+    },
+
+    async putIfAbsent(key: string, value: string, options?: { expirationTtl?: number }) {
+      if (!shouldRouteHotKey(key)) {
+        const existing = await env.KV.get(key)
+        if (existing != null) return false
+        await env.KV.put(key, value, options as any)
+        return true
+      }
+
+      const response = await stateKvRequest<StateKvResponsePutIfAbsent>(endpoint, secret, {
+        op: 'putIfAbsent',
+        key,
+        value,
+        expirationTtl: options?.expirationTtl,
+      }, debugStateStore)
+      return response.inserted
     },
 
     async delete(key: string) {
@@ -310,6 +341,23 @@ export async function stateStoreMdelete(kv: KVNamespace, keys: string[]): Promis
   await Promise.all(keys.map(key => kv.delete(key)))
 }
 
+export async function stateStorePutIfAbsent(
+  kv: KVNamespace,
+  key: string,
+  value: string,
+  options?: { expirationTtl?: number },
+): Promise<boolean> {
+  const batchKv = kv as StateStoreBatchCapableKv
+  if (typeof batchKv.putIfAbsent === 'function') {
+    return batchKv.putIfAbsent(key, value, options)
+  }
+
+  const existing = await kv.get(key)
+  if (existing != null) return false
+  await kv.put(key, value, options as any)
+  return true
+}
+
 class StateStoreRequestError extends Error {
   constructor(
     public status: number,
@@ -367,6 +415,8 @@ function describeStateStorePayload(payload: StateKvRequest): string {
       return `get key=${payload.key}`
     case 'put':
       return `put key=${payload.key}`
+    case 'putIfAbsent':
+      return `putIfAbsent key=${payload.key}`
     case 'delete':
       return `delete key=${payload.key}`
     case 'list':

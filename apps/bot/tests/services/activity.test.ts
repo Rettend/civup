@@ -172,6 +172,38 @@ describe('activity mapping behavior', () => {
     await expect(kv.get('activity-target-match:channel-1:match-1:spectator-1')).resolves.toBeNull()
   })
 
+  test('clearActivityMappings keeps a newer activity-user mapping for the same player', async () => {
+    const { kv } = createTrackedKv()
+
+    await storeMatchMapping(kv, 'channel-1', 'match-old')
+    await storeUserMatchMappings(kv, ['user-1'], 'match-old')
+    await storeMatchActivityState(kv, 'channel-1', ['user-1'], {
+      matchId: 'match-old',
+      lobbyId: 'lobby-1',
+      mode: '1v1',
+      activitySecret: 'secret',
+    })
+
+    await storeMatchMapping(kv, 'channel-1', 'match-new')
+    await storeMatchActivityState(kv, 'channel-1', ['user-1'], {
+      matchId: 'match-new',
+      lobbyId: 'lobby-1',
+      mode: '1v1',
+      activitySecret: 'secret',
+    })
+    await kv.put('activity-target-match:channel-1:match-old:user-1', String(Date.now()))
+
+    await clearActivityMappings(kv, 'match-old', ['user-1'], 'channel-1')
+
+    await expect(getMatchForUser(kv, 'user-1')).resolves.toBe('match-new')
+    await expect(getUserActivityTarget(kv, 'channel-1', 'user-1')).resolves.toEqual(expect.objectContaining({
+      kind: 'match',
+      id: 'match-new',
+    }))
+    await expect(kv.get('activity-match:match-old')).resolves.toBeNull()
+    await expect(kv.get('activity-target-match:channel-1:match-old:user-1')).resolves.toBeNull()
+  })
+
   test('clearLobbyMappings removes lobby reopen mapping and channel target', async () => {
     const { kv, operations, resetOperations } = createTrackedKv()
 
@@ -179,12 +211,29 @@ describe('activity mapping behavior', () => {
     await storeUserActivityTarget(kv, 'channel-1', ['user-1'], { kind: 'lobby', id: 'lobby-1' })
 
     resetOperations()
-    await clearLobbyMappings(kv, ['user-1'], 'channel-1')
+    await clearLobbyMappings(kv, ['user-1'], 'channel-1', 'lobby-1')
 
     const deleteKeys = operations.filter(op => op.type === 'delete').map(op => op.key)
     expect(deleteKeys).toContain('activity-lobby-user:user-1')
     expect(deleteKeys).toContain('activity-target-user:user-1:channel-1')
     expect(deleteKeys).toContain('activity-target-lobby:channel-1:lobby-1:user-1')
+  })
+
+  test('clearLobbyMappings removes stale old lobby reverse indexes but preserves a newer open-lobby target', async () => {
+    const { kv } = createTrackedKv()
+
+    await storeUserLobbyState(kv, 'channel-1', ['user-1'], 'lobby-old')
+    await storeUserLobbyState(kv, 'channel-1', ['user-1'], 'lobby-new')
+    await kv.put('activity-target-lobby:channel-1:lobby-old:user-1', String(Date.now()))
+
+    await clearLobbyMappings(kv, ['user-1'], 'channel-1', 'lobby-old')
+
+    await expect(kv.get('activity-lobby-user:user-1')).resolves.toBe('lobby-new')
+    await expect(getUserActivityTarget(kv, 'channel-1', 'user-1')).resolves.toEqual(expect.objectContaining({
+      kind: 'lobby',
+      id: 'lobby-new',
+    }))
+    await expect(kv.get('activity-target-lobby:channel-1:lobby-old:user-1')).resolves.toBeNull()
   })
 
   test('switching targets removes the old reverse selection key', async () => {

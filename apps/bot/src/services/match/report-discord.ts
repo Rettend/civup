@@ -6,7 +6,7 @@ import { lobbyResultEmbed } from '../../embeds/match.ts'
 import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
 import { upsertLobbyMessage } from '../lobby/index.ts'
 import { getSystemChannel } from '../system/channels.ts'
-import { getReporterIdentityFromDraftData } from './draft-data.ts'
+import { getMapVoteResultFromDraftData, getReporterIdentityFromDraftData } from './draft-data.ts'
 import { listMatchMessageIds, storeMatchMessageMapping } from './message.ts'
 
 type ArchivePolicy = 'always' | 'if-missing'
@@ -43,11 +43,13 @@ export async function syncReportedMatchDiscordMessages({
   const messageIds = await listMatchMessageIds(db, matchId)
   const draftMessageId = messageIds[0] ?? null
   const resolvedReporter = resolveMatchReporterIdentity(matchDraftData, reporter)
+  const mapVoteResult = getMapVoteResultFromDraftData(matchDraftData)
 
   if (lobby) {
     try {
       const updatedLobby = await upsertLobbyMessage(kv, token, lobby, {
         embeds: [lobbyResultEmbed(lobby.mode, participants, undefined, {
+          mapVoteResult,
           rankedRoleLines,
           reporter: resolvedReporter,
         }, lobby.draftConfig.redDeath)],
@@ -68,6 +70,7 @@ export async function syncReportedMatchDiscordMessages({
           await editChannelMessage(token, draftChannelId, messageId, {
             content: null,
             embeds: [lobbyResultEmbed(reportedMode, participants, undefined, {
+              mapVoteResult,
               rankedRoleLines,
               reporter: resolvedReporter,
             }, reportedRedDeath)],
@@ -98,6 +101,7 @@ export async function syncReportedMatchDiscordMessages({
   try {
     const archiveMessage = await createChannelMessage(token, archiveChannelId, {
       embeds: [lobbyResultEmbed(reportedMode, participants, undefined, {
+        mapVoteResult,
         rankedRoleLines,
         reporter: resolvedReporter,
       }, reportedRedDeath)],

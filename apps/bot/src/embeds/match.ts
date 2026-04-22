@@ -185,7 +185,7 @@ export function lobbyResultEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
   moderation?: ModerationContext,
-  options: { rankedRoleLines?: string[], reporter?: ReporterContext | null } = {},
+  options: { rankedRoleLines?: string[], reporter?: ReporterContext | null, mapVoteResult?: ResolvedMapVoteResult | null } = {},
   redDeath = false,
 ): Embed {
   return lobbyReportedEmbed(mode, participants, moderation, options, redDeath, participants.length)
@@ -267,7 +267,7 @@ function lobbyReportedEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
   moderation?: ModerationContext,
-  options: { rankedRoleLines?: string[], reporter?: ReporterContext | null } = {},
+  options: { rankedRoleLines?: string[], reporter?: ReporterContext | null, mapVoteResult?: ResolvedMapVoteResult | null } = {},
   redDeath = false,
   targetSize?: number,
 ): Embed {
@@ -280,11 +280,13 @@ function lobbyReportedEmbed(
   const rankedRoleUpdate = formatRankedRoleUpdate(options.rankedRoleLines)
   const moderationField = buildModerationField(moderation)
   const reporterFooter = buildReporterFooter(options.reporter)
+  const mapField = buildMapField(options.mapVoteResult)
 
   embed.description(description || '`[empty]`')
   if (reporterFooter) embed.footer(reporterFooter)
 
   const fields = [
+    mapField,
     moderationField,
     leaderboardUpdate ? { name: 'Leaderboard', value: leaderboardUpdate, inline: false } : null,
     rankedRoleUpdate ? { name: 'Ranked Roles', value: rankedRoleUpdate, inline: false } : null,

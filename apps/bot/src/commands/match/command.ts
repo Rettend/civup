@@ -6,7 +6,7 @@ import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, isT
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/match.ts'
-import { clearLobbyMappings, clearLobbyMappingsIfMatchingLobby, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
+import { clearLobbyMappings, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
 import { clearLobbyById, clearLobbyByMatch, createLobby, filterQueueEntriesForLobby, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
@@ -426,7 +426,7 @@ export const command_match = factory.command<MatchVar>(
               console.error(`Failed to update cancelled lobby embed for match ${matchId}:`, error)
             }
 
-            await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId)
+            await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId, lobby.id)
             await sendTransientEphemeralResponse(c, `Cancelled hosted match **${matchId}**.`, 'success')
             return
           }
@@ -1204,7 +1204,7 @@ async function cancelHostedOpenLobby(
     })
   }
 
-  await clearLobbyMappingsIfMatchingLobby(kv, lobbyQueueEntries.map(entry => entry.playerId), lobby.id, lobby.channelId)
+  await clearLobbyMappings(kv, lobbyQueueEntries.map(entry => entry.playerId), lobby.channelId, lobby.id)
   try {
     await upsertLobbyMessage(kv, token, lobby, {
       embeds: [lobbyCancelledEmbed(lobby.mode, buildCancelledLobbyParticipants(lobby, lobbyQueueEntries), 'cancel', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
