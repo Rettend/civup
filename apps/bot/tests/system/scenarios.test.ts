@@ -834,7 +834,7 @@ describe('system scenarios', () => {
     expect(await world.inspect.lobbyByMatch(started.matchId)).toMatchObject({ id: activeLobby.id, matchId: started.matchId })
   })
 
-  test('match lookup still serves the canonical live match through D1 fallback when activity-match is missing', async () => {
+  test('match lookup repairs missing activity projections from canonical live match state', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -853,8 +853,8 @@ describe('system scenarios', () => {
 
     expect(currentMatch.status).toBe(200)
     expect(currentMatch.body).toEqual({ matchId: started.matchId })
-    expect(await world.inspect.matchMapping('p1')).toBeNull()
-    expect(await world.inspect.matchChannel(started.matchId)).toBeNull()
+    expect(await world.inspect.matchMapping('p1')).toBe(started.matchId)
+    expect(await world.inspect.matchChannel(started.matchId)).toBe(lobby.channelId)
   })
 
   test('match lookup repairs a missing activity-user mapping from canonical live match state', async () => {
@@ -1379,7 +1379,7 @@ describe('system scenarios', () => {
     expect(replayRequests.some(request => request.url.includes(newLobby.messageId))).toBe(false)
   })
 
-  test('duplicate old report after players move on leaves the newer live draft bindings and message untouched', async () => {
+  test('duplicate old report after players move on leaves the newer live participant bindings and spectator target untouched', async () => {
     const world = await createTrackedWorld()
     const oldLobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -1422,7 +1422,6 @@ describe('system scenarios', () => {
     const duplicateReportRequests = world.discord.requests().slice(requestsBeforeDuplicateReport)
     expect(await world.inspect.matchMapping('p1')).toBe(newMatch.matchId)
     expect(await world.inspect.matchMapping('fresh-host')).toBe(newMatch.matchId)
-    expect(await world.inspect.matchMapping('spectator-1')).toBe(newMatch.matchId)
     expect(await world.inspect.activityTarget(newLobby.channelId, 'spectator-1')).toMatchObject({ kind: 'match', id: newMatch.matchId })
     expect(duplicateReportRequests.some(request => request.url.includes(newLobby.messageId))).toBe(false)
   })
