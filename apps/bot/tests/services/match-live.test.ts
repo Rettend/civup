@@ -1,6 +1,7 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIdsForPlayers, findPersistedReportableMatchIdsForPlayers } from '../../src/services/match/live.ts'
+import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 
 describe('live match lookup', () => {
@@ -23,7 +24,7 @@ describe('live match lookup', () => {
         { matchId: 'done-1', playerId: 'p3', team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
       ])
 
-      const liveMatchIds = await findPersistedLiveMatchIdsForPlayers(createTestD1Adapter(db), ['p1', 'p2', 'p3'])
+      const liveMatchIds = await findPersistedLiveMatchIdsForPlayers(createSqliteD1Database(sqlite), ['p1', 'p2', 'p3'])
 
       expect(liveMatchIds).toEqual(new Map([
         ['p1', 'live-1'],
@@ -55,7 +56,7 @@ describe('live match lookup', () => {
         { matchId: 'active-anomalous', playerId: 'p3', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
       ])
 
-      const blockingMatchIds = await findPersistedBlockingDraftMatchIdsForPlayers(createTestD1Adapter(db), ['p1', 'p2', 'p3'])
+      const blockingMatchIds = await findPersistedBlockingDraftMatchIdsForPlayers(createSqliteD1Database(sqlite), ['p1', 'p2', 'p3'])
 
       expect(blockingMatchIds).toEqual(new Map([
         ['p1', 'draft-1'],
@@ -89,7 +90,7 @@ describe('live match lookup', () => {
         { matchId: 'reportable-2', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
       ])
 
-      const reportableMatchIds = await findPersistedReportableMatchIdsForPlayers(createTestD1Adapter(db), ['p1', 'p2'])
+      const reportableMatchIds = await findPersistedReportableMatchIdsForPlayers(createSqliteD1Database(sqlite), ['p1', 'p2'])
 
       expect(reportableMatchIds.get('p1')).toEqual(['reportable-2', 'reportable-1'])
       expect(reportableMatchIds.get('p2')).toEqual(['reportable-2'])
@@ -99,20 +100,3 @@ describe('live match lookup', () => {
     }
   })
 })
-
-function createTestD1Adapter(db: Awaited<ReturnType<typeof createTestDatabase>>['db']): D1Database {
-  const sqlite = (db as { $client?: { query?: (sql: string) => { all: (...values: unknown[]) => unknown[] } } }).$client
-  return {
-    prepare(query: string) {
-      return {
-        bind(...values: unknown[]) {
-          return {
-            async all<T = Record<string, unknown>>() {
-              return { results: sqlite?.query?.(query).all(...values) as T[] | undefined }
-            },
-          }
-        },
-      }
-    },
-  } as D1Database
-}

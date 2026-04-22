@@ -2,7 +2,7 @@ import type { GameMode } from '@civup/game'
 import { createDb } from '@civup/db'
 import { Button } from 'discord-hono'
 import { isQueueBackedOpenLobby } from '../../routes/lobby/snapshot.ts'
-import { clearActivityMappings, clearLobbyMappingsIfMatchingLobby, getMatchForUser, storeMatchActivityState, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
+import { clearActivityMappings, clearLobbyMappings, getMatchForUser, storeMatchActivityState, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { clearLobbyById, filterQueueEntriesForLobby, getLobbyById } from '../../services/lobby/index.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIds } from '../../services/match/live.ts'
 import { getMatchIdForMessage } from '../../services/match/message.ts'
@@ -51,7 +51,7 @@ export const component_match_join = factory.component(
         }
 
         if (interactionChannelId) {
-          await clearLobbyMappingsIfMatchingLobby(kv, [identity.userId], lobbyId, interactionChannelId)
+            await clearLobbyMappings(kv, [identity.userId], interactionChannelId, lobbyId)
         }
         return
       }
@@ -59,7 +59,7 @@ export const component_match_join = factory.component(
       if (lobby.status !== 'open') {
         if (!lobby.matchId) {
           if (interactionChannelId) {
-            await clearLobbyMappingsIfMatchingLobby(kv, [identity.userId], lobby.id, interactionChannelId)
+            await clearLobbyMappings(kv, [identity.userId], interactionChannelId, lobby.id)
           }
           return
         }
@@ -67,7 +67,7 @@ export const component_match_join = factory.component(
         const persistedLiveMatchIds = await findPersistedLiveMatchIds(env.DB, [lobby.matchId])
         if (persistedLiveMatchIds && !persistedLiveMatchIds.has(lobby.matchId)) {
           if (interactionChannelId) {
-            await clearLobbyMappingsIfMatchingLobby(kv, [identity.userId], lobby.id, interactionChannelId)
+              await clearLobbyMappings(kv, [identity.userId], interactionChannelId, lobby.id)
           }
           return
         }
@@ -86,7 +86,7 @@ export const component_match_join = factory.component(
       const queue = await getQueueState(kv, mode)
       if (!isQueueBackedOpenLobby(lobby, filterQueueEntriesForLobby(lobby, queue.entries))) {
         if (interactionChannelId) {
-          await clearLobbyMappingsIfMatchingLobby(kv, [identity.userId], lobby.id, interactionChannelId)
+            await clearLobbyMappings(kv, [identity.userId], interactionChannelId, lobby.id)
         }
         return
       }

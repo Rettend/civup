@@ -9,6 +9,7 @@
     "deploy": "bun run deploy:prod",
     "deploy:prod": "wrangler deploy",
     "test": "bun test",
+    "test:e2e": "bun test ./tests/system/**/*.test.ts",
     "test:capacity": "CIVUP_CAPACITY_REPORT=1 bun test ./tests/load/capacity.bench.ts",
     "test:stats": "CIVUP_STATS_REPORT=1 bun test ./tests/load/stats.bench.ts",
     "register": "bun run register:dev",

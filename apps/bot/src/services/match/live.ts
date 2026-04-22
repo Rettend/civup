@@ -161,6 +161,40 @@ export async function findPersistedReportableMatchIdsForPlayers(
   }
 }
 
+export async function findPersistedTerminalMatchIds(
+  db: D1Database | null | undefined,
+  matchIds: string[],
+): Promise<Set<string> | null> {
+  const uniqueMatchIds = [...new Set(matchIds.filter(matchId => matchId.length > 0))]
+  if (uniqueMatchIds.length === 0) return new Set()
+  if (!db || !canQueryLiveMatches(db)) return null
+
+  const placeholders = uniqueMatchIds.map(() => '?').join(', ')
+
+  try {
+    const response = await db.prepare(`
+      SELECT id
+      FROM matches
+      WHERE id IN (${placeholders})
+        AND status NOT IN ('drafting', 'active')
+    `)
+      .bind(...uniqueMatchIds)
+      .all<{ id?: unknown }>()
+
+    const terminalMatchIds = new Set<string>()
+    for (const row of response.results ?? []) {
+      if (typeof row.id !== 'string') continue
+      terminalMatchIds.add(row.id)
+    }
+
+    return terminalMatchIds
+  }
+  catch (error) {
+    console.error('Failed to verify terminal match ids from D1:', error)
+    return null
+  }
+}
+
 export async function filterPersistedLiveLobbies(
   db: D1Database | null | undefined,
   lobbies: LobbyState[],
@@ -202,10 +236,19 @@ export async function clearStalePersistedLiveLobbies(
   const filtered = await filterPersistedLiveLobbies(db, lobbies)
   if (filtered == null) return null
 
-  const staleLiveLobbies = lobbies.filter((lobby) => filtered.staleLobbyIds.has(lobby.id))
+  const staleLiveLobbies = lobbies.filter((lobby): lobby is LobbyState & { matchId: string } => (
+    filtered.staleLobbyIds.has(lobby.id)
+    && typeof lobby.matchId === 'string'
+    && lobby.matchId.length > 0
+  ))
+  if (staleLiveLobbies.length === 0) return new Set()
+
+  const terminalMatchIds = await findPersistedTerminalMatchIds(db, staleLiveLobbies.map(lobby => lobby.matchId))
+  if (terminalMatchIds == null) return null
+
   const clearedLobbyIds = new Set<string>()
   for (const lobby of staleLiveLobbies) {
-    if (!lobby.matchId) continue
+    if (!terminalMatchIds.has(lobby.matchId)) continue
 
     await clearActivityMappings(kv, lobby.matchId, lobby.memberPlayerIds, lobby.channelId)
     await clearLobbyById(kv, lobby.id, lobby)

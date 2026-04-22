@@ -240,8 +240,8 @@ export async function cancelDraftMatch(
     return { error: `Match **${matchId}** not found.` }
   }
 
-  if (match.status === 'completed') {
-    return { error: `Match **${matchId}** cannot be cancelled (status: completed).` }
+  if (match.status === 'active' || match.status === 'completed') {
+    return { error: `Match **${matchId}** cannot be cancelled (status: ${match.status}).` }
   }
 
   const participantRows = await db

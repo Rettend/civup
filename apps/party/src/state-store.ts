@@ -23,14 +23,20 @@ type StateKvRequest
     type?: 'json'
   }
   | {
-    op: 'put'
-    key: string
-    value: string
-    expirationTtl?: number
-  }
+      op: 'put'
+      key: string
+      value: string
+      expirationTtl?: number
+    }
   | {
-    op: 'delete'
-    key: string
+      op: 'putIfAbsent'
+      key: string
+      value: string
+      expirationTtl?: number
+    }
+  | {
+      op: 'delete'
+      key: string
   }
   | {
     op: 'list'
@@ -131,6 +137,22 @@ export class State extends Server<StateStoreEnv> {
           this.broadcastStateChanged(payload.key, 'put', payload.value)
         }
         return json({ ok: true })
+      }
+
+      case 'putIfAbsent': {
+        if (!isValidKey(payload.key)) return json({ error: 'Invalid key' }, 400)
+        if (typeof payload.value !== 'string') return json({ error: 'Invalid value' }, 400)
+
+        const ttlSeconds = normalizeTtlSeconds(payload.expirationTtl)
+        const existing = await this.ctx.storage.get<StoredValue>(storageKey(payload.key))
+        const previous = await this.ensureFreshValue(payload.key, existing)
+        if (previous) {
+          return json({ inserted: false })
+        }
+
+        await this.putValue(payload.key, payload.value, ttlSeconds)
+        this.broadcastStateChanged(payload.key, 'put', payload.value)
+        return json({ inserted: true })
       }
 
       case 'delete': {
