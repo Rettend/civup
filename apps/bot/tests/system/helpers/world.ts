@@ -1,5 +1,5 @@
 import type { Database as CivupDatabase, Database } from '@civup/db'
-import type { DraftCancelledWebhookPayload, DraftCompleteWebhookPayload, DraftState, DraftWebhookPayload, GameMode, QueueEntry, RoomConfig } from '@civup/game'
+import type { CompetitiveTier, DraftCancelledWebhookPayload, DraftCompleteWebhookPayload, DraftState, DraftWebhookPayload, GameMode, QueueEntry, RoomConfig } from '@civup/game'
 import type { Env } from '../../../src/env.ts'
 import type { ActivityTargetSelection, MatchActivityTargetSelection } from '../../../src/services/activity/index.ts'
 import type { LobbyState } from '../../../src/services/lobby/index.ts'
@@ -39,6 +39,12 @@ interface DiscordMessageRecord {
   id: string
   channelId: string
   payload: unknown
+}
+
+interface DiscordGuildRoleRecord {
+  id: string
+  name: string
+  color?: number
 }
 
 interface PartyRoomRecord {
@@ -87,7 +93,7 @@ export interface SystemWorld {
     createOpen: (input: { mode: Parameters<typeof getQueueState>[1], players: WorldPlayerInput[], hostId?: string, channelId?: string, guildId?: string | null, memberPlayerIds?: string[], slots?: (string | null)[] }) => Promise<LobbyState>
     get: (mode: Parameters<typeof getLobby>[1]) => Promise<LobbyState | null>
     getById: (lobbyId: string) => Promise<LobbyState | null>
-    config: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, banTimerSeconds?: number | null, pickTimerSeconds?: number | null, leaderPoolSize?: number | null, leaderDataVersion?: 'live' | 'beta' | null, mapVoteEnabled?: boolean, blindBans?: boolean, simultaneousPick?: boolean, redDeath?: boolean, dealOptionsSize?: number | null, randomDraft?: boolean, duplicateFactions?: boolean, steamLobbyLink?: string | null, targetSize?: number | null }) => Promise<RouteResult>
+    config: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, banTimerSeconds?: number | null, pickTimerSeconds?: number | null, leaderPoolSize?: number | null, leaderDataVersion?: 'live' | 'beta' | null, mapVoteEnabled?: boolean, blindBans?: boolean, simultaneousPick?: boolean, redDeath?: boolean, dealOptionsSize?: number | null, randomDraft?: boolean, duplicateFactions?: boolean, minRole?: CompetitiveTier | null, maxRole?: CompetitiveTier | null, steamLobbyLink?: string | null, targetSize?: number | null }) => Promise<RouteResult>
     changeMode: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, nextMode: GameMode }) => Promise<RouteResult>
     arrange: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, strategy: 'randomize' | 'balance' | 'shuffle-teams' }) => Promise<RouteResult>
     cancel: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string }) => Promise<RouteResult>
@@ -126,6 +132,10 @@ export interface SystemWorld {
     deleteMessage: (messageId: string) => void
     failNextPatch: (messageId: string) => void
     failNextPost: (channelId: string, status?: number) => void
+    failNextGuildMemberLookup: (guildId: string, userId: string, status?: number) => void
+    failNextGuildRolesLookup: (guildId: string, status?: number) => void
+    setGuildMemberRoles: (guildId: string, userId: string, roleIds: string[]) => void
+    setGuildRoles: (guildId: string, roles: DiscordGuildRoleRecord[]) => void
     currentLobbyMessage: (lobbyId: string) => Promise<DiscordMessageRecord | null>
     deleteCurrentLobbyMessage: (lobbyId: string) => Promise<void>
   }
@@ -177,6 +187,10 @@ export async function createSystemWorld(): Promise<SystemWorld> {
   const discordMessages = new Map<string, DiscordMessageRecord>()
   const discordPatchFailures = new Set<string>()
   const discordPostFailures = new Map<string, number>()
+  const discordGuildMemberFailures = new Map<string, number>()
+  const discordGuildRolesFailures = new Map<string, number>()
+  const discordGuildMemberRoles = new Map<string, string[]>()
+  const discordGuildRoles = new Map<string, DiscordGuildRoleRecord[]>()
   const partyRooms = new Map<string, PartyRoomRecord>()
   const runtime = createRuntimeControls()
   let stateStoreRequestQueue = Promise.resolve()
@@ -221,7 +235,18 @@ export async function createSystemWorld(): Promise<SystemWorld> {
     }
 
     if (url.origin === 'https://discord.com' && url.pathname.startsWith('/api/v10/')) {
-      return handleDiscordRequest(request, discordRequests, discordMessages, discordPatchFailures, discordPostFailures, () => `discord-message-${nextDiscordMessageId++}`)
+      return handleDiscordRequest(
+        request,
+        discordRequests,
+        discordMessages,
+        discordPatchFailures,
+        discordPostFailures,
+        discordGuildMemberFailures,
+        discordGuildRolesFailures,
+        discordGuildMemberRoles,
+        discordGuildRoles,
+        () => `discord-message-${nextDiscordMessageId++}`,
+      )
     }
 
     return undefined
@@ -338,6 +363,8 @@ export async function createSystemWorld(): Promise<SystemWorld> {
             dealOptionsSize: input.dealOptionsSize,
             randomDraft: input.randomDraft,
             duplicateFactions: input.duplicateFactions,
+            minRole: input.minRole,
+            maxRole: input.maxRole,
             steamLobbyLink: input.steamLobbyLink,
             targetSize: input.targetSize,
           }),
@@ -567,6 +594,18 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       },
       failNextPost(channelId, status = 400) {
         discordPostFailures.set(channelId, status)
+      },
+      failNextGuildMemberLookup(guildId, userId, status = 500) {
+        discordGuildMemberFailures.set(`${guildId}:${userId}`, status)
+      },
+      failNextGuildRolesLookup(guildId, status = 500) {
+        discordGuildRolesFailures.set(guildId, status)
+      },
+      setGuildMemberRoles(guildId, userId, roleIds) {
+        discordGuildMemberRoles.set(`${guildId}:${userId}`, [...roleIds])
+      },
+      setGuildRoles(guildId, roles) {
+        discordGuildRoles.set(guildId, roles.map(role => ({ ...role })))
       },
       async currentLobbyMessage(lobbyId) {
         const lobby = await getLobbyById(kv, lobbyId)
@@ -877,6 +916,10 @@ async function handleDiscordRequest(
   messages: Map<string, DiscordMessageRecord>,
   patchFailures: Set<string>,
   postFailures: Map<string, number>,
+  guildMemberFailures: Map<string, number>,
+  guildRolesFailures: Map<string, number>,
+  guildMemberRoles: Map<string, string[]>,
+  guildRoles: Map<string, DiscordGuildRoleRecord[]>,
   createMessageId: () => string,
 ): Promise<Response> {
   const url = new URL(request.url)
@@ -925,12 +968,31 @@ async function handleDiscordRequest(
     return jsonResponse({ id: 'dm-channel-1' })
   }
 
-  if (request.method === 'GET' && /\/api\/v10\/guilds\/[^/]+\/members\/[^/]+$/.test(url.pathname)) {
-    return jsonResponse({ roles: [] })
+  const guildMemberMatch = url.pathname.match(/^\/api\/v10\/guilds\/([^/]+)\/members\/([^/]+)$/)
+  if (request.method === 'GET' && guildMemberMatch) {
+    const [, guildId, userId] = guildMemberMatch
+    const failureKey = `${guildId}:${userId}`
+    const failureStatus = guildMemberFailures.get(failureKey)
+    if (failureStatus != null) {
+      guildMemberFailures.delete(failureKey)
+      return jsonResponse({ error: 'Injected guild member lookup failure' }, failureStatus)
+    }
+
+    return jsonResponse({
+      roles: guildMemberRoles.get(failureKey) ?? [],
+    })
   }
 
-  if (request.method === 'GET' && /\/api\/v10\/guilds\/[^/]+\/roles$/.test(url.pathname)) {
-    return jsonResponse([])
+  const guildRolesMatch = url.pathname.match(/^\/api\/v10\/guilds\/([^/]+)\/roles$/)
+  if (request.method === 'GET' && guildRolesMatch) {
+    const [, guildId] = guildRolesMatch
+    const failureStatus = guildRolesFailures.get(guildId)
+    if (failureStatus != null) {
+      guildRolesFailures.delete(guildId)
+      return jsonResponse({ error: 'Injected guild role lookup failure' }, failureStatus)
+    }
+
+    return jsonResponse(guildRoles.get(guildId) ?? [])
   }
 
   if ((request.method === 'PATCH' || request.method === 'PUT' || request.method === 'DELETE') && /\/api\/v10\/guilds\//.test(url.pathname)) {

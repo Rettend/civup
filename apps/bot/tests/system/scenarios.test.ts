@@ -5,6 +5,7 @@ import { formatMapVoteResultLabel, swapSeatPicks } from '@civup/game'
 import { verifyDraftRoomAccessToken } from '@civup/utils'
 import { eq } from 'drizzle-orm'
 import { getQueueState } from '../../src/services/queue/index.ts'
+import { countDiscordChannelRequests as countDiscordMessageUpdates, expectDraftAndLobbyState, expectQueuePlayers } from './helpers/assertions.ts'
 import { createSystemWorld } from './helpers/world.ts'
 
 const worlds: Array<Awaited<ReturnType<typeof createSystemWorld>>> = []
@@ -2798,20 +2799,8 @@ async function createTrackedWorld() {
   return world
 }
 
-function countDiscordMessageUpdates(world: Awaited<ReturnType<typeof createSystemWorld>>, method: 'PATCH' | 'POST') {
-  return world.discord.requests().filter(request => request.method === method && request.url.includes('/channels/')).length
-}
-
 function createPlayers(count: number, prefix = 'p') {
   return Array.from({ length: count }, (_, index) => ({ id: `${prefix}${index + 1}` }))
-}
-
-async function expectQueuePlayers(
-  world: Awaited<ReturnType<typeof createSystemWorld>>,
-  mode: GameMode,
-  playerIds: string[],
-) {
-  expect((await getQueueState(world.kv, mode)).entries.map(entry => entry.playerId)).toEqual(playerIds)
 }
 
 async function runSeededArrangeScenario(seed: string, channelId: string) {
@@ -2851,22 +2840,6 @@ async function runSeededArrangeScenario(seed: string, channelId: string) {
     arrangedLobby: await world.lobby.getById(lobby.id),
     launch: await world.activity.launch({ channelId: lobby.channelId, userId: 'spectator' }),
   }
-}
-
-async function expectDraftAndLobbyState(
-  world: Awaited<ReturnType<typeof createSystemWorld>>,
-  input: {
-    mode: GameMode
-    lobbyId: string
-    matchId: string
-    lobbyStatus: 'open' | 'drafting' | 'active'
-    matchStatus: 'drafting' | 'active' | 'cancelled'
-    queuePlayerIds: string[]
-  },
-) {
-  expect((await world.lobby.getById(input.lobbyId))?.status).toBe(input.lobbyStatus)
-  expect((await world.match.get(input.matchId))?.status).toBe(input.matchStatus)
-  await expectQueuePlayers(world, input.mode, input.queuePlayerIds)
 }
 
 async function runReportedLifecycle(

@@ -6,6 +6,7 @@ export interface StateCoordinatorHarness {
   sqliteRowsWritten: () => number
   reset: () => void
   restore: () => void
+  runWithoutTracking: <T>(callback: () => Promise<T> | T) => Promise<T>
 }
 
 export function installStateCoordinatorHarness(): StateCoordinatorHarness {
@@ -15,6 +16,7 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
   let requestCount = 0
   let sqliteRowsRead = 0
   let sqliteRowsWritten = 0
+  let trackingEnabled = true
 
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -28,7 +30,7 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
       return originalFetch(input as any, init)
     }
 
-    requestCount += 1
+    if (trackingEnabled) requestCount += 1
     const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase()
     if (method !== 'POST') {
       return new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -74,9 +76,9 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
 
     const readValue = (key: string, type?: unknown): unknown => {
       const hadStored = storage.has(key)
-      if (hadStored) sqliteRowsRead += 1
+      if (trackingEnabled && hadStored) sqliteRowsRead += 1
       const value = getValue(storage, key)
-      if (hadStored && !storage.has(key)) sqliteRowsWritten += 1
+      if (trackingEnabled && hadStored && !storage.has(key)) sqliteRowsWritten += 1
 
       if (value == null) return null
       if (type === 'json') {
@@ -93,24 +95,24 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
 
     const writeValue = (key: string, value: string, expirationTtl: unknown): void => {
       const hadStored = storage.has(key)
-      if (hadStored) sqliteRowsRead += 1
+      if (trackingEnabled && hadStored) sqliteRowsRead += 1
       getValue(storage, key)
-      if (hadStored && !storage.has(key)) sqliteRowsWritten += 1
+      if (trackingEnabled && hadStored && !storage.has(key)) sqliteRowsWritten += 1
 
       const ttlSeconds = typeof expirationTtl === 'number' && Number.isFinite(expirationTtl)
         ? Math.max(0, Math.round(expirationTtl))
         : 0
       const expiresAt = ttlSeconds > 0 ? Date.now() + ttlSeconds * 1000 : null
       storage.set(key, { value, expiresAt })
-      sqliteRowsWritten += 1
+      if (trackingEnabled) sqliteRowsWritten += 1
     }
 
     const deleteValue = (key: string): void => {
       const hadStored = storage.has(key)
-      if (hadStored) sqliteRowsRead += 1
+      if (trackingEnabled && hadStored) sqliteRowsRead += 1
       getValue(storage, key)
-      if (hadStored && !storage.has(key)) sqliteRowsWritten += 1
-      if (storage.delete(key)) sqliteRowsWritten += 1
+      if (trackingEnabled && hadStored && !storage.has(key)) sqliteRowsWritten += 1
+      if (storage.delete(key) && trackingEnabled) sqliteRowsWritten += 1
     }
 
     if (payload.op === 'get') {
@@ -213,6 +215,16 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
     },
     restore: () => {
       globalThis.fetch = originalFetch
+    },
+    async runWithoutTracking<T>(callback: () => Promise<T> | T): Promise<T> {
+      const previous = trackingEnabled
+      trackingEnabled = false
+      try {
+        return await callback()
+      }
+      finally {
+        trackingEnabled = previous
+      }
     },
   }
 }

@@ -13,14 +13,17 @@ interface TrackedKv {
   kv: KVNamespace
   operations: KvOperation[]
   resetOperations: () => void
+  runWithoutTracking: <T>(callback: () => Promise<T> | T) => Promise<T>
 }
 
 export function createTrackedKv(options: CreateTrackedKvOptions = {}): TrackedKv {
   const { trackReads = false } = options
   const store = new Map<string, string>()
   const operations: KvOperation[] = []
+  let trackingEnabled = true
 
   function track(type: KvOperationType, key: string): void {
+    if (!trackingEnabled) return
     if (!trackReads && (type === 'get' || type === 'list')) return
     operations.push({ type, key })
   }
@@ -68,6 +71,16 @@ export function createTrackedKv(options: CreateTrackedKvOptions = {}): TrackedKv
     operations,
     resetOperations() {
       operations.length = 0
+    },
+    async runWithoutTracking<T>(callback: () => Promise<T> | T): Promise<T> {
+      const previous = trackingEnabled
+      trackingEnabled = false
+      try {
+        return await callback()
+      }
+      finally {
+        trackingEnabled = previous
+      }
     },
   }
 }
