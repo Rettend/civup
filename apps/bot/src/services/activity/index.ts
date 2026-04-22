@@ -3,7 +3,7 @@ import type { LobbyState } from '../lobby/types.ts'
 import { allFactionIds, getDraftFormat, isTeamMode, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
 import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, isLocalHost, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
-import { getLobbiesByChannel, getLobbyById, getOpenLobbyForPlayer } from '../lobby/index.ts'
+import { getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer } from '../lobby/index.ts'
 import { channelIndexKey, idKey, matchKey, modeIndexKey } from '../lobby/keys.ts'
 import { lobbySnapshotKey } from '../lobby/live-snapshot.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
@@ -522,15 +522,6 @@ export async function getLobbyForUser(
   kv: KVNamespace,
   userId: string,
 ): Promise<string | null> {
-  const mappedLobbyId = await kv.get(activityLobbyUserKey(userId))
-  if (!mappedLobbyId) return null
-
-  const mappedLobby = await getLobbyById(kv, mappedLobbyId)
-  if (mappedLobby?.status === 'open') {
-    const realLobby = await getOpenLobbyForPlayer(kv, userId, mappedLobby.mode)
-    if (realLobby?.id === mappedLobbyId) return mappedLobbyId
-  }
-
   const realLobby = await getOpenLobbyForPlayer(kv, userId)
   if (realLobby) {
     await storeUserLobbyMappings(kv, [userId], realLobby.id)
@@ -565,16 +556,30 @@ export async function getMatchForUser(
   userId: string,
 ): Promise<string | null> {
   const key = activityUserKey(userId)
-  const matchId = await kv.get(key)
-  if (!matchId) return null
+  const mappedMatchId = await kv.get(key)
+  if (mappedMatchId) {
+    const mappedLobby = await getLobbyByMatch(kv, mappedMatchId)
+    if (mappedLobby && isCurrentMatchLobby(mappedLobby) && mappedLobby.memberPlayerIds.includes(userId)) {
+      await Promise.all([
+        storeUserMatchMappings(kv, [userId], mappedMatchId),
+        storeMatchMapping(kv, mappedLobby.channelId, mappedMatchId),
+      ])
+      return mappedMatchId
+    }
 
-  const activeChannelId = await kv.get(activityMatchKey(matchId))
-  if (activeChannelId) {
-    return matchId
+    await stateStoreMdelete(kv, [key])
   }
 
-  await kv.delete(key)
-  return null
+  const liveLobby = (await getCurrentLobbiesForPlayer(kv, userId))
+    .filter((candidate): candidate is LobbyState & { matchId: string } => isCurrentMatchLobby(candidate))
+    .sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null
+  if (!liveLobby?.matchId) return null
+
+  await Promise.all([
+    storeUserMatchMappings(kv, [userId], liveLobby.matchId),
+    storeMatchMapping(kv, liveLobby.channelId, liveLobby.matchId),
+  ])
+  return liveLobby.matchId
 }
 
 /** Get channel ID by match ID (used by webhooks to post updates) */
@@ -582,7 +587,20 @@ export async function getChannelForMatch(
   kv: KVNamespace,
   matchId: string,
 ): Promise<string | null> {
-  return kv.get(activityMatchKey(matchId))
+  const key = activityMatchKey(matchId)
+  const mappedChannelId = await kv.get(key)
+  const lobby = await getLobbyByMatch(kv, matchId)
+  if (lobby) {
+    if (mappedChannelId !== lobby.channelId) {
+      await storeMatchMapping(kv, lobby.channelId, matchId)
+    }
+    return lobby.channelId
+  }
+
+  if (!mappedChannelId) return null
+
+  await stateStoreMdelete(kv, [key])
+  return mappedChannelId
 }
 
 /** Remove activity mappings once draft lifecycle moves to in-game */
@@ -769,6 +787,14 @@ function parseActivityTargetSelection(raw: unknown): StoredActivityTargetSelecti
     selectedAt: parsed.selectedAt,
     pendingJoin: parsed.pendingJoin === true,
   }
+}
+
+function isCurrentMatchLobby(
+  lobby: Pick<LobbyState, 'status' | 'matchId'>,
+): lobby is Pick<LobbyState, 'status'> & { matchId: string } {
+  return (lobby.status === 'drafting' || lobby.status === 'active')
+    && typeof lobby.matchId === 'string'
+    && lobby.matchId.length > 0
 }
 
 async function serializeActivityTargetSelection(

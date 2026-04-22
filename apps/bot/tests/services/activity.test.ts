@@ -6,6 +6,7 @@ import {
   clearLobbyMappings,
   clearUserLobbyMappings,
   createDraftRoom,
+  getChannelForMatch,
   getLobbyForUser,
   getMatchForUser,
   getUserActivityTarget,
@@ -17,7 +18,7 @@ import {
   storeUserLobbyState,
   storeUserMatchMappings,
 } from '../../src/services/activity/index.ts'
-import { createLobby, setLobbySlots } from '../../src/services/lobby/index.ts'
+import { attachLobbyMatch, createLobby, setLobbySlots } from '../../src/services/lobby/index.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
@@ -111,13 +112,20 @@ describe('activity mapping behavior', () => {
     })).resolves.not.toBeNull()
   })
 
-  test('getMatchForUser resolves active mapping', async () => {
+  test('getMatchForUser repairs a live mapping from the canonical match lobby', async () => {
     const { kv } = createTrackedKv()
 
-    await storeMatchMapping(kv, 'channel-1', 'match-1')
+    const lobby = await createLobby(kv, {
+      mode: '1v1',
+      hostId: 'user-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
     await storeUserMatchMappings(kv, ['user-1'], 'match-1')
 
     await expect(getMatchForUser(kv, 'user-1')).resolves.toBe('match-1')
+    await expect(kv.get('activity-match:match-1')).resolves.toBe('channel-1')
   })
 
   test('getMatchForUser removes stale user mapping when match mapping is gone', async () => {
@@ -175,6 +183,13 @@ describe('activity mapping behavior', () => {
   test('clearActivityMappings keeps a newer activity-user mapping for the same player', async () => {
     const { kv } = createTrackedKv()
 
+    const currentLobby = await createLobby(kv, {
+      mode: '1v1',
+      hostId: 'user-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
     await storeMatchMapping(kv, 'channel-1', 'match-old')
     await storeUserMatchMappings(kv, ['user-1'], 'match-old')
     await storeMatchActivityState(kv, 'channel-1', ['user-1'], {
@@ -187,10 +202,11 @@ describe('activity mapping behavior', () => {
     await storeMatchMapping(kv, 'channel-1', 'match-new')
     await storeMatchActivityState(kv, 'channel-1', ['user-1'], {
       matchId: 'match-new',
-      lobbyId: 'lobby-1',
+      lobbyId: currentLobby.id,
       mode: '1v1',
       activitySecret: 'secret',
     })
+    await attachLobbyMatch(kv, currentLobby.id, 'match-new', currentLobby)
     await kv.put('activity-target-match:channel-1:match-old:user-1', String(Date.now()))
 
     await clearActivityMappings(kv, 'match-old', ['user-1'], 'channel-1')
@@ -202,6 +218,21 @@ describe('activity mapping behavior', () => {
     }))
     await expect(kv.get('activity-match:match-old')).resolves.toBeNull()
     await expect(kv.get('activity-target-match:channel-1:match-old:user-1')).resolves.toBeNull()
+  })
+
+  test('getChannelForMatch repairs the channel mapping from the canonical match lobby', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '1v1',
+      hostId: 'user-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+
+    await expect(getChannelForMatch(kv, 'match-1')).resolves.toBe('channel-1')
+    await expect(kv.get('activity-match:match-1')).resolves.toBe('channel-1')
   })
 
   test('clearLobbyMappings removes lobby reopen mapping and channel target', async () => {
