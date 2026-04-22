@@ -8,7 +8,7 @@ import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel, GAME_MODES, toBalanceLeaderboardMode } from '@civup/game'
 import { createDraftRoomAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { clearActivityMappings, clearUserActivityTargets, getLobbyForUser, getMatchForUser, getUserActivityTarget, storeUserActivityTarget, storeUserMatchMappings } from '../services/activity/index.ts'
+import { clearActivityMappings, clearUserActivityTargets, clearUserLobbyMappings, getLobbyForUser, getMatchForUser, getUserActivityTarget, storeMatchMapping, storeUserActivityTarget, storeUserMatchMappings } from '../services/activity/index.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
 import { clearStalePersistedLiveLobbies, filterPersistedLiveLobbies, findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIds, findPersistedLiveMatchIdsForPlayers } from '../services/match/live.ts'
@@ -110,23 +110,6 @@ export function registerActivityRoutes(app: Hono<Env>) {
 
     const userId = auth.identity.userId
     const kv = createStateStore(c.env)
-    let matchId = await getMatchForUser(kv, userId)
-
-    if (matchId) {
-      const persistedLiveMatchIds = await findPersistedLiveMatchIds(c.env.DB, [matchId])
-      if (persistedLiveMatchIds?.has(matchId)) {
-        return c.json({ matchId })
-      }
-
-      if (persistedLiveMatchIds != null) {
-        await clearActivityMappings(kv, matchId, [userId])
-        matchId = null
-      }
-    }
-
-    if (matchId) {
-      return c.json({ matchId })
-    }
 
     const db = createDb(c.env.DB)
     const [active] = await db
@@ -142,12 +125,21 @@ export function registerActivityRoutes(app: Hono<Env>) {
       .orderBy(desc(matches.createdAt))
       .limit(1)
 
-    if (!active?.matchId) {
-      return c.json({ error: 'No active match for this user' }, 404)
+    if (active?.matchId) {
+      const liveLobby = await getLobbyByMatch(kv, active.matchId)
+      await Promise.all([
+        storeUserMatchMappings(kv, [userId], active.matchId),
+        liveLobby ? storeMatchMapping(kv, liveLobby.channelId, active.matchId) : Promise.resolve(),
+      ])
+      return c.json({ matchId: active.matchId })
     }
 
-    await storeUserMatchMappings(kv, [userId], active.matchId)
-    return c.json({ matchId: active.matchId })
+    const staleMatchId = await getMatchForUser(kv, userId)
+    if (staleMatchId) {
+      await clearActivityMappings(kv, staleMatchId, [userId])
+    }
+
+    return c.json({ error: 'No active match for this user' }, 404)
   })
 
   app.get('/api/lobby/:channelId', async (c) => {
@@ -177,22 +169,13 @@ export function registerActivityRoutes(app: Hono<Env>) {
     const mappedLobbyId = await getLobbyForUser(kv, userId)
     if (mappedLobbyId) {
       const mappedLobby = await getLobbyById(kv, mappedLobbyId)
-      if (mappedLobby?.status === 'open' && mappedLobby.memberPlayerIds.includes(userId)) {
+      if (mappedLobby?.status === 'open') {
         return c.json(await buildOpenLobbySnapshot(kv, mappedLobby.mode, mappedLobby))
       }
     }
 
-    const mode = await getPlayerQueueMode(kv, userId)
-    if (!mode) {
-      return c.json({ error: 'User is not in an open lobby queue' }, 404)
-    }
-
-    const lobby = await getOpenLobbyForPlayer(kv, userId, mode)
-    if (!lobby || lobby.status !== 'open') {
-      return c.json({ error: 'No open lobby for this user' }, 404)
-    }
-
-    return c.json(await buildOpenLobbySnapshot(kv, mode, lobby))
+    await clearUserLobbyMappings(kv, [userId])
+    return c.json({ error: 'No open lobby for this user' }, 404)
   })
 
   app.get('/api/activity/launch/:channelId/:userId', async (c) => {
