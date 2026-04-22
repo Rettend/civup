@@ -1,4 +1,4 @@
-import type { GameMode, LeaderboardMode } from '@civup/game'
+import type { GameMode, LeaderboardMode, ResolvedMapVoteResult } from '@civup/game'
 import type { MatchReporterIdentity } from './types.ts'
 import { formatModeLabel, parseGameMode, toLeaderboardMode } from '@civup/game'
 
@@ -76,6 +76,19 @@ export function getReporterIdentityFromDraftData(draftData: string | null): Matc
 export function getRedDeathFromDraftData(draftData: string | null): boolean {
   const parsed = parseDraftData(draftData)
   return parsed?.redDeath === true
+}
+
+export function getMapVoteResultFromDraftData(draftData: string | null): ResolvedMapVoteResult | null {
+  const parsed = parseDraftData(draftData)
+  const result = parsed?.mapVoteResult
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return null
+
+  const candidate = result as Partial<ResolvedMapVoteResult>
+  if (typeof candidate.mapType !== 'string') return null
+  if (typeof candidate.mapScript !== 'string') return null
+  if (typeof candidate.winningSeatCount !== 'number' || !Number.isFinite(candidate.winningSeatCount)) return null
+
+  return candidate as ResolvedMapVoteResult
 }
 
 export function getStoredGameModeContext(gameMode: string, draftData: string | null): StoredGameModeContext | null {

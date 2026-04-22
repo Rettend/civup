@@ -64,18 +64,26 @@ export async function getLobbiesByChannel(kv: KVNamespace, channelId: string): P
     .map(entry => entry.name.slice(channelPrefix(channelId).length))
     .filter((lobbyId): lobbyId is string => lobbyId.length > 0)
 
-  if (lobbyIds.length === 0) return []
+  if (lobbyIds.length === 0) {
+    return await recoverLobbiesByChannel(kv, channelId)
+  }
 
   const rawLobbies = await stateStoreMget(
     kv,
     lobbyIds.map(lobbyId => ({ key: idKey(lobbyId), type: 'json' })),
   )
 
-  return rawLobbies
+  const lobbies = rawLobbies
     .map(raw => parseLobbyState(raw))
     .filter((lobby): lobby is LobbyState => lobby != null)
     .filter(lobby => lobby.channelId === channelId)
     .sort((left, right) => left.createdAt - right.createdAt)
+
+  if (lobbies.length === 0) {
+    return await recoverLobbiesByChannel(kv, channelId)
+  }
+
+  return lobbies
 }
 
 export function isCurrentLobbyStatus(status: LobbyState['status']): boolean {
@@ -254,13 +262,15 @@ export async function getOpenLobbyForPlayer(
 
 export async function getLobbyByMatch(kv: KVNamespace, matchId: string): Promise<LobbyState | null> {
   const lobbyId = await kv.get(matchKey(matchId))
-  if (!lobbyId) return null
-  const lobby = await getLobbyById(kv, lobbyId)
-  if (!lobby || lobby.matchId !== matchId) {
-    await stateStoreMdelete(kv, [matchKey(matchId)])
-    return null
+  if (!lobbyId) {
+    return await recoverLobbyByMatch(kv, matchId)
   }
-  return lobby
+  const lobby = await getLobbyById(kv, lobbyId)
+  if (lobby?.matchId === matchId) {
+    return lobby
+  }
+
+  return await recoverLobbyByMatch(kv, matchId)
 }
 
 export async function upsertLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
@@ -387,6 +397,37 @@ async function getAllLobbies(kv: KVNamespace): Promise<LobbyState[]> {
     .map(raw => parseLobbyState(raw))
     .filter((lobby): lobby is LobbyState => lobby != null)
     .sort((left, right) => left.createdAt - right.createdAt)
+}
+
+async function recoverLobbiesByChannel(kv: KVNamespace, channelId: string): Promise<LobbyState[]> {
+  const recoveredLobbies = (await getAllLobbies(kv))
+    .filter(lobby => lobby.channelId === channelId)
+    .sort((left, right) => left.createdAt - right.createdAt)
+
+  if (recoveredLobbies.length === 0) return []
+
+  await stateStoreMput(kv, recoveredLobbies.map(lobby => ({
+    key: channelIndexKey(channelId, lobby.id),
+    value: String(lobby.revision),
+    expirationTtl: LOBBY_TTL,
+  })))
+
+  return recoveredLobbies
+}
+
+async function recoverLobbyByMatch(kv: KVNamespace, matchId: string): Promise<LobbyState | null> {
+  const recoveredLobby = (await getAllLobbies(kv)).find(candidate => candidate.matchId === matchId) ?? null
+  if (recoveredLobby) {
+    await stateStoreMput(kv, [{
+      key: matchKey(matchId),
+      value: recoveredLobby.id,
+      expirationTtl: LOBBY_TTL,
+    }])
+    return recoveredLobby
+  }
+
+  await stateStoreMdelete(kv, [matchKey(matchId)])
+  return null
 }
 
 async function findHostKeysForLobby(kv: KVNamespace, lobbyId: string): Promise<string[]> {
