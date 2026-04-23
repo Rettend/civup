@@ -1,64 +1,39 @@
 import { describe, expect, test } from 'bun:test'
-import { sendGeneralCommandResponse } from '../../src/services/response/general.ts'
+import { resDeferGeneralCommandResponse } from '../../src/services/response/general.ts'
 import { setSystemChannel } from '../../src/services/system/channels.ts'
 import { createTestKv } from '../helpers/test-env.ts'
 
 describe('general command response routing', () => {
   test('posts in place when no bot-commands channel is configured', async () => {
     const kv = createTestKv()
-    const followups: unknown[] = []
-    const createMessageCalls: unknown[] = []
+    const harness = createResponseHarness(kv, 'channel-1')
 
-    await sendGeneralCommandResponse({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
-      interaction: {
-        guild_id: 'guild-1',
-        channel_id: 'channel-1',
-      },
-      async followup(data?: unknown) {
-        followups.push(data)
-      },
-    }, { content: 'hello world' }, {
+    await resDeferGeneralCommandResponse(harness.context, async () => ({ content: 'hello world' }), {
       async createMessage(...args) {
-        createMessageCalls.push(args)
+        harness.createMessageCalls.push(args)
         return { id: 'message-1' }
       },
     })
 
-    expect(createMessageCalls).toEqual([])
-    expect(followups).toEqual([{ content: 'hello world' }])
+    expect(harness.mode).toBe('normal')
+    expect(harness.createMessageCalls).toEqual([])
+    expect(harness.followups).toEqual([{ content: 'hello world' }])
   })
 
-  test('redirects output into the configured bot-commands channel', async () => {
+  test('redirects output through an ephemeral deferred response', async () => {
     const kv = createTestKv()
     await setSystemChannel(kv, 'commands', 'bot-commands')
+    const harness = createResponseHarness(kv, 'channel-1')
 
-    const followups: unknown[] = []
-    const createMessageCalls: unknown[] = []
-
-    await sendGeneralCommandResponse({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
-      interaction: {
-        guild_id: 'guild-1',
-        channel_id: 'channel-1',
-      },
-      async followup(data?: unknown) {
-        followups.push(data)
-      },
-    }, 'hello world', {
+    await resDeferGeneralCommandResponse(harness.context, async () => 'hello world', {
       async createMessage(...args) {
-        createMessageCalls.push(args)
+        harness.createMessageCalls.push(args)
         return { id: 'message-1' }
       },
     })
 
-    expect(createMessageCalls).toEqual([[
+    expect(harness.mode).toBe('ephemeral')
+    expect(harness.createMessageCalls).toEqual([[
       'token',
       'bot-commands',
       {
@@ -66,66 +41,100 @@ describe('general command response routing', () => {
         allowed_mentions: { parse: [] },
       },
     ]])
-    expect(followups).toEqual([{
-      content: 'Posted in <#bot-commands>.',
-      allowed_mentions: { parse: [] },
-    }])
+    expect(harness.followups).toHaveLength(1)
+    expect((harness.followups[0] as { embeds: Array<{ toJSON: () => { description?: string } }> }).embeds[0]?.toJSON().description).toBe('Posted in <#bot-commands>.')
   })
 
   test('keeps output local when already used in the bot-commands channel', async () => {
     const kv = createTestKv()
     await setSystemChannel(kv, 'commands', 'bot-commands')
+    const harness = createResponseHarness(kv, 'bot-commands')
 
-    const followups: unknown[] = []
-    const createMessageCalls: unknown[] = []
-
-    await sendGeneralCommandResponse({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
-      interaction: {
-        guild_id: 'guild-1',
-        channel_id: 'bot-commands',
-      },
-      async followup(data?: unknown) {
-        followups.push(data)
-      },
-    }, { content: 'hello world' }, {
+    await resDeferGeneralCommandResponse(harness.context, async () => ({ content: 'hello world' }), {
       async createMessage(...args) {
-        createMessageCalls.push(args)
+        harness.createMessageCalls.push(args)
         return { id: 'message-1' }
       },
     })
 
-    expect(createMessageCalls).toEqual([])
-    expect(followups).toEqual([{ content: 'hello world' }])
+    expect(harness.mode).toBe('normal')
+    expect(harness.createMessageCalls).toEqual([])
+    expect(harness.followups).toEqual([{ content: 'hello world' }])
   })
 
-  test('falls back to the invoking channel when redirection fails', async () => {
+  test('shows an ephemeral error when redirected posting fails', async () => {
     const kv = createTestKv()
     await setSystemChannel(kv, 'commands', 'bot-commands')
+    const harness = createResponseHarness(kv, 'channel-1')
 
-    const followups: unknown[] = []
-
-    await sendGeneralCommandResponse({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
-      interaction: {
-        guild_id: 'guild-1',
-        channel_id: 'channel-1',
-      },
-      async followup(data?: unknown) {
-        followups.push(data)
-      },
-    }, { content: 'hello world' }, {
+    await resDeferGeneralCommandResponse(harness.context, async () => ({ content: 'hello world' }), {
       async createMessage() {
         throw new Error('boom')
       },
     })
 
-    expect(followups).toEqual([{ content: 'hello world' }])
+    expect(harness.mode).toBe('ephemeral')
+    expect(harness.followups).toHaveLength(1)
+    expect((harness.followups[0] as { embeds: Array<{ toJSON: () => { description?: string } }> }).embeds[0]?.toJSON().description).toBe('Failed to post in <#bot-commands>.')
   })
 })
+
+function createResponseHarness(kv: KVNamespace, channelId: string): {
+  mode: 'normal' | 'ephemeral' | null
+  createMessageCalls: unknown[][]
+  followups: unknown[]
+  context: {
+    env: { KV: KVNamespace, DISCORD_TOKEN: string }
+    interaction: { guild_id: string, channel_id: string }
+    executionCtx: { waitUntil: (promise: Promise<unknown>) => void }
+    followup: (data?: unknown) => Promise<void>
+    resDefer: (callback: (c: any) => Promise<void>) => Promise<Response>
+    flags: (value: 'EPHEMERAL') => { resDefer: (callback: (c: any) => Promise<void>) => Promise<Response> }
+  }
+} {
+  const followups: unknown[] = []
+  const createMessageCalls: unknown[][] = []
+  const state = {
+    mode: null as 'normal' | 'ephemeral' | null,
+    createMessageCalls,
+    followups,
+  }
+
+  const deferredBase = {
+    env: {
+      KV: kv,
+      DISCORD_TOKEN: 'token',
+    },
+    interaction: {
+      guild_id: 'guild-1',
+      channel_id: channelId,
+    },
+    executionCtx: {
+      waitUntil() {},
+    },
+    async followup(data?: unknown) {
+      followups.push(data)
+    },
+  }
+
+  return Object.assign(state, {
+    context: {
+      ...deferredBase,
+      async resDefer(callback) {
+        state.mode = 'normal'
+        await callback(deferredBase)
+        return new Response(null)
+      },
+      flags(value) {
+        expect(value).toBe('EPHEMERAL')
+        return {
+          async resDefer(callback) {
+            state.mode = 'ephemeral'
+            await callback(deferredBase)
+            return new Response(null)
+          },
+        }
+      },
+    },
+  })
+}
