@@ -6,6 +6,7 @@ import { playerCardEmbed } from '../embeds/player-card.ts'
 import { teamCardEmbed } from '../embeds/team-card.ts'
 import { syncPlayerProfileFromDiscord } from '../services/player/profile.ts'
 import { getPlayerStatsRankProfile } from '../services/player/rank.ts'
+import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { factory } from '../setup.ts'
 
@@ -49,7 +50,7 @@ export const command_stats = factory.command<Var>(
       return c.res('Pick unique players for lineup stats.')
     }
 
-    return c.resDefer(async (c) => {
+    return resDeferGeneralCommandResponse(c, async (c) => {
       const db = createDb(c.env.DB)
       const kv = createStateStore(c.env)
       c.executionCtx.waitUntil((async () => {
@@ -65,8 +66,7 @@ export const command_stats = factory.command<Var>(
 
       if (teammateIds.length > 0) {
         const embed = await teamCardEmbed(db, kv, guildId ?? null, playerIds, mode)
-        await c.followup({ embeds: [embed] })
-        return
+        return { embeds: [embed] }
       }
 
       const rankProfile = guildId
@@ -85,7 +85,7 @@ export const command_stats = factory.command<Var>(
         ratingRows: rankProfile?.ratingRows,
         visibleModes,
       })
-      await c.followup({ embeds: [embed] })
+      return { embeds: [embed] }
     })
   },
 )

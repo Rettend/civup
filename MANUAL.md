@@ -40,6 +40,7 @@ Run these in the channels you want the bot to use:
 
 - `/admin setup target:Draft` - required; this is where lobby embeds are posted
 - `/admin setup target:Archive` - optional; the bot posts match results here
+- `/admin setup target:Bot Commands` - optional; channel for general bot commands like /stats
 - `/admin setup target:Leaderboard` - optional; the bot sends an updating leaderboard embed
 
 > [!IMPORTANT]
