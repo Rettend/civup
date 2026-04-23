@@ -3,8 +3,8 @@ import { Hono } from 'hono'
 import { routePartykitRequest } from 'partyserver'
 import * as commands from './commands/index.ts'
 import * as cron from './cron/cleanup.ts'
-import { Main } from '../../party/src/draft-room.ts'
 import { registerApiRoutes } from './routes/index.ts'
+import { Main } from './session-runtime/main.ts'
 import { factory } from './setup.ts'
 
 interface DiscordInteractionEnvelope {

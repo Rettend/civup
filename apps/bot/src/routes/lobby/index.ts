@@ -1210,6 +1210,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       await storeLobbyDraftRoster(kv, lobby.id, lobbyQueueEntries)
 
       const { matchId, seats } = await createDraftRoom(mode, selectedEntries, {
+        mainNamespace: c.env.Main,
         hostId: lobby.hostId,
         leaderDataVersion: lobby.draftConfig.leaderDataVersion,
         blindBans: lobby.draftConfig.blindBans,
