@@ -15,6 +15,7 @@ import {
   TEAM_LEADERBOARD_MIN_GAMES,
 
 } from '../services/leaderboard/team-snapshot.ts'
+import { sendGeneralCommandResponse } from '../services/response/general.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { factory } from '../setup.ts'
 
@@ -61,7 +62,7 @@ export const command_leaderboard = factory.command<Var>(
         view,
         teamSize,
       })
-      await c.followup(payload)
+      await sendGeneralCommandResponse(c, payload)
     })
   },
 )
