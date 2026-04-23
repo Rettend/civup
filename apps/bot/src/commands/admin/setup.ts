@@ -9,9 +9,10 @@ export function handleSetup(c: AdminCommandContext) {
   const rawTarget = c.var.target
   if (!rawTarget) {
     return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
-      const [draftChannelId, archiveChannelId, leaderboardChannelId] = await Promise.all([
+      const [draftChannelId, archiveChannelId, commandsChannelId, leaderboardChannelId] = await Promise.all([
         getSystemChannel(c.env.KV, 'draft'),
         getSystemChannel(c.env.KV, 'archive'),
+        getSystemChannel(c.env.KV, 'commands'),
         getSystemChannel(c.env.KV, 'leaderboard'),
       ])
 
@@ -20,6 +21,7 @@ export function handleSetup(c: AdminCommandContext) {
         '**Configured channels:**\n'
         + `Draft — ${formatChannelMention(draftChannelId)}\n`
         + `Archive — ${formatChannelMention(archiveChannelId)}\n`
+        + `Bot Commands — ${formatChannelMention(commandsChannelId)}\n`
         + `Leaderboard — ${formatChannelMention(leaderboardChannelId)}`,
         'info',
       )

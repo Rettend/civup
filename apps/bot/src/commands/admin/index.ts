@@ -68,6 +68,7 @@ export const command_admin = factory.command<AdminVar>(
         new Option('target', 'Channel role to configure').choices(
           { name: 'Draft', value: 'draft' },
           { name: 'Archive', value: 'archive' },
+          { name: 'Bot Commands', value: 'commands' },
           { name: 'Leaderboard', value: 'leaderboard' },
         ),
       ),
