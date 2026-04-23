@@ -136,6 +136,28 @@ describe('system scenarios', () => {
     expect((await world.lobby.getById(lobby.id))?.matchId).toBe(started.matchId)
   })
 
+  test('starting a lobby uses the session roster when the open lobby cache is stale', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: createPlayers(2),
+    })
+
+    await world.corrupt.openLobbyResidue(lobby.id, {
+      memberPlayerIds: ['p1', 'stale-player'],
+      slots: ['p1', 'stale-player'],
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    const roomConfig = findRoomConfig(world, started.matchId)
+    const persistedLobby = await world.lobby.getById(lobby.id)
+
+    expect(started.ok).toBe(true)
+    expect(roomConfig?.seats.map(seat => seat.playerId)).toEqual(['p1', 'p2'])
+    expect(persistedLobby?.memberPlayerIds).toEqual(['p1', 'p2'])
+    expect(persistedLobby?.slots).toEqual(['p1', 'p2'])
+  })
+
   test('starting a valid 2v2 lobby keeps the expected seat and team order', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
@@ -1335,7 +1357,8 @@ describe('system scenarios', () => {
 
     const oldMatch = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: oldLobby.id })
     await world.flushBackgroundTasks()
-    world.party.draftCancel(oldMatch.matchId, { reason: 'scrub' })
+    expect((await world.party.cancelDraft(oldMatch.matchId, { reason: 'scrub' })).status).toBe(200)
+    await world.flushBackgroundTasks()
 
     const newLobby = await world.lobby.createOpen({
       mode: '1v1',

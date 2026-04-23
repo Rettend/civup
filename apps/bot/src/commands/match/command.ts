@@ -9,7 +9,7 @@ import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDra
 import { clearLobbyMappings, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
-import { clearLobbyById, clearLobbyByMatch, createLobby, filterQueueEntriesForLobby, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
+import { clearLobbyById, clearLobbyByMatch, createLobby, filterQueueEntriesForLobby, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbyStatus, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
@@ -108,7 +108,7 @@ export const command_match = factory.command<MatchVar>(
             const db = createDb(c.env.DB)
             if (currentHostedLobby?.status === 'open') {
               const updatedLobby = steamLobbyLink !== null
-                ? (await setLobbySteamLobbyLink(kv, currentHostedLobby.id, steamLobbyLink, currentHostedLobby, { db }) ?? currentHostedLobby)
+                ? (await setLobbySteamLobbyLink(kv, currentHostedLobby.id, steamLobbyLink, currentHostedLobby, { db, sessionNamespace: c.env.SessionDO }) ?? currentHostedLobby)
                 : currentHostedLobby
 
               await storeUserLobbyState(kv, updatedLobby.channelId, [identity.userId], updatedLobby.id)
@@ -125,7 +125,7 @@ export const command_match = factory.command<MatchVar>(
             const createPreflight = await preflightMatchCreateQueueState(kv, mode, identity.userId)
             if (createPreflight.kind === 'reuse-hosted-open-lobby') {
               const updatedLobby = steamLobbyLink !== null
-                ? (await setLobbySteamLobbyLink(kv, createPreflight.lobby.id, steamLobbyLink, createPreflight.lobby, { db }) ?? createPreflight.lobby)
+                ? (await setLobbySteamLobbyLink(kv, createPreflight.lobby.id, steamLobbyLink, createPreflight.lobby, { db, sessionNamespace: c.env.SessionDO }) ?? createPreflight.lobby)
                 : createPreflight.lobby
 
               await storeUserLobbyState(kv, updatedLobby.channelId, [identity.userId], updatedLobby.id)
@@ -205,7 +205,7 @@ export const command_match = factory.command<MatchVar>(
                 createdLobby,
               )
               const lobby = steamLobbyLink !== null
-                ? (await setLobbySteamLobbyLink(kv, reconciledLobby.id, steamLobbyLink, reconciledLobby, { db }) ?? reconciledLobby)
+                ? (await setLobbySteamLobbyLink(kv, reconciledLobby.id, steamLobbyLink, reconciledLobby, { db, sessionNamespace: c.env.SessionDO }) ?? reconciledLobby)
                 : reconciledLobby
               if ((lobby.id === createdLobby.id && lobby.revision !== createdLobby.revision)
                 || (lobby.id === reconciledLobby.id && lobby.revision !== reconciledLobby.revision)) { await syncLobbyDerivedState(kv, lobby) }
@@ -408,7 +408,10 @@ export const command_match = factory.command<MatchVar>(
             }
 
             if (lobbyById && !lobbyById.matchId) {
-              await cancelHostedOpenLobby(c.env.DISCORD_TOKEN, kv, lobbyById)
+              await cancelHostedOpenLobby(c.env.DISCORD_TOKEN, kv, lobbyById, {
+                db: createDb(c.env.DB),
+                sessionNamespace: c.env.SessionDO,
+              })
               await sendTransientEphemeralResponse(c, `Cancelled hosted ${formatModeLabel(lobbyById.mode)} lobby.`, 'success')
               return
             }
@@ -453,7 +456,10 @@ export const command_match = factory.command<MatchVar>(
             return
           }
 
-          await cancelHostedOpenLobby(c.env.DISCORD_TOKEN, kv, hostedLobby)
+          await cancelHostedOpenLobby(c.env.DISCORD_TOKEN, kv, hostedLobby, {
+            db: createDb(c.env.DB),
+            sessionNamespace: c.env.SessionDO,
+          })
           await sendTransientEphemeralResponse(c, `Cancelled hosted ${formatModeLabel(hostedLobby.mode)} lobby.`, 'success')
         })
       }
@@ -496,14 +502,15 @@ export const command_match = factory.command<MatchVar>(
           const lobby = currentLobby?.mode === removedMode ? currentLobby : await getOpenLobbyForPlayer(kv, identity.userId, removedMode)
           if (lobby?.status === 'open') {
             const queue = await getQueueState(kv, removedMode)
+            const sessionOptions = { db: createDb(c.env.DB), sessionNamespace: c.env.SessionDO, queueEntries: queue.entries }
             const nextMemberIds = lobby.memberPlayerIds.filter(playerId => playerId !== identity.userId)
-            let nextLobby = await setLobbyMemberPlayerIds(kv, lobby.id, nextMemberIds, lobby) ?? lobby
+            let nextLobby = await setLobbyMemberPlayerIds(kv, lobby.id, nextMemberIds, lobby, sessionOptions) ?? lobby
             const lobbyQueueEntries = filterQueueEntriesForLobby({ ...nextLobby, memberPlayerIds: nextMemberIds }, queue.entries)
             const slots = normalizeLobbySlots(removedMode, nextLobby.slots, lobbyQueueEntries)
             if (!sameLobbySlots(slots, nextLobby.slots)) {
-              nextLobby = await setLobbySlots(kv, nextLobby.id, slots, nextLobby) ?? nextLobby
+              nextLobby = await setLobbySlots(kv, nextLobby.id, slots, nextLobby, sessionOptions) ?? nextLobby
             }
-            nextLobby = await setLobbyLastActivityAt(kv, nextLobby.id, Date.now(), nextLobby) ?? nextLobby
+            nextLobby = await setLobbyLastActivityAt(kv, nextLobby.id, Date.now(), nextLobby, sessionOptions) ?? nextLobby
             await syncLobbyDerivedState(kv, nextLobby, {
               queueEntries: lobbyQueueEntries,
               slots,
@@ -565,7 +572,7 @@ export const command_match = factory.command<MatchVar>(
             const reposted = await repostLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, renderPayload)
             let updatedLobby = reposted.lobby
             if (updatedLobby.status === 'open') {
-              updatedLobby = await setLobbyLastActivityAt(kv, updatedLobby.id, Date.now(), updatedLobby) ?? updatedLobby
+              updatedLobby = await setLobbyLastActivityAt(kv, updatedLobby.id, Date.now(), updatedLobby, { db, sessionNamespace: c.env.SessionDO }) ?? updatedLobby
               await syncLobbyDerivedState(kv, updatedLobby)
             }
 
@@ -635,7 +642,8 @@ export const command_match = factory.command<MatchVar>(
           }
 
           const currentLobby = resolvedTarget.lobby
-          const updatedLobby = await setLobbySteamLobbyLink(kv, currentLobby.id, nextSteamLobbyLink, currentLobby) ?? currentLobby
+          const db = createDb(c.env.DB)
+          const updatedLobby = await setLobbySteamLobbyLink(kv, currentLobby.id, nextSteamLobbyLink, currentLobby, { db, sessionNamespace: c.env.SessionDO }) ?? currentLobby
           if (updatedLobby.revision !== currentLobby.revision) {
             await syncLobbyDerivedState(kv, updatedLobby)
           }
@@ -1211,6 +1219,10 @@ async function cancelHostedOpenLobby(
   token: string,
   kv: KVNamespace,
   lobby: Awaited<ReturnType<typeof findHostedOpenLobby>> extends infer T ? Exclude<T, null> : never,
+  options?: {
+    db?: ReturnType<typeof createDb> | null
+    sessionNamespace?: DurableObjectNamespace | null
+  },
 ): Promise<void> {
   const queue = await getQueueState(kv, lobby.mode)
   const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
@@ -1221,8 +1233,9 @@ async function cancelHostedOpenLobby(
   }
 
   await clearLobbyMappings(kv, lobbyQueueEntries.map(entry => entry.playerId), lobby.channelId, lobby.id)
+  const cancelledLobby = await setLobbyStatus(kv, lobby.id, 'cancelled', lobby, options) ?? lobby
   try {
-    await upsertLobbyMessage(kv, token, lobby, {
+    await upsertLobbyMessage(kv, token, cancelledLobby, {
       embeds: [lobbyCancelledEmbed(lobby.mode, buildCancelledLobbyParticipants(lobby, lobbyQueueEntries), 'cancel', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
       components: [],
     })
@@ -1231,7 +1244,7 @@ async function cancelHostedOpenLobby(
     console.error(`Failed to update cancelled open lobby embed for lobby ${lobby.id}:`, error)
   }
 
-  await clearLobbyById(kv, lobby.id, lobby)
+  await clearLobbyById(kv, lobby.id, cancelledLobby)
 }
 
 function buildCancelledLobbyParticipants(lobby: { mode: GameMode, slots: (string | null)[] }, entries: QueueEntry[]) {

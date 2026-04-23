@@ -16,6 +16,7 @@ import { channelIndexKey, hostKey, matchKey } from '../../../src/services/lobby/
 import { listMatchMessageIds } from '../../../src/services/match/message.ts'
 import { createStateStore } from '../../../src/services/state/store.ts'
 import { setSystemChannel } from '../../../src/services/system/channels.ts'
+import { SessionDO } from '../../../src/session-runtime/session-do.ts'
 import { buildBotTestEnv, createBotTestApp, createExecutionContextHarness } from '../../helpers/app-harness.ts'
 import { createSqliteD1Database } from '../../helpers/d1.ts'
 import { installFetchHandler } from '../../helpers/fetch-router.ts'
@@ -95,6 +96,45 @@ function createCapturedStateNamespace(requestHandler: (request: Request) => Prom
       } as DurableObjectStub
     },
   } as unknown as DurableObjectNamespace
+}
+
+function createCapturedSessionNamespace(db: D1Database): DurableObjectNamespace {
+  const rooms = new Map<string, SessionDO>()
+  return {
+    idFromName(name: string) {
+      return name as unknown as DurableObjectId
+    },
+    get(id: DurableObjectId) {
+      const sessionId = String(id)
+      let room = rooms.get(sessionId)
+      if (!room) {
+        room = new SessionDO(createFakeDurableObjectState(), { DB: db } as any)
+        rooms.set(sessionId, room)
+      }
+      const sessionRoom = room
+
+      return {
+        fetch(input: RequestInfo | URL, init?: RequestInit) {
+          const request = input instanceof Request ? input : new Request(input, init)
+          return sessionRoom.fetch(request)
+        },
+      } as DurableObjectStub
+    },
+  } as unknown as DurableObjectNamespace
+}
+
+function createFakeDurableObjectState(): DurableObjectState {
+  const storage = new Map<string, unknown>()
+  return {
+    storage: {
+      async get(key: string) {
+        return storage.get(key)
+      },
+      async put(key: string, value: unknown) {
+        storage.set(key, value)
+      },
+    },
+  } as unknown as DurableObjectState
 }
 
 interface CompleteDraftOptions {
@@ -244,11 +284,13 @@ export async function createSystemWorld(): Promise<SystemWorld> {
     return response
   }
 
+  const d1 = createSqliteD1Database(sqlite)
   const env = buildBotTestEnv({
-    DB: createSqliteD1Database(sqlite),
+    DB: d1,
     KV: kv,
     Main: createCapturedMainNamespace(partyRooms),
     State: createCapturedStateNamespace(enqueueStateStoreRequest),
+    SessionDO: createCapturedSessionNamespace(d1),
     DISCORD_APPLICATION_ID: 'app',
     DISCORD_PUBLIC_KEY: 'public-key',
     DISCORD_TOKEN: 'token',
@@ -363,6 +405,8 @@ export async function createSystemWorld(): Promise<SystemWorld> {
           channelId,
           messageId: `seed-message-${hostId}-${mode}`,
           queueEntries: entries,
+          db,
+          sessionNamespace: env.SessionDO,
         })
         discordMessages.set(lobby.messageId, {
           id: lobby.messageId,
@@ -378,8 +422,9 @@ export async function createSystemWorld(): Promise<SystemWorld> {
           }
         }
 
-        const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, memberPlayerIds, lobby) ?? lobby
-        const withSlots = await setLobbySlots(kv, lobby.id, slots, withMembers) ?? { ...withMembers, slots }
+        const sessionOptions = { db, sessionNamespace: env.SessionDO, queueEntries: entries }
+        const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, memberPlayerIds, lobby, sessionOptions) ?? lobby
+        const withSlots = await setLobbySlots(kv, lobby.id, slots, withMembers, sessionOptions) ?? { ...withMembers, slots }
         await syncLobbyDerivedState(kv, withSlots, { queueEntries: entries, slots })
         return withSlots
       },

@@ -1,4 +1,5 @@
 import type { GameMode, QueueEntry } from '@civup/game'
+import type { LobbySessionProjectionOptions } from './mutations.ts'
 import type { LobbyState } from './types.ts'
 import { slotToTeamIndex } from '@civup/game'
 import { lobbyCancelledEmbed } from '../../embeds/match.ts'
@@ -6,11 +7,11 @@ import { clearUserLobbyMappings } from '../activity/index.ts'
 import { clearQueue, getQueueState } from '../queue/index.ts'
 import { syncLobbyDerivedState } from './live-snapshot.ts'
 import { upsertLobbyMessage } from './message.ts'
-import { setLobbyStatus } from './mutations.ts'
+import { commitLobbyState, setLobbyStatus } from './mutations.ts'
 import { reconcileOpenLobbyState } from './reconcile.ts'
 import { buildOpenLobbyRenderPayload } from './render.ts'
 import { filterQueueEntriesForLobby, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots } from './slots.ts'
-import { clearLobbyById, upsertLobby } from './store.ts'
+import { clearLobbyById } from './store.ts'
 
 export async function leaveOpenLobbyForLobbyJoin(
   kv: KVNamespace,
@@ -18,6 +19,7 @@ export async function leaveOpenLobbyForLobbyJoin(
   lobby: LobbyState,
   movingPlayerIds: string[],
   targetMode: GameMode,
+  options?: LobbySessionProjectionOptions,
 ): Promise<{ ok: true, transferredFrom: { lobbyId: string, mode: GameMode } } | { ok: false, error: string }> {
   const reconciled = await reconcileOpenLobbyState(kv, lobby)
   const currentLobby = reconciled?.lobby ?? lobby
@@ -46,7 +48,10 @@ export async function leaveOpenLobbyForLobbyJoin(
     : sourceQueue
 
   if (remainingMemberIds.length === 0) {
-    const cancelledLobby = await setLobbyStatus(kv, currentLobby.id, 'cancelled', currentLobby) ?? { ...currentLobby, status: 'cancelled' as const }
+    const cancelledLobby = await setLobbyStatus(kv, currentLobby.id, 'cancelled', currentLobby, {
+      ...options,
+      queueEntries: sourceLobbyQueueEntries,
+    }) ?? { ...currentLobby, status: 'cancelled' as const }
     await clearUserLobbyMappings(kv, uniqueMovingPlayerIds)
 
     if (token) {
@@ -95,10 +100,12 @@ export async function leaveOpenLobbyForLobbyJoin(
     updatedAt: changedAt,
     revision: currentLobby.revision + 1,
   }
-  await upsertLobby(kv, nextLobby)
-
   const nextLobbyQueueEntries = filterQueueEntriesForLobby(nextLobby, nextQueue.entries)
-  await syncLobbyDerivedState(kv, nextLobby, {
+  const updatedLobby = await commitLobbyState(kv, nextLobby, {
+    ...options,
+    queueEntries: nextLobbyQueueEntries,
+  })
+  await syncLobbyDerivedState(kv, updatedLobby, {
     queueEntries: nextLobbyQueueEntries,
     slots: nextSlots,
   })
@@ -106,8 +113,8 @@ export async function leaveOpenLobbyForLobbyJoin(
 
   if (token) {
     try {
-      const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, mapLobbySlotsToEntries(nextSlots, nextLobbyQueueEntries))
-      await upsertLobbyMessage(kv, token, nextLobby, {
+      const renderPayload = await buildOpenLobbyRenderPayload(kv, updatedLobby, mapLobbySlotsToEntries(nextSlots, nextLobbyQueueEntries))
+      await upsertLobbyMessage(kv, token, updatedLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
       })
