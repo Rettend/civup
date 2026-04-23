@@ -1,6 +1,7 @@
 import { api } from '@civup/utils'
 import { Command, Embed } from 'discord-hono'
 import { canUseModCommands, hasAdminPermission, parseRoleIds } from '../services/permissions/index.ts'
+import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { factory } from '../setup'
 
@@ -40,7 +41,7 @@ export const command_help = factory.command(
       roles: parseRoleIds(c.interaction.member?.roles),
     })
 
-    return c.resDefer(async (c) => {
+    return resDeferGeneralCommandResponse(c, async (c) => {
       let commandDefs: DiscordApplicationCommand[]
       try {
         commandDefs = await fetchRegisteredCommands(
@@ -52,7 +53,7 @@ export const command_help = factory.command(
       catch (error) {
         console.error('Failed to fetch command list for /help:', error)
         await sendTransientEphemeralResponse(c, 'Could not load command list right now. Please try again.', 'error')
-        return
+        return null
       }
 
       const allEntries = buildHelpEntries(commandDefs)
@@ -76,11 +77,11 @@ export const command_help = factory.command(
 
       if (embeds.length === 0) {
         await sendTransientEphemeralResponse(c, 'No commands available for your permissions in this context.', 'error')
-        return
+        return null
       }
 
-      await c.followup({ embeds })
-    })
+      return { embeds }
+    }, { redirect: !canUseAdmin && !canUseMod })
   },
 )
 
