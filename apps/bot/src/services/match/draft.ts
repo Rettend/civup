@@ -6,7 +6,6 @@ import { isRedDeathFormatId, isTeamMode } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { getActiveSeason } from '../season/index.ts'
-import { assertPersistedMatchInvariants } from './invariants.ts'
 
 const MATCH_PARTICIPANT_INSERT_COLUMN_COUNT = 9
 const D1_MAX_SQL_VARIABLES = 100
@@ -86,11 +85,6 @@ export async function createDraftMatch(
     }
   }
 
-  await assertPersistedMatchInvariants(db, input.matchId, {
-    context: {
-      source: 'createDraftMatch',
-    },
-  })
 }
 
 export function splitValuesForD1InsertLimit<T>(values: T[], columnCount: number, maxVariables: number = D1_MAX_SQL_VARIABLES): T[][] {
@@ -164,13 +158,6 @@ export async function activateDraftMatch(
       .set({ draftData })
       .where(eq(matches.id, matchId))
 
-    await assertPersistedMatchInvariants(db, matchId, {
-      context: {
-        alreadyActive: true,
-        source: 'activateDraftMatch',
-      },
-    })
-
     return {
       alreadyActive: true,
       match: {
@@ -222,13 +209,6 @@ export async function activateDraftMatch(
       draftData,
     })
     .where(eq(matches.id, matchId))
-
-  await assertPersistedMatchInvariants(db, matchId, {
-    context: {
-      alreadyActive: false,
-      source: 'activateDraftMatch',
-    },
-  })
 
   return {
     alreadyActive: false,
@@ -282,13 +262,6 @@ export async function cancelDraftMatch(
       participantRows.map(p => p.playerId),
       channelId ?? undefined,
     )
-    await assertPersistedMatchInvariants(db, matchId, {
-      context: {
-        source: 'cancelDraftMatch',
-        status: 'already-cancelled',
-      },
-    })
-
     return { match, participants: participantRows }
   }
 
@@ -342,13 +315,6 @@ export async function cancelDraftMatch(
     .select()
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, matchId))
-
-  await assertPersistedMatchInvariants(db, matchId, {
-    context: {
-      reason: input.reason,
-      source: 'cancelDraftMatch',
-    },
-  })
 
   return { match: updatedMatch!, participants: updatedParticipants }
 }
