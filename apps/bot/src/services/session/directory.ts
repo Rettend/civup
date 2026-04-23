@@ -1,8 +1,8 @@
 import type { Database } from '@civup/db'
 import type { LobbyState } from '../lobby/types.ts'
-import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
+import { matches, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
-import { buildOpenSessionRecordFromLobby, buildSessionRoster, type SessionPhase } from '../../session-runtime/session-record.ts'
+import { buildSessionConfig, buildSessionRoster, type SessionPhase } from '../../session-runtime/session-record.ts'
 
 export class SessionAdmissionError extends Error {
   constructor(
@@ -31,8 +31,8 @@ export async function projectLobbySession(
 ): Promise<void> {
   const phase = mapLobbyStatusToSessionPhase(lobby.status)
   const liveMemberIds = isLiveSessionPhase(phase) ? lobby.memberPlayerIds : []
-  const record = buildOpenSessionRecordFromLobby(lobby)
   const roster = buildSessionRoster(lobby)
+  const config = buildSessionConfig(lobby)
   const now = Math.max(lobby.updatedAt, lobby.lastActivityAt, 1)
 
   await db.insert(sessionDirectory)
@@ -48,7 +48,7 @@ export async function projectLobbySession(
       steamLobbyLink: lobby.steamLobbyLink,
       version: lobby.revision,
       rosterJson: JSON.stringify(roster),
-      configJson: JSON.stringify(record.config),
+      configJson: JSON.stringify(config),
       createdAt: lobby.createdAt,
       updatedAt: lobby.updatedAt,
       lastActivityAt: lobby.lastActivityAt,
@@ -67,7 +67,7 @@ export async function projectLobbySession(
         steamLobbyLink: lobby.steamLobbyLink,
         version: lobby.revision,
         rosterJson: JSON.stringify(roster),
-        configJson: JSON.stringify(record.config),
+        configJson: JSON.stringify(config),
         updatedAt: lobby.updatedAt,
         lastActivityAt: lobby.lastActivityAt,
         closedAt: isLiveSessionPhase(phase) ? null : now,
@@ -135,6 +135,7 @@ async function reconcileDirectoryMembers(
   now: number,
 ): Promise<void> {
   const uniqueLiveMemberIds = [...new Set(liveMemberIds)]
+  await releaseStaleConflictingMemberships(db, sessionId, uniqueLiveMemberIds, now)
   const existingLiveRows = await db.select({
     playerId: sessionDirectoryMembers.playerId,
   })
@@ -185,6 +186,79 @@ async function reconcileDirectoryMembers(
       }
       throw error
     }
+  }
+}
+
+async function releaseStaleConflictingMemberships(
+  db: Database,
+  sessionId: string,
+  playerIds: readonly string[],
+  now: number,
+): Promise<void> {
+  if (playerIds.length === 0) return
+
+  const liveRows = await db.select({
+    sessionId: sessionDirectoryMembers.sessionId,
+    playerId: sessionDirectoryMembers.playerId,
+    phase: sessionDirectory.phase,
+    matchId: sessionDirectory.matchId,
+  })
+    .from(sessionDirectoryMembers)
+    .innerJoin(sessionDirectory, eq(sessionDirectory.sessionId, sessionDirectoryMembers.sessionId))
+    .where(and(
+      inArray(sessionDirectoryMembers.playerId, [...playerIds]),
+      isNull(sessionDirectoryMembers.leftAt),
+    ))
+
+  const conflicts = liveRows.filter(row => row.sessionId !== sessionId)
+  if (conflicts.length === 0) return
+
+  const conflictMatchIds = [...new Set(conflicts.flatMap(row => row.matchId ? [row.matchId] : []))]
+  const matchRows = conflictMatchIds.length > 0
+    ? await db.select({
+      id: matches.id,
+      status: matches.status,
+      draftData: matches.draftData,
+    })
+      .from(matches)
+      .where(inArray(matches.id, conflictMatchIds))
+    : []
+  const blockingMatchIds = new Set(
+    matchRows
+      .filter(row => isBlockingDraftMatch(row.status, row.draftData))
+      .map(row => row.id),
+  )
+
+  const staleRows = conflicts.filter((row) => {
+    if (row.phase === 'open') return false
+    if (!row.matchId) return false
+    return !blockingMatchIds.has(row.matchId)
+  })
+  for (const row of staleRows) {
+    await db.update(sessionDirectoryMembers)
+      .set({ leftAt: now, updatedAt: now })
+      .where(and(
+        eq(sessionDirectoryMembers.sessionId, row.sessionId),
+        eq(sessionDirectoryMembers.playerId, row.playerId),
+        isNull(sessionDirectoryMembers.leftAt),
+      ))
+  }
+}
+
+function isBlockingDraftMatch(status: string, draftData: string | null): boolean {
+  if (status === 'drafting') return true
+  if (status !== 'active') return false
+  return !hasDraftCompletedAt(draftData)
+}
+
+function hasDraftCompletedAt(draftData: string | null): boolean {
+  if (!draftData) return false
+  try {
+    const parsed = JSON.parse(draftData) as { completedAt?: unknown } | null
+    return parsed != null && parsed.completedAt != null
+  }
+  catch {
+    return false
   }
 }
 
