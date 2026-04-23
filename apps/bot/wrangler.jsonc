@@ -19,6 +19,10 @@
         "class_name": "Main"
       },
       {
+        "name": "SessionDO",
+        "class_name": "SessionDO"
+      },
+      {
         "name": "State",
         "class_name": "State"
       }
@@ -33,6 +37,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["State"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["SessionDO"]
     }
   ],
 

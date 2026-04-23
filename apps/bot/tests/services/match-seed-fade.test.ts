@@ -160,7 +160,7 @@ describe('match seed fade', () => {
         createdAt: NOW,
         completedAt: null,
         seasonId: null,
-        draftData: null,
+        draftData: JSON.stringify({ completedAt: NOW }),
       })
       await db.insert(matchParticipants).values([
         { matchId: 'duo-active-1', playerId: HERO_ID, team: 0, civId: 'babylon-hammurabi', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
@@ -400,7 +400,7 @@ async function seedActiveDuel(
     createdAt,
     completedAt: null,
     seasonId: null,
-    draftData: null,
+    draftData: JSON.stringify({ completedAt: createdAt }),
   })
   await db.insert(matchParticipants).values([
     { matchId, playerId: HERO_ID, team: 0, civId: 'babylon-hammurabi', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },

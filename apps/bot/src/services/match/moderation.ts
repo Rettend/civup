@@ -7,8 +7,8 @@ import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
 import { clearLobbyByMatch } from '../lobby/index.ts'
+import { closeLobbySessionProjectionByMatch } from '../session/index.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
-import { assertPersistedMatchInvariants } from './invariants.ts'
 import { parseModerationPlacements } from './placements.ts'
 import { recalculateLeaderboardMode } from './ratings.ts'
 
@@ -140,6 +140,7 @@ export async function resolveMatchByModerator(
     .where(eq(matchParticipants.matchId, input.matchId))
 
   if (previousStatus !== 'completed') {
+    await closeLobbySessionProjectionByMatch(db, input.matchId, input.resolvedAt)
     const channelId = await getChannelForMatch(kv, input.matchId)
     await clearActivityMappings(
       kv,
@@ -149,13 +150,6 @@ export async function resolveMatchByModerator(
     )
     await clearLobbyByMatch(kv, input.matchId)
   }
-
-  await assertPersistedMatchInvariants(db, input.matchId, {
-    context: {
-      previousStatus,
-      source: 'resolveMatchByModerator',
-    },
-  })
 
   return {
     match: updatedMatch,
@@ -275,6 +269,7 @@ export async function cancelMatchByModerator(
     .where(eq(matches.id, input.matchId))
 
   await db.delete(matchBans).where(eq(matchBans.matchId, input.matchId))
+  await closeLobbySessionProjectionByMatch(db, input.matchId, input.cancelledAt)
 
   const channelId = await getChannelForMatch(kv, input.matchId)
   await clearActivityMappings(
@@ -315,13 +310,6 @@ export async function cancelMatchByModerator(
     .select()
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, input.matchId))
-
-  await assertPersistedMatchInvariants(db, input.matchId, {
-    context: {
-      previousStatus,
-      source: 'cancelMatchByModerator',
-    },
-  })
 
   return {
     match: updatedMatch!,

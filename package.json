@@ -39,7 +39,7 @@
     "tunnel": "cloudflared --config cloudflared.dev.yml tunnel run civup-dev",
     "party:dev": "bun run --filter civup-party dev",
     "party:deploy": "bun run --filter civup-party deploy",
-    "deploy:prod": "bun run bot:r:migrate && bun run bot:deploy:prod && bun run a:deploy:prod && bun run party:deploy",
+    "deploy:prod": "bun run bot:r:migrate && bun run bot:deploy:prod && bun run a:deploy:prod",
     "deploy:prod:full": "bun run deploy:prod && bun run bot:register:prod",
     "cf:usage:snapshot": "bun scripts/cloudflare-usage.ts snapshot",
     "cf:usage:diff": "bun scripts/cloudflare-usage.ts diff",

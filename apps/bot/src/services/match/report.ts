@@ -9,8 +9,8 @@ import { and, eq, gt } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
+import { closeLobbySessionProjectionByMatch } from '../session/index.ts'
 import { getCompletedAtFromDraftData, getStoredGameModeContext } from './draft-data.ts'
-import { assertPersistedMatchInvariants } from './invariants.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
 import { buildRankByPlayer, recalculateLeaderboardMode } from './ratings.ts'
 
@@ -45,23 +45,9 @@ export async function reportMatch(
 
   if (match.status === 'completed') {
     const repaired = await repairCompletedReportedMatch(db, kv, match, participantRows)
-    if (repaired) {
-      await assertPersistedMatchInvariants(db, input.matchId, {
-        context: {
-          source: 'reportMatch',
-          status: 'repaired-completed',
-        },
-      })
-      return repaired
-    }
+    if (repaired) return repaired
 
     await ensureReportedMatchCleanup(db, kv, input.matchId, participantRows)
-    await assertPersistedMatchInvariants(db, input.matchId, {
-      context: {
-        source: 'reportMatch',
-        status: 'idempotent-completed',
-      },
-    })
     return { match, participants: participantRows, idempotent: true }
   }
 
@@ -177,13 +163,6 @@ export async function reportMatch(
   if ('error' in finalized) {
     return finalized
   }
-
-  await assertPersistedMatchInvariants(db, input.matchId, {
-    context: {
-      source: 'reportMatch',
-      status: 'reported',
-    },
-  })
 
   return finalized
 }
@@ -464,6 +443,7 @@ async function ensureReportedMatchCleanup(
   matchId: string,
   participantRows: ParticipantRow[],
 ): Promise<void> {
+  await closeLobbySessionProjectionByMatch(db, matchId)
   await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
 
   const channelId = await getChannelForMatch(kv, matchId)

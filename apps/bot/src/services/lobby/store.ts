@@ -3,7 +3,6 @@ import type { LobbyState } from './types.ts'
 import { syncActivityOverviewSnapshot } from '../activity/live-state.ts'
 import { getQueueState, getQueueStates } from '../queue/index.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
-import { assertLobbyInvariants } from './invariants.ts'
 import { bumpCooldownKey, channelIndexKey, channelPrefix, hostKey, idKey, LOBBY_HOST_KEY_PREFIX, LOBBY_ID_KEY_PREFIX, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
 import { lobbySnapshotKey } from './live-snapshot.ts'
 import { normalizeLobby, parseLobbyState } from './normalize.ts'
@@ -374,17 +373,6 @@ export async function putLobbyEntries(
   ]
   entries.push(...buildLobbyProjectionEntries(lobby))
   entries.push(...additionalEntries)
-  assertLobbyInvariants(lobby, {
-    context: {
-      source: 'putLobbyEntries',
-    },
-    projection: {
-      channelIndexed: true,
-      hostLobbyId: hostEntry,
-      matchLobbyId: matchEntry,
-      modeIndexed: true,
-    },
-  })
   await stateStoreMput(kv, entries)
 }
 

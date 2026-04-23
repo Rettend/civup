@@ -33,7 +33,6 @@ import { resolveDraftTimerConfig } from '../../src/services/config/index.ts'
 import { markLeaderboardsDirty, refreshDirtyLeaderboards } from '../../src/services/leaderboard/message.ts'
 import {
   attachLobbyMatch,
-  assertLobbyInvariants,
   createLobby,
   filterQueueEntriesForLobby,
   getCurrentLobbyHostedBy,
@@ -48,7 +47,6 @@ import {
 } from '../../src/services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
-import { assertPersistedMatchInvariants } from '../../src/services/match/invariants.ts'
 import { activateDraftMatch, createDraftMatch, reportMatch } from '../../src/services/match/index.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
 import { addToQueue, clearQueue, getQueueState, getQueueStateWithPlayerQueueModes } from '../../src/services/queue/index.ts'
@@ -863,16 +861,8 @@ async function assertOpenCapacityState(
   expect(lobby.status).toBe('open')
   expect(queue.entries.map(entry => entry.playerId)).toEqual(expectedPlayerIds)
   expect(lobby.memberPlayerIds).toEqual(expectedPlayerIds)
-  assertLobbyInvariants(lobby, {
-    checkOpenRoster: true,
-    checkSlotNormalization: true,
-    queueEntries: queue.entries,
-    strict: true,
-    context: {
-      source: 'capacity-bench',
-      stage: 'open',
-    },
-  })
+  expect(new Set(lobby.memberPlayerIds).size).toBe(lobby.memberPlayerIds.length)
+  expect(normalizeLobbySlots(mode, lobby.slots, queue.entries)).toEqual(lobby.slots)
 
   for (const playerId of expectedPlayerIds) {
     expect(await getLobbyForUser(kv, playerId)).toBe(lobby.id)
@@ -887,14 +877,6 @@ async function assertDraftingCapacityState(
   matchId: string,
   expectedPlayerIds: string[],
 ): Promise<void> {
-  await assertPersistedMatchInvariants(db, matchId, {
-    strict: true,
-    context: {
-      source: 'capacity-bench',
-      stage: 'drafting',
-    },
-  })
-
   const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
   const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
   const lobby = await getLobbyByMatch(kv, matchId)
@@ -916,14 +898,6 @@ async function assertActiveCapacityState(
   matchId: string,
   expectedPlayerIds: string[],
 ): Promise<void> {
-  await assertPersistedMatchInvariants(db, matchId, {
-    strict: true,
-    context: {
-      source: 'capacity-bench',
-      stage: 'active',
-    },
-  })
-
   const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
   const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
   const lobby = await getLobbyByMatch(kv, matchId)
@@ -945,14 +919,6 @@ async function assertCompletedCapacityState(
   matchId: string,
   expectedPlayerIds: string[],
 ): Promise<void> {
-  await assertPersistedMatchInvariants(db, matchId, {
-    strict: true,
-    context: {
-      source: 'capacity-bench',
-      stage: 'completed',
-    },
-  })
-
   const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
   const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
 

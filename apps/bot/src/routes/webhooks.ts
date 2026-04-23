@@ -1,6 +1,7 @@
 import type { Context, Hono } from 'hono'
 import type { ParsedDraftWebhookPayload } from '../services/match/draft-webhook-events.ts'
 import type { Env } from '../env.ts'
+import type { LobbyState } from '../services/lobby/types.ts'
 import { createDb } from '@civup/db'
 import { verifySignedWebhookRequest } from '@civup/utils'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed } from '../embeds/match.ts'
@@ -11,6 +12,7 @@ import { claimDraftWebhookEvent, markDraftWebhookEventProcessed, parseDraftWebho
 import { activateDraftMatch, cancelDraftMatch } from '../services/match/index.ts'
 import { clearMatchMessageMapping, storeMatchMessageMapping } from '../services/match/message.ts'
 import { getQueueState, setQueueEntries } from '../services/queue/index.ts'
+import { isSessionAdmissionError, projectLobbySession } from '../services/session/index.ts'
 import { createStateStore } from '../services/state/store.ts'
 
 export function registerWebhookRoutes(app: Hono<Env>) {
@@ -146,7 +148,7 @@ async function handleDraftCompleteWebhook(
   const shouldRefreshEmbedOnly = result.alreadyActive && payload.finalized === true
   const activeLobby = shouldRefreshEmbedOnly
     ? lobby
-    : await setLobbyStatus(kv, lobby.id, 'active', lobby) ?? lobby
+    : await setLobbyStatus(kv, lobby.id, 'active', lobby, { db }) ?? lobby
   if (!shouldRefreshEmbedOnly) {
     await syncLobbyDerivedState(kv, activeLobby)
   }
@@ -215,6 +217,8 @@ async function handleDraftCancelledWebhook(
       : await reopenLobbyAfterCancelledDraft(kv, lobby, payload.state, { draftRoster })
 
     if (recovered) {
+      await projectRecoveredLobbySession(db, recovered.lobby, webhookContext)
+
       const affectedPlayerIds = new Set(lobby.memberPlayerIds)
       const nextQueueEntries = [
         ...queue.entries.filter(entry => !affectedPlayerIds.has(entry.playerId)),
@@ -242,7 +246,7 @@ async function handleDraftCancelledWebhook(
     }
   }
 
-  const closedLobby = await setLobbyStatus(kv, lobby.id, payload.reason === 'cancel' ? 'cancelled' : 'scrubbed', lobby) ?? lobby
+  const closedLobby = await setLobbyStatus(kv, lobby.id, payload.reason === 'cancel' ? 'cancelled' : 'scrubbed', lobby, { db }) ?? lobby
   try {
     const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, closedLobby, {
       embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason, undefined, closedLobby.draftConfig.leaderDataVersion, closedLobby.draftConfig.redDeath)],
@@ -257,4 +261,22 @@ async function handleDraftCancelledWebhook(
   await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId, lobby.id)
   await clearLobbyById(kv, lobby.id, lobby)
   return c.json({ ok: true })
+}
+
+async function projectRecoveredLobbySession(
+  db: ReturnType<typeof createDb>,
+  lobby: LobbyState,
+  webhookContext: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await projectLobbySession(db, lobby)
+  }
+  catch (error) {
+    if (!isSessionAdmissionError(error)) throw error
+    console.warn('[draft-webhook] skipped reopened lobby session projection after live membership conflict', {
+      ...webhookContext,
+      lobbyId: lobby.id,
+      playerIds: error.playerIds,
+    })
+  }
 }

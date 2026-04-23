@@ -1235,8 +1235,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         })
       }
 
-      await setLobbySlots(kv, lobby.id, slots, lobby)
-      const lobbyForMessage = await attachLobbyMatch(kv, lobby.id, matchId, lobby)
+      await setLobbySlots(kv, lobby.id, slots, lobby, { db })
+      const lobbyForMessage = await attachLobbyMatch(kv, lobby.id, matchId, lobby, { db })
       if (!lobbyForMessage) {
         const currentLobby = await getLobbyById(kv, lobby.id)
         if (currentLobby?.status === 'drafting' && currentLobby.matchId) {

@@ -5,6 +5,7 @@ import * as commands from './commands/index.ts'
 import * as cron from './cron/cleanup.ts'
 import { registerApiRoutes } from './routes/index.ts'
 import { Main } from './session-runtime/main.ts'
+import { SessionDO } from './session-runtime/session-do.ts'
 import { State } from './session-runtime/state-store.ts'
 import { factory } from './setup.ts'
 
@@ -24,7 +25,7 @@ const discordApp = factory.discord().loader([
 
 const app = new Hono<Env>()
 
-export { Main, State }
+export { Main, SessionDO, State }
 
 app.onError((error, c) => {
   console.error('[bot:unhandled]', c.req.method, new URL(c.req.url).pathname, error)

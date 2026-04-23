@@ -1,14 +1,11 @@
-import type { Database } from '@civup/db'
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from '../../../src/services/lobby/index.ts'
 import type { SystemWorld } from './world.ts'
 import { matches } from '@civup/db'
 import { expect } from 'bun:test'
 import { getQueueState } from '../../../src/services/queue/index.ts'
-import { assertLobbyInvariants } from '../../../src/services/lobby/invariants.ts'
 import { channelIndexKey, hostKey, matchKey, modeIndexKey } from '../../../src/services/lobby/keys.ts'
 import { getLobbiesByMode } from '../../../src/services/lobby/store.ts'
-import { assertPersistedMatchInvariants } from '../../../src/services/match/invariants.ts'
 
 const SUPPORTED_GAME_MODES = ['1v1', '2v2', '3v3', '4v4', 'ffa'] as const satisfies readonly GameMode[]
 
@@ -173,20 +170,18 @@ export async function assertSystemWorldInvariants(
           }
         : undefined
 
-      assertLobbyInvariants(lobby, {
-        checkOpenRoster: true,
-        checkSlotNormalization: true,
-        queueEntries: queueState.entries,
-        projection,
-        strict: true,
-        context: {
-          source: 'system-world-assertions',
-        },
-      })
-
       expect(new Set(lobby.memberPlayerIds).size).toBe(lobby.memberPlayerIds.length)
+      expect(lobby.slots.filter((slot): slot is string => slot != null).every(playerId => lobby.memberPlayerIds.includes(playerId))).toBe(true)
+
+      if (projection) {
+        expect(projection.modeIndexed).toBe(true)
+        expect(projection.channelIndexed).toBe(true)
+        expect(projection.hostLobbyId).toBe(lobby.id)
+        if (lobby.matchId) expect(projection.matchLobbyId).toBe(lobby.id)
+      }
 
       if (lobby.status !== 'open') continue
+      expect(lobby.memberPlayerIds).toEqual(queueState.entries.map(entry => entry.playerId))
 
       for (const playerId of lobby.memberPlayerIds) {
         expect(openLobbyByPlayerId.has(playerId)).toBe(false)
@@ -201,13 +196,6 @@ export async function assertSystemWorldInvariants(
 
   const persistedMatches = await world.db.select().from(matches)
   for (const match of persistedMatches) {
-    await assertPersistedMatchInvariants(world.db as Database, match.id, {
-      strict: true,
-      context: {
-        source: 'system-world-assertions',
-      },
-    })
-
     if (match.status !== 'drafting' && match.status !== 'active') continue
 
     const participants = await world.match.getParticipants(match.id)

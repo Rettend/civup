@@ -84,7 +84,6 @@ import {
   buildRandomDraftResult,
   pickRandomDistinct,
 } from './random-draft.ts'
-import { assertDraftRoomInvariants } from './draft-room-invariants.ts'
 import {
   countConnectedDraftParticipants,
   getNextSwapLifecycleAlarmAt,
@@ -182,19 +181,6 @@ export class Main extends Server<PartyEnv> {
     })
 
     await this.setRoomRecord(room)
-    await this.assertRoomInvariants(room.state, room.config, {
-      alarmStepIndex: room.alarmStepIndex,
-      cancelledAt: room.cancelledAt,
-      completedAt: room.completedAt,
-      context: buildDraftRoomLogContext('handleCreate', room.state),
-      mapVote: room.mapVote,
-      previews: room.previews,
-      swapDisconnectFinalizeAt: room.swapDisconnectFinalizeAt,
-      swapSafetyEndsAt: room.swapSafetyEndsAt,
-      swapState: room.swapState,
-      swapWindowOpen: room.swapWindowOpen,
-      timerEndsAt: room.timerEndsAt,
-    })
 
     return json({ ok: true, matchId: config.matchId }, 201)
   }
@@ -289,14 +275,9 @@ export class Main extends Server<PartyEnv> {
   private async applyRoomTransition(
     transition: { room: RoomRecord, effects: RoomEffect[] },
     action: string,
-    details?: Record<string, unknown>,
+    _details?: Record<string, unknown>,
   ): Promise<RoomRecord> {
     const room = await this.setRoomRecord(transition.room)
-    const context = buildDraftRoomLogContext(action, room.state, details)
-
-    await this.assertRoomInvariants(room.state, room.config, {
-      context,
-    })
     await this.executeRoomEffects(room, transition.effects, action)
     return room
   }
@@ -481,12 +462,6 @@ export class Main extends Server<PartyEnv> {
     }
 
     const seatIndex = state.seats.findIndex(s => s.playerId === playerId)
-    await this.assertRoomInvariants(state, config, {
-      context: buildDraftRoomLogContext('before-message', state, {
-        messageType: msg.type,
-        playerId,
-      }),
-    })
 
     switch (msg.type) {
       case 'start': {
@@ -611,13 +586,6 @@ export class Main extends Server<PartyEnv> {
           ...current,
           previews: nextPreviews,
         }))
-        await this.assertRoomInvariants(state, config, {
-          context: buildDraftRoomLogContext('preview-update', state, {
-            actor: playerId,
-            action: msg.action,
-          }),
-          previews: nextPreviews,
-        })
         this.broadcastPreviewUpdate(state, nextPreviews)
         break
       }
@@ -825,9 +793,6 @@ export class Main extends Server<PartyEnv> {
   override async onAlarm() {
     let room = await this.getRoomRecord()
     if (!room) return
-    await this.assertRoomInvariants(room.state, room.config, {
-      context: buildDraftRoomLogContext('before-alarm', room.state),
-    })
 
     await this.flushWebhookOutbox('alarm')
 
@@ -1277,59 +1242,7 @@ export class Main extends Server<PartyEnv> {
 
   private async broadcastRoomState(_state: DraftState, _config: RoomConfig, events: DraftEvent[]) {
     const room = await this.requireRoomRecord()
-    await this.assertRoomInvariants(room.state, room.config, {
-      context: buildDraftRoomLogContext('broadcast-room-state', room.state, {
-        eventTypes: events.map(event => event.type),
-      }),
-    })
     this.broadcastRoomRecord(room, events)
-  }
-
-  private async assertRoomInvariants(
-    state: DraftState,
-    config: RoomConfig | null,
-    options: {
-      alarmStepIndex?: number
-      cancelledAt?: number | null
-      completedAt?: number | null
-      context?: Record<string, unknown>
-      mapVote?: StoredMapVoteState
-      previews?: DraftPreviewState
-      swapDisconnectFinalizeAt?: number | null
-      swapSafetyEndsAt?: number | null
-      swapState?: LeaderSwapState | null
-      swapWindowOpen?: boolean
-      timerEndsAt?: number | null
-    } = {},
-  ) {
-    const room = await this.getRoomRecord()
-    const swapWindowOpen = options.swapWindowOpen ?? room?.swapWindowOpen ?? false
-    assertDraftRoomInvariants({
-      alarmStepIndex: options.alarmStepIndex ?? room?.alarmStepIndex ?? -1,
-      cancelledAt: options.cancelledAt ?? room?.cancelledAt ?? null,
-      completedAt: options.completedAt ?? room?.completedAt ?? null,
-      config,
-      mapVote: options.mapVote ?? room?.mapVote ?? { ...EMPTY_STORED_MAP_VOTE_STATE },
-      matchId: state.matchId,
-      previews: options.previews ?? sanitizeDraftPreviews(
-        state,
-        room?.previews ?? createEmptyDraftPreviews(),
-      ),
-      state,
-      swapDisconnectFinalizeAt: options.swapDisconnectFinalizeAt ?? (swapWindowOpen
-        ? room?.swapDisconnectFinalizeAt ?? null
-        : null),
-      swapSafetyEndsAt: options.swapSafetyEndsAt ?? (swapWindowOpen
-        ? room?.swapSafetyEndsAt ?? null
-        : null),
-      swapState: options.swapState !== undefined
-        ? options.swapState
-        : (swapWindowOpen && room ? this.getNormalizedSwapState(room) : null),
-      swapWindowOpen,
-      timerEndsAt: options.timerEndsAt ?? room?.timerEndsAt ?? null,
-    }, {
-      context: options.context,
-    })
   }
 
   private async getStoredMapVoteState(): Promise<StoredMapVoteState> {

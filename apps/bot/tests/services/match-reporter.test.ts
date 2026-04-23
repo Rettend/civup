@@ -1,6 +1,6 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
-import { getChannelForMatch, storeMatchMapping, storeUserMatchMappings } from '../../src/services/activity/index.ts'
+import { storeMatchMapping, storeUserMatchMappings } from '../../src/services/activity/index.ts'
 import { attachLobbyMatch, createLobby, getLobbyById, setLobbyMemberPlayerIds } from '../../src/services/lobby/index.ts'
 import { getReporterIdentityFromDraftData } from '../../src/services/match/draft-data.ts'
 import { reportMatch } from '../../src/services/match/report.ts'
@@ -152,7 +152,7 @@ describe('match reporter identity', () => {
       expect(await getLobbyById(kv, lobby.id)).not.toBeNull()
       expect(await kv.get('lobby:match:m2')).toBe(lobby.id)
       expect(await kv.get('lobby:host:p1')).toBe(lobby.id)
-      expect(await getChannelForMatch(kv, 'm2')).toBeNull()
+      expect(await kv.get('activity-match:m2')).toBeNull()
       expect(await kv.get('activity-user:p1')).toBeNull()
       expect(await kv.get('activity-user:p2')).toBeNull()
     }
