@@ -5,6 +5,7 @@ import { and, eq, inArray, isNull, lt, or } from 'drizzle-orm'
 import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { syncActivityOverviewSnapshot } from '../activity/live-state.ts'
 import { clearLobbyById, clearLobbyByMatch, getCurrentLobbies, getLobbyByMatch } from '../lobby/index.ts'
+import { closeLobbySessionProjectionByMatch } from '../session/index.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS, STALE_CANCELLED_MATCH_TIMEOUT_MS, STALE_DRAFTING_MATCH_TIMEOUT_MS } from './retention.ts'
 
 export async function pruneAbandonedMatches(
@@ -37,6 +38,7 @@ export async function pruneAbandonedMatches(
       .where(eq(matchParticipants.matchId, match.id))
 
     const channelId = await getChannelForMatch(kv, match.id)
+    await closeLobbySessionProjectionByMatch(db, match.id, now)
     await clearActivityMappings(
       kv,
       match.id,
@@ -76,6 +78,7 @@ export async function pruneAbandonedMatches(
       const matchStatus = liveStatusByMatchId.get(matchId)
       if (matchStatus === 'drafting' || matchStatus === 'active') continue
 
+      await closeLobbySessionProjectionByMatch(db, matchId, now)
       await clearActivityMappings(kv, matchId, lobby.memberPlayerIds, lobby.channelId)
       await clearLobbyById(kv, lobby.id, lobby, { syncActivityOverview: false })
       overviewChannelIds.add(lobby.channelId)

@@ -20,6 +20,7 @@ import { addToQueue, clearQueue, getPlayerQueueMode, getQueueState, removeFromQu
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../../services/ranked/role-sync.ts'
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { syncSeasonPeaksForPlayers } from '../../services/season/index.ts'
+import { formatSessionAdmissionError, isSessionAdmissionError } from '../../services/session/index.ts'
 import { createStateStore } from '../../services/state/store.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
@@ -104,9 +105,10 @@ export const command_match = factory.command<MatchVar>(
             }
 
             const currentHostedLobby = await getCurrentLobbyHostedBy(kv, identity.userId)
+            const db = createDb(c.env.DB)
             if (currentHostedLobby?.status === 'open') {
               const updatedLobby = steamLobbyLink !== null
-                ? (await setLobbySteamLobbyLink(kv, currentHostedLobby.id, steamLobbyLink, currentHostedLobby) ?? currentHostedLobby)
+                ? (await setLobbySteamLobbyLink(kv, currentHostedLobby.id, steamLobbyLink, currentHostedLobby, { db }) ?? currentHostedLobby)
                 : currentHostedLobby
 
               await storeUserLobbyState(kv, updatedLobby.channelId, [identity.userId], updatedLobby.id)
@@ -123,7 +125,7 @@ export const command_match = factory.command<MatchVar>(
             const createPreflight = await preflightMatchCreateQueueState(kv, mode, identity.userId)
             if (createPreflight.kind === 'reuse-hosted-open-lobby') {
               const updatedLobby = steamLobbyLink !== null
-                ? (await setLobbySteamLobbyLink(kv, createPreflight.lobby.id, steamLobbyLink, createPreflight.lobby) ?? createPreflight.lobby)
+                ? (await setLobbySteamLobbyLink(kv, createPreflight.lobby.id, steamLobbyLink, createPreflight.lobby, { db }) ?? createPreflight.lobby)
                 : createPreflight.lobby
 
               await storeUserLobbyState(kv, updatedLobby.channelId, [identity.userId], updatedLobby.id)
@@ -148,7 +150,6 @@ export const command_match = factory.command<MatchVar>(
 
             const queue = createPreflight.queue
 
-            const db = createDb(c.env.DB)
             const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, [identity.userId])
             if (blockingDraftMatchIdByPlayer.has(identity.userId)) {
               await sendTransientEphemeralResponse(
@@ -179,8 +180,9 @@ export const command_match = factory.command<MatchVar>(
             const previewEntries = mapLobbySlotsToEntries(previewSlots, nextQueue.entries.filter(entry => entry.playerId === identity.userId))
             const embed = lobbyOpenEmbed(mode, previewEntries, previewSlots.length, undefined, undefined, 'live')
 
+            let createdMessage: Awaited<ReturnType<typeof createChannelMessage>> | null = null
             try {
-              const message = await createChannelMessage(c.env.DISCORD_TOKEN, draftChannelId, {
+              createdMessage = await createChannelMessage(c.env.DISCORD_TOKEN, draftChannelId, {
                 embeds: [embed],
                 components: [],
                 allowed_mentions: { parse: [] },
@@ -190,9 +192,11 @@ export const command_match = factory.command<MatchVar>(
                 guildId: c.interaction.guild_id ?? null,
                 hostId: identity.userId,
                 channelId: draftChannelId,
-                messageId: message.id,
+                messageId: createdMessage.id,
                 steamLobbyLink,
                 queueEntries: nextQueue.entries,
+                db,
+                sessionNamespace: c.env.SessionDO,
               })
               const { lobby: reconciledLobby, reusedExisting } = await reconcileHostedOpenLobbyCreation(
                 c.env.DISCORD_TOKEN,
@@ -201,7 +205,7 @@ export const command_match = factory.command<MatchVar>(
                 createdLobby,
               )
               const lobby = steamLobbyLink !== null
-                ? (await setLobbySteamLobbyLink(kv, reconciledLobby.id, steamLobbyLink, reconciledLobby) ?? reconciledLobby)
+                ? (await setLobbySteamLobbyLink(kv, reconciledLobby.id, steamLobbyLink, reconciledLobby, { db }) ?? reconciledLobby)
                 : reconciledLobby
               if ((lobby.id === createdLobby.id && lobby.revision !== createdLobby.revision)
                 || (lobby.id === reconciledLobby.id && lobby.revision !== reconciledLobby.revision)) { await syncLobbyDerivedState(kv, lobby) }
@@ -243,6 +247,18 @@ export const command_match = factory.command<MatchVar>(
             catch (error) {
               console.error('Failed to create lobby message:', error)
               await removeFromQueue(kv, identity.userId)
+              if (createdMessage) {
+                try {
+                  await deleteChannelMessage(c.env.DISCORD_TOKEN, draftChannelId, createdMessage.id)
+                }
+                catch (deleteError) {
+                  console.error(`Failed to delete abandoned lobby message ${createdMessage.id}:`, deleteError)
+                }
+              }
+              if (isSessionAdmissionError(error)) {
+                await sendTransientEphemeralResponse(c, formatSessionAdmissionError(error), 'error')
+                return
+              }
               await sendTransientEphemeralResponse(c, 'Failed to create lobby message. Please try again.', 'error')
             }
           }

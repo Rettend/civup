@@ -3,7 +3,7 @@ import type { GameMode, QueueEntry } from '@civup/game'
 import type { Embed } from 'discord-hono'
 import type { lobbyComponents } from '../../embeds/match.ts'
 import type { LobbyState } from '../../services/lobby/index.ts'
-import { matches, matchParticipants } from '@civup/db'
+import { createDb as createCivupDb, matches, matchParticipants } from '@civup/db'
 import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
@@ -13,6 +13,7 @@ import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { getQueueState, getQueueStateWithPlayerQueueModes, MAX_QUEUE_ENTRIES, removeFromQueueAndUnlinkParty, setQueueEntries } from '../../services/queue/index.ts'
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds } from '../../services/ranked/roles.ts'
+import { formatSessionAdmissionError, isSessionAdmissionError, projectLobbySession } from '../../services/session/index.ts'
 import { createStateStore } from '../../services/state/store.ts'
 
 const ALL_FFA_PLACEMENT_KEYS = ['second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'] as const
@@ -143,6 +144,7 @@ export function getIdentityByUserId(c: {
 export async function joinLobbyAndMaybeStartMatch(
   c: {
     env: {
+      DB?: D1Database
       KV: KVNamespace
       State?: DurableObjectNamespace
       DISCORD_TOKEN?: string
@@ -396,6 +398,15 @@ export async function joinLobbyAndMaybeStartMatch(
       lastActivityAt: addedNewPlayers ? now : nextLobby.lastActivityAt,
       updatedAt: now,
       revision: nextLobby.revision + 1,
+    }
+    if (c.env.DB) {
+      try {
+        await projectLobbySession(createCivupDb(c.env.DB), nextLobby)
+      }
+      catch (error) {
+        if (isSessionAdmissionError(error)) return { error: formatSessionAdmissionError(error) }
+        throw error
+      }
     }
     await upsertLobby(kv, nextLobby)
   }

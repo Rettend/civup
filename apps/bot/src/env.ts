@@ -3,6 +3,7 @@ export interface Env {
     DB: D1Database
     KV: KVNamespace
     Main?: DurableObjectNamespace
+    SessionDO?: DurableObjectNamespace
     State?: DurableObjectNamespace
     DISCORD_APPLICATION_ID: string
     DISCORD_PUBLIC_KEY: string

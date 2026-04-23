@@ -27,6 +27,7 @@ describe('match moderation recalculation', () => {
         completedAt: null,
         seasonId: null,
         draftData: JSON.stringify({
+          completedAt: 1,
           state: {
             seats: playerIds.map((playerId, index) => ({
               playerId,
@@ -551,7 +552,7 @@ async function seedActiveFfaMatch(db: any): Promise<void> {
     createdAt: 1000,
     completedAt: null,
     seasonId: null,
-    draftData: null,
+    draftData: JSON.stringify({ completedAt: 1000 }),
   })
 
   await db.insert(matchParticipants).values([
@@ -615,7 +616,7 @@ async function seedActiveSquadMatch(db: any): Promise<void> {
     createdAt: 1000,
     completedAt: null,
     seasonId: null,
-    draftData: null,
+    draftData: JSON.stringify({ completedAt: 1000 }),
   })
 
   await db.insert(matchParticipants).values([
@@ -654,7 +655,7 @@ async function seedActiveMultiTeamDuoMatch(db: any): Promise<void> {
     createdAt: 1000,
     completedAt: null,
     seasonId: null,
-    draftData: null,
+    draftData: JSON.stringify({ completedAt: 1000 }),
   })
 
   await db.insert(matchParticipants).values([
