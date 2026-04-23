@@ -377,7 +377,7 @@ async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
   const stateCoordinator = installStateCoordinatorHarness()
   const kv = createStateStore({
     KV: rawKv,
-    PARTY_HOST: stateCoordinator.host,
+    State: stateCoordinator.namespace,
     CIVUP_SECRET: stateCoordinator.secret,
   })
 
@@ -427,7 +427,7 @@ async function measureInactiveLobbyCleanupCronRunUsage(): Promise<DailyUsage> {
   const stateCoordinator = installStateCoordinatorHarness()
   const kv = createStateStore({
     KV: rawKv,
-    PARTY_HOST: stateCoordinator.host,
+    State: stateCoordinator.namespace,
     CIVUP_SECRET: stateCoordinator.secret,
   })
 
@@ -478,7 +478,7 @@ async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
   const stateCoordinator = installStateCoordinatorHarness()
   const kv = createStateStore({
     KV: rawKv,
-    PARTY_HOST: stateCoordinator.host,
+    State: stateCoordinator.namespace,
     CIVUP_SECRET: stateCoordinator.secret,
   })
 
@@ -588,7 +588,7 @@ async function simulateScenarioLifecycle(input: {
   const stateCoordinator = installStateCoordinatorHarness()
   const kv = createStateStore({
     KV: rawKv,
-    PARTY_HOST: stateCoordinator.host,
+    State: stateCoordinator.namespace,
     CIVUP_SECRET: stateCoordinator.secret,
   })
 

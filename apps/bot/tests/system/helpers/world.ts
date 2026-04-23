@@ -24,7 +24,6 @@ import { createTrackedKv } from '../../helpers/tracked-kv.ts'
 import { createRuntimeControls } from './runtime-controls.ts'
 
 const BOT_HOST = 'https://bot.test'
-const PARTY_HOST = 'https://party.test'
 const CIVUP_SECRET = 'secret'
 const DEFAULT_CHANNEL_ID = 'channel-draft'
 const DEFAULT_ARCHIVE_CHANNEL_ID = 'channel-archive'
@@ -77,6 +76,21 @@ function createCapturedMainNamespace(partyRooms: Map<string, PartyRoomRecord>): 
           if (body.matchId !== roomName) return new Response('Room name mismatch', { status: 409 })
 
           return Response.json({ ok: true }, { status: 201 })
+        },
+      } as DurableObjectStub
+    },
+  } as unknown as DurableObjectNamespace
+}
+
+function createCapturedStateNamespace(requestHandler: (request: Request) => Promise<Response>): DurableObjectNamespace {
+  return {
+    idFromName(name: string) {
+      return name as unknown as DurableObjectId
+    },
+    get() {
+      return {
+        fetch(request: Request) {
+          return requestHandler(request)
         },
       } as DurableObjectStub
     },
@@ -224,15 +238,20 @@ export async function createSystemWorld(): Promise<SystemWorld> {
   const runtime = createRuntimeControls()
   let stateStoreRequestQueue = Promise.resolve()
   let nextDiscordMessageId = 1
+  const enqueueStateStoreRequest = (request: Request) => {
+    const response = stateStoreRequestQueue.then(() => handleStateStoreRequest(request, kv))
+    stateStoreRequestQueue = response.then(() => undefined, () => undefined)
+    return response
+  }
 
   const env = buildBotTestEnv({
     DB: createSqliteD1Database(sqlite),
     KV: kv,
     Main: createCapturedMainNamespace(partyRooms),
+    State: createCapturedStateNamespace(enqueueStateStoreRequest),
     DISCORD_APPLICATION_ID: 'app',
     DISCORD_PUBLIC_KEY: 'public-key',
     DISCORD_TOKEN: 'token',
-    PARTY_HOST,
     BOT_HOST,
     CIVUP_SECRET,
   })
@@ -256,12 +275,6 @@ export async function createSystemWorld(): Promise<SystemWorld> {
 
     if (url.origin === BOT_HOST) {
       return app.fetch(request, env, execution.executionCtx)
-    }
-
-    if (url.origin === PARTY_HOST && request.method === 'POST' && url.pathname === '/parties/state/global') {
-      const response = stateStoreRequestQueue.then(() => handleStateStoreRequest(request, kv))
-      stateStoreRequestQueue = response.then(() => undefined, () => undefined)
-      return response
     }
 
     if (url.origin === 'https://discord.com' && url.pathname.startsWith('/api/v10/')) {

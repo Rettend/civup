@@ -1,1 +1,1 @@
-export { Main } from '../../../party/src/draft-room.ts'
+export { Main } from './draft-room.ts'

@@ -9,7 +9,6 @@
 
   "vars": {
     "BOT_HOST": "https://civup-bot.rettend.workers.dev",
-    "PARTY_HOST": "https://party.rettend.me",
     "ENABLE_DEBUG_LOBBY_FILL": "1"
   },
 
@@ -18,6 +17,10 @@
       {
         "name": "Main",
         "class_name": "Main"
+      },
+      {
+        "name": "State",
+        "class_name": "State"
       }
     ]
   },
@@ -26,6 +29,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["Main"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["State"]
     }
   ],
 
