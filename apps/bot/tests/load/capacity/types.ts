@@ -41,15 +41,31 @@ export interface ScenarioReport {
 }
 
 export interface CapacitySnapshot {
-  version: 2
+  version: 3
   globals: {
     stabilitySamples: number
     leaderboardCronRunsPerDay: number
     inactiveLobbyCleanupCronRunsPerDay: number
     rankedRoleCronRunsPerDay: number
+    architectureModel: string
     lobbyWatchMsgsPerConnection: number
     doWebsocketBillingRatio: number
     estimatedDoGbSecondsPerRequest: number
+    sessionSocketConnectionsPerViewer: number
+    sessionDoSqlReadsPerCommand: number
+    sessionDoSqlWritesPerCommand: number
+    sessionDoSqlReadsPerSocketConnect: number
+    sessionDoSqlWritesPerSocketConnect: number
+    sessionDoSqlReadsPerDraftMessage: number
+    sessionDoSqlWritesPerDraftMessage: number
+    directoryReadsPerViewerLaunch: number
+    directoryReadsPerJoinGroup: number
+    directoryWritesPerSessionCreate: number
+    directoryWritesPerParticipantJoin: number
+    directoryWritesPerOpenLobbyMutation: number
+    directoryWritesPerDraftStart: number
+    directoryWritesPerReport: number
+    directoryWritesPerParticipantReportCleanup: number
     averageAcceptedSwapsPerTeamDraft: number
   }
   backgroundDailyUsage: DailyUsage | null

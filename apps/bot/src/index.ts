@@ -1,7 +1,9 @@
 import type { Env } from './env.ts'
 import { Hono } from 'hono'
+import { routePartykitRequest } from 'partyserver'
 import * as commands from './commands/index.ts'
 import * as cron from './cron/cleanup.ts'
+import { Main } from '../../party/src/draft-room.ts'
 import { registerApiRoutes } from './routes/index.ts'
 import { factory } from './setup.ts'
 
@@ -21,6 +23,8 @@ const discordApp = factory.discord().loader([
 
 const app = new Hono<Env>()
 
+export { Main }
+
 app.onError((error, c) => {
   console.error('[bot:unhandled]', c.req.method, new URL(c.req.url).pathname, error)
   return c.json({ error: 'Internal Server Error' }, 500)
@@ -32,6 +36,9 @@ app.mount('/', discordApp.fetch)
 
 const worker: ExportedHandler<Env['Bindings']> = {
   async fetch(request, env, ctx) {
+    const partyResponse = await handleBotPartyRequest(request, env)
+    if (partyResponse) return partyResponse
+
     const disallowedGuildResponse = await rejectDisallowedDiscordGuildInteraction(request, env)
     if (disallowedGuildResponse) return disallowedGuildResponse
     return app.fetch(request, env, ctx)
@@ -46,6 +53,13 @@ const worker: ExportedHandler<Env['Bindings']> = {
 }
 
 export default worker
+
+async function handleBotPartyRequest(request: Request, env: Env['Bindings']): Promise<Response | null> {
+  if (!isBotPartyRequest(request)) return null
+  if (!env.Main) return new Response('Draft runtime is not configured', { status: 503 })
+
+  return await routePartykitRequest(request, env, { prefix: 'parties' })
+}
 
 async function rejectDisallowedDiscordGuildInteraction(request: Request, env: Env['Bindings']): Promise<Response | null> {
   const allowedGuildId = normalizeAllowedGuildId(env.ALLOWED_DISCORD_GUILD_ID)
@@ -83,6 +97,11 @@ function isDiscordInteractionRequest(request: Request): boolean {
     && !url.pathname.startsWith('/api/')
     && request.headers.has('X-Signature-Ed25519')
     && request.headers.has('X-Signature-Timestamp')
+}
+
+function isBotPartyRequest(request: Request): boolean {
+  const pathname = new URL(request.url).pathname
+  return pathname === '/parties/main' || pathname.startsWith('/parties/main/')
 }
 
 function normalizeAllowedGuildId(value: string | undefined): string | null {

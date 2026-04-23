@@ -1,7 +1,7 @@
 import type { DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry, RoomConfig } from '@civup/game'
 import type { LobbyState } from '../lobby/types.ts'
 import { allFactionIds, getDraftFormat, isTeamMode, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
-import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, isLocalHost, normalizeHost } from '@civup/utils'
+import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
 import { getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer } from '../lobby/index.ts'
 import { channelIndexKey, idKey, matchKey, modeIndexKey } from '../lobby/keys.ts'
@@ -26,7 +26,6 @@ export interface CreateDraftRoomOptions {
   mapVoteEnabled?: boolean
   randomDraft?: boolean
   duplicateFactions?: boolean
-  partyHost?: string
   botHost?: string
   webhookSecret?: string
   timerConfig?: DraftTimerConfig
@@ -53,7 +52,6 @@ type StoredActivityTargetSelection = ActivityTargetSelection | MatchActivityTarg
 
 // ── Configuration ──────────────────────────────────────────
 
-const DEFAULT_PARTY_HOST = 'http://localhost:1999'
 const DEFAULT_BOT_HOST = 'http://localhost:8787'
 const ACTIVITY_MAPPING_TTL = 48 * 60 * 60
 
@@ -236,12 +234,12 @@ export async function createDraftRoom(
     mapVoteEnabled,
     leaderDataVersion: options.leaderDataVersion ?? 'live',
     timerConfig: options.timerConfig,
-    webhookUrl: buildDraftWebhookUrl(options.botHost, options.partyHost),
+    webhookUrl: buildDraftWebhookUrl(options.botHost),
     webhookSecret: options.webhookSecret,
   }
 
-  // Room name = matchId so activity can connect to the same room
-  const normalizedHost = normalizeHost(options.partyHost, DEFAULT_PARTY_HOST)
+  // Room name = matchId so activity and bot commands hit the same runtime.
+  const normalizedHost = normalizeHost(options.botHost, DEFAULT_BOT_HOST)
   const url = `${normalizedHost}/parties/main/${matchId}`
 
   await api.post(url, config, {
@@ -253,12 +251,7 @@ export async function createDraftRoom(
   return { matchId, formatId: format.id, seats }
 }
 
-function buildDraftWebhookUrl(botHost: string | undefined, partyHost: string | undefined): string | undefined {
-  if (!botHost && partyHost && !isLocalHost(partyHost)) {
-    console.warn('BOT_HOST is not configured while PARTY_HOST is remote; draft-complete webhook is disabled for this match')
-    return undefined
-  }
-
+function buildDraftWebhookUrl(botHost: string | undefined): string {
   const normalizedBotHost = normalizeHost(botHost, DEFAULT_BOT_HOST)
   return `${normalizedBotHost}/api/webhooks/draft-complete`
 }
