@@ -11,7 +11,7 @@ import type {
 } from './stores'
 import { batch, createEffect, createSignal, Match, onCleanup, onMount, Switch, untrack } from 'solid-js'
 import { discordSdk, setupDiscordSdk } from './discord'
-import { activityTargetOptionKey, activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from './lib/activity-targets'
+import { activityTargetOptionKey, activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, resolveAutoSelectedActivityTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from './lib/activity-targets'
 import { relayDevLog } from './lib/dev-log'
 import { DraftPage } from './pages/draft'
 import { DraftSetupPage } from './pages/draft-setup'
@@ -88,6 +88,8 @@ export default function App() {
   let pendingTargetSelectionKey: string | null = null
   const subscribedLobbySnapshotKeys = new Set<string>()
   let selectionRequestVersion = 0
+  let liveStateRevision = 0
+  let launchSnapshotRequestVersion = 0
   let suppressAutoSelection = false
   let refreshInFlight = false
   const liveLobbySnapshots = new Map<string, LobbySnapshot>()
@@ -344,8 +346,25 @@ export default function App() {
   }
 
   const refreshActivityLaunchSnapshot = async (channelId: string, userId: string) => {
+    const requestVersion = ++launchSnapshotRequestVersion
+    const liveStateRevisionAtStart = liveStateRevision
     const snapshot = await fetchActivityLaunchSnapshot(channelId, userId)
     if (!snapshot) return
+
+    if (!shouldApplyActivityLaunchSnapshotRefresh({
+      requestVersion,
+      latestRequestVersion: launchSnapshotRequestVersion,
+      requestedChannelId: channelId,
+      requestedUserId: userId,
+      activeChannelId,
+      activeUserId,
+      hydratedLiveState: hasHydratedLiveActivityState(),
+      liveStateRevisionAtStart,
+      liveStateRevision,
+    })) {
+      return
+    }
+
     hydrateActivityLaunchSnapshot(snapshot)
   }
 
@@ -507,6 +526,8 @@ export default function App() {
   }
 
   const handleActivityStateChange = (channelId: string, currentUserId: string, key: string, op: 'put' | 'delete', value?: string) => {
+    liveStateRevision += 1
+
     if (key === activityOverviewStateKey(channelId)) {
       setLiveOverviewSnapshot(op === 'put' ? parseActivityOverviewValue(value) : null)
       applyLiveActivityState()
@@ -586,6 +607,8 @@ export default function App() {
     clearLaunchSnapshotFallback()
     pendingTargetSelectionKey = null
     selectionRequestVersion += 1
+    liveStateRevision += 1
+    launchSnapshotRequestVersion += 1
     suppressAutoSelection = false
     setPickerBusy(false)
     setFallbackOptions([])
@@ -611,6 +634,7 @@ export default function App() {
     })
 
     syncActivityWatchSubscriptions()
+    void refreshActivityLaunchSnapshot(channelId, currentUserId)
 
     launchSnapshotFallbackTimeout = setTimeout(() => {
       launchSnapshotFallbackTimeout = null

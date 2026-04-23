@@ -1,6 +1,6 @@
 import type { ActivityTargetOption } from '../src/client/stores'
 import { describe, expect, test } from 'bun:test'
-import { activityTargetOptionKey, activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, resolveAutoSelectedActivityTarget, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from '../src/client/lib/activity-targets'
+import { activityTargetOptionKey, activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, resolveAutoSelectedActivityTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from '../src/client/lib/activity-targets'
 
 const joinedMatch: ActivityTargetOption = {
   kind: 'match',
@@ -166,5 +166,61 @@ describe('activity target helpers', () => {
         cancelReason: 'scrub',
       },
     })).toBe(true)
+  })
+
+  test('applies a refreshed launch snapshot while the live state stays unchanged', () => {
+    expect(shouldApplyActivityLaunchSnapshotRefresh({
+      requestVersion: 2,
+      latestRequestVersion: 2,
+      requestedChannelId: 'channel-1',
+      requestedUserId: 'user-1',
+      activeChannelId: 'channel-1',
+      activeUserId: 'user-1',
+      hydratedLiveState: true,
+      liveStateRevisionAtStart: 4,
+      liveStateRevision: 4,
+    })).toBe(true)
+  })
+
+  test('rejects an outdated launch snapshot refresh result', () => {
+    expect(shouldApplyActivityLaunchSnapshotRefresh({
+      requestVersion: 2,
+      latestRequestVersion: 3,
+      requestedChannelId: 'channel-1',
+      requestedUserId: 'user-1',
+      activeChannelId: 'channel-1',
+      activeUserId: 'user-1',
+      hydratedLiveState: false,
+      liveStateRevisionAtStart: 1,
+      liveStateRevision: 1,
+    })).toBe(false)
+  })
+
+  test('rejects a launch snapshot refresh for a different active session', () => {
+    expect(shouldApplyActivityLaunchSnapshotRefresh({
+      requestVersion: 2,
+      latestRequestVersion: 2,
+      requestedChannelId: 'channel-1',
+      requestedUserId: 'user-1',
+      activeChannelId: 'channel-2',
+      activeUserId: 'user-1',
+      hydratedLiveState: false,
+      liveStateRevisionAtStart: 1,
+      liveStateRevision: 1,
+    })).toBe(false)
+  })
+
+  test('rejects a refreshed launch snapshot after newer live watch state arrives', () => {
+    expect(shouldApplyActivityLaunchSnapshotRefresh({
+      requestVersion: 2,
+      latestRequestVersion: 2,
+      requestedChannelId: 'channel-1',
+      requestedUserId: 'user-1',
+      activeChannelId: 'channel-1',
+      activeUserId: 'user-1',
+      hydratedLiveState: true,
+      liveStateRevisionAtStart: 4,
+      liveStateRevision: 5,
+    })).toBe(false)
   })
 })
