@@ -1,5 +1,5 @@
 export interface StateCoordinatorHarness {
-  host: string
+  namespace: DurableObjectNamespace
   secret: string
   requests: () => number
   sqliteRowsRead: () => number
@@ -10,13 +10,25 @@ export interface StateCoordinatorHarness {
 }
 
 export function installStateCoordinatorHarness(): StateCoordinatorHarness {
-  const host = 'https://state-coordinator.test'
   const secret = 'capacity-test-secret'
   const storage = new Map<string, { value: string, expiresAt: number | null }>()
   let requestCount = 0
   let sqliteRowsRead = 0
   let sqliteRowsWritten = 0
   let trackingEnabled = true
+
+  const namespace = {
+    idFromName(name: string) {
+      return name as unknown as DurableObjectId
+    },
+    get() {
+      return {
+        fetch(request: Request) {
+          return handleStateRequest(request)
+        },
+      } as DurableObjectStub
+    },
+  } as unknown as DurableObjectNamespace
 
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -26,33 +38,34 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
         ? input
         : new URL(input.url)
 
-    if (requestUrl.origin !== host || requestUrl.pathname !== '/parties/state/global') {
+    if (requestUrl.origin !== 'https://state-coordinator.test' || requestUrl.pathname !== '/parties/state/global') {
       return originalFetch(input as any, init)
     }
 
+    const request = input instanceof Request
+      ? input
+      : new Request(requestUrl, init)
+
+    return handleStateRequest(request)
+  }) as unknown as typeof fetch
+
+  async function handleStateRequest(request: Request): Promise<Response> {
     if (trackingEnabled) requestCount += 1
-    const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase()
-    if (method !== 'POST') {
+    if (request.method.toUpperCase() !== 'POST') {
       return new Response(JSON.stringify({ error: 'Method not allowed' }), {
         status: 405,
         headers: { 'Content-Type': 'application/json' },
       })
     }
 
-    const providedSecret = resolveHeader(init?.headers, 'X-CivUp-Internal-Secret')
-      ?? resolveHeader(init?.headers, 'X-CivUp-State-Secret')
+    const providedSecret = request.headers.get('X-CivUp-Internal-Secret')
+      ?? request.headers.get('X-CivUp-State-Secret')
     if (providedSecret !== secret) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' },
       })
     }
-
-    const rawBody = typeof init?.body === 'string'
-      ? init.body
-      : input instanceof Request
-        ? await input.text()
-        : ''
 
     let payload: {
       op?: string
@@ -65,7 +78,7 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
       keys?: unknown
     }
     try {
-      payload = JSON.parse(rawBody) as typeof payload
+      payload = await request.json() as typeof payload
     }
     catch {
       return new Response(JSON.stringify({ error: 'Invalid JSON payload' }), {
@@ -200,10 +213,10 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
     }
 
     return jsonError('Unknown operation')
-  }) as unknown as typeof fetch
+  }
 
   return {
-    host,
+    namespace,
     secret,
     requests: () => requestCount,
     sqliteRowsRead: () => sqliteRowsRead,
@@ -227,25 +240,6 @@ export function installStateCoordinatorHarness(): StateCoordinatorHarness {
       }
     },
   }
-}
-
-function resolveHeader(headers: HeadersInit | undefined, name: string): string | null {
-  if (!headers) return null
-
-  const target = name.toLowerCase()
-  if (headers instanceof Headers) {
-    return headers.get(name)
-  }
-
-  if (Array.isArray(headers)) {
-    const entry = headers.find(([headerName]) => headerName.toLowerCase() === target)
-    return entry?.[1] ?? null
-  }
-
-  const record = headers as Record<string, string | string[] | undefined>
-  const value = record[name] ?? record[name.toLowerCase()]
-  if (Array.isArray(value)) return value[0] ?? null
-  return typeof value === 'string' ? value : null
 }
 
 function getValue(storage: Map<string, { value: string, expiresAt: number | null }>, key: string): string | null {
