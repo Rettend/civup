@@ -15,7 +15,7 @@ import {
   TEAM_LEADERBOARD_MIN_GAMES,
 
 } from '../services/leaderboard/team-snapshot.ts'
-import { sendGeneralCommandResponse } from '../services/response/general.ts'
+import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { factory } from '../setup.ts'
 
@@ -55,14 +55,13 @@ export const command_leaderboard = factory.command<Var>(
     const view = parseLeaderboardView(c.var.view) ?? 'players'
     const teamSize = parseTeamLeaderboardSize(c.var.size) ?? 'all'
 
-    return c.resDefer(async (c) => {
+    return resDeferGeneralCommandResponse(c, async (c) => {
       const db = createDb(c.env.DB)
       const kv = createStateStore(c.env)
-      const payload = await buildLeaderboardCommandPayload(db, kv, requestedMode, {
+      return await buildLeaderboardCommandPayload(db, kv, requestedMode, {
         view,
         teamSize,
       })
-      await sendGeneralCommandResponse(c, payload)
     })
   },
 )
