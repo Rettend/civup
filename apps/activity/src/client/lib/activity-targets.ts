@@ -75,3 +75,49 @@ export function shouldHoldAuthenticatedDraftStateForSelection(input: {
 
   return true
 }
+
+export function shouldApplyActivityLaunchSnapshotRefresh(input: {
+  requestVersion: number
+  latestRequestVersion: number
+  requestedChannelId: string
+  requestedUserId: string
+  activeChannelId: string | null
+  activeUserId: string | null
+  hydratedLiveState: boolean
+  liveStateRevisionAtStart: number
+  liveStateRevision: number
+}): boolean {
+  if (input.requestVersion !== input.latestRequestVersion) return false
+  if (input.requestedChannelId !== input.activeChannelId || input.requestedUserId !== input.activeUserId) return false
+  if (
+    input.hydratedLiveState
+    && input.liveStateRevision !== input.liveStateRevisionAtStart
+  ) {
+    return false
+  }
+
+  return true
+}
+
+export function getBrokenMatchRefreshKey(input: {
+  appStatus: 'loading' | 'error' | 'overview' | 'lobby-waiting' | 'authenticated'
+  currentMatchId: string | null
+  connectionStatus: string
+  draftState: { matchId?: string, status?: string, cancelReason?: string | null } | null | undefined
+}): string | null {
+  if (input.appStatus !== 'authenticated' || !input.currentMatchId) return null
+
+  if (
+    input.draftState?.matchId === input.currentMatchId
+    && input.draftState.status === 'cancelled'
+    && (input.draftState.cancelReason === 'timeout' || input.draftState.cancelReason === 'revert')
+  ) {
+    return `${input.currentMatchId}:cancelled:${input.draftState.cancelReason}`
+  }
+
+  if (input.connectionStatus === 'error' && (!input.draftState || input.draftState.matchId !== input.currentMatchId)) {
+    return `${input.currentMatchId}:connection-error`
+  }
+
+  return null
+}
