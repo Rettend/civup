@@ -13,6 +13,22 @@
     "ENABLE_DEBUG_LOBBY_FILL": "1"
   },
 
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "Main",
+        "class_name": "Main"
+      }
+    ]
+  },
+
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["Main"]
+    }
+  ],
+
   "d1_databases": [
     {
       "binding": "DB",

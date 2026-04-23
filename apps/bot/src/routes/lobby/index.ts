@@ -1218,7 +1218,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         mapVoteEnabled: lobby.draftConfig.mapVoteEnabled,
         randomDraft: lobby.draftConfig.randomDraft,
         duplicateFactions: lobby.draftConfig.duplicateFactions,
-        partyHost: c.env.PARTY_HOST,
         botHost: c.env.BOT_HOST,
         webhookSecret: internalSecret,
         timerConfig,

@@ -122,6 +122,22 @@ const LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION = 4
 const ESTIMATED_DO_GB_SECONDS_PER_REQUEST = 0.0025
 const AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT = 0.5
 const ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES = 2
+const TARGET_ARCHITECTURE_MODEL = 'target-session-do-v1'
+const TARGET_SESSION_SOCKET_CONNECTIONS_PER_VIEWER = 1
+const TARGET_SESSION_DO_SQL_READS_PER_COMMAND = 1
+const TARGET_SESSION_DO_SQL_WRITES_PER_COMMAND = 1
+const TARGET_SESSION_DO_SQL_READS_PER_SOCKET_CONNECT = 1
+const TARGET_SESSION_DO_SQL_WRITES_PER_SOCKET_CONNECT = 0
+const TARGET_SESSION_DO_SQL_READS_PER_DRAFT_MESSAGE = 1
+const TARGET_SESSION_DO_SQL_WRITES_PER_DRAFT_MESSAGE = 1
+const TARGET_DIRECTORY_READS_PER_VIEWER_LAUNCH = 2
+const TARGET_DIRECTORY_READS_PER_JOIN_GROUP = 1
+const TARGET_DIRECTORY_WRITES_PER_SESSION_CREATE = 1
+const TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_JOIN = 1
+const TARGET_DIRECTORY_WRITES_PER_OPEN_LOBBY_MUTATION = 1
+const TARGET_DIRECTORY_WRITES_PER_DRAFT_START = 1
+const TARGET_DIRECTORY_WRITES_PER_REPORT = 1
+const TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP = 1
 const LEADERBOARD_CRON_RUNS_PER_DAY = 24 * 60 / 2
 const INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY = 24
 const RANKED_ROLE_CRON_RUNS_PER_DAY = 1
@@ -189,10 +205,11 @@ describe('capacity models', () => {
     const leaderboardCronBackgroundUsage = multiplyUsage(leaderboardCronRunUsage, LEADERBOARD_CRON_RUNS_PER_DAY)
     const inactiveLobbyCleanupBackgroundUsage = multiplyUsage(inactiveLobbyCleanupCronRunUsage, INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY)
     const rankedRoleCronBackgroundUsage = multiplyUsage(rankedRoleCronRunUsage, RANKED_ROLE_CRON_RUNS_PER_DAY)
-    const backgroundCronUsage = addUsage(
+    const currentBackgroundCronUsage = addUsage(
       addUsage(leaderboardCronBackgroundUsage, inactiveLobbyCleanupBackgroundUsage),
       rankedRoleCronBackgroundUsage,
     )
+    const backgroundCronUsage = projectBackgroundUsageToTargetArchitecture(currentBackgroundCronUsage)
     const reports: ScenarioReport[] = []
     for (const mode of CAPACITY_SCENARIOS) {
       reports.push(await buildScenarioReport(mode, backgroundCronUsage))
@@ -234,7 +251,7 @@ async function buildScenarioReport(
     backgroundRatedPlayers: 0,
     includeOpenLobbyChurn: true,
   }))
-  const modeledBaseline = await applyTeamSwapBlend(mode, baseline, {
+  const modeledCurrentBaseline = await applyTeamSwapBlend(mode, baseline, {
     backgroundRatedPlayers: 0,
     includeOpenLobbyChurn: true,
   })
@@ -243,11 +260,15 @@ async function buildScenarioReport(
     backgroundRatedPlayers: 1,
     includeOpenLobbyChurn: true,
   }))
-  const modeledWithOneBackgroundPlayer = await applyTeamSwapBlend(mode, withOneBackgroundPlayer, {
+  const modeledCurrentWithOneBackgroundPlayer = await applyTeamSwapBlend(mode, withOneBackgroundPlayer, {
     backgroundRatedPlayers: 1,
     includeOpenLobbyChurn: true,
   })
-  const openLobbyChurnPerDraft = subtractUsage(baseline.usage, coreBaseline.usage)
+  const projectedCoreBaseline = projectSimulationResultToTargetArchitecture(mode, coreBaseline)
+  const projectedBaseline = projectSimulationResultToTargetArchitecture(mode, baseline)
+  const modeledBaseline = projectSimulationResultToTargetArchitecture(mode, modeledCurrentBaseline)
+  const modeledWithOneBackgroundPlayer = projectSimulationResultToTargetArchitecture(mode, modeledCurrentWithOneBackgroundPlayer)
+  const openLobbyChurnPerDraft = subtractUsage(projectedBaseline.usage, projectedCoreBaseline.usage)
   const corePerDraft = subtractUsage(modeledBaseline.usage, openLobbyChurnPerDraft)
 
   const model: CapacityModel = {
@@ -1210,6 +1231,92 @@ function blendMetric(base: number, withAcceptedSwap: number, acceptedSwapRate: n
   return roundSnapshotNumber(base + (withAcceptedSwap - base) * acceptedSwapRate)
 }
 
+function projectBackgroundUsageToTargetArchitecture(current: DailyUsage): DailyUsage {
+  return {
+    ...current,
+    workersRequests: current.botWorkerRequests + current.activityWorkerRequests,
+    partyWorkerRequests: 0,
+    doSqliteRowsRead: 0,
+    doSqliteRowsWritten: 0,
+    doRequests: 0,
+    doRequestsRaw: 0,
+    doDurationGbSeconds: 0,
+  }
+}
+
+function projectSimulationResultToTargetArchitecture(
+  mode: CapacityScenario,
+  current: SimulationResult,
+): SimulationResult {
+  const playerCount = scenarioPlayersPerDraft(mode)
+  const viewerCount = scenarioViewerIds(mode).length
+  const spectatorCount = mode.spectatorIds?.length ?? 0
+  const averageAcceptedSwaps = isTeamMode(mode.mode) ? AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT : 0
+  const lifecycleWebhookBotRequests = 1 + averageAcceptedSwaps + (isTeamMode(mode.mode) ? 1 : 0)
+  const removedBotRequests = lifecycleWebhookBotRequests + playerCount + spectatorCount
+  const removedActivityRequests = viewerCount + viewerCount + playerCount + spectatorCount
+  const removedPostDraftSnapshotRowsRead = playerCount * (1 + playerCount)
+
+  const botWorkerRequests = Math.max(0, roundSnapshotNumber(current.usage.botWorkerRequests - removedBotRequests))
+  const activityWorkerRequests = Math.max(0, roundSnapshotNumber(current.usage.activityWorkerRequests - removedActivityRequests))
+  const sessionCommandRequests = estimateTargetSessionCommandRequests(mode, current.openLobbyMutationRequests)
+  const sessionSocketConnections = viewerCount * TARGET_SESSION_SOCKET_CONNECTIONS_PER_VIEWER
+  const doRequestsRaw = sessionCommandRequests + sessionSocketConnections + current.draftRoomIncomingMessages
+  const doRequests = sessionCommandRequests
+    + sessionSocketConnections
+    + Math.ceil(current.draftRoomIncomingMessages / DO_WEBSOCKET_BILLING_RATIO)
+
+  return {
+    ...current,
+    usage: {
+      workersRequests: botWorkerRequests + activityWorkerRequests,
+      botWorkerRequests,
+      activityWorkerRequests,
+      partyWorkerRequests: 0,
+      d1RowsRead: Math.max(0, roundSnapshotNumber(
+        current.usage.d1RowsRead
+        - removedPostDraftSnapshotRowsRead
+        + viewerCount * TARGET_DIRECTORY_READS_PER_VIEWER_LAUNCH
+        + mode.joinGroups.length * TARGET_DIRECTORY_READS_PER_JOIN_GROUP,
+      )),
+      d1RowsWritten: roundSnapshotNumber(
+        current.usage.d1RowsWritten
+        + TARGET_DIRECTORY_WRITES_PER_SESSION_CREATE
+        + playerCount * TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_JOIN
+        + current.openLobbyMutationRequests * TARGET_DIRECTORY_WRITES_PER_OPEN_LOBBY_MUTATION
+        + TARGET_DIRECTORY_WRITES_PER_DRAFT_START
+        + TARGET_DIRECTORY_WRITES_PER_REPORT
+        + playerCount * TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP,
+      ),
+      doSqliteRowsRead: roundSnapshotNumber(
+        sessionCommandRequests * TARGET_SESSION_DO_SQL_READS_PER_COMMAND
+        + sessionSocketConnections * TARGET_SESSION_DO_SQL_READS_PER_SOCKET_CONNECT
+        + current.draftRoomIncomingMessages * TARGET_SESSION_DO_SQL_READS_PER_DRAFT_MESSAGE,
+      ),
+      doSqliteRowsWritten: roundSnapshotNumber(
+        sessionCommandRequests * TARGET_SESSION_DO_SQL_WRITES_PER_COMMAND
+        + sessionSocketConnections * TARGET_SESSION_DO_SQL_WRITES_PER_SOCKET_CONNECT
+        + current.draftRoomIncomingMessages * TARGET_SESSION_DO_SQL_WRITES_PER_DRAFT_MESSAGE,
+      ),
+      kvReads: current.usage.kvReads,
+      kvWrites: current.usage.kvWrites,
+      kvDeletes: current.usage.kvDeletes,
+      kvLists: current.usage.kvLists,
+      doRequests,
+      doRequestsRaw,
+      doDurationGbSeconds: estimateDoDurationGbSeconds(doRequestsRaw),
+    },
+  }
+}
+
+function estimateTargetSessionCommandRequests(mode: CapacityScenario, openLobbyMutationRequests: number): number {
+  return 1
+    + mode.joinGroups.length
+    + openLobbyMutationRequests
+    + 1
+    + 1
+}
+
 function applyAcceptedTeamSwap(state: DraftState): DraftState {
   const teammateSeatsByTeam = new Map<number, number[]>()
   for (let seatIndex = 0; seatIndex < state.seats.length; seatIndex++) {
@@ -1410,15 +1517,31 @@ function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
   const backgroundDailyUsage = reports[0]?.model.backgroundDaily
 
   return {
-    version: 2,
+    version: 3,
     globals: {
       stabilitySamples: CAPACITY_STABILITY_SAMPLES,
       leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
       inactiveLobbyCleanupCronRunsPerDay: INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY,
       rankedRoleCronRunsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY,
-      lobbyWatchMsgsPerConnection: LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION,
+      architectureModel: TARGET_ARCHITECTURE_MODEL,
+      lobbyWatchMsgsPerConnection: 0,
       doWebsocketBillingRatio: DO_WEBSOCKET_BILLING_RATIO,
       estimatedDoGbSecondsPerRequest: ESTIMATED_DO_GB_SECONDS_PER_REQUEST,
+      sessionSocketConnectionsPerViewer: TARGET_SESSION_SOCKET_CONNECTIONS_PER_VIEWER,
+      sessionDoSqlReadsPerCommand: TARGET_SESSION_DO_SQL_READS_PER_COMMAND,
+      sessionDoSqlWritesPerCommand: TARGET_SESSION_DO_SQL_WRITES_PER_COMMAND,
+      sessionDoSqlReadsPerSocketConnect: TARGET_SESSION_DO_SQL_READS_PER_SOCKET_CONNECT,
+      sessionDoSqlWritesPerSocketConnect: TARGET_SESSION_DO_SQL_WRITES_PER_SOCKET_CONNECT,
+      sessionDoSqlReadsPerDraftMessage: TARGET_SESSION_DO_SQL_READS_PER_DRAFT_MESSAGE,
+      sessionDoSqlWritesPerDraftMessage: TARGET_SESSION_DO_SQL_WRITES_PER_DRAFT_MESSAGE,
+      directoryReadsPerViewerLaunch: TARGET_DIRECTORY_READS_PER_VIEWER_LAUNCH,
+      directoryReadsPerJoinGroup: TARGET_DIRECTORY_READS_PER_JOIN_GROUP,
+      directoryWritesPerSessionCreate: TARGET_DIRECTORY_WRITES_PER_SESSION_CREATE,
+      directoryWritesPerParticipantJoin: TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_JOIN,
+      directoryWritesPerOpenLobbyMutation: TARGET_DIRECTORY_WRITES_PER_OPEN_LOBBY_MUTATION,
+      directoryWritesPerDraftStart: TARGET_DIRECTORY_WRITES_PER_DRAFT_START,
+      directoryWritesPerReport: TARGET_DIRECTORY_WRITES_PER_REPORT,
+      directoryWritesPerParticipantReportCleanup: TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP,
       averageAcceptedSwapsPerTeamDraft: AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT,
     },
     backgroundDailyUsage: backgroundDailyUsage ? roundNumericRecord(backgroundDailyUsage) : null,
@@ -1519,9 +1642,25 @@ function printReports(reports: ScenarioReport[]): void {
     leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
     inactiveLobbyCleanupCronRunsPerDay: INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY,
     rankedRoleCronRunsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY,
-    lobbyWatchMsgsPerConnection: LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION,
+    architectureModel: TARGET_ARCHITECTURE_MODEL,
+    lobbyWatchMsgsPerConnection: 0,
     doWebsocketBillingRatio: DO_WEBSOCKET_BILLING_RATIO,
     estimatedDoGbSecondsPerRequest: ESTIMATED_DO_GB_SECONDS_PER_REQUEST,
+    sessionSocketConnectionsPerViewer: TARGET_SESSION_SOCKET_CONNECTIONS_PER_VIEWER,
+    sessionDoSqlReadsPerCommand: TARGET_SESSION_DO_SQL_READS_PER_COMMAND,
+    sessionDoSqlWritesPerCommand: TARGET_SESSION_DO_SQL_WRITES_PER_COMMAND,
+    sessionDoSqlReadsPerSocketConnect: TARGET_SESSION_DO_SQL_READS_PER_SOCKET_CONNECT,
+    sessionDoSqlWritesPerSocketConnect: TARGET_SESSION_DO_SQL_WRITES_PER_SOCKET_CONNECT,
+    sessionDoSqlReadsPerDraftMessage: TARGET_SESSION_DO_SQL_READS_PER_DRAFT_MESSAGE,
+    sessionDoSqlWritesPerDraftMessage: TARGET_SESSION_DO_SQL_WRITES_PER_DRAFT_MESSAGE,
+    directoryReadsPerViewerLaunch: TARGET_DIRECTORY_READS_PER_VIEWER_LAUNCH,
+    directoryReadsPerJoinGroup: TARGET_DIRECTORY_READS_PER_JOIN_GROUP,
+    directoryWritesPerSessionCreate: TARGET_DIRECTORY_WRITES_PER_SESSION_CREATE,
+    directoryWritesPerParticipantJoin: TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_JOIN,
+    directoryWritesPerOpenLobbyMutation: TARGET_DIRECTORY_WRITES_PER_OPEN_LOBBY_MUTATION,
+    directoryWritesPerDraftStart: TARGET_DIRECTORY_WRITES_PER_DRAFT_START,
+    directoryWritesPerReport: TARGET_DIRECTORY_WRITES_PER_REPORT,
+    directoryWritesPerParticipantReportCleanup: TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP,
   })
 
   if (backgroundDailyUsage) {
