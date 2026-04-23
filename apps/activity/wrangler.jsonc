@@ -6,8 +6,7 @@
   "main": "src/server/index.ts",
   "vars": {
     "DISCORD_CLIENT_ID": "1469447716751933533",
-    "BOT_HOST": "https://civup-bot.rettend.workers.dev",
-    "PARTY_HOST": "https://party.rettend.me"
+    "BOT_HOST": "https://civup-bot.rettend.workers.dev"
   },
   "services": [
     {

@@ -144,8 +144,8 @@ export async function joinLobbyAndMaybeStartMatch(
   c: {
     env: {
       KV: KVNamespace
+      State?: DurableObjectNamespace
       DISCORD_TOKEN?: string
-      PARTY_HOST?: string
       CIVUP_SECRET?: string
     }
   },

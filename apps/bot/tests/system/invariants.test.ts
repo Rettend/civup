@@ -51,8 +51,8 @@ describe('system invariant runners', () => {
     await expect(joinLobbyAndMaybeStartMatch({
       env: {
         KV: world.kv,
+        State: world.env.State,
         DISCORD_TOKEN: world.env.DISCORD_TOKEN,
-        PARTY_HOST: world.env.PARTY_HOST,
         CIVUP_SECRET: world.env.CIVUP_SECRET,
       },
     }, '1v1', [{
