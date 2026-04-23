@@ -75,3 +75,26 @@ export function shouldHoldAuthenticatedDraftStateForSelection(input: {
 
   return true
 }
+
+export function shouldApplyActivityLaunchSnapshotRefresh(input: {
+  requestVersion: number
+  latestRequestVersion: number
+  requestedChannelId: string
+  requestedUserId: string
+  activeChannelId: string | null
+  activeUserId: string | null
+  hydratedLiveState: boolean
+  liveStateRevisionAtStart: number
+  liveStateRevision: number
+}): boolean {
+  if (input.requestVersion !== input.latestRequestVersion) return false
+  if (input.requestedChannelId !== input.activeChannelId || input.requestedUserId !== input.activeUserId) return false
+  if (
+    input.hydratedLiveState
+    && input.liveStateRevision !== input.liveStateRevisionAtStart
+  ) {
+    return false
+  }
+
+  return true
+}
