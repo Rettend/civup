@@ -8,12 +8,12 @@ import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLab
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
-import { deriveQueueBackedLobbyMemberPlayerIds, filterQueueEntriesForLobby, getCurrentLobbiesForPlayers, getLobbiesByMode, getOpenLobbyForPlayer, isQueueBackedOpenLobbyState, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, reconcileOpenLobbyState, sameLobbySlots, upsertLobby } from '../../services/lobby/index.ts'
+import { commitLobbyState, deriveQueueBackedLobbyMemberPlayerIds, filterQueueEntriesForLobby, getCurrentLobbiesForPlayers, getLobbiesByMode, getOpenLobbyForPlayer, isQueueBackedOpenLobbyState, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, reconcileOpenLobbyState, sameLobbySlots } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { getQueueState, getQueueStateWithPlayerQueueModes, MAX_QUEUE_ENTRIES, removeFromQueueAndUnlinkParty, setQueueEntries } from '../../services/queue/index.ts'
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds } from '../../services/ranked/roles.ts'
-import { formatSessionAdmissionError, isSessionAdmissionError, projectLobbySession } from '../../services/session/index.ts'
+import { formatSessionAdmissionError, isSessionAdmissionError } from '../../services/session/index.ts'
 import { createStateStore } from '../../services/state/store.ts'
 
 const ALL_FFA_PLACEMENT_KEYS = ['second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'] as const
@@ -146,6 +146,7 @@ export async function joinLobbyAndMaybeStartMatch(
     env: {
       DB?: D1Database
       KV: KVNamespace
+      SessionDO?: DurableObjectNamespace
       State?: DurableObjectNamespace
       DISCORD_TOKEN?: string
       CIVUP_SECRET?: string
@@ -357,6 +358,10 @@ export async function joinLobbyAndMaybeStartMatch(
       currentOpenLobby,
       requestedEntries.map(entry => entry.playerId),
       mode,
+      {
+        db: c.env.DB ? createCivupDb(c.env.DB) : null,
+        sessionNamespace: c.env.SessionDO,
+      },
     )
     if (!transferResult.ok) {
       return { error: transferResult.error }
@@ -399,16 +404,17 @@ export async function joinLobbyAndMaybeStartMatch(
       updatedAt: now,
       revision: nextLobby.revision + 1,
     }
-    if (c.env.DB) {
-      try {
-        await projectLobbySession(createCivupDb(c.env.DB), nextLobby)
-      }
-      catch (error) {
-        if (isSessionAdmissionError(error)) return { error: formatSessionAdmissionError(error) }
-        throw error
-      }
+    try {
+      await commitLobbyState(kv, nextLobby, {
+        db: c.env.DB ? createCivupDb(c.env.DB) : null,
+        sessionNamespace: c.env.SessionDO,
+        queueEntries: queue.entries,
+      })
     }
-    await upsertLobby(kv, nextLobby)
+    catch (error) {
+      if (isSessionAdmissionError(error)) return { error: formatSessionAdmissionError(error) }
+      throw error
+    }
   }
 
   const finalQueueEntries = filterQueueEntriesForLobby(nextLobby, queue.entries)

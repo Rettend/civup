@@ -2,7 +2,8 @@ import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
 import type { Database } from '@civup/db'
 import type { LobbyArrangeStrategy, LobbyDraftConfig, LobbyState, LobbyStatus } from './types.ts'
 import { nanoid } from 'nanoid'
-import { createSessionAggregateFromLobby } from '../../session-runtime/session-do-client.ts'
+import { createSessionAggregateFromLobby, syncSessionAggregateFromLobby } from '../../session-runtime/session-do-client.ts'
+import { buildLobbyStateFromSessionRecord } from '../../session-runtime/session-record.ts'
 import { syncActivityOverviewSnapshotForLobby } from '../activity/live-state.ts'
 import { getQueueState } from '../queue/index.ts'
 import { closeLobbySessionProjection, projectLobbySession } from '../session/directory.ts'
@@ -21,8 +22,10 @@ const LOBBY_STATUS_TRANSITIONS: Record<LobbyStatus, LobbyStatus[]> = {
   scrubbed: [],
 }
 
-interface LobbySessionProjectionOptions {
+export interface LobbySessionProjectionOptions {
   db?: Database | null
+  sessionNamespace?: DurableObjectNamespace | null
+  queueEntries?: readonly QueueEntry[] | null
 }
 
 export function canTransitionLobbyStatus(from: LobbyStatus, to: LobbyStatus): boolean {
@@ -70,14 +73,20 @@ export async function createLobby(
     revision: 1,
   }
   const queueEntries = input.queueEntries ?? (await getQueueState(kv, lobby.mode)).entries
-  const snapshot = await buildLobbyLiveSnapshotFromParts(kv, lobby.mode, lobby, queueEntries, slots)
   await projectLobbySessionIfAvailable(input.db, lobby)
 
   let visible = false
+  let visibleLobby = lobby
   try {
-    await createSessionAggregateFromLobby(input.sessionNamespace, lobby, queueEntries)
-    await putLobbyEntries(kv, lobby, [{
-      key: lobbySnapshotKey(lobby.id),
+    const record = await createSessionAggregateFromLobby(input.sessionNamespace, lobby, queueEntries)
+    if (record) {
+      visibleLobby = buildLobbyStateFromSessionRecord(record, lobby)
+      await projectLobbySessionIfAvailable(input.db, visibleLobby)
+    }
+
+    const snapshot = await buildLobbyLiveSnapshotFromParts(kv, visibleLobby.mode, visibleLobby, queueEntries, visibleLobby.slots)
+    await putLobbyEntries(kv, visibleLobby, [{
+      key: lobbySnapshotKey(visibleLobby.id),
       value: JSON.stringify(snapshot),
       expirationTtl: LOBBY_TTL,
     }])
@@ -88,8 +97,16 @@ export async function createLobby(
     throw error
   }
 
-  await syncActivityOverviewSnapshotForLobby(kv, lobby)
-  return lobby
+  await syncActivityOverviewSnapshotForLobby(kv, visibleLobby)
+  return visibleLobby
+}
+
+export async function commitLobbyState(
+  kv: KVNamespace,
+  lobby: LobbyState,
+  options?: LobbySessionProjectionOptions,
+): Promise<LobbyState> {
+  return await commitLobbyMutation(kv, lobby, options)
 }
 
 export async function attachLobbyMatch(
@@ -122,9 +139,7 @@ export async function attachLobbyMatch(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  await putLobby(kv, updated)
-  await projectLobbySessionIfAvailable(options?.db, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options)
 }
 
 export async function setLobbyStatus(
@@ -156,9 +171,7 @@ export async function setLobbyStatus(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  await putLobby(kv, updated)
-  await projectLobbySessionIfAvailable(options?.db, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options)
 }
 
 export async function setLobbyMessage(
@@ -183,9 +196,7 @@ export async function setLobbyMessage(
   if (lobby.channelId !== channelId) {
     await stateStoreMdelete(kv, [channelIndexKey(lobby.channelId, lobby.id)])
   }
-  await putLobby(kv, updated)
-  await projectLobbySessionIfAvailable(options?.db, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options)
 }
 
 export async function setLobbyDraftConfig(
@@ -207,9 +218,7 @@ export async function setLobbyDraftConfig(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  await putLobby(kv, updated)
-  await projectLobbySessionIfAvailable(options?.db, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options)
 }
 
 export async function setLobbyMinRole(
@@ -231,9 +240,7 @@ export async function setLobbyMinRole(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  await putLobby(kv, updated)
-  await projectLobbySessionIfAvailable(options?.db, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options)
 }
 
 export async function setLobbyMaxRole(
@@ -255,9 +262,7 @@ export async function setLobbyMaxRole(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  await putLobby(kv, updated)
-  await projectLobbySessionIfAvailable(options?.db, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options)
 }
 
 export async function setLobbySteamLobbyLink(
@@ -278,9 +283,7 @@ export async function setLobbySteamLobbyLink(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  await putLobby(kv, updated)
-  await projectLobbySessionIfAvailable(options?.db, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options)
 }
 
 export async function setLobbySlots(
@@ -302,9 +305,7 @@ export async function setLobbySlots(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  await putLobby(kv, updated)
-  await projectLobbySessionIfAvailable(options?.db, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options)
 }
 
 export async function setLobbyArranged(
@@ -331,9 +332,7 @@ export async function setLobbyArranged(
     updatedAt: now,
     revision: lobby.revision + 1,
   }
-  await putLobby(kv, updated)
-  await projectLobbySessionIfAvailable(options?.db, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options)
 }
 
 export async function setLobbyMemberPlayerIds(
@@ -355,9 +354,7 @@ export async function setLobbyMemberPlayerIds(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  await putLobbyEntries(kv, updated)
-  await projectLobbySessionIfAvailable(options?.db, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options, putLobbyEntries)
 }
 
 export async function setLobbyLastActivityAt(
@@ -379,14 +376,28 @@ export async function setLobbyLastActivityAt(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  await putLobby(kv, updated)
-  await projectLobbySessionIfAvailable(options?.db, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options)
 }
 
 async function projectLobbySessionIfAvailable(db: Database | null | undefined, lobby: LobbyState): Promise<void> {
   if (!db) return
   await projectLobbySession(db, lobby)
+}
+
+type LobbyWriter = (kv: KVNamespace, lobby: LobbyState) => Promise<void>
+
+async function commitLobbyMutation(
+  kv: KVNamespace,
+  updated: LobbyState,
+  options?: LobbySessionProjectionOptions,
+  write: LobbyWriter = putLobby,
+): Promise<LobbyState> {
+  await projectLobbySessionIfAvailable(options?.db, updated)
+  const record = await syncSessionAggregateFromLobby(options?.sessionNamespace, updated, options?.queueEntries ?? [])
+  const authoritative = record ? buildLobbyStateFromSessionRecord(record, updated) : updated
+  if (record) await projectLobbySessionIfAvailable(options?.db, authoritative)
+  await write(kv, authoritative)
+  return authoritative
 }
 
 async function closeLobbySessionProjectionIfAvailable(db: Database | null | undefined, lobbyId: string): Promise<void> {
