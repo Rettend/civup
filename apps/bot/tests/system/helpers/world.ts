@@ -54,6 +54,35 @@ interface PartyRoomRecord {
   nextWebhookEventSequence: number
 }
 
+function createCapturedMainNamespace(partyRooms: Map<string, PartyRoomRecord>): DurableObjectNamespace {
+  return {
+    idFromName(name: string) {
+      return name as unknown as DurableObjectId
+    },
+    get(id: DurableObjectId) {
+      const roomName = String(id)
+      return {
+        async fetch(request: Request): Promise<Response> {
+          const url = new URL(request.url)
+          if (url.pathname === '/cdn-cgi/partyserver/set-name/') return Response.json({ ok: true })
+          if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
+
+          const body = await request.json() as RoomConfig
+          partyRooms.set(body.matchId, {
+            config: body,
+            completionPayloads: [],
+            cancellationPayloads: [],
+            nextWebhookEventSequence: 0,
+          })
+          if (body.matchId !== roomName) return new Response('Room name mismatch', { status: 409 })
+
+          return Response.json({ ok: true }, { status: 201 })
+        },
+      } as DurableObjectStub
+    },
+  } as unknown as DurableObjectNamespace
+}
+
 interface CompleteDraftOptions {
   finalized?: boolean
   transformState?: (state: DraftState) => DraftState
@@ -199,6 +228,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
   const env = buildBotTestEnv({
     DB: createSqliteD1Database(sqlite),
     KV: kv,
+    Main: createCapturedMainNamespace(partyRooms),
     DISCORD_APPLICATION_ID: 'app',
     DISCORD_PUBLIC_KEY: 'public-key',
     DISCORD_TOKEN: 'token',

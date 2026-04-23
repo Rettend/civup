@@ -1,5 +1,5 @@
 import { routePartykitRequest } from 'partyserver'
-import { Main } from './draft-room'
+import { Main } from '../../bot/src/session-runtime/main.ts'
 import { State } from './state-store'
 
 export { Main }
