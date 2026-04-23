@@ -3,7 +3,7 @@ import { LEADERBOARD_MODE_CHOICES, parseLeaderboardMode } from '@civup/game'
 import { Command, Option } from 'discord-hono'
 import { rankedPreviewEmbeds } from '../embeds/ranked-preview.ts'
 import { summarizeRankedPreview } from '../services/ranked/role-sync.ts'
-import { sendGeneralCommandResponse } from '../services/response/general.ts'
+import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { createStateStore } from '../services/state/store.ts'
 import { factory } from '../setup.ts'
 
@@ -26,7 +26,7 @@ export const command_tiers = factory.command<Var>(
 
     if (!guildId) return c.res('This command can only be used in a server.')
 
-    return c.resDefer(async (c) => {
+    return resDeferGeneralCommandResponse(c, async (c) => {
       const db = createDb(c.env.DB)
       const kv = createStateStore(c.env)
       const summary = await summarizeRankedPreview({
@@ -36,7 +36,7 @@ export const command_tiers = factory.command<Var>(
         mode: mode ?? undefined,
       })
 
-      await sendGeneralCommandResponse(c, { embeds: rankedPreviewEmbeds(summary) })
+      return { embeds: rankedPreviewEmbeds(summary) }
     })
   },
 )
