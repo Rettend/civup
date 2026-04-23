@@ -3,6 +3,7 @@ import { Command, Option } from 'discord-hono'
 import { rankEmbed } from '../embeds/rank.ts'
 import { syncPlayerProfileFromDiscord } from '../services/player/profile.ts'
 import { getPlayerRankProfile } from '../services/player/rank.ts'
+import { sendGeneralCommandResponse } from '../services/response/general.ts'
 import { getActiveSeason } from '../services/season/index.ts'
 import { listPlayerSeasonSnapshotHistory } from '../services/season/snapshot-roles.ts'
 import { createStateStore } from '../services/state/store.ts'
@@ -47,7 +48,7 @@ export const command_rank = factory.command<Var>(
         activeSeason,
         seasonHistory,
       })
-      await c.followup({ embeds: [embed] })
+      await sendGeneralCommandResponse(c, { embeds: [embed] })
     })
   },
 )

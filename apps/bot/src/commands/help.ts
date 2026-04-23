@@ -1,6 +1,7 @@
 import { api } from '@civup/utils'
 import { Command, Embed } from 'discord-hono'
 import { canUseModCommands, hasAdminPermission, parseRoleIds } from '../services/permissions/index.ts'
+import { sendGeneralCommandResponse } from '../services/response/general.ts'
 import { sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { factory } from '../setup'
 
@@ -76,6 +77,11 @@ export const command_help = factory.command(
 
       if (embeds.length === 0) {
         await sendTransientEphemeralResponse(c, 'No commands available for your permissions in this context.', 'error')
+        return
+      }
+
+      if (!canUseAdmin && !canUseMod) {
+        await sendGeneralCommandResponse(c, { embeds })
         return
       }
 
