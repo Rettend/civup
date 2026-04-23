@@ -177,9 +177,23 @@ async function handlePartyProxy(request: Request, url: URL, env: Env): Promise<R
     const session = await requireActivitySession(request, env)
     if (session instanceof Response) return session
 
-    const partyHost = normalizeHost(env.PARTY_HOST, 'http://localhost:1999')
     const targetPath = url.pathname.replace(/^\/api\/parties/, '/parties')
-    targetUrl = `${partyHost}${buildTargetPath(url, targetPath)}`
+    const resolvedTargetPath = buildTargetPath(url, targetPath)
+
+    if (isBotOwnedPartyPath(url.pathname)) {
+      const botService = env.BOT
+      if (botService && shouldUseBotServiceBinding(request, env)) {
+        targetUrl = `service:civup-bot${resolvedTargetPath}`
+        return await botService.fetch(buildProxyRequest(`https://civup-bot.internal${resolvedTargetPath}`, request, env, session))
+      }
+
+      const botHost = normalizeHost(env.BOT_HOST, 'http://localhost:8787')
+      targetUrl = `${botHost}${resolvedTargetPath}`
+      return await fetch(buildProxyRequest(targetUrl, request, env, session))
+    }
+
+    const partyHost = normalizeHost(env.PARTY_HOST, 'http://localhost:1999')
+    targetUrl = `${partyHost}${resolvedTargetPath}`
     return fetch(buildProxyRequest(targetUrl, request, env, session))
   }
   catch (err) {
@@ -226,6 +240,10 @@ function buildProxyRequest(targetUrl: string, request: Request, env: Env, sessio
   }
 
   return new Request(targetUrl, init)
+}
+
+function isBotOwnedPartyPath(pathname: string): boolean {
+  return pathname === '/api/parties/main' || pathname.startsWith('/api/parties/main/')
 }
 
 function shouldWarnForMatchProxy(method: string, pathname: string, status: number): boolean {

@@ -390,6 +390,27 @@ describe('draft room creation', () => {
     expect(result.formatId).toBe('default-ffa')
   })
 
+  test('posts room initialization to the bot-owned main route', async () => {
+    let requestUrl: string | null = null
+    let postedConfig: { matchId?: unknown } | null = null
+    globalThis.fetch = (async (input, init) => {
+      requestUrl = typeof input === 'string' ? input : input.url
+      postedConfig = JSON.parse(String(init?.body)) as { matchId?: unknown }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    await createDraftRoom('1v1', baseFfaEntries.slice(0, 2), {
+      hostId: 'p1',
+      botHost: 'https://bot.test',
+    })
+
+    expect(postedConfig?.matchId).toEqual(expect.any(String))
+    expect(requestUrl).toBe(`https://bot.test/parties/main/${postedConfig?.matchId}`)
+  })
+
   test('uses simultaneous FFA when requested', async () => {
     let postedConfig: { formatId?: unknown } | null = null
     globalThis.fetch = (async (_input, init) => {

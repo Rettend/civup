@@ -213,11 +213,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
   const restoreFetchHandler = installFetchHandler(async (request) => {
     const url = new URL(request.url)
 
-    if (url.origin === BOT_HOST) {
-      return app.fetch(request, env, execution.executionCtx)
-    }
-
-    if (url.origin === PARTY_HOST && request.method === 'POST' && /^\/parties\/main\/[^/]+$/.test(url.pathname)) {
+    if (url.origin === BOT_HOST && request.method === 'POST' && /^\/parties\/main\/[^/]+$/.test(url.pathname)) {
       const body = await request.json() as RoomConfig
       partyRooms.set(body.matchId, {
         config: body,
@@ -226,6 +222,10 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         nextWebhookEventSequence: 0,
       })
       return jsonResponse({ ok: true })
+    }
+
+    if (url.origin === BOT_HOST) {
+      return app.fetch(request, env, execution.executionCtx)
     }
 
     if (url.origin === PARTY_HOST && request.method === 'POST' && url.pathname === '/parties/state/global') {
