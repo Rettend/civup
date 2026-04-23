@@ -1,7 +1,7 @@
 import type { DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry, RoomConfig } from '@civup/game'
 import type { LobbyState } from '../lobby/types.ts'
 import { allFactionIds, getDraftFormat, isTeamMode, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
-import { api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, normalizeHost } from '@civup/utils'
+import { ApiError, api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, normalizeHost } from '@civup/utils'
 import { nanoid } from 'nanoid'
 import { getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer } from '../lobby/index.ts'
 import { channelIndexKey, idKey, matchKey, modeIndexKey } from '../lobby/keys.ts'
@@ -18,6 +18,7 @@ export interface MatchCreationResult {
 }
 
 export interface CreateDraftRoomOptions {
+  mainNamespace?: DurableObjectNamespace
   hostId: string
   leaderDataVersion?: LeaderDataVersion
   blindBans?: boolean
@@ -200,9 +201,9 @@ async function getUserIdsTargetingTarget(
     .filter((userId): userId is string => userId != null)
 }
 
-// ── Create a draft room via PartyKit HTTP API ───────────
+// ── Create a draft room in the bot-owned runtime ────────
 
-/** Creates a PartyKit draft room and returns the match config */
+/** Creates a draft room and returns the match config */
 export async function createDraftRoom(
   mode: GameMode,
   entries: QueueEntry[],
@@ -238,17 +239,69 @@ export async function createDraftRoom(
     webhookSecret: options.webhookSecret,
   }
 
+  await initializeDraftRoom(config, options)
+
+  return { matchId, formatId: format.id, seats }
+}
+
+async function initializeDraftRoom(config: RoomConfig, options: Pick<CreateDraftRoomOptions, 'mainNamespace' | 'botHost' | 'webhookSecret'>): Promise<void> {
+  if (options.mainNamespace) {
+    await initializeDraftRoomViaMainStub(config, options.mainNamespace, options.webhookSecret)
+    return
+  }
+
   // Room name = matchId so activity and bot commands hit the same runtime.
   const normalizedHost = normalizeHost(options.botHost, DEFAULT_BOT_HOST)
-  const url = `${normalizedHost}/parties/main/${matchId}`
+  const url = `${normalizedHost}/parties/main/${config.matchId}`
 
   await api.post(url, config, {
     headers: options.webhookSecret
       ? { [CIVUP_INTERNAL_SECRET_HEADER]: options.webhookSecret }
       : undefined,
   })
+}
 
-  return { matchId, formatId: format.id, seats }
+async function initializeDraftRoomViaMainStub(
+  config: RoomConfig,
+  mainNamespace: DurableObjectNamespace,
+  internalSecret: string | undefined,
+): Promise<void> {
+  const stub = mainNamespace.get(mainNamespace.idFromName(config.matchId))
+  const response = await stub.fetch(new Request(`https://civup-bot.internal/parties/main/${config.matchId}`, {
+    method: 'POST',
+    headers: buildDraftRoomCreateHeaders(config.matchId, internalSecret),
+    body: JSON.stringify(config),
+  }))
+
+  if (!response.ok) throw await buildDraftRoomCreateError(response)
+}
+
+function buildDraftRoomCreateHeaders(roomName: string, internalSecret: string | undefined): Headers {
+  const headers = new Headers({ 'Content-Type': 'application/json' })
+  headers.set('x-partykit-room', roomName)
+  headers.set('x-partykit-namespace', 'main')
+  if (internalSecret) headers.set(CIVUP_INTERNAL_SECRET_HEADER, internalSecret)
+  return headers
+}
+
+async function buildDraftRoomCreateError(response: Response): Promise<ApiError> {
+  let errorMessage = `Request failed with status ${response.status}`
+  let errorData: unknown
+
+  try {
+    const text = await response.text()
+    try {
+      const data = JSON.parse(text)
+      if (data && typeof data === 'object' && 'error' in data) errorMessage = String(data.error)
+      errorData = data
+    }
+    catch {
+      if (text.length < 500) errorMessage = text
+    }
+  }
+  catch {}
+
+  return new ApiError(errorMessage, response.status, errorData, response.headers)
 }
 
 function buildDraftWebhookUrl(botHost: string | undefined): string {

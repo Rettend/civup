@@ -1,4 +1,4 @@
-import type { QueueEntry } from '@civup/game'
+import type { QueueEntry, RoomConfig } from '@civup/game'
 import { verifyDraftRoomAccessToken } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
 import {
@@ -33,6 +33,22 @@ const baseFfaEntries: QueueEntry[] = Array.from({ length: 4 }, (_, index) => ({
   displayName: `P${index + 1}`,
   joinedAt: index,
 }))
+
+function createMainNamespaceStub(handler: (request: Request, roomName: string) => Promise<Response> | Response): DurableObjectNamespace {
+  return {
+    idFromName(name: string) {
+      return name as unknown as DurableObjectId
+    },
+    get(id: DurableObjectId) {
+      const roomName = String(id)
+      return {
+        fetch(request: Request) {
+          return handler(request, roomName)
+        },
+      } as DurableObjectStub
+    },
+  } as unknown as DurableObjectNamespace
+}
 
 describe('activity mapping behavior', () => {
   test('channel-scoped activity target resolves for lobby and spectator selection', async () => {
@@ -409,6 +425,37 @@ describe('draft room creation', () => {
 
     expect(postedConfig?.matchId).toEqual(expect.any(String))
     expect(requestUrl).toBe(`https://bot.test/parties/main/${postedConfig?.matchId}`)
+  })
+
+  test('uses the bot-owned Main durable object directly when available', async () => {
+    let initializedRoom: { roomName: string, config: RoomConfig } | null = null
+    globalThis.fetch = (() => {
+      throw new Error('createDraftRoom should not hit fetch when Main is available')
+    }) as typeof fetch
+
+    await createDraftRoom('1v1', baseFfaEntries.slice(0, 2), {
+      hostId: 'p1',
+      webhookSecret: 'secret',
+      mainNamespace: createMainNamespaceStub(async (request, roomName) => {
+        const url = new URL(request.url)
+        if (url.pathname === '/cdn-cgi/partyserver/set-name/') return Response.json({ ok: true })
+
+        initializedRoom = {
+          roomName,
+          config: await request.json() as RoomConfig,
+        }
+        return Response.json({ ok: true }, { status: 201 })
+      }),
+    })
+
+    expect(initializedRoom).toEqual({
+      roomName: expect.any(String),
+      config: expect.objectContaining({
+        matchId: expect.any(String),
+        hostId: 'p1',
+      }),
+    })
+    expect(initializedRoom?.roomName).toBe(initializedRoom?.config.matchId)
   })
 
   test('uses simultaneous FFA when requested', async () => {
