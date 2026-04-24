@@ -581,13 +581,13 @@ async function simulateScenarioLifecycle(input: {
     botRequests += 1
     await simulateMatchCreate(db, kv, input.mode)
     const queuedPlayerIds = [HOST_ID]
-    await runUnmetered(() => assertOpenCapacityState(kv, input.mode.mode, queuedPlayerIds))
+    await runUnmetered(() => assertOpenCapacityState(db, kv, input.mode.mode, queuedPlayerIds))
 
     for (const group of input.mode.joinGroups) {
       botRequests += 1
       await simulateMatchJoin(db, kv, input.mode, group)
       queuedPlayerIds.push(...group)
-      await runUnmetered(() => assertOpenCapacityState(kv, input.mode.mode, queuedPlayerIds))
+      await runUnmetered(() => assertOpenCapacityState(db, kv, input.mode.mode, queuedPlayerIds))
     }
 
     const playerIds = scenarioPlayerIds(input.mode)
@@ -614,7 +614,7 @@ async function simulateScenarioLifecycle(input: {
     activityRequests += openLobbyMutationRequests
     botRequests += openLobbyMutationRequests
     const legacySelectedLobbyRefetchRequests = viewerIds.length * openLobbyMutationRequests
-    await runUnmetered(() => assertOpenCapacityState(kv, input.mode.mode, scenarioPlayerIds(input.mode)))
+    await runUnmetered(() => assertOpenCapacityState(db, kv, input.mode.mode, scenarioPlayerIds(input.mode)))
 
     activityRequests += 1
     botRequests += 1
@@ -808,6 +808,7 @@ async function simulateOpenLobbyConfigEdit(kv: KVNamespace, mode: CapacityScenar
 }
 
 async function assertOpenCapacityState(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   kv: KVNamespace,
   mode: GameMode,
   expectedPlayerIds: string[],
@@ -823,8 +824,8 @@ async function assertOpenCapacityState(
   expect(normalizeLobbySlots(mode, lobby.slots, filterQueueEntriesForLobby(lobby, []))).toEqual(lobby.slots)
 
   for (const playerId of expectedPlayerIds) {
-    expect(await getLobbyForUser(kv, playerId)).toBe(lobby.id)
-    expect(await getMatchForUser(kv, playerId)).toBeNull()
+    expect(await getLobbyForUser(db, playerId)).toBe(lobby.id)
+    expect(await getMatchForUser(db, playerId)).toBeNull()
   }
 }
 
@@ -844,8 +845,8 @@ async function assertDraftingCapacityState(
   expect(lobby?.status).toBe('drafting')
 
   for (const playerId of expectedPlayerIds) {
-    expect(await getLobbyForUser(kv, playerId)).toBeNull()
-    expect(await getMatchForUser(kv, playerId)).toBe(matchId)
+    expect(await getLobbyForUser(db, playerId)).toBeNull()
+    expect(await getMatchForUser(db, playerId)).toBe(matchId)
   }
 }
 
@@ -865,8 +866,8 @@ async function assertActiveCapacityState(
   expect(lobby?.status).toBe('active')
 
   for (const playerId of expectedPlayerIds) {
-    expect(await getLobbyForUser(kv, playerId)).toBeNull()
-    expect(await getMatchForUser(kv, playerId)).toBe(matchId)
+    expect(await getLobbyForUser(db, playerId)).toBeNull()
+    expect(await getMatchForUser(db, playerId)).toBe(matchId)
   }
 }
 
@@ -885,8 +886,8 @@ async function assertCompletedCapacityState(
   expect(await getLobbyByMatch(kv, matchId)).toBeNull()
 
   for (const playerId of expectedPlayerIds) {
-    expect(await getLobbyForUser(kv, playerId)).toBeNull()
-    expect(await getMatchForUser(kv, playerId)).toBeNull()
+    expect(await getLobbyForUser(db, playerId)).toBeNull()
+    expect(await getMatchForUser(db, playerId)).toBeNull()
   }
 }
 

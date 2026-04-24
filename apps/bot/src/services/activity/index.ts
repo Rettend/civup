@@ -1,7 +1,10 @@
-import type { DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry, RoomConfig } from '@civup/game'
-import type { LobbyState } from '../lobby/types.ts'
+import type { Database } from '@civup/db'
+import type { DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
+import type { DraftRuntimeConfig } from '@civup/session'
+import { matches, matchParticipants, sessionDirectory } from '@civup/db'
 import { allFactionIds, getDraftFormat, isTeamMode, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
-import { getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyByMatch, getOpenLobbyForPlayer } from '../lobby/index.ts'
+import { and, desc, eq, inArray, or } from 'drizzle-orm'
+import { getActivitySessionsByChannel, getOpenActivitySessionsForUser } from './session-state.ts'
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -11,7 +14,7 @@ export interface MatchCreationResult {
   seats: DraftSeat[]
 }
 
-export interface CreateDraftRoomOptions {
+export interface CreateDraftRuntimeOptions {
   matchId: string
   hostId: string
   leaderDataVersion?: LeaderDataVersion
@@ -27,7 +30,7 @@ export interface CreateDraftRoomOptions {
 }
 
 export interface DraftRuntimeConfigResult extends MatchCreationResult {
-  config: RoomConfig
+  config: DraftRuntimeConfig
 }
 
 // ── Build draft runtime config under SessionDO ownership ────
@@ -36,7 +39,7 @@ export interface DraftRuntimeConfigResult extends MatchCreationResult {
 export function buildDraftRuntimeConfig(
   mode: GameMode,
   entries: QueueEntry[],
-  options: CreateDraftRoomOptions,
+  options: CreateDraftRuntimeOptions,
 ): DraftRuntimeConfigResult {
   const matchId = options.matchId
   const seats: DraftSeat[] = buildSeats(mode, entries)
@@ -52,7 +55,7 @@ export function buildDraftRuntimeConfig(
   const civPool = redDeathMode
     ? [...allFactionIds]
     : sampleLeaderPool(resolveLeaderPoolSize(mode, seats.length, options.leaderPoolSize))
-  const config: RoomConfig = {
+  const config: DraftRuntimeConfig = {
     matchId,
     hostId: options.hostId,
     formatId: format.id,
@@ -110,56 +113,72 @@ function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
   }))
 }
 
-/** Get the open-lobby ID for a user from canonical lobby membership. */
+/** Get the open-lobby ID for a user from the session directory. */
 export async function getLobbyForUser(
-  kv: KVNamespace,
+  db: Database,
   userId: string,
 ): Promise<string | null> {
-  return (await getOpenLobbyForPlayer(kv, userId))?.id ?? null
+  return (await getOpenActivitySessionsForUser(db, userId))
+    .find(session => session.phase === 'open')
+    ?.sessionId ?? null
 }
 
-/** Get a unique active match ID for a channel when only one exists. */
+/** Get a unique active match ID for a channel from the session directory. */
 export async function getMatchForChannel(
-  kv: KVNamespace,
+  db: Database,
   channelId: string,
 ): Promise<string | null> {
   const matchIds = new Set<string>()
 
-  const lobbies = await getLobbiesByChannel(kv, channelId)
-  for (const lobby of lobbies) {
-    if (!lobby.matchId) continue
-    if (lobby.status !== 'drafting' && lobby.status !== 'active') continue
-    matchIds.add(lobby.matchId)
+  const sessions = await getActivitySessionsByChannel(db, channelId)
+  for (const session of sessions) {
+    if (session.phase !== 'draft' && session.phase !== 'swap' && session.phase !== 'active') continue
+    matchIds.add(session.matchId ?? session.sessionId)
     if (matchIds.size > 1) return null
   }
 
   return [...matchIds][0] ?? null
 }
 
-/** Get match ID for a user from canonical live lobby membership. */
+/** Get match ID for a user from persisted match membership and the session directory. */
 export async function getMatchForUser(
-  kv: KVNamespace,
+  db: Database,
   userId: string,
 ): Promise<string | null> {
-  const liveLobby = (await getCurrentLobbiesForPlayer(kv, userId))
-    .filter((candidate): candidate is LobbyState & { matchId: string } => isCurrentMatchLobby(candidate))
-    .sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null
-  return liveLobby?.matchId ?? null
+  const [active] = await db
+    .select({ matchId: matchParticipants.matchId })
+    .from(matchParticipants)
+    .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+    .where(and(
+      eq(matchParticipants.playerId, userId),
+      inArray(matches.status, ['drafting', 'active']),
+    ))
+    .orderBy(desc(matches.createdAt))
+    .limit(1)
+
+  if (active?.matchId) return active.matchId
+
+  const session = (await getOpenActivitySessionsForUser(db, userId))
+    .find(session => session.phase === 'draft' || session.phase === 'swap') ?? null
+  return session ? session.matchId ?? session.sessionId : null
 }
 
-/** Get channel ID by match ID from canonical same-id lobby state. */
+/** Get channel ID by match ID from the live session directory. */
 export async function getChannelForMatch(
-  kv: KVNamespace,
+  db: Database,
   matchId: string,
 ): Promise<string | null> {
-  const lobby = await getLobbyByMatch(kv, matchId)
-  return lobby?.channelId ?? null
-}
+  const [row] = await db.select({ channelId: sessionDirectory.channelId })
+    .from(sessionDirectory)
+    .where(and(
+      or(
+        eq(sessionDirectory.matchId, matchId),
+        eq(sessionDirectory.sessionId, matchId),
+      ),
+      inArray(sessionDirectory.phase, ['draft', 'swap', 'active']),
+    ))
+    .orderBy(desc(sessionDirectory.updatedAt))
+    .limit(1)
 
-function isCurrentMatchLobby(
-  lobby: Pick<LobbyState, 'status' | 'matchId'>,
-): lobby is Pick<LobbyState, 'status'> & { matchId: string } {
-  return (lobby.status === 'drafting' || lobby.status === 'active')
-    && typeof lobby.matchId === 'string'
-    && lobby.matchId.length > 0
+  return row?.channelId ?? null
 }

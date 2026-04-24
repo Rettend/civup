@@ -287,6 +287,7 @@ export const command_match = factory.command<MatchVar>(
           })
         }
 
+        const db = createDb(c.env.DB)
         const openLobbies = (await getLobbiesByMode(kv, mode)).filter(lobby => lobby.status === 'open')
         if (openLobbies.length === 0) {
           if (joinRequest.entries.length > 1) {
@@ -295,9 +296,8 @@ export const command_match = factory.command<MatchVar>(
             })
           }
 
-          let userMatchId = await getMatchForUser(kv, identity.userId)
+          let userMatchId = await getMatchForUser(db, identity.userId)
           if (!userMatchId) {
-            const db = createDb(c.env.DB)
             userMatchId = (await findBlockingDraftMatchIdsForPlayers(db, [identity.userId])).get(identity.userId) ?? null
           }
 
@@ -309,7 +309,6 @@ export const command_match = factory.command<MatchVar>(
           })
         }
 
-        const db = createDb(c.env.DB)
         const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, joinRequest.entries.map(entry => entry.playerId))
         if (blockingDraftMatchIdByPlayer.size > 0) {
           const playersInLiveMatch = joinRequest.entries
@@ -453,7 +452,7 @@ export const command_match = factory.command<MatchVar>(
           }
 
           if (!currentLobby) {
-            const userMatchId = await getMatchForUser(kv, identity.userId)
+            const userMatchId = await getMatchForUser(createDb(c.env.DB), identity.userId)
             if (userMatchId) {
               await sendTransientEphemeralResponse(c, 'You are not in an open lobby right now.', 'error')
               return

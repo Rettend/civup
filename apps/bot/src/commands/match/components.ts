@@ -29,7 +29,7 @@ export const component_match_join = factory.component(
     queueBackgroundTask(c, async () => {
       const lobby = await getLobbyById(kv, lobbyId)
       if (!lobby) {
-        const userMatchId = await resolveJoinButtonLiveMatchId(kv, env.DB, identity.userId, c.interaction.message?.id ?? null)
+        const userMatchId = await resolveJoinButtonLiveMatchId(env.DB, identity.userId, c.interaction.message?.id ?? null)
 
         if (userMatchId) return
         return
@@ -94,7 +94,6 @@ export const component_draft_activity = factory.component(
 )
 
 export async function resolveJoinButtonLiveMatchId(
-  kv: KVNamespace,
   d1: D1Database,
   userId: string,
   messageId: string | null,
@@ -107,11 +106,11 @@ export async function resolveJoinButtonLiveMatchId(
     userMatchId = null
   }
 
-  userMatchId = await getMatchForUser(kv, userId)
-    if (userMatchId) {
-      const persistedLiveMatchIds = await findPersistedLiveMatchIds(d1, [userMatchId])
-      if (persistedLiveMatchIds?.has(userMatchId)) return userMatchId
-    }
+  userMatchId = await getMatchForUser(db, userId)
+  if (userMatchId) {
+    const persistedLiveMatchIds = await findPersistedLiveMatchIds(d1, [userMatchId])
+    if (persistedLiveMatchIds?.has(userMatchId)) return userMatchId
+  }
 
   const blockingDraftMatchIds = await findPersistedBlockingDraftMatchIdsForPlayers(d1, [userId])
   return blockingDraftMatchIds?.get(userId) ?? null

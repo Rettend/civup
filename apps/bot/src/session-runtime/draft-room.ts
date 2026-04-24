@@ -1,5 +1,4 @@
 import type {
-  ClientMessage,
   DraftEvent,
   DraftPreviewState,
   DraftState,
@@ -7,9 +6,8 @@ import type {
   MapVoteSelection,
   MapVoteSnapshot,
   PendingLeaderSwapRequest,
-  RoomConfig,
-  ServerMessage,
 } from '@civup/game'
+import type { DraftRuntimeConfig, SessionClientMessage, SessionServerMessage } from '@civup/session'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
 import type { StoredMapVoteState } from './map-vote-room-state.ts'
 import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
@@ -124,7 +122,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     return Math.random()
   }
 
-  // ── HTTP: Room initialization & status ─────────────────────
+  // ── HTTP: Draft runtime initialization & status ─────────────
 
   override async onRequest(req: Request): Promise<Response> {
     if (req.method === 'POST') {
@@ -143,10 +141,10 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
     const existing = await this.getRoomRecord()
     if (existing && existing.state.status !== 'cancelled') {
-      return json({ error: 'Room already initialized' }, 409)
+      return json({ error: 'Draft runtime already initialized' }, 409)
     }
 
-    const config: RoomConfig = await req.json()
+    const config: DraftRuntimeConfig = await req.json()
 
     try {
       await this.initializeDraftRuntime(config, { existing })
@@ -159,7 +157,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
   }
 
   protected async initializeDraftRuntime(
-    config: RoomConfig,
+    config: DraftRuntimeConfig,
     options: {
       existing?: RoomRecord | null
     } = {},
@@ -187,7 +185,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     })
     const mapVoteEnabled = normalizeMapVoteEnabled(format.gameMode, config.mapVoteEnabled === true, { redDeath: format.redDeath })
     const state = withWaitingTimerConfig(format, baseState, config.timerConfig)
-    const nextConfig: RoomConfig = {
+    const nextConfig: DraftRuntimeConfig = {
       ...config,
       mapVoteEnabled,
     }
@@ -419,7 +417,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
   override async onMessage(sender: Connection, message: WSMessage) {
     if (typeof message !== 'string') return
 
-    let msg: ClientMessage
+    let msg: SessionClientMessage
     try {
       msg = JSON.parse(message)
     }
@@ -734,7 +732,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         const nextConfig = {
           ...config,
           timerConfig,
-        } satisfies RoomConfig
+        } satisfies DraftRuntimeConfig
         await this.applyRoomTransition(updateConfigCommand(room, {
           type: 'update-config',
           nextState,
@@ -899,7 +897,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     }
   }
 
-  private scheduleDebugMapVoteBotActions(state: DraftState, config: RoomConfig) {
+  private scheduleDebugMapVoteBotActions(state: DraftState, config: DraftRuntimeConfig) {
     let delayMs = DEBUG_ACTIVE_BOT_DELAY_MS
     for (let seatIndex = 0; seatIndex < state.seats.length; seatIndex++) {
       const playerId = state.seats[seatIndex]?.playerId
@@ -980,7 +978,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     }
   }
 
-  private async runDebugMapVoteBotAction(seatIndex: number, config: RoomConfig) {
+  private async runDebugMapVoteBotAction(seatIndex: number, config: DraftRuntimeConfig) {
     const room = await this.getRoomRecord()
     const state = room?.state
     if (!state || !room) return
@@ -1065,7 +1063,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     })
   }
 
-  private async handleStart(state: DraftState, config: RoomConfig, format: NonNullable<ReturnType<typeof draftFormatMap.get>>): Promise<string | null> {
+  private async handleStart(state: DraftState, config: DraftRuntimeConfig, format: NonNullable<ReturnType<typeof draftFormatMap.get>>): Promise<string | null> {
     if (state.status !== 'waiting') {
       const result = processDraftInput(state, { type: 'START' }, format.blindBans)
       if (isDraftError(result)) return result.error
@@ -1090,7 +1088,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     return await this.startActualDraft(state, config, format)
   }
 
-  private async handleMapVoteAlarm(state: DraftState, _config: RoomConfig): Promise<boolean> {
+  private async handleMapVoteAlarm(state: DraftState, _config: DraftRuntimeConfig): Promise<boolean> {
     const room = await this.requireRoomRecord()
     if (!room.mapVote.enabled || room.mapVote.endsAt == null) return false
 
@@ -1109,7 +1107,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
   private async updateMapVoteSelection(
     _state: DraftState,
-    _config: RoomConfig,
+    _config: DraftRuntimeConfig,
     seatIndex: number,
     selection: MapVoteSelection,
   ): Promise<ReturnType<typeof updateMapVoteSelectionCommand>['response']> {
@@ -1129,7 +1127,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
   private async confirmMapVote(
     state: DraftState,
-    _config: RoomConfig,
+    _config: DraftRuntimeConfig,
     seatIndex: number,
   ): Promise<'inactive' | 'invalid-selection' | 'ok'> {
     const room = await this.requireRoomRecord()
@@ -1147,7 +1145,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     return 'ok'
   }
 
-  private async finishMapVoteVoting(state: DraftState, _config: RoomConfig) {
+  private async finishMapVoteVoting(state: DraftState, _config: DraftRuntimeConfig) {
     const room = await this.requireRoomRecord()
     const transition = finishMapVoteVotingCommand(room, {
       type: 'finish-map-vote-voting',
@@ -1159,7 +1157,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     await this.applyRoomTransition(transition, 'map-vote-finish-voting')
   }
 
-  private async finishMapVoteReveal(_state: DraftState, _config: RoomConfig) {
+  private async finishMapVoteReveal(_state: DraftState, _config: DraftRuntimeConfig) {
     const room = await this.requireRoomRecord()
     const transition = finishMapVoteRevealCommand(room, {
       type: 'finish-map-vote-reveal',
@@ -1172,7 +1170,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     await this.startActualDraft(nextRoom.state, nextRoom.config, format)
   }
 
-  private async startActualDraft(state: DraftState, config: RoomConfig, format: NonNullable<ReturnType<typeof draftFormatMap.get>>): Promise<string | null> {
+  private async startActualDraft(state: DraftState, config: DraftRuntimeConfig, format: NonNullable<ReturnType<typeof draftFormatMap.get>>): Promise<string | null> {
     if (config.randomDraft) {
       const result = buildRandomDraftResult(state, () => this.random())
       await this.applyResult(result.state, result.events)
@@ -1185,7 +1183,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     return null
   }
 
-  private async broadcastRoomState(_state: DraftState, _config: RoomConfig, events: DraftEvent[]) {
+  private async broadcastRoomState(_state: DraftState, _config: DraftRuntimeConfig, events: DraftEvent[]) {
     const room = await this.requireRoomRecord()
     this.broadcastRoomRecord(room, events)
   }
@@ -1234,7 +1232,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
   private broadcastUpdate(
     state: DraftState,
     hostId: string,
-    leaderDataVersion: RoomConfig['leaderDataVersion'],
+    leaderDataVersion: DraftRuntimeConfig['leaderDataVersion'],
     events: DraftEvent[],
     timerEndsAt: number | null,
     completedAt: number | null,
@@ -1326,7 +1324,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
   // ── Internal: Send message ─────────────────────────────────
 
-  private send(connection: Connection, message: ServerMessage) {
+  private send(connection: Connection, message: SessionServerMessage) {
     connection.send(JSON.stringify(message))
   }
 
@@ -1441,7 +1439,7 @@ function json(data: unknown, status = 200): Response {
 function withWaitingTimerConfig(
   format: { getSteps: (seatCount: number) => DraftState['steps'] },
   state: DraftState,
-  timerConfig: RoomConfig['timerConfig'] | undefined,
+  timerConfig: DraftRuntimeConfig['timerConfig'] | undefined,
 ): DraftState {
   const baseSteps = format.getSteps(state.seats.length)
   const configuredSteps = applyTimerConfigToSteps(baseSteps, timerConfig)
@@ -1453,7 +1451,7 @@ function withWaitingTimerConfig(
 
 function applyTimerConfigToSteps(
   steps: DraftState['steps'],
-  timerConfig: RoomConfig['timerConfig'] | undefined,
+  timerConfig: DraftRuntimeConfig['timerConfig'] | undefined,
 ): DraftState['steps'] {
   if (!timerConfig) return steps
 

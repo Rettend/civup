@@ -24,6 +24,7 @@
       "dependencies": {
         "@civup/game": "workspace:*",
         "@civup/rating": "workspace:*",
+        "@civup/session": "workspace:*",
         "@civup/utils": "workspace:*",
         "@discord/embedded-app-sdk": "^2.4.0",
         "@fontsource-variable/inter": "^5.2.8",
@@ -56,6 +57,7 @@
         "@civup/db": "workspace:*",
         "@civup/game": "workspace:*",
         "@civup/rating": "workspace:*",
+        "@civup/session": "workspace:*",
         "@civup/utils": "workspace:*",
         "discord-hono": "^0.20.0",
         "drizzle-orm": "^0.45.1",
@@ -91,6 +93,13 @@
       "version": "0.0.0",
       "dependencies": {
         "openskill": "^4.1.0",
+      },
+    },
+    "packages/session": {
+      "name": "@civup/session",
+      "version": "0.0.0",
+      "dependencies": {
+        "@civup/game": "workspace:*",
       },
     },
     "packages/utils": {
@@ -150,6 +159,8 @@
     "@civup/game": ["@civup/game@workspace:packages/game"],
 
     "@civup/rating": ["@civup/rating@workspace:packages/rating"],
+
+    "@civup/session": ["@civup/session@workspace:packages/session"],
 
     "@civup/utils": ["@civup/utils@workspace:packages/utils"],
 
