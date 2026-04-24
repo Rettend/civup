@@ -174,11 +174,6 @@ export async function getOpenLobbyForPlayer(
     .find((lobby): lobby is LobbyState => lobby.status === 'open') ?? null
 }
 
-export async function getLobbyByMatch(kv: KVNamespace, matchId: string): Promise<LobbyState | null> {
-  const lobby = await getLobbyById(kv, matchId)
-  return lobby?.matchId === matchId ? lobby : null
-}
-
 export async function upsertLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
   const normalizedLobby = normalizeLobby(lobby)
   await putLobby(kv, normalizedLobby)

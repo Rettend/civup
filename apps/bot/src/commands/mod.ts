@@ -8,7 +8,7 @@ import { createChannelMessage } from '../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { rebuildLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../services/leaderboard/team-snapshot.ts'
-import { clearLobbyById, filterQueueEntriesForLobby, getLobbyById, getLobbyByMatch, setLobbyStatus } from '../services/lobby/index.ts'
+import { clearLobbyById, filterQueueEntriesForLobby, getLobbyById, setLobbyStatus } from '../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { cancelMatchByModerator, getStoredGameModeContext, resolveMatchByModerator } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
@@ -16,6 +16,7 @@ import { canUseModCommands, parseRoleIds } from '../services/permissions/index.t
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../services/ranked/role-sync.ts'
 import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
+import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 import { factory } from '../setup'
@@ -110,7 +111,7 @@ export const command_mod = factory.command<ModVar>(
             return
           }
 
-          const existingLobby = await getLobbyByMatch(kv, matchId)
+          const existingLobby = await getSessionLobbyProjectionByMatch(db, matchId)
           const result = await cancelMatchByModerator(db, kv, {
             matchId,
             cancelledAt: Date.now(),
@@ -237,7 +238,7 @@ export const command_mod = factory.command<ModVar>(
               return
             }
 
-            const existingLobby = result.previousStatus === 'completed' ? null : await getLobbyByMatch(kv, result.match.id)
+            const existingLobby = result.previousStatus === 'completed' ? null : await getSessionLobbyProjectionByMatch(db, result.match.id)
             const mode = matchContext.mode
             const moderation = { actorId, reason }
             const guildId = existingLobby?.guildId ?? c.interaction.guild_id ?? null
