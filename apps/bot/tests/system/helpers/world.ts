@@ -54,6 +54,15 @@ interface PartyRoomRecord {
   nextWebhookEventSequence: number
 }
 
+function createCapturedPartyRoomRecord(config: RoomConfig, previous?: PartyRoomRecord): PartyRoomRecord {
+  return {
+    config,
+    completionPayloads: previous?.completionPayloads ?? [],
+    cancellationPayloads: previous?.cancellationPayloads ?? [],
+    nextWebhookEventSequence: previous?.nextWebhookEventSequence ?? 0,
+  }
+}
+
 function createCapturedMainNamespace(partyRooms: Map<string, PartyRoomRecord>): DurableObjectNamespace {
   return {
     idFromName(name: string) {
@@ -68,12 +77,7 @@ function createCapturedMainNamespace(partyRooms: Map<string, PartyRoomRecord>): 
           if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
 
           const body = await request.json() as RoomConfig
-          partyRooms.set(body.matchId, {
-            config: body,
-            completionPayloads: [],
-            cancellationPayloads: [],
-            nextWebhookEventSequence: 0,
-          })
+          partyRooms.set(body.matchId, createCapturedPartyRoomRecord(body, partyRooms.get(body.matchId)))
           if (body.matchId !== roomName) return new Response('Room name mismatch', { status: 409 })
 
           return Response.json({ ok: true }, { status: 201 })
@@ -306,12 +310,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
 
     if (url.origin === BOT_HOST && request.method === 'POST' && /^\/parties\/main\/[^/]+$/.test(url.pathname)) {
       const body = await request.json() as RoomConfig
-      partyRooms.set(body.matchId, {
-        config: body,
-        completionPayloads: [],
-        cancellationPayloads: [],
-        nextWebhookEventSequence: 0,
-      })
+      partyRooms.set(body.matchId, createCapturedPartyRoomRecord(body, partyRooms.get(body.matchId)))
       return jsonResponse({ ok: true })
     }
 

@@ -10,7 +10,6 @@ import { clearLobbyMappings, clearUserLobbyMappings, createDraftRoom, handoffLob
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from '../../services/config/index.ts'
 import {
   arrangeLobbySlots,
-  attachLobbyMatch,
   buildOpenLobbyRenderPayload,
   clearLobbyById,
   commitLobbyState,
@@ -32,6 +31,7 @@ import {
   setLobbySlots,
   setLobbyStatus,
   setLobbySteamLobbyLink,
+  startLobbyDraft,
   storeLobbyDraftRoster,
   upsertLobbyMessage,
 } from '../../services/lobby/index.ts'
@@ -1262,6 +1262,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
       const { matchId, seats } = await createDraftRoom(mode, selectedEntries, {
         mainNamespace: c.env.Main,
+        matchId: startLobby.id,
         hostId: startHostId,
         leaderDataVersion: startConfig.leaderDataVersion,
         blindBans: startConfig.blindBans,
@@ -1288,7 +1289,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       }
 
       const slottedLobby = await setLobbySlots(kv, startLobby.id, slots, startLobby, { db, sessionNamespace: c.env.SessionDO, queueEntries: draftRosterEntries }) ?? startLobby
-      const lobbyForMessage = await attachLobbyMatch(kv, startLobby.id, matchId, slottedLobby, { db, sessionNamespace: c.env.SessionDO, queueEntries: draftRosterEntries })
+      const lobbyForMessage = await startLobbyDraft(kv, startLobby.id, slottedLobby, { db, sessionNamespace: c.env.SessionDO, queueEntries: draftRosterEntries })
       if (!lobbyForMessage) {
         const currentLobby = await getLobbyById(kv, startLobby.id)
         if (currentLobby?.status === 'drafting' && currentLobby.matchId) {

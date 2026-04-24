@@ -274,6 +274,11 @@ export async function getOpenLobbyForPlayer(
 }
 
 export async function getLobbyByMatch(kv: KVNamespace, matchId: string): Promise<LobbyState | null> {
+  const directLobby = await getLobbyById(kv, matchId)
+  if (directLobby?.matchId === matchId) {
+    return directLobby
+  }
+
   const lobbyId = await kv.get(matchKey(matchId))
   if (!lobbyId) {
     return await recoverLobbyByMatch(kv, matchId)
@@ -334,6 +339,12 @@ export async function clearLobbiesByMode(kv: KVNamespace, mode: GameMode): Promi
 }
 
 export async function clearLobbyByMatch(kv: KVNamespace, matchId: string): Promise<void> {
+  const directLobby = await getLobbyById(kv, matchId)
+  if (directLobby?.matchId === matchId) {
+    await clearLobbyById(kv, directLobby.id, directLobby)
+    return
+  }
+
   const lobbyId = await kv.get(matchKey(matchId))
   if (lobbyId) {
     await clearLobbyById(kv, lobbyId)

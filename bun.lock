@@ -69,19 +69,6 @@
         "wrangler": "^4.22.0",
       },
     },
-    "apps/party": {
-      "name": "civup-party",
-      "version": "0.0.0",
-      "dependencies": {
-        "@civup/game": "workspace:*",
-        "@civup/utils": "workspace:*",
-        "partyserver": "^0.1.5",
-      },
-      "devDependencies": {
-        "@cloudflare/workers-types": "^4.20260206.0",
-        "wrangler": "^4.22.0",
-      },
-    },
     "packages/db": {
       "name": "@civup/db",
       "version": "0.0.0",
@@ -669,8 +656,6 @@
     "civup-activity": ["civup-activity@workspace:apps/activity"],
 
     "civup-bot": ["civup-bot@workspace:apps/bot"],
-
-    "civup-party": ["civup-party@workspace:apps/party"],
 
     "clean-regexp": ["clean-regexp@1.0.0", "", { "dependencies": { "escape-string-regexp": "^1.0.5" } }, "sha512-GfisEZEJvzKrmGWkvfhgzcz/BllN1USeqD2V6tg14OAOgaCD2Z/PUEuxnAZ/nPvmaHRG7a8y77p1T/IRQ4D1Hw=="],
 

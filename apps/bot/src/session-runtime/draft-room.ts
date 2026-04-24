@@ -143,7 +143,7 @@ export class Main extends Server<PartyEnv> {
     }
 
     const existing = await this.getRoomRecord()
-    if (existing) {
+    if (existing && existing.state.status !== 'cancelled') {
       return json({ error: 'Room already initialized' }, 409)
     }
 
@@ -178,6 +178,7 @@ export class Main extends Server<PartyEnv> {
     const mapVote = createInitialMapVoteState(state, nextConfig, format.redDeath)
     const room = createRoomRecord(nextConfig, state, mapVote, {
       previews,
+      webhookEventSequence: existing?.webhookEventSequence ?? 0,
     })
 
     await this.setRoomRecord(room)

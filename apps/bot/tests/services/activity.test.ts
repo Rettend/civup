@@ -400,7 +400,7 @@ describe('draft room creation', () => {
       })
     }) as typeof fetch
 
-    const result = await createDraftRoom('ffa', baseFfaEntries, { hostId: 'p1' })
+    const result = await createDraftRoom('ffa', baseFfaEntries, { matchId: 'session-ffa-default', hostId: 'p1' })
 
     expect(postedConfig?.formatId).toBe('default-ffa')
     expect(result.formatId).toBe('default-ffa')
@@ -419,11 +419,12 @@ describe('draft room creation', () => {
     }) as typeof fetch
 
     await createDraftRoom('1v1', baseFfaEntries.slice(0, 2), {
+      matchId: 'session-main-route',
       hostId: 'p1',
       botHost: 'https://bot.test',
     })
 
-    expect(postedConfig?.matchId).toEqual(expect.any(String))
+    expect(postedConfig?.matchId).toBe('session-main-route')
     expect(requestUrl).toBe(`https://bot.test/parties/main/${postedConfig?.matchId}`)
   })
 
@@ -434,6 +435,7 @@ describe('draft room creation', () => {
     }) as typeof fetch
 
     await createDraftRoom('1v1', baseFfaEntries.slice(0, 2), {
+      matchId: 'session-main-do',
       hostId: 'p1',
       webhookSecret: 'secret',
       mainNamespace: createMainNamespaceStub(async (request, roomName) => {
@@ -449,9 +451,9 @@ describe('draft room creation', () => {
     })
 
     expect(initializedRoom).toEqual({
-      roomName: expect.any(String),
+      roomName: 'session-main-do',
       config: expect.objectContaining({
-        matchId: expect.any(String),
+        matchId: 'session-main-do',
         hostId: 'p1',
       }),
     })
@@ -469,6 +471,7 @@ describe('draft room creation', () => {
     }) as typeof fetch
 
     const result = await createDraftRoom('ffa', baseFfaEntries, {
+      matchId: 'session-ffa-simultaneous',
       hostId: 'p1',
       simultaneousPick: true,
     })
@@ -488,6 +491,7 @@ describe('draft room creation', () => {
     }) as typeof fetch
 
     const result = await createDraftRoom('1v1', baseFfaEntries.slice(0, 2), {
+      matchId: 'session-random',
       hostId: 'p1',
       randomDraft: true,
     })
@@ -508,6 +512,7 @@ describe('draft room creation', () => {
     }) as typeof fetch
 
     const result = await createDraftRoom('1v1', baseFfaEntries.slice(0, 2), {
+      matchId: 'session-random-duplicate',
       hostId: 'p1',
       randomDraft: true,
       duplicateFactions: true,
@@ -530,6 +535,7 @@ describe('draft room creation', () => {
     }) as typeof fetch
 
     const result = await createDraftRoom('1v1', baseFfaEntries.slice(0, 2), {
+      matchId: 'session-standard-duplicate',
       hostId: 'p1',
       duplicateFactions: true,
     })
@@ -556,6 +562,7 @@ describe('draft room creation', () => {
     }))
 
     const result = await createDraftRoom('6v6', entries, {
+      matchId: 'session-red-death',
       hostId: 'p1',
       redDeath: true,
       duplicateFactions: false,
@@ -583,6 +590,7 @@ describe('draft room creation', () => {
     }))
 
     const result = await createDraftRoom('1v1', entries.slice(0, 2), {
+      matchId: 'session-visible-ban',
       hostId: 'team-player-1',
       blindBans: false,
     })
@@ -608,6 +616,7 @@ describe('draft room creation', () => {
     }))
 
     const result = await createDraftRoom('2v2', entries, {
+      matchId: 'session-visible-fallback',
       hostId: 'p1',
       blindBans: false,
     })

@@ -51,7 +51,8 @@ export function registerWebhookRoutes(app: Hono<Env>) {
       return c.json({ ok: true, pending: true })
     }
     if (claimResult === 'processed') {
-      console.warn('[draft-webhook] replaying processed event for repair', webhookContext)
+      console.warn('[draft-webhook] ignoring processed replay', webhookContext)
+      return c.json({ ok: true, ignored: true })
     }
 
     const db = createDb(c.env.DB)
