@@ -3,7 +3,7 @@ import type { LobbyState } from './types.ts'
 import { syncActivityOverviewSnapshot } from '../activity/live-state.ts'
 import { getQueueState, getQueueStates } from '../queue/index.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
-import { bumpCooldownKey, channelIndexKey, channelPrefix, hostKey, idKey, LOBBY_HOST_KEY_PREFIX, LOBBY_ID_KEY_PREFIX, LOBBY_TTL, matchKey, modeIndexKey, modePrefix } from './keys.ts'
+import { bumpCooldownKey, channelIndexKey, channelPrefix, hostKey, idKey, LOBBY_HOST_KEY_PREFIX, LOBBY_ID_KEY_PREFIX, LOBBY_TTL, modeIndexKey, modePrefix } from './keys.ts'
 import { lobbySnapshotKey } from './live-snapshot.ts'
 import { normalizeLobby, parseLobbyState } from './normalize.ts'
 import { deriveQueueBackedLobbyMemberPlayerIds, isQueueBackedOpenLobbyState } from './reconcile.ts'
@@ -274,21 +274,8 @@ export async function getOpenLobbyForPlayer(
 }
 
 export async function getLobbyByMatch(kv: KVNamespace, matchId: string): Promise<LobbyState | null> {
-  const directLobby = await getLobbyById(kv, matchId)
-  if (directLobby?.matchId === matchId) {
-    return directLobby
-  }
-
-  const lobbyId = await kv.get(matchKey(matchId))
-  if (!lobbyId) {
-    return await recoverLobbyByMatch(kv, matchId)
-  }
-  const lobby = await getLobbyById(kv, lobbyId)
-  if (lobby?.matchId === matchId) {
-    return lobby
-  }
-
-  return await recoverLobbyByMatch(kv, matchId)
+  const lobby = await getLobbyById(kv, matchId)
+  return lobby?.matchId === matchId ? lobby : null
 }
 
 export async function upsertLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
@@ -313,7 +300,6 @@ export async function clearLobbyById(
   if (lobby) {
     keys.push(modeIndexKey(lobby.mode, lobby.id))
     keys.push(channelIndexKey(lobby.channelId, lobby.id))
-    if (lobby.matchId) keys.push(matchKey(lobby.matchId))
   }
   await stateStoreMdelete(kv, keys)
   if (lobby && options?.syncActivityOverview !== false) await syncActivityOverviewSnapshot(kv, lobby.channelId)
@@ -332,32 +318,14 @@ export async function clearLobbiesByMode(kv: KVNamespace, mode: GameMode): Promi
       modeIndexKey(mode, lobby.id),
       channelIndexKey(lobby.channelId, lobby.id),
     ]
-    if (lobby.matchId) keys.push(matchKey(lobby.matchId))
     return keys
   }))
   await Promise.all(channelIds.map(channelId => syncActivityOverviewSnapshot(kv, channelId)))
 }
 
 export async function clearLobbyByMatch(kv: KVNamespace, matchId: string): Promise<void> {
-  const directLobby = await getLobbyById(kv, matchId)
-  if (directLobby?.matchId === matchId) {
-    await clearLobbyById(kv, directLobby.id, directLobby)
-    return
-  }
-
-  const lobbyId = await kv.get(matchKey(matchId))
-  if (lobbyId) {
-    await clearLobbyById(kv, lobbyId)
-    return
-  }
-
-  const fallbackLobby = (await getAllLobbies(kv)).find(lobby => lobby.matchId === matchId) ?? null
-  if (fallbackLobby) {
-    await clearLobbyById(kv, fallbackLobby.id, fallbackLobby)
-    return
-  }
-
-  await stateStoreMdelete(kv, [matchKey(matchId)])
+  const lobby = await getLobbyById(kv, matchId)
+  if (lobby?.matchId === matchId) await clearLobbyById(kv, lobby.id, lobby)
 }
 
 export async function putLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
@@ -369,12 +337,6 @@ export async function putLobbyEntries(
   lobby: LobbyState,
   additionalEntries: LobbyStoreEntry[] = [],
 ): Promise<void> {
-  const hostEntry = isCurrentLobbyStatus(lobby.status)
-    ? lobby.id
-    : null
-  const matchEntry = lobby.matchId
-    ? lobby.id
-    : null
   const entries: LobbyStoreEntry[] = [
     {
       key: idKey(lobby.id),
@@ -429,17 +391,6 @@ async function recoverLobbiesByChannel(kv: KVNamespace, channelId: string): Prom
   return recoveredLobbies
 }
 
-async function recoverLobbyByMatch(kv: KVNamespace, matchId: string): Promise<LobbyState | null> {
-  const recoveredLobby = (await getAllLobbies(kv)).find(candidate => candidate.matchId === matchId) ?? null
-  if (recoveredLobby) {
-    await repairLobbyProjectionEntries(kv, recoveredLobby)
-    return recoveredLobby
-  }
-
-  await stateStoreMdelete(kv, [matchKey(matchId)])
-  return null
-}
-
 async function findHostKeysForLobby(kv: KVNamespace, lobbyId: string): Promise<string[]> {
   const listed = await kv.list({ prefix: LOBBY_HOST_KEY_PREFIX })
   const hostKeys = listed.keys.map(entry => entry.name)
@@ -486,14 +437,6 @@ function buildLobbyProjectionEntries(lobby: LobbyState): LobbyStoreEntry[] {
   if (isCurrentLobbyStatus(lobby.status)) {
     entries.push({
       key: hostKey(lobby.hostId),
-      value: lobby.id,
-      expirationTtl: LOBBY_TTL,
-    })
-  }
-
-  if (lobby.matchId) {
-    entries.push({
-      key: matchKey(lobby.matchId),
       value: lobby.id,
       expirationTtl: LOBBY_TTL,
     })
