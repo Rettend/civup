@@ -836,28 +836,6 @@ describe('system scenarios', () => {
     expect(await world.inspect.lobbyMapping('spectator')).toBe(canonicalLobby.id)
   })
 
-  test('replaying a webhook uses same-id lobby lookup without restoring a missing lobby-match link', async () => {
-    const world = await createTrackedWorld()
-    const activeLobby = await world.lobby.createOpen({
-      mode: '1v1',
-      players: [{ id: 'p1' }, { id: 'p2' }],
-      channelId: 'channel-match-link-repair',
-    })
-
-    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: activeLobby.id })
-    await world.flushBackgroundTasks()
-    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
-    await world.flushBackgroundTasks()
-
-    await world.corrupt.lobbyMatch(started.matchId, null)
-
-    expect((await world.party.completeDraft(started.matchId, { finalized: true })).status).toBe(200)
-    await world.flushBackgroundTasks()
-
-    expect(await world.inspect.matchLobbyLink(started.matchId)).toBeNull()
-    expect(await world.inspect.lobbyByMatch(started.matchId)).toMatchObject({ id: activeLobby.id, matchId: started.matchId })
-  })
-
   test('match lookup repairs missing activity projections from canonical live match state', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
@@ -1214,40 +1192,6 @@ describe('system scenarios', () => {
         { playerId: 'p2' },
       ],
     })
-  })
-
-  test('replaying a webhook with a wrong lobby-match link uses same-id lookup without touching a fresh lobby', async () => {
-    const world = await createTrackedWorld()
-    const activeLobby = await world.lobby.createOpen({
-      mode: '1v1',
-      players: [{ id: 'p1' }, { id: 'p2' }],
-      channelId: 'channel-link-repair',
-    })
-
-    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: activeLobby.id })
-    await world.flushBackgroundTasks()
-    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
-    await world.flushBackgroundTasks()
-
-    const freshLobby = await world.lobby.createOpen({
-      mode: '1v1',
-      players: [{ id: 'fresh-host' }],
-      hostId: 'fresh-host',
-      channelId: activeLobby.channelId,
-    })
-    const requestsBeforeReplay = world.discord.requests().length
-
-    await world.corrupt.lobbyMatch(started.matchId, freshLobby.id)
-
-    expect((await world.party.completeDraft(started.matchId, { finalized: true })).status).toBe(200)
-    await world.flushBackgroundTasks()
-
-    const replayRequests = world.discord.requests().slice(requestsBeforeReplay)
-    expect(await world.inspect.matchLobbyLink(started.matchId)).toBe(freshLobby.id)
-    expect(await world.inspect.lobbyByMatch(started.matchId)).toMatchObject({ id: activeLobby.id, matchId: started.matchId })
-    expect((await world.lobby.getById(freshLobby.id))?.status).toBe('open')
-    expect(replayRequests.some(request => request.method === 'PATCH' && request.url.includes(activeLobby.messageId))).toBe(true)
-    expect(replayRequests.some(request => request.method === 'PATCH' && request.url.includes(freshLobby.messageId))).toBe(false)
   })
 
   test('report sync recreates a deleted lobby message and rebinds the stored message id', async () => {

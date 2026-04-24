@@ -1,7 +1,7 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { storeMatchMapping, storeUserMatchMappings } from '../../src/services/activity/index.ts'
-import { attachLobbyMatch, createLobby, getLobbyById, setLobbyMemberPlayerIds } from '../../src/services/lobby/index.ts'
+import { createLobby, getLobbyById, setLobbyMemberPlayerIds, startLobbyDraft } from '../../src/services/lobby/index.ts'
 import { getReporterIdentityFromDraftData } from '../../src/services/match/draft-data.ts'
 import { reportMatch } from '../../src/services/match/report.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
@@ -107,8 +107,15 @@ describe('match reporter identity', () => {
         { id: 'p1', displayName: 'Player One', avatarUrl: null, createdAt: 1 },
         { id: 'p2', displayName: 'Player Two', avatarUrl: null, createdAt: 1 },
       ])
+      const lobby = await createLobby(kv, {
+        mode: '1v1',
+        hostId: 'p1',
+        channelId: 'channel-1',
+        messageId: 'message-1',
+      })
+      const matchId = lobby.id
       await db.insert(matches).values({
-        id: 'm2',
+        id: matchId,
         gameMode: '1v1',
         status: 'active',
         createdAt: 1,
@@ -125,23 +132,17 @@ describe('match reporter identity', () => {
         }),
       })
       await db.insert(matchParticipants).values([
-        { matchId: 'm2', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'm2', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId, playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId, playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
       ])
 
-      const lobby = await createLobby(kv, {
-        mode: '1v1',
-        hostId: 'p1',
-        channelId: 'channel-1',
-        messageId: 'message-1',
-      })
       const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['p1', 'p2'], lobby)
-      await attachLobbyMatch(kv, lobby.id, 'm2', withMembers ?? lobby)
-      await storeMatchMapping(kv, 'channel-1', 'm2')
-      await storeUserMatchMappings(kv, ['p1', 'p2'], 'm2')
+      await startLobbyDraft(kv, lobby.id, withMembers ?? lobby)
+      await storeMatchMapping(kv, 'channel-1', matchId)
+      await storeUserMatchMappings(kv, ['p1', 'p2'], matchId)
 
       const result = await reportMatch(db, kv, {
-        matchId: 'm2',
+        matchId,
         reporterId: 'p1',
         placements: '<@p1>',
       })
@@ -150,9 +151,8 @@ describe('match reporter identity', () => {
       if ('error' in result) return
 
       expect(await getLobbyById(kv, lobby.id)).not.toBeNull()
-      expect(await kv.get('lobby:match:m2')).toBe(lobby.id)
       expect(await kv.get('lobby:host:p1')).toBe(lobby.id)
-      expect(await kv.get('activity-match:m2')).toBeNull()
+      expect(await kv.get(`activity-match:${matchId}`)).toBeNull()
       expect(await kv.get('activity-user:p1')).toBeNull()
       expect(await kv.get('activity-user:p2')).toBeNull()
     }

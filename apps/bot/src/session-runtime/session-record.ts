@@ -108,7 +108,7 @@ export function syncSessionRecordFromLobby(
   if (existing.id !== next.id) {
     throw new Error(`Session id mismatch: expected ${existing.id}, got ${next.id}`)
   }
-  if (next.version < existing.version) return existing
+  if (next.version <= existing.version) return existing
   return preserveFrozenSessionState(existing, next)
 }
 

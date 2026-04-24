@@ -105,7 +105,6 @@ const HOT_KEY_PREFIXES = [
   'lobby:id:',
   'lobby:mode:',
   'lobby:channel:',
-  'lobby:match:',
   'lobby:host:',
   'lobby:start-lock:',
   'lobby:bump:',

@@ -1,6 +1,6 @@
 import { matches } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { attachLobbyMatch, createLobby, setLobbyStatus } from '../../src/services/lobby/index.ts'
+import { createLobby, setLobbyStatus, startLobbyDraft } from '../../src/services/lobby/index.ts'
 import { sendOverdueHostReportReminders } from '../../src/services/match/reminders.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -45,11 +45,12 @@ describe('host report reminders', () => {
         channelId: 'channel-1',
         messageId: 'message-1',
       })
-      const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+      const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
       await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
+      const matchId = lobby.id
 
       await db.insert(matches).values({
-        id: 'match-1',
+        id: matchId,
         gameMode: '2v2',
         status: 'active',
         seasonId: null,
@@ -119,11 +120,12 @@ describe('host report reminders', () => {
         channelId: 'channel-2',
         messageId: 'message-2',
       })
-      const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-2', lobby)
+      const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
       await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
+      const matchId = lobby.id
 
       await db.insert(matches).values({
-        id: 'match-2',
+        id: matchId,
         gameMode: 'ffa',
         status: 'active',
         seasonId: null,
@@ -168,11 +170,12 @@ describe('host report reminders', () => {
         channelId: 'channel-fail',
         messageId: 'message-fail',
       })
-      const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-fail', lobby)
+      const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
       await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
+      const matchId = lobby.id
 
       await db.insert(matches).values({
-        id: 'match-fail',
+        id: matchId,
         gameMode: '1v1',
         status: 'active',
         seasonId: null,
@@ -246,11 +249,12 @@ describe('host report reminders', () => {
           channelId: `channel-${suffix}`,
           messageId: `message-${suffix}`,
         })
-        const draftingLobby = await attachLobbyMatch(kv, lobby.id, `match-${suffix}`, lobby)
+        const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
         await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
+        const matchId = lobby.id
 
         await db.insert(matches).values({
-          id: `match-${suffix}`,
+          id: matchId,
           gameMode: '2v2',
           status: 'active',
           seasonId: null,

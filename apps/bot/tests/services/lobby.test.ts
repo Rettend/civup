@@ -2,8 +2,8 @@ import type { DraftState } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { activityOverviewKey, syncActivityOverviewSnapshot } from '../../src/services/activity/live-state.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
-import { attachLobbyMatch, clearLobbyById, clearLobbyByMatch, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyByChannel, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startLobbyDraft, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
-import { channelIndexKey, hostKey, idKey, LOBBY_TTL, matchKey, modeIndexKey } from '../../src/services/lobby/keys.ts'
+import { clearLobbyById, clearLobbyByMatch, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyByChannel, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startLobbyDraft, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
+import { channelIndexKey, hostKey, idKey, LOBBY_TTL, modeIndexKey } from '../../src/services/lobby/keys.ts'
 import { lobbySnapshotKey, syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../../src/services/match/retention.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
@@ -299,7 +299,6 @@ describe('lobby service KV write behavior', () => {
       status: 'drafting',
       matchId: lobby.id,
     })
-    expect(await kv.get(matchKey(lobby.id))).toBe(lobby.id)
   })
 
   test('stores six players as the expanded 2v2 minimum start size', async () => {
@@ -491,7 +490,7 @@ describe('lobby service KV write behavior', () => {
       }),
     ])
 
-    const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', updated ?? withMembers ?? lobby)
+    const draftingLobby = await startLobbyDraft(kv, lobby.id, updated ?? withMembers ?? lobby)
     expect(draftingLobby).not.toBeNull()
     await syncLobbyDerivedState(kv, draftingLobby!)
 
@@ -501,7 +500,7 @@ describe('lobby service KV write behavior', () => {
     expect(overview?.options).toEqual([
       expect.objectContaining({
         kind: 'match',
-        id: 'match-1',
+        id: lobby.id,
         participantCount: 2,
         status: 'drafting',
       }),
@@ -517,7 +516,7 @@ describe('lobby service KV write behavior', () => {
     expect(overview?.options).toEqual([
       expect.objectContaining({
         kind: 'match',
-        id: 'match-1',
+        id: lobby.id,
         participantCount: 2,
         status: 'active',
       }),
@@ -534,7 +533,7 @@ describe('lobby service KV write behavior', () => {
       messageId: 'message-1',
     })
 
-    const activeLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    const activeLobby = await startLobbyDraft(kv, lobby.id, lobby)
     expect(activeLobby).not.toBeNull()
     await syncLobbyDerivedState(kv, activeLobby!)
 
@@ -542,7 +541,7 @@ describe('lobby service KV write behavior', () => {
       options: [
         expect.objectContaining({
           kind: 'match',
-          id: 'match-1',
+          id: lobby.id,
           lobbyId: lobby.id,
         }),
       ],
@@ -628,7 +627,7 @@ describe('lobby service KV write behavior', () => {
       status: 'open',
     }))
 
-    const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
     expect(draftingLobby).not.toBeNull()
     await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(expect.objectContaining({
       id: lobby.id,
@@ -705,7 +704,7 @@ describe('lobby service KV write behavior', () => {
       channelId: 'channel-live',
       messageId: 'message-live',
     })
-    const draftingLobby = await attachLobbyMatch(kv, olderLiveLobby.id, 'match-1', olderLiveLobby)
+    const draftingLobby = await startLobbyDraft(kv, olderLiveLobby.id, olderLiveLobby)
 
     expect(draftingLobby).not.toBeNull()
     await kv.put(hostKey('host-1'), 'stale-lobby-id')
@@ -726,37 +725,17 @@ describe('lobby service KV write behavior', () => {
       channelId: 'channel-1',
       messageId: 'message-1',
     })
-    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    await startLobbyDraft(kv, lobby.id, lobby)
 
     await kv.delete(idKey(lobby.id))
 
     await clearLobbyById(kv, lobby.id)
 
     await expect(kv.get(hostKey('host-1'))).resolves.toBeNull()
-    await expect(getLobbyByMatch(kv, 'match-1')).resolves.toBeNull()
-    await expect(kv.get(matchKey('match-1'))).resolves.toBeNull()
+    await expect(getLobbyByMatch(kv, lobby.id)).resolves.toBeNull()
   })
 
-  test('getLobbyByMatch repairs a missing match index from the canonical lobby record', async () => {
-    const { kv } = createTrackedKv()
-
-    const lobby = await createLobby(kv, {
-      mode: 'ffa',
-      hostId: 'host-1',
-      channelId: 'channel-1',
-      messageId: 'message-1',
-    })
-    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
-    await kv.delete(matchKey('match-1'))
-
-    await expect(getLobbyByMatch(kv, 'match-1')).resolves.toEqual(expect.objectContaining({
-      id: lobby.id,
-      matchId: 'match-1',
-    }))
-    await expect(kv.get(matchKey('match-1'))).resolves.toBe(lobby.id)
-  })
-
-  test('getLobbyByMatch resolves same-id sessions without the match index', async () => {
+  test('getLobbyByMatch resolves same-id sessions', async () => {
     const { kv } = createTrackedKv()
 
     const lobby = await createLobby(kv, {
@@ -766,13 +745,11 @@ describe('lobby service KV write behavior', () => {
       messageId: 'message-1',
     })
     const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
-    await kv.delete(matchKey(lobby.id))
 
     await expect(getLobbyByMatch(kv, lobby.id)).resolves.toEqual(expect.objectContaining({
       id: lobby.id,
       matchId: lobby.id,
     }))
-    await expect(kv.get(matchKey(lobby.id))).resolves.toBeNull()
     expect(draftingLobby?.matchId).toBe(lobby.id)
   })
 
@@ -794,26 +771,7 @@ describe('lobby service KV write behavior', () => {
     await expect(kv.get(channelIndexKey('channel-1', lobby.id))).resolves.toBe(String(lobby.revision))
   })
 
-  test('clearLobbyByMatch falls back to scanning lobbies when the match index is gone', async () => {
-    const { kv } = createTrackedKv()
-
-    const lobby = await createLobby(kv, {
-      mode: 'ffa',
-      hostId: 'host-1',
-      channelId: 'channel-1',
-      messageId: 'message-1',
-    })
-    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
-    await kv.delete(matchKey('match-1'))
-
-    await clearLobbyByMatch(kv, 'match-1')
-
-    await expect(getLobbyById(kv, lobby.id)).resolves.toBeNull()
-    await expect(kv.get(hostKey('host-1'))).resolves.toBeNull()
-    await expect(kv.get(matchKey('match-1'))).resolves.toBeNull()
-  })
-
-  test('clearLobbyByMatch clears same-id sessions without the match index', async () => {
+  test('clearLobbyByMatch clears same-id sessions', async () => {
     const { kv } = createTrackedKv()
 
     const lobby = await createLobby(kv, {
@@ -823,13 +781,11 @@ describe('lobby service KV write behavior', () => {
       messageId: 'message-1',
     })
     await startLobbyDraft(kv, lobby.id, lobby)
-    await kv.delete(matchKey(lobby.id))
 
     await clearLobbyByMatch(kv, lobby.id)
 
     await expect(getLobbyById(kv, lobby.id)).resolves.toBeNull()
     await expect(kv.get(hostKey('host-1'))).resolves.toBeNull()
-    await expect(kv.get(matchKey(lobby.id))).resolves.toBeNull()
   })
 
   test('reopens a timed-out draft lobby without the failed picker', async () => {
@@ -844,7 +800,7 @@ describe('lobby service KV write behavior', () => {
     })
     const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'ally-a', 'ally-b', 'ally-c', 'spectator'], lobby)
     const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'ally-a', 'ally-b', 'ally-c'], withMembers ?? lobby)
-    const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', withSlots ?? withMembers ?? lobby)
+    const draftingLobby = await startLobbyDraft(kv, lobby.id, withSlots ?? withMembers ?? lobby)
 
     expect(draftingLobby).not.toBeNull()
 
@@ -884,7 +840,7 @@ describe('lobby service KV write behavior', () => {
     ])
 
     const timeoutState: DraftState = {
-      matchId: 'match-1',
+      matchId: lobby.id,
       formatId: 'default-2v2',
       seats: [
         { playerId: 'host', displayName: 'Host', avatarUrl: null, team: 0 },
@@ -952,6 +908,5 @@ describe('lobby service KV write behavior', () => {
     const stored = await getLobbyById(kv, lobby.id)
     expect(stored?.status).toBe('open')
     expect(stored?.hostId).toBe('ally-a')
-    expect(await kv.get(matchKey('match-1'))).toBeNull()
   })
 })

@@ -1,7 +1,7 @@
 import type { Database } from '@civup/db'
 import type { LobbyState } from '../lobby/types.ts'
 import { matches, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
-import { and, eq, inArray, isNull } from 'drizzle-orm'
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { buildSessionConfig, buildSessionRoster, type SessionPhase } from '../../session-runtime/session-record.ts'
 
 export class SessionAdmissionError extends Error {
@@ -35,7 +35,7 @@ export async function projectLobbySession(
   const config = buildSessionConfig(lobby)
   const now = Math.max(lobby.updatedAt, lobby.lastActivityAt, 1)
 
-  await db.insert(sessionDirectory)
+  const appliedRows = await db.insert(sessionDirectory)
     .values({
       sessionId: lobby.id,
       phase,
@@ -72,7 +72,11 @@ export async function projectLobbySession(
         lastActivityAt: lobby.lastActivityAt,
         closedAt: isLiveSessionPhase(phase) ? null : now,
       },
+      where: sql`excluded.version > ${sessionDirectory.version}`,
     })
+    .returning({ version: sessionDirectory.version })
+
+  if (!appliedRows.some(row => row.version === lobby.revision)) return
 
   await reconcileDirectoryMembers(db, lobby.id, liveMemberIds, now)
 }

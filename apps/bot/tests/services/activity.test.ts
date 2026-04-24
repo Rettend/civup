@@ -18,7 +18,7 @@ import {
   storeUserLobbyState,
   storeUserMatchMappings,
 } from '../../src/services/activity/index.ts'
-import { attachLobbyMatch, createLobby, setLobbySlots } from '../../src/services/lobby/index.ts'
+import { createLobby, setLobbySlots, startLobbyDraft } from '../../src/services/lobby/index.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
@@ -137,11 +137,11 @@ describe('activity mapping behavior', () => {
       channelId: 'channel-1',
       messageId: 'message-1',
     })
-    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
-    await storeUserMatchMappings(kv, ['user-1'], 'match-1')
+    await startLobbyDraft(kv, lobby.id, lobby)
+    await storeUserMatchMappings(kv, ['user-1'], lobby.id)
 
-    await expect(getMatchForUser(kv, 'user-1')).resolves.toBe('match-1')
-    await expect(kv.get('activity-match:match-1')).resolves.toBe('channel-1')
+    await expect(getMatchForUser(kv, 'user-1')).resolves.toBe(lobby.id)
+    await expect(kv.get(`activity-match:${lobby.id}`)).resolves.toBe('channel-1')
   })
 
   test('getMatchForUser removes stale user mapping when match mapping is gone', async () => {
@@ -215,22 +215,22 @@ describe('activity mapping behavior', () => {
       activitySecret: 'secret',
     })
 
-    await storeMatchMapping(kv, 'channel-1', 'match-new')
+    await storeMatchMapping(kv, 'channel-1', currentLobby.id)
     await storeMatchActivityState(kv, 'channel-1', ['user-1'], {
-      matchId: 'match-new',
+      matchId: currentLobby.id,
       lobbyId: currentLobby.id,
       mode: '1v1',
       activitySecret: 'secret',
     })
-    await attachLobbyMatch(kv, currentLobby.id, 'match-new', currentLobby)
+    await startLobbyDraft(kv, currentLobby.id, currentLobby)
     await kv.put('activity-target-match:channel-1:match-old:user-1', String(Date.now()))
 
     await clearActivityMappings(kv, 'match-old', ['user-1'], 'channel-1')
 
-    await expect(getMatchForUser(kv, 'user-1')).resolves.toBe('match-new')
+    await expect(getMatchForUser(kv, 'user-1')).resolves.toBe(currentLobby.id)
     await expect(getUserActivityTarget(kv, 'channel-1', 'user-1')).resolves.toEqual(expect.objectContaining({
       kind: 'match',
-      id: 'match-new',
+      id: currentLobby.id,
     }))
     await expect(kv.get('activity-match:match-old')).resolves.toBeNull()
     await expect(kv.get('activity-target-match:channel-1:match-old:user-1')).resolves.toBeNull()
@@ -245,10 +245,10 @@ describe('activity mapping behavior', () => {
       messageId: 'message-1',
     })
 
-    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    await startLobbyDraft(kv, lobby.id, lobby)
 
-    await expect(getChannelForMatch(kv, 'match-1')).resolves.toBe('channel-1')
-    await expect(kv.get('activity-match:match-1')).resolves.toBe('channel-1')
+    await expect(getChannelForMatch(kv, lobby.id)).resolves.toBe('channel-1')
+    await expect(kv.get(`activity-match:${lobby.id}`)).resolves.toBe('channel-1')
   })
 
   test('clearLobbyMappings removes lobby reopen mapping and channel target', async () => {
