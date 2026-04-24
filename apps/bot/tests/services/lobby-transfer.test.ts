@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
-import { createLobby, getLobbyById, setLobbyMemberPlayerIds, setLobbySlots } from '../../src/services/lobby/index.ts'
+import { createLobby, getLobbyById, getTestLobbyRuntime, setLobbyMemberPlayerIds, setLobbySlots } from '../helpers/lobby-runtime.ts'
 import { leaveOpenLobbyForLobbyJoin } from '../../src/services/lobby/transfer.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -38,12 +38,14 @@ describe('lobby transfer', () => {
     const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['host-1', 'player-1'], sourceLobby)
     await setLobbySlots(kv, sourceLobby.id, ['host-1', 'player-1', null, null], populatedSource ?? sourceLobby)
 
+    const runtime = await getTestLobbyRuntime(kv)
     const result = await leaveOpenLobbyForLobbyJoin(
       kv,
       undefined,
       (await getLobbyById(kv, sourceLobby.id))!,
       ['player-1'],
       '2v2',
+      { db: runtime.db, sessionNamespace: runtime.sessionNamespace },
     )
 
     expect(result).toEqual({

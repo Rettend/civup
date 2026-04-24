@@ -24,7 +24,7 @@ export interface CreateDraftRoomOptions {
   randomDraft?: boolean
   duplicateFactions?: boolean
   botHost?: string
-  webhookSecret?: string
+  internalSecret?: string
   timerConfig?: DraftTimerConfig
   leaderPoolSize?: number | null
   dealOptionsSize?: number | null
@@ -68,8 +68,6 @@ export async function createDraftRoom(
     mapVoteEnabled,
     leaderDataVersion: options.leaderDataVersion ?? 'live',
     timerConfig: options.timerConfig,
-    webhookUrl: buildDraftWebhookUrl(options.botHost),
-    webhookSecret: options.webhookSecret,
   }
 
   await initializeDraftRoom(config, options)
@@ -77,9 +75,9 @@ export async function createDraftRoom(
   return { matchId, formatId: format.id, seats }
 }
 
-async function initializeDraftRoom(config: RoomConfig, options: Pick<CreateDraftRoomOptions, 'mainNamespace' | 'botHost' | 'webhookSecret'>): Promise<void> {
+async function initializeDraftRoom(config: RoomConfig, options: Pick<CreateDraftRoomOptions, 'mainNamespace' | 'botHost' | 'internalSecret'>): Promise<void> {
   if (options.mainNamespace) {
-    await initializeDraftRoomViaMainStub(config, options.mainNamespace, options.webhookSecret)
+    await initializeDraftRoomViaMainStub(config, options.mainNamespace, options.internalSecret)
     return
   }
 
@@ -88,8 +86,8 @@ async function initializeDraftRoom(config: RoomConfig, options: Pick<CreateDraft
   const url = `${normalizedHost}/parties/main/${config.matchId}`
 
   await api.post(url, config, {
-    headers: options.webhookSecret
-      ? { [CIVUP_INTERNAL_SECRET_HEADER]: options.webhookSecret }
+    headers: options.internalSecret
+      ? { [CIVUP_INTERNAL_SECRET_HEADER]: options.internalSecret }
       : undefined,
   })
 }
@@ -135,11 +133,6 @@ async function buildDraftRoomCreateError(response: Response): Promise<ApiError> 
   catch {}
 
   return new ApiError(errorMessage, response.status, errorData, response.headers)
-}
-
-function buildDraftWebhookUrl(botHost: string | undefined): string {
-  const normalizedBotHost = normalizeHost(botHost, DEFAULT_BOT_HOST)
-  return `${normalizedBotHost}/api/webhooks/draft-complete`
 }
 
 // ── Build seats with team assignment ────────────────────────

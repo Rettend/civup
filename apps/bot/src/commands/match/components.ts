@@ -7,7 +7,7 @@ import { findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIds
 import { getMatchIdForMessage } from '../../services/match/message.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
-import { createStateStore } from '../../services/state/store.ts'
+import { getKvStore } from '../../services/kv/batch.ts'
 import { factory } from '../../setup.ts'
 import { findBlockingDraftMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
 
@@ -24,7 +24,7 @@ export const component_match_join = factory.component(
     }
 
     const env = c.env
-    const kv = createStateStore(env)
+    const kv = getKvStore(env)
 
     queueBackgroundTask(c, async () => {
       const lobby = await getLobbyById(kv, lobbyId)

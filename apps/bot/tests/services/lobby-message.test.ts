@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { canApplyQueuedLobbyMessageUpdate, createLobby, getLobbyById, repostLobbyMessage, setLobbyStatus } from '../../src/services/lobby/index.ts'
+import { canApplyQueuedLobbyMessageUpdate, createLobby, getLobbyById, repostLobbyMessage, setLobbyStatus } from '../helpers/lobby-runtime.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch

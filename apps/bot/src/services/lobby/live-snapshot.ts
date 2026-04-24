@@ -6,7 +6,7 @@ import { syncActivityOverviewSnapshotForLobby } from '../activity/live-state.ts'
 import { getServerDraftTimerDefaults } from '../config/index.ts'
 import { getStoredLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { getQueueState } from '../queue/index.ts'
-import { stateStoreMdelete, stateStoreMput } from '../state/store.ts'
+import { kvMdelete, kvMput } from '../kv/batch.ts'
 import { LOBBY_TTL } from './keys.ts'
 import { normalizeDraftConfigForMode } from './normalize.ts'
 import { filterQueueEntriesForLobby, mapLobbySlotsToEntries, normalizeLobbySlots } from './slots.ts'
@@ -115,7 +115,7 @@ export async function storeLobbyLiveSnapshot(
     balanceSnapshot,
   )
 
-  await stateStoreMput(kv, [{
+  await kvMput(kv, [{
     key: lobbySnapshotKey(lobby.id),
     value: JSON.stringify(snapshot),
     expirationTtl: LOBBY_TTL,
@@ -169,7 +169,7 @@ export async function attachLobbyBalanceRatings(
 }
 
 export async function clearLobbyLiveSnapshot(kv: KVNamespace, lobbyId: string): Promise<void> {
-  await stateStoreMdelete(kv, [lobbySnapshotKey(lobbyId)])
+  await kvMdelete(kv, [lobbySnapshotKey(lobbyId)])
 }
 
 export async function syncLobbyDerivedState(

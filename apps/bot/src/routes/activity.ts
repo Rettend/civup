@@ -13,7 +13,7 @@ import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '..
 import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyById, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
 import { clearStalePersistedLiveLobbies, filterPersistedLiveLobbies, findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIdsForPlayers } from '../services/match/live.ts'
 import { getPlayerQueueMode, getPlayerQueueModeFromStates, parseQueueState, queueKey } from '../services/queue/index.ts'
-import { createStateStore, stateStoreMget } from '../services/state/store.ts'
+import { getKvStore, kvMget } from '../services/kv/batch.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
 import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, getUniqueOpenLobbyForChannel } from './lobby/snapshot.ts'
 
@@ -87,7 +87,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
     if (!auth.ok) return auth.response
 
     const channelId = c.req.param('channelId')
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     const channelLobbies = await loadActivityChannelLobbies(kv, channelId, c.env.DB)
     const liveMatchIds = [...new Set(channelLobbies.flatMap(lobby => (
       (lobby.status === 'drafting' || lobby.status === 'active') && lobby.matchId
@@ -111,7 +111,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
     if (mismatch) return mismatch
 
     const userId = auth.identity.userId
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
 
     const db = createDb(c.env.DB)
     const [active] = await db
@@ -142,7 +142,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
     if (!auth.ok) return auth.response
 
     const channelId = c.req.param('channelId')
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
 
     const lobby = await getUniqueOpenLobbyForChannel(kv, channelId)
     if (lobby) {
@@ -160,7 +160,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
     if (mismatch) return mismatch
 
     const userId = auth.identity.userId
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     const mappedLobbyId = await getLobbyForUser(kv, userId)
     if (mappedLobbyId) {
       const mappedLobby = await getLobbyById(kv, mappedLobbyId)
@@ -181,7 +181,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
 
     const channelId = c.req.param('channelId')
     const userId = auth.identity.userId
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
 
     return c.json(await buildActivityLaunchSnapshot(c.env.DISCORD_TOKEN, c.env.CIVUP_SECRET, kv, channelId, userId, {
       db: c.env.DB,
@@ -227,7 +227,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
       return c.json({ error: 'A valid target kind and id are required' }, 400)
     }
 
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     const result = await selectActivityTargetForUser(c.env.DISCORD_TOKEN, c.env.CIVUP_SECRET, kv, channelId, auth.identity.userId, {
       kind,
       id,
@@ -546,7 +546,7 @@ async function loadActivityLaunchState(
       .filter((mode): mode is NonNullable<ReturnType<typeof toBalanceLeaderboardMode>> => mode != null),
   )]
 
-  const rawState = await stateStoreMget(kv, [
+  const rawState = await kvMget(kv, [
     ...GAME_MODES.map(mode => ({ key: queueKey(mode), type: 'json' as const })),
     ...requestedBalanceModes.map(mode => ({ key: leaderboardModeSnapshotKey(mode), type: 'json' as const })),
   ])

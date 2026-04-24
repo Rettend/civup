@@ -92,14 +92,6 @@ export interface LobbyRankedRolesSnapshot {
 
 export type LobbyArrangeStrategy = 'randomize' | 'balance' | 'shuffle-teams'
 
-interface StateWatchMessage {
-  type: 'state-changed' | 'error'
-  key?: string
-  op?: 'put' | 'delete'
-  value?: string
-  message?: string
-}
-
 export interface StateWatchChange {
   key: string
   op: 'put' | 'delete'
@@ -204,7 +196,6 @@ const SOCKET_FATAL_CLOSE_MIN = 4000
 const SOCKET_FATAL_CLOSE_MAX = 5000
 const STALE_DRAFT_RECONNECT_CHECK_MS = 1_000
 const DRAFT_SOCKET_MAX_RETRIES = 12
-const STATE_WATCH_SOCKET_MAX_RETRIES = 8
 
 // ── Socket ─────────────────────────────────────────────────
 
@@ -408,103 +399,29 @@ function stopStaleDraftReconnectWatchdog() {
   staleDraftReconnectInterval = null
 }
 
-/** Subscribe to lobby/match invalidation events from state coordinator room. */
-export function watchLobbyState(target: PartySocketTarget, options: LobbyStateWatchOptions): LobbyStateWatch {
+/** Directory/session-owned push replaces the deleted global State room. */
+export function watchLobbyState(_target: PartySocketTarget, options: LobbyStateWatchOptions): LobbyStateWatch {
   let closed = false
   const keySubscriptions = new Set<string>()
   const prefixSubscriptions = new Set<string>()
 
-  const socketId = `lobby-watch:${options.userId}:${Math.random().toString(36).slice(2, 10)}`
-  const activitySessionToken = getActivitySessionToken()
-
-  const stateSocket = new PartySocket({
-    host: target.host,
-    party: 'state',
-    prefix: target.prefix ?? 'api/parties',
-    room: 'global',
-    id: socketId,
-    query: activitySessionToken
-      ? { [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken }
-      : undefined,
-    maxRetries: STATE_WATCH_SOCKET_MAX_RETRIES,
-  })
-
-  const isSocketOpen = () => stateSocket.readyState === WebSocket.OPEN
-  const sendStateSocketMessage = (message: unknown) => {
-    if (closed || !isSocketOpen()) return
-    stateSocket.send(JSON.stringify(message))
-  }
   const subscribeKey = (key: string) => {
     if (keySubscriptions.has(key)) return
     keySubscriptions.add(key)
-    sendStateSocketMessage({ type: 'subscribe-key', key })
   }
   const unsubscribeKey = (key: string) => {
     if (!keySubscriptions.delete(key)) return
-    sendStateSocketMessage({ type: 'unsubscribe-key', key })
   }
   const subscribePrefix = (prefix: string) => {
     if (prefixSubscriptions.has(prefix)) return
     prefixSubscriptions.add(prefix)
-    sendStateSocketMessage({ type: 'subscribe-prefix', prefix })
   }
   const unsubscribePrefix = (prefix: string) => {
     if (!prefixSubscriptions.delete(prefix)) return
-    sendStateSocketMessage({ type: 'unsubscribe-prefix', prefix })
   }
 
-  stateSocket.addEventListener('open', () => {
-    if (closed) return
-    options.onConnected?.()
-    for (const key of keySubscriptions) {
-      sendStateSocketMessage({ type: 'subscribe-key', key })
-    }
-    for (const prefix of prefixSubscriptions) {
-      sendStateSocketMessage({ type: 'subscribe-prefix', prefix })
-    }
-  })
-
-  stateSocket.addEventListener('message', (event) => {
-    if (closed) return
-    try {
-      const msg = JSON.parse(event.data as string) as StateWatchMessage
-      if (
-        msg.type === 'state-changed'
-        && typeof msg.key === 'string'
-        && (msg.op === 'put' || msg.op === 'delete')
-      ) {
-        options.onStateChanged({
-          key: msg.key,
-          op: msg.op,
-          value: typeof msg.value === 'string' ? msg.value : undefined,
-        })
-        return
-      }
-
-      if (msg.type === 'error') {
-        options.onError?.(msg.message ?? 'State watch error')
-      }
-    }
-    catch (err) {
-      relayDevLog('warn', 'Failed to parse state watch message', err)
-      console.error('Failed to parse state watch message:', err)
-    }
-  })
-
-  stateSocket.addEventListener('close', (event) => {
-    if (closed) return
-    if (isFatalSocketClose(event.code)) stopSocketReconnects(stateSocket, `fatal close ${event.code}`)
-    if (isUnauthorizedSocketClose(event.code)) clearActivitySessionToken()
-    if (event.code === 1000) return
-    options.onDisconnected?.()
-    options.onError?.(isUnauthorizedSocketClose(event.code)
-      ? 'Activity session expired. Reopen the activity.'
-      : `State watch disconnected (${event.code})`)
-  })
-
-  stateSocket.addEventListener('error', () => {
-    if (closed) return
-    options.onError?.('State watch connection failed')
+  queueMicrotask(() => {
+    if (!closed) options.onConnected?.()
   })
 
   return {
@@ -515,7 +432,6 @@ export function watchLobbyState(target: PartySocketTarget, options: LobbyStateWa
     close: () => {
       if (closed) return
       closed = true
-      stateSocket.close()
     },
   }
 }

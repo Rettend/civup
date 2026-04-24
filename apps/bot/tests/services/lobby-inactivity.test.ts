@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
-import { createLobby, getLobbyById, setLobbyLastActivityAt } from '../../src/services/lobby/index.ts'
+import { createLobby, getLobbyById, setLobbyLastActivityAt } from '../helpers/lobby-runtime.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 

@@ -1,6 +1,6 @@
 import type { GameMode, QueueEntry, QueueState } from '@civup/game'
 import { defaultPlayerCount, formatModeLabel, GAME_MODES, maxPlayerCount } from '@civup/game'
-import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
+import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
 
 const QUEUE_KEY_PREFIX = 'queue:'
 const PLAYER_QUEUE_KEY_PREFIX = 'player-queue:'
@@ -115,12 +115,12 @@ async function persistQueueStateWithPlayerMappings(
     .map(entry => playerQueueKey(entry.playerId))
 
   if (nextEntries.length === 0) {
-    await stateStoreMdelete(kv, [queueKey(mode), ...deletedPlayerQueueKeys])
+    await kvMdelete(kv, [queueKey(mode), ...deletedPlayerQueueKeys])
     return
   }
 
   await Promise.all([
-    stateStoreMput(kv, [{
+    kvMput(kv, [{
       key: queueKey(mode),
       value: JSON.stringify({
         entries: nextEntries,
@@ -134,7 +134,7 @@ async function persistQueueStateWithPlayerMappings(
         value: mode,
         expirationTtl: QUEUE_TTL,
       }))]),
-    stateStoreMdelete(kv, deletedPlayerQueueKeys),
+    kvMdelete(kv, deletedPlayerQueueKeys),
   ])
 }
 
@@ -149,7 +149,7 @@ export async function getPlayerQueueModes(
   const queueModeByPlayerId = new Map<string, GameMode | null>()
   if (uniquePlayerIds.length === 0) return queueModeByPlayerId
 
-  const rawMappedModes = await stateStoreMget(
+  const rawMappedModes = await kvMget(
     kv,
     uniquePlayerIds.map(playerId => ({ key: playerQueueKey(playerId) })),
   )
@@ -159,7 +159,7 @@ export async function getPlayerQueueModes(
     queueModeByPlayerId.set(playerId, queueMode)
   }
   if (stalePlayerIds.length > 0) {
-    await stateStoreMdelete(kv, stalePlayerIds.map(playerId => playerQueueKey(playerId)))
+    await kvMdelete(kv, stalePlayerIds.map(playerId => playerQueueKey(playerId)))
   }
 
   const unresolvedPlayerIds = uniquePlayerIds.filter(playerId => !queueModeByPlayerId.has(playerId))
@@ -191,7 +191,7 @@ export async function getQueueStateWithPlayerQueueModes(
   queueModeByPlayerId: Map<string, GameMode | null>
 }> {
   const uniquePlayerIds = [...new Set(playerIds.filter(playerId => playerId.length > 0))]
-  const rawEntries = await stateStoreMget(kv, [
+  const rawEntries = await kvMget(kv, [
     ...uniquePlayerIds.map(playerId => ({ key: playerQueueKey(playerId) })),
     { key: queueKey(mode), type: 'json' as const },
   ])
@@ -212,7 +212,7 @@ export async function getQueueStateWithPlayerQueueModes(
     queueModeByPlayerId.set(playerId, queueMode)
   }
   if (stalePlayerIds.length > 0) {
-    await stateStoreMdelete(kv, stalePlayerIds.map(playerId => playerQueueKey(playerId)))
+    await kvMdelete(kv, stalePlayerIds.map(playerId => playerQueueKey(playerId)))
   }
 
   for (let index = 0; index < uniquePlayerIds.length; index++) {
@@ -258,7 +258,7 @@ async function resolveVerifiedMappedQueueModes(
   const mappedModesToLoad = [...new Set(rawMappedModes.filter(isGameMode).filter(rawMode => !queueStateByMode.has(rawMode)))]
 
   if (mappedModesToLoad.length > 0) {
-    const rawQueueStates = await stateStoreMget(
+    const rawQueueStates = await kvMget(
       kv,
       mappedModesToLoad.map(mappedMode => ({ key: queueKey(mappedMode), type: 'json' as const })),
     )
@@ -304,7 +304,7 @@ export async function getQueueStates(
   const requestedModes = [...new Set(modes)]
   if (requestedModes.length === 0) return new Map()
 
-  const rawQueueStates = await stateStoreMget(
+  const rawQueueStates = await kvMget(
     kv,
     requestedModes.map(mode => ({ key: queueKey(mode), type: 'json' })),
   )
