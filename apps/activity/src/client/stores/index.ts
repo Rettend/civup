@@ -26,7 +26,7 @@ export {
   type LobbySnapshot,
   type LobbyStateWatch,
   type LobbyStateWatchOptions,
-  type PartySocketTarget,
+  type SessionSocketTarget,
   placeLobbySlot,
   type RankedRoleOptionSnapshot,
   removeLobbySlot,

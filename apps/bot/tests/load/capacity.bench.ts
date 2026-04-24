@@ -266,7 +266,6 @@ async function buildScenarioReport(
       workersRequests: modeledBaseline.usage.workersRequests,
       botWorkerRequests: modeledBaseline.usage.botWorkerRequests,
       activityWorkerRequests: modeledBaseline.usage.activityWorkerRequests,
-      partyWorkerRequests: modeledBaseline.usage.partyWorkerRequests,
       d1RowsReadBase: modeledBaseline.usage.d1RowsRead,
       d1RowsReadPerLeaderboardPlayer: modeledWithOneBackgroundPlayer.usage.d1RowsRead - modeledBaseline.usage.d1RowsRead,
       d1RowsWritten: modeledBaseline.usage.d1RowsWritten,
@@ -338,7 +337,7 @@ async function buildScenarioReport(
     draftRoomIncomingMessagesWithSelectionPreviews: modeledBaseline.draftRoomIncomingMessagesWithSelectionPreviews,
     draftRoomIncomingMessagesWithTeamPickPreviews: modeledBaseline.draftRoomIncomingMessagesWithTeamPickPreviews,
     openLobbyMutationRequests: modeledBaseline.openLobbyMutationRequests,
-    legacySelectedLobbyRefetchRequests: modeledBaseline.legacySelectedLobbyRefetchRequests,
+    selectedLobbyPushUpdates: modeledBaseline.selectedLobbyPushUpdates,
     freeCapacityPlaysPerDay,
     paidIncludedCapacityPlaysPerDay,
     paidSixDollarCapacityPlaysPerDay,
@@ -375,14 +374,12 @@ async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
     const kvWrites = operations.filter(op => op.type === 'put').length
     const kvDeletes = operations.filter(op => op.type === 'delete').length
     const kvLists = operations.filter(op => op.type === 'list').length
-    const partyWorkerRequests = 0
     const doRequests = 0
 
     return {
-      workersRequests: 1 + partyWorkerRequests,
+      workersRequests: 1,
       botWorkerRequests: 1,
       activityWorkerRequests: 0,
-      partyWorkerRequests,
       d1RowsRead: sqlTracker.counts.rowsRead,
       d1RowsWritten: sqlTracker.counts.rowsWritten,
       doSqliteRowsRead: 0,
@@ -418,14 +415,12 @@ async function measureInactiveLobbyCleanupCronRunUsage(): Promise<DailyUsage> {
     const kvWrites = operations.filter(op => op.type === 'put').length
     const kvDeletes = operations.filter(op => op.type === 'delete').length
     const kvLists = operations.filter(op => op.type === 'list').length
-    const partyWorkerRequests = 0
     const doRequests = 0
 
     return {
-      workersRequests: 1 + partyWorkerRequests,
+      workersRequests: 1,
       botWorkerRequests: 1,
       activityWorkerRequests: 0,
-      partyWorkerRequests,
       d1RowsRead: sqlTracker.counts.rowsRead,
       d1RowsWritten: sqlTracker.counts.rowsWritten,
       doSqliteRowsRead: 0,
@@ -483,14 +478,12 @@ async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
     const kvWrites = operations.filter(op => op.type === 'put').length
     const kvDeletes = operations.filter(op => op.type === 'delete').length
     const kvLists = operations.filter(op => op.type === 'list').length
-    const partyWorkerRequests = 0
     const doRequests = 0
 
     return {
-      workersRequests: 1 + partyWorkerRequests,
+      workersRequests: 1,
       botWorkerRequests: 1,
       activityWorkerRequests: 0,
-      partyWorkerRequests,
       d1RowsRead: sqlTracker.counts.rowsRead,
       d1RowsWritten: sqlTracker.counts.rowsWritten,
       doSqliteRowsRead: 0,
@@ -614,7 +607,7 @@ async function simulateScenarioLifecycle(input: {
       : 0
     activityRequests += openLobbyMutationRequests
     botRequests += openLobbyMutationRequests
-    const legacySelectedLobbyRefetchRequests = viewerIds.length * openLobbyMutationRequests
+    const selectedLobbyPushUpdates = viewerIds.length * openLobbyMutationRequests
     await runUnmetered(() => assertOpenCapacityState(db, kv, input.mode.mode, scenarioPlayerIds(input.mode)))
 
     activityRequests += 1
@@ -665,19 +658,12 @@ async function simulateScenarioLifecycle(input: {
     const kvWrites = operations.filter(op => op.type === 'put').length
     const kvDeletes = operations.filter(op => op.type === 'delete').length
     const kvLists = operations.filter(op => op.type === 'list').length
-    const stateCoordinatorRequests = 0
-    const partyWorkerRequests = estimatePartyWorkerRequests({
-      stateCoordinatorRequests,
-      viewerCount: viewerIds.length,
-    })
     const doRequestsRaw = estimateDoRawRequests({
-      stateCoordinatorRequests,
       viewerCount: viewerIds.length,
       draftRoomIncomingMessages,
       lobbyWatchIncomingMessagesPerConnection: LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION,
     })
     const doRequests = estimateDoBilledRequestUnits({
-      stateCoordinatorRequests,
       viewerCount: viewerIds.length,
       draftRoomIncomingMessages,
       lobbyWatchIncomingMessagesPerConnection: LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION,
@@ -688,12 +674,11 @@ async function simulateScenarioLifecycle(input: {
       draftRoomIncomingMessagesWithSelectionPreviews,
       draftRoomIncomingMessagesWithTeamPickPreviews,
       openLobbyMutationRequests,
-      legacySelectedLobbyRefetchRequests,
+      selectedLobbyPushUpdates,
       usage: {
-        workersRequests: botRequests + activityRequests + partyWorkerRequests,
+        workersRequests: botRequests + activityRequests,
         botWorkerRequests: botRequests,
         activityWorkerRequests: activityRequests,
-        partyWorkerRequests,
         d1RowsRead: sqlTracker.counts.rowsRead,
         d1RowsWritten: sqlTracker.counts.rowsWritten,
         doSqliteRowsRead: 0,
@@ -1118,7 +1103,7 @@ function blendSimulationResult(
     draftRoomIncomingMessagesWithSelectionPreviews: blendMetric(base.draftRoomIncomingMessagesWithSelectionPreviews, withAcceptedSwap.draftRoomIncomingMessagesWithSelectionPreviews, acceptedSwapRate),
     draftRoomIncomingMessagesWithTeamPickPreviews: blendMetric(base.draftRoomIncomingMessagesWithTeamPickPreviews, withAcceptedSwap.draftRoomIncomingMessagesWithTeamPickPreviews, acceptedSwapRate),
     openLobbyMutationRequests: blendMetric(base.openLobbyMutationRequests, withAcceptedSwap.openLobbyMutationRequests, acceptedSwapRate),
-    legacySelectedLobbyRefetchRequests: blendMetric(base.legacySelectedLobbyRefetchRequests, withAcceptedSwap.legacySelectedLobbyRefetchRequests, acceptedSwapRate),
+    selectedLobbyPushUpdates: blendMetric(base.selectedLobbyPushUpdates, withAcceptedSwap.selectedLobbyPushUpdates, acceptedSwapRate),
   }
 }
 
@@ -1127,7 +1112,6 @@ function blendUsageSample(base: UsageSample, withAcceptedSwap: UsageSample, acce
     workersRequests: blendMetric(base.workersRequests, withAcceptedSwap.workersRequests, acceptedSwapRate),
     botWorkerRequests: blendMetric(base.botWorkerRequests, withAcceptedSwap.botWorkerRequests, acceptedSwapRate),
     activityWorkerRequests: blendMetric(base.activityWorkerRequests, withAcceptedSwap.activityWorkerRequests, acceptedSwapRate),
-    partyWorkerRequests: blendMetric(base.partyWorkerRequests, withAcceptedSwap.partyWorkerRequests, acceptedSwapRate),
     d1RowsRead: blendMetric(base.d1RowsRead, withAcceptedSwap.d1RowsRead, acceptedSwapRate),
     d1RowsWritten: blendMetric(base.d1RowsWritten, withAcceptedSwap.d1RowsWritten, acceptedSwapRate),
     doSqliteRowsRead: blendMetric(base.doSqliteRowsRead, withAcceptedSwap.doSqliteRowsRead, acceptedSwapRate),
@@ -1150,7 +1134,6 @@ function projectBackgroundUsageToTargetArchitecture(current: DailyUsage): DailyU
   return {
     ...current,
     workersRequests: current.botWorkerRequests + current.activityWorkerRequests,
-    partyWorkerRequests: 0,
     doSqliteRowsRead: 0,
     doSqliteRowsWritten: 0,
     doRequests: 0,
@@ -1187,7 +1170,6 @@ function projectSimulationResultToTargetArchitecture(
       workersRequests: botWorkerRequests + activityWorkerRequests,
       botWorkerRequests,
       activityWorkerRequests,
-      partyWorkerRequests: 0,
       d1RowsRead: Math.max(0, roundSnapshotNumber(
         current.usage.d1RowsRead
         - removedPostDraftSnapshotRowsRead
@@ -1432,7 +1414,7 @@ function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
   const backgroundDailyUsage = reports[0]?.model.backgroundDaily
 
   return {
-    version: 3,
+    version: 4,
     globals: {
       stabilitySamples: CAPACITY_STABILITY_SAMPLES,
       leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
@@ -1469,7 +1451,7 @@ function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
         players,
         viewers: scenarioViewerIds(report.mode).length,
         lobbyMutations: report.openLobbyMutationRequests,
-        legacyRefetchesAvoided: report.legacySelectedLobbyRefetchRequests,
+        selectedLobbyPushUpdates: report.selectedLobbyPushUpdates,
         draftMessages: report.draftRoomIncomingMessages,
         previewMessages: report.draftRoomIncomingMessagesWithSelectionPreviews,
         teamPreviewMessages: report.draftRoomIncomingMessagesWithTeamPickPreviews,
@@ -1547,7 +1529,7 @@ function printReports(reports: ScenarioReport[]): void {
     players: scenarioPlayersPerDraft(report.mode),
     viewers: scenarioViewerIds(report.mode).length,
     lobbyMutations: report.openLobbyMutationRequests,
-    legacyRefetchesAvoided: report.legacySelectedLobbyRefetchRequests,
+    selectedLobbyPushUpdates: report.selectedLobbyPushUpdates,
     draftMsgs: report.draftRoomIncomingMessages,
     previewMsgs: report.draftRoomIncomingMessagesWithSelectionPreviews,
     teamPreviewMsgs: report.draftRoomIncomingMessagesWithTeamPickPreviews,
@@ -1585,7 +1567,6 @@ function printReports(reports: ScenarioReport[]): void {
       workersRequests: backgroundDailyUsage.workersRequests,
       botWorkerRequests: backgroundDailyUsage.botWorkerRequests,
       activityWorkerRequests: backgroundDailyUsage.activityWorkerRequests,
-      partyWorkerRequests: backgroundDailyUsage.partyWorkerRequests,
       doRequestsRaw: backgroundDailyUsage.doRequestsRaw,
       doDurationGbSeconds: roundForReport(backgroundDailyUsage.doDurationGbSeconds),
     }])
@@ -1596,7 +1577,6 @@ function printReports(reports: ScenarioReport[]): void {
     mode: report.mode.label,
     coreWorkers: report.corePerDraft.workersRequests,
     churnWorkers: report.openLobbyChurnPerDraft.workersRequests,
-    corePartyWorkers: report.corePerDraft.partyWorkerRequests,
     churnActivityWorkers: report.openLobbyChurnPerDraft.activityWorkerRequests,
     coreDoReqBilled: report.corePerDraft.doRequests,
     churnDoReqBilled: report.openLobbyChurnPerDraft.doRequests,
@@ -1613,7 +1593,6 @@ function printReports(reports: ScenarioReport[]): void {
     workersRequests: report.model.perDraft.workersRequests,
     botWorkerRequests: report.model.perDraft.botWorkerRequests,
     activityWorkerRequests: report.model.perDraft.activityWorkerRequests,
-    partyWorkerRequests: report.model.perDraft.partyWorkerRequests,
     d1RowsReadBase: report.model.perDraft.d1RowsReadBase,
     d1RowsReadPerRatedPlayer: report.model.perDraft.d1RowsReadPerLeaderboardPlayer,
     d1RowsWritten: report.model.perDraft.d1RowsWritten,
@@ -1678,7 +1657,6 @@ function printReports(reports: ScenarioReport[]): void {
         plan: 'free',
         playsPerDay: report.freeCapacityPlaysPerDay,
         workersRequests: freeUsage.workersRequests,
-        partyWorkerRequests: freeUsage.partyWorkerRequests,
         d1RowsRead: freeUsage.d1RowsRead,
         doSqliteRowsRead: freeUsage.doSqliteRowsRead,
         doSqliteRowsWritten: freeUsage.doSqliteRowsWritten,
@@ -1691,7 +1669,6 @@ function printReports(reports: ScenarioReport[]): void {
         plan: '$5 included',
         playsPerDay: report.paidIncludedCapacityPlaysPerDay,
         workersRequests: paidUsage.workersRequests,
-        partyWorkerRequests: paidUsage.partyWorkerRequests,
         d1RowsRead: paidUsage.d1RowsRead,
         doSqliteRowsRead: paidUsage.doSqliteRowsRead,
         doSqliteRowsWritten: paidUsage.doSqliteRowsWritten,
@@ -1704,7 +1681,6 @@ function printReports(reports: ScenarioReport[]): void {
         plan: '$6 target',
         playsPerDay: report.paidSixDollarCapacityPlaysPerDay,
         workersRequests: paidSixDollarUsage.workersRequests,
-        partyWorkerRequests: paidSixDollarUsage.partyWorkerRequests,
         d1RowsRead: paidSixDollarUsage.d1RowsRead,
         doSqliteRowsRead: paidSixDollarUsage.doSqliteRowsRead,
         doSqliteRowsWritten: paidSixDollarUsage.doSqliteRowsWritten,
@@ -1717,7 +1693,6 @@ function printReports(reports: ScenarioReport[]): void {
         plan: '$10 target',
         playsPerDay: report.paidTenDollarCapacityPlaysPerDay,
         workersRequests: paidTenDollarUsage.workersRequests,
-        partyWorkerRequests: paidTenDollarUsage.partyWorkerRequests,
         d1RowsRead: paidTenDollarUsage.d1RowsRead,
         doSqliteRowsRead: paidTenDollarUsage.doSqliteRowsRead,
         doSqliteRowsWritten: paidTenDollarUsage.doSqliteRowsWritten,
@@ -1768,7 +1743,6 @@ function subtractUsage(total: UsageSample, base: UsageSample): UsageSample {
     workersRequests: total.workersRequests - base.workersRequests,
     botWorkerRequests: total.botWorkerRequests - base.botWorkerRequests,
     activityWorkerRequests: total.activityWorkerRequests - base.activityWorkerRequests,
-    partyWorkerRequests: total.partyWorkerRequests - base.partyWorkerRequests,
     d1RowsRead: total.d1RowsRead - base.d1RowsRead,
     d1RowsWritten: total.d1RowsWritten - base.d1RowsWritten,
     doSqliteRowsRead: total.doSqliteRowsRead - base.doSqliteRowsRead,
@@ -1783,18 +1757,7 @@ function subtractUsage(total: UsageSample, base: UsageSample): UsageSample {
   }
 }
 
-function estimatePartyWorkerRequests(input: {
-  stateCoordinatorRequests: number
-  viewerCount: number
-}): number {
-  return input.stateCoordinatorRequests
-    + DO_CREATE_ROOM_REQUESTS_PER_DRAFT
-    + input.viewerCount
-    + input.viewerCount
-}
-
 function estimateDoRawRequests(input: {
-  stateCoordinatorRequests: number
   viewerCount: number
   draftRoomIncomingMessages: number
   lobbyWatchIncomingMessagesPerConnection: number
@@ -1809,12 +1772,10 @@ function estimateDoRawRequests(input: {
     + lobbyWatchWebsocketConnects
     + input.draftRoomIncomingMessages
     + lobbyWatchIncomingMessages
-    + input.stateCoordinatorRequests
   )
 }
 
 function estimateDoBilledRequestUnits(input: {
-  stateCoordinatorRequests: number
   viewerCount: number
   draftRoomIncomingMessages: number
   lobbyWatchIncomingMessagesPerConnection: number
@@ -1832,7 +1793,6 @@ function estimateDoBilledRequestUnits(input: {
     + lobbyWatchWebsocketConnects
     + billedDraftMessages
     + billedLobbyWatchMessages
-    + input.stateCoordinatorRequests
   )
 }
 

@@ -8,7 +8,7 @@ import type {
   LobbyJoinEligibilitySnapshot,
   LobbySnapshot,
   LobbyStateWatch,
-  PartySocketTarget,
+  SessionSocketTarget,
 } from './stores'
 import { batch, createEffect, createSignal, Match, onCleanup, onMount, Switch, untrack } from 'solid-js'
 import { discordSdk, setupDiscordSdk } from './discord'
@@ -48,7 +48,7 @@ type AppState
 
 const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
   || (typeof window !== 'undefined' ? window.location.host : 'localhost:5173')
-const PARTY_SOCKET_TARGET = resolvePartySocketTarget()
+const SESSION_SOCKET_TARGET = resolveSessionSocketTarget()
 const MINI_VIEW_MAX_WIDTH = 430
 const MINI_VIEW_MAX_HEIGHT = 260
 const MINI_VIEW_MIN_ASPECT_RATIO = 1.5
@@ -267,7 +267,7 @@ export default function App() {
     if (isSameMatch && (isDraftConnectionInFlight() || hasTerminalDraft)) return
 
     resetDraft()
-    connectToSession(PARTY_SOCKET_TARGET, matchId, sessionAccessToken)
+    connectToSession(SESSION_SOCKET_TARGET, matchId, sessionAccessToken)
   }
 
   const applyLaunchSnapshot = (
@@ -600,7 +600,7 @@ export default function App() {
     liveLobbySnapshots.clear()
     setLiveLobbySnapshotVersion(version => version + 1)
 
-    activityWatch = watchLobbyState(PARTY_SOCKET_TARGET, {
+    activityWatch = watchLobbyState(SESSION_SOCKET_TARGET, {
       channelId,
       userId: currentUserId,
       onStateChanged: (change) => {
@@ -754,7 +754,7 @@ export default function App() {
   )
 }
 
-function resolvePartySocketTarget(): PartySocketTarget {
+function resolveSessionSocketTarget(): SessionSocketTarget {
   return {
     host: typeof window !== 'undefined' ? window.location.host : ACTIVITY_HOST,
     prefix: 'api/parties',

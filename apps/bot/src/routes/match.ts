@@ -4,7 +4,7 @@ import { createDb, matches, matchParticipants } from '@civup/db'
 import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed } from '../embeds/match.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
-import { clearLobbyByMatch, upsertLobbyMessage } from '../services/lobby/index.ts'
+import { clearLobbyById, upsertLobbyMessage } from '../services/lobby/index.ts'
 import { cancelMatchByModerator, getHostIdFromDraftData, getStoredGameModeContext, reportMatch } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
@@ -70,7 +70,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
     if (mismatch) return mismatch
 
     const db = createDb(c.env.DB)
-    const fallbackLobby = await getSessionLobbyProjectionByMatch(db, c.req.param('matchId'))
+    const liveLobbyBeforeReport = await getSessionLobbyProjectionByMatch(db, c.req.param('matchId'))
     const result = await reportMatch(db, kv, {
       matchId: c.req.param('matchId'),
       reporterId: auth.identity.userId,
@@ -86,7 +86,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       return c.json({ error: `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.` }, 400)
     }
 
-    const lobby = result.idempotent && !isLiveLobbyProjection(fallbackLobby) ? null : fallbackLobby
+    const lobby = result.idempotent && !isLiveLobbyProjection(liveLobbyBeforeReport) ? null : liveLobbyBeforeReport
     const isRankedResult = reportedContext.ranked
 
     if (result.idempotent) {
@@ -106,7 +106,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
         lobby,
         archivePolicy: 'if-missing',
       })
-      await clearLobbyByMatch(kv, result.match.id)
+      await clearLobbyById(kv, result.match.id, lobby)
       return c.json({ ok: true, alreadyReported: true, match: result.match, participants: result.participants })
     }
 
@@ -156,7 +156,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       },
       archivePolicy: 'always',
     })
-    await clearLobbyByMatch(kv, result.match.id)
+    await clearLobbyById(kv, result.match.id, lobby)
 
     if (isRankedResult) {
       try {

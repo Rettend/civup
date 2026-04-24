@@ -9,7 +9,7 @@ export interface SimulationResult {
   draftRoomIncomingMessagesWithSelectionPreviews: number
   draftRoomIncomingMessagesWithTeamPickPreviews: number
   openLobbyMutationRequests: number
-  legacySelectedLobbyRefetchRequests: number
+  selectedLobbyPushUpdates: number
 }
 
 export interface CapacityScenario {
@@ -29,7 +29,7 @@ export interface ScenarioReport {
   draftRoomIncomingMessagesWithSelectionPreviews: number
   draftRoomIncomingMessagesWithTeamPickPreviews: number
   openLobbyMutationRequests: number
-  legacySelectedLobbyRefetchRequests: number
+  selectedLobbyPushUpdates: number
   freeCapacityPlaysPerDay: number
   paidIncludedCapacityPlaysPerDay: number
   paidSixDollarCapacityPlaysPerDay: number
@@ -41,7 +41,7 @@ export interface ScenarioReport {
 }
 
 export interface CapacitySnapshot {
-  version: 3
+  version: 4
   globals: {
     stabilitySamples: number
     leaderboardCronRunsPerDay: number
@@ -78,7 +78,7 @@ export interface CapacitySnapshotScenario {
   players: number
   viewers: number
   lobbyMutations: number
-  legacyRefetchesAvoided: number
+  selectedLobbyPushUpdates: number
   draftMessages: number
   previewMessages: number
   teamPreviewMessages: number
