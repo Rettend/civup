@@ -11,7 +11,7 @@ import type {
   ServerMessage,
 } from '@civup/game'
 import type { Connection, ConnectionContext, WSMessage } from 'partyserver'
-import type { DraftLifecyclePayload as DraftWebhookPayload } from './draft-lifecycle-events.ts'
+import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
 import type { StoredMapVoteState } from './map-vote-room-state.ts'
 import {
   createDraft,
@@ -37,7 +37,6 @@ import {
   verifyDraftRoomAccessToken,
 } from '@civup/utils'
 import { Server } from 'partyserver'
-import { handleDraftLifecyclePayload } from '../services/match/draft-lifecycle.ts'
 import {
   applyDraftPreview,
   censorDraftPreviews,
@@ -82,6 +81,7 @@ import {
   buildRandomDraftResult,
   pickRandomDistinct,
 } from './random-draft.ts'
+import { syncSessionDraftLifecyclePayload } from './session-do-client.ts'
 import {
   countConnectedDraftParticipants,
   getNextSwapLifecycleAlarmAt,
@@ -108,9 +108,6 @@ const DEBUG_ACTIVE_BOT_DELAY_MS = 5000
 const DEBUG_ACTIVE_BOT_STAGGER_MS = 150
 const SWAP_REQUEST_TIMEOUT_MS = 30_000
 const SWAP_DISCONNECT_GRACE_MS = 5_000
-const WEBHOOK_OUTBOX_ATTEMPT_LEASE_MS = 5_000
-const WEBHOOK_OUTBOX_RETRY_BASE_MS = 1_000
-const WEBHOOK_OUTBOX_RETRY_MAX_MS = 60_000
 
 // ── Draft Room Server ────────────────────────────────────────
 
@@ -180,7 +177,7 @@ export class Main extends Server<PartyEnv> {
     const mapVote = createInitialMapVoteState(state, nextConfig, format.redDeath)
     const room = createRoomRecord(nextConfig, state, mapVote, {
       previews,
-      webhookEventSequence: existing?.webhookEventSequence ?? 0,
+      lifecycleEventSequence: existing?.lifecycleEventSequence ?? 0,
     })
 
     await this.setRoomRecord(room)
@@ -310,8 +307,8 @@ export class Main extends Server<PartyEnv> {
           this.broadcastSwapUpdate(room.state, this.getNormalizedSwapState(room), effect.picks)
           break
 
-        case 'flush-webhook-outbox': {
-          const task = this.flushWebhookOutbox(action)
+        case 'sync-draft-lifecycle': {
+          const task = this.syncDraftLifecyclePayload(effect.payload, action)
           if (effect.delivery === 'await') {
             await task
           }
@@ -797,11 +794,6 @@ export class Main extends Server<PartyEnv> {
     let room = await this.getRoomRecord()
     if (!room) return
 
-    await this.flushWebhookOutbox('alarm')
-
-    room = await this.getRoomRecord()
-    if (!room) return
-
     const state = room.state
     const config = room.config
 
@@ -1029,71 +1021,15 @@ export class Main extends Server<PartyEnv> {
     return this.getNormalizedSwapState(room)
   }
 
-  private async flushWebhookOutbox(action: string) {
-    while (true) {
-      const claimed = await this.claimNextWebhookOutboxEntry()
-      if (!claimed) break
+  private async syncDraftLifecyclePayload(payload: DraftLifecyclePayload, action: string): Promise<void> {
+    const result = await syncSessionDraftLifecyclePayload(this.env.SessionDO, payload.matchId, payload)
+    if (result.ok) return
 
-      const { entry } = claimed
-      const delivery = await this.deliverDraftLifecyclePayload(entry.payload)
-      if (delivery === 'delivered' || delivery === 'drop') {
-        await this.updateRoomRecord(currentRoom => ({
-          ...currentRoom,
-          webhookOutbox: currentRoom.webhookOutbox.filter(candidate => candidate.payload.eventId !== entry.payload.eventId),
-        }))
-        continue
-      }
-
-      const nextAttemptAt = this.now() + getWebhookOutboxRetryDelay(entry.attempts)
-      await this.updateRoomRecord(currentRoom => ({
-        ...currentRoom,
-        webhookOutbox: currentRoom.webhookOutbox.map((candidate) => {
-          if (candidate.payload.eventId !== entry.payload.eventId) return candidate
-          return {
-            ...candidate,
-            attempts: entry.attempts,
-            nextAttemptAt,
-          }
-        }),
-      }))
-
-      console.warn('[draft-room] webhook retry deferred', buildDraftWebhookLogContext(entry.payload, {
-        action,
-        nextAttemptAt,
-      }))
-      break
-    }
-
-    await this.rescheduleRoomAlarm()
-  }
-
-  private async claimNextWebhookOutboxEntry(): Promise<{ room: RoomRecord, entry: RoomRecord['webhookOutbox'][number] } | null> {
-    const now = this.now()
-    let claimedEntry: RoomRecord['webhookOutbox'][number] | null = null
-    const room = await this.updateRoomRecord((currentRoom) => {
-      const nextEntry = getNextWebhookOutboxEntry(currentRoom)
-      if (!nextEntry || nextEntry.nextAttemptAt > now) return currentRoom
-
-      claimedEntry = {
-        ...nextEntry,
-        attempts: nextEntry.attempts + 1,
-        nextAttemptAt: now + WEBHOOK_OUTBOX_ATTEMPT_LEASE_MS,
-      }
-
-      return {
-        ...currentRoom,
-        webhookOutbox: currentRoom.webhookOutbox.map((candidate) => {
-          if (candidate.payload.eventId !== nextEntry.payload.eventId) return candidate
-          return claimedEntry!
-        }),
-      }
-    })
-
-    if (!claimedEntry) return null
-    return {
-      room,
-      entry: claimedEntry,
-    }
+    console.error('[draft-room] lifecycle sync deferred to session runtime', buildDraftLifecycleLogContext(payload, {
+      action,
+      status: result.status,
+      error: result.error,
+    }))
   }
 
   private async rescheduleRoomAlarm() {
@@ -1394,30 +1330,6 @@ export class Main extends Server<PartyEnv> {
     }
   }
 
-  private async deliverDraftLifecyclePayload(payload: DraftWebhookPayload): Promise<'delivered' | 'retry' | 'drop'> {
-    const lifecycleContext = buildDraftWebhookLogContext(payload)
-    if (!this.env.DB || !this.env.KV || !this.env.DISCORD_TOKEN) {
-      console.error('[draft-room] lifecycle sync missing bot bindings', lifecycleContext)
-      return 'retry'
-    }
-
-    try {
-      const result = await handleDraftLifecyclePayload({
-        DB: this.env.DB,
-        KV: this.env.KV,
-        DISCORD_TOKEN: this.env.DISCORD_TOKEN,
-        SessionDO: this.env.SessionDO,
-      }, payload)
-      if (result.ok) return 'delivered'
-      if (result.status >= 500) return 'retry'
-      console.error('[draft-room] lifecycle sync dropped', { ...lifecycleContext, status: result.status, error: result.error })
-      return 'drop'
-    }
-    catch (error) {
-      console.error('[draft-room] lifecycle sync retry scheduled', lifecycleContext, error)
-      return 'retry'
-    }
-  }
 }
 
 // ── Utility ──────────────────────────────────────────────────
@@ -1440,11 +1352,11 @@ function buildDraftRoomLogContext(
   }
 }
 
-function buildDraftWebhookLogContext(
-  payload: DraftWebhookPayload,
+function buildDraftLifecycleLogContext(
+  payload: DraftLifecyclePayload,
   extra: Record<string, unknown> = {},
 ): Record<string, unknown> {
-  return buildDraftRoomLogContext('webhook', payload.state, {
+  return buildDraftRoomLogContext('lifecycle-sync', payload.state, {
     eventId: payload.eventId,
     eventKind: payload.eventKind,
     eventSequence: payload.eventSequence,
@@ -1484,22 +1396,8 @@ function getNextRoomAlarmAt(room: RoomRecord, swapState: LeaderSwapState): numbe
     }
   }
 
-  const nextWebhookAttempt = getNextWebhookOutboxEntry(room)?.nextAttemptAt ?? null
-  if (nextWebhookAttempt != null) {
-    candidates.push(nextWebhookAttempt)
-  }
-
   if (candidates.length === 0) return null
   return Math.min(...candidates)
-}
-
-function getNextWebhookOutboxEntry(room: RoomRecord): RoomRecord['webhookOutbox'][number] | null {
-  if (room.webhookOutbox.length === 0) return null
-  return [...room.webhookOutbox].sort((left, right) => left.payload.eventSequence - right.payload.eventSequence)[0] ?? null
-}
-
-function getWebhookOutboxRetryDelay(attempts: number): number {
-  return Math.min(WEBHOOK_OUTBOX_RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1), WEBHOOK_OUTBOX_RETRY_MAX_MS)
 }
 
 function isSeatInStep(step: DraftState['steps'][number], seatIndex: number, totalSeats: number): boolean {

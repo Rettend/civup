@@ -4,16 +4,12 @@ export const CIVUP_INTERNAL_SECRET_HEADER = 'X-CivUp-Internal-Secret'
 export const CIVUP_ACTIVITY_USER_ID_HEADER = 'X-CivUp-Activity-User-Id'
 export const CIVUP_ACTIVITY_DISPLAY_NAME_HEADER = 'X-CivUp-Activity-Display-Name'
 export const CIVUP_ACTIVITY_AVATAR_URL_HEADER = 'X-CivUp-Activity-Avatar-Url'
-export const CIVUP_WEBHOOK_TIMESTAMP_HEADER = 'X-CivUp-Webhook-Timestamp'
-export const CIVUP_WEBHOOK_SIGNATURE_HEADER = 'X-CivUp-Webhook-Signature'
 
 const LEGACY_CIVUP_STATE_SECRET_HEADER = 'X-CivUp-State-Secret'
-const LEGACY_CIVUP_WEBHOOK_SECRET_HEADER = 'X-CivUp-Webhook-Secret'
 const ACTIVITY_SESSION_VERSION = 'session.v1'
 const DRAFT_ROOM_ACCESS_VERSION = 'draft-room.v1'
 const DEFAULT_ACTIVITY_SESSION_TTL_SECONDS = 8 * 60 * 60
 const DEFAULT_DRAFT_ROOM_ACCESS_TTL_SECONDS = 8 * 60 * 60
-const DEFAULT_WEBHOOK_MAX_SKEW_MS = 5 * 60 * 1000
 
 const textEncoder = new TextEncoder()
 const textDecoder = new TextDecoder()
@@ -150,39 +146,6 @@ export function readAuthorizedActivityIdentity(headers: Headers, expectedSecret:
     displayName,
     avatarUrl,
   }
-}
-
-export async function createSignedWebhookHeaders(secret: string, body: string, nowMs = Date.now()): Promise<Record<string, string>> {
-  const timestamp = String(nowMs)
-  return {
-    [CIVUP_WEBHOOK_TIMESTAMP_HEADER]: timestamp,
-    [CIVUP_WEBHOOK_SIGNATURE_HEADER]: await signString(secret, `${timestamp}.${body}`),
-  }
-}
-
-export async function verifySignedWebhookRequest(
-  headers: Headers,
-  secret: string | undefined,
-  body: string,
-  nowMs = Date.now(),
-  maxSkewMs = DEFAULT_WEBHOOK_MAX_SKEW_MS,
-): Promise<boolean> {
-  const normalizedSecret = normalizeSecret(secret)
-  if (!normalizedSecret) return false
-
-  const timestamp = headers.get(CIVUP_WEBHOOK_TIMESTAMP_HEADER)
-  const signature = headers.get(CIVUP_WEBHOOK_SIGNATURE_HEADER)
-  if (timestamp && signature) {
-    const parsedTimestamp = Number(timestamp)
-    if (!Number.isFinite(parsedTimestamp)) return false
-    if (Math.abs(nowMs - parsedTimestamp) > maxSkewMs) return false
-
-    const expectedSignature = await signString(normalizedSecret, `${timestamp}.${body}`)
-    return constantTimeEqual(signature, expectedSignature)
-  }
-
-  const legacySecret = headers.get(LEGACY_CIVUP_WEBHOOK_SECRET_HEADER)
-  return constantTimeEqual(legacySecret ?? '', normalizedSecret)
 }
 
 function normalizeSecret(secret: string | undefined): string | null {

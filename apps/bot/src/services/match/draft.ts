@@ -255,7 +255,7 @@ export async function cancelDraftMatch(
     return { error: `Match **${matchId}** not found.` }
   }
 
-  if (match.status === 'active' || match.status === 'completed') {
+  if ((match.status === 'active' && input.allowActive !== true) || match.status === 'completed') {
     return { error: `Match **${matchId}** cannot be cancelled (status: ${match.status}).` }
   }
 
