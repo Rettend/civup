@@ -1,12 +1,13 @@
 import type { GameMode } from '@civup/game'
 import type { LobbySessionProjectionOptions } from './mutations.ts'
 import type { LobbyState } from './types.ts'
-import { slotToTeamIndex } from '@civup/game'
+import { GAME_MODES, slotToTeamIndex } from '@civup/game'
 import { lobbyTimeoutEmbed } from '../../embeds/match.ts'
 import { upsertLobbyMessage } from './message.ts'
 import { setLobbyStatus } from './mutations.ts'
 import { filterQueueEntriesForLobby, normalizeLobbySlots } from './slots.ts'
-import { clearLobbyById, getCurrentLobbies } from './store.ts'
+import { getOpenSessionLobbyProjectionsByMode } from '../session/index.ts'
+import { clearLobbyById } from './store.ts'
 
 export const LOBBY_TIMEOUT_MESSAGE = 'This lobby timed out due to inactivity.'
 export const LOBBY_INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000 // 1 hour
@@ -33,9 +34,10 @@ export async function pruneInactiveOpenLobbies(
 ): Promise<PrunedInactiveLobby[]> {
   const now = options.now ?? Date.now()
   const pruned: PrunedInactiveLobby[] = []
-  const currentLobbies = await getCurrentLobbies(kv)
+  if (!options.db) return pruned
+
+  const currentLobbies = (await Promise.all(GAME_MODES.map(mode => getOpenSessionLobbyProjectionsByMode(options.db!, mode)))).flat()
   for (const lobby of currentLobbies) {
-    if (lobby.status !== 'open') continue
     if (!isLobbyInactive(lobby, now)) continue
     pruned.push(await expireOpenLobby(kv, token, lobby, {
       db: options.db,

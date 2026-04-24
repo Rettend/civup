@@ -16,9 +16,7 @@ export async function getLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise
     .map(entry => entry.name.slice(modePrefix(mode).length))
     .filter((lobbyId): lobbyId is string => lobbyId.length > 0)
 
-  if (lobbyIds.length === 0) {
-    return await recoverLobbiesByMode(kv, mode)
-  }
+  if (lobbyIds.length === 0) return []
 
   const rawLobbies = await kvMget(
     kv,
@@ -30,10 +28,6 @@ export async function getLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise
     .filter((lobby): lobby is LobbyState => lobby != null)
     .filter(lobby => lobby.mode === mode)
     .sort((left, right) => left.createdAt - right.createdAt)
-
-  if (lobbies.length === 0) {
-    return await recoverLobbiesByMode(kv, mode)
-  }
 
   return lobbies
 }
@@ -64,9 +58,7 @@ export async function getLobbiesByChannel(kv: KVNamespace, channelId: string): P
     .map(entry => entry.name.slice(channelPrefix(channelId).length))
     .filter((lobbyId): lobbyId is string => lobbyId.length > 0)
 
-  if (lobbyIds.length === 0) {
-    return await recoverLobbiesByChannel(kv, channelId)
-  }
+  if (lobbyIds.length === 0) return []
 
   const rawLobbies = await kvMget(
     kv,
@@ -78,10 +70,6 @@ export async function getLobbiesByChannel(kv: KVNamespace, channelId: string): P
     .filter((lobby): lobby is LobbyState => lobby != null)
     .filter(lobby => lobby.channelId === channelId)
     .sort((left, right) => left.createdAt - right.createdAt)
-
-  if (lobbies.length === 0) {
-    return await recoverLobbiesByChannel(kv, channelId)
-  }
 
   return lobbies
 }
@@ -96,7 +84,6 @@ export async function getCurrentLobbiesForPlayers(
   options?: {
     mode?: GameMode
     excludeLobbyIds?: readonly string[]
-    fallbackToLobbyScan?: boolean
   },
 ): Promise<Map<string, LobbyState | null>> {
   const uniquePlayerIds = [...new Set(playerIds.filter(playerId => playerId.length > 0))]
@@ -104,19 +91,14 @@ export async function getCurrentLobbiesForPlayers(
   const lobbyByPlayerId = new Map<string, LobbyState | null>()
   if (uniquePlayerIds.length === 0) return lobbyByPlayerId
 
-  if (options?.fallbackToLobbyScan === false) {
-    for (const playerId of uniquePlayerIds) lobbyByPlayerId.set(playerId, null)
-    return lobbyByPlayerId
-  }
-
-  const fallbackLobbies = await getCurrentLobbies(kv, options?.mode)
+  const currentLobbies = await getCurrentLobbies(kv, options?.mode)
   for (const playerId of uniquePlayerIds) {
     if (!playerId) continue
-    const fallbackLobby = fallbackLobbies.find((lobby) => {
+    const currentLobby = currentLobbies.find((lobby) => {
       if (excludedLobbyIds.has(lobby.id)) return false
       return lobby.memberPlayerIds.includes(playerId)
     }) ?? null
-    lobbyByPlayerId.set(playerId, fallbackLobby)
+    lobbyByPlayerId.set(playerId, currentLobby)
   }
 
   return lobbyByPlayerId
@@ -133,20 +115,16 @@ export async function getCurrentLobbiesForPlayer(
   options?: {
     mode?: GameMode
     excludeLobbyIds?: readonly string[]
-    fallbackToLobbyScan?: boolean
   },
 ): Promise<LobbyState[]> {
   const mappedLobby = (await getCurrentLobbiesForPlayers(kv, [playerId], {
     ...options,
-    fallbackToLobbyScan: false,
   })).get(playerId) ?? null
   if (mappedLobby) return [mappedLobby]
 
-  if (options?.fallbackToLobbyScan === false) return []
-
   const excludedLobbyIds = new Set(options?.excludeLobbyIds ?? [])
-  const fallbackLobbies = await getCurrentLobbies(kv, options?.mode)
-  return fallbackLobbies.filter((lobby) => {
+  const currentLobbies = await getCurrentLobbies(kv, options?.mode)
+  return currentLobbies.filter((lobby) => {
     if (excludedLobbyIds.has(lobby.id)) return false
     return lobby.memberPlayerIds.includes(playerId)
   })
@@ -162,7 +140,7 @@ export async function getCurrentLobbyHostedBy(kv: KVNamespace, hostId: string): 
   }
 
   await kvMdelete(kv, [hostKey(hostId)])
-  return await recoverCurrentLobbyHostedBy(kv, hostId)
+  return null
 }
 
 export async function getOpenLobbyForPlayer(
@@ -260,51 +238,12 @@ async function getAllLobbies(kv: KVNamespace): Promise<LobbyState[]> {
     .sort((left, right) => left.createdAt - right.createdAt)
 }
 
-async function recoverLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise<LobbyState[]> {
-  const recoveredLobbies = (await getAllLobbies(kv))
-    .filter(lobby => lobby.mode === mode)
-    .sort((left, right) => left.createdAt - right.createdAt)
-
-  if (recoveredLobbies.length === 0) return []
-
-  await repairLobbyProjectionEntries(kv, recoveredLobbies)
-  return recoveredLobbies
-}
-
-async function recoverLobbiesByChannel(kv: KVNamespace, channelId: string): Promise<LobbyState[]> {
-  const recoveredLobbies = (await getAllLobbies(kv))
-    .filter(lobby => lobby.channelId === channelId)
-    .sort((left, right) => left.createdAt - right.createdAt)
-
-  if (recoveredLobbies.length === 0) return []
-
-  await repairLobbyProjectionEntries(kv, recoveredLobbies)
-
-  return recoveredLobbies
-}
-
 async function findHostKeysForLobby(kv: KVNamespace, lobbyId: string): Promise<string[]> {
   const listed = await kv.list({ prefix: LOBBY_HOST_KEY_PREFIX })
   const hostKeys = listed.keys.map(entry => entry.name)
   const hostLobbyIds = await kvMget(kv, hostKeys.map(key => ({ key })))
 
   return hostKeys.filter((key, index) => hostLobbyIds[index] === lobbyId)
-}
-
-async function recoverCurrentLobbyHostedBy(kv: KVNamespace, hostId: string): Promise<LobbyState | null> {
-  const currentLobbies = await getCurrentLobbies(kv)
-  const hostedLobbies = currentLobbies
-    .filter(lobby => lobby.hostId === hostId)
-    .sort((left, right) => right.updatedAt - left.updatedAt)
-  if (hostedLobbies.length === 0) return null
-
-  const recoveredOpenLobby = hostedLobbies.find(lobby => lobby.status === 'open')
-  const recoveredLobby = recoveredOpenLobby ?? hostedLobbies.find(lobby => lobby.status !== 'open')
-  if (!recoveredLobby) return null
-
-  await repairLobbyProjectionEntries(kv, recoveredLobby)
-
-  return recoveredLobby
 }
 
 function buildLobbyProjectionEntries(lobby: LobbyState): LobbyStoreEntry[] {
@@ -330,20 +269,4 @@ function buildLobbyProjectionEntries(lobby: LobbyState): LobbyStoreEntry[] {
   }
 
   return entries
-}
-
-async function repairLobbyProjectionEntries(
-  kv: KVNamespace,
-  lobbies: LobbyState | readonly LobbyState[],
-): Promise<void> {
-  const recoveredLobbies = Array.isArray(lobbies) ? lobbies : [lobbies]
-  const entryByKey = new Map<string, LobbyStoreEntry>()
-  for (const lobby of recoveredLobbies) {
-    for (const entry of buildLobbyProjectionEntries(lobby)) {
-      entryByKey.set(entry.key, entry)
-    }
-  }
-
-  if (entryByKey.size === 0) return
-  await kvMput(kv, [...entryByKey.values()])
 }

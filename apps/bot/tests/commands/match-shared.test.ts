@@ -1,7 +1,7 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { findBlockingDraftMatchIdsForPlayers, findReportableMatchIdsForPlayers, joinLobbyAndMaybeStartMatch, preflightMatchCreateSessionState, resolveReportableMatchIdForPlayer } from '../../src/commands/match/shared.ts'
-import { buildTestLobbyEnv, createLobby, getLobbyById, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../helpers/lobby-runtime.ts'
+import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../helpers/lobby-runtime.ts'
 import { hostKey } from '../../src/services/lobby/keys.ts'
 import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
@@ -448,7 +448,7 @@ describe('preflightMatchCreateSessionState', () => {
     })
     await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'player-1'], lobby)
 
-    const result = await preflightMatchCreateSessionState(kv, 'player-1')
+    const result = await preflightMatchCreateSessionState(getExistingTestLobbyRuntime(kv).db, 'player-1')
 
     expect(result.kind).toBe('block-open-lobby')
     if (result.kind !== 'block-open-lobby') return
@@ -472,7 +472,7 @@ describe('preflightMatchCreateSessionState', () => {
     })
     await kv.delete(hostKey('host'))
 
-    const result = await preflightMatchCreateSessionState(kv, 'host')
+    const result = await preflightMatchCreateSessionState(getExistingTestLobbyRuntime(kv).db, 'host')
 
     expect(result.kind).toBe('reuse-hosted-open-lobby')
     if (result.kind !== 'reuse-hosted-open-lobby') return

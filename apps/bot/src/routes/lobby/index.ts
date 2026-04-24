@@ -12,7 +12,6 @@ import {
   buildOpenLobbyRenderPayload,
   clearLobbyById,
   compactSlottedPremadesForMode,
-  getCurrentLobbiesForPlayer,
   getCurrentLobbyForQueuedMessageUpdate,
   getLobbyById,
   leaveOpenLobbyForLobbyJoin,
@@ -33,10 +32,11 @@ import {
 } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { normalizeDraftConfigForMode } from '../../services/lobby/normalize.ts'
-import { clearStalePersistedLiveLobbies, findPersistedBlockingDraftMatchIdsForPlayers } from '../../services/match/live.ts'
+import { findPersistedBlockingDraftMatchIdsForPlayers } from '../../services/match/live.ts'
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
+import { getCurrentSessionLobbyProjectionsForPlayer } from '../../services/session/index.ts'
 import { getSessionRecord, startSessionDraft } from '../../session-runtime/session-do-client.ts'
 import { buildLobbyStateFromSessionRecord, buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 import { parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
@@ -118,7 +118,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
     if (!lobbyId) return c.json({ error: 'lobbyId is required' }, 400)
 
-    const lobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
+    const lobby = await resolveOpenLobbyFromBody(createDb(c.env.DB), mode, { lobbyId })
     if (!lobby || lobby.mode !== mode || lobby.status !== 'open') {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -269,7 +269,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const lobbyById = typeof lobbyId === 'string' && lobbyId.length > 0 ? await getLobbyById(kv, lobbyId) : null
-    const resolvedLobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
+    const resolvedLobby = await resolveOpenLobbyFromBody(createDb(c.env.DB), mode, { lobbyId })
       ?? (lobbyById && lobbyById.status !== 'open' ? lobbyById : null)
     if (!resolvedLobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
@@ -520,7 +520,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'nextMode must be a supported lobby mode' }, 400)
     }
 
-    const resolvedLobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
+    const resolvedLobby = await resolveOpenLobbyFromBody(createDb(c.env.DB), mode, { lobbyId })
     if (!resolvedLobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -651,7 +651,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid target slot index' }, 400)
     }
 
-    const resolvedLobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
+    const resolvedLobby = await resolveOpenLobbyFromBody(createDb(c.env.DB), mode, { lobbyId })
     if (!resolvedLobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -674,9 +674,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     let transferNotice: string | null = null
 
     const alreadyInTargetLobby = lobby.memberPlayerIds.includes(movingPlayerId) || lobby.slots.includes(movingPlayerId)
-    let blockingLobbyForPlayer: Awaited<ReturnType<typeof getCurrentLobbiesForPlayer>>[number] | null = null
+    let blockingLobbyForPlayer: Awaited<ReturnType<typeof getCurrentSessionLobbyProjectionsForPlayer>>[number] | null = null
     if (!alreadyInTargetLobby) {
-      let currentLobbiesForPlayer = await getCurrentLobbiesForPlayer(kv, movingPlayerId, {
+      const db = createDb(c.env.DB)
+      const currentLobbiesForPlayer = await getCurrentSessionLobbyProjectionsForPlayer(db, movingPlayerId, {
         excludeLobbyIds: [lobby.id],
       })
       const blockingDraftMatchIds = await findPersistedBlockingDraftMatchIdsForPlayers(c.env.DB, [movingPlayerId])
@@ -686,15 +687,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       if (hasLiveMatch) {
         return c.json({ error: 'That player is already in a live match.' }, 400)
       }
-      if (blockingDraftMatchIds != null) {
-        const clearedStaleLobbyIds = await clearStalePersistedLiveLobbies(c.env.DB, kv, currentLobbiesForPlayer)
-        if (clearedStaleLobbyIds != null && clearedStaleLobbyIds.size > 0) {
-          currentLobbiesForPlayer = await getCurrentLobbiesForPlayer(kv, movingPlayerId, {
-            excludeLobbyIds: [lobby.id],
-          })
-        }
-      }
-
       blockingLobbyForPlayer = currentLobbiesForPlayer.find(candidate => candidate.status === 'open') ?? null
       if (blockingLobbyForPlayer) {
         if (movingPlayerId !== auth.identity.userId) {
@@ -847,7 +839,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid slot index' }, 400)
     }
 
-    const lobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
+    const lobby = await resolveOpenLobbyFromBody(createDb(c.env.DB), mode, { lobbyId })
     if (!lobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -942,7 +934,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'strategy must be one of randomize, balance, or shuffle-teams' }, 400)
     }
 
-    const lobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
+    const lobby = await resolveOpenLobbyFromBody(createDb(c.env.DB), mode, { lobbyId })
     if (!lobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -1046,7 +1038,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
     if (mismatch) return mismatch
 
-    const lobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
+    const lobby = await resolveOpenLobbyFromBody(createDb(c.env.DB), mode, { lobbyId })
     if (!lobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -1148,7 +1140,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const lobbyById = typeof lobbyId === 'string' ? await getLobbyById(kv, lobbyId) : null
-    const lobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
+    const lobby = await resolveOpenLobbyFromBody(createDb(c.env.DB), mode, { lobbyId })
       ?? (lobbyById && lobbyById.status !== 'open' ? lobbyById : null)
     if (!lobby) return c.json({ error: 'No lobby for this mode' }, 404)
 
@@ -1252,7 +1244,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
     if (mismatch) return mismatch
 
-    const lobby = await resolveOpenLobbyFromBody(kv, mode, { lobbyId })
+    const lobby = await resolveOpenLobbyFromBody(createDb(c.env.DB), mode, { lobbyId })
     if (!lobby) {
       return c.json({ error: 'No lobby for this mode' }, 404)
     }

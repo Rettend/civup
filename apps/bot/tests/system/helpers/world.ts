@@ -9,12 +9,12 @@ import { allLeaderIds, createDraft, draftFormatMap, getCurrentStep, getPendingSe
 import { CIVUP_INTERNAL_SECRET_HEADER } from '@civup/utils'
 import { and, eq } from 'drizzle-orm'
 import { buildDraftRuntimeConfig, getLobbyForUser, getMatchForUser } from '../../../src/services/activity/index.ts'
-import { createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobby, getLobbyById, setLobbyMemberPlayerIds, setLobbySlots } from '../../helpers/lobby-runtime.ts'
+import { createLobby, getLobby, getLobbyById, setLobbyMemberPlayerIds, setLobbySlots } from '../../helpers/lobby-runtime.ts'
 import { syncLobbyDerivedState } from '../../../src/services/lobby/live-snapshot.ts'
 import { channelIndexKey, hostKey } from '../../../src/services/lobby/keys.ts'
 import { listMatchMessageIds } from '../../../src/services/match/message.ts'
 import { handleDraftLifecyclePayload } from '../../../src/services/match/draft-lifecycle.ts'
-import { getSessionLobbyProjectionByMatch } from '../../../src/services/session/index.ts'
+import { getCurrentSessionLobbyProjectionsForPlayer, getOpenSessionLobbyProjectionHostedBy, getSessionLobbyProjectionByMatch } from '../../../src/services/session/index.ts'
 import { setSystemChannel } from '../../../src/services/system/channels.ts'
 import { buildBotTestEnv, createBotTestApp, createExecutionContextHarness } from '../../helpers/app-harness.ts'
 import { createSqliteD1Database } from '../../helpers/d1.ts'
@@ -649,13 +649,13 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         return getLobbyForUser(db, userId)
       },
       currentHostedLobby(hostId) {
-        return getCurrentLobbyHostedBy(kv, hostId)
+        return getOpenSessionLobbyProjectionHostedBy(db, hostId)
       },
       matchMapping(userId) {
         return getMatchForUser(db, userId)
       },
       lobbiesForPlayer(userId) {
-        return getCurrentLobbiesForPlayer(kv, userId)
+        return getCurrentSessionLobbyProjectionsForPlayer(db, userId)
       },
       async lobbyByMatch(matchId) {
         const lobby = await getSessionLobbyProjectionByMatch(db, matchId)

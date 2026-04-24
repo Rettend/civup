@@ -401,7 +401,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const record = await this.getRecord()
     if (!record) return json({ error: 'Session not found' }, 404)
     if (record.phase === 'draft') {
-      return json({ ok: true, record, matchId: record.matchId, seats: [], idempotent: true } satisfies { ok: true } & StartDraftCommandResult)
+      const existingRoom = await this.getRoomRecord()
+      return json({ ok: true, record, matchId: record.matchId, seats: existingRoom?.config.seats ?? [], idempotent: true } satisfies { ok: true } & StartDraftCommandResult)
     }
     if (record.phase !== 'open') {
       return json({ error: `Session is not open (phase: ${record.phase})` }, 409)
@@ -432,22 +433,29 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     let room: { matchId: string, seats: DraftSeat[] }
     try {
-      const runtime = buildDraftRuntimeConfig(record.mode, selectedEntries, {
-        matchId,
-        hostId: record.hostId,
-        leaderDataVersion: record.config.leaderDataVersion,
-        blindBans: record.config.blindBans,
-        simultaneousPick: record.config.simultaneousPick,
-        redDeath: record.config.redDeath,
-        mapVoteEnabled: record.config.mapVoteEnabled,
-        randomDraft: record.config.randomDraft,
-        duplicateFactions: record.config.duplicateFactions,
-        timerConfig,
-        leaderPoolSize: record.config.leaderPoolSize,
-        dealOptionsSize: record.config.dealOptionsSize,
-      })
-      await this.initializeDraftRuntime(runtime.config, { existing: await this.getRoomRecord() })
-      room = { matchId: runtime.matchId, seats: runtime.seats }
+      const existingRoom = await this.getRoomRecord()
+      if (existingRoom && existingRoom.state.status !== 'cancelled') {
+        if (existingRoom.state.matchId !== matchId) return json({ error: 'Existing draft runtime belongs to a different session' }, 409)
+        room = { matchId: existingRoom.state.matchId, seats: existingRoom.config.seats }
+      }
+      else {
+        const runtime = buildDraftRuntimeConfig(record.mode, selectedEntries, {
+          matchId,
+          hostId: record.hostId,
+          leaderDataVersion: record.config.leaderDataVersion,
+          blindBans: record.config.blindBans,
+          simultaneousPick: record.config.simultaneousPick,
+          redDeath: record.config.redDeath,
+          mapVoteEnabled: record.config.mapVoteEnabled,
+          randomDraft: record.config.randomDraft,
+          duplicateFactions: record.config.duplicateFactions,
+          timerConfig,
+          leaderPoolSize: record.config.leaderPoolSize,
+          dealOptionsSize: record.config.dealOptionsSize,
+        })
+        await this.initializeDraftRuntime(runtime.config, { existing: existingRoom })
+        room = { matchId: runtime.matchId, seats: runtime.seats }
+      }
       await createDraftMatch(createDb(this.env.DB), { matchId: room.matchId, mode: record.mode, seats: room.seats })
     }
     catch (error) {
@@ -660,7 +668,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (!committed.ok) return committed
 
     if (transition.ignored) return { ok: true, ignored: true }
-    if (result.alreadyActive && payload.finalized !== true) return { ok: true, synced: true }
+    if (result.alreadyActive && payload.finalized !== true && transition.record === record) return { ok: true, synced: true }
 
     await this.updateCompletedDraftProjection(db, payload, result, transition.record, context)
     return { ok: true }
@@ -862,13 +870,6 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     try {
       if (this.env.DB) await projectSessionRecord(createDb(this.env.DB), record)
       await this.ctx.storage.put(SESSION_RECORD_STORAGE_KEY, record)
-      if (this.env.KV) {
-        const lobby = buildLobbyProjectionFromSessionRecord(record)
-        await putLobby(this.env.KV, lobby)
-      }
-      await this.publishActivityUpdate(record)
-      await this.scheduleLifecycleSyncAlarm(record)
-      return null
     }
     catch (error) {
       if (isSessionAdmissionError(error)) {
@@ -877,11 +878,30 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       console.error('[session-do] failed to commit session record', error)
       return json({ error: error instanceof Error ? error.message : String(error) }, 500)
     }
+
+    await this.writeSessionProjectionCache(record)
+    await this.publishActivityUpdate(record)
+    await this.scheduleLifecycleSyncAlarm(record).catch((error) => {
+      console.error('[session-do] failed to schedule session alarm after commit', error)
+    })
+    return null
+  }
+
+  private async writeSessionProjectionCache(record: SessionRecord): Promise<void> {
+    if (!this.env.KV) return
+    try {
+      await putLobby(this.env.KV, buildLobbyProjectionFromSessionRecord(record))
+    }
+    catch (error) {
+      console.error('[session-do] failed to write lobby projection cache', error)
+    }
   }
 
   private async storeRecordOnly(record: SessionRecord): Promise<void> {
     await this.ctx.storage.put(SESSION_RECORD_STORAGE_KEY, record)
-    await this.scheduleLifecycleSyncAlarm(record)
+    await this.scheduleLifecycleSyncAlarm(record).catch((error) => {
+      console.error('[session-do] failed to schedule session alarm after record store', error)
+    })
   }
 
   private async scheduleLifecycleSyncAlarm(record: SessionRecord): Promise<void> {

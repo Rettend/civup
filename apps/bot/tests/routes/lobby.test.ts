@@ -1,5 +1,7 @@
+import { matches } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
+import { eq } from 'drizzle-orm'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
 import { registerLobbyRoutes } from '../../src/routes/lobby/index.ts'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
@@ -234,6 +236,9 @@ describe('lobby routes', () => {
     })
     const draftingLobby = await startTestSessionDraft(kv, liveLobby.id, liveLobby)
     await setLobbyStatus(kv, liveLobby.id, 'active', draftingLobby ?? liveLobby)
+    await getExistingTestLobbyRuntime(kv).db.update(matches)
+      .set({ status: 'active', draftData: JSON.stringify({ completedAt: Date.now() }) })
+      .where(eq(matches.id, liveLobby.id))
 
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
       status: 200,
@@ -250,7 +255,7 @@ describe('lobby routes', () => {
         displayName: 'Player 1',
         avatarUrl: null,
       }),
-    }, buildEnv(kv, { liveMatchPlayerIds: [] }))
+    }, buildEnv(kv))
 
     expect(joinResponse.status).toBe(200)
     expect((await getLobbyById(kv, openLobby.id))?.memberPlayerIds).toEqual(['host', 'player-1'])
@@ -1781,37 +1786,13 @@ describe('lobby routes', () => {
   })
 })
 
-function buildEnv(kv: KVNamespace, options?: { liveMatchPlayerIds?: string[] }) {
+function buildEnv(kv: KVNamespace) {
   return buildTestLobbyEnv(kv, {
-    DB: options?.liveMatchPlayerIds ? buildDb(options.liveMatchPlayerIds) : undefined,
     DISCORD_APPLICATION_ID: 'app',
     DISCORD_PUBLIC_KEY: 'key',
     DISCORD_TOKEN: 'token',
     CIVUP_SECRET: 'secret',
   }) as any
-}
-
-function buildDb(liveMatchPlayerIds: string[] | null): D1Database {
-  if (liveMatchPlayerIds == null) return {} as D1Database
-
-  const livePlayerIdSet = new Set(liveMatchPlayerIds)
-  return {
-    prepare() {
-      return {
-        bind(...values: unknown[]) {
-          return {
-            async all() {
-              return {
-                results: values
-                  .filter((value): value is string => typeof value === 'string' && livePlayerIdSet.has(value))
-                  .map(playerId => ({ playerId, matchId: `match:${playerId}` })),
-              }
-            },
-          }
-        },
-      }
-    },
-  } as D1Database
 }
 
 function buildAuthHeaders(userId: string, displayName = userId): HeadersInit {
