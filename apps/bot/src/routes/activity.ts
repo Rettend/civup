@@ -7,7 +7,7 @@ import type { LobbyState } from '../services/lobby/index.ts'
 import type { SessionRecord } from '../session-runtime/session-record.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel, GAME_MODES, toBalanceLeaderboardMode } from '@civup/game'
-import { createDraftRoomAccessToken } from '@civup/utils'
+import { createSessionAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { buildActivityOverviewOptions, buildLobbySnapshotFromDirectoryEntry, buildLobbySnapshotFromSessionRecord, getActivitySessionById, getActivitySessionsByChannel, getOpenActivitySessionsForUser } from '../services/activity/session-state.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
@@ -54,7 +54,7 @@ type ActivityLaunchSelection
     option: ActivityTargetOption
     matchId: string
     steamLobbyLink: string | null
-    roomAccessToken: string | null
+    sessionAccessToken: string | null
     lobbyId: string | null
     mode: GameMode | null
   }
@@ -331,7 +331,7 @@ async function serializeActivityLaunchSelection(
     option: selection.target.option,
     matchId: selection.target.option.id,
     steamLobbyLink: selection.target.session.steamLobbyLink,
-    roomAccessToken: await issueDraftRoomAccessToken(activitySecret, userId, selection.target.option.id, selection.target.option.channelId),
+    sessionAccessToken: await issueSessionAccessToken(activitySecret, userId, selection.target.option.id, selection.target.option.channelId),
     lobbyId: selection.target.session.sessionId,
     mode: selection.target.session.mode,
   }
@@ -642,17 +642,17 @@ function pickCurrentActivityMembershipTarget(targets: ChannelActivityTarget[]): 
     ?? null
 }
 
-async function issueDraftRoomAccessToken(
+async function issueSessionAccessToken(
   activitySecret: string | undefined,
   userId: string,
-  matchId: string,
+  sessionId: string,
   channelId: string,
 ): Promise<string | null> {
   const secret = activitySecret?.trim() ?? ''
   if (secret.length === 0) return null
-  return createDraftRoomAccessToken(secret, {
+  return createSessionAccessToken(secret, {
     userId,
-    roomId: matchId,
+    sessionId,
     channelId,
   })
 }

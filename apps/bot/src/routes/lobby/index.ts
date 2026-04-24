@@ -3,7 +3,7 @@ import type { Context, Hono } from 'hono'
 import type { Env } from '../../env.ts'
 import { createDb, playerRatings } from '@civup/db'
 import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, toBalanceLeaderboardMode } from '@civup/game'
-import { createDraftRoomAccessToken, isDev } from '@civup/utils'
+import { createSessionAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
@@ -1201,9 +1201,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         ok: true,
         matchId: lobby.matchId,
         idempotent: true,
-        roomAccessToken: await createDraftRoomAccessToken(internalSecret, {
+        sessionAccessToken: await createSessionAccessToken(internalSecret, {
           userId: auth.identity.userId,
-          roomId: lobby.matchId,
+          sessionId: lobby.matchId,
           channelId: lobby.channelId,
         }),
       })
@@ -1241,9 +1241,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({
         ok: true as const,
         matchId,
-        roomAccessToken: await createDraftRoomAccessToken(internalSecret, {
+        sessionAccessToken: await createSessionAccessToken(internalSecret, {
           userId: auth.identity.userId,
-          roomId: matchId,
+          sessionId: matchId,
           channelId: lobbyForMessage.channelId,
         }),
       })

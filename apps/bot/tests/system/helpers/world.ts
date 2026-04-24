@@ -7,7 +7,7 @@ import { matchBans, matchParticipants, matches } from '@civup/db'
 import { allLeaderIds, createDraft, draftFormatMap, getCurrentStep, getPendingSeats, isDraftError, processDraftInput } from '@civup/game'
 import { CIVUP_INTERNAL_SECRET_HEADER } from '@civup/utils'
 import { and, eq } from 'drizzle-orm'
-import { getLobbyForUser, getMatchForUser } from '../../../src/services/activity/index.ts'
+import { buildDraftRuntimeConfig, getLobbyForUser, getMatchForUser } from '../../../src/services/activity/index.ts'
 import { addToQueue, getQueueState, setQueueEntries } from '../../../src/services/queue/index.ts'
 import { createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobby, getLobbyById, getLobbyByMatch, setLobbyMemberPlayerIds, setLobbySlots } from '../../helpers/lobby-runtime.ts'
 import { syncLobbyDerivedState } from '../../../src/services/lobby/live-snapshot.ts'
@@ -62,30 +62,6 @@ function createCapturedPartyRoomRecord(config: RoomConfig, previous?: PartyRoomR
   }
 }
 
-function createCapturedMainNamespace(partyRooms: Map<string, PartyRoomRecord>): DurableObjectNamespace {
-  return {
-    idFromName(name: string) {
-      return name as unknown as DurableObjectId
-    },
-    get(id: DurableObjectId) {
-      const roomName = String(id)
-      return {
-        async fetch(request: Request): Promise<Response> {
-          const url = new URL(request.url)
-          if (url.pathname === '/cdn-cgi/partyserver/set-name/') return Response.json({ ok: true })
-          if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
-
-          const body = await request.json() as RoomConfig
-          partyRooms.set(body.matchId, createCapturedPartyRoomRecord(body, partyRooms.get(body.matchId)))
-          if (body.matchId !== roomName) return new Response('Room name mismatch', { status: 409 })
-
-          return Response.json({ ok: true }, { status: 201 })
-        },
-      } as DurableObjectStub
-    },
-  } as unknown as DurableObjectNamespace
-}
-
 interface CompleteDraftOptions {
   finalized?: boolean
   transformState?: (state: DraftState) => DraftState
@@ -128,7 +104,7 @@ export interface SystemWorld {
     changeMode: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, nextMode: GameMode }) => Promise<RouteResult>
     arrange: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, strategy: 'randomize' | 'balance' | 'shuffle-teams' }) => Promise<RouteResult>
     cancel: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string }) => Promise<RouteResult>
-    start: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string }) => Promise<{ ok: boolean, matchId: string, roomAccessToken: string | null, idempotent?: boolean }>
+    start: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string }) => Promise<{ ok: boolean, matchId: string, sessionAccessToken: string | null, idempotent?: boolean }>
     place: (mode: Parameters<typeof getQueueState>[1], input: { userId: string, targetSlot: number, lobbyId?: string, playerId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, transferNotice?: string | null, error?: string }>>
     remove: (mode: Parameters<typeof getQueueState>[1], input: { userId: string, slot: number, lobbyId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, error?: string }>>
   }
@@ -222,8 +198,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
   const env = buildBotTestEnv({
     DB: d1,
     KV: kv,
-    Main: createCapturedMainNamespace(partyRooms),
-    SessionDO: createTestSessionNamespace({ DB: d1, KV: kv, Main: createCapturedMainNamespace(partyRooms), DISCORD_TOKEN: 'token', BOT_HOST, CIVUP_SECRET }),
+    SessionDO: createTestSessionNamespace({ DB: d1, KV: kv, DISCORD_TOKEN: 'token', BOT_HOST, CIVUP_SECRET }),
     DISCORD_APPLICATION_ID: 'app',
     DISCORD_PUBLIC_KEY: 'public-key',
     DISCORD_TOKEN: 'token',
@@ -413,6 +388,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         })
       },
       async start(mode, input) {
+        const lobbyBeforeStart = input.lobbyId ? await getLobbyById(kv, input.lobbyId) : await getLobby(kv, mode)
         const response = await requestAs(`/api/lobby/${mode}/start`, {
           method: 'POST',
           body: JSON.stringify({ userId: input.hostId, lobbyId: input.lobbyId }),
@@ -420,8 +396,24 @@ export async function createSystemWorld(): Promise<SystemWorld> {
           userId: input.hostId,
           displayName: input.hostId,
         })
-        const body = await response.json() as { ok: boolean, matchId: string, roomAccessToken: string | null, idempotent?: boolean, error?: string }
+        const body = await response.json() as { ok: boolean, matchId: string, sessionAccessToken: string | null, idempotent?: boolean, error?: string }
         if (!response.ok) throw new Error(body.error ?? `Failed to start lobby: ${response.status}`)
+        if (!body.idempotent && lobbyBeforeStart) {
+          const runtime = buildDraftRuntimeConfig(lobbyBeforeStart.mode, buildTestDraftEntries(lobbyBeforeStart), {
+            matchId: body.matchId,
+            hostId: lobbyBeforeStart.hostId,
+            leaderDataVersion: lobbyBeforeStart.draftConfig.leaderDataVersion,
+            blindBans: lobbyBeforeStart.draftConfig.blindBans,
+            simultaneousPick: lobbyBeforeStart.draftConfig.simultaneousPick,
+            redDeath: lobbyBeforeStart.draftConfig.redDeath,
+            mapVoteEnabled: lobbyBeforeStart.draftConfig.mapVoteEnabled,
+            randomDraft: lobbyBeforeStart.draftConfig.randomDraft,
+            duplicateFactions: lobbyBeforeStart.draftConfig.duplicateFactions,
+            leaderPoolSize: lobbyBeforeStart.draftConfig.leaderPoolSize,
+            dealOptionsSize: lobbyBeforeStart.draftConfig.dealOptionsSize,
+          })
+          partyRooms.set(runtime.matchId, createCapturedPartyRoomRecord(runtime.config, partyRooms.get(runtime.matchId)))
+        }
         return body
       },
       place(mode, input) {
@@ -705,6 +697,14 @@ function getPartyRoom(rooms: Map<string, PartyRoomRecord>, matchId: string): Par
   const room = rooms.get(matchId)
   if (!room) throw new Error(`No captured Party room for match ${matchId}`)
   return room
+}
+
+function buildTestDraftEntries(lobby: LobbyState): QueueEntry[] {
+  const joinedAt = Math.max(1, lobby.createdAt)
+  return lobby.slots.flatMap((playerId) => {
+    if (!playerId) return []
+    return [{ playerId, displayName: playerId, avatarUrl: null, joinedAt }]
+  })
 }
 
 function buildCompletedPayload(room: PartyRoomRecord, options: CompleteDraftOptions = {}): DraftLifecycleCompletePayload {

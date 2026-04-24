@@ -10,9 +10,9 @@ import type {
   RoomConfig,
   ServerMessage,
 } from '@civup/game'
-import type { Connection, ConnectionContext, WSMessage } from 'partyserver'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
 import type { StoredMapVoteState } from './map-vote-room-state.ts'
+import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import {
   createDraft,
   DEFAULT_MAP_VOTE_SELECTION,
@@ -34,9 +34,8 @@ import {
 import {
   CIVUP_ACTIVITY_USER_ID_HEADER,
   isAuthorizedInternalRequest,
-  verifyDraftRoomAccessToken,
+  verifySessionAccessToken,
 } from '@civup/utils'
-import { Server } from 'partyserver'
 import {
   applyDraftPreview,
   censorDraftPreviews,
@@ -82,6 +81,7 @@ import {
   pickRandomDistinct,
 } from './random-draft.ts'
 import { syncSessionDraftLifecyclePayload } from './session-do-client.ts'
+import { SessionSocketServer } from './socket-server.ts'
 import {
   countConnectedDraftParticipants,
   getNextSwapLifecycleAlarmAt,
@@ -89,7 +89,7 @@ import {
   getSwapWindowAlarmAction,
 } from './swap-window.ts'
 
-interface PartyEnv extends Cloudflare.Env {
+export interface DraftRuntimeEnv extends Cloudflare.Env {
   CIVUP_SECRET?: string
   DB?: D1Database
   KV?: KVNamespace
@@ -111,7 +111,7 @@ const SWAP_DISCONNECT_GRACE_MS = 5_000
 
 // ── Draft Room Server ────────────────────────────────────────
 
-export class Main extends Server<PartyEnv> {
+export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> extends SessionSocketServer<Env> {
   static override options = {
     hibernate: true,
   }
@@ -148,19 +148,37 @@ export class Main extends Server<PartyEnv> {
 
     const config: RoomConfig = await req.json()
 
+    try {
+      await this.initializeDraftRuntime(config, { existing })
+    }
+    catch (error) {
+      return json({ error: error instanceof Error ? error.message : String(error) }, 400)
+    }
+
+    return json({ ok: true, matchId: config.matchId }, 201)
+  }
+
+  protected async initializeDraftRuntime(
+    config: RoomConfig,
+    options: {
+      existing?: RoomRecord | null
+    } = {},
+  ): Promise<RoomRecord> {
+    const existing = options.existing ?? null
+
     if (typeof config.hostId !== 'string' || config.hostId.length === 0) {
-      return json({ error: 'Missing hostId' }, 400)
+      throw new Error('Missing hostId')
     }
 
     const format = draftFormatMap.get(config.formatId)
     if (!format) {
-      return json({ error: `Unknown format: ${config.formatId}` }, 400)
+      throw new Error(`Unknown format: ${config.formatId}`)
     }
     if (config.seats.length === 0) {
-      return json({ error: 'No seats provided' }, 400)
+      throw new Error('No seats provided')
     }
     if (config.civPool.length === 0) {
-      return json({ error: 'Empty civ pool' }, 400)
+      throw new Error('Empty civ pool')
     }
 
     const baseState = createDraft(config.matchId, format, config.seats, config.civPool, {
@@ -182,7 +200,7 @@ export class Main extends Server<PartyEnv> {
 
     await this.setRoomRecord(room)
 
-    return json({ ok: true, matchId: config.matchId }, 201)
+    return room
   }
 
   private async handleStatus(req: Request): Promise<Response> {
@@ -197,8 +215,8 @@ export class Main extends Server<PartyEnv> {
     }
 
     const requestUrl = new URL(req.url)
-    const hasAccess = await verifyDraftRoomAccessToken(this.env.CIVUP_SECRET, requestUrl.searchParams.get('accessToken'), {
-      roomId: room.state.matchId,
+    const hasAccess = await verifySessionAccessToken(this.env.CIVUP_SECRET, requestUrl.searchParams.get('accessToken'), {
+      sessionId: room.state.matchId,
       userId: activityUserId,
     })
     if (!hasAccess) {
@@ -218,13 +236,11 @@ export class Main extends Server<PartyEnv> {
     })
   }
 
-  private async getRoomRecord(): Promise<RoomRecord | null> {
-    const stored = normalizeStoredRoomRecord(await this.ctx.storage.get<unknown>(ROOM_RECORD_KEY))
-    if (stored) return stored
-    return await this.migrateLegacyRoomRecord()
+  protected async getRoomRecord(): Promise<RoomRecord | null> {
+    return normalizeStoredRoomRecord(await this.ctx.storage.get<unknown>(ROOM_RECORD_KEY))
   }
 
-  private async requireRoomRecord(): Promise<RoomRecord> {
+  protected async requireRoomRecord(): Promise<RoomRecord> {
     const room = await this.getRoomRecord()
     if (!room) {
       throw new Error('Room not initialized')
@@ -232,44 +248,17 @@ export class Main extends Server<PartyEnv> {
     return room
   }
 
-  private async setRoomRecord(room: RoomRecord): Promise<RoomRecord> {
+  protected async setRoomRecord(room: RoomRecord): Promise<RoomRecord> {
     await this.ctx.storage.put(ROOM_RECORD_KEY, room)
     return room
   }
 
-  private async updateRoomRecord(updater: (room: RoomRecord) => RoomRecord): Promise<RoomRecord> {
+  protected async updateRoomRecord(updater: (room: RoomRecord) => RoomRecord): Promise<RoomRecord> {
     return await this.setRoomRecord(updater(await this.requireRoomRecord()))
   }
 
-  private getNormalizedSwapState(room: Pick<RoomRecord, 'swapState' | 'swapPendingExpiresAt'>): LeaderSwapState {
+  protected getNormalizedSwapState(room: Pick<RoomRecord, 'swapState' | 'swapPendingExpiresAt'>): LeaderSwapState {
     return normalizeRoomSwapState(room)
-  }
-
-  private async migrateLegacyRoomRecord(): Promise<RoomRecord | null> {
-    const state = await this.ctx.storage.get<DraftState>('state')
-    if (!state) return null
-
-    const config = await this.ctx.storage.get<RoomConfig>('config')
-    if (!config) return null
-
-    const room = createRoomRecord(config, state, await this.ctx.storage.get<StoredMapVoteState>('mapVote') ?? { ...EMPTY_STORED_MAP_VOTE_STATE }, {
-      timerEndsAt: await this.ctx.storage.get<number | null>('timerEndsAt') ?? null,
-      alarmStepIndex: await this.ctx.storage.get<number>('alarmStepIndex') ?? -1,
-      completedAt: await this.ctx.storage.get<number | null>('completedAt') ?? null,
-      cancelledAt: await this.ctx.storage.get<number | null>('cancelledAt') ?? null,
-      previews: sanitizeDraftPreviews(
-        state,
-        await this.ctx.storage.get<DraftPreviewState>('previews') ?? createEmptyDraftPreviews(),
-      ),
-      swapWindowOpen: await this.ctx.storage.get<boolean>('swapWindowOpen') === true,
-      swapState: await this.ctx.storage.get<LeaderSwapState | null>('swapState'),
-      swapPendingExpiresAt: await this.ctx.storage.get<number | null>('swapPendingExpiresAt') ?? null,
-      swapDisconnectFinalizeAt: await this.ctx.storage.get<number | null>('swapDisconnectFinalizeAt') ?? null,
-      swapSafetyEndsAt: await this.ctx.storage.get<number | null>('swapSafetyEndsAt') ?? null,
-    })
-
-    await this.setRoomRecord(room)
-    return room
   }
 
   private async applyRoomTransition(
@@ -308,7 +297,7 @@ export class Main extends Server<PartyEnv> {
           break
 
         case 'sync-draft-lifecycle': {
-          const task = this.syncDraftLifecyclePayload(effect.payload, action)
+          const task = this.syncDraftRuntimeLifecyclePayload(effect.payload, action)
           if (effect.delivery === 'await') {
             await task
           }
@@ -383,12 +372,12 @@ export class Main extends Server<PartyEnv> {
     }
 
     const requestUrl = new URL(ctx.request.url)
-    const hasAccess = await verifyDraftRoomAccessToken(this.env.CIVUP_SECRET, requestUrl.searchParams.get('accessToken'), {
-      roomId: room.state.matchId,
+    const hasAccess = await verifySessionAccessToken(this.env.CIVUP_SECRET, requestUrl.searchParams.get('accessToken'), {
+      sessionId: room.state.matchId,
       userId: playerId,
     })
     if (!hasAccess) {
-      this.send(connection, { type: 'error', message: 'Draft access token is invalid or expired' })
+      this.send(connection, { type: 'error', message: 'Session access token is invalid or expired' })
       connection.close(4403, 'Forbidden')
       return
     }
@@ -791,18 +780,27 @@ export class Main extends Server<PartyEnv> {
   // ── Timer: Alarm ───────────────────────────────────────────
 
   override async onAlarm() {
+    await this.handleDraftRuntimeAlarmIfDue()
+  }
+
+  protected async handleDraftRuntimeAlarmIfDue(now = this.now()): Promise<boolean> {
     let room = await this.getRoomRecord()
-    if (!room) return
+    if (!room) return false
+
+    const dueAt = getNextRoomAlarmAt(room, this.getNormalizedSwapState(room))
+    if (dueAt != null && dueAt > now + 50) {
+      await this.rescheduleRoomAlarm()
+      return false
+    }
 
     const state = room.state
     const config = room.config
 
     if (await this.handleMapVoteAlarm(state, config)) {
-      return
+      return true
     }
 
     if (state.status === 'complete' && room.swapWindowOpen) {
-      const now = this.now()
       const disconnectFinalizeAt = room.swapDisconnectFinalizeAt
       const safetyEndsAt = room.swapSafetyEndsAt
       const swapState = this.getNormalizedSwapState(room)
@@ -831,26 +829,27 @@ export class Main extends Server<PartyEnv> {
       }
       else if (alarmAction === 'finalize') {
         await this.finalizeCompletedDraft(state)
-        return
+        return true
       }
 
       await this.rescheduleRoomAlarm()
-      return
+      return true
     }
 
-    if (state.status !== 'active') return
+    if (state.status !== 'active') return false
 
     // Guard against stale alarms (step already advanced)
-    if (room.alarmStepIndex !== state.currentStepIndex) return
+    if (room.alarmStepIndex !== state.currentStepIndex) return false
 
     const format = draftFormatMap.get(config.formatId)
-    if (!format) return
+    if (!format) return false
 
     const previews = sanitizeDraftPreviews(state, room.previews)
     const result = resolveTimeoutWithPreviews(state, format.blindBans, previews, () => this.random())
-    if (isDraftError(result)) return
+    if (isDraftError(result)) return false
 
     await this.applyResult(result.state, result.events)
+    return true
   }
 
   // ── Internal: Apply result & broadcast ─────────────────────
@@ -1021,7 +1020,7 @@ export class Main extends Server<PartyEnv> {
     return this.getNormalizedSwapState(room)
   }
 
-  private async syncDraftLifecyclePayload(payload: DraftLifecyclePayload, action: string): Promise<void> {
+  protected async syncDraftRuntimeLifecyclePayload(payload: DraftLifecyclePayload, action: string): Promise<void> {
     const result = await syncSessionDraftLifecyclePayload(this.env.SessionDO, payload.matchId, payload)
     if (result.ok) return
 
@@ -1032,20 +1031,27 @@ export class Main extends Server<PartyEnv> {
     }))
   }
 
-  private async rescheduleRoomAlarm() {
+  protected async rescheduleRoomAlarm() {
+    await this.setDraftRuntimeAlarm(await this.getDraftRuntimeAlarmAt())
+  }
+
+  protected async getDraftRuntimeAlarmAt(): Promise<number | null> {
     const room = await this.getRoomRecord()
-    if (!room) {
-      await this.ctx.storage.deleteAlarm()
-      return
-    }
+    if (!room) return null
+    return getNextRoomAlarmAt(room, this.getNormalizedSwapState(room))
+  }
 
-    const nextAlarm = getNextRoomAlarmAt(room, this.getNormalizedSwapState(room))
+  protected async setDraftRuntimeAlarm(nextAlarm: number | null): Promise<void> {
+    const storage = this.ctx.storage as DurableObjectStorage & {
+      setAlarm?: (scheduledTime: number | Date) => Promise<void>
+      deleteAlarm?: () => Promise<void>
+    }
     if (nextAlarm == null) {
-      await this.ctx.storage.deleteAlarm()
+      if (typeof storage.deleteAlarm === 'function') await storage.deleteAlarm()
       return
     }
 
-    await this.ctx.storage.setAlarm(nextAlarm)
+    if (typeof storage.setAlarm === 'function') await storage.setAlarm(nextAlarm)
   }
 
   private async finalizeCompletedDraft(state: DraftState) {

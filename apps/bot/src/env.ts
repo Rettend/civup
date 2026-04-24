@@ -2,7 +2,6 @@ export interface Env {
   Bindings: {
     DB: D1Database
     KV: KVNamespace
-    Main?: DurableObjectNamespace
     Activity?: DurableObjectNamespace
     SessionDO?: DurableObjectNamespace
     DISCORD_APPLICATION_ID: string

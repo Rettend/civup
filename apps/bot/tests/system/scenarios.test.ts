@@ -2,7 +2,7 @@ import type { GameMode, ResolvedMapVoteResult } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { matches } from '@civup/db'
 import { formatMapVoteResultLabel, swapSeatPicks } from '@civup/game'
-import { verifyDraftRoomAccessToken } from '@civup/utils'
+import { verifySessionAccessToken } from '@civup/utils'
 import { eq } from 'drizzle-orm'
 import { getQueueState } from '../../src/services/queue/index.ts'
 import { countDiscordChannelRequests as countDiscordMessageUpdates, expectDraftAndLobbyState, expectQueuePlayers } from './helpers/assertions.ts'
@@ -830,18 +830,18 @@ describe('system scenarios', () => {
       },
     })
 
-    const roomAccessToken = (target.body as { snapshot?: { selection?: { roomAccessToken?: string | null } | null } }).snapshot?.selection?.roomAccessToken ?? null
-    expect(roomAccessToken).not.toBeNull()
-    await expect(verifyDraftRoomAccessToken('secret', roomAccessToken, {
-      roomId: started.matchId,
+    const sessionAccessToken = (target.body as { snapshot?: { selection?: { sessionAccessToken?: string | null } | null } }).snapshot?.selection?.sessionAccessToken ?? null
+    expect(sessionAccessToken).not.toBeNull()
+    await expect(verifySessionAccessToken('secret', sessionAccessToken, {
+      sessionId: started.matchId,
       userId: 'spectator-1',
     })).resolves.not.toBeNull()
-    await expect(verifyDraftRoomAccessToken('secret', roomAccessToken, {
-      roomId: started.matchId,
+    await expect(verifySessionAccessToken('secret', sessionAccessToken, {
+      sessionId: started.matchId,
       userId: 'wrong-user',
     })).resolves.toBeNull()
-    await expect(verifyDraftRoomAccessToken('secret', roomAccessToken, {
-      roomId: 'wrong-room',
+    await expect(verifySessionAccessToken('secret', sessionAccessToken, {
+      sessionId: 'wrong-session',
       userId: 'spectator-1',
     })).resolves.toBeNull()
   })
@@ -995,10 +995,10 @@ describe('system scenarios', () => {
       },
     })
 
-    const roomAccessToken = (launch.body as { selection?: { roomAccessToken?: string | null } }).selection?.roomAccessToken ?? null
-    expect(roomAccessToken).not.toBeNull()
-    await expect(verifyDraftRoomAccessToken('secret', roomAccessToken, {
-      roomId: started.matchId,
+    const sessionAccessToken = (launch.body as { selection?: { sessionAccessToken?: string | null } }).selection?.sessionAccessToken ?? null
+    expect(sessionAccessToken).not.toBeNull()
+    await expect(verifySessionAccessToken('secret', sessionAccessToken, {
+      sessionId: started.matchId,
       userId: 'p1',
     })).resolves.not.toBeNull()
   })

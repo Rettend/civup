@@ -7,9 +7,9 @@ export const CIVUP_ACTIVITY_AVATAR_URL_HEADER = 'X-CivUp-Activity-Avatar-Url'
 
 const LEGACY_CIVUP_STATE_SECRET_HEADER = 'X-CivUp-State-Secret'
 const ACTIVITY_SESSION_VERSION = 'session.v1'
-const DRAFT_ROOM_ACCESS_VERSION = 'draft-room.v1'
+const SESSION_ACCESS_VERSION = 'session-access.v1'
 const DEFAULT_ACTIVITY_SESSION_TTL_SECONDS = 8 * 60 * 60
-const DEFAULT_DRAFT_ROOM_ACCESS_TTL_SECONDS = 8 * 60 * 60
+const DEFAULT_SESSION_ACCESS_TTL_SECONDS = 8 * 60 * 60
 
 const textEncoder = new TextEncoder()
 const textDecoder = new TextDecoder()
@@ -28,9 +28,9 @@ export interface ActivityIdentity {
   avatarUrl: string | null
 }
 
-export interface DraftRoomAccessClaims {
+export interface SessionAccessClaims {
   sub: string
-  roomId: string
+  sessionId: string
   channelId: string
   iat: number
   exp: number
@@ -76,11 +76,11 @@ export async function verifyActivitySession(
   return claims
 }
 
-export async function createDraftRoomAccessToken(
+export async function createSessionAccessToken(
   secret: string,
   access: {
     userId: string
-    roomId: string
+    sessionId: string
     channelId: string
   },
   options?: {
@@ -89,37 +89,37 @@ export async function createDraftRoomAccessToken(
   },
 ): Promise<string> {
   const nowSeconds = Math.floor((options?.nowMs ?? Date.now()) / 1000)
-  const ttlSeconds = normalizePositiveInteger(options?.ttlSeconds) ?? DEFAULT_DRAFT_ROOM_ACCESS_TTL_SECONDS
-  const claims: DraftRoomAccessClaims = {
+  const ttlSeconds = normalizePositiveInteger(options?.ttlSeconds) ?? DEFAULT_SESSION_ACCESS_TTL_SECONDS
+  const claims: SessionAccessClaims = {
     sub: access.userId,
-    roomId: access.roomId,
+    sessionId: access.sessionId,
     channelId: access.channelId,
     iat: nowSeconds,
     exp: nowSeconds + ttlSeconds,
   }
 
   const payload = toBase64Url(JSON.stringify(claims))
-  const signature = await signString(secret, `${DRAFT_ROOM_ACCESS_VERSION}.${payload}`)
-  return `${DRAFT_ROOM_ACCESS_VERSION}.${payload}.${signature}`
+  const signature = await signString(secret, `${SESSION_ACCESS_VERSION}.${payload}`)
+  return `${SESSION_ACCESS_VERSION}.${payload}.${signature}`
 }
 
-export async function verifyDraftRoomAccessToken(
+export async function verifySessionAccessToken(
   secret: string | undefined,
   token: string | null,
   options?: {
     nowMs?: number
-    roomId?: string
+    sessionId?: string
     channelId?: string
     userId?: string
   },
-): Promise<DraftRoomAccessClaims | null> {
-  const claims = await verifySignedClaimsToken(secret, token, DRAFT_ROOM_ACCESS_VERSION)
-  if (!claims || !isDraftRoomAccessClaims(claims)) return null
+): Promise<SessionAccessClaims | null> {
+  const claims = await verifySignedClaimsToken(secret, token, SESSION_ACCESS_VERSION)
+  if (!claims || !isSessionAccessClaims(claims)) return null
 
   const nowSeconds = Math.floor((options?.nowMs ?? Date.now()) / 1000)
   if (claims.exp <= nowSeconds) return null
   if (claims.iat > nowSeconds + 30) return null
-  if (options?.roomId && claims.roomId !== options.roomId) return null
+  if (options?.sessionId && claims.sessionId !== options.sessionId) return null
   if (options?.channelId && claims.channelId !== options.channelId) return null
   if (options?.userId && claims.sub !== options.userId) return null
 
@@ -230,11 +230,11 @@ function isActivitySessionClaims(value: unknown): value is ActivitySessionClaims
   return true
 }
 
-function isDraftRoomAccessClaims(value: unknown): value is DraftRoomAccessClaims {
+function isSessionAccessClaims(value: unknown): value is SessionAccessClaims {
   if (!value || typeof value !== 'object') return false
-  const claims = value as Partial<DraftRoomAccessClaims>
+  const claims = value as Partial<SessionAccessClaims>
   if (typeof claims.sub !== 'string' || claims.sub.trim().length === 0) return false
-  if (typeof claims.roomId !== 'string' || claims.roomId.trim().length === 0) return false
+  if (typeof claims.sessionId !== 'string' || claims.sessionId.trim().length === 0) return false
   if (typeof claims.channelId !== 'string' || claims.channelId.trim().length === 0) return false
   if (typeof claims.iat !== 'number' || !Number.isFinite(claims.iat)) return false
   if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp)) return false

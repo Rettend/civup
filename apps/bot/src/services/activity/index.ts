@@ -1,7 +1,6 @@
 import type { DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry, RoomConfig } from '@civup/game'
 import type { LobbyState } from '../lobby/types.ts'
 import { allFactionIds, getDraftFormat, isTeamMode, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
-import { ApiError, api, CIVUP_INTERNAL_SECRET_HEADER, normalizeHost } from '@civup/utils'
 import { getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyByMatch, getOpenLobbyForPlayer } from '../lobby/index.ts'
 
 // ── Types ───────────────────────────────────────────────────
@@ -13,7 +12,6 @@ export interface MatchCreationResult {
 }
 
 export interface CreateDraftRoomOptions {
-  mainNamespace?: DurableObjectNamespace
   matchId: string
   hostId: string
   leaderDataVersion?: LeaderDataVersion
@@ -23,25 +21,23 @@ export interface CreateDraftRoomOptions {
   mapVoteEnabled?: boolean
   randomDraft?: boolean
   duplicateFactions?: boolean
-  botHost?: string
-  internalSecret?: string
   timerConfig?: DraftTimerConfig
   leaderPoolSize?: number | null
   dealOptionsSize?: number | null
 }
 
-// ── Configuration ──────────────────────────────────────────
+export interface DraftRuntimeConfigResult extends MatchCreationResult {
+  config: RoomConfig
+}
 
-const DEFAULT_BOT_HOST = 'http://localhost:8787'
+// ── Build draft runtime config under SessionDO ownership ────
 
-// ── Create a draft room in the bot-owned runtime ────────
-
-/** Creates a draft room and returns the match config */
-export async function createDraftRoom(
+/** Builds the initial draft runtime config for a session. */
+export function buildDraftRuntimeConfig(
   mode: GameMode,
   entries: QueueEntry[],
   options: CreateDraftRoomOptions,
-): Promise<MatchCreationResult> {
+): DraftRuntimeConfigResult {
   const matchId = options.matchId
   const seats: DraftSeat[] = buildSeats(mode, entries)
   const redDeathMode = options.redDeath === true
@@ -70,69 +66,7 @@ export async function createDraftRoom(
     timerConfig: options.timerConfig,
   }
 
-  await initializeDraftRoom(config, options)
-
-  return { matchId, formatId: format.id, seats }
-}
-
-async function initializeDraftRoom(config: RoomConfig, options: Pick<CreateDraftRoomOptions, 'mainNamespace' | 'botHost' | 'internalSecret'>): Promise<void> {
-  if (options.mainNamespace) {
-    await initializeDraftRoomViaMainStub(config, options.mainNamespace, options.internalSecret)
-    return
-  }
-
-  // Room name = matchId so activity and bot commands hit the same runtime.
-  const normalizedHost = normalizeHost(options.botHost, DEFAULT_BOT_HOST)
-  const url = `${normalizedHost}/parties/main/${config.matchId}`
-
-  await api.post(url, config, {
-    headers: options.internalSecret
-      ? { [CIVUP_INTERNAL_SECRET_HEADER]: options.internalSecret }
-      : undefined,
-  })
-}
-
-async function initializeDraftRoomViaMainStub(
-  config: RoomConfig,
-  mainNamespace: DurableObjectNamespace,
-  internalSecret: string | undefined,
-): Promise<void> {
-  const stub = mainNamespace.get(mainNamespace.idFromName(config.matchId))
-  const response = await stub.fetch(new Request(`https://civup-bot.internal/parties/main/${config.matchId}`, {
-    method: 'POST',
-    headers: buildDraftRoomCreateHeaders(config.matchId, internalSecret),
-    body: JSON.stringify(config),
-  }))
-
-  if (!response.ok) throw await buildDraftRoomCreateError(response)
-}
-
-function buildDraftRoomCreateHeaders(roomName: string, internalSecret: string | undefined): Headers {
-  const headers = new Headers({ 'Content-Type': 'application/json' })
-  headers.set('x-partykit-room', roomName)
-  headers.set('x-partykit-namespace', 'main')
-  if (internalSecret) headers.set(CIVUP_INTERNAL_SECRET_HEADER, internalSecret)
-  return headers
-}
-
-async function buildDraftRoomCreateError(response: Response): Promise<ApiError> {
-  let errorMessage = `Request failed with status ${response.status}`
-  let errorData: unknown
-
-  try {
-    const text = await response.text()
-    try {
-      const data = JSON.parse(text)
-      if (data && typeof data === 'object' && 'error' in data) errorMessage = String(data.error)
-      errorData = data
-    }
-    catch {
-      if (text.length < 500) errorMessage = text
-    }
-  }
-  catch {}
-
-  return new ApiError(errorMessage, response.status, errorData, response.headers)
+  return { matchId, formatId: format.id, seats, config }
 }
 
 // ── Build seats with team assignment ────────────────────────

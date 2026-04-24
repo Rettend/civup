@@ -7,7 +7,7 @@ export interface DraftSetupPageProps {
   joinEligibility?: import('~/client/stores').LobbyJoinEligibilitySnapshot
   prefetchedRankedRoleOptions?: RankedRoleOptionSnapshot[]
   prefetchedFillTestPlayersAvailable?: boolean
-  onLobbyStarted?: (matchId: string, steamLobbyLink: string | null, roomAccessToken: string | null) => void
+  onLobbyStarted?: (matchId: string, steamLobbyLink: string | null, sessionAccessToken: string | null) => void
   onSwitchTarget?: () => void
 }
 

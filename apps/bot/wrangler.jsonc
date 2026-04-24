@@ -15,10 +15,6 @@
   "durable_objects": {
     "bindings": [
       {
-        "name": "Main",
-        "class_name": "Main"
-      },
-      {
         "name": "Activity",
         "class_name": "Activity"
       },
@@ -30,10 +26,6 @@
   },
 
   "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["Main"]
-    },
     {
       "tag": "v3",
       "new_sqlite_classes": ["SessionDO"]

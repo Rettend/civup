@@ -19,7 +19,7 @@ import { DraftSetupPage } from './pages/draft-setup'
 import { LobbyOverviewPage } from './pages/lobby-overview'
 import {
   connectionStatus,
-  connectToRoom,
+  connectToSession,
   disconnect,
   draftStore,
   fetchActivityLaunchSnapshot,
@@ -41,7 +41,7 @@ type AppState
       matchId: string
       autoStart: boolean
       steamLobbyLink: string | null
-      roomAccessToken: string | null
+      sessionAccessToken: string | null
       lobbyId: string | null
       lobbyMode: string | null
     }
@@ -64,7 +64,7 @@ type LiveActivityTargetState
     kind: 'match'
     id: string
     pendingJoin: boolean
-    roomAccessToken: string | null
+    sessionAccessToken: string | null
     steamLobbyLink: string | null
     lobbyId: string | null
     mode: string | null
@@ -185,7 +185,7 @@ export default function App() {
       kind: 'match',
       id: selection.matchId,
       pendingJoin: false,
-      roomAccessToken: selection.roomAccessToken,
+      sessionAccessToken: selection.sessionAccessToken,
       steamLobbyLink: selection.steamLobbyLink,
       lobbyId: selection.lobbyId ?? selection.option.lobbyId,
       mode: selection.mode ?? selection.option.mode,
@@ -223,7 +223,7 @@ export default function App() {
     matchId: string,
     autoStart: boolean,
     steamLobbyLink: string | null,
-    roomAccessToken: string | null,
+    sessionAccessToken: string | null,
     lobbyContext?: {
       lobbyId: string | null
       lobbyMode: string | null
@@ -257,17 +257,17 @@ export default function App() {
         option: resolveMatchSelectionOption(matchId, nextLobbyId, nextLobbyMode),
         matchId,
         steamLobbyLink,
-        roomAccessToken,
+        sessionAccessToken,
         lobbyId: nextLobbyId,
         mode: nextLobbyMode,
       })
     }
 
-    setState({ status: 'authenticated', matchId, autoStart: nextAutoStart, steamLobbyLink, roomAccessToken, lobbyId: nextLobbyId, lobbyMode: nextLobbyMode })
+    setState({ status: 'authenticated', matchId, autoStart: nextAutoStart, steamLobbyLink, sessionAccessToken, lobbyId: nextLobbyId, lobbyMode: nextLobbyMode })
     if (isSameMatch && (isDraftConnectionInFlight() || hasTerminalDraft)) return
 
     resetDraft()
-    connectToRoom(PARTY_SOCKET_TARGET, matchId, roomAccessToken)
+    connectToSession(PARTY_SOCKET_TARGET, matchId, sessionAccessToken)
   }
 
   const applyLaunchSnapshot = (
@@ -334,7 +334,7 @@ export default function App() {
       return
     }
 
-    transitionToDraft(filteredSnapshot.selection.matchId, autoStart, filteredSnapshot.selection.steamLobbyLink, filteredSnapshot.selection.roomAccessToken, {
+    transitionToDraft(filteredSnapshot.selection.matchId, autoStart, filteredSnapshot.selection.steamLobbyLink, filteredSnapshot.selection.sessionAccessToken, {
       lobbyId: filteredSnapshot.selection.lobbyId ?? filteredSnapshot.selection.option.lobbyId,
       lobbyMode: filteredSnapshot.selection.mode ?? filteredSnapshot.selection.option.mode,
     })
@@ -733,8 +733,8 @@ export default function App() {
             showJoinPending={(state() as Extract<AppState, { status: 'lobby-waiting' }>).joinPending}
             joinEligibility={(state() as Extract<AppState, { status: 'lobby-waiting' }>).joinEligibility}
             onSwitchTarget={openOverview}
-            onLobbyStarted={(matchId, steamLobbyLink, roomAccessToken) => {
-              transitionToDraft(matchId, true, steamLobbyLink, roomAccessToken)
+            onLobbyStarted={(matchId, steamLobbyLink, sessionAccessToken) => {
+              transitionToDraft(matchId, true, steamLobbyLink, sessionAccessToken)
             }}
           />
         </Match>
@@ -838,7 +838,7 @@ function buildLiveActivityLaunchSnapshot(
       option,
       matchId: targetState.id,
       steamLobbyLink: targetState.steamLobbyLink,
-      roomAccessToken: targetState.roomAccessToken,
+      sessionAccessToken: targetState.sessionAccessToken,
       lobbyId: targetState.lobbyId,
       mode: targetState.mode,
     },

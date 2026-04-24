@@ -1,4 +1,3 @@
-import type { RoomConfig } from '@civup/game'
 import { SessionDO } from '../../src/session-runtime/session-do.ts'
 
 export function createTestSessionNamespace(env: Partial<Cloudflare.Env> = {}): DurableObjectNamespace {
@@ -25,38 +24,32 @@ export function createTestSessionNamespace(env: Partial<Cloudflare.Env> = {}): D
   } as unknown as DurableObjectNamespace
 }
 
-export function createCapturedMainNamespace(roomConfigs = new Map<string, RoomConfig>()): DurableObjectNamespace {
-  return {
-    idFromName(name: string) {
-      return name as unknown as DurableObjectId
-    },
-    get(id: DurableObjectId) {
-      const roomName = String(id)
-      return {
-        async fetch(request: Request): Promise<Response> {
-          const url = new URL(request.url)
-          if (url.pathname === '/cdn-cgi/partyserver/set-name/') return Response.json({ ok: true })
-          if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
-
-          const body = await request.json() as RoomConfig
-          if (body.matchId !== roomName) return new Response('Room name mismatch', { status: 409 })
-          roomConfigs.set(body.matchId, body)
-          return Response.json({ ok: true }, { status: 201 })
-        },
-      } as DurableObjectStub
-    },
-  } as unknown as DurableObjectNamespace
-}
-
 export function createFakeDurableObjectState(): DurableObjectState {
   const storage = new Map<string, unknown>()
+  let alarmAt: number | null = null
   return {
+    async blockConcurrencyWhile(callback: () => Promise<void> | void) {
+      await callback()
+    },
+    getWebSockets() {
+      return []
+    },
+    acceptWebSocket() {},
     storage: {
       async get(key: string) {
         return storage.get(key)
       },
       async put(key: string, value: unknown) {
         storage.set(key, value)
+      },
+      async setAlarm(scheduledTime: number | Date) {
+        alarmAt = scheduledTime instanceof Date ? scheduledTime.getTime() : scheduledTime
+      },
+      async deleteAlarm() {
+        alarmAt = null
+      },
+      async getAlarm() {
+        return alarmAt
       },
     },
   } as unknown as DurableObjectState
