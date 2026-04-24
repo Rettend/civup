@@ -1,13 +1,11 @@
 import type { GameMode } from '@civup/game'
 import { createDb } from '@civup/db'
 import { Button } from 'discord-hono'
-import { isQueueBackedOpenLobby } from '../../routes/lobby/snapshot.ts'
 import { clearActivityMappings, clearLobbyMappings, getMatchForUser, storeMatchActivityState, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
-import { clearLobbyById, filterQueueEntriesForLobby, getLobbyById } from '../../services/lobby/index.ts'
+import { clearLobbyById, getLobbyById } from '../../services/lobby/index.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIds } from '../../services/match/live.ts'
 import { getMatchIdForMessage } from '../../services/match/message.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
-import { getQueueState } from '../../services/queue/index.ts'
 import { sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { createStateStore } from '../../services/state/store.ts'
 import { factory } from '../../setup.ts'
@@ -83,8 +81,7 @@ export const component_match_join = factory.component(
         return
       }
 
-      const queue = await getQueueState(kv, mode)
-      if (!isQueueBackedOpenLobby(lobby, filterQueueEntriesForLobby(lobby, queue.entries))) {
+      if (lobby.memberPlayerIds.length === 0) {
         if (interactionChannelId) {
             await clearLobbyMappings(kv, [identity.userId], interactionChannelId, lobby.id)
         }

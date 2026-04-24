@@ -8,7 +8,6 @@ import { clearQueue, getQueueState } from '../queue/index.ts'
 import { syncLobbyDerivedState } from './live-snapshot.ts'
 import { upsertLobbyMessage } from './message.ts'
 import { commitLobbyState, setLobbyStatus } from './mutations.ts'
-import { reconcileOpenLobbyState } from './reconcile.ts'
 import { buildOpenLobbyRenderPayload } from './render.ts'
 import { filterQueueEntriesForLobby, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots } from './slots.ts'
 import { clearLobbyById } from './store.ts'
@@ -21,8 +20,7 @@ export async function leaveOpenLobbyForLobbyJoin(
   targetMode: GameMode,
   options?: LobbySessionProjectionOptions,
 ): Promise<{ ok: true, transferredFrom: { lobbyId: string, mode: GameMode } } | { ok: false, error: string }> {
-  const reconciled = await reconcileOpenLobbyState(kv, lobby)
-  const currentLobby = reconciled?.lobby ?? lobby
+  const currentLobby = lobby
   if (currentLobby.status !== 'open') return { ok: false, error: 'You are already in a live match.' }
 
   const uniqueMovingPlayerIds = [...new Set(movingPlayerIds.filter(playerId => currentLobby.memberPlayerIds.includes(playerId)))]
@@ -41,8 +39,8 @@ export async function leaveOpenLobbyForLobbyJoin(
     }
   }
 
-  const sourceQueue = reconciled?.queue ?? await getQueueState(kv, currentLobby.mode)
-  const sourceLobbyQueueEntries = reconciled?.lobbyQueueEntries ?? filterQueueEntriesForLobby(currentLobby, sourceQueue.entries)
+  const sourceQueue = await getQueueState(kv, currentLobby.mode)
+  const sourceLobbyQueueEntries = filterQueueEntriesForLobby(currentLobby, sourceQueue.entries)
   const nextQueue = currentLobby.mode !== targetMode
     ? await clearQueue(kv, currentLobby.mode, uniqueMovingPlayerIds, { currentState: sourceQueue })
     : sourceQueue
