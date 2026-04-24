@@ -314,7 +314,35 @@ describe('system scenarios', () => {
     expect(afterFinalized.get('p4')).toBe(beforeFinalized.get('p4'))
   })
 
-  test('dropped completion webhook keeps the draft live until indexed replay, then applies stored activation and finalization payloads', async () => {
+  test('terminal cancellation during swap cancels the active match and clears the lobby', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '2v2',
+      players: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }, { id: 'p4' }],
+    })
+
+    const started = await world.lobby.start('2v2', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+
+    const completionPayload = world.party.draftComplete(started.matchId)
+    expect((await world.party.replayDraftComplete(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+    expect((await world.match.get(started.matchId))?.status).toBe('active')
+    expect((await world.lobby.getById(lobby.id))?.status).toBe('active')
+
+    const cancelled = await world.party.cancelDraft(started.matchId, {
+      reason: 'scrub',
+      state: completionPayload.state,
+    })
+    await world.flushBackgroundTasks()
+
+    expect(cancelled.status).toBe(200)
+    await expect(cancelled.json()).resolves.toEqual({ ok: true })
+    expect((await world.match.get(started.matchId))?.status).toBe('cancelled')
+    expect(await world.lobby.getById(lobby.id)).toBeNull()
+  })
+
+  test('dropped completion lifecycle sync keeps the draft live until indexed replay, then applies stored activation and finalization payloads', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '2v2',
@@ -975,7 +1003,7 @@ describe('system scenarios', () => {
     })).resolves.not.toBeNull()
   })
 
-  test('revert cancel webhook restores the original roster, queue, and lobby targeting', async () => {
+  test('revert cancel lifecycle sync restores the original roster, queue, and lobby targeting', async () => {
     const world = await createTrackedWorld()
     const players = createPlayers(4, 'revert')
     const lobby = await world.lobby.createOpen({
@@ -2311,7 +2339,7 @@ describe('system scenarios', () => {
     expect(world.discord.requests()).toHaveLength(requestsBeforeReplay)
   })
 
-  test('delayed webhook delivery after report cleanup is ignored safely', async () => {
+  test('delayed lifecycle sync after report cleanup is ignored safely', async () => {
     const world = await createTrackedWorld()
     const result = await runReportedLifecycle(world, {
       mode: '1v1',

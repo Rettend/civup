@@ -627,14 +627,14 @@ async function simulateScenarioLifecycle(input: {
     let draftRoomIncomingMessagesWithTeamPickPreviews = started.draftRoomIncomingMessagesWithTeamPickPreviews
 
     botRequests += 1
-    await handleDraftCompleteWebhook(db, kv, started.matchId, completedDraftState)
+    await handleDraftCompleteLifecycleSync(db, kv, started.matchId, completedDraftState)
     await runUnmetered(() => assertActiveCapacityState(db, kv, started.matchId, playerIds))
 
     const acceptedSwaps = isTeamMode(input.mode.mode) ? Math.max(0, Math.trunc(input.acceptedSwaps ?? 0)) : 0
     for (let index = 0; index < acceptedSwaps; index++) {
       completedDraftState = applyAcceptedTeamSwap(completedDraftState)
       botRequests += 1
-      await handleDraftCompleteWebhook(db, kv, started.matchId, completedDraftState)
+      await handleDraftCompleteLifecycleSync(db, kv, started.matchId, completedDraftState)
       await runUnmetered(() => assertActiveCapacityState(db, kv, started.matchId, playerIds))
       draftRoomIncomingMessages += ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES
       draftRoomIncomingMessagesWithSelectionPreviews += ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES
@@ -643,7 +643,7 @@ async function simulateScenarioLifecycle(input: {
 
     if (isTeamMode(input.mode.mode)) {
       botRequests += 1
-      await handleDraftCompleteWebhook(db, kv, started.matchId, completedDraftState, { finalized: true })
+      await handleDraftCompleteLifecycleSync(db, kv, started.matchId, completedDraftState, { finalized: true })
       await runUnmetered(() => assertActiveCapacityState(db, kv, started.matchId, playerIds))
     }
 
@@ -940,7 +940,7 @@ async function startDraftFromOpenLobby(
   }
 }
 
-async function handleDraftCompleteWebhook(
+async function handleDraftCompleteLifecycleSync(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   kv: KVNamespace,
   matchId: string,
@@ -1174,8 +1174,8 @@ function projectSimulationResultToTargetArchitecture(
   const viewerCount = scenarioViewerIds(mode).length
   const spectatorCount = mode.spectatorIds?.length ?? 0
   const averageAcceptedSwaps = isTeamMode(mode.mode) ? AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT : 0
-  const lifecycleWebhookBotRequests = 1 + averageAcceptedSwaps + (isTeamMode(mode.mode) ? 1 : 0)
-  const removedBotRequests = lifecycleWebhookBotRequests + playerCount + spectatorCount
+  const lifecycleSyncBotRequests = 1 + averageAcceptedSwaps + (isTeamMode(mode.mode) ? 1 : 0)
+  const removedBotRequests = lifecycleSyncBotRequests + playerCount + spectatorCount
   const removedActivityRequests = viewerCount + viewerCount + playerCount + spectatorCount
   const removedPostDraftSnapshotRowsRead = playerCount * (1 + playerCount)
 

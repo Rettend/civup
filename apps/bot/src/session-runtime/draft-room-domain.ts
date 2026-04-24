@@ -10,7 +10,7 @@ import type {
   RevealedMapVoteSeatBallot,
   RoomConfig,
 } from '@civup/game'
-import type { DraftLifecyclePayload as DraftWebhookPayload } from './draft-lifecycle-events.ts'
+import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
 import type { MapVoteSelectionUpdateResult, StoredMapVoteState } from './map-vote-room-state.ts'
 import {
   createMapVoteRng,
@@ -52,14 +52,7 @@ export interface RoomRecord {
   swapDisconnectFinalizeAt: number | null
   swapSafetyEndsAt: number | null
   mapVote: StoredMapVoteState
-  webhookEventSequence: number
-  webhookOutbox: RoomWebhookOutboxEntry[]
-}
-
-export interface RoomWebhookOutboxEntry {
-  payload: DraftWebhookPayload
-  attempts: number
-  nextAttemptAt: number
+  lifecycleEventSequence: number
 }
 
 export type RoomEffect =
@@ -68,7 +61,7 @@ export type RoomEffect =
   | { type: 'schedule-swap-alarm' }
   | { type: 'broadcast-update', events: DraftEvent[] }
   | { type: 'broadcast-swap-update', picks?: DraftState['picks'] }
-  | { type: 'flush-webhook-outbox', delivery: 'await' | 'background' }
+  | { type: 'sync-draft-lifecycle', payload: DraftLifecyclePayload, delivery: 'await' | 'background' }
   | { type: 'schedule-debug-active-bots', blindBans: boolean }
   | { type: 'schedule-debug-map-vote-bots' }
   | { type: 'close-connections', reason: string }
@@ -194,12 +187,9 @@ export function createRoomRecord(
     swapDisconnectFinalizeAt: overrides.swapDisconnectFinalizeAt ?? null,
     swapSafetyEndsAt: overrides.swapSafetyEndsAt ?? null,
     mapVote,
-    webhookEventSequence: typeof overrides.webhookEventSequence === 'number' && Number.isFinite(overrides.webhookEventSequence)
-      ? overrides.webhookEventSequence
+    lifecycleEventSequence: typeof overrides.lifecycleEventSequence === 'number' && Number.isFinite(overrides.lifecycleEventSequence)
+      ? overrides.lifecycleEventSequence
       : 0,
-    webhookOutbox: Array.isArray(overrides.webhookOutbox)
-      ? overrides.webhookOutbox
-      : [],
   }
 }
 
@@ -229,10 +219,9 @@ export function normalizeStoredRoomRecord(value: unknown): RoomRecord | null {
       swapPendingExpiresAt: typeof raw.swapPendingExpiresAt === 'number' && Number.isFinite(raw.swapPendingExpiresAt) ? raw.swapPendingExpiresAt : null,
       swapDisconnectFinalizeAt: typeof raw.swapDisconnectFinalizeAt === 'number' && Number.isFinite(raw.swapDisconnectFinalizeAt) ? raw.swapDisconnectFinalizeAt : null,
       swapSafetyEndsAt: typeof raw.swapSafetyEndsAt === 'number' && Number.isFinite(raw.swapSafetyEndsAt) ? raw.swapSafetyEndsAt : null,
-      webhookEventSequence: typeof raw.webhookEventSequence === 'number' && Number.isFinite(raw.webhookEventSequence)
-        ? raw.webhookEventSequence
+      lifecycleEventSequence: typeof raw.lifecycleEventSequence === 'number' && Number.isFinite(raw.lifecycleEventSequence)
+        ? raw.lifecycleEventSequence
         : 0,
-      webhookOutbox: normalizeRoomWebhookOutbox(raw.webhookOutbox),
     },
   )
 }
@@ -294,30 +283,30 @@ export function applyDraftResultCommand(
         swapSafetyEndsAt: completedAt + SWAP_WINDOW_TIMEOUT_MS,
       }
       alarmEffect = { type: 'schedule-swap-alarm' }
-      const queuedWebhook = enqueueCompleteWebhook(nextRoom, {
+      const lifecycleSync = createCompleteLifecycleSync(nextRoom, {
         completedAt,
         delivery: 'await',
         kind: 'DraftCompleted',
       })
-      nextRoom = queuedWebhook.room
+      nextRoom = lifecycleSync.room
       effects.push(
         { type: 'broadcast-update', events: command.events },
-        queuedWebhook.effect,
+        lifecycleSync.effect,
       )
     }
     else {
       nextRoom = clearSwapWindowState(nextRoom)
       alarmEffect = { type: 'delete-alarm' }
-      const queuedWebhook = enqueueCompleteWebhook(nextRoom, {
+      const lifecycleSync = createCompleteLifecycleSync(nextRoom, {
         completedAt,
         delivery: 'background',
         kind: 'DraftCompleted',
       })
-      nextRoom = queuedWebhook.room
+      nextRoom = lifecycleSync.room
       effects.push(
         { type: 'broadcast-update', events: command.events },
         { type: 'close-connections', reason: 'Draft closed' },
-        queuedWebhook.effect,
+        lifecycleSync.effect,
       )
     }
   }
@@ -330,15 +319,15 @@ export function applyDraftResultCommand(
       cancelledAt,
     }
     alarmEffect = { type: 'delete-alarm' }
-    const queuedWebhook = enqueueCancelledWebhook(nextRoom, {
+    const lifecycleSync = createCancelledLifecycleSync(nextRoom, {
       cancelledAt,
       delivery: 'background',
     })
-    nextRoom = queuedWebhook.room
+    nextRoom = lifecycleSync.room
     effects.push(
       { type: 'broadcast-update', events: command.events },
       { type: 'close-connections', reason: 'Draft closed' },
-      queuedWebhook.effect,
+      lifecycleSync.effect,
     )
   }
   else {
@@ -411,13 +400,13 @@ export function acceptSwapCommand(
     { type: 'broadcast-swap-update', picks: command.picks },
   ]
   if (nextRoom.completedAt != null) {
-    const queuedWebhook = enqueueCompleteWebhook(nextRoom, {
+    const lifecycleSync = createCompleteLifecycleSync(nextRoom, {
       completedAt: nextRoom.completedAt,
       delivery: 'await',
       kind: 'SwapAccepted',
     })
-    nextRoom = queuedWebhook.room
-    effects.push(queuedWebhook.effect)
+    nextRoom = lifecycleSync.room
+    effects.push(lifecycleSync.effect)
   }
 
   return createTransition(nextRoom, effects)
@@ -484,18 +473,18 @@ export function finalizeCompletedDraftCommand(
     timerEndsAt: null,
     completedAt,
   }
-  const queuedWebhook = enqueueCompleteWebhook(nextRoom, {
+  const lifecycleSync = createCompleteLifecycleSync(nextRoom, {
     completedAt,
     delivery: 'background',
     finalized: true,
     kind: 'DraftFinalized',
   })
-  nextRoom = queuedWebhook.room
+  nextRoom = lifecycleSync.room
 
   return createTransition(nextRoom, [
     { type: 'delete-alarm' },
     { type: 'close-connections', reason: 'Draft closed' },
-    queuedWebhook.effect,
+    lifecycleSync.effect,
   ], true)
 }
 
@@ -649,11 +638,6 @@ export function normalizeRoomSwapState(
   return normalizeStoredSwapState(room.swapState, room.swapPendingExpiresAt)
 }
 
-function normalizeRoomWebhookOutbox(value: unknown): RoomWebhookOutboxEntry[] {
-  if (!Array.isArray(value)) return []
-  return value.flatMap(normalizeRoomWebhookOutboxEntry)
-}
-
 function createTransition<TResponse = void>(
   room: RoomRecord,
   effects: RoomEffect[],
@@ -696,75 +680,7 @@ function buildMapVoteRevealTransition(room: RoomRecord, state: DraftState, now: 
   ])
 }
 
-function normalizeRoomWebhookOutboxEntry(value: unknown): RoomWebhookOutboxEntry[] {
-  if (!value || typeof value !== 'object') return []
-
-  const raw = value as Partial<RoomWebhookOutboxEntry>
-  const payload = normalizeStoredDraftWebhookPayload(raw.payload)
-  if (!payload) return []
-
-  return [{
-    payload,
-    attempts: typeof raw.attempts === 'number' && Number.isFinite(raw.attempts) ? raw.attempts : 0,
-    nextAttemptAt: typeof raw.nextAttemptAt === 'number' && Number.isFinite(raw.nextAttemptAt)
-      ? raw.nextAttemptAt
-      : getDraftWebhookPayloadTimestamp(payload),
-  }]
-}
-
-function normalizeStoredDraftWebhookPayload(value: unknown): DraftWebhookPayload | null {
-  if (!value || typeof value !== 'object') return null
-
-  const raw = value as Partial<DraftWebhookPayload> & {
-    cancelledAt?: unknown
-    reason?: unknown
-  }
-
-  if (typeof raw.eventId !== 'string' || raw.eventId.length === 0) return null
-  if (typeof raw.eventKind !== 'string' || raw.eventKind.length === 0) return null
-  if (typeof raw.eventSequence !== 'number' || !Number.isFinite(raw.eventSequence)) return null
-  if (typeof raw.matchId !== 'string') return null
-  if (!raw.state || typeof raw.state !== 'object') return null
-
-  if (raw.outcome === 'complete' && typeof raw.completedAt === 'number' && raw.state.status === 'complete') {
-    return {
-      eventId: raw.eventId,
-      eventKind: raw.eventKind === 'SwapAccepted' || raw.eventKind === 'DraftFinalized' ? raw.eventKind : 'DraftCompleted',
-      eventSequence: raw.eventSequence,
-      outcome: 'complete',
-      matchId: raw.matchId,
-      hostId: typeof raw.hostId === 'string' ? raw.hostId : undefined,
-      completedAt: raw.completedAt,
-      finalized: raw.finalized === true ? true : undefined,
-      state: raw.state,
-      mapVoteResult: raw.mapVoteResult ?? null,
-    }
-  }
-
-  if (
-    raw.outcome === 'cancelled'
-    && typeof raw.cancelledAt === 'number'
-    && raw.state.status === 'cancelled'
-    && (raw.reason === 'cancel' || raw.reason === 'scrub' || raw.reason === 'timeout' || raw.reason === 'revert')
-  ) {
-    return {
-      eventId: raw.eventId,
-      eventKind: 'DraftCancelled',
-      eventSequence: raw.eventSequence,
-      outcome: 'cancelled',
-      matchId: raw.matchId,
-      hostId: typeof raw.hostId === 'string' ? raw.hostId : undefined,
-      cancelledAt: raw.cancelledAt,
-      reason: raw.reason,
-      state: raw.state,
-      mapVoteResult: raw.mapVoteResult ?? null,
-    }
-  }
-
-  return null
-}
-
-function enqueueCompleteWebhook(
+function createCompleteLifecycleSync(
   room: RoomRecord,
   options: {
     completedAt: number
@@ -773,9 +689,9 @@ function enqueueCompleteWebhook(
     kind: 'DraftCompleted' | 'SwapAccepted' | 'DraftFinalized'
   },
 ): { room: RoomRecord, effect: RoomEffect } {
-  const eventSequence = room.webhookEventSequence + 1
-  const payload: DraftWebhookPayload = {
-    eventId: createDraftWebhookEventId(room.state.matchId, eventSequence),
+  const eventSequence = room.lifecycleEventSequence + 1
+  const payload: DraftLifecyclePayload = {
+    eventId: createDraftLifecycleEventId(room.state.matchId, eventSequence),
     eventKind: options.kind,
     eventSequence,
     outcome: 'complete',
@@ -786,19 +702,19 @@ function enqueueCompleteWebhook(
     state: room.state,
     mapVoteResult: room.mapVote.result ?? null,
   }
-  return enqueueWebhookOutboxEntry(room, payload, options.delivery)
+  return createLifecycleSyncEffect(room, payload, options.delivery)
 }
 
-function enqueueCancelledWebhook(
+function createCancelledLifecycleSync(
   room: RoomRecord,
   options: {
     cancelledAt: number
     delivery: 'await' | 'background'
   },
 ): { room: RoomRecord, effect: RoomEffect } {
-  const eventSequence = room.webhookEventSequence + 1
-  const payload: DraftWebhookPayload = {
-    eventId: createDraftWebhookEventId(room.state.matchId, eventSequence),
+  const eventSequence = room.lifecycleEventSequence + 1
+  const payload: DraftLifecyclePayload = {
+    eventId: createDraftLifecycleEventId(room.state.matchId, eventSequence),
     eventKind: 'DraftCancelled',
     eventSequence,
     outcome: 'cancelled',
@@ -809,42 +725,29 @@ function enqueueCancelledWebhook(
     state: room.state,
     mapVoteResult: room.mapVote.result ?? null,
   }
-  return enqueueWebhookOutboxEntry(room, payload, options.delivery)
+  return createLifecycleSyncEffect(room, payload, options.delivery)
 }
 
-function enqueueWebhookOutboxEntry(
+function createLifecycleSyncEffect(
   room: RoomRecord,
-  payload: DraftWebhookPayload,
+  payload: DraftLifecyclePayload,
   delivery: 'await' | 'background',
 ): { room: RoomRecord, effect: RoomEffect } {
   return {
     room: {
       ...room,
-      webhookEventSequence: payload.eventSequence,
-      webhookOutbox: [
-        ...room.webhookOutbox,
-        {
-          payload,
-          attempts: 0,
-          nextAttemptAt: getDraftWebhookPayloadTimestamp(payload),
-        },
-      ],
+      lifecycleEventSequence: payload.eventSequence,
     },
     effect: {
-      type: 'flush-webhook-outbox',
+      type: 'sync-draft-lifecycle',
+      payload,
       delivery,
     },
   }
 }
 
-function createDraftWebhookEventId(matchId: string, eventSequence: number): string {
-  return `${matchId}:webhook:${eventSequence}`
-}
-
-function getDraftWebhookPayloadTimestamp(payload: DraftWebhookPayload): number {
-  return payload.outcome === 'complete'
-    ? payload.completedAt
-    : payload.cancelledAt
+function createDraftLifecycleEventId(matchId: string, eventSequence: number): string {
+  return `${matchId}:lifecycle:${eventSequence}`
 }
 
 function assignDealtCivIds(state: DraftState, config: RoomConfig | null, random: RandomSource = Math.random): DraftState {

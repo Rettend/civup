@@ -1,23 +1,31 @@
 import type { CompetitiveTier, DraftSeat, GameMode, QueueEntry } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
-import type { DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionProjectionState, SessionRecord, SessionRoster } from './session-record.ts'
+import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
+import type { DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionLifecycleSyncState, SessionProjectionState, SessionRecord, SessionRoster } from './session-record.ts'
 import { createDb } from '@civup/db'
 import { canStartWithPlayerCount, formatModeLabel, GAME_MODES, getMinimumLeaderPoolSize } from '@civup/game'
+import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed } from '../embeds/match.ts'
 import { createDraftRoom } from '../services/activity/index.ts'
 import { resolveDraftTimerConfig } from '../services/config/index.ts'
 import { normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from '../services/lobby/normalize.ts'
-import { putLobby } from '../services/lobby/store.ts'
-import { createDraftMatch } from '../services/match/index.ts'
-import { clearQueue } from '../services/queue/index.ts'
+import { upsertLobbyMessage } from '../services/lobby/message.ts'
+import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
+import { mapLobbySlotsToEntries } from '../services/lobby/slots.ts'
+import { clearLobbyById, getLobbyByMatch, putLobby } from '../services/lobby/store.ts'
+import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../services/match/index.ts'
+import { clearMatchMessageMapping, storeMatchMessageMapping } from '../services/match/message.ts'
+import { clearQueue, getQueueState, setQueueEntries } from '../services/queue/index.ts'
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
 import { publishActivitySessionUpdate } from './activity-feed-client.ts'
-import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from './session-record.ts'
+import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildLobbyStateFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from './session-record.ts'
+import { canOpenSwapWindowForState } from './swap-window.ts'
 
 interface SessionDOEnv extends Cloudflare.Env {
   DB?: D1Database
   KV?: KVNamespace
   Main?: DurableObjectNamespace
   Activity?: DurableObjectNamespace
+  DISCORD_TOKEN?: string
   BOT_HOST?: string
   CIVUP_SECRET?: string
 }
@@ -203,11 +211,22 @@ export class SessionDO {
       return await this.runSerializedCommand(() => this.handleDraftLifecycleCommand(request))
     }
 
+    if (request.method === 'POST' && url.pathname === '/commands/draft-lifecycle-sync') {
+      return await this.runSerializedCommand(() => this.handleDraftLifecycleSyncCommand(request))
+    }
+
     if (request.method === 'POST' && url.pathname === '/commands/session-projection') {
       return await this.runSerializedCommand(() => this.handleSessionProjectionCommand(request))
     }
 
     return json({ error: 'Not found' }, 404)
+  }
+
+  async alarm(): Promise<void> {
+    await this.runSerializedCommand(async () => {
+      await this.retryPendingLifecycleSync()
+      return json({ ok: true })
+    })
   }
 
   private async getRecord(): Promise<SessionRecord | null> {
@@ -540,6 +559,275 @@ export class SessionDO {
     return json({ ok: true, record })
   }
 
+  private async handleDraftLifecycleSyncCommand(request: Request): Promise<Response> {
+    let payload: DraftLifecyclePayload
+    try {
+      payload = await request.json<DraftLifecyclePayload>()
+    }
+    catch {
+      return json({ error: 'Invalid JSON payload' }, 400)
+    }
+
+    const validationError = validateDraftLifecyclePayload(payload)
+    if (validationError) return json({ error: validationError }, 400)
+
+    const result = await this.syncDraftLifecyclePayload(payload)
+    if (!result.ok) return json({ error: result.error }, result.status)
+    return json({ ok: true, ignored: result.ignored, synced: result.synced })
+  }
+
+  private async retryPendingLifecycleSync(): Promise<void> {
+    const record = await this.getRecord()
+    const pending = record?.lifecycleSync ?? null
+    if (!record || !pending) {
+      await this.clearLifecycleSyncAlarm()
+      return
+    }
+
+    const now = Date.now()
+    if (pending.nextRetryAt > now) {
+      await this.scheduleLifecycleSyncAlarm(record)
+      return
+    }
+
+    const result = await this.syncDraftLifecyclePayload(pending.payload)
+    if (!result.ok) {
+      console.warn('[session-do] lifecycle sync retry deferred', buildDraftLifecycleLogContext(pending.payload, {
+        status: result.status,
+        error: result.error,
+      }))
+    }
+  }
+
+  private async syncDraftLifecyclePayload(payload: DraftLifecyclePayload): Promise<{ ok: true, ignored?: boolean, synced?: boolean } | { ok: false, status: number, error: string }> {
+    const existing = await this.getRecord()
+    if (!existing) return { ok: false, status: 404, error: 'Session not found' }
+    if (payload.matchId !== existing.id) return { ok: false, status: 409, error: `Lifecycle payload ${payload.matchId} does not belong to session ${existing.id}` }
+
+    const marked = await this.markLifecycleSyncPending(existing, payload)
+    if (!this.env.DB) return await this.deferLifecycleSync(marked, payload, 'D1 binding is not configured')
+    if (!this.env.KV) return await this.deferLifecycleSync(marked, payload, 'KV binding is not configured')
+
+    const db = createDb(this.env.DB)
+    let result: { ok: true, ignored?: boolean, synced?: boolean } | { ok: false, status: number, error: string }
+    try {
+      result = payload.outcome === 'complete'
+        ? await this.syncDraftCompleted(db, payload, marked)
+        : await this.syncDraftCancelled(db, payload, marked)
+    }
+    catch (error) {
+      return await this.deferLifecycleSync(marked, payload, error instanceof Error ? error.message : String(error))
+    }
+
+    if (!result.ok && result.status >= 500) return await this.deferLifecycleSync(marked, payload, result.error)
+    if (!result.ok) await this.clearLifecycleSyncMarker(marked)
+    return result
+  }
+
+  private async syncDraftCompleted(
+    db: ReturnType<typeof createDb>,
+    payload: Extract<DraftLifecyclePayload, { outcome: 'complete' }>,
+    record: SessionRecord,
+  ): Promise<{ ok: true, ignored?: boolean, synced?: boolean } | { ok: false, status: number, error: string }> {
+    const context = buildDraftLifecycleLogContext(payload)
+    const hostId = payload.hostId ?? payload.state.seats[0]?.playerId
+    if (!hostId) return { ok: false, status: 400, error: 'Draft lifecycle payload missing host identity' }
+
+    const result = await activateDraftMatch(db, {
+      state: payload.state,
+      completedAt: payload.completedAt,
+      hostId,
+      mapVoteResult: payload.mapVoteResult ?? null,
+    })
+
+    if ('error' in result) {
+      if (isIgnorableDraftCompleteError(result.error)) {
+        console.warn('[session-do] ignoring stale draft completion', { ...context, error: result.error })
+        await this.clearLifecycleSyncMarker(record)
+        return { ok: true, ignored: true }
+      }
+      return { ok: false, status: 400, error: result.error }
+    }
+
+    const transition = transitionRecordForDraftLifecycle(record, payload)
+    if ('error' in transition) return transition
+    const committed = await this.finishLifecycleSync(transition.record)
+    if (!committed.ok) return committed
+
+    if (transition.ignored) return { ok: true, ignored: true }
+    if (result.alreadyActive && payload.finalized !== true) return { ok: true, synced: true }
+
+    await this.updateCompletedDraftProjection(db, payload, result, transition.record, context)
+    return { ok: true }
+  }
+
+  private async syncDraftCancelled(
+    db: ReturnType<typeof createDb>,
+    payload: Extract<DraftLifecyclePayload, { outcome: 'cancelled' }>,
+    record: SessionRecord,
+  ): Promise<{ ok: true, ignored?: boolean, synced?: boolean } | { ok: false, status: number, error: string }> {
+    if (!this.env.KV) return { ok: false, status: 503, error: 'KV binding is not configured' }
+
+    const context = buildDraftLifecycleLogContext(payload)
+    const hostId = payload.hostId ?? payload.state.seats[0]?.playerId
+    if (!hostId) return { ok: false, status: 400, error: 'Draft lifecycle payload missing host identity' }
+
+    const fallbackLobby = await getLobbyByMatch(this.env.KV, payload.matchId)
+    const cancelled = await cancelDraftMatch(db, this.env.KV, {
+      state: payload.state,
+      cancelledAt: payload.cancelledAt,
+      reason: payload.reason,
+      hostId,
+      mapVoteResult: payload.mapVoteResult ?? null,
+      allowActive: record.phase === 'swap' && payload.state.picks.length > 0,
+    })
+
+    if ('error' in cancelled) {
+      if (isIgnorableDraftCancelError(cancelled.error)) {
+        console.warn('[session-do] ignoring stale draft cancellation', { ...context, error: cancelled.error })
+        await this.clearLifecycleSyncMarker(record)
+        return { ok: true, ignored: true }
+      }
+      return { ok: false, status: 400, error: cancelled.error }
+    }
+
+    const transition = transitionRecordForDraftLifecycle(record, payload)
+    if ('error' in transition) return transition
+    const committed = await this.finishLifecycleSync(transition.record)
+    if (!committed.ok) return committed
+
+    if (transition.ignored) return { ok: true, ignored: true }
+    await this.updateCancelledDraftProjection(db, payload, cancelled, transition.record, fallbackLobby, context)
+    return { ok: true }
+  }
+
+  private async updateCompletedDraftProjection(
+    db: ReturnType<typeof createDb>,
+    payload: Extract<DraftLifecyclePayload, { outcome: 'complete' }>,
+    result: Awaited<ReturnType<typeof activateDraftMatch>> & { error?: never },
+    record: SessionRecord,
+    context: Record<string, unknown>,
+  ): Promise<void> {
+    if (!this.env.KV) return
+    const lobby = await getLobbyByMatch(this.env.KV, payload.matchId)
+    if (!lobby) {
+      console.warn('[session-do] no lobby mapping for completion', context)
+      return
+    }
+    if (!this.env.DISCORD_TOKEN) return
+
+    const activeLobby = buildLobbyStateFromSessionRecord(record, lobby)
+    try {
+      const updatedLobby = await upsertLobbyMessage(this.env.KV, this.env.DISCORD_TOKEN, activeLobby, {
+        embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants, payload.mapVoteResult ?? null, activeLobby.draftConfig.leaderDataVersion, activeLobby.draftConfig.redDeath)],
+        components: lobbyComponents(activeLobby.mode, activeLobby.id),
+      })
+      await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
+    }
+    catch (error) {
+      console.error('[session-do] failed to update completion embed', context, error)
+    }
+  }
+
+  private async updateCancelledDraftProjection(
+    db: ReturnType<typeof createDb>,
+    payload: Extract<DraftLifecyclePayload, { outcome: 'cancelled' }>,
+    cancelled: Awaited<ReturnType<typeof cancelDraftMatch>> & { error?: never },
+    record: SessionRecord,
+    fallbackLobby: LobbyState | null,
+    context: Record<string, unknown>,
+  ): Promise<void> {
+    if (!this.env.KV) return
+    const lobby = await getLobbyByMatch(this.env.KV, payload.matchId) ?? fallbackLobby
+    if (!lobby) {
+      console.warn('[session-do] no lobby mapping for cancellation', context)
+      return
+    }
+
+    const lifecycleLobby = buildLobbyStateFromSessionRecord(record, lobby)
+    if (payload.reason === 'timeout' || payload.reason === 'revert') {
+      const queue = await getQueueState(this.env.KV, lifecycleLobby.mode)
+      const queueEntries = buildSessionRosterQueueEntries(record)
+      const affectedPlayerIds = new Set(lobby.memberPlayerIds)
+      await setQueueEntries(this.env.KV, lifecycleLobby.mode, [
+        ...queue.entries.filter(entry => !affectedPlayerIds.has(entry.playerId)),
+        ...queueEntries,
+      ], { currentState: queue })
+
+      if (!this.env.DISCORD_TOKEN) return
+      try {
+        const slottedEntries = mapLobbySlotsToEntries(lifecycleLobby.slots, queueEntries)
+        const renderPayload = await buildOpenLobbyRenderPayload(this.env.KV, lifecycleLobby, slottedEntries)
+        const updatedLobby = await upsertLobbyMessage(this.env.KV, this.env.DISCORD_TOKEN, lifecycleLobby, renderPayload)
+        await clearMatchMessageMapping(db, updatedLobby.messageId)
+      }
+      catch (error) {
+        console.error('[session-do] failed to update reopened lobby embed', context, error)
+      }
+      return
+    }
+
+    if (this.env.DISCORD_TOKEN) {
+      try {
+        const updatedLobby = await upsertLobbyMessage(this.env.KV, this.env.DISCORD_TOKEN, lifecycleLobby, {
+          embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason, undefined, lifecycleLobby.draftConfig.leaderDataVersion, lifecycleLobby.draftConfig.redDeath)],
+          components: [],
+        })
+        await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
+      }
+      catch (error) {
+        console.error('[session-do] failed to update cancelled embed', context, error)
+      }
+    }
+
+    await clearLobbyById(this.env.KV, lobby.id, lobby)
+  }
+
+  private async markLifecycleSyncPending(record: SessionRecord, payload: DraftLifecyclePayload): Promise<SessionRecord> {
+    const existing = record.lifecycleSync?.payload.eventId === payload.eventId ? record.lifecycleSync : null
+    const marked = withLifecycleSync(record, {
+      payload,
+      attempts: existing?.attempts ?? 0,
+      nextRetryAt: 0,
+    })
+    await this.storeRecordOnly(marked)
+    return marked
+  }
+
+  private async deferLifecycleSync(record: SessionRecord, payload: DraftLifecyclePayload, error: string): Promise<{ ok: false, status: number, error: string }> {
+    const current = await this.getRecord() ?? record
+    const attempts = current.lifecycleSync?.payload.eventId === payload.eventId
+      ? current.lifecycleSync.attempts + 1
+      : 1
+    const nextRetryAt = Date.now() + getLifecycleSyncRetryDelay(attempts)
+    const pending = withLifecycleSync(current, { payload, attempts, nextRetryAt })
+    await this.storeRecordOnly(pending)
+    console.warn('[session-do] lifecycle sync retry scheduled', buildDraftLifecycleLogContext(payload, {
+      attempts,
+      nextRetryAt,
+      error,
+    }))
+    return { ok: false, status: 503, error }
+  }
+
+  private async finishLifecycleSync(record: SessionRecord): Promise<{ ok: true } | { ok: false, status: number, error: string }> {
+    const cleared = withLifecycleSync(record, null)
+    const current = await this.getRecord()
+    if (!current || cleared.version !== current.version) {
+      const commit = await this.commitRecord(cleared)
+      if (commit) return { ok: false, status: commit.status, error: await readErrorResponse(commit) }
+      return { ok: true }
+    }
+
+    await this.storeRecordOnly(cleared)
+    return { ok: true }
+  }
+
+  private async clearLifecycleSyncMarker(record: SessionRecord): Promise<void> {
+    if (!record.lifecycleSync) return
+    await this.storeRecordOnly(withLifecycleSync(record, null))
+  }
+
   private async handleSessionProjectionCommand(request: Request): Promise<Response> {
     let body: SessionProjectionCommandRequest
     try {
@@ -594,6 +882,7 @@ export class SessionDO {
         await putLobby(this.env.KV, lobby)
       }
       await this.publishActivityUpdate(record)
+      await this.scheduleLifecycleSyncAlarm(record)
       return null
     }
     catch (error) {
@@ -603,6 +892,30 @@ export class SessionDO {
       console.error('[session-do] failed to commit session record', error)
       return json({ error: error instanceof Error ? error.message : String(error) }, 500)
     }
+  }
+
+  private async storeRecordOnly(record: SessionRecord): Promise<void> {
+    await this.state.storage.put(SESSION_RECORD_STORAGE_KEY, record)
+    await this.scheduleLifecycleSyncAlarm(record)
+  }
+
+  private async scheduleLifecycleSyncAlarm(record: SessionRecord): Promise<void> {
+    const pending = record.lifecycleSync ?? null
+    if (!pending) {
+      await this.clearLifecycleSyncAlarm()
+      return
+    }
+    if (pending.nextRetryAt <= 0) {
+      await this.clearLifecycleSyncAlarm()
+      return
+    }
+    const storage = this.state.storage as DurableObjectStorage & { setAlarm?: (scheduledTime: number | Date) => Promise<void> }
+    if (typeof storage.setAlarm === 'function') await storage.setAlarm(pending.nextRetryAt)
+  }
+
+  private async clearLifecycleSyncAlarm(): Promise<void> {
+    const storage = this.state.storage as DurableObjectStorage & { deleteAlarm?: () => Promise<void> }
+    if (typeof storage.deleteAlarm === 'function') await storage.deleteAlarm()
   }
 
   private async publishActivityUpdate(record: SessionRecord): Promise<void> {
@@ -629,6 +942,149 @@ export class SessionDO {
       release()
     }
   }
+}
+
+const LIFECYCLE_SYNC_RETRY_BASE_MS = 1_000
+const LIFECYCLE_SYNC_RETRY_MAX_MS = 60_000
+
+type LifecycleTransitionResult =
+  | { record: SessionRecord, ignored?: boolean }
+  | { ok: false, status: number, error: string }
+
+function transitionRecordForDraftLifecycle(record: SessionRecord, payload: DraftLifecyclePayload): LifecycleTransitionResult {
+  const at = payload.outcome === 'complete' ? payload.completedAt : payload.cancelledAt
+
+  if (payload.outcome === 'complete') {
+    switch (payload.eventKind) {
+      case 'DraftCompleted':
+        if (record.phase === 'swap' || record.phase === 'active') return { record }
+        if (record.phase !== 'draft') return { record, ignored: true }
+        return {
+          record: {
+            ...record,
+            phase: canOpenSwapWindowForState(payload.state) ? 'swap' : 'active',
+            version: record.version + 1,
+            updatedAt: at,
+            lastActivityAt: at,
+            closedAt: null,
+          },
+        }
+      case 'SwapAccepted':
+        if (record.phase === 'active') return { record }
+        if (record.phase !== 'swap' && record.phase !== 'draft') return { record, ignored: true }
+        return {
+          record: {
+            ...record,
+            phase: 'swap',
+            version: record.version + 1,
+            updatedAt: at,
+            lastActivityAt: at,
+            closedAt: null,
+          },
+        }
+      case 'DraftFinalized':
+        if (record.phase === 'active') return { record }
+        if (record.phase !== 'swap' && record.phase !== 'draft') return { record, ignored: true }
+        return {
+          record: {
+            ...record,
+            phase: 'active',
+            version: record.version + 1,
+            updatedAt: at,
+            lastActivityAt: at,
+            closedAt: null,
+          },
+        }
+      default:
+        return { ok: false, status: 400, error: 'Unknown draft lifecycle event kind' }
+    }
+  }
+
+  if (payload.reason === 'timeout' || payload.reason === 'revert') {
+    if (record.phase === 'open') return { record }
+    if (record.phase !== 'draft') return { record, ignored: true }
+    return { record: reopenDraftSession(record, at) }
+  }
+
+  if (record.phase === 'cancelled') return { record }
+  if (record.phase !== 'draft' && record.phase !== 'swap') return { record, ignored: true }
+  return {
+    record: {
+      ...record,
+      phase: 'cancelled',
+      version: record.version + 1,
+      updatedAt: at,
+      lastActivityAt: at,
+      closedAt: at,
+    },
+  }
+}
+
+function withLifecycleSync(record: SessionRecord, lifecycleSync: SessionLifecycleSyncState | null): SessionRecord {
+  return {
+    ...record,
+    lifecycleSync,
+  } as SessionRecord
+}
+
+function validateDraftLifecyclePayload(payload: DraftLifecyclePayload): string | null {
+  if (!payload || typeof payload !== 'object') return 'payload is required'
+  if (typeof payload.eventId !== 'string' || payload.eventId.length === 0) return 'eventId is required'
+  if (typeof payload.eventSequence !== 'number' || !Number.isFinite(payload.eventSequence)) return 'eventSequence is required'
+  if (typeof payload.matchId !== 'string' || payload.matchId.length === 0) return 'matchId is required'
+  if (!payload.state || typeof payload.state !== 'object') return 'state is required'
+  if (payload.outcome === 'complete') {
+    if (payload.eventKind !== 'DraftCompleted' && payload.eventKind !== 'SwapAccepted' && payload.eventKind !== 'DraftFinalized') return 'invalid complete eventKind'
+    if (typeof payload.completedAt !== 'number' || !Number.isFinite(payload.completedAt)) return 'completedAt is required'
+    if (payload.state.status !== 'complete') return 'complete lifecycle state must be complete'
+    return null
+  }
+  if (payload.outcome === 'cancelled') {
+    if (payload.eventKind !== 'DraftCancelled') return 'invalid cancelled eventKind'
+    if (typeof payload.cancelledAt !== 'number' || !Number.isFinite(payload.cancelledAt)) return 'cancelledAt is required'
+    if (payload.state.status !== 'cancelled') return 'cancelled lifecycle state must be cancelled'
+    if (payload.reason !== 'cancel' && payload.reason !== 'scrub' && payload.reason !== 'timeout' && payload.reason !== 'revert') return 'invalid cancel reason'
+    return null
+  }
+  return 'invalid lifecycle outcome'
+}
+
+function buildDraftLifecycleLogContext(payload: DraftLifecyclePayload, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    phase: 'lifecycle-sync',
+    eventId: payload.eventId,
+    eventKind: payload.eventKind,
+    eventSequence: payload.eventSequence,
+    matchId: payload.matchId,
+    outcome: payload.outcome,
+    finalized: payload.outcome === 'complete' ? payload.finalized === true : false,
+    stateStatus: payload.state.status,
+    currentStepIndex: payload.state.currentStepIndex,
+    ...extra,
+  }
+}
+
+function getLifecycleSyncRetryDelay(attempts: number): number {
+  return Math.min(LIFECYCLE_SYNC_RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1), LIFECYCLE_SYNC_RETRY_MAX_MS)
+}
+
+async function readErrorResponse(response: Response): Promise<string> {
+  try {
+    const body = await response.json<{ error?: unknown }>()
+    if (typeof body.error === 'string' && body.error.length > 0) return body.error
+  }
+  catch {}
+  return `Session command failed: ${response.status}`
+}
+
+function isIgnorableDraftCompleteError(error: string): boolean {
+  return error.includes('cannot be activated (status: cancelled)')
+    || error.includes('cannot be activated (status: completed)')
+}
+
+function isIgnorableDraftCancelError(error: string): boolean {
+  return error.includes('cannot be cancelled (status: active)')
+    || error.includes('cannot be cancelled (status: completed)')
 }
 
 function applyOpenSessionPatch(record: OpenSessionRecord, patch: OpenSessionPatch): OpenSessionRecord {

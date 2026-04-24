@@ -50,7 +50,7 @@ interface PartyRoomRecord {
   config: RoomConfig
   completionPayloads: DraftLifecycleCompletePayload[]
   cancellationPayloads: DraftLifecycleCancelledPayload[]
-  nextWebhookEventSequence: number
+  nextLifecycleEventSequence: number
 }
 
 function createCapturedPartyRoomRecord(config: RoomConfig, previous?: PartyRoomRecord): PartyRoomRecord {
@@ -58,7 +58,7 @@ function createCapturedPartyRoomRecord(config: RoomConfig, previous?: PartyRoomR
     config,
     completionPayloads: previous?.completionPayloads ?? [],
     cancellationPayloads: previous?.cancellationPayloads ?? [],
-    nextWebhookEventSequence: previous?.nextWebhookEventSequence ?? 0,
+    nextLifecycleEventSequence: previous?.nextLifecycleEventSequence ?? 0,
   }
 }
 
@@ -90,6 +90,11 @@ interface CompleteDraftOptions {
   finalized?: boolean
   transformState?: (state: DraftState) => DraftState
   mapVoteResult?: DraftLifecycleCompletePayload['mapVoteResult']
+}
+
+interface CancelDraftOptions {
+  reason?: 'cancel' | 'scrub' | 'revert'
+  state?: DraftState
 }
 
 interface WorldPlayerInput {
@@ -131,10 +136,10 @@ export interface SystemWorld {
     rooms: () => PartyRoomRecord[]
     draftComplete: (matchId: string, options?: CompleteDraftOptions) => DraftLifecycleCompletePayload
     draftTimeout: (matchId: string) => DraftLifecycleCancelledPayload
-    draftCancel: (matchId: string, options?: { reason?: 'cancel' | 'scrub' | 'revert' }) => DraftLifecycleCancelledPayload
+    draftCancel: (matchId: string, options?: CancelDraftOptions) => DraftLifecycleCancelledPayload
     completeDraft: (matchId: string, options?: CompleteDraftOptions) => Promise<Response>
     timeoutDraft: (matchId: string) => Promise<Response>
-    cancelDraft: (matchId: string, options?: { reason?: 'cancel' | 'scrub' | 'revert' }) => Promise<Response>
+    cancelDraft: (matchId: string, options?: CancelDraftOptions) => Promise<Response>
     replayDraftComplete: (matchId: string, options?: { index?: number }) => Promise<Response>
     replayDraftCancel: (matchId: string, options?: { index?: number }) => Promise<Response>
   }
@@ -218,7 +223,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
     DB: d1,
     KV: kv,
     Main: createCapturedMainNamespace(partyRooms),
-    SessionDO: createTestSessionNamespace({ DB: d1, KV: kv, Main: createCapturedMainNamespace(partyRooms), BOT_HOST, CIVUP_SECRET }),
+    SessionDO: createTestSessionNamespace({ DB: d1, KV: kv, Main: createCapturedMainNamespace(partyRooms), DISCORD_TOKEN: 'token', BOT_HOST, CIVUP_SECRET }),
     DISCORD_APPLICATION_ID: 'app',
     DISCORD_PUBLIC_KEY: 'public-key',
     DISCORD_TOKEN: 'token',
@@ -469,7 +474,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       },
       draftCancel(matchId, options = {}) {
         const room = getPartyRoom(partyRooms, matchId)
-        const payload = buildCancelledPayload(room, options.reason ?? 'scrub')
+        const payload = buildCancelledPayload(room, options.reason ?? 'scrub', options.state)
         room.cancellationPayloads.push(payload)
         return payload
       },
@@ -706,7 +711,7 @@ function buildCompletedPayload(room: PartyRoomRecord, options: CompleteDraftOpti
   const { config } = room
   const baseState = buildCompletedDraftState(config)
   const state = options.transformState ? options.transformState(baseState) : baseState
-  const eventSequence = nextTestWebhookSequence(room)
+  const eventSequence = nextTestLifecycleSequence(room)
   const eventKind = options.finalized === true
     ? 'DraftFinalized'
     : options.transformState
@@ -729,7 +734,7 @@ function buildCompletedPayload(room: PartyRoomRecord, options: CompleteDraftOpti
 
 function buildTimeoutPayload(room: PartyRoomRecord): DraftLifecycleCancelledPayload {
   const { config } = room
-  const eventSequence = nextTestWebhookSequence(room)
+  const eventSequence = nextTestLifecycleSequence(room)
   return {
     eventId: `${config.matchId}:test:${eventSequence}`,
     eventKind: 'DraftCancelled',
@@ -744,9 +749,12 @@ function buildTimeoutPayload(room: PartyRoomRecord): DraftLifecycleCancelledPayl
   }
 }
 
-function buildCancelledPayload(room: PartyRoomRecord, reason: 'cancel' | 'scrub' | 'revert'): DraftLifecycleCancelledPayload {
+function buildCancelledPayload(room: PartyRoomRecord, reason: 'cancel' | 'scrub' | 'revert', stateOverride?: DraftState): DraftLifecycleCancelledPayload {
   const { config } = room
-  const eventSequence = nextTestWebhookSequence(room)
+  const eventSequence = nextTestLifecycleSequence(room)
+  const state = stateOverride
+    ? { ...stateOverride, status: 'cancelled' as const, cancelReason: reason }
+    : buildCancelledDraftState(config, reason === 'cancel' ? 'cancel' : reason)
   return {
     eventId: `${config.matchId}:test:${eventSequence}`,
     eventKind: 'DraftCancelled',
@@ -756,14 +764,14 @@ function buildCancelledPayload(room: PartyRoomRecord, reason: 'cancel' | 'scrub'
     hostId: config.hostId,
     cancelledAt: Date.now(),
     reason,
-    state: buildCancelledDraftState(config, reason === 'cancel' ? 'cancel' : reason),
+    state,
     mapVoteResult: null,
   }
 }
 
-function nextTestWebhookSequence(room: PartyRoomRecord): number {
-  room.nextWebhookEventSequence += 1
-  return room.nextWebhookEventSequence
+function nextTestLifecycleSequence(room: PartyRoomRecord): number {
+  room.nextLifecycleEventSequence += 1
+  return room.nextLifecycleEventSequence
 }
 
 function buildCompletedDraftState(config: RoomConfig) {
