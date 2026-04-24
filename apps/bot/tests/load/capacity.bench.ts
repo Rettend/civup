@@ -48,7 +48,6 @@ import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleCon
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
 import { getSystemChannel, setSystemChannel } from '../../src/services/system/channels.ts'
-import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
@@ -600,7 +599,7 @@ async function simulateScenarioLifecycle(input: {
       await simulateActivityLaunchSnapshot(db, kv, ACTIVITY_SECRET, CHANNEL_ID, playerId)
     }
 
-    // Each viewer opens the live state-watch socket through the activity proxy.
+    // Each viewer opens the bot-owned Activity feed through the activity proxy.
     activityRequests += viewerIds.length
 
     const spectatorIds = input.mode.spectatorIds ?? []
@@ -768,15 +767,21 @@ async function simulateActivityLaunchSnapshot(
   channelId: string,
   userId: string,
 ): Promise<void> {
+  const runtime = await getTestLobbyRuntime(kv, db)
   await buildActivityLaunchSnapshot(undefined, activitySecret, kv, channelId, userId, {
-      db: createSqliteD1Database(db),
-    })
-  }
+    db: runtime.d1,
+    sessionNamespace: runtime.sessionNamespace,
+  })
+}
 
 async function simulateSpectatorLobbySelection(kv: KVNamespace, mode: CapacityScenario, spectatorId: string): Promise<void> {
   const lobby = await getLobby(kv, mode.mode)
   if (!lobby || lobby.status !== 'open') throw new Error(`Expected open ${mode.mode} lobby before spectator selection`)
-  const result = await selectActivityTargetForUser(undefined, undefined, kv, lobby.channelId, spectatorId, { kind: 'lobby', id: lobby.id })
+  const runtime = await getTestLobbyRuntime(kv)
+  const result = await selectActivityTargetForUser(undefined, undefined, kv, lobby.channelId, spectatorId, { kind: 'lobby', id: lobby.id }, {
+    db: runtime.d1,
+    sessionNamespace: runtime.sessionNamespace,
+  })
   if (!result.ok) throw new Error(result.error)
 }
 

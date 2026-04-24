@@ -97,12 +97,36 @@ export type SessionDraftLifecycleCommand
     at?: number
   }
 
+export type SessionProjectionCommand
+  = | {
+    type: 'set-steam-lobby-link'
+    expectedVersion?: number
+    steamLobbyLink: string | null
+    now?: number
+  }
+
 export async function createSessionAggregateFromLobby(
   namespace: DurableObjectNamespace | null | undefined,
   lobby: LobbyState,
   queueEntries: readonly QueueEntry[] = [],
 ): Promise<SessionRecord> {
   return await postSessionLobbyCommand(namespace, lobby, queueEntries)
+}
+
+export async function getSessionRecord(
+  namespace: DurableObjectNamespace | null | undefined,
+  sessionId: string,
+): Promise<SessionRecord | null> {
+  if (!namespace) throw new Error('SessionDO binding is required')
+
+  const id = namespace.idFromName(sessionId)
+  const stub = namespace.get(id)
+  const response = await stub.fetch('https://session.local/record')
+  if (response.status === 404) return null
+  if (!response.ok) await throwSessionCommandError(response, `read session record for ${sessionId}`)
+
+  const body = await response.json<{ record?: SessionRecord }>()
+  return body.record ?? null
 }
 
 export async function startSessionDraft(
@@ -176,6 +200,30 @@ export async function runSessionDraftLifecycleCommand(
 
   const body = await response.json<{ record?: SessionRecord }>()
   if (!body.record) throw new Error(`Failed to run draft lifecycle command ${command.type} for ${sessionId}: invalid response`)
+  return body.record
+}
+
+export async function runSessionProjectionCommand(
+  namespace: DurableObjectNamespace | null | undefined,
+  sessionId: string,
+  command: SessionProjectionCommand,
+): Promise<SessionRecord> {
+  if (!namespace) throw new Error('SessionDO binding is required')
+
+  const id = namespace.idFromName(sessionId)
+  const stub = namespace.get(id)
+  const response = await stub.fetch('https://session.local/commands/session-projection', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(command),
+  })
+
+  if (!response.ok) {
+    await throwSessionCommandError(response, `run session projection command ${command.type} for ${sessionId}`)
+  }
+
+  const body = await response.json<{ record?: SessionRecord }>()
+  if (!body.record) throw new Error(`Failed to run session projection command ${command.type} for ${sessionId}: invalid response`)
   return body.record
 }
 

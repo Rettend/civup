@@ -6,17 +6,18 @@ import { canStartWithPlayerCount, formatModeLabel, GAME_MODES, getMinimumLeaderP
 import { createDraftRoom } from '../services/activity/index.ts'
 import { resolveDraftTimerConfig } from '../services/config/index.ts'
 import { normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from '../services/lobby/normalize.ts'
-import { syncLobbyDerivedState } from '../services/lobby/live-snapshot.ts'
 import { putLobby } from '../services/lobby/store.ts'
 import { createDraftMatch } from '../services/match/index.ts'
 import { clearQueue } from '../services/queue/index.ts'
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
+import { publishActivitySessionUpdate } from './activity-feed-client.ts'
 import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from './session-record.ts'
 
 interface SessionDOEnv extends Cloudflare.Env {
   DB?: D1Database
   KV?: KVNamespace
   Main?: DurableObjectNamespace
+  Activity?: DurableObjectNamespace
   BOT_HOST?: string
   CIVUP_SECRET?: string
 }
@@ -133,6 +134,14 @@ type DraftLifecycleCommandRequest
     at?: number
   }
 
+type SessionProjectionCommandRequest
+  = | {
+    type: 'set-steam-lobby-link'
+    expectedVersion?: number
+    steamLobbyLink: string | null
+    now?: number
+  }
+
 interface OpenSessionPatch {
   expectedVersion?: number
   mode?: GameMode
@@ -183,6 +192,10 @@ export class SessionDO {
 
     if (request.method === 'POST' && url.pathname === '/commands/draft-lifecycle') {
       return await this.runSerializedCommand(() => this.handleDraftLifecycleCommand(request))
+    }
+
+    if (request.method === 'POST' && url.pathname === '/commands/session-projection') {
+      return await this.runSerializedCommand(() => this.handleSessionProjectionCommand(request))
     }
 
     return json({ error: 'Not found' }, 404)
@@ -477,6 +490,51 @@ export class SessionDO {
     return json({ ok: true, record })
   }
 
+  private async handleSessionProjectionCommand(request: Request): Promise<Response> {
+    let body: SessionProjectionCommandRequest
+    try {
+      body = await request.json<SessionProjectionCommandRequest>()
+    }
+    catch {
+      return json({ error: 'Invalid JSON payload' }, 400)
+    }
+
+    if (!body || typeof body !== 'object' || typeof body.type !== 'string') {
+      return json({ error: 'command type is required' }, 400)
+    }
+
+    const existing = await this.getRecord()
+    if (!existing) return json({ error: 'Session not found' }, 404)
+    if (existing.phase === 'reported' || existing.phase === 'cancelled') {
+      return json({ error: `Session projection is closed (phase: ${existing.phase})` }, 409)
+    }
+
+    switch (body.type) {
+      case 'set-steam-lobby-link': {
+        const expected = normalizeOptionalPositiveInteger(body.expectedVersion)
+        if (expected != null && expected < existing.version) return json({ ok: true, record: existing })
+        const steamLobbyLink = typeof body.steamLobbyLink === 'string' ? body.steamLobbyLink : null
+        if (existing.projectionState.steamLobbyLink === steamLobbyLink) return json({ ok: true, record: existing })
+        const at = normalizePositiveInteger(body.now, Date.now())
+        const record = {
+          ...existing,
+          version: existing.version + 1,
+          projectionState: {
+            ...existing.projectionState,
+            steamLobbyLink,
+          },
+          updatedAt: at,
+          lastActivityAt: at,
+        } satisfies SessionRecord
+        const commit = await this.commitRecord(record)
+        if (commit) return commit
+        return json({ ok: true, record })
+      }
+      default:
+        return json({ error: 'Unknown session projection command' }, 400)
+    }
+  }
+
   private async commitRecord(record: SessionRecord): Promise<Response | null> {
     try {
       if (this.env.DB) await projectSessionRecord(createDb(this.env.DB), record)
@@ -484,8 +542,8 @@ export class SessionDO {
       if (this.env.KV) {
         const lobby = buildLobbyProjectionFromSessionRecord(record)
         await putLobby(this.env.KV, lobby)
-        await syncLobbyDerivedState(this.env.KV, lobby)
       }
+      await this.publishActivityUpdate(record)
       return null
     }
     catch (error) {
@@ -494,6 +552,15 @@ export class SessionDO {
       }
       console.error('[session-do] failed to commit session record', error)
       return json({ error: error instanceof Error ? error.message : String(error) }, 500)
+    }
+  }
+
+  private async publishActivityUpdate(record: SessionRecord): Promise<void> {
+    try {
+      await publishActivitySessionUpdate(this.env.Activity, record, this.env.CIVUP_SECRET)
+    }
+    catch (error) {
+      console.warn('[session-do] failed to publish activity update', error)
     }
   }
 

@@ -11,7 +11,6 @@ import { getLobbyForUser, getMatchForUser } from '../../../src/services/activity
 import { addToQueue, getQueueState, setQueueEntries } from '../../../src/services/queue/index.ts'
 import { createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobby, getLobbyById, getLobbyByMatch, setLobbyMemberPlayerIds, setLobbySlots } from '../../helpers/lobby-runtime.ts'
 import { syncLobbyDerivedState } from '../../../src/services/lobby/live-snapshot.ts'
-import { lobbySnapshotKey } from '../../../src/services/lobby/live-snapshot.ts'
 import { channelIndexKey, hostKey } from '../../../src/services/lobby/keys.ts'
 import { listMatchMessageIds } from '../../../src/services/match/message.ts'
 import { handleDraftLifecyclePayload } from '../../../src/services/match/draft-lifecycle.ts'
@@ -28,18 +27,6 @@ const BOT_HOST = 'https://bot.test'
 const CIVUP_SECRET = 'secret'
 const DEFAULT_CHANNEL_ID = 'channel-draft'
 const DEFAULT_ARCHIVE_CHANNEL_ID = 'channel-archive'
-
-function legacyActivityLobbyUserKey(userId: string): string {
-  return `activity-lobby-user:${userId}`
-}
-
-function legacyActivityUserKey(userId: string): string {
-  return `activity-user:${userId}`
-}
-
-function legacyActivityMatchKey(matchId: string): string {
-  return `activity-match:${matchId}`
-}
 
 interface DiscordRequestRecord {
   method: string
@@ -180,10 +167,6 @@ export interface SystemWorld {
     deleteCurrentLobbyMessage: (lobbyId: string) => Promise<void>
   }
   corrupt: {
-    activityLobbyUser: (userId: string, lobbyId: string | null) => Promise<void>
-    activityUser: (userId: string, matchId: string | null) => Promise<void>
-    activityMatch: (matchId: string, channelId: string | null) => Promise<void>
-    lobbySnapshot: (lobbyId: string, snapshot: unknown | null) => Promise<void>
     lobbyHost: (hostId: string, lobbyId: string | null) => Promise<void>
     lobbyChannel: (lobbyId: string, indexedChannelId: string | null) => Promise<void>
     openLobbyResidue: (lobbyId: string, input: { memberPlayerIds: string[], slots: (string | null)[] }) => Promise<LobbyState | null>
@@ -193,10 +176,8 @@ export interface SystemWorld {
     lobbyMapping: (userId: string) => Promise<string | null>
     currentHostedLobby: (hostId: string) => Promise<LobbyState | null>
     matchMapping: (userId: string) => Promise<string | null>
-    matchChannel: (matchId: string) => Promise<string | null>
     lobbiesForPlayer: (userId: string) => Promise<LobbyState[]>
     lobbyByMatch: (matchId: string) => Promise<LobbyState | null>
-    lobbySnapshot: (lobbyId: string) => Promise<unknown | null>
   }
   runtime: {
     clock: {
@@ -651,18 +632,6 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       },
     },
     corrupt: {
-      activityLobbyUser(userId, lobbyId) {
-        return putOrDeleteKv(kv, legacyActivityLobbyUserKey(userId), lobbyId)
-      },
-      activityUser(userId, matchId) {
-        return putOrDeleteKv(kv, legacyActivityUserKey(userId), matchId)
-      },
-      activityMatch(matchId, channelId) {
-        return putOrDeleteKv(kv, legacyActivityMatchKey(matchId), channelId)
-      },
-      lobbySnapshot(lobbyId, snapshot) {
-        return putOrDeleteKv(kv, lobbySnapshotKey(lobbyId), snapshot)
-      },
       lobbyHost(hostId, lobbyId) {
         return putOrDeleteKv(kv, hostKey(hostId), lobbyId)
       },
@@ -695,17 +664,11 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       matchMapping(userId) {
         return getMatchForUser(kv, userId)
       },
-      matchChannel(matchId) {
-        return kv.get(legacyActivityMatchKey(matchId))
-      },
       lobbiesForPlayer(userId) {
         return getCurrentLobbiesForPlayer(kv, userId)
       },
       lobbyByMatch(matchId) {
         return getLobbyByMatch(kv, matchId)
-      },
-      lobbySnapshot(lobbyId) {
-        return kv.get(lobbySnapshotKey(lobbyId), 'json')
       },
     },
     runtime: {
