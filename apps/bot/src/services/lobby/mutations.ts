@@ -2,7 +2,7 @@ import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
 import type { Database } from '@civup/db'
 import type { LobbyArrangeStrategy, LobbyDraftConfig, LobbyState, LobbyStatus } from './types.ts'
 import { nanoid } from 'nanoid'
-import { createSessionAggregateFromLobby, syncSessionAggregateFromLobby } from '../../session-runtime/session-do-client.ts'
+import { createSessionAggregateFromLobby, runSessionOpenLobbyCommand, syncSessionAggregateFromLobby, type SessionOpenLobbyCommand } from '../../session-runtime/session-do-client.ts'
 import { buildLobbyStateFromSessionRecord } from '../../session-runtime/session-record.ts'
 import { syncActivityOverviewSnapshotForLobby } from '../activity/live-state.ts'
 import { getQueueState } from '../queue/index.ts'
@@ -26,6 +26,7 @@ export interface LobbySessionProjectionOptions {
   db?: Database | null
   sessionNamespace?: DurableObjectNamespace | null
   queueEntries?: readonly QueueEntry[] | null
+  useOpenSessionCommand?: boolean
 }
 
 export function canTransitionLobbyStatus(from: LobbyStatus, to: LobbyStatus): boolean {
@@ -73,14 +74,14 @@ export async function createLobby(
     revision: 1,
   }
   const queueEntries = input.queueEntries ?? (await getQueueState(kv, lobby.mode)).entries
-  await projectLobbySessionIfAvailable(input.db, lobby)
-
   let visible = false
   let visibleLobby = lobby
   try {
     const record = await createSessionAggregateFromLobby(input.sessionNamespace, lobby, queueEntries)
     if (record) {
       visibleLobby = buildLobbyStateFromSessionRecord(record, lobby)
+    }
+    else {
       await projectLobbySessionIfAvailable(input.db, visibleLobby)
     }
 
@@ -106,7 +107,7 @@ export async function commitLobbyState(
   lobby: LobbyState,
   options?: LobbySessionProjectionOptions,
 ): Promise<LobbyState> {
-  return await commitLobbyMutation(kv, lobby, options)
+  return await commitLobbyMutation(kv, lobby, options, putLobby, shouldUseOpenSessionCommand(options, lobby) ? buildOpenLobbyUpdateCommand(lobby, options?.queueEntries ?? undefined) : undefined)
 }
 
 export async function startLobbyDraft(
@@ -184,7 +185,13 @@ export async function setLobbyStatus(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options)
+  return await commitLobbyMutation(kv, updated, options, putLobby, shouldUseOpenSessionCommand(options, lobby) && status === 'cancelled'
+    ? {
+        type: 'cancel-open-session',
+        expectedVersion: lobby.revision,
+        now: updated.updatedAt,
+      }
+    : undefined)
 }
 
 export async function setLobbyMessage(
@@ -209,7 +216,7 @@ export async function setLobbyMessage(
   if (lobby.channelId !== channelId) {
     await stateStoreMdelete(kv, [channelIndexKey(lobby.channelId, lobby.id)])
   }
-  return await commitLobbyMutation(kv, updated, options)
+  return await commitLobbyMutation(kv, updated, options, putLobby, shouldUseOpenSessionCommand(options, lobby) ? buildOpenLobbyUpdateCommand(updated, options?.queueEntries ?? undefined) : undefined)
 }
 
 export async function setLobbyDraftConfig(
@@ -231,7 +238,7 @@ export async function setLobbyDraftConfig(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options)
+  return await commitLobbyMutation(kv, updated, options, putLobby, shouldUseOpenSessionCommand(options, lobby) ? buildOpenLobbyUpdateCommand(updated, options?.queueEntries ?? undefined) : undefined)
 }
 
 export async function setLobbyMinRole(
@@ -253,7 +260,7 @@ export async function setLobbyMinRole(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options)
+  return await commitLobbyMutation(kv, updated, options, putLobby, shouldUseOpenSessionCommand(options, lobby) ? buildOpenLobbyUpdateCommand(updated, options?.queueEntries ?? undefined) : undefined)
 }
 
 export async function setLobbyMaxRole(
@@ -275,7 +282,7 @@ export async function setLobbyMaxRole(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options)
+  return await commitLobbyMutation(kv, updated, options, putLobby, shouldUseOpenSessionCommand(options, lobby) ? buildOpenLobbyUpdateCommand(updated, options?.queueEntries ?? undefined) : undefined)
 }
 
 export async function setLobbySteamLobbyLink(
@@ -296,7 +303,7 @@ export async function setLobbySteamLobbyLink(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options)
+  return await commitLobbyMutation(kv, updated, options, putLobby, shouldUseOpenSessionCommand(options, lobby) ? buildOpenLobbyUpdateCommand(updated, options?.queueEntries ?? undefined) : undefined)
 }
 
 export async function setLobbySlots(
@@ -318,7 +325,7 @@ export async function setLobbySlots(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options)
+  return await commitLobbyMutation(kv, updated, options, putLobby, shouldUseOpenSessionCommand(options, lobby) ? buildOpenLobbyUpdateCommand(updated, options?.queueEntries ?? undefined) : undefined)
 }
 
 export async function setLobbyArranged(
@@ -345,7 +352,7 @@ export async function setLobbyArranged(
     updatedAt: now,
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options)
+  return await commitLobbyMutation(kv, updated, options, putLobby, shouldUseOpenSessionCommand(options, lobby) ? buildOpenLobbyUpdateCommand(updated, options?.queueEntries ?? undefined) : undefined)
 }
 
 export async function setLobbyMemberPlayerIds(
@@ -367,7 +374,7 @@ export async function setLobbyMemberPlayerIds(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options, putLobbyEntries)
+  return await commitLobbyMutation(kv, updated, options, putLobbyEntries, shouldUseOpenSessionCommand(options, lobby) ? buildOpenLobbyUpdateCommand(updated, options?.queueEntries ?? undefined) : undefined)
 }
 
 export async function setLobbyLastActivityAt(
@@ -389,7 +396,7 @@ export async function setLobbyLastActivityAt(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options)
+  return await commitLobbyMutation(kv, updated, options, putLobby, shouldUseOpenSessionCommand(options, lobby) ? buildOpenLobbyUpdateCommand(updated, options?.queueEntries ?? undefined) : undefined)
 }
 
 async function projectLobbySessionIfAvailable(db: Database | null | undefined, lobby: LobbyState): Promise<void> {
@@ -404,7 +411,17 @@ async function commitLobbyMutation(
   updated: LobbyState,
   options?: LobbySessionProjectionOptions,
   write: LobbyWriter = putLobby,
+  command?: SessionOpenLobbyCommand,
 ): Promise<LobbyState> {
+  const commandRecord = command
+    ? await runSessionOpenLobbyCommand(options?.sessionNamespace, updated.id, command)
+    : null
+  if (commandRecord) {
+    const authoritative = buildLobbyStateFromSessionRecord(commandRecord, updated)
+    await write(kv, authoritative)
+    return authoritative
+  }
+
   await projectLobbySessionIfAvailable(options?.db, updated)
   const record = await syncSessionAggregateFromLobby(options?.sessionNamespace, updated, options?.queueEntries ?? [])
   const authoritative = record ? buildLobbyStateFromSessionRecord(record, updated) : updated
@@ -416,4 +433,28 @@ async function commitLobbyMutation(
 async function closeLobbySessionProjectionIfAvailable(db: Database | null | undefined, lobbyId: string): Promise<void> {
   if (!db) return
   await closeLobbySessionProjection(db, lobbyId)
+}
+
+function buildOpenLobbyUpdateCommand(lobby: LobbyState, queueEntries: readonly QueueEntry[] | undefined): SessionOpenLobbyCommand {
+  return {
+    type: 'update-open-lobby',
+    expectedVersion: lobby.revision > 1 ? lobby.revision - 1 : undefined,
+    mode: lobby.mode,
+    channelId: lobby.channelId,
+    messageId: lobby.messageId,
+    steamLobbyLink: lobby.steamLobbyLink,
+    minRole: lobby.minRole,
+    maxRole: lobby.maxRole,
+    draftConfig: lobby.draftConfig,
+    slots: [...lobby.slots],
+    memberPlayerIds: [...lobby.memberPlayerIds],
+    lastArrange: lobby.lastArrange ?? null,
+    lastActivityAt: lobby.lastActivityAt,
+    updatedAt: lobby.updatedAt,
+    queueEntries: queueEntries ? [...queueEntries] : undefined,
+  }
+}
+
+function shouldUseOpenSessionCommand(options: LobbySessionProjectionOptions | undefined, lobby: LobbyState): boolean {
+  return options?.useOpenSessionCommand !== false && lobby.status === 'open'
 }

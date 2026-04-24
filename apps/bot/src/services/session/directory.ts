@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { LobbyState } from '../lobby/types.ts'
 import { matches, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
-import { buildSessionConfig, buildSessionRoster, type SessionPhase } from '../../session-runtime/session-record.ts'
+import { buildSessionRecordFromLobby, type SessionPhase, type SessionRecord } from '../../session-runtime/session-record.ts'
 
 export class SessionAdmissionError extends Error {
   constructor(
@@ -29,56 +29,62 @@ export async function projectLobbySession(
   db: Database,
   lobby: LobbyState,
 ): Promise<void> {
-  const phase = mapLobbyStatusToSessionPhase(lobby.status)
-  const liveMemberIds = isLiveSessionPhase(phase) ? lobby.memberPlayerIds : []
-  const roster = buildSessionRoster(lobby)
-  const config = buildSessionConfig(lobby)
-  const now = Math.max(lobby.updatedAt, lobby.lastActivityAt, 1)
+  await projectSessionRecord(db, buildSessionRecordFromLobby(lobby))
+}
+
+export async function projectSessionRecord(
+  db: Database,
+  record: SessionRecord,
+): Promise<void> {
+  const liveMemberIds = isLiveSessionPhase(record.phase)
+    ? record.roster.participants.map(member => member.playerId)
+    : []
+  const now = record.closedAt ?? Math.max(record.updatedAt, record.lastActivityAt, 1)
 
   const appliedRows = await db.insert(sessionDirectory)
     .values({
-      sessionId: lobby.id,
-      phase,
-      mode: lobby.mode,
-      guildId: lobby.guildId,
-      channelId: lobby.channelId,
-      hostId: lobby.hostId,
-      messageId: lobby.messageId,
-      matchId: lobby.matchId,
-      steamLobbyLink: lobby.steamLobbyLink,
-      version: lobby.revision,
-      rosterJson: JSON.stringify(roster),
-      configJson: JSON.stringify(config),
-      createdAt: lobby.createdAt,
-      updatedAt: lobby.updatedAt,
-      lastActivityAt: lobby.lastActivityAt,
-      closedAt: isLiveSessionPhase(phase) ? null : now,
+      sessionId: record.id,
+      phase: record.phase,
+      mode: record.mode,
+      guildId: record.guildId,
+      channelId: record.projectionState.channelId,
+      hostId: record.hostId,
+      messageId: record.projectionState.messageId,
+      matchId: record.matchId,
+      steamLobbyLink: record.projectionState.steamLobbyLink,
+      version: record.version,
+      rosterJson: JSON.stringify(record.roster),
+      configJson: JSON.stringify(record.config),
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      lastActivityAt: record.lastActivityAt,
+      closedAt: isLiveSessionPhase(record.phase) ? null : now,
     })
     .onConflictDoUpdate({
       target: sessionDirectory.sessionId,
       set: {
-        phase,
-        mode: lobby.mode,
-        guildId: lobby.guildId,
-        channelId: lobby.channelId,
-        hostId: lobby.hostId,
-        messageId: lobby.messageId,
-        matchId: lobby.matchId,
-        steamLobbyLink: lobby.steamLobbyLink,
-        version: lobby.revision,
-        rosterJson: JSON.stringify(roster),
-        configJson: JSON.stringify(config),
-        updatedAt: lobby.updatedAt,
-        lastActivityAt: lobby.lastActivityAt,
-        closedAt: isLiveSessionPhase(phase) ? null : now,
+        phase: record.phase,
+        mode: record.mode,
+        guildId: record.guildId,
+        channelId: record.projectionState.channelId,
+        hostId: record.hostId,
+        messageId: record.projectionState.messageId,
+        matchId: record.matchId,
+        steamLobbyLink: record.projectionState.steamLobbyLink,
+        version: record.version,
+        rosterJson: JSON.stringify(record.roster),
+        configJson: JSON.stringify(record.config),
+        updatedAt: record.updatedAt,
+        lastActivityAt: record.lastActivityAt,
+        closedAt: isLiveSessionPhase(record.phase) ? null : now,
       },
       where: sql`excluded.version > ${sessionDirectory.version}`,
     })
     .returning({ version: sessionDirectory.version })
 
-  if (!appliedRows.some(row => row.version === lobby.revision)) return
+  if (!appliedRows.some(row => row.version === record.version)) return
 
-  await reconcileDirectoryMembers(db, lobby.id, liveMemberIds, now)
+  await reconcileDirectoryMembers(db, record.id, liveMemberIds, now)
 }
 
 export async function closeLobbySessionProjection(

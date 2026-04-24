@@ -718,6 +718,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const actionAt = Date.now()
     let resolvedDisplayName: string | null = null
+    let addedQueueEntryForMovingPlayer = false
     const movingEntry = lobbyQueueEntries.find(entry => entry.playerId === movingPlayerId)
     const queuedEntry = queue.entries.find(entry => entry.playerId === movingPlayerId) ?? null
     if (!movingEntry && !queuedEntry) {
@@ -786,6 +787,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       }
 
       queue = joinResult.state ?? await getQueueState(kv, mode)
+      addedQueueEntryForMovingPlayer = true
     }
 
     const nextMemberIds = lobby.memberPlayerIds.includes(movingPlayerId)
@@ -805,7 +807,23 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       }
       nextLobby = await commitLobbyState(kv, nextLobby, lobbySessionMutationOptions(c, queue.entries))
     }
+
+    if (addedQueueEntryForMovingPlayer && !nextLobby.memberPlayerIds.includes(movingPlayerId)) {
+      await removeFromQueueAndUnlinkParty(kv, movingPlayerId)
+    }
     queue = await getQueueState(kv, mode)
+    const acceptedMovingQueueEntry = addedQueueEntryForMovingPlayer && nextLobby.memberPlayerIds.includes(movingPlayerId)
+      ? {
+          playerId: movingPlayerId,
+          displayName: resolvedDisplayName ?? movingPlayerId,
+          avatarUrl: auth.identity.avatarUrl,
+          joinedAt: actionAt,
+        }
+      : null
+    if (acceptedMovingQueueEntry && !queue.entries.some(entry => entry.playerId === movingPlayerId)) {
+      await setQueueEntries(kv, mode, [...queue.entries, acceptedMovingQueueEntry], { currentState: queue })
+      queue = await getQueueState(kv, mode)
+    }
     lobbyQueueEntries = buildLobbyQueueEntries(nextLobby, queue.entries)
     slots = normalizeLobbySlots(mode, nextLobby.slots, lobbyQueueEntries)
     const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
@@ -815,6 +833,15 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     })
 
     const slottedEntries = mapLobbySlotsToEntries(slots, lobbyQueueEntries)
+    if (acceptedMovingQueueEntry) {
+      queueBackgroundTask(c, async () => {
+        const latestLobby = await getLobbyById(kv, nextLobby.id)
+        if (!latestLobby?.memberPlayerIds.includes(movingPlayerId)) return
+        const latestQueue = await getQueueState(kv, mode)
+        if (latestQueue.entries.some(entry => entry.playerId === movingPlayerId)) return
+        await setQueueEntries(kv, mode, [...latestQueue.entries, acceptedMovingQueueEntry], { currentState: latestQueue })
+      }, `Failed to restore accepted lobby queue entry for ${movingPlayerId}:`)
+    }
     queueBackgroundTask(c, async () => {
       const currentLobby = await getCurrentLobbyForQueuedMessageUpdate(kv, nextLobby)
       if (!currentLobby) return
