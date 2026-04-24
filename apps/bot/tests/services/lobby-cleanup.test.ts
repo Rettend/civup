@@ -1,6 +1,6 @@
 import type { QueueEntry } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { getLobbyForUser, getUserActivityTarget, storeUserLobbyState } from '../../src/services/activity/index.ts'
+import { getLobbyForUser } from '../../src/services/activity/index.ts'
 import { createLobby, getLobbyById, pruneInactiveOpenLobbies, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots } from '../../src/services/lobby/index.ts'
 import { getQueueState, setQueueEntries } from '../../src/services/queue/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -34,8 +34,6 @@ describe('inactive lobby cleanup', () => {
     const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'player', null, null], withMembers ?? lobby)
     const staleLobby = await setLobbyLastActivityAt(kv, lobby.id, now - 61 * 60 * 1000, withSlots ?? withMembers ?? lobby)
     expect(staleLobby).not.toBeNull()
-
-    await storeUserLobbyState(kv, 'channel-1', ['host', 'player'], staleLobby!.id)
 
     const pruned = await pruneInactiveOpenLobbies(kv, 'token', {
       now,
@@ -90,7 +88,7 @@ describe('inactive lobby cleanup', () => {
     expect(fetchCalls).toBe(0)
   })
 
-  test('keeps newer user activity mappings when stale lobby membership is outdated', async () => {
+  test('keeps canonical membership in a newer lobby when stale lobby membership is outdated', async () => {
     const { kv } = createTrackedKv()
 
     globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch
@@ -117,9 +115,6 @@ describe('inactive lobby cleanup', () => {
     const staleWithActivity = await setLobbyLastActivityAt(kv, staleLobby.id, now - 61 * 60 * 1000, staleWithSlots ?? staleWithMembers ?? staleLobby)
     expect(staleWithActivity).not.toBeNull()
 
-    await storeUserLobbyState(kv, 'channel-1', ['host'], staleLobby.id)
-    await storeUserLobbyState(kv, 'channel-1', ['player'], nextLobby.id)
-
     await expect(pruneInactiveOpenLobbies(kv, 'token', { now })).resolves.toEqual([{
       lobbyId: staleLobby.id,
       mode: '2v2',
@@ -128,10 +123,6 @@ describe('inactive lobby cleanup', () => {
 
     expect(await getLobbyForUser(kv, 'host')).toBeNull()
     expect(await getLobbyForUser(kv, 'player')).toBe(nextLobby.id)
-    expect(await getUserActivityTarget(kv, 'channel-1', 'player')).toEqual(expect.objectContaining({
-      kind: 'lobby',
-      id: nextLobby.id,
-    }))
   })
 })
 

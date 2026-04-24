@@ -2,7 +2,6 @@ import type { Database } from '@civup/db'
 import type { PruneMatchesOptions, PruneMatchesResult } from './types.ts'
 import { matchBans, matches, matchParticipants } from '@civup/db'
 import { and, eq, inArray, isNull, lt, or } from 'drizzle-orm'
-import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { syncActivityOverviewSnapshot } from '../activity/live-state.ts'
 import { clearLobbyById, clearLobbyByMatch, getCurrentLobbies, getLobbyByMatch } from '../lobby/index.ts'
 import { closeLobbySessionProjectionByMatch } from '../session/index.ts'
@@ -32,19 +31,7 @@ export async function pruneAbandonedMatches(
   const overviewChannelIds = new Set<string>()
 
   for (const match of staleMatches) {
-    const participants = await db
-      .select({ playerId: matchParticipants.playerId })
-      .from(matchParticipants)
-      .where(eq(matchParticipants.matchId, match.id))
-
-    const channelId = await getChannelForMatch(kv, match.id)
     await closeLobbySessionProjectionByMatch(db, match.id, now)
-    await clearActivityMappings(
-      kv,
-      match.id,
-      participants.map(participant => participant.playerId),
-      channelId ?? undefined,
-    )
 
     const lobby = await getLobbyByMatch(kv, match.id)
     if (lobby) {
@@ -79,7 +66,6 @@ export async function pruneAbandonedMatches(
       if (matchStatus === 'drafting' || matchStatus === 'active') continue
 
       await closeLobbySessionProjectionByMatch(db, matchId, now)
-      await clearActivityMappings(kv, matchId, lobby.memberPlayerIds, lobby.channelId)
       await clearLobbyById(kv, lobby.id, lobby, { syncActivityOverview: false })
       overviewChannelIds.add(lobby.channelId)
       clearedLiveLobbyMatchIds.push(matchId)

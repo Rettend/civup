@@ -4,7 +4,6 @@ import type { ActivateDraftInput, ActivateDraftResult, CancelDraftInput, CancelD
 import { matchBans, matches, matchParticipants, players } from '@civup/db'
 import { isRedDeathFormatId, isTeamMode } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
-import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { getActiveSeason } from '../season/index.ts'
 
 const MATCH_PARTICIPANT_INSERT_COLUMN_COUNT = 9
@@ -270,13 +269,6 @@ export async function cancelDraftMatch(
   }
 
   if (match.status === 'cancelled') {
-    const channelId = await getChannelForMatch(kv, matchId)
-    await clearActivityMappings(
-      kv,
-      matchId,
-      participantRows.map(p => p.playerId),
-      channelId ?? undefined,
-    )
     return { match, participants: participantRows }
   }
 
@@ -311,14 +303,6 @@ export async function cancelDraftMatch(
       }),
     })
     .where(eq(matches.id, matchId))
-
-  const channelId = await getChannelForMatch(kv, matchId)
-  await clearActivityMappings(
-    kv,
-    matchId,
-    participantRows.map(p => p.playerId),
-    channelId ?? undefined,
-  )
 
   const [updatedMatch] = await db
     .select()

@@ -20,19 +20,12 @@ import { eq } from 'drizzle-orm'
 import { findBlockingDraftMatchIdsForPlayers, joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
 import { buildActivityLaunchSnapshot, selectActivityTargetForUser } from '../../src/routes/activity.ts'
 import { getQueueStateWithLobbyBalanceSnapshot } from '../../src/routes/lobby/snapshot.ts'
-import {
-  clearLobbyAndActivityMappings,
-  clearUserLobbyMappings,
-  getLobbyForUser,
-  getMatchForUser,
-  handoffLobbySpectatorsToMatchActivity,
-  storeMatchActivityState,
-  storeUserLobbyState,
-} from '../../src/services/activity/index.ts'
+import { getLobbyForUser, getMatchForUser } from '../../src/services/activity/index.ts'
 import { resolveDraftTimerConfig } from '../../src/services/config/index.ts'
 import { markLeaderboardsDirty, refreshDirtyLeaderboards } from '../../src/services/leaderboard/message.ts'
 import {
   createLobby,
+  clearLobbyById,
   filterQueueEntriesForLobby,
   getCurrentLobbyHostedBy,
   getLobby,
@@ -780,7 +773,6 @@ async function simulateMatchCreate(
     messageId: `message-lobby-open-${mode.id}`,
     queueEntries: nextQueue.entries,
   })
-  await storeUserLobbyState(kv, draftChannelId, [HOST_ID], lobby.id)
 }
 
 async function simulateMatchJoin(
@@ -798,7 +790,6 @@ async function simulateMatchJoin(
   )
   if ('error' in outcome) throw new Error(outcome.error)
 
-  await storeUserLobbyState(kv, outcome.lobby.channelId, group, outcome.lobby.id)
 }
 
 async function simulateActivityLaunchSnapshot(
@@ -816,7 +807,7 @@ async function simulateActivityLaunchSnapshot(
 async function simulateSpectatorLobbySelection(kv: KVNamespace, mode: CapacityScenario, spectatorId: string): Promise<void> {
   const lobby = await getLobby(kv, mode.mode)
   if (!lobby || lobby.status !== 'open') throw new Error(`Expected open ${mode.mode} lobby before spectator selection`)
-  const result = await selectActivityTargetForUser(kv, lobby.channelId, spectatorId, { kind: 'lobby', id: lobby.id })
+  const result = await selectActivityTargetForUser(undefined, undefined, kv, lobby.channelId, spectatorId, { kind: 'lobby', id: lobby.id })
   if (!result.ok) throw new Error(result.error)
 }
 
@@ -969,9 +960,6 @@ async function startDraftFromOpenLobby(
   const draftingLobby = await startLobbyDraft(kv, lobby.id, slottedLobby)
   if (!draftingLobby) throw new Error('Expected lobby to transition to drafting during capacity simulation')
   await syncLobbyDerivedState(kv, draftingLobby)
-  await storeMatchActivityState(kv, draftingLobby.channelId, draftingLobby.memberPlayerIds, { matchId })
-  await handoffLobbySpectatorsToMatchActivity(kv, draftingLobby.channelId, draftingLobby.id, draftingLobby.memberPlayerIds, { matchId })
-  await clearUserLobbyMappings(kv, draftingLobby.memberPlayerIds)
   await storeMatchMessageMapping(db, `message-lobby-drafting-${mode.id}`, matchId)
 
   const completedDraft = buildCompletedDraftState(matchId, mode.mode, seats)
@@ -1063,7 +1051,7 @@ async function handleMatchReport(
 
   if (lobby) {
     await storeMatchMessageMapping(db, `message-lobby-reported-${mode.id}`, matchId)
-    await clearLobbyAndActivityMappings(kv, lobby)
+    await clearLobbyById(kv, lobby.id, lobby)
   }
 
   const archiveChannelId = await getSystemChannel(kv, 'archive')

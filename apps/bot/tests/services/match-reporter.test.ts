@@ -1,6 +1,5 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
-import { storeMatchMapping, storeUserMatchMappings } from '../../src/services/activity/index.ts'
 import { createLobby, getLobbyById, setLobbyMemberPlayerIds, startLobbyDraft } from '../../src/services/lobby/index.ts'
 import { getReporterIdentityFromDraftData } from '../../src/services/match/draft-data.ts'
 import { reportMatch } from '../../src/services/match/report.ts'
@@ -138,8 +137,6 @@ describe('match reporter identity', () => {
 
       const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['p1', 'p2'], lobby)
       await startLobbyDraft(kv, lobby.id, withMembers ?? lobby)
-      await storeMatchMapping(kv, 'channel-1', matchId)
-      await storeUserMatchMappings(kv, ['p1', 'p2'], matchId)
 
       const result = await reportMatch(db, kv, {
         matchId,

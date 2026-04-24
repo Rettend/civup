@@ -3,7 +3,6 @@ import type { LobbySessionProjectionOptions } from './mutations.ts'
 import type { LobbyState } from './types.ts'
 import { slotToTeamIndex } from '@civup/game'
 import { lobbyCancelledEmbed } from '../../embeds/match.ts'
-import { clearUserLobbyMappings } from '../activity/index.ts'
 import { clearQueue, getQueueState } from '../queue/index.ts'
 import { syncLobbyDerivedState } from './live-snapshot.ts'
 import { upsertLobbyMessage } from './message.ts'
@@ -50,8 +49,6 @@ export async function leaveOpenLobbyForLobbyJoin(
       ...options,
       queueEntries: sourceLobbyQueueEntries,
     }) ?? { ...currentLobby, status: 'cancelled' as const }
-    await clearUserLobbyMappings(kv, uniqueMovingPlayerIds)
-
     if (token) {
       try {
         await upsertLobbyMessage(kv, token, cancelledLobby, {
@@ -107,8 +104,6 @@ export async function leaveOpenLobbyForLobbyJoin(
     queueEntries: nextLobbyQueueEntries,
     slots: nextSlots,
   })
-  await clearUserLobbyMappings(kv, uniqueMovingPlayerIds)
-
   if (token) {
     try {
       const renderPayload = await buildOpenLobbyRenderPayload(kv, updatedLobby, mapLobbySlotsToEntries(nextSlots, nextLobbyQueueEntries))

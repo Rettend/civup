@@ -77,43 +77,6 @@ export async function expectMatchState(
   return match
 }
 
-export async function expectActivityMappings(
-  world: SystemWorld,
-  input: {
-    lobbyByUser?: Record<string, string | null>
-    matchByUser?: Record<string, string | null>
-    matchChannelById?: Record<string, string | null>
-    targets?: Array<{
-      channelId: string
-      userId: string
-      selection: Record<string, unknown> | null
-    }>
-  },
-): Promise<void> {
-  for (const [userId, lobbyId] of Object.entries(input.lobbyByUser ?? {})) {
-    expect(await world.inspect.lobbyMapping(userId)).toBe(lobbyId)
-  }
-
-  for (const [userId, matchId] of Object.entries(input.matchByUser ?? {})) {
-    expect(await world.inspect.matchMapping(userId)).toBe(matchId)
-  }
-
-  for (const [matchId, channelId] of Object.entries(input.matchChannelById ?? {})) {
-    expect(await world.inspect.matchChannel(matchId)).toBe(channelId)
-  }
-
-  for (const target of input.targets ?? []) {
-    const selection = await world.inspect.activityTarget(target.channelId, target.userId)
-    if (target.selection == null) {
-      expect(selection).toBeNull()
-      continue
-    }
-
-    expect(selection).not.toBeNull()
-    expect(selection).toMatchObject(target.selection)
-  }
-}
-
 export function countDiscordChannelRequests(
   world: SystemWorld,
   method: 'PATCH' | 'POST' | 'DELETE',

@@ -1,13 +1,12 @@
 import type { Database as CivupDatabase, Database } from '@civup/db'
 import type { CompetitiveTier, DraftCancelledWebhookPayload, DraftCompleteWebhookPayload, DraftState, DraftWebhookPayload, GameMode, QueueEntry, RoomConfig } from '@civup/game'
 import type { Env } from '../../../src/env.ts'
-import type { ActivityTargetSelection, MatchActivityTargetSelection } from '../../../src/services/activity/index.ts'
 import type { LobbyState } from '../../../src/services/lobby/index.ts'
 import { matchBans, matchParticipants, matches } from '@civup/db'
 import { allLeaderIds, createDraft, draftFormatMap, getCurrentStep, getPendingSeats, isDraftError, processDraftInput } from '@civup/game'
 import { CIVUP_INTERNAL_SECRET_HEADER, createSignedWebhookHeaders } from '@civup/utils'
 import { and, eq } from 'drizzle-orm'
-import { activityLobbyUserKey, activityMatchKey, activityUserKey, getLobbyForUser, getMatchForUser, getUserActivityTarget } from '../../../src/services/activity/index.ts'
+import { getLobbyForUser, getMatchForUser } from '../../../src/services/activity/index.ts'
 import { addToQueue, getQueueState, setQueueEntries } from '../../../src/services/queue/index.ts'
 import { createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobby, getLobbyById, getLobbyByMatch, setLobbyMemberPlayerIds, setLobbySlots } from '../../../src/services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../../src/services/lobby/live-snapshot.ts'
@@ -28,6 +27,18 @@ const BOT_HOST = 'https://bot.test'
 const CIVUP_SECRET = 'secret'
 const DEFAULT_CHANNEL_ID = 'channel-draft'
 const DEFAULT_ARCHIVE_CHANNEL_ID = 'channel-archive'
+
+function legacyActivityLobbyUserKey(userId: string): string {
+  return `activity-lobby-user:${userId}`
+}
+
+function legacyActivityUserKey(userId: string): string {
+  return `activity-user:${userId}`
+}
+
+function legacyActivityMatchKey(matchId: string): string {
+  return `activity-match:${matchId}`
+}
 
 interface DiscordRequestRecord {
   method: string
@@ -210,7 +221,8 @@ export interface SystemWorld {
     launch: (input: { channelId: string, userId: string }) => Promise<RouteResult>
     currentLobby: (input: { userId: string }) => Promise<RouteResult>
     currentMatch: (input: { userId: string }) => Promise<RouteResult>
-    targetLobby: (input: { channelId: string, userId: string, lobbyId: string }) => Promise<void>
+    targetLobby: (input: { channelId: string, userId: string, lobbyId: string }) => Promise<RouteResult>
+    targetMatch: (input: { channelId: string, userId: string, matchId: string }) => Promise<RouteResult>
   }
   discord: {
     requests: () => DiscordRequestRecord[]
@@ -241,7 +253,6 @@ export interface SystemWorld {
     currentHostedLobby: (hostId: string) => Promise<LobbyState | null>
     matchMapping: (userId: string) => Promise<string | null>
     matchChannel: (matchId: string) => Promise<string | null>
-    activityTarget: (channelId: string, userId: string) => Promise<ActivityTargetSelection | MatchActivityTargetSelection | null>
     lobbiesForPlayer: (userId: string) => Promise<LobbyState[]>
     lobbyByMatch: (matchId: string) => Promise<LobbyState | null>
     lobbySnapshot: (lobbyId: string) => Promise<unknown | null>
@@ -643,7 +654,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         })
       },
       async targetLobby(input) {
-        const response = await requestAs('/api/activity/target', {
+        const result = await requestJsonAs('/api/activity/target', {
           method: 'POST',
           body: JSON.stringify({
             channelId: input.channelId,
@@ -655,10 +666,28 @@ export async function createSystemWorld(): Promise<SystemWorld> {
           userId: input.userId,
           displayName: input.userId,
         })
-        if (!response.ok) {
-          const body = await response.json() as { error?: string }
-          throw new Error(body.error ?? `Failed to target lobby: ${response.status}`)
+        if (result.status >= 400) {
+          throw new Error(`Failed to target lobby: ${JSON.stringify(result.body)}`)
         }
+        return result
+      },
+      async targetMatch(input) {
+        const result = await requestJsonAs('/api/activity/target', {
+          method: 'POST',
+          body: JSON.stringify({
+            channelId: input.channelId,
+            userId: input.userId,
+            kind: 'match',
+            id: input.matchId,
+          }),
+        }, {
+          userId: input.userId,
+          displayName: input.userId,
+        })
+        if (result.status >= 400) {
+          throw new Error(`Failed to target match: ${JSON.stringify(result.body)}`)
+        }
+        return result
       },
     },
     discord: {
@@ -704,13 +733,13 @@ export async function createSystemWorld(): Promise<SystemWorld> {
     },
     corrupt: {
       activityLobbyUser(userId, lobbyId) {
-        return putOrDeleteKv(kv, activityLobbyUserKey(userId), lobbyId)
+        return putOrDeleteKv(kv, legacyActivityLobbyUserKey(userId), lobbyId)
       },
       activityUser(userId, matchId) {
-        return putOrDeleteKv(kv, activityUserKey(userId), matchId)
+        return putOrDeleteKv(kv, legacyActivityUserKey(userId), matchId)
       },
       activityMatch(matchId, channelId) {
-        return putOrDeleteKv(kv, activityMatchKey(matchId), channelId)
+        return putOrDeleteKv(kv, legacyActivityMatchKey(matchId), channelId)
       },
       lobbySnapshot(lobbyId, snapshot) {
         return putOrDeleteKv(kv, lobbySnapshotKey(lobbyId), snapshot)
@@ -748,10 +777,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         return getMatchForUser(kv, userId)
       },
       matchChannel(matchId) {
-        return kv.get(activityMatchKey(matchId))
-      },
-      activityTarget(channelId, userId) {
-        return getUserActivityTarget(kv, channelId, userId)
+        return kv.get(legacyActivityMatchKey(matchId))
       },
       lobbiesForPlayer(userId) {
         return getCurrentLobbiesForPlayer(kv, userId)

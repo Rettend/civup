@@ -2,7 +2,7 @@ import type { GameMode } from '@civup/game'
 import type { SystemWorld } from './world.ts'
 import { createSeededRandom, swapSeatPicks } from '@civup/game'
 import { expect } from 'bun:test'
-import { assertSystemWorldInvariants, expectActivityMappings, expectLobbyState, expectMatchState, expectQueuePlayers } from './assertions.ts'
+import { assertSystemWorldInvariants, expectLobbyState, expectMatchState, expectQueuePlayers } from './assertions.ts'
 
 const MODE_CASES = [
   { mode: '1v1', playerCount: 2 },
@@ -57,17 +57,18 @@ export async function runSeededSystemSequence(
     }
 
     if (random() < 0.5) {
-      await world.activity.targetLobby({
+      const selected = await world.activity.targetLobby({
         channelId,
         userId: spectatorId,
         lobbyId: lobby.id,
       })
-      await expectActivityMappings(world, {
-        targets: [{
-          channelId,
-          userId: spectatorId,
-          selection: { kind: 'lobby', id: lobby.id },
-        }],
+      expect(selected.body).toMatchObject({
+        snapshot: {
+          selection: {
+            kind: 'lobby',
+            option: { id: lobby.id },
+          },
+        },
       })
     }
 

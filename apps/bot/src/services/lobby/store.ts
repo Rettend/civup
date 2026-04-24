@@ -12,10 +12,6 @@ interface LobbyStoreEntry {
   expirationTtl: number
 }
 
-function activityLobbyUserKey(userId: string): string {
-  return `activity-lobby-user:${userId}`
-}
-
 export async function getLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise<LobbyState[]> {
   const listed = await kv.list({ prefix: modePrefix(mode) })
   const lobbyIds = listed.keys
@@ -108,92 +104,21 @@ export async function getCurrentLobbiesForPlayers(
   const uniquePlayerIds = [...new Set(playerIds.filter(playerId => playerId.length > 0))]
   const excludedLobbyIds = new Set(options?.excludeLobbyIds ?? [])
   const lobbyByPlayerId = new Map<string, LobbyState | null>()
-  const staleMappingKeys = new Set<string>()
   if (uniquePlayerIds.length === 0) return lobbyByPlayerId
 
-  const rawMappedLobbyIds = await stateStoreMget(
-    kv,
-    uniquePlayerIds.map(playerId => ({ key: activityLobbyUserKey(playerId) })),
-  )
-
-  const lobbyIdsToLoad: string[] = []
-  const lobbyIdSet = new Set<string>()
-  for (const rawLobbyId of rawMappedLobbyIds) {
-    if (typeof rawLobbyId !== 'string' || rawLobbyId.length === 0 || lobbyIdSet.has(rawLobbyId)) continue
-    lobbyIdSet.add(rawLobbyId)
-    lobbyIdsToLoad.push(rawLobbyId)
-  }
-
-  const rawLobbies = await stateStoreMget(
-    kv,
-    lobbyIdsToLoad.map(lobbyId => ({ key: idKey(lobbyId), type: 'json' })),
-  )
-  const mappedLobbyById = new Map<string, LobbyState>()
-  for (let index = 0; index < lobbyIdsToLoad.length; index++) {
-    const lobbyId = lobbyIdsToLoad[index]
-    const lobby = parseLobbyState(rawLobbies[index])
-    if (!lobbyId || !lobby) continue
-    mappedLobbyById.set(lobbyId, lobby)
-  }
-
-  const unresolvedPlayerIds: string[] = []
-  for (let index = 0; index < uniquePlayerIds.length; index++) {
-    const playerId = uniquePlayerIds[index]
-    const rawLobbyId = rawMappedLobbyIds[index]
-    if (!playerId || typeof rawLobbyId !== 'string' || rawLobbyId.length === 0) {
-      unresolvedPlayerIds.push(playerId ?? '')
-      continue
-    }
-
-    const lobby = mappedLobbyById.get(rawLobbyId)
-    const memberPlayerIds = lobby?.memberPlayerIds ?? []
-    const mappingLooksStale = !lobby
-      || !isCurrentLobbyStatus(lobby.status)
-      || !memberPlayerIds.includes(playerId)
-    const excludedMappedLobby = lobby ? excludedLobbyIds.has(lobby.id) : false
-    const mismatchedMappedMode = lobby ? options?.mode != null && lobby.mode !== options.mode : false
-    if (mappingLooksStale) {
-      staleMappingKeys.add(activityLobbyUserKey(playerId))
-    }
-    if (mappingLooksStale
-      || excludedMappedLobby
-      || mismatchedMappedMode) { unresolvedPlayerIds.push(playerId); continue }
-
-    lobbyByPlayerId.set(playerId, lobby)
-  }
-
-  if (staleMappingKeys.size > 0) {
-    await stateStoreMdelete(kv, [...staleMappingKeys])
-  }
-
-  if (options?.fallbackToLobbyScan === false || unresolvedPlayerIds.length === 0) {
-    for (const playerId of unresolvedPlayerIds) {
-      if (!playerId) continue
-      lobbyByPlayerId.set(playerId, null)
-    }
+  if (options?.fallbackToLobbyScan === false) {
+    for (const playerId of uniquePlayerIds) lobbyByPlayerId.set(playerId, null)
     return lobbyByPlayerId
   }
 
   const fallbackLobbies = await getCurrentLobbies(kv, options?.mode)
-  const repairedOpenLobbyMappings: LobbyStoreEntry[] = []
-  for (const playerId of unresolvedPlayerIds) {
+  for (const playerId of uniquePlayerIds) {
     if (!playerId) continue
     const fallbackLobby = fallbackLobbies.find((lobby) => {
       if (excludedLobbyIds.has(lobby.id)) return false
       return lobby.memberPlayerIds.includes(playerId)
     }) ?? null
     lobbyByPlayerId.set(playerId, fallbackLobby)
-    if (fallbackLobby?.status === 'open') {
-      repairedOpenLobbyMappings.push({
-        key: activityLobbyUserKey(playerId),
-        value: fallbackLobby.id,
-        expirationTtl: LOBBY_TTL,
-      })
-    }
-  }
-
-  if (repairedOpenLobbyMappings.length > 0) {
-    await stateStoreMput(kv, repairedOpenLobbyMappings)
   }
 
   return lobbyByPlayerId

@@ -6,7 +6,7 @@ import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeader
 import { createDraftRoomAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
-import { clearLobbyMappings, clearUserLobbyMappings, createDraftRoom, handoffLobbySpectatorsToMatchActivity, storeMatchActivityState, storeUserLobbyMappings, storeUserLobbyState } from '../../services/activity/index.ts'
+import { createDraftRoom } from '../../services/activity/index.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from '../../services/config/index.ts'
 import {
   arrangeLobbySlots,
@@ -38,7 +38,7 @@ import { modeIndexKey } from '../../services/lobby/keys.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { normalizeDraftConfigForMode } from '../../services/lobby/normalize.ts'
 import { createDraftMatch } from '../../services/match/index.ts'
-import { findPersistedBlockingDraftMatchIdsForPlayers } from '../../services/match/live.ts'
+import { clearStalePersistedLiveLobbies, findPersistedBlockingDraftMatchIdsForPlayers } from '../../services/match/live.ts'
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { addToQueue, clearQueue, getQueueState, moveQueueEntriesBetweenModes, removeFromQueueAndUnlinkParty, setQueueEntries } from '../../services/queue/index.ts'
 import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
@@ -589,7 +589,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       slots: normalizedNextSlots,
       balanceSnapshot,
     })
-    await storeUserLobbyMappings(kv, finalizedLobby.memberPlayerIds, finalizedLobby.id)
     const slottedEntries = mapLobbySlotsToEntries(normalizedNextSlots, movedLobbyQueueEntries)
 
     queueBackgroundTask(c, async () => {
@@ -682,7 +681,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const alreadyInTargetLobby = lobby.memberPlayerIds.includes(movingPlayerId) || lobby.slots.includes(movingPlayerId)
     let blockingLobbyForPlayer: Awaited<ReturnType<typeof getCurrentLobbiesForPlayer>>[number] | null = null
     if (!alreadyInTargetLobby) {
-      const currentLobbiesForPlayer = await getCurrentLobbiesForPlayer(kv, movingPlayerId, {
+      let currentLobbiesForPlayer = await getCurrentLobbiesForPlayer(kv, movingPlayerId, {
         excludeLobbyIds: [lobby.id],
       })
       const blockingDraftMatchIds = await findPersistedBlockingDraftMatchIdsForPlayers(c.env.DB, [movingPlayerId])
@@ -691,6 +690,14 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         : blockingDraftMatchIds.has(movingPlayerId)
       if (hasLiveMatch) {
         return c.json({ error: 'That player is already in a live match.' }, 400)
+      }
+      if (blockingDraftMatchIds != null) {
+        const clearedStaleLobbyIds = await clearStalePersistedLiveLobbies(c.env.DB, kv, currentLobbiesForPlayer)
+        if (clearedStaleLobbyIds != null && clearedStaleLobbyIds.size > 0) {
+          currentLobbiesForPlayer = await getCurrentLobbiesForPlayer(kv, movingPlayerId, {
+            excludeLobbyIds: [lobby.id],
+          })
+        }
       }
 
       blockingLobbyForPlayer = currentLobbiesForPlayer.find(candidate => candidate.status === 'open') ?? null
@@ -726,7 +733,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const sourceSlot = slots.findIndex(playerId => playerId === movingPlayerId)
     const targetPlayerId = slots[targetSlot]
     if (targetPlayerId === movingPlayerId) {
-      await storeUserLobbyState(kv, lobby.channelId, [movingPlayerId], lobby.id)
       return c.json({
         lobby: await buildOpenLobbySnapshotFromParts(kv, mode, lobby, lobbyQueueEntries, slots),
         transferNotice,
@@ -807,9 +813,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       slots,
       balanceSnapshot,
     })
-
-    await storeUserLobbyMappings(kv, nextLobby.memberPlayerIds, nextLobby.id)
-    await storeUserLobbyState(kv, nextLobby.channelId, [movingPlayerId], nextLobby.id)
 
     const slottedEntries = mapLobbySlotsToEntries(slots, lobbyQueueEntries)
     queueBackgroundTask(c, async () => {
@@ -907,8 +910,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       balanceSnapshot,
     })
     const slottedEntries = mapLobbySlotsToEntries(slots, nextLobbyQueueEntries)
-
-    await clearUserLobbyMappings(kv, [targetPlayerId])
 
     queueBackgroundTask(c, async () => {
       const currentLobby = await getCurrentLobbyForQueuedMessageUpdate(kv, nextLobby)
@@ -1315,22 +1316,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         throw new Error('Lobby state changed while starting. Please retry.')
       }
 
-      await storeMatchActivityState(kv, lobbyForMessage.channelId, lobbyForMessage.memberPlayerIds, {
-        matchId,
-        lobbyId: lobbyForMessage.id,
-        mode: lobbyForMessage.mode,
-        steamLobbyLink: lobbyForMessage.steamLobbyLink,
-        activitySecret: internalSecret,
-      })
-      await handoffLobbySpectatorsToMatchActivity(kv, lobbyForMessage.channelId, lobbyForMessage.id, lobbyForMessage.memberPlayerIds, {
-        matchId,
-        lobbyId: lobbyForMessage.id,
-        mode: lobbyForMessage.mode,
-        steamLobbyLink: lobbyForMessage.steamLobbyLink,
-        activitySecret: internalSecret,
-      })
       await syncLobbyDerivedState(kv, lobbyForMessage)
-      await clearUserLobbyMappings(kv, lobbyForMessage.memberPlayerIds)
 
       queueBackgroundTask(c, async () => {
         const currentLobby = await getCurrentLobbyForQueuedMessageUpdate(kv, lobbyForMessage)
@@ -1433,7 +1419,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       updatedAt: Date.now(),
       revision: lobby.revision + 1,
     }
-    await clearLobbyMappings(kv, activePlayerIds, lobby.channelId, lobby.id)
     await clearLobbyById(kv, lobby.id, cancelledLobby)
     return c.json({ ok: true })
   })

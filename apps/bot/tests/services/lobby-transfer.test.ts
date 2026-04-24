@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import { getLobbyForUser, getUserActivityTarget, storeUserLobbyState } from '../../src/services/activity/index.ts'
+import { getLobbyForUser } from '../../src/services/activity/index.ts'
 import { createLobby, getLobbyById, setLobbyMemberPlayerIds, setLobbySlots } from '../../src/services/lobby/index.ts'
 import { leaveOpenLobbyForLobbyJoin } from '../../src/services/lobby/transfer.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 describe('lobby transfer', () => {
-  test('leaving a source lobby does not clear a newer channel target', async () => {
+  test('leaving a source lobby removes canonical membership without touching another lobby', async () => {
     const { kv } = createTrackedKv()
 
     const sourceLobby = await createLobby(kv, {
@@ -15,7 +15,7 @@ describe('lobby transfer', () => {
       channelId: 'channel-1',
       messageId: 'message-source',
     })
-    const targetLobby = await createLobby(kv, {
+    await createLobby(kv, {
       mode: '2v2',
       hostId: 'host-2',
       channelId: 'channel-1',
@@ -38,9 +38,6 @@ describe('lobby transfer', () => {
     const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['host-1', 'player-1'], sourceLobby)
     await setLobbySlots(kv, sourceLobby.id, ['host-1', 'player-1', null, null], populatedSource ?? sourceLobby)
 
-    await storeUserLobbyState(kv, 'channel-1', ['player-1'], sourceLobby.id)
-    await storeUserLobbyState(kv, 'channel-1', ['player-1'], targetLobby.id, { pendingJoin: true })
-
     const result = await leaveOpenLobbyForLobbyJoin(
       kv,
       undefined,
@@ -57,11 +54,5 @@ describe('lobby transfer', () => {
       },
     })
     expect(await getLobbyForUser(kv, 'player-1')).toBeNull()
-    await expect(getUserActivityTarget(kv, 'channel-1', 'player-1')).resolves.toEqual({
-      kind: 'lobby',
-      id: targetLobby.id,
-      pendingJoin: true,
-      selectedAt: expect.any(Number),
-    })
   })
 })

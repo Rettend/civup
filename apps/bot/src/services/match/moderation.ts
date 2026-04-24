@@ -3,7 +3,6 @@ import type { LeaderboardMode } from '@civup/game'
 import type { CancelMatchInput, CancelMatchResult, MatchRow, ParticipantRow, ResolveMatchInput, ResolveMatchResult } from './types.ts'
 import { matchBans, matches, matchParticipants } from '@civup/db'
 import { and, eq } from 'drizzle-orm'
-import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
 import { clearLobbyByMatch } from '../lobby/index.ts'
@@ -141,13 +140,6 @@ export async function resolveMatchByModerator(
 
   if (previousStatus !== 'completed') {
     await closeLobbySessionProjectionByMatch(db, input.matchId, input.resolvedAt)
-    const channelId = await getChannelForMatch(kv, input.matchId)
-    await clearActivityMappings(
-      kv,
-      input.matchId,
-      participants.map(participant => participant.playerId),
-      channelId ?? undefined,
-    )
     await clearLobbyByMatch(kv, input.matchId)
   }
 
@@ -271,13 +263,6 @@ export async function cancelMatchByModerator(
   await db.delete(matchBans).where(eq(matchBans.matchId, input.matchId))
   await closeLobbySessionProjectionByMatch(db, input.matchId, input.cancelledAt)
 
-  const channelId = await getChannelForMatch(kv, input.matchId)
-  await clearActivityMappings(
-    kv,
-    input.matchId,
-    participants.map(participant => participant.playerId),
-    channelId ?? undefined,
-  )
   await clearLobbyByMatch(kv, input.matchId)
 
   let recalculatedMatchIds: string[] = []

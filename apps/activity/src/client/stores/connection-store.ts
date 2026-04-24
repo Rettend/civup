@@ -887,15 +887,16 @@ export async function selectActivityTarget(
   channelId: string,
   userId: string,
   target: Pick<ActivityTargetOption, 'kind' | 'id'>,
-): Promise<{ ok: true } | { ok: false, error: string }> {
+): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string }> {
   try {
-    await activityApiPost('/api/activity/target', {
+    const data = await activityApiPost<{ snapshot?: ActivityLaunchSnapshot }>('/api/activity/target', {
       channelId,
       userId,
       kind: target.kind,
       id: target.id,
     })
-    return { ok: true }
+    if (!data.snapshot) return { ok: false, error: 'Activity target response was missing a snapshot' }
+    return { ok: true, snapshot: data.snapshot }
   }
   catch (err) {
     console.error('Failed to select activity target:', err)
