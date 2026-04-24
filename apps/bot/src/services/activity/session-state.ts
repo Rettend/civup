@@ -61,7 +61,7 @@ export interface LobbySnapshot {
 
 export interface ActivitySessionDirectoryEntry {
   sessionId: string
-  phase: Extract<SessionPhase, 'open' | 'draft' | 'active'>
+  phase: Extract<SessionPhase, 'open' | 'draft' | 'swap' | 'active'>
   mode: GameMode
   guildId: string | null
   channelId: string
@@ -80,7 +80,7 @@ export interface ActivitySessionDirectoryEntry {
 
 type ActivityDirectoryRow = typeof sessionDirectory.$inferSelect
 
-const ACTIVITY_DIRECTORY_PHASES = ['open', 'draft', 'active'] as const
+const ACTIVITY_DIRECTORY_PHASES = ['open', 'draft', 'swap', 'active'] as const
 
 export async function buildActivityOverviewSnapshotFromDirectory(
   db: Database,
@@ -133,7 +133,7 @@ export async function getOpenActivitySessionsForUser(
     .where(and(
       eq(sessionDirectoryMembers.playerId, playerId),
       isNull(sessionDirectoryMembers.leftAt),
-      inArray(sessionDirectory.phase, ['open', 'draft']),
+      inArray(sessionDirectory.phase, ['open', 'draft', 'swap']),
     ))
     .orderBy(desc(sessionDirectory.updatedAt))
 
@@ -407,6 +407,8 @@ function mapSessionPhaseToActivityStatus(phase: ActivitySessionDirectoryEntry['p
       return 'open'
     case 'draft':
       return 'drafting'
+    case 'swap':
+      return 'active'
     case 'active':
       return 'active'
   }
@@ -418,6 +420,8 @@ function mapSessionPhaseToLobbySnapshotStatus(phase: SessionPhase): string {
       return 'open'
     case 'draft':
       return 'drafting'
+    case 'swap':
+      return 'active'
     case 'active':
       return 'active'
     case 'reported':
@@ -436,7 +440,7 @@ function countFilledSlots(slots: readonly (string | null)[]): number {
 }
 
 function isActivitySessionPhase(value: string): value is ActivitySessionDirectoryEntry['phase'] {
-  return value === 'open' || value === 'draft' || value === 'active'
+  return value === 'open' || value === 'draft' || value === 'swap' || value === 'active'
 }
 
 function isGameMode(value: unknown): value is GameMode {

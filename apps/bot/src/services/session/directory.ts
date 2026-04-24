@@ -111,7 +111,7 @@ export async function closeLobbySessionProjectionByMatch(
 }
 
 function isLiveSessionPhase(phase: SessionPhase): boolean {
-  return phase === 'open' || phase === 'draft'
+  return phase === 'open' || phase === 'draft' || phase === 'swap'
 }
 
 async function reconcileDirectoryMembers(
@@ -216,7 +216,7 @@ async function releaseStaleConflictingMemberships(
   )
 
   const staleRows = conflicts.filter((row) => {
-    if (row.phase === 'open') return false
+    if (row.phase === 'open' || row.phase === 'swap') return false
     if (!row.matchId) return false
     return !blockingMatchIds.has(row.matchId)
   })

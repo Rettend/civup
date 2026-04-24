@@ -87,7 +87,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
     const channelId = c.req.param('channelId')
     const channelSessions = await getActivitySessionsByChannel(createDb(c.env.DB), channelId)
     const liveMatchIds = [...new Set(channelSessions.flatMap(session => (
-      (session.phase === 'draft' || session.phase === 'active')
+      (session.phase === 'draft' || session.phase === 'swap' || session.phase === 'active')
         ? [session.matchId ?? session.sessionId]
         : []
     )))]
@@ -128,7 +128,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
     }
 
     const liveMatchId = (await getOpenActivitySessionsForUser(db, userId))
-      .find(session => session.phase === 'draft')
+      .find(session => session.phase === 'draft' || session.phase === 'swap')
       ?.sessionId ?? null
     if (liveMatchId) return c.json({ matchId: liveMatchId })
 
@@ -461,7 +461,7 @@ async function resolveSessionJoinEligibility(
   }
 
   const liveSessions = db ? await getOpenActivitySessionsForUser(createDb(db), userId) : []
-  const blockingDraft = liveSessions.find(candidate => candidate.sessionId !== session.sessionId && candidate.phase === 'draft')
+  const blockingDraft = liveSessions.find(candidate => candidate.sessionId !== session.sessionId && (candidate.phase === 'draft' || candidate.phase === 'swap'))
   if (blockingDraft || targets.some(target => target.option.kind === 'match' && target.option.id !== session.sessionId && (target.option.isHost || target.option.isMember))) {
     return {
       canJoin: false,
