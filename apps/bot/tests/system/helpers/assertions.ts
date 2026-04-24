@@ -4,7 +4,7 @@ import type { SystemWorld } from './world.ts'
 import { matches } from '@civup/db'
 import { expect } from 'bun:test'
 import { getQueueState } from '../../../src/services/queue/index.ts'
-import { channelIndexKey, hostKey, matchKey, modeIndexKey } from '../../../src/services/lobby/keys.ts'
+import { channelIndexKey, hostKey, modeIndexKey } from '../../../src/services/lobby/keys.ts'
 import { getLobbiesByMode } from '../../../src/services/lobby/store.ts'
 
 const SUPPORTED_GAME_MODES = ['1v1', '2v2', '3v3', '4v4', 'ffa'] as const satisfies readonly GameMode[]
@@ -166,7 +166,6 @@ export async function assertSystemWorldInvariants(
             modeIndexed: await world.kv.get(modeIndexKey(lobby.mode, lobby.id)) != null,
             channelIndexed: await world.kv.get(channelIndexKey(lobby.channelId, lobby.id)) != null,
             hostLobbyId: await world.kv.get(hostKey(lobby.hostId)),
-            matchLobbyId: lobby.matchId ? await world.kv.get(matchKey(lobby.matchId)) : null,
           }
         : undefined
 
@@ -177,7 +176,6 @@ export async function assertSystemWorldInvariants(
         expect(projection.modeIndexed).toBe(true)
         expect(projection.channelIndexed).toBe(true)
         expect(projection.hostLobbyId).toBe(lobby.id)
-        if (lobby.matchId) expect(projection.matchLobbyId).toBe(lobby.id)
       }
 
       if (lobby.status !== 'open') continue

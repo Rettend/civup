@@ -798,9 +798,11 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         updatedAt: actionAt,
         revision: lobby.revision + 1,
       }
-      await commitLobbyState(kv, nextLobby, lobbySessionMutationOptions(c, queue.entries))
+      nextLobby = await commitLobbyState(kv, nextLobby, lobbySessionMutationOptions(c, queue.entries))
     }
+    queue = await getQueueState(kv, mode)
     lobbyQueueEntries = buildLobbyQueueEntries(nextLobby, queue.entries)
+    slots = normalizeLobbySlots(mode, nextLobby.slots, lobbyQueueEntries)
     const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
       queueEntries: lobbyQueueEntries,
       slots,

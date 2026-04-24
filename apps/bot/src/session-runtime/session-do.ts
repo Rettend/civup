@@ -78,7 +78,7 @@ export class SessionDO {
       return json({ error: error instanceof Error ? error.message : String(error) }, 409)
     }
 
-    if (!existing || record.version >= existing.version) {
+    if (!existing || record.version > existing.version) {
       await this.state.storage.put(SESSION_RECORD_STORAGE_KEY, record)
     }
 

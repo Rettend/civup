@@ -1,7 +1,7 @@
 import type { DraftState, DraftStep, QueueEntry } from '@civup/game'
 import type { LobbyState } from './types.ts'
-import { stateStoreMdelete, stateStoreMput } from '../state/store.ts'
-import { draftRosterKey, LOBBY_TTL, matchKey } from './keys.ts'
+import { stateStoreMput } from '../state/store.ts'
+import { draftRosterKey, LOBBY_TTL } from './keys.ts'
 import { putLobby } from './store.ts'
 
 export interface LobbyTimeoutRecoveryResult {
@@ -107,9 +107,6 @@ export async function reopenLobbyAfterCancelledDraft(
     revision: lobby.revision + 1,
   }
 
-  if (lobby.matchId) {
-    await stateStoreMdelete(kv, [matchKey(lobby.matchId)])
-  }
   await putLobby(kv, nextLobby)
 
   return {

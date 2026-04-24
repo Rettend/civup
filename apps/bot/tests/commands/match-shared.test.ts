@@ -1,7 +1,7 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { findBlockingDraftMatchIdsForPlayers, findReportableMatchIdsForPlayers, joinLobbyAndMaybeStartMatch, preflightMatchCreateQueueState, resolveReportableMatchIdForPlayer } from '../../src/commands/match/shared.ts'
-import { attachLobbyMatch, createLobby, getLobbyById, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../../src/services/lobby/index.ts'
+import { createLobby, getLobbyById, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, startLobbyDraft } from '../../src/services/lobby/index.ts'
 import { hostKey } from '../../src/services/lobby/keys.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
@@ -415,7 +415,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
-    await attachLobbyMatch(kv, draftingLobby.id, 'match-1', draftingLobby)
+    await startLobbyDraft(kv, draftingLobby.id, draftingLobby)
 
     const blocked = await joinLobbyAndMaybeStartMatch({
       env: {

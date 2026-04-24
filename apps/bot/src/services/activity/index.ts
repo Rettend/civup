@@ -3,7 +3,7 @@ import type { LobbyState } from '../lobby/types.ts'
 import { allFactionIds, getDraftFormat, isTeamMode, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
 import { ApiError, api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, normalizeHost } from '@civup/utils'
 import { getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer } from '../lobby/index.ts'
-import { channelIndexKey, idKey, matchKey, modeIndexKey } from '../lobby/keys.ts'
+import { channelIndexKey, idKey, modeIndexKey } from '../lobby/keys.ts'
 import { lobbySnapshotKey } from '../lobby/live-snapshot.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
 import { syncActivityOverviewSnapshot } from './live-state.ts'
@@ -778,7 +778,6 @@ export async function clearLobbyAndActivityMappings(
     ...spectatorUserIds.map(userId => targetSelectionKey('lobby', lobby.channelId, lobby.id, userId)),
   ]
   if (lobby.matchId) {
-    keys.push(matchKey(lobby.matchId))
     keys.push(activityMatchKey(lobby.matchId))
     keys.push(...allUserIds.map(userId => activityUserKey(userId)))
     keys.push(...targetedMatchUserIds.map(userId => targetSelectionKey('match', lobby.channelId, lobby.matchId!, userId)))

@@ -12,7 +12,7 @@ import { addToQueue, getQueueState, setQueueEntries } from '../../../src/service
 import { createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobby, getLobbyById, getLobbyByMatch, setLobbyMemberPlayerIds, setLobbySlots } from '../../../src/services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../../src/services/lobby/live-snapshot.ts'
 import { lobbySnapshotKey } from '../../../src/services/lobby/live-snapshot.ts'
-import { channelIndexKey, hostKey, matchKey } from '../../../src/services/lobby/keys.ts'
+import { channelIndexKey, hostKey } from '../../../src/services/lobby/keys.ts'
 import { listMatchMessageIds } from '../../../src/services/match/message.ts'
 import { createStateStore } from '../../../src/services/state/store.ts'
 import { setSystemChannel } from '../../../src/services/system/channels.ts'
@@ -232,7 +232,6 @@ export interface SystemWorld {
     activityMatch: (matchId: string, channelId: string | null) => Promise<void>
     lobbySnapshot: (lobbyId: string, snapshot: unknown | null) => Promise<void>
     lobbyHost: (hostId: string, lobbyId: string | null) => Promise<void>
-    lobbyMatch: (matchId: string, lobbyId: string | null) => Promise<void>
     lobbyChannel: (lobbyId: string, indexedChannelId: string | null) => Promise<void>
     openLobbyResidue: (lobbyId: string, input: { memberPlayerIds: string[], slots: (string | null)[] }) => Promise<LobbyState | null>
     queueEntries: (mode: Parameters<typeof getQueueState>[1], entries: QueueEntry[]) => Promise<void>
@@ -242,7 +241,6 @@ export interface SystemWorld {
     currentHostedLobby: (hostId: string) => Promise<LobbyState | null>
     matchMapping: (userId: string) => Promise<string | null>
     matchChannel: (matchId: string) => Promise<string | null>
-    matchLobbyLink: (matchId: string) => Promise<string | null>
     activityTarget: (channelId: string, userId: string) => Promise<ActivityTargetSelection | MatchActivityTargetSelection | null>
     lobbiesForPlayer: (userId: string) => Promise<LobbyState[]>
     lobbyByMatch: (matchId: string) => Promise<LobbyState | null>
@@ -720,9 +718,6 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       lobbyHost(hostId, lobbyId) {
         return putOrDeleteKv(kv, hostKey(hostId), lobbyId)
       },
-      lobbyMatch(matchId, lobbyId) {
-        return putOrDeleteKv(kv, matchKey(matchId), lobbyId)
-      },
       async lobbyChannel(lobbyId, indexedChannelId) {
         const lobby = await getLobbyById(kv, lobbyId)
         if (!lobby) return
@@ -754,9 +749,6 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       },
       matchChannel(matchId) {
         return kv.get(activityMatchKey(matchId))
-      },
-      matchLobbyLink(matchId) {
-        return kv.get(matchKey(matchId))
       },
       activityTarget(channelId, userId) {
         return getUserActivityTarget(kv, channelId, userId)

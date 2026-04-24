@@ -5,7 +5,7 @@ import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEl
 import { buildOpenLobbySnapshot, resolveOpenLobbyFromBody } from '../../src/routes/lobby/snapshot.ts'
 import { getUserActivityTarget, handoffLobbySpectatorsToMatchActivity, storeMatchActivityState, storeUserActivityTarget, storeUserLobbyMappings, storeUserLobbyState } from '../../src/services/activity/index.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
-import { attachLobbyMatch, createLobby, getLobbyById, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus } from '../../src/services/lobby/index.ts'
+import { createLobby, getLobbyById, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startLobbyDraft } from '../../src/services/lobby/index.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -70,7 +70,7 @@ describe('activity lobby join eligibility', () => {
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
-    await attachLobbyMatch(kv, liveLobby.id, 'match-1', liveLobby)
+    await startLobbyDraft(kv, liveLobby.id, liveLobby)
     await storeUserActivityTarget(kv, 'channel-1', ['player-1'], { kind: 'lobby', id: openLobby.id })
 
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'player-1')
@@ -112,7 +112,7 @@ describe('activity lobby join eligibility', () => {
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
-    await attachLobbyMatch(kv, liveLobby.id, 'match-stale', liveLobby)
+    await startLobbyDraft(kv, liveLobby.id, liveLobby)
 
     const snapshot = await buildOpenLobbySnapshot(kv, '2v2', openLobby)
     const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', openLobby, snapshot, {
@@ -153,7 +153,7 @@ describe('activity lobby join eligibility', () => {
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
-    const draftingLobby = await attachLobbyMatch(kv, liveLobby.id, 'match-complete', liveLobby)
+    const draftingLobby = await startLobbyDraft(kv, liveLobby.id, liveLobby)
     await setLobbyStatus(kv, liveLobby.id, 'active', draftingLobby ?? liveLobby)
 
     const snapshot = await buildOpenLobbySnapshot(kv, '2v2', openLobby)
@@ -189,7 +189,7 @@ describe('activity lobby join eligibility', () => {
       avatarUrl: null,
       joinedAt: Date.now(),
     })
-    await attachLobbyMatch(kv, liveLobby.id, 'match-stale', liveLobby)
+    await startLobbyDraft(kv, liveLobby.id, liveLobby)
     await storeUserLobbyState(kv, 'channel-1', ['player-1'], openLobby.id, { pendingJoin: true })
 
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'player-1', {
@@ -476,11 +476,11 @@ describe('activity target selection', () => {
       messageId: 'message-1',
     })
 
-    await attachLobbyMatch(kv, lobby.id, 'match-stale', lobby)
+    await startLobbyDraft(kv, lobby.id, lobby)
 
     await expect(selectActivityTargetForUser(kv, 'channel-1', 'spectator-1', {
       kind: 'match',
-      id: 'match-stale',
+      id: lobby.id,
       activitySecret: 'secret',
     }, {
       db: buildDb({ liveMatchIds: [] }),
@@ -688,9 +688,9 @@ describe('activity target selection', () => {
       avatarUrl: null,
       joinedAt: Date.now(),
     })
-    await attachLobbyMatch(kv, liveLobby.id, 'match-1', liveLobby)
+    await startLobbyDraft(kv, liveLobby.id, liveLobby)
     await storeMatchActivityState(kv, 'channel-1', ['spectator-1'], {
-      matchId: 'match-1',
+      matchId: liveLobby.id,
       lobbyId: liveLobby.id,
       mode: '2v2',
       activitySecret: 'secret',
@@ -701,7 +701,7 @@ describe('activity target selection', () => {
     expect(snapshot.options).toEqual([
       expect.objectContaining({
         kind: 'match',
-        id: 'match-1',
+        id: liveLobby.id,
       }),
     ])
     await expect(resolveOpenLobbyFromBody(kv, '2v2', { lobbyId: invalidLobby.id })).resolves.toBeNull()
@@ -716,14 +716,14 @@ describe('activity target selection', () => {
       messageId: 'message-1',
     })
 
-    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    await startLobbyDraft(kv, lobby.id, lobby)
 
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1')
     expect(snapshot.selection).toBeNull()
     expect(snapshot.options).toEqual([
       expect.objectContaining({
         kind: 'match',
-        id: 'match-1',
+        id: lobby.id,
         isHost: false,
         isMember: false,
       }),
@@ -740,16 +740,16 @@ describe('activity target selection', () => {
       steamLobbyLink: 'steam://joinlobby/289070/12345678901234567/76561198000000000',
     })
 
-    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    await startLobbyDraft(kv, lobby.id, lobby)
 
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'host-1')
     expect(snapshot.selection?.kind).toBe('match')
     if (snapshot.selection?.kind !== 'match') return
-    expect(snapshot.selection.matchId).toBe('match-1')
+    expect(snapshot.selection.matchId).toBe(lobby.id)
     expect(snapshot.selection.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
     expect(snapshot.selection.roomAccessToken).not.toBeNull()
     await expect(verifyDraftRoomAccessToken('secret', snapshot.selection.roomAccessToken, {
-      roomId: 'match-1',
+      roomId: lobby.id,
       userId: 'host-1',
     })).resolves.not.toBeNull()
   })
@@ -763,14 +763,14 @@ describe('activity target selection', () => {
       messageId: 'message-1',
     })
 
-    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    await startLobbyDraft(kv, lobby.id, lobby)
 
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'host-1')
     expect(snapshot.selection?.kind).toBe('match')
     if (snapshot.selection?.kind !== 'match') return
 
     await expect(verifyDraftRoomAccessToken('secret', snapshot.selection.roomAccessToken, {
-      roomId: 'match-1',
+      roomId: lobby.id,
       userId: 'host-1',
       nowMs: Date.now() + 5 * 60 * 60 * 1000,
     })).resolves.not.toBeNull()
@@ -792,21 +792,21 @@ describe('activity target selection', () => {
       joinedAt: Date.now(),
     })
 
-    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    await startLobbyDraft(kv, lobby.id, lobby)
 
     await expect(selectActivityTargetForUser(kv, lobby.channelId, 'spectator-1', {
       kind: 'match',
-      id: 'match-1',
+      id: lobby.id,
       activitySecret: 'secret',
     })).resolves.toEqual({ ok: true })
 
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1')
     expect(snapshot.selection?.kind).toBe('match')
     if (snapshot.selection?.kind !== 'match') return
-    expect(snapshot.selection.matchId).toBe('match-1')
+    expect(snapshot.selection.matchId).toBe(lobby.id)
     expect(snapshot.selection.roomAccessToken).not.toBeNull()
     await expect(verifyDraftRoomAccessToken('secret', snapshot.selection.roomAccessToken, {
-      roomId: 'match-1',
+      roomId: lobby.id,
       userId: 'spectator-1',
     })).resolves.not.toBeNull()
   })
@@ -827,16 +827,16 @@ describe('activity target selection', () => {
       joinedAt: Date.now(),
     })
     await storeUserActivityTarget(kv, lobby.channelId, ['spectator-1'], { kind: 'lobby', id: lobby.id })
-    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    await startLobbyDraft(kv, lobby.id, lobby)
 
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1')
     expect(snapshot.selection?.kind).toBe('match')
     if (snapshot.selection?.kind !== 'match') return
 
-    expect(snapshot.selection.matchId).toBe('match-1')
+    expect(snapshot.selection.matchId).toBe(lobby.id)
     expect(snapshot.selection.roomAccessToken).not.toBeNull()
     await expect(verifyDraftRoomAccessToken('secret', snapshot.selection.roomAccessToken, {
-      roomId: 'match-1',
+      roomId: lobby.id,
       userId: 'spectator-1',
     })).resolves.not.toBeNull()
     await expect(getUserActivityTarget(kv, lobby.channelId, 'spectator-1')).resolves.toEqual(expect.objectContaining({
@@ -861,9 +861,9 @@ describe('activity target selection', () => {
       joinedAt: Date.now(),
     })
     await storeUserActivityTarget(kv, 'channel-1', ['spectator-1'], { kind: 'lobby', id: lobby.id })
-    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    await startLobbyDraft(kv, lobby.id, lobby)
     await handoffLobbySpectatorsToMatchActivity(kv, lobby.channelId, lobby.id, lobby.memberPlayerIds, {
-      matchId: 'match-1',
+      matchId: lobby.id,
       lobbyId: lobby.id,
       mode: lobby.mode,
       activitySecret: 'secret',
@@ -872,7 +872,7 @@ describe('activity target selection', () => {
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1')
     expect(snapshot.selection?.kind).toBe('match')
     if (snapshot.selection?.kind !== 'match') return
-    expect(snapshot.selection.matchId).toBe('match-1')
+    expect(snapshot.selection.matchId).toBe(lobby.id)
     expect(snapshot.selection.roomAccessToken).not.toBeNull()
   })
 
@@ -892,9 +892,9 @@ describe('activity target selection', () => {
       joinedAt: Date.now(),
     })
     await storeUserLobbyState(kv, 'channel-1', ['spectator-1'], lobby.id)
-    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    await startLobbyDraft(kv, lobby.id, lobby)
     await handoffLobbySpectatorsToMatchActivity(kv, lobby.channelId, lobby.id, lobby.memberPlayerIds, {
-      matchId: 'match-1',
+      matchId: lobby.id,
       lobbyId: lobby.id,
       mode: lobby.mode,
       activitySecret: 'secret',
@@ -903,7 +903,7 @@ describe('activity target selection', () => {
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1')
     expect(snapshot.selection?.kind).toBe('match')
     if (snapshot.selection?.kind !== 'match') return
-    expect(snapshot.selection.matchId).toBe('match-1')
+    expect(snapshot.selection.matchId).toBe(lobby.id)
     expect(snapshot.selection.roomAccessToken).not.toBeNull()
   })
 

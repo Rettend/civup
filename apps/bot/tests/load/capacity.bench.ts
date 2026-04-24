@@ -32,7 +32,6 @@ import {
 import { resolveDraftTimerConfig } from '../../src/services/config/index.ts'
 import { markLeaderboardsDirty, refreshDirtyLeaderboards } from '../../src/services/leaderboard/message.ts'
 import {
-  attachLobbyMatch,
   createLobby,
   filterQueueEntriesForLobby,
   getCurrentLobbyHostedBy,
@@ -44,6 +43,7 @@ import {
   setLobbyDraftConfig,
   setLobbySlots,
   setLobbyStatus,
+  startLobbyDraft,
 } from '../../src/services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
@@ -955,7 +955,7 @@ async function startDraftFromOpenLobby(
 
   await resolveDraftTimerConfig(kv, lobby.draftConfig)
 
-  const matchId = `match-${mode.id}`
+  const matchId = lobby.id
   const seats = buildDraftSeats(mode.mode, slottedEntries)
   if (selectedEntries.length !== seats.length) throw new Error('Seat count did not match selected entries')
 
@@ -966,7 +966,7 @@ async function startDraftFromOpenLobby(
   }
 
   const slottedLobby = await setLobbySlots(kv, lobby.id, slots, lobby) ?? { ...lobby, slots }
-  const draftingLobby = await attachLobbyMatch(kv, lobby.id, matchId, slottedLobby)
+  const draftingLobby = await startLobbyDraft(kv, lobby.id, slottedLobby)
   if (!draftingLobby) throw new Error('Expected lobby to transition to drafting during capacity simulation')
   await syncLobbyDerivedState(kv, draftingLobby)
   await storeMatchActivityState(kv, draftingLobby.channelId, draftingLobby.memberPlayerIds, { matchId })

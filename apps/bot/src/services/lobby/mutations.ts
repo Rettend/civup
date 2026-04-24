@@ -109,39 +109,6 @@ export async function commitLobbyState(
   return await commitLobbyMutation(kv, lobby, options)
 }
 
-export async function attachLobbyMatch(
-  kv: KVNamespace,
-  lobbyId: string,
-  matchId: string,
-  currentLobby?: LobbyState,
-  options?: LobbySessionProjectionOptions,
-): Promise<LobbyState | null> {
-  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
-  if (!lobby) return null
-
-  if (lobby.status === 'drafting' && lobby.matchId === matchId) return lobby
-  if (!canTransitionLobbyStatus(lobby.status, 'drafting')) {
-    console.warn('[lobby-transition] attachLobbyMatch rejected', {
-      lobbyId,
-      mode: lobby.mode,
-      matchId,
-      from: lobby.status,
-      to: 'drafting',
-      revision: lobby.revision,
-    })
-    return null
-  }
-
-  const updated: LobbyState = {
-    ...lobby,
-    status: 'drafting',
-    matchId,
-    updatedAt: Date.now(),
-    revision: lobby.revision + 1,
-  }
-  return await commitLobbyMutation(kv, updated, options)
-}
-
 export async function startLobbyDraft(
   kv: KVNamespace,
   lobbyId: string,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { matches, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { eq, isNull } from 'drizzle-orm'
-import { attachLobbyMatch, createLobby, setLobbyStatus } from '../../src/services/lobby/index.ts'
+import { createLobby, setLobbyStatus, startLobbyDraft } from '../../src/services/lobby/index.ts'
 import { createDraftMatch } from '../../src/services/match/index.ts'
 import { isSessionAdmissionError } from '../../src/services/session/index.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
@@ -96,15 +96,15 @@ describe('session directory admission', () => {
       db,
     })
     await createDraftMatch(db, {
-      matchId: 'match-stale',
+      matchId: first.id,
       mode: '1v1',
       seats: [
         { playerId: 'host-1', displayName: 'Host 1' },
         { playerId: 'player-2', displayName: 'Player 2' },
       ],
     })
-    await attachLobbyMatch(kv, first.id, 'match-stale', first, { db })
-    await db.update(matches).set({ status: 'completed' }).where(eq(matches.id, 'match-stale'))
+    await startLobbyDraft(kv, first.id, first, { db })
+    await db.update(matches).set({ status: 'completed' }).where(eq(matches.id, first.id))
 
     const replacement = await createLobby(kv, {
       mode: '1v1',

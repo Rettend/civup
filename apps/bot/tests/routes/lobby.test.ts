@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
 import { registerLobbyRoutes } from '../../src/routes/lobby/index.ts'
 import { getLobbyForUser, storeUserActivityTarget, storeUserLobbyMappings } from '../../src/services/activity/index.ts'
-import { attachLobbyMatch, createLobby, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus } from '../../src/services/lobby/index.ts'
+import { createLobby, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startLobbyDraft } from '../../src/services/lobby/index.ts'
 import { addToQueue, getPlayerQueueMode } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -178,7 +178,7 @@ describe('lobby routes', () => {
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
-    await attachLobbyMatch(kv, liveLobby.id, 'match-1', liveLobby)
+    await startLobbyDraft(kv, liveLobby.id, liveLobby)
 
     const joinResponse = await app.request('/api/lobby/2v2/place', {
       method: 'POST',
@@ -228,7 +228,7 @@ describe('lobby routes', () => {
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
-    await attachLobbyMatch(kv, liveLobby.id, 'match-stale', liveLobby)
+    await startLobbyDraft(kv, liveLobby.id, liveLobby)
 
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
       status: 200,
@@ -281,7 +281,7 @@ describe('lobby routes', () => {
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
-    const draftingLobby = await attachLobbyMatch(kv, liveLobby.id, 'match-complete', liveLobby)
+    const draftingLobby = await startLobbyDraft(kv, liveLobby.id, liveLobby)
     await setLobbyStatus(kv, liveLobby.id, 'active', draftingLobby ?? liveLobby)
 
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
@@ -476,7 +476,7 @@ describe('lobby routes', () => {
 
     const populatedLiveLobby = await setLobbyMemberPlayerIds(kv, liveLobby.id, ['live-host', 'player-1', 'player-2'], liveLobby)
     await setLobbySlots(kv, liveLobby.id, ['live-host', 'player-1', 'player-2', null, null, null, null, null], populatedLiveLobby ?? liveLobby)
-    await attachLobbyMatch(kv, liveLobby.id, 'match-1', populatedLiveLobby ?? liveLobby)
+    await startLobbyDraft(kv, liveLobby.id, populatedLiveLobby ?? liveLobby)
 
     const populatedTargetLobby = await setLobbyMemberPlayerIds(kv, targetLobby.id, ['host', 'player-1', 'player-2'], targetLobby)
     await setLobbySlots(kv, targetLobby.id, ['host', 'player-1', 'player-2', null, null, null, null, null], populatedTargetLobby ?? targetLobby)
@@ -1153,7 +1153,7 @@ describe('lobby routes', () => {
       messageId: 'message-1',
     })
 
-    const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
     expect(draftingLobby).not.toBeNull()
     const activeLobby = await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
     expect(activeLobby).not.toBeNull()
@@ -1186,7 +1186,7 @@ describe('lobby routes', () => {
       messageId: 'message-1',
     })
 
-    const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
     expect(draftingLobby).not.toBeNull()
 
     const response = await app.request('/api/lobby/1v1/config', {
