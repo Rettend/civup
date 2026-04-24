@@ -4,7 +4,7 @@ import { playerRatings } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
 import { inArray } from 'drizzle-orm'
 import { recalculateLeaderboardMode } from '../match/ratings.ts'
-import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
+import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
 
 export interface LeaderboardSnapshotRow {
   playerId: string
@@ -93,7 +93,7 @@ export async function getStoredLeaderboardModeSnapshots(
   const requestedModes = [...new Set(modes.filter(isLeaderboardMode))]
   if (requestedModes.length === 0) return new Map()
 
-  const rawSnapshots = await stateStoreMget(kv, requestedModes.map(mode => ({
+  const rawSnapshots = await kvMget(kv, requestedModes.map(mode => ({
     key: leaderboardModeSnapshotKey(mode),
     type: 'json',
   })))
@@ -124,11 +124,11 @@ export async function rebuildLeaderboardModeSnapshot(
 }
 
 export async function clearLeaderboardModeSnapshot(kv: KVNamespace, mode: LeaderboardMode): Promise<void> {
-  await stateStoreMdelete(kv, [leaderboardModeSnapshotKey(mode)])
+  await kvMdelete(kv, [leaderboardModeSnapshotKey(mode)])
 }
 
 export async function clearAllLeaderboardModeSnapshots(kv: KVNamespace): Promise<void> {
-  await stateStoreMdelete(kv, LEADERBOARD_MODES.map(mode => leaderboardModeSnapshotKey(mode)))
+  await kvMdelete(kv, LEADERBOARD_MODES.map(mode => leaderboardModeSnapshotKey(mode)))
 }
 
 function buildLeaderboardModeSnapshot(
@@ -157,7 +157,7 @@ async function setLeaderboardModeSnapshots(
 ): Promise<void> {
   if (snapshots.length === 0) return
 
-  await stateStoreMput(kv, snapshots.map(snapshot => ({
+  await kvMput(kv, snapshots.map(snapshot => ({
     key: leaderboardModeSnapshotKey(snapshot.mode),
     value: JSON.stringify({
       updatedAt: snapshot.updatedAt,

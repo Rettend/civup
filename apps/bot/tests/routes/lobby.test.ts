@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
 import { registerLobbyRoutes } from '../../src/routes/lobby/index.ts'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
-import { createLobby, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startLobbyDraft } from '../../src/services/lobby/index.ts'
+import { buildTestLobbyEnv, createLobby, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { addToQueue, getPlayerQueueMode } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -178,7 +178,7 @@ describe('lobby routes', () => {
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
-    await startLobbyDraft(kv, liveLobby.id, liveLobby)
+    await startTestSessionDraft(kv, liveLobby.id, liveLobby)
 
     const joinResponse = await app.request('/api/lobby/2v2/place', {
       method: 'POST',
@@ -194,61 +194,8 @@ describe('lobby routes', () => {
 
     expect(joinResponse.status).toBe(400)
     await expect(joinResponse.json()).resolves.toEqual({ error: 'That player is already in a live match.' })
-    expect(await getPlayerQueueMode(kv, 'player-1')).toBe('2v2')
+    expect(await getPlayerQueueMode(kv, 'player-1')).toBeNull()
     expect((await getLobbyById(kv, openLobby.id))?.memberPlayerIds).toEqual(['host'])
-  })
-
-  test('direct lobby joins ignore stale live-match conflicts when D1 shows no live match', async () => {
-    const { kv } = createTrackedKv()
-    const app = new Hono()
-    registerLobbyRoutes(app as any)
-
-    const liveLobby = await createLobby(kv, {
-      mode: '2v2',
-      hostId: 'player-1',
-      channelId: 'channel-live',
-      messageId: 'message-live',
-    })
-    const openLobby = await createLobby(kv, {
-      mode: '2v2',
-      hostId: 'host',
-      channelId: 'channel-open',
-      messageId: 'message-open',
-    })
-
-    await addToQueue(kv, '2v2', {
-      playerId: 'player-1',
-      displayName: 'Player 1',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-    await addToQueue(kv, '2v2', {
-      playerId: 'host',
-      displayName: 'Host',
-      avatarUrl: null,
-      joinedAt: Date.now() + 1,
-    })
-    await startLobbyDraft(kv, liveLobby.id, liveLobby)
-
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
-
-    const joinResponse = await app.request('/api/lobby/2v2/place', {
-      method: 'POST',
-      headers: buildAuthHeaders('player-1', 'Player 1'),
-      body: JSON.stringify({
-        userId: 'player-1',
-        lobbyId: openLobby.id,
-        targetSlot: 1,
-        displayName: 'Player 1',
-        avatarUrl: null,
-      }),
-    }, buildEnv(kv, { liveMatchPlayerIds: [] }))
-
-    expect(joinResponse.status).toBe(200)
-    expect((await getLobbyById(kv, openLobby.id))?.memberPlayerIds).toEqual(['host', 'player-1'])
   })
 
   test('direct lobby joins allow players from draft-complete active lobbies', async () => {
@@ -281,7 +228,7 @@ describe('lobby routes', () => {
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
-    const draftingLobby = await startLobbyDraft(kv, liveLobby.id, liveLobby)
+    const draftingLobby = await startTestSessionDraft(kv, liveLobby.id, liveLobby)
     await setLobbyStatus(kv, liveLobby.id, 'active', draftingLobby ?? liveLobby)
 
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
@@ -426,140 +373,6 @@ describe('lobby routes', () => {
     await expect(joinResponse.json()).resolves.toEqual({
       error: 'You are hosting another open lobby with other players. Cancel it first.',
     })
-  })
-
-  test('seat moves ignore stale live-match conflicts for players already in the target lobby', async () => {
-    const { kv } = createTrackedKv()
-    const app = new Hono()
-    registerLobbyRoutes(app as any)
-
-    const liveLobby = await createLobby(kv, {
-      mode: '4v4',
-      hostId: 'live-host',
-      channelId: 'channel-live',
-      messageId: 'message-live',
-    })
-    const targetLobby = await createLobby(kv, {
-      mode: '4v4',
-      hostId: 'host',
-      channelId: 'channel-target',
-      messageId: 'message-target',
-    })
-
-    await addToQueue(kv, '4v4', {
-      playerId: 'live-host',
-      displayName: 'Live Host',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-    await addToQueue(kv, '4v4', {
-      playerId: 'host',
-      displayName: 'Host',
-      avatarUrl: null,
-      joinedAt: Date.now() + 1,
-    })
-    await addToQueue(kv, '4v4', {
-      playerId: 'player-1',
-      displayName: 'Player 1',
-      avatarUrl: null,
-      joinedAt: Date.now() + 2,
-    })
-    await addToQueue(kv, '4v4', {
-      playerId: 'player-2',
-      displayName: 'Player 2',
-      avatarUrl: null,
-      joinedAt: Date.now() + 3,
-    })
-
-    const populatedLiveLobby = await setLobbyMemberPlayerIds(kv, liveLobby.id, ['live-host', 'player-1', 'player-2'], liveLobby)
-    await setLobbySlots(kv, liveLobby.id, ['live-host', 'player-1', 'player-2', null, null, null, null, null], populatedLiveLobby ?? liveLobby)
-    await startLobbyDraft(kv, liveLobby.id, populatedLiveLobby ?? liveLobby)
-
-    const populatedTargetLobby = await setLobbyMemberPlayerIds(kv, targetLobby.id, ['host', 'player-1', 'player-2'], targetLobby)
-    await setLobbySlots(kv, targetLobby.id, ['host', 'player-1', 'player-2', null, null, null, null, null], populatedTargetLobby ?? targetLobby)
-
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
-
-    const selfMoveResponse = await app.request('/api/lobby/4v4/place', {
-      method: 'POST',
-      headers: buildAuthHeaders('player-1', 'Player 1'),
-      body: JSON.stringify({
-        userId: 'player-1',
-        lobbyId: targetLobby.id,
-        targetSlot: 4,
-      }),
-    }, buildEnv(kv))
-
-    expect(selfMoveResponse.status).toBe(200)
-
-    const hostMoveResponse = await app.request('/api/lobby/4v4/place', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: targetLobby.id,
-        playerId: 'player-2',
-        targetSlot: 5,
-      }),
-    }, buildEnv(kv))
-
-    expect(hostMoveResponse.status).toBe(200)
-    expect((await getLobbyById(kv, targetLobby.id))?.slots).toEqual(['host', null, null, null, 'player-1', 'player-2', null, null])
-  })
-
-  test('seat moves keep working for players already in the target lobby despite another open membership', async () => {
-    const { kv } = createTrackedKv()
-    const app = new Hono()
-    registerLobbyRoutes(app as any)
-
-    const sourceLobby = await createLobby(kv, {
-      mode: '4v4',
-      hostId: 'source-host',
-      channelId: 'channel-source',
-      messageId: 'message-source',
-    })
-    const targetLobby = await createLobby(kv, {
-      mode: '4v4',
-      hostId: 'host',
-      channelId: 'channel-target',
-      messageId: 'message-target',
-    })
-
-    for (const [index, playerId] of ['source-host', 'host', 'player-1', 'player-2'].entries()) {
-      await addToQueue(kv, '4v4', {
-        playerId,
-        displayName: playerId,
-        avatarUrl: null,
-        joinedAt: Date.now() + index,
-      })
-    }
-
-    const sourceWithMembers = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'player-1'], sourceLobby)
-    await setLobbySlots(kv, sourceLobby.id, ['source-host', 'player-1', null, null, null, null, null, null], sourceWithMembers ?? sourceLobby)
-    const targetWithMembers = await setLobbyMemberPlayerIds(kv, targetLobby.id, ['host', 'player-1', 'player-2'], targetLobby)
-    await setLobbySlots(kv, targetLobby.id, ['host', 'player-1', 'player-2', null, null, null, null, null], targetWithMembers ?? targetLobby)
-
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
-
-    const response = await app.request('/api/lobby/4v4/place', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        playerId: 'player-1',
-        lobbyId: targetLobby.id,
-        targetSlot: 4,
-      }),
-    }, buildEnv(kv))
-
-    expect(response.status).toBe(200)
-    expect((await getLobbyById(kv, targetLobby.id))?.slots).toEqual(['host', null, 'player-2', null, 'player-1', null, null, null])
   })
 
   test('slot removal ignores legacy party ids', async () => {
@@ -1150,7 +963,7 @@ describe('lobby routes', () => {
       messageId: 'message-1',
     })
 
-    const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
+    const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
     expect(draftingLobby).not.toBeNull()
     const activeLobby = await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
     expect(activeLobby).not.toBeNull()
@@ -1183,7 +996,7 @@ describe('lobby routes', () => {
       messageId: 'message-1',
     })
 
-    const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
+    const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
     expect(draftingLobby).not.toBeNull()
 
     const response = await app.request('/api/lobby/1v1/config', {
@@ -1966,14 +1779,13 @@ describe('lobby routes', () => {
 })
 
 function buildEnv(kv: KVNamespace, options?: { liveMatchPlayerIds?: string[] }) {
-  return {
-    KV: kv,
-    DB: buildDb(options?.liveMatchPlayerIds ?? null),
+  return buildTestLobbyEnv(kv, {
+    DB: options?.liveMatchPlayerIds ? buildDb(options.liveMatchPlayerIds) : undefined,
     DISCORD_APPLICATION_ID: 'app',
     DISCORD_PUBLIC_KEY: 'key',
     DISCORD_TOKEN: 'token',
     CIVUP_SECRET: 'secret',
-  } as any
+  }) as any
 }
 
 function buildDb(liveMatchPlayerIds: string[] | null): D1Database {

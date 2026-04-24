@@ -1,7 +1,7 @@
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from './types.ts'
 import { syncActivityOverviewSnapshot } from '../activity/live-state.ts'
-import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
+import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
 import { bumpCooldownKey, channelIndexKey, channelPrefix, hostKey, idKey, LOBBY_HOST_KEY_PREFIX, LOBBY_ID_KEY_PREFIX, LOBBY_TTL, modeIndexKey, modePrefix } from './keys.ts'
 import { lobbySnapshotKey } from './live-snapshot.ts'
 import { normalizeLobby, parseLobbyState } from './normalize.ts'
@@ -22,7 +22,7 @@ export async function getLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise
     return await recoverLobbiesByMode(kv, mode)
   }
 
-  const rawLobbies = await stateStoreMget(
+  const rawLobbies = await kvMget(
     kv,
     lobbyIds.map(lobbyId => ({ key: idKey(lobbyId), type: 'json' })),
   )
@@ -70,7 +70,7 @@ export async function getLobbiesByChannel(kv: KVNamespace, channelId: string): P
     return await recoverLobbiesByChannel(kv, channelId)
   }
 
-  const rawLobbies = await stateStoreMget(
+  const rawLobbies = await kvMget(
     kv,
     lobbyIds.map(lobbyId => ({ key: idKey(lobbyId), type: 'json' })),
   )
@@ -163,7 +163,7 @@ export async function getCurrentLobbyHostedBy(kv: KVNamespace, hostId: string): 
     return lobby
   }
 
-  await stateStoreMdelete(kv, [hostKey(hostId)])
+  await kvMdelete(kv, [hostKey(hostId)])
   return await recoverCurrentLobbyHostedBy(kv, hostId)
 }
 
@@ -204,7 +204,7 @@ export async function clearLobbyById(
     keys.push(modeIndexKey(lobby.mode, lobby.id))
     keys.push(channelIndexKey(lobby.channelId, lobby.id))
   }
-  await stateStoreMdelete(kv, keys)
+  await kvMdelete(kv, keys)
   if (lobby && options?.syncActivityOverview !== false) await syncActivityOverviewSnapshot(kv, lobby.channelId)
 }
 
@@ -212,7 +212,7 @@ export async function clearLobbiesByMode(kv: KVNamespace, mode: GameMode): Promi
   const lobbies = await getLobbiesByMode(kv, mode)
   if (lobbies.length === 0) return
   const channelIds = [...new Set(lobbies.map(lobby => lobby.channelId))]
-  await stateStoreMdelete(kv, lobbies.flatMap((lobby) => {
+  await kvMdelete(kv, lobbies.flatMap((lobby) => {
     const keys = [
       idKey(lobby.id),
       lobbySnapshotKey(lobby.id),
@@ -249,7 +249,7 @@ export async function putLobbyEntries(
   ]
   entries.push(...buildLobbyProjectionEntries(lobby))
   entries.push(...additionalEntries)
-  await stateStoreMput(kv, entries)
+  await kvMput(kv, entries)
 }
 
 async function getAllLobbies(kv: KVNamespace): Promise<LobbyState[]> {
@@ -260,7 +260,7 @@ async function getAllLobbies(kv: KVNamespace): Promise<LobbyState[]> {
 
   if (lobbyIds.length === 0) return []
 
-  const rawLobbies = await stateStoreMget(
+  const rawLobbies = await kvMget(
     kv,
     lobbyIds.map(lobbyId => ({ key: idKey(lobbyId), type: 'json' })),
   )
@@ -297,7 +297,7 @@ async function recoverLobbiesByChannel(kv: KVNamespace, channelId: string): Prom
 async function findHostKeysForLobby(kv: KVNamespace, lobbyId: string): Promise<string[]> {
   const listed = await kv.list({ prefix: LOBBY_HOST_KEY_PREFIX })
   const hostKeys = listed.keys.map(entry => entry.name)
-  const hostLobbyIds = await stateStoreMget(kv, hostKeys.map(key => ({ key })))
+  const hostLobbyIds = await kvMget(kv, hostKeys.map(key => ({ key })))
 
   return hostKeys.filter((key, index) => hostLobbyIds[index] === lobbyId)
 }
@@ -356,5 +356,5 @@ async function repairLobbyProjectionEntries(
   }
 
   if (entryByKey.size === 0) return
-  await stateStoreMput(kv, [...entryByKey.values()])
+  await kvMput(kv, [...entryByKey.values()])
 }

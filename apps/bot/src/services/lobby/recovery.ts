@@ -1,6 +1,6 @@
 import type { DraftState, DraftStep, QueueEntry } from '@civup/game'
 import type { LobbyState } from './types.ts'
-import { stateStoreMput } from '../state/store.ts'
+import { kvMput } from '../kv/batch.ts'
 import { draftRosterKey, LOBBY_TTL } from './keys.ts'
 import { putLobby } from './store.ts'
 
@@ -22,7 +22,7 @@ export async function storeLobbyDraftRoster(
   entries: QueueEntry[],
 ): Promise<void> {
   const normalized = normalizeQueueEntries(entries)
-  await stateStoreMput(kv, [{
+  await kvMput(kv, [{
     key: draftRosterKey(lobbyId),
     value: JSON.stringify(normalized),
     expirationTtl: LOBBY_TTL,

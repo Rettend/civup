@@ -2,7 +2,7 @@ import type { GameMode } from '@civup/game'
 import type { LobbyState } from '../lobby/types.ts'
 import { idKey, LOBBY_ID_KEY_PREFIX, LOBBY_TTL } from '../lobby/keys.ts'
 import { parseLobbyState } from '../lobby/normalize.ts'
-import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
+import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
 
 export interface ActivityOverviewOptionSnapshot {
   kind: 'lobby' | 'match'
@@ -36,11 +36,11 @@ export async function syncActivityOverviewSnapshot(kv: KVNamespace, channelId: s
   const key = activityOverviewKey(channelId)
 
   if (!snapshot) {
-    await stateStoreMdelete(kv, [key])
+    await kvMdelete(kv, [key])
     return null
   }
 
-  await stateStoreMput(kv, [{
+  await kvMput(kv, [{
     key,
     value: JSON.stringify(snapshot),
     expirationTtl: LOBBY_TTL,
@@ -62,7 +62,7 @@ export async function syncActivityOverviewSnapshotForLobby(kv: KVNamespace, lobb
 
   const key = activityOverviewKey(lobby.channelId)
   if (options.length === 0) {
-    await stateStoreMdelete(kv, [key])
+    await kvMdelete(kv, [key])
     return null
   }
 
@@ -70,7 +70,7 @@ export async function syncActivityOverviewSnapshotForLobby(kv: KVNamespace, lobb
     channelId: lobby.channelId,
     options,
   }
-  await stateStoreMput(kv, [{
+  await kvMput(kv, [{
     key,
     value: JSON.stringify(snapshot),
     expirationTtl: LOBBY_TTL,
@@ -96,7 +96,7 @@ async function getChannelLobbiesForOverview(kv: KVNamespace, channelId: string):
 
   if (lobbyIds.length === 0) return []
 
-  const rawLobbies = await stateStoreMget(
+  const rawLobbies = await kvMget(
     kv,
     lobbyIds.map(lobbyId => ({ key: idKey(lobbyId), type: 'json' })),
   )

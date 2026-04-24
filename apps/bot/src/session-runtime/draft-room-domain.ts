@@ -2,8 +2,6 @@ import type {
   DraftEvent,
   DraftPreviewState,
   DraftState,
-  DraftWebhookEventKind,
-  DraftWebhookPayload,
   LeaderSwapRequest,
   LeaderSwapState,
   MapVoteSelection,
@@ -12,6 +10,7 @@ import type {
   RevealedMapVoteSeatBallot,
   RoomConfig,
 } from '@civup/game'
+import type { DraftLifecyclePayload as DraftWebhookPayload } from './draft-lifecycle-events.ts'
 import type { MapVoteSelectionUpdateResult, StoredMapVoteState } from './map-vote-room-state.ts'
 import {
   createMapVoteRng,
@@ -730,7 +729,7 @@ function normalizeStoredDraftWebhookPayload(value: unknown): DraftWebhookPayload
   if (raw.outcome === 'complete' && typeof raw.completedAt === 'number' && raw.state.status === 'complete') {
     return {
       eventId: raw.eventId,
-      eventKind: raw.eventKind as DraftWebhookEventKind,
+      eventKind: raw.eventKind === 'SwapAccepted' || raw.eventKind === 'DraftFinalized' ? raw.eventKind : 'DraftCompleted',
       eventSequence: raw.eventSequence,
       outcome: 'complete',
       matchId: raw.matchId,
@@ -750,7 +749,7 @@ function normalizeStoredDraftWebhookPayload(value: unknown): DraftWebhookPayload
   ) {
     return {
       eventId: raw.eventId,
-      eventKind: raw.eventKind as DraftWebhookEventKind,
+      eventKind: 'DraftCancelled',
       eventSequence: raw.eventSequence,
       outcome: 'cancelled',
       matchId: raw.matchId,

@@ -16,7 +16,7 @@ import { clearQueue, getQueueState } from '../services/queue/index.ts'
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../services/ranked/role-sync.ts'
 import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
-import { createStateStore } from '../services/state/store.ts'
+import { getKvStore } from '../services/kv/batch.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 import { factory } from '../setup'
 import { buildFfaPlacementOptions, collectFfaPlacementUserIds } from './match/shared'
@@ -42,7 +42,7 @@ export const command_mod = factory.command<ModVar>(
   ),
   async (c) => {
     const guildId = c.interaction.guild_id
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     if (!guildId) {
       return c.flags('EPHEMERAL').resDefer(async (c) => {
         await sendTransientEphemeralResponse(c, 'This command can only be used in a server.', 'error')

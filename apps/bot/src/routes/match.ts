@@ -10,7 +10,7 @@ import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../services/ranked/role-sync.ts'
 import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
-import { createStateStore } from '../services/state/store.ts'
+import { getKvStore } from '../services/kv/batch.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from './auth.ts'
 
 export function registerMatchRoutes(app: Hono<Env>) {
@@ -47,7 +47,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     let body: unknown
     try {
       body = await c.req.json()
@@ -180,7 +180,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     let body: unknown
     try {
       body = await c.req.json()

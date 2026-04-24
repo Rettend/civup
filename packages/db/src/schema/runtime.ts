@@ -22,18 +22,6 @@ export const leaderboardDirtyStates = sqliteTable('leaderboard_dirty_states', {
   reason: text('reason'),
 })
 
-export const processedDraftWebhookEvents = sqliteTable('processed_draft_webhook_events', {
-  eventId: text('event_id').primaryKey(),
-  matchId: text('match_id').notNull(),
-  outcome: text('outcome').notNull(),
-  eventKind: text('event_kind').notNull(),
-  eventSequence: integer('event_sequence', { mode: 'number' }),
-  claimedAt: integer('claimed_at', { mode: 'number' }).notNull(),
-  processedAt: integer('processed_at', { mode: 'number' }),
-  createdAt: integer('created_at', { mode: 'number' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'number' }).notNull(),
-})
-
 export const sessionDirectory = sqliteTable('session_directory', {
   sessionId: text('session_id').primaryKey(),
   phase: text('phase').notNull(),

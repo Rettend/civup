@@ -6,7 +6,6 @@ import * as cron from './cron/cleanup.ts'
 import { registerApiRoutes } from './routes/index.ts'
 import { Main } from './session-runtime/main.ts'
 import { SessionDO } from './session-runtime/session-do.ts'
-import { State } from './session-runtime/state-store.ts'
 import { factory } from './setup.ts'
 
 interface DiscordInteractionEnvelope {
@@ -25,7 +24,7 @@ const discordApp = factory.discord().loader([
 
 const app = new Hono<Env>()
 
-export { Main, SessionDO, State }
+export { Main, SessionDO }
 
 app.onError((error, c) => {
   console.error('[bot:unhandled]', c.req.method, new URL(c.req.url).pathname, error)
@@ -60,7 +59,6 @@ async function handleBotPartyRequest(request: Request, env: Env['Bindings']): Pr
   const partyNamespace = getBotPartyNamespace(request)
   if (!partyNamespace) return null
   if (partyNamespace === 'main' && !env.Main) return new Response('Draft runtime is not configured', { status: 503 })
-  if (partyNamespace === 'state' && !env.State) return new Response('State runtime is not configured', { status: 503 })
 
   return await routePartykitRequest(request, env, { prefix: 'parties' })
 }
@@ -103,10 +101,9 @@ function isDiscordInteractionRequest(request: Request): boolean {
     && request.headers.has('X-Signature-Timestamp')
 }
 
-function getBotPartyNamespace(request: Request): 'main' | 'state' | null {
+function getBotPartyNamespace(request: Request): 'main' | null {
   const pathname = new URL(request.url).pathname
   if (pathname === '/parties/main' || pathname.startsWith('/parties/main/')) return 'main'
-  if (pathname === '/parties/state' || pathname.startsWith('/parties/state/')) return 'state'
   return null
 }
 

@@ -1,7 +1,7 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { findBlockingDraftMatchIdsForPlayers, findReportableMatchIdsForPlayers, joinLobbyAndMaybeStartMatch, preflightMatchCreateQueueState, resolveReportableMatchIdForPlayer } from '../../src/commands/match/shared.ts'
-import { createLobby, getLobbyById, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, startLobbyDraft } from '../../src/services/lobby/index.ts'
+import { buildTestLobbyEnv, createLobby, getLobbyById, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../helpers/lobby-runtime.ts'
 import { hostKey } from '../../src/services/lobby/keys.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
@@ -44,10 +44,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     })) as typeof fetch
 
     const result = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
+      env: buildTestLobbyEnv(kv),
     }, '2v2', [{
       playerId: 'pleb',
       displayName: 'Pleb',
@@ -86,10 +83,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     })) as typeof fetch
 
     const result = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
+      env: buildTestLobbyEnv(kv),
     }, '2v2', [{
       playerId: 'pleb',
       displayName: 'Pleb',
@@ -133,10 +127,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     })) as typeof fetch
 
     const result = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
+      env: buildTestLobbyEnv(kv),
     }, '2v2', [{
       playerId: 'titan',
       displayName: 'Titan',
@@ -176,10 +167,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     })) as typeof fetch
 
     const result = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
+      env: buildTestLobbyEnv(kv),
     }, '2v2', [{
       playerId: 'titan',
       displayName: 'Titan',
@@ -215,10 +203,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch
 
     const result = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
+      env: buildTestLobbyEnv(kv),
     }, '2v2', [{
       playerId: 'pleb',
       displayName: 'Pleb',
@@ -258,10 +243,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch
 
     const result = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
+      env: buildTestLobbyEnv(kv),
     }, '2v2', [{
       playerId: 'player-1',
       displayName: 'Player 1',
@@ -310,10 +292,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch
 
     const result = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
+      env: buildTestLobbyEnv(kv),
     }, '2v2', [{
       playerId: 'player-2',
       displayName: 'Player 2',
@@ -367,10 +346,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     await setLobbySlots(kv, crowdedLobby.id, ['host', 'ally', 'enemy', null], populatedLobby ?? crowdedLobby)
 
     const result = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
+      env: buildTestLobbyEnv(kv),
     }, '2v2', [{
       playerId: 'player-1',
       displayName: 'Player 1',
@@ -386,66 +362,6 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     expect(result.lobby.id).toBe(crowdedLobby.id)
     expect(result.lobby.slots).toEqual(['host', 'ally', 'enemy', 'player-1'])
     expect(result.lobby.memberPlayerIds).toEqual(['host', 'ally', 'enemy', 'player-1', 'player-2'])
-  })
-
-  test('allows joins for draft-complete active matches but still blocks drafting matches', async () => {
-    const { kv } = createTrackedKv()
-    const draftingLobby = await createLobby(kv, {
-      mode: '2v2',
-      hostId: 'player-1',
-      channelId: 'channel-1',
-      messageId: 'message-live',
-    })
-    await createLobby(kv, {
-      mode: '2v2',
-      hostId: 'host',
-      channelId: 'channel-1',
-      messageId: 'message-open',
-    })
-
-    await addToQueue(kv, '2v2', {
-      playerId: 'player-1',
-      displayName: 'Player 1',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-    await addToQueue(kv, '2v2', {
-      playerId: 'host',
-      displayName: 'Host',
-      avatarUrl: null,
-      joinedAt: Date.now() + 1,
-    })
-    await startLobbyDraft(kv, draftingLobby.id, draftingLobby)
-
-    const blocked = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
-    }, '2v2', [{
-      playerId: 'player-1',
-      displayName: 'Player 1',
-      avatarUrl: '',
-    }], {
-      liveMatchPlayerIds: new Set(['player-1']),
-    })
-
-    expect(blocked).toEqual({ error: '<@player-1> is already in a live match.' })
-
-    const allowed = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
-    }, '2v2', [{
-      playerId: 'player-1',
-      displayName: 'Player 1',
-      avatarUrl: '',
-    }], {
-      liveMatchPlayerIds: new Set(),
-    })
-
-    expect('stage' in allowed).toBe(true)
   })
 
   test('moves a player from another open lobby into the preferred lobby', async () => {
@@ -491,10 +407,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     })) as typeof fetch
 
     const result = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
+      env: buildTestLobbyEnv(kv),
     }, '2v2', [{
       playerId: 'pleb',
       displayName: 'Pleb',

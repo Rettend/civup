@@ -4,7 +4,7 @@ import { Command, Option } from 'discord-hono'
 import { rankedPreviewEmbeds } from '../embeds/ranked-preview.ts'
 import { summarizeRankedPreview } from '../services/ranked/role-sync.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
-import { createStateStore } from '../services/state/store.ts'
+import { getKvStore } from '../services/kv/batch.ts'
 import { factory } from '../setup.ts'
 
 const MODE_CHOICES = [
@@ -28,7 +28,7 @@ export const command_tiers = factory.command<Var>(
 
     return resDeferGeneralCommandResponse(c, async (c) => {
       const db = createDb(c.env.DB)
-      const kv = createStateStore(c.env)
+      const kv = getKvStore(c.env)
       const summary = await summarizeRankedPreview({
         db,
         kv,

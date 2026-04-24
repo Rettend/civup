@@ -6,7 +6,7 @@ import {
   getLobbyForUser,
   getMatchForUser,
 } from '../../src/services/activity/index.ts'
-import { createLobby, setLobbyMemberPlayerIds, startLobbyDraft } from '../../src/services/lobby/index.ts'
+import { createLobby, setLobbyMemberPlayerIds, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
@@ -47,7 +47,7 @@ describe('activity canonical lookup behavior', () => {
       channelId: 'channel-1',
       messageId: 'message-1',
     })
-    await startLobbyDraft(kv, lobby.id, lobby)
+    await startTestSessionDraft(kv, lobby.id, lobby)
 
     await expect(getMatchForUser(kv, 'user-1')).resolves.toBe(lobby.id)
     await expect(kv.get(`activity-match:${lobby.id}`)).resolves.toBeNull()
@@ -63,7 +63,7 @@ describe('activity canonical lookup behavior', () => {
       messageId: 'message-1',
     })
 
-    await startLobbyDraft(kv, lobby.id, lobby)
+    await startTestSessionDraft(kv, lobby.id, lobby)
 
     await expect(getChannelForMatch(kv, lobby.id)).resolves.toBe('channel-1')
     await expect(kv.get(`activity-match:${lobby.id}`)).resolves.toBeNull()
@@ -134,7 +134,6 @@ describe('draft room creation', () => {
     await createDraftRoom('1v1', baseFfaEntries.slice(0, 2), {
       matchId: 'session-main-do',
       hostId: 'p1',
-      webhookSecret: 'secret',
       mainNamespace: createMainNamespaceStub(async (request, roomName) => {
         const url = new URL(request.url)
         if (url.pathname === '/cdn-cgi/partyserver/set-name/') return Response.json({ ok: true })

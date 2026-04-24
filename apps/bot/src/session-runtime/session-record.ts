@@ -221,6 +221,30 @@ export function buildLobbyStateFromSessionRecord(
   }
 }
 
+export function buildLobbyProjectionFromSessionRecord(record: SessionRecord): LobbyState {
+  return {
+    id: record.id,
+    mode: record.mode,
+    status: mapSessionPhaseToLobbyStatus(record.phase, 'cancelled'),
+    guildId: record.guildId,
+    hostId: record.hostId,
+    channelId: record.projectionState.channelId,
+    messageId: record.projectionState.messageId,
+    matchId: record.matchId,
+    steamLobbyLink: record.projectionState.steamLobbyLink,
+    minRole: record.config.minRole,
+    maxRole: record.config.maxRole,
+    lastArrange: record.lastArrange,
+    lastActivityAt: record.lastActivityAt,
+    memberPlayerIds: record.roster.participants.map(member => member.playerId),
+    slots: [...record.roster.slots],
+    draftConfig: buildLobbyDraftConfigFromSessionConfig(record.config),
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    revision: record.version,
+  }
+}
+
 export function buildLobbyDraftConfigFromSessionConfig(config: SessionConfig): LobbyDraftConfig {
   return {
     banTimerSeconds: config.banTimerSeconds,

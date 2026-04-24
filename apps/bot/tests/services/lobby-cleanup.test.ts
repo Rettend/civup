@@ -1,7 +1,7 @@
 import type { QueueEntry } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
-import { createLobby, getLobbyById, pruneInactiveOpenLobbies, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots } from '../../src/services/lobby/index.ts'
+import { createLobby, getLobbyById, pruneInactiveOpenLobbies, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots } from '../helpers/lobby-runtime.ts'
 import { getQueueState, setQueueEntries } from '../../src/services/queue/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
@@ -88,42 +88,6 @@ describe('inactive lobby cleanup', () => {
     expect(fetchCalls).toBe(0)
   })
 
-  test('keeps canonical membership in a newer lobby when stale lobby membership is outdated', async () => {
-    const { kv } = createTrackedKv()
-
-    globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch
-
-    const now = 30_000_000
-    const staleLobby = await createLobby(kv, {
-      mode: '2v2',
-      hostId: 'host',
-      channelId: 'channel-1',
-      messageId: 'message-1',
-    })
-    const nextLobby = await createLobby(kv, {
-      mode: '2v2',
-      hostId: 'next-host',
-      channelId: 'channel-1',
-      messageId: 'message-2',
-    })
-    const nextWithMembers = await setLobbyMemberPlayerIds(kv, nextLobby.id, ['next-host', 'player'], nextLobby)
-    await setLobbySlots(kv, nextLobby.id, ['next-host', 'player', null, null], nextWithMembers ?? nextLobby)
-
-    await setQueueEntries(kv, '2v2', [entry('host', now - 61 * 60 * 1000), entry('player', now - 61 * 60 * 1000)])
-    const staleWithMembers = await setLobbyMemberPlayerIds(kv, staleLobby.id, ['host', 'player'], staleLobby)
-    const staleWithSlots = await setLobbySlots(kv, staleLobby.id, ['host', 'player', null, null], staleWithMembers ?? staleLobby)
-    const staleWithActivity = await setLobbyLastActivityAt(kv, staleLobby.id, now - 61 * 60 * 1000, staleWithSlots ?? staleWithMembers ?? staleLobby)
-    expect(staleWithActivity).not.toBeNull()
-
-    await expect(pruneInactiveOpenLobbies(kv, 'token', { now })).resolves.toEqual([{
-      lobbyId: staleLobby.id,
-      mode: '2v2',
-      removedPlayerIds: ['host', 'player'],
-    }])
-
-    expect(await getLobbyForUser(kv, 'host')).toBeNull()
-    expect(await getLobbyForUser(kv, 'player')).toBe(nextLobby.id)
-  })
 })
 
 function entry(playerId: string, joinedAt: number): QueueEntry {

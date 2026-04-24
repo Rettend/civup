@@ -9,7 +9,7 @@ import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, norm
 import { attachLobbyBalanceRatings, buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
 import { getQueueState, parseQueueState, queueKey } from '../../services/queue/index.ts'
 import { normalizeRankedRoleTierId } from '../../services/ranked/roles.ts'
-import { stateStoreMget } from '../../services/state/store.ts'
+import { kvMget } from '../../services/kv/batch.ts'
 
 export async function buildOpenLobbySnapshot(
   kv: KVNamespace,
@@ -50,7 +50,7 @@ export async function getQueueStateWithLobbyBalanceSnapshot(
     }
   }
 
-  const [rawQueueState, rawBalanceSnapshot] = await stateStoreMget(kv, [
+  const [rawQueueState, rawBalanceSnapshot] = await kvMget(kv, [
     { key: queueKey(mode), type: 'json' },
     { key: leaderboardModeSnapshotKey(leaderboardMode), type: 'json' },
   ])

@@ -16,7 +16,7 @@ import {
 
 } from '../services/leaderboard/team-snapshot.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
-import { createStateStore } from '../services/state/store.ts'
+import { getKvStore } from '../services/kv/batch.ts'
 import { factory } from '../setup.ts'
 
 type LeaderboardView = 'players' | 'teams'
@@ -57,7 +57,7 @@ export const command_leaderboard = factory.command<Var>(
 
     return resDeferGeneralCommandResponse(c, async (c) => {
       const db = createDb(c.env.DB)
-      const kv = createStateStore(c.env)
+      const kv = getKvStore(c.env)
       return await buildLeaderboardCommandPayload(db, kv, requestedMode, {
         view,
         teamSize,

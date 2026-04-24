@@ -21,7 +21,7 @@ import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRole
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { syncSeasonPeaksForPlayers } from '../../services/season/index.ts'
 import { formatSessionAdmissionError, isSessionAdmissionError } from '../../services/session/index.ts'
-import { createStateStore } from '../../services/state/store.ts'
+import { getKvStore } from '../../services/kv/batch.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
 import { factory } from '../../setup.ts'
@@ -93,7 +93,7 @@ export const command_match = factory.command<MatchVar>(
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           try {
-            const kv = createStateStore(c.env)
+            const kv = getKvStore(c.env)
             const draftChannelId = await getSystemChannel(kv, 'draft')
             if (!draftChannelId) {
               await sendTransientEphemeralResponse(
@@ -278,7 +278,7 @@ export const command_match = factory.command<MatchVar>(
       // ── join ────────────────────────────────────────────
       case 'join': {
         const mode = parseGameMode(c.var.mode)
-        const kv = createStateStore(c.env)
+        const kv = getKvStore(c.env)
         const identity = getIdentity(c)
         if (!mode) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
@@ -376,7 +376,7 @@ export const command_match = factory.command<MatchVar>(
         }
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const kv = createStateStore(c.env)
+          const kv = getKvStore(c.env)
           const targetId = c.var.match_id?.trim() ?? null
 
           if (targetId) {
@@ -455,7 +455,7 @@ export const command_match = factory.command<MatchVar>(
         }
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const kv = createStateStore(c.env)
+          const kv = getKvStore(c.env)
           const currentMode = await getPlayerQueueMode(kv, identity.userId)
           const currentLobby = currentMode ? await getOpenLobbyForPlayer(kv, identity.userId, currentMode) : null
 
@@ -521,7 +521,7 @@ export const command_match = factory.command<MatchVar>(
         }
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const kv = createStateStore(c.env)
+          const kv = getKvStore(c.env)
           const targetId = c.var.match_id?.trim() ?? null
           const resolvedTarget = await resolveLobbyBumpTarget(kv, identity.userId, targetId)
           if ('error' in resolvedTarget) {
@@ -612,7 +612,7 @@ export const command_match = factory.command<MatchVar>(
         }
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const kv = createStateStore(c.env)
+          const kv = getKvStore(c.env)
           const targetId = c.var.match_id?.trim() ?? null
           const resolvedTarget = await resolveHostedSteamLobbyTarget(kv, identity.userId, targetId)
           if ('error' in resolvedTarget) {
@@ -650,7 +650,7 @@ export const command_match = factory.command<MatchVar>(
       // ── status ──────────────────────────────────────────
       case 'status': {
         return c.resDefer(async (c) => {
-          const kv = createStateStore(c.env)
+          const kv = getKvStore(c.env)
           const modes = GAME_MODES
           const lines: string[] = []
           const guildId = c.interaction.guild_id ?? null
@@ -698,7 +698,7 @@ export const command_match = factory.command<MatchVar>(
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           const db = createDb(c.env.DB)
-          const kv = createStateStore(c.env)
+          const kv = getKvStore(c.env)
 
           const resolvedReportableMatch = await resolveReportableMatchIdForPlayer(db, identity.userId, c.var.match_id)
           if (resolvedReportableMatch.error) {

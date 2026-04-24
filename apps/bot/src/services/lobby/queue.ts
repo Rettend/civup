@@ -1,7 +1,7 @@
 import type { GameMode, QueueState } from '@civup/game'
 import type { LobbyState } from './types.ts'
 import { parseQueueState } from '../queue/index.ts'
-import { stateStoreMget } from '../state/store.ts'
+import { kvMget } from '../kv/batch.ts'
 import { parseLobbyState } from './normalize.ts'
 
 const LOBBY_MODE_KEY_PREFIX = 'lobby:mode:'
@@ -11,7 +11,7 @@ export async function getLobbyAndQueueState(
   kv: KVNamespace,
   mode: GameMode,
 ): Promise<{ lobby: LobbyState | null, queue: QueueState }> {
-  const [rawLobby, rawQueue] = await stateStoreMget(kv, [
+  const [rawLobby, rawQueue] = await kvMget(kv, [
     { key: `${LOBBY_MODE_KEY_PREFIX}${mode}`, type: 'json' },
     { key: `${QUEUE_KEY_PREFIX}${mode}`, type: 'json' },
   ])

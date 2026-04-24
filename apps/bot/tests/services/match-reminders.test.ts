@@ -1,6 +1,6 @@
 import { matches } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { createLobby, setLobbyStatus, startLobbyDraft } from '../../src/services/lobby/index.ts'
+import { createLobby, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { sendOverdueHostReportReminders } from '../../src/services/match/reminders.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -45,7 +45,7 @@ describe('host report reminders', () => {
         channelId: 'channel-1',
         messageId: 'message-1',
       })
-      const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
+      const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
       await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
       const matchId = lobby.id
 
@@ -120,7 +120,7 @@ describe('host report reminders', () => {
         channelId: 'channel-2',
         messageId: 'message-2',
       })
-      const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
+      const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
       await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
       const matchId = lobby.id
 
@@ -170,7 +170,7 @@ describe('host report reminders', () => {
         channelId: 'channel-fail',
         messageId: 'message-fail',
       })
-      const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
+      const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
       await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
       const matchId = lobby.id
 
@@ -249,7 +249,7 @@ describe('host report reminders', () => {
           channelId: `channel-${suffix}`,
           messageId: `message-${suffix}`,
         })
-        const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
+        const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
         await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
         const matchId = lobby.id
 

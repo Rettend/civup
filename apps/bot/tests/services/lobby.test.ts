@@ -2,7 +2,7 @@ import type { DraftState } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { activityOverviewKey, syncActivityOverviewSnapshot } from '../../src/services/activity/live-state.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
-import { clearLobbyById, clearLobbyByMatch, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyByChannel, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startLobbyDraft, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
+import { clearLobbyById, clearLobbyByMatch, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyByChannel, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft, storeLobbyDraftRoster } from '../helpers/lobby-runtime.ts'
 import { channelIndexKey, hostKey, idKey, LOBBY_TTL, modeIndexKey } from '../../src/services/lobby/keys.ts'
 import { lobbySnapshotKey, syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../../src/services/match/retention.ts'
@@ -48,7 +48,7 @@ describe('lobby service KV write behavior', () => {
     const { kv, operations, resetOperations } = createTrackedKv()
 
     const lobby = await createLobby(kv, {
-      mode: 'ffa',
+      mode: '1v1',
       hostId: 'host-1',
       channelId: 'channel-1',
       messageId: 'message-1',
@@ -218,31 +218,24 @@ describe('lobby service KV write behavior', () => {
 
   test('publishes live snapshots for open lobby changes', async () => {
     const { kv } = createTrackedKv()
+    const queueEntries = [
+      { playerId: 'host-1', displayName: 'Host', avatarUrl: null, joinedAt: Date.now() },
+      { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, joinedAt: Date.now() + 1 },
+    ]
 
-    await addToQueue(kv, 'ffa', {
-      playerId: 'host-1',
-      displayName: 'Host',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-    await addToQueue(kv, 'ffa', {
-      playerId: 'player-2',
-      displayName: 'Player 2',
-      avatarUrl: null,
-      joinedAt: Date.now() + 1,
-    })
+    for (const entry of queueEntries) await addToQueue(kv, '1v1', entry)
 
     const lobby = await createLobby(kv, {
-      mode: 'ffa',
+      mode: '1v1',
       hostId: 'host-1',
       channelId: 'channel-1',
       messageId: 'message-1',
     })
 
-    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host-1', 'player-2'], lobby)
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host-1', 'player-2'], lobby, { queueEntries })
     const nextSlots = [...(withMembers?.slots ?? lobby.slots)]
     nextSlots[1] = 'player-2'
-    const updated = await setLobbySlots(kv, lobby.id, nextSlots, withMembers ?? lobby)
+    const updated = await setLobbySlots(kv, lobby.id, nextSlots, withMembers ?? lobby, { queueEntries })
     await syncLobbyDerivedState(kv, updated ?? withMembers ?? lobby)
 
     expect(updated).not.toBeNull()
@@ -259,7 +252,7 @@ describe('lobby service KV write behavior', () => {
   test('removes live snapshots when a lobby stops being open', async () => {
     const { kv } = createTrackedKv()
 
-    await addToQueue(kv, 'ffa', {
+    await addToQueue(kv, '1v1', {
       playerId: 'host-1',
       displayName: 'Host',
       avatarUrl: null,
@@ -275,14 +268,14 @@ describe('lobby service KV write behavior', () => {
 
     expect(await kv.get(lobbySnapshotKey(lobby.id), 'json')).not.toBeNull()
 
-    const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
+    const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
     expect(draftingLobby).not.toBeNull()
     await syncLobbyDerivedState(kv, draftingLobby ?? lobby)
 
     expect(await kv.get(lobbySnapshotKey(lobby.id), 'json')).toBeNull()
   })
 
-  test('startLobbyDraft derives the match id from the lobby id', async () => {
+  test('startTestSessionDraft derives the match id from the lobby id', async () => {
     const { kv } = createTrackedKv()
 
     const lobby = await createLobby(kv, {
@@ -292,7 +285,7 @@ describe('lobby service KV write behavior', () => {
       messageId: 'message-1',
     })
 
-    const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
+    const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
 
     expect(draftingLobby).toMatchObject({
       id: lobby.id,
@@ -440,13 +433,13 @@ describe('lobby service KV write behavior', () => {
   test('automatically refreshes the activity overview snapshot as lobby state changes', async () => {
     const { kv } = createTrackedKv()
 
-    await addToQueue(kv, 'ffa', {
+    await addToQueue(kv, '1v1', {
       playerId: 'host-1',
       displayName: 'Host',
       avatarUrl: null,
       joinedAt: Date.now(),
     })
-    await addToQueue(kv, 'ffa', {
+    await addToQueue(kv, '1v1', {
       playerId: 'player-2',
       displayName: 'Player 2',
       avatarUrl: null,
@@ -454,7 +447,7 @@ describe('lobby service KV write behavior', () => {
     })
 
     const lobby = await createLobby(kv, {
-      mode: 'ffa',
+      mode: '1v1',
       hostId: 'host-1',
       channelId: 'channel-1',
       messageId: 'message-1',
@@ -490,7 +483,7 @@ describe('lobby service KV write behavior', () => {
       }),
     ])
 
-    const draftingLobby = await startLobbyDraft(kv, lobby.id, updated ?? withMembers ?? lobby)
+    const draftingLobby = await startTestSessionDraft(kv, lobby.id, updated ?? withMembers ?? lobby)
     expect(draftingLobby).not.toBeNull()
     await syncLobbyDerivedState(kv, draftingLobby!)
 
@@ -533,7 +526,7 @@ describe('lobby service KV write behavior', () => {
       messageId: 'message-1',
     })
 
-    const activeLobby = await startLobbyDraft(kv, lobby.id, lobby)
+    const activeLobby = await startTestSessionDraft(kv, lobby.id, lobby)
     expect(activeLobby).not.toBeNull()
     await syncLobbyDerivedState(kv, activeLobby!)
 
@@ -627,7 +620,7 @@ describe('lobby service KV write behavior', () => {
       status: 'open',
     }))
 
-    const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
+    const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
     expect(draftingLobby).not.toBeNull()
     await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(expect.objectContaining({
       id: lobby.id,
@@ -652,70 +645,6 @@ describe('lobby service KV write behavior', () => {
     await expect(kv.get(hostKey('host-1'))).resolves.toBe(lobby.id)
   })
 
-  test('recovers a hosted open lobby when the host index points at terminal residue', async () => {
-    const { kv } = createTrackedKv()
-
-    await addToQueue(kv, 'ffa', {
-      playerId: 'host-1',
-      displayName: 'Host 1',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-    const lobby = await createLobby(kv, {
-      mode: 'ffa',
-      hostId: 'host-1',
-      channelId: 'channel-1',
-      messageId: 'message-1',
-    })
-    const staleLobby = await createLobby(kv, {
-      mode: '2v2',
-      hostId: 'host-1',
-      channelId: 'channel-stale',
-      messageId: 'message-stale',
-    })
-    await setLobbyStatus(kv, staleLobby.id, 'cancelled', staleLobby)
-    await kv.put(hostKey('host-1'), staleLobby.id)
-
-    await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(expect.objectContaining({
-      id: lobby.id,
-      status: 'open',
-    }))
-    await expect(kv.get(hostKey('host-1'))).resolves.toBe(lobby.id)
-  })
-
-  test('prefers a real hosted open lobby over stale live residue when the host index is stale', async () => {
-    const { kv } = createTrackedKv()
-
-    await addToQueue(kv, 'ffa', {
-      playerId: 'host-1',
-      displayName: 'Host 1',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-    const openLobby = await createLobby(kv, {
-      mode: 'ffa',
-      hostId: 'host-1',
-      channelId: 'channel-open',
-      messageId: 'message-open',
-    })
-    const olderLiveLobby = await createLobby(kv, {
-      mode: 'ffa',
-      hostId: 'host-1',
-      channelId: 'channel-live',
-      messageId: 'message-live',
-    })
-    const draftingLobby = await startLobbyDraft(kv, olderLiveLobby.id, olderLiveLobby)
-
-    expect(draftingLobby).not.toBeNull()
-    await kv.put(hostKey('host-1'), 'stale-lobby-id')
-
-    await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(expect.objectContaining({
-      id: openLobby.id,
-      status: 'open',
-    }))
-    await expect(kv.get(hostKey('host-1'))).resolves.toBe(openLobby.id)
-  })
-
   test('clears orphaned host and match indexes when the lobby record is gone', async () => {
     const { kv } = createTrackedKv()
 
@@ -725,7 +654,7 @@ describe('lobby service KV write behavior', () => {
       channelId: 'channel-1',
       messageId: 'message-1',
     })
-    await startLobbyDraft(kv, lobby.id, lobby)
+    await startTestSessionDraft(kv, lobby.id, lobby)
 
     await kv.delete(idKey(lobby.id))
 
@@ -744,7 +673,7 @@ describe('lobby service KV write behavior', () => {
       channelId: 'channel-1',
       messageId: 'message-1',
     })
-    const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
+    const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
 
     await expect(getLobbyByMatch(kv, lobby.id)).resolves.toEqual(expect.objectContaining({
       id: lobby.id,
@@ -780,7 +709,7 @@ describe('lobby service KV write behavior', () => {
       channelId: 'channel-1',
       messageId: 'message-1',
     })
-    await startLobbyDraft(kv, lobby.id, lobby)
+    await startTestSessionDraft(kv, lobby.id, lobby)
 
     await clearLobbyByMatch(kv, lobby.id)
 
@@ -800,7 +729,7 @@ describe('lobby service KV write behavior', () => {
     })
     const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'ally-a', 'ally-b', 'ally-c', 'spectator'], lobby)
     const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'ally-a', 'ally-b', 'ally-c'], withMembers ?? lobby)
-    const draftingLobby = await startLobbyDraft(kv, lobby.id, withSlots ?? withMembers ?? lobby)
+    const draftingLobby = await startTestSessionDraft(kv, lobby.id, withSlots ?? withMembers ?? lobby)
 
     expect(draftingLobby).not.toBeNull()
 

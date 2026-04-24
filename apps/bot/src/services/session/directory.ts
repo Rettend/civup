@@ -1,8 +1,7 @@
 import type { Database } from '@civup/db'
-import type { LobbyState } from '../lobby/types.ts'
 import { matches, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
-import { buildSessionRecordFromLobby, type SessionPhase, type SessionRecord } from '../../session-runtime/session-record.ts'
+import { type SessionPhase, type SessionRecord } from '../../session-runtime/session-record.ts'
 
 export class SessionAdmissionError extends Error {
   constructor(
@@ -23,13 +22,6 @@ export function formatSessionAdmissionError(error: SessionAdmissionError): strin
     ? error.playerIds.map(playerId => `<@${playerId}>`).join(', ')
     : 'A requested player'
   return `${players} already ${error.playerIds.length === 1 ? 'has' : 'have'} a live session. Finish, cancel, or leave it before joining another one.`
-}
-
-export async function projectLobbySession(
-  db: Database,
-  lobby: LobbyState,
-): Promise<void> {
-  await projectSessionRecord(db, buildSessionRecordFromLobby(lobby))
 }
 
 export async function projectSessionRecord(
@@ -116,22 +108,6 @@ export async function closeLobbySessionProjectionByMatch(
 
   if (!row) return
   await closeLobbySessionProjection(db, row.sessionId, closedAt)
-}
-
-export function mapLobbyStatusToSessionPhase(status: LobbyState['status']): SessionPhase {
-  switch (status) {
-    case 'open':
-      return 'open'
-    case 'drafting':
-      return 'draft'
-    case 'active':
-      return 'active'
-    case 'completed':
-      return 'reported'
-    case 'cancelled':
-    case 'scrubbed':
-      return 'cancelled'
-  }
 }
 
 function isLiveSessionPhase(phase: SessionPhase): boolean {
@@ -274,8 +250,11 @@ function hasDraftCompletedAt(draftData: string | null): boolean {
 
 function isLiveMembershipUniquenessError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
-  return message.includes('session_directory_members_live_player_idx')
+  if (message.includes('session_directory_members_live_player_idx')
     || message.includes('session_directory_members.player_id')
     || message.includes('UNIQUE constraint failed')
-    || message.includes('constraint failed')
+    || message.includes('constraint failed')) return true
+
+  const cause = error && typeof error === 'object' && 'cause' in error ? (error as { cause?: unknown }).cause : null
+  return cause != null && cause !== error && isLiveMembershipUniquenessError(cause)
 }

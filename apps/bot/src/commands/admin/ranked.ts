@@ -12,7 +12,7 @@ import {
   getRankedRoleConfig,
   updateRankedRoleConfig,
 } from '../../services/ranked/roles.ts'
-import { createStateStore } from '../../services/state/store.ts'
+import { getKvStore } from '../../services/kv/batch.ts'
 import { buildResolvedRoleDisplayById, sendEphemeralResponse, sendTransientEphemeralResponse } from './shared.ts'
 
 export function handleRankedRoles(c: AdminCommandContext) {
@@ -108,7 +108,7 @@ export function handleRankedSync(c: AdminCommandContext) {
   }
 
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     const db = createDb(c.env.DB)
     try {
       const result = await syncRankedRoles({
