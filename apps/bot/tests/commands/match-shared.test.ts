@@ -231,7 +231,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     expect(result.lobby.memberPlayerIds).toContain('pleb')
   })
 
-  test('repairs stale member ids when a queued player is already slotted in the target lobby', async () => {
+  test('joins a queued player into the canonical roster despite old slot residue', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: '2v2',
@@ -277,7 +277,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(['host', 'player-1', null, null])
   })
 
-  test('keeps already slotted queued players when another player joins a lobby with stale member ids', async () => {
+  test('does not rebuild stale members from slotted queue residue', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: '2v2',
@@ -325,8 +325,8 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     expect('stage' in result).toBe(true)
     if (!('stage' in result)) return
     expect(result.lobby.id).toBe(lobby.id)
-    expect((await getLobbyById(kv, lobby.id))?.memberPlayerIds).toEqual(['host', 'player-1', 'player-2'])
-    expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(['host', 'player-1', 'player-2', null])
+    expect((await getLobbyById(kv, lobby.id))?.memberPlayerIds).toEqual(['host', 'player-2'])
+    expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(['host', 'player-2', null, null])
   })
 
   test('ignores orphan open lobbies and still joins when group constraints are gone', async () => {

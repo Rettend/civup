@@ -127,7 +127,7 @@ describe('inactive lobby cleanup', () => {
     }])
 
     expect(await getLobbyForUser(kv, 'host')).toBeNull()
-    expect(await getLobbyForUser(kv, 'player')).toBeNull()
+    expect(await getLobbyForUser(kv, 'player')).toBe(nextLobby.id)
     expect(await getUserActivityTarget(kv, 'channel-1', 'player')).toEqual(expect.objectContaining({
       kind: 'lobby',
       id: nextLobby.id,
