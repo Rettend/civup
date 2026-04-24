@@ -81,6 +81,7 @@ export interface CancelDraftInput {
   reason: DraftCancelReason
   hostId: string
   mapVoteResult?: ResolvedMapVoteResult | null
+  allowActive?: boolean
 }
 
 export type CancelDraftResult = { match: MatchRow, participants: ParticipantRow[] } | { error: string }

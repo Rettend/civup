@@ -1,5 +1,6 @@
 import type { CompetitiveTier, DraftSeat, GameMode, QueueEntry } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
+import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
 import type { DraftSessionRecord, SessionRecord } from './session-record.ts'
 import { SessionAdmissionError } from '../services/session/directory.ts'
 
@@ -114,6 +115,10 @@ export type SessionProjectionCommand
     now?: number
   }
 
+export type SessionDraftLifecycleSyncResult =
+  | { ok: true, ignored?: boolean, synced?: boolean }
+  | { ok: false, status: number, error: string }
+
 export async function createSessionAggregateFromLobby(
   namespace: DurableObjectNamespace | null | undefined,
   lobby: LobbyState,
@@ -210,6 +215,29 @@ export async function runSessionDraftLifecycleCommand(
   const body = await response.json<{ record?: SessionRecord }>()
   if (!body.record) throw new Error(`Failed to run draft lifecycle command ${command.type} for ${sessionId}: invalid response`)
   return body.record
+}
+
+export async function syncSessionDraftLifecyclePayload(
+  namespace: DurableObjectNamespace | null | undefined,
+  sessionId: string,
+  payload: DraftLifecyclePayload,
+): Promise<SessionDraftLifecycleSyncResult> {
+  if (!namespace) return { ok: false, status: 503, error: 'SessionDO binding is required' }
+
+  const id = namespace.idFromName(sessionId)
+  const stub = namespace.get(id)
+  const response = await stub.fetch('https://session.local/commands/draft-lifecycle-sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+  const body = await response.json<{ ok?: boolean, ignored?: boolean, synced?: boolean, error?: string }>().catch(() => null)
+  if (!response.ok) {
+    return { ok: false, status: response.status, error: body?.error ?? `Draft lifecycle sync failed: ${response.status}` }
+  }
+  if (body?.ok !== true) return { ok: false, status: 500, error: `Draft lifecycle sync for ${sessionId} returned an invalid response` }
+  return { ok: true, ignored: body.ignored, synced: body.synced }
 }
 
 export async function runSessionProjectionCommand(

@@ -1,5 +1,6 @@
 import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
+import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
 
 export type SessionId = string
 export type SessionPhase = 'open' | 'draft' | 'swap' | 'active' | 'reported' | 'cancelled'
@@ -29,6 +30,12 @@ export interface SessionProjectionState {
   steamLobbyLink: string | null
 }
 
+export interface SessionLifecycleSyncState {
+  payload: DraftLifecyclePayload
+  attempts: number
+  nextRetryAt: number
+}
+
 interface BaseSessionRecord {
   id: SessionId
   phase: SessionPhase
@@ -46,6 +53,7 @@ interface BaseSessionRecord {
   updatedAt: number
   lastActivityAt: number
   closedAt: number | null
+  lifecycleSync?: SessionLifecycleSyncState | null
 }
 
 export interface OpenSessionRecord extends BaseSessionRecord {
@@ -149,6 +157,7 @@ export function buildSessionRecordFromLobby(
     updatedAt: lobby.updatedAt,
     lastActivityAt: lobby.lastActivityAt,
     closedAt,
+    lifecycleSync: null,
   } satisfies BaseSessionRecord
 
   switch (phase) {
