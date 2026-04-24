@@ -268,7 +268,7 @@ async function commitRecoveredLobbySession(
   webhookContext: Record<string, unknown>,
 ): Promise<void> {
   try {
-    await commitLobbyState(kv, lobby, { db, sessionNamespace, queueEntries })
+    await commitLobbyState(kv, lobby, { db, sessionNamespace, queueEntries, useOpenSessionCommand: false })
   }
   catch (error) {
     if (!isSessionAdmissionError(error)) throw error
