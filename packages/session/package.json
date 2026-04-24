@@ -1,0 +1,16 @@
+{
+  "name": "@civup/session",
+  "type": "module",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "bun@1.3.7",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@civup/game": "workspace:*"
+  }
+}

@@ -1,5 +1,6 @@
 import type { Database as CivupDatabase, Database } from '@civup/db'
-import type { CompetitiveTier, DraftState, GameMode, QueueEntry, RoomConfig } from '@civup/game'
+import type { CompetitiveTier, DraftState, GameMode, QueueEntry } from '@civup/game'
+import type { DraftRuntimeConfig } from '@civup/session'
 import type { DraftLifecycleCancelledPayload, DraftLifecycleCompletePayload, DraftLifecyclePayload } from '../../../src/session-runtime/draft-lifecycle-events.ts'
 import type { Env } from '../../../src/env.ts'
 import type { LobbyState } from '../../../src/services/lobby/index.ts'
@@ -45,14 +46,14 @@ interface DiscordGuildRoleRecord {
   color?: number
 }
 
-interface PartyRoomRecord {
-  config: RoomConfig
+interface CapturedDraftRuntimeRecord {
+  config: DraftRuntimeConfig
   completionPayloads: DraftLifecycleCompletePayload[]
   cancellationPayloads: DraftLifecycleCancelledPayload[]
   nextLifecycleEventSequence: number
 }
 
-function createCapturedPartyRoomRecord(config: RoomConfig, previous?: PartyRoomRecord): PartyRoomRecord {
+function createCapturedDraftRuntimeRecord(config: DraftRuntimeConfig, previous?: CapturedDraftRuntimeRecord): CapturedDraftRuntimeRecord {
   return {
     config,
     completionPayloads: previous?.completionPayloads ?? [],
@@ -108,7 +109,7 @@ export interface SystemWorld {
     remove: (mode: GameMode, input: { userId: string, slot: number, lobbyId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, error?: string }>>
   }
   party: {
-    rooms: () => PartyRoomRecord[]
+    rooms: () => CapturedDraftRuntimeRecord[]
     draftComplete: (matchId: string, options?: CompleteDraftOptions) => DraftLifecycleCompletePayload
     draftTimeout: (matchId: string) => DraftLifecycleCancelledPayload
     draftCancel: (matchId: string, options?: CancelDraftOptions) => DraftLifecycleCancelledPayload
@@ -188,7 +189,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
   const discordGuildRolesFailures = new Map<string, number>()
   const discordGuildMemberRoles = new Map<string, string[]>()
   const discordGuildRoles = new Map<string, DiscordGuildRoleRecord[]>()
-  const partyRooms = new Map<string, PartyRoomRecord>()
+  const draftRuntimeRecords = new Map<string, CapturedDraftRuntimeRecord>()
   const runtime = createRuntimeControls()
   let nextDiscordMessageId = 1
 
@@ -211,8 +212,8 @@ export async function createSystemWorld(): Promise<SystemWorld> {
     const url = new URL(request.url)
 
     if (url.origin === BOT_HOST && request.method === 'POST' && /^\/parties\/main\/[^/]+$/.test(url.pathname)) {
-      const body = await request.json() as RoomConfig
-      partyRooms.set(body.matchId, createCapturedPartyRoomRecord(body, partyRooms.get(body.matchId)))
+      const body = await request.json() as DraftRuntimeConfig
+      draftRuntimeRecords.set(body.matchId, createCapturedDraftRuntimeRecord(body, draftRuntimeRecords.get(body.matchId)))
       return jsonResponse({ ok: true })
     }
 
@@ -248,7 +249,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
     return app.fetch(new Request(`${BOT_HOST}${path}`, { ...init, headers }), env, execution.executionCtx)
   }
 
-  const deliverDraftLifecycle = async (_room: PartyRoomRecord, payload: DraftLifecyclePayload): Promise<Response> => {
+  const deliverDraftLifecycle = async (_room: CapturedDraftRuntimeRecord, payload: DraftLifecyclePayload): Promise<Response> => {
     const result = await handleDraftLifecyclePayload(env, payload)
     if (!result.ok) return jsonResponse({ error: result.error }, result.status)
     return jsonResponse({ ok: true, ignored: result.ignored, synced: result.synced })
@@ -406,7 +407,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
             leaderPoolSize: lobbyBeforeStart.draftConfig.leaderPoolSize,
             dealOptionsSize: lobbyBeforeStart.draftConfig.dealOptionsSize,
           })
-          partyRooms.set(runtime.matchId, createCapturedPartyRoomRecord(runtime.config, partyRooms.get(runtime.matchId)))
+          draftRuntimeRecords.set(runtime.matchId, createCapturedDraftRuntimeRecord(runtime.config, draftRuntimeRecords.get(runtime.matchId)))
         }
         return body
       },
@@ -444,49 +445,49 @@ export async function createSystemWorld(): Promise<SystemWorld> {
     },
     party: {
       rooms() {
-        return [...partyRooms.values()]
+        return [...draftRuntimeRecords.values()]
       },
       draftComplete(matchId, options = {}) {
-        const room = getPartyRoom(partyRooms, matchId)
+        const room = getDraftRuntimeRecord(draftRuntimeRecords, matchId)
         const payload = buildCompletedPayload(room, options)
         room.completionPayloads.push(payload)
         return payload
       },
       draftTimeout(matchId) {
-        const room = getPartyRoom(partyRooms, matchId)
+        const room = getDraftRuntimeRecord(draftRuntimeRecords, matchId)
         const payload = buildTimeoutPayload(room)
         room.cancellationPayloads.push(payload)
         return payload
       },
       draftCancel(matchId, options = {}) {
-        const room = getPartyRoom(partyRooms, matchId)
+        const room = getDraftRuntimeRecord(draftRuntimeRecords, matchId)
         const payload = buildCancelledPayload(room, options.reason ?? 'scrub', options.state)
         room.cancellationPayloads.push(payload)
         return payload
       },
       async completeDraft(matchId, options = {}) {
-        const room = getPartyRoom(partyRooms, matchId)
+        const room = getDraftRuntimeRecord(draftRuntimeRecords, matchId)
         const payload = this.draftComplete(matchId, options)
         return deliverDraftLifecycle(room, payload)
       },
       async timeoutDraft(matchId) {
-        const room = getPartyRoom(partyRooms, matchId)
+        const room = getDraftRuntimeRecord(draftRuntimeRecords, matchId)
         const payload = this.draftTimeout(matchId)
         return deliverDraftLifecycle(room, payload)
       },
       async cancelDraft(matchId, options = {}) {
-        const room = getPartyRoom(partyRooms, matchId)
+        const room = getDraftRuntimeRecord(draftRuntimeRecords, matchId)
         const payload = this.draftCancel(matchId, options)
         return deliverDraftLifecycle(room, payload)
       },
       async replayDraftComplete(matchId, options = {}) {
-        const room = getPartyRoom(partyRooms, matchId)
+        const room = getDraftRuntimeRecord(draftRuntimeRecords, matchId)
         const payload = room.completionPayloads[options.index ?? room.completionPayloads.length - 1]
         if (!payload) throw new Error(`No completion payload recorded for match ${matchId}`)
         return deliverDraftLifecycle(room, payload)
       },
       async replayDraftCancel(matchId, options = {}) {
-        const room = getPartyRoom(partyRooms, matchId)
+        const room = getDraftRuntimeRecord(draftRuntimeRecords, matchId)
         const payload = room.cancellationPayloads[options.index ?? room.cancellationPayloads.length - 1]
         if (!payload) throw new Error(`No cancellation payload recorded for match ${matchId}`)
         return deliverDraftLifecycle(room, payload)
@@ -644,13 +645,13 @@ export async function createSystemWorld(): Promise<SystemWorld> {
     },
     inspect: {
       lobbyMapping(userId) {
-        return getLobbyForUser(kv, userId)
+        return getLobbyForUser(db, userId)
       },
       currentHostedLobby(hostId) {
         return getCurrentLobbyHostedBy(kv, hostId)
       },
       matchMapping(userId) {
-        return getMatchForUser(kv, userId)
+        return getMatchForUser(db, userId)
       },
       lobbiesForPlayer(userId) {
         return getCurrentLobbiesForPlayer(kv, userId)
@@ -684,9 +685,9 @@ async function putOrDeleteKv(kv: KVNamespace, key: string, value: unknown | null
   )
 }
 
-function getPartyRoom(rooms: Map<string, PartyRoomRecord>, matchId: string): PartyRoomRecord {
+function getDraftRuntimeRecord(rooms: Map<string, CapturedDraftRuntimeRecord>, matchId: string): CapturedDraftRuntimeRecord {
   const room = rooms.get(matchId)
-  if (!room) throw new Error(`No captured Party room for match ${matchId}`)
+  if (!room) throw new Error(`No captured draft runtime config for match ${matchId}`)
   return room
 }
 
@@ -698,7 +699,7 @@ function buildTestDraftEntries(lobby: LobbyState): QueueEntry[] {
   })
 }
 
-function buildCompletedPayload(room: PartyRoomRecord, options: CompleteDraftOptions = {}): DraftLifecycleCompletePayload {
+function buildCompletedPayload(room: CapturedDraftRuntimeRecord, options: CompleteDraftOptions = {}): DraftLifecycleCompletePayload {
   const { config } = room
   const baseState = buildCompletedDraftState(config)
   const state = options.transformState ? options.transformState(baseState) : baseState
@@ -723,7 +724,7 @@ function buildCompletedPayload(room: PartyRoomRecord, options: CompleteDraftOpti
   }
 }
 
-function buildTimeoutPayload(room: PartyRoomRecord): DraftLifecycleCancelledPayload {
+function buildTimeoutPayload(room: CapturedDraftRuntimeRecord): DraftLifecycleCancelledPayload {
   const { config } = room
   const eventSequence = nextTestLifecycleSequence(room)
   return {
@@ -740,7 +741,7 @@ function buildTimeoutPayload(room: PartyRoomRecord): DraftLifecycleCancelledPayl
   }
 }
 
-function buildCancelledPayload(room: PartyRoomRecord, reason: 'cancel' | 'scrub' | 'revert', stateOverride?: DraftState): DraftLifecycleCancelledPayload {
+function buildCancelledPayload(room: CapturedDraftRuntimeRecord, reason: 'cancel' | 'scrub' | 'revert', stateOverride?: DraftState): DraftLifecycleCancelledPayload {
   const { config } = room
   const eventSequence = nextTestLifecycleSequence(room)
   const state = stateOverride
@@ -760,12 +761,12 @@ function buildCancelledPayload(room: PartyRoomRecord, reason: 'cancel' | 'scrub'
   }
 }
 
-function nextTestLifecycleSequence(room: PartyRoomRecord): number {
+function nextTestLifecycleSequence(room: CapturedDraftRuntimeRecord): number {
   room.nextLifecycleEventSequence += 1
   return room.nextLifecycleEventSequence
 }
 
-function buildCompletedDraftState(config: RoomConfig) {
+function buildCompletedDraftState(config: DraftRuntimeConfig) {
   const format = draftFormatMap.get(config.formatId)
   if (!format) throw new Error(`Unknown draft format: ${config.formatId}`)
   let state = createDraft(config.matchId, format, config.seats, config.civPool, {
@@ -801,7 +802,7 @@ function buildCompletedDraftState(config: RoomConfig) {
   return state
 }
 
-function buildTimedOutDraftState(config: RoomConfig) {
+function buildTimedOutDraftState(config: DraftRuntimeConfig) {
   const format = draftFormatMap.get(config.formatId)
   if (!format) throw new Error(`Unknown draft format: ${config.formatId}`)
   let state = createDraft(config.matchId, format, config.seats, config.civPool, {
@@ -836,7 +837,7 @@ function buildTimedOutDraftState(config: RoomConfig) {
   return state
 }
 
-function buildCancelledDraftState(config: RoomConfig, reason: 'cancel' | 'scrub' | 'revert') {
+function buildCancelledDraftState(config: DraftRuntimeConfig, reason: 'cancel' | 'scrub' | 'revert') {
   const format = draftFormatMap.get(config.formatId)
   if (!format) throw new Error(`Unknown draft format: ${config.formatId}`)
   let state = createDraft(config.matchId, format, config.seats, config.civPool, {
@@ -849,7 +850,7 @@ function buildCancelledDraftState(config: RoomConfig, reason: 'cancel' | 'scrub'
   return state
 }
 
-function assignTestDealOptions(state: DraftState, config: RoomConfig): DraftState {
+function assignTestDealOptions(state: DraftState, config: DraftRuntimeConfig): DraftState {
   if ((config.dealOptionsSize ?? 0) <= 0) return state
   if (state.status !== 'active') return state
   if (state.dealtCivIds?.length) return state

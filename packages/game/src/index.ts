@@ -80,11 +80,6 @@ export {
   toLeaderboardMode,
 } from './mode.ts'
 export type {
-  ClientMessage,
-  RoomConfig,
-  ServerMessage,
-} from './protocol.ts'
-export type {
   CompetitiveTier,
   DraftAction,
   DraftCancelReason,

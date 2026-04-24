@@ -1,4 +1,5 @@
-import type { DraftState, MapVotePhase, MapVoteSelection, ResolvedMapVoteResult, RevealedMapVoteSeatBallot, RoomConfig } from '@civup/game'
+import type { DraftState, MapVotePhase, MapVoteSelection, ResolvedMapVoteResult, RevealedMapVoteSeatBallot } from '@civup/game'
+import type { DraftRuntimeConfig } from '@civup/session'
 import {
   DEFAULT_MAP_VOTE_SELECTION,
   draftFormatMap,
@@ -75,7 +76,7 @@ export function applyMapVoteSelectionUpdate(
 
 export { isMapVoteSelectionConfirmable }
 
-export function createInitialMapVoteState(state: DraftState, config: RoomConfig, redDeath: boolean): StoredMapVoteState {
+export function createInitialMapVoteState(state: DraftState, config: DraftRuntimeConfig, redDeath: boolean): StoredMapVoteState {
   const enabled = normalizeMapVoteEnabled(draftFormatMap.get(config.formatId)?.gameMode ?? 'ffa', config.mapVoteEnabled === true, { redDeath })
   if (!enabled) return { ...EMPTY_STORED_MAP_VOTE_STATE }
 

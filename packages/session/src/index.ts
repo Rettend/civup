@@ -1,4 +1,3 @@
-import type { MapVoteSelection, MapVoteSnapshot } from './map-vote.ts'
 import type {
   DraftAction,
   DraftEvent,
@@ -9,12 +8,12 @@ import type {
   DraftTimerConfig,
   LeaderDataVersion,
   LeaderSwapState,
-} from './types.ts'
+  MapVoteSelection,
+  MapVoteSnapshot,
+} from '@civup/game'
 
-// ── Room Configuration (sent by bot via HTTP POST) ──────────
-
-/** Payload the bot sends to initialize a draft room */
-export interface RoomConfig {
+/** Configuration used by SessionDO to initialize its draft subruntime. */
+export interface DraftRuntimeConfig {
   matchId: string
   hostId: string
   formatId: string
@@ -28,9 +27,7 @@ export interface RoomConfig {
   timerConfig?: DraftTimerConfig
 }
 
-// ── Client → Server Messages ────────────────────────────────
-
-export type ClientMessage
+export type SessionClientMessage
   = | { type: 'start' }
     | { type: 'map-vote-selection', selection: MapVoteSelection }
     | { type: 'map-vote-confirm' }
@@ -47,9 +44,7 @@ export type ClientMessage
       pickTimerSeconds: number | null
     }
 
-// ── Server → Client Messages ────────────────────────────────
-
-export type ServerMessage
+export type SessionServerMessage
   = | {
     type: 'init'
     state: DraftState

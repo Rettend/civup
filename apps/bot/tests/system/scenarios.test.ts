@@ -63,7 +63,7 @@ describe('system scenarios', () => {
       config: { simultaneousPick: true },
       placements: participants => buildOrderedMentions([...participants].reverse()),
     })
-    expect(findRoomConfig(simultaneousWorld, simultaneous.matchId)?.formatId).toBe('default-ffa-simultaneous')
+    expect(findDraftRuntimeConfig(simultaneousWorld, simultaneous.matchId)?.formatId).toBe('default-ffa-simultaneous')
     expect(parseDraftData(simultaneous.reportedMatch)?.state).toMatchObject({ formatId: 'default-ffa-simultaneous' })
     expectOrderedPlacements(simultaneous.reportedParticipants, [...simultaneous.activeParticipants].reverse().map(participant => participant.playerId))
 
@@ -73,8 +73,8 @@ describe('system scenarios', () => {
       players: createPlayers(6, 'rd'),
       config: { redDeath: true, dealOptionsSize: 3 },
     })
-    const redDeathRoom = findRoomConfig(redDeathWorld, redDeath.matchId)
-    expect(redDeathRoom?.dealOptionsSize).toBe(3)
+    const redDeathConfig = findDraftRuntimeConfig(redDeathWorld, redDeath.matchId)
+    expect(redDeathConfig?.dealOptionsSize).toBe(3)
     expect(parseDraftData(redDeath.reportedMatch)?.redDeath).toBe(true)
     expect(redDeath.reportedParticipants.every(participant => participant.civId != null)).toBe(true)
 
@@ -84,8 +84,8 @@ describe('system scenarios', () => {
       players: createPlayers(2, 'rnd'),
       config: { randomDraft: true },
     })
-    const randomRoom = findRoomConfig(randomWorld, randomDraft.matchId)
-    expect(randomRoom?.randomDraft).toBe(true)
+    const randomConfig = findDraftRuntimeConfig(randomWorld, randomDraft.matchId)
+    expect(randomConfig?.randomDraft).toBe(true)
     expect(randomDraft.reportedParticipants.every(participant => participant.civId != null)).toBe(true)
 
     const duplicateWorld = await createTrackedWorld()
@@ -95,7 +95,7 @@ describe('system scenarios', () => {
       config: { duplicateFactions: true },
     })
     const duplicateCivs = [...new Set(duplicate.reportedParticipants.map(participant => participant.civId))]
-    expect(findRoomConfig(duplicateWorld, duplicate.matchId)?.duplicateFactions).toBe(true)
+    expect(findDraftRuntimeConfig(duplicateWorld, duplicate.matchId)?.duplicateFactions).toBe(true)
     expect(duplicate.reportedParticipants.every(participant => participant.civId != null)).toBe(true)
     expect(duplicateCivs).toHaveLength(1)
 
@@ -110,12 +110,12 @@ describe('system scenarios', () => {
       (await mapVoteWorld.match.getMessageIds(mapVote.matchId)).map(async messageId => mapVoteWorld.discord.message(messageId)?.payload ?? null),
     )).filter((payload): payload is Record<string, unknown> => payload != null && typeof payload === 'object')
 
-    expect(findRoomConfig(mapVoteWorld, mapVote.matchId)?.mapVoteEnabled).toBe(true)
+    expect(findDraftRuntimeConfig(mapVoteWorld, mapVote.matchId)?.mapVoteEnabled).toBe(true)
     expect(parseDraftData(mapVote.reportedMatch)?.mapVoteResult).toEqual(MAP_VOTE_RESULT)
     expect(mapVotePayloads.some(payload => payloadHasEmbedField(payload, 'Map', formatMapVoteResultLabel(MAP_VOTE_RESULT.mapType, MAP_VOTE_RESULT.mapScript)))).toBe(true)
   })
 
-  test('starting a valid 1v1 lobby creates exactly one draft room and one drafting match', async () => {
+  test('starting a valid 1v1 lobby creates exactly one draft runtime and one drafting match', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -146,7 +146,7 @@ describe('system scenarios', () => {
     const started = await world.lobby.start('2v2', { hostId: 'p1', lobbyId: lobby.id })
     await world.flushBackgroundTasks()
 
-    expect(findRoomConfig(world, started.matchId)?.seats).toEqual([
+    expect(findDraftRuntimeConfig(world, started.matchId)?.seats).toEqual([
       expect.objectContaining({ playerId: 'p1', team: 0 }),
       expect.objectContaining({ playerId: 'p3', team: 1 }),
       expect.objectContaining({ playerId: 'p2', team: 0 }),
@@ -164,7 +164,7 @@ describe('system scenarios', () => {
     const started = await world.lobby.start('ffa', { hostId: 'p1', lobbyId: lobby.id })
     await world.flushBackgroundTasks()
 
-    expect(findRoomConfig(world, started.matchId)?.formatId).toBe('default-ffa')
+    expect(findDraftRuntimeConfig(world, started.matchId)?.formatId).toBe('default-ffa')
   })
 
   test('duplicate host start requests are idempotent', async () => {
@@ -800,7 +800,7 @@ describe('system scenarios', () => {
     expect(await world.inspect.currentHostedLobby('host')).toMatchObject({ id: realLobby.id })
   })
 
-  test('spectator live-match targeting returns a valid room token', async () => {
+  test('spectator live-session targeting returns a valid session token', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '2v2',
@@ -2382,7 +2382,7 @@ describe('system scenarios', () => {
       bansByPlayer.set(ban.bannedBy, (bansByPlayer.get(ban.bannedBy) ?? 0) + 1)
     }
 
-    expect(findRoomConfig(world, started.matchId)?.formatId).toBe('default-1v1')
+    expect(findDraftRuntimeConfig(world, started.matchId)?.formatId).toBe('default-1v1')
     expect(draftState?.formatId).toBe('default-1v1')
     expect(activeParticipants.every(participant => participant.civId != null)).toBe(true)
     expect(bans).toHaveLength(6)
@@ -2431,7 +2431,7 @@ describe('system scenarios', () => {
       bansByPlayer.set(ban.bannedBy, (bansByPlayer.get(ban.bannedBy) ?? 0) + 1)
     }
 
-    expect(findRoomConfig(world, started.matchId)?.formatId).toBe('default-1v1-visible-bans')
+    expect(findDraftRuntimeConfig(world, started.matchId)?.formatId).toBe('default-1v1-visible-bans')
     expect(draftState?.formatId).toBe('default-1v1-visible-bans')
     expect(activeParticipants.every(participant => participant.civId != null)).toBe(true)
     expect(bans).toHaveLength(6)
@@ -2619,7 +2619,7 @@ function parseDraftData(match: { draftData: string | null } | null) {
   return match?.draftData ? JSON.parse(match.draftData) as Record<string, any> : null
 }
 
-function findRoomConfig(world: Awaited<ReturnType<typeof createSystemWorld>>, matchId: string) {
+function findDraftRuntimeConfig(world: Awaited<ReturnType<typeof createSystemWorld>>, matchId: string) {
   return world.party.rooms().find(room => room.config.matchId === matchId)?.config ?? null
 }
 

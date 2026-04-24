@@ -55,6 +55,6 @@ describe('lobby transfer', () => {
         mode: '2v2',
       },
     })
-    expect(await getLobbyForUser(kv, 'player-1')).toBeNull()
+    expect(await getLobbyForUser(runtime.db, 'player-1')).toBeNull()
   })
 })
