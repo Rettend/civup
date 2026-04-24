@@ -220,7 +220,7 @@ describe('PlayerSlot UI', () => {
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
-      { seatIndex: 0, confirmed: false, mapTypes: ['east-vs-west'], mapScripts: [] },
+      { seatIndex: 0, confirmed: false, mapTypes: [], mapScripts: [] },
     ]
     uiMockState.mapVoteWinningType = 'east-vs-west'
     uiMockState.mapVoteWinningScript = 'seven-seas'

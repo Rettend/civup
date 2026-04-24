@@ -1,11 +1,10 @@
 import type { Database as CivupDatabase } from '@civup/db'
-import type { RoomConfig } from '@civup/game'
 import type { LobbyState } from '../../src/services/lobby/types.ts'
 import { canStartWithPlayerCount } from '@civup/game'
 import { startSessionDraft, runSessionDraftLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
 import * as source from '../../src/services/lobby/index.ts'
 import { createSqliteD1Database } from './d1.ts'
-import { createCapturedMainNamespace, createTestSessionNamespace } from './session-runtime.ts'
+import { createTestSessionNamespace } from './session-runtime.ts'
 import { createTestDatabase } from './test-env.ts'
 
 export * from '../../src/services/lobby/index.ts'
@@ -13,8 +12,6 @@ export * from '../../src/services/lobby/index.ts'
 interface TestLobbyRuntime {
   db: CivupDatabase
   d1: D1Database
-  mainNamespace: DurableObjectNamespace
-  roomConfigs: Map<string, RoomConfig>
   sessionNamespace: DurableObjectNamespace
 }
 
@@ -46,7 +43,6 @@ export function buildTestLobbyEnv(kv: KVNamespace, overrides: Record<string, unk
   const env: Record<string, unknown> = {
     DB: runtime.d1,
     KV: kv,
-    Main: runtime.mainNamespace,
     SessionDO: runtime.sessionNamespace,
     DISCORD_TOKEN: 'token',
     CIVUP_SECRET: 'secret',
@@ -295,16 +291,13 @@ async function createTestLobbyRuntime(kv: KVNamespace, dbOverride?: CivupDatabas
   const created = dbOverride ? null : await createTestDatabase()
   const db = dbOverride ?? created!.db
   const d1 = createSqliteD1Database(db as Parameters<typeof createSqliteD1Database>[0])
-  const roomConfigs = new Map<string, RoomConfig>()
-  const mainNamespace = createCapturedMainNamespace(roomConfigs)
   const sessionNamespace = createTestSessionNamespace({
     DB: d1,
     KV: kv,
-    Main: mainNamespace,
     DISCORD_TOKEN: 'token',
     BOT_HOST: 'https://bot.test',
     CIVUP_SECRET: 'secret',
   })
 
-  return { db, d1, mainNamespace, roomConfigs, sessionNamespace }
+  return { db, d1, sessionNamespace }
 }

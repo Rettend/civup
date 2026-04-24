@@ -5,7 +5,6 @@ import * as commands from './commands/index.ts'
 import * as cron from './cron/cleanup.ts'
 import { registerApiRoutes } from './routes/index.ts'
 import { Activity } from './session-runtime/activity-feed.ts'
-import { Main } from './session-runtime/main.ts'
 import { SessionDO } from './session-runtime/session-do.ts'
 import { factory } from './setup.ts'
 
@@ -25,7 +24,7 @@ const discordApp = factory.discord().loader([
 
 const app = new Hono<Env>()
 
-export { Activity, Main, SessionDO }
+export { Activity, SessionDO }
 
 app.onError((error, c) => {
   console.error('[bot:unhandled]', c.req.method, new URL(c.req.url).pathname, error)
@@ -59,10 +58,23 @@ export default worker
 async function handleBotPartyRequest(request: Request, env: Env['Bindings']): Promise<Response | null> {
   const partyNamespace = getBotPartyNamespace(request)
   if (!partyNamespace) return null
-  if (partyNamespace === 'main' && !env.Main) return new Response('Draft runtime is not configured', { status: 503 })
+  if (partyNamespace === 'session') return await routeSessionPartyRequest(request, env)
   if (partyNamespace === 'activity' && !env.Activity) return new Response('Activity feed is not configured', { status: 503 })
 
   return await routePartykitRequest(request, env, { prefix: 'parties' })
+}
+
+async function routeSessionPartyRequest(request: Request, env: Env['Bindings']): Promise<Response> {
+  if (!env.SessionDO) return new Response('Session runtime is not configured', { status: 503 })
+  const parts = new URL(request.url).pathname.split('/').filter(Boolean)
+  const sessionId = parts[2]
+  if (!sessionId) return new Response('Missing session id', { status: 400 })
+
+  const stub = env.SessionDO.get(env.SessionDO.idFromName(sessionId))
+  const forwarded = new Request(request)
+  forwarded.headers.set('x-partykit-room', sessionId)
+  forwarded.headers.set('x-partykit-namespace', 'session')
+  return await stub.fetch(forwarded)
 }
 
 async function rejectDisallowedDiscordGuildInteraction(request: Request, env: Env['Bindings']): Promise<Response | null> {
@@ -103,9 +115,9 @@ function isDiscordInteractionRequest(request: Request): boolean {
     && request.headers.has('X-Signature-Timestamp')
 }
 
-function getBotPartyNamespace(request: Request): 'main' | 'activity' | null {
+function getBotPartyNamespace(request: Request): 'session' | 'activity' | null {
   const pathname = new URL(request.url).pathname
-  if (pathname === '/parties/main' || pathname.startsWith('/parties/main/')) return 'main'
+  if (pathname === '/parties/session' || pathname.startsWith('/parties/session/')) return 'session'
   if (pathname === '/parties/activity' || pathname.startsWith('/parties/activity/')) return 'activity'
   return null
 }
