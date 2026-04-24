@@ -7,7 +7,7 @@ import { resetCurrentRankedRoleState, syncRankedRoles } from '../../services/ran
 import { clearSeasonConfirmation, createSeasonConfirmation, getSeasonConfirmation } from '../../services/season/confirmation.ts'
 import { endSeason, formatSeasonName, getActiveSeason, getNextSeasonNumber, startSeason } from '../../services/season/index.ts'
 import { ensureSeasonSnapshotRoles, finalizeSeasonSnapshotRoles } from '../../services/season/snapshot-roles.ts'
-import { createStateStore } from '../../services/state/store.ts'
+import { getKvStore } from '../../services/kv/batch.ts'
 import { factory } from '../../setup.ts'
 import { getInteractionUserId, sendEphemeralResponse, sendTransientEphemeralResponse, updateSeasonActionPrompt } from './shared.ts'
 
@@ -154,7 +154,7 @@ export const component_admin_season_confirm = factory.component(
 
     return c.update().resDefer(async (c: AdminComponentContext) => {
       await clearSeasonConfirmation(c.env.KV, token)
-      const kv = createStateStore(c.env)
+      const kv = getKvStore(c.env)
 
       if (pending.action === 'start') {
         try {

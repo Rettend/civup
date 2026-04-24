@@ -14,7 +14,7 @@ import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { getQueueState, getQueueStateWithPlayerQueueModes, MAX_QUEUE_ENTRIES, removeFromQueueAndUnlinkParty, setQueueEntries } from '../../services/queue/index.ts'
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds } from '../../services/ranked/roles.ts'
 import { formatSessionAdmissionError, isSessionAdmissionError } from '../../services/session/index.ts'
-import { createStateStore } from '../../services/state/store.ts'
+import { getKvStore } from '../../services/kv/batch.ts'
 
 const ALL_FFA_PLACEMENT_KEYS = ['second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'] as const
 const FFA_PLACEMENT_LABELS: Record<(typeof ALL_FFA_PLACEMENT_KEYS)[number], string> = {
@@ -147,7 +147,6 @@ export async function joinLobbyAndMaybeStartMatch(
       DB?: D1Database
       KV: KVNamespace
       SessionDO?: DurableObjectNamespace
-      State?: DurableObjectNamespace
       DISCORD_TOKEN?: string
       CIVUP_SECRET?: string
     }
@@ -180,7 +179,7 @@ export async function joinLobbyAndMaybeStartMatch(
     seenPlayerIds.add(entry.playerId)
   }
 
-  const kv = createStateStore(c.env)
+  const kv = getKvStore(c.env)
   const [{ queueModeByPlayerId, queue: initialQueue }, modeLobbies] = await Promise.all([
     getQueueStateWithPlayerQueueModes(kv, mode, requestedEntries.map(entry => entry.playerId), { fallbackToQueueScan: false }),
     getLobbiesByMode(kv, mode),

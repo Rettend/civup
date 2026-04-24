@@ -3,7 +3,6 @@ import type {
   DraftEvent,
   DraftPreviewState,
   DraftState,
-  DraftWebhookPayload,
   LeaderSwapState,
   MapVoteSelection,
   MapVoteSnapshot,
@@ -12,6 +11,7 @@ import type {
   ServerMessage,
 } from '@civup/game'
 import type { Connection, ConnectionContext, WSMessage } from 'partyserver'
+import type { DraftLifecyclePayload as DraftWebhookPayload } from './draft-lifecycle-events.ts'
 import type { StoredMapVoteState } from './map-vote-room-state.ts'
 import {
   createDraft,
@@ -32,14 +32,12 @@ import {
   swapSeatPicks,
 } from '@civup/game'
 import {
-  api,
-  ApiError,
   CIVUP_ACTIVITY_USER_ID_HEADER,
-  createSignedWebhookHeaders,
   isAuthorizedInternalRequest,
   verifyDraftRoomAccessToken,
 } from '@civup/utils'
 import { Server } from 'partyserver'
+import { handleDraftLifecyclePayload } from '../services/match/draft-lifecycle.ts'
 import {
   applyDraftPreview,
   censorDraftPreviews,
@@ -93,6 +91,10 @@ import {
 
 interface PartyEnv extends Cloudflare.Env {
   CIVUP_SECRET?: string
+  DB?: D1Database
+  KV?: KVNamespace
+  DISCORD_TOKEN?: string
+  SessionDO?: DurableObjectNamespace
 }
 
 // ── Connection State ─────────────────────────────────────────
@@ -1032,8 +1034,8 @@ export class Main extends Server<PartyEnv> {
       const claimed = await this.claimNextWebhookOutboxEntry()
       if (!claimed) break
 
-      const { entry, room } = claimed
-      const delivery = await this.sendDraftWebhook(room.config, entry.payload)
+      const { entry } = claimed
+      const delivery = await this.deliverDraftLifecyclePayload(entry.payload)
       if (delivery === 'delivered' || delivery === 'drop') {
         await this.updateRoomRecord(currentRoom => ({
           ...currentRoom,
@@ -1392,46 +1394,28 @@ export class Main extends Server<PartyEnv> {
     }
   }
 
-  private async sendDraftWebhook(
-    config: RoomConfig,
-    payload: DraftWebhookPayload,
-  ): Promise<'delivered' | 'retry' | 'drop'> {
-    const webhookContext = buildDraftWebhookLogContext(payload, {
-      webhookUrl: config.webhookUrl ?? null,
-    })
-    if (!config.webhookUrl) {
-      console.warn('[draft-room] missing webhook URL', webhookContext)
-      return 'drop'
-    }
-
-    console.log('[draft-room] sending webhook', webhookContext)
-    const body = JSON.stringify(payload)
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...(config.webhookSecret ? await createSignedWebhookHeaders(config.webhookSecret, body) : {}),
+  private async deliverDraftLifecyclePayload(payload: DraftWebhookPayload): Promise<'delivered' | 'retry' | 'drop'> {
+    const lifecycleContext = buildDraftWebhookLogContext(payload)
+    if (!this.env.DB || !this.env.KV || !this.env.DISCORD_TOKEN) {
+      console.error('[draft-room] lifecycle sync missing bot bindings', lifecycleContext)
+      return 'retry'
     }
 
     try {
-      await api.post(config.webhookUrl, body, { headers })
-      console.log('[draft-room] webhook delivered', webhookContext)
-      return 'delivered'
-    }
-    catch (err) {
-      const status = err instanceof ApiError ? err.status : 'Unknown'
-      if (isRetryableWebhookStatus(status)) {
-        console.error('[draft-room] webhook retry scheduled', {
-          ...webhookContext,
-          status,
-        }, err)
-        return 'retry'
-      }
-
-      console.error('[draft-room] webhook delivery dropped', {
-        ...webhookContext,
-        status,
-      }, err)
+      const result = await handleDraftLifecyclePayload({
+        DB: this.env.DB,
+        KV: this.env.KV,
+        DISCORD_TOKEN: this.env.DISCORD_TOKEN,
+        SessionDO: this.env.SessionDO,
+      }, payload)
+      if (result.ok) return 'delivered'
+      if (result.status >= 500) return 'retry'
+      console.error('[draft-room] lifecycle sync dropped', { ...lifecycleContext, status: result.status, error: result.error })
       return 'drop'
+    }
+    catch (error) {
+      console.error('[draft-room] lifecycle sync retry scheduled', lifecycleContext, error)
+      return 'retry'
     }
   }
 }
@@ -1516,13 +1500,6 @@ function getNextWebhookOutboxEntry(room: RoomRecord): RoomRecord['webhookOutbox'
 
 function getWebhookOutboxRetryDelay(attempts: number): number {
   return Math.min(WEBHOOK_OUTBOX_RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1), WEBHOOK_OUTBOX_RETRY_MAX_MS)
-}
-
-function isRetryableWebhookStatus(status: number | 'Unknown'): boolean {
-  return status === 'Unknown'
-    || status === 408
-    || status === 429
-    || status >= 500
 }
 
 function isSeatInStep(step: DraftState['steps'][number], seatIndex: number, totalSeats: number): boolean {

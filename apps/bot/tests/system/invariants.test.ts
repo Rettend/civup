@@ -50,8 +50,9 @@ describe('system invariant runners', () => {
 
     await expect(joinLobbyAndMaybeStartMatch({
       env: {
+        DB: world.env.DB,
         KV: world.kv,
-        State: world.env.State,
+        SessionDO: world.env.SessionDO,
         DISCORD_TOKEN: world.env.DISCORD_TOKEN,
         CIVUP_SECRET: world.env.CIVUP_SECRET,
       },

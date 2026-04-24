@@ -1,7 +1,6 @@
-import type { MapVoteSelection, MapVoteSnapshot, ResolvedMapVoteResult } from './map-vote.ts'
+import type { MapVoteSelection, MapVoteSnapshot } from './map-vote.ts'
 import type {
   DraftAction,
-  DraftCancelReason,
   DraftEvent,
   DraftPreviewState,
   DraftSeat,
@@ -27,47 +26,7 @@ export interface RoomConfig {
   mapVoteEnabled?: boolean
   leaderDataVersion?: LeaderDataVersion
   timerConfig?: DraftTimerConfig
-  webhookUrl?: string
-  webhookSecret?: string
 }
-
-export const DRAFT_WEBHOOK_EVENT_KINDS = [
-  'DraftCompleted',
-  'SwapWindowOpened',
-  'SwapAccepted',
-  'DraftFinalized',
-  'DraftCancelled',
-] as const
-
-export type DraftWebhookEventKind = (typeof DRAFT_WEBHOOK_EVENT_KINDS)[number]
-
-export interface DraftCompleteWebhookPayload {
-  eventId: string
-  eventKind: DraftWebhookEventKind
-  eventSequence: number
-  outcome: 'complete'
-  matchId: string
-  hostId?: string
-  completedAt: number
-  finalized?: boolean
-  state: DraftState
-  mapVoteResult?: ResolvedMapVoteResult | null
-}
-
-export interface DraftCancelledWebhookPayload {
-  eventId: string
-  eventKind: DraftWebhookEventKind
-  eventSequence: number
-  outcome: 'cancelled'
-  matchId: string
-  hostId?: string
-  cancelledAt: number
-  reason: DraftCancelReason
-  state: DraftState
-  mapVoteResult?: ResolvedMapVoteResult | null
-}
-
-export type DraftWebhookPayload = DraftCompleteWebhookPayload | DraftCancelledWebhookPayload
 
 // ── Client → Server Messages ────────────────────────────────
 

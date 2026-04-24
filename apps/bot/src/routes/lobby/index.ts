@@ -2,12 +2,11 @@ import type { GameMode, QueueEntry } from '@civup/game'
 import type { Context, Hono } from 'hono'
 import type { Env } from '../../env.ts'
 import { createDb, playerRatings } from '@civup/db'
-import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
+import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, toBalanceLeaderboardMode } from '@civup/game'
 import { createDraftRoomAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
-import { createDraftRoom } from '../../services/activity/index.ts'
-import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS, resolveDraftTimerConfig } from '../../services/config/index.ts'
+import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
 import {
   arrangeLobbySlots,
   buildOpenLobbyRenderPayload,
@@ -30,28 +29,24 @@ import {
   setLobbySlots,
   setLobbyStatus,
   setLobbySteamLobbyLink,
-  startLobbyDraft,
-  storeLobbyDraftRoster,
   upsertLobbyMessage,
 } from '../../services/lobby/index.ts'
 import { modeIndexKey } from '../../services/lobby/keys.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { normalizeDraftConfigForMode } from '../../services/lobby/normalize.ts'
-import { createDraftMatch } from '../../services/match/index.ts'
 import { clearStalePersistedLiveLobbies, findPersistedBlockingDraftMatchIdsForPlayers } from '../../services/match/live.ts'
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { addToQueue, clearQueue, getQueueState, moveQueueEntriesBetweenModes, removeFromQueueAndUnlinkParty, setQueueEntries } from '../../services/queue/index.ts'
 import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
-import { createStateStore, stateStoreMdelete, stateStorePutIfAbsent } from '../../services/state/store.ts'
-import { prepareSessionDraftStart } from '../../session-runtime/session-do-client.ts'
-import { buildLobbyStateFromSessionRecord, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from '../../session-runtime/session-record.ts'
+import { getKvStore, kvMdelete } from '../../services/kv/batch.ts'
+import { startSessionDraft } from '../../session-runtime/session-do-client.ts'
+import { buildLobbyStateFromSessionRecord } from '../../session-runtime/session-record.ts'
 import { parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from '../auth.ts'
 import {
   buildLobbyQueueEntries,
   buildOpenLobbySnapshot,
   buildOpenLobbySnapshotFromParts,
-  canStartLobbyWithPlayerCount,
   emptyRankedRoleConfig,
   getQueueStateWithLobbyBalanceSnapshot,
   lobbyMinPlayerCount,
@@ -65,7 +60,6 @@ import {
 } from './snapshot.ts'
 
 const DEBUG_TEST_PLAYER_ID_PREFIX = 'bot:'
-const LOBBY_START_LOCK_TTL_SECONDS = 30
 
 function lobbySessionMutationOptions(c: Context<Env>, queueEntries?: readonly QueueEntry[]) {
   return {
@@ -86,8 +80,14 @@ function isWritableD1Binding(db: D1Database | undefined): db is D1Database {
   }
 }
 
-function isSessionDraftStartConflict(error: unknown): boolean {
-  return error instanceof Error && error.message.includes('prepare session draft start') && error.message.includes(': 409 ')
+function parseSessionDraftStartError(error: unknown): { status: 400 | 403 | 409, message: string } | null {
+  if (!(error instanceof Error)) return null
+  const match = /^Failed to start session draft for [^:]+: (400|403|409) (.*)$/.exec(error.message)
+  if (!match) return null
+  return {
+    status: Number(match[1]) as 400 | 403 | 409,
+    message: match[2] || 'Session could not start.',
+  }
 }
 
 export function registerLobbyRoutes(app: Hono<Env>) {
@@ -107,7 +107,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const mode = parseGameMode(c.req.param('mode'))
     const lobbyId = c.req.param('lobbyId')
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
     if (!lobbyId) return c.json({ error: 'lobbyId is required' }, 400)
 
@@ -129,7 +129,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!auth.ok) return auth.response
 
     const mode = parseGameMode(c.req.param('mode'))
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     if (!mode) {
       return c.json({ error: 'Invalid game mode' }, 400)
     }
@@ -469,7 +469,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
-      })
+      }, lobbySessionMutationOptions(c))
     }, `Failed to update lobby embed after config change in ${mode}:`)
 
     return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, updated, nextLobbyQueueEntries, normalizedSlots))
@@ -480,7 +480,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!auth.ok) return auth.response
 
     const mode = parseGameMode(c.req.param('mode'))
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
     let body: unknown
@@ -582,7 +582,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       slots: normalizedNextSlots,
     }
 
-    await stateStoreMdelete(kv, [modeIndexKey(mode, sourceLobby.id)])
+        await kvMdelete(kv, [modeIndexKey(mode, sourceLobby.id)])
     await commitLobbyState(kv, finalizedLobby, lobbySessionMutationOptions(c, movedLobbyQueueEntries))
     const snapshot = await syncLobbyDerivedState(kv, finalizedLobby, {
       queueEntries: movedLobbyQueueEntries,
@@ -598,7 +598,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
-      })
+      }, lobbySessionMutationOptions(c))
     }, `Failed to update lobby embed after mode change ${mode} -> ${nextMode}:`)
 
     return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(
@@ -615,7 +615,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!auth.ok) return auth.response
 
     const mode = parseGameMode(c.req.param('mode'))
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
     let body: unknown
@@ -849,7 +849,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
-      })
+      }, lobbySessionMutationOptions(c))
     }, `Failed to update lobby embed after slot placement in ${mode}:`)
 
     return c.json({
@@ -863,7 +863,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!auth.ok) return auth.response
 
     const mode = parseGameMode(c.req.param('mode'))
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
     let body: unknown
@@ -956,7 +956,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!auth.ok) return auth.response
 
     const mode = parseGameMode(c.req.param('mode'))
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
     let body: unknown
@@ -1068,7 +1068,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const mode = parseGameMode(c.req.param('mode'))
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
     let body: unknown
@@ -1167,7 +1167,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!auth.ok) return auth.response
 
     const mode = parseGameMode(c.req.param('mode'))
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
 
     let body: unknown
@@ -1227,133 +1227,30 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: `Lobby is not open (status: ${lobby.status}).` }, 409)
     }
 
-    const queue = await getQueueState(kv, mode)
-    const fallbackLobbyQueueEntries = buildLobbyQueueEntries(lobby, queue.entries)
-    let sessionStartRecord: Awaited<ReturnType<typeof prepareSessionDraftStart>> = null
     try {
-      sessionStartRecord = await prepareSessionDraftStart(c.env.SessionDO, lobby.id)
-    }
-    catch (error) {
-      if (isSessionDraftStartConflict(error)) {
-        return c.json({ error: 'Session is not open.' }, 409)
-      }
-      throw error
-    }
-    if (sessionStartRecord && sessionStartRecord.mode !== mode) {
-      return c.json({ error: 'Session mode does not match lobby route.' }, 409)
-    }
-
-    const startConfig = sessionStartRecord?.config ?? lobby.draftConfig
-    const startHostId = sessionStartRecord?.hostId ?? lobby.hostId
-    const startLobby = sessionStartRecord ? buildLobbyStateFromSessionRecord(sessionStartRecord, lobby) : lobby
-    const draftRosterEntries = sessionStartRecord
-      ? buildSessionRosterQueueEntries(sessionStartRecord)
-      : fallbackLobbyQueueEntries
-    const slots = sessionStartRecord
-      ? [...sessionStartRecord.roster.slots]
-      : normalizeLobbySlots(mode, lobby.slots, fallbackLobbyQueueEntries)
-    const selectedEntries = sessionStartRecord
-      ? buildSessionRosterSlotEntries(sessionStartRecord)
-      : mapLobbySlotsToEntries(slots, fallbackLobbyQueueEntries).filter(
-          (entry): entry is QueueEntry => entry !== null,
-        )
-
-    if (!selectedEntries.some(entry => entry.playerId === startHostId)) {
-      return c.json({ error: 'Host must be in a lobby slot before starting.' }, 400)
-    }
-
-    if (!canStartLobbyWithPlayerCount(mode, selectedEntries.length, slots.length, startConfig.redDeath)) {
-      const validCounts = startPlayerCountOptions(mode, slots.length, { redDeath: startConfig.redDeath })
-      const label = formatModeLabel(mode, mode, { redDeath: startConfig.redDeath, targetSize: slots.length })
-      if (validCounts.length > 0) {
-        return c.json({ error: `${label} can start with ${formatCountList(validCounts)} slotted players.` }, 400)
-      }
-      return c.json({ error: `${label} requires exactly ${slots.length} slotted players.` }, 400)
-    }
-
-    const leaderPoolError = getLeaderPoolSizeError(mode, startConfig.redDeath, startConfig.leaderPoolSize, selectedEntries.length)
-    if (leaderPoolError) return c.json({ error: leaderPoolError }, 400)
-
-    const startLockKey = lobbyStartLockKey(lobby.id)
-    const acquiredStartLock = await stateStorePutIfAbsent(kv, startLockKey, auth.identity.userId, {
-      expirationTtl: LOBBY_START_LOCK_TTL_SECONDS,
-    })
-    if (!acquiredStartLock) {
-      const inFlightResult = await awaitConcurrentLobbyStart(kv, lobby.id, auth.identity.userId, internalSecret)
-      if (inFlightResult) return c.json(inFlightResult)
-      return c.json({ error: 'Lobby is already starting. Please retry.' }, 409)
-    }
-
-    try {
-      const timerConfig = await resolveDraftTimerConfig(kv, startConfig)
-
-      await storeLobbyDraftRoster(kv, startLobby.id, draftRosterEntries)
-
-      const { matchId, seats } = await createDraftRoom(mode, selectedEntries, {
-        mainNamespace: c.env.Main,
-        matchId: startLobby.id,
-        hostId: startHostId,
-        leaderDataVersion: startConfig.leaderDataVersion,
-        blindBans: startConfig.blindBans,
-        simultaneousPick: startConfig.simultaneousPick,
-        redDeath: startConfig.redDeath,
-        mapVoteEnabled: startConfig.mapVoteEnabled,
-        randomDraft: startConfig.randomDraft,
-        duplicateFactions: startConfig.duplicateFactions,
-        botHost: c.env.BOT_HOST,
-        webhookSecret: internalSecret,
-        timerConfig,
-        leaderPoolSize: startConfig.leaderPoolSize,
-        dealOptionsSize: startConfig.dealOptionsSize,
+      const started = await startSessionDraft(c.env.SessionDO, lobby.id, {
+        expectedVersion: lobby.revision,
+        hostId: auth.identity.userId,
       })
+      if (started.record.mode !== mode) return c.json({ error: 'Session mode does not match lobby route.' }, 409)
 
+      const { matchId, seats } = started
+      const lobbyForMessage = buildLobbyStateFromSessionRecord(started.record, lobby)
       const db = createDb(c.env.DB)
-      await createDraftMatch(db, { matchId, mode, seats })
-
-      const draftRosterPlayerIds = draftRosterEntries.map(entry => entry.playerId)
-      if (draftRosterPlayerIds.length > 0) {
-        await clearQueue(kv, mode, draftRosterPlayerIds, {
-          currentState: queue,
-        })
-      }
-
-      const slottedLobby = await setLobbySlots(kv, startLobby.id, slots, startLobby, { db, sessionNamespace: c.env.SessionDO, queueEntries: draftRosterEntries }) ?? startLobby
-      const lobbyForMessage = await startLobbyDraft(kv, startLobby.id, slottedLobby, { db, sessionNamespace: c.env.SessionDO, queueEntries: draftRosterEntries })
-      if (!lobbyForMessage) {
-        const currentLobby = await getLobbyById(kv, startLobby.id)
-        if (currentLobby?.status === 'drafting' && currentLobby.matchId) {
-          console.warn('[idempotency] lobby start transitioned concurrently', {
-            mode,
-            hostId: auth.identity.userId,
-            requestedMatchId: matchId,
-            activeMatchId: currentLobby.matchId,
-            revision: currentLobby.revision,
-          })
-          return c.json({
-            ok: true as const,
-            matchId: currentLobby.matchId,
-            idempotent: true,
-            roomAccessToken: await createDraftRoomAccessToken(internalSecret, {
-              userId: auth.identity.userId,
-              roomId: currentLobby.matchId,
-              channelId: currentLobby.channelId,
-            }),
-          })
-        }
-        throw new Error('Lobby state changed while starting. Please retry.')
-      }
 
       await syncLobbyDerivedState(kv, lobbyForMessage)
 
-      queueBackgroundTask(c, async () => {
-        const currentLobby = await getCurrentLobbyForQueuedMessageUpdate(kv, lobbyForMessage)
-        if (!currentLobby) return
-        const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
-          embeds: [lobbyDraftingEmbed(mode, seats, lobbyForMessage.draftConfig.leaderDataVersion, lobbyForMessage.draftConfig.redDeath)],
-          components: lobbyComponents(mode, currentLobby.id),
-        })
-        await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
-      }, `Failed to update drafting lobby embed for mode ${mode}:`)
+      if (!started.idempotent && seats.length > 0) {
+        queueBackgroundTask(c, async () => {
+          const currentLobby = await getCurrentLobbyForQueuedMessageUpdate(kv, lobbyForMessage)
+          if (!currentLobby) return
+          const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
+            embeds: [lobbyDraftingEmbed(mode, seats, lobbyForMessage.draftConfig.leaderDataVersion, lobbyForMessage.draftConfig.redDeath)],
+            components: lobbyComponents(mode, currentLobby.id),
+          })
+          await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
+        }, `Failed to update drafting lobby embed for mode ${mode}:`)
+      }
 
       return c.json({
         ok: true as const,
@@ -1367,13 +1264,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     catch (error) {
       console.error(`Failed to start lobby draft for mode ${mode}:`, error)
-      if (error instanceof Error && error.message === 'Lobby state changed while starting. Please retry.') {
-        return c.json({ error: error.message }, 409)
-      }
+      const commandError = parseSessionDraftStartError(error)
+      if (commandError) return c.json({ error: commandError.message }, commandError.status)
       return c.json({ error: 'Failed to start draft. Please try again.' }, 500)
-    }
-    finally {
-      await stateStoreMdelete(kv, [startLockKey])
     }
   })
 
@@ -1382,7 +1275,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!auth.ok) return auth.response
 
     const mode = parseGameMode(c.req.param('mode'))
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     if (!mode) {
       return c.json({ error: 'Invalid game mode' }, 400)
     }
@@ -1472,12 +1365,6 @@ async function buildStoredLobbySnapshot(
     draftConfig: lobby.draftConfig,
     serverDefaults,
   }
-}
-
-function formatCountList(counts: readonly number[]): string {
-  if (counts.length <= 1) return String(counts[0] ?? '')
-  if (counts.length === 2) return `${counts[0]} or ${counts[1]}`
-  return `${counts.slice(0, -1).join(', ')}, or ${counts[counts.length - 1]}`
 }
 
 function isSteamLobbyEditableStatus(status: 'open' | 'drafting' | 'active' | 'completed' | 'cancelled' | 'scrubbed'): boolean {
@@ -1585,41 +1472,6 @@ function isDebugLobbyFillEnabled(
 function isTruthyEnvFlag(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase()
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
-}
-
-function lobbyStartLockKey(lobbyId: string): string {
-  return `lobby:start-lock:${lobbyId}`
-}
-
-async function awaitConcurrentLobbyStart(
-  kv: KVNamespace,
-  lobbyId: string,
-  userId: string,
-  activitySecret: string,
-): Promise<{ ok: true, matchId: string, roomAccessToken: string | null, idempotent: true } | null> {
-  for (let attempt = 0; attempt < 40; attempt++) {
-    const currentLobby = await getLobbyById(kv, lobbyId)
-    if (currentLobby?.status === 'drafting' && currentLobby.matchId) {
-      return {
-        ok: true,
-        matchId: currentLobby.matchId,
-        idempotent: true,
-        roomAccessToken: await createDraftRoomAccessToken(activitySecret, {
-          userId,
-          roomId: currentLobby.matchId,
-          channelId: currentLobby.channelId,
-        }),
-      }
-    }
-    if (!currentLobby || currentLobby.status !== 'open') return null
-    await sleep(25)
-  }
-
-  return null
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 function queueBackgroundTask(context: { executionCtx: ExecutionContext }, run: () => Promise<void>, errorMessage: string): void {

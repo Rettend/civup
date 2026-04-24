@@ -4,7 +4,7 @@ import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility, selectActivityTargetForUser } from '../../src/routes/activity.ts'
 import { buildOpenLobbySnapshot, resolveOpenLobbyFromBody } from '../../src/routes/lobby/snapshot.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
-import { createLobby, getLobbyById, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startLobbyDraft } from '../../src/services/lobby/index.ts'
+import { buildTestLobbyEnv, createLobby, getLobbyById, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -69,7 +69,7 @@ describe('activity lobby join eligibility', () => {
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
-    await startLobbyDraft(kv, liveLobby.id, liveLobby)
+    await startTestSessionDraft(kv, liveLobby.id, liveLobby)
 
     const selected = await selectActivityTargetForUser(undefined, 'secret', kv, 'channel-1', 'player-1', {
       kind: 'lobby',
@@ -116,7 +116,7 @@ describe('activity lobby join eligibility', () => {
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
-    await startLobbyDraft(kv, liveLobby.id, liveLobby)
+    await startTestSessionDraft(kv, liveLobby.id, liveLobby)
 
     const snapshot = await buildOpenLobbySnapshot(kv, '2v2', openLobby)
     const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', openLobby, snapshot, {
@@ -157,7 +157,7 @@ describe('activity lobby join eligibility', () => {
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
-    const draftingLobby = await startLobbyDraft(kv, liveLobby.id, liveLobby)
+    const draftingLobby = await startTestSessionDraft(kv, liveLobby.id, liveLobby)
     await setLobbyStatus(kv, liveLobby.id, 'active', draftingLobby ?? liveLobby)
 
     const snapshot = await buildOpenLobbySnapshot(kv, '2v2', openLobby)
@@ -193,7 +193,7 @@ describe('activity lobby join eligibility', () => {
       avatarUrl: null,
       joinedAt: Date.now(),
     })
-    await startLobbyDraft(kv, liveLobby.id, liveLobby)
+    await startTestSessionDraft(kv, liveLobby.id, liveLobby)
 
     const selected = await selectActivityTargetForUser(undefined, 'secret', kv, 'channel-1', 'player-1', {
       kind: 'lobby',
@@ -480,7 +480,7 @@ describe('activity target selection', () => {
       messageId: 'message-1',
     })
 
-    await startLobbyDraft(kv, lobby.id, lobby)
+    await startTestSessionDraft(kv, lobby.id, lobby)
 
     await expect(selectActivityTargetForUser(undefined, 'secret', kv, 'channel-1', 'spectator-1', {
       kind: 'match',
@@ -687,7 +687,7 @@ describe('activity target selection', () => {
       avatarUrl: null,
       joinedAt: Date.now(),
     })
-    await startLobbyDraft(kv, liveLobby.id, liveLobby)
+    await startTestSessionDraft(kv, liveLobby.id, liveLobby)
 
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'spectator-1')
     expect(snapshot.selection).toBeNull()
@@ -716,7 +716,7 @@ describe('activity target selection', () => {
       messageId: 'message-1',
     })
 
-    await startLobbyDraft(kv, lobby.id, lobby)
+    await startTestSessionDraft(kv, lobby.id, lobby)
 
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1')
     expect(snapshot.selection).toBeNull()
@@ -740,7 +740,7 @@ describe('activity target selection', () => {
       steamLobbyLink: 'steam://joinlobby/289070/12345678901234567/76561198000000000',
     })
 
-    await startLobbyDraft(kv, lobby.id, lobby)
+    await startTestSessionDraft(kv, lobby.id, lobby)
 
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'host-1')
     expect(snapshot.selection?.kind).toBe('match')
@@ -763,7 +763,7 @@ describe('activity target selection', () => {
       messageId: 'message-1',
     })
 
-    await startLobbyDraft(kv, lobby.id, lobby)
+    await startTestSessionDraft(kv, lobby.id, lobby)
 
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'host-1')
     expect(snapshot.selection?.kind).toBe('match')
@@ -792,7 +792,7 @@ describe('activity target selection', () => {
       joinedAt: Date.now(),
     })
 
-    await startLobbyDraft(kv, lobby.id, lobby)
+    await startTestSessionDraft(kv, lobby.id, lobby)
 
     const selected = await selectActivityTargetForUser(undefined, 'secret', kv, lobby.channelId, 'spectator-1', {
       kind: 'match',
@@ -827,7 +827,7 @@ describe('activity target selection', () => {
       avatarUrl: null,
       joinedAt: Date.now(),
     })
-    await startLobbyDraft(kv, lobby.id, lobby)
+    await startTestSessionDraft(kv, lobby.id, lobby)
 
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1')
     expect(snapshot.selection).toBeNull()
@@ -855,14 +855,12 @@ describe('activity target selection', () => {
 })
 
 function buildEnv(kv: KVNamespace) {
-  return {
-    KV: kv,
-    DB: buildDb(null),
+  return buildTestLobbyEnv(kv, {
     DISCORD_APPLICATION_ID: 'app',
     DISCORD_PUBLIC_KEY: 'key',
     DISCORD_TOKEN: 'token',
     CIVUP_SECRET: 'secret',
-  } as any
+  }) as any
 }
 
 function buildDb(

@@ -5,7 +5,7 @@ import { matches, matchParticipants, playerRatings } from '@civup/db'
 import { createRating } from '@civup/rating'
 import { and, eq, inArray } from 'drizzle-orm'
 import { getDisplaySeason } from '../season/index.ts'
-import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
+import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
 import { projectLineupDisplayRating } from './team-rating.ts'
 
 export type TeamLeaderboardBucket = 'duo' | 'squad-3v3' | 'squad-4v4' | 'squad-5v5' | 'squad-6v6'
@@ -113,7 +113,7 @@ export async function ensureTeamLeaderboardBucketSnapshots(
   const requestedBuckets = [...new Set(buckets.filter(isTeamLeaderboardBucket))]
   if (requestedBuckets.length === 0) return new Map()
 
-  const [rawSnapshot] = await stateStoreMget(kv, [{
+  const [rawSnapshot] = await kvMget(kv, [{
     key: teamLeaderboardSnapshotKey(),
     type: 'json',
   }])
@@ -140,7 +140,7 @@ export async function clearAllTeamLeaderboardSnapshots(kv: KVNamespace): Promise
 }
 
 async function clearTeamLeaderboardSnapshots(kv: KVNamespace): Promise<void> {
-  await stateStoreMdelete(kv, [teamLeaderboardSnapshotKey()])
+  await kvMdelete(kv, [teamLeaderboardSnapshotKey()])
 }
 
 async function listTeamLeaderboardBucketSnapshotsFromD1(
@@ -301,7 +301,7 @@ async function setTeamLeaderboardBucketSnapshots(
   kv: KVNamespace,
   snapshots: readonly TeamLeaderboardBucketSnapshot[],
 ): Promise<void> {
-  await stateStoreMput(kv, [{
+  await kvMput(kv, [{
     key: teamLeaderboardSnapshotKey(),
     value: JSON.stringify({
       updatedAt: Math.max(0, ...snapshots.map(snapshot => snapshot.updatedAt)),

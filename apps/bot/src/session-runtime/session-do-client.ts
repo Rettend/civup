@@ -1,6 +1,6 @@
-import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
+import type { CompetitiveTier, DraftSeat, GameMode, QueueEntry } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
-import type { OpenSessionRecord, SessionRecord } from './session-record.ts'
+import type { DraftSessionRecord, SessionRecord } from './session-record.ts'
 import { SessionAdmissionError } from '../services/session/directory.ts'
 
 export type SessionOpenLobbyCommand
@@ -86,50 +86,57 @@ export type SessionOpenLobbyCommand
     now?: number
   }
 
+export type SessionDraftLifecycleCommand
+  = | {
+    type: 'draft-completed' | 'swap-accepted' | 'draft-finalized'
+    at?: number
+  }
+  | {
+    type: 'draft-cancelled'
+    reason: 'cancel' | 'scrub' | 'timeout' | 'revert'
+    at?: number
+  }
+
 export async function createSessionAggregateFromLobby(
   namespace: DurableObjectNamespace | null | undefined,
   lobby: LobbyState,
   queueEntries: readonly QueueEntry[] = [],
-): Promise<SessionRecord | null> {
-  return await postSessionLobbyCommand(namespace, lobby, queueEntries, 'create-from-lobby')
+): Promise<SessionRecord> {
+  return await postSessionLobbyCommand(namespace, lobby, queueEntries)
 }
 
-export async function syncSessionAggregateFromLobby(
-  namespace: DurableObjectNamespace | null | undefined,
-  lobby: LobbyState,
-  queueEntries: readonly QueueEntry[] = [],
-): Promise<SessionRecord | null> {
-  return await postSessionLobbyCommand(namespace, lobby, queueEntries, 'sync-from-lobby')
-}
-
-export async function prepareSessionDraftStart(
+export async function startSessionDraft(
   namespace: DurableObjectNamespace | null | undefined,
   sessionId: string,
-): Promise<OpenSessionRecord | null> {
-  if (!namespace) return null
+  command: { expectedVersion?: number, hostId?: string, now?: number } = {},
+): Promise<{ record: DraftSessionRecord, matchId: string, seats: DraftSeat[], idempotent?: boolean }> {
+  if (!namespace) throw new Error('SessionDO binding is required')
 
   const id = namespace.idFromName(sessionId)
   const stub = namespace.get(id)
-  const response = await stub.fetch('https://session.local/commands/prepare-draft-start', {
+  const response = await stub.fetch('https://session.local/commands/start-draft', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(command),
   })
 
   if (!response.ok) {
-    if (response.status === 404) return null
-    const detail = await response.text()
-    throw new Error(`Failed to prepare session draft start for ${sessionId}: ${response.status} ${detail}`)
+    await throwSessionCommandError(response, `start session draft for ${sessionId}`)
   }
 
-  const body = await response.json<{ record?: SessionRecord }>()
-  return body.record?.phase === 'open' ? body.record : null
+  const body = await response.json<{ record?: SessionRecord, matchId?: string, seats?: DraftSeat[], idempotent?: boolean }>()
+  if (body.record?.phase !== 'draft' || typeof body.matchId !== 'string' || !Array.isArray(body.seats)) {
+    throw new Error(`Failed to start session draft for ${sessionId}: invalid response`)
+  }
+  return { record: body.record, matchId: body.matchId, seats: body.seats, idempotent: body.idempotent }
 }
 
 export async function runSessionOpenLobbyCommand(
   namespace: DurableObjectNamespace | null | undefined,
   sessionId: string,
   command: SessionOpenLobbyCommand,
-): Promise<SessionRecord | null> {
-  if (!namespace) return null
+): Promise<SessionRecord> {
+  if (!namespace) throw new Error('SessionDO binding is required')
 
   const id = namespace.idFromName(sessionId)
   const stub = namespace.get(id)
@@ -144,20 +151,44 @@ export async function runSessionOpenLobbyCommand(
   }
 
   const body = await response.json<{ record?: SessionRecord }>()
-  return body.record ?? null
+  if (!body.record) throw new Error(`Failed to run open lobby command ${command.type} for ${sessionId}: invalid response`)
+  return body.record
+}
+
+export async function runSessionDraftLifecycleCommand(
+  namespace: DurableObjectNamespace | null | undefined,
+  sessionId: string,
+  command: SessionDraftLifecycleCommand,
+): Promise<SessionRecord> {
+  if (!namespace) throw new Error('SessionDO binding is required')
+
+  const id = namespace.idFromName(sessionId)
+  const stub = namespace.get(id)
+  const response = await stub.fetch('https://session.local/commands/draft-lifecycle', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(command),
+  })
+
+  if (!response.ok) {
+    await throwSessionCommandError(response, `run draft lifecycle command ${command.type} for ${sessionId}`)
+  }
+
+  const body = await response.json<{ record?: SessionRecord }>()
+  if (!body.record) throw new Error(`Failed to run draft lifecycle command ${command.type} for ${sessionId}: invalid response`)
+  return body.record
 }
 
 async function postSessionLobbyCommand(
   namespace: DurableObjectNamespace | null | undefined,
   lobby: LobbyState,
   queueEntries: readonly QueueEntry[],
-  command: 'create-from-lobby' | 'sync-from-lobby',
-): Promise<SessionRecord | null> {
-  if (!namespace) return null
+): Promise<SessionRecord> {
+  if (!namespace) throw new Error('SessionDO binding is required')
 
   const id = namespace.idFromName(lobby.id)
   const stub = namespace.get(id)
-  const response = await stub.fetch(`https://session.local/commands/${command}`, {
+  const response = await stub.fetch('https://session.local/commands/create-from-lobby', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -167,11 +198,12 @@ async function postSessionLobbyCommand(
   })
 
   if (!response.ok) {
-    await throwSessionCommandError(response, `${command} session aggregate for ${lobby.id}`)
+    await throwSessionCommandError(response, `create session aggregate for ${lobby.id}`)
   }
 
   const body = await response.json<{ record?: SessionRecord }>()
-  return body.record ?? null
+  if (!body.record) throw new Error(`Failed to create session aggregate for ${lobby.id}: invalid response`)
+  return body.record
 }
 
 async function throwSessionCommandError(response: Response, label: string): Promise<never> {

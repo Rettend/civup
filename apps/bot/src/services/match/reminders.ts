@@ -3,7 +3,7 @@ import { matches } from '@civup/db'
 import { asc, eq } from 'drizzle-orm'
 import { createChannelMessage, createDmChannel } from '../discord/index.ts'
 import { getLobbyByMatch } from '../lobby/index.ts'
-import { stateStoreMget } from '../state/store.ts'
+import { kvMget } from '../kv/batch.ts'
 import { getCompletedAtFromDraftData, getHostIdFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 
 const REPORT_REMINDER_TTL_SECONDS = 3 * 24 * 60 * 60
@@ -83,7 +83,7 @@ async function resolvePendingReminderStage(
   matchId: string,
   elapsedMs: number,
 ): Promise<(typeof REPORT_REMINDER_STAGES)[number] | null> {
-  const reminderStates = await stateStoreMget(kv, REPORT_REMINDER_STAGES.map(stage => ({
+  const reminderStates = await kvMget(kv, REPORT_REMINDER_STAGES.map(stage => ({
     key: reminderKey(matchId, stage.key),
   })))
   let pendingStage: (typeof REPORT_REMINDER_STAGES)[number] | null = null

@@ -30,25 +30,24 @@ import {
   getCurrentLobbyHostedBy,
   getLobby,
   getLobbyByMatch,
+  getTestLobbyRuntime,
   mapLobbySlotsToEntries,
   normalizeLobbySlots,
   pruneInactiveOpenLobbies,
   setLobbyDraftConfig,
   setLobbySlots,
   setLobbyStatus,
-  startLobbyDraft,
-} from '../../src/services/lobby/index.ts'
+  startTestSessionDraft,
+} from '../helpers/lobby-runtime.ts'
 import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
-import { activateDraftMatch, createDraftMatch, reportMatch } from '../../src/services/match/index.ts'
+import { activateDraftMatch, reportMatch } from '../../src/services/match/index.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
-import { addToQueue, clearQueue, getQueueState, getQueueStateWithPlayerQueueModes } from '../../src/services/queue/index.ts'
+import { addToQueue, getQueueState, getQueueStateWithPlayerQueueModes } from '../../src/services/queue/index.ts'
 import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
-import { createStateStore } from '../../src/services/state/store.ts'
 import { getSystemChannel, setSystemChannel } from '../../src/services/system/channels.ts'
-import { installStateCoordinatorHarness } from '../helpers/state-coordinator-harness.ts'
 import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -66,6 +65,7 @@ import {
 const CHANNEL_ID = 'channel-draft'
 const GUILD_ID = 'guild-1'
 const HOST_ID = 'p1'
+const ACTIVITY_SECRET = 'capacity-test-secret'
 
 const CAPACITY_SCENARIOS: CapacityScenario[] = [
   {
@@ -364,18 +364,11 @@ async function buildScenarioReport(
 async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
   const { db, sqlite } = await createTestDatabase()
   const sqlTracker = trackSqlite(sqlite)
-  const { kv: rawKv, operations, resetOperations } = createTrackedKv({ trackReads: true })
-  const stateCoordinator = installStateCoordinatorHarness()
-  const kv = createStateStore({
-    KV: rawKv,
-    State: stateCoordinator.namespace,
-    CIVUP_SECRET: stateCoordinator.secret,
-  })
+  const { kv, operations, resetOperations } = createTrackedKv({ trackReads: true })
 
   try {
     resetOperations()
     sqlTracker.reset()
-    stateCoordinator.reset()
 
     await refreshDirtyLeaderboards(db, kv, 'token')
 
@@ -383,8 +376,8 @@ async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
     const kvWrites = operations.filter(op => op.type === 'put').length
     const kvDeletes = operations.filter(op => op.type === 'delete').length
     const kvLists = operations.filter(op => op.type === 'list').length
-    const partyWorkerRequests = stateCoordinator.requests()
-    const doRequests = partyWorkerRequests
+    const partyWorkerRequests = 0
+    const doRequests = 0
 
     return {
       workersRequests: 1 + partyWorkerRequests,
@@ -393,8 +386,8 @@ async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
       partyWorkerRequests,
       d1RowsRead: sqlTracker.counts.rowsRead,
       d1RowsWritten: sqlTracker.counts.rowsWritten,
-      doSqliteRowsRead: stateCoordinator.sqliteRowsRead(),
-      doSqliteRowsWritten: stateCoordinator.sqliteRowsWritten(),
+      doSqliteRowsRead: 0,
+      doSqliteRowsWritten: 0,
       kvReads,
       kvWrites,
       kvDeletes,
@@ -405,7 +398,6 @@ async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
     }
   }
   finally {
-    stateCoordinator.restore()
     sqlTracker.restore()
     sqlite.close()
   }
@@ -414,18 +406,11 @@ async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
 async function measureInactiveLobbyCleanupCronRunUsage(): Promise<DailyUsage> {
   const { db, sqlite } = await createTestDatabase()
   const sqlTracker = trackSqlite(sqlite)
-  const { kv: rawKv, operations, resetOperations } = createTrackedKv({ trackReads: true })
-  const stateCoordinator = installStateCoordinatorHarness()
-  const kv = createStateStore({
-    KV: rawKv,
-    State: stateCoordinator.namespace,
-    CIVUP_SECRET: stateCoordinator.secret,
-  })
+  const { kv, operations, resetOperations } = createTrackedKv({ trackReads: true })
 
   try {
     resetOperations()
     sqlTracker.reset()
-    stateCoordinator.reset()
 
     await pruneInactiveOpenLobbies(kv, 'token')
     await pruneAbandonedMatches(db, kv)
@@ -434,8 +419,8 @@ async function measureInactiveLobbyCleanupCronRunUsage(): Promise<DailyUsage> {
     const kvWrites = operations.filter(op => op.type === 'put').length
     const kvDeletes = operations.filter(op => op.type === 'delete').length
     const kvLists = operations.filter(op => op.type === 'list').length
-    const partyWorkerRequests = stateCoordinator.requests()
-    const doRequests = partyWorkerRequests
+    const partyWorkerRequests = 0
+    const doRequests = 0
 
     return {
       workersRequests: 1 + partyWorkerRequests,
@@ -444,8 +429,8 @@ async function measureInactiveLobbyCleanupCronRunUsage(): Promise<DailyUsage> {
       partyWorkerRequests,
       d1RowsRead: sqlTracker.counts.rowsRead,
       d1RowsWritten: sqlTracker.counts.rowsWritten,
-      doSqliteRowsRead: stateCoordinator.sqliteRowsRead(),
-      doSqliteRowsWritten: stateCoordinator.sqliteRowsWritten(),
+      doSqliteRowsRead: 0,
+      doSqliteRowsWritten: 0,
       kvReads,
       kvWrites,
       kvDeletes,
@@ -456,7 +441,6 @@ async function measureInactiveLobbyCleanupCronRunUsage(): Promise<DailyUsage> {
     }
   }
   finally {
-    stateCoordinator.restore()
     sqlTracker.restore()
     sqlite.close()
   }
@@ -465,13 +449,7 @@ async function measureInactiveLobbyCleanupCronRunUsage(): Promise<DailyUsage> {
 async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
   const { db, sqlite } = await createTestDatabase()
   const sqlTracker = trackSqlite(sqlite)
-  const { kv: rawKv, operations, resetOperations } = createTrackedKv({ trackReads: true })
-  const stateCoordinator = installStateCoordinatorHarness()
-  const kv = createStateStore({
-    KV: rawKv,
-    State: stateCoordinator.namespace,
-    CIVUP_SECRET: stateCoordinator.secret,
-  })
+  const { kv, operations, resetOperations } = createTrackedKv({ trackReads: true })
 
   try {
     await seedRankedRoleCronState(db, kv)
@@ -488,7 +466,6 @@ async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
 
     resetOperations()
     sqlTracker.reset()
-    stateCoordinator.reset()
 
     const guildIds = await listRankedRoleConfigGuildIds(kv)
     for (const guildId of guildIds) {
@@ -507,8 +484,8 @@ async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
     const kvWrites = operations.filter(op => op.type === 'put').length
     const kvDeletes = operations.filter(op => op.type === 'delete').length
     const kvLists = operations.filter(op => op.type === 'list').length
-    const partyWorkerRequests = stateCoordinator.requests()
-    const doRequests = partyWorkerRequests
+    const partyWorkerRequests = 0
+    const doRequests = 0
 
     return {
       workersRequests: 1 + partyWorkerRequests,
@@ -517,8 +494,8 @@ async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
       partyWorkerRequests,
       d1RowsRead: sqlTracker.counts.rowsRead,
       d1RowsWritten: sqlTracker.counts.rowsWritten,
-      doSqliteRowsRead: stateCoordinator.sqliteRowsRead(),
-      doSqliteRowsWritten: stateCoordinator.sqliteRowsWritten(),
+      doSqliteRowsRead: 0,
+      doSqliteRowsWritten: 0,
       kvReads,
       kvWrites,
       kvDeletes,
@@ -529,7 +506,6 @@ async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
     }
   }
   finally {
-    stateCoordinator.restore()
     sqlTracker.restore()
     sqlite.close()
   }
@@ -537,7 +513,7 @@ async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
 
 async function seedRankedRoleCronState(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
-  kv: ReturnType<typeof createStateStore>,
+  kv: KVNamespace,
 ): Promise<void> {
   const playerIds = Array.from({ length: 8 }, (_value, index) => `ranked-role-cron-${index + 1}`)
 
@@ -575,13 +551,7 @@ async function simulateScenarioLifecycle(input: {
 }): Promise<SimulationResult> {
   const { db, sqlite } = await createTestDatabase()
   const sqlTracker = trackSqlite(sqlite)
-  const { kv: rawKv, operations, resetOperations, runWithoutTracking: runKvWithoutTracking } = createTrackedKv({ trackReads: true })
-  const stateCoordinator = installStateCoordinatorHarness()
-  const kv = createStateStore({
-    KV: rawKv,
-    State: stateCoordinator.namespace,
-    CIVUP_SECRET: stateCoordinator.secret,
-  })
+  const { kv, operations, resetOperations, runWithoutTracking: runKvWithoutTracking } = createTrackedKv({ trackReads: true })
 
   let botRequests = 0
   let activityRequests = 0
@@ -604,13 +574,10 @@ async function simulateScenarioLifecycle(input: {
 
     resetOperations()
     sqlTracker.reset()
-    stateCoordinator.reset()
 
     const runUnmetered = async <T>(callback: () => Promise<T>): Promise<T> =>
       runKvWithoutTracking(() =>
-        sqlTracker.runWithoutTracking(() =>
-          stateCoordinator.runWithoutTracking(callback),
-        ),
+        sqlTracker.runWithoutTracking(callback),
       )
 
     botRequests += 1
@@ -630,7 +597,7 @@ async function simulateScenarioLifecycle(input: {
     activityRequests += viewerIds.length
     for (const playerId of viewerIds) {
       botRequests += 1
-      await simulateActivityLaunchSnapshot(db, kv, stateCoordinator.secret, CHANNEL_ID, playerId)
+      await simulateActivityLaunchSnapshot(db, kv, ACTIVITY_SECRET, CHANNEL_ID, playerId)
     }
 
     // Each viewer opens the live state-watch socket through the activity proxy.
@@ -699,18 +666,19 @@ async function simulateScenarioLifecycle(input: {
     const kvWrites = operations.filter(op => op.type === 'put').length
     const kvDeletes = operations.filter(op => op.type === 'delete').length
     const kvLists = operations.filter(op => op.type === 'list').length
+    const stateCoordinatorRequests = 0
     const partyWorkerRequests = estimatePartyWorkerRequests({
-      stateCoordinatorRequests: stateCoordinator.requests(),
+      stateCoordinatorRequests,
       viewerCount: viewerIds.length,
     })
     const doRequestsRaw = estimateDoRawRequests({
-      stateCoordinatorRequests: stateCoordinator.requests(),
+      stateCoordinatorRequests,
       viewerCount: viewerIds.length,
       draftRoomIncomingMessages,
       lobbyWatchIncomingMessagesPerConnection: LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION,
     })
     const doRequests = estimateDoBilledRequestUnits({
-      stateCoordinatorRequests: stateCoordinator.requests(),
+      stateCoordinatorRequests,
       viewerCount: viewerIds.length,
       draftRoomIncomingMessages,
       lobbyWatchIncomingMessagesPerConnection: LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION,
@@ -729,8 +697,8 @@ async function simulateScenarioLifecycle(input: {
         partyWorkerRequests,
         d1RowsRead: sqlTracker.counts.rowsRead,
         d1RowsWritten: sqlTracker.counts.rowsWritten,
-        doSqliteRowsRead: stateCoordinator.sqliteRowsRead(),
-        doSqliteRowsWritten: stateCoordinator.sqliteRowsWritten(),
+        doSqliteRowsRead: 0,
+        doSqliteRowsWritten: 0,
         kvReads,
         kvWrites,
         kvDeletes,
@@ -742,7 +710,6 @@ async function simulateScenarioLifecycle(input: {
     }
   }
   finally {
-    stateCoordinator.restore()
     sqlTracker.restore()
     sqlite.close()
   }
@@ -772,6 +739,7 @@ async function simulateMatchCreate(
     channelId: draftChannelId,
     messageId: `message-lobby-open-${mode.id}`,
     queueEntries: nextQueue.entries,
+    db,
   })
 }
 
@@ -782,8 +750,9 @@ async function simulateMatchJoin(
   group: string[],
 ): Promise<void> {
   const liveMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, group)
+  const runtime = await getTestLobbyRuntime(kv, db)
   const outcome = await joinLobbyAndMaybeStartMatch(
-    { env: { KV: kv } },
+    { env: { DB: runtime.d1, KV: kv, SessionDO: runtime.sessionNamespace } },
     mode.mode,
     buildJoinEntries(group),
     { liveMatchPlayerIds: new Set(liveMatchIdByPlayer.keys()) },
@@ -950,14 +919,8 @@ async function startDraftFromOpenLobby(
   const seats = buildDraftSeats(mode.mode, slottedEntries)
   if (selectedEntries.length !== seats.length) throw new Error('Seat count did not match selected entries')
 
-  await createDraftMatch(db, { matchId, mode: mode.mode, seats })
-
-  if (lobby.memberPlayerIds.length > 0) {
-    await clearQueue(kv, mode.mode, lobby.memberPlayerIds, { currentState: queue })
-  }
-
   const slottedLobby = await setLobbySlots(kv, lobby.id, slots, lobby) ?? { ...lobby, slots }
-  const draftingLobby = await startLobbyDraft(kv, lobby.id, slottedLobby)
+  const draftingLobby = await startTestSessionDraft(kv, lobby.id, slottedLobby, { db })
   if (!draftingLobby) throw new Error('Expected lobby to transition to drafting during capacity simulation')
   await syncLobbyDerivedState(kv, draftingLobby)
   await storeMatchMessageMapping(db, `message-lobby-drafting-${mode.id}`, matchId)

@@ -1,4 +1,5 @@
 import type { GameMode, QueueState } from '@civup/game'
+import type { LobbySessionProjectionOptions } from './mutations.ts'
 import type { LobbyState } from './types.ts'
 import { GAME_MODES, slotToTeamIndex } from '@civup/game'
 import { lobbyTimeoutEmbed } from '../../embeds/match.ts'
@@ -29,7 +30,7 @@ export async function pruneInactiveOpenLobbies(
   token: string | undefined,
   options: {
     now?: number
-  } = {},
+  } & LobbySessionProjectionOptions = {},
 ): Promise<PrunedInactiveLobby[]> {
   const now = options.now ?? Date.now()
   const pruned: PrunedInactiveLobby[] = []
@@ -57,6 +58,8 @@ export async function pruneInactiveOpenLobbies(
       if (!isLobbyInactive(lobby, now)) continue
       const expired = await expireOpenLobby(kv, token, lobby, {
         currentQueue: queue,
+        db: options.db,
+        sessionNamespace: options.sessionNamespace,
       })
       pruned.push(expired)
       queue = {
@@ -75,13 +78,13 @@ async function expireOpenLobby(
   lobby: LobbyState,
   options: {
     currentQueue?: QueueState
-  } = {},
+  } & LobbySessionProjectionOptions = {},
 ): Promise<PrunedInactiveLobby> {
   const queue = options.currentQueue ?? await getQueueState(kv, lobby.mode)
   const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
   const removedPlayerIds = lobbyQueueEntries.map(entry => entry.playerId)
   const slots = normalizeLobbySlots(lobby.mode, lobby.slots, lobbyQueueEntries)
-  const cancelledLobby = await setLobbyStatus(kv, lobby.id, 'cancelled', lobby) ?? lobby
+  const cancelledLobby = await setLobbyStatus(kv, lobby.id, 'cancelled', lobby, options) ?? lobby
 
   if (token) {
     try {
