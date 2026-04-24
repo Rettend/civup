@@ -1,9 +1,7 @@
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from './types.ts'
-import { syncActivityOverviewSnapshot } from '../activity/live-state.ts'
 import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
 import { bumpCooldownKey, channelIndexKey, channelPrefix, hostKey, idKey, LOBBY_HOST_KEY_PREFIX, LOBBY_ID_KEY_PREFIX, LOBBY_TTL, modeIndexKey, modePrefix } from './keys.ts'
-import { lobbySnapshotKey } from './live-snapshot.ts'
 import { normalizeLobby, parseLobbyState } from './normalize.ts'
 
 interface LobbyStoreEntry {
@@ -195,7 +193,7 @@ export async function clearLobbyById(
   },
 ): Promise<void> {
   const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
-  const keys = [idKey(lobbyId), lobbySnapshotKey(lobbyId), bumpCooldownKey(lobbyId)]
+  const keys = [idKey(lobbyId), bumpCooldownKey(lobbyId)]
   const hostKeys = lobby
     ? [hostKey(lobby.hostId)]
     : await findHostKeysForLobby(kv, lobbyId)
@@ -205,17 +203,14 @@ export async function clearLobbyById(
     keys.push(channelIndexKey(lobby.channelId, lobby.id))
   }
   await kvMdelete(kv, keys)
-  if (lobby && options?.syncActivityOverview !== false) await syncActivityOverviewSnapshot(kv, lobby.channelId)
 }
 
 export async function clearLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise<void> {
   const lobbies = await getLobbiesByMode(kv, mode)
   if (lobbies.length === 0) return
-  const channelIds = [...new Set(lobbies.map(lobby => lobby.channelId))]
   await kvMdelete(kv, lobbies.flatMap((lobby) => {
     const keys = [
       idKey(lobby.id),
-      lobbySnapshotKey(lobby.id),
       hostKey(lobby.hostId),
       bumpCooldownKey(lobby.id),
       modeIndexKey(mode, lobby.id),
@@ -223,7 +218,6 @@ export async function clearLobbiesByMode(kv: KVNamespace, mode: GameMode): Promi
     ]
     return keys
   }))
-  await Promise.all(channelIds.map(channelId => syncActivityOverviewSnapshot(kv, channelId)))
 }
 
 export async function clearLobbyByMatch(kv: KVNamespace, matchId: string): Promise<void> {

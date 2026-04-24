@@ -4,7 +4,7 @@ import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility, selectActivityTargetForUser } from '../../src/routes/activity.ts'
 import { buildOpenLobbySnapshot, resolveOpenLobbyFromBody } from '../../src/routes/lobby/snapshot.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
-import { buildTestLobbyEnv, createLobby, getLobbyById, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
+import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -74,7 +74,7 @@ describe('activity lobby join eligibility', () => {
     const selected = await selectActivityTargetForUser(undefined, 'secret', kv, 'channel-1', 'player-1', {
       kind: 'lobby',
       id: openLobby.id,
-    })
+    }, activityRuntimeOptions(kv))
     expect(selected.ok).toBe(true)
     if (!selected.ok) return
     const snapshot = selected.snapshot
@@ -170,57 +170,6 @@ describe('activity lobby join eligibility', () => {
       blockedReason: null,
       pendingSlot: 1,
     })
-  })
-
-  test('filters stale live lobbies before building launch options for a new join target', async () => {
-    const { kv } = createTrackedKv()
-    const liveLobby = await createLobby(kv, {
-      mode: '2v2',
-      hostId: 'player-1',
-      channelId: 'channel-1',
-      messageId: 'message-live',
-    })
-    const openLobby = await createLobby(kv, {
-      mode: '2v2',
-      hostId: 'host-2',
-      channelId: 'channel-1',
-      messageId: 'message-open',
-    })
-
-    await addToQueue(kv, '2v2', {
-      playerId: 'host-2',
-      displayName: 'Host 2',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-    await startTestSessionDraft(kv, liveLobby.id, liveLobby)
-
-    const selected = await selectActivityTargetForUser(undefined, 'secret', kv, 'channel-1', 'player-1', {
-      kind: 'lobby',
-      id: openLobby.id,
-    }, {
-      db: buildDb({ liveMatchIds: [] }),
-    })
-    expect(selected.ok).toBe(true)
-    if (!selected.ok) return
-    const snapshot = selected.snapshot
-
-    expect(snapshot.selection?.kind).toBe('lobby')
-    if (snapshot.selection?.kind !== 'lobby') return
-
-    expect(snapshot.selection.option.id).toBe(openLobby.id)
-    expect(snapshot.selection.joinEligibility).toEqual({
-      canJoin: true,
-      blockedReason: null,
-      pendingSlot: 1,
-    })
-    expect(snapshot.options).toEqual([
-      expect.objectContaining({
-        kind: 'lobby',
-        id: openLobby.id,
-      }),
-    ])
-    await expect(getLobbyById(kv, liveLobby.id)).resolves.not.toBeNull()
   })
 
   test('allows joining another open lobby when the viewer is not the source host', async () => {
@@ -471,27 +420,6 @@ describe('activity target selection', () => {
     await expect(response.json()).resolves.toEqual({ error: 'That target is no longer available.' })
   })
 
-  test('rejects stale live match targets when D1 shows the match already ended', async () => {
-    const { kv } = createTrackedKv()
-    const lobby = await createLobby(kv, {
-      mode: '2v2',
-      hostId: 'host-1',
-      channelId: 'channel-1',
-      messageId: 'message-1',
-    })
-
-    await startTestSessionDraft(kv, lobby.id, lobby)
-
-    await expect(selectActivityTargetForUser(undefined, 'secret', kv, 'channel-1', 'spectator-1', {
-      kind: 'match',
-      id: lobby.id,
-    }, {
-      db: buildDb({ liveMatchIds: [] }),
-    })).resolves.toEqual({ ok: false, error: 'That target is no longer available.', status: 409 })
-
-    await expect(getLobbyById(kv, lobby.id)).resolves.not.toBeNull()
-  })
-
   test('resolves the viewer canonical lobby without user lobby mappings', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
@@ -610,7 +538,7 @@ describe('activity target selection', () => {
       joinedAt: Date.now(),
     })
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'spectator-1')
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'spectator-1', activityRuntimeOptions(kv))
     expect(snapshot.selection).toBeNull()
     expect(snapshot.options).toHaveLength(1)
     expect(snapshot.options[0]).toEqual(expect.objectContaining({
@@ -658,7 +586,7 @@ describe('activity target selection', () => {
     const populatedCurrentLobby = await setLobbyMemberPlayerIds(kv, currentLobby.id, ['host-1', 'player-1'], currentLobby)
     await setLobbySlots(kv, currentLobby.id, ['host-1', 'player-1', null, null], populatedCurrentLobby ?? currentLobby)
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, currentLobby.channelId, 'player-1')
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, currentLobby.channelId, 'player-1', activityRuntimeOptions(kv))
     expect(snapshot.selection?.kind).toBe('lobby')
     if (snapshot.selection?.kind !== 'lobby') return
 
@@ -689,7 +617,7 @@ describe('activity target selection', () => {
     })
     await startTestSessionDraft(kv, liveLobby.id, liveLobby)
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'spectator-1')
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'spectator-1', activityRuntimeOptions(kv))
     expect(snapshot.selection).toBeNull()
     expect(snapshot.options).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -718,7 +646,7 @@ describe('activity target selection', () => {
 
     await startTestSessionDraft(kv, lobby.id, lobby)
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1')
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1', activityRuntimeOptions(kv))
     expect(snapshot.selection).toBeNull()
     expect(snapshot.options).toEqual([
       expect.objectContaining({
@@ -742,7 +670,7 @@ describe('activity target selection', () => {
 
     await startTestSessionDraft(kv, lobby.id, lobby)
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'host-1')
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'host-1', activityRuntimeOptions(kv))
     expect(snapshot.selection?.kind).toBe('match')
     if (snapshot.selection?.kind !== 'match') return
     expect(snapshot.selection.matchId).toBe(lobby.id)
@@ -765,7 +693,7 @@ describe('activity target selection', () => {
 
     await startTestSessionDraft(kv, lobby.id, lobby)
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'host-1')
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'host-1', activityRuntimeOptions(kv))
     expect(snapshot.selection?.kind).toBe('match')
     if (snapshot.selection?.kind !== 'match') return
 
@@ -797,7 +725,7 @@ describe('activity target selection', () => {
     const selected = await selectActivityTargetForUser(undefined, 'secret', kv, lobby.channelId, 'spectator-1', {
       kind: 'match',
       id: lobby.id,
-    })
+    }, activityRuntimeOptions(kv))
     expect(selected.ok).toBe(true)
     if (!selected.ok) return
 
@@ -829,7 +757,7 @@ describe('activity target selection', () => {
     })
     await startTestSessionDraft(kv, lobby.id, lobby)
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1')
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1', activityRuntimeOptions(kv))
     expect(snapshot.selection).toBeNull()
     expect(snapshot.options).toEqual([expect.objectContaining({ kind: 'match', id: lobby.id })])
   })
@@ -846,7 +774,7 @@ describe('activity target selection', () => {
     const selected = await selectActivityTargetForUser(undefined, 'secret', kv, 'channel-1', 'spectator-1', {
       kind: 'lobby',
       id: lobby.id,
-    })
+    }, activityRuntimeOptions(kv))
     expect(selected.ok).toBe(true)
     if (!selected.ok) return
     expect(selected.snapshot.selection?.kind).toBe('lobby')
@@ -861,6 +789,11 @@ function buildEnv(kv: KVNamespace) {
     DISCORD_TOKEN: 'token',
     CIVUP_SECRET: 'secret',
   }) as any
+}
+
+function activityRuntimeOptions(kv: KVNamespace) {
+  const runtime = getExistingTestLobbyRuntime(kv)
+  return { db: runtime.d1, sessionNamespace: runtime.sessionNamespace }
 }
 
 function buildDb(

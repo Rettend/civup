@@ -92,25 +92,19 @@ export interface LobbyRankedRolesSnapshot {
 
 export type LobbyArrangeStrategy = 'randomize' | 'balance' | 'shuffle-teams'
 
-export interface StateWatchChange {
-  key: string
-  op: 'put' | 'delete'
-  value?: string
-}
+export type ActivityStateChange
+  = | { type: 'overview', snapshot: ActivityOverviewSnapshot | null }
+    | { type: 'lobby', lobbyId: string, snapshot: LobbySnapshot | null }
 
 export interface LobbyStateWatch {
   close: () => void
-  subscribeKey: (key: string) => void
-  unsubscribeKey: (key: string) => void
-  subscribePrefix: (prefix: string) => void
-  unsubscribePrefix: (prefix: string) => void
 }
 
 export interface LobbyStateWatchOptions {
   channelId: string
   userId: string
   onConnected?: () => void
-  onStateChanged: (change: StateWatchChange) => void
+  onStateChanged: (change: ActivityStateChange) => void
   onDisconnected?: () => void
   onError?: (message: string) => void
 }
@@ -400,40 +394,79 @@ function stopStaleDraftReconnectWatchdog() {
 }
 
 /** Directory/session-owned push replaces the deleted global State room. */
-export function watchLobbyState(_target: PartySocketTarget, options: LobbyStateWatchOptions): LobbyStateWatch {
+export function watchLobbyState(target: PartySocketTarget, options: LobbyStateWatchOptions): LobbyStateWatch {
   let closed = false
-  const keySubscriptions = new Set<string>()
-  const prefixSubscriptions = new Set<string>()
-
-  const subscribeKey = (key: string) => {
-    if (keySubscriptions.has(key)) return
-    keySubscriptions.add(key)
-  }
-  const unsubscribeKey = (key: string) => {
-    if (!keySubscriptions.delete(key)) return
-  }
-  const subscribePrefix = (prefix: string) => {
-    if (prefixSubscriptions.has(prefix)) return
-    prefixSubscriptions.add(prefix)
-  }
-  const unsubscribePrefix = (prefix: string) => {
-    if (!prefixSubscriptions.delete(prefix)) return
+  const activitySessionToken = getActivitySessionToken()
+  if (!activitySessionToken) {
+    queueMicrotask(() => {
+      if (!closed) options.onError?.('Missing activity session. Reopen the activity.')
+    })
+    return { close: () => { closed = true } }
   }
 
-  queueMicrotask(() => {
-    if (!closed) options.onConnected?.()
+  const activitySocket = new PartySocket({
+    host: target.host,
+    party: 'activity',
+    prefix: target.prefix ?? 'api/parties',
+    room: options.channelId,
+    query: {
+      [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken,
+    },
+    maxRetries: DRAFT_SOCKET_MAX_RETRIES,
+  })
+
+  activitySocket.addEventListener('open', () => {
+    if (closed) return
+    options.onConnected?.()
+  })
+
+  activitySocket.addEventListener('message', (event) => {
+    if (closed) return
+    try {
+      const message = JSON.parse(event.data as string) as Record<string, unknown>
+      if (message.type === 'overview') {
+        options.onStateChanged({ type: 'overview', snapshot: isActivityOverviewSnapshot(message.snapshot) ? message.snapshot : null })
+        return
+      }
+      if (message.type === 'lobby' && typeof message.lobbyId === 'string') {
+        options.onStateChanged({ type: 'lobby', lobbyId: message.lobbyId, snapshot: isLobbySnapshot(message.snapshot) ? message.snapshot : null })
+        return
+      }
+      if (message.type === 'error' && typeof message.message === 'string') {
+        options.onError?.(message.message)
+      }
+    }
+    catch (err) {
+      relayDevLog('error', 'Failed to parse activity feed message', err)
+      console.error('Failed to parse activity feed message:', err)
+    }
+  })
+
+  activitySocket.addEventListener('close', () => {
+    if (closed) return
+    options.onDisconnected?.()
+  })
+
+  activitySocket.addEventListener('error', () => {
+    if (closed) return
+    options.onError?.('Activity updates disconnected')
   })
 
   return {
-    subscribeKey,
-    unsubscribeKey,
-    subscribePrefix,
-    unsubscribePrefix,
     close: () => {
       if (closed) return
       closed = true
+      activitySocket.close()
     },
   }
+}
+
+function isActivityOverviewSnapshot(value: unknown): value is ActivityOverviewSnapshot {
+  return !!value && typeof value === 'object' && typeof (value as Partial<ActivityOverviewSnapshot>).channelId === 'string' && Array.isArray((value as Partial<ActivityOverviewSnapshot>).options)
+}
+
+function isLobbySnapshot(value: unknown): value is LobbySnapshot {
+  return !!value && typeof value === 'object' && typeof (value as Partial<LobbySnapshot>).id === 'string' && typeof (value as Partial<LobbySnapshot>).revision === 'number' && Array.isArray((value as Partial<LobbySnapshot>).entries)
 }
 
 // ── Send Messages ──────────────────────────────────────────

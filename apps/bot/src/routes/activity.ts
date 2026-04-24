@@ -1,19 +1,21 @@
 import type { GameMode } from '@civup/game'
 import type { Hono } from 'hono'
 import type { Env } from '../env.ts'
+import type { ActivitySessionDirectoryEntry, LobbySnapshot } from '../services/activity/session-state.ts'
 import type { LeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import type { LobbyState } from '../services/lobby/index.ts'
-import type { getQueueState } from '../services/queue/index.ts'
+import type { SessionRecord } from '../session-runtime/session-record.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel, GAME_MODES, toBalanceLeaderboardMode } from '@civup/game'
 import { createDraftRoomAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { getLobbyForUser, getMatchForUser } from '../services/activity/index.ts'
+import { buildActivityOverviewOptions, buildLobbySnapshotFromDirectoryEntry, buildLobbySnapshotFromSessionRecord, getActivitySessionById, getActivitySessionsByChannel, getOpenActivitySessionsForUser } from '../services/activity/session-state.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyById, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
 import { clearStalePersistedLiveLobbies, filterPersistedLiveLobbies, findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIdsForPlayers } from '../services/match/live.ts'
 import { getPlayerQueueMode, getPlayerQueueModeFromStates, parseQueueState, queueKey } from '../services/queue/index.ts'
 import { getKvStore, kvMget } from '../services/kv/batch.ts'
+import { getSessionRecord } from '../session-runtime/session-do-client.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
 import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, getUniqueOpenLobbyForChannel } from './lobby/snapshot.ts'
 
@@ -45,7 +47,7 @@ type ActivityLaunchSelection
     option: ActivityTargetOption
     pendingJoin: boolean
     joinEligibility: LobbyJoinEligibility
-    lobby: Awaited<ReturnType<typeof buildOpenLobbySnapshot>>
+    lobby: LobbySnapshot
   }
   | {
     kind: 'match'
@@ -64,9 +66,7 @@ interface ActivityLaunchSnapshot {
 
 interface ChannelActivityTarget {
   option: ActivityTargetOption
-  lobby: LobbyState
-  queueEntries?: Awaited<ReturnType<typeof getQueueState>>['entries']
-  slots?: (string | null)[]
+  session: ActivitySessionDirectoryEntry
   balanceSnapshot?: LeaderboardModeSnapshot | null
 }
 
@@ -77,8 +77,6 @@ interface ResolvedActivitySelection {
 
 interface ActivityLaunchContext {
   targets: ChannelActivityTarget[]
-  queueStates: Map<GameMode, Awaited<ReturnType<typeof getQueueState>>>
-  lobbiesByMode: Map<GameMode, LobbyState[]>
 }
 
 export function registerActivityRoutes(app: Hono<Env>) {
@@ -87,11 +85,10 @@ export function registerActivityRoutes(app: Hono<Env>) {
     if (!auth.ok) return auth.response
 
     const channelId = c.req.param('channelId')
-    const kv = getKvStore(c.env)
-    const channelLobbies = await loadActivityChannelLobbies(kv, channelId, c.env.DB)
-    const liveMatchIds = [...new Set(channelLobbies.flatMap(lobby => (
-      (lobby.status === 'drafting' || lobby.status === 'active') && lobby.matchId
-        ? [lobby.matchId]
+    const channelSessions = await getActivitySessionsByChannel(createDb(c.env.DB), channelId)
+    const liveMatchIds = [...new Set(channelSessions.flatMap(session => (
+      (session.phase === 'draft' || session.phase === 'active')
+        ? [session.matchId ?? session.sessionId]
         : []
     )))]
     const matchId = liveMatchIds.length === 1 ? liveMatchIds[0] : null
@@ -111,7 +108,6 @@ export function registerActivityRoutes(app: Hono<Env>) {
     if (mismatch) return mismatch
 
     const userId = auth.identity.userId
-    const kv = getKvStore(c.env)
 
     const db = createDb(c.env.DB)
     const [active] = await db
@@ -131,7 +127,9 @@ export function registerActivityRoutes(app: Hono<Env>) {
       return c.json({ matchId: active.matchId })
     }
 
-    const liveMatchId = await getMatchForUser(kv, userId)
+    const liveMatchId = (await getOpenActivitySessionsForUser(db, userId))
+      .find(session => session.phase === 'draft')
+      ?.sessionId ?? null
     if (liveMatchId) return c.json({ matchId: liveMatchId })
 
     return c.json({ error: 'No active match for this user' }, 404)
@@ -143,10 +141,13 @@ export function registerActivityRoutes(app: Hono<Env>) {
 
     const channelId = c.req.param('channelId')
     const kv = getKvStore(c.env)
+    const sessions = (await getActivitySessionsByChannel(createDb(c.env.DB), channelId))
+      .filter(session => session.phase === 'open')
 
-    const lobby = await getUniqueOpenLobbyForChannel(kv, channelId)
-    if (lobby) {
-      return c.json(await buildOpenLobbySnapshot(kv, lobby.mode, lobby))
+    if (sessions.length === 1) {
+      const session = sessions[0]!
+      const record = await resolveAuthoritativeSessionRecord(c.env.SessionDO, session)
+      return c.json(record ? await buildLobbySnapshotFromSessionRecord(kv, record) : await buildLobbySnapshotFromDirectoryEntry(kv, session))
     }
 
     return c.json({ error: 'No open lobby for this channel' }, 404)
@@ -161,12 +162,11 @@ export function registerActivityRoutes(app: Hono<Env>) {
 
     const userId = auth.identity.userId
     const kv = getKvStore(c.env)
-    const mappedLobbyId = await getLobbyForUser(kv, userId)
-    if (mappedLobbyId) {
-      const mappedLobby = await getLobbyById(kv, mappedLobbyId)
-      if (mappedLobby?.status === 'open') {
-        return c.json(await buildOpenLobbySnapshot(kv, mappedLobby.mode, mappedLobby))
-      }
+    const session = (await getOpenActivitySessionsForUser(createDb(c.env.DB), userId))
+      .find(candidate => candidate.phase === 'open') ?? null
+    if (session) {
+      const record = await resolveAuthoritativeSessionRecord(c.env.SessionDO, session)
+      return c.json(record ? await buildLobbySnapshotFromSessionRecord(kv, record) : await buildLobbySnapshotFromDirectoryEntry(kv, session))
     }
 
     return c.json({ error: 'No open lobby for this user' }, 404)
@@ -185,6 +185,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
 
     return c.json(await buildActivityLaunchSnapshot(c.env.DISCORD_TOKEN, c.env.CIVUP_SECRET, kv, channelId, userId, {
       db: c.env.DB,
+      sessionNamespace: c.env.SessionDO,
     }))
   })
 
@@ -233,6 +234,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
       id,
     }, {
       db: c.env.DB,
+      sessionNamespace: c.env.SessionDO,
     })
     if (!result.ok) {
       return c.json({ error: result.error }, result.status)
@@ -254,16 +256,17 @@ export async function selectActivityTargetForUser(
   },
   options?: {
     db?: D1Database | null
+    sessionNamespace?: DurableObjectNamespace | null
   },
 ): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string, status: 409 }> {
-  const context = await loadActivityLaunchContext(token, kv, channelId, userId, options?.db)
+  const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db)
   const selectionTarget = context.targets.find(candidate => candidate.option.kind === target.kind && candidate.option.id === target.id) ?? null
   if (!selectionTarget) return { ok: false, error: 'That target is no longer available.', status: 409 }
 
   const snapshot = await buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, {
     target: selectionTarget,
     pendingJoin: false,
-  }, options?.db)
+  }, options?.db, options?.sessionNamespace)
   return { ok: true, snapshot }
 }
 
@@ -275,29 +278,12 @@ export async function buildActivityLaunchSnapshot(
   userId: string,
   options?: {
     db?: D1Database | null
+    sessionNamespace?: DurableObjectNamespace | null
   },
 ): Promise<ActivityLaunchSnapshot> {
-  const context = await loadActivityLaunchContext(token, kv, channelId, userId, options?.db)
+  const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db)
   const selection = pickDefaultActivityLaunchSelection(context.targets)
-  return buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, selection, options?.db)
-}
-
-async function loadActivityChannelLobbies(
-  kv: KVNamespace,
-  channelId: string,
-  db: D1Database | null | undefined,
-): Promise<LobbyState[]> {
-  const channelLobbies = await getLobbiesByChannel(kv, channelId)
-  const filtered = await filterPersistedLiveLobbies(db, channelLobbies)
-  if (filtered == null) return channelLobbies
-  if (filtered.staleLobbyIds.size === 0) return filtered.lobbies
-
-  const clearedLobbyIds = await clearStalePersistedLiveLobbies(db, kv, channelLobbies)
-  if (clearedLobbyIds == null || clearedLobbyIds.size === 0) return filtered.lobbies
-
-  const refreshedLobbies = await getLobbiesByChannel(kv, channelId)
-  const refreshedFiltered = await filterPersistedLiveLobbies(db, refreshedLobbies)
-  return refreshedFiltered?.lobbies ?? refreshedLobbies
+  return buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, selection, options?.db, options?.sessionNamespace)
 }
 
 async function buildActivityLaunchSnapshotFromTargets(
@@ -308,9 +294,10 @@ async function buildActivityLaunchSnapshotFromTargets(
   context: ActivityLaunchContext,
   selection: ResolvedActivitySelection | null,
   db: D1Database | null | undefined,
+  sessionNamespace: DurableObjectNamespace | null | undefined,
 ): Promise<ActivityLaunchSnapshot> {
   return {
-    selection: selection ? await serializeActivityLaunchSelection(token, activitySecret, kv, userId, context, selection, db) : null,
+    selection: selection ? await serializeActivityLaunchSelection(token, activitySecret, kv, userId, context, selection, db, sessionNamespace) : null,
     options: context.targets.map(target => target.option),
   }
 }
@@ -323,24 +310,18 @@ async function serializeActivityLaunchSelection(
   context: ActivityLaunchContext,
   selection: ResolvedActivitySelection,
   db: D1Database | null | undefined,
+  sessionNamespace: DurableObjectNamespace | null | undefined,
 ): Promise<ActivityLaunchSelection> {
   if (selection.target.option.kind === 'lobby') {
-    const lobby = await buildOpenLobbySnapshotFromParts(
-      kv,
-      selection.target.lobby.mode,
-      selection.target.lobby,
-      selection.target.queueEntries ?? [],
-      selection.target.slots ?? selection.target.lobby.slots,
-      selection.target.balanceSnapshot,
-    )
+    const record = await resolveAuthoritativeSessionRecord(sessionNamespace, selection.target.session)
+    const lobby = record
+      ? await buildLobbySnapshotFromSessionRecord(kv, record, selection.target.balanceSnapshot)
+      : await buildLobbySnapshotFromDirectoryEntry(kv, selection.target.session, selection.target.balanceSnapshot)
     return {
       kind: 'lobby',
       option: selection.target.option,
       pendingJoin: selection.pendingJoin,
-      joinEligibility: await resolveLobbyJoinEligibility(token, kv, userId, selection.target.lobby, lobby, {
-        db,
-        existingQueueMode: getPlayerQueueModeFromStates(context.queueStates.values(), userId),
-      }),
+      joinEligibility: await resolveSessionJoinEligibility(kv, userId, selection.target.session, lobby, context.targets, db),
       lobby,
     }
   }
@@ -349,10 +330,10 @@ async function serializeActivityLaunchSelection(
     kind: 'match',
     option: selection.target.option,
     matchId: selection.target.option.id,
-    steamLobbyLink: selection.target.lobby.steamLobbyLink,
+    steamLobbyLink: selection.target.session.steamLobbyLink,
     roomAccessToken: await issueDraftRoomAccessToken(activitySecret, userId, selection.target.option.id, selection.target.option.channelId),
-    lobbyId: selection.target.lobby.id,
-    mode: selection.target.lobby.mode,
+    lobbyId: selection.target.session.sessionId,
+    mode: selection.target.session.mode,
   }
 }
 
@@ -454,130 +435,167 @@ export async function resolveLobbyJoinEligibility(
   }
 }
 
+async function resolveSessionJoinEligibility(
+  kv: KVNamespace,
+  userId: string,
+  session: ActivitySessionDirectoryEntry,
+  lobbySnapshot: LobbySnapshot,
+  targets: readonly ChannelActivityTarget[],
+  db: D1Database | null | undefined,
+): Promise<LobbyJoinEligibility> {
+  const memberIds = session.roster.participants.map(member => member.playerId)
+  if (memberIds.includes(userId) || lobbySnapshot.entries.some(entry => entry?.playerId === userId)) {
+    return {
+      canJoin: true,
+      blockedReason: null,
+      pendingSlot: null,
+    }
+  }
+
+  if (session.phase !== 'open') {
+    return {
+      canJoin: false,
+      blockedReason: 'This lobby is no longer open.',
+      pendingSlot: null,
+    }
+  }
+
+  const liveSessions = db ? await getOpenActivitySessionsForUser(createDb(db), userId) : []
+  const blockingDraft = liveSessions.find(candidate => candidate.sessionId !== session.sessionId && candidate.phase === 'draft')
+  if (blockingDraft || targets.some(target => target.option.kind === 'match' && target.option.id !== session.sessionId && (target.option.isHost || target.option.isMember))) {
+    return {
+      canJoin: false,
+      blockedReason: 'You are already in a live match.',
+      pendingSlot: null,
+    }
+  }
+
+  const blockingLobby = liveSessions.find(candidate => candidate.sessionId !== session.sessionId && candidate.phase === 'open') ?? null
+  if (blockingLobby) {
+    const hasOtherMembers = blockingLobby.roster.participants.some(member => member.playerId !== userId)
+    if (!(blockingLobby.hostId === userId && hasOtherMembers)) {
+      const pendingSlot = lobbySnapshot.entries.findIndex(entry => entry == null)
+      if (pendingSlot >= 0) {
+        return {
+          canJoin: true,
+          blockedReason: null,
+          pendingSlot,
+        }
+      }
+    }
+
+    return {
+      canJoin: false,
+      blockedReason: blockingLobby.hostId === userId && blockingLobby.roster.participants.some(member => member.playerId !== userId)
+        ? 'You are hosting another open lobby with other players. Cancel it first.'
+        : blockingLobby.mode === session.mode
+          ? 'You are already in another open lobby.'
+          : `You're already in a ${formatModeLabel(blockingLobby.mode, blockingLobby.mode, { redDeath: blockingLobby.config.redDeath })} lobby.`,
+      pendingSlot: null,
+    }
+  }
+
+  const existingQueueMode = await getPlayerQueueMode(kv, userId, { fallbackToQueueScan: false })
+  if (existingQueueMode && existingQueueMode !== session.mode) {
+    return {
+      canJoin: false,
+      blockedReason: `You're already in a ${formatModeLabel(existingQueueMode)} lobby.`,
+      pendingSlot: null,
+    }
+  }
+
+  const pendingSlot = lobbySnapshot.entries.findIndex(entry => entry == null)
+  if (pendingSlot < 0) {
+    return {
+      canJoin: false,
+      blockedReason: 'This lobby is full.',
+      pendingSlot: null,
+    }
+  }
+
+  return {
+    canJoin: true,
+    blockedReason: null,
+    pendingSlot,
+  }
+}
+
+async function resolveAuthoritativeSessionRecord(
+  namespace: DurableObjectNamespace | null | undefined,
+  session: ActivitySessionDirectoryEntry,
+): Promise<SessionRecord | null> {
+  if (!namespace) return null
+  const record = await getSessionRecord(namespace, session.sessionId)
+  if (!record) return null
+  if (record.id !== session.sessionId) return null
+  return record
+}
+
 async function loadActivityLaunchContext(
-  token: string | undefined,
   kv: KVNamespace,
   channelId: string,
   userId: string,
   db: D1Database | null | undefined,
 ): Promise<ActivityLaunchContext> {
-  const channelLobbies = await loadActivityChannelLobbies(kv, channelId, db)
-  const { queueStates, balanceSnapshots } = await loadActivityLaunchState(kv, channelLobbies)
+  if (!db) return { targets: [] }
+
+  const channelSessions = await getActivitySessionsByChannel(createDb(db), channelId)
+  const balanceSnapshots = await loadActivityLaunchState(kv, channelSessions)
   const targets: ChannelActivityTarget[] = []
-  const lobbiesByMode = new Map<GameMode, LobbyState[]>()
 
-  for (const lobby of channelLobbies) {
-    const mode = lobby.mode
-    const existing = lobbiesByMode.get(mode)
-    if (existing) existing.push(lobby)
-    else lobbiesByMode.set(mode, [lobby])
+  for (const session of channelSessions) {
+    const option = buildActivityOverviewOptions(session)[0]
+    if (!option) continue
 
-    if (lobby.status === 'open') {
-      const queue = queueStates.get(mode)
-      if (!queue) continue
-
-      const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
-      if (lobby.memberPlayerIds.length === 0) continue
-      const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
-      targets.push({
-        lobby,
-        queueEntries: lobbyQueueEntries,
-        slots,
-        balanceSnapshot: resolveLobbyBalanceSnapshot(balanceSnapshots, lobby),
-        option: {
-          kind: 'lobby',
-          id: lobby.id,
-          lobbyId: lobby.id,
-          matchId: null,
-          channelId,
-          mode,
-          status: 'open',
-          participantCount: countFilledSlots(slots),
-          targetSize: slots.length,
-          redDeath: lobby.draftConfig.redDeath,
-          isMember: lobby.memberPlayerIds.includes(userId),
-          isHost: lobby.hostId === userId,
-          updatedAt: lobby.updatedAt,
-        },
-      })
-      continue
-    }
-
-    if ((lobby.status === 'drafting' || lobby.status === 'active') && lobby.matchId) {
-      targets.push({
-        lobby,
-        option: {
-          kind: 'match',
-          id: lobby.matchId,
-          lobbyId: lobby.id,
-          matchId: lobby.matchId,
-          channelId,
-          mode,
-          status: lobby.status,
-          participantCount: countFilledSlots(lobby.slots),
-          targetSize: lobby.slots.length,
-          redDeath: lobby.draftConfig.redDeath,
-          isMember: lobby.memberPlayerIds.includes(userId),
-          isHost: lobby.hostId === userId,
-          updatedAt: lobby.updatedAt,
-        },
-      })
-    }
+    targets.push({
+      session,
+      balanceSnapshot: resolveSessionBalanceSnapshot(balanceSnapshots, session),
+      option: {
+        ...option,
+        isMember: option.memberPlayerIds.includes(userId),
+        isHost: option.hostId === userId,
+      },
+    })
   }
 
   return {
     targets: targets.sort(compareActivityTargets),
-    queueStates,
-    lobbiesByMode,
   }
 }
 
 async function loadActivityLaunchState(
   kv: KVNamespace,
-  channelLobbies: LobbyState[],
-): Promise<{
-  queueStates: Map<GameMode, Awaited<ReturnType<typeof getQueueState>>>
-  balanceSnapshots: Map<string, LeaderboardModeSnapshot>
-}> {
+  channelSessions: ActivitySessionDirectoryEntry[],
+): Promise<Map<string, LeaderboardModeSnapshot>> {
   const requestedBalanceModes = [...new Set(
-    channelLobbies
-      .filter(lobby => lobby.status === 'open')
-      .map(lobby => toBalanceLeaderboardMode(lobby.mode, { redDeath: lobby.draftConfig.redDeath }))
+    channelSessions
+      .filter(session => session.phase === 'open')
+      .map(session => toBalanceLeaderboardMode(session.mode, { redDeath: session.config.redDeath }))
       .filter((mode): mode is NonNullable<ReturnType<typeof toBalanceLeaderboardMode>> => mode != null),
   )]
+  if (requestedBalanceModes.length === 0) return new Map()
 
   const rawState = await kvMget(kv, [
-    ...GAME_MODES.map(mode => ({ key: queueKey(mode), type: 'json' as const })),
     ...requestedBalanceModes.map(mode => ({ key: leaderboardModeSnapshotKey(mode), type: 'json' as const })),
   ])
-
-  const queueStates = new Map<GameMode, Awaited<ReturnType<typeof getQueueState>>>()
-  for (let index = 0; index < GAME_MODES.length; index++) {
-    const mode = GAME_MODES[index]
-    if (!mode) continue
-    queueStates.set(mode, parseQueueState(mode, rawState[index]))
-  }
 
   const balanceSnapshots = new Map<string, LeaderboardModeSnapshot>()
   for (let index = 0; index < requestedBalanceModes.length; index++) {
     const mode = requestedBalanceModes[index]
     if (!mode) continue
-    const snapshot = normalizeLeaderboardModeSnapshot(mode, rawState[GAME_MODES.length + index])
+    const snapshot = normalizeLeaderboardModeSnapshot(mode, rawState[index])
     if (!snapshot) continue
     balanceSnapshots.set(mode, snapshot)
   }
 
-  return {
-    queueStates,
-    balanceSnapshots,
-  }
+  return balanceSnapshots
 }
 
-function resolveLobbyBalanceSnapshot(
+function resolveSessionBalanceSnapshot(
   balanceSnapshots: ReadonlyMap<string, LeaderboardModeSnapshot>,
-  lobby: LobbyState,
+  session: ActivitySessionDirectoryEntry,
 ): LeaderboardModeSnapshot | null {
-  const mode = toBalanceLeaderboardMode(lobby.mode, { redDeath: lobby.draftConfig.redDeath })
+  const mode = toBalanceLeaderboardMode(session.mode, { redDeath: session.config.redDeath })
   if (!mode) return null
   return balanceSnapshots.get(mode) ?? null
 }
