@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test'
+import { sessionDirectory } from '@civup/db'
+import { eq } from 'drizzle-orm'
 import { DEFAULT_DRAFT_CONFIG } from '../../src/services/lobby/normalize.ts'
 import { SessionDO } from '../../src/session-runtime/session-do.ts'
 import { createSqliteD1Database } from '../helpers/d1.ts'
@@ -45,7 +47,7 @@ describe('SessionDO open session commands', () => {
   })
 
   test('starts draft lifecycle and freezes roster and config after draft start', async () => {
-    const { sqlite } = await createTestDatabase()
+    const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     const room = new SessionDO(createFakeDurableObjectState(), {
       DB: createSqliteD1Database(sqlite),
@@ -87,18 +89,40 @@ describe('SessionDO open session commands', () => {
 
       const lifecycleResponse = await room.fetch(new Request('https://session.local/commands/draft-lifecycle', {
         method: 'POST',
-        body: JSON.stringify({ type: 'draft-completed', at: 3 }),
+        body: JSON.stringify({ type: 'draft-completed', opensSwapWindow: true, at: 3 }),
       }))
       expect(lifecycleResponse.status).toBe(200)
 
-      const recordResponse = await room.fetch(new Request('https://session.local/record'))
-      const body = await recordResponse.json() as any
-      expect(body.record.phase).toBe('active')
+      let recordResponse = await room.fetch(new Request('https://session.local/record'))
+      let body = await recordResponse.json() as any
+      expect(body.record.phase).toBe('swap')
       expect(body.record.version).toBe(3)
+      let [directoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
+      expect(directoryRow?.phase).toBe('swap')
+
+      const swapResponse = await room.fetch(new Request('https://session.local/commands/draft-lifecycle', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'swap-accepted', at: 4 }),
+      }))
+      expect(swapResponse.status).toBe(200)
+
+      const finalizeResponse = await room.fetch(new Request('https://session.local/commands/draft-lifecycle', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'draft-finalized', at: 5 }),
+      }))
+      expect(finalizeResponse.status).toBe(200)
+
+      recordResponse = await room.fetch(new Request('https://session.local/record'))
+      body = await recordResponse.json() as any
+      expect(body.record.phase).toBe('active')
+      expect(body.record.version).toBe(5)
       expect(body.record.matchId).toBe(openLobby.id)
       expect(body.record.config.pickTimerSeconds).toBe(30)
       expect(body.record.roster.participants.map((member: any) => member.playerId)).toEqual(['p1', 'p2'])
       expect(body.record.roster.slots).toEqual(['p1', 'p2'])
+
+      const [finalDirectoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
+      expect(finalDirectoryRow?.phase).toBe('active')
     }
     finally {
       sqlite.close()

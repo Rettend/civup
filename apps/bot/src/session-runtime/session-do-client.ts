@@ -88,7 +88,12 @@ export type SessionOpenLobbyCommand
 
 export type SessionDraftLifecycleCommand
   = | {
-    type: 'draft-completed' | 'swap-accepted' | 'draft-finalized'
+    type: 'draft-completed'
+    opensSwapWindow?: boolean
+    at?: number
+  }
+  | {
+    type: 'swap-accepted' | 'draft-finalized'
     at?: number
   }
   | {
