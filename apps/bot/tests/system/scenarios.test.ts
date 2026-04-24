@@ -129,6 +129,7 @@ describe('system scenarios', () => {
     const persistedMatches = await world.db.select().from(matches)
 
     expect(started.ok).toBe(true)
+    expect(started.matchId).toBe(lobby.id)
     expect(world.party.rooms()).toHaveLength(1)
     expect(world.party.rooms()[0]?.config.matchId).toBe(started.matchId)
     expect(persistedMatches).toHaveLength(1)
@@ -835,7 +836,7 @@ describe('system scenarios', () => {
     expect(await world.inspect.lobbyMapping('spectator')).toBe(canonicalLobby.id)
   })
 
-  test('replaying a webhook repairs a missing lobby-match link from the canonical lobby record', async () => {
+  test('replaying a webhook uses same-id lobby lookup without restoring a missing lobby-match link', async () => {
     const world = await createTrackedWorld()
     const activeLobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -853,7 +854,7 @@ describe('system scenarios', () => {
     expect((await world.party.completeDraft(started.matchId, { finalized: true })).status).toBe(200)
     await world.flushBackgroundTasks()
 
-    expect(await world.inspect.matchLobbyLink(started.matchId)).toBe(activeLobby.id)
+    expect(await world.inspect.matchLobbyLink(started.matchId)).toBeNull()
     expect(await world.inspect.lobbyByMatch(started.matchId)).toMatchObject({ id: activeLobby.id, matchId: started.matchId })
   })
 
@@ -901,7 +902,7 @@ describe('system scenarios', () => {
     expect(await world.inspect.matchMapping('p1')).toBe(started.matchId)
   })
 
-  test('match lookup repairs a poisoned older cancelled match mapping after the lobby has moved on to a newer live draft', async () => {
+  test('match lookup repairs current-match mappings after the same session restarts from a cancelled draft', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -925,6 +926,8 @@ describe('system scenarios', () => {
 
     const liveMatch = await world.lobby.start('1v1', { hostId: 'p2', lobbyId: reopenedLobby!.id })
     await world.flushBackgroundTasks()
+
+    expect(liveMatch.matchId).toBe(oldMatch.matchId)
 
     await world.corrupt.activityUser('p2', oldMatch.matchId)
     await world.corrupt.activityMatch(oldMatch.matchId, lobby.channelId)
@@ -1213,7 +1216,7 @@ describe('system scenarios', () => {
     })
   })
 
-  test('replaying a webhook with a wrong lobby-match link repairs the canonical lobby without touching a fresh lobby', async () => {
+  test('replaying a webhook with a wrong lobby-match link uses same-id lookup without touching a fresh lobby', async () => {
     const world = await createTrackedWorld()
     const activeLobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -1240,7 +1243,7 @@ describe('system scenarios', () => {
     await world.flushBackgroundTasks()
 
     const replayRequests = world.discord.requests().slice(requestsBeforeReplay)
-    expect(await world.inspect.matchLobbyLink(started.matchId)).toBe(activeLobby.id)
+    expect(await world.inspect.matchLobbyLink(started.matchId)).toBe(freshLobby.id)
     expect(await world.inspect.lobbyByMatch(started.matchId)).toMatchObject({ id: activeLobby.id, matchId: started.matchId })
     expect((await world.lobby.getById(freshLobby.id))?.status).toBe('open')
     expect(replayRequests.some(request => request.method === 'PATCH' && request.url.includes(activeLobby.messageId))).toBe(true)
@@ -2692,6 +2695,8 @@ describe('system scenarios', () => {
     const liveMatch = await world.lobby.start('1v1', { hostId: 'p2', lobbyId: reopenedLobby!.id })
     await world.flushBackgroundTasks()
 
+    expect(liveMatch.matchId).toBe(oldMatch.matchId)
+
     await world.corrupt.activityMatch(oldMatch.matchId, lobby.channelId)
 
     const requestCountBeforeReplay = world.discord.requests().length
@@ -2712,7 +2717,7 @@ describe('system scenarios', () => {
     expect(liveLobby?.memberPlayerIds).toEqual(expect.arrayContaining(['p1', 'p2']))
     expect(await world.inspect.matchMapping('p2')).toBe(liveMatch.matchId)
     expect(await world.inspect.activityTarget(lobby.channelId, 'p2')).toMatchObject({ kind: 'match', id: liveMatch.matchId })
-    expect(await world.inspect.matchChannel(oldMatch.matchId)).toBeNull()
+    expect(await world.inspect.matchChannel(liveMatch.matchId)).toBe(lobby.channelId)
     expect(launch.body).toMatchObject({
       selection: {
         kind: 'match',

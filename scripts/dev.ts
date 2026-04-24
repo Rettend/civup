@@ -9,7 +9,6 @@ import { spawn, spawnSync } from 'bun'
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const botRoot = resolve(repoRoot, 'apps', 'bot')
 const activityRoot = resolve(repoRoot, 'apps', 'activity')
-const partyRoot = resolve(repoRoot, 'apps', 'party')
 const activityPreviewConfig = resolve(activityRoot, 'dist', 'civup_activity', 'wrangler.json')
 
 interface Service {
@@ -37,11 +36,6 @@ const services: Service[] = [
     name: 'activity',
     cwd: activityRoot,
     cmd: activityCommand,
-  },
-  {
-    name: 'party',
-    cwd: partyRoot,
-    cmd: ['bun', 'x', 'wrangler', 'dev', '--port', '8788', '--show-interactive-dev-session=false', '--log-level', 'log'],
   },
   { name: 'tunnel', cwd: repoRoot, cmd: ['cloudflared', '--config', 'cloudflared.dev.yml', 'tunnel', 'run', 'civup-dev'] },
 ]
