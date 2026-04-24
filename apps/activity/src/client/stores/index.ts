@@ -3,6 +3,7 @@ export {
   type ActivityLaunchSnapshot,
   type ActivityOverviewOptionSnapshot,
   type ActivityOverviewSnapshot,
+  type ActivityStateChange,
   type ActivityTargetOption,
   arrangeLobbySlots,
   cancelLobby,

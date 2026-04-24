@@ -3,6 +3,7 @@ import type {
   ActivityLaunchSelection,
   ActivityLaunchSnapshot,
   ActivityOverviewSnapshot,
+  ActivityStateChange,
   ActivityTargetOption,
   LobbyJoinEligibilitySnapshot,
   LobbySnapshot,
@@ -87,7 +88,6 @@ export default function App() {
   let activeUserId: string | null = null
   let pendingTargetSelectionKey: string | null = null
   let brokenMatchRefreshKey: string | null = null
-  const subscribedLobbySnapshotKeys = new Set<string>()
   let selectionRequestVersion = 0
   let liveStateRevision = 0
   let launchSnapshotRequestVersion = 0
@@ -99,7 +99,6 @@ export default function App() {
     if (!activityWatch) return
     activityWatch.close()
     activityWatch = null
-    subscribedLobbySnapshotKeys.clear()
   }
 
   const clearLaunchSnapshotFallback = () => {
@@ -416,34 +415,6 @@ export default function App() {
     void requestActivityLaunchSnapshotRefresh()
   }
 
-  const syncActivityWatchSubscriptions = () => {
-    if (!activityWatch || !activeChannelId || !activeUserId) return
-
-    activityWatch.subscribeKey(activityOverviewStateKey(activeChannelId))
-
-    const nextLobbySnapshotKeys = new Set(
-      availableTargets()
-        .filter((option): option is ActivityTargetOption & { kind: 'lobby' } => option.kind === 'lobby')
-        .map(option => lobbySnapshotStateKey(option.id)),
-    )
-    const target = liveTargetState()
-    if (target?.kind === 'lobby') {
-      nextLobbySnapshotKeys.add(lobbySnapshotStateKey(target.id))
-    }
-
-    for (const key of subscribedLobbySnapshotKeys) {
-      if (nextLobbySnapshotKeys.has(key)) continue
-      activityWatch.unsubscribeKey(key)
-      subscribedLobbySnapshotKeys.delete(key)
-    }
-
-    for (const key of nextLobbySnapshotKeys) {
-      if (subscribedLobbySnapshotKeys.has(key)) continue
-      activityWatch.subscribeKey(key)
-      subscribedLobbySnapshotKeys.add(key)
-    }
-  }
-
   const requestTargetSelection = async (option: ActivityTargetOption, auto = false) => {
     const channelId = activeChannelId
     const currentUserId = activeUserId
@@ -553,19 +524,18 @@ export default function App() {
     applyLaunchSnapshot({ selection: null, options }, false, !overviewPinned())
   }
 
-  const handleActivityStateChange = (channelId: string, currentUserId: string, key: string, op: 'put' | 'delete', value?: string) => {
+  const handleActivityStateChange = (_channelId: string, _currentUserId: string, change: ActivityStateChange) => {
     liveStateRevision += 1
 
-    if (key === activityOverviewStateKey(channelId)) {
-      setLiveOverviewSnapshot(op === 'put' ? parseActivityOverviewValue(value) : null)
+    if (change.type === 'overview') {
+      setLiveOverviewSnapshot(change.snapshot)
       applyLiveActivityState()
       return
     }
 
-    if (key.startsWith('lobby:snapshot:')) {
-      if (op === 'put') {
-        const snapshot = parseLobbySnapshotValue(value)
-        if (!snapshot) return
+    if (change.type === 'lobby') {
+      if (change.snapshot) {
+        const snapshot = change.snapshot
         const current = liveLobbySnapshots.get(snapshot.id)
         if (current && snapshot.revision < current.revision) {
           return
@@ -573,8 +543,7 @@ export default function App() {
         liveLobbySnapshots.set(snapshot.id, snapshot)
       }
       else {
-        const lobbyId = key.slice('lobby:snapshot:'.length)
-        liveLobbySnapshots.delete(lobbyId)
+        liveLobbySnapshots.delete(change.lobbyId)
         if (liveOverviewSnapshot() === null) {
           void requestActivityLaunchSnapshotRefresh()
         }
@@ -583,12 +552,6 @@ export default function App() {
       applyLiveActivityState()
     }
   }
-
-  createEffect(() => {
-    liveTargetState()
-    availableTargets()
-    syncActivityWatchSubscriptions()
-  })
 
   createEffect(() => {
     liveOverviewSnapshot()
@@ -640,11 +603,8 @@ export default function App() {
     activityWatch = watchLobbyState(PARTY_SOCKET_TARGET, {
       channelId,
       userId: currentUserId,
-      onConnected: () => {
-        syncActivityWatchSubscriptions()
-      },
-      onStateChanged: ({ key, op, value }) => {
-        handleActivityStateChange(channelId, currentUserId, key, op, value)
+      onStateChanged: (change) => {
+        handleActivityStateChange(channelId, currentUserId, change)
       },
       onError: (message) => {
         if (liveOverviewSnapshot() === undefined) {
@@ -652,8 +612,6 @@ export default function App() {
         }
       },
     })
-
-    syncActivityWatchSubscriptions()
 
     launchSnapshotFallbackTimeout = setTimeout(() => {
       launchSnapshotFallbackTimeout = null
@@ -801,44 +759,6 @@ function resolvePartySocketTarget(): PartySocketTarget {
     host: typeof window !== 'undefined' ? window.location.host : ACTIVITY_HOST,
     prefix: 'api/parties',
     label: 'activity-origin',
-  }
-}
-
-function activityOverviewStateKey(channelId: string): string {
-  return `activity:overview:${channelId}`
-}
-
-function lobbySnapshotStateKey(lobbyId: string): string {
-  return `lobby:snapshot:${lobbyId}`
-}
-
-function parseActivityOverviewValue(value: string | undefined): ActivityOverviewSnapshot | null {
-  if (!value) return null
-
-  try {
-    const parsed = JSON.parse(value) as Partial<ActivityOverviewSnapshot>
-    if (typeof parsed.channelId !== 'string' || !Array.isArray(parsed.options)) {
-      return null
-    }
-    return parsed as ActivityOverviewSnapshot
-  }
-  catch {
-    return null
-  }
-}
-
-function parseLobbySnapshotValue(value: string | undefined): LobbySnapshot | null {
-  if (!value) return null
-
-  try {
-    const parsed = JSON.parse(value) as Partial<LobbySnapshot>
-    if (typeof parsed.id !== 'string' || typeof parsed.revision !== 'number' || !Array.isArray(parsed.entries)) {
-      return null
-    }
-    return parsed as LobbySnapshot
-  }
-  catch {
-    return null
   }
 }
 

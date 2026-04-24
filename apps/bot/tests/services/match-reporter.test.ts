@@ -149,9 +149,6 @@ describe('match reporter identity', () => {
 
       expect(await getLobbyById(kv, lobby.id)).not.toBeNull()
       expect(await kv.get('lobby:host:p1')).toBe(lobby.id)
-      expect(await kv.get(`activity-match:${matchId}`)).toBeNull()
-      expect(await kv.get('activity-user:p1')).toBeNull()
-      expect(await kv.get('activity-user:p2')).toBeNull()
     }
     finally {
       sqlite.close()

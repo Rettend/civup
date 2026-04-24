@@ -38,7 +38,7 @@ function createMainNamespaceStub(handler: (request: Request, roomName: string) =
 }
 
 describe('activity canonical lookup behavior', () => {
-  test('getMatchForUser resolves from canonical live lobby membership without writing activity mappings', async () => {
+  test('getMatchForUser resolves from canonical live lobby membership', async () => {
     const { kv } = createTrackedKv()
 
     const lobby = await createLobby(kv, {
@@ -50,11 +50,9 @@ describe('activity canonical lookup behavior', () => {
     await startTestSessionDraft(kv, lobby.id, lobby)
 
     await expect(getMatchForUser(kv, 'user-1')).resolves.toBe(lobby.id)
-    await expect(kv.get(`activity-match:${lobby.id}`)).resolves.toBeNull()
-    await expect(kv.get('activity-user:user-1')).resolves.toBeNull()
   })
 
-  test('getChannelForMatch resolves from canonical same-id lobby without writing activity mappings', async () => {
+  test('getChannelForMatch resolves from canonical same-id lobby', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: '1v1',
@@ -66,10 +64,9 @@ describe('activity canonical lookup behavior', () => {
     await startTestSessionDraft(kv, lobby.id, lobby)
 
     await expect(getChannelForMatch(kv, lobby.id)).resolves.toBe('channel-1')
-    await expect(kv.get(`activity-match:${lobby.id}`)).resolves.toBeNull()
   })
 
-  test('getLobbyForUser resolves from canonical open lobby membership without writing activity mappings', async () => {
+  test('getLobbyForUser resolves from canonical open lobby membership', async () => {
     const { kv } = createTrackedKv()
 
     const currentLobby = await createLobby(kv, {
@@ -82,7 +79,6 @@ describe('activity canonical lookup behavior', () => {
     await setLobbyMemberPlayerIds(kv, currentLobby.id, ['host-1', 'player-1'], currentLobby)
 
     await expect(getLobbyForUser(kv, 'player-1')).resolves.toBe(currentLobby.id)
-    await expect(kv.get('activity-lobby-user:player-1')).resolves.toBeNull()
   })
 })
 

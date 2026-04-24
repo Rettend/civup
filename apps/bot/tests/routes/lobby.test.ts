@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
 import { registerLobbyRoutes } from '../../src/routes/lobby/index.ts'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
-import { buildTestLobbyEnv, createLobby, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
+import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { addToQueue, getPlayerQueueMode } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -17,6 +17,11 @@ afterEach(() => {
   globalThis.fetch = originalFetch
   Math.random = originalMathRandom
 })
+
+function activityRuntimeOptions(kv: KVNamespace) {
+  const runtime = getExistingTestLobbyRuntime(kv)
+  return { db: runtime.d1, sessionNamespace: runtime.sessionNamespace }
+}
 
 describe('lobby routes', () => {
   test('raising min rank ignores a player after they leave the lobby', async () => {
@@ -1115,7 +1120,7 @@ describe('lobby routes', () => {
     }, buildEnv(kv))
     expect(removeResponse.status).toBe(200)
 
-    const snapshot = await buildActivityLaunchSnapshot('token', 'secret', kv, lobby.channelId, 'pleb')
+    const snapshot = await buildActivityLaunchSnapshot('token', 'secret', kv, lobby.channelId, 'pleb', activityRuntimeOptions(kv))
     expect(snapshot.selection).toBeNull()
     expect(snapshot.options).toContainEqual(expect.objectContaining({ kind: 'lobby', id: lobby.id }))
   })

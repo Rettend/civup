@@ -1,15 +1,14 @@
 import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
 import type { Database } from '@civup/db'
 import type { LobbyArrangeStrategy, LobbyDraftConfig, LobbyState, LobbyStatus } from './types.ts'
+import type { SessionRecord } from '../../session-runtime/session-record.ts'
 import { nanoid } from 'nanoid'
-import { createSessionAggregateFromLobby, runSessionOpenLobbyCommand, type SessionOpenLobbyCommand } from '../../session-runtime/session-do-client.ts'
+import { createSessionAggregateFromLobby, runSessionOpenLobbyCommand, runSessionProjectionCommand, type SessionOpenLobbyCommand } from '../../session-runtime/session-do-client.ts'
 import { buildLobbyStateFromSessionRecord } from '../../session-runtime/session-record.ts'
-import { syncActivityOverviewSnapshotForLobby } from '../activity/live-state.ts'
 import { getQueueState } from '../queue/index.ts'
 import { closeLobbySessionProjection } from '../session/directory.ts'
 import { kvMdelete } from '../kv/batch.ts'
-import { channelIndexKey, LOBBY_TTL } from './keys.ts'
-import { buildLobbyLiveSnapshotFromParts, lobbySnapshotKey } from './live-snapshot.ts'
+import { channelIndexKey } from './keys.ts'
 import { createEmptySlots, DEFAULT_DRAFT_CONFIG, normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from './normalize.ts'
 import { getLobbyById, putLobby, putLobbyEntries } from './store.ts'
 
@@ -21,6 +20,8 @@ const LOBBY_STATUS_TRANSITIONS: Record<LobbyStatus, LobbyStatus[]> = {
   cancelled: [],
   scrubbed: [],
 }
+
+type LobbySessionCommand = SessionOpenLobbyCommand | (() => Promise<SessionRecord>)
 
 export interface LobbySessionProjectionOptions {
   db?: Database | null
@@ -78,21 +79,13 @@ export async function createLobby(
   try {
     const record = await createSessionAggregateFromLobby(input.sessionNamespace, lobby, queueEntries)
     visibleLobby = buildLobbyStateFromSessionRecord(record, lobby)
-
-    const snapshot = await buildLobbyLiveSnapshotFromParts(kv, visibleLobby.mode, visibleLobby, queueEntries, visibleLobby.slots)
-    await putLobbyEntries(kv, visibleLobby, [{
-      key: lobbySnapshotKey(visibleLobby.id),
-      value: JSON.stringify(snapshot),
-      expirationTtl: LOBBY_TTL,
-    }])
+    await putLobbyEntries(kv, visibleLobby)
     visible = true
   }
   catch (error) {
     if (!visible) await closeLobbySessionProjectionIfAvailable(input.db, lobby.id)
     throw error
   }
-
-  await syncActivityOverviewSnapshotForLobby(kv, visibleLobby)
   return visibleLobby
 }
 
@@ -261,7 +254,7 @@ export async function setLobbySteamLobbyLink(
   }
   return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
     ? { type: 'set-steam-lobby-link', expectedVersion: lobby.revision, steamLobbyLink, now: updated.updatedAt }
-    : undefined)
+    : () => runSessionProjectionCommand(options?.sessionNamespace, updated.id, { type: 'set-steam-lobby-link', expectedVersion: lobby.revision, steamLobbyLink, now: updated.updatedAt }))
 }
 
 export async function setLobbySlots(
@@ -372,10 +365,12 @@ async function commitLobbyMutation(
   updated: LobbyState,
   options?: LobbySessionProjectionOptions,
   write: LobbyWriter = putLobby,
-  command?: SessionOpenLobbyCommand,
+  command?: LobbySessionCommand,
 ): Promise<LobbyState> {
   if (updated.status === 'open' && !command) throw new Error(`Open lobby mutation for ${updated.id} must go through SessionDO`)
-  const commandRecord = command
+  const commandRecord = typeof command === 'function'
+    ? await command()
+    : command
     ? await runSessionOpenLobbyCommand(options?.sessionNamespace, updated.id, command)
     : null
   if (commandRecord) {

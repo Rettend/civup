@@ -582,7 +582,7 @@ describe('system scenarios', () => {
     expect(await world.inspect.lobbyMapping('p1')).toBe(targetLobby.id)
   })
 
-  test('current-lobby route repairs a stale activity-lobby-user mapping to the real open lobby', async () => {
+  test('current-lobby route resolves the real open lobby from canonical membership', async () => {
     const world = await createTrackedWorld()
     const realLobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -590,20 +590,11 @@ describe('system scenarios', () => {
       hostId: 'host',
       channelId: 'channel-real',
     })
-    const staleLobby = await world.lobby.createOpen({
-      mode: '1v1',
-      players: [{ id: 'other-host' }],
-      hostId: 'other-host',
-      channelId: 'channel-stale',
-    })
-
-    await world.corrupt.activityLobbyUser('p1', staleLobby.id)
 
     const currentLobby = await world.activity.currentLobby({ userId: 'p1' })
 
     expect(currentLobby.status).toBe(200)
     expect(currentLobby.body).toMatchObject({ id: realLobby.id })
-    expect(await world.inspect.lobbyMapping('p1')).toBe(realLobby.id)
   })
 
   test('initial open-lobby launch render is coherent for the host and an unrelated spectator in the same channel', async () => {
@@ -652,43 +643,6 @@ describe('system scenarios', () => {
         }),
       ],
     })
-  })
-
-  test('activity launch clears a stale live lobby and offers the fresh open target instead', async () => {
-    const world = await createTrackedWorld()
-    const staleLobby = await world.lobby.createOpen({
-      mode: '1v1',
-      players: [{ id: 'p1' }, { id: 'p2' }],
-      channelId: 'channel-stale-live',
-    })
-
-    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: staleLobby.id })
-    await world.flushBackgroundTasks()
-    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
-    await world.flushBackgroundTasks()
-
-    await world.db.update(matches).set({ status: 'completed' }).where(eq(matches.id, started.matchId))
-
-    const freshLobby = await world.lobby.createOpen({
-      mode: '1v1',
-      players: [{ id: 'fresh-host' }],
-      hostId: 'fresh-host',
-      channelId: staleLobby.channelId,
-    })
-
-    const launch = await world.activity.launch({ channelId: staleLobby.channelId, userId: 'p1' })
-
-    expect(launch.status).toBe(200)
-    expect(launch.body).toMatchObject({
-      selection: null,
-      options: [
-        expect.objectContaining({ id: freshLobby.id, kind: 'lobby' }),
-      ],
-    })
-    expect(await world.lobby.getById(staleLobby.id)).toBeNull()
-    expect(await world.inspect.lobbyByMatch(started.matchId)).toBeNull()
-    expect(await world.inspect.matchMapping('p1')).toBeNull()
-    expect(await world.inspect.matchMapping('p2')).toBeNull()
   })
 
   test('activity launch recovers a canonical lobby when its own channel index is missing and poisoned elsewhere', async () => {
@@ -740,7 +694,7 @@ describe('system scenarios', () => {
     expect(await world.inspect.lobbyMapping('spectator')).toBe(canonicalLobby.id)
   })
 
-  test('match lookup derives from canonical live match state without repairing activity projections', async () => {
+  test('match lookup derives from canonical live match state', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -753,35 +707,10 @@ describe('system scenarios', () => {
     expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
     await world.flushBackgroundTasks()
 
-    await world.corrupt.activityMatch(started.matchId, null)
-
     const currentMatch = await world.activity.currentMatch({ userId: 'p1' })
 
     expect(currentMatch.status).toBe(200)
     expect(currentMatch.body).toEqual({ matchId: started.matchId })
-    expect(await world.inspect.matchMapping('p1')).toBe(started.matchId)
-    expect(await world.inspect.matchChannel(started.matchId)).toBeNull()
-  })
-
-  test('match lookup derives from canonical live match state without activity-user mapping', async () => {
-    const world = await createTrackedWorld()
-    const lobby = await world.lobby.createOpen({
-      mode: '1v1',
-      players: [{ id: 'p1' }, { id: 'p2' }],
-    })
-
-    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
-    await world.flushBackgroundTasks()
-    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
-    await world.flushBackgroundTasks()
-
-    await world.corrupt.activityUser('p1', null)
-
-    const currentMatch = await world.activity.currentMatch({ userId: 'p1' })
-
-    expect(currentMatch.status).toBe(200)
-    expect(currentMatch.body).toEqual({ matchId: started.matchId })
-    expect(await world.inspect.matchMapping('p1')).toBe(started.matchId)
   })
 
   test('match lookup derives current match after the same session restarts from a cancelled draft', async () => {
@@ -811,15 +740,11 @@ describe('system scenarios', () => {
 
     expect(liveMatch.matchId).toBe(oldMatch.matchId)
 
-    await world.corrupt.activityUser('p2', oldMatch.matchId)
-    await world.corrupt.activityMatch(oldMatch.matchId, lobby.channelId)
-
     const currentMatch = await world.activity.currentMatch({ userId: 'p2' })
     const launch = await world.activity.launch({ channelId: lobby.channelId, userId: 'p2' })
 
     expect(currentMatch.status).toBe(200)
     expect(currentMatch.body).toEqual({ matchId: liveMatch.matchId })
-    expect(await world.inspect.matchMapping('p2')).toBe(liveMatch.matchId)
     expect(launch.body).toMatchObject({
       selection: {
         kind: 'match',
@@ -1088,40 +1013,6 @@ describe('system scenarios', () => {
     })
   })
 
-  test('the next real lobby update rebuilds a poisoned snapshot without changing canonical state', async () => {
-    const world = await createTrackedWorld()
-    const lobby = await world.lobby.createOpen({
-      mode: '1v1',
-      players: [{ id: 'host' }],
-      channelId: 'channel-snapshot-rebuild',
-    })
-
-    await world.corrupt.lobbySnapshot(lobby.id, { poisoned: true, entries: ['bad-data'] })
-
-    const joinResponse = await world.lobby.place('1v1', {
-      userId: 'p2',
-      lobbyId: lobby.id,
-      targetSlot: 1,
-      displayName: 'p2',
-    })
-    await world.flushBackgroundTasks()
-
-    const rebuiltSnapshot = await world.inspect.lobbySnapshot(lobby.id) as { id?: string, entries?: Array<{ playerId?: string } | null>, status?: string } | null
-    const finalLobby = await world.lobby.getById(lobby.id)
-
-    expect(joinResponse.status).toBe(200)
-    expect(finalLobby?.memberPlayerIds).toEqual(['host', 'p2'])
-    expect(finalLobby?.slots).toEqual(['host', 'p2'])
-    expect(rebuiltSnapshot).toMatchObject({
-      id: lobby.id,
-      status: 'open',
-      entries: [
-        { playerId: 'host' },
-        { playerId: 'p2' },
-      ],
-    })
-  })
-
   test('report sync recreates a deleted lobby message and rebinds the stored message id', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
@@ -1244,12 +1135,9 @@ describe('system scenarios', () => {
       userId: 'spectator-1',
       lobbyId: newLobby.id,
     })
-    await world.corrupt.activityLobbyUser('p1', newLobby.id)
-
     const requestsBeforeReplay = world.discord.requests().length
     const messageBeforeReplay = await world.discord.currentLobbyMessage(newLobby.id)
 
-    expect(await world.inspect.lobbyMapping('p1')).toBe(newLobby.id)
     expect(selectedLobby.body).toMatchObject({
       snapshot: {
         selection: {
