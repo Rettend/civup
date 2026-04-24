@@ -667,7 +667,7 @@ describe('activity target selection', () => {
     expect(snapshot.selection.option.isMember).toBe(true)
   })
 
-  test('ignores invalid open lobbies with no queued host', async () => {
+  test('keeps open lobby options when queue metadata is missing', async () => {
     const { kv } = createTrackedKv()
     const invalidLobby = await createLobby(kv, {
       mode: '2v2',
@@ -698,13 +698,20 @@ describe('activity target selection', () => {
 
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'spectator-1')
     expect(snapshot.selection?.kind).toBe('match')
-    expect(snapshot.options).toEqual([
+    expect(snapshot.options).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'lobby',
+        id: invalidLobby.id,
+        participantCount: 1,
+      }),
       expect.objectContaining({
         kind: 'match',
         id: liveLobby.id,
       }),
-    ])
-    await expect(resolveOpenLobbyFromBody(kv, '2v2', { lobbyId: invalidLobby.id })).resolves.toBeNull()
+    ]))
+    await expect(resolveOpenLobbyFromBody(kv, '2v2', { lobbyId: invalidLobby.id })).resolves.toEqual(expect.objectContaining({
+      id: invalidLobby.id,
+    }))
   })
 
   test('does not auto-select unrelated live matches for spectators', async () => {

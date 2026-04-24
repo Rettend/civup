@@ -1,12 +1,10 @@
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from './types.ts'
 import { syncActivityOverviewSnapshot } from '../activity/live-state.ts'
-import { getQueueState, getQueueStates } from '../queue/index.ts'
 import { stateStoreMdelete, stateStoreMget, stateStoreMput } from '../state/store.ts'
 import { bumpCooldownKey, channelIndexKey, channelPrefix, hostKey, idKey, LOBBY_HOST_KEY_PREFIX, LOBBY_ID_KEY_PREFIX, LOBBY_TTL, modeIndexKey, modePrefix } from './keys.ts'
 import { lobbySnapshotKey } from './live-snapshot.ts'
 import { normalizeLobby, parseLobbyState } from './normalize.ts'
-import { deriveQueueBackedLobbyMemberPlayerIds, isQueueBackedOpenLobbyState } from './reconcile.ts'
 
 interface LobbyStoreEntry {
   key: string
@@ -131,22 +129,10 @@ export async function getCurrentLobbiesForPlayers(
     lobbyIdsToLoad.map(lobbyId => ({ key: idKey(lobbyId), type: 'json' })),
   )
   const mappedLobbyById = new Map<string, LobbyState>()
-  const queueStateByMode = new Map<GameMode, Awaited<ReturnType<typeof getQueueState>>>()
-  const getModeQueue = async (mode: GameMode) => {
-    const cached = queueStateByMode.get(mode)
-    if (cached) return cached
-    const queue = await getQueueState(kv, mode)
-    queueStateByMode.set(mode, queue)
-    return queue
-  }
   for (let index = 0; index < lobbyIdsToLoad.length; index++) {
     const lobbyId = lobbyIdsToLoad[index]
     const lobby = parseLobbyState(rawLobbies[index])
     if (!lobbyId || !lobby) continue
-    if (lobby.status === 'open') {
-      const queue = await getModeQueue(lobby.mode)
-      if (!isQueueBackedOpenLobbyState(lobby, queue.entries)) continue
-    }
     mappedLobbyById.set(lobbyId, lobby)
   }
 
@@ -160,8 +146,7 @@ export async function getCurrentLobbiesForPlayers(
     }
 
     const lobby = mappedLobbyById.get(rawLobbyId)
-    const queue = lobby?.status === 'open' ? await getModeQueue(lobby.mode) : null
-    const memberPlayerIds = lobby && queue ? deriveQueueBackedLobbyMemberPlayerIds(lobby, queue.entries) : lobby?.memberPlayerIds ?? []
+    const memberPlayerIds = lobby?.memberPlayerIds ?? []
     const mappingLooksStale = !lobby
       || !isCurrentLobbyStatus(lobby.status)
       || !memberPlayerIds.includes(playerId)
@@ -190,14 +175,12 @@ export async function getCurrentLobbiesForPlayers(
   }
 
   const fallbackLobbies = await getCurrentLobbies(kv, options?.mode)
-  const fallbackQueues = await getQueueStates(kv, [...new Set(fallbackLobbies.filter(lobby => lobby.status === 'open').map(lobby => lobby.mode))])
   const repairedOpenLobbyMappings: LobbyStoreEntry[] = []
   for (const playerId of unresolvedPlayerIds) {
     if (!playerId) continue
     const fallbackLobby = fallbackLobbies.find((lobby) => {
       if (excludedLobbyIds.has(lobby.id)) return false
-      if (lobby.status !== 'open') return lobby.memberPlayerIds.includes(playerId)
-      return deriveQueueBackedLobbyMemberPlayerIds(lobby, fallbackQueues.get(lobby.mode)?.entries ?? []).includes(playerId)
+      return lobby.memberPlayerIds.includes(playerId)
     }) ?? null
     lobbyByPlayerId.set(playerId, fallbackLobby)
     if (fallbackLobby?.status === 'open') {
@@ -240,11 +223,9 @@ export async function getCurrentLobbiesForPlayer(
 
   const excludedLobbyIds = new Set(options?.excludeLobbyIds ?? [])
   const fallbackLobbies = await getCurrentLobbies(kv, options?.mode)
-  const fallbackQueues = await getQueueStates(kv, [...new Set(fallbackLobbies.filter(lobby => lobby.status === 'open').map(lobby => lobby.mode))])
   return fallbackLobbies.filter((lobby) => {
     if (excludedLobbyIds.has(lobby.id)) return false
-    if (lobby.status !== 'open') return lobby.memberPlayerIds.includes(playerId)
-    return deriveQueueBackedLobbyMemberPlayerIds(lobby, fallbackQueues.get(lobby.mode)?.entries ?? []).includes(playerId)
+    return lobby.memberPlayerIds.includes(playerId)
   })
 }
 
@@ -254,10 +235,7 @@ export async function getCurrentLobbyHostedBy(kv: KVNamespace, hostId: string): 
 
   const lobby = await getLobbyById(kv, lobbyId)
   if (lobby && lobby.hostId === hostId && isCurrentLobbyStatus(lobby.status)) {
-    if (lobby.status !== 'open') return lobby
-
-    const queue = await getQueueState(kv, lobby.mode)
-    if (isQueueBackedOpenLobbyState(lobby, queue.entries)) return lobby
+    return lobby
   }
 
   await stateStoreMdelete(kv, [hostKey(hostId)])
@@ -406,12 +384,7 @@ async function recoverCurrentLobbyHostedBy(kv: KVNamespace, hostId: string): Pro
     .sort((left, right) => right.updatedAt - left.updatedAt)
   if (hostedLobbies.length === 0) return null
 
-  const queueStates = await getQueueStates(
-    kv,
-    [...new Set(hostedLobbies.filter(lobby => lobby.status === 'open').map(lobby => lobby.mode))],
-  )
-  const recoveredOpenLobby = hostedLobbies.find(lobby => lobby.status === 'open'
-    && isQueueBackedOpenLobbyState(lobby, queueStates.get(lobby.mode)?.entries ?? []))
+  const recoveredOpenLobby = hostedLobbies.find(lobby => lobby.status === 'open')
   const recoveredLobby = recoveredOpenLobby ?? hostedLobbies.find(lobby => lobby.status !== 'open')
   if (!recoveredLobby) return null
 

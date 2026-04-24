@@ -20,7 +20,6 @@ import {
   leaveOpenLobbyForLobbyJoin,
   mapLobbySlotsToEntries,
   normalizeLobbySlots,
-  reconcileOpenLobbyState,
   sameLobbySlots,
   setLobbyArranged,
   setLobbyDraftConfig,
@@ -518,7 +517,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!resolvedLobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
-    const lobby = (await reconcileOpenLobbyState(kv, resolvedLobby))?.lobby ?? resolvedLobby
+    const lobby = resolvedLobby
 
     if (lobby.hostId !== auth.identity.userId) {
       return c.json({ error: 'Only the lobby host can change game mode' }, 403)
@@ -529,9 +528,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const { queue, balanceSnapshot } = await getQueueStateWithLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
-    const sourceLobby = (await reconcileOpenLobbyState(kv, lobby, { currentQueue: queue }))?.lobby ?? lobby
+    const sourceLobby = lobby
     const lobbyQueueEntries = buildLobbyQueueEntries(sourceLobby, queue.entries)
-    if (!lobbyQueueEntries.some(entry => entry.playerId === sourceLobby.hostId)) {
+    if (!sourceLobby.memberPlayerIds.includes(sourceLobby.hostId)) {
       return c.json({ error: 'Host is not in this lobby anymore.' }, 400)
     }
 
@@ -660,7 +659,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!resolvedLobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
-    const lobby = (await reconcileOpenLobbyState(kv, resolvedLobby))?.lobby ?? resolvedLobby
+    const lobby = resolvedLobby
 
     if (targetSlot >= lobby.slots.length) {
       return c.json({ error: 'Invalid target slot index' }, 400)

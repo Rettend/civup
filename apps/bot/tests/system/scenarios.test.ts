@@ -638,7 +638,7 @@ describe('system scenarios', () => {
     expect(await world.inspect.activityTarget(freshLobby.channelId, 'p1')).toMatchObject({ kind: 'lobby', id: freshLobby.id })
   })
 
-  test('activity launch ignores stale open-lobby residue and still offers the real join target', async () => {
+  test('activity launch ignores slotted-only residue and still offers the real join target', async () => {
     const world = await createTrackedWorld()
     const sourceLobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -654,7 +654,7 @@ describe('system scenarios', () => {
     })
 
     await world.corrupt.openLobbyResidue(sourceLobby.id, {
-      memberPlayerIds: ['source-host', 'p1'],
+      memberPlayerIds: ['source-host'],
       slots: ['source-host', null],
     })
 
@@ -1520,7 +1520,7 @@ describe('system scenarios', () => {
     expect(await world.inspect.matchMapping('p1')).toBeNull()
   })
 
-  test('real join route repairs stale member ids when a queued player is already slotted in the target lobby', async () => {
+  test('real join route rejects an open lobby with an empty canonical roster', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '2v2',
@@ -1543,15 +1543,12 @@ describe('system scenarios', () => {
     })
     await world.flushBackgroundTasks()
 
-    expect(joinResponse.status).toBe(200)
-    expect((await world.lobby.getById(lobby.id))?.memberPlayerIds).toEqual(['host', 'player-1'])
+    expect(joinResponse.status).toBe(404)
+    expect((await world.lobby.getById(lobby.id))?.memberPlayerIds).toEqual([])
     expect((await world.lobby.getById(lobby.id))?.slots).toEqual(['host', 'player-1', null, null])
-    await expectQueuePlayers(world, '2v2', ['host', 'player-1'])
-    expect(await world.inspect.lobbyMapping('player-1')).toBe(lobby.id)
-    expect(await world.inspect.activityTarget(lobby.channelId, 'player-1')).toMatchObject({ kind: 'lobby', id: lobby.id })
   })
 
-  test('real join route keeps already slotted queued players when another player joins a lobby with stale member ids', async () => {
+  test('real join route does not rebuild stale members from slotted queue residue', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '2v2',
@@ -1562,7 +1559,7 @@ describe('system scenarios', () => {
     })
 
     await world.corrupt.openLobbyResidue(lobby.id, {
-      memberPlayerIds: [],
+      memberPlayerIds: ['host'],
       slots: ['host', 'player-1', null, null],
     })
 
@@ -1575,15 +1572,15 @@ describe('system scenarios', () => {
     await world.flushBackgroundTasks()
 
     expect(joinResponse.status).toBe(200)
-    expect((await world.lobby.getById(lobby.id))?.memberPlayerIds).toEqual(['host', 'player-1', 'player-2'])
-    expect((await world.lobby.getById(lobby.id))?.slots).toEqual(['host', 'player-1', 'player-2', null])
+    expect((await world.lobby.getById(lobby.id))?.memberPlayerIds).toEqual(['host', 'player-2'])
+    expect((await world.lobby.getById(lobby.id))?.slots).toEqual(['host', null, 'player-2', null])
     await expectQueuePlayers(world, '2v2', ['host', 'player-1', 'player-2'])
-    expect(await world.inspect.lobbyMapping('player-1')).toBe(lobby.id)
+    expect(await world.inspect.lobbyMapping('player-1')).toBeNull()
     expect(await world.inspect.lobbyMapping('player-2')).toBe(lobby.id)
     expect(await world.inspect.activityTarget(lobby.channelId, 'player-2')).toMatchObject({ kind: 'lobby', id: lobby.id })
   })
 
-  test('real join route compacts ghost target-lobby residue before placing a new player', async () => {
+  test('real join route preserves canonical ghost members until an explicit leave', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '2v2',
@@ -1600,17 +1597,17 @@ describe('system scenarios', () => {
     const joinResponse = await world.lobby.place('2v2', {
       userId: 'player-2',
       lobbyId: lobby.id,
-      targetSlot: 1,
+      targetSlot: 2,
       displayName: 'player-2',
     })
     await world.flushBackgroundTasks()
 
     expect(joinResponse.status).toBe(200)
-    expect((await world.lobby.getById(lobby.id))?.memberPlayerIds).toEqual(['host', 'player-2'])
-    expect((await world.lobby.getById(lobby.id))?.slots).toEqual(['host', 'player-2', null, null])
+    expect((await world.lobby.getById(lobby.id))?.memberPlayerIds).toEqual(['host', 'ghost-player', 'player-2'])
+    expect((await world.lobby.getById(lobby.id))?.slots).toEqual(['host', 'ghost-player', 'player-2', null])
     await expectQueuePlayers(world, '2v2', ['host', 'player-2'])
     expect(await world.inspect.lobbyMapping('player-2')).toBe(lobby.id)
-    expect(await world.inspect.lobbiesForPlayer('ghost-player')).toEqual([])
+    expect((await world.inspect.lobbiesForPlayer('ghost-player'))[0]?.id).toBe(lobby.id)
   })
 
   test('steam lobby link add update and clear survives open to live activity handoff', async () => {
@@ -2148,7 +2145,7 @@ describe('system scenarios', () => {
     expect(payloadText).not.toContain(`<@${loser}>`)
   })
 
-  test('mode changes preserve host order, team splits, and compact stale-member lobbies without losing queued players', async () => {
+  test('mode changes preserve host order, team splits, and canonical compact rosters', async () => {
     const hostOrderWorld = await createTrackedWorld()
     const hostOrderLobby = await hostOrderWorld.lobby.createOpen({
       mode: '4v4',
@@ -2209,10 +2206,11 @@ describe('system scenarios', () => {
     await compactWorld.flushBackgroundTasks()
 
     expect((await compactWorld.lobby.getById(compactLobby.id))?.mode).toBe('2v2')
-    expect((await compactWorld.lobby.getById(compactLobby.id))?.memberPlayerIds).toEqual(['p1', 'p2', 'p3', 'p4', 'p5', 'p6'])
-    expect((await compactWorld.lobby.getById(compactLobby.id))?.slots).toEqual(['p1', 'p2', 'p3', 'p4', 'p5', 'p6', null, null])
-    await expectQueuePlayers(compactWorld, '3v3', [])
-    await expectQueuePlayers(compactWorld, '2v2', ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'])
+    expect((await compactWorld.lobby.getById(compactLobby.id))?.memberPlayerIds).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
+    expect((await compactWorld.lobby.getById(compactLobby.id))?.slots.filter((playerId): playerId is string => playerId != null)).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
+    expect((await compactWorld.lobby.getById(compactLobby.id))?.slots).not.toContain('p6')
+    await expectQueuePlayers(compactWorld, '3v3', ['p6'])
+    await expectQueuePlayers(compactWorld, '2v2', ['p1', 'p2', 'p3', 'p4', 'p5'])
   })
 
   test('mode changes preserve Red Death settings and normalize unsupported toggles on the destination mode', async () => {

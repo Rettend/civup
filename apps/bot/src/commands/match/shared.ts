@@ -8,7 +8,7 @@ import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLab
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
-import { commitLobbyState, deriveQueueBackedLobbyMemberPlayerIds, filterQueueEntriesForLobby, getCurrentLobbiesForPlayers, getLobbiesByMode, getOpenLobbyForPlayer, isQueueBackedOpenLobbyState, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, reconcileOpenLobbyState, sameLobbySlots } from '../../services/lobby/index.ts'
+import { commitLobbyState, filterQueueEntriesForLobby, getCurrentLobbiesForPlayers, getLobbiesByMode, getOpenLobbyForPlayer, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { getQueueState, getQueueStateWithPlayerQueueModes, MAX_QUEUE_ENTRIES, removeFromQueueAndUnlinkParty, setQueueEntries } from '../../services/queue/index.ts'
@@ -186,12 +186,12 @@ export async function joinLobbyAndMaybeStartMatch(
     getLobbiesByMode(kv, mode),
   ])
   let queue = initialQueue
-  const openLobbies = modeLobbies.filter(lobby => lobby.status === 'open' && isQueueBackedOpenLobbyState(lobby, queue.entries))
+  const openLobbies = modeLobbies.filter(lobby => lobby.status === 'open' && lobby.memberPlayerIds.length > 0)
   const queueByPlayerId = new Map<string, QueueEntry>(queue.entries.map(entry => [entry.playerId, entry]))
   const lobbyByPlayerId = new Map<string, LobbyState>()
 
   for (const lobby of openLobbies) {
-    for (const playerId of deriveQueueBackedLobbyMemberPlayerIds(lobby, queue.entries)) {
+    for (const playerId of lobby.memberPlayerIds) {
       if (!lobbyByPlayerId.has(playerId)) lobbyByPlayerId.set(playerId, lobby)
     }
   }
@@ -305,7 +305,7 @@ export async function joinLobbyAndMaybeStartMatch(
 
   const candidateResults = await Promise.all(candidateLobbies
     .map(async (lobby) => {
-      const candidateLobbyMemberPlayerIds = deriveQueueBackedLobbyMemberPlayerIds(lobby, nextEntries)
+      const candidateLobbyMemberPlayerIds = lobby.memberPlayerIds
       const candidateLobbyQueueEntries = filterQueueEntriesForLobby({
         ...lobby,
         memberPlayerIds: candidateLobbyMemberPlayerIds,
@@ -368,12 +368,7 @@ export async function joinLobbyAndMaybeStartMatch(
     }
   }
 
-  const reconciledChosen = await reconcileOpenLobbyState(kv, chosen.lobby, { currentQueue: queue })
-  let nextLobby = reconciledChosen?.lobby ?? chosen.lobby
-  nextLobby = {
-    ...nextLobby,
-    memberPlayerIds: deriveQueueBackedLobbyMemberPlayerIds(nextLobby, nextEntries),
-  }
+  let nextLobby = chosen.lobby
   const nextLobbyQueueEntriesBeforePlacement = filterQueueEntriesForLobby(nextLobby, nextEntries)
   nextLobby = {
     ...nextLobby,

@@ -513,7 +513,7 @@ describe('lobby routes', () => {
     expect((await getLobbyById(kv, targetLobby.id))?.slots).toEqual(['host', null, null, null, 'player-1', 'player-2', null, null])
   })
 
-  test('seat moves keep working for players already in the target lobby despite stale open-lobby residue', async () => {
+  test('seat moves keep working for players already in the target lobby despite another open membership', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
@@ -1694,7 +1694,7 @@ describe('lobby routes', () => {
     expect(updatedLobby?.memberPlayerIds).toEqual(playerIds)
   })
 
-  test('mode changes preserve slotted queued players even when member ids are stale', async () => {
+  test('mode changes use canonical member ids instead of slotted queue residue', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
@@ -1736,8 +1736,10 @@ describe('lobby routes', () => {
     }, buildEnv(kv))
 
     expect(response.status).toBe(200)
-    expect((await getLobbyById(kv, lobby.id))?.memberPlayerIds).toEqual(playerIds)
-    expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(['p1', 'p2', 'p3', 'p4', 'p5', 'p6', null, null])
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.memberPlayerIds).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
+    expect(updatedLobby?.slots.filter((playerId): playerId is string => playerId != null)).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
+    expect(updatedLobby?.slots).not.toContain('p6')
   })
 
   test('lobby config defaults blind bans on and preserves false for supported modes', async () => {

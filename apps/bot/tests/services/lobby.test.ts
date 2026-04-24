@@ -400,7 +400,7 @@ describe('lobby service KV write behavior', () => {
     })
   })
 
-  test('queue-backed lobby members ignore legacy party links', async () => {
+  test('lobby snapshots ignore legacy party links', async () => {
     const { kv } = createTrackedKv()
 
     await addToQueue(kv, '2v2', {
@@ -635,25 +635,24 @@ describe('lobby service KV write behavior', () => {
     }))
   })
 
-  test('ignores and clears a stale host index to an orphan open lobby', async () => {
+  test('keeps a hosted open lobby even when queue metadata is missing', async () => {
     const { kv } = createTrackedKv()
 
-    const orphanLobby = await createLobby(kv, {
+    const lobby = await createLobby(kv, {
       mode: 'ffa',
       hostId: 'host-1',
       channelId: 'channel-1',
       messageId: 'message-1',
     })
 
-    await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toBeNull()
-    await expect(kv.get(hostKey('host-1'))).resolves.toBeNull()
-    await expect(getLobbyById(kv, orphanLobby.id)).resolves.toEqual(expect.objectContaining({
-      id: orphanLobby.id,
+    await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(expect.objectContaining({
+      id: lobby.id,
       status: 'open',
     }))
+    await expect(kv.get(hostKey('host-1'))).resolves.toBe(lobby.id)
   })
 
-  test('recovers a real hosted open lobby when the host index points at stale residue', async () => {
+  test('recovers a hosted open lobby when the host index points at terminal residue', async () => {
     const { kv } = createTrackedKv()
 
     await addToQueue(kv, 'ffa', {
@@ -674,6 +673,7 @@ describe('lobby service KV write behavior', () => {
       channelId: 'channel-stale',
       messageId: 'message-stale',
     })
+    await setLobbyStatus(kv, staleLobby.id, 'cancelled', staleLobby)
     await kv.put(hostKey('host-1'), staleLobby.id)
 
     await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(expect.objectContaining({

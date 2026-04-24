@@ -18,7 +18,7 @@ import {
   storeUserLobbyState,
   storeUserMatchMappings,
 } from '../../src/services/activity/index.ts'
-import { createLobby, setLobbySlots, startLobbyDraft } from '../../src/services/lobby/index.ts'
+import { createLobby, setLobbyMemberPlayerIds, setLobbySlots, startLobbyDraft } from '../../src/services/lobby/index.ts'
 import { addToQueue } from '../../src/services/queue/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
@@ -346,7 +346,7 @@ describe('activity mapping behavior', () => {
     }))
   })
 
-  test('getLobbyForUser repairs a stale mapping to the player\'s real open lobby', async () => {
+  test('getLobbyForUser repairs a stale mapping to the player\'s canonical open lobby', async () => {
     const { kv } = createTrackedKv()
 
     const currentLobby = await createLobby(kv, {
@@ -381,7 +381,8 @@ describe('activity mapping behavior', () => {
       joinedAt: Date.now() + 2,
     })
 
-    await setLobbySlots(kv, currentLobby.id, ['host-1', 'player-1', null, null], currentLobby)
+    const currentLobbyWithMember = await setLobbyMemberPlayerIds(kv, currentLobby.id, ['host-1', 'player-1'], currentLobby)
+    await setLobbySlots(kv, currentLobby.id, ['host-1', 'player-1', null, null], currentLobbyWithMember ?? currentLobby)
     await storeUserLobbyMappings(kv, ['player-1'], staleLobby.id)
 
     await expect(getLobbyForUser(kv, 'player-1')).resolves.toBe(currentLobby.id)
