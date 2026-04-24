@@ -8,7 +8,7 @@ import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLab
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
-import { commitLobbyState, filterQueueEntriesForLobby, getCurrentLobbiesForPlayers, getLobbiesByMode, getOpenLobbyForPlayer, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots } from '../../services/lobby/index.ts'
+import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayers, getLobbiesByMode, getOpenLobbyForPlayer, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyRoster } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { getQueueState, getQueueStateWithPlayerQueueModes, MAX_QUEUE_ENTRIES, removeFromQueueAndUnlinkParty, setQueueEntries } from '../../services/queue/index.ts'
@@ -399,11 +399,16 @@ export async function joinLobbyAndMaybeStartMatch(
       revision: nextLobby.revision + 1,
     }
     try {
-      await commitLobbyState(kv, nextLobby, {
+      nextLobby = await setLobbyRoster(kv, nextLobby.id, {
+        memberPlayerIds: nextMemberPlayerIds,
+        slots: nextSlots,
+        lastActivityAt: addedNewPlayers ? now : nextLobby.lastActivityAt,
+        now,
+      }, chosen.lobby, {
         db: c.env.DB ? createCivupDb(c.env.DB) : null,
         sessionNamespace: c.env.SessionDO,
         queueEntries: queue.entries,
-      })
+      }) ?? nextLobby
     }
     catch (error) {
       if (isSessionAdmissionError(error)) return { error: formatSessionAdmissionError(error) }
@@ -412,12 +417,13 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   const finalQueueEntries = filterQueueEntriesForLobby(nextLobby, queue.entries)
+  const finalSlots = normalizeLobbySlots(mode, nextLobby.slots, finalQueueEntries)
   await syncLobbyDerivedState(kv, nextLobby, {
     queueEntries: finalQueueEntries,
-    slots: nextSlots,
+    slots: finalSlots,
   })
 
-  const slottedEntries = mapLobbySlotsToEntries(nextSlots, finalQueueEntries)
+  const slottedEntries = mapLobbySlotsToEntries(finalSlots, finalQueueEntries)
   const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
   return {
     stage: 'open',

@@ -64,20 +64,24 @@ export type SessionOpenLobbyCommand
     queueEntries?: QueueEntry[]
   }
   | {
-    type: 'update-open-lobby'
+    type: 'set-roster'
     expectedVersion?: number
-    mode?: GameMode
-    channelId?: string
-    messageId?: string
-    steamLobbyLink?: string | null
-    minRole?: CompetitiveTier | null
-    maxRole?: CompetitiveTier | null
-    draftConfig?: LobbyDraftConfig
-    slots?: (string | null)[]
-    memberPlayerIds?: string[]
-    lastArrange?: LobbyArrangeMarker | null
+    memberPlayerIds: string[]
+    slots: (string | null)[]
     lastActivityAt?: number
-    updatedAt?: number
+    now?: number
+    queueEntries?: QueueEntry[]
+  }
+  | {
+    type: 'change-mode'
+    expectedVersion?: number
+    mode: GameMode
+    draftConfig: LobbyDraftConfig
+    slots: (string | null)[]
+    minRole: CompetitiveTier | null
+    maxRole: CompetitiveTier | null
+    lastActivityAt?: number
+    now?: number
     queueEntries?: QueueEntry[]
   }
   | {
