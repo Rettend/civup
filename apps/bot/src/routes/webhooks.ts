@@ -6,7 +6,6 @@ import type { LobbyState } from '../services/lobby/types.ts'
 import { createDb } from '@civup/db'
 import { verifySignedWebhookRequest } from '@civup/utils'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed } from '../embeds/match.ts'
-import { clearActivityMappings, clearLobbyMappings, storeUserLobbyState } from '../services/activity/index.ts'
 import { buildOpenLobbyRenderPayload, clearLobbyById, commitLobbyState, getLobbyByMatch, getLobbyDraftRoster, mapLobbySlotsToEntries, reopenLobbyAfterCancelledDraft, reopenLobbyAfterTimedOutDraft, setLobbyStatus, upsertLobbyMessage } from '../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../services/lobby/live-snapshot.ts'
 import { claimDraftWebhookEvent, markDraftWebhookEventProcessed, parseDraftWebhookPayload, releaseDraftWebhookEventClaim } from '../services/match/draft-webhook-events.ts'
@@ -209,8 +208,6 @@ async function handleDraftCancelledWebhook(
     return c.json({ ok: true })
   }
 
-  await clearActivityMappings(kv, payload.matchId, lobby.memberPlayerIds, lobby.channelId)
-
   if (payload.reason === 'timeout' || payload.reason === 'revert') {
     const queue = await getQueueState(kv, lobby.mode)
     const draftRoster = await getLobbyDraftRoster(kv, lobby.id)
@@ -232,8 +229,6 @@ async function handleDraftCancelledWebhook(
         queueEntries: recovered.queueEntries,
         slots: recovered.lobby.slots,
       })
-      await storeUserLobbyState(kv, recovered.lobby.channelId, recovered.lobby.memberPlayerIds, recovered.lobby.id)
-
       try {
         const slottedEntries = mapLobbySlotsToEntries(recovered.lobby.slots, recovered.queueEntries)
         const renderPayload = await buildOpenLobbyRenderPayload(kv, recovered.lobby, slottedEntries)
@@ -260,7 +255,6 @@ async function handleDraftCancelledWebhook(
     console.error('[draft-webhook] failed to update cancelled embed', webhookContext, error)
   }
 
-  await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId, lobby.id)
   await clearLobbyById(kv, lobby.id, lobby)
   return c.json({ ok: true })
 }

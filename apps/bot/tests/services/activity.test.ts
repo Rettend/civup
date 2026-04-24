@@ -1,25 +1,12 @@
 import type { QueueEntry, RoomConfig } from '@civup/game'
-import { verifyDraftRoomAccessToken } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
 import {
-  clearActivityMappings,
-  clearLobbyMappings,
-  clearUserLobbyMappings,
   createDraftRoom,
   getChannelForMatch,
   getLobbyForUser,
   getMatchForUser,
-  getUserActivityTarget,
-  handoffLobbySpectatorsToMatchActivity,
-  storeMatchActivityState,
-  storeMatchMapping,
-  storeUserActivityTarget,
-  storeUserLobbyMappings,
-  storeUserLobbyState,
-  storeUserMatchMappings,
 } from '../../src/services/activity/index.ts'
-import { createLobby, setLobbyMemberPlayerIds, setLobbySlots, startLobbyDraft } from '../../src/services/lobby/index.ts'
-import { addToQueue } from '../../src/services/queue/index.ts'
+import { createLobby, setLobbyMemberPlayerIds, startLobbyDraft } from '../../src/services/lobby/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
@@ -50,85 +37,8 @@ function createMainNamespaceStub(handler: (request: Request, roomName: string) =
   } as unknown as DurableObjectNamespace
 }
 
-describe('activity mapping behavior', () => {
-  test('channel-scoped activity target resolves for lobby and spectator selection', async () => {
-    const { kv } = createTrackedKv()
-
-    await storeUserActivityTarget(kv, 'channel-1', ['spectator-1'], { kind: 'lobby', id: 'lobby-1' })
-
-    await expect(getUserActivityTarget(kv, 'channel-1', 'spectator-1')).resolves.toEqual({
-      kind: 'lobby',
-      id: 'lobby-1',
-      pendingJoin: false,
-      selectedAt: expect.any(Number),
-    })
-  })
-
-  test('channel-scoped activity target preserves pending lobby joins', async () => {
-    const { kv } = createTrackedKv()
-
-    await storeUserActivityTarget(kv, 'channel-1', ['player-1'], { kind: 'lobby', id: 'lobby-1', pendingJoin: true })
-
-    await expect(getUserActivityTarget(kv, 'channel-1', 'player-1')).resolves.toEqual({
-      kind: 'lobby',
-      id: 'lobby-1',
-      pendingJoin: true,
-      selectedAt: expect.any(Number),
-    })
-  })
-
-  test('switching pending lobby targets in one channel removes the old selection', async () => {
-    const { kv } = createTrackedKv()
-
-    await storeUserLobbyState(kv, 'channel-1', ['player-1'], 'lobby-1')
-    await storeUserLobbyState(kv, 'channel-1', ['player-1'], 'lobby-2', { pendingJoin: true })
-
-    await expect(getUserActivityTarget(kv, 'channel-1', 'player-1')).resolves.toEqual({
-      kind: 'lobby',
-      id: 'lobby-2',
-      pendingJoin: true,
-      selectedAt: expect.any(Number),
-    })
-    await expect(kv.get('activity-target-lobby:channel-1:lobby-1:player-1')).resolves.toBeNull()
-    await expect(kv.get('activity-target-lobby:channel-1:lobby-2:player-1')).resolves.toBeDefined()
-  })
-
-  test('match activity targets store room access tokens and match context', async () => {
-    const { kv } = createTrackedKv()
-
-    await storeUserActivityTarget(kv, 'channel-1', ['user-1'], {
-      kind: 'match',
-      id: 'match-1',
-      lobbyId: 'lobby-1',
-      mode: '2v2',
-      steamLobbyLink: 'steam://joinlobby/289070/12345678901234567/76561198000000000',
-      activitySecret: 'secret',
-    })
-
-    const stored = await kv.get('activity-target-user:user-1:channel-1', 'json') as {
-      kind?: unknown
-      id?: unknown
-      roomAccessToken?: unknown
-      lobbyId?: unknown
-      mode?: unknown
-      steamLobbyLink?: unknown
-    } | null
-
-    expect(stored).toEqual(expect.objectContaining({
-      kind: 'match',
-      id: 'match-1',
-      lobbyId: 'lobby-1',
-      mode: '2v2',
-      steamLobbyLink: 'steam://joinlobby/289070/12345678901234567/76561198000000000',
-      roomAccessToken: expect.any(String),
-    }))
-    await expect(verifyDraftRoomAccessToken('secret', stored?.roomAccessToken as string, {
-      roomId: 'match-1',
-      userId: 'user-1',
-    })).resolves.not.toBeNull()
-  })
-
-  test('getMatchForUser repairs a live mapping from the canonical match lobby', async () => {
+describe('activity canonical lookup behavior', () => {
+  test('getMatchForUser resolves from canonical live lobby membership without writing activity mappings', async () => {
     const { kv } = createTrackedKv()
 
     const lobby = await createLobby(kv, {
@@ -138,105 +48,13 @@ describe('activity mapping behavior', () => {
       messageId: 'message-1',
     })
     await startLobbyDraft(kv, lobby.id, lobby)
-    await storeUserMatchMappings(kv, ['user-1'], lobby.id)
 
     await expect(getMatchForUser(kv, 'user-1')).resolves.toBe(lobby.id)
-    await expect(kv.get(`activity-match:${lobby.id}`)).resolves.toBe('channel-1')
+    await expect(kv.get(`activity-match:${lobby.id}`)).resolves.toBeNull()
+    await expect(kv.get('activity-user:user-1')).resolves.toBeNull()
   })
 
-  test('getMatchForUser removes stale user mapping when match mapping is gone', async () => {
-    const { kv, operations, resetOperations } = createTrackedKv()
-
-    await storeMatchMapping(kv, 'channel-1', 'match-1')
-    await storeUserMatchMappings(kv, ['user-1'], 'match-1')
-    await clearActivityMappings(kv, 'match-1', ['user-1'], 'channel-1')
-
-    resetOperations()
-    await expect(getMatchForUser(kv, 'user-1')).resolves.toBeNull()
-
-    const staleCleanupDeletes = operations.filter(op => op.type === 'delete' && op.key === 'activity-user:user-1')
-    expect(staleCleanupDeletes).toHaveLength(0)
-  })
-
-  test('clearActivityMappings removes match and user-target mappings eagerly', async () => {
-    const { kv, operations, resetOperations } = createTrackedKv()
-
-    await storeMatchMapping(kv, 'channel-1', 'match-1')
-    await storeUserMatchMappings(kv, ['user-1', 'user-2'], 'match-1')
-    await storeUserActivityTarget(kv, 'channel-1', ['user-1', 'user-2'], { kind: 'match', id: 'match-1' })
-
-    resetOperations()
-    await clearActivityMappings(kv, 'match-1', ['user-1', 'user-2'], 'channel-1')
-
-    const deleteKeys = operations.filter(op => op.type === 'delete').map(op => op.key)
-    expect(deleteKeys).toContain('activity-match:match-1')
-    expect(deleteKeys).toContain('activity-user:user-1')
-    expect(deleteKeys).toContain('activity-user:user-2')
-    expect(deleteKeys).toContain('activity-target-user:user-1:channel-1')
-    expect(deleteKeys).toContain('activity-target-user:user-2:channel-1')
-    expect(deleteKeys).toContain('activity-target-match:channel-1:match-1:user-1')
-    expect(deleteKeys).toContain('activity-target-match:channel-1:match-1:user-2')
-  })
-
-  test('clearActivityMappings removes spectator match targets discovered via reverse index', async () => {
-    const { kv } = createTrackedKv()
-
-    await storeMatchMapping(kv, 'channel-1', 'match-1')
-    await storeMatchActivityState(kv, 'channel-1', ['spectator-1'], {
-      matchId: 'match-1',
-      lobbyId: 'lobby-1',
-      mode: '2v2',
-      activitySecret: 'secret',
-    })
-
-    await clearActivityMappings(kv, 'match-1', ['player-1'], 'channel-1')
-
-    await expect(kv.get('activity-user:spectator-1')).resolves.toBeNull()
-    await expect(kv.get('activity-target-user:spectator-1:channel-1')).resolves.toBeNull()
-    await expect(kv.get('activity-target-match:channel-1:match-1:spectator-1')).resolves.toBeNull()
-  })
-
-  test('clearActivityMappings keeps a newer activity-user mapping for the same player', async () => {
-    const { kv } = createTrackedKv()
-
-    const currentLobby = await createLobby(kv, {
-      mode: '1v1',
-      hostId: 'user-1',
-      channelId: 'channel-1',
-      messageId: 'message-1',
-    })
-
-    await storeMatchMapping(kv, 'channel-1', 'match-old')
-    await storeUserMatchMappings(kv, ['user-1'], 'match-old')
-    await storeMatchActivityState(kv, 'channel-1', ['user-1'], {
-      matchId: 'match-old',
-      lobbyId: 'lobby-1',
-      mode: '1v1',
-      activitySecret: 'secret',
-    })
-
-    await storeMatchMapping(kv, 'channel-1', currentLobby.id)
-    await storeMatchActivityState(kv, 'channel-1', ['user-1'], {
-      matchId: currentLobby.id,
-      lobbyId: currentLobby.id,
-      mode: '1v1',
-      activitySecret: 'secret',
-    })
-    await startLobbyDraft(kv, currentLobby.id, currentLobby)
-    await kv.put('activity-target-match:channel-1:match-old:user-1', String(Date.now()))
-
-    await clearActivityMappings(kv, 'match-old', ['user-1'], 'channel-1')
-
-    await expect(getMatchForUser(kv, 'user-1')).resolves.toBe(currentLobby.id)
-    await expect(getUserActivityTarget(kv, 'channel-1', 'user-1')).resolves.toEqual(expect.objectContaining({
-      kind: 'match',
-      id: currentLobby.id,
-    }))
-    await expect(kv.get('activity-match:match-old')).resolves.toBeNull()
-    await expect(kv.get('activity-target-match:channel-1:match-old:user-1')).resolves.toBeNull()
-  })
-
-  test('getChannelForMatch repairs the channel mapping from the canonical match lobby', async () => {
+  test('getChannelForMatch resolves from canonical same-id lobby without writing activity mappings', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: '1v1',
@@ -248,105 +66,10 @@ describe('activity mapping behavior', () => {
     await startLobbyDraft(kv, lobby.id, lobby)
 
     await expect(getChannelForMatch(kv, lobby.id)).resolves.toBe('channel-1')
-    await expect(kv.get(`activity-match:${lobby.id}`)).resolves.toBe('channel-1')
+    await expect(kv.get(`activity-match:${lobby.id}`)).resolves.toBeNull()
   })
 
-  test('clearLobbyMappings removes lobby reopen mapping and channel target', async () => {
-    const { kv, operations, resetOperations } = createTrackedKv()
-
-    await storeUserLobbyMappings(kv, ['user-1'], 'lobby-1')
-    await storeUserActivityTarget(kv, 'channel-1', ['user-1'], { kind: 'lobby', id: 'lobby-1' })
-
-    resetOperations()
-    await clearLobbyMappings(kv, ['user-1'], 'channel-1', 'lobby-1')
-
-    const deleteKeys = operations.filter(op => op.type === 'delete').map(op => op.key)
-    expect(deleteKeys).toContain('activity-lobby-user:user-1')
-    expect(deleteKeys).toContain('activity-target-user:user-1:channel-1')
-    expect(deleteKeys).toContain('activity-target-lobby:channel-1:lobby-1:user-1')
-  })
-
-  test('clearLobbyMappings removes stale old lobby reverse indexes but preserves a newer open-lobby target', async () => {
-    const { kv } = createTrackedKv()
-
-    await storeUserLobbyState(kv, 'channel-1', ['user-1'], 'lobby-old')
-    await storeUserLobbyState(kv, 'channel-1', ['user-1'], 'lobby-new')
-    await kv.put('activity-target-lobby:channel-1:lobby-old:user-1', String(Date.now()))
-
-    await clearLobbyMappings(kv, ['user-1'], 'channel-1', 'lobby-old')
-
-    await expect(kv.get('activity-lobby-user:user-1')).resolves.toBe('lobby-new')
-    await expect(getUserActivityTarget(kv, 'channel-1', 'user-1')).resolves.toEqual(expect.objectContaining({
-      kind: 'lobby',
-      id: 'lobby-new',
-    }))
-    await expect(kv.get('activity-target-lobby:channel-1:lobby-old:user-1')).resolves.toBeNull()
-  })
-
-  test('switching targets removes the old reverse selection key', async () => {
-    const { kv } = createTrackedKv()
-
-    await storeUserActivityTarget(kv, 'channel-1', ['user-1'], { kind: 'lobby', id: 'lobby-1' })
-    await storeUserActivityTarget(kv, 'channel-1', ['user-1'], {
-      kind: 'match',
-      id: 'match-1',
-      lobbyId: 'lobby-1',
-      mode: '2v2',
-      activitySecret: 'secret',
-    })
-
-    await expect(kv.get('activity-target-lobby:channel-1:lobby-1:user-1')).resolves.toBeNull()
-    await expect(kv.get('activity-target-match:channel-1:match-1:user-1')).resolves.toBeDefined()
-  })
-
-  test('handoffLobbySpectatorsToMatchActivity retargets only current lobby spectators', async () => {
-    const { kv } = createTrackedKv()
-
-    await storeUserLobbyState(kv, 'channel-1', ['host', 'player-1'], 'lobby-1')
-    await storeUserLobbyState(kv, 'channel-1', ['spectator-1', 'spectator-2'], 'lobby-1')
-    await storeUserActivityTarget(kv, 'channel-1', ['spectator-1'], { kind: 'lobby', id: 'lobby-2' })
-
-    await expect(handoffLobbySpectatorsToMatchActivity(kv, 'channel-1', 'lobby-1', ['host', 'player-1'], {
-      matchId: 'match-1',
-      lobbyId: 'lobby-1',
-      mode: '2v2',
-      activitySecret: 'secret',
-    })).resolves.toEqual(['spectator-2'])
-
-    await expect(getUserActivityTarget(kv, 'channel-1', 'spectator-1')).resolves.toEqual(expect.objectContaining({
-      kind: 'lobby',
-      id: 'lobby-2',
-    }))
-    await expect(getUserActivityTarget(kv, 'channel-1', 'spectator-2')).resolves.toEqual(expect.objectContaining({
-      kind: 'match',
-      id: 'match-1',
-      pendingJoin: false,
-      roomAccessToken: expect.any(String),
-    }))
-  })
-
-  test('clearUserLobbyMappings keeps the in-activity target during draft handoff', async () => {
-    const { kv } = createTrackedKv()
-
-    await storeUserLobbyState(kv, 'channel-1', ['user-1'], 'lobby-1', { pendingJoin: true })
-    await storeMatchActivityState(kv, 'channel-1', ['user-1'], {
-      matchId: 'match-1',
-      lobbyId: 'lobby-1',
-      mode: '2v2',
-      activitySecret: 'secret',
-    })
-    await clearUserLobbyMappings(kv, ['user-1'])
-
-    await expect(getLobbyForUser(kv, 'user-1')).resolves.toBeNull()
-    await expect(getUserActivityTarget(kv, 'channel-1', 'user-1')).resolves.toEqual(expect.objectContaining({
-      kind: 'match',
-      id: 'match-1',
-      pendingJoin: false,
-      roomAccessToken: expect.any(String),
-    }))
-  })
-
-  test('getLobbyForUser repairs a stale mapping to the player\'s canonical open lobby', async () => {
+  test('getLobbyForUser resolves from canonical open lobby membership without writing activity mappings', async () => {
     const { kv } = createTrackedKv()
 
     const currentLobby = await createLobby(kv, {
@@ -355,38 +78,11 @@ describe('activity mapping behavior', () => {
       channelId: 'channel-1',
       messageId: 'message-current',
     })
-    const staleLobby = await createLobby(kv, {
-      mode: '2v2',
-      hostId: 'host-2',
-      channelId: 'channel-2',
-      messageId: 'message-stale',
-    })
 
-    await addToQueue(kv, '2v2', {
-      playerId: 'host-1',
-      displayName: 'Host 1',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-    await addToQueue(kv, '2v2', {
-      playerId: 'host-2',
-      displayName: 'Host 2',
-      avatarUrl: null,
-      joinedAt: Date.now() + 1,
-    })
-    await addToQueue(kv, '2v2', {
-      playerId: 'player-1',
-      displayName: 'Player 1',
-      avatarUrl: null,
-      joinedAt: Date.now() + 2,
-    })
-
-    const currentLobbyWithMember = await setLobbyMemberPlayerIds(kv, currentLobby.id, ['host-1', 'player-1'], currentLobby)
-    await setLobbySlots(kv, currentLobby.id, ['host-1', 'player-1', null, null], currentLobbyWithMember ?? currentLobby)
-    await storeUserLobbyMappings(kv, ['player-1'], staleLobby.id)
+    await setLobbyMemberPlayerIds(kv, currentLobby.id, ['host-1', 'player-1'], currentLobby)
 
     await expect(getLobbyForUser(kv, 'player-1')).resolves.toBe(currentLobby.id)
-    await expect(kv.get('activity-lobby-user:player-1')).resolves.toBe(currentLobby.id)
+    await expect(kv.get('activity-lobby-user:player-1')).resolves.toBeNull()
   })
 })
 

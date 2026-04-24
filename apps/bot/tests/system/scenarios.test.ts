@@ -635,7 +635,16 @@ describe('system scenarios', () => {
     expect((await world.lobby.getById(freshLobby.id))?.slots).toEqual(['p3', 'p1'])
     expect(await world.inspect.matchMapping('p1')).toBeNull()
     expect(await world.inspect.lobbyMapping('p1')).toBe(freshLobby.id)
-    expect(await world.inspect.activityTarget(freshLobby.channelId, 'p1')).toMatchObject({ kind: 'lobby', id: freshLobby.id })
+    const launch = await world.activity.launch({ channelId: freshLobby.channelId, userId: 'p1' })
+    expect(launch.body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        option: {
+          id: freshLobby.id,
+          isMember: true,
+        },
+      },
+    })
   })
 
   test('activity launch ignores slotted-only residue and still offers the real join target', async () => {
@@ -836,7 +845,7 @@ describe('system scenarios', () => {
     expect(await world.inspect.lobbyMapping('spectator')).toBe(canonicalLobby.id)
   })
 
-  test('match lookup repairs missing activity projections from canonical live match state', async () => {
+  test('match lookup derives from canonical live match state without repairing activity projections', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -856,10 +865,10 @@ describe('system scenarios', () => {
     expect(currentMatch.status).toBe(200)
     expect(currentMatch.body).toEqual({ matchId: started.matchId })
     expect(await world.inspect.matchMapping('p1')).toBe(started.matchId)
-    expect(await world.inspect.matchChannel(started.matchId)).toBe(lobby.channelId)
+    expect(await world.inspect.matchChannel(started.matchId)).toBeNull()
   })
 
-  test('match lookup repairs a missing activity-user mapping from canonical live match state', async () => {
+  test('match lookup derives from canonical live match state without activity-user mapping', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -880,7 +889,7 @@ describe('system scenarios', () => {
     expect(await world.inspect.matchMapping('p1')).toBe(started.matchId)
   })
 
-  test('match lookup repairs current-match mappings after the same session restarts from a cancelled draft', async () => {
+  test('match lookup derives current match after the same session restarts from a cancelled draft', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -946,7 +955,7 @@ describe('system scenarios', () => {
     expect(await world.inspect.currentHostedLobby('host')).toMatchObject({ id: realLobby.id })
   })
 
-  test('real start flow hands spectators off to the match with a valid room token', async () => {
+  test('spectator live-match targeting returns a valid room token', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '2v2',
@@ -954,27 +963,26 @@ describe('system scenarios', () => {
       channelId: 'channel-spectator',
     })
 
-    await world.activity.targetLobby({
-      channelId: lobby.channelId,
-      userId: 'spectator-1',
-      lobbyId: lobby.id,
-    })
-
     const started = await world.lobby.start('2v2', { hostId: 'spec1', lobbyId: lobby.id })
     await world.flushBackgroundTasks()
 
-    const launch = await world.activity.launch({ channelId: lobby.channelId, userId: 'spectator-1' })
+    const target = await world.activity.targetMatch({
+      channelId: lobby.channelId,
+      userId: 'spectator-1',
+      matchId: started.matchId,
+    })
 
-    expect(launch.status).toBe(200)
-    expect(await world.inspect.activityTarget(lobby.channelId, 'spectator-1')).toMatchObject({ kind: 'match', id: started.matchId })
-    expect(launch.body).toMatchObject({
-      selection: {
-        kind: 'match',
-        matchId: started.matchId,
+    expect(target.status).toBe(200)
+    expect(target.body).toMatchObject({
+      snapshot: {
+        selection: {
+          kind: 'match',
+          matchId: started.matchId,
+        },
       },
     })
 
-    const roomAccessToken = (launch.body as { selection?: { roomAccessToken?: string | null } }).selection?.roomAccessToken ?? null
+    const roomAccessToken = (target.body as { snapshot?: { selection?: { roomAccessToken?: string | null } | null } }).snapshot?.selection?.roomAccessToken ?? null
     expect(roomAccessToken).not.toBeNull()
     await expect(verifyDraftRoomAccessToken('secret', roomAccessToken, {
       roomId: started.matchId,
@@ -990,7 +998,7 @@ describe('system scenarios', () => {
     })).resolves.toBeNull()
   })
 
-  test('spectator can retarget from one open lobby to another and launch follows the latest selection', async () => {
+  test('spectator retargeting returns the latest selected snapshot without persistence', async () => {
     const world = await createTrackedWorld()
     const firstLobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -1010,7 +1018,7 @@ describe('system scenarios', () => {
       userId: 'spectator',
       lobbyId: firstLobby.id,
     })
-    await world.activity.targetLobby({
+    const selected = await world.activity.targetLobby({
       channelId: secondLobby.channelId,
       userId: 'spectator',
       lobbyId: secondLobby.id,
@@ -1018,21 +1026,29 @@ describe('system scenarios', () => {
 
     const launch = await world.activity.launch({ channelId: firstLobby.channelId, userId: 'spectator' })
 
-    expect(launch.status).toBe(200)
-    expect(launch.body).toMatchObject({
-      selection: {
-        kind: 'lobby',
-        option: {
-          id: secondLobby.id,
-          isHost: false,
-          isMember: false,
+    expect(selected.body).toMatchObject({
+      snapshot: {
+        selection: {
+          kind: 'lobby',
+          option: {
+            id: secondLobby.id,
+            isHost: false,
+            isMember: false,
+          },
         },
       },
     })
-    expect(await world.inspect.activityTarget(firstLobby.channelId, 'spectator')).toMatchObject({ kind: 'lobby', id: secondLobby.id })
+    expect(launch.status).toBe(200)
+    expect(launch.body).toMatchObject({
+      selection: null,
+      options: expect.arrayContaining([
+        expect.objectContaining({ id: firstLobby.id, kind: 'lobby' }),
+        expect.objectContaining({ id: secondLobby.id, kind: 'lobby' }),
+      ]),
+    })
   })
 
-  test('spectator-selected open lobby hands off to the correct live match while another open lobby still exists in-channel', async () => {
+  test('spectator-selected open lobby exposes the correct live match while another open lobby still exists in-channel', async () => {
     const world = await createTrackedWorld()
     const targetLobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -1047,33 +1063,50 @@ describe('system scenarios', () => {
       channelId: 'channel-shared-start',
     })
 
-    await world.activity.targetLobby({
+    const selectedLobby = await world.activity.targetLobby({
       channelId: targetLobby.channelId,
       userId: 'spectator',
       lobbyId: targetLobby.id,
+    })
+    expect(selectedLobby.body).toMatchObject({
+      snapshot: {
+        selection: {
+          kind: 'lobby',
+          option: { id: targetLobby.id },
+        },
+      },
     })
 
     const started = await world.lobby.start('1v1', { hostId: 'host-a', lobbyId: targetLobby.id })
     await world.flushBackgroundTasks()
 
     const launch = await world.activity.launch({ channelId: targetLobby.channelId, userId: 'spectator' })
+    const selectedMatch = await world.activity.targetMatch({
+      channelId: targetLobby.channelId,
+      userId: 'spectator',
+      matchId: started.matchId,
+    })
 
     expect(launch.status).toBe(200)
     expect(launch.body).toMatchObject({
-      selection: {
-        kind: 'match',
-        matchId: started.matchId,
-        option: {
-          id: started.matchId,
-          lobbyId: targetLobby.id,
-        },
-      },
+      selection: null,
       options: expect.arrayContaining([
         expect.objectContaining({ id: started.matchId, kind: 'match', lobbyId: targetLobby.id }),
         expect.objectContaining({ id: otherLobby.id, kind: 'lobby' }),
       ]),
     })
-    expect(await world.inspect.activityTarget(targetLobby.channelId, 'spectator')).toMatchObject({ kind: 'match', id: started.matchId })
+    expect(selectedMatch.body).toMatchObject({
+      snapshot: {
+        selection: {
+          kind: 'match',
+          matchId: started.matchId,
+          option: {
+            id: started.matchId,
+            lobbyId: targetLobby.id,
+          },
+        },
+      },
+    })
   })
 
   test('participant launch after start ignores an old open-lobby selection and resolves to the live match token', async () => {
@@ -1225,7 +1258,7 @@ describe('system scenarios', () => {
     expect(reportRequests.some(request => request.method === 'POST' && request.url.includes(`/channels/${lobby.channelId}/messages`))).toBe(true)
   })
 
-  test('report cleanup clears live targeting but leaves message context usable for later sync', async () => {
+  test('report cleanup clears live state but leaves message context usable for later sync', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -1245,7 +1278,6 @@ describe('system scenarios', () => {
     expect(await world.inspect.matchMapping('p1')).toBeNull()
     expect(await world.inspect.matchMapping('p2')).toBeNull()
     expect(await world.inspect.lobbyByMatch(started.matchId)).toBeNull()
-    expect(await world.inspect.activityTarget(lobby.channelId, 'p1')).toBeNull()
 
     world.discord.deleteMessage(messageIds[0]!)
 
@@ -1254,7 +1286,6 @@ describe('system scenarios', () => {
       placements: 'A',
     })).ok).toBe(true)
     expect(await world.inspect.matchMapping('p1')).toBeNull()
-    expect(await world.inspect.activityTarget(lobby.channelId, 'p1')).toBeNull()
     expect(world.discord.requests().some(request => request.method === 'PATCH' && request.url.includes(messageIds[1]!))).toBe(true)
   })
 
@@ -1313,7 +1344,7 @@ describe('system scenarios', () => {
       hostId: 'fresh-host',
       channelId: oldLobby.channelId,
     })
-    await world.activity.targetLobby({
+    const selectedLobby = await world.activity.targetLobby({
       channelId: newLobby.channelId,
       userId: 'spectator-1',
       lobbyId: newLobby.id,
@@ -1324,7 +1355,14 @@ describe('system scenarios', () => {
     const messageBeforeReplay = await world.discord.currentLobbyMessage(newLobby.id)
 
     expect(await world.inspect.lobbyMapping('p1')).toBe(newLobby.id)
-    expect(await world.inspect.activityTarget(newLobby.channelId, 'spectator-1')).toMatchObject({ kind: 'lobby', id: newLobby.id })
+    expect(selectedLobby.body).toMatchObject({
+      snapshot: {
+        selection: {
+          kind: 'lobby',
+          option: { id: newLobby.id },
+        },
+      },
+    })
 
     expect((await world.party.replayDraftCancel(oldMatch.matchId, { index: 0 })).status).toBe(200)
     await world.flushBackgroundTasks()
@@ -1337,20 +1375,17 @@ describe('system scenarios', () => {
     expect((await world.lobby.getById(newLobby.id))?.status).toBe('open')
     expect(await world.inspect.lobbyMapping('p1')).toBe(newLobby.id)
     expect(await world.inspect.lobbyMapping('p2')).toBeNull()
-    expect(await world.inspect.activityTarget(newLobby.channelId, 'spectator-1')).toMatchObject({ kind: 'lobby', id: newLobby.id })
     expect(launch.body).toMatchObject({
-      selection: {
-        kind: 'lobby',
-        option: {
-          id: newLobby.id,
-        },
-      },
+      selection: null,
+      options: expect.arrayContaining([
+        expect.objectContaining({ id: newLobby.id, kind: 'lobby' }),
+      ]),
     })
     expect((await world.discord.currentLobbyMessage(newLobby.id))?.id).toBe(messageBeforeReplay?.id)
     expect(replayRequests.some(request => request.url.includes(newLobby.messageId))).toBe(false)
   })
 
-  test('duplicate old report after players move on leaves the newer live participant bindings and spectator target untouched', async () => {
+  test('duplicate old report after players move on leaves the newer live participant bindings untouched', async () => {
     const world = await createTrackedWorld()
     const oldLobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -1391,9 +1426,15 @@ describe('system scenarios', () => {
     await world.flushBackgroundTasks()
 
     const duplicateReportRequests = world.discord.requests().slice(requestsBeforeDuplicateReport)
+    const spectatorLaunch = await world.activity.launch({ channelId: newLobby.channelId, userId: 'spectator-1' })
     expect(await world.inspect.matchMapping('p1')).toBe(newMatch.matchId)
     expect(await world.inspect.matchMapping('fresh-host')).toBe(newMatch.matchId)
-    expect(await world.inspect.activityTarget(newLobby.channelId, 'spectator-1')).toMatchObject({ kind: 'match', id: newMatch.matchId })
+    expect(spectatorLaunch.body).toMatchObject({
+      selection: null,
+      options: expect.arrayContaining([
+        expect.objectContaining({ id: newMatch.matchId, kind: 'match' }),
+      ]),
+    })
     expect(duplicateReportRequests.some(request => request.url.includes(newLobby.messageId))).toBe(false)
   })
 
@@ -1577,7 +1618,15 @@ describe('system scenarios', () => {
     await expectQueuePlayers(world, '2v2', ['host', 'player-1', 'player-2'])
     expect(await world.inspect.lobbyMapping('player-1')).toBeNull()
     expect(await world.inspect.lobbyMapping('player-2')).toBe(lobby.id)
-    expect(await world.inspect.activityTarget(lobby.channelId, 'player-2')).toMatchObject({ kind: 'lobby', id: lobby.id })
+    expect((await world.activity.launch({ channelId: lobby.channelId, userId: 'player-2' })).body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        option: {
+          id: lobby.id,
+          isMember: true,
+        },
+      },
+    })
   })
 
   test('real join route preserves canonical ghost members until an explicit leave', async () => {
@@ -1610,7 +1659,7 @@ describe('system scenarios', () => {
     expect((await world.inspect.lobbiesForPlayer('ghost-player'))[0]?.id).toBe(lobby.id)
   })
 
-  test('steam lobby link add update and clear survives open to live activity handoff', async () => {
+  test('steam lobby link add update and clear is reflected in participant and selected spectator match snapshots', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -1625,19 +1674,24 @@ describe('system scenarios', () => {
     })).status).toBe(200)
     await world.flushBackgroundTasks()
 
-    await world.activity.targetLobby({
+    expect((await world.activity.targetLobby({
       channelId: lobby.channelId,
       userId: 'spectator',
       lobbyId: lobby.id,
+    })).body).toMatchObject({
+      snapshot: {
+        selection: {
+          kind: 'lobby',
+          option: { id: lobby.id },
+        },
+      },
     })
 
     const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
     await world.flushBackgroundTasks()
 
-    const [participantInitialLaunch, spectatorInitialLaunch] = await Promise.all([
-      world.activity.launch({ channelId: lobby.channelId, userId: 'p1' }),
-      world.activity.launch({ channelId: lobby.channelId, userId: 'spectator' }),
-    ])
+    const participantInitialLaunch = await world.activity.launch({ channelId: lobby.channelId, userId: 'p1' })
+    const spectatorInitialTarget = await world.activity.targetMatch({ channelId: lobby.channelId, userId: 'spectator', matchId: started.matchId })
 
     expect(participantInitialLaunch.body).toMatchObject({
       selection: {
@@ -1646,11 +1700,13 @@ describe('system scenarios', () => {
         steamLobbyLink: 'steam://joinlobby/289070/123456789/987654321',
       },
     })
-    expect(spectatorInitialLaunch.body).toMatchObject({
-      selection: {
-        kind: 'match',
-        matchId: started.matchId,
-        steamLobbyLink: 'steam://joinlobby/289070/123456789/987654321',
+    expect(spectatorInitialTarget.body).toMatchObject({
+      snapshot: {
+        selection: {
+          kind: 'match',
+          matchId: started.matchId,
+          steamLobbyLink: 'steam://joinlobby/289070/123456789/987654321',
+        },
       },
     })
 
@@ -1666,10 +1722,8 @@ describe('system scenarios', () => {
     })).status).toBe(409)
     await world.flushBackgroundTasks()
 
-    const [participantLaunch, spectatorLaunch] = await Promise.all([
-      world.activity.launch({ channelId: lobby.channelId, userId: 'p1' }),
-      world.activity.launch({ channelId: lobby.channelId, userId: 'spectator' }),
-    ])
+    const participantLaunch = await world.activity.launch({ channelId: lobby.channelId, userId: 'p1' })
+    const spectatorTarget = await world.activity.targetMatch({ channelId: lobby.channelId, userId: 'spectator', matchId: started.matchId })
 
     expect(participantLaunch.body).toMatchObject({
       selection: {
@@ -1678,11 +1732,13 @@ describe('system scenarios', () => {
         steamLobbyLink: 'steam://joinlobby/289070/222222222/111111111',
       },
     })
-    expect(spectatorLaunch.body).toMatchObject({
-      selection: {
-        kind: 'match',
-        matchId: started.matchId,
-        steamLobbyLink: 'steam://joinlobby/289070/222222222/111111111',
+    expect(spectatorTarget.body).toMatchObject({
+      snapshot: {
+        selection: {
+          kind: 'match',
+          matchId: started.matchId,
+          steamLobbyLink: 'steam://joinlobby/289070/222222222/111111111',
+        },
       },
     })
 
@@ -1696,10 +1752,8 @@ describe('system scenarios', () => {
     })).status).toBe(200)
     await world.flushBackgroundTasks()
 
-    const [participantAfterClear, spectatorAfterClear] = await Promise.all([
-      world.activity.launch({ channelId: lobby.channelId, userId: 'p1' }),
-      world.activity.launch({ channelId: lobby.channelId, userId: 'spectator' }),
-    ])
+    const participantAfterClear = await world.activity.launch({ channelId: lobby.channelId, userId: 'p1' })
+    const spectatorAfterClear = await world.activity.targetMatch({ channelId: lobby.channelId, userId: 'spectator', matchId: started.matchId })
 
     expect((await world.lobby.getById(lobby.id))?.status).toBe('active')
     expect((await world.lobby.getById(lobby.id))?.steamLobbyLink).toBeNull()
@@ -1711,10 +1765,12 @@ describe('system scenarios', () => {
       },
     })
     expect(spectatorAfterClear.body).toMatchObject({
-      selection: {
-        kind: 'match',
-        matchId: started.matchId,
-        steamLobbyLink: null,
+      snapshot: {
+        selection: {
+          kind: 'match',
+          matchId: started.matchId,
+          steamLobbyLink: null,
+        },
       },
     })
   })
@@ -1908,10 +1964,18 @@ describe('system scenarios', () => {
     expect((await world.lobby.getById(targetLobby.id))?.memberPlayerIds).toEqual(['target-host', 'pleb'])
     expect((await world.lobby.getById(targetLobby.id))?.slots).toEqual(['target-host', 'pleb'])
     expect(await world.inspect.lobbyMapping('pleb')).toBe(targetLobby.id)
-    expect(await world.inspect.activityTarget(targetLobby.channelId, 'pleb')).toMatchObject({ kind: 'lobby', id: targetLobby.id })
     expect(await world.inspect.lobbiesForPlayer('pleb')).toEqual([
       expect.objectContaining({ id: targetLobby.id, status: 'open' }),
     ])
+    expect((await world.activity.launch({ channelId: targetLobby.channelId, userId: 'pleb' })).body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        option: {
+          id: targetLobby.id,
+          isMember: true,
+        },
+      },
+    })
   })
 
   test('host cannot abandon players in another populated open lobby through the real join path', async () => {
@@ -1971,7 +2035,12 @@ describe('system scenarios', () => {
     expect((await oneVOneWorld.lobby.getById(oneVOneLobby.id))?.memberPlayerIds).toEqual(['duel-host', 'duel-join'])
     expect((await oneVOneWorld.lobby.getById(oneVOneLobby.id))?.slots).toEqual(['duel-host', 'duel-join'])
     await expectQueuePlayers(oneVOneWorld, '1v1', ['duel-host', 'duel-join'])
-    expect(await oneVOneWorld.inspect.activityTarget(oneVOneLobby.channelId, 'duel-join')).toMatchObject({ kind: 'lobby', id: oneVOneLobby.id })
+    expect((await oneVOneWorld.activity.launch({ channelId: oneVOneLobby.channelId, userId: 'duel-join' })).body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        option: { id: oneVOneLobby.id, isMember: true },
+      },
+    })
 
     const teamWorld = await createTrackedWorld()
     const teamLobby = await teamWorld.lobby.createOpen({
@@ -1994,7 +2063,12 @@ describe('system scenarios', () => {
     expect((await teamWorld.lobby.getById(teamLobby.id))?.memberPlayerIds).toEqual(['team-host', 'team-2', 'team-3', 'team-4'])
     expect((await teamWorld.lobby.getById(teamLobby.id))?.slots).toEqual(['team-host', 'team-2', 'team-3', 'team-4'])
     await expectQueuePlayers(teamWorld, '2v2', ['team-host', 'team-2', 'team-3', 'team-4'])
-    expect(await teamWorld.inspect.activityTarget(teamLobby.channelId, 'team-4')).toMatchObject({ kind: 'lobby', id: teamLobby.id })
+    expect((await teamWorld.activity.launch({ channelId: teamLobby.channelId, userId: 'team-4' })).body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        option: { id: teamLobby.id, isMember: true },
+      },
+    })
 
     const ffaWorld = await createTrackedWorld()
     const ffaLobby = await ffaWorld.lobby.createOpen({
@@ -2017,7 +2091,12 @@ describe('system scenarios', () => {
     expect((await ffaWorld.lobby.getById(ffaLobby.id))?.memberPlayerIds).toEqual(['ffa-host', 'ffa-2', 'ffa-3', 'ffa-4'])
     expect((await ffaWorld.lobby.getById(ffaLobby.id))?.slots).toEqual(['ffa-host', 'ffa-3', null, null, 'ffa-2', null, null, 'ffa-4'])
     await expectQueuePlayers(ffaWorld, 'ffa', ['ffa-host', 'ffa-2', 'ffa-3', 'ffa-4'])
-    expect(await ffaWorld.inspect.activityTarget(ffaLobby.channelId, 'ffa-4')).toMatchObject({ kind: 'lobby', id: ffaLobby.id })
+    expect((await ffaWorld.activity.launch({ channelId: ffaLobby.channelId, userId: 'ffa-4' })).body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        option: { id: ffaLobby.id, isMember: true },
+      },
+    })
   })
 
   test('remove self then rejoin keeps queue and activity state coherent', async () => {
@@ -2036,7 +2115,12 @@ describe('system scenarios', () => {
     await world.flushBackgroundTasks()
 
     expect(await world.inspect.lobbyMapping('pleb')).toBe(lobby.id)
-    expect(await world.inspect.activityTarget(lobby.channelId, 'pleb')).toMatchObject({ kind: 'lobby', id: lobby.id })
+    expect((await world.activity.launch({ channelId: lobby.channelId, userId: 'pleb' })).body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        option: { id: lobby.id, isMember: true },
+      },
+    })
 
     const removeResponse = await world.lobby.remove('1v1', {
       userId: 'pleb',
@@ -2050,7 +2134,12 @@ describe('system scenarios', () => {
     expect((await getQueueState(world.kv, '1v1')).entries.map(entry => entry.playerId)).toEqual(['host'])
     expect((await world.lobby.getById(lobby.id))?.memberPlayerIds).toEqual(['host'])
     expect(await world.inspect.lobbyMapping('pleb')).toBeNull()
-    expect(await world.inspect.activityTarget(lobby.channelId, 'pleb')).toMatchObject({ kind: 'lobby', id: lobby.id })
+    expect((await world.activity.launch({ channelId: lobby.channelId, userId: 'pleb' })).body).toMatchObject({
+      selection: null,
+      options: expect.arrayContaining([
+        expect.objectContaining({ id: lobby.id, kind: 'lobby' }),
+      ]),
+    })
 
     const rejoinResponse = await world.lobby.place('1v1', {
       userId: 'pleb',
@@ -2065,7 +2154,12 @@ describe('system scenarios', () => {
     expect((await world.lobby.getById(lobby.id))?.memberPlayerIds).toEqual(['host', 'pleb'])
     expect((await world.lobby.getById(lobby.id))?.slots).toEqual(['host', 'pleb'])
     expect(await world.inspect.lobbyMapping('pleb')).toBe(lobby.id)
-    expect(await world.inspect.activityTarget(lobby.channelId, 'pleb')).toMatchObject({ kind: 'lobby', id: lobby.id })
+    expect((await world.activity.launch({ channelId: lobby.channelId, userId: 'pleb' })).body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        option: { id: lobby.id, isMember: true },
+      },
+    })
   })
 
   test('duplicate join requests settle to one coherent member, queue, and embed state', async () => {
@@ -2366,7 +2460,7 @@ describe('system scenarios', () => {
     })
   })
 
-  test('deterministic arrange uses seeded runtime controls and preserves activity targeting metadata', async () => {
+  test('deterministic arrange uses seeded runtime controls and preserves selectable lobby options', async () => {
     const first = await runSeededArrangeScenario('arrange-deterministic-a', 'channel-arrange-deterministic-a')
     const second = await runSeededArrangeScenario('arrange-deterministic-a', 'channel-arrange-deterministic-b')
     const third = await runSeededArrangeScenario('arrange-deterministic-b', 'channel-arrange-deterministic-c')
@@ -2374,18 +2468,22 @@ describe('system scenarios', () => {
     expect(first.arranged.status).toBe(200)
     expect(second.arranged.status).toBe(200)
     expect(third.arranged.status).toBe(200)
-    expect(first.selectedTarget).toMatchObject({ kind: 'lobby', id: first.lobby.id, selectedAt: 1_700_000_000_000 })
+    expect(first.selectedTarget.body).toMatchObject({
+      snapshot: {
+        selection: {
+          kind: 'lobby',
+          option: { id: first.lobby.id },
+        },
+      },
+    })
     expect(first.arrangedLobby?.lastArrange).toEqual({ strategy: 'shuffle-teams', at: 1_700_000_005_000 })
     expect(first.arrangedLobby?.slots).toEqual(second.arrangedLobby?.slots)
     expect(first.arrangedLobby?.slots).not.toEqual(third.arrangedLobby?.slots)
-    expect(await first.world.inspect.activityTarget(first.lobby.channelId, 'spectator')).toMatchObject({ kind: 'lobby', id: first.lobby.id, selectedAt: 1_700_000_000_000 })
     expect(first.launch.body).toMatchObject({
-      selection: {
-        kind: 'lobby',
-        option: {
-          id: first.lobby.id,
-        },
-      },
+      selection: null,
+      options: expect.arrayContaining([
+        expect.objectContaining({ id: first.lobby.id, kind: 'lobby' }),
+      ]),
     })
   })
 
@@ -2417,7 +2515,12 @@ describe('system scenarios', () => {
     expect(queue.entries).toEqual([])
     expect(await world.inspect.lobbyMapping('p2')).toBeNull()
     expect(await world.inspect.matchMapping('p2')).toBe(started.matchId)
-    expect(await world.inspect.activityTarget(lobby.channelId, 'p2')).toMatchObject({ kind: 'match', id: started.matchId })
+    expect((await world.activity.launch({ channelId: lobby.channelId, userId: 'p2' })).body).toMatchObject({
+      selection: {
+        kind: 'match',
+        matchId: started.matchId,
+      },
+    })
   })
 
   test('report racing with a late join rejects the join cleanly and still allows a fresh later join', async () => {
@@ -2612,7 +2715,7 @@ describe('system scenarios', () => {
     expect(messageAfterReplay?.id).toBe(messageBeforeReplay?.id)
   })
 
-  test('stale old timeout replay after lobby reuse does not clear the newer live match mapping or rewrite the newer message', async () => {
+  test('stale old timeout replay after lobby reuse does not clear the newer live match or rewrite the newer message', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -2639,8 +2742,6 @@ describe('system scenarios', () => {
 
     expect(liveMatch.matchId).toBe(oldMatch.matchId)
 
-    await world.corrupt.activityMatch(oldMatch.matchId, lobby.channelId)
-
     const requestCountBeforeReplay = world.discord.requests().length
     const messageBeforeReplay = await world.discord.currentLobbyMessage(reopenedLobby!.id)
 
@@ -2658,8 +2759,6 @@ describe('system scenarios', () => {
     })
     expect(liveLobby?.memberPlayerIds).toEqual(expect.arrayContaining(['p1', 'p2']))
     expect(await world.inspect.matchMapping('p2')).toBe(liveMatch.matchId)
-    expect(await world.inspect.activityTarget(lobby.channelId, 'p2')).toMatchObject({ kind: 'match', id: liveMatch.matchId })
-    expect(await world.inspect.matchChannel(liveMatch.matchId)).toBe(lobby.channelId)
     expect(launch.body).toMatchObject({
       selection: {
         kind: 'match',
@@ -2789,8 +2888,7 @@ async function runSeededArrangeScenario(seed: string, channelId: string) {
   })
 
   world.runtime.clock.freeze(1_700_000_000_000)
-  await world.activity.targetLobby({ channelId: lobby.channelId, userId: 'spectator', lobbyId: lobby.id })
-  const selectedTarget = await world.inspect.activityTarget(lobby.channelId, 'spectator')
+  const selectedTarget = await world.activity.targetLobby({ channelId: lobby.channelId, userId: 'spectator', lobbyId: lobby.id })
 
   world.runtime.clock.advance(5_000)
   world.runtime.random.seed(seed)

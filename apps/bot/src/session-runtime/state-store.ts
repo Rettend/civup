@@ -93,7 +93,7 @@ type StateSocketResponse
   }
 
 const STORAGE_PREFIX = 'kv:'
-const ALLOWED_SUBSCRIPTION_KEY_PREFIXES = ['activity:', 'activity-user:', 'activity-target-user:', 'lobby:snapshot:']
+const ALLOWED_SUBSCRIPTION_KEY_PREFIXES = ['activity:', 'lobby:snapshot:']
 const ALLOWED_SUBSCRIPTION_PREFIXES = ['lobby:mode:']
 
 export class State extends Server<StateStoreEnv> {
