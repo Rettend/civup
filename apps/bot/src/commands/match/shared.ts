@@ -8,11 +8,11 @@ import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLab
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
-import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayers, getLobbiesByMode, getOpenLobbyForPlayer, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyRoster } from '../../services/lobby/index.ts'
+import { filterQueueEntriesForLobby, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyRoster } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds } from '../../services/ranked/roles.ts'
-import { formatSessionAdmissionError, isSessionAdmissionError } from '../../services/session/index.ts'
+import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayers, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionsByMode, isSessionAdmissionError } from '../../services/session/index.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
 import { getSessionRecord } from '../../session-runtime/session-do-client.ts'
 import { buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
@@ -181,9 +181,10 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   const kv = getKvStore(c.env)
-  const modeLobbies = await getLobbiesByMode(kv, mode)
-  const openLobbies = modeLobbies.filter(lobby => lobby.status === 'open' && lobby.memberPlayerIds.length > 0)
-  const currentLobbiesByPlayerId = await getCurrentLobbiesForPlayers(kv, requestedEntries.map(entry => entry.playerId))
+  const db = createCivupDb(c.env.DB)
+  const openLobbies = (await getOpenSessionLobbyProjectionsByMode(db, mode))
+    .filter(lobby => lobby.memberPlayerIds.length > 0)
+  const currentLobbiesByPlayerId = await getCurrentSessionLobbyProjectionsForPlayers(db, requestedEntries.map(entry => entry.playerId))
   let currentOpenLobby: LobbyState | null = null
 
   for (const entry of requestedEntries) {
@@ -451,14 +452,14 @@ export async function resolveReportableMatchIdForPlayer(
 }
 
 export async function preflightMatchCreateSessionState(
-  kv: KVNamespace,
+  db: ReturnType<typeof createDb>,
   playerId: string,
 ): Promise<
   | { kind: 'continue' }
   | { kind: 'reuse-hosted-open-lobby', lobby: LobbyState }
   | { kind: 'block-open-lobby', lobby: LobbyState }
 > {
-  const currentOpenLobby = await getOpenLobbyForPlayer(kv, playerId)
+  const currentOpenLobby = await getOpenSessionLobbyProjectionForPlayer(db, playerId)
   if (!currentOpenLobby) return { kind: 'continue' }
   return {
     kind: currentOpenLobby.hostId === playerId ? 'reuse-hosted-open-lobby' : 'block-open-lobby',

@@ -1,10 +1,18 @@
-import { describe, expect, test } from 'bun:test'
-import { sessionDirectory } from '@civup/db'
+import type { DraftSeat, DraftState } from '@civup/game'
+import { afterEach, describe, expect, test } from 'bun:test'
+import { matchParticipants, matches, sessionDirectory } from '@civup/db'
+import { allLeaderIds } from '@civup/game'
 import { eq } from 'drizzle-orm'
 import { DEFAULT_DRAFT_CONFIG } from '../../src/services/lobby/normalize.ts'
 import { SessionDO } from '../../src/session-runtime/session-do.ts'
 import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
+
+const originalFetch = globalThis.fetch
+
+afterEach(() => {
+  globalThis.fetch = originalFetch
+})
 
 describe('SessionDO open session commands', () => {
   test('creates an open session record from lobby creation', async () => {
@@ -127,6 +135,167 @@ describe('SessionDO open session commands', () => {
     }
   })
 
+  test('start draft retries reuse the existing draft runtime seats', async () => {
+    const { sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      DB: createSqliteD1Database(sqlite),
+      KV: kv,
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+
+      const firstStart = await startDraft(room, { hostId: 'p1', now: 20 })
+      const retryStart = await startDraft(room, { hostId: 'p1', now: 21 })
+
+      expect(firstStart.matchId).toBe(openLobby.id)
+      expect(firstStart.seats).toHaveLength(2)
+      expect(retryStart).toMatchObject({ matchId: openLobby.id, idempotent: true })
+      expect(retryStart.seats).toEqual(firstStart.seats)
+      const record = await getSessionRecordBody(room)
+      expect(record.phase).toBe('draft')
+      expect(record.version).toBe(2)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('lifecycle retry after partial activation still commits session and updates Discord projection', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const d1 = createFailingSessionDirectoryD1(createSqliteD1Database(sqlite))
+    const discordRequests: Array<{ method: string, url: string }> = []
+    const originalConsoleError = console.error
+    const originalConsoleWarn = console.warn
+    console.error = (() => {}) as typeof console.error
+    console.warn = (() => {}) as typeof console.warn
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      discordRequests.push({ method: request.method, url: request.url })
+      return new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      DB: d1.database,
+      KV: kv,
+      DISCORD_TOKEN: 'token',
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      const started = await startDraft(room, { hostId: 'p1', now: 20 })
+      const payload = buildCompletePayload(openLobby.id, started.seats)
+
+      d1.failNextSessionDirectoryWrite()
+      const partial = await room.fetch(sessionRequest('/commands/draft-lifecycle-sync', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }))
+
+      expect(partial.status).toBe(503)
+      expect((await getSessionRecordBody(room)).phase).toBe('draft')
+      expect((await getSessionRecordBody(room)).lifecycleSync?.payload.eventId).toBe(payload.eventId)
+      expect((await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1))[0]?.status).toBe('active')
+      expect(discordRequests).toHaveLength(0)
+
+      const retry = await room.fetch(sessionRequest('/commands/draft-lifecycle-sync', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }))
+
+      expect(retry.status).toBe(200)
+      const record = await getSessionRecordBody(room)
+      expect(record.phase).toBe('swap')
+      expect(record.lifecycleSync).toBeNull()
+      expect((await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1))[0]?.phase).toBe('swap')
+      expect(await kv.get(`lobby:id:${openLobby.id}`, 'json')).toEqual(expect.objectContaining({ status: 'active' }))
+      expect(discordRequests).toEqual([
+        expect.objectContaining({ method: 'PATCH', url: expect.stringContaining('/channels/channel-1/messages/message-1') }),
+      ])
+      const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, openLobby.id))
+      expect(participants.every(participant => participant.civId != null)).toBe(true)
+    }
+    finally {
+      console.error = originalConsoleError
+      console.warn = originalConsoleWarn
+      sqlite.close()
+    }
+  })
+
+  test('pending lifecycle sync retries from alarm after transient backend outage', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const d1 = createSqliteD1Database(sqlite)
+    const env: { DB?: D1Database, KV?: KVNamespace } = { DB: d1, KV: kv }
+    const room = new SessionDO(createFakeDurableObjectState(), env as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+    const originalDateNow = Date.now
+    const originalConsoleWarn = console.warn
+    console.warn = (() => {}) as typeof console.warn
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      const started = await startDraft(room, { hostId: 'p1', now: 20 })
+      const payload = buildCompletePayload(openLobby.id, started.seats)
+
+      env.DB = undefined
+      Date.now = () => 1_000
+      const deferred = await room.fetch(sessionRequest('/commands/draft-lifecycle-sync', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }))
+
+      expect(deferred.status).toBe(503)
+      const pending = await getSessionRecordBody(room)
+      expect(pending.phase).toBe('draft')
+      expect(pending.lifecycleSync).toMatchObject({
+        payload: expect.objectContaining({ eventId: payload.eventId }),
+        attempts: 1,
+        nextRetryAt: 2_000,
+      })
+
+      env.DB = d1
+      Date.now = () => 2_000
+      await room.onAlarm()
+
+      const record = await getSessionRecordBody(room)
+      expect(record.phase).toBe('swap')
+      expect(record.lifecycleSync).toBeNull()
+      expect((await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1))[0]?.phase).toBe('swap')
+      expect(await kv.get(`lobby:id:${openLobby.id}`, 'json')).toEqual(expect.objectContaining({ status: 'active' }))
+    }
+    finally {
+      Date.now = originalDateNow
+      console.warn = originalConsoleWarn
+      sqlite.close()
+    }
+  })
+
   test('applies explicit open-lobby commands through the session aggregate', async () => {
     const room = new SessionDO(createFakeDurableObjectState(), {} as any)
     const openLobby = buildLobby({
@@ -233,6 +402,126 @@ async function openLobbyCommand(room: SessionDO, command: unknown): Promise<any>
   }))
   expect(response.status).toBe(200)
   return await response.json()
+}
+
+async function createSessionFromLobby(room: SessionDO, lobby: ReturnType<typeof buildLobby>, queueEntries: unknown[]): Promise<any> {
+  const response = await room.fetch(sessionRequest('/commands/create-from-lobby', {
+    method: 'POST',
+    body: JSON.stringify({ lobby, queueEntries }),
+  }))
+  expect(response.status).toBe(200)
+  return await response.json()
+}
+
+async function startDraft(room: SessionDO, command: unknown): Promise<any> {
+  const response = await room.fetch(sessionRequest('/commands/start-draft', {
+    method: 'POST',
+    body: JSON.stringify(command),
+  }))
+  expect(response.status).toBe(200)
+  return await response.json()
+}
+
+async function getSessionRecordBody(room: SessionDO): Promise<any> {
+  const response = await room.fetch(sessionRequest('/record'))
+  expect(response.status).toBe(200)
+  const body = await response.json() as any
+  return body.record
+}
+
+function buildCompletePayload(matchId: string, seats: DraftSeat[]) {
+  const completedAt = 30
+  return {
+    eventId: `${matchId}:complete:1`,
+    eventKind: 'DraftCompleted',
+    eventSequence: 1,
+    outcome: 'complete',
+    matchId,
+    hostId: seats[0]?.playerId,
+    completedAt,
+    state: {
+      matchId,
+      formatId: 'default-1v1',
+      seats,
+      steps: [],
+      currentStepIndex: 0,
+      submissions: {},
+      bans: [],
+      picks: seats.map((_, seatIndex) => ({
+        civId: allLeaderIds[seatIndex] ?? allLeaderIds[0]!,
+        seatIndex,
+        stepIndex: seatIndex,
+      })),
+      availableCivIds: [],
+      status: 'complete',
+      cancelReason: null,
+    } satisfies DraftState,
+  }
+}
+
+function createFailingSessionDirectoryD1(base: D1Database) {
+  let pendingSessionDirectoryFailures = 0
+  return {
+    database: {
+      ...base,
+      prepare(query: string) {
+        return wrapFailingStatement(base.prepare(query), query, () => {
+          if (pendingSessionDirectoryFailures <= 0) return false
+          if (!query.includes('session_directory')) return false
+          pendingSessionDirectoryFailures -= 1
+          return true
+        })
+      },
+    } as D1Database,
+    failNextSessionDirectoryWrite() {
+      pendingSessionDirectoryFailures += 1
+    },
+  }
+}
+
+function wrapFailingStatement(
+  statement: D1PreparedStatement,
+  query: string,
+  shouldFail: () => boolean,
+): D1PreparedStatement {
+  return {
+    ...statement,
+    bind(...values: unknown[]) {
+      return wrapFailingBoundStatement(statement.bind(...values), query, shouldFail)
+    },
+  } as D1PreparedStatement
+}
+
+function wrapFailingBoundStatement(
+  statement: D1PreparedStatement,
+  query: string,
+  shouldFail: () => boolean,
+): D1PreparedStatement {
+  const maybeFail = () => {
+    if (shouldFail()) throw new Error(`Injected D1 failure for ${query}`)
+  }
+  return {
+    ...statement,
+    bind(...values: unknown[]) {
+      return wrapFailingBoundStatement(statement.bind(...values), query, shouldFail)
+    },
+    async first(columnName?: string) {
+      maybeFail()
+      return await statement.first(columnName)
+    },
+    async run() {
+      maybeFail()
+      return await statement.run()
+    },
+    async all() {
+      maybeFail()
+      return await statement.all()
+    },
+    async raw() {
+      maybeFail()
+      return await statement.raw()
+    },
+  } as D1PreparedStatement
 }
 
 function sessionRequest(pathname: string, init?: RequestInit): Request {

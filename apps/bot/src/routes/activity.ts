@@ -11,8 +11,8 @@ import { createSessionAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { buildActivityOverviewOptions, buildLobbySnapshotFromDirectoryEntry, buildLobbySnapshotFromSessionRecord, getActivitySessionById, getActivitySessionsByChannel, getOpenActivitySessionsForUser } from '../services/activity/session-state.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
-import { getCurrentLobbiesForPlayer } from '../services/lobby/index.ts'
-import { clearStalePersistedLiveLobbies, filterPersistedLiveLobbies, findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIdsForPlayers } from '../services/match/live.ts'
+import { findPersistedBlockingDraftMatchIdsForPlayers } from '../services/match/live.ts'
+import { getCurrentSessionLobbyProjectionsForPlayer } from '../services/session/index.ts'
 import { getKvStore, kvMget } from '../services/kv/batch.ts'
 import { getSessionRecord } from '../session-runtime/session-do-client.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
@@ -346,6 +346,8 @@ export async function resolveLobbyJoinEligibility(
     db?: D1Database | null
   },
 ): Promise<LobbyJoinEligibility> {
+  void token
+  void kv
   if (lobby.status !== 'open') {
     return {
       canJoin: false,
@@ -362,9 +364,9 @@ export async function resolveLobbyJoinEligibility(
     }
   }
 
-  const otherCurrentLobbies = await getCurrentLobbiesForPlayer(kv, userId, {
-    excludeLobbyIds: [lobby.id],
-  })
+  const otherCurrentLobbies = options?.db
+    ? await getCurrentLobbyProjectionsForJoin(options.db, userId, lobby.id)
+    : []
   const blockingDraftMatchIds = await findPersistedBlockingDraftMatchIdsForPlayers(options?.db, [userId])
   const hasLiveMatch = blockingDraftMatchIds == null
     ? otherCurrentLobbies.some(candidate => candidate.status !== 'open')
@@ -419,6 +421,19 @@ export async function resolveLobbyJoinEligibility(
     canJoin: true,
     blockedReason: null,
     pendingSlot,
+  }
+}
+
+async function getCurrentLobbyProjectionsForJoin(
+  db: D1Database,
+  userId: string,
+  excludedLobbyId: string,
+) {
+  try {
+    return await getCurrentSessionLobbyProjectionsForPlayer(createDb(db), userId, { excludeLobbyIds: [excludedLobbyId] })
+  }
+  catch {
+    return []
   }
 }
 
