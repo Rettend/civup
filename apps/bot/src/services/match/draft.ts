@@ -33,6 +33,21 @@ export async function createDraftMatch(
       completedAt: null,
     })
   }
+  else if (existingMatch.status === 'cancelled') {
+    await db.delete(matchBans).where(eq(matchBans.matchId, input.matchId))
+    await db.delete(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
+    await db
+      .update(matches)
+      .set({
+        gameMode: input.mode,
+        status: 'drafting',
+        seasonId: activeSeason?.id ?? null,
+        draftData: null,
+        createdAt: now,
+        completedAt: null,
+      })
+      .where(eq(matches.id, input.matchId))
+  }
 
   const uniquePlayers = new Map<string, (typeof input.seats)[number]>()
   for (const seat of input.seats) {

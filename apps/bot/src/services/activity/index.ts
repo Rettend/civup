@@ -2,7 +2,6 @@ import type { DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEnt
 import type { LobbyState } from '../lobby/types.ts'
 import { allFactionIds, getDraftFormat, isTeamMode, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
 import { ApiError, api, CIVUP_INTERNAL_SECRET_HEADER, createDraftRoomAccessToken, normalizeHost } from '@civup/utils'
-import { nanoid } from 'nanoid'
 import { getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyById, getLobbyByMatch, getOpenLobbyForPlayer } from '../lobby/index.ts'
 import { channelIndexKey, idKey, matchKey, modeIndexKey } from '../lobby/keys.ts'
 import { lobbySnapshotKey } from '../lobby/live-snapshot.ts'
@@ -19,6 +18,7 @@ export interface MatchCreationResult {
 
 export interface CreateDraftRoomOptions {
   mainNamespace?: DurableObjectNamespace
+  matchId: string
   hostId: string
   leaderDataVersion?: LeaderDataVersion
   blindBans?: boolean
@@ -209,7 +209,7 @@ export async function createDraftRoom(
   entries: QueueEntry[],
   options: CreateDraftRoomOptions,
 ): Promise<MatchCreationResult> {
-  const matchId = nanoid(12)
+  const matchId = options.matchId
   const seats: DraftSeat[] = buildSeats(mode, entries)
   const redDeathMode = options.redDeath === true
   const simultaneousPick = mode === 'ffa' && !redDeathMode && options.simultaneousPick === true

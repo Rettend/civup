@@ -2,7 +2,7 @@ import type { DraftState } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { activityOverviewKey, syncActivityOverviewSnapshot } from '../../src/services/activity/live-state.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
-import { attachLobbyMatch, clearLobbyById, clearLobbyByMatch, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyByChannel, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
+import { attachLobbyMatch, clearLobbyById, clearLobbyByMatch, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyByChannel, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startLobbyDraft, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
 import { channelIndexKey, hostKey, idKey, LOBBY_TTL, matchKey, modeIndexKey } from '../../src/services/lobby/keys.ts'
 import { lobbySnapshotKey, syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../../src/services/match/retention.ts'
@@ -275,11 +275,31 @@ describe('lobby service KV write behavior', () => {
 
     expect(await kv.get(lobbySnapshotKey(lobby.id), 'json')).not.toBeNull()
 
-    const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
     expect(draftingLobby).not.toBeNull()
     await syncLobbyDerivedState(kv, draftingLobby ?? lobby)
 
     expect(await kv.get(lobbySnapshotKey(lobby.id), 'json')).toBeNull()
+  })
+
+  test('startLobbyDraft derives the match id from the lobby id', async () => {
+    const { kv } = createTrackedKv()
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
+
+    expect(draftingLobby).toMatchObject({
+      id: lobby.id,
+      status: 'drafting',
+      matchId: lobby.id,
+    })
+    expect(await kv.get(matchKey(lobby.id))).toBe(lobby.id)
   })
 
   test('stores six players as the expanded 2v2 minimum start size', async () => {
@@ -736,6 +756,26 @@ describe('lobby service KV write behavior', () => {
     await expect(kv.get(matchKey('match-1'))).resolves.toBe(lobby.id)
   })
 
+  test('getLobbyByMatch resolves same-id sessions without the match index', async () => {
+    const { kv } = createTrackedKv()
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    const draftingLobby = await startLobbyDraft(kv, lobby.id, lobby)
+    await kv.delete(matchKey(lobby.id))
+
+    await expect(getLobbyByMatch(kv, lobby.id)).resolves.toEqual(expect.objectContaining({
+      id: lobby.id,
+      matchId: lobby.id,
+    }))
+    await expect(kv.get(matchKey(lobby.id))).resolves.toBeNull()
+    expect(draftingLobby?.matchId).toBe(lobby.id)
+  })
+
   test('getLobbyByChannel repairs a missing channel index from the canonical lobby record', async () => {
     const { kv } = createTrackedKv()
 
@@ -771,6 +811,25 @@ describe('lobby service KV write behavior', () => {
     await expect(getLobbyById(kv, lobby.id)).resolves.toBeNull()
     await expect(kv.get(hostKey('host-1'))).resolves.toBeNull()
     await expect(kv.get(matchKey('match-1'))).resolves.toBeNull()
+  })
+
+  test('clearLobbyByMatch clears same-id sessions without the match index', async () => {
+    const { kv } = createTrackedKv()
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    await startLobbyDraft(kv, lobby.id, lobby)
+    await kv.delete(matchKey(lobby.id))
+
+    await clearLobbyByMatch(kv, lobby.id)
+
+    await expect(getLobbyById(kv, lobby.id)).resolves.toBeNull()
+    await expect(kv.get(hostKey('host-1'))).resolves.toBeNull()
+    await expect(kv.get(matchKey(lobby.id))).resolves.toBeNull()
   })
 
   test('reopens a timed-out draft lobby without the failed picker', async () => {
