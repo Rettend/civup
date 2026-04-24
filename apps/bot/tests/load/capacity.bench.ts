@@ -29,7 +29,7 @@ import {
   filterQueueEntriesForLobby,
   getCurrentLobbyHostedBy,
   getLobby,
-  getLobbyByMatch,
+  getLobbyById,
   getTestLobbyRuntime,
   mapLobbySlotsToEntries,
   normalizeLobbySlots,
@@ -46,6 +46,7 @@ import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
 import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
+import { getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
 import { getSystemChannel, setSystemChannel } from '../../src/services/system/channels.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -838,7 +839,7 @@ async function assertDraftingCapacityState(
 ): Promise<void> {
   const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
   const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
-  const lobby = await getLobbyByMatch(kv, matchId)
+  const lobby = await getSessionLobbyProjectionByMatch(db, matchId)
 
   expect(match?.status).toBe('drafting')
   expect(participants.map(participant => participant.playerId)).toEqual(expectedPlayerIds)
@@ -858,7 +859,7 @@ async function assertActiveCapacityState(
 ): Promise<void> {
   const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
   const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
-  const lobby = await getLobbyByMatch(kv, matchId)
+  const lobby = await getSessionLobbyProjectionByMatch(db, matchId)
 
   expect(match?.status).toBe('active')
   expect(participants.map(participant => participant.playerId)).toEqual(expectedPlayerIds)
@@ -883,7 +884,7 @@ async function assertCompletedCapacityState(
   expect(match?.status).toBe('completed')
   expect(participants.map(participant => participant.playerId)).toEqual(expectedPlayerIds)
   expect(participants.every(participant => participant.civId != null && participant.placement != null)).toBe(true)
-  expect(await getLobbyByMatch(kv, matchId)).toBeNull()
+  expect(await getLobbyById(kv, matchId)).toBeNull()
 
   for (const playerId of expectedPlayerIds) {
     expect(await getLobbyForUser(db, playerId)).toBeNull()
@@ -949,7 +950,7 @@ async function handleDraftCompleteLifecycleSync(
   if ('error' in activated) throw new Error(activated.error)
   if (activated.alreadyActive && options.finalized !== true) return
 
-  const lobby = await getLobbyByMatch(kv, matchId)
+  const lobby = await getLobbyById(kv, matchId)
   if (!lobby) throw new Error('Expected lobby mapping during draft-complete simulation')
 
   if (activated.alreadyActive && options.finalized === true) {
@@ -983,7 +984,7 @@ async function handleMatchReport(
   })
   if ('error' in reported) throw new Error(reported.error)
 
-  const lobby = await getLobbyByMatch(kv, matchId)
+  const lobby = await getSessionLobbyProjectionByMatch(db, matchId)
   const guildId = lobby?.guildId ?? null
 
   if (guildId) {

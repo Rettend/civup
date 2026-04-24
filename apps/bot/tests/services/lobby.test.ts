@@ -2,10 +2,11 @@ import type { DraftState } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { buildActivityOverviewSnapshotFromDirectory } from '../../src/services/activity/session-state.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
-import { clearLobbyById, clearLobbyByMatch, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getExistingTestLobbyRuntime, getLobbiesByMode, getLobbyByChannel, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft, storeLobbyDraftRoster } from '../helpers/lobby-runtime.ts'
+import { clearLobbyById, clearLobbyByMatch, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getExistingTestLobbyRuntime, getLobbiesByMode, getLobbyByChannel, getLobbyById, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft, storeLobbyDraftRoster } from '../helpers/lobby-runtime.ts'
 import { channelIndexKey, hostKey, idKey, LOBBY_TTL, modeIndexKey } from '../../src/services/lobby/keys.ts'
 import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../../src/services/match/retention.ts'
+import { getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
 import { getSeededRosterEntries, seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
@@ -539,10 +540,10 @@ describe('lobby service KV write behavior', () => {
     await clearLobbyById(kv, lobby.id)
 
     await expect(kv.get(hostKey('host-1'))).resolves.toBeNull()
-    await expect(getLobbyByMatch(kv, lobby.id)).resolves.toBeNull()
+    await expect(getLobbyById(kv, lobby.id)).resolves.toBeNull()
   })
 
-  test('getLobbyByMatch resolves same-id sessions', async () => {
+  test('session lobby projection resolves same-id sessions', async () => {
     const { kv } = createTrackedKv()
 
     const lobby = await createLobby(kv, {
@@ -552,8 +553,9 @@ describe('lobby service KV write behavior', () => {
       messageId: 'message-1',
     })
     const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
+    const { db } = getExistingTestLobbyRuntime(kv)
 
-    await expect(getLobbyByMatch(kv, lobby.id)).resolves.toEqual(expect.objectContaining({
+    await expect(getSessionLobbyProjectionByMatch(db, lobby.id)).resolves.toEqual(expect.objectContaining({
       id: lobby.id,
       matchId: lobby.id,
     }))
