@@ -19,7 +19,7 @@ import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { findBlockingDraftMatchIdsForPlayers, joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
 import { buildActivityLaunchSnapshot, selectActivityTargetForUser } from '../../src/routes/activity.ts'
-import { getQueueStateWithLobbyBalanceSnapshot } from '../../src/routes/lobby/snapshot.ts'
+import { getLobbyBalanceSnapshot } from '../../src/routes/lobby/snapshot.ts'
 import { getLobbyForUser, getMatchForUser } from '../../src/services/activity/index.ts'
 import { resolveDraftTimerConfig } from '../../src/services/config/index.ts'
 import { markLeaderboardsDirty, refreshDirtyLeaderboards } from '../../src/services/leaderboard/message.ts'
@@ -43,7 +43,6 @@ import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
 import { activateDraftMatch, reportMatch } from '../../src/services/match/index.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
-import { addToQueue, getQueueState, getQueueStateWithPlayerQueueModes } from '../../src/services/queue/index.ts'
 import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
@@ -723,13 +722,9 @@ async function simulateMatchCreate(
   if (!draftChannelId) throw new Error('Expected draft channel to be configured')
 
   await getCurrentLobbyHostedBy(kv, HOST_ID)
-  const { queue } = await getQueueStateWithPlayerQueueModes(kv, mode.mode, [HOST_ID], { fallbackToQueueScan: false })
   await findBlockingDraftMatchIdsForPlayers(db, [HOST_ID])
 
   const hostEntry = buildQueueEntry(HOST_ID, 1)
-  const addResult = await addToQueue(kv, mode.mode, hostEntry, { currentState: queue })
-  if (addResult.error) throw new Error(addResult.error)
-  const nextQueue = addResult.state ?? queue
 
   const lobby = await createLobby(kv, {
     mode: mode.mode,
@@ -737,7 +732,7 @@ async function simulateMatchCreate(
     hostId: HOST_ID,
     channelId: draftChannelId,
     messageId: `message-lobby-open-${mode.id}`,
-    queueEntries: nextQueue.entries,
+    queueEntries: [hostEntry],
     db,
   })
 }
@@ -806,8 +801,8 @@ async function simulateOpenLobbyConfigEdit(kv: KVNamespace, mode: CapacityScenar
     banTimerSeconds: (lobby.draftConfig.banTimerSeconds ?? 30) + 1,
   }, lobby) ?? lobby
 
-  const { queue, balanceSnapshot } = await getQueueStateWithLobbyBalanceSnapshot(kv, mode.mode, updatedLobby.draftConfig.redDeath)
-  const queueEntries = filterQueueEntriesForLobby(updatedLobby, queue.entries)
+  const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode.mode, updatedLobby.draftConfig.redDeath)
+  const queueEntries = filterQueueEntriesForLobby(updatedLobby, [])
   const slots = normalizeLobbySlots(mode.mode, updatedLobby.slots, queueEntries)
   await syncLobbyDerivedState(kv, updatedLobby, { queueEntries, slots, balanceSnapshot })
 }
@@ -817,17 +812,15 @@ async function assertOpenCapacityState(
   mode: GameMode,
   expectedPlayerIds: string[],
 ): Promise<void> {
-  const queue = await getQueueState(kv, mode)
   const lobby = await getLobby(kv, mode)
 
   expect(lobby).not.toBeNull()
   if (!lobby) throw new Error(`Expected open ${mode} lobby during capacity simulation`)
 
   expect(lobby.status).toBe('open')
-  expect(queue.entries.map(entry => entry.playerId)).toEqual(expectedPlayerIds)
   expect(lobby.memberPlayerIds).toEqual(expectedPlayerIds)
   expect(new Set(lobby.memberPlayerIds).size).toBe(lobby.memberPlayerIds.length)
-  expect(normalizeLobbySlots(mode, lobby.slots, queue.entries)).toEqual(lobby.slots)
+  expect(normalizeLobbySlots(mode, lobby.slots, filterQueueEntriesForLobby(lobby, []))).toEqual(lobby.slots)
 
   for (const playerId of expectedPlayerIds) {
     expect(await getLobbyForUser(kv, playerId)).toBe(lobby.id)
@@ -848,7 +841,6 @@ async function assertDraftingCapacityState(
 
   expect(match?.status).toBe('drafting')
   expect(participants.map(participant => participant.playerId)).toEqual(expectedPlayerIds)
-  expect((await getQueueState(kv, mode)).entries).toEqual([])
   expect(lobby?.status).toBe('drafting')
 
   for (const playerId of expectedPlayerIds) {
@@ -912,8 +904,7 @@ async function startDraftFromOpenLobby(
   const lobby = await getLobby(kv, mode.mode)
   if (!lobby || lobby.status !== 'open') throw new Error(`Expected open ${mode.mode} lobby before start`)
 
-  const queue = await getQueueState(kv, mode.mode)
-  const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
+  const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, [])
   const slots = normalizeLobbySlots(mode.mode, lobby.slots, lobbyQueueEntries)
   const slottedEntries = mapLobbySlotsToEntries(slots, lobbyQueueEntries)
   const selectedEntries = slottedEntries.filter((entry): entry is Exclude<(typeof slottedEntries)[number], null> => entry !== null)

@@ -2,7 +2,6 @@ import type { QueueEntry } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
 import { createLobby, getLobbyById, pruneInactiveOpenLobbies, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots } from '../helpers/lobby-runtime.ts'
-import { getQueueState, setQueueEntries } from '../../src/services/queue/index.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
@@ -29,9 +28,10 @@ describe('inactive lobby cleanup', () => {
       messageId: 'message-1',
     })
 
-    await setQueueEntries(kv, '2v2', [entry('host', now - 120_000), entry('player', now - 119_999)])
-    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'player'], lobby)
-    const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'player', null, null], withMembers ?? lobby)
+    const rosterEntries = [entry('host', now - 120_000), entry('player', now - 119_999)]
+    const sessionOptions = { queueEntries: rosterEntries }
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'player'], lobby, sessionOptions)
+    const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'player', null, null], withMembers ?? lobby, sessionOptions)
     const staleLobby = await setLobbyLastActivityAt(kv, lobby.id, now - 61 * 60 * 1000, withSlots ?? withMembers ?? lobby)
     expect(staleLobby).not.toBeNull()
 
@@ -47,7 +47,6 @@ describe('inactive lobby cleanup', () => {
     expect(await getLobbyById(kv, staleLobby!.id)).toBeNull()
     expect(await getLobbyForUser(kv, 'host')).toBeNull()
     expect(await getLobbyForUser(kv, 'player')).toBeNull()
-    expect((await getQueueState(kv, '2v2')).entries).toEqual([])
 
     const editRequest = requests.find(request => request.init?.method === 'PATCH')
     expect(editRequest).toBeDefined()
@@ -77,14 +76,12 @@ describe('inactive lobby cleanup', () => {
       messageId: 'message-1',
     })
 
-    await setQueueEntries(kv, '2v2', [entry('host', now - 30_000)])
     await setLobbyLastActivityAt(kv, lobby.id, now - 30 * 60 * 1000, lobby)
 
     await expect(pruneInactiveOpenLobbies(kv, 'token', {
       now,
     })).resolves.toEqual([])
     expect(await getLobbyById(kv, lobby.id)).not.toBeNull()
-    expect((await getQueueState(kv, '2v2')).entries.map(entry => entry.playerId)).toEqual(['host'])
     expect(fetchCalls).toBe(0)
   })
 

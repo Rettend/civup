@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
 import { createLobby, getLobbyById, getTestLobbyRuntime, setLobbyMemberPlayerIds, setLobbySlots } from '../helpers/lobby-runtime.ts'
 import { leaveOpenLobbyForLobbyJoin } from '../../src/services/lobby/transfer.ts'
-import { addToQueue } from '../../src/services/queue/index.ts'
+import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 describe('lobby transfer', () => {

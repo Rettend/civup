@@ -11,10 +11,11 @@ import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayers, getLobbiesByMode, getOpenLobbyForPlayer, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyRoster } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
-import { getQueueState, getQueueStateWithPlayerQueueModes, MAX_QUEUE_ENTRIES, removeFromQueueAndUnlinkParty, setQueueEntries } from '../../services/queue/index.ts'
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds } from '../../services/ranked/roles.ts'
 import { formatSessionAdmissionError, isSessionAdmissionError } from '../../services/session/index.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
+import { getSessionRecord } from '../../session-runtime/session-do-client.ts'
+import { buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 
 const ALL_FFA_PLACEMENT_KEYS = ['second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'] as const
 const FFA_PLACEMENT_LABELS: Record<(typeof ALL_FFA_PLACEMENT_KEYS)[number], string> = {
@@ -180,117 +181,32 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   const kv = getKvStore(c.env)
-  const [{ queueModeByPlayerId, queue: initialQueue }, modeLobbies] = await Promise.all([
-    getQueueStateWithPlayerQueueModes(kv, mode, requestedEntries.map(entry => entry.playerId), { fallbackToQueueScan: false }),
-    getLobbiesByMode(kv, mode),
-  ])
-  let queue = initialQueue
+  const modeLobbies = await getLobbiesByMode(kv, mode)
   const openLobbies = modeLobbies.filter(lobby => lobby.status === 'open' && lobby.memberPlayerIds.length > 0)
-  const queueByPlayerId = new Map<string, QueueEntry>(queue.entries.map(entry => [entry.playerId, entry]))
-  const lobbyByPlayerId = new Map<string, LobbyState>()
-
-  for (const lobby of openLobbies) {
-    for (const playerId of lobby.memberPlayerIds) {
-      if (!lobbyByPlayerId.has(playerId)) lobbyByPlayerId.set(playerId, lobby)
-    }
-  }
-
-  const sameModeLobbyIds = [...new Set(requestedEntries
-    .map(entry => lobbyByPlayerId.get(entry.playerId)?.id ?? null)
-    .filter((lobbyId): lobbyId is string => lobbyId != null))]
-  if (sameModeLobbyIds.length > 1) return { error: 'Requested players are already split across different open lobbies.' }
-
-  let currentOpenLobby = sameModeLobbyIds.length === 1
-    ? openLobbies.find(lobby => lobby.id === sameModeLobbyIds[0]) ?? null
-    : null
-
-  const conflictingQueuePlayerIds = requestedEntries
-    .map((entry) => {
-      const existingMode = queueByPlayerId.has(entry.playerId) ? mode : (queueModeByPlayerId.get(entry.playerId) ?? null)
-      return existingMode && existingMode !== mode ? entry.playerId : null
-    })
-    .filter((playerId): playerId is string => playerId != null)
-
-  if (conflictingQueuePlayerIds.length > 0) {
-    const currentLobbiesByPlayerId = await getCurrentLobbiesForPlayers(kv, conflictingQueuePlayerIds)
-    const liveLobbyPlayerId = conflictingQueuePlayerIds.find((playerId) => {
-      const lobby = currentLobbiesByPlayerId.get(playerId)
-      return lobby != null && lobby.status !== 'open'
-    })
-    if (liveLobbyPlayerId) {
-      return { error: `<@${liveLobbyPlayerId}> is already in a live match.` }
-    }
-
-    const conflictingOpenLobbies = [...new Set(
-      conflictingQueuePlayerIds
-        .map(playerId => currentLobbiesByPlayerId.get(playerId)?.id ?? null)
-        .filter((lobbyId): lobbyId is string => lobbyId != null),
-    )]
-    if (conflictingOpenLobbies.length > 1) return { error: 'Requested players are already split across different open lobbies.' }
-
-    if (conflictingOpenLobbies.length === 1) {
-      const conflictingLobby = currentLobbiesByPlayerId.get(conflictingQueuePlayerIds[0]!) ?? null
-      if (conflictingLobby && currentOpenLobby && conflictingLobby.id !== currentOpenLobby.id) {
-        return { error: 'Requested players are already split across different open lobbies.' }
-      }
-      currentOpenLobby = conflictingLobby
-    }
-  }
+  const currentLobbiesByPlayerId = await getCurrentLobbiesForPlayers(kv, requestedEntries.map(entry => entry.playerId))
+  let currentOpenLobby: LobbyState | null = null
 
   for (const entry of requestedEntries) {
     if (options?.liveMatchPlayerIds?.has(entry.playerId)) {
       return { error: `<@${entry.playerId}> is already in a live match.` }
     }
 
-    const existingMode = queueByPlayerId.has(entry.playerId) ? mode : (queueModeByPlayerId.get(entry.playerId) ?? null)
-    if (!existingMode || existingMode === mode) continue
-    if (currentOpenLobby?.memberPlayerIds.includes(entry.playerId)) continue
-    return {
-      error: `<@${entry.playerId}> is already in a ${formatModeLabel(existingMode)} lobby.`,
-    }
+    const currentLobby = currentLobbiesByPlayerId.get(entry.playerId) ?? null
+    if (!currentLobby) continue
+    if (currentLobby.status !== 'open') return { error: `<@${entry.playerId}> is already in a live match.` }
+    if (currentOpenLobby && currentOpenLobby.id !== currentLobby.id) return { error: 'Requested players are already split across different open lobbies.' }
+    currentOpenLobby = currentLobby
   }
 
   const preferredLobbyId = options?.preferredLobbyId ?? (currentOpenLobby?.mode === mode ? currentOpenLobby.id : null)
 
-  const nextEntries = [...queue.entries]
   const now = Date.now()
-  let nextJoinedAt = now
-  let queueChanged = false
-
-  for (const entry of requestedEntries) {
-    const existingIndex = nextEntries.findIndex(candidate => candidate.playerId === entry.playerId)
-
-    if (existingIndex >= 0) {
-      const existing = nextEntries[existingIndex]
-      if (!existing) continue
-
-      const merged: QueueEntry = {
-        ...existing,
-        displayName: entry.displayName,
-        avatarUrl: entry.avatarUrl,
-        partyIds: undefined,
-      }
-
-      if (!sameQueueEntry(existing, merged)) {
-        nextEntries[existingIndex] = merged
-        queueChanged = true
-      }
-      continue
-    }
-
-    if (nextEntries.length >= MAX_QUEUE_ENTRIES) {
-      return { error: `The **${formatModeLabel(mode)}** queue is full right now.` }
-    }
-
-    nextEntries.push({
+  const requestedRosterEntries: QueueEntry[] = requestedEntries.map((entry, index) => ({
       playerId: entry.playerId,
       displayName: entry.displayName,
       avatarUrl: entry.avatarUrl,
-      joinedAt: nextJoinedAt,
-    })
-    nextJoinedAt += 1
-    queueChanged = true
-  }
+      joinedAt: now + index,
+    }))
 
   if (openLobbies.length === 0) {
     return { error: `No open ${formatModeLabel(mode)} lobby. Use \`/match create\` first.` }
@@ -305,10 +221,11 @@ export async function joinLobbyAndMaybeStartMatch(
   const candidateResults = await Promise.all(candidateLobbies
     .map(async (lobby) => {
       const candidateLobbyMemberPlayerIds = lobby.memberPlayerIds
+      const candidateRosterEntries = await getOpenLobbyRosterEntries(c.env.SessionDO, lobby)
       const candidateLobbyQueueEntries = filterQueueEntriesForLobby({
         ...lobby,
         memberPlayerIds: candidateLobbyMemberPlayerIds,
-      }, nextEntries)
+      }, candidateRosterEntries)
       const candidateCurrentSlots = normalizeLobbySlots(mode, lobby.slots, candidateLobbyQueueEntries)
       const candidateLobby = {
         ...lobby,
@@ -334,13 +251,14 @@ export async function joinLobbyAndMaybeStartMatch(
 
       return {
         lobby: candidateLobby,
+        queueEntries: candidateLobbyQueueEntries,
         slots: placement.slots,
         score: scoreLobbyCandidate(candidateLobby, candidateCurrentSlots, placement.slots, requestedEntries.length),
       }
     }))
 
   const scoredCandidates = candidateResults
-    .filter((candidate): candidate is { lobby: LobbyState, slots: (string | null)[], score: string } => candidate != null && 'lobby' in candidate)
+    .filter((candidate): candidate is { lobby: LobbyState, queueEntries: QueueEntry[], slots: (string | null)[], score: string } => candidate != null && 'lobby' in candidate)
     .sort((left, right) => left.score.localeCompare(right.score))
 
   const chosen = scoredCandidates[0]
@@ -351,6 +269,7 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   if (currentOpenLobby && currentOpenLobby.id !== chosen.lobby.id) {
+    const sourceRosterEntries = await getOpenLobbyRosterEntries(c.env.SessionDO, currentOpenLobby)
     const transferResult = await leaveOpenLobbyForLobbyJoin(
       kv,
       c.env.DISCORD_TOKEN,
@@ -360,6 +279,7 @@ export async function joinLobbyAndMaybeStartMatch(
       {
         db: c.env.DB ? createCivupDb(c.env.DB) : null,
         sessionNamespace: c.env.SessionDO,
+        queueEntries: sourceRosterEntries,
       },
     )
     if (!transferResult.ok) {
@@ -368,7 +288,7 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   let nextLobby = chosen.lobby
-  const nextLobbyQueueEntriesBeforePlacement = filterQueueEntriesForLobby(nextLobby, nextEntries)
+  const nextLobbyQueueEntriesBeforePlacement = filterQueueEntriesForLobby(nextLobby, chosen.queueEntries)
   nextLobby = {
     ...nextLobby,
     slots: normalizeLobbySlots(mode, nextLobby.slots, nextLobbyQueueEntriesBeforePlacement),
@@ -378,16 +298,6 @@ export async function joinLobbyAndMaybeStartMatch(
   const nextSlots = chosenPlacement.slots
   const nextMemberPlayerIds = [...new Set([...nextLobby.memberPlayerIds, ...requestedEntries.map(entry => entry.playerId)])]
   const addedNewPlayers = nextMemberPlayerIds.length !== nextLobby.memberPlayerIds.length
-
-  if (queueChanged) {
-    await setQueueEntries(kv, mode, nextEntries, {
-      currentState: queue,
-    })
-    queue = {
-      ...queue,
-      entries: nextEntries,
-    }
-  }
 
   if (nextMemberPlayerIds.length !== nextLobby.memberPlayerIds.length || !sameLobbySlots(nextSlots, nextLobby.slots) || addedNewPlayers) {
     nextLobby = {
@@ -407,7 +317,7 @@ export async function joinLobbyAndMaybeStartMatch(
       }, chosen.lobby, {
         db: c.env.DB ? createCivupDb(c.env.DB) : null,
         sessionNamespace: c.env.SessionDO,
-        queueEntries: queue.entries,
+        queueEntries: requestedRosterEntries,
       }) ?? nextLobby
     }
     catch (error) {
@@ -416,7 +326,7 @@ export async function joinLobbyAndMaybeStartMatch(
     }
   }
 
-  const finalQueueEntries = filterQueueEntriesForLobby(nextLobby, queue.entries)
+  const finalQueueEntries = await getOpenLobbyRosterEntries(c.env.SessionDO, nextLobby, [...chosen.queueEntries, ...requestedRosterEntries])
   const finalSlots = normalizeLobbySlots(mode, nextLobby.slots, finalQueueEntries)
   await syncLobbyDerivedState(kv, nextLobby, {
     queueEntries: finalQueueEntries,
@@ -431,6 +341,15 @@ export async function joinLobbyAndMaybeStartMatch(
     embeds: renderPayload.embeds,
     components: renderPayload.components,
   }
+}
+
+async function getOpenLobbyRosterEntries(
+  namespace: DurableObjectNamespace | null | undefined,
+  lobby: LobbyState,
+  fallbackEntries: QueueEntry[] = [],
+): Promise<QueueEntry[]> {
+  const record = await getSessionRecord(namespace, lobby.id).catch(() => null)
+  return record ? buildSessionRosterQueueEntries(record) : filterQueueEntriesForLobby(lobby, fallbackEntries)
 }
 
 const DRAFT_COMPLETED_AT_SQL = sql<number | null>`json_extract(${matches.draftData}, '$.completedAt')`
@@ -531,40 +450,19 @@ export async function resolveReportableMatchIdForPlayer(
   return { matchId: reportableMatchIds[0] ?? null, error: null }
 }
 
-/**
- * Resolve whether `/match create` is blocked by a real current lobby, or only by stale queue residue.
- */
-export async function preflightMatchCreateQueueState(
+export async function preflightMatchCreateSessionState(
   kv: KVNamespace,
-  mode: GameMode,
   playerId: string,
 ): Promise<
-  | { kind: 'continue', queue: Awaited<ReturnType<typeof getQueueState>> }
-  | { kind: 'reuse-hosted-open-lobby', queue: Awaited<ReturnType<typeof getQueueState>>, lobby: LobbyState }
-  | { kind: 'block-open-lobby', queue: Awaited<ReturnType<typeof getQueueState>>, lobby: LobbyState }
+  | { kind: 'continue' }
+  | { kind: 'reuse-hosted-open-lobby', lobby: LobbyState }
+  | { kind: 'block-open-lobby', lobby: LobbyState }
 > {
-  const { queue: initialQueue, queueModeByPlayerId } = await getQueueStateWithPlayerQueueModes(
-    kv,
-    mode,
-    [playerId],
-    { fallbackToQueueScan: false },
-  )
-  const existingQueueMode = queueModeByPlayerId.get(playerId) ?? null
-  if (!existingQueueMode) return { kind: 'continue', queue: initialQueue }
-
-  const currentOpenLobby = await getOpenLobbyForPlayer(kv, playerId, existingQueueMode)
-  if (currentOpenLobby) {
-    return {
-      kind: currentOpenLobby.hostId === playerId ? 'reuse-hosted-open-lobby' : 'block-open-lobby',
-      queue: initialQueue,
-      lobby: currentOpenLobby,
-    }
-  }
-
-  const removed = await removeFromQueueAndUnlinkParty(kv, playerId)
+  const currentOpenLobby = await getOpenLobbyForPlayer(kv, playerId)
+  if (!currentOpenLobby) return { kind: 'continue' }
   return {
-    kind: 'continue',
-    queue: removed.mode === mode ? await getQueueState(kv, mode) : initialQueue,
+    kind: currentOpenLobby.hostId === playerId ? 'reuse-hosted-open-lobby' : 'block-open-lobby',
+    lobby: currentOpenLobby,
   }
 }
 
@@ -623,13 +521,6 @@ export function collectFfaPlacementUserIds(vars: Record<string, any>): string[] 
     ordered.push(userId)
   }
   return ordered
-}
-
-function sameQueueEntry(left: QueueEntry, right: QueueEntry): boolean {
-  return left.playerId === right.playerId
-    && left.displayName === right.displayName
-    && (left.avatarUrl ?? null) === (right.avatarUrl ?? null)
-    && left.joinedAt === right.joinedAt
 }
 
 function placeRequestedEntries(

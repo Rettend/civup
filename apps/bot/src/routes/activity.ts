@@ -11,13 +11,12 @@ import { createSessionAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { buildActivityOverviewOptions, buildLobbySnapshotFromDirectoryEntry, buildLobbySnapshotFromSessionRecord, getActivitySessionById, getActivitySessionsByChannel, getOpenActivitySessionsForUser } from '../services/activity/session-state.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
-import { filterQueueEntriesForLobby, getCurrentLobbiesForPlayer, getLobbiesByChannel, getLobbyById, getOpenLobbyForPlayer, normalizeLobbySlots } from '../services/lobby/index.ts'
+import { getCurrentLobbiesForPlayer } from '../services/lobby/index.ts'
 import { clearStalePersistedLiveLobbies, filterPersistedLiveLobbies, findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIdsForPlayers } from '../services/match/live.ts'
-import { getPlayerQueueMode, getPlayerQueueModeFromStates, parseQueueState, queueKey } from '../services/queue/index.ts'
 import { getKvStore, kvMget } from '../services/kv/batch.ts'
 import { getSessionRecord } from '../session-runtime/session-do-client.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
-import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, getUniqueOpenLobbyForChannel } from './lobby/snapshot.ts'
+import { buildOpenLobbySnapshot } from './lobby/snapshot.ts'
 
 export interface LobbyJoinEligibility {
   canJoin: boolean
@@ -345,7 +344,6 @@ export async function resolveLobbyJoinEligibility(
   lobbySnapshot: Awaited<ReturnType<typeof buildOpenLobbySnapshot>>,
   options?: {
     db?: D1Database | null
-    existingQueueMode?: GameMode | null
   },
 ): Promise<LobbyJoinEligibility> {
   if (lobby.status !== 'open') {
@@ -404,17 +402,6 @@ export async function resolveLobbyJoinEligibility(
             ? 'You are already in another open lobby.'
             : `You're already in a ${formatModeLabel(blockingLobby.mode, blockingLobby.mode, { redDeath: blockingLobby.draftConfig.redDeath })} lobby.`
         : 'You are already in a live match.',
-      pendingSlot: null,
-    }
-  }
-
-  const existingQueueMode = options?.existingQueueMode !== undefined
-    ? options.existingQueueMode
-    : await getPlayerQueueMode(kv, userId, { fallbackToQueueScan: false })
-  if (existingQueueMode && existingQueueMode !== lobby.mode) {
-    return {
-      canJoin: false,
-      blockedReason: `You're already in a ${formatModeLabel(existingQueueMode)} lobby.`,
       pendingSlot: null,
     }
   }
@@ -491,15 +478,6 @@ async function resolveSessionJoinEligibility(
         : blockingLobby.mode === session.mode
           ? 'You are already in another open lobby.'
           : `You're already in a ${formatModeLabel(blockingLobby.mode, blockingLobby.mode, { redDeath: blockingLobby.config.redDeath })} lobby.`,
-      pendingSlot: null,
-    }
-  }
-
-  const existingQueueMode = await getPlayerQueueMode(kv, userId, { fallbackToQueueScan: false })
-  if (existingQueueMode && existingQueueMode !== session.mode) {
-    return {
-      canJoin: false,
-      blockedReason: `You're already in a ${formatModeLabel(existingQueueMode)} lobby.`,
       pendingSlot: null,
     }
   }

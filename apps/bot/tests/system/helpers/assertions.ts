@@ -3,7 +3,6 @@ import type { LobbyState } from '../../../src/services/lobby/index.ts'
 import type { SystemWorld } from './world.ts'
 import { matches } from '@civup/db'
 import { expect } from 'bun:test'
-import { getQueueState } from '../../../src/services/queue/index.ts'
 import { channelIndexKey, hostKey, modeIndexKey } from '../../../src/services/lobby/keys.ts'
 import { getLobbiesByMode } from '../../../src/services/lobby/store.ts'
 
@@ -14,7 +13,10 @@ export async function expectQueuePlayers(
   mode: GameMode,
   playerIds: string[],
 ): Promise<void> {
-  expect((await getQueueState(world.kv, mode)).entries.map(entry => entry.playerId)).toEqual(playerIds)
+  const openLobbyPlayerIds = (await getLobbiesByMode(world.kv, mode))
+    .filter(lobby => lobby.status === 'open')
+    .flatMap(lobby => lobby.memberPlayerIds)
+  expect(openLobbyPlayerIds).toEqual(playerIds)
 }
 
 export async function expectLobbyState(
@@ -120,7 +122,6 @@ export async function assertSystemWorldInvariants(
   const modes = options.modes ?? SUPPORTED_GAME_MODES
 
   for (const mode of modes) {
-    const queueState = await getQueueState(world.kv, mode)
     const lobbies = await getLobbiesByMode(world.kv, mode)
 
     for (const lobby of lobbies) {
@@ -142,7 +143,6 @@ export async function assertSystemWorldInvariants(
       }
 
       if (lobby.status !== 'open') continue
-      expect(lobby.memberPlayerIds).toEqual(queueState.entries.map(entry => entry.playerId))
 
       for (const playerId of lobby.memberPlayerIds) {
         expect(openLobbyByPlayerId.has(playerId)).toBe(false)
