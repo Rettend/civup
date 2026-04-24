@@ -1,18 +1,18 @@
 import type { MatchVar } from './match/shared'
+import type { GameMode, QueueEntry } from '@civup/game'
 import { createDb } from '@civup/db'
-import { formatModeLabel } from '@civup/game'
+import { formatModeLabel, slotToTeamIndex } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
 import { createChannelMessage } from '../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { rebuildLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../services/leaderboard/team-snapshot.ts'
-import { clearLobbyById, filterQueueEntriesForLobby, getLobbyById, getLobbyByMatch } from '../services/lobby/index.ts'
+import { clearLobbyById, filterQueueEntriesForLobby, getLobbyById, getLobbyByMatch, setLobbyStatus } from '../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { cancelMatchByModerator, getStoredGameModeContext, resolveMatchByModerator } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { canUseModCommands, parseRoleIds } from '../services/permissions/index.ts'
-import { clearQueue, getQueueState } from '../services/queue/index.ts'
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../services/ranked/role-sync.ts'
 import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
@@ -88,17 +88,16 @@ export const command_mod = factory.command<ModVar>(
 
           const directLobby = await getLobbyById(kv, matchId)
           if (directLobby && directLobby.status === 'open' && !directLobby.matchId) {
-            const queue = await getQueueState(kv, directLobby.mode)
-            const lobbyQueueEntries = filterQueueEntriesForLobby(directLobby, queue.entries)
-            if (lobbyQueueEntries.length > 0) {
-              await clearQueue(kv, directLobby.mode, lobbyQueueEntries.map(entry => entry.playerId), {
-                currentState: queue,
-              })
-            }
+            const lobbyQueueEntries = filterQueueEntriesForLobby(directLobby, [])
+            const cancelledLobby = await setLobbyStatus(kv, directLobby.id, 'cancelled', directLobby, {
+              db,
+              sessionNamespace: c.env.SessionDO,
+              queueEntries: lobbyQueueEntries,
+            }) ?? directLobby
 
             try {
-              await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, directLobby, {
-                embeds: [lobbyCancelledEmbed(directLobby.mode, [], 'cancel', { actorId, reason }, directLobby.draftConfig.leaderDataVersion, directLobby.draftConfig.redDeath)],
+              await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, cancelledLobby, {
+                embeds: [lobbyCancelledEmbed(directLobby.mode, buildCancelledLobbyParticipants(directLobby, lobbyQueueEntries), 'cancel', { actorId, reason }, directLobby.draftConfig.leaderDataVersion, directLobby.draftConfig.redDeath)],
                 components: [],
               })
             }
@@ -106,7 +105,7 @@ export const command_mod = factory.command<ModVar>(
               console.error(`Failed to update cancelled embed for lobby ${directLobby.id}:`, error)
             }
 
-            await clearLobbyById(kv, directLobby.id, directLobby)
+            await clearLobbyById(kv, directLobby.id, cancelledLobby)
             await sendTransientEphemeralResponse(c, `Cancelled open lobby **${directLobby.id}**.`, 'success')
             return
           }
@@ -359,3 +358,24 @@ export const command_mod = factory.command<ModVar>(
     }
   },
 )
+
+function buildCancelledLobbyParticipants(lobby: { mode: GameMode, slots: (string | null)[] }, entries: QueueEntry[]) {
+  const entryByPlayerId = new Map(entries.map(entry => [entry.playerId, entry]))
+  return lobby.slots
+    .map((playerId, slot) => {
+      if (!playerId) return null
+      const entry = entryByPlayerId.get(playerId)
+      return {
+        playerId,
+        team: slotToTeamIndex(lobby.mode, slot, lobby.slots.length),
+        civId: null,
+        placement: null,
+        ratingBeforeMu: null,
+        ratingBeforeSigma: null,
+        ratingAfterMu: null,
+        ratingAfterSigma: null,
+        displayName: entry?.displayName,
+      }
+    })
+    .filter((participant): participant is NonNullable<typeof participant> => participant != null)
+}

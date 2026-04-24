@@ -3,7 +3,6 @@ import type { LobbySessionProjectionOptions } from './mutations.ts'
 import type { LobbyState } from './types.ts'
 import { slotToTeamIndex } from '@civup/game'
 import { lobbyCancelledEmbed } from '../../embeds/match.ts'
-import { clearQueue, getQueueState } from '../queue/index.ts'
 import { syncLobbyDerivedState } from './live-snapshot.ts'
 import { upsertLobbyMessage } from './message.ts'
 import { setLobbyRoster, setLobbyStatus } from './mutations.ts'
@@ -38,11 +37,8 @@ export async function leaveOpenLobbyForLobbyJoin(
     }
   }
 
-  const sourceQueue = await getQueueState(kv, currentLobby.mode)
-  const sourceLobbyQueueEntries = filterQueueEntriesForLobby(currentLobby, sourceQueue.entries)
-  const nextQueue = currentLobby.mode !== targetMode
-    ? await clearQueue(kv, currentLobby.mode, uniqueMovingPlayerIds, { currentState: sourceQueue })
-    : sourceQueue
+  void targetMode
+  const sourceLobbyQueueEntries = filterQueueEntriesForLobby(currentLobby, options?.queueEntries ? [...options.queueEntries] : [])
 
   if (remainingMemberIds.length === 0) {
     const cancelledLobby = await setLobbyStatus(kv, currentLobby.id, 'cancelled', currentLobby, {
@@ -83,7 +79,7 @@ export async function leaveOpenLobbyForLobbyJoin(
   let nextSlots = normalizeLobbySlots(
     currentLobby.mode,
     currentLobby.slots.map(playerId => playerId != null && movingPlayerIdSet.has(playerId) ? null : playerId),
-    filterQueueEntriesForLobby(previewLobby, nextQueue.entries),
+    filterQueueEntriesForLobby(previewLobby, sourceLobbyQueueEntries),
   )
   if (sameLobbySlots(nextSlots, currentLobby.slots) && remainingMemberIds.length === currentLobby.memberPlayerIds.length) nextSlots = currentLobby.slots
 
@@ -92,7 +88,7 @@ export async function leaveOpenLobbyForLobbyJoin(
     memberPlayerIds: remainingMemberIds,
     slots: nextSlots,
   }
-  const nextLobbyQueueEntries = filterQueueEntriesForLobby(nextPreviewLobby, nextQueue.entries)
+  const nextLobbyQueueEntries = filterQueueEntriesForLobby(nextPreviewLobby, sourceLobbyQueueEntries)
   const updatedLobby = await setLobbyRoster(kv, currentLobby.id, {
     memberPlayerIds: remainingMemberIds,
     slots: nextSlots,

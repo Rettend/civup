@@ -5,7 +5,6 @@ import type { SessionRecord } from '../../session-runtime/session-record.ts'
 import { nanoid } from 'nanoid'
 import { createSessionAggregateFromLobby, runSessionOpenLobbyCommand, runSessionProjectionCommand, type SessionOpenLobbyCommand } from '../../session-runtime/session-do-client.ts'
 import { buildLobbyStateFromSessionRecord } from '../../session-runtime/session-record.ts'
-import { getQueueState } from '../queue/index.ts'
 import { closeLobbySessionProjection } from '../session/directory.ts'
 import { kvMdelete } from '../kv/batch.ts'
 import { channelIndexKey, modeIndexKey } from './keys.ts'
@@ -73,7 +72,7 @@ export async function createLobby(
     updatedAt: now,
     revision: 1,
   }
-  const queueEntries = input.queueEntries ?? (await getQueueState(kv, lobby.mode)).entries
+  const queueEntries = input.queueEntries ?? []
   let visible = false
   let visibleLobby = lobby
   try {

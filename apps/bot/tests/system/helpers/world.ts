@@ -8,7 +8,6 @@ import { allLeaderIds, createDraft, draftFormatMap, getCurrentStep, getPendingSe
 import { CIVUP_INTERNAL_SECRET_HEADER } from '@civup/utils'
 import { and, eq } from 'drizzle-orm'
 import { buildDraftRuntimeConfig, getLobbyForUser, getMatchForUser } from '../../../src/services/activity/index.ts'
-import { addToQueue, getQueueState, setQueueEntries } from '../../../src/services/queue/index.ts'
 import { createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobby, getLobbyById, getLobbyByMatch, setLobbyMemberPlayerIds, setLobbySlots } from '../../helpers/lobby-runtime.ts'
 import { syncLobbyDerivedState } from '../../../src/services/lobby/live-snapshot.ts'
 import { channelIndexKey, hostKey } from '../../../src/services/lobby/keys.ts'
@@ -97,16 +96,16 @@ export interface SystemWorld {
   env: Env['Bindings']
   kv: KVNamespace
   lobby: {
-    createOpen: (input: { mode: Parameters<typeof getQueueState>[1], players: WorldPlayerInput[], hostId?: string, channelId?: string, guildId?: string | null, memberPlayerIds?: string[], slots?: (string | null)[] }) => Promise<LobbyState>
+    createOpen: (input: { mode: GameMode, players: WorldPlayerInput[], hostId?: string, channelId?: string, guildId?: string | null, memberPlayerIds?: string[], slots?: (string | null)[] }) => Promise<LobbyState>
     get: (mode: Parameters<typeof getLobby>[1]) => Promise<LobbyState | null>
     getById: (lobbyId: string) => Promise<LobbyState | null>
-    config: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, banTimerSeconds?: number | null, pickTimerSeconds?: number | null, leaderPoolSize?: number | null, leaderDataVersion?: 'live' | 'beta' | null, mapVoteEnabled?: boolean, blindBans?: boolean, simultaneousPick?: boolean, redDeath?: boolean, dealOptionsSize?: number | null, randomDraft?: boolean, duplicateFactions?: boolean, minRole?: CompetitiveTier | null, maxRole?: CompetitiveTier | null, steamLobbyLink?: string | null, targetSize?: number | null }) => Promise<RouteResult>
-    changeMode: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, nextMode: GameMode }) => Promise<RouteResult>
-    arrange: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, strategy: 'randomize' | 'balance' | 'shuffle-teams' }) => Promise<RouteResult>
-    cancel: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string }) => Promise<RouteResult>
-    start: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string }) => Promise<{ ok: boolean, matchId: string, sessionAccessToken: string | null, idempotent?: boolean }>
-    place: (mode: Parameters<typeof getQueueState>[1], input: { userId: string, targetSlot: number, lobbyId?: string, playerId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, transferNotice?: string | null, error?: string }>>
-    remove: (mode: Parameters<typeof getQueueState>[1], input: { userId: string, slot: number, lobbyId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, error?: string }>>
+    config: (mode: GameMode, input: { hostId: string, lobbyId?: string, banTimerSeconds?: number | null, pickTimerSeconds?: number | null, leaderPoolSize?: number | null, leaderDataVersion?: 'live' | 'beta' | null, mapVoteEnabled?: boolean, blindBans?: boolean, simultaneousPick?: boolean, redDeath?: boolean, dealOptionsSize?: number | null, randomDraft?: boolean, duplicateFactions?: boolean, minRole?: CompetitiveTier | null, maxRole?: CompetitiveTier | null, steamLobbyLink?: string | null, targetSize?: number | null }) => Promise<RouteResult>
+    changeMode: (mode: GameMode, input: { hostId: string, lobbyId?: string, nextMode: GameMode }) => Promise<RouteResult>
+    arrange: (mode: GameMode, input: { hostId: string, lobbyId?: string, strategy: 'randomize' | 'balance' | 'shuffle-teams' }) => Promise<RouteResult>
+    cancel: (mode: GameMode, input: { hostId: string, lobbyId?: string }) => Promise<RouteResult>
+    start: (mode: GameMode, input: { hostId: string, lobbyId?: string }) => Promise<{ ok: boolean, matchId: string, sessionAccessToken: string | null, idempotent?: boolean }>
+    place: (mode: GameMode, input: { userId: string, targetSlot: number, lobbyId?: string, playerId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, transferNotice?: string | null, error?: string }>>
+    remove: (mode: GameMode, input: { userId: string, slot: number, lobbyId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, error?: string }>>
   }
   party: {
     rooms: () => PartyRoomRecord[]
@@ -151,7 +150,6 @@ export interface SystemWorld {
     lobbyHost: (hostId: string, lobbyId: string | null) => Promise<void>
     lobbyChannel: (lobbyId: string, indexedChannelId: string | null) => Promise<void>
     openLobbyResidue: (lobbyId: string, input: { memberPlayerIds: string[], slots: (string | null)[] }) => Promise<LobbyState | null>
-    queueEntries: (mode: Parameters<typeof getQueueState>[1], entries: QueueEntry[]) => Promise<void>
   }
   inspect: {
     lobbyMapping: (userId: string) => Promise<string | null>
@@ -281,10 +279,6 @@ export async function createSystemWorld(): Promise<SystemWorld> {
           joinedAt: player.joinedAt ?? index + 1,
           partyIds: player.partyIds,
         }))
-
-        for (const entry of entries) {
-          await addToQueue(kv, mode, entry)
-        }
 
         const lobby = await createLobby(kv, {
           mode,
@@ -646,9 +640,6 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         if (!lobby) return null
         const withMembers = await setLobbyMemberPlayerIds(kv, lobbyId, input.memberPlayerIds, lobby)
         return setLobbySlots(kv, lobbyId, input.slots, withMembers ?? lobby)
-      },
-      queueEntries(mode, entries) {
-        return setQueueEntries(kv, mode, entries)
       },
     },
     inspect: {

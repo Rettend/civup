@@ -3,7 +3,6 @@ import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import type { LobbyState } from './types.ts'
 import { buildOpenSessionRecordFromLobby } from '../../session-runtime/session-record.ts'
 import { attachLobbyBalanceRatingsToSnapshot, buildLobbySnapshotFromSessionRecord, type LobbySnapshot } from '../activity/session-state.ts'
-import { getQueueState } from '../queue/index.ts'
 import { filterQueueEntriesForLobby, normalizeLobbySlots } from './slots.ts'
 
 export type { LobbySnapshot }
@@ -48,11 +47,7 @@ export async function syncLobbyDerivedState(
 ): Promise<LobbySnapshot | null> {
   if (lobby.status !== 'open') return null
 
-  let queueEntries = options?.queueEntries
-  if (!queueEntries) {
-    const queue = await getQueueState(kv, lobby.mode)
-    queueEntries = filterLobbySnapshotQueueEntries(lobby, queue.entries)
-  }
+  const queueEntries = options?.queueEntries ?? filterLobbySnapshotQueueEntries(lobby, [])
 
   const slots = options?.slots ?? normalizeLobbySlots(lobby.mode, lobby.slots, queueEntries)
   const snapshot = await buildLobbyLiveSnapshotFromParts(kv, lobby.mode, lobby, queueEntries, slots)

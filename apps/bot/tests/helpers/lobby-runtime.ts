@@ -4,6 +4,7 @@ import { canStartWithPlayerCount } from '@civup/game'
 import { startSessionDraft, runSessionDraftLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
 import * as source from '../../src/services/lobby/index.ts'
 import { createSqliteD1Database } from './d1.ts'
+import { getSeededRosterEntries } from './session-roster.ts'
 import { createTestSessionNamespace } from './session-runtime.ts'
 import { createTestDatabase } from './test-env.ts'
 
@@ -58,8 +59,10 @@ export async function createLobby(
   input: Parameters<typeof source.createLobby>[1],
 ): Promise<LobbyState> {
   const runtime = await getTestLobbyRuntime(kv, input.db)
+  const seededEntries = input.queueEntries ?? getSeededRosterEntries(kv, input.mode)
   return await source.createLobby(kv, {
     ...input,
+    queueEntries: seededEntries,
     db: input.db ?? runtime.db,
     sessionNamespace: input.sessionNamespace ?? runtime.sessionNamespace,
   })
@@ -145,7 +148,7 @@ export async function setLobbySlots(
   currentLobby?: Parameters<typeof source.setLobbySlots>[3],
   options?: Parameters<typeof source.setLobbySlots>[4],
 ): ReturnType<typeof source.setLobbySlots> {
-  return await source.setLobbySlots(kv, lobbyId, slots, currentLobby, await withRuntimeOptions(kv, options))
+  return await source.setLobbySlots(kv, lobbyId, slots, currentLobby, await withRuntimeOptionsForLobby(kv, currentLobby, options))
 }
 
 export async function setLobbyArranged(
@@ -165,7 +168,7 @@ export async function setLobbyMemberPlayerIds(
   currentLobby?: Parameters<typeof source.setLobbyMemberPlayerIds>[3],
   options?: Parameters<typeof source.setLobbyMemberPlayerIds>[4],
 ): ReturnType<typeof source.setLobbyMemberPlayerIds> {
-  return await source.setLobbyMemberPlayerIds(kv, lobbyId, memberPlayerIds, currentLobby, await withRuntimeOptions(kv, options))
+  return await source.setLobbyMemberPlayerIds(kv, lobbyId, memberPlayerIds, currentLobby, await withRuntimeOptionsForLobby(kv, currentLobby, options))
 }
 
 export async function setLobbyLastActivityAt(
@@ -205,7 +208,7 @@ export async function startTestSessionDraft(
   const lobby = currentLobby?.id === lobbyId ? currentLobby : await source.getLobbyById(kv, lobbyId)
   if (!lobby) return null
 
-  const runtimeOptions = await withRuntimeOptions(kv, options)
+  const runtimeOptions = await withRuntimeOptionsForLobby(kv, lobby, options)
   const slotReadyLobby = await ensureStartableLobby(kv, lobby, runtimeOptions)
   await startSessionDraft(runtimeOptions.sessionNamespace, lobbyId, {
     expectedVersion: slotReadyLobby.revision,
@@ -285,6 +288,19 @@ async function withRuntimeOptions<T extends LobbyProjectionOptions | undefined>(
     db: options?.db ?? runtime.db,
     sessionNamespace: options?.sessionNamespace ?? runtime.sessionNamespace,
   } as NonNullable<T> & { db: CivupDatabase, sessionNamespace: DurableObjectNamespace }
+}
+
+async function withRuntimeOptionsForLobby<T extends LobbyProjectionOptions | undefined>(
+  kv: KVNamespace,
+  lobby: LobbyState | null | undefined,
+  options: T,
+): Promise<NonNullable<T> & { db: CivupDatabase, sessionNamespace: DurableObjectNamespace }> {
+  const runtimeOptions = await withRuntimeOptions(kv, options)
+  if (!lobby || runtimeOptions.queueEntries) return runtimeOptions
+  const seededEntries = getSeededRosterEntries(kv, lobby.mode)
+  return seededEntries.length > 0
+    ? { ...runtimeOptions, queueEntries: seededEntries }
+    : runtimeOptions
 }
 
 async function createTestLobbyRuntime(kv: KVNamespace, dbOverride?: CivupDatabase | null): Promise<TestLobbyRuntime> {

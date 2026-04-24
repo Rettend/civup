@@ -6,7 +6,7 @@ import { clearLobbyById, clearLobbyByMatch, createLobby, getCurrentLobbiesForPla
 import { channelIndexKey, hostKey, idKey, LOBBY_TTL, modeIndexKey } from '../../src/services/lobby/keys.ts'
 import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../../src/services/match/retention.ts'
-import { addToQueue } from '../../src/services/queue/index.ts'
+import { getSeededRosterEntries, seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 test('normalizes unsupported map vote config off for ffa lobbies', async () => {
@@ -319,7 +319,7 @@ describe('lobby service KV write behavior', () => {
       messageId: 'message-1',
     })
 
-    const snapshot = await syncLobbyDerivedState(kv, lobby)
+    const snapshot = await syncLobbyDerivedState(kv, lobby, { queueEntries: getSeededRosterEntries(kv, '2v2') })
 
     expect(snapshot?.minPlayers).toBe(6)
     expect(snapshot?.targetSize).toBe(8)
@@ -349,7 +349,7 @@ describe('lobby service KV write behavior', () => {
       messageId: 'message-1',
     })
 
-    const snapshot = await syncLobbyDerivedState(kv, lobby)
+    const snapshot = await syncLobbyDerivedState(kv, lobby, { queueEntries: getSeededRosterEntries(kv, '2v2') })
 
     expect(snapshot?.entries?.[0]).toEqual({
       playerId: 'host-1',

@@ -1,9 +1,9 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { findBlockingDraftMatchIdsForPlayers, findReportableMatchIdsForPlayers, joinLobbyAndMaybeStartMatch, preflightMatchCreateQueueState, resolveReportableMatchIdForPlayer } from '../../src/commands/match/shared.ts'
+import { findBlockingDraftMatchIdsForPlayers, findReportableMatchIdsForPlayers, joinLobbyAndMaybeStartMatch, preflightMatchCreateSessionState, resolveReportableMatchIdForPlayer } from '../../src/commands/match/shared.ts'
 import { buildTestLobbyEnv, createLobby, getLobbyById, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../helpers/lobby-runtime.ts'
 import { hostKey } from '../../src/services/lobby/keys.ts'
-import { addToQueue } from '../../src/services/queue/index.ts'
+import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -424,32 +424,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
   })
 })
 
-describe('preflightMatchCreateQueueState', () => {
-  test('heals a queue-only orphan and allows create to continue', async () => {
-    const { kv } = createTrackedKv()
-
-    await addToQueue(kv, '2v2', {
-      playerId: 'host',
-      displayName: 'Host',
-      avatarUrl: null,
-      joinedAt: 1,
-      partyIds: ['ally'],
-    })
-    await addToQueue(kv, '2v2', {
-      playerId: 'ally',
-      displayName: 'Ally',
-      avatarUrl: null,
-      joinedAt: 2,
-      partyIds: ['host'],
-    })
-
-    const result = await preflightMatchCreateQueueState(kv, '2v2', 'host')
-
-    expect(result.kind).toBe('continue')
-    expect(result.queue.entries.map(entry => entry.playerId)).toEqual(['ally'])
-    expect(result.queue.entries[0]?.partyIds).toBeUndefined()
-  })
-
+describe('preflightMatchCreateSessionState', () => {
   test('keeps blocking real membership in another open lobby', async () => {
     const { kv } = createTrackedKv()
 
@@ -473,14 +448,14 @@ describe('preflightMatchCreateQueueState', () => {
     })
     await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'player-1'], lobby)
 
-    const result = await preflightMatchCreateQueueState(kv, 'ffa', 'player-1')
+    const result = await preflightMatchCreateSessionState(kv, 'player-1')
 
     expect(result.kind).toBe('block-open-lobby')
     if (result.kind !== 'block-open-lobby') return
     expect(result.lobby.id).toBe(lobby.id)
   })
 
-  test('reuses a real hosted open lobby instead of treating it as a generic queue blocker', async () => {
+  test('reuses a real hosted open lobby instead of treating it as a generic membership blocker', async () => {
     const { kv } = createTrackedKv()
 
     await addToQueue(kv, 'ffa', {
@@ -497,28 +472,13 @@ describe('preflightMatchCreateQueueState', () => {
     })
     await kv.delete(hostKey('host'))
 
-    const result = await preflightMatchCreateQueueState(kv, 'ffa', 'host')
+    const result = await preflightMatchCreateSessionState(kv, 'host')
 
     expect(result.kind).toBe('reuse-hosted-open-lobby')
     if (result.kind !== 'reuse-hosted-open-lobby') return
     expect(result.lobby.id).toBe(lobby.id)
   })
 
-  test('heals a cross-mode queue-only orphan and keeps the requested queue empty', async () => {
-    const { kv } = createTrackedKv()
-
-    await addToQueue(kv, '2v2', {
-      playerId: 'host',
-      displayName: 'Host',
-      avatarUrl: null,
-      joinedAt: 1,
-    })
-
-    const result = await preflightMatchCreateQueueState(kv, 'ffa', 'host')
-
-    expect(result.kind).toBe('continue')
-    expect(result.queue.entries).toEqual([])
-  })
 })
 
 describe('match blocker/reportable discovery', () => {

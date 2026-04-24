@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
 import { createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyLastActivityAt } from '../helpers/lobby-runtime.ts'
-import { addToQueue } from '../../src/services/queue/index.ts'
+import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch

@@ -4,7 +4,7 @@ import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
 import { registerLobbyRoutes } from '../../src/routes/lobby/index.ts'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
 import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
-import { addToQueue, getPlayerQueueMode } from '../../src/services/queue/index.ts'
+import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
@@ -199,7 +199,6 @@ describe('lobby routes', () => {
 
     expect(joinResponse.status).toBe(400)
     await expect(joinResponse.json()).resolves.toEqual({ error: 'That player is already in a live match.' })
-    expect(await getPlayerQueueMode(kv, 'player-1')).toBeNull()
     expect((await getLobbyById(kv, openLobby.id))?.memberPlayerIds).toEqual(['host'])
   })
 
@@ -1018,7 +1017,7 @@ describe('lobby routes', () => {
     expect(await response.json()).toEqual({ error: 'Only the Steam lobby link can be updated after the draft starts.' })
   })
 
-  test('removing yourself from a slot clears queue state so you can rejoin', async () => {
+  test('removing yourself from a slot clears lobby membership so you can rejoin', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
@@ -1059,7 +1058,6 @@ describe('lobby routes', () => {
     }, buildEnv(kv))
     expect(removeResponse.status).toBe(200)
 
-    expect(await getPlayerQueueMode(kv, 'pleb')).toBeNull()
     expect(await getLobbyForUser(kv, 'pleb')).toBeNull()
 
     const rejoinResponse = await app.request('/api/lobby/1v1/place', {
