@@ -14,7 +14,6 @@ import { mapLobbySlotsToEntries } from '../services/lobby/slots.ts'
 import { clearLobbyById, getLobbyByMatch, putLobby } from '../services/lobby/store.ts'
 import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../services/match/index.ts'
 import { clearMatchMessageMapping, storeMatchMessageMapping } from '../services/match/message.ts'
-import { clearQueue, getQueueState, setQueueEntries } from '../services/queue/index.ts'
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
 import { publishActivitySessionUpdate } from './activity-feed-client.ts'
 import { SessionDraftRuntime, type DraftRuntimeEnv } from './draft-room.ts'
@@ -450,7 +449,6 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       await this.initializeDraftRuntime(runtime.config, { existing: await this.getRoomRecord() })
       room = { matchId: runtime.matchId, seats: runtime.seats }
       await createDraftMatch(createDb(this.env.DB), { matchId: room.matchId, mode: record.mode, seats: room.seats })
-      await clearQueue(this.env.KV, record.mode, record.roster.participants.map(member => member.playerId))
     }
     catch (error) {
       console.error('[session-do] failed to start draft', error)
@@ -753,14 +751,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     const lifecycleLobby = buildLobbyStateFromSessionRecord(record, lobby)
     if (payload.reason === 'timeout' || payload.reason === 'revert') {
-      const queue = await getQueueState(this.env.KV, lifecycleLobby.mode)
       const queueEntries = buildSessionRosterQueueEntries(record)
-      const affectedPlayerIds = new Set(lobby.memberPlayerIds)
-      await setQueueEntries(this.env.KV, lifecycleLobby.mode, [
-        ...queue.entries.filter(entry => !affectedPlayerIds.has(entry.playerId)),
-        ...queueEntries,
-      ], { currentState: queue })
-
       if (!this.env.DISCORD_TOKEN) return
       try {
         const slottedEntries = mapLobbySlotsToEntries(lifecycleLobby.slots, queueEntries)

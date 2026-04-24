@@ -6,7 +6,6 @@ export { canApplyQueuedLobbyMessageUpdate, getCurrentLobbyForQueuedMessageUpdate
 export { canTransitionLobbyStatus, commitLobbyState, createLobby, setLobbyArranged, setLobbyDraftConfig, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMessage, setLobbyMinRole, setLobbyModeAndLayout, setLobbyRoster, setLobbySlots, setLobbyStatus, setLobbySteamLobbyLink } from './mutations.ts'
 export { parseLobbyState } from './normalize.ts'
 export { compactSlottedPremadesForMode } from './premades.ts'
-export { getLobbyAndQueueState } from './queue.ts'
 export { getLobbyDraftRoster, getTimedOutDraftPlayerIds, reopenLobbyAfterCancelledDraft, reopenLobbyAfterTimedOutDraft, storeLobbyDraftRoster } from './recovery.ts'
 export { buildOpenLobbyRenderPayload } from './render.ts'
 export { filterQueueEntriesForLobby, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots } from './slots.ts'
