@@ -11,13 +11,13 @@ import { normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberP
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
 import { mapLobbySlotsToEntries } from '../services/lobby/slots.ts'
-import { clearLobbyById, getLobbyByMatch, putLobby } from '../services/lobby/store.ts'
+import { clearLobbyById, putLobby } from '../services/lobby/store.ts'
 import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../services/match/index.ts'
 import { clearMatchMessageMapping, storeMatchMessageMapping } from '../services/match/message.ts'
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
 import { publishActivitySessionUpdate } from './activity-feed-client.ts'
 import { SessionDraftRuntime, type DraftRuntimeEnv } from './draft-room.ts'
-import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildLobbyStateFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from './session-record.ts'
+import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from './session-record.ts'
 import { canOpenSwapWindowForState } from './swap-window.ts'
 
 interface SessionDOEnv extends DraftRuntimeEnv {
@@ -677,7 +677,6 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const hostId = payload.hostId ?? payload.state.seats[0]?.playerId
     if (!hostId) return { ok: false, status: 400, error: 'Draft lifecycle payload missing host identity' }
 
-    const fallbackLobby = await getLobbyByMatch(this.env.KV, payload.matchId)
     const cancelled = await cancelDraftMatch(db, this.env.KV, {
       state: payload.state,
       cancelledAt: payload.cancelledAt,
@@ -702,7 +701,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (!committed.ok) return committed
 
     if (transition.ignored) return { ok: true, ignored: true }
-    await this.updateCancelledDraftProjection(db, payload, cancelled, transition.record, fallbackLobby, context)
+    await this.updateCancelledDraftProjection(db, payload, cancelled, transition.record, context)
     return { ok: true }
   }
 
@@ -714,17 +713,12 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     context: Record<string, unknown>,
   ): Promise<void> {
     if (!this.env.KV) return
-    const lobby = await getLobbyByMatch(this.env.KV, payload.matchId)
-    if (!lobby) {
-      console.warn('[session-do] no lobby mapping for completion', context)
-      return
-    }
     if (!this.env.DISCORD_TOKEN) return
 
-    const activeLobby = buildLobbyStateFromSessionRecord(record, lobby)
+    const activeLobby = buildLobbyProjectionFromSessionRecord(record)
     try {
       const updatedLobby = await upsertLobbyMessage(this.env.KV, this.env.DISCORD_TOKEN, activeLobby, {
-        embeds: [lobbyDraftCompleteEmbed(lobby.mode, result.participants, payload.mapVoteResult ?? null, activeLobby.draftConfig.leaderDataVersion, activeLobby.draftConfig.redDeath)],
+        embeds: [lobbyDraftCompleteEmbed(activeLobby.mode, result.participants, payload.mapVoteResult ?? null, activeLobby.draftConfig.leaderDataVersion, activeLobby.draftConfig.redDeath)],
         components: lobbyComponents(activeLobby.mode, activeLobby.id),
       })
       await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
@@ -739,17 +733,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     payload: Extract<DraftLifecyclePayload, { outcome: 'cancelled' }>,
     cancelled: Awaited<ReturnType<typeof cancelDraftMatch>> & { error?: never },
     record: SessionRecord,
-    fallbackLobby: LobbyState | null,
     context: Record<string, unknown>,
   ): Promise<void> {
     if (!this.env.KV) return
-    const lobby = await getLobbyByMatch(this.env.KV, payload.matchId) ?? fallbackLobby
-    if (!lobby) {
-      console.warn('[session-do] no lobby mapping for cancellation', context)
-      return
-    }
-
-    const lifecycleLobby = buildLobbyStateFromSessionRecord(record, lobby)
+    const lifecycleLobby = buildLobbyProjectionFromSessionRecord(record)
     if (payload.reason === 'timeout' || payload.reason === 'revert') {
       const queueEntries = buildSessionRosterQueueEntries(record)
       if (!this.env.DISCORD_TOKEN) return
@@ -768,7 +755,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (this.env.DISCORD_TOKEN) {
       try {
         const updatedLobby = await upsertLobbyMessage(this.env.KV, this.env.DISCORD_TOKEN, lifecycleLobby, {
-          embeds: [lobbyCancelledEmbed(lobby.mode, cancelled.participants, payload.reason, undefined, lifecycleLobby.draftConfig.leaderDataVersion, lifecycleLobby.draftConfig.redDeath)],
+          embeds: [lobbyCancelledEmbed(lifecycleLobby.mode, cancelled.participants, payload.reason, undefined, lifecycleLobby.draftConfig.leaderDataVersion, lifecycleLobby.draftConfig.redDeath)],
           components: [],
         })
         await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
@@ -778,7 +765,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       }
     }
 
-    await clearLobbyById(this.env.KV, lobby.id, lobby)
+    await clearLobbyById(this.env.KV, lifecycleLobby.id, lifecycleLobby)
   }
 
   private async markLifecycleSyncPending(record: SessionRecord, payload: DraftLifecyclePayload): Promise<SessionRecord> {

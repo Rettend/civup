@@ -9,11 +9,12 @@ import { allLeaderIds, createDraft, draftFormatMap, getCurrentStep, getPendingSe
 import { CIVUP_INTERNAL_SECRET_HEADER } from '@civup/utils'
 import { and, eq } from 'drizzle-orm'
 import { buildDraftRuntimeConfig, getLobbyForUser, getMatchForUser } from '../../../src/services/activity/index.ts'
-import { createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobby, getLobbyById, getLobbyByMatch, setLobbyMemberPlayerIds, setLobbySlots } from '../../helpers/lobby-runtime.ts'
+import { createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobby, getLobbyById, setLobbyMemberPlayerIds, setLobbySlots } from '../../helpers/lobby-runtime.ts'
 import { syncLobbyDerivedState } from '../../../src/services/lobby/live-snapshot.ts'
 import { channelIndexKey, hostKey } from '../../../src/services/lobby/keys.ts'
 import { listMatchMessageIds } from '../../../src/services/match/message.ts'
 import { handleDraftLifecyclePayload } from '../../../src/services/match/draft-lifecycle.ts'
+import { getSessionLobbyProjectionByMatch } from '../../../src/services/session/index.ts'
 import { setSystemChannel } from '../../../src/services/system/channels.ts'
 import { buildBotTestEnv, createBotTestApp, createExecutionContextHarness } from '../../helpers/app-harness.ts'
 import { createSqliteD1Database } from '../../helpers/d1.ts'
@@ -656,8 +657,9 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       lobbiesForPlayer(userId) {
         return getCurrentLobbiesForPlayer(kv, userId)
       },
-      lobbyByMatch(matchId) {
-        return getLobbyByMatch(kv, matchId)
+      async lobbyByMatch(matchId) {
+        const lobby = await getSessionLobbyProjectionByMatch(db, matchId)
+        return isLiveLobbyProjection(lobby) ? lobby : null
       },
     },
     runtime: {
@@ -671,6 +673,10 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       sqlite.close()
     },
   }
+}
+
+function isLiveLobbyProjection(lobby: LobbyState | null): lobby is LobbyState {
+  return lobby != null && (lobby.status === 'open' || lobby.status === 'drafting' || lobby.status === 'active')
 }
 
 async function putOrDeleteKv(kv: KVNamespace, key: string, value: unknown | null): Promise<void> {
