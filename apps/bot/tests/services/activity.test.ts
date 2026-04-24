@@ -6,7 +6,7 @@ import {
   getLobbyForUser,
   getMatchForUser,
 } from '../../src/services/activity/index.ts'
-import { createLobby, setLobbyMemberPlayerIds, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
+import { createLobby, getExistingTestLobbyRuntime, setLobbyMemberPlayerIds, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const baseFfaEntries: QueueEntry[] = Array.from({ length: 4 }, (_, index) => ({
@@ -27,7 +27,8 @@ describe('activity canonical lookup behavior', () => {
     })
     await startTestSessionDraft(kv, lobby.id, lobby)
 
-    await expect(getMatchForUser(kv, 'user-1')).resolves.toBe(lobby.id)
+    const runtime = getExistingTestLobbyRuntime(kv)
+    await expect(getMatchForUser(runtime.db, 'user-1')).resolves.toBe(lobby.id)
   })
 
   test('getChannelForMatch resolves from canonical same-id lobby', async () => {
@@ -41,7 +42,8 @@ describe('activity canonical lookup behavior', () => {
 
     await startTestSessionDraft(kv, lobby.id, lobby)
 
-    await expect(getChannelForMatch(kv, lobby.id)).resolves.toBe('channel-1')
+    const runtime = getExistingTestLobbyRuntime(kv)
+    await expect(getChannelForMatch(runtime.db, lobby.id)).resolves.toBe('channel-1')
   })
 
   test('getLobbyForUser resolves from canonical open lobby membership', async () => {
@@ -56,7 +58,8 @@ describe('activity canonical lookup behavior', () => {
 
     await setLobbyMemberPlayerIds(kv, currentLobby.id, ['host-1', 'player-1'], currentLobby)
 
-    await expect(getLobbyForUser(kv, 'player-1')).resolves.toBe(currentLobby.id)
+    const runtime = getExistingTestLobbyRuntime(kv)
+    await expect(getLobbyForUser(runtime.db, 'player-1')).resolves.toBe(currentLobby.id)
   })
 })
 

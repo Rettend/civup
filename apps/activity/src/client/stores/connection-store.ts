@@ -1,4 +1,5 @@
-import type { ClientMessage, CompetitiveTier, DraftAction, LeaderDataVersion, MapVoteSelection, ServerMessage } from '@civup/game'
+import type { CompetitiveTier, DraftAction, LeaderDataVersion, MapVoteSelection } from '@civup/game'
+import type { SessionClientMessage, SessionServerMessage } from '@civup/session'
 import { api, ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import PartySocket from 'partysocket'
 import { createSignal, untrack } from 'solid-js'
@@ -189,7 +190,7 @@ export const [connectionError, setConnectionError] = createSignal<string | null>
 const SOCKET_FATAL_CLOSE_MIN = 4000
 const SOCKET_FATAL_CLOSE_MAX = 5000
 const STALE_DRAFT_RECONNECT_CHECK_MS = 1_000
-const DRAFT_SOCKET_MAX_RETRIES = 12
+const SESSION_SOCKET_MAX_RETRIES = 12
 
 // ── Socket ─────────────────────────────────────────────────
 
@@ -248,7 +249,7 @@ export function connectToSession(target: PartySocketTarget, sessionId: string, s
       accessToken: sessionAccessToken,
       [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken,
     },
-    maxRetries: DRAFT_SOCKET_MAX_RETRIES,
+    maxRetries: SESSION_SOCKET_MAX_RETRIES,
   })
   socket = nextSocket
 
@@ -264,7 +265,7 @@ export function connectToSession(target: PartySocketTarget, sessionId: string, s
     if (socket !== nextSocket) return
     lastSocketActivityAt = Date.now()
     try {
-      const msg = JSON.parse(event.data as string) as ServerMessage
+      const msg = JSON.parse(event.data as string) as SessionServerMessage
       handleServerMessage(msg)
     }
     catch (err) {
@@ -287,7 +288,7 @@ export function connectToSession(target: PartySocketTarget, sessionId: string, s
       if (isFatalSocketClose(code)) stopSocketReconnects(nextSocket, `fatal close ${code}`)
       if (code === 4401) clearActivitySessionToken()
 
-      relayDevLog('warn', 'Draft socket closed unexpectedly', {
+      relayDevLog('warn', 'Session socket closed unexpectedly', {
         code,
         reason,
         sessionId,
@@ -295,7 +296,7 @@ export function connectToSession(target: PartySocketTarget, sessionId: string, s
         target: describePartySocketTarget(target),
       })
 
-      if (shouldRetryDraftSocket(nextSocket, code)) {
+      if (shouldRetrySessionSocket(nextSocket, code)) {
         setConnectionStatus('reconnecting')
         setConnectionError(null)
         return
@@ -306,7 +307,7 @@ export function connectToSession(target: PartySocketTarget, sessionId: string, s
       currentSessionConnection = null
       lastSocketActivityAt = 0
       setConnectionStatus('error')
-      setConnectionError(formatDraftSocketCloseError(code, reason, lastServerErrorMessage))
+      setConnectionError(formatSessionSocketCloseError(code, reason, lastServerErrorMessage))
       return
     }
 
@@ -320,8 +321,8 @@ export function connectToSession(target: PartySocketTarget, sessionId: string, s
   nextSocket.addEventListener('error', () => {
     if (socket !== nextSocket) return
 
-    if (shouldRetryDraftSocket(nextSocket)) {
-      relayDevLog('warn', 'Draft socket connection interrupted', {
+    if (shouldRetrySessionSocket(nextSocket)) {
+      relayDevLog('warn', 'Session socket connection interrupted', {
         sessionId,
         retryCount: nextSocket.retryCount,
         target: describePartySocketTarget(target),
@@ -331,7 +332,7 @@ export function connectToSession(target: PartySocketTarget, sessionId: string, s
       return
     }
 
-    relayDevLog('error', 'Draft socket connection failed', {
+    relayDevLog('error', 'Session socket connection failed', {
       sessionId,
       target: describePartySocketTarget(target),
     })
@@ -376,7 +377,7 @@ function startStaleDraftReconnectWatchdog() {
     if (!currentSession) return
     lastForcedReconnectTimerEndsAt = draftStore.timerEndsAt
 
-    relayDevLog('warn', 'Forcing draft socket reconnect after stale timer', {
+    relayDevLog('warn', 'Forcing session socket reconnect after stale timer', {
       sessionId: currentSession.sessionId,
       timerEndsAt: draftStore.timerEndsAt,
       currentStepIndex: draftStore.state?.currentStepIndex ?? null,
@@ -412,7 +413,7 @@ export function watchLobbyState(target: PartySocketTarget, options: LobbyStateWa
     query: {
       [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken,
     },
-    maxRetries: DRAFT_SOCKET_MAX_RETRIES,
+    maxRetries: SESSION_SOCKET_MAX_RETRIES,
   })
 
   activitySocket.addEventListener('open', () => {
@@ -471,7 +472,7 @@ function isLobbySnapshot(value: unknown): value is LobbySnapshot {
 
 // ── Send Messages ──────────────────────────────────────────
 
-export function sendMessage(msg: ClientMessage): boolean {
+export function sendMessage(msg: SessionClientMessage): boolean {
   const status = untrack(connectionStatus)
   if (!socket || status !== 'connected') {
     console.warn('Cannot send message: not connected')
@@ -942,7 +943,7 @@ export async function fillLobbyWithTestPlayers(
 
 // ── Handle Messages ────────────────────────────────────────
 
-function handleServerMessage(msg: ServerMessage) {
+function handleServerMessage(msg: SessionServerMessage) {
   switch (msg.type) {
     case 'init':
       clearSelections()
@@ -995,7 +996,7 @@ function shouldDisconnectAfterState(status: string, swapState: unknown): boolean
   return swapState == null
 }
 
-function formatDraftSocketCloseError(
+function formatSessionSocketCloseError(
   code: number,
   reason: string,
   serverError: { message: string, at: number } | null,
@@ -1013,7 +1014,7 @@ function formatDraftSocketCloseError(
         ? recentServerError
         : `${recentServerError}. Reopen the activity.`
     }
-    return 'Draft access token is invalid or expired. Reopen the activity.'
+    return 'Session access token is invalid or expired. Reopen the activity.'
   }
 
   return `WebSocket closed (${code}${reason ? `: ${reason}` : ''})`
@@ -1048,7 +1049,7 @@ function describePartySocketTarget(target: PartySocketTarget): string {
   return `${target.label ?? 'socket'}:${target.host}/${target.prefix ?? 'api/parties'}`
 }
 
-function shouldRetryDraftSocket(currentSocket: PartySocket, code?: number): boolean {
+function shouldRetrySessionSocket(currentSocket: PartySocket, code?: number): boolean {
   if (!currentSocket.shouldReconnect) return false
   if (typeof code === 'number' && isFatalSocketClose(code)) return false
   return true

@@ -30,6 +30,7 @@
     "@civup/db": "workspace:*",
     "@civup/game": "workspace:*",
     "@civup/rating": "workspace:*",
+    "@civup/session": "workspace:*",
     "@civup/utils": "workspace:*",
     "discord-hono": "^0.20.0",
     "drizzle-orm": "^0.45.1",

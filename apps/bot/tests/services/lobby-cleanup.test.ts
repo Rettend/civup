@@ -1,7 +1,7 @@
 import type { QueueEntry } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
-import { createLobby, getLobbyById, pruneInactiveOpenLobbies, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots } from '../helpers/lobby-runtime.ts'
+import { createLobby, getExistingTestLobbyRuntime, getLobbyById, pruneInactiveOpenLobbies, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots } from '../helpers/lobby-runtime.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
@@ -45,8 +45,9 @@ describe('inactive lobby cleanup', () => {
       removedPlayerIds: ['host', 'player'],
     }])
     expect(await getLobbyById(kv, staleLobby!.id)).toBeNull()
-    expect(await getLobbyForUser(kv, 'host')).toBeNull()
-    expect(await getLobbyForUser(kv, 'player')).toBeNull()
+    const runtime = getExistingTestLobbyRuntime(kv)
+    expect(await getLobbyForUser(runtime.db, 'host')).toBeNull()
+    expect(await getLobbyForUser(runtime.db, 'player')).toBeNull()
 
     const editRequest = requests.find(request => request.init?.method === 'PATCH')
     expect(editRequest).toBeDefined()

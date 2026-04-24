@@ -704,7 +704,7 @@ describe('activity target selection', () => {
     })).resolves.not.toBeNull()
   })
 
-  test('allows authenticated spectators to open live match targets read-only when selected', async () => {
+  test('allows authenticated spectators to open live session targets read-only when selected', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: '2v2',

@@ -8,8 +8,8 @@ import type {
   PendingLeaderSwapRequest,
   RandomSource,
   RevealedMapVoteSeatBallot,
-  RoomConfig,
 } from '@civup/game'
+import type { DraftRuntimeConfig } from '@civup/session'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
 import type { MapVoteSelectionUpdateResult, StoredMapVoteState } from './map-vote-room-state.ts'
 import {
@@ -39,7 +39,7 @@ export const ROOM_RECORD_KEY = 'room'
 
 export interface RoomRecord {
   version: number
-  config: RoomConfig
+  config: DraftRuntimeConfig
   state: DraftState
   timerEndsAt: number | null
   alarmStepIndex: number
@@ -104,7 +104,7 @@ export interface UpdatePreviewsCommand {
 export interface UpdateConfigCommand {
   type: 'update-config'
   nextState: DraftState
-  nextConfig: RoomConfig
+  nextConfig: DraftRuntimeConfig
 }
 
 export interface SetSwapStateCommand {
@@ -167,7 +167,7 @@ export interface FinishMapVoteRevealCommand {
 }
 
 export function createRoomRecord(
-  config: RoomConfig,
+  config: DraftRuntimeConfig,
   state: DraftState,
   mapVote: StoredMapVoteState,
   overrides: Partial<Omit<RoomRecord, 'version' | 'config' | 'state' | 'mapVote'>> = {},
@@ -750,7 +750,7 @@ function createDraftLifecycleEventId(matchId: string, eventSequence: number): st
   return `${matchId}:lifecycle:${eventSequence}`
 }
 
-function assignDealtCivIds(state: DraftState, config: RoomConfig | null, random: RandomSource = Math.random): DraftState {
+function assignDealtCivIds(state: DraftState, config: DraftRuntimeConfig | null, random: RandomSource = Math.random): DraftState {
   if (!config || !isRedDeathDraftConfig(config)) {
     if (state.dealtCivIds == null) return state
     return { ...state, dealtCivIds: null }
@@ -806,7 +806,7 @@ function normalizeDealOptionsSize(value: number | null | undefined): number {
   return Math.max(1, Math.round(value))
 }
 
-function isRedDeathDraftConfig(config: Pick<RoomConfig, 'formatId'>): boolean {
+function isRedDeathDraftConfig(config: Pick<DraftRuntimeConfig, 'formatId'>): boolean {
   return isRedDeathFormatId(config.formatId)
 }
 

@@ -318,7 +318,7 @@ describe('lobby routes', () => {
     })
     expect((await getLobbyById(kv, sourceLobby.id))?.memberPlayerIds).toEqual(['source-host'])
     expect((await getLobbyById(kv, targetLobby.id))?.memberPlayerIds).toEqual(['target-host', 'pleb'])
-    expect(await getLobbyForUser(kv, 'pleb')).toBe(targetLobby.id)
+    expect(await getLobbyForUser(getExistingTestLobbyRuntime(kv).db, 'pleb')).toBe(targetLobby.id)
   })
 
   test('direct lobby joins block hosts from abandoning players in another open lobby', async () => {
@@ -1058,7 +1058,7 @@ describe('lobby routes', () => {
     }, buildEnv(kv))
     expect(removeResponse.status).toBe(200)
 
-    expect(await getLobbyForUser(kv, 'pleb')).toBeNull()
+    expect(await getLobbyForUser(getExistingTestLobbyRuntime(kv).db, 'pleb')).toBeNull()
 
     const rejoinResponse = await app.request('/api/lobby/1v1/place', {
       method: 'POST',

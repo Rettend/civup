@@ -20,6 +20,7 @@ describe('match cleanup reconciliation', () => {
         hostId: 'host',
         channelId: 'channel-1',
         messageId: 'message-1',
+        db,
       })
       const matchId = lobby.id
       await db.insert(matches).values({
@@ -46,7 +47,7 @@ describe('match cleanup reconciliation', () => {
       expect(result.clearedLiveLobbyMatchIds).toEqual([matchId])
       expect(await getLobbyById(kv, activeLobby!.id)).toBeNull()
       expect(await kv.get('lobby:host:host')).toBeNull()
-      expect(await getChannelForMatch(kv, matchId)).toBeNull()
+      expect(await getChannelForMatch(db, matchId)).toBeNull()
     }
     finally {
       sqlite.close()

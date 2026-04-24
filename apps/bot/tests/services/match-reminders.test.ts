@@ -1,5 +1,6 @@
 import { matches } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
+import { eq } from 'drizzle-orm'
 import { createLobby, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { sendOverdueHostReportReminders } from '../../src/services/match/reminders.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
@@ -44,13 +45,13 @@ describe('host report reminders', () => {
         hostId: 'host-1',
         channelId: 'channel-1',
         messageId: 'message-1',
+        db,
       })
       const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
       await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
       const matchId = lobby.id
 
-      await db.insert(matches).values({
-        id: matchId,
+      await db.update(matches).set({
         gameMode: '2v2',
         status: 'active',
         seasonId: null,
@@ -61,7 +62,7 @@ describe('host report reminders', () => {
         }),
         createdAt: now - (4 * 60 * 60 * 1000),
         completedAt: null,
-      })
+      }).where(eq(matches.id, matchId))
 
       await expect(sendOverdueHostReportReminders(db, kv, 'token', { now })).resolves.toEqual({
         attemptedCount: 1,
@@ -119,13 +120,13 @@ describe('host report reminders', () => {
         hostId: 'host-2',
         channelId: 'channel-2',
         messageId: 'message-2',
+        db,
       })
       const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
       await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
       const matchId = lobby.id
 
-      await db.insert(matches).values({
-        id: matchId,
+      await db.update(matches).set({
         gameMode: 'ffa',
         status: 'active',
         seasonId: null,
@@ -136,7 +137,7 @@ describe('host report reminders', () => {
         }),
         createdAt: now - (8 * 60 * 60 * 1000),
         completedAt: null,
-      })
+      }).where(eq(matches.id, matchId))
 
       await expect(sendOverdueHostReportReminders(db, kv, 'token', { now })).resolves.toEqual({
         attemptedCount: 1,
@@ -169,13 +170,13 @@ describe('host report reminders', () => {
         hostId: 'host-fail',
         channelId: 'channel-fail',
         messageId: 'message-fail',
+        db,
       })
       const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
       await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
       const matchId = lobby.id
 
-      await db.insert(matches).values({
-        id: matchId,
+      await db.update(matches).set({
         gameMode: '1v1',
         status: 'active',
         seasonId: null,
@@ -186,7 +187,7 @@ describe('host report reminders', () => {
         }),
         createdAt: now - (4 * 60 * 60 * 1000),
         completedAt: null,
-      })
+      }).where(eq(matches.id, matchId))
 
       globalThis.fetch = (async () => new Response('boom', { status: 500 })) as typeof fetch
 
@@ -248,13 +249,13 @@ describe('host report reminders', () => {
           hostId: `host-${suffix}`,
           channelId: `channel-${suffix}`,
           messageId: `message-${suffix}`,
+          db,
         })
         const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
         await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
         const matchId = lobby.id
 
-        await db.insert(matches).values({
-          id: matchId,
+        await db.update(matches).set({
           gameMode: '2v2',
           status: 'active',
           seasonId: null,
@@ -265,7 +266,7 @@ describe('host report reminders', () => {
           }),
           createdAt: now - (4 * 60 * 60 * 1000),
           completedAt: null,
-        })
+        }).where(eq(matches.id, matchId))
       }
 
       await expect(sendOverdueHostReportReminders(db, kv, 'token', { now })).resolves.toEqual({
