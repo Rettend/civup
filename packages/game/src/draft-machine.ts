@@ -62,7 +62,7 @@ export function createDraft(
  * Process a draft input and return the new state + events, or an error.
  *
  * This is a pure function — given a state and input, produces a new state.
- * No side effects. The caller (PartyKit server) handles broadcasting events.
+ * No side effects. The caller handles broadcasting events.
  */
 export function processDraftInput(
   state: DraftState,

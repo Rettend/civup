@@ -5,7 +5,7 @@ import { matchBans, matches, matchParticipants } from '@civup/db'
 import { and, eq } from 'drizzle-orm'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
-import { clearLobbyByMatch } from '../lobby/index.ts'
+import { clearLobbyById } from '../lobby/index.ts'
 import { closeLobbySessionProjectionByMatch } from '../session/index.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
 import { parseModerationPlacements } from './placements.ts'
@@ -140,7 +140,7 @@ export async function resolveMatchByModerator(
 
   if (previousStatus !== 'completed') {
     await closeLobbySessionProjectionByMatch(db, input.matchId, input.resolvedAt)
-    await clearLobbyByMatch(kv, input.matchId)
+    await clearLobbyById(kv, input.matchId)
   }
 
   return {
@@ -263,7 +263,7 @@ export async function cancelMatchByModerator(
   await db.delete(matchBans).where(eq(matchBans.matchId, input.matchId))
   await closeLobbySessionProjectionByMatch(db, input.matchId, input.cancelledAt)
 
-  await clearLobbyByMatch(kv, input.matchId)
+  await clearLobbyById(kv, input.matchId)
 
   let recalculatedMatchIds: string[] = []
   if (previousStatus === 'completed') {

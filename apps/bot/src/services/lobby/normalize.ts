@@ -45,12 +45,7 @@ export function normalizeLobby(raw: StoredLobbyState | LobbyState): LobbyState {
     minRole: normalizeCompetitiveTier(raw.minRole),
     maxRole: normalizeCompetitiveTier(raw.maxRole),
     lastArrange: normalizeLobbyArrangeMarker(raw.lastArrange),
-    lastActivityAt: normalizeLobbyLastActivityAt(
-      raw.lastActivityAt,
-      'lastJoinedAt' in raw ? raw.lastJoinedAt : undefined,
-      updatedAt,
-      createdAt,
-    ),
+    lastActivityAt: normalizeLobbyLastActivityAt(raw.lastActivityAt, updatedAt, createdAt),
     memberPlayerIds: normalizeMemberPlayerIds(raw.memberPlayerIds),
     revision: normalizeLobbyRevision(raw.revision),
   }
@@ -142,13 +137,11 @@ export function normalizeLobbyRevision(value: unknown): number {
 
 export function normalizeLobbyLastActivityAt(
   value: unknown,
-  legacyValue: unknown,
   updatedAt: number,
   createdAt: number,
 ): number {
-  for (const candidate of [value, legacyValue]) {
-    if (typeof candidate !== 'number' || !Number.isFinite(candidate)) continue
-    const rounded = Math.round(candidate)
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const rounded = Math.round(value)
     if (rounded > 0) return rounded
   }
   return updatedAt > 0 ? updatedAt : createdAt

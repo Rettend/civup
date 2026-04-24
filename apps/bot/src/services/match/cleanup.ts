@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { PruneMatchesOptions, PruneMatchesResult } from './types.ts'
 import { matchBans, matches, matchParticipants } from '@civup/db'
 import { and, eq, inArray, isNull, lt, or } from 'drizzle-orm'
-import { clearLobbyById, clearLobbyByMatch } from '../lobby/index.ts'
+import { clearLobbyById } from '../lobby/index.ts'
 import { closeLobbySessionProjectionByMatch, getLiveSessionLobbyProjections } from '../session/index.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS, STALE_CANCELLED_MATCH_TIMEOUT_MS, STALE_DRAFTING_MATCH_TIMEOUT_MS } from './retention.ts'
 
@@ -31,7 +31,7 @@ export async function pruneAbandonedMatches(
   for (const match of staleMatches) {
     await closeLobbySessionProjectionByMatch(db, match.id, now)
 
-    await clearLobbyByMatch(kv, match.id)
+    await clearLobbyById(kv, match.id)
 
     await db.delete(matchBans).where(eq(matchBans.matchId, match.id))
     await db.delete(matchParticipants).where(eq(matchParticipants.matchId, match.id))

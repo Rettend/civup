@@ -193,11 +193,6 @@ export async function clearLobbiesByMode(kv: KVNamespace, mode: GameMode): Promi
   }))
 }
 
-export async function clearLobbyByMatch(kv: KVNamespace, matchId: string): Promise<void> {
-  const lobby = await getLobbyById(kv, matchId)
-  if (lobby?.matchId === matchId) await clearLobbyById(kv, lobby.id, lobby)
-}
-
 export async function putLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
   await putLobbyEntries(kv, lobby)
 }

@@ -48,7 +48,6 @@ export interface RoomRecord {
   previews: DraftPreviewState
   swapWindowOpen: boolean
   swapState: LeaderSwapState | null
-  swapPendingExpiresAt: number | null
   swapDisconnectFinalizeAt: number | null
   swapSafetyEndsAt: number | null
   mapVote: StoredMapVoteState
@@ -183,7 +182,6 @@ export function createRoomRecord(
     previews: overrides.previews ?? createEmptyDraftPreviews(),
     swapWindowOpen: overrides.swapWindowOpen ?? false,
     swapState: overrides.swapState ?? null,
-    swapPendingExpiresAt: overrides.swapPendingExpiresAt ?? null,
     swapDisconnectFinalizeAt: overrides.swapDisconnectFinalizeAt ?? null,
     swapSafetyEndsAt: overrides.swapSafetyEndsAt ?? null,
     mapVote,
@@ -216,7 +214,6 @@ export function normalizeStoredRoomRecord(value: unknown): RoomRecord | null {
       ),
       swapWindowOpen: raw.swapWindowOpen === true,
       swapState: raw.swapState ?? null,
-      swapPendingExpiresAt: typeof raw.swapPendingExpiresAt === 'number' && Number.isFinite(raw.swapPendingExpiresAt) ? raw.swapPendingExpiresAt : null,
       swapDisconnectFinalizeAt: typeof raw.swapDisconnectFinalizeAt === 'number' && Number.isFinite(raw.swapDisconnectFinalizeAt) ? raw.swapDisconnectFinalizeAt : null,
       swapSafetyEndsAt: typeof raw.swapSafetyEndsAt === 'number' && Number.isFinite(raw.swapSafetyEndsAt) ? raw.swapSafetyEndsAt : null,
       lifecycleEventSequence: typeof raw.lifecycleEventSequence === 'number' && Number.isFinite(raw.lifecycleEventSequence)
@@ -278,7 +275,6 @@ export function applyDraftResultCommand(
         ...nextRoom,
         swapWindowOpen: true,
         swapState: createEmptySwapState(),
-        swapPendingExpiresAt: null,
         swapDisconnectFinalizeAt: null,
         swapSafetyEndsAt: completedAt + SWAP_WINDOW_TIMEOUT_MS,
       }
@@ -378,7 +374,6 @@ export function setSwapStateCommand(
   return createTransition({
     ...room,
     swapState: command.swapState,
-    swapPendingExpiresAt: null,
   }, [
     { type: 'schedule-swap-alarm' },
     { type: 'broadcast-swap-update' },
@@ -393,7 +388,6 @@ export function acceptSwapCommand(
     ...room,
     state: command.nextState,
     swapState: command.swapState,
-    swapPendingExpiresAt: null,
   }
   const effects: RoomEffect[] = [
     { type: 'schedule-swap-alarm' },
@@ -452,7 +446,6 @@ export function pruneExpiredSwapsCommand(
       pendingSwaps,
       completedSwaps: swapState.completedSwaps,
     },
-    swapPendingExpiresAt: null,
   }, [
     { type: 'broadcast-swap-update' },
   ], true)
@@ -598,44 +591,28 @@ export function createEmptySwapState(): LeaderSwapState {
 
 export function normalizeStoredSwapState(
   value: unknown,
-  legacyPendingExpiresAt: number | null,
 ): LeaderSwapState {
   if (!value || typeof value !== 'object') return createEmptySwapState()
 
   const raw = value as {
     pendingSwaps?: unknown
     completedSwaps?: unknown
-    pendingSwap?: unknown
   }
 
-  if (Array.isArray(raw.pendingSwaps)) {
-    return {
-      pendingSwaps: raw.pendingSwaps.flatMap(normalizePendingSwapRequest),
-      completedSwaps: Array.isArray(raw.completedSwaps)
-        ? raw.completedSwaps.flatMap(normalizeCompletedSwapRequest)
-        : [],
-    }
+  return {
+    pendingSwaps: Array.isArray(raw.pendingSwaps)
+      ? raw.pendingSwaps.flatMap(normalizePendingSwapRequest)
+      : [],
+    completedSwaps: Array.isArray(raw.completedSwaps)
+      ? raw.completedSwaps.flatMap(normalizeCompletedSwapRequest)
+      : [],
   }
-
-  const pendingSwap = raw.pendingSwap
-  if (pendingSwap && typeof pendingSwap === 'object') {
-    const normalizedPending = normalizePendingSwapRequest({
-      ...(pendingSwap as PendingLeaderSwapRequest),
-      expiresAt: legacyPendingExpiresAt ?? (pendingSwap as PendingLeaderSwapRequest).expiresAt,
-    })
-    return {
-      pendingSwaps: normalizedPending,
-      completedSwaps: [],
-    }
-  }
-
-  return createEmptySwapState()
 }
 
 export function normalizeRoomSwapState(
-  room: Pick<RoomRecord, 'swapState' | 'swapPendingExpiresAt'>,
+  room: Pick<RoomRecord, 'swapState'>,
 ): LeaderSwapState {
-  return normalizeStoredSwapState(room.swapState, room.swapPendingExpiresAt)
+  return normalizeStoredSwapState(room.swapState)
 }
 
 function createTransition<TResponse = void>(
@@ -781,7 +758,6 @@ function clearSwapWindowState(room: RoomRecord): RoomRecord {
     ...room,
     swapWindowOpen: false,
     swapState: null,
-    swapPendingExpiresAt: null,
     swapDisconnectFinalizeAt: null,
     swapSafetyEndsAt: null,
   }

@@ -53,6 +53,5 @@ export interface StoredLobbyState extends Omit<LobbyState, 'draftConfig' | 'slot
   revision?: unknown
   lastArrange?: unknown
   lastActivityAt?: unknown
-  lastJoinedAt?: unknown
   memberPlayerIds?: unknown
 }

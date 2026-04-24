@@ -255,7 +255,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     return await this.setRoomRecord(updater(await this.requireRoomRecord()))
   }
 
-  protected getNormalizedSwapState(room: Pick<RoomRecord, 'swapState' | 'swapPendingExpiresAt'>): LeaderSwapState {
+  protected getNormalizedSwapState(room: Pick<RoomRecord, 'swapState'>): LeaderSwapState {
     return normalizeRoomSwapState(room)
   }
 
