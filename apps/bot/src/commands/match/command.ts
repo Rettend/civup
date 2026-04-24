@@ -9,7 +9,7 @@ import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDra
 import { getMatchForUser } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
-import { clearLobbyById, clearLobbyByMatch, createLobby, filterQueueEntriesForLobby, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbyStatus, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
+import { clearLobbyById, clearLobbyByMatch, createLobby, filterQueueEntriesForLobby, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, setLobbyLastActivityAt, setLobbyRoster, setLobbyStatus, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
@@ -483,18 +483,22 @@ export const command_match = factory.command<MatchVar>(
             const queue = await getQueueState(kv, removedMode)
             const sessionOptions = { db: createDb(c.env.DB), sessionNamespace: c.env.SessionDO, queueEntries: queue.entries }
             const nextMemberIds = lobby.memberPlayerIds.filter(playerId => playerId !== identity.userId)
-            let nextLobby = await setLobbyMemberPlayerIds(kv, lobby.id, nextMemberIds, lobby, sessionOptions) ?? lobby
-            const lobbyQueueEntries = filterQueueEntriesForLobby({ ...nextLobby, memberPlayerIds: nextMemberIds }, queue.entries)
-            const slots = normalizeLobbySlots(removedMode, nextLobby.slots, lobbyQueueEntries)
-            if (!sameLobbySlots(slots, nextLobby.slots)) {
-              nextLobby = await setLobbySlots(kv, nextLobby.id, slots, nextLobby, sessionOptions) ?? nextLobby
-            }
-            nextLobby = await setLobbyLastActivityAt(kv, nextLobby.id, Date.now(), nextLobby, sessionOptions) ?? nextLobby
-            await syncLobbyDerivedState(kv, nextLobby, {
-              queueEntries: lobbyQueueEntries,
+            const lobbyQueueEntries = filterQueueEntriesForLobby({ ...lobby, memberPlayerIds: nextMemberIds }, queue.entries)
+            const slots = normalizeLobbySlots(removedMode, lobby.slots, lobbyQueueEntries)
+            const activityAt = Date.now()
+            const nextLobby = await setLobbyRoster(kv, lobby.id, {
+              memberPlayerIds: nextMemberIds,
               slots,
+              lastActivityAt: activityAt,
+              now: activityAt,
+            }, lobby, sessionOptions) ?? lobby
+            const nextLobbyQueueEntries = filterQueueEntriesForLobby(nextLobby, queue.entries)
+            const nextSlots = normalizeLobbySlots(removedMode, nextLobby.slots, nextLobbyQueueEntries)
+            await syncLobbyDerivedState(kv, nextLobby, {
+              queueEntries: nextLobbyQueueEntries,
+              slots: nextSlots,
             })
-            const slottedEntries = mapLobbySlotsToEntries(slots, lobbyQueueEntries)
+            const slottedEntries = mapLobbySlotsToEntries(nextSlots, nextLobbyQueueEntries)
             try {
               const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {

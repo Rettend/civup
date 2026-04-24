@@ -6,7 +6,7 @@ import { lobbyCancelledEmbed } from '../../embeds/match.ts'
 import { clearQueue, getQueueState } from '../queue/index.ts'
 import { syncLobbyDerivedState } from './live-snapshot.ts'
 import { upsertLobbyMessage } from './message.ts'
-import { commitLobbyState, setLobbyStatus } from './mutations.ts'
+import { setLobbyRoster, setLobbyStatus } from './mutations.ts'
 import { buildOpenLobbyRenderPayload } from './render.ts'
 import { filterQueueEntriesForLobby, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots } from './slots.ts'
 import { clearLobbyById } from './store.ts'
@@ -87,19 +87,21 @@ export async function leaveOpenLobbyForLobbyJoin(
   )
   if (sameLobbySlots(nextSlots, currentLobby.slots) && remainingMemberIds.length === currentLobby.memberPlayerIds.length) nextSlots = currentLobby.slots
 
-  const nextLobby = {
+  const nextPreviewLobby = {
     ...currentLobby,
     memberPlayerIds: remainingMemberIds,
     slots: nextSlots,
-    lastActivityAt: changedAt,
-    updatedAt: changedAt,
-    revision: currentLobby.revision + 1,
   }
-  const nextLobbyQueueEntries = filterQueueEntriesForLobby(nextLobby, nextQueue.entries)
-  const updatedLobby = await commitLobbyState(kv, nextLobby, {
+  const nextLobbyQueueEntries = filterQueueEntriesForLobby(nextPreviewLobby, nextQueue.entries)
+  const updatedLobby = await setLobbyRoster(kv, currentLobby.id, {
+    memberPlayerIds: remainingMemberIds,
+    slots: nextSlots,
+    lastActivityAt: changedAt,
+    now: changedAt,
+  }, currentLobby, {
     ...options,
     queueEntries: nextLobbyQueueEntries,
-  })
+  }) ?? currentLobby
   await syncLobbyDerivedState(kv, updatedLobby, {
     queueEntries: nextLobbyQueueEntries,
     slots: nextSlots,
