@@ -151,7 +151,7 @@ describe('lobby service KV write behavior', () => {
     expect(byChannel?.hostId).toBe(created.hostId)
   })
 
-  test('getLobbiesByMode repairs a missing mode index from canonical lobby records', async () => {
+  test('getLobbiesByMode does not rebuild a missing projection index', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: 'ffa',
@@ -161,13 +161,8 @@ describe('lobby service KV write behavior', () => {
     })
     await kv.delete(modeIndexKey('ffa', lobby.id))
 
-    await expect(getLobbiesByMode(kv, 'ffa')).resolves.toEqual([
-      expect.objectContaining({
-        id: lobby.id,
-        mode: 'ffa',
-      }),
-    ])
-    await expect(kv.get(modeIndexKey('ffa', lobby.id))).resolves.toBe(String(lobby.revision))
+    await expect(getLobbiesByMode(kv, 'ffa')).resolves.toEqual([])
+    await expect(kv.get(modeIndexKey('ffa', lobby.id))).resolves.toBeNull()
   })
 
   test('retains live lobby state longer than abandoned active matches', () => {
@@ -562,7 +557,7 @@ describe('lobby service KV write behavior', () => {
     expect(draftingLobby?.matchId).toBe(lobby.id)
   })
 
-  test('getLobbyByChannel repairs a missing channel index from the canonical lobby record', async () => {
+  test('getLobbyByChannel does not rebuild a missing projection index', async () => {
     const { kv } = createTrackedKv()
 
     const lobby = await createLobby(kv, {
@@ -573,11 +568,8 @@ describe('lobby service KV write behavior', () => {
     })
     await kv.delete(channelIndexKey('channel-1', lobby.id))
 
-    await expect(getLobbyByChannel(kv, 'channel-1')).resolves.toEqual(expect.objectContaining({
-      id: lobby.id,
-      channelId: 'channel-1',
-    }))
-    await expect(kv.get(channelIndexKey('channel-1', lobby.id))).resolves.toBe(String(lobby.revision))
+    await expect(getLobbyByChannel(kv, 'channel-1')).resolves.toBeNull()
+    await expect(kv.get(channelIndexKey('channel-1', lobby.id))).resolves.toBeNull()
   })
 
   test('clearLobbyByMatch clears same-id sessions', async () => {

@@ -2,8 +2,8 @@ import type { Database } from '@civup/db'
 import type { PruneMatchesOptions, PruneMatchesResult } from './types.ts'
 import { matchBans, matches, matchParticipants } from '@civup/db'
 import { and, eq, inArray, isNull, lt, or } from 'drizzle-orm'
-import { clearLobbyById, clearLobbyByMatch, getCurrentLobbies } from '../lobby/index.ts'
-import { closeLobbySessionProjectionByMatch } from '../session/index.ts'
+import { clearLobbyById, clearLobbyByMatch } from '../lobby/index.ts'
+import { closeLobbySessionProjectionByMatch, getLiveSessionLobbyProjections } from '../session/index.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS, STALE_CANCELLED_MATCH_TIMEOUT_MS, STALE_DRAFTING_MATCH_TIMEOUT_MS } from './retention.ts'
 
 export async function pruneAbandonedMatches(
@@ -40,7 +40,7 @@ export async function pruneAbandonedMatches(
     removedMatchIds.push(match.id)
   }
 
-  const liveMatchLobbies = (await getCurrentLobbies(kv)).flatMap(lobby => lobby.matchId
+  const liveMatchLobbies = (await getLiveSessionLobbyProjections(db)).flatMap(lobby => lobby.matchId
     ? [{ lobby, matchId: lobby.matchId }]
     : [])
   const liveMatchIds = [...new Set(liveMatchLobbies.map(entry => entry.matchId))]

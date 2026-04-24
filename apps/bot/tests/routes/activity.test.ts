@@ -210,7 +210,7 @@ describe('activity lobby join eligibility', () => {
     await setLobbySlots(kv, sourceLobby.id, ['host-1', 'player-1', null, null], populatedSource ?? sourceLobby)
 
     const snapshot = await buildOpenLobbySnapshot(kv, '2v2', targetLobby)
-    const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', targetLobby, snapshot)
+    const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', targetLobby, snapshot, activityRuntimeOptions(kv))
 
     expect(eligibility).toEqual({
       canJoin: true,
@@ -251,7 +251,7 @@ describe('activity lobby join eligibility', () => {
     await setLobbySlots(kv, sourceLobby.id, ['host-1', null, null, null], staleSource ?? sourceLobby)
 
     const snapshot = await buildOpenLobbySnapshot(kv, '2v2', targetLobby)
-    const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', targetLobby, snapshot)
+    const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', targetLobby, snapshot, activityRuntimeOptions(kv))
 
     expect(eligibility).toEqual({
       canJoin: true,
@@ -298,7 +298,7 @@ describe('activity lobby join eligibility', () => {
     await setLobbySlots(kv, sourceLobby.id, ['player-1', 'ally-1', null, null], populatedSource ?? sourceLobby)
 
     const snapshot = await buildOpenLobbySnapshot(kv, '2v2', targetLobby)
-    const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', targetLobby, snapshot)
+    const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', targetLobby, snapshot, activityRuntimeOptions(kv))
 
     expect(eligibility).toEqual({
       canJoin: false,
@@ -630,7 +630,7 @@ describe('activity target selection', () => {
         id: liveLobby.id,
       }),
     ]))
-    await expect(resolveOpenLobbyFromBody(kv, '2v2', { lobbyId: invalidLobby.id })).resolves.toEqual(expect.objectContaining({
+    await expect(resolveOpenLobbyFromBody(createDbFromRuntime(kv), '2v2', { lobbyId: invalidLobby.id })).resolves.toEqual(expect.objectContaining({
       id: invalidLobby.id,
     }))
   })
@@ -794,6 +794,10 @@ function buildEnv(kv: KVNamespace) {
 function activityRuntimeOptions(kv: KVNamespace) {
   const runtime = getExistingTestLobbyRuntime(kv)
   return { db: runtime.d1, sessionNamespace: runtime.sessionNamespace }
+}
+
+function createDbFromRuntime(kv: KVNamespace) {
+  return getExistingTestLobbyRuntime(kv).db
 }
 
 function buildDb(

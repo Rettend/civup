@@ -1,13 +1,15 @@
 import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
+import type { Database } from '@civup/db'
 import type { LeaderboardModeSnapshot } from '../../services/leaderboard/snapshot.ts'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { getRankedRoleConfig } from '../../services/ranked/roles.ts'
 import { canStartWithPlayerCount, MAX_LEADER_POOL_SIZE, playerCountOptions, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import { MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
 import { getStoredLeaderboardModeSnapshot } from '../../services/leaderboard/snapshot.ts'
-import { filterQueueEntriesForLobby, getLobbiesByChannel, getLobbiesByMode, normalizeLobbySlots } from '../../services/lobby/index.ts'
+import { filterQueueEntriesForLobby, normalizeLobbySlots } from '../../services/lobby/index.ts'
 import { attachLobbyBalanceRatings, buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
 import { normalizeRankedRoleTierId } from '../../services/ranked/roles.ts'
+import { getOpenSessionLobbyProjectionsByChannel, getOpenSessionLobbyProjectionsByMode } from '../../services/session/index.ts'
 
 export async function buildOpenLobbySnapshot(
   kv: KVNamespace,
@@ -50,10 +52,10 @@ export function canStartLobbyWithPlayerCount(mode: GameMode, playerCount: number
 }
 
 export async function getUniqueOpenLobbyForChannel(
-  kv: KVNamespace,
+  db: Database,
   channelId: string,
 ): Promise<LobbyState | null> {
-  const openLobbies = (await getLobbiesByChannel(kv, channelId))
+  const openLobbies = (await getOpenSessionLobbyProjectionsByChannel(db, channelId))
     .filter(lobby => lobby.channelId === channelId && lobby.status === 'open')
     .sort((left, right) => right.updatedAt - left.updatedAt)
 
@@ -62,11 +64,11 @@ export async function getUniqueOpenLobbyForChannel(
 }
 
 export async function resolveOpenLobbyFromBody(
-  kv: KVNamespace,
+  db: Database,
   mode: GameMode,
   body: { lobbyId?: unknown },
 ): Promise<LobbyState | null> {
-  const openLobbies = (await getLobbiesByMode(kv, mode))
+  const openLobbies = (await getOpenSessionLobbyProjectionsByMode(db, mode))
     .filter(lobby => lobby.status === 'open')
     .filter(lobby => lobby.memberPlayerIds.length > 0)
 
