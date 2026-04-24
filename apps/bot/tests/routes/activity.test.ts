@@ -1,4 +1,4 @@
-import { verifyDraftRoomAccessToken } from '@civup/utils'
+import { verifySessionAccessToken } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility, selectActivityTargetForUser } from '../../src/routes/activity.ts'
@@ -675,9 +675,9 @@ describe('activity target selection', () => {
     if (snapshot.selection?.kind !== 'match') return
     expect(snapshot.selection.matchId).toBe(lobby.id)
     expect(snapshot.selection.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
-    expect(snapshot.selection.roomAccessToken).not.toBeNull()
-    await expect(verifyDraftRoomAccessToken('secret', snapshot.selection.roomAccessToken, {
-      roomId: lobby.id,
+    expect(snapshot.selection.sessionAccessToken).not.toBeNull()
+    await expect(verifySessionAccessToken('secret', snapshot.selection.sessionAccessToken, {
+      sessionId: lobby.id,
       userId: 'host-1',
     })).resolves.not.toBeNull()
   })
@@ -697,8 +697,8 @@ describe('activity target selection', () => {
     expect(snapshot.selection?.kind).toBe('match')
     if (snapshot.selection?.kind !== 'match') return
 
-    await expect(verifyDraftRoomAccessToken('secret', snapshot.selection.roomAccessToken, {
-      roomId: lobby.id,
+    await expect(verifySessionAccessToken('secret', snapshot.selection.sessionAccessToken, {
+      sessionId: lobby.id,
       userId: 'host-1',
       nowMs: Date.now() + 5 * 60 * 60 * 1000,
     })).resolves.not.toBeNull()
@@ -733,9 +733,9 @@ describe('activity target selection', () => {
     expect(snapshot.selection?.kind).toBe('match')
     if (snapshot.selection?.kind !== 'match') return
     expect(snapshot.selection.matchId).toBe(lobby.id)
-    expect(snapshot.selection.roomAccessToken).not.toBeNull()
-    await expect(verifyDraftRoomAccessToken('secret', snapshot.selection.roomAccessToken, {
-      roomId: lobby.id,
+    expect(snapshot.selection.sessionAccessToken).not.toBeNull()
+    await expect(verifySessionAccessToken('secret', snapshot.selection.sessionAccessToken, {
+      sessionId: lobby.id,
       userId: 'spectator-1',
     })).resolves.not.toBeNull()
   })

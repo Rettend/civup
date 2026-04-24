@@ -4,7 +4,6 @@ import { eq } from 'drizzle-orm'
 import { DEFAULT_DRAFT_CONFIG } from '../../src/services/lobby/normalize.ts'
 import { SessionDO } from '../../src/session-runtime/session-do.ts'
 import { createSqliteD1Database } from '../helpers/d1.ts'
-import { createCapturedMainNamespace } from '../helpers/session-runtime.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('SessionDO open session commands', () => {
@@ -12,7 +11,7 @@ describe('SessionDO open session commands', () => {
     const room = new SessionDO(createFakeDurableObjectState(), {} as any)
     const lobby = buildLobby({ memberPlayerIds: ['p1'], slots: ['p1', null] })
 
-    const response = await room.fetch(new Request('https://session.local/commands/create-from-lobby', {
+    const response = await room.fetch(sessionRequest('/commands/create-from-lobby', {
       method: 'POST',
       body: JSON.stringify({
         lobby,
@@ -21,7 +20,7 @@ describe('SessionDO open session commands', () => {
     }))
 
     expect(response.status).toBe(200)
-    const recordResponse = await room.fetch(new Request('https://session.local/record'))
+    const recordResponse = await room.fetch(sessionRequest('/record'))
     const body = await recordResponse.json() as any
     expect(body.record).toMatchObject({
       id: lobby.id,
@@ -52,7 +51,6 @@ describe('SessionDO open session commands', () => {
     const room = new SessionDO(createFakeDurableObjectState(), {
       DB: createSqliteD1Database(sqlite),
       KV: kv,
-      Main: createCapturedMainNamespace(),
     } as any)
     const openLobby = buildLobby({
       memberPlayerIds: ['p1', 'p2'],
@@ -61,7 +59,7 @@ describe('SessionDO open session commands', () => {
     })
 
     try {
-      await room.fetch(new Request('https://session.local/commands/create-from-lobby', {
+      await room.fetch(sessionRequest('/commands/create-from-lobby', {
         method: 'POST',
         body: JSON.stringify({
           lobby: openLobby,
@@ -72,13 +70,13 @@ describe('SessionDO open session commands', () => {
         }),
       }))
 
-      const startResponse = await room.fetch(new Request('https://session.local/commands/start-draft', {
+      const startResponse = await room.fetch(sessionRequest('/commands/start-draft', {
         method: 'POST',
         body: JSON.stringify({ hostId: 'p1', now: 2 }),
       }))
       expect(startResponse.status).toBe(200)
 
-      const staleOpenCommand = await room.fetch(new Request('https://session.local/commands/open-lobby', {
+      const staleOpenCommand = await room.fetch(sessionRequest('/commands/open-lobby', {
         method: 'POST',
         body: JSON.stringify({
           type: 'set-draft-config',
@@ -87,32 +85,32 @@ describe('SessionDO open session commands', () => {
       }))
       expect(staleOpenCommand.status).toBe(409)
 
-      const lifecycleResponse = await room.fetch(new Request('https://session.local/commands/draft-lifecycle', {
+      const lifecycleResponse = await room.fetch(sessionRequest('/commands/draft-lifecycle', {
         method: 'POST',
         body: JSON.stringify({ type: 'draft-completed', opensSwapWindow: true, at: 3 }),
       }))
       expect(lifecycleResponse.status).toBe(200)
 
-      let recordResponse = await room.fetch(new Request('https://session.local/record'))
+      let recordResponse = await room.fetch(sessionRequest('/record'))
       let body = await recordResponse.json() as any
       expect(body.record.phase).toBe('swap')
       expect(body.record.version).toBe(3)
       let [directoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
       expect(directoryRow?.phase).toBe('swap')
 
-      const swapResponse = await room.fetch(new Request('https://session.local/commands/draft-lifecycle', {
+      const swapResponse = await room.fetch(sessionRequest('/commands/draft-lifecycle', {
         method: 'POST',
         body: JSON.stringify({ type: 'swap-accepted', at: 4 }),
       }))
       expect(swapResponse.status).toBe(200)
 
-      const finalizeResponse = await room.fetch(new Request('https://session.local/commands/draft-lifecycle', {
+      const finalizeResponse = await room.fetch(sessionRequest('/commands/draft-lifecycle', {
         method: 'POST',
         body: JSON.stringify({ type: 'draft-finalized', at: 5 }),
       }))
       expect(finalizeResponse.status).toBe(200)
 
-      recordResponse = await room.fetch(new Request('https://session.local/record'))
+      recordResponse = await room.fetch(sessionRequest('/record'))
       body = await recordResponse.json() as any
       expect(body.record.phase).toBe('active')
       expect(body.record.version).toBe(5)
@@ -136,7 +134,7 @@ describe('SessionDO open session commands', () => {
       slots: ['p1', null],
     })
 
-    await room.fetch(new Request('https://session.local/commands/create-from-lobby', {
+    await room.fetch(sessionRequest('/commands/create-from-lobby', {
       method: 'POST',
       body: JSON.stringify({
         lobby: openLobby,
@@ -229,7 +227,7 @@ describe('SessionDO open session commands', () => {
 })
 
 async function openLobbyCommand(room: SessionDO, command: unknown): Promise<any> {
-  const response = await room.fetch(new Request('https://session.local/commands/open-lobby', {
+  const response = await room.fetch(sessionRequest('/commands/open-lobby', {
     method: 'POST',
     body: JSON.stringify(command),
   }))
@@ -237,15 +235,39 @@ async function openLobbyCommand(room: SessionDO, command: unknown): Promise<any>
   return await response.json()
 }
 
+function sessionRequest(pathname: string, init?: RequestInit): Request {
+  const headers = new Headers(init?.headers)
+  headers.set('x-partykit-room', 'session-1')
+  headers.set('x-partykit-namespace', 'session')
+  return new Request(`https://session.local${pathname}`, { ...init, headers })
+}
+
 function createFakeDurableObjectState(): DurableObjectState {
   const storage = new Map<string, unknown>()
+  let alarmAt: number | null = null
   return {
+    async blockConcurrencyWhile(callback: () => Promise<void> | void) {
+      await callback()
+    },
+    getWebSockets() {
+      return []
+    },
+    acceptWebSocket() {},
     storage: {
       async get(key: string) {
         return storage.get(key)
       },
       async put(key: string, value: unknown) {
         storage.set(key, value)
+      },
+      async setAlarm(scheduledTime: number | Date) {
+        alarmAt = scheduledTime instanceof Date ? scheduledTime.getTime() : scheduledTime
+      },
+      async deleteAlarm() {
+        alarmAt = null
+      },
+      async getAlarm() {
+        return alarmAt
       },
     },
   } as unknown as DurableObjectState

@@ -10,7 +10,7 @@ export {
   canFillLobbyWithTestPlayers,
   connectionError,
   connectionStatus,
-  connectToRoom,
+  connectToSession,
   disconnect,
   fetchActivityLaunchSnapshot,
   fetchLobbyForChannel,

@@ -5,7 +5,7 @@ import type { DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionLifec
 import { createDb } from '@civup/db'
 import { canStartWithPlayerCount, formatModeLabel, GAME_MODES, getMinimumLeaderPoolSize } from '@civup/game'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed } from '../embeds/match.ts'
-import { createDraftRoom } from '../services/activity/index.ts'
+import { buildDraftRuntimeConfig } from '../services/activity/index.ts'
 import { resolveDraftTimerConfig } from '../services/config/index.ts'
 import { normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from '../services/lobby/normalize.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
@@ -17,13 +17,13 @@ import { clearMatchMessageMapping, storeMatchMessageMapping } from '../services/
 import { clearQueue, getQueueState, setQueueEntries } from '../services/queue/index.ts'
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
 import { publishActivitySessionUpdate } from './activity-feed-client.ts'
+import { SessionDraftRuntime, type DraftRuntimeEnv } from './draft-room.ts'
 import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildLobbyStateFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from './session-record.ts'
 import { canOpenSwapWindowForState } from './swap-window.ts'
 
-interface SessionDOEnv extends Cloudflare.Env {
+interface SessionDOEnv extends DraftRuntimeEnv {
   DB?: D1Database
   KV?: KVNamespace
-  Main?: DurableObjectNamespace
   Activity?: DurableObjectNamespace
   DISCORD_TOKEN?: string
   BOT_HOST?: string
@@ -178,15 +178,10 @@ interface OpenSessionPatch {
 
 const SESSION_RECORD_STORAGE_KEY = 'session-record'
 
-export class SessionDO {
+export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   private commandQueue: Promise<void> = Promise.resolve()
 
-  constructor(
-    private readonly state: DurableObjectState,
-    private readonly env: SessionDOEnv,
-  ) {}
-
-  async fetch(request: Request): Promise<Response> {
+  override async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url)
 
     if (request.method === 'GET' && url.pathname === '/record') {
@@ -219,18 +214,20 @@ export class SessionDO {
       return await this.runSerializedCommand(() => this.handleSessionProjectionCommand(request))
     }
 
-    return json({ error: 'Not found' }, 404)
+    return await super.onRequest(request)
   }
 
-  async alarm(): Promise<void> {
+  override async onAlarm(): Promise<void> {
     await this.runSerializedCommand(async () => {
       await this.retryPendingLifecycleSync()
+      await this.handleDraftRuntimeAlarmIfDue()
+      await this.rescheduleSessionAlarm(await this.getRecord())
       return json({ ok: true })
     })
   }
 
   private async getRecord(): Promise<SessionRecord | null> {
-    return await this.state.storage.get<SessionRecord>(SESSION_RECORD_STORAGE_KEY) ?? null
+    return await this.ctx.storage.get<SessionRecord>(SESSION_RECORD_STORAGE_KEY) ?? null
   }
 
   private async handleCreateFromLobby(request: Request): Promise<Response> {
@@ -436,8 +433,7 @@ export class SessionDO {
 
     let room: { matchId: string, seats: DraftSeat[] }
     try {
-      room = await createDraftRoom(record.mode, selectedEntries, {
-        mainNamespace: this.env.Main,
+      const runtime = buildDraftRuntimeConfig(record.mode, selectedEntries, {
         matchId,
         hostId: record.hostId,
         leaderDataVersion: record.config.leaderDataVersion,
@@ -447,12 +443,12 @@ export class SessionDO {
         mapVoteEnabled: record.config.mapVoteEnabled,
         randomDraft: record.config.randomDraft,
         duplicateFactions: record.config.duplicateFactions,
-        botHost: this.env.BOT_HOST,
-        internalSecret: this.env.CIVUP_SECRET,
         timerConfig,
         leaderPoolSize: record.config.leaderPoolSize,
         dealOptionsSize: record.config.dealOptionsSize,
       })
+      await this.initializeDraftRuntime(runtime.config, { existing: await this.getRoomRecord() })
+      room = { matchId: runtime.matchId, seats: runtime.seats }
       await createDraftMatch(createDb(this.env.DB), { matchId: room.matchId, mode: record.mode, seats: room.seats })
       await clearQueue(this.env.KV, record.mode, record.roster.participants.map(member => member.playerId))
     }
@@ -574,6 +570,17 @@ export class SessionDO {
     const result = await this.syncDraftLifecyclePayload(payload)
     if (!result.ok) return json({ error: result.error }, result.status)
     return json({ ok: true, ignored: result.ignored, synced: result.synced })
+  }
+
+  protected override async syncDraftRuntimeLifecyclePayload(payload: DraftLifecyclePayload, action: string): Promise<void> {
+    const result = await this.syncDraftLifecyclePayload(payload)
+    if (result.ok) return
+
+    console.error('[session-do] lifecycle sync deferred', buildDraftLifecycleLogContext(payload, {
+      action,
+      status: result.status,
+      error: result.error,
+    }))
   }
 
   private async retryPendingLifecycleSync(): Promise<void> {
@@ -876,7 +883,7 @@ export class SessionDO {
   private async commitRecord(record: SessionRecord): Promise<Response | null> {
     try {
       if (this.env.DB) await projectSessionRecord(createDb(this.env.DB), record)
-      await this.state.storage.put(SESSION_RECORD_STORAGE_KEY, record)
+      await this.ctx.storage.put(SESSION_RECORD_STORAGE_KEY, record)
       if (this.env.KV) {
         const lobby = buildLobbyProjectionFromSessionRecord(record)
         await putLobby(this.env.KV, lobby)
@@ -895,27 +902,39 @@ export class SessionDO {
   }
 
   private async storeRecordOnly(record: SessionRecord): Promise<void> {
-    await this.state.storage.put(SESSION_RECORD_STORAGE_KEY, record)
+    await this.ctx.storage.put(SESSION_RECORD_STORAGE_KEY, record)
     await this.scheduleLifecycleSyncAlarm(record)
   }
 
   private async scheduleLifecycleSyncAlarm(record: SessionRecord): Promise<void> {
-    const pending = record.lifecycleSync ?? null
-    if (!pending) {
-      await this.clearLifecycleSyncAlarm()
-      return
-    }
-    if (pending.nextRetryAt <= 0) {
-      await this.clearLifecycleSyncAlarm()
-      return
-    }
-    const storage = this.state.storage as DurableObjectStorage & { setAlarm?: (scheduledTime: number | Date) => Promise<void> }
-    if (typeof storage.setAlarm === 'function') await storage.setAlarm(pending.nextRetryAt)
+    await this.rescheduleSessionAlarm(record)
   }
 
   private async clearLifecycleSyncAlarm(): Promise<void> {
-    const storage = this.state.storage as DurableObjectStorage & { deleteAlarm?: () => Promise<void> }
-    if (typeof storage.deleteAlarm === 'function') await storage.deleteAlarm()
+    await this.rescheduleSessionAlarm(await this.getRecord())
+  }
+
+  protected override async setDraftRuntimeAlarm(_nextAlarm: number | null): Promise<void> {
+    await this.rescheduleSessionAlarm(await this.getRecord())
+  }
+
+  private async rescheduleSessionAlarm(record: SessionRecord | null): Promise<void> {
+    const lifecycleRetryAt = record?.lifecycleSync && record.lifecycleSync.nextRetryAt > 0
+      ? record.lifecycleSync.nextRetryAt
+      : null
+    const draftRuntimeAlarmAt = await this.getDraftRuntimeAlarmAt()
+    const candidates = [lifecycleRetryAt, draftRuntimeAlarmAt].filter((value): value is number => typeof value === 'number')
+    const storage = this.ctx.storage as DurableObjectStorage & {
+      setAlarm?: (scheduledTime: number | Date) => Promise<void>
+      deleteAlarm?: () => Promise<void>
+    }
+
+    if (candidates.length === 0) {
+      if (typeof storage.deleteAlarm === 'function') await storage.deleteAlarm()
+      return
+    }
+
+    if (typeof storage.setAlarm === 'function') await storage.setAlarm(Math.min(...candidates))
   }
 
   private async publishActivityUpdate(record: SessionRecord): Promise<void> {

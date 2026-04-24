@@ -426,8 +426,8 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     try {
       const result = await startLobbyDraft(lobby.mode, lobby.id, currentUserId)
       if (!result.ok) return showErrorMessage(result.error)
-      props.onLobbyStarted?.(result.matchId, lobby.steamLobbyLink, result.roomAccessToken)
-      showInfoMessage('Draft room created. Opening draft...')
+      props.onLobbyStarted?.(result.matchId, lobby.steamLobbyLink, result.sessionAccessToken)
+      showInfoMessage('Draft created. Opening draft...')
     }
     finally {
       setStartPending(false)

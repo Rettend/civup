@@ -135,7 +135,7 @@ export async function getSessionRecord(
 
   const id = namespace.idFromName(sessionId)
   const stub = namespace.get(id)
-  const response = await stub.fetch('https://session.local/record')
+  const response = await stub.fetch(buildSessionRequest(sessionId, '/record'))
   if (response.status === 404) return null
   if (!response.ok) await throwSessionCommandError(response, `read session record for ${sessionId}`)
 
@@ -152,11 +152,11 @@ export async function startSessionDraft(
 
   const id = namespace.idFromName(sessionId)
   const stub = namespace.get(id)
-  const response = await stub.fetch('https://session.local/commands/start-draft', {
+  const response = await stub.fetch(buildSessionRequest(sessionId, '/commands/start-draft', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(command),
-  })
+  }))
 
   if (!response.ok) {
     await throwSessionCommandError(response, `start session draft for ${sessionId}`)
@@ -178,11 +178,11 @@ export async function runSessionOpenLobbyCommand(
 
   const id = namespace.idFromName(sessionId)
   const stub = namespace.get(id)
-  const response = await stub.fetch('https://session.local/commands/open-lobby', {
+  const response = await stub.fetch(buildSessionRequest(sessionId, '/commands/open-lobby', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(command),
-  })
+  }))
 
   if (!response.ok) {
     await throwSessionCommandError(response, `open lobby command ${command.type} for ${sessionId}`)
@@ -202,11 +202,11 @@ export async function runSessionDraftLifecycleCommand(
 
   const id = namespace.idFromName(sessionId)
   const stub = namespace.get(id)
-  const response = await stub.fetch('https://session.local/commands/draft-lifecycle', {
+  const response = await stub.fetch(buildSessionRequest(sessionId, '/commands/draft-lifecycle', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(command),
-  })
+  }))
 
   if (!response.ok) {
     await throwSessionCommandError(response, `run draft lifecycle command ${command.type} for ${sessionId}`)
@@ -226,11 +226,11 @@ export async function syncSessionDraftLifecyclePayload(
 
   const id = namespace.idFromName(sessionId)
   const stub = namespace.get(id)
-  const response = await stub.fetch('https://session.local/commands/draft-lifecycle-sync', {
+  const response = await stub.fetch(buildSessionRequest(sessionId, '/commands/draft-lifecycle-sync', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  })
+  }))
 
   const body = await response.json<{ ok?: boolean, ignored?: boolean, synced?: boolean, error?: string }>().catch(() => null)
   if (!response.ok) {
@@ -249,11 +249,11 @@ export async function runSessionProjectionCommand(
 
   const id = namespace.idFromName(sessionId)
   const stub = namespace.get(id)
-  const response = await stub.fetch('https://session.local/commands/session-projection', {
+  const response = await stub.fetch(buildSessionRequest(sessionId, '/commands/session-projection', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(command),
-  })
+  }))
 
   if (!response.ok) {
     await throwSessionCommandError(response, `run session projection command ${command.type} for ${sessionId}`)
@@ -273,14 +273,14 @@ async function postSessionLobbyCommand(
 
   const id = namespace.idFromName(lobby.id)
   const stub = namespace.get(id)
-  const response = await stub.fetch('https://session.local/commands/create-from-lobby', {
+  const response = await stub.fetch(buildSessionRequest(lobby.id, '/commands/create-from-lobby', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       lobby,
       queueEntries,
     }),
-  })
+  }))
 
   if (!response.ok) {
     await throwSessionCommandError(response, `create session aggregate for ${lobby.id}`)
@@ -289,6 +289,16 @@ async function postSessionLobbyCommand(
   const body = await response.json<{ record?: SessionRecord }>()
   if (!body.record) throw new Error(`Failed to create session aggregate for ${lobby.id}: invalid response`)
   return body.record
+}
+
+function buildSessionRequest(sessionId: string, pathname: string, init?: RequestInit): Request {
+  const headers = new Headers(init?.headers)
+  headers.set('x-partykit-room', sessionId)
+  headers.set('x-partykit-namespace', 'session')
+  return new Request(`https://session.local${pathname}`, {
+    ...init,
+    headers,
+  })
 }
 
 async function throwSessionCommandError(response: Response, label: string): Promise<never> {
