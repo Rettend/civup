@@ -4,6 +4,7 @@ import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed } from '.
 import type { DraftLifecyclePayload as DraftWebhookPayload } from '../../session-runtime/draft-lifecycle-events.ts'
 import { buildLobbyStateFromSessionRecord, buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 import { runSessionDraftLifecycleCommand } from '../../session-runtime/session-do-client.ts'
+import { canOpenSwapWindowForState } from '../../session-runtime/swap-window.ts'
 import { buildOpenLobbyRenderPayload, clearLobbyById, getLobbyByMatch, mapLobbySlotsToEntries, upsertLobbyMessage } from '../lobby/index.ts'
 import { syncLobbyDerivedState } from '../lobby/live-snapshot.ts'
 import { clearMatchMessageMapping, storeMatchMessageMapping } from './message.ts'
@@ -77,6 +78,7 @@ async function handleDraftCompleted(
       : 'draft-completed'
   const record = await runSessionDraftLifecycleCommand(env.SessionDO, payload.matchId, {
     type: lifecycleType,
+    ...(lifecycleType === 'draft-completed' ? { opensSwapWindow: canOpenSwapWindowForState(payload.state) } : {}),
     at: payload.completedAt,
   })
 

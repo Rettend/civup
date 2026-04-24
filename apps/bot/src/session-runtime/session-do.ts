@@ -125,7 +125,12 @@ type OpenLobbyCommandRequest
 
 type DraftLifecycleCommandRequest
   = | {
-    type: 'draft-completed' | 'swap-accepted' | 'draft-finalized'
+    type: 'draft-completed'
+    opensSwapWindow?: boolean
+    at?: number
+  }
+  | {
+    type: 'swap-accepted' | 'draft-finalized'
     at?: number
   }
   | {
@@ -450,10 +455,31 @@ export class SessionDO {
     let record: SessionRecord
     switch (body.type) {
       case 'draft-completed':
+        if (existing.phase === 'swap' || existing.phase === 'active') return json({ ok: true, record: existing })
+        if (existing.phase !== 'draft') return json({ error: `Session is not in draft (phase: ${existing.phase})` }, 409)
+        record = {
+          ...existing,
+          phase: body.opensSwapWindow === true ? 'swap' : 'active',
+          version: existing.version + 1,
+          updatedAt: at,
+          lastActivityAt: at,
+          closedAt: null,
+        }
+        break
       case 'swap-accepted':
+        if (existing.phase === 'active') return json({ ok: true, record: existing })
+        if (existing.phase !== 'swap') return json({ error: `Session is not in swap (phase: ${existing.phase})` }, 409)
+        record = {
+          ...existing,
+          version: existing.version + 1,
+          updatedAt: at,
+          lastActivityAt: at,
+          closedAt: null,
+        }
+        break
       case 'draft-finalized':
         if (existing.phase === 'active') return json({ ok: true, record: existing })
-        if (existing.phase !== 'draft') return json({ error: `Session is not in draft (phase: ${existing.phase})` }, 409)
+        if (existing.phase !== 'swap') return json({ error: `Session is not in swap (phase: ${existing.phase})` }, 409)
         record = {
           ...existing,
           phase: 'active',
@@ -471,7 +497,7 @@ export class SessionDO {
           break
         }
         if (existing.phase === 'cancelled') return json({ ok: true, record: existing })
-        if (existing.phase !== 'draft') return json({ error: `Session is not in draft (phase: ${existing.phase})` }, 409)
+        if (existing.phase !== 'draft' && existing.phase !== 'swap') return json({ error: `Session is not cancellable (phase: ${existing.phase})` }, 409)
         record = {
           ...existing,
           phase: 'cancelled',

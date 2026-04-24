@@ -2,7 +2,7 @@ import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
 
 export type SessionId = string
-export type SessionPhase = 'open' | 'draft' | 'active' | 'reported' | 'cancelled'
+export type SessionPhase = 'open' | 'draft' | 'swap' | 'active' | 'reported' | 'cancelled'
 
 export interface SessionConfig extends LobbyDraftConfig {
   minRole: CompetitiveTier | null
@@ -61,6 +61,13 @@ export interface DraftSessionRecord extends BaseSessionRecord {
   closedAt: null
 }
 
+export interface SwapSessionRecord extends BaseSessionRecord {
+  phase: 'swap'
+  matchId: string
+  frozenAt: number
+  closedAt: null
+}
+
 export interface ActiveSessionRecord extends BaseSessionRecord {
   phase: 'active'
   matchId: string
@@ -83,6 +90,7 @@ export interface CancelledSessionRecord extends BaseSessionRecord {
 export type SessionRecord =
   | OpenSessionRecord
   | DraftSessionRecord
+  | SwapSessionRecord
   | ActiveSessionRecord
   | ReportedSessionRecord
   | CancelledSessionRecord
@@ -159,6 +167,7 @@ export function buildSessionRecordFromLobby(
         frozenAt: lobby.updatedAt,
         closedAt: null,
       }
+    case 'swap':
     case 'active':
       return {
         ...base,
@@ -326,6 +335,8 @@ function mapSessionPhaseToLobbyStatus(phase: SessionPhase, currentStatus: LobbyS
       return 'open'
     case 'draft':
       return 'drafting'
+    case 'swap':
+      return 'active'
     case 'active':
       return 'active'
     case 'reported':
