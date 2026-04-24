@@ -101,20 +101,24 @@ type OpenLobbyCommandRequest
     queueEntries?: QueueEntry[]
   }
   | {
-    type: 'update-open-lobby'
+    type: 'set-roster'
     expectedVersion?: number
-    mode?: GameMode
-    channelId?: string
-    messageId?: string
-    steamLobbyLink?: string | null
-    minRole?: CompetitiveTier | null
-    maxRole?: CompetitiveTier | null
-    draftConfig?: LobbyDraftConfig
-    slots?: (string | null)[]
-    memberPlayerIds?: string[]
-    lastArrange?: LobbyArrangeMarker | null
+    memberPlayerIds: string[]
+    slots: (string | null)[]
     lastActivityAt?: number
-    updatedAt?: number
+    now?: number
+    queueEntries?: QueueEntry[]
+  }
+  | {
+    type: 'change-mode'
+    expectedVersion?: number
+    mode: GameMode
+    draftConfig: LobbyDraftConfig
+    slots: (string | null)[]
+    minRole: CompetitiveTier | null
+    maxRole: CompetitiveTier | null
+    lastActivityAt?: number
+    now?: number
     queueEntries?: QueueEntry[]
   }
   | {
@@ -334,8 +338,28 @@ export class SessionDO {
         })
         break
       }
-      case 'update-open-lobby':
-        record = applyOpenSessionPatch(existing, body)
+      case 'set-roster':
+        record = applyOpenSessionPatch(existing, {
+          expectedVersion: body.expectedVersion,
+          memberPlayerIds: body.memberPlayerIds,
+          slots: body.slots,
+          lastActivityAt: body.lastActivityAt,
+          updatedAt: body.now,
+          queueEntries: body.queueEntries,
+        })
+        break
+      case 'change-mode':
+        record = applyOpenSessionPatch(existing, {
+          expectedVersion: body.expectedVersion,
+          mode: body.mode,
+          draftConfig: body.draftConfig,
+          slots: body.slots,
+          minRole: body.minRole,
+          maxRole: body.maxRole,
+          lastActivityAt: body.lastActivityAt,
+          updatedAt: body.now,
+          queueEntries: body.queueEntries,
+        })
         break
       case 'cancel-open-session':
         record = cancelOpenSession(existing, body.now)

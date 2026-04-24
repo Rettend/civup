@@ -164,16 +164,19 @@ describe('SessionDO open session commands', () => {
     expect(staleResponse.record.projectionState.steamLobbyLink).toBeNull()
 
     const rosterResponse = await openLobbyCommand(room, {
-      type: 'set-member-player-ids',
+      type: 'set-roster',
       expectedVersion: 2,
       now: 31,
       memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+      lastActivityAt: 31,
       queueEntries: [
         { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
         { playerId: 'p2', displayName: 'Player Two', avatarUrl: 'avatar-2', joinedAt: 11 },
       ],
     })
     expect(rosterResponse.record.version).toBe(3)
+    expect(rosterResponse.record.lastActivityAt).toBe(31)
     expect(rosterResponse.record.roster.participants.map((member: any) => member.playerId)).toEqual(['p1', 'p2'])
     expect(rosterResponse.record.roster.participants[1]).toMatchObject({
       playerId: 'p2',
@@ -181,27 +184,44 @@ describe('SessionDO open session commands', () => {
       avatarUrl: 'avatar-2',
       joinedAt: 11,
     })
+    expect(rosterResponse.record.roster.slots).toEqual(['p1', 'p2'])
+
+    const modeResponse = await openLobbyCommand(room, {
+      type: 'change-mode',
+      expectedVersion: 3,
+      now: 35,
+      mode: '2v2',
+      draftConfig: { ...DEFAULT_DRAFT_CONFIG },
+      minRole: null,
+      maxRole: null,
+      slots: ['p1', 'p2', null, null],
+      lastActivityAt: 35,
+    })
+    expect(modeResponse.record.version).toBe(4)
+    expect(modeResponse.record.mode).toBe('2v2')
+    expect(modeResponse.record.lastActivityAt).toBe(35)
+    expect(modeResponse.record.roster.slots).toEqual(['p1', 'p2', null, null])
 
     const arrangeResponse = await openLobbyCommand(room, {
       type: 'arrange-roster',
-      expectedVersion: 3,
+      expectedVersion: 4,
       at: 40,
       strategy: 'balance',
-      slots: ['p2', 'p1'],
+      slots: ['p2', 'p1', null, null],
     })
-    expect(arrangeResponse.record.version).toBe(4)
+    expect(arrangeResponse.record.version).toBe(5)
     expect(arrangeResponse.record.lastArrange).toEqual({ strategy: 'balance', at: 40 })
     expect(arrangeResponse.record.lastActivityAt).toBe(40)
-    expect(arrangeResponse.record.roster.slots).toEqual(['p2', 'p1'])
+    expect(arrangeResponse.record.roster.slots).toEqual(['p2', 'p1', null, null])
 
     const cancelResponse = await openLobbyCommand(room, {
       type: 'cancel-open-session',
-      expectedVersion: 4,
+      expectedVersion: 5,
       now: 50,
     })
     expect(cancelResponse.record).toMatchObject({
       phase: 'cancelled',
-      version: 5,
+      version: 6,
       updatedAt: 50,
       closedAt: 50,
     })
