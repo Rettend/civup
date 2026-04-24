@@ -341,7 +341,7 @@ describe('system scenarios', () => {
     expect(await world.lobby.getById(lobby.id)).toBeNull()
   })
 
-  test('dropped completion lifecycle sync keeps the draft live until indexed replay, then applies stored activation and finalization payloads', async () => {
+  test('deferred completion payloads keep the draft live until delivered, then apply activation and finalization', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '2v2',
@@ -1135,7 +1135,7 @@ describe('system scenarios', () => {
     expect(await world.match.getMessageIds(started.matchId)).toEqual(messageIdsAfterFirstReport)
   })
 
-  test('stale old scrub replay after players move on to a newer open lobby does not clear the newer lobby bindings or message', async () => {
+  test('stale cancellation redelivery after players move on does not clear the newer lobby bindings or message', async () => {
     const world = await createTrackedWorld()
     const oldLobby = await world.lobby.createOpen({
       mode: '1v1',

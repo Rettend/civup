@@ -176,7 +176,7 @@ export interface ActivityLaunchSnapshot {
   options: ActivityTargetOption[]
 }
 
-export interface PartySocketTarget {
+export interface SessionSocketTarget {
   host: string
   prefix?: string
   label?: string
@@ -195,7 +195,7 @@ const SESSION_SOCKET_MAX_RETRIES = 12
 // ── Socket ─────────────────────────────────────────────────
 
 let socket: PartySocket | null = null
-let currentSessionConnection: { target: PartySocketTarget, sessionId: string, sessionAccessToken: string } | null = null
+let currentSessionConnection: { target: SessionSocketTarget, sessionId: string, sessionAccessToken: string } | null = null
 let staleDraftReconnectInterval: ReturnType<typeof setInterval> | null = null
 let lastSocketActivityAt = 0
 let lastForcedReconnectTimerEndsAt: number | null = null
@@ -210,7 +210,7 @@ let pendingConfigAck:
 let lastSentPreviewKeys: Partial<Record<DraftAction, string>> = {}
 
 /** Connect to the selected session runtime socket. */
-export function connectToSession(target: PartySocketTarget, sessionId: string, sessionAccessToken: string | null) {
+export function connectToSession(target: SessionSocketTarget, sessionId: string, sessionAccessToken: string | null) {
   stopStaleDraftReconnectWatchdog()
   const previousSocket = socket
   socket = null
@@ -293,7 +293,7 @@ export function connectToSession(target: PartySocketTarget, sessionId: string, s
         reason,
         sessionId,
         retryCount: nextSocket.retryCount,
-        target: describePartySocketTarget(target),
+        target: describeSessionSocketTarget(target),
       })
 
       if (shouldRetrySessionSocket(nextSocket, code)) {
@@ -325,7 +325,7 @@ export function connectToSession(target: PartySocketTarget, sessionId: string, s
       relayDevLog('warn', 'Session socket connection interrupted', {
         sessionId,
         retryCount: nextSocket.retryCount,
-        target: describePartySocketTarget(target),
+        target: describeSessionSocketTarget(target),
       })
       setConnectionStatus('reconnecting')
       setConnectionError(null)
@@ -334,7 +334,7 @@ export function connectToSession(target: PartySocketTarget, sessionId: string, s
 
     relayDevLog('error', 'Session socket connection failed', {
       sessionId,
-      target: describePartySocketTarget(target),
+      target: describeSessionSocketTarget(target),
     })
     socket = null
     stopStaleDraftReconnectWatchdog()
@@ -382,7 +382,7 @@ function startStaleDraftReconnectWatchdog() {
       timerEndsAt: draftStore.timerEndsAt,
       currentStepIndex: draftStore.state?.currentStepIndex ?? null,
       lastSocketActivityAt,
-      target: describePartySocketTarget(currentSession.target),
+      target: describeSessionSocketTarget(currentSession.target),
     })
     connectToSession(currentSession.target, currentSession.sessionId, currentSession.sessionAccessToken)
   }, STALE_DRAFT_RECONNECT_CHECK_MS)
@@ -394,8 +394,8 @@ function stopStaleDraftReconnectWatchdog() {
   staleDraftReconnectInterval = null
 }
 
-/** Directory/session-owned push replaces the deleted global State room. */
-export function watchLobbyState(target: PartySocketTarget, options: LobbyStateWatchOptions): LobbyStateWatch {
+/** Directory/session-owned push drives overview updates. */
+export function watchLobbyState(target: SessionSocketTarget, options: LobbyStateWatchOptions): LobbyStateWatch {
   let closed = false
   const activitySessionToken = getActivitySessionToken()
   if (!activitySessionToken) {
@@ -1045,7 +1045,7 @@ function syncForcedReconnectTimer(timerEndsAt: number | null) {
   }
 }
 
-function describePartySocketTarget(target: PartySocketTarget): string {
+function describeSessionSocketTarget(target: SessionSocketTarget): string {
   return `${target.label ?? 'socket'}:${target.host}/${target.prefix ?? 'api/parties'}`
 }
 

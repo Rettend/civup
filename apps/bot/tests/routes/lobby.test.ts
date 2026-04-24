@@ -384,7 +384,7 @@ describe('lobby routes', () => {
     })
   })
 
-  test('slot removal ignores legacy party ids', async () => {
+  test('slot removal only removes the selected player', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)

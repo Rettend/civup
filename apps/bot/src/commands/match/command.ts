@@ -9,7 +9,7 @@ import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDra
 import { getMatchForUser } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
-import { clearLobbyById, clearLobbyByMatch, createLobby, filterQueueEntriesForLobby, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyDraftRoster, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, setLobbyLastActivityAt, setLobbyRoster, setLobbyStatus, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
+import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getLobbyBumpCooldownRemainingMs, getLobbyById, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, setLobbyLastActivityAt, setLobbyRoster, setLobbyStatus, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
@@ -715,7 +715,7 @@ export const command_match = factory.command<MatchVar>(
             return
           }
 
-          const fallbackLobby = match.status === 'completed'
+          const liveLobbyBeforeReport = match.status === 'completed'
             ? null
             : await getSessionLobbyProjectionByMatch(db, match.id)
           let placements = ''
@@ -817,7 +817,7 @@ export const command_match = factory.command<MatchVar>(
             return
           }
 
-          const lobby = fallbackLobby
+          const lobby = liveLobbyBeforeReport
           const isRankedResult = reportedContext.ranked
 
           if (result.idempotent) {
@@ -837,7 +837,7 @@ export const command_match = factory.command<MatchVar>(
               lobby,
               archivePolicy: 'if-missing',
             })
-            await clearLobbyByMatch(kv, result.match.id)
+            await clearLobbyById(kv, result.match.id, lobby)
             await sendTransientEphemeralResponse(c, `Match **${result.match.id}** was already reported. Checked Discord result state.`, 'info')
             return
           }
@@ -888,7 +888,7 @@ export const command_match = factory.command<MatchVar>(
             },
             archivePolicy: 'always',
           })
-          await clearLobbyByMatch(kv, result.match.id)
+          await clearLobbyById(kv, result.match.id, lobby)
 
           if (isRankedResult) {
             try {
@@ -952,7 +952,7 @@ async function buildLobbyBumpRenderPayload(
   }
 
   if (lobby.status === 'drafting') {
-    const draftRoster = await getLobbyDraftRoster(kv, lobby.id)
+    const draftRoster = await getLobbyRosterEntriesForRender(sessionNamespace, lobby)
     return {
       embeds: [lobbyDraftingEmbed(lobby.mode, buildDraftSeatsFromLobby(lobby, draftRoster), lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
       components: lobbyComponents(lobby.mode, lobby.id),
