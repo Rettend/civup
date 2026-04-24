@@ -3,7 +3,6 @@ import { createDb } from '@civup/db'
 import { formatModeLabel } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
-import { clearLobbyMappings } from '../services/activity/index.ts'
 import { createChannelMessage } from '../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { rebuildLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
@@ -97,7 +96,6 @@ export const command_mod = factory.command<ModVar>(
               })
             }
 
-            await clearLobbyMappings(kv, directLobby.memberPlayerIds, directLobby.channelId, directLobby.id)
             try {
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, directLobby, {
                 embeds: [lobbyCancelledEmbed(directLobby.mode, [], 'cancel', { actorId, reason }, directLobby.draftConfig.leaderDataVersion, directLobby.draftConfig.redDeath)],

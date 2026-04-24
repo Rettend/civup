@@ -1,7 +1,7 @@
 import type { GameMode } from '@civup/game'
 import { createDb } from '@civup/db'
 import { Button } from 'discord-hono'
-import { clearActivityMappings, clearLobbyMappings, getMatchForUser, storeMatchActivityState, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
+import { getMatchForUser } from '../../services/activity/index.ts'
 import { clearLobbyById, getLobbyById } from '../../services/lobby/index.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIds } from '../../services/match/live.ts'
 import { getMatchIdForMessage } from '../../services/match/message.ts'
@@ -24,81 +24,31 @@ export const component_match_join = factory.component(
     }
 
     const env = c.env
-    const interactionChannelId = c.interaction.channel_id ?? null
     const kv = createStateStore(env)
-
-    if (interactionChannelId) {
-      await storeUserLobbyState(kv, interactionChannelId, [identity.userId], lobbyId, { pendingJoin: true })
-    }
 
     queueBackgroundTask(c, async () => {
       const lobby = await getLobbyById(kv, lobbyId)
       if (!lobby) {
         const userMatchId = await resolveJoinButtonLiveMatchId(kv, env.DB, identity.userId, c.interaction.message?.id ?? null)
 
-        if (userMatchId) {
-          if (interactionChannelId) {
-            await storeUserActivityTarget(kv, interactionChannelId, [identity.userId], {
-              kind: 'match',
-              id: userMatchId,
-              activitySecret: env.CIVUP_SECRET,
-            })
-          }
-          await storeUserMatchMappings(kv, [identity.userId], userMatchId)
-          return
-        }
-
-        if (interactionChannelId) {
-            await clearLobbyMappings(kv, [identity.userId], interactionChannelId, lobbyId)
-        }
+        if (userMatchId) return
         return
       }
 
       if (lobby.status !== 'open') {
-        if (!lobby.matchId) {
-          if (interactionChannelId) {
-            await clearLobbyMappings(kv, [identity.userId], interactionChannelId, lobby.id)
-          }
-          return
-        }
+        if (!lobby.matchId) return
 
         const persistedLiveMatchIds = await findPersistedLiveMatchIds(env.DB, [lobby.matchId])
-        if (persistedLiveMatchIds && !persistedLiveMatchIds.has(lobby.matchId)) {
-          if (interactionChannelId) {
-              await clearLobbyMappings(kv, [identity.userId], interactionChannelId, lobby.id)
-          }
-          return
-        }
-
-        await storeMatchActivityState(kv, lobby.channelId, [identity.userId], {
-          matchId: lobby.matchId,
-          lobbyId: lobby.id,
-          mode: lobby.mode,
-          steamLobbyLink: lobby.steamLobbyLink,
-          activitySecret: env.CIVUP_SECRET,
-        })
-        await storeUserMatchMappings(kv, [identity.userId], lobby.matchId)
+        if (persistedLiveMatchIds && !persistedLiveMatchIds.has(lobby.matchId)) return
         return
       }
 
-      if (lobby.memberPlayerIds.length === 0) {
-        if (interactionChannelId) {
-            await clearLobbyMappings(kv, [identity.userId], interactionChannelId, lobby.id)
-        }
-        return
-      }
+      if (lobby.memberPlayerIds.length === 0) return
 
       const db = createDb(env.DB)
       const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, [identity.userId])
       const currentMatchId = blockingDraftMatchIdByPlayer.get(identity.userId) ?? null
-      if (currentMatchId) {
-        await storeMatchActivityState(kv, lobby.channelId, [identity.userId], {
-          matchId: currentMatchId,
-          activitySecret: env.CIVUP_SECRET,
-        })
-        await storeUserMatchMappings(kv, [identity.userId], currentMatchId)
-        return
-      }
+      if (currentMatchId) return
 
       const outcome = await joinLobbyAndMaybeStartMatch(
         { env },
@@ -115,7 +65,6 @@ export const component_match_join = factory.component(
         },
       )
       if ('error' in outcome) {
-        await storeUserLobbyState(kv, lobby.channelId, [identity.userId], lobby.id)
         console.warn('[match-join] join failed after activity launch', {
           mode,
           userId: identity.userId,
@@ -125,7 +74,6 @@ export const component_match_join = factory.component(
       }
 
       try {
-        await storeUserLobbyState(kv, outcome.lobby.channelId, [identity.userId], outcome.lobby.id)
         await upsertLobbyMessage(kv, env.DISCORD_TOKEN, outcome.lobby, {
           embeds: outcome.embeds,
           components: outcome.components,
@@ -160,13 +108,10 @@ export async function resolveJoinButtonLiveMatchId(
   }
 
   userMatchId = await getMatchForUser(kv, userId)
-  if (userMatchId) {
-    const persistedLiveMatchIds = await findPersistedLiveMatchIds(d1, [userMatchId])
-    if (persistedLiveMatchIds?.has(userMatchId)) return userMatchId
-    if (persistedLiveMatchIds != null) {
-      await clearActivityMappings(kv, userMatchId, [userId])
+    if (userMatchId) {
+      const persistedLiveMatchIds = await findPersistedLiveMatchIds(d1, [userMatchId])
+      if (persistedLiveMatchIds?.has(userMatchId)) return userMatchId
     }
-  }
 
   const blockingDraftMatchIds = await findPersistedBlockingDraftMatchIdsForPlayers(d1, [userId])
   return blockingDraftMatchIds?.get(userId) ?? null

@@ -1,6 +1,6 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
-import { getChannelForMatch, storeMatchMapping, storeUserMatchMappings } from '../../src/services/activity/index.ts'
+import { getChannelForMatch } from '../../src/services/activity/index.ts'
 import { createLobby, getLobbyById, setLobbyMemberPlayerIds, setLobbyStatus, startLobbyDraft } from '../../src/services/lobby/index.ts'
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
@@ -40,9 +40,6 @@ describe('match cleanup reconciliation', () => {
       const draftingLobby = await startLobbyDraft(kv, lobby.id, withMembers ?? lobby)
       const activeLobby = await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
 
-      await storeMatchMapping(kv, 'channel-1', matchId)
-      await storeUserMatchMappings(kv, ['host', 'player-2'], matchId)
-
       const result = await pruneAbandonedMatches(db, kv)
 
       expect(result.removedMatchIds).toEqual([])
@@ -50,8 +47,6 @@ describe('match cleanup reconciliation', () => {
       expect(await getLobbyById(kv, activeLobby!.id)).toBeNull()
       expect(await kv.get('lobby:host:host')).toBeNull()
       expect(await getChannelForMatch(kv, matchId)).toBeNull()
-      expect(await kv.get('activity-user:host')).toBeNull()
-      expect(await kv.get('activity-user:player-2')).toBeNull()
     }
     finally {
       sqlite.close()

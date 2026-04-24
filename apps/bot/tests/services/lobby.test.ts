@@ -169,13 +169,13 @@ describe('lobby service KV write behavior', () => {
     await expect(kv.get(modeIndexKey('ffa', lobby.id))).resolves.toBe(String(lobby.revision))
   })
 
-  test('getCurrentLobbiesForPlayer clears a stale user lobby mapping when the mapped lobby is gone', async () => {
+  test('getCurrentLobbiesForPlayer ignores legacy user lobby mappings when scan fallback is disabled', async () => {
     const { kv } = createTrackedKv()
 
     await kv.put('activity-lobby-user:player-1', 'missing-lobby')
 
     await expect(getCurrentLobbiesForPlayer(kv, 'player-1', { fallbackToLobbyScan: false })).resolves.toEqual([])
-    await expect(kv.get('activity-lobby-user:player-1')).resolves.toBeNull()
+    await expect(kv.get('activity-lobby-user:player-1')).resolves.toBe('missing-lobby')
   })
 
   test('retains live lobby state longer than abandoned active matches', () => {

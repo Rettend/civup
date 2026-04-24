@@ -2,7 +2,6 @@ import type { GameMode, QueueState } from '@civup/game'
 import type { LobbyState } from './types.ts'
 import { GAME_MODES, slotToTeamIndex } from '@civup/game'
 import { lobbyTimeoutEmbed } from '../../embeds/match.ts'
-import { clearLobbyMappings } from '../activity/index.ts'
 import { clearQueue, getQueueState, getQueueStates } from '../queue/index.ts'
 import { upsertLobbyMessage } from './message.ts'
 import { setLobbyStatus } from './mutations.ts'
@@ -100,7 +99,6 @@ async function expireOpenLobby(
     await clearQueue(kv, lobby.mode, removedPlayerIds, {
       currentState: queue,
     })
-    await clearLobbyMappings(kv, removedPlayerIds, lobby.channelId, lobby.id)
   }
 
   await clearLobbyById(kv, lobby.id, cancelledLobby)

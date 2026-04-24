@@ -6,7 +6,6 @@ import { matchBans, matches, matchParticipants, playerRatings, playerRatingSeeds
 import { isTeamMode } from '@civup/game'
 import { calculateRatings, createRating } from '@civup/rating'
 import { and, eq, gt } from 'drizzle-orm'
-import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
 import { closeLobbySessionProjectionByMatch } from '../session/index.ts'
@@ -446,13 +445,6 @@ async function ensureReportedMatchCleanup(
   await closeLobbySessionProjectionByMatch(db, matchId)
   await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
 
-  const channelId = await getChannelForMatch(kv, matchId)
-  await clearActivityMappings(
-    kv,
-    matchId,
-    participantRows.map(participant => participant.playerId),
-    channelId ?? undefined,
-  )
 }
 
 async function rollbackReportedRatedMatch(
@@ -544,14 +536,6 @@ async function finalizeReportedUnrankedMatch(
     .where(eq(matches.id, matchId))
 
   await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
-
-  const channelId = await getChannelForMatch(kv, matchId)
-  await clearActivityMappings(
-    kv,
-    matchId,
-    participantRows.map(participant => participant.playerId),
-    channelId ?? undefined,
-  )
 
   const [updatedMatch] = await db
     .select()

@@ -6,7 +6,7 @@ import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, isT
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/match.ts'
-import { clearLobbyMappings, clearUserLobbyMappings, getMatchForUser, storeUserActivityTarget, storeUserLobbyState, storeUserMatchMappings } from '../../services/activity/index.ts'
+import { getMatchForUser } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
 import { clearLobbyById, clearLobbyByMatch, createLobby, filterQueueEntriesForLobby, getCurrentLobbyHostedBy, getLobbiesByMode, getLobbyBumpCooldownRemainingMs, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, getOpenLobbyForPlayer, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, sameLobbySlots, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots, setLobbyStatus, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
@@ -111,7 +111,6 @@ export const command_match = factory.command<MatchVar>(
                 ? (await setLobbySteamLobbyLink(kv, currentHostedLobby.id, steamLobbyLink, currentHostedLobby, { db, sessionNamespace: c.env.SessionDO }) ?? currentHostedLobby)
                 : currentHostedLobby
 
-              await storeUserLobbyState(kv, updatedLobby.channelId, [identity.userId], updatedLobby.id)
               await sendTransientEphemeralResponse(
                 c,
                 steamLobbyLink !== null
@@ -128,7 +127,6 @@ export const command_match = factory.command<MatchVar>(
                 ? (await setLobbySteamLobbyLink(kv, createPreflight.lobby.id, steamLobbyLink, createPreflight.lobby, { db, sessionNamespace: c.env.SessionDO }) ?? createPreflight.lobby)
                 : createPreflight.lobby
 
-              await storeUserLobbyState(kv, updatedLobby.channelId, [identity.userId], updatedLobby.id)
               await sendTransientEphemeralResponse(
                 c,
                 steamLobbyLink !== null
@@ -210,7 +208,6 @@ export const command_match = factory.command<MatchVar>(
               if ((lobby.id === createdLobby.id && lobby.revision !== createdLobby.revision)
                 || (lobby.id === reconciledLobby.id && lobby.revision !== reconciledLobby.revision)) { await syncLobbyDerivedState(kv, lobby) }
 
-              await storeUserLobbyState(kv, lobby.channelId, [identity.userId], lobby.id)
               if (!reusedExisting) {
                 const renderPayload = await buildOpenLobbyRenderPayload(
                   kv,
@@ -316,15 +313,6 @@ export const command_match = factory.command<MatchVar>(
           }
 
           if (userMatchId) {
-            const interactionChannelId = c.interaction.channel_id ?? null
-            if (interactionChannelId) {
-              await storeUserActivityTarget(kv, interactionChannelId, [identity.userId], {
-                kind: 'match',
-                id: userMatchId,
-                activitySecret: c.env.CIVUP_SECRET,
-              })
-            }
-            c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], userMatchId))
             return c.resActivity()
           }
           return c.flags('EPHEMERAL').resDefer(async (c) => {
@@ -359,12 +347,6 @@ export const command_match = factory.command<MatchVar>(
           }
 
           try {
-            await storeUserLobbyState(
-              kv,
-              outcome.lobby.channelId,
-              joinRequest.entries.map(entry => entry.playerId),
-              outcome.lobby.id,
-            )
             await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, outcome.lobby, {
               embeds: outcome.embeds,
               components: outcome.components,
@@ -445,7 +427,6 @@ export const command_match = factory.command<MatchVar>(
               console.error(`Failed to update cancelled lobby embed for match ${matchId}:`, error)
             }
 
-            await clearLobbyMappings(kv, lobby.memberPlayerIds, lobby.channelId, lobby.id)
             await sendTransientEphemeralResponse(c, `Cancelled hosted match **${matchId}**.`, 'success')
             return
           }
@@ -497,8 +478,6 @@ export const command_match = factory.command<MatchVar>(
           }
 
           const removedMode = removed.mode
-          await clearUserLobbyMappings(kv, [identity.userId])
-
           const lobby = currentLobby?.mode === removedMode ? currentLobby : await getOpenLobbyForPlayer(kv, identity.userId, removedMode)
           if (lobby?.status === 'open') {
             const queue = await getQueueState(kv, removedMode)
@@ -728,10 +707,6 @@ export const command_match = factory.command<MatchVar>(
           }
           const matchId = resolvedReportableMatch.matchId
           if (!matchId) return
-
-          if (!c.var.match_id?.trim()) {
-            c.executionCtx.waitUntil(storeUserMatchMappings(kv, [identity.userId], matchId))
-          }
 
           const [match] = await db
             .select({ id: matches.id, gameMode: matches.gameMode, draftData: matches.draftData, status: matches.status })
@@ -1232,7 +1207,6 @@ async function cancelHostedOpenLobby(
     })
   }
 
-  await clearLobbyMappings(kv, lobbyQueueEntries.map(entry => entry.playerId), lobby.channelId, lobby.id)
   const cancelledLobby = await setLobbyStatus(kv, lobby.id, 'cancelled', lobby, options) ?? lobby
   try {
     await upsertLobbyMessage(kv, token, cancelledLobby, {

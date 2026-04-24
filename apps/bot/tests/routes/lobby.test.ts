@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
 import { registerLobbyRoutes } from '../../src/routes/lobby/index.ts'
-import { getLobbyForUser, storeUserActivityTarget, storeUserLobbyMappings } from '../../src/services/activity/index.ts'
+import { getLobbyForUser } from '../../src/services/activity/index.ts'
 import { createLobby, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startLobbyDraft } from '../../src/services/lobby/index.ts'
 import { addToQueue, getPlayerQueueMode } from '../../src/services/queue/index.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
@@ -344,9 +344,6 @@ describe('lobby routes', () => {
 
     const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'pleb'], sourceLobby)
     await setLobbySlots(kv, sourceLobby.id, ['source-host', 'pleb'], populatedSource ?? sourceLobby)
-    await storeUserLobbyMappings(kv, ['pleb'], sourceLobby.id)
-    await storeUserActivityTarget(kv, sourceLobby.channelId, ['pleb'], { kind: 'lobby', id: sourceLobby.id })
-
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -1232,9 +1229,6 @@ describe('lobby routes', () => {
     const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'pleb'], withMember ?? lobby)
     expect(withSlots).not.toBeNull()
 
-    await storeUserLobbyMappings(kv, ['pleb'], lobby.id)
-    await storeUserActivityTarget(kv, lobby.channelId, ['pleb'], { kind: 'lobby', id: lobby.id })
-
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -1267,7 +1261,7 @@ describe('lobby routes', () => {
     expect(updatedLobby?.memberPlayerIds).toEqual(['host', 'pleb'])
   })
 
-  test('removing yourself keeps the current lobby selected for spectating', async () => {
+  test('removing yourself keeps the current lobby available for spectating', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
@@ -1296,9 +1290,6 @@ describe('lobby routes', () => {
     const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'pleb'], withMember ?? lobby)
     expect(withSlots).not.toBeNull()
 
-    await storeUserLobbyMappings(kv, ['pleb'], lobby.id)
-    await storeUserActivityTarget(kv, lobby.channelId, ['pleb'], { kind: 'lobby', id: lobby.id })
-
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -1312,10 +1303,8 @@ describe('lobby routes', () => {
     expect(removeResponse.status).toBe(200)
 
     const snapshot = await buildActivityLaunchSnapshot('token', 'secret', kv, lobby.channelId, 'pleb')
-    expect(snapshot.selection?.kind).toBe('lobby')
-    if (snapshot.selection?.kind !== 'lobby') return
-    expect(snapshot.selection.lobby.id).toBe(lobby.id)
-    expect(snapshot.selection.joinEligibility.canJoin).toBe(true)
+    expect(snapshot.selection).toBeNull()
+    expect(snapshot.options).toContainEqual(expect.objectContaining({ kind: 'lobby', id: lobby.id }))
   })
 
   test('mode changes keep the host seat order when already slotted', async () => {
