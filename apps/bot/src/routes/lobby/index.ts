@@ -1,6 +1,7 @@
 import type { GameMode, QueueEntry } from '@civup/game'
 import type { Context, Hono } from 'hono'
 import type { Env } from '../../env.ts'
+import type { DeferredOpenLobbyTransferSource } from '../../services/lobby/index.ts'
 import { createDb, playerRatings } from '@civup/db'
 import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, toBalanceLeaderboardMode } from '@civup/game'
 import { createSessionAccessToken, isDev } from '@civup/utils'
@@ -12,11 +13,14 @@ import {
   buildOpenLobbyRenderPayload,
   clearLobbyById,
   compactSlottedPremadesForMode,
+  finalizeDeferredOpenLobbyTransferSource,
   getCurrentLobbyForQueuedMessageUpdate,
   getLobbyById,
   leaveOpenLobbyForLobbyJoin,
   mapLobbySlotsToEntries,
   normalizeLobbySlots,
+  restoreDeferredOpenLobbyTransferSourceAdmission,
+  rollbackDeferredOpenLobbyTransferTarget,
   sameLobbySlots,
   setLobbyArranged,
   setLobbyDraftConfig,
@@ -769,6 +773,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     let transferSource: { lobby: NonNullable<typeof blockingLobbyForPlayer>, queueEntries: QueueEntry[] } | null = null
+    let deferredTransferSource: DeferredOpenLobbyTransferSource | null = null
+    const targetLobbyBeforeTransfer = lobby
+    const targetQueueEntriesBeforeTransfer = [...lobbyQueueEntries]
     if (blockingLobbyForPlayer?.status === 'open') {
       const sourceRosterEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, blockingLobbyForPlayer)
       transferSource = { lobby: blockingLobbyForPlayer, queueEntries: sourceRosterEntries }
@@ -783,6 +790,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       if (!transferResult.ok) {
         return c.json({ error: transferResult.error }, 400)
       }
+      deferredTransferSource = transferResult.deferredSource ?? null
     }
 
     const addedRosterEntry = !movingEntry
@@ -811,12 +819,29 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         }, lobby, lobbySessionMutationOptions(c, rosterPatchEntries)) ?? lobby
       }
       catch (error) {
+        if (deferredTransferSource) {
+          const restoredAdmission = await restoreDeferredOpenLobbyTransferSourceAdmission(deferredTransferSource, lobbySessionMutationOptions(c, deferredTransferSource.queueEntries))
+          if (!restoredAdmission.ok) return c.json({ error: restoredAdmission.error }, 409)
+        }
         if (transferSource) {
           const restored = await restoreOpenLobbyTransferSource(kv, c, transferSource.lobby, transferSource.queueEntries, actionAt)
           if (!restored.ok) return c.json({ error: restored.error }, 409)
         }
         if (isSessionAdmissionError(error)) return c.json({ error: formatSessionAdmissionError(error) }, 409)
         throw error
+      }
+    }
+
+    if (deferredTransferSource) {
+      const finalized = await finalizeDeferredOpenLobbyTransferSource(kv, c.env.DISCORD_TOKEN, deferredTransferSource, lobbySessionMutationOptions(c, deferredTransferSource.queueEntries))
+      if (!finalized.ok) {
+        const rolledBack = await rollbackDeferredOpenLobbyTransferTarget(kv, deferredTransferSource, {
+          lobby: targetLobbyBeforeTransfer,
+          queueEntries: targetQueueEntriesBeforeTransfer,
+          at: actionAt,
+        }, lobbySessionMutationOptions(c, targetQueueEntriesBeforeTransfer))
+        if (!rolledBack.ok) return c.json({ error: `${finalized.error} Transfer rollback also failed: ${rolledBack.error}` }, 409)
+        return c.json({ error: `${finalized.error} Transfer was rolled back; please try again.` }, 409)
       }
     }
 

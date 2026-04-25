@@ -3,6 +3,17 @@ import { matches, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { type SessionPhase, type SessionRecord } from '../../session-runtime/session-record.ts'
 
+type SessionDirectoryRow = typeof sessionDirectory.$inferSelect
+type SessionDirectoryMemberRow = typeof sessionDirectoryMembers.$inferSelect
+
+export const SESSION_DIRECTORY_OPEN_STALE_MS = 2 * 60 * 60 * 1000
+
+interface DirectoryProjectionSnapshot {
+  sessionId: string
+  directory: SessionDirectoryRow | null
+  members: SessionDirectoryMemberRow[]
+}
+
 export class SessionAdmissionError extends Error {
   constructor(
     message: string,
@@ -24,45 +35,67 @@ export function formatSessionAdmissionError(error: SessionAdmissionError): strin
   return `${players} already ${error.playerIds.length === 1 ? 'has' : 'have'} a live session. Finish, cancel, or leave it before joining another one.`
 }
 
+export async function releaseSessionDirectoryMembers(
+  db: Database,
+  sessionId: string,
+  playerIds: readonly string[],
+  now: number,
+): Promise<void> {
+  const uniquePlayerIds = [...new Set(playerIds)]
+  if (uniquePlayerIds.length === 0) return
+  await db.update(sessionDirectoryMembers)
+    .set({ leftAt: now, updatedAt: now })
+    .where(and(
+      eq(sessionDirectoryMembers.sessionId, sessionId),
+      inArray(sessionDirectoryMembers.playerId, uniquePlayerIds),
+      isNull(sessionDirectoryMembers.leftAt),
+    ))
+}
+
+export async function restoreSessionDirectoryMembers(
+  db: Database,
+  sessionId: string,
+  playerIds: readonly string[],
+  now: number,
+): Promise<void> {
+  const uniquePlayerIds = [...new Set(playerIds)]
+  if (uniquePlayerIds.length === 0) return
+  await db.update(sessionDirectoryMembers)
+    .set({ leftAt: null, updatedAt: now })
+    .where(and(
+      eq(sessionDirectoryMembers.sessionId, sessionId),
+      inArray(sessionDirectoryMembers.playerId, uniquePlayerIds),
+    ))
+}
+
 export async function projectSessionRecord(
   db: Database,
   record: SessionRecord,
 ): Promise<void> {
-  await runDirectoryProjectionTransaction(db, async tx => projectSessionRecordTransaction(tx, record))
+  await runDirectoryProjectionTransaction(db, async (tx, hasTransactionalRollback) => projectSessionRecordTransaction(tx, record, !hasTransactionalRollback))
 }
 
 async function projectSessionRecordTransaction(
   db: Database,
   record: SessionRecord,
+  useCompensatingRestore: boolean,
 ): Promise<void> {
+  const [currentDirectory] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, record.id)).limit(1)
+  if (currentDirectory && record.version <= currentDirectory.version) return
+  const snapshot = useCompensatingRestore
+    ? await readDirectoryProjectionSnapshot(db, record.id, currentDirectory ?? null)
+    : null
+
   const liveMemberIds = isLiveSessionPhase(record.phase)
     ? record.roster.participants.map(member => member.playerId)
     : []
   const now = record.closedAt ?? Math.max(record.updatedAt, record.lastActivityAt, 1)
-  await assertNoLiveMembershipConflicts(db, record.id, liveMemberIds, now)
+  try {
+    await assertNoLiveMembershipConflicts(db, record.id, liveMemberIds, now)
 
-  const appliedRows = await db.insert(sessionDirectory)
-    .values({
-      sessionId: record.id,
-      phase: record.phase,
-      mode: record.mode,
-      guildId: record.guildId,
-      channelId: record.projectionState.channelId,
-      hostId: record.hostId,
-      messageId: record.projectionState.messageId,
-      matchId: record.matchId,
-      steamLobbyLink: record.projectionState.steamLobbyLink,
-      version: record.version,
-      rosterJson: JSON.stringify(record.roster),
-      configJson: JSON.stringify(record.config),
-      createdAt: record.createdAt,
-      updatedAt: record.updatedAt,
-      lastActivityAt: record.lastActivityAt,
-      closedAt: isLiveSessionPhase(record.phase) ? null : now,
-    })
-    .onConflictDoUpdate({
-      target: sessionDirectory.sessionId,
-      set: {
+    const appliedRows = await db.insert(sessionDirectory)
+      .values({
+        sessionId: record.id,
         phase: record.phase,
         mode: record.mode,
         guildId: record.guildId,
@@ -74,17 +107,87 @@ async function projectSessionRecordTransaction(
         version: record.version,
         rosterJson: JSON.stringify(record.roster),
         configJson: JSON.stringify(record.config),
+        createdAt: record.createdAt,
         updatedAt: record.updatedAt,
         lastActivityAt: record.lastActivityAt,
         closedAt: isLiveSessionPhase(record.phase) ? null : now,
+      })
+      .onConflictDoUpdate({
+        target: sessionDirectory.sessionId,
+        set: {
+          phase: record.phase,
+          mode: record.mode,
+          guildId: record.guildId,
+          channelId: record.projectionState.channelId,
+          hostId: record.hostId,
+          messageId: record.projectionState.messageId,
+          matchId: record.matchId,
+          steamLobbyLink: record.projectionState.steamLobbyLink,
+          version: record.version,
+          rosterJson: JSON.stringify(record.roster),
+          configJson: JSON.stringify(record.config),
+          updatedAt: record.updatedAt,
+          lastActivityAt: record.lastActivityAt,
+          closedAt: isLiveSessionPhase(record.phase) ? null : now,
+        },
+        where: sql`excluded.version > ${sessionDirectory.version}`,
+      })
+      .returning({ version: sessionDirectory.version })
+
+    if (!appliedRows.some(row => row.version === record.version)) return
+
+    await reconcileDirectoryMembers(db, record.id, liveMemberIds, now)
+  }
+  catch (error) {
+    if (snapshot) {
+      await restoreDirectoryProjectionSnapshot(db, snapshot).catch((restoreError) => {
+        console.error('[session-directory] failed to restore projection snapshot after projection error', restoreError)
+      })
+    }
+    throw error
+  }
+}
+
+async function readDirectoryProjectionSnapshot(
+  db: Database,
+  sessionId: string,
+  directory: SessionDirectoryRow | null,
+): Promise<DirectoryProjectionSnapshot> {
+  const members = await db.select().from(sessionDirectoryMembers).where(eq(sessionDirectoryMembers.sessionId, sessionId))
+  return { sessionId, directory, members }
+}
+
+async function restoreDirectoryProjectionSnapshot(db: Database, snapshot: DirectoryProjectionSnapshot): Promise<void> {
+  await db.delete(sessionDirectoryMembers).where(eq(sessionDirectoryMembers.sessionId, snapshot.sessionId))
+  if (!snapshot.directory) {
+    await db.delete(sessionDirectory).where(eq(sessionDirectory.sessionId, snapshot.sessionId))
+    return
+  }
+
+  await db.insert(sessionDirectory)
+    .values(snapshot.directory)
+    .onConflictDoUpdate({
+      target: sessionDirectory.sessionId,
+      set: {
+        phase: snapshot.directory.phase,
+        mode: snapshot.directory.mode,
+        guildId: snapshot.directory.guildId,
+        channelId: snapshot.directory.channelId,
+        hostId: snapshot.directory.hostId,
+        messageId: snapshot.directory.messageId,
+        matchId: snapshot.directory.matchId,
+        steamLobbyLink: snapshot.directory.steamLobbyLink,
+        version: snapshot.directory.version,
+        rosterJson: snapshot.directory.rosterJson,
+        configJson: snapshot.directory.configJson,
+        createdAt: snapshot.directory.createdAt,
+        updatedAt: snapshot.directory.updatedAt,
+        lastActivityAt: snapshot.directory.lastActivityAt,
+        closedAt: snapshot.directory.closedAt,
       },
-      where: sql`excluded.version > ${sessionDirectory.version}`,
     })
-    .returning({ version: sessionDirectory.version })
 
-  if (!appliedRows.some(row => row.version === record.version)) return
-
-  await reconcileDirectoryMembers(db, record.id, liveMemberIds, now)
+  if (snapshot.members.length > 0) await db.insert(sessionDirectoryMembers).values(snapshot.members)
 }
 
 async function assertNoLiveMembershipConflicts(
@@ -101,6 +204,8 @@ async function assertNoLiveMembershipConflicts(
     sessionId: sessionDirectoryMembers.sessionId,
     phase: sessionDirectory.phase,
     matchId: sessionDirectory.matchId,
+    updatedAt: sessionDirectory.updatedAt,
+    lastActivityAt: sessionDirectory.lastActivityAt,
   })
     .from(sessionDirectoryMembers)
     .innerJoin(sessionDirectory, eq(sessionDirectoryMembers.sessionId, sessionDirectory.sessionId))
@@ -122,7 +227,9 @@ async function assertNoLiveMembershipConflicts(
   for (const conflict of externalConflicts) {
     const matchStatus = conflict.matchId ? statusByMatchId.get(conflict.matchId) : null
     const staleTerminalResidue = conflict.phase !== 'open' && (matchStatus === 'completed' || matchStatus === 'cancelled')
-    if (!staleTerminalResidue) {
+    const lastSeenAt = Math.max(conflict.updatedAt, conflict.lastActivityAt)
+    const staleOpenResidue = conflict.phase === 'open' && now - lastSeenAt >= SESSION_DIRECTORY_OPEN_STALE_MS
+    if (!staleTerminalResidue && !staleOpenResidue) {
       activeConflicts.push(conflict)
       continue
     }
@@ -143,12 +250,12 @@ async function assertNoLiveMembershipConflicts(
   }
 }
 
-async function runDirectoryProjectionTransaction<T>(db: Database, operation: (tx: Database) => Promise<T>): Promise<T> {
+async function runDirectoryProjectionTransaction<T>(db: Database, operation: (tx: Database, hasTransactionalRollback: boolean) => Promise<T>): Promise<T> {
   const sqlite = (db as Database & { $client?: { exec?: (query: string) => unknown, query?: unknown } }).$client
   if (sqlite && typeof sqlite.exec === 'function' && typeof sqlite.query === 'function') {
     sqlite.exec('BEGIN')
     try {
-      const result = await operation(db)
+      const result = await operation(db, true)
       sqlite.exec('COMMIT')
       return result
     }
@@ -162,9 +269,9 @@ async function runDirectoryProjectionTransaction<T>(db: Database, operation: (tx
     transaction?: (operation: (tx: Database) => Promise<T>) => Promise<T>
   }
   if (typeof transactional.transaction === 'function') {
-    return await transactional.transaction(async tx => await operation(tx as unknown as Database))
+    return await transactional.transaction(async tx => await operation(tx as unknown as Database, true))
   }
-  return await operation(db)
+  return await operation(db, false)
 }
 
 function isLiveSessionPhase(phase: SessionPhase): boolean {
