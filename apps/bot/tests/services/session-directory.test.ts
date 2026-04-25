@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
-import { eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
+import type { SessionRecord } from '../../src/session-runtime/session-record.ts'
 import { createLobby, setLobbyStatus } from '../helpers/lobby-runtime.ts'
 import { isSessionAdmissionError } from '../../src/services/session/index.ts'
+import { projectSessionRecord } from '../../src/services/session/directory.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('session directory admission', () => {
@@ -83,4 +85,135 @@ describe('session directory admission', () => {
     sqlite.close()
   })
 
+  test('rolls back the directory row when live admission fails', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await projectSessionRecord(db, buildSessionRecord({ id: 'first', playerIds: ['host-1'] }))
+
+      try {
+        await projectSessionRecord(db, buildSessionRecord({ id: 'second', playerIds: ['host-1'] }))
+        throw new Error('Expected duplicate live admission to fail')
+      }
+      catch (error) {
+        expect(isSessionAdmissionError(error)).toBe(true)
+      }
+
+      const secondRows = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, 'second'))
+      expect(secondRows).toHaveLength(0)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('rolls back earlier member inserts when a later live admission fails', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await projectSessionRecord(db, buildSessionRecord({ id: 'first', playerIds: ['p2'] }))
+
+      try {
+        await projectSessionRecord(db, buildSessionRecord({ id: 'second', playerIds: ['p1', 'p2'] }))
+        throw new Error('Expected partial live admission to fail')
+      }
+      catch (error) {
+        expect(isSessionAdmissionError(error)).toBe(true)
+      }
+
+      expect(await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, 'second'))).toHaveLength(0)
+      expect(await db.select().from(sessionDirectoryMembers).where(and(
+        eq(sessionDirectoryMembers.sessionId, 'second'),
+        isNull(sessionDirectoryMembers.leftAt),
+      ))).toHaveLength(0)
+      expect(await db.select().from(sessionDirectoryMembers).where(and(
+        eq(sessionDirectoryMembers.playerId, 'p1'),
+        isNull(sessionDirectoryMembers.leftAt),
+      ))).toHaveLength(0)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('releases live admission on active while keeping the active projection visible', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await projectSessionRecord(db, buildSessionRecord({ id: 'first', playerIds: ['host-1'] }))
+      await projectSessionRecord(db, buildSessionRecord({ id: 'first', phase: 'active', matchId: 'first', version: 2, playerIds: ['host-1'] }))
+
+      const [activeRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, 'first')).limit(1)
+      expect(activeRow).toMatchObject({ sessionId: 'first', phase: 'active', closedAt: 20 })
+      expect(await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).toHaveLength(0)
+
+      await projectSessionRecord(db, buildSessionRecord({ id: 'second', playerIds: ['host-1'] }))
+      const liveMembers = await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))
+      expect(liveMembers.map(row => row.sessionId)).toEqual(['second'])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
 })
+
+function buildSessionRecord(options: {
+  id: string
+  phase?: SessionRecord['phase']
+  version?: number
+  matchId?: string | null
+  playerIds: string[]
+}): SessionRecord {
+  const phase = options.phase ?? 'open'
+  const version = options.version ?? 1
+  const updatedAt = version * 10
+  const playerIds = options.playerIds
+  return {
+    id: options.id,
+    phase,
+    version,
+    hostId: playerIds[0] ?? 'host-1',
+    guildId: 'guild-1',
+    channelId: 'draft-channel',
+    mode: '1v1',
+    matchId: options.matchId ?? (phase === 'open' ? null : options.id),
+    config: {
+      pickTimerSeconds: 30,
+      banTimerSeconds: 30,
+      blindBans: false,
+      simultaneousPick: false,
+      redDeath: false,
+      mapVoteEnabled: false,
+      randomDraft: false,
+      duplicateFactions: false,
+      leaderPoolSize: null,
+      dealOptionsSize: null,
+      minRole: null,
+      maxRole: null,
+    },
+    roster: {
+      participants: playerIds.map((playerId, slotIndex) => ({
+        playerId,
+        displayName: playerId,
+        avatarUrl: null,
+        joinedAt: 1,
+        slotIndex,
+      })),
+      slots: playerIds,
+    },
+    lastArrange: null,
+    projectionState: {
+      channelId: 'draft-channel',
+      messageId: `message-${options.id}`,
+      steamLobbyLink: null,
+    },
+    createdAt: 1,
+    updatedAt,
+    lastActivityAt: updatedAt,
+    closedAt: phase === 'active' || phase === 'reported' || phase === 'cancelled' ? updatedAt : null,
+    lifecycleSync: null,
+    terminalSync: null,
+    ...(phase === 'open' ? {} : { frozenAt: 1 }),
+  } as SessionRecord
+}

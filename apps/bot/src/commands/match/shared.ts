@@ -324,7 +324,10 @@ export async function joinLobbyAndMaybeStartMatch(
       }) ?? nextLobby
     }
     catch (error) {
-      if (transferSource) await restoreOpenLobbyTransferSource(kv, c.env, transferSource.lobby, transferSource.queueEntries, now)
+      if (transferSource) {
+        const restored = await restoreOpenLobbyTransferSource(kv, c.env, transferSource.lobby, transferSource.queueEntries, now)
+        if (!restored.ok) return { error: restored.error }
+      }
       if (isSessionAdmissionError(error)) return { error: formatSessionAdmissionError(error) }
       throw error
     }
@@ -353,20 +356,29 @@ async function restoreOpenLobbyTransferSource(
   sourceLobby: LobbyState,
   queueEntries: QueueEntry[],
   at: number,
-): Promise<void> {
+): Promise<{ ok: true } | { ok: false, error: string }> {
   const currentSource = await getLobbyById(kv, sourceLobby.id)
-  if (!currentSource || currentSource.status !== 'open') return
-  const restored = await setLobbyRoster(kv, sourceLobby.id, {
-    memberPlayerIds: sourceLobby.memberPlayerIds,
-    slots: sourceLobby.slots,
-    lastActivityAt: Math.max(sourceLobby.lastActivityAt, at),
-    now: Date.now(),
-  }, currentSource, {
-    db: env.DB ? createCivupDb(env.DB) : null,
-    sessionNamespace: env.SessionDO,
-    queueEntries,
-  }) ?? currentSource
-  await syncLobbyDerivedState(kv, restored, { queueEntries })
+  if (!currentSource || currentSource.status !== 'open') {
+    return { ok: false, error: 'Could not restore your previous lobby after the transfer failed. Please refresh and try again.' }
+  }
+  try {
+    const restored = await setLobbyRoster(kv, sourceLobby.id, {
+      memberPlayerIds: sourceLobby.memberPlayerIds,
+      slots: sourceLobby.slots,
+      lastActivityAt: Math.max(sourceLobby.lastActivityAt, at),
+      now: Date.now(),
+    }, currentSource, {
+      db: env.DB ? createCivupDb(env.DB) : null,
+      sessionNamespace: env.SessionDO,
+      queueEntries,
+    }) ?? currentSource
+    await syncLobbyDerivedState(kv, restored, { queueEntries })
+    return { ok: true }
+  }
+  catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    return { ok: false, error: `Could not restore your previous lobby after the transfer failed: ${detail}` }
+  }
 }
 
 async function getOpenLobbyRosterEntries(

@@ -30,7 +30,7 @@ export async function pruneAbandonedMatches(
   const clearedLiveLobbyMatchIds: string[] = []
 
   for (const match of staleMatches) {
-    if (!await runCleanupTerminalSessionCommand(options.sessionNamespace, match.id, 'cancel-session', now)) continue
+    if (!await runCleanupTerminalSessionCommand(db, options.sessionNamespace, match.id, 'cancel-session', now)) continue
 
     await clearLobbyById(kv, match.id)
 
@@ -58,7 +58,7 @@ export async function pruneAbandonedMatches(
       if (matchStatus === 'drafting' || matchStatus === 'active') continue
 
       const commandType = matchStatus === 'completed' ? 'mark-reported' : 'cancel-session'
-      if (!await runCleanupTerminalSessionCommand(options.sessionNamespace, matchId, commandType, now)) continue
+      if (!await runCleanupTerminalSessionCommand(db, options.sessionNamespace, matchId, commandType, now)) continue
       await clearLobbyById(kv, lobby.id, lobby, { syncActivityOverview: false })
       clearedLiveLobbyMatchIds.push(matchId)
     }
@@ -101,18 +101,26 @@ export async function pruneAbandonedMatches(
 }
 
 async function runCleanupTerminalSessionCommand(
+  db: Database,
   sessionNamespace: DurableObjectNamespace | null | undefined,
   matchId: string,
   type: 'mark-reported' | 'cancel-session',
   at: number,
 ): Promise<boolean> {
-  if (!sessionNamespace) return true
-  try {
-    await runSessionTerminalLifecycleCommand(sessionNamespace, matchId, { type, matchId, at })
-    return true
+  if (sessionNamespace) {
+    try {
+      await runSessionTerminalLifecycleCommand(sessionNamespace, matchId, { type, matchId, at })
+      return true
+    }
+    catch (error) {
+      console.warn('[cleanup] failed to update terminal session state', { matchId, type, error })
+      return false
+    }
   }
-  catch (error) {
-    console.warn('[cleanup] failed to update terminal session state', { matchId, type, error })
-    return false
-  }
+
+  await db.update(matches)
+    .set({ status: type === 'mark-reported' ? 'completed' : 'cancelled', completedAt: at })
+    .where(eq(matches.id, matchId))
+  await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
+  return true
 }

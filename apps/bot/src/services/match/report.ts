@@ -51,7 +51,7 @@ export async function reportMatch(
     const repaired = await repairCompletedReportedMatch(db, kv, match, participantRows, options)
     if (repaired) return repaired
 
-    const cleanupError = await ensureReportedMatchCleanup(db, options.sessionNamespace, input.matchId)
+    const cleanupError = await ensureReportedMatchCleanup(db, options.sessionNamespace, input.matchId, Date.now(), null, false)
     if (cleanupError) return { error: cleanupError }
     return { match, participants: participantRows, idempotent: true }
   }
@@ -219,14 +219,8 @@ async function finalizeReportedMatch(
     if (applied) return { error: applied }
   }
 
-  await db
-    .update(matches)
-    .set({
-      status: 'completed',
-      completedAt: now,
-      draftData: setReportedByInDraftData(match.draftData, reporterId),
-    })
-    .where(eq(matches.id, matchId))
+  const cleanupError = await ensureReportedMatchCleanup(db, options.sessionNamespace, matchId, now, reporterId, true)
+  if (cleanupError) return { error: cleanupError }
 
   if (usesLiveSeedFade) {
     try {
@@ -254,9 +248,6 @@ async function finalizeReportedMatch(
       throw error
     }
   }
-
-  const cleanupError = await ensureReportedMatchCleanup(db, options.sessionNamespace, matchId, now)
-  if (cleanupError) return { error: cleanupError }
 
   const [updatedMatch] = await db
     .select()
@@ -432,7 +423,7 @@ async function repairCompletedReportedMatch(
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, match.id))
 
-  const cleanupError = await ensureReportedMatchCleanup(db, options.sessionNamespace, match.id)
+  const cleanupError = await ensureReportedMatchCleanup(db, options.sessionNamespace, match.id, Date.now(), null, false)
   if (cleanupError) return { error: cleanupError }
   return { match: updatedMatch, participants: updatedParticipants, idempotent: true }
 }
@@ -451,14 +442,33 @@ async function ensureReportedMatchCleanup(
   sessionNamespace: DurableObjectNamespace | null | undefined,
   matchId: string,
   reportedAt = Date.now(),
+  reportedById: string | null = null,
+  updateMatch = true,
 ): Promise<string | null> {
   if (sessionNamespace) {
     try {
-      await runSessionTerminalLifecycleCommand(sessionNamespace, matchId, { type: 'mark-reported', matchId, at: reportedAt })
+      await runSessionTerminalLifecycleCommand(sessionNamespace, matchId, { type: 'mark-reported', matchId, at: reportedAt, reportedById })
     }
     catch (error) {
       return error instanceof Error ? error.message : String(error)
     }
+    return null
+  }
+
+  if (updateMatch) {
+    const values: { status: string, completedAt: number, draftData?: string | null } = {
+      status: 'completed',
+      completedAt: reportedAt,
+    }
+    if (reportedById) {
+      const [match] = await db
+        .select({ draftData: matches.draftData })
+        .from(matches)
+        .where(eq(matches.id, matchId))
+        .limit(1)
+      if (match) values.draftData = setReportedByInDraftData(match.draftData, reportedById)
+    }
+    await db.update(matches).set(values).where(eq(matches.id, matchId))
   }
   await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
   return null
@@ -542,16 +552,7 @@ async function finalizeReportedUnrankedMatch(
     })
     .where(eq(matchParticipants.matchId, matchId))
 
-  await db
-    .update(matches)
-    .set({
-      status: 'completed',
-      completedAt: now,
-      draftData: setReportedByInDraftData(match.draftData, reporterId),
-    })
-    .where(eq(matches.id, matchId))
-
-  const cleanupError = await ensureReportedMatchCleanup(db, options.sessionNamespace, matchId, now)
+  const cleanupError = await ensureReportedMatchCleanup(db, options.sessionNamespace, matchId, now, reporterId, true)
   if (cleanupError) return { error: cleanupError }
 
   const [updatedMatch] = await db
