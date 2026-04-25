@@ -1,5 +1,5 @@
 import type { Database } from '@civup/db'
-import { matches, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
+import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { type SessionPhase, type SessionRecord } from '../../session-runtime/session-record.ts'
 
@@ -79,37 +79,6 @@ export async function projectSessionRecord(
   await reconcileDirectoryMembers(db, record.id, liveMemberIds, now)
 }
 
-export async function closeLobbySessionProjection(
-  db: Database,
-  sessionId: string,
-  closedAt = Date.now(),
-): Promise<void> {
-  await db.update(sessionDirectoryMembers)
-    .set({ leftAt: closedAt, updatedAt: closedAt })
-    .where(and(
-      eq(sessionDirectoryMembers.sessionId, sessionId),
-      isNull(sessionDirectoryMembers.leftAt),
-    ))
-
-  await db.update(sessionDirectory)
-    .set({ phase: 'cancelled', closedAt, updatedAt: closedAt })
-    .where(eq(sessionDirectory.sessionId, sessionId))
-}
-
-export async function closeLobbySessionProjectionByMatch(
-  db: Database,
-  matchId: string,
-  closedAt = Date.now(),
-): Promise<void> {
-  const [row] = await db.select({ sessionId: sessionDirectory.sessionId })
-    .from(sessionDirectory)
-    .where(eq(sessionDirectory.matchId, matchId))
-    .limit(1)
-
-  if (!row) return
-  await closeLobbySessionProjection(db, row.sessionId, closedAt)
-}
-
 function isLiveSessionPhase(phase: SessionPhase): boolean {
   return phase === 'open' || phase === 'draft' || phase === 'swap'
 }
@@ -121,7 +90,6 @@ async function reconcileDirectoryMembers(
   now: number,
 ): Promise<void> {
   const uniqueLiveMemberIds = [...new Set(liveMemberIds)]
-  await releaseStaleConflictingMemberships(db, sessionId, uniqueLiveMemberIds, now)
   const existingLiveRows = await db.select({
     playerId: sessionDirectoryMembers.playerId,
   })
@@ -172,79 +140,6 @@ async function reconcileDirectoryMembers(
       }
       throw error
     }
-  }
-}
-
-async function releaseStaleConflictingMemberships(
-  db: Database,
-  sessionId: string,
-  playerIds: readonly string[],
-  now: number,
-): Promise<void> {
-  if (playerIds.length === 0) return
-
-  const liveRows = await db.select({
-    sessionId: sessionDirectoryMembers.sessionId,
-    playerId: sessionDirectoryMembers.playerId,
-    phase: sessionDirectory.phase,
-    matchId: sessionDirectory.matchId,
-  })
-    .from(sessionDirectoryMembers)
-    .innerJoin(sessionDirectory, eq(sessionDirectory.sessionId, sessionDirectoryMembers.sessionId))
-    .where(and(
-      inArray(sessionDirectoryMembers.playerId, [...playerIds]),
-      isNull(sessionDirectoryMembers.leftAt),
-    ))
-
-  const conflicts = liveRows.filter(row => row.sessionId !== sessionId)
-  if (conflicts.length === 0) return
-
-  const conflictMatchIds = [...new Set(conflicts.flatMap(row => row.matchId ? [row.matchId] : []))]
-  const matchRows = conflictMatchIds.length > 0
-    ? await db.select({
-      id: matches.id,
-      status: matches.status,
-      draftData: matches.draftData,
-    })
-      .from(matches)
-      .where(inArray(matches.id, conflictMatchIds))
-    : []
-  const blockingMatchIds = new Set(
-    matchRows
-      .filter(row => isBlockingDraftMatch(row.status, row.draftData))
-      .map(row => row.id),
-  )
-
-  const staleRows = conflicts.filter((row) => {
-    if (row.phase === 'open' || row.phase === 'swap') return false
-    if (!row.matchId) return false
-    return !blockingMatchIds.has(row.matchId)
-  })
-  for (const row of staleRows) {
-    await db.update(sessionDirectoryMembers)
-      .set({ leftAt: now, updatedAt: now })
-      .where(and(
-        eq(sessionDirectoryMembers.sessionId, row.sessionId),
-        eq(sessionDirectoryMembers.playerId, row.playerId),
-        isNull(sessionDirectoryMembers.leftAt),
-      ))
-  }
-}
-
-function isBlockingDraftMatch(status: string, draftData: string | null): boolean {
-  if (status === 'drafting') return true
-  if (status !== 'active') return false
-  return !hasDraftCompletedAt(draftData)
-}
-
-function hasDraftCompletedAt(draftData: string | null): boolean {
-  if (!draftData) return false
-  try {
-    const parsed = JSON.parse(draftData) as { completedAt?: unknown } | null
-    return parsed != null && parsed.completedAt != null
-  }
-  catch {
-    return false
   }
 }
 

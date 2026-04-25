@@ -5,7 +5,6 @@ export const CIVUP_ACTIVITY_USER_ID_HEADER = 'X-CivUp-Activity-User-Id'
 export const CIVUP_ACTIVITY_DISPLAY_NAME_HEADER = 'X-CivUp-Activity-Display-Name'
 export const CIVUP_ACTIVITY_AVATAR_URL_HEADER = 'X-CivUp-Activity-Avatar-Url'
 
-const LEGACY_CIVUP_STATE_SECRET_HEADER = 'X-CivUp-State-Secret'
 const ACTIVITY_SESSION_VERSION = 'session.v1'
 const SESSION_ACCESS_VERSION = 'session-access.v1'
 const DEFAULT_ACTIVITY_SESSION_TTL_SECONDS = 8 * 60 * 60
@@ -216,7 +215,6 @@ async function signString(secret: string, value: string): Promise<string> {
 
 function readProvidedInternalSecret(headers: Headers): string | null {
   return headers.get(CIVUP_INTERNAL_SECRET_HEADER)
-    ?? headers.get(LEGACY_CIVUP_STATE_SECRET_HEADER)
 }
 
 function isActivitySessionClaims(value: unknown): value is ActivitySessionClaims {

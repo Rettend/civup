@@ -46,6 +46,19 @@ export type SessionClientMessage
 
 export type SessionServerMessage
   = | {
+    type: 'lobby'
+    lobbyId: string
+    snapshot: unknown
+  }
+  | {
+    type: 'session-started'
+    lobbyId: string
+    matchId: string
+    steamLobbyLink: string | null
+    sessionAccessToken: string | null
+    mode: string | null
+  }
+  | {
     type: 'init'
     state: DraftState
     mapVote: MapVoteSnapshot

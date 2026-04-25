@@ -2,8 +2,9 @@ import type { Database } from '@civup/db'
 import type { PruneMatchesOptions, PruneMatchesResult } from './types.ts'
 import { matchBans, matches, matchParticipants } from '@civup/db'
 import { and, eq, inArray, isNull, lt, or } from 'drizzle-orm'
+import { runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { clearLobbyById } from '../lobby/index.ts'
-import { closeLobbySessionProjectionByMatch, getLiveSessionLobbyProjections } from '../session/index.ts'
+import { getLiveSessionLobbyProjections } from '../session/index.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS, STALE_CANCELLED_MATCH_TIMEOUT_MS, STALE_DRAFTING_MATCH_TIMEOUT_MS } from './retention.ts'
 
 export async function pruneAbandonedMatches(
@@ -29,7 +30,7 @@ export async function pruneAbandonedMatches(
   const clearedLiveLobbyMatchIds: string[] = []
 
   for (const match of staleMatches) {
-    await closeLobbySessionProjectionByMatch(db, match.id, now)
+    if (!await runCleanupTerminalSessionCommand(options.sessionNamespace, match.id, 'cancel-session', now)) continue
 
     await clearLobbyById(kv, match.id)
 
@@ -56,7 +57,8 @@ export async function pruneAbandonedMatches(
       const matchStatus = liveStatusByMatchId.get(matchId)
       if (matchStatus === 'drafting' || matchStatus === 'active') continue
 
-      await closeLobbySessionProjectionByMatch(db, matchId, now)
+      const commandType = matchStatus === 'completed' ? 'mark-reported' : 'cancel-session'
+      if (!await runCleanupTerminalSessionCommand(options.sessionNamespace, matchId, commandType, now)) continue
       await clearLobbyById(kv, lobby.id, lobby, { syncActivityOverview: false })
       clearedLiveLobbyMatchIds.push(matchId)
     }
@@ -96,4 +98,21 @@ export async function pruneAbandonedMatches(
   }
 
   return { removedMatchIds, clearedLiveLobbyMatchIds }
+}
+
+async function runCleanupTerminalSessionCommand(
+  sessionNamespace: DurableObjectNamespace | null | undefined,
+  matchId: string,
+  type: 'mark-reported' | 'cancel-session',
+  at: number,
+): Promise<boolean> {
+  if (!sessionNamespace) return true
+  try {
+    await runSessionTerminalLifecycleCommand(sessionNamespace, matchId, { type, matchId, at })
+    return true
+  }
+  catch (error) {
+    console.warn('[cleanup] failed to update terminal session state', { matchId, type, error })
+    return false
+  }
 }

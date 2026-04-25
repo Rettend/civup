@@ -8,6 +8,7 @@ import type {
   LobbyJoinEligibilitySnapshot,
   LobbySnapshot,
   LobbyStateWatch,
+  SelectedSessionStateChange,
   SessionSocketTarget,
 } from './stores'
 import { batch, createEffect, createSignal, Match, onCleanup, onMount, Switch, untrack } from 'solid-js'
@@ -270,6 +271,47 @@ export default function App() {
     connectToSession(SESSION_SOCKET_TARGET, matchId, sessionAccessToken)
   }
 
+  const handleSelectedSessionStateChange = (change: SelectedSessionStateChange) => {
+    liveStateRevision += 1
+
+    if (change.type === 'session-started') {
+      transitionToDraft(change.matchId, true, change.steamLobbyLink, change.sessionAccessToken, {
+        lobbyId: change.lobbyId,
+        lobbyMode: change.mode,
+      })
+      return
+    }
+
+    if (change.snapshot) {
+      const snapshot = change.snapshot
+      const current = liveLobbySnapshots.get(snapshot.id)
+      if (current && snapshot.revision < current.revision) return
+      liveLobbySnapshots.set(snapshot.id, snapshot)
+      setLiveLobbySnapshotVersion(version => version + 1)
+
+      setState((prev) => {
+        if (prev.status !== 'lobby-waiting' || prev.lobby.id !== snapshot.id) return prev
+        const option = availableTargets().find(target => target.kind === 'lobby' && target.id === snapshot.id)
+          ?? lastResolvedSelection()?.option
+        const joinEligibility = option
+          ? resolveLiveJoinEligibility(availableTargets(), option, snapshot, activeUserId ?? '')
+          : prev.joinEligibility
+        return { status: 'lobby-waiting', lobby: snapshot, joinPending: prev.joinPending, joinEligibility }
+      })
+      return
+    }
+
+    liveLobbySnapshots.delete(change.lobbyId)
+    setLiveLobbySnapshotVersion(version => version + 1)
+    const current = state()
+    if (current.status === 'lobby-waiting' && current.lobby.id === change.lobbyId) {
+      setLiveTargetState(null)
+      setClearedTarget({ kind: 'lobby', id: change.lobbyId })
+      setState({ status: 'overview' })
+      void requestActivityLaunchSnapshotRefresh()
+    }
+  }
+
   const applyLaunchSnapshot = (
     snapshot: ActivityLaunchSnapshot,
     autoStart = false,
@@ -292,6 +334,9 @@ export default function App() {
       setLastResolvedSelection(null)
       if (current.status === 'authenticated') {
         clearDraftConnection()
+      }
+      else if (current.status === 'lobby-waiting') {
+        disconnect()
       }
 
       setState({ status: 'overview' })
@@ -331,6 +376,7 @@ export default function App() {
         }
         return { status: 'lobby-waiting', lobby: resolvedLobby, joinPending, joinEligibility }
       })
+      connectToSession(SESSION_SOCKET_TARGET, nextLobby.id, null, { onStateChanged: handleSelectedSessionStateChange })
       return
     }
 
@@ -408,6 +454,10 @@ export default function App() {
     if (current.status === 'authenticated') {
       if (hadTerminalDraft) setAvailableTargets([])
       clearDraftConnection()
+    }
+    else if (current.status === 'lobby-waiting') {
+      disconnect()
+      resetDraft()
     }
     else {
       resetDraft()
@@ -620,6 +670,17 @@ export default function App() {
     }, 1500)
   }
 
+  createEffect(() => {
+    const current = state()
+    const channelId = activeChannelId
+    const userId = activeUserId
+    if (current.status !== 'overview' || !channelId || !userId) {
+      stopActivityWatch()
+      return
+    }
+    if (!activityWatch) startActivityWatch(channelId, userId)
+  })
+
   const handleTargetSelection = async (option: ActivityTargetOption) => {
     suppressAutoSelection = false
     const optionKey = activityTargetOptionKey(option)
@@ -657,7 +718,7 @@ export default function App() {
 
       activeChannelId = channelId
       activeUserId = auth.user.id
-      startActivityWatch(channelId, auth.user.id)
+      void requestActivityLaunchSnapshotRefresh()
     }
     catch (err) {
       console.error('Discord SDK setup failed:', err)
@@ -683,8 +744,11 @@ export default function App() {
         clearLaunchSnapshotFallback()
         return
       }
-      if (activityWatch) return
-      startActivityWatch(activeChannelId, activeUserId)
+      if (state().status === 'overview') {
+        if (!activityWatch) startActivityWatch(activeChannelId, activeUserId)
+        return
+      }
+      void requestActivityLaunchSnapshotRefresh()
     }
 
     document.addEventListener('visibilitychange', handleVisibilityChange)

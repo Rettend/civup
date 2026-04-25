@@ -115,6 +115,8 @@ export const command_mod = factory.command<ModVar>(
           const result = await cancelMatchByModerator(db, kv, {
             matchId,
             cancelledAt: Date.now(),
+          }, {
+            sessionNamespace: c.env.SessionDO,
           })
 
           if ('error' in result) {
@@ -225,6 +227,8 @@ export const command_mod = factory.command<ModVar>(
               matchId,
               placements,
               resolvedAt: Date.now(),
+            }, {
+              sessionNamespace: c.env.SessionDO,
             })
 
             if ('error' in result) {

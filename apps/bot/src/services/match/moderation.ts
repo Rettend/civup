@@ -3,13 +3,17 @@ import type { LeaderboardMode } from '@civup/game'
 import type { CancelMatchInput, CancelMatchResult, MatchRow, ParticipantRow, ResolveMatchInput, ResolveMatchResult } from './types.ts'
 import { matchBans, matches, matchParticipants } from '@civup/db'
 import { and, eq } from 'drizzle-orm'
+import { runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
 import { clearLobbyById } from '../lobby/index.ts'
-import { closeLobbySessionProjectionByMatch } from '../session/index.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
 import { parseModerationPlacements } from './placements.ts'
 import { recalculateLeaderboardMode } from './ratings.ts'
+
+interface MatchSessionLifecycleOptions {
+  sessionNamespace?: DurableObjectNamespace | null
+}
 
 type BatchItem = Parameters<Database['batch']>[0][number]
 interface MatchBanRow {
@@ -27,6 +31,7 @@ export async function resolveMatchByModerator(
   db: Database,
   kv: KVNamespace,
   input: ResolveMatchInput,
+  options: MatchSessionLifecycleOptions = {},
 ): Promise<ResolveMatchResult> {
   const [match] = await db
     .select()
@@ -138,8 +143,10 @@ export async function resolveMatchByModerator(
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, input.matchId))
 
+  const lifecycleError = await runTerminalSessionCommand(options.sessionNamespace, input.matchId, { type: 'mark-reported', at: input.resolvedAt })
+  if (lifecycleError) return { error: lifecycleError }
+
   if (previousStatus !== 'completed') {
-    await closeLobbySessionProjectionByMatch(db, input.matchId, input.resolvedAt)
     await clearLobbyById(kv, input.matchId)
   }
 
@@ -223,6 +230,7 @@ export async function cancelMatchByModerator(
   db: Database,
   kv: KVNamespace,
   input: CancelMatchInput,
+  options: MatchSessionLifecycleOptions = {},
 ): Promise<CancelMatchResult> {
   const [match] = await db
     .select()
@@ -261,7 +269,9 @@ export async function cancelMatchByModerator(
     .where(eq(matches.id, input.matchId))
 
   await db.delete(matchBans).where(eq(matchBans.matchId, input.matchId))
-  await closeLobbySessionProjectionByMatch(db, input.matchId, input.cancelledAt)
+
+  const lifecycleError = await runTerminalSessionCommand(options.sessionNamespace, input.matchId, { type: 'cancel-session', at: input.cancelledAt })
+  if (lifecycleError) return { error: lifecycleError }
 
   await clearLobbyById(kv, input.matchId)
 
@@ -301,5 +311,20 @@ export async function cancelMatchByModerator(
     participants: updatedParticipants,
     previousStatus,
     recalculatedMatchIds,
+  }
+}
+
+async function runTerminalSessionCommand(
+  sessionNamespace: DurableObjectNamespace | null | undefined,
+  matchId: string,
+  command: { type: 'mark-reported' | 'cancel-session', at: number },
+): Promise<string | null> {
+  if (!sessionNamespace) return null
+  try {
+    await runSessionTerminalLifecycleCommand(sessionNamespace, matchId, { ...command, matchId })
+    return null
+  }
+  catch (error) {
+    return error instanceof Error ? error.message : String(error)
   }
 }

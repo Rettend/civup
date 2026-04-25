@@ -8,7 +8,7 @@ import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLab
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
-import { filterQueueEntriesForLobby, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyRoster } from '../../services/lobby/index.ts'
+import { filterQueueEntriesForLobby, getLobbyById, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyRoster } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds } from '../../services/ranked/roles.ts'
@@ -269,8 +269,10 @@ export async function joinLobbyAndMaybeStartMatch(
     return { error: 'No compatible open lobby could fit this join.' }
   }
 
+  let transferSource: { lobby: LobbyState, queueEntries: QueueEntry[] } | null = null
   if (currentOpenLobby && currentOpenLobby.id !== chosen.lobby.id) {
     const sourceRosterEntries = await getOpenLobbyRosterEntries(c.env.SessionDO, currentOpenLobby)
+    transferSource = { lobby: currentOpenLobby, queueEntries: sourceRosterEntries }
     const transferResult = await leaveOpenLobbyForLobbyJoin(
       kv,
       c.env.DISCORD_TOKEN,
@@ -322,6 +324,7 @@ export async function joinLobbyAndMaybeStartMatch(
       }) ?? nextLobby
     }
     catch (error) {
+      if (transferSource) await restoreOpenLobbyTransferSource(kv, c.env, transferSource.lobby, transferSource.queueEntries, now)
       if (isSessionAdmissionError(error)) return { error: formatSessionAdmissionError(error) }
       throw error
     }
@@ -342,6 +345,28 @@ export async function joinLobbyAndMaybeStartMatch(
     embeds: renderPayload.embeds,
     components: renderPayload.components,
   }
+}
+
+async function restoreOpenLobbyTransferSource(
+  kv: KVNamespace,
+  env: { DB?: D1Database, SessionDO?: DurableObjectNamespace },
+  sourceLobby: LobbyState,
+  queueEntries: QueueEntry[],
+  at: number,
+): Promise<void> {
+  const currentSource = await getLobbyById(kv, sourceLobby.id)
+  if (!currentSource || currentSource.status !== 'open') return
+  const restored = await setLobbyRoster(kv, sourceLobby.id, {
+    memberPlayerIds: sourceLobby.memberPlayerIds,
+    slots: sourceLobby.slots,
+    lastActivityAt: Math.max(sourceLobby.lastActivityAt, at),
+    now: Date.now(),
+  }, currentSource, {
+    db: env.DB ? createCivupDb(env.DB) : null,
+    sessionNamespace: env.SessionDO,
+    queueEntries,
+  }) ?? currentSource
+  await syncLobbyDerivedState(kv, restored, { queueEntries })
 }
 
 async function getOpenLobbyRosterEntries(

@@ -1,7 +1,7 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { getChannelForMatch } from '../../src/services/activity/index.ts'
-import { createLobby, getLobbyById, setLobbyMemberPlayerIds, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
+import { createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyMemberPlayerIds, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
@@ -41,7 +41,7 @@ describe('match cleanup reconciliation', () => {
       const draftingLobby = await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby)
       const activeLobby = await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
 
-      const result = await pruneAbandonedMatches(db, kv)
+      const result = await pruneAbandonedMatches(db, kv, { sessionNamespace: getExistingTestLobbyRuntime(kv).sessionNamespace })
 
       expect(result.removedMatchIds).toEqual([])
       expect(result.clearedLiveLobbyMatchIds).toEqual([matchId])

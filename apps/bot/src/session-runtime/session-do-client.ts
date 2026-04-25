@@ -115,6 +115,18 @@ export type SessionProjectionCommand
     now?: number
   }
 
+export type SessionTerminalLifecycleCommand
+  = | {
+    type: 'mark-reported'
+    matchId?: string
+    at?: number
+  }
+  | {
+    type: 'cancel-session'
+    matchId?: string
+    at?: number
+  }
+
 export type SessionDraftLifecycleSyncResult =
   | { ok: true, ignored?: boolean, synced?: boolean }
   | { ok: false, status: number, error: string }
@@ -261,6 +273,30 @@ export async function runSessionProjectionCommand(
 
   const body = await response.json<{ record?: SessionRecord }>()
   if (!body.record) throw new Error(`Failed to run session projection command ${command.type} for ${sessionId}: invalid response`)
+  return body.record
+}
+
+export async function runSessionTerminalLifecycleCommand(
+  namespace: DurableObjectNamespace | null | undefined,
+  sessionId: string,
+  command: SessionTerminalLifecycleCommand,
+): Promise<SessionRecord> {
+  if (!namespace) throw new Error('SessionDO binding is required')
+
+  const id = namespace.idFromName(sessionId)
+  const stub = namespace.get(id)
+  const response = await stub.fetch(buildSessionRequest(sessionId, '/commands/session-lifecycle', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(command),
+  }))
+
+  if (!response.ok) {
+    await throwSessionCommandError(response, `run session lifecycle command ${command.type} for ${sessionId}`)
+  }
+
+  const body = await response.json<{ record?: SessionRecord }>()
+  if (!body.record) throw new Error(`Failed to run session lifecycle command ${command.type} for ${sessionId}: invalid response`)
   return body.record
 }
 

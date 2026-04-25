@@ -5,7 +5,6 @@ import type { SessionRecord } from '../../session-runtime/session-record.ts'
 import { nanoid } from 'nanoid'
 import { createSessionAggregateFromLobby, runSessionOpenLobbyCommand, runSessionProjectionCommand, type SessionOpenLobbyCommand } from '../../session-runtime/session-do-client.ts'
 import { buildLobbyStateFromSessionRecord } from '../../session-runtime/session-record.ts'
-import { closeLobbySessionProjection } from '../session/directory.ts'
 import { kvMdelete } from '../kv/batch.ts'
 import { channelIndexKey, modeIndexKey } from './keys.ts'
 import { createEmptySlots, DEFAULT_DRAFT_CONFIG, normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from './normalize.ts'
@@ -73,17 +72,13 @@ export async function createLobby(
     revision: 1,
   }
   const queueEntries = input.queueEntries ?? []
-  let visible = false
-  let visibleLobby = lobby
+  const record = await createSessionAggregateFromLobby(input.sessionNamespace, lobby, queueEntries)
+  const visibleLobby = buildLobbyStateFromSessionRecord(record, lobby)
   try {
-    const record = await createSessionAggregateFromLobby(input.sessionNamespace, lobby, queueEntries)
-    visibleLobby = buildLobbyStateFromSessionRecord(record, lobby)
     await putLobbyEntries(kv, visibleLobby)
-    visible = true
   }
   catch (error) {
-    if (!visible) await closeLobbySessionProjectionIfAvailable(input.db, lobby.id)
-    throw error
+    console.error(`Failed to write lobby projection cache for created session ${visibleLobby.id}:`, error)
   }
   return visibleLobby
 }
@@ -484,11 +479,6 @@ async function commitLobbyMutation(
 
   await write(kv, updated)
   return updated
-}
-
-async function closeLobbySessionProjectionIfAvailable(db: Database | null | undefined, lobbyId: string): Promise<void> {
-  if (!db) return
-  await closeLobbySessionProjection(db, lobbyId)
 }
 
 function normalizeTimestamp(value: number): number {
