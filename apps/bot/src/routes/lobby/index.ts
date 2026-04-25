@@ -36,7 +36,7 @@ import { findPersistedBlockingDraftMatchIdsForPlayers } from '../../services/mat
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
-import { getCurrentSessionLobbyProjectionsForPlayer } from '../../services/session/index.ts'
+import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayer, isSessionAdmissionError } from '../../services/session/index.ts'
 import { getSessionRecord, startSessionDraft } from '../../session-runtime/session-do-client.ts'
 import { buildLobbyStateFromSessionRecord, buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 import { parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
@@ -74,6 +74,24 @@ async function getLobbyRosterEntriesForRender(
 ): Promise<QueueEntry[]> {
   const record = await getSessionRecord(namespace, lobby.id).catch(() => null)
   return record ? buildSessionRosterQueueEntries(record) : buildLobbyQueueEntries(lobby, fallbackEntries)
+}
+
+async function restoreOpenLobbyTransferSource(
+  kv: KVNamespace,
+  c: Context<Env>,
+  sourceLobby: Awaited<ReturnType<typeof getLobbyById>> extends infer T ? Exclude<T, null> : never,
+  queueEntries: QueueEntry[],
+  at: number,
+): Promise<void> {
+  const currentSource = await getLobbyById(kv, sourceLobby.id)
+  if (!currentSource || currentSource.status !== 'open') return
+  const restored = await setLobbyRoster(kv, sourceLobby.id, {
+    memberPlayerIds: sourceLobby.memberPlayerIds,
+    slots: sourceLobby.slots,
+    lastActivityAt: Math.max(sourceLobby.lastActivityAt, at),
+    now: Date.now(),
+  }, currentSource, lobbySessionMutationOptions(c, queueEntries)) ?? currentSource
+  await syncLobbyDerivedState(kv, restored, { queueEntries })
 }
 
 function isWritableD1Binding(db: D1Database | undefined): db is D1Database {
@@ -741,8 +759,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       }
     }
 
+    let transferSource: { lobby: NonNullable<typeof blockingLobbyForPlayer>, queueEntries: QueueEntry[] } | null = null
     if (blockingLobbyForPlayer?.status === 'open') {
       const sourceRosterEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, blockingLobbyForPlayer)
+      transferSource = { lobby: blockingLobbyForPlayer, queueEntries: sourceRosterEntries }
       const transferResult = await leaveOpenLobbyForLobbyJoin(
         kv,
         c.env.DISCORD_TOKEN,
@@ -771,14 +791,22 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const rosterPatchEntries = addedRosterEntry ? [addedRosterEntry] : []
     lobbyQueueEntries = buildLobbyQueueEntries({ ...lobby, memberPlayerIds: nextMemberIds }, [...lobbyQueueEntries, ...rosterPatchEntries])
     slots = normalizeLobbySlots(mode, slots, lobbyQueueEntries)
-    const nextLobby = !sameLobbySlots(slots, lobby.slots) || nextMemberIds.length !== lobby.memberPlayerIds.length || lobby.lastActivityAt !== actionAt
-      ? await setLobbyRoster(kv, lobby.id, {
-        memberPlayerIds: nextMemberIds,
-        slots,
-        lastActivityAt: actionAt,
-        now: actionAt,
-      }, lobby, lobbySessionMutationOptions(c, rosterPatchEntries)) ?? lobby
-      : lobby
+    let nextLobby = lobby
+    if (!sameLobbySlots(slots, lobby.slots) || nextMemberIds.length !== lobby.memberPlayerIds.length || lobby.lastActivityAt !== actionAt) {
+      try {
+        nextLobby = await setLobbyRoster(kv, lobby.id, {
+          memberPlayerIds: nextMemberIds,
+          slots,
+          lastActivityAt: actionAt,
+          now: actionAt,
+        }, lobby, lobbySessionMutationOptions(c, rosterPatchEntries)) ?? lobby
+      }
+      catch (error) {
+        if (transferSource) await restoreOpenLobbyTransferSource(kv, c, transferSource.lobby, transferSource.queueEntries, actionAt)
+        if (isSessionAdmissionError(error)) return c.json({ error: formatSessionAdmissionError(error) }, 409)
+        throw error
+      }
+    }
 
     lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, nextLobby, lobbyQueueEntries)
     slots = normalizeLobbySlots(mode, nextLobby.slots, lobbyQueueEntries)

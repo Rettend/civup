@@ -90,6 +90,7 @@ export interface PruneMatchesOptions {
   staleDraftingMs?: number
   staleActiveMs?: number
   staleCancelledMs?: number
+  sessionNamespace?: DurableObjectNamespace | null
 }
 
 export interface PruneMatchesResult {

@@ -1,6 +1,4 @@
 export {
-  closeLobbySessionProjectionByMatch,
-  closeLobbySessionProjection,
   formatSessionAdmissionError,
   isSessionAdmissionError,
   SessionAdmissionError,

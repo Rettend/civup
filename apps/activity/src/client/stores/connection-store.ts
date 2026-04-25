@@ -97,6 +97,14 @@ export type ActivityStateChange
   = | { type: 'overview', snapshot: ActivityOverviewSnapshot | null }
     | { type: 'lobby', lobbyId: string, snapshot: LobbySnapshot | null }
 
+export type SelectedSessionStateChange
+  = | { type: 'lobby', lobbyId: string, snapshot: LobbySnapshot | null }
+    | { type: 'session-started', lobbyId: string, matchId: string, steamLobbyLink: string | null, sessionAccessToken: string | null, mode: string | null }
+
+interface SessionConnectionOptions {
+  onStateChanged?: (change: SelectedSessionStateChange) => void
+}
+
 export interface LobbyStateWatch {
   close: () => void
 }
@@ -195,7 +203,7 @@ const SESSION_SOCKET_MAX_RETRIES = 12
 // ── Socket ─────────────────────────────────────────────────
 
 let socket: PartySocket | null = null
-let currentSessionConnection: { target: SessionSocketTarget, sessionId: string, sessionAccessToken: string } | null = null
+let currentSessionConnection: { target: SessionSocketTarget, sessionId: string, sessionAccessToken: string | null, onStateChanged?: (change: SelectedSessionStateChange) => void } | null = null
 let staleDraftReconnectInterval: ReturnType<typeof setInterval> | null = null
 let lastSocketActivityAt = 0
 let lastForcedReconnectTimerEndsAt: number | null = null
@@ -210,7 +218,12 @@ let pendingConfigAck:
 let lastSentPreviewKeys: Partial<Record<DraftAction, string>> = {}
 
 /** Connect to the selected session runtime socket. */
-export function connectToSession(target: SessionSocketTarget, sessionId: string, sessionAccessToken: string | null) {
+export function connectToSession(target: SessionSocketTarget, sessionId: string, sessionAccessToken: string | null, options: SessionConnectionOptions = {}) {
+  if (socket && currentSessionConnection?.sessionId === sessionId && currentSessionConnection.sessionAccessToken === sessionAccessToken) {
+    currentSessionConnection = { ...currentSessionConnection, target, onStateChanged: options.onStateChanged }
+    return
+  }
+
   stopStaleDraftReconnectWatchdog()
   const previousSocket = socket
   socket = null
@@ -231,24 +244,20 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
     return
   }
 
-  if (!sessionAccessToken) {
-    setConnectionStatus('error')
-    setConnectionError('Missing session access token. Reopen the activity.')
-    return
-  }
-
-  currentSessionConnection = { target, sessionId, sessionAccessToken }
+  currentSessionConnection = { target, sessionId, sessionAccessToken, onStateChanged: options.onStateChanged }
   startStaleDraftReconnectWatchdog()
+
+  const query: Record<string, string> = {
+    [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken,
+  }
+  if (sessionAccessToken) query.accessToken = sessionAccessToken
 
   const nextSocket = new PartySocket({
     host: target.host,
     party: 'session',
     prefix: target.prefix ?? 'api/parties',
     room: sessionId,
-    query: {
-      accessToken: sessionAccessToken,
-      [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken,
-    },
+    query,
     maxRetries: SESSION_SOCKET_MAX_RETRIES,
   })
   socket = nextSocket
@@ -945,6 +954,23 @@ export async function fillLobbyWithTestPlayers(
 
 function handleServerMessage(msg: SessionServerMessage) {
   switch (msg.type) {
+    case 'lobby':
+      currentSessionConnection?.onStateChanged?.({
+        type: 'lobby',
+        lobbyId: msg.lobbyId,
+        snapshot: isLobbySnapshot(msg.snapshot) ? msg.snapshot : null,
+      })
+      break
+    case 'session-started':
+      currentSessionConnection?.onStateChanged?.({
+        type: 'session-started',
+        lobbyId: msg.lobbyId,
+        matchId: msg.matchId,
+        steamLobbyLink: msg.steamLobbyLink,
+        sessionAccessToken: msg.sessionAccessToken,
+        mode: msg.mode,
+      })
+      break
     case 'init':
       clearSelections()
       syncForcedReconnectTimer(msg.timerEndsAt)

@@ -13,7 +13,7 @@ export const cron_cleanup = factory.cron(
     const db = createDb(c.env.DB)
 
     const removed = await pruneInactiveOpenLobbies(kv, c.env.DISCORD_TOKEN, { db, sessionNamespace: c.env.SessionDO })
-    const prunedMatches = await pruneAbandonedMatches(db, kv)
+    const prunedMatches = await pruneAbandonedMatches(db, kv, { sessionNamespace: c.env.SessionDO })
     const reminderResult = await sendOverdueHostReportReminders(db, kv, c.env.DISCORD_TOKEN)
 
     if (removed.length > 0) {

@@ -33,6 +33,7 @@ export {
   reportMatchResult,
   scrubMatchResult,
   selectActivityTarget,
+  type SelectedSessionStateChange,
   sendBan,
   sendCancel,
   sendConfig,
