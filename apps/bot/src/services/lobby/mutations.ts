@@ -470,12 +470,15 @@ async function getMutationLobby(
 ): Promise<LobbyState | null> {
   if (currentLobby?.id === lobbyId) return currentLobby
 
+  if (options?.sessionNamespace) {
+    const record = await getSessionRecord(options.sessionNamespace, lobbyId).catch(() => null)
+    if (record) return buildLobbyProjectionFromSessionRecord(record)
+  }
+
   const legacyLobby = await getLobbyById(kv, lobbyId)
   if (legacyLobby) return legacyLobby
 
-  if (!options?.sessionNamespace) return null
-  const record = await getSessionRecord(options.sessionNamespace, lobbyId).catch(() => null)
-  return record ? buildLobbyProjectionFromSessionRecord(record) : null
+  return null
 }
 
 async function commitLobbyMutation(

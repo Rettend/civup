@@ -6,6 +6,7 @@ import { verifySessionAccessToken } from '@civup/utils'
 import { eq } from 'drizzle-orm'
 import { countDiscordChannelRequests as countDiscordMessageUpdates, expectDraftAndLobbyState, expectQueuePlayers } from './helpers/assertions.ts'
 import { createSystemWorld } from './helpers/world.ts'
+import { runSessionTerminalLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
 
 const worlds: Array<Awaited<ReturnType<typeof createSystemWorld>>> = []
 
@@ -1323,7 +1324,7 @@ describe('system scenarios', () => {
     })
   })
 
-  test('real join route blocks a drafting player, then ignores stale live-match residue once D1 says the match is over', async () => {
+  test('real join route blocks a drafting player until the canonical session is terminal', async () => {
     const world = await createTrackedWorld()
     const liveLobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -1352,6 +1353,17 @@ describe('system scenarios', () => {
     expect(blockedJoin.body).toEqual({ error: 'That player is already in a live match.' })
 
     await world.db.update(matches).set({ status: 'completed' }).where(eq(matches.id, started.matchId))
+
+    const stillBlockedJoin = await world.lobby.place('1v1', {
+      userId: 'p1',
+      lobbyId: freshLobby.id,
+      targetSlot: 1,
+      displayName: 'p1',
+    })
+
+    expect(stillBlockedJoin.status).toBe(400)
+
+    await runSessionTerminalLifecycleCommand(world.env.SessionDO, liveLobby.id, { type: 'mark-reported', matchId: started.matchId, at: Date.now() })
 
     const recoveredJoin = await world.lobby.place('1v1', {
       userId: 'p1',

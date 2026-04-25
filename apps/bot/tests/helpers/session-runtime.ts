@@ -42,6 +42,9 @@ export function createFakeDurableObjectState(): DurableObjectState {
       async put(key: string, value: unknown) {
         storage.set(key, value)
       },
+      async delete(key: string) {
+        return storage.delete(key)
+      },
       async setAlarm(scheduledTime: number | Date) {
         alarmAt = scheduledTime instanceof Date ? scheduledTime.getTime() : scheduledTime
       },
