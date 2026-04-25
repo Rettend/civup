@@ -36,6 +36,25 @@ export interface SessionLifecycleSyncState {
   nextRetryAt: number
 }
 
+export type SessionTerminalSyncCommand
+  = | {
+    type: 'mark-reported'
+    matchId: string
+    at: number
+    reportedById?: string | null
+  }
+  | {
+    type: 'cancel-session'
+    matchId: string
+    at: number
+  }
+
+export interface SessionTerminalSyncState {
+  command: SessionTerminalSyncCommand
+  attempts: number
+  nextRetryAt: number
+}
+
 interface BaseSessionRecord {
   id: SessionId
   phase: SessionPhase
@@ -54,6 +73,7 @@ interface BaseSessionRecord {
   lastActivityAt: number
   closedAt: number | null
   lifecycleSync?: SessionLifecycleSyncState | null
+  terminalSync?: SessionTerminalSyncState | null
 }
 
 export interface OpenSessionRecord extends BaseSessionRecord {
@@ -158,6 +178,7 @@ export function buildSessionRecordFromLobby(
     lastActivityAt: lobby.lastActivityAt,
     closedAt,
     lifecycleSync: null,
+    terminalSync: null,
   } satisfies BaseSessionRecord
 
   switch (phase) {

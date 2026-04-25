@@ -2,10 +2,11 @@ import type { CompetitiveTier, DraftSeat, GameMode, QueueEntry } from '@civup/ga
 import type { SessionServerMessage } from '@civup/session'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
-import type { DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionLifecycleSyncState, SessionProjectionState, SessionRecord, SessionRoster } from './session-record.ts'
-import { createDb } from '@civup/db'
+import type { DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionLifecycleSyncState, SessionProjectionState, SessionRecord, SessionRoster, SessionTerminalSyncCommand, SessionTerminalSyncState } from './session-record.ts'
+import { createDb, matchBans, matches } from '@civup/db'
 import { canStartWithPlayerCount, formatModeLabel, GAME_MODES, getMinimumLeaderPoolSize } from '@civup/game'
 import { CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest } from '@civup/utils'
+import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed } from '../embeds/match.ts'
 import { buildDraftRuntimeConfig } from '../services/activity/index.ts'
 import { buildLobbySnapshotFromSessionRecord } from '../services/activity/session-state.ts'
@@ -172,6 +173,7 @@ type SessionLifecycleCommandRequest
     type: 'mark-reported'
     matchId?: string
     at?: number
+    reportedById?: string | null
   }
   | {
     type: 'cancel-session'
@@ -244,6 +246,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   override async onAlarm(): Promise<void> {
     await this.runSerializedCommand(async () => {
       await this.retryPendingLifecycleSync()
+      await this.retryPendingTerminalSync()
       await this.handleDraftRuntimeAlarmIfDue()
       await this.rescheduleSessionAlarm(await this.getRecord())
       return json({ ok: true })
@@ -663,6 +666,28 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     }
   }
 
+  private async retryPendingTerminalSync(): Promise<void> {
+    const record = await this.getRecord()
+    const pending = record?.terminalSync ?? null
+    if (!record || !pending) return
+
+    const now = Date.now()
+    if (pending.nextRetryAt > now) {
+      await this.scheduleLifecycleSyncAlarm(record)
+      return
+    }
+
+    const result = await this.finishTerminalSync(record)
+    if (!result.ok) {
+      console.warn('[session-do] terminal lifecycle sync retry deferred', {
+        type: pending.command.type,
+        matchId: pending.command.matchId,
+        status: result.status,
+        error: result.error,
+      })
+    }
+  }
+
   private async syncDraftLifecyclePayload(payload: DraftLifecyclePayload): Promise<{ ok: true, ignored?: boolean, synced?: boolean } | { ok: false, status: number, error: string }> {
     const existing = await this.getRecord()
     if (!existing) return { ok: false, status: 404, error: 'Session not found' }
@@ -892,16 +917,28 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     }
 
     const at = normalizePositiveInteger(body.at, Date.now())
+    const terminalCommand = buildTerminalSyncCommand(body, existing, at)
     let record: SessionRecord
     switch (body.type) {
       case 'mark-reported':
-        if (existing.phase === 'reported') return json({ ok: true, record: existing })
+        if (existing.phase === 'reported') {
+          const finished = await this.finishTerminalSync(existing)
+          if (!finished.ok) return json({ error: finished.error }, finished.status)
+          return json({ ok: true, record: finished.record })
+        }
         if (existing.phase === 'cancelled') return json({ error: 'Cancelled sessions cannot be reported' }, 409)
-        if (existing.phase !== 'active') return json({ error: `Session is not active (phase: ${existing.phase})` }, 409)
+        if (existing.phase !== 'active' && existing.phase !== 'swap' && !await this.isPersistedMatchCompleted(terminalCommand.matchId)) {
+          return json({ error: `Session is not reportable (phase: ${existing.phase})` }, 409)
+        }
         record = markActiveSessionReported(existing, at)
         break
       case 'cancel-session':
-        if (existing.phase === 'cancelled') return json({ ok: true, record: existing })
+        if (existing.phase === 'cancelled') {
+          const finished = await this.finishTerminalSync(existing)
+          if (!finished.ok) return json({ error: finished.error }, finished.status)
+          return json({ ok: true, record: finished.record })
+        }
+        if (existing.phase === 'reported') return json({ error: 'Reported sessions cannot be cancelled' }, 409)
         if (existing.phase === 'open') return json({ error: 'Open sessions must use cancel-open-session' }, 409)
         record = cancelNonOpenSession(existing, at)
         break
@@ -909,9 +946,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         return json({ error: 'Unknown session lifecycle command' }, 400)
     }
 
-    const commit = await this.commitRecord(record)
-    if (commit) return commit
-    return json({ ok: true, record })
+    const pending = await this.markTerminalSyncPending(record, terminalCommand)
+    const finished = await this.finishTerminalSync(pending)
+    if (!finished.ok) return json({ error: finished.error }, finished.status)
+    return json({ ok: true, record: finished.record })
   }
 
   private async handleSessionProjectionCommand(request: Request): Promise<Response> {
@@ -1014,8 +1052,11 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const lifecycleRetryAt = record?.lifecycleSync && record.lifecycleSync.nextRetryAt > 0
       ? record.lifecycleSync.nextRetryAt
       : null
+    const terminalRetryAt = record?.terminalSync && record.terminalSync.nextRetryAt > 0
+      ? record.terminalSync.nextRetryAt
+      : null
     const draftRuntimeAlarmAt = await this.getDraftRuntimeAlarmAt()
-    const candidates = [lifecycleRetryAt, draftRuntimeAlarmAt].filter((value): value is number => typeof value === 'number')
+    const candidates = [lifecycleRetryAt, terminalRetryAt, draftRuntimeAlarmAt].filter((value): value is number => typeof value === 'number')
     const storage = this.ctx.storage as DurableObjectStorage & {
       setAlarm?: (scheduledTime: number | Date) => Promise<void>
       deleteAlarm?: () => Promise<void>
@@ -1027,6 +1068,101 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     }
 
     if (typeof storage.setAlarm === 'function') await storage.setAlarm(Math.min(...candidates))
+  }
+
+  private async markTerminalSyncPending(record: SessionRecord, command: SessionTerminalSyncCommand): Promise<SessionRecord> {
+    const existing = isSameTerminalSyncCommand(record.terminalSync?.command, command) ? record.terminalSync : null
+    const marked = withTerminalSync(record, {
+      command,
+      attempts: existing?.attempts ?? 0,
+      nextRetryAt: 0,
+    })
+    await this.storeRecordOnly(marked)
+    return marked
+  }
+
+  private async deferTerminalSync(record: SessionRecord, command: SessionTerminalSyncCommand, error: string): Promise<{ ok: false, status: number, error: string }> {
+    const current = await this.getRecord() ?? record
+    const attempts = isSameTerminalSyncCommand(current.terminalSync?.command, command)
+      ? current.terminalSync!.attempts + 1
+      : 1
+    const nextRetryAt = Date.now() + getLifecycleSyncRetryDelay(attempts)
+    const pending = withTerminalSync(current, { command, attempts, nextRetryAt })
+    await this.storeRecordOnly(pending)
+    console.warn('[session-do] terminal lifecycle sync retry scheduled', {
+      type: command.type,
+      matchId: command.matchId,
+      attempts,
+      nextRetryAt,
+      error,
+    })
+    return { ok: false, status: 503, error }
+  }
+
+  private async finishTerminalSync(record: SessionRecord): Promise<{ ok: true, record: SessionRecord } | { ok: false, status: number, error: string }> {
+    const pending = record.terminalSync ?? null
+    if (!pending) return { ok: true, record }
+    if (!this.env.DB) return await this.deferTerminalSync(record, pending.command, 'D1 binding is not configured')
+
+    const cleared = withTerminalSync(record, null)
+    try {
+      const db = createDb(this.env.DB)
+      await this.applyTerminalLifecycleSideEffects(db, pending.command)
+      await projectSessionRecord(db, cleared)
+    }
+    catch (error) {
+      return await this.deferTerminalSync(record, pending.command, error instanceof Error ? error.message : String(error))
+    }
+
+    await this.ctx.storage.put(SESSION_RECORD_STORAGE_KEY, cleared)
+    await this.writeSessionProjectionCache(cleared)
+    await this.publishActivityUpdate(cleared)
+    await this.broadcastSelectedSessionUpdate(cleared)
+    await this.scheduleLifecycleSyncAlarm(cleared).catch((error) => {
+      console.error('[session-do] failed to schedule session alarm after terminal sync', error)
+    })
+    return { ok: true, record: cleared }
+  }
+
+  private async applyTerminalLifecycleSideEffects(db: ReturnType<typeof createDb>, command: SessionTerminalSyncCommand): Promise<void> {
+    if (command.type === 'mark-reported') {
+      const [match] = await db
+        .select({ draftData: matches.draftData, completedAt: matches.completedAt })
+        .from(matches)
+        .where(eq(matches.id, command.matchId))
+        .limit(1)
+      const values: { status: string, completedAt: number, draftData?: string | null } = {
+        status: 'completed',
+        completedAt: match?.completedAt ?? command.at,
+      }
+      if (command.reportedById && command.reportedById.trim().length > 0) {
+        if (match) values.draftData = setReportedByInDraftData(match.draftData, command.reportedById)
+      }
+
+      await db.update(matches).set(values).where(eq(matches.id, command.matchId))
+      await db.delete(matchBans).where(eq(matchBans.matchId, command.matchId))
+      return
+    }
+
+    await db.update(matches)
+      .set({ status: 'cancelled', completedAt: command.at })
+      .where(eq(matches.id, command.matchId))
+    await db.delete(matchBans).where(eq(matchBans.matchId, command.matchId))
+  }
+
+  private async isPersistedMatchCompleted(matchId: string): Promise<boolean> {
+    if (!this.env.DB) return false
+    try {
+      const [match] = await createDb(this.env.DB)
+        .select({ status: matches.status })
+        .from(matches)
+        .where(eq(matches.id, matchId))
+        .limit(1)
+      return match?.status === 'completed'
+    }
+    catch {
+      return false
+    }
   }
 
   private async publishActivityUpdate(record: SessionRecord): Promise<void> {
@@ -1199,6 +1335,36 @@ function withLifecycleSync(record: SessionRecord, lifecycleSync: SessionLifecycl
   } as SessionRecord
 }
 
+function withTerminalSync(record: SessionRecord, terminalSync: SessionTerminalSyncState | null): SessionRecord {
+  return {
+    ...record,
+    terminalSync,
+  } as SessionRecord
+}
+
+function buildTerminalSyncCommand(
+  body: Extract<SessionLifecycleCommandRequest, { type: 'mark-reported' | 'cancel-session' }>,
+  record: SessionRecord,
+  at: number,
+): SessionTerminalSyncCommand {
+  const matchId = typeof body.matchId === 'string' && body.matchId.length > 0
+    ? body.matchId
+    : record.matchId ?? record.id
+  if (body.type === 'mark-reported') {
+    return {
+      type: 'mark-reported',
+      matchId,
+      at,
+      reportedById: typeof body.reportedById === 'string' && body.reportedById.trim().length > 0 ? body.reportedById.trim() : null,
+    }
+  }
+  return { type: 'cancel-session', matchId, at }
+}
+
+function isSameTerminalSyncCommand(left: SessionTerminalSyncCommand | null | undefined, right: SessionTerminalSyncCommand): boolean {
+  return left?.type === right.type && left.matchId === right.matchId && left.at === right.at
+}
+
 function validateDraftLifecyclePayload(payload: DraftLifecyclePayload): string | null {
   if (!payload || typeof payload !== 'object') return 'payload is required'
   if (typeof payload.eventId !== 'string' || payload.eventId.length === 0) return 'eventId is required'
@@ -1238,6 +1404,24 @@ function buildDraftLifecycleLogContext(payload: DraftLifecyclePayload, extra: Re
 
 function getLifecycleSyncRetryDelay(attempts: number): number {
   return Math.min(LIFECYCLE_SYNC_RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1), LIFECYCLE_SYNC_RETRY_MAX_MS)
+}
+
+function setReportedByInDraftData(draftData: string | null, reporterId: string): string | null {
+  const normalizedReporterId = reporterId.trim()
+  if (normalizedReporterId.length === 0) return draftData
+  if (!draftData) return JSON.stringify({ reportedById: normalizedReporterId })
+
+  try {
+    const parsed = JSON.parse(draftData)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return draftData
+    return JSON.stringify({
+      ...(parsed as Record<string, unknown>),
+      reportedById: normalizedReporterId,
+    })
+  }
+  catch {
+    return draftData
+  }
 }
 
 async function readErrorResponse(response: Response): Promise<string> {

@@ -1,5 +1,5 @@
 import type { Database } from '@civup/db'
-import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
+import { matches, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { type SessionPhase, type SessionRecord } from '../../session-runtime/session-record.ts'
 
@@ -28,10 +28,18 @@ export async function projectSessionRecord(
   db: Database,
   record: SessionRecord,
 ): Promise<void> {
+  await runDirectoryProjectionTransaction(db, async tx => projectSessionRecordTransaction(tx, record))
+}
+
+async function projectSessionRecordTransaction(
+  db: Database,
+  record: SessionRecord,
+): Promise<void> {
   const liveMemberIds = isLiveSessionPhase(record.phase)
     ? record.roster.participants.map(member => member.playerId)
     : []
   const now = record.closedAt ?? Math.max(record.updatedAt, record.lastActivityAt, 1)
+  await assertNoLiveMembershipConflicts(db, record.id, liveMemberIds, now)
 
   const appliedRows = await db.insert(sessionDirectory)
     .values({
@@ -77,6 +85,86 @@ export async function projectSessionRecord(
   if (!appliedRows.some(row => row.version === record.version)) return
 
   await reconcileDirectoryMembers(db, record.id, liveMemberIds, now)
+}
+
+async function assertNoLiveMembershipConflicts(
+  db: Database,
+  sessionId: string,
+  liveMemberIds: readonly string[],
+  now: number,
+): Promise<void> {
+  const uniqueLiveMemberIds = [...new Set(liveMemberIds)]
+  if (uniqueLiveMemberIds.length === 0) return
+
+  const conflicts = await db.select({
+    playerId: sessionDirectoryMembers.playerId,
+    sessionId: sessionDirectoryMembers.sessionId,
+    phase: sessionDirectory.phase,
+    matchId: sessionDirectory.matchId,
+  })
+    .from(sessionDirectoryMembers)
+    .innerJoin(sessionDirectory, eq(sessionDirectoryMembers.sessionId, sessionDirectory.sessionId))
+    .where(and(
+      inArray(sessionDirectoryMembers.playerId, uniqueLiveMemberIds),
+      isNull(sessionDirectoryMembers.leftAt),
+    ))
+
+  const externalConflicts = conflicts.filter(row => row.sessionId !== sessionId)
+  if (externalConflicts.length === 0) return
+
+  const matchIds = [...new Set(externalConflicts.flatMap(row => row.matchId ? [row.matchId] : []))]
+  const matchStatuses = matchIds.length > 0
+    ? await db.select({ id: matches.id, status: matches.status }).from(matches).where(inArray(matches.id, matchIds))
+    : []
+  const statusByMatchId = new Map(matchStatuses.map(row => [row.id, row.status]))
+  const activeConflicts: typeof externalConflicts = []
+
+  for (const conflict of externalConflicts) {
+    const matchStatus = conflict.matchId ? statusByMatchId.get(conflict.matchId) : null
+    const staleTerminalResidue = conflict.phase !== 'open' && (matchStatus === 'completed' || matchStatus === 'cancelled')
+    if (!staleTerminalResidue) {
+      activeConflicts.push(conflict)
+      continue
+    }
+
+    await db.update(sessionDirectoryMembers)
+      .set({ leftAt: now, updatedAt: now })
+      .where(and(
+        eq(sessionDirectoryMembers.sessionId, conflict.sessionId),
+        eq(sessionDirectoryMembers.playerId, conflict.playerId),
+        isNull(sessionDirectoryMembers.leftAt),
+      ))
+  }
+
+  const conflictingPlayerIds = activeConflicts
+    .map(row => row.playerId)
+  if (conflictingPlayerIds.length > 0) {
+    throw new SessionAdmissionError('Player already has a live session', [...new Set(conflictingPlayerIds)])
+  }
+}
+
+async function runDirectoryProjectionTransaction<T>(db: Database, operation: (tx: Database) => Promise<T>): Promise<T> {
+  const sqlite = (db as Database & { $client?: { exec?: (query: string) => unknown, query?: unknown } }).$client
+  if (sqlite && typeof sqlite.exec === 'function' && typeof sqlite.query === 'function') {
+    sqlite.exec('BEGIN')
+    try {
+      const result = await operation(db)
+      sqlite.exec('COMMIT')
+      return result
+    }
+    catch (error) {
+      sqlite.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  const transactional = db as Database & {
+    transaction?: (operation: (tx: Database) => Promise<T>) => Promise<T>
+  }
+  if (typeof transactional.transaction === 'function') {
+    return await transactional.transaction(async tx => await operation(tx as unknown as Database))
+  }
+  return await operation(db)
 }
 
 function isLiveSessionPhase(phase: SessionPhase): boolean {

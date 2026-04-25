@@ -82,16 +82,25 @@ async function restoreOpenLobbyTransferSource(
   sourceLobby: Awaited<ReturnType<typeof getLobbyById>> extends infer T ? Exclude<T, null> : never,
   queueEntries: QueueEntry[],
   at: number,
-): Promise<void> {
+): Promise<{ ok: true } | { ok: false, error: string }> {
   const currentSource = await getLobbyById(kv, sourceLobby.id)
-  if (!currentSource || currentSource.status !== 'open') return
-  const restored = await setLobbyRoster(kv, sourceLobby.id, {
-    memberPlayerIds: sourceLobby.memberPlayerIds,
-    slots: sourceLobby.slots,
-    lastActivityAt: Math.max(sourceLobby.lastActivityAt, at),
-    now: Date.now(),
-  }, currentSource, lobbySessionMutationOptions(c, queueEntries)) ?? currentSource
-  await syncLobbyDerivedState(kv, restored, { queueEntries })
+  if (!currentSource || currentSource.status !== 'open') {
+    return { ok: false, error: 'Could not restore your previous lobby after the transfer failed. Please refresh and try again.' }
+  }
+  try {
+    const restored = await setLobbyRoster(kv, sourceLobby.id, {
+      memberPlayerIds: sourceLobby.memberPlayerIds,
+      slots: sourceLobby.slots,
+      lastActivityAt: Math.max(sourceLobby.lastActivityAt, at),
+      now: Date.now(),
+    }, currentSource, lobbySessionMutationOptions(c, queueEntries)) ?? currentSource
+    await syncLobbyDerivedState(kv, restored, { queueEntries })
+    return { ok: true }
+  }
+  catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    return { ok: false, error: `Could not restore your previous lobby after the transfer failed: ${detail}` }
+  }
 }
 
 function isWritableD1Binding(db: D1Database | undefined): db is D1Database {
@@ -802,7 +811,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         }, lobby, lobbySessionMutationOptions(c, rosterPatchEntries)) ?? lobby
       }
       catch (error) {
-        if (transferSource) await restoreOpenLobbyTransferSource(kv, c, transferSource.lobby, transferSource.queueEntries, actionAt)
+        if (transferSource) {
+          const restored = await restoreOpenLobbyTransferSource(kv, c, transferSource.lobby, transferSource.queueEntries, actionAt)
+          if (!restored.ok) return c.json({ error: restored.error }, 409)
+        }
         if (isSessionAdmissionError(error)) return c.json({ error: formatSessionAdmissionError(error) }, 409)
         throw error
       }

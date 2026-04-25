@@ -1,6 +1,6 @@
 import type { DraftSeat, DraftState } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { matchParticipants, matches, sessionDirectory } from '@civup/db'
+import { matchBans, matchParticipants, matches, sessionDirectory } from '@civup/db'
 import { allLeaderIds } from '@civup/game'
 import { eq } from 'drizzle-orm'
 import { DEFAULT_DRAFT_CONFIG } from '../../src/services/lobby/normalize.ts'
@@ -167,10 +167,15 @@ describe('SessionDO open session commands', () => {
       const repeated = await sessionLifecycleCommand(room, { type: 'mark-reported', matchId: openLobby.id, at: 41 })
       expect(repeated.record).toMatchObject({ phase: 'reported', version: 4, closedAt: 40 })
 
-      const cancelled = await sessionLifecycleCommand(room, { type: 'cancel-session', matchId: openLobby.id, at: 50 })
-      expect(cancelled.record).toMatchObject({ phase: 'cancelled', version: 5, closedAt: 50 })
-      const [cancelledDirectoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
-      expect(cancelledDirectoryRow).toMatchObject({ phase: 'cancelled', closedAt: 50 })
+      const cancelled = await room.fetch(sessionRequest('/commands/session-lifecycle', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'cancel-session', matchId: openLobby.id, at: 50 }),
+      }))
+      expect(cancelled.status).toBe(409)
+      expect(await cancelled.json()).toEqual({ error: 'Reported sessions cannot be cancelled' })
+
+      const [terminalDirectoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
+      expect(terminalDirectoryRow).toMatchObject({ phase: 'reported', closedAt: 40 })
     }
     finally {
       sqlite.close()
@@ -330,6 +335,76 @@ describe('SessionDO open session commands', () => {
       expect(record.lifecycleSync).toBeNull()
       expect((await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1))[0]?.phase).toBe('swap')
       expect(await kv.get(`lobby:id:${openLobby.id}`, 'json')).toEqual(expect.objectContaining({ status: 'active' }))
+    }
+    finally {
+      Date.now = originalDateNow
+      console.warn = originalConsoleWarn
+      sqlite.close()
+    }
+  })
+
+  test('pending terminal lifecycle sync retries from alarm after transient backend outage', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const d1 = createSqliteD1Database(sqlite)
+    const env: { DB?: D1Database, KV?: KVNamespace } = { DB: d1, KV: kv }
+    const room = new SessionDO(createFakeDurableObjectState(), env as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+    const originalDateNow = Date.now
+    const originalConsoleWarn = console.warn
+    console.warn = (() => {}) as typeof console.warn
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      const started = await startDraft(room, { hostId: 'p1', now: 20 })
+      const completed = await room.fetch(sessionRequest('/commands/draft-lifecycle-sync', {
+        method: 'POST',
+        body: JSON.stringify({ ...buildCompletePayload(openLobby.id, started.seats), finalized: true }),
+      }))
+      expect(completed.status).toBe(200)
+      const finalized = await room.fetch(sessionRequest('/commands/draft-lifecycle', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'draft-finalized', at: 35 }),
+      }))
+      expect(finalized.status).toBe(200)
+      await db.insert(matchBans).values({ matchId: openLobby.id, civId: 'aztec', bannedBy: 'p1', phase: 0 })
+
+      env.DB = undefined
+      Date.now = () => 1_000
+      const deferred = await room.fetch(sessionRequest('/commands/session-lifecycle', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'mark-reported', matchId: openLobby.id, reportedById: 'p1', at: 40 }),
+      }))
+
+      expect(deferred.status).toBe(503)
+      const pending = await getSessionRecordBody(room)
+      expect(pending.phase).toBe('reported')
+      expect(pending.terminalSync).toMatchObject({
+        command: expect.objectContaining({ type: 'mark-reported', matchId: openLobby.id, reportedById: 'p1', at: 40 }),
+        attempts: 1,
+        nextRetryAt: 2_000,
+      })
+      expect((await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1))[0]?.status).toBe('active')
+      expect(await db.select().from(matchBans).where(eq(matchBans.matchId, openLobby.id))).toHaveLength(1)
+
+      env.DB = d1
+      Date.now = () => 2_000
+      await room.onAlarm()
+
+      const record = await getSessionRecordBody(room)
+      expect(record.phase).toBe('reported')
+      expect(record.terminalSync).toBeNull()
+      const [match] = await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1)
+      expect(match).toMatchObject({ status: 'completed', completedAt: 40 })
+      expect(JSON.parse(match!.draftData ?? '{}').reportedById).toBe('p1')
+      expect((await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1))[0]).toMatchObject({ phase: 'reported', closedAt: 40 })
+      expect(await db.select().from(matchBans).where(eq(matchBans.matchId, openLobby.id))).toHaveLength(0)
     }
     finally {
       Date.now = originalDateNow

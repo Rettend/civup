@@ -82,21 +82,17 @@ export async function resolveMatchByModerator(
     )
   }
 
-  applyQueries.push(
-    db
-      .update(matches)
-      .set({ status: 'completed', completedAt: match.completedAt ?? input.resolvedAt })
-      .where(eq(matches.id, input.matchId)),
-    db.delete(matchBans).where(eq(matchBans.matchId, input.matchId)),
-  )
-
   let recalculatedMatchIds: string[] = []
   if (leaderboardMode == null) {
     await runBatch(db, applyQueries)
+    const lifecycleError = await runTerminalSessionCommand(db, options.sessionNamespace, input.matchId, { type: 'mark-reported', at: input.resolvedAt })
+    if (lifecycleError) return { error: lifecycleError }
   }
   else {
     try {
       await runBatch(db, applyQueries)
+      const lifecycleError = await runTerminalSessionCommand(db, options.sessionNamespace, input.matchId, { type: 'mark-reported', at: input.resolvedAt })
+      if (lifecycleError) return { error: lifecycleError }
 
       const recalculated = await recalculateLeaderboardMode(db, leaderboardMode, {
         fromMatchId: input.matchId,
@@ -142,9 +138,6 @@ export async function resolveMatchByModerator(
     .select()
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, input.matchId))
-
-  const lifecycleError = await runTerminalSessionCommand(options.sessionNamespace, input.matchId, { type: 'mark-reported', at: input.resolvedAt })
-  if (lifecycleError) return { error: lifecycleError }
 
   if (previousStatus !== 'completed') {
     await clearLobbyById(kv, input.matchId)
@@ -260,17 +253,7 @@ export async function cancelMatchByModerator(
     })
     .where(eq(matchParticipants.matchId, input.matchId))
 
-  await db
-    .update(matches)
-    .set({
-      status: 'cancelled',
-      completedAt: match.completedAt ?? input.cancelledAt,
-    })
-    .where(eq(matches.id, input.matchId))
-
-  await db.delete(matchBans).where(eq(matchBans.matchId, input.matchId))
-
-  const lifecycleError = await runTerminalSessionCommand(options.sessionNamespace, input.matchId, { type: 'cancel-session', at: input.cancelledAt })
+  const lifecycleError = await runTerminalSessionCommand(db, options.sessionNamespace, input.matchId, { type: 'cancel-session', at: input.cancelledAt })
   if (lifecycleError) return { error: lifecycleError }
 
   await clearLobbyById(kv, input.matchId)
@@ -315,16 +298,41 @@ export async function cancelMatchByModerator(
 }
 
 async function runTerminalSessionCommand(
+  db: Database,
   sessionNamespace: DurableObjectNamespace | null | undefined,
   matchId: string,
   command: { type: 'mark-reported' | 'cancel-session', at: number },
 ): Promise<string | null> {
-  if (!sessionNamespace) return null
-  try {
-    await runSessionTerminalLifecycleCommand(sessionNamespace, matchId, { ...command, matchId })
-    return null
+  if (sessionNamespace) {
+    try {
+      await runSessionTerminalLifecycleCommand(sessionNamespace, matchId, { ...command, matchId })
+      return null
+    }
+    catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
   }
-  catch (error) {
-    return error instanceof Error ? error.message : String(error)
+
+  if (command.type === 'mark-reported') {
+    const [match] = await db
+      .select({ completedAt: matches.completedAt })
+      .from(matches)
+      .where(eq(matches.id, matchId))
+      .limit(1)
+    await db.update(matches)
+      .set({ status: 'completed', completedAt: match?.completedAt ?? command.at })
+      .where(eq(matches.id, matchId))
   }
+  else {
+    const [match] = await db
+      .select({ completedAt: matches.completedAt })
+      .from(matches)
+      .where(eq(matches.id, matchId))
+      .limit(1)
+    await db.update(matches)
+      .set({ status: 'cancelled', completedAt: match?.completedAt ?? command.at })
+      .where(eq(matches.id, matchId))
+  }
+  await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
+  return null
 }

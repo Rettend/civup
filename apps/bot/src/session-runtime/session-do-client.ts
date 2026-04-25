@@ -120,6 +120,7 @@ export type SessionTerminalLifecycleCommand
     type: 'mark-reported'
     matchId?: string
     at?: number
+    reportedById?: string | null
   }
   | {
     type: 'cancel-session'
@@ -327,10 +328,8 @@ async function postSessionLobbyCommand(
   return body.record
 }
 
-function buildSessionRequest(sessionId: string, pathname: string, init?: RequestInit): Request {
+function buildSessionRequest(_sessionId: string, pathname: string, init?: RequestInit): Request {
   const headers = new Headers(init?.headers)
-  headers.set('x-partykit-room', sessionId)
-  headers.set('x-partykit-namespace', 'session')
   return new Request(`https://session.local${pathname}`, {
     ...init,
     headers,
