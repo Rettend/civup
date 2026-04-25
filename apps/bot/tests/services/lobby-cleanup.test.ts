@@ -44,7 +44,7 @@ describe('inactive lobby cleanup', () => {
       mode: '2v2',
       removedPlayerIds: ['host', 'player'],
     }])
-    expect(await getLobbyById(kv, staleLobby!.id)).toBeNull()
+    expect((await getLobbyById(kv, staleLobby!.id))?.status).toBe('cancelled')
     const runtime = getExistingTestLobbyRuntime(kv)
     expect(await getLobbyForUser(runtime.db, 'host')).toBeNull()
     expect(await getLobbyForUser(runtime.db, 'player')).toBeNull()

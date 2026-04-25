@@ -4,7 +4,7 @@ import { createDb, matches, matchParticipants } from '@civup/db'
 import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed } from '../embeds/match.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
-import { clearLobbyById, upsertLobbyMessage } from '../services/lobby/index.ts'
+import { upsertLobbyMessage } from '../services/lobby/index.ts'
 import { cancelMatchByModerator, getHostIdFromDraftData, getStoredGameModeContext, reportMatch } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
@@ -106,9 +106,9 @@ export function registerMatchRoutes(app: Hono<Env>) {
         participants: result.participants,
         matchDraftData: result.match.draftData,
         lobby,
+        sessionNamespace: c.env.SessionDO,
         archivePolicy: 'if-missing',
       })
-      await clearLobbyById(kv, result.match.id, lobby)
       return c.json({ ok: true, alreadyReported: true, match: result.match, participants: result.participants })
     }
 
@@ -151,6 +151,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       matchDraftData: result.match.draftData,
       lobby,
       rankedRoleLines,
+      sessionNamespace: c.env.SessionDO,
       reporter: {
         userId: auth.identity.userId,
         displayName: auth.identity.displayName,
@@ -158,8 +159,6 @@ export function registerMatchRoutes(app: Hono<Env>) {
       },
       archivePolicy: 'always',
     })
-    await clearLobbyById(kv, result.match.id, lobby)
-
     if (isRankedResult) {
       try {
         await markLeaderboardsDirty(db, `activity-report:${result.match.id}`)
@@ -252,7 +251,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
           embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'scrub', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
           components: [],
-        })
+        }, { db, sessionNamespace: c.env.SessionDO })
         await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
       }
       catch (error) {

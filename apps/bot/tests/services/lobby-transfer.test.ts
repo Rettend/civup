@@ -108,7 +108,7 @@ describe('lobby transfer', () => {
 
     const finalized = await finalizeDeferredOpenLobbyTransferSource(kv, undefined, secondRelease.deferredSource!, { db: runtime.db, sessionNamespace: runtime.sessionNamespace })
     expect(finalized).toEqual({ ok: true })
-    expect(await getLobbyById(kv, sourceLobby.id)).toBeNull()
+    expect((await getLobbyById(kv, sourceLobby.id))?.status).toBe('cancelled')
     expect(await getLobbyForUser(runtime.db, 'host-1')).toBeNull()
   })
 

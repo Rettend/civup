@@ -3,7 +3,6 @@ import type { PruneMatchesOptions, PruneMatchesResult } from './types.ts'
 import { matchBans, matches, matchParticipants } from '@civup/db'
 import { and, eq, inArray, isNull, lt, or } from 'drizzle-orm'
 import { runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
-import { clearLobbyById } from '../lobby/index.ts'
 import { getLiveSessionLobbyProjections } from '../session/index.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS, STALE_CANCELLED_MATCH_TIMEOUT_MS, STALE_DRAFTING_MATCH_TIMEOUT_MS } from './retention.ts'
 
@@ -32,8 +31,6 @@ export async function pruneAbandonedMatches(
   for (const match of staleMatches) {
     if (!await runCleanupTerminalSessionCommand(db, options, match.id, 'cancel-session', now)) continue
 
-    await clearLobbyById(kv, match.id)
-
     await db.delete(matchBans).where(eq(matchBans.matchId, match.id))
     await db.delete(matchParticipants).where(eq(matchParticipants.matchId, match.id))
     await db.delete(matches).where(eq(matches.id, match.id))
@@ -59,7 +56,6 @@ export async function pruneAbandonedMatches(
 
       const commandType = matchStatus === 'completed' ? 'mark-reported' : 'cancel-session'
       if (!await runCleanupTerminalSessionCommand(db, options, matchId, commandType, now)) continue
-      await clearLobbyById(kv, lobby.id, lobby, { syncActivityOverview: false })
       clearedLiveLobbyMatchIds.push(matchId)
     }
   }

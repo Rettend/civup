@@ -15,7 +15,6 @@ import { normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberP
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
 import { mapLobbySlotsToEntries } from '../services/lobby/slots.ts'
-import { clearLobbyById, putLobby } from '../services/lobby/store.ts'
 import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../services/match/index.ts'
 import { clearMatchMessageMapping, storeMatchMessageMapping } from '../services/match/message.ts'
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
@@ -162,6 +161,13 @@ type DraftLifecycleCommandRequest
 
 type SessionProjectionCommandRequest
   = | {
+    type: 'set-message'
+    expectedVersion?: number
+    channelId: string
+    messageId: string
+    now?: number
+  }
+  | {
     type: 'set-steam-lobby-link'
     expectedVersion?: number
     steamLobbyLink: string | null
@@ -805,6 +811,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         embeds: [lobbyDraftCompleteEmbed(activeLobby.mode, result.participants, payload.mapVoteResult ?? null, activeLobby.draftConfig.leaderDataVersion, activeLobby.draftConfig.redDeath)],
         components: lobbyComponents(activeLobby.mode, activeLobby.id),
       })
+      await this.updateMessageProjection(record, updatedLobby.messageId)
       await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
     }
     catch (error) {
@@ -828,6 +835,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         const slottedEntries = mapLobbySlotsToEntries(lifecycleLobby.slots, queueEntries)
         const renderPayload = await buildOpenLobbyRenderPayload(this.env.KV, lifecycleLobby, slottedEntries)
         const updatedLobby = await upsertLobbyMessage(this.env.KV, this.env.DISCORD_TOKEN, lifecycleLobby, renderPayload)
+        await this.updateMessageProjection(record, updatedLobby.messageId)
         await clearMatchMessageMapping(db, updatedLobby.messageId)
       }
       catch (error) {
@@ -842,6 +850,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
           embeds: [lobbyCancelledEmbed(lifecycleLobby.mode, cancelled.participants, payload.reason, undefined, lifecycleLobby.draftConfig.leaderDataVersion, lifecycleLobby.draftConfig.redDeath)],
           components: [],
         })
+        await this.updateMessageProjection(record, updatedLobby.messageId)
         await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
       }
       catch (error) {
@@ -849,7 +858,6 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       }
     }
 
-    await clearLobbyById(this.env.KV, lifecycleLobby.id, lifecycleLobby)
   }
 
   private async markLifecycleSyncPending(record: SessionRecord, payload: DraftLifecyclePayload): Promise<SessionRecord> {
@@ -969,11 +977,32 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     const existing = await this.getRecord()
     if (!existing) return json({ error: 'Session not found' }, 404)
-    if (existing.phase === 'reported' || existing.phase === 'cancelled') {
+    if ((existing.phase === 'reported' || existing.phase === 'cancelled') && body.type !== 'set-message') {
       return json({ error: `Session projection is closed (phase: ${existing.phase})` }, 409)
     }
 
     switch (body.type) {
+      case 'set-message': {
+        const expected = normalizeOptionalPositiveInteger(body.expectedVersion)
+        if (expected != null && expected < existing.version) return json({ ok: true, record: existing })
+        const channelId = typeof body.channelId === 'string' && body.channelId.length > 0 ? body.channelId : existing.projectionState.channelId
+        const messageId = typeof body.messageId === 'string' && body.messageId.length > 0 ? body.messageId : existing.projectionState.messageId
+        if (existing.projectionState.channelId === channelId && existing.projectionState.messageId === messageId) return json({ ok: true, record: existing })
+        const at = normalizePositiveInteger(body.now, Date.now())
+        const record = {
+          ...existing,
+          version: existing.version + 1,
+          projectionState: {
+            ...existing.projectionState,
+            channelId,
+            messageId,
+          },
+          updatedAt: at,
+        } satisfies SessionRecord
+        const commit = await this.commitRecord(record)
+        if (commit) return commit
+        return json({ ok: true, record })
+      }
       case 'set-steam-lobby-link': {
         const expected = normalizeOptionalPositiveInteger(body.expectedVersion)
         if (expected != null && expected < existing.version) return json({ ok: true, record: existing })
@@ -1012,7 +1041,6 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return json({ error: error instanceof Error ? error.message : String(error) }, 500)
     }
 
-    await this.writeSessionProjectionCache(record)
     await this.publishActivityUpdate(record)
     await this.broadcastSelectedSessionUpdate(record)
     await this.scheduleLifecycleSyncAlarm(record).catch((error) => {
@@ -1021,21 +1049,28 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     return null
   }
 
-  private async writeSessionProjectionCache(record: SessionRecord): Promise<void> {
-    if (!this.env.KV) return
-    try {
-      await putLobby(this.env.KV, buildLobbyProjectionFromSessionRecord(record))
-    }
-    catch (error) {
-      console.error('[session-do] failed to write lobby projection cache', error)
-    }
-  }
-
   private async storeRecordOnly(record: SessionRecord): Promise<void> {
     await this.ctx.storage.put(SESSION_RECORD_STORAGE_KEY, record)
     await this.scheduleLifecycleSyncAlarm(record).catch((error) => {
       console.error('[session-do] failed to schedule session alarm after record store', error)
     })
+  }
+
+  private async updateMessageProjection(record: SessionRecord, messageId: string): Promise<void> {
+    if (record.projectionState.messageId === messageId) return
+    const current = await this.getRecord()
+    if (!current || current.version !== record.version) return
+    const updated = {
+      ...current,
+      version: current.version + 1,
+      projectionState: {
+        ...current.projectionState,
+        messageId,
+      },
+      updatedAt: Date.now(),
+    } satisfies SessionRecord
+    const failed = await this.commitRecord(updated)
+    if (failed) console.error('[session-do] failed to persist rebound lobby message id', await readErrorResponse(failed))
   }
 
   private async scheduleLifecycleSyncAlarm(record: SessionRecord): Promise<void> {
@@ -1117,7 +1152,6 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     }
 
     await this.ctx.storage.put(SESSION_RECORD_STORAGE_KEY, cleared)
-    await this.writeSessionProjectionCache(cleared)
     await this.publishActivityUpdate(cleared)
     await this.broadcastSelectedSessionUpdate(cleared)
     await this.scheduleLifecycleSyncAlarm(cleared).catch((error) => {
