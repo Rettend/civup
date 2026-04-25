@@ -922,7 +922,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     switch (body.type) {
       case 'mark-reported':
         if (existing.phase === 'reported') {
-          const finished = await this.finishTerminalSync(existing)
+          const pendingRecord = existing.terminalSync ? existing : await this.markTerminalSyncPending(existing, terminalCommand)
+          const finished = await this.finishTerminalSync(pendingRecord)
           if (!finished.ok) return json({ error: finished.error }, finished.status)
           return json({ ok: true, record: finished.record })
         }
@@ -934,7 +935,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         break
       case 'cancel-session':
         if (existing.phase === 'cancelled') {
-          const finished = await this.finishTerminalSync(existing)
+          const pendingRecord = existing.terminalSync ? existing : await this.markTerminalSyncPending(existing, terminalCommand)
+          const finished = await this.finishTerminalSync(pendingRecord)
           if (!finished.ok) return json({ error: finished.error }, finished.status)
           return json({ ok: true, record: finished.record })
         }

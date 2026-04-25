@@ -91,6 +91,7 @@ export interface PruneMatchesOptions {
   staleActiveMs?: number
   staleCancelledMs?: number
   sessionNamespace?: DurableObjectNamespace | null
+  allowDirectTerminalWriteForTests?: boolean
 }
 
 export interface PruneMatchesResult {

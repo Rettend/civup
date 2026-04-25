@@ -1,6 +1,8 @@
 export {
   formatSessionAdmissionError,
   isSessionAdmissionError,
+  releaseSessionDirectoryMembers,
+  restoreSessionDirectoryMembers,
   SessionAdmissionError,
 } from './directory.ts'
 export {

@@ -4,7 +4,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 import type { SessionRecord } from '../../src/session-runtime/session-record.ts'
 import { createLobby, setLobbyStatus } from '../helpers/lobby-runtime.ts'
 import { isSessionAdmissionError } from '../../src/services/session/index.ts'
-import { projectSessionRecord } from '../../src/services/session/directory.ts'
+import { projectSessionRecord, SESSION_DIRECTORY_OPEN_STALE_MS } from '../../src/services/session/directory.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('session directory admission', () => {
@@ -156,6 +156,47 @@ describe('session directory admission', () => {
     }
   })
 
+  test('ignores stale projections before checking live admission conflicts', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await projectSessionRecord(db, buildSessionRecord({ id: 'first', playerIds: ['host-1'] }))
+      await projectSessionRecord(db, buildSessionRecord({ id: 'first', phase: 'active', matchId: 'first', version: 2, playerIds: ['host-1'] }))
+      await projectSessionRecord(db, buildSessionRecord({ id: 'second', playerIds: ['host-1'] }))
+
+      await projectSessionRecord(db, buildSessionRecord({ id: 'first', version: 1, playerIds: ['host-1'] }))
+
+      const liveMembers = await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))
+      expect(liveMembers.map(row => row.sessionId)).toEqual(['second'])
+      const [firstRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, 'first')).limit(1)
+      expect(firstRow).toMatchObject({ phase: 'active', version: 2 })
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('releases stale open admission conflicts during new projections', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await projectSessionRecord(db, buildSessionRecord({ id: 'stale-open', playerIds: ['host-1'], updatedAt: 1 }))
+      await projectSessionRecord(db, buildSessionRecord({ id: 'fresh-open', playerIds: ['host-1'], updatedAt: SESSION_DIRECTORY_OPEN_STALE_MS + 2 }))
+
+      const liveMembers = await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))
+      expect(liveMembers.map(row => row.sessionId)).toEqual(['fresh-open'])
+
+      const [staleMember] = await db.select().from(sessionDirectoryMembers).where(and(
+        eq(sessionDirectoryMembers.sessionId, 'stale-open'),
+        eq(sessionDirectoryMembers.playerId, 'host-1'),
+      )).limit(1)
+      expect(staleMember?.leftAt).toBe(SESSION_DIRECTORY_OPEN_STALE_MS + 2)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
 })
 
 function buildSessionRecord(options: {
@@ -163,11 +204,12 @@ function buildSessionRecord(options: {
   phase?: SessionRecord['phase']
   version?: number
   matchId?: string | null
+  updatedAt?: number
   playerIds: string[]
 }): SessionRecord {
   const phase = options.phase ?? 'open'
   const version = options.version ?? 1
-  const updatedAt = version * 10
+  const updatedAt = options.updatedAt ?? version * 10
   const playerIds = options.playerIds
   return {
     id: options.id,

@@ -6,7 +6,7 @@ import { matchBans, matches, matchParticipants, playerRatings, playerRatingSeeds
 import { isTeamMode } from '@civup/game'
 import { calculateRatings, createRating } from '@civup/rating'
 import { and, eq, gt } from 'drizzle-orm'
-import { runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
+import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
 import { getCompletedAtFromDraftData, getStoredGameModeContext } from './draft-data.ts'
@@ -15,6 +15,7 @@ import { buildRankByPlayer, recalculateLeaderboardMode } from './ratings.ts'
 
 interface ReportMatchOptions {
   sessionNamespace?: DurableObjectNamespace | null
+  allowDirectTerminalWriteForTests?: boolean
 }
 
 export async function reportMatch(
@@ -48,10 +49,13 @@ export async function reportMatch(
   }
 
   if (match.status === 'completed') {
+    const sessionValidationError = await validateReportableSession(options, input.matchId)
+    if (sessionValidationError) return { error: sessionValidationError }
+
     const repaired = await repairCompletedReportedMatch(db, kv, match, participantRows, options)
     if (repaired) return repaired
 
-    const cleanupError = await ensureReportedMatchCleanup(db, options.sessionNamespace, input.matchId, Date.now(), null, false)
+    const cleanupError = await ensureReportedMatchCleanup(db, options, input.matchId, Date.now(), null, false)
     if (cleanupError) return { error: cleanupError }
     return { match, participants: participantRows, idempotent: true }
   }
@@ -66,6 +70,16 @@ export async function reportMatch(
   }
 
   const gameMode = gameContext.mode
+  const sessionValidationError = await validateReportableSession(options, input.matchId)
+  if (sessionValidationError) return { error: sessionValidationError }
+  if (await isSessionAlreadyReported(options, input.matchId)) {
+    const cleanupError = await ensureReportedMatchCleanup(db, options, input.matchId, Date.now(), null, false)
+    if (cleanupError) return { error: cleanupError }
+
+    const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
+    const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
+    return { match: updatedMatch ?? match, participants: updatedParticipants, idempotent: true }
+  }
 
   if (isTeamMode(gameMode) || gameMode === '1v1') {
     const uniqueTeams = new Set(participantRows.flatMap(participant => participant.team == null ? [] : [participant.team]))
@@ -164,7 +178,7 @@ export async function reportMatch(
     return { error: 'Could not resolve placements for all participants.' }
   }
 
-  const finalized = await finalizeReportedMatch(db, kv, match, updatedParticipants, input.reporterId, options)
+  const finalized = await finalizeReportedMatch(db, kv, match, updatedParticipants, participantRows, input.reporterId, options)
   if ('error' in finalized) {
     return finalized
   }
@@ -177,6 +191,7 @@ async function finalizeReportedMatch(
   kv: KVNamespace,
   match: { id: string, gameMode: string, draftData: string | null },
   participantRows: ParticipantRow[],
+  originalParticipantRows: ParticipantRow[],
   reporterId: string,
   options: ReportMatchOptions,
 ): Promise<ReportResult> {
@@ -186,8 +201,11 @@ async function finalizeReportedMatch(
 
   const leaderboardMode = gameContext.leaderboardMode
   if (leaderboardMode == null) {
-    return await finalizeReportedUnrankedMatch(db, match, reporterId, options)
+    return await finalizeReportedUnrankedMatch(db, match, originalParticipantRows, reporterId, options)
   }
+
+  const sessionValidationError = await validateReportableSession(options, matchId)
+  if (sessionValidationError) return { error: sessionValidationError }
 
   const leaderboardSnapshotBefore = await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode)
   const beforeRankByPlayer = buildRankByPlayer(leaderboardSnapshotBefore.rows, leaderboardMode)
@@ -219,10 +237,10 @@ async function finalizeReportedMatch(
     if (applied) return { error: applied }
   }
 
-  const cleanupError = await ensureReportedMatchCleanup(db, options.sessionNamespace, matchId, now, reporterId, true)
-  if (cleanupError) return { error: cleanupError }
-
   if (usesLiveSeedFade) {
+    const prepareError = await prepareReportedMatchForRecalculation(db, matchId, now, reporterId)
+    if (prepareError) return { error: prepareError }
+
     try {
       const recalculated = await recalculateLeaderboardMode(db, leaderboardMode, {
         fromMatchId: matchId,
@@ -246,6 +264,21 @@ async function finalizeReportedMatch(
         console.error(`Failed to roll back reported match ${matchId}:`, rollbackError)
       }
       throw error
+    }
+
+    const cleanupError = await ensureReportedMatchCleanup(db, options, matchId, now, reporterId, false)
+    if (cleanupError) {
+      const rollbackError = await rollbackPreparedReportAfterLifecycleFailure(db, kv, options, match, leaderboardMode)
+      if (rollbackError) return { error: `${cleanupError} Automatic rollback also failed: ${rollbackError}` }
+      return { error: cleanupError }
+    }
+  }
+  else {
+    const cleanupError = await ensureReportedMatchCleanup(db, options, matchId, now, reporterId, true)
+    if (cleanupError) {
+      const rollbackError = await rollbackPreparedReportAfterLifecycleFailure(db, kv, options, match, leaderboardMode)
+      if (rollbackError) return { error: `${cleanupError} Automatic rollback also failed: ${rollbackError}` }
+      return { error: cleanupError }
     }
   }
 
@@ -423,7 +456,7 @@ async function repairCompletedReportedMatch(
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, match.id))
 
-  const cleanupError = await ensureReportedMatchCleanup(db, options.sessionNamespace, match.id, Date.now(), null, false)
+  const cleanupError = await ensureReportedMatchCleanup(db, options, match.id, Date.now(), null, false)
   if (cleanupError) return { error: cleanupError }
   return { match: updatedMatch, participants: updatedParticipants, idempotent: true }
 }
@@ -439,12 +472,13 @@ function hasMissingRatingSnapshots(participantRows: ParticipantRow[]): boolean {
 
 async function ensureReportedMatchCleanup(
   db: Database,
-  sessionNamespace: DurableObjectNamespace | null | undefined,
+  options: ReportMatchOptions,
   matchId: string,
   reportedAt = Date.now(),
   reportedById: string | null = null,
   updateMatch = true,
 ): Promise<string | null> {
+  const { sessionNamespace } = options
   if (sessionNamespace) {
     try {
       await runSessionTerminalLifecycleCommand(sessionNamespace, matchId, { type: 'mark-reported', matchId, at: reportedAt, reportedById })
@@ -453,6 +487,10 @@ async function ensureReportedMatchCleanup(
       return error instanceof Error ? error.message : String(error)
     }
     return null
+  }
+
+  if (!options.allowDirectTerminalWriteForTests) {
+    return 'SessionDO binding is required to finalize reported match state.'
   }
 
   if (updateMatch) {
@@ -472,6 +510,65 @@ async function ensureReportedMatchCleanup(
   }
   await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
   return null
+}
+
+async function prepareReportedMatchForRecalculation(
+  db: Database,
+  matchId: string,
+  reportedAt: number,
+  reportedById: string | null,
+): Promise<string | null> {
+  try {
+    const values: { status: string, completedAt: number, draftData?: string | null } = {
+      status: 'completed',
+      completedAt: reportedAt,
+    }
+    if (reportedById) {
+      const [match] = await db
+        .select({ draftData: matches.draftData })
+        .from(matches)
+        .where(eq(matches.id, matchId))
+        .limit(1)
+      if (match) values.draftData = setReportedByInDraftData(match.draftData, reportedById)
+    }
+    await db.update(matches).set(values).where(eq(matches.id, matchId))
+    await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
+    return null
+  }
+  catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+
+async function validateReportableSession(
+  options: ReportMatchOptions,
+  matchId: string,
+): Promise<string | null> {
+  const { sessionNamespace } = options
+  if (!sessionNamespace) {
+    return options.allowDirectTerminalWriteForTests ? null : 'SessionDO binding is required to validate match lifecycle.'
+  }
+  try {
+    const record = await getSessionRecord(sessionNamespace, matchId)
+    if (!record) return `Session **${matchId}** not found.`
+    if (record.phase === 'reported') return null
+    if (record.phase === 'cancelled') return 'Cancelled sessions cannot be reported'
+    if (record.phase !== 'active' && record.phase !== 'swap') return `Session is not reportable (phase: ${record.phase})`
+    return null
+  }
+  catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+
+async function isSessionAlreadyReported(options: ReportMatchOptions, matchId: string): Promise<boolean> {
+  if (!options.sessionNamespace) return false
+  try {
+    return (await getSessionRecord(options.sessionNamespace, matchId))?.phase === 'reported'
+  }
+  catch {
+    return false
+  }
 }
 
 async function rollbackReportedRatedMatch(
@@ -520,6 +617,59 @@ async function rollbackReportedRatedMatch(
   }
 }
 
+async function rollbackPreparedReportAfterLifecycleFailure(
+  db: Database,
+  kv: KVNamespace,
+  options: ReportMatchOptions,
+  match: { id: string, draftData: string | null },
+  leaderboardMode: LeaderboardMode,
+): Promise<string | null> {
+  if (!await shouldRollbackPreparedReportedMatch(options, match.id)) return null
+  return await rollbackReportedRatedMatch(db, kv, { match, leaderboardMode })
+}
+
+async function rollbackParticipantRowsAfterLifecycleFailure(
+  db: Database,
+  options: ReportMatchOptions,
+  matchId: string,
+  participants: ParticipantRow[],
+): Promise<string | null> {
+  if (!await shouldRollbackPreparedReportedMatch(options, matchId)) return null
+  try {
+    for (const participant of participants) {
+      await db
+        .update(matchParticipants)
+        .set({
+          placement: participant.placement,
+          ratingBeforeMu: participant.ratingBeforeMu,
+          ratingBeforeSigma: participant.ratingBeforeSigma,
+          ratingAfterMu: participant.ratingAfterMu,
+          ratingAfterSigma: participant.ratingAfterSigma,
+        })
+        .where(and(
+          eq(matchParticipants.matchId, matchId),
+          eq(matchParticipants.playerId, participant.playerId),
+        ))
+    }
+    return null
+  }
+  catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+
+async function shouldRollbackPreparedReportedMatch(options: ReportMatchOptions, matchId: string): Promise<boolean> {
+  if (!options.sessionNamespace) return false
+  try {
+    const record = await getSessionRecord(options.sessionNamespace, matchId)
+    if (!record) return false
+    return record.phase === 'active' || record.phase === 'swap'
+  }
+  catch {
+    return false
+  }
+}
+
 async function modeUsesLiveSeedFade(db: Database, leaderboardMode: string): Promise<boolean> {
   const [row] = await db
     .select({ playerId: playerRatingSeeds.playerId })
@@ -536,11 +686,15 @@ async function modeUsesLiveSeedFade(db: Database, leaderboardMode: string): Prom
 async function finalizeReportedUnrankedMatch(
   db: Database,
   match: { id: string, draftData: string | null },
+  originalParticipantRows: ParticipantRow[],
   reporterId: string,
   options: ReportMatchOptions,
 ): Promise<ReportResult> {
   const matchId = match.id
   const now = Date.now()
+
+  const sessionValidationError = await validateReportableSession(options, matchId)
+  if (sessionValidationError) return { error: sessionValidationError }
 
   await db
     .update(matchParticipants)
@@ -552,8 +706,12 @@ async function finalizeReportedUnrankedMatch(
     })
     .where(eq(matchParticipants.matchId, matchId))
 
-  const cleanupError = await ensureReportedMatchCleanup(db, options.sessionNamespace, matchId, now, reporterId, true)
-  if (cleanupError) return { error: cleanupError }
+  const cleanupError = await ensureReportedMatchCleanup(db, options, matchId, now, reporterId, true)
+  if (cleanupError) {
+    const rollbackError = await rollbackParticipantRowsAfterLifecycleFailure(db, options, matchId, originalParticipantRows)
+    if (rollbackError) return { error: `${cleanupError} Automatic rollback also failed: ${rollbackError}` }
+    return { error: cleanupError }
+  }
 
   const [updatedMatch] = await db
     .select()

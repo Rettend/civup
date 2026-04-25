@@ -6,6 +6,7 @@ import { matches, matchParticipants, sessionDirectory, sessionDirectoryMembers }
 import { GAME_MODES } from '@civup/game'
 import { and, asc, desc, eq, inArray, isNull, or } from 'drizzle-orm'
 import { buildLobbyDraftConfigFromSessionConfig } from '../../session-runtime/session-record.ts'
+import { SESSION_DIRECTORY_OPEN_STALE_MS } from './directory.ts'
 
 type SessionDirectoryRow = typeof sessionDirectory.$inferSelect
 
@@ -23,7 +24,7 @@ export async function getLiveSessionLobbyProjections(
     .where(and(...conditions))
     .orderBy(desc(sessionDirectory.updatedAt))
 
-  return rows.flatMap(row => parseSessionLobbyProjection(row) ?? [])
+  return filterStaleOpenDirectoryRows(rows).flatMap(row => parseSessionLobbyProjection(row) ?? [])
 }
 
 export async function getOpenSessionLobbyProjectionsByMode(
@@ -37,7 +38,7 @@ export async function getOpenSessionLobbyProjectionsByMode(
     ))
     .orderBy(asc(sessionDirectory.createdAt))
 
-  return rows.flatMap(row => parseSessionLobbyProjection(row) ?? [])
+  return filterStaleOpenDirectoryRows(rows).flatMap(row => parseSessionLobbyProjection(row) ?? [])
 }
 
 export async function getOpenSessionLobbyProjectionsByChannel(
@@ -51,7 +52,7 @@ export async function getOpenSessionLobbyProjectionsByChannel(
     ))
     .orderBy(desc(sessionDirectory.updatedAt))
 
-  return rows.flatMap(row => parseSessionLobbyProjection(row) ?? [])
+  return filterStaleOpenDirectoryRows(rows).flatMap(row => parseSessionLobbyProjection(row) ?? [])
 }
 
 export async function getOpenSessionLobbyProjectionForPlayer(
@@ -90,6 +91,7 @@ export async function getCurrentSessionLobbyProjectionsForPlayers(
   for (const row of rows) {
     if (result.get(row.playerId)) continue
     if (excludedLobbyIds.has(row.session.sessionId)) continue
+    if (isStaleOpenDirectoryRow(row.session)) continue
     const lobby = parseSessionLobbyProjection(row.session)
     if (!lobby) continue
     result.set(row.playerId, lobby)
@@ -150,7 +152,7 @@ export async function getOpenSessionLobbyProjectionHostedBy(
     ))
     .orderBy(asc(sessionDirectory.createdAt))
 
-  return rows.flatMap(row => parseSessionLobbyProjection(row) ?? [])[0] ?? null
+  return filterStaleOpenDirectoryRows(rows).flatMap(row => parseSessionLobbyProjection(row) ?? [])[0] ?? null
 }
 
 export async function getLiveSessionLobbyProjectionsHostedBy(
@@ -164,7 +166,16 @@ export async function getLiveSessionLobbyProjectionsHostedBy(
     ))
     .orderBy(desc(sessionDirectory.updatedAt))
 
-  return rows.flatMap(row => parseSessionLobbyProjection(row) ?? [])
+  return filterStaleOpenDirectoryRows(rows).flatMap(row => parseSessionLobbyProjection(row) ?? [])
+}
+
+function filterStaleOpenDirectoryRows(rows: SessionDirectoryRow[]): SessionDirectoryRow[] {
+  const now = Date.now()
+  return rows.filter(row => !isStaleOpenDirectoryRow(row, now))
+}
+
+function isStaleOpenDirectoryRow(row: Pick<SessionDirectoryRow, 'phase' | 'updatedAt' | 'lastActivityAt'>, now: number = Date.now()): boolean {
+  return row.phase === 'open' && now - Math.max(row.updatedAt, row.lastActivityAt) >= SESSION_DIRECTORY_OPEN_STALE_MS
 }
 
 export async function getSessionLobbyProjectionByMatch(

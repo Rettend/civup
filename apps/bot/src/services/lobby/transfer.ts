@@ -7,8 +7,23 @@ import { syncLobbyDerivedState } from './live-snapshot.ts'
 import { upsertLobbyMessage } from './message.ts'
 import { setLobbyRoster, setLobbyStatus } from './mutations.ts'
 import { buildOpenLobbyRenderPayload } from './render.ts'
+import { releaseSessionDirectoryMembers, restoreSessionDirectoryMembers } from '../session/directory.ts'
 import { filterQueueEntriesForLobby, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots } from './slots.ts'
-import { clearLobbyById } from './store.ts'
+import { clearLobbyById, getLobbyById } from './store.ts'
+
+export interface DeferredOpenLobbyTransferSource {
+  lobby: LobbyState
+  queueEntries: QueueEntry[]
+  releasedPlayerIds: string[]
+}
+
+type LeaveOpenLobbyForJoinResult =
+  | {
+    ok: true
+    transferredFrom: { lobbyId: string, mode: GameMode }
+    deferredSource?: DeferredOpenLobbyTransferSource
+  }
+  | { ok: false, error: string }
 
 export async function leaveOpenLobbyForLobbyJoin(
   kv: KVNamespace,
@@ -17,7 +32,7 @@ export async function leaveOpenLobbyForLobbyJoin(
   movingPlayerIds: string[],
   targetMode: GameMode,
   options?: LobbySessionProjectionOptions,
-): Promise<{ ok: true, transferredFrom: { lobbyId: string, mode: GameMode } } | { ok: false, error: string }> {
+): Promise<LeaveOpenLobbyForJoinResult> {
   const currentLobby = lobby
   if (currentLobby.status !== 'open') return { ok: false, error: 'You are already in a live match.' }
 
@@ -41,6 +56,23 @@ export async function leaveOpenLobbyForLobbyJoin(
   const sourceLobbyQueueEntries = filterQueueEntriesForLobby(currentLobby, options?.queueEntries ? [...options.queueEntries] : [])
 
   if (remainingMemberIds.length === 0) {
+    if (options?.db) {
+      const releasedAt = Date.now()
+      await releaseSessionDirectoryMembers(options.db, currentLobby.id, uniqueMovingPlayerIds, releasedAt)
+      return {
+        ok: true,
+        transferredFrom: {
+          lobbyId: currentLobby.id,
+          mode: currentLobby.mode,
+        },
+        deferredSource: {
+          lobby: currentLobby,
+          queueEntries: sourceLobbyQueueEntries,
+          releasedPlayerIds: uniqueMovingPlayerIds,
+        },
+      }
+    }
+
     const cancelledLobby = await setLobbyStatus(kv, currentLobby.id, 'cancelled', currentLobby, {
       ...options,
       queueEntries: sourceLobbyQueueEntries,
@@ -122,6 +154,104 @@ export async function leaveOpenLobbyForLobbyJoin(
       mode: currentLobby.mode,
     },
   }
+}
+
+export async function finalizeDeferredOpenLobbyTransferSource(
+  kv: KVNamespace,
+  token: string | undefined,
+  source: DeferredOpenLobbyTransferSource,
+  options?: LobbySessionProjectionOptions,
+): Promise<{ ok: true } | { ok: false, error: string }> {
+  try {
+    const cancelledLobby = await setLobbyStatus(kv, source.lobby.id, 'cancelled', source.lobby, {
+      ...options,
+      queueEntries: source.queueEntries,
+    }) ?? { ...source.lobby, status: 'cancelled' as const }
+    if (token) {
+      try {
+        await upsertLobbyMessage(kv, token, cancelledLobby, {
+          embeds: [lobbyCancelledEmbed(
+            source.lobby.mode,
+            buildCancelledLobbyParticipants(source.lobby, source.queueEntries),
+            'cancel',
+            undefined,
+            source.lobby.draftConfig.leaderDataVersion,
+            source.lobby.draftConfig.redDeath,
+          )],
+          components: [],
+        })
+      }
+      catch (error) {
+        console.error(`Failed to update cancelled transfer source lobby ${source.lobby.id}:`, error)
+      }
+    }
+
+    await clearLobbyById(kv, source.lobby.id, cancelledLobby)
+    return { ok: true }
+  }
+  catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+export async function restoreDeferredOpenLobbyTransferSourceAdmission(
+  source: DeferredOpenLobbyTransferSource,
+  options?: LobbySessionProjectionOptions,
+): Promise<{ ok: true } | { ok: false, error: string }> {
+  if (!options?.db) return { ok: true }
+  try {
+    await restoreSessionDirectoryMembers(options.db, source.lobby.id, source.releasedPlayerIds, Date.now())
+    return { ok: true }
+  }
+  catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+export async function rollbackDeferredOpenLobbyTransferTarget(
+  kv: KVNamespace,
+  source: DeferredOpenLobbyTransferSource,
+  target: { lobby: LobbyState, queueEntries: QueueEntry[], at: number },
+  options?: LobbySessionProjectionOptions,
+): Promise<{ ok: true } | { ok: false, error: string }> {
+  const errors: string[] = []
+  let targetRolledBack = false
+  try {
+    const currentTarget = await getLobbyById(kv, target.lobby.id)
+    if (!currentTarget || currentTarget.status !== 'open') {
+      errors.push('target lobby is no longer open')
+    }
+    else {
+      const restored = await setLobbyRoster(kv, target.lobby.id, {
+        memberPlayerIds: target.lobby.memberPlayerIds,
+        slots: target.lobby.slots,
+        lastActivityAt: Math.max(target.lobby.lastActivityAt, target.at),
+        now: Date.now(),
+      }, currentTarget, {
+        ...options,
+        queueEntries: target.queueEntries,
+      }) ?? currentTarget
+      await syncLobbyDerivedState(kv, restored, {
+        queueEntries: target.queueEntries,
+        slots: target.lobby.slots,
+      })
+      targetRolledBack = true
+    }
+  }
+  catch (error) {
+    errors.push(`target rollback failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  if (!targetRolledBack) return { ok: false, error: errors.join('; ') || 'target rollback failed' }
+
+  const restoredAdmission = await restoreDeferredOpenLobbyTransferSourceAdmission(source, {
+    ...options,
+    queueEntries: source.queueEntries,
+  })
+  if (!restoredAdmission.ok) errors.push(`source admission restore failed: ${restoredAdmission.error}`)
+
+  if (errors.length > 0) return { ok: false, error: errors.join('; ') }
+  return { ok: true }
 }
 
 function buildCancelledLobbyParticipants(lobby: { mode: GameMode, slots: (string | null)[] }, entries: QueueEntry[]) {
