@@ -341,6 +341,7 @@ export async function joinLobbyAndMaybeStartMatch(
         if (!restored.ok) return { error: restored.error }
       }
       if (isSessionAdmissionError(error)) return { error: formatSessionAdmissionError(error) }
+      if (isSessionVersionStaleError(error)) return { error: 'Lobby changed; please retry.' }
       throw error
     }
   }
@@ -381,6 +382,10 @@ export async function joinLobbyAndMaybeStartMatch(
     embeds: renderPayload.embeds,
     components: renderPayload.components,
   }
+}
+
+function isSessionVersionStaleError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('Session version is stale')
 }
 
 async function restoreOpenLobbyTransferSource(

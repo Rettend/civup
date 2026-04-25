@@ -7,7 +7,7 @@ import { syncLobbyDerivedState } from './live-snapshot.ts'
 import { upsertLobbyMessage } from './message.ts'
 import { setLobbyRoster, setLobbyStatus } from './mutations.ts'
 import { buildOpenLobbyRenderPayload } from './render.ts'
-import { releaseSessionDirectoryMembers, restoreSessionDirectoryMembers } from '../session/directory.ts'
+import { restoreSessionDirectoryMembers } from '../session/directory.ts'
 import { getSessionLobbyProjectionByMatch } from '../session/lobby-projection.ts'
 import { filterQueueEntriesForLobby, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots } from './slots.ts'
 
@@ -56,23 +56,6 @@ export async function leaveOpenLobbyForLobbyJoin(
   const sourceLobbyQueueEntries = filterQueueEntriesForLobby(currentLobby, options?.queueEntries ? [...options.queueEntries] : [])
 
   if (remainingMemberIds.length === 0) {
-    if (options?.db) {
-      const releasedAt = Date.now()
-      await releaseSessionDirectoryMembers(options.db, currentLobby.id, uniqueMovingPlayerIds, releasedAt)
-      return {
-        ok: true,
-        transferredFrom: {
-          lobbyId: currentLobby.id,
-          mode: currentLobby.mode,
-        },
-        deferredSource: {
-          lobby: currentLobby,
-          queueEntries: sourceLobbyQueueEntries,
-          releasedPlayerIds: uniqueMovingPlayerIds,
-        },
-      }
-    }
-
     const cancelledLobby = await setLobbyStatus(kv, currentLobby.id, 'cancelled', currentLobby, {
       ...options,
       queueEntries: sourceLobbyQueueEntries,

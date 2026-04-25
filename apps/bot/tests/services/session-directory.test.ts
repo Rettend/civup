@@ -136,7 +136,7 @@ describe('session directory admission', () => {
     }
   })
 
-  test('releases live admission on active while keeping the active projection visible', async () => {
+  test('keeps active admission live while keeping the active projection visible', async () => {
     const { db, sqlite } = await createTestDatabase()
 
     try {
@@ -144,12 +144,16 @@ describe('session directory admission', () => {
       await projectSessionRecord(db, buildSessionRecord({ id: 'first', phase: 'active', matchId: 'first', version: 2, playerIds: ['host-1'] }))
 
       const [activeRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, 'first')).limit(1)
-      expect(activeRow).toMatchObject({ sessionId: 'first', phase: 'active', closedAt: 20 })
-      expect(await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).toHaveLength(0)
+      expect(activeRow).toMatchObject({ sessionId: 'first', phase: 'active', closedAt: null })
+      expect((await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).map(row => row.sessionId)).toEqual(['first'])
 
-      await projectSessionRecord(db, buildSessionRecord({ id: 'second', playerIds: ['host-1'] }))
-      const liveMembers = await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))
-      expect(liveMembers.map(row => row.sessionId)).toEqual(['second'])
+      try {
+        await projectSessionRecord(db, buildSessionRecord({ id: 'second', playerIds: ['host-1'] }))
+        throw new Error('Expected active live admission to block a second session')
+      }
+      catch (error) {
+        expect(isSessionAdmissionError(error)).toBe(true)
+      }
     }
     finally {
       sqlite.close()
@@ -162,12 +166,11 @@ describe('session directory admission', () => {
     try {
       await projectSessionRecord(db, buildSessionRecord({ id: 'first', playerIds: ['host-1'] }))
       await projectSessionRecord(db, buildSessionRecord({ id: 'first', phase: 'active', matchId: 'first', version: 2, playerIds: ['host-1'] }))
-      await projectSessionRecord(db, buildSessionRecord({ id: 'second', playerIds: ['host-1'] }))
 
       await projectSessionRecord(db, buildSessionRecord({ id: 'first', version: 1, playerIds: ['host-1'] }))
 
       const liveMembers = await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))
-      expect(liveMembers.map(row => row.sessionId)).toEqual(['second'])
+      expect(liveMembers.map(row => row.sessionId)).toEqual(['first'])
       const [firstRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, 'first')).limit(1)
       expect(firstRow).toMatchObject({ phase: 'active', version: 2 })
     }
@@ -253,7 +256,7 @@ function buildSessionRecord(options: {
     createdAt: 1,
     updatedAt,
     lastActivityAt: updatedAt,
-    closedAt: phase === 'active' || phase === 'reported' || phase === 'cancelled' ? updatedAt : null,
+    closedAt: phase === 'reported' || phase === 'cancelled' ? updatedAt : null,
     lifecycleSync: null,
     terminalSync: null,
     ...(phase === 'open' ? {} : { frozenAt: 1 }),

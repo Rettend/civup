@@ -36,6 +36,11 @@ export interface SessionLifecycleSyncState {
   nextRetryAt: number
 }
 
+export interface SessionDraftStartSyncState {
+  attempts: number
+  nextRetryAt: number
+}
+
 export type SessionTerminalSyncCommand
   = | {
     type: 'mark-reported'
@@ -72,6 +77,8 @@ interface BaseSessionRecord {
   updatedAt: number
   lastActivityAt: number
   closedAt: number | null
+  draftStartSync?: SessionDraftStartSyncState | null
+  lifecycleEventSequence?: number
   lifecycleSync?: SessionLifecycleSyncState | null
   terminalSync?: SessionTerminalSyncState | null
 }
@@ -177,6 +184,8 @@ export function buildSessionRecordFromLobby(
     updatedAt: lobby.updatedAt,
     lastActivityAt: lobby.lastActivityAt,
     closedAt,
+    draftStartSync: null,
+    lifecycleEventSequence: 0,
     lifecycleSync: null,
     terminalSync: null,
   } satisfies BaseSessionRecord

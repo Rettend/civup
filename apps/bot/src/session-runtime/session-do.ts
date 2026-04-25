@@ -2,7 +2,7 @@ import type { CompetitiveTier, DraftSeat, GameMode, QueueEntry } from '@civup/ga
 import type { SessionServerMessage } from '@civup/session'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
-import type { DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionLifecycleSyncState, SessionProjectionState, SessionRecord, SessionRoster, SessionTerminalSyncCommand, SessionTerminalSyncState } from './session-record.ts'
+import type { DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionDraftStartSyncState, SessionLifecycleSyncState, SessionProjectionState, SessionRecord, SessionRoster, SessionTerminalSyncCommand, SessionTerminalSyncState } from './session-record.ts'
 import { createDb, matchBans, matches } from '@civup/db'
 import { canStartWithPlayerCount, formatModeLabel, GAME_MODES, getMinimumLeaderPoolSize } from '@civup/game'
 import { CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest } from '@civup/utils'
@@ -205,6 +205,19 @@ interface OpenSessionPatch {
 }
 
 const SESSION_RECORD_STORAGE_KEY = 'session-record'
+const SESSION_COMMIT_INTENT_STORAGE_KEY = 'session-commit-intent'
+
+interface SessionCommitIntent {
+  record: SessionRecord
+  createdAt: number
+}
+
+class TerminalMatchNotFoundError extends Error {
+  constructor(matchId: string) {
+    super(`Match **${matchId}** not found.`)
+    this.name = 'TerminalMatchNotFoundError'
+  }
+}
 
 export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   private commandQueue: Promise<void> = Promise.resolve()
@@ -213,6 +226,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const url = new URL(request.url)
 
     if (request.method === 'GET' && url.pathname === '/record') {
+      await this.recoverPendingCommitIntent()
       const record = await this.getRecord()
       if (!record) return json({ error: 'Session not found' }, 404)
       return json({ record })
@@ -251,6 +265,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
   override async onAlarm(): Promise<void> {
     await this.runSerializedCommand(async () => {
+      await this.retryPendingDraftStartSync()
       await this.retryPendingLifecycleSync()
       await this.retryPendingTerminalSync()
       await this.handleDraftRuntimeAlarmIfDue()
@@ -260,6 +275,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   }
 
   override async onConnect(connection: Connection, ctx: ConnectionContext): Promise<void> {
+    await this.recoverPendingCommitIntent()
     const record = await this.getRecord()
     if (record?.phase === 'open') {
       await this.handleOpenSessionConnect(connection, ctx, record)
@@ -346,7 +362,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     const expected = normalizeOptionalPositiveInteger(body.expectedVersion)
     if (expected != null) {
-      if (expected < existing.version) return json({ ok: true, record: existing })
+      if (expected < existing.version) return staleVersionResponse(expected, existing.version)
     }
 
     let record: SessionRecord
@@ -461,8 +477,9 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const record = await this.getRecord()
     if (!record) return json({ error: 'Session not found' }, 404)
     if (record.phase === 'draft') {
-      const existingRoom = await this.getRoomRecord()
-      return json({ ok: true, record, matchId: record.matchId, seats: existingRoom?.config.seats ?? [], idempotent: true } satisfies { ok: true } & StartDraftCommandResult)
+      const ensured = await this.finishDraftStartSync(record)
+      if (!ensured.ok) return json({ error: ensured.error }, ensured.status)
+      return json({ ok: true, record: ensured.record, matchId: ensured.record.matchId, seats: ensured.seats, idempotent: true } satisfies { ok: true } & StartDraftCommandResult)
     }
     if (record.phase !== 'open') {
       return json({ error: `Session is not open (phase: ${record.phase})` }, 409)
@@ -489,55 +506,26 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     const now = normalizePositiveInteger(body?.now, Date.now())
     const matchId = record.id
-    const timerConfig = await resolveDraftTimerConfig(this.env.KV, record.config)
-
-    let room: { matchId: string, seats: DraftSeat[] }
-    try {
-      const existingRoom = await this.getRoomRecord()
-      if (existingRoom && existingRoom.state.status !== 'cancelled') {
-        if (existingRoom.state.matchId !== matchId) return json({ error: 'Existing draft runtime belongs to a different session' }, 409)
-        room = { matchId: existingRoom.state.matchId, seats: existingRoom.config.seats }
-      }
-      else {
-        const runtime = buildDraftRuntimeConfig(record.mode, selectedEntries, {
-          matchId,
-          hostId: record.hostId,
-          leaderDataVersion: record.config.leaderDataVersion,
-          blindBans: record.config.blindBans,
-          simultaneousPick: record.config.simultaneousPick,
-          redDeath: record.config.redDeath,
-          mapVoteEnabled: record.config.mapVoteEnabled,
-          randomDraft: record.config.randomDraft,
-          duplicateFactions: record.config.duplicateFactions,
-          timerConfig,
-          leaderPoolSize: record.config.leaderPoolSize,
-          dealOptionsSize: record.config.dealOptionsSize,
-        })
-        await this.initializeDraftRuntime(runtime.config, { existing: existingRoom })
-        room = { matchId: runtime.matchId, seats: runtime.seats }
-      }
-      await createDraftMatch(createDb(this.env.DB), { matchId: room.matchId, mode: record.mode, seats: room.seats })
-    }
-    catch (error) {
-      console.error('[session-do] failed to start draft', error)
-      return json({ error: error instanceof Error ? error.message : String(error) }, 500)
-    }
 
     const next: DraftSessionRecord = {
       ...record,
       phase: 'draft',
-      matchId: room.matchId,
+      matchId,
       version: record.version + 1,
       frozenAt: now,
       updatedAt: now,
       lastActivityAt: now,
       closedAt: null,
+      draftStartSync: { attempts: 0, nextRetryAt: 0 },
     }
 
     const commit = await this.commitRecord(next)
     if (commit) return commit
 
-    return json({ ok: true, record: next, matchId: room.matchId, seats: room.seats } satisfies { ok: true } & StartDraftCommandResult)
+    const ensured = await this.finishDraftStartSync(next)
+    if (!ensured.ok) return json({ error: ensured.error }, ensured.status)
+
+    return json({ ok: true, record: ensured.record, matchId: ensured.record.matchId, seats: ensured.seats } satisfies { ok: true } & StartDraftCommandResult)
   }
 
   private async handleDraftLifecycleCommand(request: Request): Promise<Response> {
@@ -569,6 +557,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
           updatedAt: at,
           lastActivityAt: at,
           closedAt: null,
+          draftStartSync: null,
         }
         break
       case 'swap-accepted':
@@ -580,6 +569,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
           updatedAt: at,
           lastActivityAt: at,
           closedAt: null,
+          draftStartSync: null,
         }
         break
       case 'draft-finalized':
@@ -592,6 +582,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
           updatedAt: at,
           lastActivityAt: at,
           closedAt: null,
+          draftStartSync: null,
         }
         break
       case 'draft-cancelled':
@@ -610,6 +601,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
           updatedAt: at,
           lastActivityAt: at,
           closedAt: at,
+          draftStartSync: null,
         }
         break
       default:
@@ -647,6 +639,92 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       status: result.status,
       error: result.error,
     }))
+  }
+
+  private async retryPendingDraftStartSync(): Promise<void> {
+    const record = await this.getRecord()
+    if (record?.phase !== 'draft' || !record.draftStartSync) return
+
+    const now = Date.now()
+    if (record.draftStartSync.nextRetryAt > now) {
+      await this.scheduleLifecycleSyncAlarm(record)
+      return
+    }
+
+    const result = await this.finishDraftStartSync(record)
+    if (!result.ok) {
+      console.warn('[session-do] draft start sync retry deferred', {
+        matchId: record.matchId,
+        status: result.status,
+        error: result.error,
+      })
+    }
+  }
+
+  private async finishDraftStartSync(record: DraftSessionRecord): Promise<{ ok: true, record: DraftSessionRecord, seats: DraftSeat[] } | { ok: false, status: number, error: string }> {
+    try {
+      const room = await this.ensureDraftRuntimeAndMatch(record)
+      const current = await this.getRecord()
+      const target = current?.id === record.id ? current : record
+      if (target.phase !== 'draft') return { ok: false, status: 409, error: `Session is not in draft (phase: ${target.phase})` }
+
+      const cleared = withDraftStartSync(target, null)
+      if (target.draftStartSync) await this.storeRecordOnly(cleared)
+      return { ok: true, record: cleared, seats: room.seats }
+    }
+    catch (error) {
+      return await this.deferDraftStartSync(record, error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  private async ensureDraftRuntimeAndMatch(record: DraftSessionRecord): Promise<{ matchId: string, seats: DraftSeat[] }> {
+    if (!this.env.DB) throw new Error('D1 binding is not configured')
+    if (!this.env.KV) throw new Error('KV binding is not configured')
+
+    const existingRoom = await this.getRoomRecord()
+    let room: { matchId: string, seats: DraftSeat[] }
+    if (existingRoom && existingRoom.state.status !== 'cancelled') {
+      if (existingRoom.state.matchId !== record.matchId) throw new Error('Existing draft runtime belongs to a different session')
+      room = { matchId: existingRoom.state.matchId, seats: existingRoom.config.seats }
+    }
+    else {
+      const timerConfig = await resolveDraftTimerConfig(this.env.KV, record.config)
+      const runtime = buildDraftRuntimeConfig(record.mode, buildSessionRosterSlotEntries(record), {
+        matchId: record.matchId,
+        hostId: record.hostId,
+        leaderDataVersion: record.config.leaderDataVersion,
+        blindBans: record.config.blindBans,
+        simultaneousPick: record.config.simultaneousPick,
+        redDeath: record.config.redDeath,
+        mapVoteEnabled: record.config.mapVoteEnabled,
+        randomDraft: record.config.randomDraft,
+        duplicateFactions: record.config.duplicateFactions,
+        timerConfig,
+        leaderPoolSize: record.config.leaderPoolSize,
+        dealOptionsSize: record.config.dealOptionsSize,
+      })
+      const initialized = await this.initializeDraftRuntime(runtime.config, { existing: existingRoom })
+      room = { matchId: initialized.state.matchId, seats: initialized.config.seats }
+    }
+
+    await createDraftMatch(createDb(this.env.DB), { matchId: room.matchId, mode: record.mode, seats: room.seats })
+    return room
+  }
+
+  private async deferDraftStartSync(record: DraftSessionRecord, error: string): Promise<{ ok: false, status: number, error: string }> {
+    const current = await this.getRecord()
+    const target = current?.phase === 'draft' && current.id === record.id ? current : record
+    const attempts = target.draftStartSync ? target.draftStartSync.attempts + 1 : 1
+    const nextRetryAt = Date.now() + getLifecycleSyncRetryDelay(attempts)
+    const pending = withDraftStartSync(target, { attempts, nextRetryAt })
+    await this.storeRecordOnly(pending)
+    console.warn('[session-do] draft start sync retry scheduled', {
+      matchId: pending.matchId,
+      attempts,
+      nextRetryAt,
+      error,
+    })
+    return { ok: false, status: 503, error }
   }
 
   private async retryPendingLifecycleSync(): Promise<void> {
@@ -698,6 +776,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const existing = await this.getRecord()
     if (!existing) return { ok: false, status: 404, error: 'Session not found' }
     if (payload.matchId !== existing.id) return { ok: false, status: 409, error: `Lifecycle payload ${payload.matchId} does not belong to session ${existing.id}` }
+    if (payload.eventSequence < (existing.lifecycleEventSequence ?? 0)) return { ok: true, ignored: true }
+    if (existing.lifecycleSync && payload.eventSequence < existing.lifecycleSync.payload.eventSequence) return { ok: true, ignored: true }
 
     const marked = await this.markLifecycleSyncPending(existing, payload)
     if (!this.env.DB) return await this.deferLifecycleSync(marked, payload, 'D1 binding is not configured')
@@ -746,13 +826,15 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     const transition = transitionRecordForDraftLifecycle(record, payload)
     if ('error' in transition) return transition
-    const committed = await this.finishLifecycleSync(transition.record)
+    const transitionWasNoop = transition.record === record
+    const transitionRecord = withLifecycleEventSequence(transition.record, payload.eventSequence)
+    const committed = await this.finishLifecycleSync(transitionRecord)
     if (!committed.ok) return committed
 
     if (transition.ignored) return { ok: true, ignored: true }
-    if (result.alreadyActive && payload.finalized !== true && transition.record === record) return { ok: true, synced: true }
+    if (result.alreadyActive && payload.finalized !== true && transitionWasNoop) return { ok: true, synced: true }
 
-    await this.updateCompletedDraftProjection(db, payload, result, transition.record, context)
+    await this.updateCompletedDraftProjection(db, payload, result, transitionRecord, context)
     return { ok: true }
   }
 
@@ -787,11 +869,12 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     const transition = transitionRecordForDraftLifecycle(record, payload)
     if ('error' in transition) return transition
-    const committed = await this.finishLifecycleSync(transition.record)
+    const transitionRecord = withLifecycleEventSequence(transition.record, payload.eventSequence)
+    const committed = await this.finishLifecycleSync(transitionRecord)
     if (!committed.ok) return committed
 
     if (transition.ignored) return { ok: true, ignored: true }
-    await this.updateCancelledDraftProjection(db, payload, cancelled, transition.record, context)
+    await this.updateCancelledDraftProjection(db, payload, cancelled, transitionRecord, context)
     return { ok: true }
   }
 
@@ -861,6 +944,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   }
 
   private async markLifecycleSyncPending(record: SessionRecord, payload: DraftLifecyclePayload): Promise<SessionRecord> {
+    if (record.lifecycleSync && payload.eventSequence < record.lifecycleSync.payload.eventSequence) return record
     const existing = record.lifecycleSync?.payload.eventId === payload.eventId ? record.lifecycleSync : null
     const marked = withLifecycleSync(record, {
       payload,
@@ -873,6 +957,9 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
   private async deferLifecycleSync(record: SessionRecord, payload: DraftLifecyclePayload, error: string): Promise<{ ok: false, status: number, error: string }> {
     const current = await this.getRecord() ?? record
+    if (current.lifecycleSync && payload.eventSequence < current.lifecycleSync.payload.eventSequence) {
+      return { ok: false, status: 409, error: 'Older draft lifecycle event cannot overwrite a newer pending sync' }
+    }
     const attempts = current.lifecycleSync?.payload.eventId === payload.eventId
       ? current.lifecycleSync.attempts + 1
       : 1
@@ -926,6 +1013,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     const at = normalizePositiveInteger(body.at, Date.now())
     const terminalCommand = buildTerminalSyncCommand(body, existing, at)
+    const persistedMatchStatus = await this.readPersistedMatchStatus(terminalCommand.matchId)
+    if (persistedMatchStatus === null) return json({ error: `Match **${terminalCommand.matchId}** not found.` }, 409)
     let record: SessionRecord
     switch (body.type) {
       case 'mark-reported':
@@ -936,7 +1025,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
           return json({ ok: true, record: finished.record })
         }
         if (existing.phase === 'cancelled') return json({ error: 'Cancelled sessions cannot be reported' }, 409)
-        if (existing.phase !== 'active' && existing.phase !== 'swap' && !await this.isPersistedMatchCompleted(terminalCommand.matchId)) {
+        if (existing.phase !== 'active' && existing.phase !== 'swap' && persistedMatchStatus !== 'completed') {
           return json({ error: `Session is not reportable (phase: ${existing.phase})` }, 409)
         }
         record = markActiveSessionReported(existing, at)
@@ -984,7 +1073,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     switch (body.type) {
       case 'set-message': {
         const expected = normalizeOptionalPositiveInteger(body.expectedVersion)
-        if (expected != null && expected < existing.version) return json({ ok: true, record: existing })
+        if (expected != null && expected < existing.version) return staleVersionResponse(expected, existing.version)
         const channelId = typeof body.channelId === 'string' && body.channelId.length > 0 ? body.channelId : existing.projectionState.channelId
         const messageId = typeof body.messageId === 'string' && body.messageId.length > 0 ? body.messageId : existing.projectionState.messageId
         if (existing.projectionState.channelId === channelId && existing.projectionState.messageId === messageId) return json({ ok: true, record: existing })
@@ -1005,7 +1094,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       }
       case 'set-steam-lobby-link': {
         const expected = normalizeOptionalPositiveInteger(body.expectedVersion)
-        if (expected != null && expected < existing.version) return json({ ok: true, record: existing })
+        if (expected != null && expected < existing.version) return staleVersionResponse(expected, existing.version)
         const steamLobbyLink = typeof body.steamLobbyLink === 'string' ? body.steamLobbyLink : null
         if (existing.projectionState.steamLobbyLink === steamLobbyLink) return json({ ok: true, record: existing })
         const at = normalizePositiveInteger(body.now, Date.now())
@@ -1029,11 +1118,25 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   }
 
   private async commitRecord(record: SessionRecord): Promise<Response | null> {
+    let projected = false
     try {
+      await this.ctx.storage.put(SESSION_COMMIT_INTENT_STORAGE_KEY, { record, createdAt: Date.now() } satisfies SessionCommitIntent)
+      await this.scheduleCommitIntentRepairAlarm()
       if (this.env.DB) await projectSessionRecord(createDb(this.env.DB), record)
+      projected = true
       await this.ctx.storage.put(SESSION_RECORD_STORAGE_KEY, record)
     }
     catch (error) {
+      if (!projected) {
+        await this.clearPendingCommitIntent().catch((clearError) => {
+          console.error('[session-do] failed to clear unapplied commit intent', clearError)
+        })
+      }
+      else {
+        await this.scheduleCommitIntentRepairAlarm().catch((alarmError) => {
+          console.error('[session-do] failed to schedule commit intent repair', alarmError)
+        })
+      }
       if (isSessionAdmissionError(error)) {
         return json({ error: error.message, playerIds: error.playerIds }, 409)
       }
@@ -1041,12 +1144,59 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return json({ error: error instanceof Error ? error.message : String(error) }, 500)
     }
 
+    await this.clearPendingCommitIntent().catch((error) => {
+      console.error('[session-do] failed to clear completed commit intent', error)
+    })
+
     await this.publishActivityUpdate(record)
     await this.broadcastSelectedSessionUpdate(record)
     await this.scheduleLifecycleSyncAlarm(record).catch((error) => {
       console.error('[session-do] failed to schedule session alarm after commit', error)
     })
     return null
+  }
+
+  private async recoverPendingCommitIntent(): Promise<void> {
+    const intent = await this.ctx.storage.get<SessionCommitIntent>(SESSION_COMMIT_INTENT_STORAGE_KEY) ?? null
+    if (!intent?.record) return
+
+    const current = await this.getRecord()
+    if (current && current.version >= intent.record.version) {
+      await this.clearPendingCommitIntent().catch((error) => {
+        console.error('[session-do] failed to clear obsolete commit intent', error)
+      })
+      return
+    }
+
+    try {
+      if (this.env.DB) await projectSessionRecord(createDb(this.env.DB), intent.record)
+      await this.ctx.storage.put(SESSION_RECORD_STORAGE_KEY, intent.record)
+      await this.clearPendingCommitIntent()
+    }
+    catch (error) {
+      console.error('[session-do] failed to recover pending commit intent', error)
+      await this.scheduleCommitIntentRepairAlarm().catch((alarmError) => {
+        console.error('[session-do] failed to reschedule commit intent repair', alarmError)
+      })
+      return
+    }
+
+    await this.publishActivityUpdate(intent.record)
+    await this.broadcastSelectedSessionUpdate(intent.record)
+    await this.scheduleLifecycleSyncAlarm(intent.record).catch((error) => {
+      console.error('[session-do] failed to schedule session alarm after commit intent recovery', error)
+    })
+  }
+
+  private async clearPendingCommitIntent(): Promise<void> {
+    await this.ctx.storage.delete(SESSION_COMMIT_INTENT_STORAGE_KEY)
+  }
+
+  private async scheduleCommitIntentRepairAlarm(): Promise<void> {
+    const storage = this.ctx.storage as DurableObjectStorage & {
+      setAlarm?: (scheduledTime: number | Date) => Promise<void>
+    }
+    if (typeof storage.setAlarm === 'function') await storage.setAlarm(Date.now() + LIFECYCLE_SYNC_RETRY_BASE_MS)
   }
 
   private async storeRecordOnly(record: SessionRecord): Promise<void> {
@@ -1086,6 +1236,9 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   }
 
   private async rescheduleSessionAlarm(record: SessionRecord | null): Promise<void> {
+    const draftStartRetryAt = record?.phase === 'draft' && record.draftStartSync
+      ? record.draftStartSync.nextRetryAt > 0 ? record.draftStartSync.nextRetryAt : Date.now()
+      : null
     const lifecycleRetryAt = record?.lifecycleSync && record.lifecycleSync.nextRetryAt > 0
       ? record.lifecycleSync.nextRetryAt
       : null
@@ -1093,7 +1246,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       ? record.terminalSync.nextRetryAt
       : null
     const draftRuntimeAlarmAt = await this.getDraftRuntimeAlarmAt()
-    const candidates = [lifecycleRetryAt, terminalRetryAt, draftRuntimeAlarmAt].filter((value): value is number => typeof value === 'number')
+    const candidates = [draftStartRetryAt, lifecycleRetryAt, terminalRetryAt, draftRuntimeAlarmAt].filter((value): value is number => typeof value === 'number')
     const storage = this.ctx.storage as DurableObjectStorage & {
       setAlarm?: (scheduledTime: number | Date) => Promise<void>
       deleteAlarm?: () => Promise<void>
@@ -1148,6 +1301,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       await projectSessionRecord(db, cleared)
     }
     catch (error) {
+      if (error instanceof TerminalMatchNotFoundError) return { ok: false, status: 409, error: error.message }
       return await this.deferTerminalSync(record, pending.command, error instanceof Error ? error.message : String(error))
     }
 
@@ -1167,37 +1321,41 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         .from(matches)
         .where(eq(matches.id, command.matchId))
         .limit(1)
+      if (!match) throw new TerminalMatchNotFoundError(command.matchId)
       const values: { status: string, completedAt: number, draftData?: string | null } = {
         status: 'completed',
-        completedAt: match?.completedAt ?? command.at,
+        completedAt: match.completedAt ?? command.at,
       }
       if (command.reportedById && command.reportedById.trim().length > 0) {
-        if (match) values.draftData = setReportedByInDraftData(match.draftData, command.reportedById)
+        values.draftData = setReportedByInDraftData(match.draftData, command.reportedById)
       }
 
-      await db.update(matches).set(values).where(eq(matches.id, command.matchId))
+      const updated = await db.update(matches).set(values).where(eq(matches.id, command.matchId)).returning({ id: matches.id })
+      if (updated.length === 0) throw new TerminalMatchNotFoundError(command.matchId)
       await db.delete(matchBans).where(eq(matchBans.matchId, command.matchId))
       return
     }
 
-    await db.update(matches)
+    const updated = await db.update(matches)
       .set({ status: 'cancelled', completedAt: command.at })
       .where(eq(matches.id, command.matchId))
+      .returning({ id: matches.id })
+    if (updated.length === 0) throw new TerminalMatchNotFoundError(command.matchId)
     await db.delete(matchBans).where(eq(matchBans.matchId, command.matchId))
   }
 
-  private async isPersistedMatchCompleted(matchId: string): Promise<boolean> {
-    if (!this.env.DB) return false
+  private async readPersistedMatchStatus(matchId: string): Promise<string | null | undefined> {
+    if (!this.env.DB) return undefined
     try {
       const [match] = await createDb(this.env.DB)
         .select({ status: matches.status })
         .from(matches)
         .where(eq(matches.id, matchId))
         .limit(1)
-      return match?.status === 'completed'
+      return match?.status ?? null
     }
     catch {
-      return false
+      return undefined
     }
   }
 
@@ -1280,6 +1438,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     await previous.catch(() => undefined)
     try {
+      await this.recoverPendingCommitIntent()
       return await operation()
     }
     finally {
@@ -1311,6 +1470,7 @@ function transitionRecordForDraftLifecycle(record: SessionRecord, payload: Draft
             updatedAt: at,
             lastActivityAt: at,
             closedAt: null,
+            draftStartSync: null,
           },
         }
       case 'SwapAccepted':
@@ -1324,6 +1484,7 @@ function transitionRecordForDraftLifecycle(record: SessionRecord, payload: Draft
             updatedAt: at,
             lastActivityAt: at,
             closedAt: null,
+            draftStartSync: null,
           },
         }
       case 'DraftFinalized':
@@ -1337,6 +1498,7 @@ function transitionRecordForDraftLifecycle(record: SessionRecord, payload: Draft
             updatedAt: at,
             lastActivityAt: at,
             closedAt: null,
+            draftStartSync: null,
           },
         }
       default:
@@ -1357,11 +1519,26 @@ function transitionRecordForDraftLifecycle(record: SessionRecord, payload: Draft
       ...record,
       phase: 'cancelled',
       version: record.version + 1,
-      updatedAt: at,
-      lastActivityAt: at,
-      closedAt: at,
-    },
+        updatedAt: at,
+        lastActivityAt: at,
+        closedAt: at,
+        draftStartSync: null,
+      },
+    }
   }
+
+function withDraftStartSync(record: DraftSessionRecord, draftStartSync: SessionDraftStartSyncState | null): DraftSessionRecord {
+  return {
+    ...record,
+    draftStartSync,
+  }
+}
+
+function withLifecycleEventSequence(record: SessionRecord, eventSequence: number): SessionRecord {
+  return {
+    ...record,
+    lifecycleEventSequence: Math.max(record.lifecycleEventSequence ?? 0, eventSequence),
+  } as SessionRecord
 }
 
 function withLifecycleSync(record: SessionRecord, lifecycleSync: SessionLifecycleSyncState | null): SessionRecord {
@@ -1577,6 +1754,7 @@ function reopenDraftSession(record: DraftSessionRecord, at: number): OpenSession
     updatedAt: at,
     lastActivityAt: at,
     closedAt: null,
+    draftStartSync: null,
   }
 }
 
@@ -1640,6 +1818,10 @@ function normalizeOptionalPositiveInteger(value: unknown): number | null {
 
 function normalizePositiveInteger(value: unknown, fallback: number): number {
   return normalizeOptionalPositiveInteger(value) ?? Math.max(1, Math.round(fallback))
+}
+
+function staleVersionResponse(expectedVersion: number, currentVersion: number): Response {
+  return json({ error: `Session version is stale (expected ${expectedVersion}, current ${currentVersion})` }, 409)
 }
 
 function isGameMode(value: unknown): value is GameMode {

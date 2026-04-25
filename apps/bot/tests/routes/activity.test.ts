@@ -130,7 +130,7 @@ describe('activity lobby join eligibility', () => {
     })
   })
 
-  test('allows joining when the only other lobby is draft-complete active', async () => {
+  test('blocks joining when the only other lobby is draft-complete active', async () => {
     const { kv } = createTrackedKv()
     const liveLobby = await createLobby(kv, {
       mode: '2v2',
@@ -162,13 +162,13 @@ describe('activity lobby join eligibility', () => {
 
     const snapshot = await buildOpenLobbySnapshot(kv, '2v2', openLobby)
     const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', openLobby, snapshot, {
-      db: buildDb({ liveMatchPlayerIds: [] }),
+      db: activityRuntimeOptions(kv).db,
     })
 
     expect(eligibility).toEqual({
-      canJoin: true,
-      blockedReason: null,
-      pendingSlot: 1,
+      canJoin: false,
+      blockedReason: 'You are already in a live match.',
+      pendingSlot: null,
     })
   })
 

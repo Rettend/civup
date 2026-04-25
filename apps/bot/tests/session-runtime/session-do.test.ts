@@ -438,14 +438,40 @@ describe('SessionDO open session commands', () => {
     expect(configResponse.record.updatedAt).toBe(20)
     expect(configResponse.record.config.pickTimerSeconds).toBe(45)
 
-    const staleResponse = await openLobbyCommand(room, {
+    const staleRawResponse = await room.fetch(sessionRequest('/commands/open-lobby', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'set-steam-lobby-link',
+        expectedVersion: 1,
+        now: 30,
+        steamLobbyLink: 'steam://join/stale',
+      }),
+    }))
+    expect(staleRawResponse.status).toBe(409)
+    expect((await staleRawResponse.json() as any).error).toContain('Session version is stale')
+    const staleRecord = await getSessionRecordBody(room)
+    expect(staleRecord.version).toBe(2)
+    expect(staleRecord.projectionState.steamLobbyLink).toBeNull()
+
+    const projectionStaleRawResponse = await room.fetch(sessionRequest('/commands/session-projection', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'set-steam-lobby-link',
+        expectedVersion: 1,
+        now: 30,
+        steamLobbyLink: 'steam://join/stale',
+      }),
+    }))
+    expect(projectionStaleRawResponse.status).toBe(409)
+
+    const noOpResponse = await openLobbyCommand(room, {
       type: 'set-steam-lobby-link',
-      expectedVersion: 1,
+      expectedVersion: 2,
       now: 30,
-      steamLobbyLink: 'steam://join/stale',
+      steamLobbyLink: null,
     })
-    expect(staleResponse.record.version).toBe(2)
-    expect(staleResponse.record.projectionState.steamLobbyLink).toBeNull()
+    expect(noOpResponse.record.version).toBe(2)
+    expect(noOpResponse.record.projectionState.steamLobbyLink).toBeNull()
 
     const rosterResponse = await openLobbyCommand(room, {
       type: 'set-roster',
@@ -509,6 +535,135 @@ describe('SessionDO open session commands', () => {
       updatedAt: 50,
       closedAt: 50,
     })
+  })
+
+  test('draft start retries repair match creation after canonical draft commit', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const d1 = createFailingQueryD1(createSqliteD1Database(sqlite), query => query.toLowerCase().includes('insert into') && query.toLowerCase().includes('matches'))
+    const originalConsoleWarn = console.warn
+    console.warn = (() => {}) as typeof console.warn
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      DB: d1.database,
+      KV: kv,
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+
+      d1.failNextMatchingQuery()
+      const failedStart = await room.fetch(sessionRequest('/commands/start-draft', {
+        method: 'POST',
+        body: JSON.stringify({ hostId: 'p1', now: 20 }),
+      }))
+      expect(failedStart.status).toBe(503)
+      const pending = await getSessionRecordBody(room)
+      expect(pending.phase).toBe('draft')
+      expect(pending.draftStartSync).toMatchObject({ attempts: 1 })
+      expect(await db.select().from(matches).where(eq(matches.id, openLobby.id))).toHaveLength(0)
+
+      const retried = await startDraft(room, { hostId: 'p1', now: 21 })
+      expect(retried.matchId).toBe(openLobby.id)
+      const record = await getSessionRecordBody(room)
+      expect(record.phase).toBe('draft')
+      expect(record.draftStartSync).toBeNull()
+      expect(await db.select().from(matches).where(eq(matches.id, openLobby.id))).toHaveLength(1)
+    }
+    finally {
+      console.warn = originalConsoleWarn
+      sqlite.close()
+    }
+  })
+
+  test('older lifecycle events cannot overwrite newer pending lifecycle sync', async () => {
+    const { sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const d1 = createSqliteD1Database(sqlite)
+    const env: { DB?: D1Database, KV?: KVNamespace } = { DB: d1, KV: kv }
+    const room = new SessionDO(createFakeDurableObjectState(), env as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+    const originalConsoleWarn = console.warn
+    console.warn = (() => {}) as typeof console.warn
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      const started = await startDraft(room, { hostId: 'p1', now: 20 })
+      const newerPayload = { ...buildCompletePayload(openLobby.id, started.seats), eventId: `${openLobby.id}:complete:2`, eventSequence: 2 }
+      const olderPayload = { ...buildCompletePayload(openLobby.id, started.seats), eventId: `${openLobby.id}:complete:1`, eventSequence: 1 }
+
+      env.DB = undefined
+      const deferred = await room.fetch(sessionRequest('/commands/draft-lifecycle-sync', {
+        method: 'POST',
+        body: JSON.stringify(newerPayload),
+      }))
+      expect(deferred.status).toBe(503)
+
+      const ignored = await room.fetch(sessionRequest('/commands/draft-lifecycle-sync', {
+        method: 'POST',
+        body: JSON.stringify(olderPayload),
+      }))
+      expect(ignored.status).toBe(200)
+      const body = await ignored.json() as any
+      expect(body.ignored).toBe(true)
+      expect((await getSessionRecordBody(room)).lifecycleSync?.payload.eventSequence).toBe(2)
+    }
+    finally {
+      console.warn = originalConsoleWarn
+      sqlite.close()
+    }
+  })
+
+  test('terminal lifecycle rejects missing match rows before marking terminal', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      DB: createSqliteD1Database(sqlite),
+      KV: kv,
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      await startDraft(room, { hostId: 'p1', now: 20 })
+      const completed = await room.fetch(sessionRequest('/commands/draft-lifecycle', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'draft-completed', opensSwapWindow: false, at: 30 }),
+      }))
+      expect(completed.status).toBe(200)
+      await db.delete(matchParticipants).where(eq(matchParticipants.matchId, openLobby.id))
+      await db.delete(matchBans).where(eq(matchBans.matchId, openLobby.id))
+      await db.delete(matches).where(eq(matches.id, openLobby.id))
+
+      const missing = await room.fetch(sessionRequest('/commands/session-lifecycle', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'mark-reported', matchId: openLobby.id, at: 40 }),
+      }))
+      expect(missing.status).toBe(409)
+      expect((await missing.json() as any).error).toContain('not found')
+      expect((await getSessionRecordBody(room)).phase).toBe('active')
+    }
+    finally {
+      sqlite.close()
+    }
   })
 })
 
@@ -605,6 +760,26 @@ function createFailingSessionDirectoryD1(base: D1Database) {
   }
 }
 
+function createFailingQueryD1(base: D1Database, matchesQuery: (query: string) => boolean) {
+  let pendingFailures = 0
+  return {
+    database: {
+      ...base,
+      prepare(query: string) {
+        return wrapFailingStatement(base.prepare(query), query, () => {
+          if (pendingFailures <= 0) return false
+          if (!matchesQuery(query)) return false
+          pendingFailures -= 1
+          return true
+        })
+      },
+    } as D1Database,
+    failNextMatchingQuery() {
+      pendingFailures += 1
+    },
+  }
+}
+
 function wrapFailingStatement(
   statement: D1PreparedStatement,
   query: string,
@@ -674,6 +849,9 @@ function createFakeDurableObjectState(): DurableObjectState {
       },
       async put(key: string, value: unknown) {
         storage.set(key, value)
+      },
+      async delete(key: string) {
+        return storage.delete(key)
       },
       async setAlarm(scheduledTime: number | Date) {
         alarmAt = scheduledTime instanceof Date ? scheduledTime.getTime() : scheduledTime
