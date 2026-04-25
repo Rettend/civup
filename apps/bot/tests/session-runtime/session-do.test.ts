@@ -103,7 +103,7 @@ describe('SessionDO open session commands', () => {
       let body = await recordResponse.json() as any
       expect(body.record.phase).toBe('swap')
       expect(body.record.version).toBe(3)
-      let [directoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
+      const [directoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
       expect(directoryRow?.phase).toBe('swap')
 
       const swapResponse = await room.fetch(sessionRequest('/commands/draft-lifecycle', {
@@ -129,6 +129,48 @@ describe('SessionDO open session commands', () => {
 
       const [finalDirectoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
       expect(finalDirectoryRow?.phase).toBe('active')
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('terminal lifecycle commands report and cancel through the session aggregate', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      DB: createSqliteD1Database(sqlite),
+      KV: kv,
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      await startDraft(room, { hostId: 'p1', now: 20 })
+      const completed = await room.fetch(sessionRequest('/commands/draft-lifecycle', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'draft-completed', opensSwapWindow: false, at: 30 }),
+      }))
+      expect(completed.status).toBe(200)
+
+      const reported = await sessionLifecycleCommand(room, { type: 'mark-reported', matchId: openLobby.id, at: 40 })
+      expect(reported.record).toMatchObject({ phase: 'reported', version: 4, closedAt: 40 })
+      let [directoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
+      expect(directoryRow).toMatchObject({ phase: 'reported', closedAt: 40 })
+
+      const repeated = await sessionLifecycleCommand(room, { type: 'mark-reported', matchId: openLobby.id, at: 41 })
+      expect(repeated.record).toMatchObject({ phase: 'reported', version: 4, closedAt: 40 })
+
+      const cancelled = await sessionLifecycleCommand(room, { type: 'cancel-session', matchId: openLobby.id, at: 50 })
+      expect(cancelled.record).toMatchObject({ phase: 'cancelled', version: 5, closedAt: 50 })
+      const [cancelledDirectoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
+      expect(cancelledDirectoryRow).toMatchObject({ phase: 'cancelled', closedAt: 50 })
     }
     finally {
       sqlite.close()
@@ -415,6 +457,15 @@ async function createSessionFromLobby(room: SessionDO, lobby: ReturnType<typeof 
 
 async function startDraft(room: SessionDO, command: unknown): Promise<any> {
   const response = await room.fetch(sessionRequest('/commands/start-draft', {
+    method: 'POST',
+    body: JSON.stringify(command),
+  }))
+  expect(response.status).toBe(200)
+  return await response.json()
+}
+
+async function sessionLifecycleCommand(room: SessionDO, command: unknown): Promise<any> {
+  const response = await room.fetch(sessionRequest('/commands/session-lifecycle', {
     method: 'POST',
     body: JSON.stringify(command),
   }))

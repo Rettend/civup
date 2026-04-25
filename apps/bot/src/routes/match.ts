@@ -75,6 +75,8 @@ export function registerMatchRoutes(app: Hono<Env>) {
       matchId: c.req.param('matchId'),
       reporterId: auth.identity.userId,
       placements,
+    }, {
+      sessionNamespace: c.env.SessionDO,
     })
 
     if ('error' in result) {
@@ -237,6 +239,8 @@ export function registerMatchRoutes(app: Hono<Env>) {
     const result = await cancelMatchByModerator(db, kv, {
       matchId,
       cancelledAt: Date.now(),
+    }, {
+      sessionNamespace: c.env.SessionDO,
     })
 
     if ('error' in result) {

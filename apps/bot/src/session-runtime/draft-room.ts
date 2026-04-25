@@ -110,10 +110,6 @@ const SWAP_DISCONNECT_GRACE_MS = 5_000
 // ── Draft Room Server ────────────────────────────────────────
 
 export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> extends SessionSocketServer<Env> {
-  static override options = {
-    hibernate: true,
-  }
-
   protected now(): number {
     return Date.now()
   }

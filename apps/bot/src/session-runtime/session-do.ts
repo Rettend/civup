@@ -1,11 +1,14 @@
 import type { CompetitiveTier, DraftSeat, GameMode, QueueEntry } from '@civup/game'
+import type { SessionServerMessage } from '@civup/session'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
 import type { DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionLifecycleSyncState, SessionProjectionState, SessionRecord, SessionRoster } from './session-record.ts'
 import { createDb } from '@civup/db'
 import { canStartWithPlayerCount, formatModeLabel, GAME_MODES, getMinimumLeaderPoolSize } from '@civup/game'
+import { CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest } from '@civup/utils'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed } from '../embeds/match.ts'
 import { buildDraftRuntimeConfig } from '../services/activity/index.ts'
+import { buildLobbySnapshotFromSessionRecord } from '../services/activity/session-state.ts'
 import { resolveDraftTimerConfig } from '../services/config/index.ts'
 import { normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from '../services/lobby/normalize.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
@@ -18,6 +21,7 @@ import { isSessionAdmissionError, projectSessionRecord } from '../services/sessi
 import { publishActivitySessionUpdate } from './activity-feed-client.ts'
 import { SessionDraftRuntime, type DraftRuntimeEnv } from './draft-room.ts'
 import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from './session-record.ts'
+import type { Connection, ConnectionContext } from './socket-server.ts'
 import { canOpenSwapWindowForState } from './swap-window.ts'
 
 interface SessionDOEnv extends DraftRuntimeEnv {
@@ -45,6 +49,11 @@ interface StartDraftCommandResult {
   matchId: string
   seats: DraftSeat[]
   idempotent?: boolean
+}
+
+interface SessionConnectionState {
+  playerId: string | null
+  openLobby?: boolean
 }
 
 type OpenLobbyCommandRequest
@@ -158,6 +167,18 @@ type SessionProjectionCommandRequest
     now?: number
   }
 
+type SessionLifecycleCommandRequest
+  = | {
+    type: 'mark-reported'
+    matchId?: string
+    at?: number
+  }
+  | {
+    type: 'cancel-session'
+    matchId?: string
+    at?: number
+  }
+
 interface OpenSessionPatch {
   expectedVersion?: number
   mode?: GameMode
@@ -209,6 +230,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return await this.runSerializedCommand(() => this.handleDraftLifecycleSyncCommand(request))
     }
 
+    if (request.method === 'POST' && url.pathname === '/commands/session-lifecycle') {
+      return await this.runSerializedCommand(() => this.handleSessionLifecycleCommand(request))
+    }
+
     if (request.method === 'POST' && url.pathname === '/commands/session-projection') {
       return await this.runSerializedCommand(() => this.handleSessionProjectionCommand(request))
     }
@@ -225,8 +250,34 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     })
   }
 
+  override async onConnect(connection: Connection, ctx: ConnectionContext): Promise<void> {
+    const record = await this.getRecord()
+    if (record?.phase === 'open') {
+      await this.handleOpenSessionConnect(connection, ctx, record)
+      return
+    }
+
+    await super.onConnect(connection, ctx)
+  }
+
   private async getRecord(): Promise<SessionRecord | null> {
     return await this.ctx.storage.get<SessionRecord>(SESSION_RECORD_STORAGE_KEY) ?? null
+  }
+
+  private async handleOpenSessionConnect(connection: Connection, ctx: ConnectionContext, record: OpenSessionRecord): Promise<void> {
+    if (!isAuthorizedInternalRequest(ctx.request.headers, this.env.CIVUP_SECRET)) {
+      connection.close(4401, 'Unauthorized')
+      return
+    }
+
+    const playerId = readActivityUserId(ctx.request.headers)
+    if (!playerId) {
+      connection.close(4401, 'Unauthorized')
+      return
+    }
+
+    connection.setState({ playerId, openLobby: true } satisfies SessionConnectionState)
+    await this.sendOpenLobbySnapshot(connection, record)
   }
 
   private async handleCreateFromLobby(request: Request): Promise<Response> {
@@ -821,6 +872,48 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     await this.storeRecordOnly(withLifecycleSync(record, null))
   }
 
+  private async handleSessionLifecycleCommand(request: Request): Promise<Response> {
+    let body: SessionLifecycleCommandRequest
+    try {
+      body = await request.json<SessionLifecycleCommandRequest>()
+    }
+    catch {
+      return json({ error: 'Invalid JSON payload' }, 400)
+    }
+
+    if (!body || typeof body !== 'object' || typeof body.type !== 'string') {
+      return json({ error: 'command type is required' }, 400)
+    }
+
+    const existing = await this.getRecord()
+    if (!existing) return json({ error: 'Session not found' }, 404)
+    if (typeof body.matchId === 'string' && body.matchId.length > 0 && existing.matchId !== body.matchId && existing.id !== body.matchId) {
+      return json({ error: `Session ${existing.id} does not belong to match ${body.matchId}` }, 409)
+    }
+
+    const at = normalizePositiveInteger(body.at, Date.now())
+    let record: SessionRecord
+    switch (body.type) {
+      case 'mark-reported':
+        if (existing.phase === 'reported') return json({ ok: true, record: existing })
+        if (existing.phase === 'cancelled') return json({ error: 'Cancelled sessions cannot be reported' }, 409)
+        if (existing.phase !== 'active') return json({ error: `Session is not active (phase: ${existing.phase})` }, 409)
+        record = markActiveSessionReported(existing, at)
+        break
+      case 'cancel-session':
+        if (existing.phase === 'cancelled') return json({ ok: true, record: existing })
+        if (existing.phase === 'open') return json({ error: 'Open sessions must use cancel-open-session' }, 409)
+        record = cancelNonOpenSession(existing, at)
+        break
+      default:
+        return json({ error: 'Unknown session lifecycle command' }, 400)
+    }
+
+    const commit = await this.commitRecord(record)
+    if (commit) return commit
+    return json({ ok: true, record })
+  }
+
   private async handleSessionProjectionCommand(request: Request): Promise<Response> {
     let body: SessionProjectionCommandRequest
     try {
@@ -881,6 +974,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     await this.writeSessionProjectionCache(record)
     await this.publishActivityUpdate(record)
+    await this.broadcastSelectedSessionUpdate(record)
     await this.scheduleLifecycleSyncAlarm(record).catch((error) => {
       console.error('[session-do] failed to schedule session alarm after commit', error)
     })
@@ -942,6 +1036,67 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     catch (error) {
       console.warn('[session-do] failed to publish activity update', error)
     }
+  }
+
+  private async broadcastSelectedSessionUpdate(record: SessionRecord): Promise<void> {
+    const openLobbyConnections = Array.from(this.getConnections()).filter((connection) => {
+      const state = connection.state as SessionConnectionState | null
+      return state?.openLobby === true
+    })
+    if (openLobbyConnections.length === 0) return
+
+    if (record.phase === 'open') {
+      await Promise.all(openLobbyConnections.map(connection => this.sendOpenLobbySnapshot(connection, record)))
+      return
+    }
+
+    if (record.phase === 'draft' && record.matchId) {
+      await Promise.all(openLobbyConnections.map(connection => this.sendSessionStarted(connection, record)))
+      return
+    }
+
+    if (record.phase === 'cancelled' || record.phase === 'reported') {
+      for (const connection of openLobbyConnections) {
+        this.sendSessionMessage(connection, { type: 'lobby', lobbyId: record.id, snapshot: null })
+      }
+    }
+  }
+
+  private async sendOpenLobbySnapshot(connection: Connection, record: OpenSessionRecord): Promise<void> {
+    if (!this.env.KV) {
+      this.sendSessionMessage(connection, { type: 'error', message: 'Session lobby snapshots are not configured' })
+      return
+    }
+    this.sendSessionMessage(connection, {
+      type: 'lobby',
+      lobbyId: record.id,
+      snapshot: await buildLobbySnapshotFromSessionRecord(this.env.KV, record),
+    })
+  }
+
+  private async sendSessionStarted(connection: Connection, record: DraftSessionRecord): Promise<void> {
+    const state = connection.state as SessionConnectionState | null
+    const playerId = state?.playerId ?? null
+    const sessionAccessToken = playerId && this.env.CIVUP_SECRET
+      ? await createSessionAccessToken(this.env.CIVUP_SECRET, {
+        userId: playerId,
+        sessionId: record.matchId,
+        channelId: record.projectionState.channelId,
+      })
+      : null
+
+    this.sendSessionMessage(connection, {
+      type: 'session-started',
+      lobbyId: record.id,
+      matchId: record.matchId,
+      steamLobbyLink: record.projectionState.steamLobbyLink,
+      sessionAccessToken,
+      mode: record.mode,
+    })
+  }
+
+  private sendSessionMessage(connection: Connection, message: SessionServerMessage): void {
+    connection.send(JSON.stringify(message))
   }
 
   private async runSerializedCommand(operation: () => Promise<Response>): Promise<Response> {
@@ -1161,6 +1316,29 @@ function cancelOpenSession(record: OpenSessionRecord, at: number | undefined): S
   }
 }
 
+function markActiveSessionReported(record: SessionRecord, at: number): SessionRecord {
+  return {
+    ...record,
+    phase: 'reported',
+    version: record.version + 1,
+    updatedAt: at,
+    lastActivityAt: at,
+    closedAt: at,
+  } as SessionRecord
+}
+
+function cancelNonOpenSession(record: SessionRecord, at: number): SessionRecord {
+  return {
+    ...record,
+    phase: 'cancelled',
+    version: record.version + 1,
+    frozenAt: 'frozenAt' in record ? record.frozenAt : null,
+    updatedAt: at,
+    lastActivityAt: at,
+    closedAt: at,
+  } as SessionRecord
+}
+
 function reopenDraftSession(record: DraftSessionRecord, at: number): OpenSessionRecord {
   return {
     id: record.id,
@@ -1246,6 +1424,11 @@ function normalizePositiveInteger(value: unknown, fallback: number): number {
 
 function isGameMode(value: unknown): value is GameMode {
   return typeof value === 'string' && GAME_MODES.includes(value as GameMode)
+}
+
+function readActivityUserId(headers: Headers): string | null {
+  const userId = headers.get(CIVUP_ACTIVITY_USER_ID_HEADER)?.trim() ?? ''
+  return userId.length > 0 ? userId : null
 }
 
 function getLeaderPoolSizeError(
