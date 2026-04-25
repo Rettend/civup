@@ -4,9 +4,13 @@ import { describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
 import { cancelMatchByModerator, recalculateLeaderboardMode, reportMatch, resolveMatchByModerator } from '../../src/services/match/index.ts'
+import { getSessionRecord, runSessionDraftLifecycleCommand, runSessionTerminalLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
+import { createLobby, getTestLobbyRuntime, setLobbyMemberPlayerIds, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('match moderation recalculation', () => {
+  const directTerminalOptions = { allowDirectTerminalWriteForTests: true }
+
   test('reporting a 5v5 match records squad ratings', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -52,7 +56,7 @@ describe('match moderation recalculation', () => {
         matchId: '5v5-1',
         reporterId: 'p1',
         placements: '<@p1>',
-      })
+      }, directTerminalOptions)
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -85,7 +89,7 @@ describe('match moderation recalculation', () => {
         matchId: 'm1',
         placements: 'B',
         resolvedAt: 10_000,
-      })
+      }, directTerminalOptions)
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -169,7 +173,7 @@ describe('match moderation recalculation', () => {
         matchId: 'm1a',
         placements: 'B',
         resolvedAt: 10_000,
-      })
+      }, directTerminalOptions)
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -215,7 +219,7 @@ describe('match moderation recalculation', () => {
         matchId: 'm3',
         placements: 'A',
         resolvedAt: 10_000,
-      })
+      }, directTerminalOptions)
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -237,7 +241,7 @@ describe('match moderation recalculation', () => {
       const result = await cancelMatchByModerator(db, kv, {
         matchId: 'm1',
         cancelledAt: 10_000,
-      })
+      }, directTerminalOptions)
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -292,7 +296,7 @@ describe('match moderation recalculation', () => {
       const result = await cancelMatchByModerator(db, kv, {
         matchId: 'm3',
         cancelledAt: 10_000,
-      })
+      }, directTerminalOptions)
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -312,6 +316,117 @@ describe('match moderation recalculation', () => {
     }
   })
 
+  test('cancel rejected by reported SessionDO does not clear completed participant results', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await db.insert(players).values([
+        { id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 },
+        { id: 'p2', displayName: 'P2', avatarUrl: null, createdAt: 1 },
+      ])
+      const lobby = await createLobby(kv, {
+        mode: '1v1',
+        hostId: 'p1',
+        channelId: 'channel-1',
+        messageId: 'message-1',
+        db,
+        queueEntries: [{ playerId: 'p1', displayName: 'P1', avatarUrl: null, joinedAt: 1 }],
+      })
+      const runtime = await getTestLobbyRuntime(kv, db)
+      const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['p1', 'p2'], lobby, {
+        db,
+        sessionNamespace: runtime.sessionNamespace,
+        queueEntries: [
+          { playerId: 'p1', displayName: 'P1', avatarUrl: null, joinedAt: 1 },
+          { playerId: 'p2', displayName: 'P2', avatarUrl: null, joinedAt: 1 },
+        ],
+      })
+      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, { db, sessionNamespace: runtime.sessionNamespace })
+      await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: 2 })
+      await db.update(matches).set({ status: 'active', draftData: JSON.stringify({ completedAt: 2 }) }).where(eq(matches.id, lobby.id))
+      await runSessionTerminalLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'mark-reported', matchId: lobby.id, at: 3 })
+      await db.update(matchParticipants).set({ placement: 1, ratingBeforeMu: 25, ratingBeforeSigma: 8, ratingAfterMu: 27, ratingAfterSigma: 7 }).where(eq(matchParticipants.matchId, lobby.id))
+
+      const result = await cancelMatchByModerator(db, kv, {
+        matchId: lobby.id,
+        cancelledAt: 4,
+      }, {
+        sessionNamespace: runtime.sessionNamespace,
+      })
+
+      expect('error' in result).toBe(true)
+      if (!('error' in result)) return
+      expect(result.error).toContain('Reported sessions cannot be cancelled')
+      expect((await getSessionRecord(runtime.sessionNamespace, lobby.id))?.phase).toBe('reported')
+
+      const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, lobby.id))
+      expect(participants.every(participant => participant.placement === 1)).toBe(true)
+      expect(participants.every(participant => participant.ratingBeforeMu === 25 && participant.ratingAfterMu === 27)).toBe(true)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('resolve terminal failure rolls back D1 when SessionDO remains active', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await db.insert(players).values([
+        { id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 },
+        { id: 'p2', displayName: 'P2', avatarUrl: null, createdAt: 1 },
+      ])
+      const lobby = await createLobby(kv, {
+        mode: '1v1',
+        hostId: 'p1',
+        channelId: 'channel-1',
+        messageId: 'message-1',
+        db,
+        queueEntries: [{ playerId: 'p1', displayName: 'P1', avatarUrl: null, joinedAt: 1 }],
+      })
+      const runtime = await getTestLobbyRuntime(kv, db)
+      const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['p1', 'p2'], lobby, {
+        db,
+        sessionNamespace: runtime.sessionNamespace,
+        queueEntries: [
+          { playerId: 'p1', displayName: 'P1', avatarUrl: null, joinedAt: 1 },
+          { playerId: 'p2', displayName: 'P2', avatarUrl: null, joinedAt: 1 },
+        ],
+      })
+      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, { db, sessionNamespace: runtime.sessionNamespace })
+      await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: 2 })
+      await db.update(matches).set({ status: 'active', draftData: JSON.stringify({ completedAt: 2 }) }).where(eq(matches.id, lobby.id))
+
+      const result = await resolveMatchByModerator(db, kv, {
+        matchId: lobby.id,
+        placements: '<@p2>',
+        resolvedAt: 4,
+      }, {
+        sessionNamespace: failTerminalLifecycleForSession(runtime.sessionNamespace, lobby.id),
+      })
+
+      expect('error' in result).toBe(true)
+      if (!('error' in result)) return
+      expect(result.error).toContain('terminal lifecycle failed')
+      expect((await getSessionRecord(runtime.sessionNamespace, lobby.id))?.phase).toBe('active')
+
+      const [rolledBackMatch] = await db.select().from(matches).where(eq(matches.id, lobby.id)).limit(1)
+      expect(rolledBackMatch?.status).toBe('active')
+      expect(rolledBackMatch?.completedAt).toBeNull()
+
+      const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, lobby.id))
+      expect(participants.every(participant => participant.placement == null && participant.ratingBeforeMu == null && participant.ratingAfterMu == null)).toBe(true)
+
+      const ratings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duel'))
+      expect(ratings).toHaveLength(0)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('resolve accepts winner mention for 1v1 moderation', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -323,7 +438,7 @@ describe('match moderation recalculation', () => {
         matchId: 'm1',
         placements: '<@p2>',
         resolvedAt: 10_000,
-      })
+      }, directTerminalOptions)
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -354,7 +469,7 @@ describe('match moderation recalculation', () => {
         matchId: 'ffa1',
         reporterId: 'p1',
         placements: '<@p1>\n<@p2>\n<@p3>\n<@p4>\n<@p5>\n<@p6>\n<@outsider>',
-      })
+      }, directTerminalOptions)
 
       expect('error' in result).toBe(true)
       if (!('error' in result)) return
@@ -376,7 +491,7 @@ describe('match moderation recalculation', () => {
         matchId: 'ffa1',
         reporterId: 'p2',
         placements: '<@p1>\n<@p2>\n<@p3>\n<@p4>\n<@p5>\n<@p6>',
-      })
+      }, directTerminalOptions)
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -398,7 +513,7 @@ describe('match moderation recalculation', () => {
         matchId: 'duo-multi-active',
         reporterId: 'p1',
         placements: '<@p5>\n<@p1>\n<@p3>',
-      })
+      }, directTerminalOptions)
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -442,7 +557,7 @@ describe('match moderation recalculation', () => {
         matchId: 'squad-active',
         reporterId: 'p1',
         placements: '<@p1>',
-      })
+      }, directTerminalOptions)
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -666,4 +781,27 @@ async function seedActiveMultiTeamDuoMatch(db: any): Promise<void> {
     { matchId: 'duo-multi-active', playerId: 'p5', team: 2, civId: 'japan', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
     { matchId: 'duo-multi-active', playerId: 'p6', team: 2, civId: 'france', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
   ])
+}
+
+function failTerminalLifecycleForSession(namespace: DurableObjectNamespace, sessionId: string): DurableObjectNamespace {
+  return {
+    idFromName(name: string) {
+      return namespace.idFromName(name)
+    },
+    get(id: DurableObjectId) {
+      const stub = namespace.get(id)
+      return {
+        fetch(input: RequestInfo | URL, init?: RequestInit) {
+          const request = input instanceof Request ? input : new Request(input, init)
+          if (String(id) === sessionId && new URL(request.url).pathname === '/commands/session-lifecycle') {
+            return Promise.resolve(new Response(JSON.stringify({ error: 'terminal lifecycle failed' }), {
+              status: 503,
+              headers: { 'Content-Type': 'application/json' },
+            }))
+          }
+          return stub.fetch(request)
+        },
+      } as DurableObjectStub
+    },
+  } as unknown as DurableObjectNamespace
 }

@@ -967,7 +967,7 @@ async function handleMatchReport(
     matchId,
     reporterId: HOST_ID,
     placements: buildPlacements(mode),
-  })
+  }, { allowDirectTerminalWriteForTests: true })
   if ('error' in reported) throw new Error(reported.error)
 
   const lobby = await getSessionLobbyProjectionByMatch(db, matchId)

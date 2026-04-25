@@ -2,13 +2,13 @@ import type { createDb } from '@civup/db'
 import type { GameMode, QueueEntry } from '@civup/game'
 import type { Embed } from 'discord-hono'
 import type { lobbyComponents } from '../../embeds/match.ts'
-import type { LobbyState } from '../../services/lobby/index.ts'
+import type { DeferredOpenLobbyTransferSource, LobbyState } from '../../services/lobby/index.ts'
 import { createDb as createCivupDb, matches, matchParticipants } from '@civup/db'
 import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode } from '@civup/game'
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
-import { filterQueueEntriesForLobby, getLobbyById, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots, setLobbyRoster } from '../../services/lobby/index.ts'
+import { filterQueueEntriesForLobby, finalizeDeferredOpenLobbyTransferSource, getLobbyById, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, restoreDeferredOpenLobbyTransferSourceAdmission, rollbackDeferredOpenLobbyTransferTarget, sameLobbySlots, setLobbyRoster } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds } from '../../services/ranked/roles.ts'
@@ -269,7 +269,10 @@ export async function joinLobbyAndMaybeStartMatch(
     return { error: 'No compatible open lobby could fit this join.' }
   }
 
+  const targetLobbyBeforeTransfer = chosen.lobby
+  const targetQueueEntriesBeforeTransfer = [...chosen.queueEntries]
   let transferSource: { lobby: LobbyState, queueEntries: QueueEntry[] } | null = null
+  let deferredTransferSource: DeferredOpenLobbyTransferSource | null = null
   if (currentOpenLobby && currentOpenLobby.id !== chosen.lobby.id) {
     const sourceRosterEntries = await getOpenLobbyRosterEntries(c.env.SessionDO, currentOpenLobby)
     transferSource = { lobby: currentOpenLobby, queueEntries: sourceRosterEntries }
@@ -288,6 +291,7 @@ export async function joinLobbyAndMaybeStartMatch(
     if (!transferResult.ok) {
       return { error: transferResult.error }
     }
+    deferredTransferSource = transferResult.deferredSource ?? null
   }
 
   let nextLobby = chosen.lobby
@@ -324,12 +328,41 @@ export async function joinLobbyAndMaybeStartMatch(
       }) ?? nextLobby
     }
     catch (error) {
+      if (deferredTransferSource) {
+        const restoredAdmission = await restoreDeferredOpenLobbyTransferSourceAdmission(deferredTransferSource, {
+          db: c.env.DB ? createCivupDb(c.env.DB) : null,
+          sessionNamespace: c.env.SessionDO,
+          queueEntries: deferredTransferSource.queueEntries,
+        })
+        if (!restoredAdmission.ok) return { error: restoredAdmission.error }
+      }
       if (transferSource) {
         const restored = await restoreOpenLobbyTransferSource(kv, c.env, transferSource.lobby, transferSource.queueEntries, now)
         if (!restored.ok) return { error: restored.error }
       }
       if (isSessionAdmissionError(error)) return { error: formatSessionAdmissionError(error) }
       throw error
+    }
+  }
+
+  if (deferredTransferSource) {
+    const finalized = await finalizeDeferredOpenLobbyTransferSource(kv, c.env.DISCORD_TOKEN, deferredTransferSource, {
+      db: c.env.DB ? createCivupDb(c.env.DB) : null,
+      sessionNamespace: c.env.SessionDO,
+      queueEntries: deferredTransferSource.queueEntries,
+    })
+    if (!finalized.ok) {
+      const rolledBack = await rollbackDeferredOpenLobbyTransferTarget(kv, deferredTransferSource, {
+        lobby: targetLobbyBeforeTransfer,
+        queueEntries: targetQueueEntriesBeforeTransfer,
+        at: now,
+      }, {
+        db: c.env.DB ? createCivupDb(c.env.DB) : null,
+        sessionNamespace: c.env.SessionDO,
+        queueEntries: targetQueueEntriesBeforeTransfer,
+      })
+      if (!rolledBack.ok) return { error: `${finalized.error} Transfer rollback also failed: ${rolledBack.error}` }
+      return { error: `${finalized.error} Transfer was rolled back; please try again.` }
     }
   }
 
