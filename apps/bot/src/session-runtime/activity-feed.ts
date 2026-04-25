@@ -4,7 +4,7 @@ import type { SessionRecord } from './session-record.ts'
 import { createDb } from '@civup/db'
 import { CIVUP_ACTIVITY_USER_ID_HEADER, isAuthorizedInternalRequest } from '@civup/utils'
 import { Server } from 'partyserver'
-import { buildActivityOverviewSnapshotFromDirectory } from '../services/activity/session-state.ts'
+import { buildActivityOverviewOptionsFromSessionRecord, buildActivityOverviewSnapshotFromDirectory, compareActivityOverviewOptions } from '../services/activity/session-state.ts'
 
 interface ActivityFeedEnv extends Cloudflare.Env {
   DB?: D1Database
@@ -23,6 +23,8 @@ export type ActivityFeedMessage
 interface PublishSessionUpdateRequest {
   record?: SessionRecord
 }
+
+const ACTIVITY_OVERVIEW_STORAGE_KEY = 'activity-overview-snapshot'
 
 export class Activity extends Server<ActivityFeedEnv> {
   static override options = {
@@ -74,18 +76,30 @@ export class Activity extends Server<ActivityFeedEnv> {
       return
     }
 
-    const db = createDb(this.env.DB)
-    const overview = await buildActivityOverviewSnapshotFromDirectory(db, channelId)
+    const overview = await this.getOverviewSnapshot(channelId)
     this.send(connection, { type: 'overview', snapshot: overview })
   }
 
   private async broadcastSessionUpdate(record: SessionRecord): Promise<void> {
-    if (!this.env.DB) return
-
-    const db = createDb(this.env.DB)
     const channelId = record.projectionState.channelId
-    const overview = await buildActivityOverviewSnapshotFromDirectory(db, channelId)
+    const current = await this.getOverviewSnapshot(channelId)
+    const options = [
+      ...(current?.options ?? []).filter(option => option.lobbyId !== record.id),
+      ...buildActivityOverviewOptionsFromSessionRecord(record),
+    ].sort(compareActivityOverviewOptions)
+    const overview = options.length > 0 ? { channelId, options } satisfies ActivityOverviewSnapshot : null
+    await this.ctx.storage.put(ACTIVITY_OVERVIEW_STORAGE_KEY, overview)
     this.broadcastFeedMessage({ type: 'overview', snapshot: overview })
+  }
+
+  private async getOverviewSnapshot(channelId: string): Promise<ActivityOverviewSnapshot | null> {
+    const cached = await this.ctx.storage.get<ActivityOverviewSnapshot | null>(ACTIVITY_OVERVIEW_STORAGE_KEY)
+    if (cached === null || cached?.channelId === channelId) return cached ?? null
+    if (!this.env.DB) return null
+
+    const overview = await buildActivityOverviewSnapshotFromDirectory(createDb(this.env.DB), channelId)
+    await this.ctx.storage.put(ACTIVITY_OVERVIEW_STORAGE_KEY, overview)
+    return overview
   }
 
   private send(connection: Connection, message: ActivityFeedMessage): void {

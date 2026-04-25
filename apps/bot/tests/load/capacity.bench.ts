@@ -23,11 +23,10 @@ import { getLobbyBalanceSnapshot } from '../../src/routes/lobby/snapshot.ts'
 import { getLobbyForUser, getMatchForUser } from '../../src/services/activity/index.ts'
 import { resolveDraftTimerConfig } from '../../src/services/config/index.ts'
 import { markLeaderboardsDirty, refreshDirtyLeaderboards } from '../../src/services/leaderboard/message.ts'
+import { ensureLeaderboardModeSnapshots } from '../../src/services/leaderboard/snapshot.ts'
 import {
   createLobby,
-  clearLobbyById,
   filterQueueEntriesForLobby,
-  getCurrentLobbyHostedBy,
   getLobby,
   getLobbyById,
   getTestLobbyRuntime,
@@ -46,7 +45,7 @@ import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
 import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
-import { getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
+import { getOpenSessionLobbyProjectionHostedBy, getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
 import { getSystemChannel, setSystemChannel } from '../../src/services/system/channels.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -113,7 +112,7 @@ const LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION = 4
 const ESTIMATED_DO_GB_SECONDS_PER_REQUEST = 0.0025
 const AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT = 0.5
 const ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES = 2
-const TARGET_ARCHITECTURE_MODEL = 'target-session-do-v2-nonhibernating-sockets'
+const TARGET_ARCHITECTURE_MODEL = 'target-session-do-v3-low-kv-do-sqlite-overview'
 const TARGET_SESSION_SOCKET_CONNECTIONS_PER_VIEWER = 1
 const TARGET_SESSION_DO_SQL_READS_PER_COMMAND = 1
 const TARGET_SESSION_DO_SQL_WRITES_PER_COMMAND = 1
@@ -121,6 +120,9 @@ const TARGET_SESSION_DO_SQL_READS_PER_SOCKET_CONNECT = 1
 const TARGET_SESSION_DO_SQL_WRITES_PER_SOCKET_CONNECT = 0
 const TARGET_SESSION_DO_SQL_READS_PER_DRAFT_MESSAGE = 1
 const TARGET_SESSION_DO_SQL_WRITES_PER_DRAFT_MESSAGE = 1
+const TARGET_ACTIVITY_DO_SQL_READS_PER_FEED_CONNECT = 1
+const TARGET_ACTIVITY_DO_SQL_READS_PER_SESSION_UPDATE = 1
+const TARGET_ACTIVITY_DO_SQL_WRITES_PER_SESSION_UPDATE = 1
 const TARGET_DIRECTORY_READS_PER_VIEWER_LAUNCH = 2
 const TARGET_DIRECTORY_READS_PER_JOIN_GROUP = 1
 const TARGET_DIRECTORY_WRITES_PER_SESSION_CREATE = 1
@@ -217,7 +219,8 @@ describe('capacity models', () => {
       expect(report.model.perDraft.d1RowsWritten).toBeGreaterThan(0)
       expect(report.draftRoomIncomingMessagesWithSelectionPreviews).toBeGreaterThanOrEqual(report.draftRoomIncomingMessages)
       expect(report.draftRoomIncomingMessagesWithTeamPickPreviews).toBe(report.draftRoomIncomingMessagesWithSelectionPreviews)
-      expect(report.model.backgroundDaily?.kvLists ?? 0).toBeGreaterThan(0)
+      expect(report.model.backgroundDaily?.kvLists ?? 0).toBe(0)
+      if (report.mode.id === 'duel-ranked') expect(report.freeCapacityPlaysPerDay / scenarioPlayersPerDraft(report.mode)).toBeGreaterThanOrEqual(1_000)
       expect(report.freeCapacityPlaysPerDay).toBeGreaterThan(0)
       expect(report.paidIncludedCapacityPlaysPerDay).toBeGreaterThan(0)
       expect(report.paidSixDollarCapacityPlaysPerDay).toBeGreaterThanOrEqual(report.paidIncludedCapacityPlaysPerDay)
@@ -562,6 +565,7 @@ async function simulateScenarioLifecycle(input: {
       tier1: '55555555555555555',
     })
     await seedRatedPlayers(db, input.mode, input.backgroundRatedPlayers)
+    await ensureLeaderboardModeSnapshots(db, kv)
     await syncRankedRoles({ db, kv, guildId: GUILD_ID, now: NOW + 1_000 })
     await markRankedRolesDirty(kv, 'steady-state-preexisting-dirty-flag')
 
@@ -708,7 +712,7 @@ async function simulateMatchCreate(
   const draftChannelId = await getSystemChannel(kv, 'draft')
   if (!draftChannelId) throw new Error('Expected draft channel to be configured')
 
-  await getCurrentLobbyHostedBy(kv, HOST_ID)
+  await getOpenSessionLobbyProjectionHostedBy(db, HOST_ID)
   await findBlockingDraftMatchIdsForPlayers(db, [HOST_ID])
 
   const hostEntry = buildQueueEntry(HOST_ID, 1)
@@ -870,7 +874,7 @@ async function assertCompletedCapacityState(
   expect(match?.status).toBe('completed')
   expect(participants.map(participant => participant.playerId)).toEqual(expectedPlayerIds)
   expect(participants.every(participant => participant.civId != null && participant.placement != null)).toBe(true)
-  expect(await getLobbyById(kv, matchId)).toBeNull()
+  expect((await getLobbyById(kv, matchId))?.status).toBe('completed')
 
   for (const playerId of expectedPlayerIds) {
     expect(await getLobbyForUser(db, playerId)).toBeNull()
@@ -963,11 +967,12 @@ async function handleMatchReport(
   mode: CapacityScenario,
   matchId: string,
 ): Promise<void> {
+  const runtime = await getTestLobbyRuntime(kv, db)
   const reported = await reportMatch(db, kv, {
     matchId,
     reporterId: HOST_ID,
     placements: buildPlacements(mode),
-  }, { allowDirectTerminalWriteForTests: true })
+  }, { sessionNamespace: runtime.sessionNamespace })
   if ('error' in reported) throw new Error(reported.error)
 
   const lobby = await getSessionLobbyProjectionByMatch(db, matchId)
@@ -998,7 +1003,6 @@ async function handleMatchReport(
 
   if (lobby) {
     await storeMatchMessageMapping(db, `message-lobby-reported-${mode.id}`, matchId)
-    await clearLobbyById(kv, lobby.id, lobby)
   }
 
   const archiveChannelId = await getSystemChannel(kv, 'archive')
@@ -1137,6 +1141,8 @@ function projectBackgroundUsageToTargetArchitecture(current: DailyUsage): DailyU
     workersRequests: current.botWorkerRequests + current.activityWorkerRequests,
     doSqliteRowsRead: 0,
     doSqliteRowsWritten: 0,
+    kvDeletes: 0,
+    kvLists: 0,
     doRequests: 0,
     doRequestsRaw: 0,
     doDurationGbSeconds: 0,
@@ -1152,18 +1158,22 @@ function projectSimulationResultToTargetArchitecture(
   const spectatorCount = mode.spectatorIds?.length ?? 0
   const averageAcceptedSwaps = isTeamMode(mode.mode) ? AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT : 0
   const lifecycleSyncBotRequests = 1 + averageAcceptedSwaps + (isTeamMode(mode.mode) ? 1 : 0)
+  const sessionCommandRequests = estimateTargetSessionCommandRequests(mode, current.openLobbyMutationRequests)
+  const activityFeedSessionUpdates = sessionCommandRequests + lifecycleSyncBotRequests
+  const activityFeedConnections = viewerCount
   const removedBotRequests = lifecycleSyncBotRequests + playerCount + spectatorCount
   const removedActivityRequests = viewerCount + viewerCount + playerCount + spectatorCount
   const removedPostDraftSnapshotRowsRead = playerCount * (1 + playerCount)
 
   const botWorkerRequests = Math.max(0, roundSnapshotNumber(current.usage.botWorkerRequests - removedBotRequests))
   const activityWorkerRequests = Math.max(0, roundSnapshotNumber(current.usage.activityWorkerRequests - removedActivityRequests))
-  const sessionCommandRequests = estimateTargetSessionCommandRequests(mode, current.openLobbyMutationRequests)
   const sessionSocketConnections = viewerCount * TARGET_SESSION_SOCKET_CONNECTIONS_PER_VIEWER
-  const doRequestsRaw = sessionCommandRequests + sessionSocketConnections + current.draftRoomIncomingMessages
+  const doRequestsRaw = sessionCommandRequests + sessionSocketConnections + current.draftRoomIncomingMessages + activityFeedSessionUpdates + activityFeedConnections
   const doRequests = sessionCommandRequests
     + sessionSocketConnections
     + Math.ceil(current.draftRoomIncomingMessages / DO_WEBSOCKET_BILLING_RATIO)
+    + activityFeedSessionUpdates
+    + activityFeedConnections
 
   return {
     ...current,
@@ -1189,17 +1199,20 @@ function projectSimulationResultToTargetArchitecture(
       doSqliteRowsRead: roundSnapshotNumber(
         sessionCommandRequests * TARGET_SESSION_DO_SQL_READS_PER_COMMAND
         + sessionSocketConnections * TARGET_SESSION_DO_SQL_READS_PER_SOCKET_CONNECT
-        + current.draftRoomIncomingMessages * TARGET_SESSION_DO_SQL_READS_PER_DRAFT_MESSAGE,
+        + current.draftRoomIncomingMessages * TARGET_SESSION_DO_SQL_READS_PER_DRAFT_MESSAGE
+        + activityFeedConnections * TARGET_ACTIVITY_DO_SQL_READS_PER_FEED_CONNECT
+        + activityFeedSessionUpdates * TARGET_ACTIVITY_DO_SQL_READS_PER_SESSION_UPDATE,
       ),
       doSqliteRowsWritten: roundSnapshotNumber(
         sessionCommandRequests * TARGET_SESSION_DO_SQL_WRITES_PER_COMMAND
         + sessionSocketConnections * TARGET_SESSION_DO_SQL_WRITES_PER_SOCKET_CONNECT
-        + current.draftRoomIncomingMessages * TARGET_SESSION_DO_SQL_WRITES_PER_DRAFT_MESSAGE,
+        + current.draftRoomIncomingMessages * TARGET_SESSION_DO_SQL_WRITES_PER_DRAFT_MESSAGE
+        + activityFeedSessionUpdates * TARGET_ACTIVITY_DO_SQL_WRITES_PER_SESSION_UPDATE,
       ),
       kvReads: current.usage.kvReads,
       kvWrites: current.usage.kvWrites,
-      kvDeletes: current.usage.kvDeletes,
-      kvLists: current.usage.kvLists,
+      kvDeletes: 0,
+      kvLists: 0,
       doRequests,
       doRequestsRaw,
       doDurationGbSeconds: estimateDoDurationGbSeconds(doRequestsRaw),

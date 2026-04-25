@@ -109,6 +109,13 @@ export type SessionDraftLifecycleCommand
 
 export type SessionProjectionCommand
   = | {
+    type: 'set-message'
+    expectedVersion?: number
+    channelId: string
+    messageId: string
+    now?: number
+  }
+  | {
     type: 'set-steam-lobby-link'
     expectedVersion?: number
     steamLobbyLink: string | null

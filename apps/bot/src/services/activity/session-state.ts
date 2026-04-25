@@ -163,6 +163,29 @@ export function buildActivityOverviewOptions(session: ActivitySessionDirectoryEn
   }]
 }
 
+export function buildActivityOverviewOptionsFromSessionRecord(record: SessionRecord): ActivityOverviewOptionSnapshot[] {
+  const status = mapSessionPhaseToActivityStatus(record.phase)
+  if (!status) return []
+
+  const matchId = record.phase === 'open' ? null : record.matchId ?? record.id
+  const id = record.phase === 'open' ? record.id : matchId ?? record.id
+  return [{
+    kind: record.phase === 'open' ? 'lobby' : 'match',
+    id,
+    lobbyId: record.id,
+    matchId,
+    channelId: record.projectionState.channelId,
+    mode: record.mode,
+    status,
+    participantCount: countFilledSlots(record.roster.slots),
+    targetSize: record.roster.slots.length,
+    redDeath: record.config.redDeath,
+    hostId: record.hostId,
+    memberPlayerIds: record.roster.participants.map(member => member.playerId),
+    updatedAt: record.updatedAt,
+  }]
+}
+
 export async function buildLobbySnapshotFromSessionRecord(
   kv: KVNamespace,
   record: SessionRecord,
@@ -395,13 +418,13 @@ function parseSessionConfig(raw: string): SessionConfig | null {
   }
 }
 
-function compareActivityOverviewOptions(left: ActivityOverviewOptionSnapshot, right: ActivityOverviewOptionSnapshot): number {
+export function compareActivityOverviewOptions(left: ActivityOverviewOptionSnapshot, right: ActivityOverviewOptionSnapshot): number {
   if (left.updatedAt !== right.updatedAt) return right.updatedAt - left.updatedAt
   if (left.mode !== right.mode) return left.mode.localeCompare(right.mode)
   return left.id.localeCompare(right.id)
 }
 
-function mapSessionPhaseToActivityStatus(phase: ActivitySessionDirectoryEntry['phase']): ActivityOverviewOptionSnapshot['status'] | null {
+function mapSessionPhaseToActivityStatus(phase: SessionPhase): ActivityOverviewOptionSnapshot['status'] | null {
   switch (phase) {
     case 'open':
       return 'open'
@@ -411,6 +434,9 @@ function mapSessionPhaseToActivityStatus(phase: ActivitySessionDirectoryEntry['p
       return 'active'
     case 'active':
       return 'active'
+    case 'reported':
+    case 'cancelled':
+      return null
   }
 }
 

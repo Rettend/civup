@@ -2,11 +2,11 @@ import type { GameMode } from '@civup/game'
 import { createDb } from '@civup/db'
 import { Button } from 'discord-hono'
 import { getMatchForUser } from '../../services/activity/index.ts'
-import { clearLobbyById, getLobbyById } from '../../services/lobby/index.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIds } from '../../services/match/live.ts'
 import { getMatchIdForMessage } from '../../services/match/message.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
+import { getSessionLobbyProjectionByMatch } from '../../services/session/index.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
 import { factory } from '../../setup.ts'
 import { findBlockingDraftMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
@@ -27,7 +27,8 @@ export const component_match_join = factory.component(
     const kv = getKvStore(env)
 
     queueBackgroundTask(c, async () => {
-      const lobby = await getLobbyById(kv, lobbyId)
+      const db = createDb(env.DB)
+      const lobby = await getSessionLobbyProjectionByMatch(db, lobbyId)
       if (!lobby) {
         const userMatchId = await resolveJoinButtonLiveMatchId(env.DB, identity.userId, c.interaction.message?.id ?? null)
 
@@ -45,7 +46,6 @@ export const component_match_join = factory.component(
 
       if (lobby.memberPlayerIds.length === 0) return
 
-      const db = createDb(env.DB)
       const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, [identity.userId])
       const currentMatchId = blockingDraftMatchIdByPlayer.get(identity.userId) ?? null
       if (currentMatchId) return
@@ -77,7 +77,7 @@ export const component_match_join = factory.component(
         await upsertLobbyMessage(kv, env.DISCORD_TOKEN, outcome.lobby, {
           embeds: outcome.embeds,
           components: outcome.components,
-        })
+        }, { db, sessionNamespace: env.SessionDO })
       }
       catch (error) {
         console.error('Failed to update lobby message after button join:', error)

@@ -9,7 +9,7 @@ import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDra
 import { getMatchForUser } from '../../services/activity/index.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
-import { clearLobbyById, createLobby, filterQueueEntriesForLobby, getLobbyBumpCooldownRemainingMs, getLobbyById, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, setLobbyLastActivityAt, setLobbyRoster, setLobbyStatus, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
+import { createLobby, filterQueueEntriesForLobby, getLobbyBumpCooldownRemainingMs, getLobbyById, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, setLobbyLastActivityAt, setLobbyRoster, setLobbyStatus, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
@@ -208,7 +208,7 @@ export const command_match = factory.command<MatchVar>(
                 await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
                   embeds: renderPayload.embeds,
                   components: renderPayload.components,
-                })
+                }, { db, sessionNamespace: c.env.SessionDO })
               }
               if (reusedExisting) {
                 await sendTransientEphemeralResponse(
@@ -339,7 +339,7 @@ export const command_match = factory.command<MatchVar>(
             await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, outcome.lobby, {
               embeds: outcome.embeds,
               components: outcome.components,
-            })
+            }, { db, sessionNamespace: c.env.SessionDO })
 
             await clearDeferredEphemeralResponse(c)
           }
@@ -381,12 +381,13 @@ export const command_match = factory.command<MatchVar>(
               }
             }
 
-            if (lobbyById && !lobbyById.matchId) {
-              await cancelHostedOpenLobby(c.env.DISCORD_TOKEN, kv, lobbyById, {
+            const openLobby = lobbyById && !lobbyById.matchId ? lobbyById : lobbyByMatch?.status === 'open' && !lobbyByMatch.matchId ? lobbyByMatch : null
+            if (openLobby) {
+              await cancelHostedOpenLobby(c.env.DISCORD_TOKEN, kv, openLobby, {
                 db,
                 sessionNamespace: c.env.SessionDO,
               })
-              await sendTransientEphemeralResponse(c, `Cancelled hosted ${formatModeLabel(lobbyById.mode)} lobby.`, 'success')
+              await sendTransientEphemeralResponse(c, `Cancelled hosted ${formatModeLabel(openLobby.mode)} lobby.`, 'success')
               return
             }
 
@@ -410,11 +411,11 @@ export const command_match = factory.command<MatchVar>(
             }
 
             try {
-              await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
+              const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
                 embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'cancel', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
                 components: [],
-              })
-              await storeMatchMessageMapping(db, lobby.messageId, matchId)
+              }, { db, sessionNamespace: c.env.SessionDO })
+              await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
             }
             catch (error) {
               console.error(`Failed to update cancelled lobby embed for match ${matchId}:`, error)
@@ -493,7 +494,7 @@ export const command_match = factory.command<MatchVar>(
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
                 embeds: renderPayload.embeds,
                 components: renderPayload.components,
-              })
+              }, { db, sessionNamespace: c.env.SessionDO })
             }
             catch (error) {
               console.error('Failed to update lobby message after leave:', error)
@@ -541,7 +542,7 @@ export const command_match = factory.command<MatchVar>(
               return
             }
 
-            const reposted = await repostLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, renderPayload)
+            const reposted = await repostLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, renderPayload, { db, sessionNamespace: c.env.SessionDO })
             let updatedLobby = reposted.lobby
             if (updatedLobby.status === 'open') {
               updatedLobby = await setLobbyLastActivityAt(kv, updatedLobby.id, Date.now(), updatedLobby, { db, sessionNamespace: c.env.SessionDO }) ?? updatedLobby
@@ -839,9 +840,9 @@ export const command_match = factory.command<MatchVar>(
               participants: result.participants,
               matchDraftData: result.match.draftData,
               lobby,
+              sessionNamespace: c.env.SessionDO,
               archivePolicy: 'if-missing',
             })
-            await clearLobbyById(kv, result.match.id, lobby)
             await sendTransientEphemeralResponse(c, `Match **${result.match.id}** was already reported. Checked Discord result state.`, 'info')
             return
           }
@@ -884,6 +885,7 @@ export const command_match = factory.command<MatchVar>(
             participants: result.participants,
             matchDraftData: result.match.draftData,
             lobby,
+            sessionNamespace: c.env.SessionDO,
             rankedRoleLines,
             reporter: {
               userId: identity.userId,
@@ -892,8 +894,6 @@ export const command_match = factory.command<MatchVar>(
             },
             archivePolicy: 'always',
           })
-          await clearLobbyById(kv, result.match.id, lobby)
-
           if (isRankedResult) {
             try {
               await markLeaderboardsDirty(db, `match-report:${result.match.id}`)
@@ -1167,7 +1167,6 @@ async function reconcileHostedOpenLobbyCreation(
     return { lobby: createdLobby, reusedExisting: false }
   }
 
-  await clearLobbyById(kv, createdLobby.id, createdLobby)
   try {
     await deleteChannelMessage(token, createdLobby.channelId, createdLobby.messageId)
   }
@@ -1197,13 +1196,12 @@ async function cancelHostedOpenLobby(
     await upsertLobbyMessage(kv, token, cancelledLobby, {
       embeds: [lobbyCancelledEmbed(lobby.mode, buildCancelledLobbyParticipants(lobby, lobbyQueueEntries), 'cancel', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
       components: [],
-    })
+    }, options)
   }
   catch (error) {
     console.error(`Failed to update cancelled open lobby embed for lobby ${lobby.id}:`, error)
   }
 
-  await clearLobbyById(kv, lobby.id, cancelledLobby)
 }
 
 function buildCancelledLobbyParticipants(lobby: { mode: GameMode, slots: (string | null)[] }, entries: QueueEntry[]) {

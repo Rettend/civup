@@ -43,7 +43,7 @@ test('keeps supported map vote config for team lobbies', async () => {
   expect(updated?.draftConfig.mapVoteEnabled).toBe(true)
 })
 
-describe('lobby service KV write behavior', () => {
+describe('lobby service D1-backed projection behavior', () => {
   test('setLobbySlots skips KV writes when slots are unchanged', async () => {
     const { kv, operations, resetOperations } = createTrackedKv()
 
@@ -62,7 +62,7 @@ describe('lobby service KV write behavior', () => {
     expect(operations).toHaveLength(0)
   })
 
-  test('setLobbySlots writes when slots change', async () => {
+  test('setLobbySlots updates D1 without KV projection writes', async () => {
     const { kv, operations, resetOperations } = createTrackedKv()
 
     const lobby = await createLobby(kv, {
@@ -79,11 +79,11 @@ describe('lobby service KV write behavior', () => {
     const result = await setLobbySlots(kv, lobby.id, nextSlots)
 
     expect(result).not.toBeNull()
-    const putKeys = operations.filter(op => op.type === 'put').map(op => op.key)
-    expect(putKeys).toContain(`lobby:mode:ffa:${lobby.id}`)
+    expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(nextSlots)
+    expect(operations.filter(op => op.type === 'put' || op.type === 'delete' || op.type === 'list')).toHaveLength(0)
   })
 
-  test('setLobbySlots rewrites the mode index value when revision changes', async () => {
+  test('setLobbySlots does not write KV mode indexes when revision changes', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: 'ffa',
@@ -92,14 +92,15 @@ describe('lobby service KV write behavior', () => {
       messageId: 'message-1',
     })
 
-    expect(await kv.get(`lobby:mode:ffa:${lobby.id}`)).toBe(String(lobby.revision))
+    expect(await kv.get(`lobby:mode:ffa:${lobby.id}`)).toBeNull()
 
     const nextSlots = [...lobby.slots]
     nextSlots[1] = 'player-2'
     const updated = await setLobbySlots(kv, lobby.id, nextSlots)
 
     expect(updated).not.toBeNull()
-    expect(await kv.get(`lobby:mode:ffa:${lobby.id}`)).toBe(String(updated?.revision))
+    expect(await kv.get(`lobby:mode:ffa:${lobby.id}`)).toBeNull()
+    expect(updated?.revision).toBe(lobby.revision + 1)
   })
 
   test('setLobbySlots bumps revision when slots change', async () => {
@@ -150,7 +151,7 @@ describe('lobby service KV write behavior', () => {
     expect(byChannel?.hostId).toBe(created.hostId)
   })
 
-  test('getLobbiesByMode does not rebuild a missing projection index', async () => {
+  test('getLobbiesByMode reads D1 instead of KV projection indexes', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: 'ffa',
@@ -160,7 +161,7 @@ describe('lobby service KV write behavior', () => {
     })
     await kv.delete(modeIndexKey('ffa', lobby.id))
 
-    await expect(getLobbiesByMode(kv, 'ffa')).resolves.toEqual([])
+    await expect(getLobbiesByMode(kv, 'ffa')).resolves.toEqual([expect.objectContaining({ id: lobby.id })])
     await expect(kv.get(modeIndexKey('ffa', lobby.id))).resolves.toBeNull()
   })
 
@@ -515,10 +516,10 @@ describe('lobby service KV write behavior', () => {
       id: lobby.id,
       status: 'open',
     }))
-    await expect(kv.get(hostKey('host-1'))).resolves.toBe(lobby.id)
+    await expect(kv.get(hostKey('host-1'))).resolves.toBeNull()
   })
 
-  test('clears orphaned host and match indexes when the lobby record is gone', async () => {
+  test('legacy KV clearing does not remove canonical D1 session projection', async () => {
     const { kv } = createTrackedKv()
 
     const lobby = await createLobby(kv, {
@@ -534,7 +535,7 @@ describe('lobby service KV write behavior', () => {
     await clearLobbyById(kv, lobby.id)
 
     await expect(kv.get(hostKey('host-1'))).resolves.toBeNull()
-    await expect(getLobbyById(kv, lobby.id)).resolves.toBeNull()
+    await expect(getLobbyById(kv, lobby.id)).resolves.toEqual(expect.objectContaining({ id: lobby.id }))
   })
 
   test('session lobby projection resolves same-id sessions', async () => {
@@ -556,7 +557,7 @@ describe('lobby service KV write behavior', () => {
     expect(draftingLobby?.matchId).toBe(lobby.id)
   })
 
-  test('getLobbyByChannel does not rebuild a missing projection index', async () => {
+  test('getLobbyByChannel reads D1 instead of KV projection indexes', async () => {
     const { kv } = createTrackedKv()
 
     const lobby = await createLobby(kv, {
@@ -567,7 +568,7 @@ describe('lobby service KV write behavior', () => {
     })
     await kv.delete(channelIndexKey('channel-1', lobby.id))
 
-    await expect(getLobbyByChannel(kv, 'channel-1')).resolves.toBeNull()
+    await expect(getLobbyByChannel(kv, 'channel-1')).resolves.toEqual(expect.objectContaining({ id: lobby.id }))
     await expect(kv.get(channelIndexKey('channel-1', lobby.id))).resolves.toBeNull()
   })
 

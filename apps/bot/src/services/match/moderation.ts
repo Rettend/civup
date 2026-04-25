@@ -6,7 +6,6 @@ import { and, eq } from 'drizzle-orm'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
-import { clearLobbyById } from '../lobby/index.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
 import { parseModerationPlacements } from './placements.ts'
 import { recalculateLeaderboardMode } from './ratings.ts'
@@ -66,7 +65,6 @@ export async function resolveMatchByModerator(
     const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
     if (!updatedMatch) return { error: `Match **${input.matchId}** not found after resolving.` }
     const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
-    if (previousStatus !== 'completed') await clearLobbyById(kv, input.matchId)
     return { match: updatedMatch, participants: updatedParticipants, previousStatus, recalculatedMatchIds: [] }
   }
 
@@ -170,10 +168,6 @@ export async function resolveMatchByModerator(
     .select()
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, input.matchId))
-
-  if (previousStatus !== 'completed') {
-    await clearLobbyById(kv, input.matchId)
-  }
 
   return {
     match: updatedMatch,
@@ -402,8 +396,6 @@ export async function cancelMatchByModerator(
       ratingAfterSigma: null,
     })
     .where(eq(matchParticipants.matchId, input.matchId))
-
-  await clearLobbyById(kv, input.matchId)
 
   let recalculatedMatchIds: string[] = []
   if (completedLeaderboardMode != null) {

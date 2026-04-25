@@ -274,7 +274,7 @@ describe('SessionDO open session commands', () => {
       expect(record.phase).toBe('swap')
       expect(record.lifecycleSync).toBeNull()
       expect((await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1))[0]?.phase).toBe('swap')
-      expect(await kv.get(`lobby:id:${openLobby.id}`, 'json')).toEqual(expect.objectContaining({ status: 'active' }))
+      expect(await kv.get(`lobby:id:${openLobby.id}`, 'json')).toBeNull()
       expect(discordRequests).toEqual([
         expect.objectContaining({ method: 'PATCH', url: expect.stringContaining('/channels/channel-1/messages/message-1') }),
       ])
@@ -334,7 +334,7 @@ describe('SessionDO open session commands', () => {
       expect(record.phase).toBe('swap')
       expect(record.lifecycleSync).toBeNull()
       expect((await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1))[0]?.phase).toBe('swap')
-      expect(await kv.get(`lobby:id:${openLobby.id}`, 'json')).toEqual(expect.objectContaining({ status: 'active' }))
+      expect(await kv.get(`lobby:id:${openLobby.id}`, 'json')).toBeNull()
     }
     finally {
       Date.now = originalDateNow

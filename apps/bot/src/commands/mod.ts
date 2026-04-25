@@ -8,7 +8,7 @@ import { createChannelMessage } from '../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { rebuildLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../services/leaderboard/team-snapshot.ts'
-import { clearLobbyById, filterQueueEntriesForLobby, getLobbyById, setLobbyStatus } from '../services/lobby/index.ts'
+import { filterQueueEntriesForLobby, getLobbyById, setLobbyStatus } from '../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { cancelMatchByModerator, getStoredGameModeContext, resolveMatchByModerator } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
@@ -87,7 +87,7 @@ export const command_mod = factory.command<ModVar>(
             return
           }
 
-          const directLobby = await getLobbyById(kv, matchId)
+          const directLobby = await getLobbyById(kv, matchId) ?? await getSessionLobbyProjectionByMatch(db, matchId)
           if (directLobby && directLobby.status === 'open' && !directLobby.matchId) {
             const lobbyQueueEntries = filterQueueEntriesForLobby(directLobby, [])
             const cancelledLobby = await setLobbyStatus(kv, directLobby.id, 'cancelled', directLobby, {
@@ -100,18 +100,17 @@ export const command_mod = factory.command<ModVar>(
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, cancelledLobby, {
                 embeds: [lobbyCancelledEmbed(directLobby.mode, buildCancelledLobbyParticipants(directLobby, lobbyQueueEntries), 'cancel', { actorId, reason }, directLobby.draftConfig.leaderDataVersion, directLobby.draftConfig.redDeath)],
                 components: [],
-              })
+              }, { db, sessionNamespace: c.env.SessionDO })
             }
             catch (error) {
               console.error(`Failed to update cancelled embed for lobby ${directLobby.id}:`, error)
             }
 
-            await clearLobbyById(kv, directLobby.id, cancelledLobby)
             await sendTransientEphemeralResponse(c, `Cancelled open lobby **${directLobby.id}**.`, 'success')
             return
           }
 
-          const existingLobby = await getSessionLobbyProjectionByMatch(db, matchId)
+          const existingLobby = directLobby?.matchId ? directLobby : await getSessionLobbyProjectionByMatch(db, matchId)
           const result = await cancelMatchByModerator(db, kv, {
             matchId,
             cancelledAt: Date.now(),
@@ -138,7 +137,7 @@ export const command_mod = factory.command<ModVar>(
               const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
                 embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation, existingLobby.draftConfig.leaderDataVersion, existingLobby.draftConfig.redDeath)],
                 components: [],
-              })
+              }, { db, sessionNamespace: c.env.SessionDO })
               await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
             }
             catch (error) {
@@ -320,7 +319,7 @@ export const command_mod = factory.command<ModVar>(
                       rankedRoleLines,
                     }, existingLobby.draftConfig.redDeath)],
                     components: [],
-                  })
+                  }, { db, sessionNamespace: c.env.SessionDO })
                   await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
                 }
                 catch (error) {

@@ -8,8 +8,8 @@ import { upsertLobbyMessage } from './message.ts'
 import { setLobbyRoster, setLobbyStatus } from './mutations.ts'
 import { buildOpenLobbyRenderPayload } from './render.ts'
 import { releaseSessionDirectoryMembers, restoreSessionDirectoryMembers } from '../session/directory.ts'
+import { getSessionLobbyProjectionByMatch } from '../session/lobby-projection.ts'
 import { filterQueueEntriesForLobby, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots } from './slots.ts'
-import { clearLobbyById, getLobbyById } from './store.ts'
 
 export interface DeferredOpenLobbyTransferSource {
   lobby: LobbyState
@@ -89,14 +89,13 @@ export async function leaveOpenLobbyForLobbyJoin(
             currentLobby.draftConfig.redDeath,
           )],
           components: [],
-        })
+        }, options)
       }
       catch (error) {
         console.error(`Failed to update cancelled transfer source lobby ${currentLobby.id}:`, error)
       }
     }
 
-    await clearLobbyById(kv, currentLobby.id, cancelledLobby)
     return {
       ok: true,
       transferredFrom: {
@@ -140,7 +139,7 @@ export async function leaveOpenLobbyForLobbyJoin(
       await upsertLobbyMessage(kv, token, updatedLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
-      })
+      }, options)
     }
     catch (error) {
       console.error(`Failed to update transfer source lobby ${currentLobby.id}:`, error)
@@ -179,14 +178,13 @@ export async function finalizeDeferredOpenLobbyTransferSource(
             source.lobby.draftConfig.redDeath,
           )],
           components: [],
-        })
+        }, options)
       }
       catch (error) {
         console.error(`Failed to update cancelled transfer source lobby ${source.lobby.id}:`, error)
       }
     }
 
-    await clearLobbyById(kv, source.lobby.id, cancelledLobby)
     return { ok: true }
   }
   catch (error) {
@@ -217,8 +215,8 @@ export async function rollbackDeferredOpenLobbyTransferTarget(
   const errors: string[] = []
   let targetRolledBack = false
   try {
-    const currentTarget = await getLobbyById(kv, target.lobby.id)
-    if (!currentTarget || currentTarget.status !== 'open') {
+    const currentTarget = options?.db ? await getSessionLobbyProjectionByMatch(options.db, target.lobby.id) ?? target.lobby : target.lobby
+    if (currentTarget.status !== 'open') {
       errors.push('target lobby is no longer open')
     }
     else {

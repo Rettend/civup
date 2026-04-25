@@ -6,7 +6,7 @@ import { competitiveTierRank, LEADERBOARD_MODES } from '@civup/game'
 import { displayRating, getLeaderboardMinGames, RANKED_ROLE_MIN_GAMES } from '@civup/rating'
 import { and, eq, gt, inArray } from 'drizzle-orm'
 import { addGuildMemberRole, DiscordApiError, removeGuildMemberRole } from '../discord/index.ts'
-import { ensureLeaderboardModeSnapshots } from '../leaderboard/snapshot.ts'
+import { getLeaderboardModeSnapshotsForPreview } from '../leaderboard/snapshot.ts'
 import { getActiveSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks } from '../season/index.ts'
 import {
   createRankedRoleTierId,
@@ -593,7 +593,7 @@ async function buildRankedRolePreviewState({
   rankedMinGames = RANKED_ROLE_MIN_GAMES,
 }: RankedRoleSyncOptions): Promise<RankedRolePreviewState> {
   const [leaderboardSnapshots, previousAssignments, previousCandidates, config, seedOverrides] = await Promise.all([
-    ensureLeaderboardModeSnapshots(db, kv),
+    getLeaderboardModeSnapshotsForPreview(db, kv),
     getCurrentRankAssignments(kv, guildId),
     getRankedRoleDemotionCandidates(kv, guildId),
     getRankedRoleConfig(kv, guildId),

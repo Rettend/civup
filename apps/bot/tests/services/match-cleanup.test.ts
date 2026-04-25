@@ -45,7 +45,7 @@ describe('match cleanup reconciliation', () => {
 
       expect(result.removedMatchIds).toEqual([])
       expect(result.clearedLiveLobbyMatchIds).toEqual([matchId])
-      expect(await getLobbyById(kv, activeLobby!.id)).toBeNull()
+      expect((await getLobbyById(kv, activeLobby!.id))?.status).toBe('completed')
       expect(await kv.get('lobby:host:host')).toBeNull()
       expect(await getChannelForMatch(db, matchId)).toBeNull()
     }

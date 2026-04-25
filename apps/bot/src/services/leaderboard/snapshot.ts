@@ -111,16 +111,49 @@ export async function getStoredLeaderboardModeSnapshots(
   return snapshots
 }
 
+export async function getLeaderboardModeSnapshotsForPreview(
+  db: Database,
+  kv: KVNamespace,
+  modes: readonly LeaderboardMode[] = LEADERBOARD_MODES,
+): Promise<Map<LeaderboardMode, LeaderboardModeSnapshot>> {
+  const requestedModes = [...new Set(modes.filter(isLeaderboardMode))]
+  const snapshots = await getStoredLeaderboardModeSnapshots(kv, requestedModes)
+  const missingModes = requestedModes.filter(mode => !snapshots.has(mode))
+  if (missingModes.length === 0) return snapshots
+
+  const rebuilt = await buildLeaderboardModeSnapshotsFromD1(db, missingModes)
+  for (const [mode, snapshot] of rebuilt) snapshots.set(mode, snapshot)
+  return snapshots
+}
+
 export async function rebuildLeaderboardModeSnapshot(
   db: Database,
   kv: KVNamespace,
   mode: LeaderboardMode,
   updatedAt = Date.now(),
 ): Promise<LeaderboardModeSnapshot> {
-  const rows = await listLeaderboardModeRowsFromD1(db, mode)
-  const snapshot = buildLeaderboardModeSnapshot(mode, rows, updatedAt)
+  const snapshot = await buildLeaderboardModeSnapshotFromD1(db, mode, updatedAt)
   await setLeaderboardModeSnapshots(kv, [snapshot])
   return snapshot
+}
+
+export async function buildLeaderboardModeSnapshotFromD1(
+  db: Database,
+  mode: LeaderboardMode,
+  updatedAt = Date.now(),
+): Promise<LeaderboardModeSnapshot> {
+  const rows = await listLeaderboardModeRowsFromD1(db, mode)
+  return buildLeaderboardModeSnapshot(mode, rows, updatedAt)
+}
+
+export async function buildLeaderboardModeSnapshotsFromD1(
+  db: Database,
+  modes: readonly LeaderboardMode[] = LEADERBOARD_MODES,
+  updatedAt = Date.now(),
+): Promise<Map<LeaderboardMode, LeaderboardModeSnapshot>> {
+  const requestedModes = [...new Set(modes.filter(isLeaderboardMode))]
+  const rowsByMode = await listLeaderboardModeRowsFromD1ByModes(db, requestedModes)
+  return new Map(requestedModes.map(mode => [mode, buildLeaderboardModeSnapshot(mode, rowsByMode.get(mode) ?? [], updatedAt)]))
 }
 
 export async function clearLeaderboardModeSnapshot(kv: KVNamespace, mode: LeaderboardMode): Promise<void> {

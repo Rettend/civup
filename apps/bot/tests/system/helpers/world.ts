@@ -315,8 +315,9 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       get(mode) {
         return getLobby(kv, mode)
       },
-      getById(lobbyId) {
-        return getLobbyById(kv, lobbyId)
+      async getById(lobbyId) {
+        const lobby = await getLobbyById(kv, lobbyId)
+        return isLiveLobbyProjection(lobby) ? lobby : null
       },
       config(mode, input) {
         return requestJsonAs(`/api/lobby/${mode}/config`, {

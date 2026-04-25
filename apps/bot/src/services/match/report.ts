@@ -7,7 +7,7 @@ import { isTeamMode } from '@civup/game'
 import { calculateRatings, createRating } from '@civup/rating'
 import { and, eq, gt } from 'drizzle-orm'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
-import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
+import { buildLeaderboardModeSnapshotFromD1, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
 import { getCompletedAtFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
@@ -207,7 +207,7 @@ async function finalizeReportedMatch(
   const sessionValidationError = await validateReportableSession(options, matchId)
   if (sessionValidationError) return { error: sessionValidationError }
 
-  const leaderboardSnapshotBefore = await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode)
+  const leaderboardSnapshotBefore = await buildLeaderboardModeSnapshotFromD1(db, leaderboardMode)
   const beforeRankByPlayer = buildRankByPlayer(leaderboardSnapshotBefore.rows, leaderboardMode)
   const usesLiveSeedFade = await modeUsesLiveSeedFade(db, leaderboardMode)
 
@@ -288,10 +288,7 @@ async function finalizeReportedMatch(
     .where(eq(matches.id, matchId))
     .limit(1)
 
-  const leaderboardSnapshotAfter = await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode, now)
-  if (leaderboardMode === 'duo' || leaderboardMode === 'squad') {
-    await clearTeamLeaderboardModeSnapshots(kv, leaderboardMode)
-  }
+  const leaderboardSnapshotAfter = await buildLeaderboardModeSnapshotFromD1(db, leaderboardMode, now)
   const afterRankByPlayer = buildRankByPlayer(leaderboardSnapshotAfter.rows, leaderboardMode)
   const leaderboardEligibleCount = afterRankByPlayer.size
 
