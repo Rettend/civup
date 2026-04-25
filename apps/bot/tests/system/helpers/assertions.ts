@@ -3,8 +3,7 @@ import type { LobbyState } from '../../../src/services/lobby/index.ts'
 import type { SystemWorld } from './world.ts'
 import { matches } from '@civup/db'
 import { expect } from 'bun:test'
-import { channelIndexKey, hostKey, modeIndexKey } from '../../../src/services/lobby/keys.ts'
-import { getLobbiesByMode } from '../../../src/services/lobby/store.ts'
+import { getLiveSessionLobbyProjections } from '../../../src/services/session/index.ts'
 
 const SUPPORTED_GAME_MODES = ['1v1', '2v2', '3v3', '4v4', 'ffa'] as const satisfies readonly GameMode[]
 
@@ -13,9 +12,8 @@ export async function expectQueuePlayers(
   mode: GameMode,
   playerIds: string[],
 ): Promise<void> {
-  const openLobbyPlayerIds = (await getLobbiesByMode(world.kv, mode))
-    .filter(lobby => lobby.status === 'open')
-    .flatMap(lobby => lobby.memberPlayerIds)
+  const lobby = await world.lobby.get(mode)
+  const openLobbyPlayerIds = lobby?.status === 'open' ? lobby.memberPlayerIds : []
   expect(openLobbyPlayerIds).toEqual(playerIds)
 }
 
@@ -122,24 +120,17 @@ export async function assertSystemWorldInvariants(
   const modes = options.modes ?? SUPPORTED_GAME_MODES
 
   for (const mode of modes) {
-    const lobbies = await getLobbiesByMode(world.kv, mode)
+    const lobbies = await getLiveSessionLobbyProjections(world.db, { mode })
 
     for (const lobby of lobbies) {
-      const projection = options.checkProjectionIndexes === true
-        ? {
-            modeIndexed: await world.kv.get(modeIndexKey(lobby.mode, lobby.id)) != null,
-            channelIndexed: await world.kv.get(channelIndexKey(lobby.channelId, lobby.id)) != null,
-            hostLobbyId: await world.kv.get(hostKey(lobby.hostId)),
-          }
-        : undefined
+      const projection = options.checkProjectionIndexes === true ? await world.inspect.lobbyByMatch(lobby.matchId ?? lobby.id) : undefined
 
       expect(new Set(lobby.memberPlayerIds).size).toBe(lobby.memberPlayerIds.length)
       expect(lobby.slots.filter((slot): slot is string => slot != null).every(playerId => lobby.memberPlayerIds.includes(playerId))).toBe(true)
 
-      if (projection) {
-        expect(projection.modeIndexed).toBe(true)
-        expect(projection.channelIndexed).toBe(true)
-        expect(projection.hostLobbyId).toBe(lobby.id)
+      if (options.checkProjectionIndexes === true) {
+        expect(projection).not.toBeNull()
+        expect(projection?.id).toBe(lobby.id)
       }
 
       if (lobby.status !== 'open') continue

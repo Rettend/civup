@@ -299,7 +299,7 @@ describe('match reporter identity', () => {
       if ('error' in result) return
 
       expect(await getLobbyById(kv, lobby.id)).not.toBeNull()
-      expect(await kv.get('lobby:host:p1')).toBe(lobby.id)
+      expect(await kv.get('lobby:host:p1')).toBeNull()
     }
     finally {
       sqlite.close()

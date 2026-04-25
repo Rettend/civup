@@ -7,7 +7,6 @@ import { upsertLobbyMessage } from './message.ts'
 import { setLobbyStatus } from './mutations.ts'
 import { filterQueueEntriesForLobby, normalizeLobbySlots } from './slots.ts'
 import { getOpenSessionLobbyProjectionsByMode } from '../session/index.ts'
-import { clearLobbyById } from './store.ts'
 
 export const LOBBY_TIMEOUT_MESSAGE = 'This lobby timed out due to inactivity.'
 export const LOBBY_INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000 // 1 hour
@@ -67,14 +66,12 @@ async function expireOpenLobby(
       await upsertLobbyMessage(kv, token, cancelledLobby, {
         embeds: [lobbyTimeoutEmbed(lobby.mode, buildInactiveLobbyParticipants(lobby.mode, slots), undefined, lobby.draftConfig.redDeath)],
         components: [],
-      })
+      }, options)
     }
     catch (error) {
       console.error(`Failed to update inactivity-cancelled lobby embed for lobby ${lobby.id}:`, error)
     }
   }
-
-  await clearLobbyById(kv, lobby.id, cancelledLobby)
 
   return {
     lobbyId: lobby.id,
