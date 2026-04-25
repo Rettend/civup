@@ -11,7 +11,8 @@ export type Connection<TState = unknown> = WebSocket & {
 }
 
 export class SessionSocketServer<Env extends Cloudflare.Env = Cloudflare.Env> {
-  static options: { hibernate?: boolean } = {}
+  // Selected-session sockets keep per-connection state in memory, so this runtime is intentionally non-hibernating.
+  static options: { hibernate?: boolean } = { hibernate: false }
 
   private readonly connections = new Set<Connection>()
 
@@ -22,6 +23,7 @@ export class SessionSocketServer<Env extends Cloudflare.Env = Cloudflare.Env> {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
+    // PartySocket probes this endpoint; selected-session routing itself is bot-owned.
     if (url.pathname === '/cdn-cgi/partyserver/set-name/') return Response.json({ ok: true })
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return await this.onRequest(request)
 

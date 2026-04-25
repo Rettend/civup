@@ -71,10 +71,7 @@ async function routeSessionPartyRequest(request: Request, env: Env['Bindings']):
   if (!sessionId) return new Response('Missing session id', { status: 400 })
 
   const stub = env.SessionDO.get(env.SessionDO.idFromName(sessionId))
-  const forwarded = new Request(request)
-  forwarded.headers.set('x-partykit-room', sessionId)
-  forwarded.headers.set('x-partykit-namespace', 'session')
-  return await stub.fetch(forwarded)
+  return await stub.fetch(request)
 }
 
 async function rejectDisallowedDiscordGuildInteraction(request: Request, env: Env['Bindings']): Promise<Response | null> {
