@@ -338,8 +338,8 @@ async function ensureStartableLobby(
     const emptyIndex = next.slots.findIndex(slot => slot == null)
     if (emptyIndex === -1) break
 
-    let fillerId = `test-player-${fillerIndex++}`
-    while (next.memberPlayerIds.includes(fillerId)) fillerId = `test-player-${fillerIndex++}`
+    let fillerId = `test-player-${next.id}-${fillerIndex++}`
+    while (next.memberPlayerIds.includes(fillerId)) fillerId = `test-player-${next.id}-${fillerIndex++}`
 
     const queueEntries = [
       ...(options.queueEntries ?? []),

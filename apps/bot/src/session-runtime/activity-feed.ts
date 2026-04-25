@@ -76,7 +76,7 @@ export class Activity extends Server<ActivityFeedEnv> {
       return
     }
 
-    const overview = await this.getOverviewSnapshot(channelId)
+    const overview = await this.rebuildOverviewSnapshot(channelId)
     this.send(connection, { type: 'overview', snapshot: overview })
   }
 
@@ -95,8 +95,11 @@ export class Activity extends Server<ActivityFeedEnv> {
   private async getOverviewSnapshot(channelId: string): Promise<ActivityOverviewSnapshot | null> {
     const cached = await this.ctx.storage.get<ActivityOverviewSnapshot | null>(ACTIVITY_OVERVIEW_STORAGE_KEY)
     if (cached === null || cached?.channelId === channelId) return cached ?? null
-    if (!this.env.DB) return null
+    return await this.rebuildOverviewSnapshot(channelId)
+  }
 
+  private async rebuildOverviewSnapshot(channelId: string): Promise<ActivityOverviewSnapshot | null> {
+    if (!this.env.DB) return null
     const overview = await buildActivityOverviewSnapshotFromDirectory(createDb(this.env.DB), channelId)
     await this.ctx.storage.put(ACTIVITY_OVERVIEW_STORAGE_KEY, overview)
     return overview

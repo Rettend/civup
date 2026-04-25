@@ -368,9 +368,8 @@ export async function resolveLobbyJoinEligibility(
     ? await getCurrentLobbyProjectionsForJoin(options.db, userId, lobby.id)
     : []
   const blockingDraftMatchIds = await findPersistedBlockingDraftMatchIdsForPlayers(options?.db, [userId])
-  const hasLiveMatch = blockingDraftMatchIds == null
-    ? otherCurrentLobbies.some(candidate => candidate.status !== 'open')
-    : blockingDraftMatchIds.has(userId)
+  const hasLiveMatch = otherCurrentLobbies.some(candidate => candidate.status !== 'open')
+    || blockingDraftMatchIds?.has(userId) === true
   if (hasLiveMatch) {
     return {
       canJoin: false,

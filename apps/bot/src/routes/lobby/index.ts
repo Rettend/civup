@@ -105,6 +105,10 @@ async function restoreOpenLobbyTransferSource(
   }
 }
 
+function isSessionVersionStaleError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('Session version is stale')
+}
+
 function isWritableD1Binding(db: D1Database | undefined): db is D1Database {
   if (!db || typeof db.prepare !== 'function') return false
   try {
@@ -709,9 +713,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         excludeLobbyIds: [lobby.id],
       })
       const blockingDraftMatchIds = await findPersistedBlockingDraftMatchIdsForPlayers(c.env.DB, [movingPlayerId])
-      const hasLiveMatch = blockingDraftMatchIds == null
-        ? currentLobbiesForPlayer.some(candidate => candidate.status !== 'open')
-        : blockingDraftMatchIds.has(movingPlayerId)
+      const hasLiveMatch = currentLobbiesForPlayer.some(candidate => candidate.status !== 'open')
+        || blockingDraftMatchIds?.has(movingPlayerId) === true
       if (hasLiveMatch) {
         return c.json({ error: 'That player is already in a live match.' }, 400)
       }
@@ -816,6 +819,19 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         }, lobby, lobbySessionMutationOptions(c, rosterPatchEntries)) ?? lobby
       }
       catch (error) {
+        if (isSessionVersionStaleError(error) && !transferSource && !deferredTransferSource) {
+          const currentRecord = await getSessionRecord(c.env.SessionDO, lobby.id).catch(() => null)
+          if (currentRecord?.phase === 'open') {
+            const currentLobby = buildLobbyStateFromSessionRecord(currentRecord, lobby)
+            const currentEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, currentLobby, [...lobbyQueueEntries, ...rosterPatchEntries])
+            const currentSlots = normalizeLobbySlots(mode, currentLobby.slots, currentEntries)
+            if (currentLobby.memberPlayerIds.includes(movingPlayerId) && currentSlots[targetSlot] === movingPlayerId) {
+              const snapshot = await buildOpenLobbySnapshotFromParts(kv, mode, currentLobby, currentEntries, currentSlots)
+              return c.json({ lobby: snapshot, transferNotice })
+            }
+          }
+          return c.json({ error: 'Lobby changed; please retry.' }, 409)
+        }
         if (deferredTransferSource) {
           const restoredAdmission = await restoreDeferredOpenLobbyTransferSourceAdmission(deferredTransferSource, lobbySessionMutationOptions(c, deferredTransferSource.queueEntries))
           if (!restoredAdmission.ok) return c.json({ error: restoredAdmission.error }, 409)
@@ -825,6 +841,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
           if (!restored.ok) return c.json({ error: restored.error }, 409)
         }
         if (isSessionAdmissionError(error)) return c.json({ error: formatSessionAdmissionError(error) }, 409)
+        if (isSessionVersionStaleError(error)) return c.json({ error: 'Lobby changed; please retry.' }, 409)
         throw error
       }
     }

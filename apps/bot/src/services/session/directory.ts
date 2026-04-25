@@ -275,7 +275,7 @@ async function runDirectoryProjectionTransaction<T>(db: Database, operation: (tx
 }
 
 function isLiveSessionPhase(phase: SessionPhase): boolean {
-  return phase === 'open' || phase === 'draft' || phase === 'swap'
+  return phase === 'open' || phase === 'draft' || phase === 'swap' || phase === 'active'
 }
 
 async function reconcileDirectoryMembers(

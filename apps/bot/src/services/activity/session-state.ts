@@ -133,7 +133,7 @@ export async function getOpenActivitySessionsForUser(
     .where(and(
       eq(sessionDirectoryMembers.playerId, playerId),
       isNull(sessionDirectoryMembers.leftAt),
-      inArray(sessionDirectory.phase, ['open', 'draft', 'swap']),
+      inArray(sessionDirectory.phase, ['open', 'draft', 'swap', 'active']),
     ))
     .orderBy(desc(sessionDirectory.updatedAt))
 

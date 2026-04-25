@@ -204,7 +204,7 @@ describe('lobby routes', () => {
     expect((await getLobbyById(kv, openLobby.id))?.memberPlayerIds).toEqual(['host'])
   })
 
-  test('direct lobby joins allow players from draft-complete active lobbies', async () => {
+  test('direct lobby joins block players from draft-complete active lobbies', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
@@ -257,8 +257,9 @@ describe('lobby routes', () => {
       }),
     }, buildEnv(kv))
 
-    expect(joinResponse.status).toBe(200)
-    expect((await getLobbyById(kv, openLobby.id))?.memberPlayerIds).toEqual(['host', 'player-1'])
+    expect(joinResponse.status).toBe(400)
+    await expect(joinResponse.json()).resolves.toEqual({ error: 'That player is already in a live match.' })
+    expect((await getLobbyById(kv, openLobby.id))?.memberPlayerIds).toEqual(['host'])
   })
 
   test('direct lobby joins move a player from another open lobby', async () => {
