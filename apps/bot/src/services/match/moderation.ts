@@ -58,15 +58,6 @@ export async function resolveMatchByModerator(
 
   const sessionValidationError = await validateReportableSession(options, input.matchId)
   if (sessionValidationError) return { error: sessionValidationError }
-  if (await isSessionAlreadyReported(options, input.matchId)) {
-    const lifecycleError = await runTerminalSessionCommand(db, options, input.matchId, { type: 'mark-reported', at: input.resolvedAt })
-    if (lifecycleError) return { error: lifecycleError }
-
-    const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
-    if (!updatedMatch) return { error: `Match **${input.matchId}** not found after resolving.` }
-    const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
-    return { match: updatedMatch, participants: updatedParticipants, previousStatus, recalculatedMatchIds: [] }
-  }
 
   const parsedPlacements = parseModerationPlacements(gameContext.mode, input.placements, participants)
   if ('error' in parsedPlacements) return parsedPlacements
@@ -341,16 +332,6 @@ async function validateReportableSession(
   }
   catch (error) {
     return error instanceof Error ? error.message : String(error)
-  }
-}
-
-async function isSessionAlreadyReported(options: MatchSessionLifecycleOptions, matchId: string): Promise<boolean> {
-  if (!options.sessionNamespace) return false
-  try {
-    return (await getSessionRecord(options.sessionNamespace, matchId))?.phase === 'reported'
-  }
-  catch {
-    return false
   }
 }
 

@@ -11,7 +11,7 @@ import { SESSION_DIRECTORY_OPEN_STALE_MS } from './directory.ts'
 type SessionDirectoryRow = typeof sessionDirectory.$inferSelect
 
 const LIVE_PROJECTION_PHASES = ['open', 'draft', 'swap', 'active'] as const
-const LIVE_MEMBERSHIP_PHASES = ['open', 'draft', 'swap', 'active'] as const
+const LIVE_MEMBERSHIP_PHASES = ['open', 'draft', 'swap'] as const
 
 export async function getLiveSessionLobbyProjections(
   db: Database,

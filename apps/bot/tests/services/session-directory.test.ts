@@ -4,7 +4,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 import type { SessionRecord } from '../../src/session-runtime/session-record.ts'
 import { createLobby, setLobbyStatus } from '../helpers/lobby-runtime.ts'
 import { isSessionAdmissionError } from '../../src/services/session/index.ts'
-import { projectSessionRecord, SESSION_DIRECTORY_OPEN_STALE_MS } from '../../src/services/session/directory.ts'
+import { projectSessionRecord } from '../../src/services/session/directory.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('session directory admission', () => {
@@ -136,7 +136,7 @@ describe('session directory admission', () => {
     }
   })
 
-  test('keeps active admission live while keeping the active projection visible', async () => {
+  test('releases active admission while keeping the active projection visible', async () => {
     const { db, sqlite } = await createTestDatabase()
 
     try {
@@ -145,15 +145,11 @@ describe('session directory admission', () => {
 
       const [activeRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, 'first')).limit(1)
       expect(activeRow).toMatchObject({ sessionId: 'first', phase: 'active', closedAt: null })
-      expect((await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).map(row => row.sessionId)).toEqual(['first'])
+      expect((await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).map(row => row.sessionId)).toEqual([])
 
-      try {
-        await projectSessionRecord(db, buildSessionRecord({ id: 'second', playerIds: ['host-1'] }))
-        throw new Error('Expected active live admission to block a second session')
-      }
-      catch (error) {
-        expect(isSessionAdmissionError(error)).toBe(true)
-      }
+      await projectSessionRecord(db, buildSessionRecord({ id: 'second', playerIds: ['host-1'] }))
+
+      expect((await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).map(row => row.sessionId)).toEqual(['second'])
     }
     finally {
       sqlite.close()
@@ -170,7 +166,7 @@ describe('session directory admission', () => {
       await projectSessionRecord(db, buildSessionRecord({ id: 'first', version: 1, playerIds: ['host-1'] }))
 
       const liveMembers = await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))
-      expect(liveMembers.map(row => row.sessionId)).toEqual(['first'])
+      expect(liveMembers.map(row => row.sessionId)).toEqual([])
       const [firstRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, 'first')).limit(1)
       expect(firstRow).toMatchObject({ phase: 'active', version: 2 })
     }
@@ -179,21 +175,28 @@ describe('session directory admission', () => {
     }
   })
 
-  test('releases stale open admission conflicts during new projections', async () => {
+  test('does not repair stale open admission conflicts during new projections', async () => {
     const { db, sqlite } = await createTestDatabase()
 
     try {
       await projectSessionRecord(db, buildSessionRecord({ id: 'stale-open', playerIds: ['host-1'], updatedAt: 1 }))
-      await projectSessionRecord(db, buildSessionRecord({ id: 'fresh-open', playerIds: ['host-1'], updatedAt: SESSION_DIRECTORY_OPEN_STALE_MS + 2 }))
+
+      try {
+        await projectSessionRecord(db, buildSessionRecord({ id: 'fresh-open', playerIds: ['host-1'], updatedAt: 10_000 }))
+        throw new Error('Expected stale open admission to require explicit repair')
+      }
+      catch (error) {
+        expect(isSessionAdmissionError(error)).toBe(true)
+      }
 
       const liveMembers = await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))
-      expect(liveMembers.map(row => row.sessionId)).toEqual(['fresh-open'])
+      expect(liveMembers.map(row => row.sessionId)).toEqual(['stale-open'])
 
       const [staleMember] = await db.select().from(sessionDirectoryMembers).where(and(
         eq(sessionDirectoryMembers.sessionId, 'stale-open'),
         eq(sessionDirectoryMembers.playerId, 'host-1'),
       )).limit(1)
-      expect(staleMember?.leftAt).toBe(SESSION_DIRECTORY_OPEN_STALE_MS + 2)
+      expect(staleMember?.leftAt).toBeNull()
     }
     finally {
       sqlite.close()
