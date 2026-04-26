@@ -369,6 +369,63 @@ describe('match moderation recalculation', () => {
     }
   })
 
+  test('resolve corrects results when SessionDO is already reported', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await db.insert(players).values([
+        { id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 },
+        { id: 'p2', displayName: 'P2', avatarUrl: null, createdAt: 1 },
+      ])
+      const lobby = await createLobby(kv, {
+        mode: '1v1',
+        hostId: 'p1',
+        channelId: 'channel-1',
+        messageId: 'message-1',
+        db,
+        queueEntries: [{ playerId: 'p1', displayName: 'P1', avatarUrl: null, joinedAt: 1 }],
+      })
+      const runtime = await getTestLobbyRuntime(kv, db)
+      const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['p1', 'p2'], lobby, {
+        db,
+        sessionNamespace: runtime.sessionNamespace,
+        queueEntries: [
+          { playerId: 'p1', displayName: 'P1', avatarUrl: null, joinedAt: 1 },
+          { playerId: 'p2', displayName: 'P2', avatarUrl: null, joinedAt: 1 },
+        ],
+      })
+      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, { db, sessionNamespace: runtime.sessionNamespace })
+      await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: 2 })
+      await db.update(matches).set({ status: 'active', draftData: JSON.stringify({ completedAt: 2 }) }).where(eq(matches.id, lobby.id))
+      await runSessionTerminalLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'mark-reported', matchId: lobby.id, at: 3 })
+
+      const result = await resolveMatchByModerator(db, kv, {
+        matchId: lobby.id,
+        placements: '<@p2>',
+        resolvedAt: 4,
+      }, {
+        sessionNamespace: runtime.sessionNamespace,
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.recalculatedMatchIds).toEqual([lobby.id])
+      expect((await getSessionRecord(runtime.sessionNamespace, lobby.id))?.phase).toBe('reported')
+      expect(result.match.status).toBe('completed')
+
+      const p1 = result.participants.find(participant => participant.playerId === 'p1')
+      const p2 = result.participants.find(participant => participant.playerId === 'p2')
+      expect(p1?.placement).toBe(2)
+      expect(p2?.placement).toBe(1)
+      expect(p1?.ratingBeforeMu).not.toBeNull()
+      expect(p2?.ratingAfterMu).not.toBeNull()
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('resolve terminal failure rolls back D1 when SessionDO remains active', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
