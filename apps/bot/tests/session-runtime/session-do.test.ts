@@ -138,6 +138,11 @@ describe('SessionDO open session commands', () => {
   test('terminal lifecycle commands report and cancel through the session aggregate', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
+    const originalConsoleWarn = console.warn
+    const warnings: unknown[][] = []
+    console.warn = ((...args: unknown[]) => {
+      warnings.push(args)
+    }) as typeof console.warn
     const room = new SessionDO(createFakeDurableObjectState(), {
       DB: createSqliteD1Database(sqlite),
       KV: kv,
@@ -167,6 +172,20 @@ describe('SessionDO open session commands', () => {
       const repeated = await sessionLifecycleCommand(room, { type: 'mark-reported', matchId: openLobby.id, at: 41 })
       expect(repeated.record).toMatchObject({ phase: 'reported', version: 4, closedAt: 40 })
 
+      const staleFinalized = await room.fetch(sessionRequest('/commands/draft-lifecycle-sync', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...buildCompletePayload(openLobby.id, [{ playerId: 'p1', displayName: 'Player One' }, { playerId: 'p2', displayName: 'Player Two' }] as DraftSeat[]),
+          eventId: `${openLobby.id}:lifecycle:2`,
+          eventKind: 'DraftFinalized',
+          eventSequence: 2,
+          finalized: true,
+        }),
+      }))
+      expect(staleFinalized.status).toBe(200)
+      expect(await staleFinalized.json()).toMatchObject({ ok: true, ignored: true })
+      expect(warnings.flat().some(value => typeof value === 'string' && value.includes('ignoring stale draft completion'))).toBe(false)
+
       const cancelled = await room.fetch(sessionRequest('/commands/session-lifecycle', {
         method: 'POST',
         body: JSON.stringify({ type: 'cancel-session', matchId: openLobby.id, at: 50 }),
@@ -178,6 +197,7 @@ describe('SessionDO open session commands', () => {
       expect(terminalDirectoryRow).toMatchObject({ phase: 'reported', closedAt: 40 })
     }
     finally {
+      console.warn = originalConsoleWarn
       sqlite.close()
     }
   })

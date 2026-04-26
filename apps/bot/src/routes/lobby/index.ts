@@ -138,7 +138,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const mode = parseGameMode(c.req.param('mode'))
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
     if (!isDebugLobbyFillEnabled(c.req.url, c.env.BOT_HOST, c.env.ENABLE_DEBUG_LOBBY_FILL)) return c.json({ error: 'Not found' }, 404)
-    return c.body(null, 204)
+    return new Response(null, { status: 204 })
   })
 
   app.get('/api/lobby-ranks/:mode/:lobbyId', async (c) => {

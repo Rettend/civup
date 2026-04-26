@@ -15,6 +15,8 @@ export async function publishActivitySessionUpdate(
   const channelId = record.projectionState.channelId
   const stub = namespace.get(namespace.idFromName(channelId))
   const headers = new Headers({ 'Content-Type': 'application/json' })
+  headers.set('x-partykit-room', channelId)
+  headers.set('x-partykit-namespace', 'activity')
   const secret = internalSecret?.trim() ?? ''
   if (secret.length > 0) headers.set(CIVUP_INTERNAL_SECRET_HEADER, secret)
 

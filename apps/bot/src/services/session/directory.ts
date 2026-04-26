@@ -264,13 +264,6 @@ async function runDirectoryProjectionTransaction<T>(db: Database, operation: (tx
       throw error
     }
   }
-
-  const transactional = db as Database & {
-    transaction?: (operation: (tx: Database) => Promise<T>) => Promise<T>
-  }
-  if (typeof transactional.transaction === 'function') {
-    return await transactional.transaction(async tx => await operation(tx as unknown as Database, true))
-  }
   return await operation(db, false)
 }
 

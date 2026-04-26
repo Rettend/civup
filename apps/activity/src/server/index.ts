@@ -138,13 +138,14 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
       response = await fetch(buildProxyRequest(targetUrl, request, env, session))
     }
 
-    const body = await response.text()
+    const nullBody = isNullBodyStatus(response.status)
+    const body = nullBody ? null : await response.text()
     if (!response.ok) {
       if (shouldWarnForMatchProxy(request.method, url.pathname, response.status)) {
         console.warn('[activity] Match proxy upstream non-OK', {
           targetUrl,
           status: response.status,
-          bodyPreview: body.slice(0, 200),
+          bodyPreview: body?.slice(0, 200) ?? '',
         })
       }
     }
@@ -161,6 +162,10 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
     console.error('Match lookup proxy error:', { targetUrl, err })
     return json({ error: 'Match lookup proxy failed' }, 502)
   }
+}
+
+function isNullBodyStatus(status: number): boolean {
+  return status === 204 || status === 205 || status === 304
 }
 
 function shouldUseBotServiceBinding(request: Request, env: Env): boolean {
