@@ -1,5 +1,5 @@
 import type { Database } from '@civup/db'
-import { matches, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
+import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { type SessionPhase, type SessionRecord } from '../../session-runtime/session-record.ts'
 
@@ -86,12 +86,12 @@ async function projectSessionRecordTransaction(
     ? await readDirectoryProjectionSnapshot(db, record.id, currentDirectory ?? null)
     : null
 
-  const liveMemberIds = isLiveSessionPhase(record.phase)
+  const liveMemberIds = isLiveMembershipPhase(record.phase)
     ? record.roster.participants.map(member => member.playerId)
     : []
   const now = record.closedAt ?? Math.max(record.updatedAt, record.lastActivityAt, 1)
   try {
-    await assertNoLiveMembershipConflicts(db, record.id, liveMemberIds, now)
+    await assertNoLiveMembershipConflicts(db, record.id, liveMemberIds)
 
     const appliedRows = await db.insert(sessionDirectory)
       .values({
@@ -110,7 +110,7 @@ async function projectSessionRecordTransaction(
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
         lastActivityAt: record.lastActivityAt,
-        closedAt: isLiveSessionPhase(record.phase) ? null : now,
+        closedAt: isCurrentSessionPhase(record.phase) ? null : now,
       })
       .onConflictDoUpdate({
         target: sessionDirectory.sessionId,
@@ -128,7 +128,7 @@ async function projectSessionRecordTransaction(
           configJson: JSON.stringify(record.config),
           updatedAt: record.updatedAt,
           lastActivityAt: record.lastActivityAt,
-          closedAt: isLiveSessionPhase(record.phase) ? null : now,
+          closedAt: isCurrentSessionPhase(record.phase) ? null : now,
         },
         where: sql`excluded.version > ${sessionDirectory.version}`,
       })
@@ -194,7 +194,6 @@ async function assertNoLiveMembershipConflicts(
   db: Database,
   sessionId: string,
   liveMemberIds: readonly string[],
-  now: number,
 ): Promise<void> {
   const uniqueLiveMemberIds = [...new Set(liveMemberIds)]
   if (uniqueLiveMemberIds.length === 0) return
@@ -202,13 +201,8 @@ async function assertNoLiveMembershipConflicts(
   const conflicts = await db.select({
     playerId: sessionDirectoryMembers.playerId,
     sessionId: sessionDirectoryMembers.sessionId,
-    phase: sessionDirectory.phase,
-    matchId: sessionDirectory.matchId,
-    updatedAt: sessionDirectory.updatedAt,
-    lastActivityAt: sessionDirectory.lastActivityAt,
   })
     .from(sessionDirectoryMembers)
-    .innerJoin(sessionDirectory, eq(sessionDirectoryMembers.sessionId, sessionDirectory.sessionId))
     .where(and(
       inArray(sessionDirectoryMembers.playerId, uniqueLiveMemberIds),
       isNull(sessionDirectoryMembers.leftAt),
@@ -217,34 +211,7 @@ async function assertNoLiveMembershipConflicts(
   const externalConflicts = conflicts.filter(row => row.sessionId !== sessionId)
   if (externalConflicts.length === 0) return
 
-  const matchIds = [...new Set(externalConflicts.flatMap(row => row.matchId ? [row.matchId] : []))]
-  const matchStatuses = matchIds.length > 0
-    ? await db.select({ id: matches.id, status: matches.status }).from(matches).where(inArray(matches.id, matchIds))
-    : []
-  const statusByMatchId = new Map(matchStatuses.map(row => [row.id, row.status]))
-  const activeConflicts: typeof externalConflicts = []
-
-  for (const conflict of externalConflicts) {
-    const matchStatus = conflict.matchId ? statusByMatchId.get(conflict.matchId) : null
-    const staleTerminalResidue = conflict.phase !== 'open' && (matchStatus === 'completed' || matchStatus === 'cancelled')
-    const lastSeenAt = Math.max(conflict.updatedAt, conflict.lastActivityAt)
-    const staleOpenResidue = conflict.phase === 'open' && now - lastSeenAt >= SESSION_DIRECTORY_OPEN_STALE_MS
-    if (!staleTerminalResidue && !staleOpenResidue) {
-      activeConflicts.push(conflict)
-      continue
-    }
-
-    await db.update(sessionDirectoryMembers)
-      .set({ leftAt: now, updatedAt: now })
-      .where(and(
-        eq(sessionDirectoryMembers.sessionId, conflict.sessionId),
-        eq(sessionDirectoryMembers.playerId, conflict.playerId),
-        isNull(sessionDirectoryMembers.leftAt),
-      ))
-  }
-
-  const conflictingPlayerIds = activeConflicts
-    .map(row => row.playerId)
+  const conflictingPlayerIds = externalConflicts.map(row => row.playerId)
   if (conflictingPlayerIds.length > 0) {
     throw new SessionAdmissionError('Player already has a live session', [...new Set(conflictingPlayerIds)])
   }
@@ -267,7 +234,11 @@ async function runDirectoryProjectionTransaction<T>(db: Database, operation: (tx
   return await operation(db, false)
 }
 
-function isLiveSessionPhase(phase: SessionPhase): boolean {
+function isLiveMembershipPhase(phase: SessionPhase): boolean {
+  return phase === 'open' || phase === 'draft' || phase === 'swap'
+}
+
+function isCurrentSessionPhase(phase: SessionPhase): boolean {
   return phase === 'open' || phase === 'draft' || phase === 'swap' || phase === 'active'
 }
 
