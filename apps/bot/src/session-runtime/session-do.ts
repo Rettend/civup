@@ -776,6 +776,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const existing = await this.getRecord()
     if (!existing) return { ok: false, status: 404, error: 'Session not found' }
     if (payload.matchId !== existing.id) return { ok: false, status: 409, error: `Lifecycle payload ${payload.matchId} does not belong to session ${existing.id}` }
+    if (isTerminalSessionPhase(existing.phase)) {
+      if (existing.lifecycleSync) await this.clearLifecycleSyncMarker(existing)
+      return { ok: true, ignored: true }
+    }
     if (payload.eventSequence < (existing.lifecycleEventSequence ?? 0)) return { ok: true, ignored: true }
     if (existing.lifecycleSync && payload.eventSequence < existing.lifecycleSync.payload.eventSequence) return { ok: true, ignored: true }
 
@@ -1553,6 +1557,10 @@ function withTerminalSync(record: SessionRecord, terminalSync: SessionTerminalSy
     ...record,
     terminalSync,
   } as SessionRecord
+}
+
+function isTerminalSessionPhase(phase: SessionRecord['phase']): boolean {
+  return phase === 'reported' || phase === 'cancelled'
 }
 
 function buildTerminalSyncCommand(
