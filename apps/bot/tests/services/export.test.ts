@@ -78,10 +78,11 @@ describe('player data export', () => {
         phase: 0,
       })
 
-      const sheets = await buildPlayerDataExportSheets(db)
+      const sheets = await buildPlayerDataExportSheets(db, { now: new Date('2026-01-10T00:00:00.000Z') })
       const sheetByName = new Map(sheets.map(sheet => [sheet.name, sheet]))
 
       expect(sheets.map(sheet => sheet.name)).toEqual([
+        'overview',
         'players',
         'ratings',
         'rating_seeds',
@@ -89,6 +90,13 @@ describe('player data export', () => {
         'match_participants',
         'match_bans',
       ])
+      expect(sheetByName.get('overview')?.columns).toEqual(['Overview'])
+      expect(sheetByName.get('overview')?.rows).toContainEqual(['Summary'])
+      expect(sheetByName.get('overview')?.rows).toContainEqual(['Metric', 'Value'])
+      expect(sheetByName.get('overview')?.rows).toContainEqual(['Completed matches', 2])
+      expect(sheetByName.get('overview')?.rows).toContainEqual(['Recorded bans in completed matches', 2])
+      expect(sheetByName.get('overview')?.rows).toContainEqual(['Mode', 'Completed matches'])
+      expect(sheetByName.get('overview')?.rows).toContainEqual(['ffa', 2])
       expect(sheetByName.get('players')?.columns).toEqual(['player_id', 'display_name', 'created_at_utc', 'last_match_at_utc'])
       expect(sheetByName.get('players')?.rows[0]).toEqual(['p1', 'Alice & Bob', excelDate(46023), excelDate(46029)])
       expect(sheetByName.get('players')?.rows[1]).toEqual(['p2', 'Charlie', excelDate(46024), null])
@@ -120,11 +128,14 @@ describe('player data export', () => {
       expect(files.has('xl/workbook.xml')).toBe(true)
       expect(files.has('xl/styles.xml')).toBe(true)
       expect(files.has('xl/worksheets/sheet1.xml')).toBe(true)
+      expect(files.has('xl/worksheets/sheet2.xml')).toBe(true)
       expect(decode(files.get('xl/workbook.xml')!)).toContain('rating_seeds')
-      const playersXml = decode(files.get('xl/worksheets/sheet1.xml')!)
+      expect(decode(files.get('xl/worksheets/sheet1.xml')!)).toContain('Summary')
+      const playersXml = decode(files.get('xl/worksheets/sheet2.xml')!)
       expect(playersXml).toContain('Alice &amp; Bob')
       expect(playersXml).toContain('s="1"><v>25569</v>')
       expect(exportFile.counts).toMatchObject({ players: 1, ratings: 0, rating_seeds: 0, matches: 0 })
+      expect(exportFile.counts.overview).toBeGreaterThan(0)
     }
     finally {
       sqlite.close()
