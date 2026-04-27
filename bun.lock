@@ -24,6 +24,7 @@
       "dependencies": {
         "@civup/game": "workspace:*",
         "@civup/rating": "workspace:*",
+        "@civup/session": "workspace:*",
         "@civup/utils": "workspace:*",
         "@discord/embedded-app-sdk": "^2.4.0",
         "@fontsource-variable/inter": "^5.2.8",
@@ -56,28 +57,17 @@
         "@civup/db": "workspace:*",
         "@civup/game": "workspace:*",
         "@civup/rating": "workspace:*",
+        "@civup/session": "workspace:*",
         "@civup/utils": "workspace:*",
         "discord-hono": "^0.20.0",
         "drizzle-orm": "^0.45.1",
         "hono": "^4.11.8",
         "nanoid": "^5.1.6",
-      },
-      "devDependencies": {
-        "@cloudflare/workers-types": "^4.20260206.0",
-        "@types/node": "^25.2.1",
-        "wrangler": "^4.22.0",
-      },
-    },
-    "apps/party": {
-      "name": "civup-party",
-      "version": "0.0.0",
-      "dependencies": {
-        "@civup/game": "workspace:*",
-        "@civup/utils": "workspace:*",
         "partyserver": "^0.1.5",
       },
       "devDependencies": {
         "@cloudflare/workers-types": "^4.20260206.0",
+        "@types/node": "^25.2.1",
         "wrangler": "^4.22.0",
       },
     },
@@ -103,6 +93,13 @@
       "version": "0.0.0",
       "dependencies": {
         "openskill": "^4.1.0",
+      },
+    },
+    "packages/session": {
+      "name": "@civup/session",
+      "version": "0.0.0",
+      "dependencies": {
+        "@civup/game": "workspace:*",
       },
     },
     "packages/utils": {
@@ -162,6 +159,8 @@
     "@civup/game": ["@civup/game@workspace:packages/game"],
 
     "@civup/rating": ["@civup/rating@workspace:packages/rating"],
+
+    "@civup/session": ["@civup/session@workspace:packages/session"],
 
     "@civup/utils": ["@civup/utils@workspace:packages/utils"],
 
@@ -668,8 +667,6 @@
     "civup-activity": ["civup-activity@workspace:apps/activity"],
 
     "civup-bot": ["civup-bot@workspace:apps/bot"],
-
-    "civup-party": ["civup-party@workspace:apps/party"],
 
     "clean-regexp": ["clean-regexp@1.0.0", "", { "dependencies": { "escape-string-regexp": "^1.0.5" } }, "sha512-GfisEZEJvzKrmGWkvfhgzcz/BllN1USeqD2V6tg14OAOgaCD2Z/PUEuxnAZ/nPvmaHRG7a8y77p1T/IRQ4D1Hw=="],
 

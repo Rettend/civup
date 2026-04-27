@@ -2,9 +2,8 @@ import type { Database } from '@civup/db'
 import type { PruneMatchesOptions, PruneMatchesResult } from './types.ts'
 import { matchBans, matches, matchParticipants } from '@civup/db'
 import { and, eq, inArray, isNull, lt, or } from 'drizzle-orm'
-import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
-import { syncActivityOverviewSnapshot } from '../activity/live-state.ts'
-import { clearLobbyById, clearLobbyByMatch, getCurrentLobbies, getLobbyByMatch } from '../lobby/index.ts'
+import { runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
+import { getLiveSessionLobbyProjections } from '../session/index.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS, STALE_CANCELLED_MATCH_TIMEOUT_MS, STALE_DRAFTING_MATCH_TIMEOUT_MS } from './retention.ts'
 
 export async function pruneAbandonedMatches(
@@ -28,30 +27,9 @@ export async function pruneAbandonedMatches(
 
   const removedMatchIds: string[] = []
   const clearedLiveLobbyMatchIds: string[] = []
-  const overviewChannelIds = new Set<string>()
 
   for (const match of staleMatches) {
-    const participants = await db
-      .select({ playerId: matchParticipants.playerId })
-      .from(matchParticipants)
-      .where(eq(matchParticipants.matchId, match.id))
-
-    const channelId = await getChannelForMatch(kv, match.id)
-    await clearActivityMappings(
-      kv,
-      match.id,
-      participants.map(participant => participant.playerId),
-      channelId ?? undefined,
-    )
-
-    const lobby = await getLobbyByMatch(kv, match.id)
-    if (lobby) {
-      await clearLobbyById(kv, lobby.id, lobby, { syncActivityOverview: false })
-      overviewChannelIds.add(lobby.channelId)
-    }
-    else {
-      await clearLobbyByMatch(kv, match.id)
-    }
+    if (!await runCleanupTerminalSessionCommand(db, options, match.id, 'cancel-session', now)) continue
 
     await db.delete(matchBans).where(eq(matchBans.matchId, match.id))
     await db.delete(matchParticipants).where(eq(matchParticipants.matchId, match.id))
@@ -60,7 +38,7 @@ export async function pruneAbandonedMatches(
     removedMatchIds.push(match.id)
   }
 
-  const liveMatchLobbies = (await getCurrentLobbies(kv)).flatMap(lobby => lobby.matchId
+  const liveMatchLobbies = (await getLiveSessionLobbyProjections(db)).flatMap(lobby => lobby.matchId
     ? [{ lobby, matchId: lobby.matchId }]
     : [])
   const liveMatchIds = [...new Set(liveMatchLobbies.map(entry => entry.matchId))]
@@ -76,15 +54,10 @@ export async function pruneAbandonedMatches(
       const matchStatus = liveStatusByMatchId.get(matchId)
       if (matchStatus === 'drafting' || matchStatus === 'active') continue
 
-      await clearActivityMappings(kv, matchId, lobby.memberPlayerIds, lobby.channelId)
-      await clearLobbyById(kv, lobby.id, lobby, { syncActivityOverview: false })
-      overviewChannelIds.add(lobby.channelId)
+      const commandType = matchStatus === 'completed' ? 'mark-reported' : 'cancel-session'
+      if (!await runCleanupTerminalSessionCommand(db, options, matchId, commandType, now)) continue
       clearedLiveLobbyMatchIds.push(matchId)
     }
-  }
-
-  if (overviewChannelIds.size > 0) {
-    await Promise.all([...overviewChannelIds].map(channelId => syncActivityOverviewSnapshot(kv, channelId)))
   }
 
   const completedBanRows = await db
@@ -121,4 +94,35 @@ export async function pruneAbandonedMatches(
   }
 
   return { removedMatchIds, clearedLiveLobbyMatchIds }
+}
+
+async function runCleanupTerminalSessionCommand(
+  db: Database,
+  options: PruneMatchesOptions,
+  matchId: string,
+  type: 'mark-reported' | 'cancel-session',
+  at: number,
+): Promise<boolean> {
+  const { sessionNamespace } = options
+  if (sessionNamespace) {
+    try {
+      await runSessionTerminalLifecycleCommand(sessionNamespace, matchId, { type, matchId, at })
+      return true
+    }
+    catch (error) {
+      console.warn('[cleanup] failed to update terminal session state', { matchId, type, error })
+      return false
+    }
+  }
+
+  if (!options.allowDirectTerminalWriteForTests) {
+    console.warn('[cleanup] skipping terminal cleanup without SessionDO binding', { matchId, type })
+    return false
+  }
+
+  await db.update(matches)
+    .set({ status: type === 'mark-reported' ? 'completed' : 'cancelled', completedAt: at })
+    .where(eq(matches.id, matchId))
+  await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
+  return true
 }

@@ -81,6 +81,7 @@ export interface CancelDraftInput {
   reason: DraftCancelReason
   hostId: string
   mapVoteResult?: ResolvedMapVoteResult | null
+  allowActive?: boolean
 }
 
 export type CancelDraftResult = { match: MatchRow, participants: ParticipantRow[] } | { error: string }
@@ -89,6 +90,8 @@ export interface PruneMatchesOptions {
   staleDraftingMs?: number
   staleActiveMs?: number
   staleCancelledMs?: number
+  sessionNamespace?: DurableObjectNamespace | null
+  allowDirectTerminalWriteForTests?: boolean
 }
 
 export interface PruneMatchesResult {

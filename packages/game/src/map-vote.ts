@@ -1,5 +1,6 @@
 import type { GameMode } from './types.ts'
 import { isTeamMode } from './mode.ts'
+import { createSeededRandom } from './random.ts'
 
 export const MAP_TYPE_IDS = ['standard', 'east-vs-west', 'random'] as const
 export type MapTypeId = (typeof MAP_TYPE_IDS)[number]
@@ -195,19 +196,7 @@ export function formatMapVoteResultTitle(mapType: MapTypeId | null | undefined, 
 }
 
 export function createMapVoteRng(seed: string): () => number {
-  let hash = 2166136261
-  for (let index = 0; index < seed.length; index++) {
-    hash ^= seed.charCodeAt(index)
-    hash = Math.imul(hash, 16777619)
-  }
-
-  let state = hash >>> 0
-  return () => {
-    state = (state + 0x6D2B79F5) >>> 0
-    let next = Math.imul(state ^ (state >>> 15), 1 | state)
-    next ^= next + Math.imul(next ^ (next >>> 7), 61 | next)
-    return ((next ^ (next >>> 14)) >>> 0) / 4294967296
-  }
+  return createSeededRandom(seed)
 }
 
 export function pickRandomMapType(rng: () => number, exclude: readonly MapTypeId[] = []): Exclude<MapTypeId, 'random'> {

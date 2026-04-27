@@ -1,16 +1,29 @@
 import type { GameMode, QueueEntry } from '@civup/game'
+import type { LobbySessionProjectionOptions } from './mutations.ts'
 import type { LobbyState } from './types.ts'
 import { slotToTeamIndex } from '@civup/game'
 import { lobbyCancelledEmbed } from '../../embeds/match.ts'
-import { clearUserLobbyMappings } from '../activity/index.ts'
-import { clearQueue, getQueueState } from '../queue/index.ts'
 import { syncLobbyDerivedState } from './live-snapshot.ts'
 import { upsertLobbyMessage } from './message.ts'
-import { setLobbyStatus } from './mutations.ts'
-import { reconcileOpenLobbyState } from './reconcile.ts'
+import { setLobbyRoster, setLobbyStatus } from './mutations.ts'
 import { buildOpenLobbyRenderPayload } from './render.ts'
+import { restoreSessionDirectoryMembers } from '../session/directory.ts'
+import { getSessionLobbyProjectionByMatch } from '../session/lobby-projection.ts'
 import { filterQueueEntriesForLobby, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots } from './slots.ts'
-import { clearLobbyById, upsertLobby } from './store.ts'
+
+export interface DeferredOpenLobbyTransferSource {
+  lobby: LobbyState
+  queueEntries: QueueEntry[]
+  releasedPlayerIds: string[]
+}
+
+type LeaveOpenLobbyForJoinResult =
+  | {
+    ok: true
+    transferredFrom: { lobbyId: string, mode: GameMode }
+    deferredSource?: DeferredOpenLobbyTransferSource
+  }
+  | { ok: false, error: string }
 
 export async function leaveOpenLobbyForLobbyJoin(
   kv: KVNamespace,
@@ -18,9 +31,9 @@ export async function leaveOpenLobbyForLobbyJoin(
   lobby: LobbyState,
   movingPlayerIds: string[],
   targetMode: GameMode,
-): Promise<{ ok: true, transferredFrom: { lobbyId: string, mode: GameMode } } | { ok: false, error: string }> {
-  const reconciled = await reconcileOpenLobbyState(kv, lobby)
-  const currentLobby = reconciled?.lobby ?? lobby
+  options?: LobbySessionProjectionOptions,
+): Promise<LeaveOpenLobbyForJoinResult> {
+  const currentLobby = lobby
   if (currentLobby.status !== 'open') return { ok: false, error: 'You are already in a live match.' }
 
   const uniqueMovingPlayerIds = [...new Set(movingPlayerIds.filter(playerId => currentLobby.memberPlayerIds.includes(playerId)))]
@@ -39,16 +52,14 @@ export async function leaveOpenLobbyForLobbyJoin(
     }
   }
 
-  const sourceQueue = reconciled?.queue ?? await getQueueState(kv, currentLobby.mode)
-  const sourceLobbyQueueEntries = reconciled?.lobbyQueueEntries ?? filterQueueEntriesForLobby(currentLobby, sourceQueue.entries)
-  const nextQueue = currentLobby.mode !== targetMode
-    ? await clearQueue(kv, currentLobby.mode, uniqueMovingPlayerIds, { currentState: sourceQueue })
-    : sourceQueue
+  void targetMode
+  const sourceLobbyQueueEntries = filterQueueEntriesForLobby(currentLobby, options?.queueEntries ? [...options.queueEntries] : [])
 
   if (remainingMemberIds.length === 0) {
-    const cancelledLobby = await setLobbyStatus(kv, currentLobby.id, 'cancelled', currentLobby) ?? { ...currentLobby, status: 'cancelled' as const }
-    await clearUserLobbyMappings(kv, uniqueMovingPlayerIds)
-
+    const cancelledLobby = await setLobbyStatus(kv, currentLobby.id, 'cancelled', currentLobby, {
+      ...options,
+      queueEntries: sourceLobbyQueueEntries,
+    }) ?? { ...currentLobby, status: 'cancelled' as const }
     if (token) {
       try {
         await upsertLobbyMessage(kv, token, cancelledLobby, {
@@ -61,14 +72,13 @@ export async function leaveOpenLobbyForLobbyJoin(
             currentLobby.draftConfig.redDeath,
           )],
           components: [],
-        })
+        }, options)
       }
       catch (error) {
         console.error(`Failed to update cancelled transfer source lobby ${currentLobby.id}:`, error)
       }
     }
 
-    await clearLobbyById(kv, currentLobby.id, cancelledLobby)
     return {
       ok: true,
       transferredFrom: {
@@ -83,34 +93,36 @@ export async function leaveOpenLobbyForLobbyJoin(
   let nextSlots = normalizeLobbySlots(
     currentLobby.mode,
     currentLobby.slots.map(playerId => playerId != null && movingPlayerIdSet.has(playerId) ? null : playerId),
-    filterQueueEntriesForLobby(previewLobby, nextQueue.entries),
+    filterQueueEntriesForLobby(previewLobby, sourceLobbyQueueEntries),
   )
   if (sameLobbySlots(nextSlots, currentLobby.slots) && remainingMemberIds.length === currentLobby.memberPlayerIds.length) nextSlots = currentLobby.slots
 
-  const nextLobby = {
+  const nextPreviewLobby = {
     ...currentLobby,
     memberPlayerIds: remainingMemberIds,
     slots: nextSlots,
-    lastActivityAt: changedAt,
-    updatedAt: changedAt,
-    revision: currentLobby.revision + 1,
   }
-  await upsertLobby(kv, nextLobby)
-
-  const nextLobbyQueueEntries = filterQueueEntriesForLobby(nextLobby, nextQueue.entries)
-  await syncLobbyDerivedState(kv, nextLobby, {
+  const nextLobbyQueueEntries = filterQueueEntriesForLobby(nextPreviewLobby, sourceLobbyQueueEntries)
+  const updatedLobby = await setLobbyRoster(kv, currentLobby.id, {
+    memberPlayerIds: remainingMemberIds,
+    slots: nextSlots,
+    lastActivityAt: changedAt,
+    now: changedAt,
+  }, currentLobby, {
+    ...options,
+    queueEntries: nextLobbyQueueEntries,
+  }) ?? currentLobby
+  await syncLobbyDerivedState(kv, updatedLobby, {
     queueEntries: nextLobbyQueueEntries,
     slots: nextSlots,
   })
-  await clearUserLobbyMappings(kv, uniqueMovingPlayerIds)
-
   if (token) {
     try {
-      const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, mapLobbySlotsToEntries(nextSlots, nextLobbyQueueEntries))
-      await upsertLobbyMessage(kv, token, nextLobby, {
+      const renderPayload = await buildOpenLobbyRenderPayload(kv, updatedLobby, mapLobbySlotsToEntries(nextSlots, nextLobbyQueueEntries))
+      await upsertLobbyMessage(kv, token, updatedLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
-      })
+      }, options)
     }
     catch (error) {
       console.error(`Failed to update transfer source lobby ${currentLobby.id}:`, error)
@@ -124,6 +136,103 @@ export async function leaveOpenLobbyForLobbyJoin(
       mode: currentLobby.mode,
     },
   }
+}
+
+export async function finalizeDeferredOpenLobbyTransferSource(
+  kv: KVNamespace,
+  token: string | undefined,
+  source: DeferredOpenLobbyTransferSource,
+  options?: LobbySessionProjectionOptions,
+): Promise<{ ok: true } | { ok: false, error: string }> {
+  try {
+    const cancelledLobby = await setLobbyStatus(kv, source.lobby.id, 'cancelled', source.lobby, {
+      ...options,
+      queueEntries: source.queueEntries,
+    }) ?? { ...source.lobby, status: 'cancelled' as const }
+    if (token) {
+      try {
+        await upsertLobbyMessage(kv, token, cancelledLobby, {
+          embeds: [lobbyCancelledEmbed(
+            source.lobby.mode,
+            buildCancelledLobbyParticipants(source.lobby, source.queueEntries),
+            'cancel',
+            undefined,
+            source.lobby.draftConfig.leaderDataVersion,
+            source.lobby.draftConfig.redDeath,
+          )],
+          components: [],
+        }, options)
+      }
+      catch (error) {
+        console.error(`Failed to update cancelled transfer source lobby ${source.lobby.id}:`, error)
+      }
+    }
+
+    return { ok: true }
+  }
+  catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+export async function restoreDeferredOpenLobbyTransferSourceAdmission(
+  source: DeferredOpenLobbyTransferSource,
+  options?: LobbySessionProjectionOptions,
+): Promise<{ ok: true } | { ok: false, error: string }> {
+  if (!options?.db) return { ok: true }
+  try {
+    await restoreSessionDirectoryMembers(options.db, source.lobby.id, source.releasedPlayerIds, Date.now())
+    return { ok: true }
+  }
+  catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+export async function rollbackDeferredOpenLobbyTransferTarget(
+  kv: KVNamespace,
+  source: DeferredOpenLobbyTransferSource,
+  target: { lobby: LobbyState, queueEntries: QueueEntry[], at: number },
+  options?: LobbySessionProjectionOptions,
+): Promise<{ ok: true } | { ok: false, error: string }> {
+  const errors: string[] = []
+  let targetRolledBack = false
+  try {
+    const currentTarget = options?.db ? await getSessionLobbyProjectionByMatch(options.db, target.lobby.id) ?? target.lobby : target.lobby
+    if (currentTarget.status !== 'open') {
+      errors.push('target lobby is no longer open')
+    }
+    else {
+      const restored = await setLobbyRoster(kv, target.lobby.id, {
+        memberPlayerIds: target.lobby.memberPlayerIds,
+        slots: target.lobby.slots,
+        lastActivityAt: Math.max(target.lobby.lastActivityAt, target.at),
+        now: Date.now(),
+      }, currentTarget, {
+        ...options,
+        queueEntries: target.queueEntries,
+      }) ?? currentTarget
+      await syncLobbyDerivedState(kv, restored, {
+        queueEntries: target.queueEntries,
+        slots: target.lobby.slots,
+      })
+      targetRolledBack = true
+    }
+  }
+  catch (error) {
+    errors.push(`target rollback failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  if (!targetRolledBack) return { ok: false, error: errors.join('; ') || 'target rollback failed' }
+
+  const restoredAdmission = await restoreDeferredOpenLobbyTransferSourceAdmission(source, {
+    ...options,
+    queueEntries: source.queueEntries,
+  })
+  if (!restoredAdmission.ok) errors.push(`source admission restore failed: ${restoredAdmission.error}`)
+
+  if (errors.length > 0) return { ok: false, error: errors.join('; ') }
+  return { ok: true }
 }
 
 function buildCancelledLobbyParticipants(lobby: { mode: GameMode, slots: (string | null)[] }, entries: QueueEntry[]) {

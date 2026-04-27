@@ -1,6 +1,4 @@
 import type { LobbyState } from '../lobby/types.ts'
-import { clearActivityMappings } from '../activity/index.ts'
-import { clearLobbyById } from '../lobby/index.ts'
 
 const BLOCKING_DRAFT_MATCH_SQL = "(matches.status = 'drafting' OR (matches.status = 'active' AND json_extract(matches.draft_data, '$.completedAt') IS NULL))"
 const REPORTABLE_MATCH_SQL = "(matches.status = 'active' AND json_extract(matches.draft_data, '$.completedAt') IS NOT NULL)"
@@ -249,9 +247,6 @@ export async function clearStalePersistedLiveLobbies(
   const clearedLobbyIds = new Set<string>()
   for (const lobby of staleLiveLobbies) {
     if (!terminalMatchIds.has(lobby.matchId)) continue
-
-    await clearActivityMappings(kv, lobby.matchId, lobby.memberPlayerIds, lobby.channelId)
-    await clearLobbyById(kv, lobby.id, lobby)
     clearedLobbyIds.add(lobby.id)
   }
 

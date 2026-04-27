@@ -15,8 +15,6 @@
     "register": "bun run register:dev",
     "register:dev": "bun --env-file=.dev.vars src/register.ts",
     "register:prod": "bun --env-file=.prod.secrets src/register.ts",
-    "secret:civup": "bun scripts/generate-draft-webhook-secret.ts --write",
-    "secret:civup:print": "bun scripts/generate-draft-webhook-secret.ts",
     "secret:bulk:prod": "wrangler secret bulk .prod.secrets",
     "kv:local": "bun scripts/kv-local.ts",
     "check": "tsgo --noEmit",
@@ -32,11 +30,13 @@
     "@civup/db": "workspace:*",
     "@civup/game": "workspace:*",
     "@civup/rating": "workspace:*",
+    "@civup/session": "workspace:*",
     "@civup/utils": "workspace:*",
     "discord-hono": "^0.20.0",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.11.8",
-    "nanoid": "^5.1.6"
+    "nanoid": "^5.1.6",
+    "partyserver": "^0.1.5"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260206.0",

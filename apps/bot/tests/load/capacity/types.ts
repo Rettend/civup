@@ -9,7 +9,7 @@ export interface SimulationResult {
   draftRoomIncomingMessagesWithSelectionPreviews: number
   draftRoomIncomingMessagesWithTeamPickPreviews: number
   openLobbyMutationRequests: number
-  legacySelectedLobbyRefetchRequests: number
+  selectedLobbyPushUpdates: number
 }
 
 export interface CapacityScenario {
@@ -29,7 +29,7 @@ export interface ScenarioReport {
   draftRoomIncomingMessagesWithSelectionPreviews: number
   draftRoomIncomingMessagesWithTeamPickPreviews: number
   openLobbyMutationRequests: number
-  legacySelectedLobbyRefetchRequests: number
+  selectedLobbyPushUpdates: number
   freeCapacityPlaysPerDay: number
   paidIncludedCapacityPlaysPerDay: number
   paidSixDollarCapacityPlaysPerDay: number
@@ -41,15 +41,31 @@ export interface ScenarioReport {
 }
 
 export interface CapacitySnapshot {
-  version: 2
+  version: 4
   globals: {
     stabilitySamples: number
     leaderboardCronRunsPerDay: number
     inactiveLobbyCleanupCronRunsPerDay: number
     rankedRoleCronRunsPerDay: number
+    architectureModel: string
     lobbyWatchMsgsPerConnection: number
     doWebsocketBillingRatio: number
     estimatedDoGbSecondsPerRequest: number
+    sessionSocketConnectionsPerViewer: number
+    sessionDoSqlReadsPerCommand: number
+    sessionDoSqlWritesPerCommand: number
+    sessionDoSqlReadsPerSocketConnect: number
+    sessionDoSqlWritesPerSocketConnect: number
+    sessionDoSqlReadsPerDraftMessage: number
+    sessionDoSqlWritesPerDraftMessage: number
+    directoryReadsPerViewerLaunch: number
+    directoryReadsPerJoinGroup: number
+    directoryWritesPerSessionCreate: number
+    directoryWritesPerParticipantJoin: number
+    directoryWritesPerOpenLobbyMutation: number
+    directoryWritesPerDraftStart: number
+    directoryWritesPerReport: number
+    directoryWritesPerParticipantReportCleanup: number
     averageAcceptedSwapsPerTeamDraft: number
   }
   backgroundDailyUsage: DailyUsage | null
@@ -62,7 +78,7 @@ export interface CapacitySnapshotScenario {
   players: number
   viewers: number
   lobbyMutations: number
-  legacyRefetchesAvoided: number
+  selectedLobbyPushUpdates: number
   draftMessages: number
   previewMessages: number
   teamPreviewMessages: number

@@ -1,9 +1,8 @@
 import type { Database } from '@civup/db'
-import { matches } from '@civup/db'
-import { asc, eq } from 'drizzle-orm'
+import { matches, sessionDirectory } from '@civup/db'
+import { and, asc, desc, eq, inArray, or } from 'drizzle-orm'
 import { createChannelMessage, createDmChannel } from '../discord/index.ts'
-import { getLobbyByMatch } from '../lobby/index.ts'
-import { stateStoreMget } from '../state/store.ts'
+import { kvMget } from '../kv/batch.ts'
 import { getCompletedAtFromDraftData, getHostIdFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 
 const REPORT_REMINDER_TTL_SECONDS = 3 * 24 * 60 * 60
@@ -65,7 +64,7 @@ export async function sendOverdueHostReportReminders(
     attemptedCount += 1
 
     try {
-      const reportLink = await getMatchReportLink(kv, match.id)
+      const reportLink = await getMatchReportLink(db, match.id)
       await sendReminderDm(token, hostId, buildReminderContent(pendingStage.introPrefix, gameContext.label, reportLink))
       await markReminderStagesThrough(kv, match.id, pendingStage.key)
       sentCount += 1
@@ -83,7 +82,7 @@ async function resolvePendingReminderStage(
   matchId: string,
   elapsedMs: number,
 ): Promise<(typeof REPORT_REMINDER_STAGES)[number] | null> {
-  const reminderStates = await stateStoreMget(kv, REPORT_REMINDER_STAGES.map(stage => ({
+  const reminderStates = await kvMget(kv, REPORT_REMINDER_STAGES.map(stage => ({
     key: reminderKey(matchId, stage.key),
   })))
   let pendingStage: (typeof REPORT_REMINDER_STAGES)[number] | null = null
@@ -122,10 +121,25 @@ async function sendReminderDm(token: string, hostId: string, content: string): P
   })
 }
 
-async function getMatchReportLink(kv: KVNamespace, matchId: string): Promise<string | null> {
-  const lobby = await getLobbyByMatch(kv, matchId)
-  if (!lobby?.guildId) return null
-  return `https://discord.com/channels/${lobby.guildId}/${lobby.channelId}/${lobby.messageId}`
+async function getMatchReportLink(db: Database, matchId: string): Promise<string | null> {
+  const [session] = await db.select({
+    guildId: sessionDirectory.guildId,
+    channelId: sessionDirectory.channelId,
+    messageId: sessionDirectory.messageId,
+  })
+    .from(sessionDirectory)
+    .where(and(
+      or(
+        eq(sessionDirectory.matchId, matchId),
+        eq(sessionDirectory.sessionId, matchId),
+      ),
+      inArray(sessionDirectory.phase, ['draft', 'swap', 'active']),
+    ))
+    .orderBy(desc(sessionDirectory.updatedAt))
+    .limit(1)
+
+  if (!session?.guildId) return null
+  return `https://discord.com/channels/${session.guildId}/${session.channelId}/${session.messageId}`
 }
 
 function buildReminderContent(introPrefix: string, modeLabel: string, reportLink: string | null): string {

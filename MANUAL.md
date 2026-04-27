@@ -131,7 +131,6 @@ The `/match` command group manages the lobby:
 
 > [!NOTE]
 >
-> - players can only join one lobby, consequently a host can only host one lobby, re-running `/match create` reuses that lobby
 > - team modes must be full to start
 > - regular `FFA` uses 8 seats and can start with 6 or 8 players
 > - expanded `2v2` lobbies can start with 6 players as `2v2v2`, or 8 players as `2v2v2v2`

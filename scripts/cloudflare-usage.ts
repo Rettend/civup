@@ -199,7 +199,7 @@ interface AccountFieldsQueryData {
 }
 
 const GRAPHQL_URL = 'https://api.cloudflare.com/client/v4/graphql'
-const DEFAULT_SCRIPTS = ['civup-bot', 'civup-activity', 'civup-party']
+const DEFAULT_SCRIPTS = ['civup-bot', 'civup-activity']
 
 const usage = [
   'Usage:',

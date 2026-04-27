@@ -4,7 +4,6 @@ import type { ActivateDraftInput, ActivateDraftResult, CancelDraftInput, CancelD
 import { matchBans, matches, matchParticipants, players } from '@civup/db'
 import { isRedDeathFormatId, isTeamMode } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
-import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
 import { getActiveSeason } from '../season/index.ts'
 
 const MATCH_PARTICIPANT_INSERT_COLUMN_COUNT = 9
@@ -32,6 +31,21 @@ export async function createDraftMatch(
       createdAt: now,
       completedAt: null,
     })
+  }
+  else if (existingMatch.status === 'cancelled') {
+    await db.delete(matchBans).where(eq(matchBans.matchId, input.matchId))
+    await db.delete(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
+    await db
+      .update(matches)
+      .set({
+        gameMode: input.mode,
+        status: 'drafting',
+        seasonId: activeSeason?.id ?? null,
+        draftData: null,
+        createdAt: now,
+        completedAt: null,
+      })
+      .where(eq(matches.id, input.matchId))
   }
 
   const uniquePlayers = new Map<string, (typeof input.seats)[number]>()
@@ -84,6 +98,7 @@ export async function createDraftMatch(
       await db.insert(matchParticipants).values(chunk)
     }
   }
+
 }
 
 export function splitValuesForD1InsertLimit<T>(values: T[], columnCount: number, maxVariables: number = D1_MAX_SQL_VARIABLES): T[][] {
@@ -225,7 +240,6 @@ export async function activateDraftMatch(
 
 export async function cancelDraftMatch(
   db: Database,
-  kv: KVNamespace,
   input: CancelDraftInput,
 ): Promise<CancelDraftResult> {
   const matchId = input.state.matchId
@@ -240,7 +254,7 @@ export async function cancelDraftMatch(
     return { error: `Match **${matchId}** not found.` }
   }
 
-  if (match.status === 'active' || match.status === 'completed') {
+  if ((match.status === 'active' && input.allowActive !== true) || match.status === 'completed') {
     return { error: `Match **${matchId}** cannot be cancelled (status: ${match.status}).` }
   }
 
@@ -254,14 +268,6 @@ export async function cancelDraftMatch(
   }
 
   if (match.status === 'cancelled') {
-    const channelId = await getChannelForMatch(kv, matchId)
-    await clearActivityMappings(
-      kv,
-      matchId,
-      participantRows.map(p => p.playerId),
-      channelId ?? undefined,
-    )
-
     return { match, participants: participantRows }
   }
 
@@ -296,14 +302,6 @@ export async function cancelDraftMatch(
       }),
     })
     .where(eq(matches.id, matchId))
-
-  const channelId = await getChannelForMatch(kv, matchId)
-  await clearActivityMappings(
-    kv,
-    matchId,
-    participantRows.map(p => p.playerId),
-    channelId ?? undefined,
-  )
 
   const [updatedMatch] = await db
     .select()

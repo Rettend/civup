@@ -19,7 +19,6 @@ interface Env {
   DISCORD_CLIENT_SECRET: string
   BOT?: Fetcher
   BOT_HOST?: string
-  PARTY_HOST?: string
 }
 
 interface DevLogPayload {
@@ -139,13 +138,14 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
       response = await fetch(buildProxyRequest(targetUrl, request, env, session))
     }
 
-    const body = await response.text()
+    const nullBody = isNullBodyStatus(response.status)
+    const body = nullBody ? null : await response.text()
     if (!response.ok) {
       if (shouldWarnForMatchProxy(request.method, url.pathname, response.status)) {
         console.warn('[activity] Match proxy upstream non-OK', {
           targetUrl,
           status: response.status,
-          bodyPreview: body.slice(0, 200),
+          bodyPreview: body?.slice(0, 200) ?? '',
         })
       }
     }
@@ -164,6 +164,10 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
   }
 }
 
+function isNullBodyStatus(status: number): boolean {
+  return status === 204 || status === 205 || status === 304
+}
+
 function shouldUseBotServiceBinding(request: Request, env: Env): boolean {
   if (!env.BOT) return false
   if (isDev({ viteDev: import.meta.env.DEV, host: request.url, configuredHosts: [env.BOT_HOST] })) return false
@@ -177,10 +181,17 @@ async function handlePartyProxy(request: Request, url: URL, env: Env): Promise<R
     const session = await requireActivitySession(request, env)
     if (session instanceof Response) return session
 
-    const partyHost = normalizeHost(env.PARTY_HOST, 'http://localhost:1999')
     const targetPath = url.pathname.replace(/^\/api\/parties/, '/parties')
-    targetUrl = `${partyHost}${buildTargetPath(url, targetPath)}`
-    return fetch(buildProxyRequest(targetUrl, request, env, session))
+    const resolvedTargetPath = buildTargetPath(url, targetPath)
+    const botService = env.BOT
+    if (botService && shouldUseBotServiceBinding(request, env)) {
+      targetUrl = `service:civup-bot${resolvedTargetPath}`
+      return await botService.fetch(buildProxyRequest(`https://civup-bot.internal${resolvedTargetPath}`, request, env, session))
+    }
+
+    const botHost = normalizeHost(env.BOT_HOST, 'http://localhost:8787')
+    targetUrl = `${botHost}${resolvedTargetPath}`
+    return await fetch(buildProxyRequest(targetUrl, request, env, session))
   }
   catch (err) {
     console.error('Party proxy error:', { targetUrl, err })
