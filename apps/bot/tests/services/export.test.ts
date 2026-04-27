@@ -120,7 +120,7 @@ describe('player data export', () => {
       await db.insert(players).values({ id: 'p1', displayName: 'Alice & Bob', avatarUrl: null, createdAt: 1 })
 
       const exportFile = await buildPlayerDataExport(db, { now: new Date('2026-04-26T12:00:00.000Z') })
-      const files = unzipStoredFiles(exportFile.data)
+      const files = await unzipXlsxFiles(exportFile.data)
 
       expect(exportFile.filename).toBe('export-2026-04-26.xlsx')
       expect(exportFile.contentType).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
@@ -141,9 +141,34 @@ describe('player data export', () => {
       sqlite.close()
     }
   })
+
+  test('compresses workbook XML so larger exports fit Discord attachment limits', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      const playerRows = Array.from({ length: 200 }, (_value, index) => ({
+        id: `player-${String(index).padStart(3, '0')}`,
+        displayName: `Very Long Repeated Export Player Name ${String(index).padStart(3, '0')} `.repeat(8),
+        avatarUrl: null,
+        createdAt: Date.UTC(2026, 0, 1) + index,
+      }))
+      await db.insert(players).values(playerRows)
+
+      const exportFile = await buildPlayerDataExport(db, { now: new Date('2026-04-26T12:00:00.000Z') })
+      const files = await unzipXlsxFiles(exportFile.data)
+      const uncompressedSize = [...files.values()].reduce((total, file) => total + file.byteLength, 0)
+
+      expect(files.has('xl/worksheets/sheet2.xml')).toBe(true)
+      expect(decode(files.get('xl/worksheets/sheet2.xml')!)).toContain('Very Long Repeated Export Player Name 000')
+      expect(exportFile.data.byteLength).toBeLessThan(uncompressedSize)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
 })
 
-function unzipStoredFiles(data: Uint8Array): Map<string, Uint8Array> {
+async function unzipXlsxFiles(data: Uint8Array): Promise<Map<string, Uint8Array>> {
   const decoder = new TextDecoder()
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
   const files = new Map<string, Uint8Array>()
@@ -159,12 +184,21 @@ function unzipStoredFiles(data: Uint8Array): Map<string, Uint8Array> {
     const fileStart = filenameEnd + extraLength
     const fileEnd = fileStart + compressedSize
 
-    expect(method).toBe(0)
-    files.set(decoder.decode(data.slice(filenameStart, filenameEnd)), data.slice(fileStart, fileEnd))
+    expect([0, 8]).toContain(method)
+    const compressed = data.slice(fileStart, fileEnd)
+    const file = method === 8 ? await inflateRaw(compressed) : compressed
+    files.set(decoder.decode(data.slice(filenameStart, filenameEnd)), file)
     offset = fileEnd
   }
 
   return files
+}
+
+async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
+  const decompressed = new Blob([data])
+    .stream()
+    .pipeThrough(new DecompressionStream('deflate-raw'))
+  return new Uint8Array(await new Response(decompressed).arrayBuffer())
 }
 
 function decode(data: Uint8Array): string {
