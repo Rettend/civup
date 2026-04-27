@@ -11,7 +11,7 @@ import { formatModeLabel, GAME_MODES, toBalanceLeaderboardMode } from '@civup/ga
 import { createSessionAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { clearActivityLaunchTargetSelection, readActivityLaunchTargetSelection, type ActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
-import { buildActivityOverviewOptions, buildLobbySnapshotFromDirectoryEntry, buildLobbySnapshotFromSessionRecord, getActivitySessionById, getActivitySessionsByChannel, getOpenActivitySessionsForUser } from '../services/activity/session-state.ts'
+import { buildActivityOverviewOptions, buildActivityOverviewOptionsFromSessionRecord, buildLobbySnapshotFromDirectoryEntry, buildLobbySnapshotFromSessionRecord, getActivitySessionById, getActivitySessionsByChannel, getOpenActivitySessionsForUser } from '../services/activity/session-state.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { leaveOpenLobbyForLobbyJoin } from '../services/lobby/transfer.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../services/match/live.ts'
@@ -268,12 +268,12 @@ export async function selectActivityTargetForUser(
   },
   options?: ActivityRuntimeOptions,
 ): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string, status: 409 }> {
-  let context = await loadActivityLaunchContext(kv, channelId, userId, options?.db)
+  let context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.sessionNamespace)
   let selectionTarget = context.targets.find(candidate => candidate.option.kind === target.kind && candidate.option.id === target.id) ?? null
   if (!selectionTarget) return { ok: false, error: 'That target is no longer available.', status: 409 }
 
-  if (await persistFullLobbySpectatorSelection(token, kv, userId, selectionTarget, options)) {
-    context = await loadActivityLaunchContext(kv, channelId, userId, options?.db)
+  if (await persistOpenLobbySpectatorSelection(token, kv, userId, selectionTarget, options)) {
+    context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.sessionNamespace)
     selectionTarget = context.targets.find(candidate => candidate.option.kind === target.kind && candidate.option.id === target.id) ?? selectionTarget
   }
 
@@ -284,7 +284,7 @@ export async function selectActivityTargetForUser(
   return { ok: true, snapshot }
 }
 
-async function persistFullLobbySpectatorSelection(
+async function persistOpenLobbySpectatorSelection(
   token: string | undefined,
   kv: KVNamespace,
   userId: string,
@@ -299,7 +299,6 @@ async function persistFullLobbySpectatorSelection(
   const record = await resolveAuthoritativeSessionRecord(options.sessionNamespace, target.session)
   if (record?.phase !== 'open') return false
   if (record.roster.participants.some(member => member.playerId === userId)) return false
-  if (record.roster.slots.some(playerId => playerId == null)) return false
 
   const db = createDb(options.db)
   const currentLobbies = await getCurrentSessionLobbyProjectionsForPlayer(db, userId, { excludeLobbyIds: [record.id] })
@@ -355,7 +354,7 @@ export async function buildActivityLaunchSnapshot(
     internalSecret?: string | null
   },
 ): Promise<ActivityLaunchSnapshot> {
-  const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db)
+  const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.sessionNamespace)
   const launchTarget = await readActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
   const requestedSelection = pickRequestedActivityLaunchSelection(context.targets, launchTarget)
   if (requestedSelection) await clearActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
@@ -607,6 +606,7 @@ async function loadActivityLaunchContext(
   channelId: string,
   userId: string,
   db: D1Database | null | undefined,
+  sessionNamespace: DurableObjectNamespace | null | undefined,
 ): Promise<ActivityLaunchContext> {
   if (!db) return { targets: [] }
 
@@ -615,7 +615,13 @@ async function loadActivityLaunchContext(
   const targets: ChannelActivityTarget[] = []
 
   for (const session of channelSessions) {
-    const option = buildActivityOverviewOptions(session)[0]
+    const authoritativeRecord = session.phase === 'open'
+      ? await resolveAuthoritativeSessionRecord(sessionNamespace, session).catch(() => null)
+      : null
+    const authoritativeOpenRecord = authoritativeRecord?.phase === 'open' ? authoritativeRecord : null
+    const option = authoritativeOpenRecord
+      ? buildActivityOverviewOptionsFromSessionRecord(authoritativeOpenRecord)[0]
+      : buildActivityOverviewOptions(session)[0]
     if (!option) continue
 
     targets.push({

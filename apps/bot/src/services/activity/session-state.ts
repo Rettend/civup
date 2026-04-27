@@ -40,6 +40,7 @@ export interface LobbySnapshot {
   minRole: SessionConfig['minRole']
   maxRole: SessionConfig['maxRole']
   lastArrange: LobbyArrangeMarker | null
+  memberPlayerIds: string[]
   entries: ({
     playerId: string
     displayName: string
@@ -324,6 +325,7 @@ async function buildLobbySnapshotFromSessionParts(
 ): Promise<LobbySnapshot> {
   const serverDefaults = await getServerDraftTimerDefaults(kv)
   const memberByPlayerId = new Map(session.roster.participants.map(member => [member.playerId, member]))
+  const memberPlayerIds = session.roster.participants.map(member => member.playerId)
   const entries = session.roster.slots.map((playerId) => {
     if (!playerId) return null
     const member = memberByPlayerId.get(playerId)
@@ -346,6 +348,7 @@ async function buildLobbySnapshotFromSessionParts(
     minRole: session.minRole,
     maxRole: session.maxRole,
     lastArrange: session.lastArrange,
+    memberPlayerIds,
     entries,
     minPlayers: startPlayerCountOptions(session.mode, targetSize, { redDeath: session.config.redDeath })[0] ?? targetSize,
     targetSize,
