@@ -43,6 +43,7 @@ export interface LobbySnapshot {
     strategy: LobbyArrangeStrategy
     at: number
   } | null
+  memberPlayerIds?: string[]
   entries: ({
     playerId: string
     displayName: string
