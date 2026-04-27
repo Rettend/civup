@@ -2,7 +2,7 @@ import type { DraftSeat, DraftState } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { matchBans, matchParticipants, matches, players, sessionDirectory } from '@civup/db'
 import { allLeaderIds } from '@civup/game'
-import { createSessionAccessToken } from '@civup/utils'
+import { createSessionAccessToken, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
 import { eq } from 'drizzle-orm'
 import { DEFAULT_DRAFT_CONFIG } from '../../src/services/lobby/normalize.ts'
 import { SessionDO } from '../../src/session-runtime/session-do.ts'
@@ -1185,8 +1185,8 @@ function wrapFailingBoundStatement(
 
 function sessionRequest(pathname: string, init?: RequestInit): Request {
   const headers = new Headers(init?.headers)
-  headers.set('x-partykit-room', 'session-1')
-  headers.set('x-partykit-namespace', 'session')
+  headers.set(PARTYSERVER_ROOM_HEADER, 'session-1')
+  headers.set(PARTYSERVER_NAMESPACE_HEADER, 'session')
   return new Request(`https://session.local${pathname}`, { ...init, headers })
 }
 

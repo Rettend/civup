@@ -1,7 +1,8 @@
-import { verifySessionAccessToken } from '@civup/utils'
+import { PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER, verifySessionAccessToken } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility, selectActivityTargetForUser } from '../../src/routes/activity.ts'
+import { storeActivityLaunchTargetSelection } from '../../src/services/activity/launch-target.ts'
 import { buildOpenLobbySnapshot, resolveOpenLobbyFromBody } from '../../src/routes/lobby/snapshot.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
 import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
@@ -11,6 +12,7 @@ import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
 const TITAN_ROLE_ID = '99999999999999999'
+const activityNamespaces = new WeakMap<KVNamespace, DurableObjectNamespace>()
 
 afterEach(() => {
   globalThis.fetch = originalFetch
@@ -641,6 +643,76 @@ describe('activity target selection', () => {
     expect(snapshot.options).toEqual([expect.objectContaining({ kind: 'match', id: oldMatchLobby.id, status: 'active', isMember: true })])
   })
 
+  test('opens a clicked reportable active match from a launch target hint', async () => {
+    const { kv } = createTrackedKv()
+    const matchLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'player-1',
+      channelId: 'channel-1',
+      messageId: 'message-active',
+    })
+    await addToQueue(kv, '2v2', { playerId: 'player-1', displayName: 'Player 1', avatarUrl: null, joinedAt: Date.now() })
+    await addToQueue(kv, '2v2', { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, joinedAt: Date.now() + 1 })
+    const draftingLobby = await startTestSessionDraft(kv, matchLobby.id, matchLobby)
+    await setLobbyStatus(kv, matchLobby.id, 'active', draftingLobby ?? matchLobby)
+
+    await storeActivityLaunchTargetSelection(activityRuntimeOptions(kv).activityNamespace, 'secret', 'channel-1', 'player-1', { kind: 'match', id: matchLobby.id })
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, matchLobby.channelId, 'player-1', activityRuntimeOptions(kv))
+    expect(snapshot.selection?.kind).toBe('match')
+    if (snapshot.selection?.kind !== 'match') return
+    expect(snapshot.selection.matchId).toBe(matchLobby.id)
+    expect(snapshot.selection.option.id).toBe(matchLobby.id)
+
+    const reopened = await buildActivityLaunchSnapshot(undefined, 'secret', kv, matchLobby.channelId, 'player-1', activityRuntimeOptions(kv))
+    expect(reopened.selection).toBeNull()
+  })
+
+  test('opens a clicked reportable active match when Discord launch channel differs from the button interaction channel', async () => {
+    const { kv } = createTrackedKv()
+    const matchLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'player-1',
+      channelId: 'activity-channel',
+      messageId: 'message-active',
+    })
+    await addToQueue(kv, '2v2', { playerId: 'player-1', displayName: 'Player 1', avatarUrl: null, joinedAt: Date.now() })
+    await addToQueue(kv, '2v2', { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, joinedAt: Date.now() + 1 })
+    const draftingLobby = await startTestSessionDraft(kv, matchLobby.id, matchLobby)
+    await setLobbyStatus(kv, matchLobby.id, 'active', draftingLobby ?? matchLobby)
+
+    await storeActivityLaunchTargetSelection(activityRuntimeOptions(kv).activityNamespace, 'secret', 'button-interaction-channel', 'player-1', { kind: 'match', id: matchLobby.id })
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'activity-channel', 'player-1', activityRuntimeOptions(kv))
+    expect(snapshot.selection?.kind).toBe('match')
+    if (snapshot.selection?.kind !== 'match') return
+    expect(snapshot.selection.matchId).toBe(matchLobby.id)
+  })
+
+  test('keeps a clicked match launch hint when an early hydrate cannot see the target', async () => {
+    const { kv } = createTrackedKv()
+    const matchLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'player-1',
+      channelId: 'channel-1',
+      messageId: 'message-active',
+    })
+    await addToQueue(kv, '2v2', { playerId: 'player-1', displayName: 'Player 1', avatarUrl: null, joinedAt: Date.now() })
+    await addToQueue(kv, '2v2', { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, joinedAt: Date.now() + 1 })
+    const draftingLobby = await startTestSessionDraft(kv, matchLobby.id, matchLobby)
+    await setLobbyStatus(kv, matchLobby.id, 'active', draftingLobby ?? matchLobby)
+
+    await storeActivityLaunchTargetSelection(activityRuntimeOptions(kv).activityNamespace, 'secret', 'button-interaction-channel', 'player-1', { kind: 'match', id: matchLobby.id })
+
+    const staleHydrate = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'empty-channel', 'player-1', activityRuntimeOptions(kv))
+    expect(staleHydrate.selection).toBeNull()
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'player-1', activityRuntimeOptions(kv))
+    expect(snapshot.selection?.kind).toBe('match')
+    if (snapshot.selection?.kind !== 'match') return
+    expect(snapshot.selection.matchId).toBe(matchLobby.id)
+  })
+
   test('keeps open lobby options when queue metadata is missing', async () => {
     const { kv } = createTrackedKv()
     const invalidLobby = await createLobby(kv, {
@@ -936,6 +1008,7 @@ describe('activity target selection', () => {
 
 function buildEnv(kv: KVNamespace) {
   return buildTestLobbyEnv(kv, {
+    Activity: getTestActivityNamespace(kv),
     DISCORD_APPLICATION_ID: 'app',
     DISCORD_PUBLIC_KEY: 'key',
     DISCORD_TOKEN: 'token',
@@ -945,7 +1018,42 @@ function buildEnv(kv: KVNamespace) {
 
 function activityRuntimeOptions(kv: KVNamespace) {
   const runtime = getExistingTestLobbyRuntime(kv)
-  return { db: runtime.d1, sessionNamespace: runtime.sessionNamespace }
+  return { db: runtime.d1, sessionNamespace: runtime.sessionNamespace, activityNamespace: getTestActivityNamespace(kv), internalSecret: 'secret' }
+}
+
+function getTestActivityNamespace(kv: KVNamespace): DurableObjectNamespace {
+  const existing = activityNamespaces.get(kv)
+  if (existing) return existing
+  const rooms = new Map<string, unknown>()
+  const namespace = {
+    idFromName(name: string) {
+      return name as unknown as DurableObjectId
+    },
+    get(id: DurableObjectId) {
+      const roomId = String(id)
+      if (!rooms.has(roomId)) rooms.set(roomId, null)
+      return {
+        async fetch(input: RequestInfo | URL, init?: RequestInit) {
+          const request = input instanceof Request ? input : new Request(input, init)
+          if (request.headers.get(PARTYSERVER_ROOM_HEADER) !== roomId || request.headers.get(PARTYSERVER_NAMESPACE_HEADER) !== 'activity') {
+            return new Response('Missing namespace or room headers', { status: 500 })
+          }
+          if (request.method === 'GET') return new Response(JSON.stringify({ target: rooms.get(roomId) ?? null }), { headers: { 'Content-Type': 'application/json' } })
+          if (request.method === 'DELETE') {
+            rooms.set(roomId, null)
+            return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } })
+          }
+          if (request.method === 'POST') {
+            rooms.set(roomId, await request.json())
+            return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } })
+          }
+          return new Response('Method not allowed', { status: 405 })
+        },
+      } as DurableObjectStub
+    },
+  } as unknown as DurableObjectNamespace
+  activityNamespaces.set(kv, namespace)
+  return namespace
 }
 
 function createDbFromRuntime(kv: KVNamespace) {
