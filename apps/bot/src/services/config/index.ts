@@ -66,6 +66,13 @@ async function getServerConfigValues(kv: KVNamespace): Promise<ServerConfigValue
   }
 }
 
+function getDefaultServerConfigValues(): ServerConfigValues {
+  return {
+    banTimerSeconds: DEFAULT_BAN_TIMER_SECONDS,
+    pickTimerSeconds: DEFAULT_PICK_TIMER_SECONDS,
+  }
+}
+
 export function parseServerConfigKey(key: string | undefined): ServerConfigKey | null {
   if (!key) return null
   const normalized = key.trim().toLowerCase()
@@ -129,10 +136,10 @@ export async function setServerConfigValue(
 }
 
 export async function resolveDraftTimerConfig(
-  kv: KVNamespace,
+  kv: KVNamespace | null | undefined,
   draftConfig: DraftTimerConfig,
 ): Promise<DraftTimerConfig> {
-  const values = await getServerConfigValues(kv)
+  const values = kv ? await getServerConfigValues(kv) : getDefaultServerConfigValues()
   return {
     banTimerSeconds: draftConfig.banTimerSeconds ?? values.banTimerSeconds,
     pickTimerSeconds: draftConfig.pickTimerSeconds ?? values.pickTimerSeconds,

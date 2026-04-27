@@ -240,7 +240,6 @@ export async function activateDraftMatch(
 
 export async function cancelDraftMatch(
   db: Database,
-  kv: KVNamespace,
   input: CancelDraftInput,
 ): Promise<CancelDraftResult> {
   const matchId = input.state.matchId

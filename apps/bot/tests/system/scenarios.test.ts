@@ -1380,6 +1380,57 @@ describe('system scenarios', () => {
     expect(await world.inspect.matchMapping('p1')).toBeNull()
   })
 
+  test('draft-complete active sessions release admission before report', async () => {
+    const world = await createTrackedWorld()
+    const liveLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      channelId: 'channel-active-release',
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: liveLobby.id })
+    await world.flushBackgroundTasks()
+    const finalized = await world.party.completeDraft(started.matchId, { finalized: true })
+    expect(finalized.status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const freshLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'fresh-host' }],
+      hostId: 'fresh-host',
+      channelId: 'channel-after-active-release',
+    })
+
+    const selectedLobby = await world.activity.targetLobby({
+      channelId: freshLobby.channelId,
+      userId: 'p1',
+      lobbyId: freshLobby.id,
+    })
+    expect(selectedLobby.body).toMatchObject({
+      snapshot: {
+        selection: {
+          kind: 'lobby',
+          joinEligibility: {
+            canJoin: true,
+            blockedReason: null,
+            pendingSlot: 1,
+          },
+        },
+      },
+    })
+
+    const joined = await world.lobby.place('1v1', {
+      userId: 'p1',
+      lobbyId: freshLobby.id,
+      targetSlot: 1,
+      displayName: 'p1',
+    })
+
+    expect(joined.status).toBe(200)
+    expect((await world.lobby.getById(freshLobby.id))?.memberPlayerIds).toEqual(['fresh-host', 'p1'])
+    expect((await world.inspect.lobbiesForPlayer('p1')).map(lobby => lobby.id)).toEqual([freshLobby.id])
+  })
+
   test('steam lobby link add update and clear is reflected in participant and selected spectator match snapshots', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({

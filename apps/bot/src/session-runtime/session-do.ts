@@ -2,7 +2,7 @@ import type { CompetitiveTier, DraftSeat, GameMode, QueueEntry } from '@civup/ga
 import type { SessionServerMessage } from '@civup/session'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
-import type { DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionDraftStartSyncState, SessionLifecycleSyncState, SessionProjectionState, SessionRecord, SessionRoster, SessionTerminalSyncCommand, SessionTerminalSyncState } from './session-record.ts'
+import type { DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionDraftStartSyncState, SessionLifecycleSyncState, SessionProjectionState, SessionProjectionSyncPayload, SessionProjectionSyncState, SessionRecord, SessionRoster, SessionTerminalSyncCommand, SessionTerminalSyncState } from './session-record.ts'
 import { createDb, matchBans, matches } from '@civup/db'
 import { canStartWithPlayerCount, formatModeLabel, GAME_MODES, getMinimumLeaderPoolSize } from '@civup/game'
 import { CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest } from '@civup/utils'
@@ -268,6 +268,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       await this.retryPendingDraftStartSync()
       await this.retryPendingLifecycleSync()
       await this.retryPendingTerminalSync()
+      await this.retryPendingProjectionSync()
       await this.handleDraftRuntimeAlarmIfDue()
       await this.rescheduleSessionAlarm(await this.getRecord())
       return json({ ok: true })
@@ -362,7 +363,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     const expected = normalizeOptionalPositiveInteger(body.expectedVersion)
     if (expected != null) {
-      if (expected < existing.version) return staleVersionResponse(expected, existing.version)
+      if (expected !== existing.version) return versionConflictResponse(expected, existing.version)
     }
 
     let record: SessionRecord
@@ -489,7 +490,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     }
 
     const expected = normalizeOptionalPositiveInteger(body?.expectedVersion)
-    if (expected != null && expected < record.version) return json({ error: 'Session changed before draft start' }, 409)
+    if (expected != null && expected !== record.version) return json({ error: 'Session changed before draft start' }, 409)
 
     const selectedEntries = buildSessionRosterSlotEntries(record)
     if (!selectedEntries.some(entry => entry.playerId === record.hostId)) {
@@ -502,7 +503,6 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (leaderPoolError) return json({ error: leaderPoolError }, 400)
 
     if (!this.env.DB) return json({ error: 'D1 binding is not configured' }, 503)
-    if (!this.env.KV) return json({ error: 'KV binding is not configured' }, 503)
 
     const now = normalizePositiveInteger(body?.now, Date.now())
     const matchId = record.id
@@ -679,7 +679,6 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
   private async ensureDraftRuntimeAndMatch(record: DraftSessionRecord): Promise<{ matchId: string, seats: DraftSeat[] }> {
     if (!this.env.DB) throw new Error('D1 binding is not configured')
-    if (!this.env.KV) throw new Error('KV binding is not configured')
 
     const existingRoom = await this.getRoomRecord()
     let room: { matchId: string, seats: DraftSeat[] }
@@ -772,6 +771,50 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     }
   }
 
+  private async retryPendingProjectionSync(): Promise<void> {
+    const record = await this.getRecord()
+    const pending = record?.projectionSync ?? null
+    if (!record || !pending) return
+
+    const now = Date.now()
+    if (pending.nextRetryAt > now) {
+      await this.scheduleLifecycleSyncAlarm(record)
+      return
+    }
+
+    const result = await this.finishProjectionSync(record, pending)
+    if (!result.ok) {
+      console.warn('[session-do] projection sync retry deferred', buildProjectionSyncLogContext(pending.payload, {
+        status: result.status,
+        error: result.error,
+      }))
+    }
+  }
+
+  private async finishProjectionSync(
+    record: SessionRecord,
+    pending: SessionProjectionSyncState,
+  ): Promise<{ ok: true } | { ok: false, status: number, error: string }> {
+    if (!this.env.DISCORD_TOKEN) {
+      await this.clearProjectionSyncMarker(record, pending.payload)
+      return { ok: true }
+    }
+
+    if (!this.env.DB) return await this.deferProjectionSync(record, pending.payload, 'D1 binding is not configured')
+
+    const current = await this.getRecord() ?? record
+    if (isProjectionSyncObsolete(current, pending.payload)) {
+      await this.clearProjectionSyncMarker(current, pending.payload)
+      return { ok: true }
+    }
+
+    const applied = await this.tryApplyProjectionSync(createDb(this.env.DB), current, pending.payload)
+    if (!applied.ok) return await this.deferProjectionSync(current, pending.payload, applied.error)
+
+    await this.clearProjectionSyncMarker(current, pending.payload)
+    return { ok: true }
+  }
+
   private async syncDraftLifecyclePayload(payload: DraftLifecyclePayload): Promise<{ ok: true, ignored?: boolean, synced?: boolean } | { ok: false, status: number, error: string }> {
     const existing = await this.getRecord()
     if (!existing) return { ok: false, status: 404, error: 'Session not found' }
@@ -785,7 +828,6 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     const marked = await this.markLifecycleSyncPending(existing, payload)
     if (!this.env.DB) return await this.deferLifecycleSync(marked, payload, 'D1 binding is not configured')
-    if (!this.env.KV) return await this.deferLifecycleSync(marked, payload, 'KV binding is not configured')
 
     const db = createDb(this.env.DB)
     let result: { ok: true, ignored?: boolean, synced?: boolean } | { ok: false, status: number, error: string }
@@ -847,13 +889,11 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     payload: Extract<DraftLifecyclePayload, { outcome: 'cancelled' }>,
     record: SessionRecord,
   ): Promise<{ ok: true, ignored?: boolean, synced?: boolean } | { ok: false, status: number, error: string }> {
-    if (!this.env.KV) return { ok: false, status: 503, error: 'KV binding is not configured' }
-
     const context = buildDraftLifecycleLogContext(payload)
     const hostId = payload.hostId ?? payload.state.seats[0]?.playerId
     if (!hostId) return { ok: false, status: 400, error: 'Draft lifecycle payload missing host identity' }
 
-    const cancelled = await cancelDraftMatch(db, this.env.KV, {
+    const cancelled = await cancelDraftMatch(db, {
       state: payload.state,
       cancelledAt: payload.cancelledAt,
       reason: payload.reason,
@@ -889,21 +929,18 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     record: SessionRecord,
     context: Record<string, unknown>,
   ): Promise<void> {
-    if (!this.env.KV) return
-    if (!this.env.DISCORD_TOKEN) return
+    const projection = {
+      type: 'draft-completed',
+      payload,
+      participants: result.participants,
+    } satisfies SessionProjectionSyncPayload
+    const applied = await this.tryApplyProjectionSync(db, record, projection)
+    if (applied.ok) {
+      await this.clearProjectionSyncMarker(record, projection)
+      return
+    }
 
-    const activeLobby = buildLobbyProjectionFromSessionRecord(record)
-    try {
-      const updatedLobby = await upsertLobbyMessage(this.env.KV, this.env.DISCORD_TOKEN, activeLobby, {
-        embeds: [lobbyDraftCompleteEmbed(activeLobby.mode, result.participants, payload.mapVoteResult ?? null, activeLobby.draftConfig.leaderDataVersion, activeLobby.draftConfig.redDeath)],
-        components: lobbyComponents(activeLobby.mode, activeLobby.id),
-      })
-      await this.updateMessageProjection(record, updatedLobby.messageId)
-      await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
-    }
-    catch (error) {
-      console.error('[session-do] failed to update completion embed', context, error)
-    }
+    await this.deferProjectionSync(record, projection, applied.error, context)
   }
 
   private async updateCancelledDraftProjection(
@@ -913,38 +950,134 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     record: SessionRecord,
     context: Record<string, unknown>,
   ): Promise<void> {
-    if (!this.env.KV) return
-    const lifecycleLobby = buildLobbyProjectionFromSessionRecord(record)
-    if (payload.reason === 'timeout' || payload.reason === 'revert') {
-      const queueEntries = buildSessionRosterQueueEntries(record)
-      if (!this.env.DISCORD_TOKEN) return
-      try {
-        const slottedEntries = mapLobbySlotsToEntries(lifecycleLobby.slots, queueEntries)
-        const renderPayload = await buildOpenLobbyRenderPayload(this.env.KV, lifecycleLobby, slottedEntries)
-        const updatedLobby = await upsertLobbyMessage(this.env.KV, this.env.DISCORD_TOKEN, lifecycleLobby, renderPayload)
-        await this.updateMessageProjection(record, updatedLobby.messageId)
-        await clearMatchMessageMapping(db, updatedLobby.messageId)
-      }
-      catch (error) {
-        console.error('[session-do] failed to update reopened lobby embed', context, error)
-      }
+    const projection = {
+      type: 'draft-cancelled',
+      payload,
+      participants: cancelled.participants,
+    } satisfies SessionProjectionSyncPayload
+    const applied = await this.tryApplyProjectionSync(db, record, projection)
+    if (applied.ok) {
+      await this.clearProjectionSyncMarker(record, projection)
       return
     }
 
-    if (this.env.DISCORD_TOKEN) {
-      try {
-        const updatedLobby = await upsertLobbyMessage(this.env.KV, this.env.DISCORD_TOKEN, lifecycleLobby, {
-          embeds: [lobbyCancelledEmbed(lifecycleLobby.mode, cancelled.participants, payload.reason, undefined, lifecycleLobby.draftConfig.leaderDataVersion, lifecycleLobby.draftConfig.redDeath)],
-          components: [],
-        })
-        await this.updateMessageProjection(record, updatedLobby.messageId)
-        await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
+    await this.deferProjectionSync(record, projection, applied.error, context)
+  }
+
+  private async tryApplyProjectionSync(
+    db: ReturnType<typeof createDb>,
+    record: SessionRecord,
+    projection: SessionProjectionSyncPayload,
+  ): Promise<{ ok: true } | { ok: false, error: string }> {
+    const token = this.env.DISCORD_TOKEN
+    if (!token) return { ok: true }
+    const kv = this.env.KV
+    if (!kv) return { ok: false, error: 'KV binding is not configured' }
+    if (isProjectionSyncObsolete(record, projection)) return { ok: true }
+
+    try {
+      if (projection.type === 'draft-completed') {
+        await this.applyCompletedDraftProjection(db, kv, token, record, projection)
       }
-      catch (error) {
-        console.error('[session-do] failed to update cancelled embed', context, error)
+      else {
+        await this.applyCancelledDraftProjection(db, kv, token, record, projection)
       }
+      return { ok: true }
+    }
+    catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  private async applyCompletedDraftProjection(
+    db: ReturnType<typeof createDb>,
+    kv: KVNamespace,
+    token: string,
+    record: SessionRecord,
+    projection: Extract<SessionProjectionSyncPayload, { type: 'draft-completed' }>,
+  ): Promise<void> {
+    const activeLobby = buildLobbyProjectionFromSessionRecord(record)
+    const payload = projection.payload
+    const updatedLobby = await upsertLobbyMessage(kv, token, activeLobby, {
+      embeds: [lobbyDraftCompleteEmbed(activeLobby.mode, projection.participants, payload.mapVoteResult ?? null, activeLobby.draftConfig.leaderDataVersion, activeLobby.draftConfig.redDeath)],
+      components: lobbyComponents(activeLobby.mode, activeLobby.id),
+    })
+    await this.updateMessageProjection(record, updatedLobby.messageId)
+    await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
+  }
+
+  private async applyCancelledDraftProjection(
+    db: ReturnType<typeof createDb>,
+    kv: KVNamespace,
+    token: string,
+    record: SessionRecord,
+    projection: Extract<SessionProjectionSyncPayload, { type: 'draft-cancelled' }>,
+  ): Promise<void> {
+    const payload = projection.payload
+    const lifecycleLobby = buildLobbyProjectionFromSessionRecord(record)
+    if (payload.reason === 'timeout' || payload.reason === 'revert') {
+      const queueEntries = buildSessionRosterQueueEntries(record)
+      const slottedEntries = mapLobbySlotsToEntries(lifecycleLobby.slots, queueEntries)
+      const renderPayload = await buildOpenLobbyRenderPayload(kv, lifecycleLobby, slottedEntries)
+      const updatedLobby = await upsertLobbyMessage(kv, token, lifecycleLobby, renderPayload)
+      await this.updateMessageProjection(record, updatedLobby.messageId)
+      await clearMatchMessageMapping(db, updatedLobby.messageId)
+      return
     }
 
+    const updatedLobby = await upsertLobbyMessage(kv, token, lifecycleLobby, {
+      embeds: [lobbyCancelledEmbed(lifecycleLobby.mode, projection.participants, payload.reason, undefined, lifecycleLobby.draftConfig.leaderDataVersion, lifecycleLobby.draftConfig.redDeath)],
+      components: [],
+    })
+    await this.updateMessageProjection(record, updatedLobby.messageId)
+    await storeMatchMessageMapping(db, updatedLobby.messageId, payload.matchId)
+  }
+
+  private async deferProjectionSync(
+    record: SessionRecord,
+    projection: SessionProjectionSyncPayload,
+    error: string,
+    context: Record<string, unknown> = {},
+  ): Promise<{ ok: true } | { ok: false, status: number, error: string }> {
+    const current = await this.getRecord() ?? record
+    if (!this.env.DISCORD_TOKEN || isProjectionSyncObsolete(current, projection)) {
+      await this.clearProjectionSyncMarker(current, projection)
+      return { ok: true }
+    }
+
+    const existingPending = current.projectionSync
+    if (existingPending && projectionEventSequence(existingPending.payload) > projectionEventSequence(projection)) return { ok: true }
+
+    const existing = isSameProjectionSyncPayload(existingPending?.payload, projection) ? existingPending : null
+    const attempts = existing ? existing.attempts + 1 : 1
+    if (attempts >= PROJECTION_SYNC_MAX_ATTEMPTS) {
+      await this.storeRecordOnly(withProjectionSync(current, null))
+      console.error('[session-do] projection sync abandoned after bounded retries', buildProjectionSyncLogContext(projection, {
+        ...context,
+        attempts,
+        error,
+      }))
+      return { ok: true }
+    }
+
+    const nextRetryAt = Date.now() + getProjectionSyncRetryDelay(attempts)
+    const pending = withProjectionSync(current, { payload: projection, attempts, nextRetryAt })
+    await this.storeRecordOnly(pending)
+    console.warn('[session-do] projection sync retry scheduled', buildProjectionSyncLogContext(projection, {
+      ...context,
+      attempts,
+      nextRetryAt,
+      error,
+    }))
+    return { ok: false, status: 503, error }
+  }
+
+  private async clearProjectionSyncMarker(record: SessionRecord, projection: SessionProjectionSyncPayload): Promise<void> {
+    const current = await this.getRecord() ?? record
+    const pending = current.projectionSync
+    if (!pending) return
+    if (projectionEventSequence(pending.payload) > projectionEventSequence(projection)) return
+    await this.storeRecordOnly(withProjectionSync(current, null))
   }
 
   private async markLifecycleSyncPending(record: SessionRecord, payload: DraftLifecyclePayload): Promise<SessionRecord> {
@@ -1077,7 +1210,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     switch (body.type) {
       case 'set-message': {
         const expected = normalizeOptionalPositiveInteger(body.expectedVersion)
-        if (expected != null && expected < existing.version) return staleVersionResponse(expected, existing.version)
+        if (expected != null && expected !== existing.version) return versionConflictResponse(expected, existing.version)
         const channelId = typeof body.channelId === 'string' && body.channelId.length > 0 ? body.channelId : existing.projectionState.channelId
         const messageId = typeof body.messageId === 'string' && body.messageId.length > 0 ? body.messageId : existing.projectionState.messageId
         if (existing.projectionState.channelId === channelId && existing.projectionState.messageId === messageId) return json({ ok: true, record: existing })
@@ -1098,7 +1231,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       }
       case 'set-steam-lobby-link': {
         const expected = normalizeOptionalPositiveInteger(body.expectedVersion)
-        if (expected != null && expected < existing.version) return staleVersionResponse(expected, existing.version)
+        if (expected != null && expected !== existing.version) return versionConflictResponse(expected, existing.version)
         const steamLobbyLink = typeof body.steamLobbyLink === 'string' ? body.steamLobbyLink : null
         if (existing.projectionState.steamLobbyLink === steamLobbyLink) return json({ ok: true, record: existing })
         const at = normalizePositiveInteger(body.now, Date.now())
@@ -1249,8 +1382,11 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const terminalRetryAt = record?.terminalSync && record.terminalSync.nextRetryAt > 0
       ? record.terminalSync.nextRetryAt
       : null
+    const projectionRetryAt = record?.projectionSync && record.projectionSync.nextRetryAt > 0
+      ? record.projectionSync.nextRetryAt
+      : null
     const draftRuntimeAlarmAt = await this.getDraftRuntimeAlarmAt()
-    const candidates = [draftStartRetryAt, lifecycleRetryAt, terminalRetryAt, draftRuntimeAlarmAt].filter((value): value is number => typeof value === 'number')
+    const candidates = [draftStartRetryAt, lifecycleRetryAt, terminalRetryAt, projectionRetryAt, draftRuntimeAlarmAt].filter((value): value is number => typeof value === 'number')
     const storage = this.ctx.storage as DurableObjectStorage & {
       setAlarm?: (scheduledTime: number | Date) => Promise<void>
       deleteAlarm?: () => Promise<void>
@@ -1453,6 +1589,9 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
 const LIFECYCLE_SYNC_RETRY_BASE_MS = 1_000
 const LIFECYCLE_SYNC_RETRY_MAX_MS = 60_000
+const PROJECTION_SYNC_RETRY_BASE_MS = 2_000
+const PROJECTION_SYNC_RETRY_MAX_MS = 60_000
+const PROJECTION_SYNC_MAX_ATTEMPTS = 5
 
 type LifecycleTransitionResult =
   | { record: SessionRecord, ignored?: boolean }
@@ -1552,6 +1691,13 @@ function withLifecycleSync(record: SessionRecord, lifecycleSync: SessionLifecycl
   } as SessionRecord
 }
 
+function withProjectionSync(record: SessionRecord, projectionSync: SessionProjectionSyncState | null): SessionRecord {
+  return {
+    ...record,
+    projectionSync,
+  } as SessionRecord
+}
+
 function withTerminalSync(record: SessionRecord, terminalSync: SessionTerminalSyncState | null): SessionRecord {
   return {
     ...record,
@@ -1623,8 +1769,39 @@ function buildDraftLifecycleLogContext(payload: DraftLifecyclePayload, extra: Re
   }
 }
 
+function buildProjectionSyncLogContext(projection: SessionProjectionSyncPayload, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  const payload = projection.payload
+  return buildDraftLifecycleLogContext(payload, {
+    projectionType: projection.type,
+    ...extra,
+  })
+}
+
 function getLifecycleSyncRetryDelay(attempts: number): number {
   return Math.min(LIFECYCLE_SYNC_RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1), LIFECYCLE_SYNC_RETRY_MAX_MS)
+}
+
+function getProjectionSyncRetryDelay(attempts: number): number {
+  return Math.min(PROJECTION_SYNC_RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1), PROJECTION_SYNC_RETRY_MAX_MS)
+}
+
+function isSameProjectionSyncPayload(left: SessionProjectionSyncPayload | null | undefined, right: SessionProjectionSyncPayload): boolean {
+  return left?.type === right.type && projectionEventId(left) === projectionEventId(right)
+}
+
+function projectionEventId(projection: SessionProjectionSyncPayload): string {
+  return projection.payload.eventId
+}
+
+function projectionEventSequence(projection: SessionProjectionSyncPayload): number {
+  return projection.payload.eventSequence
+}
+
+function isProjectionSyncObsolete(record: SessionRecord, projection: SessionProjectionSyncPayload): boolean {
+  if ((record.matchId ?? record.id) !== projection.payload.matchId && record.id !== projection.payload.matchId) return true
+  if (projection.type === 'draft-completed') return record.phase !== 'swap' && record.phase !== 'active'
+  if (projection.payload.reason === 'timeout' || projection.payload.reason === 'revert') return record.phase !== 'open'
+  return record.phase !== 'cancelled'
 }
 
 function setReportedByInDraftData(draftData: string | null, reporterId: string): string | null {
@@ -1704,7 +1881,7 @@ function applyOpenSessionPatch(record: OpenSessionRecord, patch: OpenSessionPatc
   if (sameOpenSessionRecord(record, next)) return record
   return {
     ...next,
-    version: Math.max(record.version + 1, (normalizeOptionalPositiveInteger(patch.expectedVersion) ?? record.version) + 1),
+    version: record.version + 1,
     updatedAt: normalizePositiveInteger(patch.updatedAt, Date.now()),
   }
 }
@@ -1718,6 +1895,7 @@ function cancelOpenSession(record: OpenSessionRecord, at: number | undefined): S
     frozenAt: null,
     updatedAt: now,
     closedAt: now,
+    projectionSync: null,
   }
 }
 
@@ -1729,6 +1907,7 @@ function markActiveSessionReported(record: SessionRecord, at: number): SessionRe
     updatedAt: at,
     lastActivityAt: at,
     closedAt: at,
+    projectionSync: null,
   } as SessionRecord
 }
 
@@ -1741,6 +1920,7 @@ function cancelNonOpenSession(record: SessionRecord, at: number): SessionRecord 
     updatedAt: at,
     lastActivityAt: at,
     closedAt: at,
+    projectionSync: null,
   } as SessionRecord
 }
 
@@ -1763,6 +1943,10 @@ function reopenDraftSession(record: DraftSessionRecord, at: number): OpenSession
     lastActivityAt: at,
     closedAt: null,
     draftStartSync: null,
+    lifecycleEventSequence: record.lifecycleEventSequence ?? 0,
+    lifecycleSync: record.lifecycleSync ?? null,
+    projectionSync: null,
+    terminalSync: record.terminalSync ?? null,
   }
 }
 
@@ -1828,8 +2012,9 @@ function normalizePositiveInteger(value: unknown, fallback: number): number {
   return normalizeOptionalPositiveInteger(value) ?? Math.max(1, Math.round(fallback))
 }
 
-function staleVersionResponse(expectedVersion: number, currentVersion: number): Response {
-  return json({ error: `Session version is stale (expected ${expectedVersion}, current ${currentVersion})` }, 409)
+function versionConflictResponse(expectedVersion: number, currentVersion: number): Response {
+  const label = expectedVersion < currentVersion ? 'stale' : 'mismatched'
+  return json({ error: `Session version is ${label} (expected ${expectedVersion}, current ${currentVersion})` }, 409)
 }
 
 function isGameMode(value: unknown): value is GameMode {

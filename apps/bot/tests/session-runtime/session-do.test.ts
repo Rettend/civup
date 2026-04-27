@@ -78,6 +78,13 @@ describe('SessionDO open session commands', () => {
         }),
       }))
 
+      const futureStartResponse = await room.fetch(sessionRequest('/commands/start-draft', {
+        method: 'POST',
+        body: JSON.stringify({ hostId: 'p1', expectedVersion: 99, now: 2 }),
+      }))
+      expect(futureStartResponse.status).toBe(409)
+      expect(await futureStartResponse.json()).toEqual({ error: 'Session changed before draft start' })
+
       const startResponse = await room.fetch(sessionRequest('/commands/start-draft', {
         method: 'POST',
         body: JSON.stringify({ hostId: 'p1', now: 2 }),
@@ -236,6 +243,42 @@ describe('SessionDO open session commands', () => {
     }
   })
 
+  test('draft start and lifecycle sync continue without KV binding', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      DB: createSqliteD1Database(sqlite),
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+      draftConfig: { ...DEFAULT_DRAFT_CONFIG, pickTimerSeconds: null, banTimerSeconds: null },
+    })
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+
+      const started = await startDraft(room, { hostId: 'p1', now: 20 })
+      expect(started.seats).toHaveLength(2)
+      const completed = await room.fetch(sessionRequest('/commands/draft-lifecycle-sync', {
+        method: 'POST',
+        body: JSON.stringify(buildCompletePayload(openLobby.id, started.seats)),
+      }))
+
+      expect(completed.status).toBe(200)
+      const record = await getSessionRecordBody(room)
+      expect(record.phase).toBe('swap')
+      expect(record.lifecycleSync).toBeNull()
+      expect(record.projectionSync).toBeNull()
+      expect((await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1))[0]?.status).toBe('active')
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('lifecycle retry after partial activation still commits session and updates Discord projection', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -302,6 +345,141 @@ describe('SessionDO open session commands', () => {
       expect(participants.every(participant => participant.civId != null)).toBe(true)
     }
     finally {
+      console.error = originalConsoleError
+      console.warn = originalConsoleWarn
+      sqlite.close()
+    }
+  })
+
+  test('completion projection failures retry from alarm without rolling back lifecycle truth', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const discordRequests: Array<{ method: string, url: string }> = []
+    const originalDateNow = Date.now
+    const originalConsoleError = console.error
+    const originalConsoleWarn = console.warn
+    let failNextPatch = true
+    console.error = (() => {}) as typeof console.error
+    console.warn = (() => {}) as typeof console.warn
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      discordRequests.push({ method: request.method, url: request.url })
+      if (failNextPatch && request.method === 'PATCH') {
+        failNextPatch = false
+        return new Response('injected discord failure', { status: 400 })
+      }
+      return new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      DB: createSqliteD1Database(sqlite),
+      KV: kv,
+      DISCORD_TOKEN: 'token',
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      const started = await startDraft(room, { hostId: 'p1', now: 20 })
+      const payload = buildCompletePayload(openLobby.id, started.seats)
+
+      const completed = await room.fetch(sessionRequest('/commands/draft-lifecycle-sync', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }))
+
+      expect(completed.status).toBe(200)
+      const pending = await getSessionRecordBody(room)
+      expect(pending.phase).toBe('swap')
+      expect(pending.lifecycleSync).toBeNull()
+      expect(pending.projectionSync).toMatchObject({
+        attempts: 1,
+        payload: expect.objectContaining({ type: 'draft-completed' }),
+      })
+      expect((await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1))[0]?.status).toBe('active')
+      expect(discordRequests).toHaveLength(1)
+
+      Date.now = () => pending.projectionSync.nextRetryAt
+      await room.onAlarm()
+
+      const record = await getSessionRecordBody(room)
+      expect(record.phase).toBe('swap')
+      expect(record.projectionSync).toBeNull()
+      expect(discordRequests).toEqual([
+        expect.objectContaining({ method: 'PATCH', url: expect.stringContaining('/channels/channel-1/messages/message-1') }),
+        expect.objectContaining({ method: 'PATCH', url: expect.stringContaining('/channels/channel-1/messages/message-1') }),
+      ])
+    }
+    finally {
+      Date.now = originalDateNow
+      console.error = originalConsoleError
+      console.warn = originalConsoleWarn
+      sqlite.close()
+    }
+  })
+
+  test('completion projection retry is bounded and abandons stuck Discord work', async () => {
+    const { sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const discordRequests: Array<{ method: string, url: string }> = []
+    const originalDateNow = Date.now
+    const originalConsoleError = console.error
+    const originalConsoleWarn = console.warn
+    console.error = (() => {}) as typeof console.error
+    console.warn = (() => {}) as typeof console.warn
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      discordRequests.push({ method: request.method, url: request.url })
+      return new Response('injected discord failure', { status: 400 })
+    }) as typeof fetch
+
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      DB: createSqliteD1Database(sqlite),
+      KV: kv,
+      DISCORD_TOKEN: 'token',
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      const started = await startDraft(room, { hostId: 'p1', now: 20 })
+
+      const completed = await room.fetch(sessionRequest('/commands/draft-lifecycle-sync', {
+        method: 'POST',
+        body: JSON.stringify(buildCompletePayload(openLobby.id, started.seats)),
+      }))
+      expect(completed.status).toBe(200)
+      expect((await getSessionRecordBody(room)).projectionSync?.attempts).toBe(1)
+
+      for (let attempt = 2; attempt <= 5; attempt++) {
+        const current = await getSessionRecordBody(room)
+        expect(current.projectionSync?.attempts).toBe(attempt - 1)
+        Date.now = () => current.projectionSync.nextRetryAt
+        await room.onAlarm()
+      }
+
+      const record = await getSessionRecordBody(room)
+      expect(record.phase).toBe('swap')
+      expect(record.projectionSync).toBeNull()
+      expect(discordRequests).toHaveLength(5)
+    }
+    finally {
+      Date.now = originalDateNow
       console.error = originalConsoleError
       console.warn = originalConsoleWarn
       sqlite.close()
@@ -473,6 +651,21 @@ describe('SessionDO open session commands', () => {
     expect(staleRecord.version).toBe(2)
     expect(staleRecord.projectionState.steamLobbyLink).toBeNull()
 
+    const futureRawResponse = await room.fetch(sessionRequest('/commands/open-lobby', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'set-steam-lobby-link',
+        expectedVersion: 99,
+        now: 30,
+        steamLobbyLink: 'steam://join/future',
+      }),
+    }))
+    expect(futureRawResponse.status).toBe(409)
+    expect((await futureRawResponse.json() as any).error).toContain('Session version is mismatched')
+    const futureRecord = await getSessionRecordBody(room)
+    expect(futureRecord.version).toBe(2)
+    expect(futureRecord.projectionState.steamLobbyLink).toBeNull()
+
     const projectionStaleRawResponse = await room.fetch(sessionRequest('/commands/session-projection', {
       method: 'POST',
       body: JSON.stringify({
@@ -483,6 +676,18 @@ describe('SessionDO open session commands', () => {
       }),
     }))
     expect(projectionStaleRawResponse.status).toBe(409)
+
+    const projectionFutureRawResponse = await room.fetch(sessionRequest('/commands/session-projection', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'set-steam-lobby-link',
+        expectedVersion: 99,
+        now: 30,
+        steamLobbyLink: 'steam://join/future',
+      }),
+    }))
+    expect(projectionFutureRawResponse.status).toBe(409)
+    expect((await projectionFutureRawResponse.json() as any).error).toContain('Session version is mismatched')
 
     const noOpResponse = await openLobbyCommand(room, {
       type: 'set-steam-lobby-link',
