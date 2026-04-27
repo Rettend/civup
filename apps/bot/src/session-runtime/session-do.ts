@@ -1228,7 +1228,6 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         } satisfies SessionRecord
         const commit = await this.commitRecord(record)
         if (commit) return commit
-        await this.syncDraftRuntimeProjectionState(record)
         return json({ ok: true, record })
       }
       case 'set-steam-lobby-link': {
@@ -1249,6 +1248,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         } satisfies SessionRecord
         const commit = await this.commitRecord(record)
         if (commit) return commit
+        await this.syncDraftRuntimeProjectionState(record)
         return json({ ok: true, record })
       }
       default:

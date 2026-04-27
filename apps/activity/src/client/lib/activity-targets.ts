@@ -29,6 +29,19 @@ export function didClearResolvedActivityTarget(
   return previous != null && next == null
 }
 
+export function shouldRequestActivityTargetSelection(input: {
+  option: ActivityTargetOption
+  currentTargetKey: string | null
+}): boolean {
+  const optionKey = activityTargetOptionKey(input.option)
+  if (input.currentTargetKey !== optionKey) return true
+
+  return input.option.kind === 'lobby'
+    && !input.option.isHost
+    && !input.option.isMember
+    && input.option.participantCount >= input.option.targetSize
+}
+
 /** Chooses a default target only when it is still safe to auto-select one. */
 export function resolveAutoSelectedActivityTarget(input: {
   options: readonly ActivityTargetOption[]
@@ -41,8 +54,8 @@ export function resolveAutoSelectedActivityTarget(input: {
 
   if (hasResolvedTarget || input.overviewPinned || input.suppressAutoSelection) return null
 
-  return input.options.find(option => (option.isHost || option.isMember) && option.kind === 'match')
-    ?? input.options.find(option => option.isHost || option.isMember)
+  return input.options.find(option => (option.isHost || option.isMember) && option.kind === 'match' && option.status === 'drafting')
+    ?? input.options.find(option => (option.isHost || option.isMember) && option.kind === 'lobby')
     ?? null
 }
 

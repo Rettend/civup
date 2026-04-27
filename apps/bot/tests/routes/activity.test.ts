@@ -594,6 +594,53 @@ describe('activity target selection', () => {
     expect(snapshot.selection.option.isMember).toBe(true)
   })
 
+  test('prefers an open lobby over an old reportable active match for default focus', async () => {
+    const { kv } = createTrackedKv()
+    const oldMatchLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'player-1',
+      channelId: 'channel-1',
+      messageId: 'message-active',
+    })
+    await addToQueue(kv, '2v2', { playerId: 'player-1', displayName: 'Player 1', avatarUrl: null, joinedAt: Date.now() })
+    await addToQueue(kv, '2v2', { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, joinedAt: Date.now() + 1 })
+    const draftingLobby = await startTestSessionDraft(kv, oldMatchLobby.id, oldMatchLobby)
+    await setLobbyStatus(kv, oldMatchLobby.id, 'active', draftingLobby ?? oldMatchLobby)
+
+    const currentLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'player-1',
+      channelId: 'channel-1',
+      messageId: 'message-current',
+    })
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, currentLobby.channelId, 'player-1', activityRuntimeOptions(kv))
+    expect(snapshot.options).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'match', id: oldMatchLobby.id, status: 'active', isMember: true }),
+      expect.objectContaining({ kind: 'lobby', id: currentLobby.id, isHost: true }),
+    ]))
+    expect(snapshot.selection?.kind).toBe('lobby')
+    expect(snapshot.selection?.option.id).toBe(currentLobby.id)
+  })
+
+  test('does not auto-open a lone reportable active match', async () => {
+    const { kv } = createTrackedKv()
+    const oldMatchLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'player-1',
+      channelId: 'channel-1',
+      messageId: 'message-active',
+    })
+    await addToQueue(kv, '2v2', { playerId: 'player-1', displayName: 'Player 1', avatarUrl: null, joinedAt: Date.now() })
+    await addToQueue(kv, '2v2', { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, joinedAt: Date.now() + 1 })
+    const draftingLobby = await startTestSessionDraft(kv, oldMatchLobby.id, oldMatchLobby)
+    await setLobbyStatus(kv, oldMatchLobby.id, 'active', draftingLobby ?? oldMatchLobby)
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, oldMatchLobby.channelId, 'player-1', activityRuntimeOptions(kv))
+    expect(snapshot.selection).toBeNull()
+    expect(snapshot.options).toEqual([expect.objectContaining({ kind: 'match', id: oldMatchLobby.id, status: 'active', isMember: true })])
+  })
+
   test('keeps open lobby options when queue metadata is missing', async () => {
     const { kv } = createTrackedKv()
     const invalidLobby = await createLobby(kv, {

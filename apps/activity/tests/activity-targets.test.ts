@@ -1,6 +1,6 @@
 import type { ActivityTargetOption } from '../src/client/stores'
 import { describe, expect, test } from 'bun:test'
-import { activityTargetOptionKey, activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from '../src/client/lib/activity-targets'
+import { activityTargetOptionKey, activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldRequestActivityTargetSelection } from '../src/client/lib/activity-targets'
 
 const joinedMatch: ActivityTargetOption = {
   kind: 'match',
@@ -16,6 +16,15 @@ const joinedMatch: ActivityTargetOption = {
   isMember: true,
   isHost: false,
   updatedAt: 20,
+}
+
+const joinedActiveMatch: ActivityTargetOption = {
+  ...joinedMatch,
+  id: 'match-active',
+  lobbyId: 'lobby-active',
+  matchId: 'match-active',
+  status: 'active',
+  updatedAt: 30,
 }
 
 const staleLobby: ActivityTargetOption = {
@@ -34,6 +43,14 @@ const staleLobby: ActivityTargetOption = {
   updatedAt: 10,
 }
 
+const joinedLobby: ActivityTargetOption = {
+  ...staleLobby,
+  id: 'lobby-joined',
+  lobbyId: 'lobby-joined',
+  isMember: true,
+  updatedAt: 40,
+}
+
 describe('activity target helpers', () => {
   test('does not treat the initial missing target replay as a cleared selection', () => {
     expect(didClearResolvedActivityTarget(undefined, null)).toBe(false)
@@ -48,6 +65,28 @@ describe('activity target helpers', () => {
     })
 
     expect(selected).toEqual(joinedMatch)
+  })
+
+  test('prefers open lobby membership over old active matches', () => {
+    const selected = resolveAutoSelectedActivityTarget({
+      options: [joinedActiveMatch, joinedLobby],
+      target: null,
+      overviewPinned: false,
+      suppressAutoSelection: false,
+    })
+
+    expect(selected).toEqual(joinedLobby)
+  })
+
+  test('does not auto-select active matches without a live draft room', () => {
+    const selected = resolveAutoSelectedActivityTarget({
+      options: [joinedActiveMatch],
+      target: null,
+      overviewPinned: false,
+      suppressAutoSelection: false,
+    })
+
+    expect(selected).toBeNull()
   })
 
   test('suppresses auto-selection after an existing target is cleared', () => {
@@ -97,6 +136,30 @@ describe('activity target helpers', () => {
     })
 
     expect(selected).toBeNull()
+  })
+
+  test('re-confirms an already selected full lobby so spectator membership can persist', () => {
+    const fullLobby = {
+      ...staleLobby,
+      participantCount: 4,
+      targetSize: 4,
+    }
+
+    expect(shouldRequestActivityTargetSelection({
+      option: fullLobby,
+      currentTargetKey: activityTargetOptionKey(fullLobby),
+    })).toBe(true)
+  })
+
+  test('does not re-request the same joined or not-full lobby selection', () => {
+    expect(shouldRequestActivityTargetSelection({
+      option: joinedLobby,
+      currentTargetKey: activityTargetOptionKey(joinedLobby),
+    })).toBe(false)
+    expect(shouldRequestActivityTargetSelection({
+      option: staleLobby,
+      currentTargetKey: activityTargetOptionKey(staleLobby),
+    })).toBe(false)
   })
 
   test('keeps pinned overview from applying background selections', () => {
