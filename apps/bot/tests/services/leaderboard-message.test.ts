@@ -1,7 +1,9 @@
-import { leaderboardMessageStates, playerRatings, players, seasons } from '@civup/db'
+import type { Database } from '@civup/db'
+import { leaderboardDirtyStates, leaderboardMessageStates, playerRatings, players, seasons } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
-import { archiveSeasonLeaderboards, upsertLeaderboardMessagesForChannel } from '../../src/services/leaderboard/message.ts'
+import { archiveSeasonLeaderboards, markLeaderboardsDirty, refreshDirtyLeaderboards, upsertLeaderboardMessagesForChannel } from '../../src/services/leaderboard/message.ts'
+import { ensureLeaderboardModeSnapshot, leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
@@ -77,4 +79,76 @@ describe('leaderboard message service', () => {
 
     sqlite.close()
   })
+
+  test('legacy player snapshots without a cache version rebuild from D1', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedDuelRating(db, '100010000000000002', 10)
+      await kv.put(leaderboardModeSnapshotKey('duel'), JSON.stringify({
+        updatedAt: NOW - 1,
+        rows: [{
+          playerId: '100010000000000002',
+          mu: 30,
+          sigma: 6,
+          gamesPlayed: 9,
+          wins: 9,
+          lastPlayedAt: NOW - 1,
+        }],
+      }))
+
+      const snapshot = await ensureLeaderboardModeSnapshot(db, kv, 'duel')
+
+      expect(snapshot.rows.find(row => row.playerId === '100010000000000002')?.gamesPlayed).toBe(10)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('dirty refresh rebuilds existing leaderboard snapshots before clearing dirtiness', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedDuelRating(db, '100010000000000003', 9)
+      await ensureLeaderboardModeSnapshot(db, kv, 'duel')
+
+      await db
+        .update(playerRatings)
+        .set({ gamesPlayed: 10, wins: 10, lastPlayedAt: NOW + 1 })
+        .where(eq(playerRatings.playerId, '100010000000000003'))
+      await markLeaderboardsDirty(db, 'test-report')
+
+      const refreshed = await refreshDirtyLeaderboards(db, kv, 'token')
+      const snapshot = await ensureLeaderboardModeSnapshot(db, kv, 'duel')
+      const dirtyRows = await db.select().from(leaderboardDirtyStates)
+
+      expect(refreshed).toBe(false)
+      expect(snapshot.rows.find(row => row.playerId === '100010000000000003')?.gamesPlayed).toBe(10)
+      expect(dirtyRows).toHaveLength(0)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
 })
+
+async function seedDuelRating(db: Database, playerId: string, gamesPlayed: number): Promise<void> {
+  await db.insert(players).values({
+    id: playerId,
+    displayName: playerId,
+    avatarUrl: null,
+    createdAt: NOW,
+  })
+  await db.insert(playerRatings).values({
+    playerId,
+    mode: 'duel',
+    mu: 30,
+    sigma: 6,
+    gamesPlayed,
+    wins: gamesPlayed,
+    lastPlayedAt: NOW,
+  })
+}

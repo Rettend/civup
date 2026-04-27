@@ -9,7 +9,8 @@ import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../
 import {
   getSystemChannel,
 } from '../system/channels.ts'
-import { ensureLeaderboardModeSnapshots } from './snapshot.ts'
+import { clearAllTeamLeaderboardSnapshots } from './team-snapshot.ts'
+import { ensureLeaderboardModeSnapshots, rebuildLeaderboardModeSnapshot } from './snapshot.ts'
 
 const LEADERBOARD_SCOPE = 'global'
 
@@ -102,11 +103,12 @@ export async function refreshDirtyLeaderboards(
   const dirtyState = await getLeaderboardDirtyState(db)
   if (!dirtyState) return false
 
-  const refreshed = await refreshConfiguredLeaderboards(db, kv, token, { modes: options.modes })
-  if (!refreshed) return false
+  const modes = [...new Set(options.modes ?? LEADERBOARD_MODES)]
+  await rebuildLeaderboardSnapshots(db, kv, modes)
 
+  const refreshed = await refreshConfiguredLeaderboards(db, kv, token, { modes })
   await clearLeaderboardDirtyState(db)
-  return true
+  return refreshed
 }
 
 export async function upsertLeaderboardMessagesForChannel(
@@ -170,6 +172,17 @@ async function buildLeaderboardEmbeds(
     const snapshot = snapshots.get(mode)
     return leaderboardEmbed(mode, snapshot?.rows ?? [], options)
   })
+}
+
+async function rebuildLeaderboardSnapshots(
+  db: Database,
+  kv: KVNamespace,
+  modes: readonly LeaderboardMode[],
+): Promise<void> {
+  await Promise.all(modes.map(mode => rebuildLeaderboardModeSnapshot(db, kv, mode)))
+  if (modes.some(mode => mode === 'duo' || mode === 'squad')) {
+    await clearAllTeamLeaderboardSnapshots(kv)
+  }
 }
 
 async function getLeaderboardMessageState(db: Database): Promise<LeaderboardMessageState | null> {
