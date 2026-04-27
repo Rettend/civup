@@ -227,6 +227,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       cancelledAt: room.cancelledAt,
       previews: censorDraftPreviews(room.state, room.previews, seatIndex),
       swapState: room.swapWindowOpen ? this.getNormalizedSwapState(room) : null,
+      steamLobbyLink: room.config.steamLobbyLink ?? null,
     })
   }
 
@@ -339,6 +340,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       room.previews,
       swapState,
       room.mapVote,
+      room.config.steamLobbyLink ?? null,
     )
   }
 
@@ -393,6 +395,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       completedAt: room.completedAt,
       previews: censorDraftPreviews(room.state, room.previews, seatIndex),
       swapState: room.swapWindowOpen ? this.getNormalizedSwapState(room) : null,
+      steamLobbyLink: room.config.steamLobbyLink ?? null,
     })
 
     if (room.swapWindowOpen && seatIndex >= 0 && room.swapDisconnectFinalizeAt != null) {
@@ -1184,6 +1187,24 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     this.broadcastRoomRecord(room, events)
   }
 
+  protected async syncDraftRuntimeSteamLobbyLink(steamLobbyLink: string | null): Promise<void> {
+    const room = await this.getRoomRecord()
+    if (!room) return
+    if ((room.config.steamLobbyLink ?? null) === steamLobbyLink) return
+
+    await this.setRoomRecord({
+      ...room,
+      config: {
+        ...room.config,
+        steamLobbyLink,
+      },
+    })
+
+    for (const connection of this.getConnections()) {
+      this.send(connection, { type: 'projection-update', steamLobbyLink })
+    }
+  }
+
   private async getStoredMapVoteState(): Promise<StoredMapVoteState> {
     return (await this.getRoomRecord())?.mapVote ?? { ...EMPTY_STORED_MAP_VOTE_STATE }
   }
@@ -1235,6 +1256,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     previews: DraftPreviewState,
     swapState: LeaderSwapState | null,
     mapVoteState: StoredMapVoteState,
+    steamLobbyLink: string | null,
   ) {
     for (const conn of this.getConnections()) {
       const connState = conn.state as ConnectionState | null
@@ -1254,6 +1276,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         completedAt,
         previews: censorDraftPreviews(state, previews, seatIndex),
         swapState,
+        steamLobbyLink,
       })
     }
   }

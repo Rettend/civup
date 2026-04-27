@@ -1,10 +1,11 @@
-import type { GameMode } from '@civup/game'
+import type { GameMode, QueueEntry } from '@civup/game'
 import type { Hono } from 'hono'
 import type { Env } from '../env.ts'
 import type { ActivitySessionDirectoryEntry, LobbySnapshot } from '../services/activity/session-state.ts'
 import type { LeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import type { LobbyState } from '../services/lobby/index.ts'
 import type { SessionRecord } from '../session-runtime/session-record.ts'
+import type { AuthenticatedActivityIdentity } from './auth.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel, GAME_MODES, toBalanceLeaderboardMode } from '@civup/game'
 import { createSessionAccessToken } from '@civup/utils'
@@ -14,7 +15,8 @@ import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '..
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../services/match/live.ts'
 import { getCurrentSessionLobbyProjectionsForPlayer } from '../services/session/index.ts'
 import { getKvStore, kvMget } from '../services/kv/batch.ts'
-import { getSessionRecord } from '../session-runtime/session-do-client.ts'
+import { getSessionRecord, runSessionOpenLobbyCommand } from '../session-runtime/session-do-client.ts'
+import { buildSessionRosterQueueEntries } from '../session-runtime/session-record.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
 import { buildOpenLobbySnapshot } from './lobby/snapshot.ts'
 
@@ -76,6 +78,12 @@ interface ResolvedActivitySelection {
 
 interface ActivityLaunchContext {
   targets: ChannelActivityTarget[]
+}
+
+interface ActivityRuntimeOptions {
+  db?: D1Database | null
+  sessionNamespace?: DurableObjectNamespace | null
+  viewer?: AuthenticatedActivityIdentity | null
 }
 
 export function registerActivityRoutes(app: Hono<Env>) {
@@ -234,6 +242,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
     }, {
       db: c.env.DB,
       sessionNamespace: c.env.SessionDO,
+      viewer: auth.identity,
     })
     if (!result.ok) {
       return c.json({ error: result.error }, result.status)
@@ -253,20 +262,61 @@ export async function selectActivityTargetForUser(
     kind: 'lobby' | 'match'
     id: string
   },
-  options?: {
-    db?: D1Database | null
-    sessionNamespace?: DurableObjectNamespace | null
-  },
+  options?: ActivityRuntimeOptions,
 ): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string, status: 409 }> {
-  const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db)
-  const selectionTarget = context.targets.find(candidate => candidate.option.kind === target.kind && candidate.option.id === target.id) ?? null
+  let context = await loadActivityLaunchContext(kv, channelId, userId, options?.db)
+  let selectionTarget = context.targets.find(candidate => candidate.option.kind === target.kind && candidate.option.id === target.id) ?? null
   if (!selectionTarget) return { ok: false, error: 'That target is no longer available.', status: 409 }
+
+  if (await persistFullLobbySpectatorSelection(userId, selectionTarget, options)) {
+    context = await loadActivityLaunchContext(kv, channelId, userId, options?.db)
+    selectionTarget = context.targets.find(candidate => candidate.option.kind === target.kind && candidate.option.id === target.id) ?? selectionTarget
+  }
 
   const snapshot = await buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, {
     target: selectionTarget,
     pendingJoin: false,
   }, options?.db, options?.sessionNamespace)
   return { ok: true, snapshot }
+}
+
+async function persistFullLobbySpectatorSelection(
+  userId: string,
+  target: ChannelActivityTarget,
+  options: ActivityRuntimeOptions | undefined,
+): Promise<boolean> {
+  if (target.option.kind !== 'lobby') return false
+  if (target.session.phase !== 'open') return false
+  if (target.option.isHost || target.option.isMember) return false
+  if (target.option.participantCount < target.option.targetSize) return false
+  if (!options?.sessionNamespace || !options.viewer) return false
+
+  const record = await resolveAuthoritativeSessionRecord(options.sessionNamespace, target.session)
+  if (record?.phase !== 'open') return false
+  if (record.roster.participants.some(member => member.playerId === userId)) return false
+  if (record.roster.slots.some(playerId => playerId == null)) return false
+
+  const queueEntry = buildSpectatorQueueEntry(userId, options.viewer)
+  const queueEntries = [...buildSessionRosterQueueEntries(record), queueEntry]
+  await runSessionOpenLobbyCommand(options.sessionNamespace, record.id, {
+    type: 'set-member-player-ids',
+    expectedVersion: record.version,
+    memberPlayerIds: [...record.roster.participants.map(member => member.playerId), userId],
+    queueEntries,
+    now: queueEntry.joinedAt,
+  })
+
+  return true
+}
+
+function buildSpectatorQueueEntry(userId: string, identity: AuthenticatedActivityIdentity): QueueEntry {
+  const displayName = identity.displayName?.trim() || userId
+  return {
+    playerId: userId,
+    displayName,
+    avatarUrl: identity.avatarUrl,
+    joinedAt: Date.now(),
+  }
 }
 
 export async function buildActivityLaunchSnapshot(

@@ -6,7 +6,7 @@ import { createSignal, untrack } from 'solid-js'
 import { buildActivitySessionHeaders, clearActivitySessionToken, getActivitySessionToken } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
 import { shouldForceReconnectForStaleDraft } from '../lib/stale-draft'
-import { applySwapUpdate, draftStore, initDraft, setOptimisticSeatPick, updateDraft, updateDraftPreviews } from './draft-store'
+import { applySwapUpdate, draftStore, initDraft, setOptimisticSeatPick, updateDraft, updateDraftPreviews, updateDraftSteamLobbyLink } from './draft-store'
 import { clearSelections } from './ui-store'
 
 // ── Types ──────────────────────────────────────────────────
@@ -975,7 +975,7 @@ function handleServerMessage(msg: SessionServerMessage) {
       clearSelections()
       syncForcedReconnectTimer(msg.timerEndsAt)
       syncPreviewCache(msg.previews, msg.seatIndex)
-      initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote)
+      initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.steamLobbyLink ?? null)
       if (shouldDisconnectAfterState(msg.state.status, msg.swapState ?? null)) {
         disconnect()
       }
@@ -983,7 +983,7 @@ function handleServerMessage(msg: SessionServerMessage) {
     case 'update':
       syncForcedReconnectTimer(msg.timerEndsAt)
       syncPreviewCache(msg.previews)
-      updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote)
+      updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.steamLobbyLink ?? null)
       if (pendingConfigAck) {
         clearTimeout(pendingConfigAck.timeout)
         pendingConfigAck.resolve()
@@ -1000,6 +1000,9 @@ function handleServerMessage(msg: SessionServerMessage) {
       break
     case 'swap-update':
       applySwapUpdate(msg.swapState, msg.picks)
+      break
+    case 'projection-update':
+      updateDraftSteamLobbyLink(msg.steamLobbyLink)
       break
     case 'error':
       lastServerErrorMessage = {

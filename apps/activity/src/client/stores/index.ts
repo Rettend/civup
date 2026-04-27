@@ -80,6 +80,7 @@ export {
   seatHasOutgoingSwap,
   seatJustSwapped,
   updateDraftPreviews,
+  updateDraftSteamLobbyLink,
 } from './draft-store'
 export {
   confirmMapVote,
