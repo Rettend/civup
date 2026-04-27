@@ -71,7 +71,7 @@ interface ParsedDraftData {
 export async function buildPlayerDataExport(db: Database, options: { now?: Date } = {}): Promise<PlayerDataExportFile> {
   const now = options.now ?? new Date()
   const worksheets = await buildPlayerDataExportSheets(db, { now })
-  const data = createXlsxWorkbook(worksheets)
+  const data = await createXlsxWorkbook(worksheets)
 
   return {
     filename: `export-${formatFilenameDate(now)}.xlsx`,

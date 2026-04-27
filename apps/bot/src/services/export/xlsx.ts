@@ -17,15 +17,19 @@ interface ZipFile {
 }
 
 interface ZipEntry extends ZipFile {
+  compressedData: Uint8Array
+  compressedSize: number
   crc: number
+  method: number
   offset: number
+  uncompressedSize: number
 }
 
 const XML_HEADER = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
 const textEncoder = new TextEncoder()
 const DOS_DATE_1980_01_01 = 33
 
-export function createXlsxWorkbook(worksheets: XlsxWorksheet[]): Uint8Array {
+export async function createXlsxWorkbook(worksheets: XlsxWorksheet[]): Promise<Uint8Array> {
   if (worksheets.length === 0) throw new Error('XLSX workbook needs at least one worksheet.')
 
   const safeWorksheets = worksheets.map((worksheet, index) => ({
@@ -33,7 +37,7 @@ export function createXlsxWorkbook(worksheets: XlsxWorksheet[]): Uint8Array {
     name: sanitizeSheetName(worksheet.name, index),
   }))
 
-  return createZip([
+  return await createZip([
     { name: '[Content_Types].xml', data: encodeXml(contentTypesXml(safeWorksheets.length)) },
     { name: '_rels/.rels', data: encodeXml(rootRelationshipsXml()) },
     { name: 'xl/workbook.xml', data: encodeXml(workbookXml(safeWorksheets)) },
@@ -142,7 +146,7 @@ function escapeXmlText(value: string): string {
     .replace(/>/g, '&gt;')
 }
 
-function createZip(files: ZipFile[]): Uint8Array {
+async function createZip(files: ZipFile[]): Promise<Uint8Array> {
   const localParts: Uint8Array[] = []
   const centralParts: Uint8Array[] = []
   const entries: ZipEntry[] = []
@@ -150,17 +154,27 @@ function createZip(files: ZipFile[]): Uint8Array {
 
   for (const file of files) {
     const filename = textEncoder.encode(file.name)
+    const compressedData = await deflateRaw(file.data)
     const crc = crc32(file.data)
-    const localHeader = createLocalFileHeader(filename, file.data.length, crc)
-    entries.push({ ...file, crc, offset })
-    localParts.push(localHeader, filename, file.data)
-    offset += localHeader.length + filename.length + file.data.length
+    const entry: ZipEntry = {
+      ...file,
+      compressedData,
+      compressedSize: compressedData.length,
+      crc,
+      method: 8,
+      offset,
+      uncompressedSize: file.data.length,
+    }
+    const localHeader = createLocalFileHeader(filename, entry)
+    entries.push(entry)
+    localParts.push(localHeader, filename, compressedData)
+    offset += localHeader.length + filename.length + compressedData.length
   }
 
   const centralDirectoryOffset = offset
   for (const entry of entries) {
     const filename = textEncoder.encode(entry.name)
-    const centralHeader = createCentralDirectoryHeader(filename, entry.data.length, entry.crc, entry.offset)
+    const centralHeader = createCentralDirectoryHeader(filename, entry)
     centralParts.push(centralHeader, filename)
     offset += centralHeader.length + filename.length
   }
@@ -173,35 +187,42 @@ function createZip(files: ZipFile[]): Uint8Array {
   ])
 }
 
-function createLocalFileHeader(filename: Uint8Array, size: number, crc: number): Uint8Array {
+async function deflateRaw(data: Uint8Array): Promise<Uint8Array> {
+  const compressed = new Blob([data])
+    .stream()
+    .pipeThrough(new CompressionStream('deflate-raw'))
+  return new Uint8Array(await new Response(compressed).arrayBuffer())
+}
+
+function createLocalFileHeader(filename: Uint8Array, entry: ZipEntry): Uint8Array {
   const bytes = new Uint8Array(30)
   const view = new DataView(bytes.buffer)
   view.setUint32(0, 0x04034B50, true)
   view.setUint16(4, 20, true)
-  view.setUint16(8, 0, true)
+  view.setUint16(8, entry.method, true)
   view.setUint16(10, 0, true)
   view.setUint16(12, DOS_DATE_1980_01_01, true)
-  view.setUint32(14, crc, true)
-  view.setUint32(18, size, true)
-  view.setUint32(22, size, true)
+  view.setUint32(14, entry.crc, true)
+  view.setUint32(18, entry.compressedSize, true)
+  view.setUint32(22, entry.uncompressedSize, true)
   view.setUint16(26, filename.length, true)
   return bytes
 }
 
-function createCentralDirectoryHeader(filename: Uint8Array, size: number, crc: number, localHeaderOffset: number): Uint8Array {
+function createCentralDirectoryHeader(filename: Uint8Array, entry: ZipEntry): Uint8Array {
   const bytes = new Uint8Array(46)
   const view = new DataView(bytes.buffer)
   view.setUint32(0, 0x02014B50, true)
   view.setUint16(4, 20, true)
   view.setUint16(6, 20, true)
-  view.setUint16(10, 0, true)
+  view.setUint16(10, entry.method, true)
   view.setUint16(12, 0, true)
   view.setUint16(14, DOS_DATE_1980_01_01, true)
-  view.setUint32(16, crc, true)
-  view.setUint32(20, size, true)
-  view.setUint32(24, size, true)
+  view.setUint32(16, entry.crc, true)
+  view.setUint32(20, entry.compressedSize, true)
+  view.setUint32(24, entry.uncompressedSize, true)
   view.setUint16(28, filename.length, true)
-  view.setUint32(42, localHeaderOffset, true)
+  view.setUint32(42, entry.offset, true)
   return bytes
 }
 
