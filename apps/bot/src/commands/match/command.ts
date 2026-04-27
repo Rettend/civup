@@ -7,6 +7,7 @@ import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/match.ts'
 import { getMatchForUser } from '../../services/activity/index.ts'
+import { storeActivityLaunchTargetSelection } from '../../services/activity/launch-target.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
 import { createLobby, filterQueueEntriesForLobby, getLobbyBumpCooldownRemainingMs, getLobbyById, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, setLobbyLastActivityAt, setLobbyRoster, setLobbyStatus, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
@@ -270,6 +271,7 @@ export const command_match = factory.command<MatchVar>(
         const mode = parseGameMode(c.var.mode)
         const kv = getKvStore(c.env)
         const identity = getIdentity(c)
+        const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
         if (!mode) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
             await sendTransientEphemeralResponse(c, 'Please provide a valid game mode.', 'error')
@@ -303,6 +305,7 @@ export const command_match = factory.command<MatchVar>(
           }
 
           if (userMatchId) {
+            await storeActivityLaunchTargetSelection(c.env.Activity, c.env.CIVUP_SECRET, interactionChannelId, identity.userId, { kind: 'match', id: userMatchId })
             return c.resActivity()
           }
           return c.flags('EPHEMERAL').resDefer(async (c) => {
