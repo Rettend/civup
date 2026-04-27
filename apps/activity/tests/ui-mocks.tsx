@@ -117,7 +117,7 @@ interface MockState {
   fillLobbyWithTestPlayersResult: { ok: true, addedCount: number } | { ok: false, error: string }
   placeLobbySlotResult: { ok: true, lobby: LobbySnapshot, transferNotice: string | null } | { ok: false, error: string }
   removeLobbySlotResult: { ok: true, lobby: LobbySnapshot } | { ok: false, error: string }
-  startLobbyDraftResult: { ok: true, matchId: string, roomAccessToken: string | null } | { ok: false, error: string }
+  startLobbyDraftResult: { ok: true, matchId: string, sessionAccessToken: string | null } | { ok: false, error: string }
   updateLobbyConfigResult: { ok: true } | { ok: false, error: string }
   updateLobbyModeResult: { ok: true } | { ok: false, error: string }
 }
@@ -229,7 +229,7 @@ function defaults(): MockState {
     fillLobbyWithTestPlayersResult: { ok: true, addedCount: 0 },
     placeLobbySlotResult: { ok: true, lobby: mockLobbySnapshot(), transferNotice: null },
     removeLobbySlotResult: { ok: true, lobby: mockLobbySnapshot() },
-    startLobbyDraftResult: { ok: true, matchId: 'match-1', roomAccessToken: 'room-token' },
+    startLobbyDraftResult: { ok: true, matchId: 'match-1', sessionAccessToken: 'session-token' },
     updateLobbyConfigResult: { ok: true },
     updateLobbyModeResult: { ok: true },
   }

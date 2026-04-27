@@ -9,9 +9,32 @@
 
   "vars": {
     "BOT_HOST": "https://civup-bot.rettend.workers.dev",
-    "PARTY_HOST": "https://party.rettend.me",
     "ENABLE_DEBUG_LOBBY_FILL": "1"
   },
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "Activity",
+        "class_name": "Activity"
+      },
+      {
+        "name": "SessionDO",
+        "class_name": "SessionDO"
+      }
+    ]
+  },
+
+  "migrations": [
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["SessionDO"]
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["Activity"]
+    }
+  ],
 
   "d1_databases": [
     {

@@ -19,42 +19,34 @@ import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { findBlockingDraftMatchIdsForPlayers, joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
 import { buildActivityLaunchSnapshot, selectActivityTargetForUser } from '../../src/routes/activity.ts'
-import { getQueueStateWithLobbyBalanceSnapshot } from '../../src/routes/lobby/snapshot.ts'
-import {
-  clearLobbyAndActivityMappings,
-  clearUserLobbyMappings,
-  handoffLobbySpectatorsToMatchActivity,
-  storeMatchActivityState,
-  storeUserLobbyState,
-} from '../../src/services/activity/index.ts'
+import { getLobbyBalanceSnapshot } from '../../src/routes/lobby/snapshot.ts'
+import { getLobbyForUser, getMatchForUser } from '../../src/services/activity/index.ts'
 import { resolveDraftTimerConfig } from '../../src/services/config/index.ts'
 import { markLeaderboardsDirty, refreshDirtyLeaderboards } from '../../src/services/leaderboard/message.ts'
+import { ensureLeaderboardModeSnapshots } from '../../src/services/leaderboard/snapshot.ts'
 import {
-  attachLobbyMatch,
   createLobby,
   filterQueueEntriesForLobby,
-  getCurrentLobbyHostedBy,
   getLobby,
-  getLobbyByMatch,
+  getLobbyById,
+  getTestLobbyRuntime,
   mapLobbySlotsToEntries,
   normalizeLobbySlots,
   pruneInactiveOpenLobbies,
   setLobbyDraftConfig,
   setLobbySlots,
   setLobbyStatus,
-} from '../../src/services/lobby/index.ts'
+  startTestSessionDraft,
+} from '../helpers/lobby-runtime.ts'
 import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
-import { activateDraftMatch, createDraftMatch, reportMatch } from '../../src/services/match/index.ts'
+import { activateDraftMatch, reportMatch } from '../../src/services/match/index.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
-import { addToQueue, clearQueue, getQueueState, getQueueStateWithPlayerQueueModes } from '../../src/services/queue/index.ts'
 import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
-import { createStateStore } from '../../src/services/state/store.ts'
+import { getOpenSessionLobbyProjectionHostedBy, getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
 import { getSystemChannel, setSystemChannel } from '../../src/services/system/channels.ts'
-import { installStateCoordinatorHarness } from '../helpers/state-coordinator-harness.ts'
-import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
@@ -71,6 +63,7 @@ import {
 const CHANNEL_ID = 'channel-draft'
 const GUILD_ID = 'guild-1'
 const HOST_ID = 'p1'
+const ACTIVITY_SECRET = 'capacity-test-secret'
 
 const CAPACITY_SCENARIOS: CapacityScenario[] = [
   {
@@ -112,12 +105,32 @@ const CAPACITY_SCENARIOS: CapacityScenario[] = [
   },
 ]
 
-const DO_WEBSOCKET_BILLING_RATIO = 20
+// SessionSocketServer keeps connections in memory, so model every incoming websocket message as billed.
+const DO_WEBSOCKET_BILLING_RATIO = 1
 const DO_CREATE_ROOM_REQUESTS_PER_DRAFT = 1
 const LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION = 4
 const ESTIMATED_DO_GB_SECONDS_PER_REQUEST = 0.0025
 const AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT = 0.5
 const ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES = 2
+const TARGET_ARCHITECTURE_MODEL = 'target-session-do-v3-low-kv-do-sqlite-overview'
+const TARGET_SESSION_SOCKET_CONNECTIONS_PER_VIEWER = 1
+const TARGET_SESSION_DO_SQL_READS_PER_COMMAND = 1
+const TARGET_SESSION_DO_SQL_WRITES_PER_COMMAND = 1
+const TARGET_SESSION_DO_SQL_READS_PER_SOCKET_CONNECT = 1
+const TARGET_SESSION_DO_SQL_WRITES_PER_SOCKET_CONNECT = 0
+const TARGET_SESSION_DO_SQL_READS_PER_DRAFT_MESSAGE = 1
+const TARGET_SESSION_DO_SQL_WRITES_PER_DRAFT_MESSAGE = 1
+const TARGET_ACTIVITY_DO_SQL_READS_PER_FEED_CONNECT = 1
+const TARGET_ACTIVITY_DO_SQL_READS_PER_SESSION_UPDATE = 1
+const TARGET_ACTIVITY_DO_SQL_WRITES_PER_SESSION_UPDATE = 1
+const TARGET_DIRECTORY_READS_PER_VIEWER_LAUNCH = 2
+const TARGET_DIRECTORY_READS_PER_JOIN_GROUP = 1
+const TARGET_DIRECTORY_WRITES_PER_SESSION_CREATE = 1
+const TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_JOIN = 1
+const TARGET_DIRECTORY_WRITES_PER_OPEN_LOBBY_MUTATION = 1
+const TARGET_DIRECTORY_WRITES_PER_DRAFT_START = 1
+const TARGET_DIRECTORY_WRITES_PER_REPORT = 1
+const TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP = 1
 const LEADERBOARD_CRON_RUNS_PER_DAY = 24 * 60 / 2
 const INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY = 24
 const RANKED_ROLE_CRON_RUNS_PER_DAY = 1
@@ -185,10 +198,11 @@ describe('capacity models', () => {
     const leaderboardCronBackgroundUsage = multiplyUsage(leaderboardCronRunUsage, LEADERBOARD_CRON_RUNS_PER_DAY)
     const inactiveLobbyCleanupBackgroundUsage = multiplyUsage(inactiveLobbyCleanupCronRunUsage, INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY)
     const rankedRoleCronBackgroundUsage = multiplyUsage(rankedRoleCronRunUsage, RANKED_ROLE_CRON_RUNS_PER_DAY)
-    const backgroundCronUsage = addUsage(
+    const currentBackgroundCronUsage = addUsage(
       addUsage(leaderboardCronBackgroundUsage, inactiveLobbyCleanupBackgroundUsage),
       rankedRoleCronBackgroundUsage,
     )
+    const backgroundCronUsage = projectBackgroundUsageToTargetArchitecture(currentBackgroundCronUsage)
     const reports: ScenarioReport[] = []
     for (const mode of CAPACITY_SCENARIOS) {
       reports.push(await buildScenarioReport(mode, backgroundCronUsage))
@@ -205,7 +219,8 @@ describe('capacity models', () => {
       expect(report.model.perDraft.d1RowsWritten).toBeGreaterThan(0)
       expect(report.draftRoomIncomingMessagesWithSelectionPreviews).toBeGreaterThanOrEqual(report.draftRoomIncomingMessages)
       expect(report.draftRoomIncomingMessagesWithTeamPickPreviews).toBe(report.draftRoomIncomingMessagesWithSelectionPreviews)
-      expect(report.model.backgroundDaily?.kvLists ?? 0).toBeGreaterThan(0)
+      expect(report.model.backgroundDaily?.kvLists ?? 0).toBe(0)
+      if (report.mode.id === 'duel-ranked') expect(report.freeCapacityPlaysPerDay / scenarioPlayersPerDraft(report.mode)).toBeGreaterThanOrEqual(1_000)
       expect(report.freeCapacityPlaysPerDay).toBeGreaterThan(0)
       expect(report.paidIncludedCapacityPlaysPerDay).toBeGreaterThan(0)
       expect(report.paidSixDollarCapacityPlaysPerDay).toBeGreaterThanOrEqual(report.paidIncludedCapacityPlaysPerDay)
@@ -230,7 +245,7 @@ async function buildScenarioReport(
     backgroundRatedPlayers: 0,
     includeOpenLobbyChurn: true,
   }))
-  const modeledBaseline = await applyTeamSwapBlend(mode, baseline, {
+  const modeledCurrentBaseline = await applyTeamSwapBlend(mode, baseline, {
     backgroundRatedPlayers: 0,
     includeOpenLobbyChurn: true,
   })
@@ -239,11 +254,15 @@ async function buildScenarioReport(
     backgroundRatedPlayers: 1,
     includeOpenLobbyChurn: true,
   }))
-  const modeledWithOneBackgroundPlayer = await applyTeamSwapBlend(mode, withOneBackgroundPlayer, {
+  const modeledCurrentWithOneBackgroundPlayer = await applyTeamSwapBlend(mode, withOneBackgroundPlayer, {
     backgroundRatedPlayers: 1,
     includeOpenLobbyChurn: true,
   })
-  const openLobbyChurnPerDraft = subtractUsage(baseline.usage, coreBaseline.usage)
+  const projectedCoreBaseline = projectSimulationResultToTargetArchitecture(mode, coreBaseline)
+  const projectedBaseline = projectSimulationResultToTargetArchitecture(mode, baseline)
+  const modeledBaseline = projectSimulationResultToTargetArchitecture(mode, modeledCurrentBaseline)
+  const modeledWithOneBackgroundPlayer = projectSimulationResultToTargetArchitecture(mode, modeledCurrentWithOneBackgroundPlayer)
+  const openLobbyChurnPerDraft = subtractUsage(projectedBaseline.usage, projectedCoreBaseline.usage)
   const corePerDraft = subtractUsage(modeledBaseline.usage, openLobbyChurnPerDraft)
 
   const model: CapacityModel = {
@@ -251,7 +270,6 @@ async function buildScenarioReport(
       workersRequests: modeledBaseline.usage.workersRequests,
       botWorkerRequests: modeledBaseline.usage.botWorkerRequests,
       activityWorkerRequests: modeledBaseline.usage.activityWorkerRequests,
-      partyWorkerRequests: modeledBaseline.usage.partyWorkerRequests,
       d1RowsReadBase: modeledBaseline.usage.d1RowsRead,
       d1RowsReadPerLeaderboardPlayer: modeledWithOneBackgroundPlayer.usage.d1RowsRead - modeledBaseline.usage.d1RowsRead,
       d1RowsWritten: modeledBaseline.usage.d1RowsWritten,
@@ -323,7 +341,7 @@ async function buildScenarioReport(
     draftRoomIncomingMessagesWithSelectionPreviews: modeledBaseline.draftRoomIncomingMessagesWithSelectionPreviews,
     draftRoomIncomingMessagesWithTeamPickPreviews: modeledBaseline.draftRoomIncomingMessagesWithTeamPickPreviews,
     openLobbyMutationRequests: modeledBaseline.openLobbyMutationRequests,
-    legacySelectedLobbyRefetchRequests: modeledBaseline.legacySelectedLobbyRefetchRequests,
+    selectedLobbyPushUpdates: modeledBaseline.selectedLobbyPushUpdates,
     freeCapacityPlaysPerDay,
     paidIncludedCapacityPlaysPerDay,
     paidSixDollarCapacityPlaysPerDay,
@@ -348,18 +366,11 @@ async function buildScenarioReport(
 async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
   const { db, sqlite } = await createTestDatabase()
   const sqlTracker = trackSqlite(sqlite)
-  const { kv: rawKv, operations, resetOperations } = createTrackedKv({ trackReads: true })
-  const stateCoordinator = installStateCoordinatorHarness()
-  const kv = createStateStore({
-    KV: rawKv,
-    PARTY_HOST: stateCoordinator.host,
-    CIVUP_SECRET: stateCoordinator.secret,
-  })
+  const { kv, operations, resetOperations } = createTrackedKv({ trackReads: true })
 
   try {
     resetOperations()
     sqlTracker.reset()
-    stateCoordinator.reset()
 
     await refreshDirtyLeaderboards(db, kv, 'token')
 
@@ -367,18 +378,16 @@ async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
     const kvWrites = operations.filter(op => op.type === 'put').length
     const kvDeletes = operations.filter(op => op.type === 'delete').length
     const kvLists = operations.filter(op => op.type === 'list').length
-    const partyWorkerRequests = stateCoordinator.requests()
-    const doRequests = partyWorkerRequests
+    const doRequests = 0
 
     return {
-      workersRequests: 1 + partyWorkerRequests,
+      workersRequests: 1,
       botWorkerRequests: 1,
       activityWorkerRequests: 0,
-      partyWorkerRequests,
       d1RowsRead: sqlTracker.counts.rowsRead,
       d1RowsWritten: sqlTracker.counts.rowsWritten,
-      doSqliteRowsRead: stateCoordinator.sqliteRowsRead(),
-      doSqliteRowsWritten: stateCoordinator.sqliteRowsWritten(),
+      doSqliteRowsRead: 0,
+      doSqliteRowsWritten: 0,
       kvReads,
       kvWrites,
       kvDeletes,
@@ -389,7 +398,6 @@ async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
     }
   }
   finally {
-    stateCoordinator.restore()
     sqlTracker.restore()
     sqlite.close()
   }
@@ -398,18 +406,11 @@ async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
 async function measureInactiveLobbyCleanupCronRunUsage(): Promise<DailyUsage> {
   const { db, sqlite } = await createTestDatabase()
   const sqlTracker = trackSqlite(sqlite)
-  const { kv: rawKv, operations, resetOperations } = createTrackedKv({ trackReads: true })
-  const stateCoordinator = installStateCoordinatorHarness()
-  const kv = createStateStore({
-    KV: rawKv,
-    PARTY_HOST: stateCoordinator.host,
-    CIVUP_SECRET: stateCoordinator.secret,
-  })
+  const { kv, operations, resetOperations } = createTrackedKv({ trackReads: true })
 
   try {
     resetOperations()
     sqlTracker.reset()
-    stateCoordinator.reset()
 
     await pruneInactiveOpenLobbies(kv, 'token')
     await pruneAbandonedMatches(db, kv)
@@ -418,18 +419,16 @@ async function measureInactiveLobbyCleanupCronRunUsage(): Promise<DailyUsage> {
     const kvWrites = operations.filter(op => op.type === 'put').length
     const kvDeletes = operations.filter(op => op.type === 'delete').length
     const kvLists = operations.filter(op => op.type === 'list').length
-    const partyWorkerRequests = stateCoordinator.requests()
-    const doRequests = partyWorkerRequests
+    const doRequests = 0
 
     return {
-      workersRequests: 1 + partyWorkerRequests,
+      workersRequests: 1,
       botWorkerRequests: 1,
       activityWorkerRequests: 0,
-      partyWorkerRequests,
       d1RowsRead: sqlTracker.counts.rowsRead,
       d1RowsWritten: sqlTracker.counts.rowsWritten,
-      doSqliteRowsRead: stateCoordinator.sqliteRowsRead(),
-      doSqliteRowsWritten: stateCoordinator.sqliteRowsWritten(),
+      doSqliteRowsRead: 0,
+      doSqliteRowsWritten: 0,
       kvReads,
       kvWrites,
       kvDeletes,
@@ -440,7 +439,6 @@ async function measureInactiveLobbyCleanupCronRunUsage(): Promise<DailyUsage> {
     }
   }
   finally {
-    stateCoordinator.restore()
     sqlTracker.restore()
     sqlite.close()
   }
@@ -449,13 +447,7 @@ async function measureInactiveLobbyCleanupCronRunUsage(): Promise<DailyUsage> {
 async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
   const { db, sqlite } = await createTestDatabase()
   const sqlTracker = trackSqlite(sqlite)
-  const { kv: rawKv, operations, resetOperations } = createTrackedKv({ trackReads: true })
-  const stateCoordinator = installStateCoordinatorHarness()
-  const kv = createStateStore({
-    KV: rawKv,
-    PARTY_HOST: stateCoordinator.host,
-    CIVUP_SECRET: stateCoordinator.secret,
-  })
+  const { kv, operations, resetOperations } = createTrackedKv({ trackReads: true })
 
   try {
     await seedRankedRoleCronState(db, kv)
@@ -472,7 +464,6 @@ async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
 
     resetOperations()
     sqlTracker.reset()
-    stateCoordinator.reset()
 
     const guildIds = await listRankedRoleConfigGuildIds(kv)
     for (const guildId of guildIds) {
@@ -491,18 +482,16 @@ async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
     const kvWrites = operations.filter(op => op.type === 'put').length
     const kvDeletes = operations.filter(op => op.type === 'delete').length
     const kvLists = operations.filter(op => op.type === 'list').length
-    const partyWorkerRequests = stateCoordinator.requests()
-    const doRequests = partyWorkerRequests
+    const doRequests = 0
 
     return {
-      workersRequests: 1 + partyWorkerRequests,
+      workersRequests: 1,
       botWorkerRequests: 1,
       activityWorkerRequests: 0,
-      partyWorkerRequests,
       d1RowsRead: sqlTracker.counts.rowsRead,
       d1RowsWritten: sqlTracker.counts.rowsWritten,
-      doSqliteRowsRead: stateCoordinator.sqliteRowsRead(),
-      doSqliteRowsWritten: stateCoordinator.sqliteRowsWritten(),
+      doSqliteRowsRead: 0,
+      doSqliteRowsWritten: 0,
       kvReads,
       kvWrites,
       kvDeletes,
@@ -513,7 +502,6 @@ async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
     }
   }
   finally {
-    stateCoordinator.restore()
     sqlTracker.restore()
     sqlite.close()
   }
@@ -521,7 +509,7 @@ async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
 
 async function seedRankedRoleCronState(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
-  kv: ReturnType<typeof createStateStore>,
+  kv: KVNamespace,
 ): Promise<void> {
   const playerIds = Array.from({ length: 8 }, (_value, index) => `ranked-role-cron-${index + 1}`)
 
@@ -559,13 +547,7 @@ async function simulateScenarioLifecycle(input: {
 }): Promise<SimulationResult> {
   const { db, sqlite } = await createTestDatabase()
   const sqlTracker = trackSqlite(sqlite)
-  const { kv: rawKv, operations, resetOperations } = createTrackedKv({ trackReads: true })
-  const stateCoordinator = installStateCoordinatorHarness()
-  const kv = createStateStore({
-    KV: rawKv,
-    PARTY_HOST: stateCoordinator.host,
-    CIVUP_SECRET: stateCoordinator.secret,
-  })
+  const { kv, operations, resetOperations, runWithoutTracking: runKvWithoutTracking } = createTrackedKv({ trackReads: true })
 
   let botRequests = 0
   let activityRequests = 0
@@ -583,19 +565,28 @@ async function simulateScenarioLifecycle(input: {
       tier1: '55555555555555555',
     })
     await seedRatedPlayers(db, input.mode, input.backgroundRatedPlayers)
+    await ensureLeaderboardModeSnapshots(db, kv)
     await syncRankedRoles({ db, kv, guildId: GUILD_ID, now: NOW + 1_000 })
     await markRankedRolesDirty(kv, 'steady-state-preexisting-dirty-flag')
 
     resetOperations()
     sqlTracker.reset()
-    stateCoordinator.reset()
+
+    const runUnmetered = async <T>(callback: () => Promise<T>): Promise<T> =>
+      runKvWithoutTracking(() =>
+        sqlTracker.runWithoutTracking(callback),
+      )
 
     botRequests += 1
     await simulateMatchCreate(db, kv, input.mode)
+    const queuedPlayerIds = [HOST_ID]
+    await runUnmetered(() => assertOpenCapacityState(db, kv, input.mode.mode, queuedPlayerIds))
 
     for (const group of input.mode.joinGroups) {
       botRequests += 1
       await simulateMatchJoin(db, kv, input.mode, group)
+      queuedPlayerIds.push(...group)
+      await runUnmetered(() => assertOpenCapacityState(db, kv, input.mode.mode, queuedPlayerIds))
     }
 
     const playerIds = scenarioPlayerIds(input.mode)
@@ -603,10 +594,10 @@ async function simulateScenarioLifecycle(input: {
     activityRequests += viewerIds.length
     for (const playerId of viewerIds) {
       botRequests += 1
-      await simulateActivityLaunchSnapshot(db, kv, stateCoordinator.secret, CHANNEL_ID, playerId)
+      await simulateActivityLaunchSnapshot(db, kv, ACTIVITY_SECRET, CHANNEL_ID, playerId)
     }
 
-    // Each viewer opens the live state-watch socket through the activity proxy.
+    // Each viewer opens the bot-owned Activity feed through the activity proxy.
     activityRequests += viewerIds.length
 
     const spectatorIds = input.mode.spectatorIds ?? []
@@ -621,24 +612,28 @@ async function simulateScenarioLifecycle(input: {
       : 0
     activityRequests += openLobbyMutationRequests
     botRequests += openLobbyMutationRequests
-    const legacySelectedLobbyRefetchRequests = viewerIds.length * openLobbyMutationRequests
+    const selectedLobbyPushUpdates = viewerIds.length * openLobbyMutationRequests
+    await runUnmetered(() => assertOpenCapacityState(db, kv, input.mode.mode, scenarioPlayerIds(input.mode)))
 
     activityRequests += 1
     botRequests += 1
     const started = await startDraftFromOpenLobby(db, kv, input.mode)
+    await runUnmetered(() => assertDraftingCapacityState(db, kv, input.mode.mode, started.matchId, playerIds))
     let completedDraftState = started.completedDraftState
     let draftRoomIncomingMessages = started.draftRoomIncomingMessages
     let draftRoomIncomingMessagesWithSelectionPreviews = started.draftRoomIncomingMessagesWithSelectionPreviews
     let draftRoomIncomingMessagesWithTeamPickPreviews = started.draftRoomIncomingMessagesWithTeamPickPreviews
 
     botRequests += 1
-    await handleDraftCompleteWebhook(db, kv, started.matchId, completedDraftState)
+    await handleDraftCompleteLifecycleSync(db, kv, started.matchId, completedDraftState)
+    await runUnmetered(() => assertActiveCapacityState(db, kv, started.matchId, playerIds))
 
     const acceptedSwaps = isTeamMode(input.mode.mode) ? Math.max(0, Math.trunc(input.acceptedSwaps ?? 0)) : 0
     for (let index = 0; index < acceptedSwaps; index++) {
       completedDraftState = applyAcceptedTeamSwap(completedDraftState)
       botRequests += 1
-      await handleDraftCompleteWebhook(db, kv, started.matchId, completedDraftState)
+      await handleDraftCompleteLifecycleSync(db, kv, started.matchId, completedDraftState)
+      await runUnmetered(() => assertActiveCapacityState(db, kv, started.matchId, playerIds))
       draftRoomIncomingMessages += ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES
       draftRoomIncomingMessagesWithSelectionPreviews += ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES
       draftRoomIncomingMessagesWithTeamPickPreviews += ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES
@@ -646,7 +641,8 @@ async function simulateScenarioLifecycle(input: {
 
     if (isTeamMode(input.mode.mode)) {
       botRequests += 1
-      await handleDraftCompleteWebhook(db, kv, started.matchId, completedDraftState, { finalized: true })
+      await handleDraftCompleteLifecycleSync(db, kv, started.matchId, completedDraftState, { finalized: true })
+      await runUnmetered(() => assertActiveCapacityState(db, kv, started.matchId, playerIds))
     }
 
     // Each viewer reconnects through the activity proxy to the draft room after match handoff.
@@ -661,23 +657,18 @@ async function simulateScenarioLifecycle(input: {
     activityRequests += 1
     botRequests += 1
     await handleMatchReport(db, kv, input.mode, started.matchId)
+    await runUnmetered(() => assertCompletedCapacityState(db, kv, started.matchId, playerIds))
 
     const kvReads = operations.filter(op => op.type === 'get').length
     const kvWrites = operations.filter(op => op.type === 'put').length
     const kvDeletes = operations.filter(op => op.type === 'delete').length
     const kvLists = operations.filter(op => op.type === 'list').length
-    const partyWorkerRequests = estimatePartyWorkerRequests({
-      stateCoordinatorRequests: stateCoordinator.requests(),
-      viewerCount: viewerIds.length,
-    })
     const doRequestsRaw = estimateDoRawRequests({
-      stateCoordinatorRequests: stateCoordinator.requests(),
       viewerCount: viewerIds.length,
       draftRoomIncomingMessages,
       lobbyWatchIncomingMessagesPerConnection: LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION,
     })
     const doRequests = estimateDoBilledRequestUnits({
-      stateCoordinatorRequests: stateCoordinator.requests(),
       viewerCount: viewerIds.length,
       draftRoomIncomingMessages,
       lobbyWatchIncomingMessagesPerConnection: LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION,
@@ -688,16 +679,15 @@ async function simulateScenarioLifecycle(input: {
       draftRoomIncomingMessagesWithSelectionPreviews,
       draftRoomIncomingMessagesWithTeamPickPreviews,
       openLobbyMutationRequests,
-      legacySelectedLobbyRefetchRequests,
+      selectedLobbyPushUpdates,
       usage: {
-        workersRequests: botRequests + activityRequests + partyWorkerRequests,
+        workersRequests: botRequests + activityRequests,
         botWorkerRequests: botRequests,
         activityWorkerRequests: activityRequests,
-        partyWorkerRequests,
         d1RowsRead: sqlTracker.counts.rowsRead,
         d1RowsWritten: sqlTracker.counts.rowsWritten,
-        doSqliteRowsRead: stateCoordinator.sqliteRowsRead(),
-        doSqliteRowsWritten: stateCoordinator.sqliteRowsWritten(),
+        doSqliteRowsRead: 0,
+        doSqliteRowsWritten: 0,
         kvReads,
         kvWrites,
         kvDeletes,
@@ -709,7 +699,6 @@ async function simulateScenarioLifecycle(input: {
     }
   }
   finally {
-    stateCoordinator.restore()
     sqlTracker.restore()
     sqlite.close()
   }
@@ -723,14 +712,10 @@ async function simulateMatchCreate(
   const draftChannelId = await getSystemChannel(kv, 'draft')
   if (!draftChannelId) throw new Error('Expected draft channel to be configured')
 
-  await getCurrentLobbyHostedBy(kv, HOST_ID)
-  const { queue } = await getQueueStateWithPlayerQueueModes(kv, mode.mode, [HOST_ID], { fallbackToQueueScan: false })
+  await getOpenSessionLobbyProjectionHostedBy(db, HOST_ID)
   await findBlockingDraftMatchIdsForPlayers(db, [HOST_ID])
 
   const hostEntry = buildQueueEntry(HOST_ID, 1)
-  const addResult = await addToQueue(kv, mode.mode, hostEntry, { currentState: queue })
-  if (addResult.error) throw new Error(addResult.error)
-  const nextQueue = addResult.state ?? queue
 
   const lobby = await createLobby(kv, {
     mode: mode.mode,
@@ -738,9 +723,9 @@ async function simulateMatchCreate(
     hostId: HOST_ID,
     channelId: draftChannelId,
     messageId: `message-lobby-open-${mode.id}`,
-    queueEntries: nextQueue.entries,
+    queueEntries: [hostEntry],
+    db,
   })
-  await storeUserLobbyState(kv, draftChannelId, [HOST_ID], lobby.id)
 }
 
 async function simulateMatchJoin(
@@ -750,15 +735,15 @@ async function simulateMatchJoin(
   group: string[],
 ): Promise<void> {
   const liveMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, group)
+  const runtime = await getTestLobbyRuntime(kv, db)
   const outcome = await joinLobbyAndMaybeStartMatch(
-    { env: { KV: kv } },
+    { env: { DB: runtime.d1, KV: kv, SessionDO: runtime.sessionNamespace } },
     mode.mode,
     buildJoinEntries(group),
     { liveMatchPlayerIds: new Set(liveMatchIdByPlayer.keys()) },
   )
   if ('error' in outcome) throw new Error(outcome.error)
 
-  await storeUserLobbyState(kv, outcome.lobby.channelId, group, outcome.lobby.id)
 }
 
 async function simulateActivityLaunchSnapshot(
@@ -768,15 +753,21 @@ async function simulateActivityLaunchSnapshot(
   channelId: string,
   userId: string,
 ): Promise<void> {
+  const runtime = await getTestLobbyRuntime(kv, db)
   await buildActivityLaunchSnapshot(undefined, activitySecret, kv, channelId, userId, {
-      db: createSqliteD1Database(db),
-    })
-  }
+    db: runtime.d1,
+    sessionNamespace: runtime.sessionNamespace,
+  })
+}
 
 async function simulateSpectatorLobbySelection(kv: KVNamespace, mode: CapacityScenario, spectatorId: string): Promise<void> {
   const lobby = await getLobby(kv, mode.mode)
   if (!lobby || lobby.status !== 'open') throw new Error(`Expected open ${mode.mode} lobby before spectator selection`)
-  const result = await selectActivityTargetForUser(kv, lobby.channelId, spectatorId, { kind: 'lobby', id: lobby.id })
+  const runtime = await getTestLobbyRuntime(kv)
+  const result = await selectActivityTargetForUser(undefined, undefined, kv, lobby.channelId, spectatorId, { kind: 'lobby', id: lobby.id }, {
+    db: runtime.d1,
+    sessionNamespace: runtime.sessionNamespace,
+  })
   if (!result.ok) throw new Error(result.error)
 }
 
@@ -801,10 +792,94 @@ async function simulateOpenLobbyConfigEdit(kv: KVNamespace, mode: CapacityScenar
     banTimerSeconds: (lobby.draftConfig.banTimerSeconds ?? 30) + 1,
   }, lobby) ?? lobby
 
-  const { queue, balanceSnapshot } = await getQueueStateWithLobbyBalanceSnapshot(kv, mode.mode, updatedLobby.draftConfig.redDeath)
-  const queueEntries = filterQueueEntriesForLobby(updatedLobby, queue.entries)
+  const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode.mode, updatedLobby.draftConfig.redDeath)
+  const queueEntries = filterQueueEntriesForLobby(updatedLobby, [])
   const slots = normalizeLobbySlots(mode.mode, updatedLobby.slots, queueEntries)
   await syncLobbyDerivedState(kv, updatedLobby, { queueEntries, slots, balanceSnapshot })
+}
+
+async function assertOpenCapacityState(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  kv: KVNamespace,
+  mode: GameMode,
+  expectedPlayerIds: string[],
+): Promise<void> {
+  const lobby = await getLobby(kv, mode)
+
+  expect(lobby).not.toBeNull()
+  if (!lobby) throw new Error(`Expected open ${mode} lobby during capacity simulation`)
+
+  expect(lobby.status).toBe('open')
+  expect(lobby.memberPlayerIds).toEqual(expectedPlayerIds)
+  expect(new Set(lobby.memberPlayerIds).size).toBe(lobby.memberPlayerIds.length)
+  expect(normalizeLobbySlots(mode, lobby.slots, filterQueueEntriesForLobby(lobby, []))).toEqual(lobby.slots)
+
+  for (const playerId of expectedPlayerIds) {
+    expect(await getLobbyForUser(db, playerId)).toBe(lobby.id)
+    expect(await getMatchForUser(db, playerId)).toBeNull()
+  }
+}
+
+async function assertDraftingCapacityState(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  kv: KVNamespace,
+  mode: GameMode,
+  matchId: string,
+  expectedPlayerIds: string[],
+): Promise<void> {
+  const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
+  const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
+  const lobby = await getSessionLobbyProjectionByMatch(db, matchId)
+
+  expect(match?.status).toBe('drafting')
+  expect(participants.map(participant => participant.playerId)).toEqual(expectedPlayerIds)
+  expect(lobby?.status).toBe('drafting')
+
+  for (const playerId of expectedPlayerIds) {
+    expect(await getLobbyForUser(db, playerId)).toBeNull()
+    expect(await getMatchForUser(db, playerId)).toBe(matchId)
+  }
+}
+
+async function assertActiveCapacityState(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  kv: KVNamespace,
+  matchId: string,
+  expectedPlayerIds: string[],
+): Promise<void> {
+  const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
+  const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
+  const lobby = await getSessionLobbyProjectionByMatch(db, matchId)
+
+  expect(match?.status).toBe('active')
+  expect(participants.map(participant => participant.playerId)).toEqual(expectedPlayerIds)
+  expect(participants.every(participant => participant.civId != null)).toBe(true)
+  expect(lobby?.status).toBe('active')
+
+  for (const playerId of expectedPlayerIds) {
+    expect(await getLobbyForUser(db, playerId)).toBeNull()
+    expect(await getMatchForUser(db, playerId)).toBe(matchId)
+  }
+}
+
+async function assertCompletedCapacityState(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  kv: KVNamespace,
+  matchId: string,
+  expectedPlayerIds: string[],
+): Promise<void> {
+  const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
+  const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
+
+  expect(match?.status).toBe('completed')
+  expect(participants.map(participant => participant.playerId)).toEqual(expectedPlayerIds)
+  expect(participants.every(participant => participant.civId != null && participant.placement != null)).toBe(true)
+  expect((await getLobbyById(kv, matchId))?.status).toBe('completed')
+
+  for (const playerId of expectedPlayerIds) {
+    expect(await getLobbyForUser(db, playerId)).toBeNull()
+    expect(await getMatchForUser(db, playerId)).toBeNull()
+  }
 }
 
 async function startDraftFromOpenLobby(
@@ -821,31 +896,21 @@ async function startDraftFromOpenLobby(
   const lobby = await getLobby(kv, mode.mode)
   if (!lobby || lobby.status !== 'open') throw new Error(`Expected open ${mode.mode} lobby before start`)
 
-  const queue = await getQueueState(kv, mode.mode)
-  const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
+  const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, [])
   const slots = normalizeLobbySlots(mode.mode, lobby.slots, lobbyQueueEntries)
   const slottedEntries = mapLobbySlotsToEntries(slots, lobbyQueueEntries)
   const selectedEntries = slottedEntries.filter((entry): entry is Exclude<(typeof slottedEntries)[number], null> => entry !== null)
 
   await resolveDraftTimerConfig(kv, lobby.draftConfig)
 
-  const matchId = `match-${mode.id}`
+  const matchId = lobby.id
   const seats = buildDraftSeats(mode.mode, slottedEntries)
   if (selectedEntries.length !== seats.length) throw new Error('Seat count did not match selected entries')
 
-  await createDraftMatch(db, { matchId, mode: mode.mode, seats })
-
-  if (lobby.memberPlayerIds.length > 0) {
-    await clearQueue(kv, mode.mode, lobby.memberPlayerIds, { currentState: queue })
-  }
-
   const slottedLobby = await setLobbySlots(kv, lobby.id, slots, lobby) ?? { ...lobby, slots }
-  const draftingLobby = await attachLobbyMatch(kv, lobby.id, matchId, slottedLobby)
+  const draftingLobby = await startTestSessionDraft(kv, lobby.id, slottedLobby, { db })
   if (!draftingLobby) throw new Error('Expected lobby to transition to drafting during capacity simulation')
   await syncLobbyDerivedState(kv, draftingLobby)
-  await storeMatchActivityState(kv, draftingLobby.channelId, draftingLobby.memberPlayerIds, { matchId })
-  await handoffLobbySpectatorsToMatchActivity(kv, draftingLobby.channelId, draftingLobby.id, draftingLobby.memberPlayerIds, { matchId })
-  await clearUserLobbyMappings(kv, draftingLobby.memberPlayerIds)
   await storeMatchMessageMapping(db, `message-lobby-drafting-${mode.id}`, matchId)
 
   const completedDraft = buildCompletedDraftState(matchId, mode.mode, seats)
@@ -858,7 +923,7 @@ async function startDraftFromOpenLobby(
   }
 }
 
-async function handleDraftCompleteWebhook(
+async function handleDraftCompleteLifecycleSync(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   kv: KVNamespace,
   matchId: string,
@@ -875,7 +940,7 @@ async function handleDraftCompleteWebhook(
   if ('error' in activated) throw new Error(activated.error)
   if (activated.alreadyActive && options.finalized !== true) return
 
-  const lobby = await getLobbyByMatch(kv, matchId)
+  const lobby = await getLobbyById(kv, matchId)
   if (!lobby) throw new Error('Expected lobby mapping during draft-complete simulation')
 
   if (activated.alreadyActive && options.finalized === true) {
@@ -902,14 +967,15 @@ async function handleMatchReport(
   mode: CapacityScenario,
   matchId: string,
 ): Promise<void> {
+  const runtime = await getTestLobbyRuntime(kv, db)
   const reported = await reportMatch(db, kv, {
     matchId,
     reporterId: HOST_ID,
     placements: buildPlacements(mode),
-  })
+  }, { sessionNamespace: runtime.sessionNamespace })
   if ('error' in reported) throw new Error(reported.error)
 
-  const lobby = await getLobbyByMatch(kv, matchId)
+  const lobby = await getSessionLobbyProjectionByMatch(db, matchId)
   const guildId = lobby?.guildId ?? null
 
   if (guildId) {
@@ -937,7 +1003,6 @@ async function handleMatchReport(
 
   if (lobby) {
     await storeMatchMessageMapping(db, `message-lobby-reported-${mode.id}`, matchId)
-    await clearLobbyAndActivityMappings(kv, lobby)
   }
 
   const archiveChannelId = await getSystemChannel(kv, 'archive')
@@ -1043,7 +1108,7 @@ function blendSimulationResult(
     draftRoomIncomingMessagesWithSelectionPreviews: blendMetric(base.draftRoomIncomingMessagesWithSelectionPreviews, withAcceptedSwap.draftRoomIncomingMessagesWithSelectionPreviews, acceptedSwapRate),
     draftRoomIncomingMessagesWithTeamPickPreviews: blendMetric(base.draftRoomIncomingMessagesWithTeamPickPreviews, withAcceptedSwap.draftRoomIncomingMessagesWithTeamPickPreviews, acceptedSwapRate),
     openLobbyMutationRequests: blendMetric(base.openLobbyMutationRequests, withAcceptedSwap.openLobbyMutationRequests, acceptedSwapRate),
-    legacySelectedLobbyRefetchRequests: blendMetric(base.legacySelectedLobbyRefetchRequests, withAcceptedSwap.legacySelectedLobbyRefetchRequests, acceptedSwapRate),
+    selectedLobbyPushUpdates: blendMetric(base.selectedLobbyPushUpdates, withAcceptedSwap.selectedLobbyPushUpdates, acceptedSwapRate),
   }
 }
 
@@ -1052,7 +1117,6 @@ function blendUsageSample(base: UsageSample, withAcceptedSwap: UsageSample, acce
     workersRequests: blendMetric(base.workersRequests, withAcceptedSwap.workersRequests, acceptedSwapRate),
     botWorkerRequests: blendMetric(base.botWorkerRequests, withAcceptedSwap.botWorkerRequests, acceptedSwapRate),
     activityWorkerRequests: blendMetric(base.activityWorkerRequests, withAcceptedSwap.activityWorkerRequests, acceptedSwapRate),
-    partyWorkerRequests: blendMetric(base.partyWorkerRequests, withAcceptedSwap.partyWorkerRequests, acceptedSwapRate),
     d1RowsRead: blendMetric(base.d1RowsRead, withAcceptedSwap.d1RowsRead, acceptedSwapRate),
     d1RowsWritten: blendMetric(base.d1RowsWritten, withAcceptedSwap.d1RowsWritten, acceptedSwapRate),
     doSqliteRowsRead: blendMetric(base.doSqliteRowsRead, withAcceptedSwap.doSqliteRowsRead, acceptedSwapRate),
@@ -1069,6 +1133,99 @@ function blendUsageSample(base: UsageSample, withAcceptedSwap: UsageSample, acce
 
 function blendMetric(base: number, withAcceptedSwap: number, acceptedSwapRate: number): number {
   return roundSnapshotNumber(base + (withAcceptedSwap - base) * acceptedSwapRate)
+}
+
+function projectBackgroundUsageToTargetArchitecture(current: DailyUsage): DailyUsage {
+  return {
+    ...current,
+    workersRequests: current.botWorkerRequests + current.activityWorkerRequests,
+    doSqliteRowsRead: 0,
+    doSqliteRowsWritten: 0,
+    kvDeletes: 0,
+    kvLists: 0,
+    doRequests: 0,
+    doRequestsRaw: 0,
+    doDurationGbSeconds: 0,
+  }
+}
+
+function projectSimulationResultToTargetArchitecture(
+  mode: CapacityScenario,
+  current: SimulationResult,
+): SimulationResult {
+  const playerCount = scenarioPlayersPerDraft(mode)
+  const viewerCount = scenarioViewerIds(mode).length
+  const spectatorCount = mode.spectatorIds?.length ?? 0
+  const averageAcceptedSwaps = isTeamMode(mode.mode) ? AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT : 0
+  const lifecycleSyncBotRequests = 1 + averageAcceptedSwaps + (isTeamMode(mode.mode) ? 1 : 0)
+  const sessionCommandRequests = estimateTargetSessionCommandRequests(mode, current.openLobbyMutationRequests)
+  const activityFeedSessionUpdates = sessionCommandRequests + lifecycleSyncBotRequests
+  const activityFeedConnections = viewerCount
+  const removedBotRequests = lifecycleSyncBotRequests + playerCount + spectatorCount
+  const removedActivityRequests = viewerCount + viewerCount + playerCount + spectatorCount
+  const removedPostDraftSnapshotRowsRead = playerCount * (1 + playerCount)
+
+  const botWorkerRequests = Math.max(0, roundSnapshotNumber(current.usage.botWorkerRequests - removedBotRequests))
+  const activityWorkerRequests = Math.max(0, roundSnapshotNumber(current.usage.activityWorkerRequests - removedActivityRequests))
+  const sessionSocketConnections = viewerCount * TARGET_SESSION_SOCKET_CONNECTIONS_PER_VIEWER
+  const doRequestsRaw = sessionCommandRequests + sessionSocketConnections + current.draftRoomIncomingMessages + activityFeedSessionUpdates + activityFeedConnections
+  const doRequests = sessionCommandRequests
+    + sessionSocketConnections
+    + Math.ceil(current.draftRoomIncomingMessages / DO_WEBSOCKET_BILLING_RATIO)
+    + activityFeedSessionUpdates
+    + activityFeedConnections
+
+  return {
+    ...current,
+    usage: {
+      workersRequests: botWorkerRequests + activityWorkerRequests,
+      botWorkerRequests,
+      activityWorkerRequests,
+      d1RowsRead: Math.max(0, roundSnapshotNumber(
+        current.usage.d1RowsRead
+        - removedPostDraftSnapshotRowsRead
+        + viewerCount * TARGET_DIRECTORY_READS_PER_VIEWER_LAUNCH
+        + mode.joinGroups.length * TARGET_DIRECTORY_READS_PER_JOIN_GROUP,
+      )),
+      d1RowsWritten: roundSnapshotNumber(
+        current.usage.d1RowsWritten
+        + TARGET_DIRECTORY_WRITES_PER_SESSION_CREATE
+        + playerCount * TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_JOIN
+        + current.openLobbyMutationRequests * TARGET_DIRECTORY_WRITES_PER_OPEN_LOBBY_MUTATION
+        + TARGET_DIRECTORY_WRITES_PER_DRAFT_START
+        + TARGET_DIRECTORY_WRITES_PER_REPORT
+        + playerCount * TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP,
+      ),
+      doSqliteRowsRead: roundSnapshotNumber(
+        sessionCommandRequests * TARGET_SESSION_DO_SQL_READS_PER_COMMAND
+        + sessionSocketConnections * TARGET_SESSION_DO_SQL_READS_PER_SOCKET_CONNECT
+        + current.draftRoomIncomingMessages * TARGET_SESSION_DO_SQL_READS_PER_DRAFT_MESSAGE
+        + activityFeedConnections * TARGET_ACTIVITY_DO_SQL_READS_PER_FEED_CONNECT
+        + activityFeedSessionUpdates * TARGET_ACTIVITY_DO_SQL_READS_PER_SESSION_UPDATE,
+      ),
+      doSqliteRowsWritten: roundSnapshotNumber(
+        sessionCommandRequests * TARGET_SESSION_DO_SQL_WRITES_PER_COMMAND
+        + sessionSocketConnections * TARGET_SESSION_DO_SQL_WRITES_PER_SOCKET_CONNECT
+        + current.draftRoomIncomingMessages * TARGET_SESSION_DO_SQL_WRITES_PER_DRAFT_MESSAGE
+        + activityFeedSessionUpdates * TARGET_ACTIVITY_DO_SQL_WRITES_PER_SESSION_UPDATE,
+      ),
+      kvReads: current.usage.kvReads,
+      kvWrites: current.usage.kvWrites,
+      kvDeletes: 0,
+      kvLists: 0,
+      doRequests,
+      doRequestsRaw,
+      doDurationGbSeconds: estimateDoDurationGbSeconds(doRequestsRaw),
+    },
+  }
+}
+
+function estimateTargetSessionCommandRequests(mode: CapacityScenario, openLobbyMutationRequests: number): number {
+  return 1
+    + mode.joinGroups.length
+    + openLobbyMutationRequests
+    + 1
+    + 1
 }
 
 function applyAcceptedTeamSwap(state: DraftState): DraftState {
@@ -1271,15 +1428,31 @@ function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
   const backgroundDailyUsage = reports[0]?.model.backgroundDaily
 
   return {
-    version: 2,
+    version: 4,
     globals: {
       stabilitySamples: CAPACITY_STABILITY_SAMPLES,
       leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
       inactiveLobbyCleanupCronRunsPerDay: INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY,
       rankedRoleCronRunsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY,
+      architectureModel: TARGET_ARCHITECTURE_MODEL,
       lobbyWatchMsgsPerConnection: LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION,
       doWebsocketBillingRatio: DO_WEBSOCKET_BILLING_RATIO,
       estimatedDoGbSecondsPerRequest: ESTIMATED_DO_GB_SECONDS_PER_REQUEST,
+      sessionSocketConnectionsPerViewer: TARGET_SESSION_SOCKET_CONNECTIONS_PER_VIEWER,
+      sessionDoSqlReadsPerCommand: TARGET_SESSION_DO_SQL_READS_PER_COMMAND,
+      sessionDoSqlWritesPerCommand: TARGET_SESSION_DO_SQL_WRITES_PER_COMMAND,
+      sessionDoSqlReadsPerSocketConnect: TARGET_SESSION_DO_SQL_READS_PER_SOCKET_CONNECT,
+      sessionDoSqlWritesPerSocketConnect: TARGET_SESSION_DO_SQL_WRITES_PER_SOCKET_CONNECT,
+      sessionDoSqlReadsPerDraftMessage: TARGET_SESSION_DO_SQL_READS_PER_DRAFT_MESSAGE,
+      sessionDoSqlWritesPerDraftMessage: TARGET_SESSION_DO_SQL_WRITES_PER_DRAFT_MESSAGE,
+      directoryReadsPerViewerLaunch: TARGET_DIRECTORY_READS_PER_VIEWER_LAUNCH,
+      directoryReadsPerJoinGroup: TARGET_DIRECTORY_READS_PER_JOIN_GROUP,
+      directoryWritesPerSessionCreate: TARGET_DIRECTORY_WRITES_PER_SESSION_CREATE,
+      directoryWritesPerParticipantJoin: TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_JOIN,
+      directoryWritesPerOpenLobbyMutation: TARGET_DIRECTORY_WRITES_PER_OPEN_LOBBY_MUTATION,
+      directoryWritesPerDraftStart: TARGET_DIRECTORY_WRITES_PER_DRAFT_START,
+      directoryWritesPerReport: TARGET_DIRECTORY_WRITES_PER_REPORT,
+      directoryWritesPerParticipantReportCleanup: TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP,
       averageAcceptedSwapsPerTeamDraft: AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT,
     },
     backgroundDailyUsage: backgroundDailyUsage ? roundNumericRecord(backgroundDailyUsage) : null,
@@ -1292,7 +1465,7 @@ function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
         players,
         viewers: scenarioViewerIds(report.mode).length,
         lobbyMutations: report.openLobbyMutationRequests,
-        legacyRefetchesAvoided: report.legacySelectedLobbyRefetchRequests,
+        selectedLobbyPushUpdates: report.selectedLobbyPushUpdates,
         draftMessages: report.draftRoomIncomingMessages,
         previewMessages: report.draftRoomIncomingMessagesWithSelectionPreviews,
         teamPreviewMessages: report.draftRoomIncomingMessagesWithTeamPickPreviews,
@@ -1370,7 +1543,7 @@ function printReports(reports: ScenarioReport[]): void {
     players: scenarioPlayersPerDraft(report.mode),
     viewers: scenarioViewerIds(report.mode).length,
     lobbyMutations: report.openLobbyMutationRequests,
-    legacyRefetchesAvoided: report.legacySelectedLobbyRefetchRequests,
+    selectedLobbyPushUpdates: report.selectedLobbyPushUpdates,
     draftMsgs: report.draftRoomIncomingMessages,
     previewMsgs: report.draftRoomIncomingMessagesWithSelectionPreviews,
     teamPreviewMsgs: report.draftRoomIncomingMessagesWithTeamPickPreviews,
@@ -1380,9 +1553,25 @@ function printReports(reports: ScenarioReport[]): void {
     leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
     inactiveLobbyCleanupCronRunsPerDay: INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY,
     rankedRoleCronRunsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY,
+    architectureModel: TARGET_ARCHITECTURE_MODEL,
     lobbyWatchMsgsPerConnection: LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION,
     doWebsocketBillingRatio: DO_WEBSOCKET_BILLING_RATIO,
     estimatedDoGbSecondsPerRequest: ESTIMATED_DO_GB_SECONDS_PER_REQUEST,
+    sessionSocketConnectionsPerViewer: TARGET_SESSION_SOCKET_CONNECTIONS_PER_VIEWER,
+    sessionDoSqlReadsPerCommand: TARGET_SESSION_DO_SQL_READS_PER_COMMAND,
+    sessionDoSqlWritesPerCommand: TARGET_SESSION_DO_SQL_WRITES_PER_COMMAND,
+    sessionDoSqlReadsPerSocketConnect: TARGET_SESSION_DO_SQL_READS_PER_SOCKET_CONNECT,
+    sessionDoSqlWritesPerSocketConnect: TARGET_SESSION_DO_SQL_WRITES_PER_SOCKET_CONNECT,
+    sessionDoSqlReadsPerDraftMessage: TARGET_SESSION_DO_SQL_READS_PER_DRAFT_MESSAGE,
+    sessionDoSqlWritesPerDraftMessage: TARGET_SESSION_DO_SQL_WRITES_PER_DRAFT_MESSAGE,
+    directoryReadsPerViewerLaunch: TARGET_DIRECTORY_READS_PER_VIEWER_LAUNCH,
+    directoryReadsPerJoinGroup: TARGET_DIRECTORY_READS_PER_JOIN_GROUP,
+    directoryWritesPerSessionCreate: TARGET_DIRECTORY_WRITES_PER_SESSION_CREATE,
+    directoryWritesPerParticipantJoin: TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_JOIN,
+    directoryWritesPerOpenLobbyMutation: TARGET_DIRECTORY_WRITES_PER_OPEN_LOBBY_MUTATION,
+    directoryWritesPerDraftStart: TARGET_DIRECTORY_WRITES_PER_DRAFT_START,
+    directoryWritesPerReport: TARGET_DIRECTORY_WRITES_PER_REPORT,
+    directoryWritesPerParticipantReportCleanup: TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP,
   })
 
   if (backgroundDailyUsage) {
@@ -1392,7 +1581,6 @@ function printReports(reports: ScenarioReport[]): void {
       workersRequests: backgroundDailyUsage.workersRequests,
       botWorkerRequests: backgroundDailyUsage.botWorkerRequests,
       activityWorkerRequests: backgroundDailyUsage.activityWorkerRequests,
-      partyWorkerRequests: backgroundDailyUsage.partyWorkerRequests,
       doRequestsRaw: backgroundDailyUsage.doRequestsRaw,
       doDurationGbSeconds: roundForReport(backgroundDailyUsage.doDurationGbSeconds),
     }])
@@ -1403,7 +1591,6 @@ function printReports(reports: ScenarioReport[]): void {
     mode: report.mode.label,
     coreWorkers: report.corePerDraft.workersRequests,
     churnWorkers: report.openLobbyChurnPerDraft.workersRequests,
-    corePartyWorkers: report.corePerDraft.partyWorkerRequests,
     churnActivityWorkers: report.openLobbyChurnPerDraft.activityWorkerRequests,
     coreDoReqBilled: report.corePerDraft.doRequests,
     churnDoReqBilled: report.openLobbyChurnPerDraft.doRequests,
@@ -1420,7 +1607,6 @@ function printReports(reports: ScenarioReport[]): void {
     workersRequests: report.model.perDraft.workersRequests,
     botWorkerRequests: report.model.perDraft.botWorkerRequests,
     activityWorkerRequests: report.model.perDraft.activityWorkerRequests,
-    partyWorkerRequests: report.model.perDraft.partyWorkerRequests,
     d1RowsReadBase: report.model.perDraft.d1RowsReadBase,
     d1RowsReadPerRatedPlayer: report.model.perDraft.d1RowsReadPerLeaderboardPlayer,
     d1RowsWritten: report.model.perDraft.d1RowsWritten,
@@ -1485,7 +1671,6 @@ function printReports(reports: ScenarioReport[]): void {
         plan: 'free',
         playsPerDay: report.freeCapacityPlaysPerDay,
         workersRequests: freeUsage.workersRequests,
-        partyWorkerRequests: freeUsage.partyWorkerRequests,
         d1RowsRead: freeUsage.d1RowsRead,
         doSqliteRowsRead: freeUsage.doSqliteRowsRead,
         doSqliteRowsWritten: freeUsage.doSqliteRowsWritten,
@@ -1498,7 +1683,6 @@ function printReports(reports: ScenarioReport[]): void {
         plan: '$5 included',
         playsPerDay: report.paidIncludedCapacityPlaysPerDay,
         workersRequests: paidUsage.workersRequests,
-        partyWorkerRequests: paidUsage.partyWorkerRequests,
         d1RowsRead: paidUsage.d1RowsRead,
         doSqliteRowsRead: paidUsage.doSqliteRowsRead,
         doSqliteRowsWritten: paidUsage.doSqliteRowsWritten,
@@ -1511,7 +1695,6 @@ function printReports(reports: ScenarioReport[]): void {
         plan: '$6 target',
         playsPerDay: report.paidSixDollarCapacityPlaysPerDay,
         workersRequests: paidSixDollarUsage.workersRequests,
-        partyWorkerRequests: paidSixDollarUsage.partyWorkerRequests,
         d1RowsRead: paidSixDollarUsage.d1RowsRead,
         doSqliteRowsRead: paidSixDollarUsage.doSqliteRowsRead,
         doSqliteRowsWritten: paidSixDollarUsage.doSqliteRowsWritten,
@@ -1524,7 +1707,6 @@ function printReports(reports: ScenarioReport[]): void {
         plan: '$10 target',
         playsPerDay: report.paidTenDollarCapacityPlaysPerDay,
         workersRequests: paidTenDollarUsage.workersRequests,
-        partyWorkerRequests: paidTenDollarUsage.partyWorkerRequests,
         d1RowsRead: paidTenDollarUsage.d1RowsRead,
         doSqliteRowsRead: paidTenDollarUsage.doSqliteRowsRead,
         doSqliteRowsWritten: paidTenDollarUsage.doSqliteRowsWritten,
@@ -1575,7 +1757,6 @@ function subtractUsage(total: UsageSample, base: UsageSample): UsageSample {
     workersRequests: total.workersRequests - base.workersRequests,
     botWorkerRequests: total.botWorkerRequests - base.botWorkerRequests,
     activityWorkerRequests: total.activityWorkerRequests - base.activityWorkerRequests,
-    partyWorkerRequests: total.partyWorkerRequests - base.partyWorkerRequests,
     d1RowsRead: total.d1RowsRead - base.d1RowsRead,
     d1RowsWritten: total.d1RowsWritten - base.d1RowsWritten,
     doSqliteRowsRead: total.doSqliteRowsRead - base.doSqliteRowsRead,
@@ -1590,18 +1771,7 @@ function subtractUsage(total: UsageSample, base: UsageSample): UsageSample {
   }
 }
 
-function estimatePartyWorkerRequests(input: {
-  stateCoordinatorRequests: number
-  viewerCount: number
-}): number {
-  return input.stateCoordinatorRequests
-    + DO_CREATE_ROOM_REQUESTS_PER_DRAFT
-    + input.viewerCount
-    + input.viewerCount
-}
-
 function estimateDoRawRequests(input: {
-  stateCoordinatorRequests: number
   viewerCount: number
   draftRoomIncomingMessages: number
   lobbyWatchIncomingMessagesPerConnection: number
@@ -1616,12 +1786,10 @@ function estimateDoRawRequests(input: {
     + lobbyWatchWebsocketConnects
     + input.draftRoomIncomingMessages
     + lobbyWatchIncomingMessages
-    + input.stateCoordinatorRequests
   )
 }
 
 function estimateDoBilledRequestUnits(input: {
-  stateCoordinatorRequests: number
   viewerCount: number
   draftRoomIncomingMessages: number
   lobbyWatchIncomingMessagesPerConnection: number
@@ -1639,7 +1807,6 @@ function estimateDoBilledRequestUnits(input: {
     + lobbyWatchWebsocketConnects
     + billedDraftMessages
     + billedLobbyWatchMessages
-    + input.stateCoordinatorRequests
   )
 }
 

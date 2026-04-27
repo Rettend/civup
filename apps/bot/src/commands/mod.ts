@@ -1,23 +1,23 @@
 import type { MatchVar } from './match/shared'
+import type { GameMode, QueueEntry } from '@civup/game'
 import { createDb } from '@civup/db'
-import { formatModeLabel } from '@civup/game'
+import { formatModeLabel, slotToTeamIndex } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
-import { clearLobbyMappings } from '../services/activity/index.ts'
 import { createChannelMessage } from '../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { rebuildLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../services/leaderboard/team-snapshot.ts'
-import { clearLobbyById, filterQueueEntriesForLobby, getLobbyById, getLobbyByMatch } from '../services/lobby/index.ts'
+import { filterQueueEntriesForLobby, getLobbyById, setLobbyStatus } from '../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { cancelMatchByModerator, getStoredGameModeContext, resolveMatchByModerator } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { canUseModCommands, parseRoleIds } from '../services/permissions/index.ts'
-import { clearQueue, getQueueState } from '../services/queue/index.ts'
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../services/ranked/role-sync.ts'
 import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
-import { createStateStore } from '../services/state/store.ts'
+import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
+import { getKvStore } from '../services/kv/batch.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 import { factory } from '../setup'
 import { buildFfaPlacementOptions, collectFfaPlacementUserIds } from './match/shared'
@@ -43,7 +43,7 @@ export const command_mod = factory.command<ModVar>(
   ),
   async (c) => {
     const guildId = c.interaction.guild_id
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     if (!guildId) {
       return c.flags('EPHEMERAL').resDefer(async (c) => {
         await sendTransientEphemeralResponse(c, 'This command can only be used in a server.', 'error')
@@ -87,36 +87,35 @@ export const command_mod = factory.command<ModVar>(
             return
           }
 
-          const directLobby = await getLobbyById(kv, matchId)
+          const directLobby = await getLobbyById(kv, matchId) ?? await getSessionLobbyProjectionByMatch(db, matchId)
           if (directLobby && directLobby.status === 'open' && !directLobby.matchId) {
-            const queue = await getQueueState(kv, directLobby.mode)
-            const lobbyQueueEntries = filterQueueEntriesForLobby(directLobby, queue.entries)
-            if (lobbyQueueEntries.length > 0) {
-              await clearQueue(kv, directLobby.mode, lobbyQueueEntries.map(entry => entry.playerId), {
-                currentState: queue,
-              })
-            }
+            const lobbyQueueEntries = filterQueueEntriesForLobby(directLobby, [])
+            const cancelledLobby = await setLobbyStatus(kv, directLobby.id, 'cancelled', directLobby, {
+              db,
+              sessionNamespace: c.env.SessionDO,
+              queueEntries: lobbyQueueEntries,
+            }) ?? directLobby
 
-            await clearLobbyMappings(kv, directLobby.memberPlayerIds, directLobby.channelId, directLobby.id)
             try {
-              await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, directLobby, {
-                embeds: [lobbyCancelledEmbed(directLobby.mode, [], 'cancel', { actorId, reason }, directLobby.draftConfig.leaderDataVersion, directLobby.draftConfig.redDeath)],
+              await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, cancelledLobby, {
+                embeds: [lobbyCancelledEmbed(directLobby.mode, buildCancelledLobbyParticipants(directLobby, lobbyQueueEntries), 'cancel', { actorId, reason }, directLobby.draftConfig.leaderDataVersion, directLobby.draftConfig.redDeath)],
                 components: [],
-              })
+              }, { db, sessionNamespace: c.env.SessionDO })
             }
             catch (error) {
               console.error(`Failed to update cancelled embed for lobby ${directLobby.id}:`, error)
             }
 
-            await clearLobbyById(kv, directLobby.id, directLobby)
             await sendTransientEphemeralResponse(c, `Cancelled open lobby **${directLobby.id}**.`, 'success')
             return
           }
 
-          const existingLobby = await getLobbyByMatch(kv, matchId)
+          const existingLobby = directLobby?.matchId ? directLobby : await getSessionLobbyProjectionByMatch(db, matchId)
           const result = await cancelMatchByModerator(db, kv, {
             matchId,
             cancelledAt: Date.now(),
+          }, {
+            sessionNamespace: c.env.SessionDO,
           })
 
           if ('error' in result) {
@@ -138,7 +137,7 @@ export const command_mod = factory.command<ModVar>(
               const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
                 embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation, existingLobby.draftConfig.leaderDataVersion, existingLobby.draftConfig.redDeath)],
                 components: [],
-              })
+              }, { db, sessionNamespace: c.env.SessionDO })
               await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
             }
             catch (error) {
@@ -227,6 +226,8 @@ export const command_mod = factory.command<ModVar>(
               matchId,
               placements,
               resolvedAt: Date.now(),
+            }, {
+              sessionNamespace: c.env.SessionDO,
             })
 
             if ('error' in result) {
@@ -240,7 +241,7 @@ export const command_mod = factory.command<ModVar>(
               return
             }
 
-            const existingLobby = result.previousStatus === 'completed' ? null : await getLobbyByMatch(kv, result.match.id)
+            const existingLobby = result.previousStatus === 'completed' ? null : await getSessionLobbyProjectionByMatch(db, result.match.id)
             const mode = matchContext.mode
             const moderation = { actorId, reason }
             const guildId = existingLobby?.guildId ?? c.interaction.guild_id ?? null
@@ -318,7 +319,7 @@ export const command_mod = factory.command<ModVar>(
                       rankedRoleLines,
                     }, existingLobby.draftConfig.redDeath)],
                     components: [],
-                  })
+                  }, { db, sessionNamespace: c.env.SessionDO })
                   await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
                 }
                 catch (error) {
@@ -361,3 +362,24 @@ export const command_mod = factory.command<ModVar>(
     }
   },
 )
+
+function buildCancelledLobbyParticipants(lobby: { mode: GameMode, slots: (string | null)[] }, entries: QueueEntry[]) {
+  const entryByPlayerId = new Map(entries.map(entry => [entry.playerId, entry]))
+  return lobby.slots
+    .map((playerId, slot) => {
+      if (!playerId) return null
+      const entry = entryByPlayerId.get(playerId)
+      return {
+        playerId,
+        team: slotToTeamIndex(lobby.mode, slot, lobby.slots.length),
+        civId: null,
+        placement: null,
+        ratingBeforeMu: null,
+        ratingBeforeSigma: null,
+        ratingAfterMu: null,
+        ratingAfterSigma: null,
+        displayName: entry?.displayName,
+      }
+    })
+    .filter((participant): participant is NonNullable<typeof participant> => participant != null)
+}

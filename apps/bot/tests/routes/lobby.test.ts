@@ -1,10 +1,12 @@
+import { matches } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
+import { eq } from 'drizzle-orm'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
 import { registerLobbyRoutes } from '../../src/routes/lobby/index.ts'
-import { getLobbyForUser, storeUserActivityTarget, storeUserLobbyMappings } from '../../src/services/activity/index.ts'
-import { attachLobbyMatch, createLobby, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus } from '../../src/services/lobby/index.ts'
-import { addToQueue, getPlayerQueueMode } from '../../src/services/queue/index.ts'
+import { getLobbyForUser } from '../../src/services/activity/index.ts'
+import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
+import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
@@ -17,6 +19,11 @@ afterEach(() => {
   globalThis.fetch = originalFetch
   Math.random = originalMathRandom
 })
+
+function activityRuntimeOptions(kv: KVNamespace) {
+  const runtime = getExistingTestLobbyRuntime(kv)
+  return { db: runtime.d1, sessionNamespace: runtime.sessionNamespace }
+}
 
 describe('lobby routes', () => {
   test('raising min rank ignores a player after they leave the lobby', async () => {
@@ -178,7 +185,7 @@ describe('lobby routes', () => {
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
-    await attachLobbyMatch(kv, liveLobby.id, 'match-1', liveLobby)
+    await startTestSessionDraft(kv, liveLobby.id, liveLobby)
 
     const joinResponse = await app.request('/api/lobby/2v2/place', {
       method: 'POST',
@@ -194,61 +201,7 @@ describe('lobby routes', () => {
 
     expect(joinResponse.status).toBe(400)
     await expect(joinResponse.json()).resolves.toEqual({ error: 'That player is already in a live match.' })
-    expect(await getPlayerQueueMode(kv, 'player-1')).toBe('2v2')
     expect((await getLobbyById(kv, openLobby.id))?.memberPlayerIds).toEqual(['host'])
-  })
-
-  test('direct lobby joins ignore stale live-match conflicts when D1 shows no live match', async () => {
-    const { kv } = createTrackedKv()
-    const app = new Hono()
-    registerLobbyRoutes(app as any)
-
-    const liveLobby = await createLobby(kv, {
-      mode: '2v2',
-      hostId: 'player-1',
-      channelId: 'channel-live',
-      messageId: 'message-live',
-    })
-    const openLobby = await createLobby(kv, {
-      mode: '2v2',
-      hostId: 'host',
-      channelId: 'channel-open',
-      messageId: 'message-open',
-    })
-
-    await addToQueue(kv, '2v2', {
-      playerId: 'player-1',
-      displayName: 'Player 1',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-    await addToQueue(kv, '2v2', {
-      playerId: 'host',
-      displayName: 'Host',
-      avatarUrl: null,
-      joinedAt: Date.now() + 1,
-    })
-    await attachLobbyMatch(kv, liveLobby.id, 'match-stale', liveLobby)
-
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
-
-    const joinResponse = await app.request('/api/lobby/2v2/place', {
-      method: 'POST',
-      headers: buildAuthHeaders('player-1', 'Player 1'),
-      body: JSON.stringify({
-        userId: 'player-1',
-        lobbyId: openLobby.id,
-        targetSlot: 1,
-        displayName: 'Player 1',
-        avatarUrl: null,
-      }),
-    }, buildEnv(kv, { liveMatchPlayerIds: [] }))
-
-    expect(joinResponse.status).toBe(200)
-    expect((await getLobbyById(kv, openLobby.id))?.memberPlayerIds).toEqual(['host', 'player-1'])
   })
 
   test('direct lobby joins allow players from draft-complete active lobbies', async () => {
@@ -281,8 +234,11 @@ describe('lobby routes', () => {
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
-    const draftingLobby = await attachLobbyMatch(kv, liveLobby.id, 'match-complete', liveLobby)
+    const draftingLobby = await startTestSessionDraft(kv, liveLobby.id, liveLobby)
     await setLobbyStatus(kv, liveLobby.id, 'active', draftingLobby ?? liveLobby)
+    await getExistingTestLobbyRuntime(kv).db.update(matches)
+      .set({ status: 'active', draftData: JSON.stringify({ completedAt: Date.now() }) })
+      .where(eq(matches.id, liveLobby.id))
 
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
       status: 200,
@@ -299,7 +255,7 @@ describe('lobby routes', () => {
         displayName: 'Player 1',
         avatarUrl: null,
       }),
-    }, buildEnv(kv, { liveMatchPlayerIds: [] }))
+    }, buildEnv(kv))
 
     expect(joinResponse.status).toBe(200)
     expect((await getLobbyById(kv, openLobby.id))?.memberPlayerIds).toEqual(['host', 'player-1'])
@@ -344,9 +300,6 @@ describe('lobby routes', () => {
 
     const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'pleb'], sourceLobby)
     await setLobbySlots(kv, sourceLobby.id, ['source-host', 'pleb'], populatedSource ?? sourceLobby)
-    await storeUserLobbyMappings(kv, ['pleb'], sourceLobby.id)
-    await storeUserActivityTarget(kv, sourceLobby.channelId, ['pleb'], { kind: 'lobby', id: sourceLobby.id })
-
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -370,7 +323,7 @@ describe('lobby routes', () => {
     })
     expect((await getLobbyById(kv, sourceLobby.id))?.memberPlayerIds).toEqual(['source-host'])
     expect((await getLobbyById(kv, targetLobby.id))?.memberPlayerIds).toEqual(['target-host', 'pleb'])
-    expect(await getLobbyForUser(kv, 'pleb')).toBe(targetLobby.id)
+    expect(await getLobbyForUser(getExistingTestLobbyRuntime(kv).db, 'pleb')).toBe(targetLobby.id)
   })
 
   test('direct lobby joins block hosts from abandoning players in another open lobby', async () => {
@@ -431,141 +384,7 @@ describe('lobby routes', () => {
     })
   })
 
-  test('seat moves ignore stale live-match conflicts for players already in the target lobby', async () => {
-    const { kv } = createTrackedKv()
-    const app = new Hono()
-    registerLobbyRoutes(app as any)
-
-    const liveLobby = await createLobby(kv, {
-      mode: '4v4',
-      hostId: 'live-host',
-      channelId: 'channel-live',
-      messageId: 'message-live',
-    })
-    const targetLobby = await createLobby(kv, {
-      mode: '4v4',
-      hostId: 'host',
-      channelId: 'channel-target',
-      messageId: 'message-target',
-    })
-
-    await addToQueue(kv, '4v4', {
-      playerId: 'live-host',
-      displayName: 'Live Host',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-    await addToQueue(kv, '4v4', {
-      playerId: 'host',
-      displayName: 'Host',
-      avatarUrl: null,
-      joinedAt: Date.now() + 1,
-    })
-    await addToQueue(kv, '4v4', {
-      playerId: 'player-1',
-      displayName: 'Player 1',
-      avatarUrl: null,
-      joinedAt: Date.now() + 2,
-    })
-    await addToQueue(kv, '4v4', {
-      playerId: 'player-2',
-      displayName: 'Player 2',
-      avatarUrl: null,
-      joinedAt: Date.now() + 3,
-    })
-
-    const populatedLiveLobby = await setLobbyMemberPlayerIds(kv, liveLobby.id, ['live-host', 'player-1', 'player-2'], liveLobby)
-    await setLobbySlots(kv, liveLobby.id, ['live-host', 'player-1', 'player-2', null, null, null, null, null], populatedLiveLobby ?? liveLobby)
-    await attachLobbyMatch(kv, liveLobby.id, 'match-1', populatedLiveLobby ?? liveLobby)
-
-    const populatedTargetLobby = await setLobbyMemberPlayerIds(kv, targetLobby.id, ['host', 'player-1', 'player-2'], targetLobby)
-    await setLobbySlots(kv, targetLobby.id, ['host', 'player-1', 'player-2', null, null, null, null, null], populatedTargetLobby ?? targetLobby)
-
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
-
-    const selfMoveResponse = await app.request('/api/lobby/4v4/place', {
-      method: 'POST',
-      headers: buildAuthHeaders('player-1', 'Player 1'),
-      body: JSON.stringify({
-        userId: 'player-1',
-        lobbyId: targetLobby.id,
-        targetSlot: 4,
-      }),
-    }, buildEnv(kv))
-
-    expect(selfMoveResponse.status).toBe(200)
-
-    const hostMoveResponse = await app.request('/api/lobby/4v4/place', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: targetLobby.id,
-        playerId: 'player-2',
-        targetSlot: 5,
-      }),
-    }, buildEnv(kv))
-
-    expect(hostMoveResponse.status).toBe(200)
-    expect((await getLobbyById(kv, targetLobby.id))?.slots).toEqual(['host', null, null, null, 'player-1', 'player-2', null, null])
-  })
-
-  test('seat moves keep working for players already in the target lobby despite stale open-lobby residue', async () => {
-    const { kv } = createTrackedKv()
-    const app = new Hono()
-    registerLobbyRoutes(app as any)
-
-    const sourceLobby = await createLobby(kv, {
-      mode: '4v4',
-      hostId: 'source-host',
-      channelId: 'channel-source',
-      messageId: 'message-source',
-    })
-    const targetLobby = await createLobby(kv, {
-      mode: '4v4',
-      hostId: 'host',
-      channelId: 'channel-target',
-      messageId: 'message-target',
-    })
-
-    for (const [index, playerId] of ['source-host', 'host', 'player-1', 'player-2'].entries()) {
-      await addToQueue(kv, '4v4', {
-        playerId,
-        displayName: playerId,
-        avatarUrl: null,
-        joinedAt: Date.now() + index,
-      })
-    }
-
-    const sourceWithMembers = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'player-1'], sourceLobby)
-    await setLobbySlots(kv, sourceLobby.id, ['source-host', 'player-1', null, null, null, null, null, null], sourceWithMembers ?? sourceLobby)
-    const targetWithMembers = await setLobbyMemberPlayerIds(kv, targetLobby.id, ['host', 'player-1', 'player-2'], targetLobby)
-    await setLobbySlots(kv, targetLobby.id, ['host', 'player-1', 'player-2', null, null, null, null, null], targetWithMembers ?? targetLobby)
-
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
-
-    const response = await app.request('/api/lobby/4v4/place', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        playerId: 'player-1',
-        lobbyId: targetLobby.id,
-        targetSlot: 4,
-      }),
-    }, buildEnv(kv))
-
-    expect(response.status).toBe(200)
-    expect((await getLobbyById(kv, targetLobby.id))?.slots).toEqual(['host', null, 'player-2', null, 'player-1', null, null, null])
-  })
-
-  test('slot removal ignores legacy party ids', async () => {
+  test('slot removal only removes the selected player', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
@@ -1153,7 +972,7 @@ describe('lobby routes', () => {
       messageId: 'message-1',
     })
 
-    const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
     expect(draftingLobby).not.toBeNull()
     const activeLobby = await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
     expect(activeLobby).not.toBeNull()
@@ -1186,7 +1005,7 @@ describe('lobby routes', () => {
       messageId: 'message-1',
     })
 
-    const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
     expect(draftingLobby).not.toBeNull()
 
     const response = await app.request('/api/lobby/1v1/config', {
@@ -1203,7 +1022,7 @@ describe('lobby routes', () => {
     expect(await response.json()).toEqual({ error: 'Only the Steam lobby link can be updated after the draft starts.' })
   })
 
-  test('removing yourself from a slot clears queue state so you can rejoin', async () => {
+  test('removing yourself from a slot clears lobby membership so you can rejoin', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
@@ -1232,9 +1051,6 @@ describe('lobby routes', () => {
     const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'pleb'], withMember ?? lobby)
     expect(withSlots).not.toBeNull()
 
-    await storeUserLobbyMappings(kv, ['pleb'], lobby.id)
-    await storeUserActivityTarget(kv, lobby.channelId, ['pleb'], { kind: 'lobby', id: lobby.id })
-
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -1247,8 +1063,7 @@ describe('lobby routes', () => {
     }, buildEnv(kv))
     expect(removeResponse.status).toBe(200)
 
-    expect(await getPlayerQueueMode(kv, 'pleb')).toBeNull()
-    expect(await getLobbyForUser(kv, 'pleb')).toBeNull()
+    expect(await getLobbyForUser(getExistingTestLobbyRuntime(kv).db, 'pleb')).toBeNull()
 
     const rejoinResponse = await app.request('/api/lobby/1v1/place', {
       method: 'POST',
@@ -1267,7 +1082,7 @@ describe('lobby routes', () => {
     expect(updatedLobby?.memberPlayerIds).toEqual(['host', 'pleb'])
   })
 
-  test('removing yourself keeps the current lobby selected for spectating', async () => {
+  test('removing yourself keeps the current lobby available for spectating', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
@@ -1296,9 +1111,6 @@ describe('lobby routes', () => {
     const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'pleb'], withMember ?? lobby)
     expect(withSlots).not.toBeNull()
 
-    await storeUserLobbyMappings(kv, ['pleb'], lobby.id)
-    await storeUserActivityTarget(kv, lobby.channelId, ['pleb'], { kind: 'lobby', id: lobby.id })
-
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -1311,11 +1123,9 @@ describe('lobby routes', () => {
     }, buildEnv(kv))
     expect(removeResponse.status).toBe(200)
 
-    const snapshot = await buildActivityLaunchSnapshot('token', 'secret', kv, lobby.channelId, 'pleb')
-    expect(snapshot.selection?.kind).toBe('lobby')
-    if (snapshot.selection?.kind !== 'lobby') return
-    expect(snapshot.selection.lobby.id).toBe(lobby.id)
-    expect(snapshot.selection.joinEligibility.canJoin).toBe(true)
+    const snapshot = await buildActivityLaunchSnapshot('token', 'secret', kv, lobby.channelId, 'pleb', activityRuntimeOptions(kv))
+    expect(snapshot.selection).toBeNull()
+    expect(snapshot.options).toContainEqual(expect.objectContaining({ kind: 'lobby', id: lobby.id }))
   })
 
   test('mode changes keep the host seat order when already slotted', async () => {
@@ -1694,7 +1504,7 @@ describe('lobby routes', () => {
     expect(updatedLobby?.memberPlayerIds).toEqual(playerIds)
   })
 
-  test('mode changes preserve slotted queued players even when member ids are stale', async () => {
+  test('mode changes use canonical member ids instead of slotted queue residue', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
@@ -1736,8 +1546,10 @@ describe('lobby routes', () => {
     }, buildEnv(kv))
 
     expect(response.status).toBe(200)
-    expect((await getLobbyById(kv, lobby.id))?.memberPlayerIds).toEqual(playerIds)
-    expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(['p1', 'p2', 'p3', 'p4', 'p5', 'p6', null, null])
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.memberPlayerIds).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
+    expect(updatedLobby?.slots.filter((playerId): playerId is string => playerId != null)).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
+    expect(updatedLobby?.slots).not.toContain('p6')
   })
 
   test('lobby config defaults blind bans on and preserves false for supported modes', async () => {
@@ -1974,38 +1786,13 @@ describe('lobby routes', () => {
   })
 })
 
-function buildEnv(kv: KVNamespace, options?: { liveMatchPlayerIds?: string[] }) {
-  return {
-    KV: kv,
-    DB: buildDb(options?.liveMatchPlayerIds ?? null),
+function buildEnv(kv: KVNamespace) {
+  return buildTestLobbyEnv(kv, {
     DISCORD_APPLICATION_ID: 'app',
     DISCORD_PUBLIC_KEY: 'key',
     DISCORD_TOKEN: 'token',
     CIVUP_SECRET: 'secret',
-  } as any
-}
-
-function buildDb(liveMatchPlayerIds: string[] | null): D1Database {
-  if (liveMatchPlayerIds == null) return {} as D1Database
-
-  const livePlayerIdSet = new Set(liveMatchPlayerIds)
-  return {
-    prepare() {
-      return {
-        bind(...values: unknown[]) {
-          return {
-            async all() {
-              return {
-                results: values
-                  .filter((value): value is string => typeof value === 'string' && livePlayerIdSet.has(value))
-                  .map(playerId => ({ playerId, matchId: `match:${playerId}` })),
-              }
-            },
-          }
-        },
-      }
-    },
-  } as D1Database
+  }) as any
 }
 
 function buildAuthHeaders(userId: string, displayName = userId): HeadersInit {

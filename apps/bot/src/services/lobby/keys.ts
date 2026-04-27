@@ -4,7 +4,6 @@ import { LOBBY_STATE_TTL_SECONDS } from '../match/retention.ts'
 export const LOBBY_ID_KEY_PREFIX = 'lobby:id:'
 export const LOBBY_MODE_KEY_PREFIX = 'lobby:mode:'
 export const LOBBY_CHANNEL_KEY_PREFIX = 'lobby:channel:'
-export const LOBBY_MATCH_KEY_PREFIX = 'lobby:match:'
 export const LOBBY_HOST_KEY_PREFIX = 'lobby:host:'
 export const LOBBY_BUMP_KEY_PREFIX = 'lobby:bump:'
 export const LOBBY_DRAFT_ROSTER_KEY_PREFIX = 'lobby:draft-roster:'
@@ -28,10 +27,6 @@ export function channelIndexKey(channelId: string, lobbyId: string): string {
 
 export function channelPrefix(channelId: string): string {
   return `${LOBBY_CHANNEL_KEY_PREFIX}${channelId}:`
-}
-
-export function matchKey(matchId: string): string {
-  return `${LOBBY_MATCH_KEY_PREFIX}${matchId}`
 }
 
 export function hostKey(hostId: string): string {

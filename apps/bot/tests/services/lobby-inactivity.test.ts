@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
-import { storeUserActivityTarget } from '../../src/services/activity/index.ts'
-import { createLobby, getLobbyById, setLobbyLastActivityAt } from '../../src/services/lobby/index.ts'
-import { addToQueue } from '../../src/services/queue/index.ts'
+import { createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyLastActivityAt } from '../helpers/lobby-runtime.ts'
+import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
@@ -10,6 +9,11 @@ const originalFetch = globalThis.fetch
 afterEach(() => {
   globalThis.fetch = originalFetch
 })
+
+function activityRuntimeOptions(kv: KVNamespace) {
+  const runtime = getExistingTestLobbyRuntime(kv)
+  return { db: runtime.d1, sessionNamespace: runtime.sessionNamespace }
+}
 
 describe('activity launch with long-idle lobbies', () => {
   test('keeps open lobbies visible until cron cleanup runs', async () => {
@@ -30,9 +34,8 @@ describe('activity launch with long-idle lobbies', () => {
       joinedAt: Date.now() - 61 * 60 * 1000,
     })
     await setLobbyLastActivityAt(kv, lobby.id, Date.now() - 61 * 60 * 1000, lobby)
-    await storeUserActivityTarget(kv, 'channel-1', ['host-1'], { kind: 'lobby', id: lobby.id })
 
-    const snapshot = await buildActivityLaunchSnapshot('token', 'secret', kv, 'channel-1', 'host-1')
+    const snapshot = await buildActivityLaunchSnapshot('token', 'secret', kv, 'channel-1', 'host-1', activityRuntimeOptions(kv))
 
     expect(snapshot.options).toHaveLength(1)
     expect(snapshot.selection?.kind).toBe('lobby')

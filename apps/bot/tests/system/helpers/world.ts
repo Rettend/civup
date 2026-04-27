@@ -1,30 +1,30 @@
 import type { Database as CivupDatabase, Database } from '@civup/db'
-import type { DraftCancelledWebhookPayload, DraftCompleteWebhookPayload, DraftState, DraftWebhookPayload, GameMode, QueueEntry, RoomConfig } from '@civup/game'
+import type { CompetitiveTier, DraftState, GameMode, QueueEntry } from '@civup/game'
+import type { DraftRuntimeConfig } from '@civup/session'
+import type { DraftLifecycleCancelledPayload, DraftLifecycleCompletePayload, DraftLifecyclePayload } from '../../../src/session-runtime/draft-lifecycle-events.ts'
 import type { Env } from '../../../src/env.ts'
-import type { ActivityTargetSelection, MatchActivityTargetSelection } from '../../../src/services/activity/index.ts'
 import type { LobbyState } from '../../../src/services/lobby/index.ts'
 import { matchBans, matchParticipants, matches } from '@civup/db'
 import { allLeaderIds, createDraft, draftFormatMap, getCurrentStep, getPendingSeats, isDraftError, processDraftInput } from '@civup/game'
-import { CIVUP_INTERNAL_SECRET_HEADER, createSignedWebhookHeaders } from '@civup/utils'
+import { CIVUP_INTERNAL_SECRET_HEADER } from '@civup/utils'
 import { and, eq } from 'drizzle-orm'
-import { activityLobbyUserKey, activityMatchKey, activityUserKey, getLobbyForUser, getMatchForUser, getUserActivityTarget } from '../../../src/services/activity/index.ts'
-import { addToQueue, getQueueState, setQueueEntries } from '../../../src/services/queue/index.ts'
-import { createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobby, getLobbyById, getLobbyByMatch, setLobbyMemberPlayerIds, setLobbySlots } from '../../../src/services/lobby/index.ts'
+import { buildDraftRuntimeConfig, getLobbyForUser, getMatchForUser } from '../../../src/services/activity/index.ts'
+import { createLobby, getLobby, getLobbyById, setLobbyMemberPlayerIds, setLobbySlots } from '../../helpers/lobby-runtime.ts'
 import { syncLobbyDerivedState } from '../../../src/services/lobby/live-snapshot.ts'
-import { lobbySnapshotKey } from '../../../src/services/lobby/live-snapshot.ts'
-import { channelIndexKey, hostKey, matchKey } from '../../../src/services/lobby/keys.ts'
+import { channelIndexKey, hostKey } from '../../../src/services/lobby/keys.ts'
 import { listMatchMessageIds } from '../../../src/services/match/message.ts'
-import { createStateStore } from '../../../src/services/state/store.ts'
+import { handleDraftLifecyclePayload } from '../../../src/services/match/draft-lifecycle.ts'
+import { getCurrentSessionLobbyProjectionsForPlayer, getOpenSessionLobbyProjectionHostedBy, getSessionLobbyProjectionByMatch } from '../../../src/services/session/index.ts'
 import { setSystemChannel } from '../../../src/services/system/channels.ts'
 import { buildBotTestEnv, createBotTestApp, createExecutionContextHarness } from '../../helpers/app-harness.ts'
 import { createSqliteD1Database } from '../../helpers/d1.ts'
 import { installFetchHandler } from '../../helpers/fetch-router.ts'
+import { createTestSessionNamespace } from '../../helpers/session-runtime.ts'
 import { createTestDatabase } from '../../helpers/test-env.ts'
 import { createTrackedKv } from '../../helpers/tracked-kv.ts'
 import { createRuntimeControls } from './runtime-controls.ts'
 
 const BOT_HOST = 'https://bot.test'
-const PARTY_HOST = 'https://party.test'
 const CIVUP_SECRET = 'secret'
 const DEFAULT_CHANNEL_ID = 'channel-draft'
 const DEFAULT_ARCHIVE_CHANNEL_ID = 'channel-archive'
@@ -41,22 +41,37 @@ interface DiscordMessageRecord {
   payload: unknown
 }
 
-interface PartyRoomRecord {
-  config: RoomConfig
-  completionPayloads: DraftCompleteWebhookPayload[]
-  cancellationPayloads: DraftCancelledWebhookPayload[]
+interface DiscordGuildRoleRecord {
+  id: string
+  name: string
+  color?: number
+}
+
+interface CapturedDraftRuntimeRecord {
+  config: DraftRuntimeConfig
+  completionPayloads: DraftLifecycleCompletePayload[]
+  cancellationPayloads: DraftLifecycleCancelledPayload[]
+  nextLifecycleEventSequence: number
+}
+
+function createCapturedDraftRuntimeRecord(config: DraftRuntimeConfig, previous?: CapturedDraftRuntimeRecord): CapturedDraftRuntimeRecord {
+  return {
+    config,
+    completionPayloads: previous?.completionPayloads ?? [],
+    cancellationPayloads: previous?.cancellationPayloads ?? [],
+    nextLifecycleEventSequence: previous?.nextLifecycleEventSequence ?? 0,
+  }
 }
 
 interface CompleteDraftOptions {
   finalized?: boolean
   transformState?: (state: DraftState) => DraftState
-  mapVoteResult?: DraftCompleteWebhookPayload['mapVoteResult']
+  mapVoteResult?: DraftLifecycleCompletePayload['mapVoteResult']
 }
 
-interface WebhookDeliveryOptions {
-  sign?: boolean
-  secret?: string
-  rawBody?: string
+interface CancelDraftOptions {
+  reason?: 'cancel' | 'scrub' | 'revert'
+  state?: DraftState
 }
 
 interface WorldPlayerInput {
@@ -83,27 +98,27 @@ export interface SystemWorld {
   env: Env['Bindings']
   kv: KVNamespace
   lobby: {
-    createOpen: (input: { mode: Parameters<typeof getQueueState>[1], players: WorldPlayerInput[], hostId?: string, channelId?: string, guildId?: string | null, memberPlayerIds?: string[], slots?: (string | null)[] }) => Promise<LobbyState>
+    createOpen: (input: { mode: GameMode, players: WorldPlayerInput[], hostId?: string, channelId?: string, guildId?: string | null, memberPlayerIds?: string[], slots?: (string | null)[] }) => Promise<LobbyState>
     get: (mode: Parameters<typeof getLobby>[1]) => Promise<LobbyState | null>
     getById: (lobbyId: string) => Promise<LobbyState | null>
-    config: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, banTimerSeconds?: number | null, pickTimerSeconds?: number | null, leaderPoolSize?: number | null, leaderDataVersion?: 'live' | 'beta' | null, mapVoteEnabled?: boolean, blindBans?: boolean, simultaneousPick?: boolean, redDeath?: boolean, dealOptionsSize?: number | null, randomDraft?: boolean, duplicateFactions?: boolean, steamLobbyLink?: string | null, targetSize?: number | null }) => Promise<RouteResult>
-    changeMode: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, nextMode: GameMode }) => Promise<RouteResult>
-    arrange: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string, strategy: 'randomize' | 'balance' | 'shuffle-teams' }) => Promise<RouteResult>
-    cancel: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string }) => Promise<RouteResult>
-    start: (mode: Parameters<typeof getQueueState>[1], input: { hostId: string, lobbyId?: string }) => Promise<{ ok: boolean, matchId: string, roomAccessToken: string | null, idempotent?: boolean }>
-    place: (mode: Parameters<typeof getQueueState>[1], input: { userId: string, targetSlot: number, lobbyId?: string, playerId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, transferNotice?: string | null, error?: string }>>
-    remove: (mode: Parameters<typeof getQueueState>[1], input: { userId: string, slot: number, lobbyId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, error?: string }>>
+    config: (mode: GameMode, input: { hostId: string, lobbyId?: string, banTimerSeconds?: number | null, pickTimerSeconds?: number | null, leaderPoolSize?: number | null, leaderDataVersion?: 'live' | 'beta' | null, mapVoteEnabled?: boolean, blindBans?: boolean, simultaneousPick?: boolean, redDeath?: boolean, dealOptionsSize?: number | null, randomDraft?: boolean, duplicateFactions?: boolean, minRole?: CompetitiveTier | null, maxRole?: CompetitiveTier | null, steamLobbyLink?: string | null, targetSize?: number | null }) => Promise<RouteResult>
+    changeMode: (mode: GameMode, input: { hostId: string, lobbyId?: string, nextMode: GameMode }) => Promise<RouteResult>
+    arrange: (mode: GameMode, input: { hostId: string, lobbyId?: string, strategy: 'randomize' | 'balance' | 'shuffle-teams' }) => Promise<RouteResult>
+    cancel: (mode: GameMode, input: { hostId: string, lobbyId?: string }) => Promise<RouteResult>
+    start: (mode: GameMode, input: { hostId: string, lobbyId?: string }) => Promise<{ ok: boolean, matchId: string, sessionAccessToken: string | null, idempotent?: boolean }>
+    place: (mode: GameMode, input: { userId: string, targetSlot: number, lobbyId?: string, playerId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, transferNotice?: string | null, error?: string }>>
+    remove: (mode: GameMode, input: { userId: string, slot: number, lobbyId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, error?: string }>>
   }
   party: {
-    rooms: () => PartyRoomRecord[]
-    draftComplete: (matchId: string, options?: CompleteDraftOptions) => DraftCompleteWebhookPayload
-    draftTimeout: (matchId: string) => DraftCancelledWebhookPayload
-    draftCancel: (matchId: string, options?: { reason?: 'cancel' | 'scrub' | 'revert' }) => DraftCancelledWebhookPayload
+    rooms: () => CapturedDraftRuntimeRecord[]
+    draftComplete: (matchId: string, options?: CompleteDraftOptions) => DraftLifecycleCompletePayload
+    draftTimeout: (matchId: string) => DraftLifecycleCancelledPayload
+    draftCancel: (matchId: string, options?: CancelDraftOptions) => DraftLifecycleCancelledPayload
     completeDraft: (matchId: string, options?: CompleteDraftOptions) => Promise<Response>
     timeoutDraft: (matchId: string) => Promise<Response>
-    cancelDraft: (matchId: string, options?: { reason?: 'cancel' | 'scrub' | 'revert' }) => Promise<Response>
-    replayDraftComplete: (matchId: string, options?: { index?: number } & WebhookDeliveryOptions) => Promise<Response>
-    replayDraftCancel: (matchId: string, options?: { index?: number } & WebhookDeliveryOptions) => Promise<Response>
+    cancelDraft: (matchId: string, options?: CancelDraftOptions) => Promise<Response>
+    replayDraftComplete: (matchId: string, options?: { index?: number }) => Promise<Response>
+    replayDraftCancel: (matchId: string, options?: { index?: number }) => Promise<Response>
   }
   match: {
     report: (matchId: string, input: { reporterId: string, placements: string }) => Promise<{ ok: boolean }>
@@ -116,7 +131,8 @@ export interface SystemWorld {
     launch: (input: { channelId: string, userId: string }) => Promise<RouteResult>
     currentLobby: (input: { userId: string }) => Promise<RouteResult>
     currentMatch: (input: { userId: string }) => Promise<RouteResult>
-    targetLobby: (input: { channelId: string, userId: string, lobbyId: string }) => Promise<void>
+    targetLobby: (input: { channelId: string, userId: string, lobbyId: string }) => Promise<RouteResult>
+    targetMatch: (input: { channelId: string, userId: string, matchId: string }) => Promise<RouteResult>
   }
   discord: {
     requests: () => DiscordRequestRecord[]
@@ -125,30 +141,24 @@ export interface SystemWorld {
     deleteMessage: (messageId: string) => void
     failNextPatch: (messageId: string) => void
     failNextPost: (channelId: string, status?: number) => void
+    failNextGuildMemberLookup: (guildId: string, userId: string, status?: number) => void
+    failNextGuildRolesLookup: (guildId: string, status?: number) => void
+    setGuildMemberRoles: (guildId: string, userId: string, roleIds: string[]) => void
+    setGuildRoles: (guildId: string, roles: DiscordGuildRoleRecord[]) => void
     currentLobbyMessage: (lobbyId: string) => Promise<DiscordMessageRecord | null>
     deleteCurrentLobbyMessage: (lobbyId: string) => Promise<void>
   }
   corrupt: {
-    activityLobbyUser: (userId: string, lobbyId: string | null) => Promise<void>
-    activityUser: (userId: string, matchId: string | null) => Promise<void>
-    activityMatch: (matchId: string, channelId: string | null) => Promise<void>
-    lobbySnapshot: (lobbyId: string, snapshot: unknown | null) => Promise<void>
     lobbyHost: (hostId: string, lobbyId: string | null) => Promise<void>
-    lobbyMatch: (matchId: string, lobbyId: string | null) => Promise<void>
     lobbyChannel: (lobbyId: string, indexedChannelId: string | null) => Promise<void>
     openLobbyResidue: (lobbyId: string, input: { memberPlayerIds: string[], slots: (string | null)[] }) => Promise<LobbyState | null>
-    queueEntries: (mode: Parameters<typeof getQueueState>[1], entries: QueueEntry[]) => Promise<void>
   }
   inspect: {
     lobbyMapping: (userId: string) => Promise<string | null>
     currentHostedLobby: (hostId: string) => Promise<LobbyState | null>
     matchMapping: (userId: string) => Promise<string | null>
-    matchChannel: (matchId: string) => Promise<string | null>
-    matchLobbyLink: (matchId: string) => Promise<string | null>
-    activityTarget: (channelId: string, userId: string) => Promise<ActivityTargetSelection | MatchActivityTargetSelection | null>
     lobbiesForPlayer: (userId: string) => Promise<LobbyState[]>
     lobbyByMatch: (matchId: string) => Promise<LobbyState | null>
-    lobbySnapshot: (lobbyId: string) => Promise<unknown | null>
   }
   runtime: {
     clock: {
@@ -176,50 +186,55 @@ export async function createSystemWorld(): Promise<SystemWorld> {
   const discordMessages = new Map<string, DiscordMessageRecord>()
   const discordPatchFailures = new Set<string>()
   const discordPostFailures = new Map<string, number>()
-  const partyRooms = new Map<string, PartyRoomRecord>()
+  const discordGuildMemberFailures = new Map<string, number>()
+  const discordGuildRolesFailures = new Map<string, number>()
+  const discordGuildMemberRoles = new Map<string, string[]>()
+  const discordGuildRoles = new Map<string, DiscordGuildRoleRecord[]>()
+  const draftRuntimeRecords = new Map<string, CapturedDraftRuntimeRecord>()
   const runtime = createRuntimeControls()
-  let stateStoreRequestQueue = Promise.resolve()
   let nextDiscordMessageId = 1
 
+  const d1 = createSqliteD1Database(sqlite)
   const env = buildBotTestEnv({
-    DB: createSqliteD1Database(sqlite),
+    DB: d1,
     KV: kv,
+    SessionDO: createTestSessionNamespace({ DB: d1, KV: kv, DISCORD_TOKEN: 'token', BOT_HOST, CIVUP_SECRET }),
     DISCORD_APPLICATION_ID: 'app',
     DISCORD_PUBLIC_KEY: 'public-key',
     DISCORD_TOKEN: 'token',
-    PARTY_HOST,
     BOT_HOST,
     CIVUP_SECRET,
   })
 
-  await setSystemChannel(createStateStore(env), 'draft', DEFAULT_CHANNEL_ID)
-  await setSystemChannel(createStateStore(env), 'archive', DEFAULT_ARCHIVE_CHANNEL_ID)
+  await setSystemChannel(kv, 'draft', DEFAULT_CHANNEL_ID)
+  await setSystemChannel(kv, 'archive', DEFAULT_ARCHIVE_CHANNEL_ID)
 
   const restoreFetchHandler = installFetchHandler(async (request) => {
     const url = new URL(request.url)
+
+    if (url.origin === BOT_HOST && request.method === 'POST' && /^\/parties\/main\/[^/]+$/.test(url.pathname)) {
+      const body = await request.json() as DraftRuntimeConfig
+      draftRuntimeRecords.set(body.matchId, createCapturedDraftRuntimeRecord(body, draftRuntimeRecords.get(body.matchId)))
+      return jsonResponse({ ok: true })
+    }
 
     if (url.origin === BOT_HOST) {
       return app.fetch(request, env, execution.executionCtx)
     }
 
-    if (url.origin === PARTY_HOST && request.method === 'POST' && /^\/parties\/main\/[^/]+$/.test(url.pathname)) {
-      const body = await request.json() as RoomConfig
-      partyRooms.set(body.matchId, {
-        config: body,
-        completionPayloads: [],
-        cancellationPayloads: [],
-      })
-      return jsonResponse({ ok: true })
-    }
-
-    if (url.origin === PARTY_HOST && request.method === 'POST' && url.pathname === '/parties/state/global') {
-      const response = stateStoreRequestQueue.then(() => handleStateStoreRequest(request, kv))
-      stateStoreRequestQueue = response.then(() => undefined, () => undefined)
-      return response
-    }
-
     if (url.origin === 'https://discord.com' && url.pathname.startsWith('/api/v10/')) {
-      return handleDiscordRequest(request, discordRequests, discordMessages, discordPatchFailures, discordPostFailures, () => `discord-message-${nextDiscordMessageId++}`)
+      return handleDiscordRequest(
+        request,
+        discordRequests,
+        discordMessages,
+        discordPatchFailures,
+        discordPostFailures,
+        discordGuildMemberFailures,
+        discordGuildRolesFailures,
+        discordGuildMemberRoles,
+        discordGuildRoles,
+        () => `discord-message-${nextDiscordMessageId++}`,
+      )
     }
 
     return undefined
@@ -235,25 +250,10 @@ export async function createSystemWorld(): Promise<SystemWorld> {
     return app.fetch(new Request(`${BOT_HOST}${path}`, { ...init, headers }), env, execution.executionCtx)
   }
 
-  const sendWebhook = async (room: PartyRoomRecord, payload: DraftWebhookPayload, options: WebhookDeliveryOptions = {}): Promise<Response> => {
-    if (!room.config.webhookUrl) throw new Error(`Captured Party room ${room.config.matchId} has no webhookUrl configured`)
-
-    const body = options.rawBody ?? JSON.stringify(payload)
-    const signingSecret = options.secret ?? room.config.webhookSecret
-    const headers = new Headers()
-    if (options.sign !== false && signingSecret) {
-      const signedHeaders = await createSignedWebhookHeaders(signingSecret, body)
-      for (const [key, value] of Object.entries(signedHeaders)) {
-        headers.set(key, value)
-      }
-    }
-    headers.set('Content-Type', 'application/json')
-
-    return fetch(new Request(room.config.webhookUrl, {
-      method: 'POST',
-      headers,
-      body,
-    }))
+  const deliverDraftLifecycle = async (_room: CapturedDraftRuntimeRecord, payload: DraftLifecyclePayload): Promise<Response> => {
+    const result = await handleDraftLifecyclePayload(env, payload)
+    if (!result.ok) return jsonResponse({ error: result.error }, result.status)
+    return jsonResponse({ ok: true, ignored: result.ignored, synced: result.synced })
   }
 
   const requestJsonAs = async <T>(path: string, init: RequestInit, options: RequestAsOptions): Promise<RouteResult<T>> => {
@@ -282,10 +282,6 @@ export async function createSystemWorld(): Promise<SystemWorld> {
           partyIds: player.partyIds,
         }))
 
-        for (const entry of entries) {
-          await addToQueue(kv, mode, entry)
-        }
-
         const lobby = await createLobby(kv, {
           mode,
           guildId: input.guildId ?? null,
@@ -293,6 +289,8 @@ export async function createSystemWorld(): Promise<SystemWorld> {
           channelId,
           messageId: `seed-message-${hostId}-${mode}`,
           queueEntries: entries,
+          db,
+          sessionNamespace: env.SessionDO,
         })
         discordMessages.set(lobby.messageId, {
           id: lobby.messageId,
@@ -308,16 +306,18 @@ export async function createSystemWorld(): Promise<SystemWorld> {
           }
         }
 
-        const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, memberPlayerIds, lobby) ?? lobby
-        const withSlots = await setLobbySlots(kv, lobby.id, slots, withMembers) ?? { ...withMembers, slots }
+        const sessionOptions = { db, sessionNamespace: env.SessionDO, queueEntries: entries }
+        const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, memberPlayerIds, lobby, sessionOptions) ?? lobby
+        const withSlots = await setLobbySlots(kv, lobby.id, slots, withMembers, sessionOptions) ?? { ...withMembers, slots }
         await syncLobbyDerivedState(kv, withSlots, { queueEntries: entries, slots })
         return withSlots
       },
       get(mode) {
         return getLobby(kv, mode)
       },
-      getById(lobbyId) {
-        return getLobbyById(kv, lobbyId)
+      async getById(lobbyId) {
+        const lobby = await getLobbyById(kv, lobbyId)
+        return isLiveLobbyProjection(lobby) ? lobby : null
       },
       config(mode, input) {
         return requestJsonAs(`/api/lobby/${mode}/config`, {
@@ -336,6 +336,8 @@ export async function createSystemWorld(): Promise<SystemWorld> {
             dealOptionsSize: input.dealOptionsSize,
             randomDraft: input.randomDraft,
             duplicateFactions: input.duplicateFactions,
+            minRole: input.minRole,
+            maxRole: input.maxRole,
             steamLobbyLink: input.steamLobbyLink,
             targetSize: input.targetSize,
           }),
@@ -383,6 +385,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         })
       },
       async start(mode, input) {
+        const lobbyBeforeStart = input.lobbyId ? await getLobbyById(kv, input.lobbyId) : await getLobby(kv, mode)
         const response = await requestAs(`/api/lobby/${mode}/start`, {
           method: 'POST',
           body: JSON.stringify({ userId: input.hostId, lobbyId: input.lobbyId }),
@@ -390,8 +393,24 @@ export async function createSystemWorld(): Promise<SystemWorld> {
           userId: input.hostId,
           displayName: input.hostId,
         })
-        const body = await response.json() as { ok: boolean, matchId: string, roomAccessToken: string | null, idempotent?: boolean, error?: string }
+        const body = await response.json() as { ok: boolean, matchId: string, sessionAccessToken: string | null, idempotent?: boolean, error?: string }
         if (!response.ok) throw new Error(body.error ?? `Failed to start lobby: ${response.status}`)
+        if (!body.idempotent && lobbyBeforeStart) {
+          const runtime = buildDraftRuntimeConfig(lobbyBeforeStart.mode, buildTestDraftEntries(lobbyBeforeStart), {
+            matchId: body.matchId,
+            hostId: lobbyBeforeStart.hostId,
+            leaderDataVersion: lobbyBeforeStart.draftConfig.leaderDataVersion,
+            blindBans: lobbyBeforeStart.draftConfig.blindBans,
+            simultaneousPick: lobbyBeforeStart.draftConfig.simultaneousPick,
+            redDeath: lobbyBeforeStart.draftConfig.redDeath,
+            mapVoteEnabled: lobbyBeforeStart.draftConfig.mapVoteEnabled,
+            randomDraft: lobbyBeforeStart.draftConfig.randomDraft,
+            duplicateFactions: lobbyBeforeStart.draftConfig.duplicateFactions,
+            leaderPoolSize: lobbyBeforeStart.draftConfig.leaderPoolSize,
+            dealOptionsSize: lobbyBeforeStart.draftConfig.dealOptionsSize,
+          })
+          draftRuntimeRecords.set(runtime.matchId, createCapturedDraftRuntimeRecord(runtime.config, draftRuntimeRecords.get(runtime.matchId)))
+        }
         return body
       },
       place(mode, input) {
@@ -428,52 +447,52 @@ export async function createSystemWorld(): Promise<SystemWorld> {
     },
     party: {
       rooms() {
-        return [...partyRooms.values()]
+        return [...draftRuntimeRecords.values()]
       },
       draftComplete(matchId, options = {}) {
-        const room = getPartyRoom(partyRooms, matchId)
-        const payload = buildCompletedPayload(room.config, options)
+        const room = getDraftRuntimeRecord(draftRuntimeRecords, matchId)
+        const payload = buildCompletedPayload(room, options)
         room.completionPayloads.push(payload)
         return payload
       },
       draftTimeout(matchId) {
-        const room = getPartyRoom(partyRooms, matchId)
-        const payload = buildTimeoutPayload(room.config)
+        const room = getDraftRuntimeRecord(draftRuntimeRecords, matchId)
+        const payload = buildTimeoutPayload(room)
         room.cancellationPayloads.push(payload)
         return payload
       },
       draftCancel(matchId, options = {}) {
-        const room = getPartyRoom(partyRooms, matchId)
-        const payload = buildCancelledPayload(room.config, options.reason ?? 'scrub')
+        const room = getDraftRuntimeRecord(draftRuntimeRecords, matchId)
+        const payload = buildCancelledPayload(room, options.reason ?? 'scrub', options.state)
         room.cancellationPayloads.push(payload)
         return payload
       },
       async completeDraft(matchId, options = {}) {
-        const room = getPartyRoom(partyRooms, matchId)
+        const room = getDraftRuntimeRecord(draftRuntimeRecords, matchId)
         const payload = this.draftComplete(matchId, options)
-        return sendWebhook(room, payload)
+        return deliverDraftLifecycle(room, payload)
       },
       async timeoutDraft(matchId) {
-        const room = getPartyRoom(partyRooms, matchId)
+        const room = getDraftRuntimeRecord(draftRuntimeRecords, matchId)
         const payload = this.draftTimeout(matchId)
-        return sendWebhook(room, payload)
+        return deliverDraftLifecycle(room, payload)
       },
       async cancelDraft(matchId, options = {}) {
-        const room = getPartyRoom(partyRooms, matchId)
+        const room = getDraftRuntimeRecord(draftRuntimeRecords, matchId)
         const payload = this.draftCancel(matchId, options)
-        return sendWebhook(room, payload)
+        return deliverDraftLifecycle(room, payload)
       },
       async replayDraftComplete(matchId, options = {}) {
-        const room = getPartyRoom(partyRooms, matchId)
+        const room = getDraftRuntimeRecord(draftRuntimeRecords, matchId)
         const payload = room.completionPayloads[options.index ?? room.completionPayloads.length - 1]
         if (!payload) throw new Error(`No completion payload recorded for match ${matchId}`)
-        return sendWebhook(room, payload, options)
+        return deliverDraftLifecycle(room, payload)
       },
       async replayDraftCancel(matchId, options = {}) {
-        const room = getPartyRoom(partyRooms, matchId)
+        const room = getDraftRuntimeRecord(draftRuntimeRecords, matchId)
         const payload = room.cancellationPayloads[options.index ?? room.cancellationPayloads.length - 1]
         if (!payload) throw new Error(`No cancellation payload recorded for match ${matchId}`)
-        return sendWebhook(room, payload, options)
+        return deliverDraftLifecycle(room, payload)
       },
     },
     match: {
@@ -529,7 +548,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         })
       },
       async targetLobby(input) {
-        const response = await requestAs('/api/activity/target', {
+        const result = await requestJsonAs('/api/activity/target', {
           method: 'POST',
           body: JSON.stringify({
             channelId: input.channelId,
@@ -541,10 +560,28 @@ export async function createSystemWorld(): Promise<SystemWorld> {
           userId: input.userId,
           displayName: input.userId,
         })
-        if (!response.ok) {
-          const body = await response.json() as { error?: string }
-          throw new Error(body.error ?? `Failed to target lobby: ${response.status}`)
+        if (result.status >= 400) {
+          throw new Error(`Failed to target lobby: ${JSON.stringify(result.body)}`)
         }
+        return result
+      },
+      async targetMatch(input) {
+        const result = await requestJsonAs('/api/activity/target', {
+          method: 'POST',
+          body: JSON.stringify({
+            channelId: input.channelId,
+            userId: input.userId,
+            kind: 'match',
+            id: input.matchId,
+          }),
+        }, {
+          userId: input.userId,
+          displayName: input.userId,
+        })
+        if (result.status >= 400) {
+          throw new Error(`Failed to target match: ${JSON.stringify(result.body)}`)
+        }
+        return result
       },
     },
     discord: {
@@ -566,6 +603,18 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       failNextPost(channelId, status = 400) {
         discordPostFailures.set(channelId, status)
       },
+      failNextGuildMemberLookup(guildId, userId, status = 500) {
+        discordGuildMemberFailures.set(`${guildId}:${userId}`, status)
+      },
+      failNextGuildRolesLookup(guildId, status = 500) {
+        discordGuildRolesFailures.set(guildId, status)
+      },
+      setGuildMemberRoles(guildId, userId, roleIds) {
+        discordGuildMemberRoles.set(`${guildId}:${userId}`, [...roleIds])
+      },
+      setGuildRoles(guildId, roles) {
+        discordGuildRoles.set(guildId, roles.map(role => ({ ...role })))
+      },
       async currentLobbyMessage(lobbyId) {
         const lobby = await getLobbyById(kv, lobbyId)
         return lobby ? (discordMessages.get(lobby.messageId) ?? null) : null
@@ -577,23 +626,8 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       },
     },
     corrupt: {
-      activityLobbyUser(userId, lobbyId) {
-        return putOrDeleteKv(kv, activityLobbyUserKey(userId), lobbyId)
-      },
-      activityUser(userId, matchId) {
-        return putOrDeleteKv(kv, activityUserKey(userId), matchId)
-      },
-      activityMatch(matchId, channelId) {
-        return putOrDeleteKv(kv, activityMatchKey(matchId), channelId)
-      },
-      lobbySnapshot(lobbyId, snapshot) {
-        return putOrDeleteKv(kv, lobbySnapshotKey(lobbyId), snapshot)
-      },
       lobbyHost(hostId, lobbyId) {
         return putOrDeleteKv(kv, hostKey(hostId), lobbyId)
-      },
-      lobbyMatch(matchId, lobbyId) {
-        return putOrDeleteKv(kv, matchKey(matchId), lobbyId)
       },
       async lobbyChannel(lobbyId, indexedChannelId) {
         const lobby = await getLobbyById(kv, lobbyId)
@@ -610,37 +644,23 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         const withMembers = await setLobbyMemberPlayerIds(kv, lobbyId, input.memberPlayerIds, lobby)
         return setLobbySlots(kv, lobbyId, input.slots, withMembers ?? lobby)
       },
-      queueEntries(mode, entries) {
-        return setQueueEntries(kv, mode, entries)
-      },
     },
     inspect: {
       lobbyMapping(userId) {
-        return getLobbyForUser(kv, userId)
+        return getLobbyForUser(db, userId)
       },
       currentHostedLobby(hostId) {
-        return getCurrentLobbyHostedBy(kv, hostId)
+        return getOpenSessionLobbyProjectionHostedBy(db, hostId)
       },
       matchMapping(userId) {
-        return getMatchForUser(kv, userId)
-      },
-      matchChannel(matchId) {
-        return kv.get(activityMatchKey(matchId))
-      },
-      matchLobbyLink(matchId) {
-        return kv.get(matchKey(matchId))
-      },
-      activityTarget(channelId, userId) {
-        return getUserActivityTarget(kv, channelId, userId)
+        return getMatchForUser(db, userId)
       },
       lobbiesForPlayer(userId) {
-        return getCurrentLobbiesForPlayer(kv, userId)
+        return getCurrentSessionLobbyProjectionsForPlayer(db, userId)
       },
-      lobbyByMatch(matchId) {
-        return getLobbyByMatch(kv, matchId)
-      },
-      lobbySnapshot(lobbyId) {
-        return kv.get(lobbySnapshotKey(lobbyId), 'json')
+      async lobbyByMatch(matchId) {
+        const lobby = await getSessionLobbyProjectionByMatch(db, matchId)
+        return isLiveLobbyProjection(lobby) ? lobby : null
       },
     },
     runtime: {
@@ -656,6 +676,10 @@ export async function createSystemWorld(): Promise<SystemWorld> {
   }
 }
 
+function isLiveLobbyProjection(lobby: LobbyState | null): lobby is LobbyState {
+  return lobby != null && (lobby.status === 'open' || lobby.status === 'drafting' || lobby.status === 'active')
+}
+
 async function putOrDeleteKv(kv: KVNamespace, key: string, value: unknown | null): Promise<void> {
   if (value == null) {
     await kv.delete(key)
@@ -668,17 +692,35 @@ async function putOrDeleteKv(kv: KVNamespace, key: string, value: unknown | null
   )
 }
 
-function getPartyRoom(rooms: Map<string, PartyRoomRecord>, matchId: string): PartyRoomRecord {
+function getDraftRuntimeRecord(rooms: Map<string, CapturedDraftRuntimeRecord>, matchId: string): CapturedDraftRuntimeRecord {
   const room = rooms.get(matchId)
-  if (!room) throw new Error(`No captured Party room for match ${matchId}`)
+  if (!room) throw new Error(`No captured draft runtime config for match ${matchId}`)
   return room
 }
 
-function buildCompletedPayload(config: RoomConfig, options: CompleteDraftOptions = {}): DraftCompleteWebhookPayload {
+function buildTestDraftEntries(lobby: LobbyState): QueueEntry[] {
+  const joinedAt = Math.max(1, lobby.createdAt)
+  return lobby.slots.flatMap((playerId) => {
+    if (!playerId) return []
+    return [{ playerId, displayName: playerId, avatarUrl: null, joinedAt }]
+  })
+}
+
+function buildCompletedPayload(room: CapturedDraftRuntimeRecord, options: CompleteDraftOptions = {}): DraftLifecycleCompletePayload {
+  const { config } = room
   const baseState = buildCompletedDraftState(config)
   const state = options.transformState ? options.transformState(baseState) : baseState
+  const eventSequence = nextTestLifecycleSequence(room)
+  const eventKind = options.finalized === true
+    ? 'DraftFinalized'
+    : options.transformState
+      ? 'SwapAccepted'
+      : 'DraftCompleted'
 
   return {
+    eventId: `${config.matchId}:test:${eventSequence}`,
+    eventKind,
+    eventSequence,
     outcome: 'complete',
     matchId: config.matchId,
     hostId: config.hostId,
@@ -689,8 +731,13 @@ function buildCompletedPayload(config: RoomConfig, options: CompleteDraftOptions
   }
 }
 
-function buildTimeoutPayload(config: RoomConfig): DraftCancelledWebhookPayload {
+function buildTimeoutPayload(room: CapturedDraftRuntimeRecord): DraftLifecycleCancelledPayload {
+  const { config } = room
+  const eventSequence = nextTestLifecycleSequence(room)
   return {
+    eventId: `${config.matchId}:test:${eventSequence}`,
+    eventKind: 'DraftCancelled',
+    eventSequence,
     outcome: 'cancelled',
     matchId: config.matchId,
     hostId: config.hostId,
@@ -701,19 +748,32 @@ function buildTimeoutPayload(config: RoomConfig): DraftCancelledWebhookPayload {
   }
 }
 
-function buildCancelledPayload(config: RoomConfig, reason: 'cancel' | 'scrub' | 'revert'): DraftCancelledWebhookPayload {
+function buildCancelledPayload(room: CapturedDraftRuntimeRecord, reason: 'cancel' | 'scrub' | 'revert', stateOverride?: DraftState): DraftLifecycleCancelledPayload {
+  const { config } = room
+  const eventSequence = nextTestLifecycleSequence(room)
+  const state = stateOverride
+    ? { ...stateOverride, status: 'cancelled' as const, cancelReason: reason }
+    : buildCancelledDraftState(config, reason === 'cancel' ? 'cancel' : reason)
   return {
+    eventId: `${config.matchId}:test:${eventSequence}`,
+    eventKind: 'DraftCancelled',
+    eventSequence,
     outcome: 'cancelled',
     matchId: config.matchId,
     hostId: config.hostId,
     cancelledAt: Date.now(),
     reason,
-    state: buildCancelledDraftState(config, reason === 'cancel' ? 'cancel' : reason),
+    state,
     mapVoteResult: null,
   }
 }
 
-function buildCompletedDraftState(config: RoomConfig) {
+function nextTestLifecycleSequence(room: CapturedDraftRuntimeRecord): number {
+  room.nextLifecycleEventSequence += 1
+  return room.nextLifecycleEventSequence
+}
+
+function buildCompletedDraftState(config: DraftRuntimeConfig) {
   const format = draftFormatMap.get(config.formatId)
   if (!format) throw new Error(`Unknown draft format: ${config.formatId}`)
   let state = createDraft(config.matchId, format, config.seats, config.civPool, {
@@ -749,7 +809,7 @@ function buildCompletedDraftState(config: RoomConfig) {
   return state
 }
 
-function buildTimedOutDraftState(config: RoomConfig) {
+function buildTimedOutDraftState(config: DraftRuntimeConfig) {
   const format = draftFormatMap.get(config.formatId)
   if (!format) throw new Error(`Unknown draft format: ${config.formatId}`)
   let state = createDraft(config.matchId, format, config.seats, config.civPool, {
@@ -784,7 +844,7 @@ function buildTimedOutDraftState(config: RoomConfig) {
   return state
 }
 
-function buildCancelledDraftState(config: RoomConfig, reason: 'cancel' | 'scrub' | 'revert') {
+function buildCancelledDraftState(config: DraftRuntimeConfig, reason: 'cancel' | 'scrub' | 'revert') {
   const format = draftFormatMap.get(config.formatId)
   if (!format) throw new Error(`Unknown draft format: ${config.formatId}`)
   let state = createDraft(config.matchId, format, config.seats, config.civPool, {
@@ -797,7 +857,7 @@ function buildCancelledDraftState(config: RoomConfig, reason: 'cancel' | 'scrub'
   return state
 }
 
-function assignTestDealOptions(state: DraftState, config: RoomConfig): DraftState {
+function assignTestDealOptions(state: DraftState, config: DraftRuntimeConfig): DraftState {
   if ((config.dealOptionsSize ?? 0) <= 0) return state
   if (state.status !== 'active') return state
   if (state.dealtCivIds?.length) return state
@@ -850,6 +910,10 @@ async function handleDiscordRequest(
   messages: Map<string, DiscordMessageRecord>,
   patchFailures: Set<string>,
   postFailures: Map<string, number>,
+  guildMemberFailures: Map<string, number>,
+  guildRolesFailures: Map<string, number>,
+  guildMemberRoles: Map<string, string[]>,
+  guildRoles: Map<string, DiscordGuildRoleRecord[]>,
   createMessageId: () => string,
 ): Promise<Response> {
   const url = new URL(request.url)
@@ -898,12 +962,31 @@ async function handleDiscordRequest(
     return jsonResponse({ id: 'dm-channel-1' })
   }
 
-  if (request.method === 'GET' && /\/api\/v10\/guilds\/[^/]+\/members\/[^/]+$/.test(url.pathname)) {
-    return jsonResponse({ roles: [] })
+  const guildMemberMatch = url.pathname.match(/^\/api\/v10\/guilds\/([^/]+)\/members\/([^/]+)$/)
+  if (request.method === 'GET' && guildMemberMatch) {
+    const [, guildId, userId] = guildMemberMatch
+    const failureKey = `${guildId}:${userId}`
+    const failureStatus = guildMemberFailures.get(failureKey)
+    if (failureStatus != null) {
+      guildMemberFailures.delete(failureKey)
+      return jsonResponse({ error: 'Injected guild member lookup failure' }, failureStatus)
+    }
+
+    return jsonResponse({
+      roles: guildMemberRoles.get(failureKey) ?? [],
+    })
   }
 
-  if (request.method === 'GET' && /\/api\/v10\/guilds\/[^/]+\/roles$/.test(url.pathname)) {
-    return jsonResponse([])
+  const guildRolesMatch = url.pathname.match(/^\/api\/v10\/guilds\/([^/]+)\/roles$/)
+  if (request.method === 'GET' && guildRolesMatch) {
+    const [, guildId] = guildRolesMatch
+    const failureStatus = guildRolesFailures.get(guildId)
+    if (failureStatus != null) {
+      guildRolesFailures.delete(guildId)
+      return jsonResponse({ error: 'Injected guild role lookup failure' }, failureStatus)
+    }
+
+    return jsonResponse(guildRoles.get(guildId) ?? [])
   }
 
   if ((request.method === 'PATCH' || request.method === 'PUT' || request.method === 'DELETE') && /\/api\/v10\/guilds\//.test(url.pathname)) {
@@ -918,48 +1001,4 @@ function jsonResponse(value: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   })
-}
-
-async function handleStateStoreRequest(request: Request, kv: KVNamespace): Promise<Response> {
-  const payload = await request.json() as {
-    op?: string
-    key?: string
-    type?: 'json'
-    value?: string
-    expirationTtl?: number
-    prefix?: string
-    keys?: string[]
-    entries?: Array<{ key: string, type?: 'json', value?: string, expirationTtl?: number }>
-  }
-
-  switch (payload.op) {
-    case 'get':
-      return jsonResponse({ value: await kv.get(payload.key!, payload.type) })
-    case 'put':
-      await kv.put(payload.key!, payload.value!, { expirationTtl: payload.expirationTtl } as any)
-      return jsonResponse({ ok: true })
-    case 'putIfAbsent': {
-      const existing = await kv.get(payload.key!)
-      if (existing != null) return jsonResponse({ inserted: false })
-      await kv.put(payload.key!, payload.value!, { expirationTtl: payload.expirationTtl } as any)
-      return jsonResponse({ inserted: true })
-    }
-    case 'delete':
-      await kv.delete(payload.key!)
-      return jsonResponse({ ok: true })
-    case 'list':
-      return jsonResponse(await kv.list({ prefix: payload.prefix }))
-    case 'mget':
-      return jsonResponse({
-        values: await Promise.all((payload.entries ?? []).map(entry => kv.get(entry.key, entry.type))),
-      })
-    case 'mput':
-      await Promise.all((payload.entries ?? []).map(entry => kv.put(entry.key, entry.value ?? '', { expirationTtl: entry.expirationTtl } as any)))
-      return jsonResponse({ ok: true })
-    case 'mdelete':
-      await Promise.all((payload.keys ?? []).map(key => kv.delete(key)))
-      return jsonResponse({ ok: true })
-    default:
-      return jsonResponse({ error: `Unsupported state op: ${payload.op ?? 'unknown'}` }, 400)
-  }
 }

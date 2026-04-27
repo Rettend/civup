@@ -6,7 +6,7 @@ import { getPlayerRankProfile } from '../services/player/rank.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { getActiveSeason } from '../services/season/index.ts'
 import { listPlayerSeasonSnapshotHistory } from '../services/season/snapshot-roles.ts'
-import { createStateStore } from '../services/state/store.ts'
+import { getKvStore } from '../services/kv/batch.ts'
 import { factory } from '../setup.ts'
 
 interface Var {
@@ -28,7 +28,7 @@ export const command_rank = factory.command<Var>(
 
     return resDeferGeneralCommandResponse(c, async (c) => {
       const db = createDb(c.env.DB)
-      const kv = createStateStore(c.env)
+      const kv = getKvStore(c.env)
       c.executionCtx.waitUntil((async () => {
         try {
           await syncPlayerProfileFromDiscord(db, c.env.DISCORD_TOKEN, targetId)

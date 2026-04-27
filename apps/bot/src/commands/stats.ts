@@ -7,7 +7,7 @@ import { teamCardEmbed } from '../embeds/team-card.ts'
 import { syncPlayerProfileFromDiscord } from '../services/player/profile.ts'
 import { getPlayerStatsRankProfile } from '../services/player/rank.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
-import { createStateStore } from '../services/state/store.ts'
+import { getKvStore } from '../services/kv/batch.ts'
 import { factory } from '../setup.ts'
 
 const MODE_CHOICES = [
@@ -52,7 +52,7 @@ export const command_stats = factory.command<Var>(
 
     return resDeferGeneralCommandResponse(c, async (c) => {
       const db = createDb(c.env.DB)
-      const kv = createStateStore(c.env)
+      const kv = getKvStore(c.env)
       c.executionCtx.waitUntil((async () => {
         await Promise.allSettled(playerIds.map(async (playerId) => {
           try {

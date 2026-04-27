@@ -129,17 +129,11 @@ function readBlobValue(blobRoot: string, blobId: string): string {
 function summarizeRow(row: KvEntryRow, blobRoot: string): string | null {
   if (
     !row.key.startsWith('lobby:mode:')
-    && !row.key.startsWith('activity:')
-    && !row.key.startsWith('activity-match:')
-    && !row.key.startsWith('activity-user:')
   ) {
     return null
   }
 
   const value = readBlobValue(blobRoot, row.blob_id)
-
-  if (row.key.startsWith('activity-match:')) return `channelId=${value}`
-  if (row.key.startsWith('activity:') || row.key.startsWith('activity-user:')) return `matchId=${value}`
 
   if (!row.key.startsWith('lobby:mode:')) return null
 

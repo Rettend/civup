@@ -1,4 +1,5 @@
-import type { ClientMessage, CompetitiveTier, DraftAction, LeaderDataVersion, MapVoteSelection, ServerMessage } from '@civup/game'
+import type { CompetitiveTier, DraftAction, LeaderDataVersion, MapVoteSelection } from '@civup/game'
+import type { SessionClientMessage, SessionServerMessage } from '@civup/session'
 import { api, ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import PartySocket from 'partysocket'
 import { createSignal, untrack } from 'solid-js'
@@ -92,33 +93,27 @@ export interface LobbyRankedRolesSnapshot {
 
 export type LobbyArrangeStrategy = 'randomize' | 'balance' | 'shuffle-teams'
 
-interface StateWatchMessage {
-  type: 'state-changed' | 'error'
-  key?: string
-  op?: 'put' | 'delete'
-  value?: string
-  message?: string
-}
+export type ActivityStateChange
+  = | { type: 'overview', snapshot: ActivityOverviewSnapshot | null }
+    | { type: 'lobby', lobbyId: string, snapshot: LobbySnapshot | null }
 
-export interface StateWatchChange {
-  key: string
-  op: 'put' | 'delete'
-  value?: string
+export type SelectedSessionStateChange
+  = | { type: 'lobby', lobbyId: string, snapshot: LobbySnapshot | null }
+    | { type: 'session-started', lobbyId: string, matchId: string, steamLobbyLink: string | null, sessionAccessToken: string | null, mode: string | null }
+
+interface SessionConnectionOptions {
+  onStateChanged?: (change: SelectedSessionStateChange) => void
 }
 
 export interface LobbyStateWatch {
   close: () => void
-  subscribeKey: (key: string) => void
-  unsubscribeKey: (key: string) => void
-  subscribePrefix: (prefix: string) => void
-  unsubscribePrefix: (prefix: string) => void
 }
 
 export interface LobbyStateWatchOptions {
   channelId: string
   userId: string
   onConnected?: () => void
-  onStateChanged: (change: StateWatchChange) => void
+  onStateChanged: (change: ActivityStateChange) => void
   onDisconnected?: () => void
   onError?: (message: string) => void
 }
@@ -179,7 +174,7 @@ export type ActivityLaunchSelection
     option: ActivityTargetOption
     matchId: string
     steamLobbyLink: string | null
-    roomAccessToken: string | null
+    sessionAccessToken: string | null
     lobbyId?: string | null
     mode?: string | null
   }
@@ -189,7 +184,7 @@ export interface ActivityLaunchSnapshot {
   options: ActivityTargetOption[]
 }
 
-export interface PartySocketTarget {
+export interface SessionSocketTarget {
   host: string
   prefix?: string
   label?: string
@@ -203,13 +198,12 @@ export const [connectionError, setConnectionError] = createSignal<string | null>
 const SOCKET_FATAL_CLOSE_MIN = 4000
 const SOCKET_FATAL_CLOSE_MAX = 5000
 const STALE_DRAFT_RECONNECT_CHECK_MS = 1_000
-const DRAFT_SOCKET_MAX_RETRIES = 12
-const STATE_WATCH_SOCKET_MAX_RETRIES = 8
+const SESSION_SOCKET_MAX_RETRIES = 12
 
 // ── Socket ─────────────────────────────────────────────────
 
 let socket: PartySocket | null = null
-let currentRoomConnection: { target: PartySocketTarget, roomId: string, roomAccessToken: string } | null = null
+let currentSessionConnection: { target: SessionSocketTarget, sessionId: string, sessionAccessToken: string | null, onStateChanged?: (change: SelectedSessionStateChange) => void } | null = null
 let staleDraftReconnectInterval: ReturnType<typeof setInterval> | null = null
 let lastSocketActivityAt = 0
 let lastForcedReconnectTimerEndsAt: number | null = null
@@ -223,8 +217,13 @@ let pendingConfigAck:
   | null = null
 let lastSentPreviewKeys: Partial<Record<DraftAction, string>> = {}
 
-/** Connect to PartyKit draft room using host and match ID */
-export function connectToRoom(target: PartySocketTarget, roomId: string, roomAccessToken: string | null) {
+/** Connect to the selected session runtime socket. */
+export function connectToSession(target: SessionSocketTarget, sessionId: string, sessionAccessToken: string | null, options: SessionConnectionOptions = {}) {
+  if (socket && currentSessionConnection?.sessionId === sessionId && currentSessionConnection.sessionAccessToken === sessionAccessToken) {
+    currentSessionConnection = { ...currentSessionConnection, target, onStateChanged: options.onStateChanged }
+    return
+  }
+
   stopStaleDraftReconnectWatchdog()
   const previousSocket = socket
   socket = null
@@ -233,7 +232,7 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
   lastSocketActivityAt = 0
   lastForcedReconnectTimerEndsAt = null
   lastServerErrorMessage = null
-  currentRoomConnection = null
+  currentSessionConnection = null
 
   setConnectionStatus('connecting')
   setConnectionError(null)
@@ -245,25 +244,21 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
     return
   }
 
-  if (!roomAccessToken) {
-    setConnectionStatus('error')
-    setConnectionError('Missing draft access token. Reopen the activity.')
-    return
-  }
-
-  currentRoomConnection = { target, roomId, roomAccessToken }
+  currentSessionConnection = { target, sessionId, sessionAccessToken, onStateChanged: options.onStateChanged }
   startStaleDraftReconnectWatchdog()
+
+  const query: Record<string, string> = {
+    [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken,
+  }
+  if (sessionAccessToken) query.accessToken = sessionAccessToken
 
   const nextSocket = new PartySocket({
     host: target.host,
-    party: 'main',
+    party: 'session',
     prefix: target.prefix ?? 'api/parties',
-    room: roomId,
-    query: {
-      accessToken: roomAccessToken,
-      [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken,
-    },
-    maxRetries: DRAFT_SOCKET_MAX_RETRIES,
+    room: sessionId,
+    query,
+    maxRetries: SESSION_SOCKET_MAX_RETRIES,
   })
   socket = nextSocket
 
@@ -279,7 +274,7 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
     if (socket !== nextSocket) return
     lastSocketActivityAt = Date.now()
     try {
-      const msg = JSON.parse(event.data as string) as ServerMessage
+      const msg = JSON.parse(event.data as string) as SessionServerMessage
       handleServerMessage(msg)
     }
     catch (err) {
@@ -302,15 +297,15 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
       if (isFatalSocketClose(code)) stopSocketReconnects(nextSocket, `fatal close ${code}`)
       if (code === 4401) clearActivitySessionToken()
 
-      relayDevLog('warn', 'Draft socket closed unexpectedly', {
+      relayDevLog('warn', 'Session socket closed unexpectedly', {
         code,
         reason,
-        roomId,
+        sessionId,
         retryCount: nextSocket.retryCount,
-        target: describePartySocketTarget(target),
+        target: describeSessionSocketTarget(target),
       })
 
-      if (shouldRetryDraftSocket(nextSocket, code)) {
+      if (shouldRetrySessionSocket(nextSocket, code)) {
         setConnectionStatus('reconnecting')
         setConnectionError(null)
         return
@@ -318,16 +313,16 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
 
       socket = null
       stopStaleDraftReconnectWatchdog()
-      currentRoomConnection = null
+      currentSessionConnection = null
       lastSocketActivityAt = 0
       setConnectionStatus('error')
-      setConnectionError(formatDraftSocketCloseError(code, reason, lastServerErrorMessage))
+      setConnectionError(formatSessionSocketCloseError(code, reason, lastServerErrorMessage))
       return
     }
 
     socket = null
     stopStaleDraftReconnectWatchdog()
-    currentRoomConnection = null
+    currentSessionConnection = null
     lastSocketActivityAt = 0
     setConnectionStatus('disconnected')
   })
@@ -335,24 +330,24 @@ export function connectToRoom(target: PartySocketTarget, roomId: string, roomAcc
   nextSocket.addEventListener('error', () => {
     if (socket !== nextSocket) return
 
-    if (shouldRetryDraftSocket(nextSocket)) {
-      relayDevLog('warn', 'Draft socket connection interrupted', {
-        roomId,
+    if (shouldRetrySessionSocket(nextSocket)) {
+      relayDevLog('warn', 'Session socket connection interrupted', {
+        sessionId,
         retryCount: nextSocket.retryCount,
-        target: describePartySocketTarget(target),
+        target: describeSessionSocketTarget(target),
       })
       setConnectionStatus('reconnecting')
       setConnectionError(null)
       return
     }
 
-    relayDevLog('error', 'Draft socket connection failed', {
-      roomId,
-      target: describePartySocketTarget(target),
+    relayDevLog('error', 'Session socket connection failed', {
+      sessionId,
+      target: describeSessionSocketTarget(target),
     })
     socket = null
     stopStaleDraftReconnectWatchdog()
-    currentRoomConnection = null
+    currentSessionConnection = null
     lastSocketActivityAt = 0
     setConnectionStatus('error')
     setConnectionError('WebSocket connection failed')
@@ -363,7 +358,7 @@ export function disconnect() {
   stopStaleDraftReconnectWatchdog()
   socket?.close()
   socket = null
-  currentRoomConnection = null
+  currentSessionConnection = null
   lastSocketActivityAt = 0
   lastForcedReconnectTimerEndsAt = null
   lastServerErrorMessage = null
@@ -387,18 +382,18 @@ function startStaleDraftReconnectWatchdog() {
       lastForcedReconnectTimerEndsAt,
     })) { return }
 
-    const currentRoom = currentRoomConnection
-    if (!currentRoom) return
+    const currentSession = currentSessionConnection
+    if (!currentSession) return
     lastForcedReconnectTimerEndsAt = draftStore.timerEndsAt
 
-    relayDevLog('warn', 'Forcing draft socket reconnect after stale timer', {
-      roomId: currentRoom.roomId,
+    relayDevLog('warn', 'Forcing session socket reconnect after stale timer', {
+      sessionId: currentSession.sessionId,
       timerEndsAt: draftStore.timerEndsAt,
       currentStepIndex: draftStore.state?.currentStepIndex ?? null,
       lastSocketActivityAt,
-      target: describePartySocketTarget(currentRoom.target),
+      target: describeSessionSocketTarget(currentSession.target),
     })
-    connectToRoom(currentRoom.target, currentRoom.roomId, currentRoom.roomAccessToken)
+    connectToSession(currentSession.target, currentSession.sessionId, currentSession.sessionAccessToken)
   }, STALE_DRAFT_RECONNECT_CHECK_MS)
 }
 
@@ -408,121 +403,85 @@ function stopStaleDraftReconnectWatchdog() {
   staleDraftReconnectInterval = null
 }
 
-/** Subscribe to lobby/match invalidation events from state coordinator room. */
-export function watchLobbyState(target: PartySocketTarget, options: LobbyStateWatchOptions): LobbyStateWatch {
+/** Directory/session-owned push drives overview updates. */
+export function watchLobbyState(target: SessionSocketTarget, options: LobbyStateWatchOptions): LobbyStateWatch {
   let closed = false
-  const keySubscriptions = new Set<string>()
-  const prefixSubscriptions = new Set<string>()
-
-  const socketId = `lobby-watch:${options.userId}:${Math.random().toString(36).slice(2, 10)}`
   const activitySessionToken = getActivitySessionToken()
+  if (!activitySessionToken) {
+    queueMicrotask(() => {
+      if (!closed) options.onError?.('Missing activity session. Reopen the activity.')
+    })
+    return { close: () => { closed = true } }
+  }
 
-  const stateSocket = new PartySocket({
+  const activitySocket = new PartySocket({
     host: target.host,
-    party: 'state',
+    party: 'activity',
     prefix: target.prefix ?? 'api/parties',
-    room: 'global',
-    id: socketId,
-    query: activitySessionToken
-      ? { [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken }
-      : undefined,
-    maxRetries: STATE_WATCH_SOCKET_MAX_RETRIES,
+    room: options.channelId,
+    query: {
+      [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken,
+    },
+    maxRetries: SESSION_SOCKET_MAX_RETRIES,
   })
 
-  const isSocketOpen = () => stateSocket.readyState === WebSocket.OPEN
-  const sendStateSocketMessage = (message: unknown) => {
-    if (closed || !isSocketOpen()) return
-    stateSocket.send(JSON.stringify(message))
-  }
-  const subscribeKey = (key: string) => {
-    if (keySubscriptions.has(key)) return
-    keySubscriptions.add(key)
-    sendStateSocketMessage({ type: 'subscribe-key', key })
-  }
-  const unsubscribeKey = (key: string) => {
-    if (!keySubscriptions.delete(key)) return
-    sendStateSocketMessage({ type: 'unsubscribe-key', key })
-  }
-  const subscribePrefix = (prefix: string) => {
-    if (prefixSubscriptions.has(prefix)) return
-    prefixSubscriptions.add(prefix)
-    sendStateSocketMessage({ type: 'subscribe-prefix', prefix })
-  }
-  const unsubscribePrefix = (prefix: string) => {
-    if (!prefixSubscriptions.delete(prefix)) return
-    sendStateSocketMessage({ type: 'unsubscribe-prefix', prefix })
-  }
-
-  stateSocket.addEventListener('open', () => {
+  activitySocket.addEventListener('open', () => {
     if (closed) return
     options.onConnected?.()
-    for (const key of keySubscriptions) {
-      sendStateSocketMessage({ type: 'subscribe-key', key })
-    }
-    for (const prefix of prefixSubscriptions) {
-      sendStateSocketMessage({ type: 'subscribe-prefix', prefix })
-    }
   })
 
-  stateSocket.addEventListener('message', (event) => {
+  activitySocket.addEventListener('message', (event) => {
     if (closed) return
     try {
-      const msg = JSON.parse(event.data as string) as StateWatchMessage
-      if (
-        msg.type === 'state-changed'
-        && typeof msg.key === 'string'
-        && (msg.op === 'put' || msg.op === 'delete')
-      ) {
-        options.onStateChanged({
-          key: msg.key,
-          op: msg.op,
-          value: typeof msg.value === 'string' ? msg.value : undefined,
-        })
+      const message = JSON.parse(event.data as string) as Record<string, unknown>
+      if (message.type === 'overview') {
+        options.onStateChanged({ type: 'overview', snapshot: isActivityOverviewSnapshot(message.snapshot) ? message.snapshot : null })
         return
       }
-
-      if (msg.type === 'error') {
-        options.onError?.(msg.message ?? 'State watch error')
+      if (message.type === 'lobby' && typeof message.lobbyId === 'string') {
+        options.onStateChanged({ type: 'lobby', lobbyId: message.lobbyId, snapshot: isLobbySnapshot(message.snapshot) ? message.snapshot : null })
+        return
+      }
+      if (message.type === 'error' && typeof message.message === 'string') {
+        options.onError?.(message.message)
       }
     }
     catch (err) {
-      relayDevLog('warn', 'Failed to parse state watch message', err)
-      console.error('Failed to parse state watch message:', err)
+      relayDevLog('error', 'Failed to parse activity feed message', err)
+      console.error('Failed to parse activity feed message:', err)
     }
   })
 
-  stateSocket.addEventListener('close', (event) => {
+  activitySocket.addEventListener('close', () => {
     if (closed) return
-    if (isFatalSocketClose(event.code)) stopSocketReconnects(stateSocket, `fatal close ${event.code}`)
-    if (isUnauthorizedSocketClose(event.code)) clearActivitySessionToken()
-    if (event.code === 1000) return
     options.onDisconnected?.()
-    options.onError?.(isUnauthorizedSocketClose(event.code)
-      ? 'Activity session expired. Reopen the activity.'
-      : `State watch disconnected (${event.code})`)
   })
 
-  stateSocket.addEventListener('error', () => {
+  activitySocket.addEventListener('error', () => {
     if (closed) return
-    options.onError?.('State watch connection failed')
+    options.onError?.('Activity updates disconnected')
   })
 
   return {
-    subscribeKey,
-    unsubscribeKey,
-    subscribePrefix,
-    unsubscribePrefix,
     close: () => {
       if (closed) return
       closed = true
-      stateSocket.close()
+      activitySocket.close()
     },
   }
 }
 
+function isActivityOverviewSnapshot(value: unknown): value is ActivityOverviewSnapshot {
+  return !!value && typeof value === 'object' && typeof (value as Partial<ActivityOverviewSnapshot>).channelId === 'string' && Array.isArray((value as Partial<ActivityOverviewSnapshot>).options)
+}
+
+function isLobbySnapshot(value: unknown): value is LobbySnapshot {
+  return !!value && typeof value === 'object' && typeof (value as Partial<LobbySnapshot>).id === 'string' && typeof (value as Partial<LobbySnapshot>).revision === 'number' && Array.isArray((value as Partial<LobbySnapshot>).entries)
+}
+
 // ── Send Messages ──────────────────────────────────────────
 
-export function sendMessage(msg: ClientMessage): boolean {
+export function sendMessage(msg: SessionClientMessage): boolean {
   const status = untrack(connectionStatus)
   if (!socket || status !== 'connected') {
     console.warn('Cannot send message: not connected')
@@ -598,7 +557,7 @@ export function sendConfig(banTimerSeconds: number | null, pickTimerSeconds: num
   return new Promise<void>((resolve, reject) => {
     const sent = sendMessage({ type: 'config', banTimerSeconds, pickTimerSeconds })
     if (!sent) {
-      reject(new Error('Not connected to draft room.'))
+      reject(new Error('Not connected to session.'))
       return
     }
 
@@ -824,11 +783,11 @@ export async function startLobbyDraft(
   mode: string,
   lobbyId: string,
   userId: string,
-): Promise<{ ok: true, matchId: string, roomAccessToken: string | null } | { ok: false, error: string }> {
+): Promise<{ ok: true, matchId: string, sessionAccessToken: string | null } | { ok: false, error: string }> {
   try {
-    const data = await activityApiPost<{ matchId?: string, roomAccessToken?: string | null }>(`/api/lobby/${mode}/start`, { lobbyId, userId })
+    const data = await activityApiPost<{ matchId?: string, sessionAccessToken?: string | null }>(`/api/lobby/${mode}/start`, { lobbyId, userId })
     if (!data.matchId) return { ok: false, error: 'Draft started but no match ID was returned' }
-    return { ok: true, matchId: data.matchId, roomAccessToken: data.roomAccessToken ?? null }
+    return { ok: true, matchId: data.matchId, sessionAccessToken: data.sessionAccessToken ?? null }
   }
   catch (err) {
     console.error('Failed to start lobby draft:', err)
@@ -837,7 +796,7 @@ export async function startLobbyDraft(
   }
 }
 
-/** Cancel an open lobby before draft room creation */
+/** Cancel an open lobby before draft creation. */
 export async function cancelLobby(
   mode: string,
   lobbyId: string,
@@ -887,15 +846,16 @@ export async function selectActivityTarget(
   channelId: string,
   userId: string,
   target: Pick<ActivityTargetOption, 'kind' | 'id'>,
-): Promise<{ ok: true } | { ok: false, error: string }> {
+): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string }> {
   try {
-    await activityApiPost('/api/activity/target', {
+    const data = await activityApiPost<{ snapshot?: ActivityLaunchSnapshot }>('/api/activity/target', {
       channelId,
       userId,
       kind: target.kind,
       id: target.id,
     })
-    return { ok: true }
+    if (!data.snapshot) return { ok: false, error: 'Activity target response was missing a snapshot' }
+    return { ok: true, snapshot: data.snapshot }
   }
   catch (err) {
     console.error('Failed to select activity target:', err)
@@ -992,8 +952,25 @@ export async function fillLobbyWithTestPlayers(
 
 // ── Handle Messages ────────────────────────────────────────
 
-function handleServerMessage(msg: ServerMessage) {
+function handleServerMessage(msg: SessionServerMessage) {
   switch (msg.type) {
+    case 'lobby':
+      currentSessionConnection?.onStateChanged?.({
+        type: 'lobby',
+        lobbyId: msg.lobbyId,
+        snapshot: isLobbySnapshot(msg.snapshot) ? msg.snapshot : null,
+      })
+      break
+    case 'session-started':
+      currentSessionConnection?.onStateChanged?.({
+        type: 'session-started',
+        lobbyId: msg.lobbyId,
+        matchId: msg.matchId,
+        steamLobbyLink: msg.steamLobbyLink,
+        sessionAccessToken: msg.sessionAccessToken,
+        mode: msg.mode,
+      })
+      break
     case 'init':
       clearSelections()
       syncForcedReconnectTimer(msg.timerEndsAt)
@@ -1045,7 +1022,7 @@ function shouldDisconnectAfterState(status: string, swapState: unknown): boolean
   return swapState == null
 }
 
-function formatDraftSocketCloseError(
+function formatSessionSocketCloseError(
   code: number,
   reason: string,
   serverError: { message: string, at: number } | null,
@@ -1063,7 +1040,7 @@ function formatDraftSocketCloseError(
         ? recentServerError
         : `${recentServerError}. Reopen the activity.`
     }
-    return 'Draft access token is invalid or expired. Reopen the activity.'
+    return 'Session access token is invalid or expired. Reopen the activity.'
   }
 
   return `WebSocket closed (${code}${reason ? `: ${reason}` : ''})`
@@ -1071,7 +1048,7 @@ function formatDraftSocketCloseError(
 
 function formatConfigAckError(message: string): Error {
   if (message === 'Unknown message type') {
-    return new Error('Draft room server is outdated (missing config support). Redeploy/restart party server and create a new lobby.')
+    return new Error('Session server is outdated (missing config support). Redeploy/restart and create a new lobby.')
   }
   return new Error(message)
 }
@@ -1094,11 +1071,11 @@ function syncForcedReconnectTimer(timerEndsAt: number | null) {
   }
 }
 
-function describePartySocketTarget(target: PartySocketTarget): string {
+function describeSessionSocketTarget(target: SessionSocketTarget): string {
   return `${target.label ?? 'socket'}:${target.host}/${target.prefix ?? 'api/parties'}`
 }
 
-function shouldRetryDraftSocket(currentSocket: PartySocket, code?: number): boolean {
+function shouldRetrySessionSocket(currentSocket: PartySocket, code?: number): boolean {
   if (!currentSocket.shouldReconnect) return false
   if (typeof code === 'number' && isFatalSocketClose(code)) return false
   return true

@@ -1,7 +1,7 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
-import { getChannelForMatch, storeMatchMapping, storeUserMatchMappings } from '../../src/services/activity/index.ts'
-import { attachLobbyMatch, createLobby, getLobbyById, setLobbyMemberPlayerIds, setLobbyStatus } from '../../src/services/lobby/index.ts'
+import { getChannelForMatch } from '../../src/services/activity/index.ts'
+import { createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyMemberPlayerIds, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
@@ -15,8 +15,16 @@ describe('match cleanup reconciliation', () => {
         { id: 'host', displayName: 'Host', avatarUrl: null, createdAt: 1 },
         { id: 'player-2', displayName: 'Player 2', avatarUrl: null, createdAt: 1 },
       ])
+      const lobby = await createLobby(kv, {
+        mode: '1v1',
+        hostId: 'host',
+        channelId: 'channel-1',
+        messageId: 'message-1',
+        db,
+      })
+      const matchId = lobby.id
       await db.insert(matches).values({
-        id: 'match-1',
+        id: matchId,
         gameMode: '1v1',
         status: 'completed',
         createdAt: 1,
@@ -25,33 +33,21 @@ describe('match cleanup reconciliation', () => {
         draftData: null,
       })
       await db.insert(matchParticipants).values([
-        { matchId: 'match-1', playerId: 'host', team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'match-1', playerId: 'player-2', team: 1, civId: null, placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId, playerId: 'host', team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId, playerId: 'player-2', team: 1, civId: null, placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
       ])
 
-      const lobby = await createLobby(kv, {
-        mode: '1v1',
-        hostId: 'host',
-        channelId: 'channel-1',
-        messageId: 'message-1',
-      })
       const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'player-2'], lobby)
-      const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', withMembers ?? lobby)
+      const draftingLobby = await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby)
       const activeLobby = await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
 
-      await storeMatchMapping(kv, 'channel-1', 'match-1')
-      await storeUserMatchMappings(kv, ['host', 'player-2'], 'match-1')
-
-      const result = await pruneAbandonedMatches(db, kv)
+      const result = await pruneAbandonedMatches(db, kv, { sessionNamespace: getExistingTestLobbyRuntime(kv).sessionNamespace })
 
       expect(result.removedMatchIds).toEqual([])
-      expect(result.clearedLiveLobbyMatchIds).toEqual(['match-1'])
-      expect(await getLobbyById(kv, activeLobby!.id)).toBeNull()
-      expect(await kv.get('lobby:match:match-1')).toBeNull()
+      expect(result.clearedLiveLobbyMatchIds).toEqual([matchId])
+      expect((await getLobbyById(kv, activeLobby!.id))?.status).toBe('completed')
       expect(await kv.get('lobby:host:host')).toBeNull()
-      expect(await getChannelForMatch(kv, 'match-1')).toBeNull()
-      expect(await kv.get('activity-user:host')).toBeNull()
-      expect(await kv.get('activity-user:player-2')).toBeNull()
+      expect(await getChannelForMatch(db, matchId)).toBeNull()
     }
     finally {
       sqlite.close()

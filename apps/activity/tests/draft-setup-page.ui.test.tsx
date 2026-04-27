@@ -401,7 +401,7 @@ describe('DraftSetupPage UI', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Start Draft' }))
     await waitFor(() => expect(storeSpies.startLobbyDraft).toHaveBeenCalledWith('2v2', 'lobby-1', 'host-1'))
-    expect(onLobbyStarted).toHaveBeenCalledWith('match-1', 'steam://joinlobby/289070/example', 'room-token')
+    expect(onLobbyStarted).toHaveBeenCalledWith('match-1', 'steam://joinlobby/289070/example', 'session-token')
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel Lobby' }))
     await waitFor(() => expect(storeSpies.cancelLobby).toHaveBeenCalledWith('2v2', 'lobby-1', 'host-1'))

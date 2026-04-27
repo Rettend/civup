@@ -1,13 +1,12 @@
-import type { GameMode, QueueState } from '@civup/game'
+import type { GameMode } from '@civup/game'
+import type { LobbySessionProjectionOptions } from './mutations.ts'
 import type { LobbyState } from './types.ts'
 import { GAME_MODES, slotToTeamIndex } from '@civup/game'
 import { lobbyTimeoutEmbed } from '../../embeds/match.ts'
-import { clearLobbyMappings } from '../activity/index.ts'
-import { clearQueue, getQueueState, getQueueStates } from '../queue/index.ts'
 import { upsertLobbyMessage } from './message.ts'
 import { setLobbyStatus } from './mutations.ts'
 import { filterQueueEntriesForLobby, normalizeLobbySlots } from './slots.ts'
-import { clearLobbyById, getCurrentLobbies } from './store.ts'
+import { getOpenSessionLobbyProjectionsByMode } from '../session/index.ts'
 
 export const LOBBY_TIMEOUT_MESSAGE = 'This lobby timed out due to inactivity.'
 export const LOBBY_INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000 // 1 hour
@@ -30,41 +29,19 @@ export async function pruneInactiveOpenLobbies(
   token: string | undefined,
   options: {
     now?: number
-  } = {},
+  } & LobbySessionProjectionOptions = {},
 ): Promise<PrunedInactiveLobby[]> {
   const now = options.now ?? Date.now()
   const pruned: PrunedInactiveLobby[] = []
-  const [queueStates, currentLobbies] = await Promise.all([
-    getQueueStates(kv),
-    getCurrentLobbies(kv),
-  ])
-  const openLobbiesByMode = new Map<GameMode, LobbyState[]>()
+  if (!options.db) return pruned
 
-  for (const mode of GAME_MODES) {
-    openLobbiesByMode.set(mode, [])
-  }
-
+  const currentLobbies = (await Promise.all(GAME_MODES.map(mode => getOpenSessionLobbyProjectionsByMode(options.db!, mode)))).flat()
   for (const lobby of currentLobbies) {
-    if (lobby.status !== 'open') continue
-    openLobbiesByMode.get(lobby.mode)?.push(lobby)
-  }
-
-  for (const mode of GAME_MODES) {
-    let queue = queueStates.get(mode)
-    const lobbies = openLobbiesByMode.get(mode) ?? []
-    if (!queue) continue
-
-    for (const lobby of lobbies) {
-      if (!isLobbyInactive(lobby, now)) continue
-      const expired = await expireOpenLobby(kv, token, lobby, {
-        currentQueue: queue,
-      })
-      pruned.push(expired)
-      queue = {
-        ...queue,
-        entries: queue.entries.filter(entry => !expired.removedPlayerIds.includes(entry.playerId)),
-      }
-    }
+    if (!isLobbyInactive(lobby, now)) continue
+    pruned.push(await expireOpenLobby(kv, token, lobby, {
+      db: options.db,
+      sessionNamespace: options.sessionNamespace,
+    }))
   }
 
   return pruned
@@ -74,36 +51,27 @@ async function expireOpenLobby(
   kv: KVNamespace,
   token: string | undefined,
   lobby: LobbyState,
-  options: {
-    currentQueue?: QueueState
-  } = {},
+  options: LobbySessionProjectionOptions = {},
 ): Promise<PrunedInactiveLobby> {
-  const queue = options.currentQueue ?? await getQueueState(kv, lobby.mode)
-  const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, queue.entries)
+  const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, options.queueEntries ? [...options.queueEntries] : [])
   const removedPlayerIds = lobbyQueueEntries.map(entry => entry.playerId)
   const slots = normalizeLobbySlots(lobby.mode, lobby.slots, lobbyQueueEntries)
-  const cancelledLobby = await setLobbyStatus(kv, lobby.id, 'cancelled', lobby) ?? lobby
+  const cancelledLobby = await setLobbyStatus(kv, lobby.id, 'cancelled', lobby, {
+    ...options,
+    queueEntries: lobbyQueueEntries,
+  }) ?? lobby
 
   if (token) {
     try {
       await upsertLobbyMessage(kv, token, cancelledLobby, {
         embeds: [lobbyTimeoutEmbed(lobby.mode, buildInactiveLobbyParticipants(lobby.mode, slots), undefined, lobby.draftConfig.redDeath)],
         components: [],
-      })
+      }, options)
     }
     catch (error) {
       console.error(`Failed to update inactivity-cancelled lobby embed for lobby ${lobby.id}:`, error)
     }
   }
-
-  if (removedPlayerIds.length > 0) {
-    await clearQueue(kv, lobby.mode, removedPlayerIds, {
-      currentState: queue,
-    })
-    await clearLobbyMappings(kv, removedPlayerIds, lobby.channelId, lobby.id)
-  }
-
-  await clearLobbyById(kv, lobby.id, cancelledLobby)
 
   return {
     lobbyId: lobby.id,
