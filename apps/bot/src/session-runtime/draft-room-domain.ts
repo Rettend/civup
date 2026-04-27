@@ -315,16 +315,26 @@ export function applyDraftResultCommand(
       cancelledAt,
     }
     alarmEffect = { type: 'delete-alarm' }
+    const shouldReopenLobby = nextState.cancelReason === 'timeout' || nextState.cancelReason === 'revert'
     const lifecycleSync = createCancelledLifecycleSync(nextRoom, {
       cancelledAt,
-      delivery: 'background',
+      delivery: shouldReopenLobby ? 'await' : 'background',
     })
     nextRoom = lifecycleSync.room
-    effects.push(
-      { type: 'broadcast-update', events: command.events },
-      { type: 'close-connections', reason: 'Draft closed' },
-      lifecycleSync.effect,
-    )
+    if (shouldReopenLobby) {
+      effects.push(
+        lifecycleSync.effect,
+        { type: 'broadcast-update', events: command.events },
+        { type: 'close-connections', reason: 'Draft closed' },
+      )
+    }
+    else {
+      effects.push(
+        { type: 'broadcast-update', events: command.events },
+        { type: 'close-connections', reason: 'Draft closed' },
+        lifecycleSync.effect,
+      )
+    }
   }
   else {
     nextRoom = clearSwapWindowState(nextRoom)

@@ -1,11 +1,11 @@
-import type { CompetitiveTier, DraftSeat, GameMode, QueueEntry } from '@civup/game'
+import type { CompetitiveTier, DraftSeat, DraftSelection, DraftState, GameMode, QueueEntry } from '@civup/game'
 import type { SessionServerMessage } from '@civup/session'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
 import type { DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionDraftStartSyncState, SessionLifecycleSyncState, SessionProjectionState, SessionProjectionSyncPayload, SessionProjectionSyncState, SessionRecord, SessionRoster, SessionTerminalSyncCommand, SessionTerminalSyncState } from './session-record.ts'
-import { createDb, matchBans, matches } from '@civup/db'
-import { canStartWithPlayerCount, formatModeLabel, GAME_MODES, getMinimumLeaderPoolSize } from '@civup/game'
-import { CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest } from '@civup/utils'
+import { createDb, matchBans, matches, matchParticipants } from '@civup/db'
+import { allFactionIds, allLeaderIds, canStartWithPlayerCount, EMPTY_MAP_VOTE_SNAPSHOT, formatModeLabel, GAME_MODES, getDraftFormat, getMinimumLeaderPoolSize, slotToTeamIndex } from '@civup/game'
+import { CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest, verifySessionAccessToken } from '@civup/utils'
 import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed } from '../embeds/match.ts'
 import { buildDraftRuntimeConfig } from '../services/activity/index.ts'
@@ -280,6 +280,11 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const record = await this.getRecord()
     if (record?.phase === 'open') {
       await this.handleOpenSessionConnect(connection, ctx, record)
+      return
+    }
+
+    if (record?.phase === 'active' && !await this.getRoomRecord()) {
+      await this.handleActiveSessionConnectWithoutRuntime(connection, ctx, record)
       return
     }
 
@@ -1572,6 +1577,144 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     })
   }
 
+  private async handleActiveSessionConnectWithoutRuntime(connection: Connection, ctx: ConnectionContext, record: Extract<SessionRecord, { phase: 'active' }>): Promise<void> {
+    if (!isAuthorizedInternalRequest(ctx.request.headers, this.env.CIVUP_SECRET)) {
+      connection.close(4401, 'Unauthorized')
+      return
+    }
+
+    const playerId = readActivityUserId(ctx.request.headers)
+    if (!playerId) {
+      connection.close(4401, 'Unauthorized')
+      return
+    }
+
+    const requestUrl = new URL(ctx.request.url)
+    const hasAccess = await verifySessionAccessToken(this.env.CIVUP_SECRET, requestUrl.searchParams.get('accessToken'), {
+      sessionId: record.matchId,
+      userId: playerId,
+    })
+    if (!hasAccess) {
+      this.sendSessionMessage(connection, { type: 'error', message: 'Session access token is invalid or expired' })
+      connection.close(4403, 'Forbidden')
+      return
+    }
+
+    connection.setState({ playerId } satisfies SessionConnectionState)
+    const snapshot = await this.buildCompletedActiveSessionSnapshot(record, playerId)
+    this.sendSessionMessage(connection, {
+      type: 'init',
+      state: snapshot.state,
+      mapVote: EMPTY_MAP_VOTE_SNAPSHOT,
+      leaderDataVersion: record.config.leaderDataVersion ?? 'live',
+      hostId: record.hostId,
+      seatIndex: snapshot.seatIndex,
+      timerEndsAt: null,
+      completedAt: snapshot.completedAt,
+      previews: { bans: {}, picks: {} },
+      swapState: null,
+      steamLobbyLink: record.projectionState.steamLobbyLink,
+    })
+    connection.close(1000, 'Draft closed')
+  }
+
+  private async buildCompletedActiveSessionSnapshot(record: Extract<SessionRecord, { phase: 'active' }>, playerId: string): Promise<{
+    state: DraftState
+    completedAt: number | null
+    seatIndex: number | null
+  }> {
+    const runtimeData = await this.loadCompletedActiveRuntimeData(record.matchId)
+    const participantByPlayerId = new Map(runtimeData.participants.map(participant => [participant.playerId, participant]))
+    const memberByPlayerId = new Map(record.roster.participants.map(member => [member.playerId, member]))
+    const orderedPlayerIds = record.roster.slots.filter((slot): slot is string => typeof slot === 'string' && slot.length > 0)
+    for (const participant of runtimeData.participants) {
+      if (!orderedPlayerIds.includes(participant.playerId)) orderedPlayerIds.push(participant.playerId)
+    }
+
+    const seats = orderedPlayerIds.map((seatPlayerId, index): DraftSeat => {
+      const member = memberByPlayerId.get(seatPlayerId)
+      const participant = participantByPlayerId.get(seatPlayerId)
+      const team = participant?.team ?? slotToTeamIndex(record.mode, index, orderedPlayerIds.length)
+      return {
+        playerId: seatPlayerId,
+        displayName: member?.displayName ?? seatPlayerId,
+        avatarUrl: member?.avatarUrl ?? null,
+        ...(team == null ? {} : { team }),
+      }
+    })
+
+    const format = getDraftFormat(record.mode, {
+      simultaneousPick: record.config.simultaneousPick === true,
+      randomDraft: record.config.randomDraft === true,
+      redDeath: record.config.redDeath === true,
+      blindBans: record.config.blindBans,
+      seatCount: seats.length,
+    })
+    const steps = format.getSteps(seats.length)
+    const seatIndexByPlayerId = new Map(seats.map((seat, index) => [seat.playerId, index]))
+    const picks: DraftSelection[] = seats.flatMap((seat, index) => {
+      const civId = participantByPlayerId.get(seat.playerId)?.civId
+      if (!civId) return []
+      return [{ civId, seatIndex: index, stepIndex: resolvePickStepIndex(steps, index) }]
+    })
+    const bans: DraftSelection[] = runtimeData.bans.map((ban) => ({
+      civId: ban.civId,
+      seatIndex: seatIndexByPlayerId.get(ban.bannedBy) ?? 0,
+      stepIndex: ban.phase,
+    }))
+    const unavailableCivIds = new Set([...picks, ...bans].map(selection => selection.civId))
+    const availableCivIds = (record.config.redDeath === true ? allFactionIds : allLeaderIds)
+      .filter(civId => !unavailableCivIds.has(civId))
+
+    return {
+      state: {
+        matchId: record.matchId,
+        formatId: format.id,
+        seats,
+        steps,
+        currentStepIndex: Math.max(steps.length - 1, 0),
+        submissions: {},
+        bans,
+        picks,
+        availableCivIds,
+        dealOptionsSize: record.config.redDeath === true ? record.config.dealOptionsSize ?? undefined : undefined,
+        duplicateFactions: record.config.duplicateFactions === true,
+        status: 'complete',
+        cancelReason: null,
+        pendingBlindBans: [],
+      },
+      completedAt: runtimeData.completedAt ?? record.updatedAt,
+      seatIndex: seatIndexByPlayerId.get(playerId) ?? null,
+    }
+  }
+
+  private async loadCompletedActiveRuntimeData(matchId: string): Promise<{
+    completedAt: number | null
+    participants: Array<{ playerId: string, team: number | null, civId: string | null }>
+    bans: Array<{ civId: string, bannedBy: string, phase: number }>
+  }> {
+    if (!this.env.DB) return { completedAt: null, participants: [], bans: [] }
+
+    try {
+      const db = createDb(this.env.DB)
+      const [matchRows, participants, bans] = await Promise.all([
+        db.select({ completedAt: matches.completedAt, draftData: matches.draftData }).from(matches).where(eq(matches.id, matchId)).limit(1),
+        db.select({ playerId: matchParticipants.playerId, team: matchParticipants.team, civId: matchParticipants.civId }).from(matchParticipants).where(eq(matchParticipants.matchId, matchId)),
+        db.select({ civId: matchBans.civId, bannedBy: matchBans.bannedBy, phase: matchBans.phase }).from(matchBans).where(eq(matchBans.matchId, matchId)),
+      ])
+      const match = matchRows[0]
+      return {
+        completedAt: match?.completedAt ?? parseDraftCompletedAt(match?.draftData) ?? null,
+        participants,
+        bans,
+      }
+    }
+    catch (error) {
+      console.warn('[session-do] failed to load completed active runtime data', { matchId }, error)
+      return { completedAt: null, participants: [], bans: [] }
+    }
+  }
+
   private sendSessionMessage(connection: Connection, message: SessionServerMessage): void {
     connection.send(JSON.stringify(message))
   }
@@ -2022,6 +2165,22 @@ function normalizePositiveInteger(value: unknown, fallback: number): number {
 function versionConflictResponse(expectedVersion: number, currentVersion: number): Response {
   const label = expectedVersion < currentVersion ? 'stale' : 'mismatched'
   return json({ error: `Session version is ${label} (expected ${expectedVersion}, current ${currentVersion})` }, 409)
+}
+
+function resolvePickStepIndex(steps: DraftState['steps'], seatIndex: number): number {
+  const stepIndex = steps.findIndex(step => step.action === 'pick' && (step.seats === 'all' || step.seats.includes(seatIndex)))
+  return stepIndex >= 0 ? stepIndex : Math.max(steps.length - 1, 0)
+}
+
+function parseDraftCompletedAt(raw: string | null | undefined): number | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as { completedAt?: unknown } | null
+    return normalizeOptionalPositiveInteger(parsed?.completedAt)
+  }
+  catch {
+    return null
+  }
 }
 
 function isGameMode(value: unknown): value is GameMode {

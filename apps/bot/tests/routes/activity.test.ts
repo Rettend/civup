@@ -871,6 +871,67 @@ describe('activity target selection', () => {
     expect(persistedLobby?.memberPlayerIds).toContain('spectator-1')
     expect(persistedLobby?.slots).not.toContain('spectator-1')
   })
+
+  test('selecting a full lobby transfers spectator membership from a previous open lobby', async () => {
+    const { kv } = createTrackedKv()
+    const sourceLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'source-host',
+      channelId: 'channel-1',
+      messageId: 'message-source',
+    })
+    const targetLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'target-host',
+      channelId: 'channel-1',
+      messageId: 'message-target',
+    })
+
+    await addToQueue(kv, '2v2', { playerId: 'source-host', displayName: 'Source Host', avatarUrl: null, joinedAt: Date.now() })
+    await addToQueue(kv, '2v2', { playerId: 'spectator-1', displayName: 'Spectator One', avatarUrl: null, joinedAt: Date.now() + 1 })
+    const sourceWithSpectator = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'spectator-1'], sourceLobby)
+    await setLobbySlots(kv, sourceLobby.id, ['source-host', 'spectator-1', null, null], sourceWithSpectator ?? sourceLobby)
+
+    const targetPlayerIds = ['target-host', 'player-2', 'player-3', 'player-4']
+    for (let index = 0; index < targetPlayerIds.length; index++) {
+      await addToQueue(kv, '2v2', {
+        playerId: targetPlayerIds[index]!,
+        displayName: `Target Player ${index + 1}`,
+        avatarUrl: null,
+        joinedAt: Date.now() + 10 + index,
+      })
+    }
+    const fullTarget = await setLobbyMemberPlayerIds(kv, targetLobby.id, targetPlayerIds, targetLobby)
+    await setLobbySlots(kv, targetLobby.id, targetPlayerIds, fullTarget ?? targetLobby)
+
+    const options = activityRuntimeOptions(kv)
+    const selected = await selectActivityTargetForUser(undefined, 'secret', kv, 'channel-1', 'spectator-1', {
+      kind: 'lobby',
+      id: targetLobby.id,
+    }, {
+      ...options,
+      viewer: { userId: 'spectator-1', displayName: 'Spectator One', avatarUrl: null },
+    })
+
+    expect(selected.ok).toBe(true)
+    if (!selected.ok) return
+    expect(selected.snapshot.selection?.kind).toBe('lobby')
+    expect(selected.snapshot.selection?.option.id).toBe(targetLobby.id)
+    expect(selected.snapshot.selection?.option.isMember).toBe(true)
+    expect(selected.snapshot.options.find(option => option.id === sourceLobby.id)?.isMember).toBe(false)
+
+    const sourceAfter = await getLobbyById(kv, sourceLobby.id)
+    const targetAfter = await getLobbyById(kv, targetLobby.id)
+    expect(sourceAfter?.memberPlayerIds).not.toContain('spectator-1')
+    expect(sourceAfter?.slots).not.toContain('spectator-1')
+    expect(targetAfter?.memberPlayerIds).toContain('spectator-1')
+    expect(targetAfter?.slots).not.toContain('spectator-1')
+
+    const reopened = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'spectator-1', options)
+    expect(reopened.selection?.kind).toBe('lobby')
+    expect(reopened.selection?.option.id).toBe(targetLobby.id)
+    expect(reopened.selection?.option.isMember).toBe(true)
+  })
 })
 
 function buildEnv(kv: KVNamespace) {

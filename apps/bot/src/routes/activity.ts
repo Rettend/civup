@@ -12,6 +12,7 @@ import { createSessionAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { buildActivityOverviewOptions, buildLobbySnapshotFromDirectoryEntry, buildLobbySnapshotFromSessionRecord, getActivitySessionById, getActivitySessionsByChannel, getOpenActivitySessionsForUser } from '../services/activity/session-state.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
+import { leaveOpenLobbyForLobbyJoin } from '../services/lobby/transfer.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../services/match/live.ts'
 import { getCurrentSessionLobbyProjectionsForPlayer } from '../services/session/index.ts'
 import { getKvStore, kvMget } from '../services/kv/batch.ts'
@@ -268,7 +269,7 @@ export async function selectActivityTargetForUser(
   let selectionTarget = context.targets.find(candidate => candidate.option.kind === target.kind && candidate.option.id === target.id) ?? null
   if (!selectionTarget) return { ok: false, error: 'That target is no longer available.', status: 409 }
 
-  if (await persistFullLobbySpectatorSelection(userId, selectionTarget, options)) {
+  if (await persistFullLobbySpectatorSelection(token, kv, userId, selectionTarget, options)) {
     context = await loadActivityLaunchContext(kv, channelId, userId, options?.db)
     selectionTarget = context.targets.find(candidate => candidate.option.kind === target.kind && candidate.option.id === target.id) ?? selectionTarget
   }
@@ -281,6 +282,8 @@ export async function selectActivityTargetForUser(
 }
 
 async function persistFullLobbySpectatorSelection(
+  token: string | undefined,
+  kv: KVNamespace,
   userId: string,
   target: ChannelActivityTarget,
   options: ActivityRuntimeOptions | undefined,
@@ -288,12 +291,30 @@ async function persistFullLobbySpectatorSelection(
   if (target.option.kind !== 'lobby') return false
   if (target.session.phase !== 'open') return false
   if (target.option.isHost || target.option.isMember) return false
-  if (!options?.sessionNamespace || !options.viewer) return false
+  if (!options?.sessionNamespace || !options.viewer || !options.db) return false
 
   const record = await resolveAuthoritativeSessionRecord(options.sessionNamespace, target.session)
   if (record?.phase !== 'open') return false
   if (record.roster.participants.some(member => member.playerId === userId)) return false
   if (record.roster.slots.some(playerId => playerId == null)) return false
+
+  const db = createDb(options.db)
+  const currentLobbies = await getCurrentSessionLobbyProjectionsForPlayer(db, userId, { excludeLobbyIds: [record.id] })
+  if (currentLobbies.some(lobby => lobby.status !== 'open')) return false
+
+  const sourceLobby = currentLobbies.find(lobby => lobby.status === 'open') ?? null
+  if (sourceLobby) {
+    const sourceHasOtherMembers = sourceLobby.memberPlayerIds.some(playerId => playerId !== userId)
+    if (sourceLobby.hostId === userId && sourceHasOtherMembers) return false
+
+    const sourceRecord = await getSessionRecord(options.sessionNamespace, sourceLobby.id).catch(() => null)
+    const transfer = await leaveOpenLobbyForLobbyJoin(kv, token, sourceLobby, [userId], record.mode, {
+      db,
+      sessionNamespace: options.sessionNamespace,
+      queueEntries: sourceRecord ? buildSessionRosterQueueEntries(sourceRecord) : undefined,
+    })
+    if (!transfer.ok) return false
+  }
 
   const queueEntry = buildSpectatorQueueEntry(userId, options.viewer)
   const queueEntries = [...buildSessionRosterQueueEntries(record), queueEntry]

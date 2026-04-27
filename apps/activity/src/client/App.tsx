@@ -268,7 +268,7 @@ export default function App() {
     if (isSameMatch && (isDraftConnectionInFlight() || hasTerminalDraft)) return
 
     resetDraft()
-    connectToSession(SESSION_SOCKET_TARGET, matchId, sessionAccessToken)
+    connectToSession(SESSION_SOCKET_TARGET, matchId, sessionAccessToken, { onStateChanged: handleSelectedSessionStateChange })
   }
 
   const handleSelectedSessionStateChange = (change: SelectedSessionStateChange) => {
@@ -288,6 +288,27 @@ export default function App() {
       if (current && snapshot.revision < current.revision) return
       liveLobbySnapshots.set(snapshot.id, snapshot)
       setLiveLobbySnapshotVersion(version => version + 1)
+
+      const currentState = state()
+      if (currentState.status === 'authenticated' && (currentState.matchId === snapshot.id || currentState.lobbyId === snapshot.id)) {
+        const currentUserId = activeUserId ?? ''
+        const existingOption = availableTargets().find(option => option.kind === 'lobby' && option.id === snapshot.id) ?? null
+        const option = existingOption ?? buildLobbyTargetOptionFromSnapshot(snapshot, currentUserId, activeChannelId)
+        const options = existingOption ? availableTargets() : [...availableTargets(), option]
+        const joinEligibility = resolveLiveJoinEligibility(options, option, snapshot, currentUserId)
+
+        resetDraft()
+        setLastResolvedSelection({
+          kind: 'lobby',
+          option,
+          pendingJoin: false,
+          joinEligibility,
+          lobby: snapshot,
+        })
+        setLiveTargetState({ kind: 'lobby', id: snapshot.id, pendingJoin: false })
+        setState({ status: 'lobby-waiting', lobby: snapshot, joinPending: false, joinEligibility })
+        return
+      }
 
       setState((prev) => {
         if (prev.status !== 'lobby-waiting' || prev.lobby.id !== snapshot.id) return prev
@@ -907,6 +928,28 @@ function buildLiveActivityLaunchSnapshot(
       mode: targetState.mode,
     },
     options,
+  }
+}
+
+function buildLobbyTargetOptionFromSnapshot(
+  snapshot: LobbySnapshot,
+  currentUserId: string,
+  channelId: string | null,
+): ActivityTargetOption {
+  return {
+    kind: 'lobby',
+    id: snapshot.id,
+    lobbyId: snapshot.id,
+    matchId: null,
+    channelId: channelId ?? '',
+    mode: snapshot.mode as ActivityTargetOption['mode'],
+    status: 'open',
+    participantCount: snapshot.entries.filter(entry => entry != null).length,
+    targetSize: snapshot.targetSize,
+    redDeath: snapshot.draftConfig.redDeath,
+    isMember: snapshot.entries.some(entry => entry?.playerId === currentUserId),
+    isHost: snapshot.hostId === currentUserId,
+    updatedAt: Date.now(),
   }
 }
 
