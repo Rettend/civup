@@ -533,7 +533,7 @@ export default function App() {
       : overviewSnapshot
         ? materializeOverviewOptions(overviewSnapshot, currentUserId)
         : []
-    const options = visibleTargetOptions(rawOptions)
+    const options = applyLiveLobbyMembership(visibleTargetOptions(rawOptions), liveLobbySnapshots, currentUserId)
     const resolvedSnapshot = buildLiveActivityLaunchSnapshot(options, targetState, liveLobbySnapshots, currentUserId)
     const targetOption = targetState
       ? options.find(option => activityTargetOptionKey(option) === activityTargetOptionKey(targetState)) ?? null
@@ -947,7 +947,7 @@ function buildLobbyTargetOptionFromSnapshot(
     participantCount: snapshot.entries.filter(entry => entry != null).length,
     targetSize: snapshot.targetSize,
     redDeath: snapshot.draftConfig.redDeath,
-    isMember: snapshot.entries.some(entry => entry?.playerId === currentUserId),
+    isMember: isLobbySnapshotMember(snapshot, currentUserId),
     isHost: snapshot.hostId === currentUserId,
     updatedAt: Date.now(),
   }
@@ -959,7 +959,7 @@ function resolveLiveJoinEligibility(
   lobby: LobbySnapshot,
   currentUserId: string,
 ): LobbyJoinEligibilitySnapshot {
-  if (lobby.entries.some(entry => entry?.playerId === currentUserId)) {
+  if (selectedOption.isMember || isLobbySnapshotMember(lobby, currentUserId)) {
     return {
       canJoin: true,
       blockedReason: null,
@@ -1005,6 +1005,25 @@ function resolveLiveJoinEligibility(
     blockedReason: null,
     pendingSlot,
   }
+}
+
+function applyLiveLobbyMembership(
+  options: ActivityTargetOption[],
+  liveLobbySnapshots: ReadonlyMap<string, LobbySnapshot>,
+  currentUserId: string,
+): ActivityTargetOption[] {
+  return options.map((option) => {
+    if (option.kind !== 'lobby' || option.isMember) return option
+    const snapshot = liveLobbySnapshots.get(option.id)
+    if (!snapshot || !isLobbySnapshotMember(snapshot, currentUserId)) return option
+    return { ...option, isMember: true }
+  })
+}
+
+function isLobbySnapshotMember(snapshot: LobbySnapshot, currentUserId: string): boolean {
+  if (!currentUserId) return false
+  return snapshot.entries.some(entry => entry?.playerId === currentUserId)
+    || snapshot.memberPlayerIds?.includes(currentUserId) === true
 }
 
 function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
