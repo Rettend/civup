@@ -10,6 +10,7 @@ import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel, GAME_MODES, toBalanceLeaderboardMode } from '@civup/game'
 import { createSessionAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
+import { clearActivityLaunchTargetSelection, readActivityLaunchTargetSelection, type ActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
 import { buildActivityOverviewOptions, buildLobbySnapshotFromDirectoryEntry, buildLobbySnapshotFromSessionRecord, getActivitySessionById, getActivitySessionsByChannel, getOpenActivitySessionsForUser } from '../services/activity/session-state.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { leaveOpenLobbyForLobbyJoin } from '../services/lobby/transfer.ts'
@@ -194,6 +195,8 @@ export function registerActivityRoutes(app: Hono<Env>) {
     return c.json(await buildActivityLaunchSnapshot(c.env.DISCORD_TOKEN, c.env.CIVUP_SECRET, kv, channelId, userId, {
       db: c.env.DB,
       sessionNamespace: c.env.SessionDO,
+      activityNamespace: c.env.Activity,
+      internalSecret: c.env.CIVUP_SECRET,
     }))
   })
 
@@ -348,10 +351,16 @@ export async function buildActivityLaunchSnapshot(
   options?: {
     db?: D1Database | null
     sessionNamespace?: DurableObjectNamespace | null
+    activityNamespace?: DurableObjectNamespace | null
+    internalSecret?: string | null
   },
 ): Promise<ActivityLaunchSnapshot> {
   const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db)
-  const selection = pickDefaultActivityLaunchSelection(context.targets)
+  const launchTarget = await readActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
+  const requestedSelection = pickRequestedActivityLaunchSelection(context.targets, launchTarget)
+  if (requestedSelection) await clearActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
+  const selection = requestedSelection
+    ?? pickDefaultActivityLaunchSelection(context.targets)
   return buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, selection, options?.db, options?.sessionNamespace)
 }
 
@@ -696,6 +705,12 @@ function pickDefaultActivityLaunchSelection(targets: ChannelActivityTarget[]): R
     target: preferredTarget,
     pendingJoin: false,
   }
+}
+
+function pickRequestedActivityLaunchSelection(targets: ChannelActivityTarget[], launchTarget: ActivityLaunchTargetSelection | null): ResolvedActivitySelection | null {
+  if (!launchTarget) return null
+  const target = targets.find(candidate => candidate.option.kind === launchTarget.kind && candidate.option.id === launchTarget.id) ?? null
+  return target ? { target, pendingJoin: false } : null
 }
 
 function pickCurrentActivityMembershipTarget(targets: ChannelActivityTarget[]): ChannelActivityTarget | null {

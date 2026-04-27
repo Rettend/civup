@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { CIVUP_INTERNAL_SECRET_HEADER } from '@civup/utils'
+import { CIVUP_INTERNAL_SECRET_HEADER, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
 import { publishActivitySessionUpdate } from '../../src/session-runtime/activity-feed-client.ts'
 import type { SessionRecord } from '../../src/session-runtime/session-record.ts'
 
@@ -22,8 +22,8 @@ describe('activity feed client', () => {
 
     await publishActivitySessionUpdate(namespace, buildSessionRecord(), 'secret')
 
-    expect(capturedRequest?.headers.get('x-partykit-room')).toBe('channel-1')
-    expect(capturedRequest?.headers.get('x-partykit-namespace')).toBe('activity')
+    expect(capturedRequest?.headers.get(PARTYSERVER_ROOM_HEADER)).toBe('channel-1')
+    expect(capturedRequest?.headers.get(PARTYSERVER_NAMESPACE_HEADER)).toBe('activity')
     expect(capturedRequest?.headers.get(CIVUP_INTERNAL_SECRET_HEADER)).toBe('secret')
   })
 })
