@@ -36,6 +36,38 @@ export interface SessionLifecycleSyncState {
   nextRetryAt: number
 }
 
+export interface SessionProjectionParticipant {
+  playerId: string
+  team: number | null
+  civId: string | null
+  placement?: number | null
+  ratingBeforeMu?: number | null
+  ratingBeforeSigma?: number | null
+  ratingAfterMu?: number | null
+  ratingAfterSigma?: number | null
+  leaderboardBeforeRank?: number | null
+  leaderboardAfterRank?: number | null
+  leaderboardEligibleCount?: number | null
+}
+
+export type SessionProjectionSyncPayload
+  = | {
+    type: 'draft-completed'
+    payload: Extract<DraftLifecyclePayload, { outcome: 'complete' }>
+    participants: SessionProjectionParticipant[]
+  }
+  | {
+    type: 'draft-cancelled'
+    payload: Extract<DraftLifecyclePayload, { outcome: 'cancelled' }>
+    participants: SessionProjectionParticipant[]
+  }
+
+export interface SessionProjectionSyncState {
+  payload: SessionProjectionSyncPayload
+  attempts: number
+  nextRetryAt: number
+}
+
 export interface SessionDraftStartSyncState {
   attempts: number
   nextRetryAt: number
@@ -80,6 +112,7 @@ interface BaseSessionRecord {
   draftStartSync?: SessionDraftStartSyncState | null
   lifecycleEventSequence?: number
   lifecycleSync?: SessionLifecycleSyncState | null
+  projectionSync?: SessionProjectionSyncState | null
   terminalSync?: SessionTerminalSyncState | null
 }
 
@@ -187,6 +220,7 @@ export function buildSessionRecordFromLobby(
     draftStartSync: null,
     lifecycleEventSequence: 0,
     lifecycleSync: null,
+    projectionSync: null,
     terminalSync: null,
   } satisfies BaseSessionRecord
 

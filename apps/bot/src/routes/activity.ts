@@ -463,7 +463,7 @@ async function resolveSessionJoinEligibility(
 
   const liveSessions = db ? await getOpenActivitySessionsForUser(createDb(db), userId) : []
   const blockingDraft = liveSessions.find(candidate => candidate.sessionId !== session.sessionId && (candidate.phase === 'draft' || candidate.phase === 'swap'))
-  if (blockingDraft || targets.some(target => target.option.kind === 'match' && target.option.id !== session.sessionId && (target.option.isHost || target.option.isMember))) {
+  if (blockingDraft || targets.some(target => target.option.kind === 'match' && target.session.phase !== 'active' && target.option.id !== session.sessionId && (target.option.isHost || target.option.isMember))) {
     return {
       canJoin: false,
       blockedReason: 'You are already in a live match.',
