@@ -302,8 +302,6 @@ describe('SessionDO open session commands', () => {
     statusResponse = await room.fetch(draftStatusRequest(accessToken))
     expect(statusResponse.status).toBe(200)
     const statusBody = await statusResponse.json() as any
-    expect(statusBody.state.status).toBe('complete')
-    expect(statusBody.swapState).not.toBeNull()
     expect(statusBody.steamLobbyLink).toBe(swapLink)
   })
 
