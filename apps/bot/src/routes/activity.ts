@@ -288,7 +288,6 @@ async function persistFullLobbySpectatorSelection(
   if (target.option.kind !== 'lobby') return false
   if (target.session.phase !== 'open') return false
   if (target.option.isHost || target.option.isMember) return false
-  if (target.option.participantCount < target.option.targetSize) return false
   if (!options?.sessionNamespace || !options.viewer) return false
 
   const record = await resolveAuthoritativeSessionRecord(options.sessionNamespace, target.session)
@@ -679,8 +678,8 @@ function pickDefaultActivityLaunchSelection(targets: ChannelActivityTarget[]): R
 }
 
 function pickCurrentActivityMembershipTarget(targets: ChannelActivityTarget[]): ChannelActivityTarget | null {
-  return targets.find(target => (target.option.isHost || target.option.isMember) && target.option.kind === 'match')
-    ?? targets.find(target => target.option.isHost || target.option.isMember)
+  return targets.find(target => (target.option.isHost || target.option.isMember) && target.option.kind === 'match' && (target.session.phase === 'draft' || target.session.phase === 'swap'))
+    ?? targets.find(target => (target.option.isHost || target.option.isMember) && target.option.kind === 'lobby')
     ?? null
 }
 

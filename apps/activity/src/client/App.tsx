@@ -13,7 +13,7 @@ import type {
 } from './stores'
 import { batch, createEffect, createSignal, Match, onCleanup, onMount, Switch, untrack } from 'solid-js'
 import { discordSdk, setupDiscordSdk } from './discord'
-import { activityTargetOptionKey, activityTargetsMatch, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from './lib/activity-targets'
+import { activityTargetOptionKey, activityTargetsMatch, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldRequestActivityTargetSelection } from './lib/activity-targets'
 import { relayDevLog } from './lib/dev-log'
 import { DraftPage } from './pages/draft'
 import { DraftSetupPage } from './pages/draft-setup'
@@ -684,7 +684,7 @@ export default function App() {
   const handleTargetSelection = async (option: ActivityTargetOption) => {
     suppressAutoSelection = false
     const optionKey = activityTargetOptionKey(option)
-    if (currentTargetKey() === optionKey) {
+    if (!shouldRequestActivityTargetSelection({ option, currentTargetKey: currentTargetKey() })) {
       pendingTargetSelectionKey = optionKey
       applyLiveActivityState()
       return

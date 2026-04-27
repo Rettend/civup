@@ -935,7 +935,15 @@ describe('system scenarios', () => {
 
     expect(launch.status).toBe(200)
     expect(launch.body).toMatchObject({
-      selection: null,
+      selection: {
+        kind: 'match',
+        matchId: started.matchId,
+        option: {
+          id: started.matchId,
+          lobbyId: targetLobby.id,
+          isMember: true,
+        },
+      },
       options: expect.arrayContaining([
         expect.objectContaining({ id: started.matchId, kind: 'match', lobbyId: targetLobby.id }),
         expect.objectContaining({ id: otherLobby.id, kind: 'lobby' }),
@@ -1184,7 +1192,13 @@ describe('system scenarios', () => {
     expect(await world.inspect.lobbyMapping('p1')).toBe(newLobby.id)
     expect(await world.inspect.lobbyMapping('p2')).toBeNull()
     expect(launch.body).toMatchObject({
-      selection: null,
+      selection: {
+        kind: 'lobby',
+        option: {
+          id: newLobby.id,
+          isMember: true,
+        },
+      },
       options: expect.arrayContaining([
         expect.objectContaining({ id: newLobby.id, kind: 'lobby' }),
       ]),
@@ -1238,7 +1252,14 @@ describe('system scenarios', () => {
     expect(await world.inspect.matchMapping('p1')).toBe(newMatch.matchId)
     expect(await world.inspect.matchMapping('fresh-host')).toBe(newMatch.matchId)
     expect(spectatorLaunch.body).toMatchObject({
-      selection: null,
+      selection: {
+        kind: 'match',
+        matchId: newMatch.matchId,
+        option: {
+          id: newMatch.matchId,
+          isMember: true,
+        },
+      },
       options: expect.arrayContaining([
         expect.objectContaining({ id: newMatch.matchId, kind: 'match' }),
       ]),
@@ -2250,7 +2271,13 @@ describe('system scenarios', () => {
     expect(first.arrangedLobby?.slots).toEqual(second.arrangedLobby?.slots)
     expect(first.arrangedLobby?.slots).not.toEqual(third.arrangedLobby?.slots)
     expect(first.launch.body).toMatchObject({
-      selection: null,
+      selection: {
+        kind: 'lobby',
+        option: {
+          id: first.lobby.id,
+          isMember: true,
+        },
+      },
       options: expect.arrayContaining([
         expect.objectContaining({ id: first.lobby.id, kind: 'lobby' }),
       ]),

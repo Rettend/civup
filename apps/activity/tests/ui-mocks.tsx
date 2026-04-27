@@ -20,6 +20,9 @@ export const storeSpies = {
   sendMapVoteSelection: mock((_selection: { mapTypes: MapTypeId[], mapScripts: MapScriptId[] }) => true),
   sendSwapAccept: mock(() => {}),
   sendSwapRequest: mock((_seatIndex: number) => {}),
+  updateDraftSteamLobbyLink: mock((steamLobbyLink: string | null) => {
+    uiMockState.steamLobbyLink = steamLobbyLink
+  }),
   reportMatchResult: mock(async () => ({ ok: true })),
   scrubMatchResult: mock(async () => ({ ok: true })),
   toggleFfaPlacement: mock((seatIndex: number) => {
@@ -106,6 +109,7 @@ interface MockState {
   previewPicks: Record<number, string | null>
   draftPreviewBans: Record<number, string[]>
   draftPreviewPicks: Record<number, string[]>
+  steamLobbyLink: string | null
   canRequestSwapSeatIndices: number[]
   swapWindowOpen: boolean
   incomingSwapSeatIndices: number[]
@@ -218,6 +222,7 @@ function defaults(): MockState {
     previewPicks: {},
     draftPreviewBans: {},
     draftPreviewPicks: {},
+    steamLobbyLink: null,
     canRequestSwapSeatIndices: [],
     swapWindowOpen: false,
     incomingSwapSeatIndices: [],
@@ -275,6 +280,7 @@ export function resetUiMocks() {
   uiMockState.previewPicks = {}
   uiMockState.draftPreviewBans = {}
   uiMockState.draftPreviewPicks = {}
+  uiMockState.steamLobbyLink = null
   uiMockState.canRequestSwapSeatIndices = []
   uiMockState.swapWindowOpen = false
   uiMockState.incomingSwapSeatIndices = []
@@ -534,6 +540,9 @@ mock.module('~/client/stores', () => ({
         picks: uiMockState.draftPreviewPicks,
       }
     },
+    get steamLobbyLink() {
+      return uiMockState.steamLobbyLink ?? mockLobbySnapshot().steamLobbyLink
+    },
     swapState: null,
     initVersion: 1,
   },
@@ -674,6 +683,7 @@ mock.module('~/client/stores', () => ({
   },
   toggleTeamPlacement: (...args: Parameters<typeof storeSpies.toggleTeamPlacement>) => storeSpies.toggleTeamPlacement(...args),
   toggleLobbyPremadeLink: async () => ({ ok: true }),
+  updateDraftSteamLobbyLink: (...args: Parameters<typeof storeSpies.updateDraftSteamLobbyLink>) => storeSpies.updateDraftSteamLobbyLink(...args),
   updateLobbyConfig: (...args: Parameters<typeof storeSpies.updateLobbyConfig>) => storeSpies.updateLobbyConfig(...args),
   updateLobbyMode: (...args: Parameters<typeof storeSpies.updateLobbyMode>) => storeSpies.updateLobbyMode(...args),
   userId: () => uiMockState.userId,
