@@ -1,12 +1,12 @@
-import type { DraftState } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
-import { activityOverviewKey, syncActivityOverviewSnapshot } from '../../src/services/activity/live-state.ts'
+import { buildActivityOverviewSnapshotFromDirectory } from '../../src/services/activity/session-state.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
-import { attachLobbyMatch, clearLobbyById, clearLobbyByMatch, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getLobbyByChannel, getLobbyById, getLobbyByMatch, getLobbyDraftRoster, reopenLobbyAfterTimedOutDraft, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, storeLobbyDraftRoster } from '../../src/services/lobby/index.ts'
-import { channelIndexKey, hostKey, idKey, LOBBY_TTL, matchKey } from '../../src/services/lobby/keys.ts'
-import { lobbySnapshotKey, syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
+import { clearLobbyById, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getExistingTestLobbyRuntime, getLobbiesByMode, getLobbyByChannel, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
+import { channelIndexKey, hostKey, idKey, LOBBY_TTL, modeIndexKey } from '../../src/services/lobby/keys.ts'
+import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../../src/services/match/retention.ts'
-import { addToQueue } from '../../src/services/queue/index.ts'
+import { getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
+import { getSeededRosterEntries, seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 test('normalizes unsupported map vote config off for ffa lobbies', async () => {
@@ -43,12 +43,12 @@ test('keeps supported map vote config for team lobbies', async () => {
   expect(updated?.draftConfig.mapVoteEnabled).toBe(true)
 })
 
-describe('lobby service KV write behavior', () => {
+describe('lobby service D1-backed projection behavior', () => {
   test('setLobbySlots skips KV writes when slots are unchanged', async () => {
     const { kv, operations, resetOperations } = createTrackedKv()
 
     const lobby = await createLobby(kv, {
-      mode: 'ffa',
+      mode: '1v1',
       hostId: 'host-1',
       channelId: 'channel-1',
       messageId: 'message-1',
@@ -62,7 +62,7 @@ describe('lobby service KV write behavior', () => {
     expect(operations).toHaveLength(0)
   })
 
-  test('setLobbySlots writes when slots change', async () => {
+  test('setLobbySlots updates D1 without KV projection writes', async () => {
     const { kv, operations, resetOperations } = createTrackedKv()
 
     const lobby = await createLobby(kv, {
@@ -79,11 +79,11 @@ describe('lobby service KV write behavior', () => {
     const result = await setLobbySlots(kv, lobby.id, nextSlots)
 
     expect(result).not.toBeNull()
-    const putKeys = operations.filter(op => op.type === 'put').map(op => op.key)
-    expect(putKeys).toContain(`lobby:mode:ffa:${lobby.id}`)
+    expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(nextSlots)
+    expect(operations.filter(op => op.type === 'put' || op.type === 'delete' || op.type === 'list')).toHaveLength(0)
   })
 
-  test('setLobbySlots rewrites the mode index value when revision changes', async () => {
+  test('setLobbySlots does not write KV mode indexes when revision changes', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: 'ffa',
@@ -92,14 +92,15 @@ describe('lobby service KV write behavior', () => {
       messageId: 'message-1',
     })
 
-    expect(await kv.get(`lobby:mode:ffa:${lobby.id}`)).toBe(String(lobby.revision))
+    expect(await kv.get(`lobby:mode:ffa:${lobby.id}`)).toBeNull()
 
     const nextSlots = [...lobby.slots]
     nextSlots[1] = 'player-2'
     const updated = await setLobbySlots(kv, lobby.id, nextSlots)
 
     expect(updated).not.toBeNull()
-    expect(await kv.get(`lobby:mode:ffa:${lobby.id}`)).toBe(String(updated?.revision))
+    expect(await kv.get(`lobby:mode:ffa:${lobby.id}`)).toBeNull()
+    expect(updated?.revision).toBe(lobby.revision + 1)
   })
 
   test('setLobbySlots bumps revision when slots change', async () => {
@@ -150,13 +151,18 @@ describe('lobby service KV write behavior', () => {
     expect(byChannel?.hostId).toBe(created.hostId)
   })
 
-  test('getCurrentLobbiesForPlayer clears a stale user lobby mapping when the mapped lobby is gone', async () => {
+  test('getLobbiesByMode reads D1 instead of KV projection indexes', async () => {
     const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    await kv.delete(modeIndexKey('ffa', lobby.id))
 
-    await kv.put('activity-lobby-user:player-1', 'missing-lobby')
-
-    await expect(getCurrentLobbiesForPlayer(kv, 'player-1', { fallbackToLobbyScan: false })).resolves.toEqual([])
-    await expect(kv.get('activity-lobby-user:player-1')).resolves.toBeNull()
+    await expect(getLobbiesByMode(kv, 'ffa')).resolves.toEqual([expect.objectContaining({ id: lobby.id })])
+    await expect(kv.get(modeIndexKey('ffa', lobby.id))).resolves.toBeNull()
   })
 
   test('retains live lobby state longer than abandoned active matches', () => {
@@ -197,50 +203,38 @@ describe('lobby service KV write behavior', () => {
     expect(stored?.guildId).toBe('guild-1')
   })
 
-  test('publishes live snapshots for open lobby changes', async () => {
+  test('builds live snapshots for open lobby changes', async () => {
     const { kv } = createTrackedKv()
+    const queueEntries = [
+      { playerId: 'host-1', displayName: 'Host', avatarUrl: null, joinedAt: Date.now() },
+      { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, joinedAt: Date.now() + 1 },
+    ]
 
-    await addToQueue(kv, 'ffa', {
-      playerId: 'host-1',
-      displayName: 'Host',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-    await addToQueue(kv, 'ffa', {
-      playerId: 'player-2',
-      displayName: 'Player 2',
-      avatarUrl: null,
-      joinedAt: Date.now() + 1,
-    })
+    for (const entry of queueEntries) await addToQueue(kv, '1v1', entry)
 
     const lobby = await createLobby(kv, {
-      mode: 'ffa',
+      mode: '1v1',
       hostId: 'host-1',
       channelId: 'channel-1',
       messageId: 'message-1',
     })
 
-    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host-1', 'player-2'], lobby)
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host-1', 'player-2'], lobby, { queueEntries })
     const nextSlots = [...(withMembers?.slots ?? lobby.slots)]
     nextSlots[1] = 'player-2'
-    const updated = await setLobbySlots(kv, lobby.id, nextSlots, withMembers ?? lobby)
-    await syncLobbyDerivedState(kv, updated ?? withMembers ?? lobby)
+    const updated = await setLobbySlots(kv, lobby.id, nextSlots, withMembers ?? lobby, { queueEntries })
+    const snapshot = await syncLobbyDerivedState(kv, updated ?? withMembers ?? lobby, { queueEntries, slots: nextSlots })
 
     expect(updated).not.toBeNull()
-    const snapshot = await kv.get(lobbySnapshotKey(lobby.id), 'json') as {
-      revision?: unknown
-      entries?: Array<{ playerId?: unknown, displayName?: unknown } | null>
-    } | null
-
     expect(snapshot?.revision).toBe(updated?.revision)
     expect(snapshot?.entries?.[0]).toEqual({ playerId: 'host-1', displayName: 'Host', avatarUrl: null })
     expect(snapshot?.entries?.[1]).toEqual({ playerId: 'player-2', displayName: 'Player 2', avatarUrl: null })
   })
 
-  test('removes live snapshots when a lobby stops being open', async () => {
+  test('does not build live snapshots when a lobby stops being open', async () => {
     const { kv } = createTrackedKv()
 
-    await addToQueue(kv, 'ffa', {
+    await addToQueue(kv, '1v1', {
       playerId: 'host-1',
       displayName: 'Host',
       avatarUrl: null,
@@ -254,12 +248,30 @@ describe('lobby service KV write behavior', () => {
       messageId: 'message-1',
     })
 
-    expect(await kv.get(lobbySnapshotKey(lobby.id), 'json')).not.toBeNull()
+    expect(await syncLobbyDerivedState(kv, lobby)).not.toBeNull()
 
-    const updated = await setLobbyStatus(kv, lobby.id, 'drafting')
-    await syncLobbyDerivedState(kv, updated ?? lobby)
+    const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
+    expect(draftingLobby).not.toBeNull()
+    await expect(syncLobbyDerivedState(kv, draftingLobby ?? lobby)).resolves.toBeNull()
+  })
 
-    expect(await kv.get(lobbySnapshotKey(lobby.id), 'json')).toBeNull()
+  test('startTestSessionDraft derives the match id from the lobby id', async () => {
+    const { kv } = createTrackedKv()
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
+
+    expect(draftingLobby).toMatchObject({
+      id: lobby.id,
+      status: 'drafting',
+      matchId: lobby.id,
+    })
   })
 
   test('stores six players as the expanded 2v2 minimum start size', async () => {
@@ -280,12 +292,7 @@ describe('lobby service KV write behavior', () => {
     })
 
     const updated = await setLobbySlots(kv, lobby.id, ['host-1', null, null, null, null, null, null, null], lobby)
-    await syncLobbyDerivedState(kv, updated ?? lobby)
-
-    const snapshot = await kv.get(lobbySnapshotKey(lobby.id), 'json') as {
-      minPlayers?: unknown
-      targetSize?: unknown
-    } | null
+    const snapshot = await syncLobbyDerivedState(kv, updated ?? lobby)
 
     expect(snapshot?.minPlayers).toBe(6)
     expect(snapshot?.targetSize).toBe(8)
@@ -308,12 +315,7 @@ describe('lobby service KV write behavior', () => {
       messageId: 'message-1',
     })
 
-    await syncLobbyDerivedState(kv, lobby)
-
-    const snapshot = await kv.get(lobbySnapshotKey(lobby.id), 'json') as {
-      minPlayers?: unknown
-      targetSize?: unknown
-    } | null
+    const snapshot = await syncLobbyDerivedState(kv, lobby, { queueEntries: getSeededRosterEntries(kv, '2v2') })
 
     expect(snapshot?.minPlayers).toBe(6)
     expect(snapshot?.targetSize).toBe(8)
@@ -343,11 +345,7 @@ describe('lobby service KV write behavior', () => {
       messageId: 'message-1',
     })
 
-    await syncLobbyDerivedState(kv, lobby)
-
-    const snapshot = await kv.get(lobbySnapshotKey(lobby.id), 'json') as {
-      entries?: Array<{ playerId?: unknown, balanceRating?: { mu?: unknown, sigma?: unknown, gamesPlayed?: unknown } } | null>
-    } | null
+    const snapshot = await syncLobbyDerivedState(kv, lobby, { queueEntries: getSeededRosterEntries(kv, '2v2') })
 
     expect(snapshot?.entries?.[0]).toEqual({
       playerId: 'host-1',
@@ -361,7 +359,7 @@ describe('lobby service KV write behavior', () => {
     })
   })
 
-  test('queue-backed lobby members ignore legacy party links', async () => {
+  test('lobby snapshots ignore unrelated premade links', async () => {
     const { kv } = createTrackedKv()
 
     await addToQueue(kv, '2v2', {
@@ -386,28 +384,25 @@ describe('lobby service KV write behavior', () => {
       messageId: 'message-1',
     })
 
-    await syncLobbyDerivedState(kv, lobby)
+    const snapshot = await syncLobbyDerivedState(kv, lobby)
 
     const storedLobby = await getLobbyById(kv, lobby.id)
     expect(storedLobby?.memberPlayerIds).toEqual(['host-1'])
     expect(storedLobby?.slots).toEqual(['host-1', null, null, null])
 
-    const snapshot = await kv.get(lobbySnapshotKey(lobby.id), 'json') as {
-      entries?: Array<{ playerId?: unknown } | null>
-    } | null
     expect(snapshot?.entries?.map(entry => entry?.playerId ?? null)).toEqual(['host-1', null, null, null])
   })
 
-  test('automatically refreshes the activity overview snapshot as lobby state changes', async () => {
+  test('builds activity overview from the session directory', async () => {
     const { kv } = createTrackedKv()
 
-    await addToQueue(kv, 'ffa', {
+    await addToQueue(kv, '1v1', {
       playerId: 'host-1',
       displayName: 'Host',
       avatarUrl: null,
       joinedAt: Date.now(),
     })
-    await addToQueue(kv, 'ffa', {
+    await addToQueue(kv, '1v1', {
       playerId: 'player-2',
       displayName: 'Player 2',
       avatarUrl: null,
@@ -415,15 +410,14 @@ describe('lobby service KV write behavior', () => {
     })
 
     const lobby = await createLobby(kv, {
-      mode: 'ffa',
+      mode: '1v1',
       hostId: 'host-1',
       channelId: 'channel-1',
       messageId: 'message-1',
     })
+    const runtime = getExistingTestLobbyRuntime(kv)
 
-    let overview = await kv.get(activityOverviewKey('channel-1'), 'json') as {
-      options?: Array<{ kind?: unknown, participantCount?: unknown, status?: unknown, id?: unknown }>
-    } | null
+    let overview = await buildActivityOverviewSnapshotFromDirectory(runtime.db, 'channel-1')
     expect(overview?.options).toEqual([
       expect.objectContaining({
         kind: 'lobby',
@@ -439,9 +433,7 @@ describe('lobby service KV write behavior', () => {
     const updated = await setLobbySlots(kv, lobby.id, nextSlots, withMembers ?? lobby)
     await syncLobbyDerivedState(kv, updated ?? withMembers ?? lobby)
 
-    overview = await kv.get(activityOverviewKey('channel-1'), 'json') as {
-      options?: Array<{ kind?: unknown, participantCount?: unknown, status?: unknown, id?: unknown }>
-    } | null
+    overview = await buildActivityOverviewSnapshotFromDirectory(runtime.db, 'channel-1')
     expect(overview?.options).toEqual([
       expect.objectContaining({
         kind: 'lobby',
@@ -451,17 +443,15 @@ describe('lobby service KV write behavior', () => {
       }),
     ])
 
-    const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', updated ?? withMembers ?? lobby)
+    const draftingLobby = await startTestSessionDraft(kv, lobby.id, updated ?? withMembers ?? lobby)
     expect(draftingLobby).not.toBeNull()
     await syncLobbyDerivedState(kv, draftingLobby!)
 
-    overview = await kv.get(activityOverviewKey('channel-1'), 'json') as {
-      options?: Array<{ kind?: unknown, participantCount?: unknown, status?: unknown, id?: unknown }>
-    } | null
+    overview = await buildActivityOverviewSnapshotFromDirectory(runtime.db, 'channel-1')
     expect(overview?.options).toEqual([
       expect.objectContaining({
         kind: 'match',
-        id: 'match-1',
+        id: lobby.id,
         participantCount: 2,
         status: 'drafting',
       }),
@@ -471,75 +461,15 @@ describe('lobby service KV write behavior', () => {
     expect(activeLobby).not.toBeNull()
     await syncLobbyDerivedState(kv, activeLobby!)
 
-    overview = await kv.get(activityOverviewKey('channel-1'), 'json') as {
-      options?: Array<{ kind?: unknown, participantCount?: unknown, status?: unknown, id?: unknown }>
-    } | null
+    overview = await buildActivityOverviewSnapshotFromDirectory(runtime.db, 'channel-1')
     expect(overview?.options).toEqual([
       expect.objectContaining({
         kind: 'match',
-        id: 'match-1',
+        id: lobby.id,
         participantCount: 2,
         status: 'active',
       }),
     ])
-  })
-
-  test('clearLobbyById removes active lobbies from the activity overview snapshot', async () => {
-    const { kv } = createTrackedKv()
-
-    const lobby = await createLobby(kv, {
-      mode: 'ffa',
-      hostId: 'host-1',
-      channelId: 'channel-1',
-      messageId: 'message-1',
-    })
-
-    const activeLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
-    expect(activeLobby).not.toBeNull()
-    await syncLobbyDerivedState(kv, activeLobby!)
-
-    expect(await kv.get(activityOverviewKey('channel-1'), 'json')).toEqual(expect.objectContaining({
-      options: [
-        expect.objectContaining({
-          kind: 'match',
-          id: 'match-1',
-          lobbyId: lobby.id,
-        }),
-      ],
-    }))
-
-    await clearLobbyById(kv, lobby.id, activeLobby!)
-
-    expect(await kv.get(activityOverviewKey('channel-1'), 'json')).toBeNull()
-  })
-
-  test('builds and clears activity overview snapshots on demand for the channel', async () => {
-    const { kv } = createTrackedKv()
-
-    const lobby = await createLobby(kv, {
-      mode: 'ffa',
-      hostId: 'host-1',
-      channelId: 'channel-1',
-      messageId: 'message-1',
-    })
-
-    await syncActivityOverviewSnapshot(kv, 'channel-1')
-    const overview = await kv.get(activityOverviewKey('channel-1'), 'json') as {
-      options?: Array<{ kind?: unknown, id?: unknown, hostId?: unknown }>
-    } | null
-    expect(overview?.options).toEqual([
-      expect.objectContaining({
-        kind: 'lobby',
-        id: lobby.id,
-        hostId: 'host-1',
-      }),
-    ])
-
-    const updated = await setLobbyStatus(kv, lobby.id, 'cancelled')
-    await syncLobbyDerivedState(kv, updated ?? lobby)
-    await syncActivityOverviewSnapshot(kv, 'channel-1')
-
-    expect(await kv.get(activityOverviewKey('channel-1'), 'json')).toBeNull()
   })
 
   test('tracks the current hosted lobby without scanning all modes', async () => {
@@ -564,7 +494,7 @@ describe('lobby service KV write behavior', () => {
       status: 'open',
     }))
 
-    const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
     expect(draftingLobby).not.toBeNull()
     await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(expect.objectContaining({
       id: lobby.id,
@@ -572,88 +502,24 @@ describe('lobby service KV write behavior', () => {
     }))
   })
 
-  test('ignores and clears a stale host index to an orphan open lobby', async () => {
+  test('keeps a hosted open lobby even when queue metadata is missing', async () => {
     const { kv } = createTrackedKv()
 
-    const orphanLobby = await createLobby(kv, {
-      mode: 'ffa',
-      hostId: 'host-1',
-      channelId: 'channel-1',
-      messageId: 'message-1',
-    })
-
-    await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toBeNull()
-    await expect(kv.get(hostKey('host-1'))).resolves.toBeNull()
-    await expect(getLobbyById(kv, orphanLobby.id)).resolves.toEqual(expect.objectContaining({
-      id: orphanLobby.id,
-      status: 'open',
-    }))
-  })
-
-  test('recovers a real hosted open lobby when the host index points at stale residue', async () => {
-    const { kv } = createTrackedKv()
-
-    await addToQueue(kv, 'ffa', {
-      playerId: 'host-1',
-      displayName: 'Host 1',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
     const lobby = await createLobby(kv, {
       mode: 'ffa',
       hostId: 'host-1',
       channelId: 'channel-1',
       messageId: 'message-1',
     })
-    const staleLobby = await createLobby(kv, {
-      mode: '2v2',
-      hostId: 'host-1',
-      channelId: 'channel-stale',
-      messageId: 'message-stale',
-    })
-    await kv.put(hostKey('host-1'), staleLobby.id)
 
     await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(expect.objectContaining({
       id: lobby.id,
       status: 'open',
     }))
-    await expect(kv.get(hostKey('host-1'))).resolves.toBe(lobby.id)
+    await expect(kv.get(hostKey('host-1'))).resolves.toBeNull()
   })
 
-  test('prefers a real hosted open lobby over stale live residue when the host index is stale', async () => {
-    const { kv } = createTrackedKv()
-
-    await addToQueue(kv, 'ffa', {
-      playerId: 'host-1',
-      displayName: 'Host 1',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-    const openLobby = await createLobby(kv, {
-      mode: 'ffa',
-      hostId: 'host-1',
-      channelId: 'channel-open',
-      messageId: 'message-open',
-    })
-    const olderLiveLobby = await createLobby(kv, {
-      mode: 'ffa',
-      hostId: 'host-1',
-      channelId: 'channel-live',
-      messageId: 'message-live',
-    })
-    const draftingLobby = await attachLobbyMatch(kv, olderLiveLobby.id, 'match-1', olderLiveLobby)
-
-    expect(draftingLobby).not.toBeNull()
-    await kv.put(hostKey('host-1'), 'stale-lobby-id')
-
-    await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(expect.objectContaining({
-      id: openLobby.id,
-      status: 'open',
-    }))
-    await expect(kv.get(hostKey('host-1'))).resolves.toBe(openLobby.id)
-  })
-
-  test('clears orphaned host and match indexes when the lobby record is gone', async () => {
+  test('legacy KV clearing does not remove canonical D1 session projection', async () => {
     const { kv } = createTrackedKv()
 
     const lobby = await createLobby(kv, {
@@ -662,18 +528,17 @@ describe('lobby service KV write behavior', () => {
       channelId: 'channel-1',
       messageId: 'message-1',
     })
-    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
+    await startTestSessionDraft(kv, lobby.id, lobby)
 
     await kv.delete(idKey(lobby.id))
 
     await clearLobbyById(kv, lobby.id)
 
     await expect(kv.get(hostKey('host-1'))).resolves.toBeNull()
-    await expect(getLobbyByMatch(kv, 'match-1')).resolves.toBeNull()
-    await expect(kv.get(matchKey('match-1'))).resolves.toBeNull()
+    await expect(getLobbyById(kv, lobby.id)).resolves.toEqual(expect.objectContaining({ id: lobby.id }))
   })
 
-  test('getLobbyByMatch repairs a missing match index from the canonical lobby record', async () => {
+  test('session lobby projection resolves same-id sessions', async () => {
     const { kv } = createTrackedKv()
 
     const lobby = await createLobby(kv, {
@@ -682,17 +547,17 @@ describe('lobby service KV write behavior', () => {
       channelId: 'channel-1',
       messageId: 'message-1',
     })
-    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
-    await kv.delete(matchKey('match-1'))
+    const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
+    const { db } = getExistingTestLobbyRuntime(kv)
 
-    await expect(getLobbyByMatch(kv, 'match-1')).resolves.toEqual(expect.objectContaining({
+    await expect(getSessionLobbyProjectionByMatch(db, lobby.id)).resolves.toEqual(expect.objectContaining({
       id: lobby.id,
-      matchId: 'match-1',
+      matchId: lobby.id,
     }))
-    await expect(kv.get(matchKey('match-1'))).resolves.toBe(lobby.id)
+    expect(draftingLobby?.matchId).toBe(lobby.id)
   })
 
-  test('getLobbyByChannel repairs a missing channel index from the canonical lobby record', async () => {
+  test('getLobbyByChannel reads D1 instead of KV projection indexes', async () => {
     const { kv } = createTrackedKv()
 
     const lobby = await createLobby(kv, {
@@ -703,152 +568,8 @@ describe('lobby service KV write behavior', () => {
     })
     await kv.delete(channelIndexKey('channel-1', lobby.id))
 
-    await expect(getLobbyByChannel(kv, 'channel-1')).resolves.toEqual(expect.objectContaining({
-      id: lobby.id,
-      channelId: 'channel-1',
-    }))
-    await expect(kv.get(channelIndexKey('channel-1', lobby.id))).resolves.toBe(String(lobby.revision))
+    await expect(getLobbyByChannel(kv, 'channel-1')).resolves.toEqual(expect.objectContaining({ id: lobby.id }))
+    await expect(kv.get(channelIndexKey('channel-1', lobby.id))).resolves.toBeNull()
   })
 
-  test('clearLobbyByMatch falls back to scanning lobbies when the match index is gone', async () => {
-    const { kv } = createTrackedKv()
-
-    const lobby = await createLobby(kv, {
-      mode: 'ffa',
-      hostId: 'host-1',
-      channelId: 'channel-1',
-      messageId: 'message-1',
-    })
-    await attachLobbyMatch(kv, lobby.id, 'match-1', lobby)
-    await kv.delete(matchKey('match-1'))
-
-    await clearLobbyByMatch(kv, 'match-1')
-
-    await expect(getLobbyById(kv, lobby.id)).resolves.toBeNull()
-    await expect(kv.get(hostKey('host-1'))).resolves.toBeNull()
-    await expect(kv.get(matchKey('match-1'))).resolves.toBeNull()
-  })
-
-  test('reopens a timed-out draft lobby without the failed picker', async () => {
-    const { kv } = createTrackedKv()
-    const createdAt = 1_700_000_000_000
-
-    const lobby = await createLobby(kv, {
-      mode: '2v2',
-      hostId: 'host',
-      channelId: 'channel-1',
-      messageId: 'message-1',
-    })
-    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'ally-a', 'ally-b', 'ally-c', 'spectator'], lobby)
-    const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'ally-a', 'ally-b', 'ally-c'], withMembers ?? lobby)
-    const draftingLobby = await attachLobbyMatch(kv, lobby.id, 'match-1', withSlots ?? withMembers ?? lobby)
-
-    expect(draftingLobby).not.toBeNull()
-
-    await storeLobbyDraftRoster(kv, lobby.id, [
-      {
-        playerId: 'host',
-        displayName: 'Host',
-        avatarUrl: null,
-        joinedAt: createdAt,
-        partyIds: ['ally-a'],
-      },
-      {
-        playerId: 'ally-a',
-        displayName: 'Ally A',
-        avatarUrl: null,
-        joinedAt: createdAt + 1,
-        partyIds: ['host'],
-      },
-      {
-        playerId: 'ally-b',
-        displayName: 'Ally B',
-        avatarUrl: null,
-        joinedAt: createdAt + 2,
-      },
-      {
-        playerId: 'ally-c',
-        displayName: 'Ally C',
-        avatarUrl: null,
-        joinedAt: createdAt + 3,
-      },
-      {
-        playerId: 'spectator',
-        displayName: 'Spec',
-        avatarUrl: null,
-        joinedAt: createdAt + 4,
-      },
-    ])
-
-    const timeoutState: DraftState = {
-      matchId: 'match-1',
-      formatId: 'default-2v2',
-      seats: [
-        { playerId: 'host', displayName: 'Host', avatarUrl: null, team: 0 },
-        { playerId: 'ally-b', displayName: 'Ally B', avatarUrl: null, team: 1 },
-        { playerId: 'ally-a', displayName: 'Ally A', avatarUrl: null, team: 0 },
-        { playerId: 'ally-c', displayName: 'Ally C', avatarUrl: null, team: 1 },
-      ],
-      steps: [
-        { action: 'ban', seats: [0, 1], count: 3, timer: 180 },
-        { action: 'pick', seats: [0], count: 1, timer: 180 },
-      ],
-      currentStepIndex: 1,
-      submissions: {},
-      bans: [],
-      picks: [],
-      availableCivIds: ['civ-1', 'civ-2'],
-      status: 'cancelled',
-      cancelReason: 'timeout',
-      pendingBlindBans: [],
-    }
-
-    const recovered = await reopenLobbyAfterTimedOutDraft(kv, draftingLobby!, timeoutState, {
-      draftRoster: await getLobbyDraftRoster(kv, lobby.id),
-      now: createdAt + 10,
-    })
-
-    expect(recovered).not.toBeNull()
-    expect(recovered?.timedOutPlayerIds).toEqual(['host'])
-    expect(recovered?.lobby.status).toBe('open')
-    expect(recovered?.lobby.matchId).toBeNull()
-    expect(recovered?.lobby.hostId).toBe('ally-a')
-    expect(recovered?.lobby.memberPlayerIds).toEqual(['ally-a', 'ally-b', 'ally-c', 'spectator'])
-    expect(recovered?.lobby.slots).toEqual([null, 'ally-a', 'ally-b', 'ally-c'])
-    expect(recovered?.queueEntries).toEqual([
-      {
-        playerId: 'ally-a',
-        displayName: 'Ally A',
-        avatarUrl: null,
-        joinedAt: createdAt + 1,
-        partyIds: undefined,
-      },
-      {
-        playerId: 'ally-b',
-        displayName: 'Ally B',
-        avatarUrl: null,
-        joinedAt: createdAt + 2,
-        partyIds: undefined,
-      },
-      {
-        playerId: 'ally-c',
-        displayName: 'Ally C',
-        avatarUrl: null,
-        joinedAt: createdAt + 3,
-        partyIds: undefined,
-      },
-      {
-        playerId: 'spectator',
-        displayName: 'Spec',
-        avatarUrl: null,
-        joinedAt: createdAt + 4,
-        partyIds: undefined,
-      },
-    ])
-
-    const stored = await getLobbyById(kv, lobby.id)
-    expect(stored?.status).toBe('open')
-    expect(stored?.hostId).toBe('ally-a')
-    expect(await kv.get(matchKey('match-1'))).toBeNull()
-  })
 })

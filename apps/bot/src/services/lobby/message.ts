@@ -1,5 +1,6 @@
 import type { LobbyState } from './types.ts'
 import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
+import type { LobbySessionProjectionOptions } from './mutations.ts'
 import { setLobbyMessage } from './mutations.ts'
 import { getLobbyById } from './store.ts'
 
@@ -35,6 +36,7 @@ export async function upsertLobbyMessage(
   token: string,
   lobby: LobbyState,
   payload: LobbyRenderPayload,
+  options?: LobbySessionProjectionOptions,
 ): Promise<LobbyState> {
   try {
     await editChannelMessage(token, lobby.channelId, lobby.messageId, {
@@ -54,7 +56,7 @@ export async function upsertLobbyMessage(
       allowed_mentions: { parse: [] },
     })
 
-    const updated = await setLobbyMessage(kv, lobby.id, lobby.channelId, created.id)
+    const updated = await setLobbyMessage(kv, lobby.id, lobby.channelId, created.id, options)
     return updated ?? {
       ...lobby,
       messageId: created.id,
@@ -69,6 +71,7 @@ export async function repostLobbyMessage(
   token: string,
   lobby: LobbyState,
   payload: LobbyRenderPayload,
+  options?: LobbySessionProjectionOptions,
 ): Promise<{ lobby: LobbyState, previousMessageId: string }> {
   const previousMessageId = lobby.messageId
   const created = await createChannelMessage(token, lobby.channelId, {
@@ -78,7 +81,7 @@ export async function repostLobbyMessage(
     allowed_mentions: { parse: [] },
   })
 
-  const updated = await setLobbyMessage(kv, lobby.id, lobby.channelId, created.id)
+  const updated = await setLobbyMessage(kv, lobby.id, lobby.channelId, created.id, options)
   return {
     previousMessageId,
     lobby: updated ?? {

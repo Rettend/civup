@@ -1,9 +1,9 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { findBlockingDraftMatchIdsForPlayers, findReportableMatchIdsForPlayers, joinLobbyAndMaybeStartMatch, preflightMatchCreateQueueState, resolveReportableMatchIdForPlayer } from '../../src/commands/match/shared.ts'
-import { attachLobbyMatch, createLobby, getLobbyById, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../../src/services/lobby/index.ts'
+import { findBlockingDraftMatchIdsForPlayers, findReportableMatchIdsForPlayers, joinLobbyAndMaybeStartMatch, preflightMatchCreateSessionState, resolveReportableMatchIdForPlayer } from '../../src/commands/match/shared.ts'
+import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../helpers/lobby-runtime.ts'
 import { hostKey } from '../../src/services/lobby/keys.ts'
-import { addToQueue } from '../../src/services/queue/index.ts'
+import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -44,10 +44,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     })) as typeof fetch
 
     const result = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
+      env: buildTestLobbyEnv(kv),
     }, '2v2', [{
       playerId: 'pleb',
       displayName: 'Pleb',
@@ -86,10 +83,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     })) as typeof fetch
 
     const result = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
+      env: buildTestLobbyEnv(kv),
     }, '2v2', [{
       playerId: 'pleb',
       displayName: 'Pleb',
@@ -133,10 +127,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     })) as typeof fetch
 
     const result = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
+      env: buildTestLobbyEnv(kv),
     }, '2v2', [{
       playerId: 'titan',
       displayName: 'Titan',
@@ -176,10 +167,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     })) as typeof fetch
 
     const result = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
+      env: buildTestLobbyEnv(kv),
     }, '2v2', [{
       playerId: 'titan',
       displayName: 'Titan',
@@ -215,10 +203,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch
 
     const result = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
+      env: buildTestLobbyEnv(kv),
     }, '2v2', [{
       playerId: 'pleb',
       displayName: 'Pleb',
@@ -231,7 +216,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     expect(result.lobby.memberPlayerIds).toContain('pleb')
   })
 
-  test('repairs stale member ids when a queued player is already slotted in the target lobby', async () => {
+  test('joins a queued player into the canonical roster despite old slot residue', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: '2v2',
@@ -258,10 +243,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch
 
     const result = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
+      env: buildTestLobbyEnv(kv),
     }, '2v2', [{
       playerId: 'player-1',
       displayName: 'Player 1',
@@ -277,7 +259,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(['host', 'player-1', null, null])
   })
 
-  test('keeps already slotted queued players when another player joins a lobby with stale member ids', async () => {
+  test('does not rebuild stale members from slotted queue residue', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: '2v2',
@@ -310,10 +292,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch
 
     const result = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
+      env: buildTestLobbyEnv(kv),
     }, '2v2', [{
       playerId: 'player-2',
       displayName: 'Player 2',
@@ -325,8 +304,8 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     expect('stage' in result).toBe(true)
     if (!('stage' in result)) return
     expect(result.lobby.id).toBe(lobby.id)
-    expect((await getLobbyById(kv, lobby.id))?.memberPlayerIds).toEqual(['host', 'player-1', 'player-2'])
-    expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(['host', 'player-1', 'player-2', null])
+    expect((await getLobbyById(kv, lobby.id))?.memberPlayerIds).toEqual(['host', 'player-2'])
+    expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(['host', 'player-2', null, null])
   })
 
   test('ignores orphan open lobbies and still joins when group constraints are gone', async () => {
@@ -367,10 +346,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     await setLobbySlots(kv, crowdedLobby.id, ['host', 'ally', 'enemy', null], populatedLobby ?? crowdedLobby)
 
     const result = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
+      env: buildTestLobbyEnv(kv),
     }, '2v2', [{
       playerId: 'player-1',
       displayName: 'Player 1',
@@ -386,66 +362,6 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     expect(result.lobby.id).toBe(crowdedLobby.id)
     expect(result.lobby.slots).toEqual(['host', 'ally', 'enemy', 'player-1'])
     expect(result.lobby.memberPlayerIds).toEqual(['host', 'ally', 'enemy', 'player-1', 'player-2'])
-  })
-
-  test('allows joins for draft-complete active matches but still blocks drafting matches', async () => {
-    const { kv } = createTrackedKv()
-    const draftingLobby = await createLobby(kv, {
-      mode: '2v2',
-      hostId: 'player-1',
-      channelId: 'channel-1',
-      messageId: 'message-live',
-    })
-    await createLobby(kv, {
-      mode: '2v2',
-      hostId: 'host',
-      channelId: 'channel-1',
-      messageId: 'message-open',
-    })
-
-    await addToQueue(kv, '2v2', {
-      playerId: 'player-1',
-      displayName: 'Player 1',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-    await addToQueue(kv, '2v2', {
-      playerId: 'host',
-      displayName: 'Host',
-      avatarUrl: null,
-      joinedAt: Date.now() + 1,
-    })
-    await attachLobbyMatch(kv, draftingLobby.id, 'match-1', draftingLobby)
-
-    const blocked = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
-    }, '2v2', [{
-      playerId: 'player-1',
-      displayName: 'Player 1',
-      avatarUrl: '',
-    }], {
-      liveMatchPlayerIds: new Set(['player-1']),
-    })
-
-    expect(blocked).toEqual({ error: '<@player-1> is already in a live match.' })
-
-    const allowed = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
-    }, '2v2', [{
-      playerId: 'player-1',
-      displayName: 'Player 1',
-      avatarUrl: '',
-    }], {
-      liveMatchPlayerIds: new Set(),
-    })
-
-    expect('stage' in allowed).toBe(true)
   })
 
   test('moves a player from another open lobby into the preferred lobby', async () => {
@@ -491,10 +407,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     })) as typeof fetch
 
     const result = await joinLobbyAndMaybeStartMatch({
-      env: {
-        KV: kv,
-        DISCORD_TOKEN: 'token',
-      },
+      env: buildTestLobbyEnv(kv),
     }, '2v2', [{
       playerId: 'pleb',
       displayName: 'Pleb',
@@ -511,32 +424,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
   })
 })
 
-describe('preflightMatchCreateQueueState', () => {
-  test('heals a queue-only orphan and allows create to continue', async () => {
-    const { kv } = createTrackedKv()
-
-    await addToQueue(kv, '2v2', {
-      playerId: 'host',
-      displayName: 'Host',
-      avatarUrl: null,
-      joinedAt: 1,
-      partyIds: ['ally'],
-    })
-    await addToQueue(kv, '2v2', {
-      playerId: 'ally',
-      displayName: 'Ally',
-      avatarUrl: null,
-      joinedAt: 2,
-      partyIds: ['host'],
-    })
-
-    const result = await preflightMatchCreateQueueState(kv, '2v2', 'host')
-
-    expect(result.kind).toBe('continue')
-    expect(result.queue.entries.map(entry => entry.playerId)).toEqual(['ally'])
-    expect(result.queue.entries[0]?.partyIds).toBeUndefined()
-  })
-
+describe('preflightMatchCreateSessionState', () => {
   test('keeps blocking real membership in another open lobby', async () => {
     const { kv } = createTrackedKv()
 
@@ -560,14 +448,14 @@ describe('preflightMatchCreateQueueState', () => {
     })
     await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'player-1'], lobby)
 
-    const result = await preflightMatchCreateQueueState(kv, 'ffa', 'player-1')
+    const result = await preflightMatchCreateSessionState(getExistingTestLobbyRuntime(kv).db, 'player-1')
 
     expect(result.kind).toBe('block-open-lobby')
     if (result.kind !== 'block-open-lobby') return
     expect(result.lobby.id).toBe(lobby.id)
   })
 
-  test('reuses a real hosted open lobby instead of treating it as a generic queue blocker', async () => {
+  test('reuses a real hosted open lobby instead of treating it as a generic membership blocker', async () => {
     const { kv } = createTrackedKv()
 
     await addToQueue(kv, 'ffa', {
@@ -584,28 +472,13 @@ describe('preflightMatchCreateQueueState', () => {
     })
     await kv.delete(hostKey('host'))
 
-    const result = await preflightMatchCreateQueueState(kv, 'ffa', 'host')
+    const result = await preflightMatchCreateSessionState(getExistingTestLobbyRuntime(kv).db, 'host')
 
     expect(result.kind).toBe('reuse-hosted-open-lobby')
     if (result.kind !== 'reuse-hosted-open-lobby') return
     expect(result.lobby.id).toBe(lobby.id)
   })
 
-  test('heals a cross-mode queue-only orphan and keeps the requested queue empty', async () => {
-    const { kv } = createTrackedKv()
-
-    await addToQueue(kv, '2v2', {
-      playerId: 'host',
-      displayName: 'Host',
-      avatarUrl: null,
-      joinedAt: 1,
-    })
-
-    const result = await preflightMatchCreateQueueState(kv, 'ffa', 'host')
-
-    expect(result.kind).toBe('continue')
-    expect(result.queue.entries).toEqual([])
-  })
 })
 
 describe('match blocker/reportable discovery', () => {

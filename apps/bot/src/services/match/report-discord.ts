@@ -20,6 +20,7 @@ interface SyncReportedMatchDiscordMessagesInput {
   reportedRedDeath: boolean
   participants: ParticipantRow[]
   lobby?: LobbyState | null
+  sessionNamespace?: DurableObjectNamespace | null
   rankedRoleLines?: string[]
   matchDraftData?: string | null
   reporter?: MatchReporterIdentity | null
@@ -35,6 +36,7 @@ export async function syncReportedMatchDiscordMessages({
   reportedRedDeath,
   participants,
   lobby = null,
+  sessionNamespace = null,
   rankedRoleLines = [],
   matchDraftData = null,
   reporter = null,
@@ -54,7 +56,7 @@ export async function syncReportedMatchDiscordMessages({
           reporter: resolvedReporter,
         }, lobby.draftConfig.redDeath)],
         components: [],
-      })
+      }, { db, sessionNamespace })
       await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
     }
     catch (error) {

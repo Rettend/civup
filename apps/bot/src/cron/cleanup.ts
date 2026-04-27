@@ -3,17 +3,17 @@ import { refreshDirtyLeaderboards } from '../services/leaderboard/message.ts'
 import { pruneInactiveOpenLobbies } from '../services/lobby/index.ts'
 import { pruneAbandonedMatches, sendOverdueHostReportReminders } from '../services/match/index.ts'
 import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, syncRankedRoles } from '../services/ranked/role-sync.ts'
-import { createStateStore } from '../services/state/store.ts'
+import { getKvStore } from '../services/kv/batch.ts'
 import { factory } from '../setup.ts'
 
 export const cron_cleanup = factory.cron(
   '0 * * * *', // every hour
   async (c) => {
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     const db = createDb(c.env.DB)
 
-    const removed = await pruneInactiveOpenLobbies(kv, c.env.DISCORD_TOKEN)
-    const prunedMatches = await pruneAbandonedMatches(db, kv)
+    const removed = await pruneInactiveOpenLobbies(kv, c.env.DISCORD_TOKEN, { db, sessionNamespace: c.env.SessionDO })
+    const prunedMatches = await pruneAbandonedMatches(db, kv, { sessionNamespace: c.env.SessionDO })
     const reminderResult = await sendOverdueHostReportReminders(db, kv, c.env.DISCORD_TOKEN)
 
     if (removed.length > 0) {
@@ -42,7 +42,7 @@ export const cron_leaderboards = factory.cron(
   '*/2 * * * *', // every 2 minutes
   async (c) => {
     const db = createDb(c.env.DB)
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
     try {
       const refreshed = await refreshDirtyLeaderboards(db, kv, c.env.DISCORD_TOKEN)
       if (refreshed) {
@@ -60,7 +60,7 @@ export const cron_ranked_roles = factory.cron(
   '0 0 * * *', // every day at 0:00 UTC
   async (c) => {
     const db = createDb(c.env.DB)
-    const kv = createStateStore(c.env)
+    const kv = getKvStore(c.env)
 
     try {
       const guildIds = await listRankedRoleConfigGuildIds(kv)

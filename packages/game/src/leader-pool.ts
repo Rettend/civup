@@ -1,6 +1,7 @@
 import type { GameMode } from './types.ts'
 import { allLeaderIds } from './leaders.ts'
 import { defaultPlayerCount } from './mode.ts'
+import type { RandomSource } from './random.ts'
 
 const VERSUS_DEFAULT_LEADER_POOL_BASE = 24
 const VERSUS_DEFAULT_LEADER_POOL_PER_PLAYER = 4
@@ -50,7 +51,7 @@ export function resolveLeaderPoolSize(
 /** Pick a random unique leader subset from the full roster. */
 export function sampleLeaderPool(
   leaderPoolSize: number,
-  random: () => number = Math.random,
+  random: RandomSource = Math.random,
 ): string[] {
   if (!Number.isInteger(leaderPoolSize) || leaderPoolSize <= 0 || leaderPoolSize > MAX_LEADER_POOL_SIZE) {
     throw new Error(`Leader pool size must be between 1 and ${MAX_LEADER_POOL_SIZE}.`)

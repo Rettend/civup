@@ -1,11 +1,12 @@
 import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
+import type { Database } from '@civup/db'
 import type { LobbyArrangeStrategy, LobbyDraftConfig, LobbyState, LobbyStatus } from './types.ts'
+import type { SessionRecord } from '../../session-runtime/session-record.ts'
 import { nanoid } from 'nanoid'
-import { syncActivityOverviewSnapshotForLobby } from '../activity/live-state.ts'
-import { getQueueState } from '../queue/index.ts'
-import { stateStoreMdelete } from '../state/store.ts'
-import { channelIndexKey, LOBBY_TTL } from './keys.ts'
-import { buildLobbyLiveSnapshotFromParts, lobbySnapshotKey } from './live-snapshot.ts'
+import { createSessionAggregateFromLobby, getSessionRecord, runSessionOpenLobbyCommand, runSessionProjectionCommand, type SessionOpenLobbyCommand } from '../../session-runtime/session-do-client.ts'
+import { buildLobbyProjectionFromSessionRecord, buildLobbyStateFromSessionRecord } from '../../session-runtime/session-record.ts'
+import { kvMdelete } from '../kv/batch.ts'
+import { channelIndexKey, modeIndexKey } from './keys.ts'
 import { createEmptySlots, DEFAULT_DRAFT_CONFIG, normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from './normalize.ts'
 import { getLobbyById, putLobby, putLobbyEntries } from './store.ts'
 
@@ -16,6 +17,14 @@ const LOBBY_STATUS_TRANSITIONS: Record<LobbyStatus, LobbyStatus[]> = {
   completed: [],
   cancelled: [],
   scrubbed: [],
+}
+
+type LobbySessionCommand = SessionOpenLobbyCommand | (() => Promise<SessionRecord>)
+
+export interface LobbySessionProjectionOptions {
+  db?: Database | null
+  sessionNamespace?: DurableObjectNamespace | null
+  queueEntries?: readonly QueueEntry[] | null
 }
 
 export function canTransitionLobbyStatus(from: LobbyStatus, to: LobbyStatus): boolean {
@@ -33,6 +42,8 @@ export async function createLobby(
     messageId: string
     steamLobbyLink?: string | null
     queueEntries?: QueueEntry[]
+    db?: Database | null
+    sessionNamespace?: DurableObjectNamespace | null
   },
 ): Promise<LobbyState> {
   const now = Date.now()
@@ -60,48 +71,27 @@ export async function createLobby(
     updatedAt: now,
     revision: 1,
   }
-  const queueEntries = input.queueEntries ?? (await getQueueState(kv, lobby.mode)).entries
-  const snapshot = await buildLobbyLiveSnapshotFromParts(kv, lobby.mode, lobby, queueEntries, slots)
-  await putLobbyEntries(kv, lobby, [{
-    key: lobbySnapshotKey(lobby.id),
-    value: JSON.stringify(snapshot),
-    expirationTtl: LOBBY_TTL,
-  }])
-  await syncActivityOverviewSnapshotForLobby(kv, lobby)
-  return lobby
+  const queueEntries = input.queueEntries ?? []
+  const record = await createSessionAggregateFromLobby(input.sessionNamespace, lobby, queueEntries)
+  const visibleLobby = buildLobbyStateFromSessionRecord(record, lobby)
+  if (!input.sessionNamespace) {
+    try {
+      await putLobbyEntries(kv, visibleLobby)
+    }
+    catch (error) {
+      console.error(`Failed to write legacy lobby projection cache for created session ${visibleLobby.id}:`, error)
+    }
+  }
+  return visibleLobby
 }
 
-export async function attachLobbyMatch(
+export async function commitLobbyState(
   kv: KVNamespace,
-  lobbyId: string,
-  matchId: string,
-  currentLobby?: LobbyState,
-): Promise<LobbyState | null> {
-  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
-  if (!lobby) return null
-
-  if (lobby.status === 'drafting' && lobby.matchId === matchId) return lobby
-  if (!canTransitionLobbyStatus(lobby.status, 'drafting')) {
-    console.warn('[lobby-transition] attachLobbyMatch rejected', {
-      lobbyId,
-      mode: lobby.mode,
-      matchId,
-      from: lobby.status,
-      to: 'drafting',
-      revision: lobby.revision,
-    })
-    return null
-  }
-
-  const updated: LobbyState = {
-    ...lobby,
-    status: 'drafting',
-    matchId,
-    updatedAt: Date.now(),
-    revision: lobby.revision + 1,
-  }
-  await putLobby(kv, updated)
-  return updated
+  lobby: LobbyState,
+  options?: LobbySessionProjectionOptions,
+): Promise<LobbyState> {
+  if (lobby.status === 'open') throw new Error(`Open lobby mutation for ${lobby.id} must use an explicit SessionDO command`)
+  return await commitLobbyMutation(kv, lobby, options, putLobby)
 }
 
 export async function setLobbyStatus(
@@ -109,8 +99,9 @@ export async function setLobbyStatus(
   lobbyId: string,
   status: LobbyStatus,
   currentLobby?: LobbyState,
+  options?: LobbySessionProjectionOptions,
 ): Promise<LobbyState | null> {
-  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
+  const lobby = await getMutationLobby(kv, lobbyId, currentLobby, options)
   if (!lobby) return null
 
   if (lobby.status === status) return lobby
@@ -132,8 +123,13 @@ export async function setLobbyStatus(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  await putLobby(kv, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open' && status === 'cancelled'
+    ? {
+        type: 'cancel-open-session',
+        expectedVersion: lobby.revision,
+        now: updated.updatedAt,
+      }
+    : undefined)
 }
 
 export async function setLobbyMessage(
@@ -141,8 +137,9 @@ export async function setLobbyMessage(
   lobbyId: string,
   channelId: string,
   messageId: string,
+  options?: LobbySessionProjectionOptions,
 ): Promise<LobbyState | null> {
-  const lobby = await getLobbyById(kv, lobbyId)
+  const lobby = await getMutationLobby(kv, lobbyId, undefined, options)
   if (!lobby) return null
 
   if (lobby.channelId === channelId && lobby.messageId === messageId) return lobby
@@ -154,11 +151,14 @@ export async function setLobbyMessage(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  if (lobby.channelId !== channelId) {
-    await stateStoreMdelete(kv, [channelIndexKey(lobby.channelId, lobby.id)])
+  if (lobby.channelId !== channelId && shouldWriteLegacyLobbyProjection(options)) {
+    await kvMdelete(kv, [channelIndexKey(lobby.channelId, lobby.id)])
   }
-  await putLobby(kv, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
+    ? { type: 'set-message', expectedVersion: lobby.revision, channelId, messageId, now: updated.updatedAt }
+    : options?.sessionNamespace
+      ? () => runSessionProjectionCommand(options.sessionNamespace, updated.id, { type: 'set-message', expectedVersion: lobby.revision, channelId, messageId, now: updated.updatedAt })
+      : undefined)
 }
 
 export async function setLobbyDraftConfig(
@@ -166,8 +166,9 @@ export async function setLobbyDraftConfig(
   lobbyId: string,
   draftConfig: LobbyDraftConfig,
   currentLobby?: LobbyState,
+  options?: LobbySessionProjectionOptions,
 ): Promise<LobbyState | null> {
-  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
+  const lobby = await getMutationLobby(kv, lobbyId, currentLobby, options)
   if (!lobby) return null
 
   const normalizedDraftConfig = normalizeDraftConfigForMode(lobby.mode, draftConfig, lobby.slots.length)
@@ -179,8 +180,9 @@ export async function setLobbyDraftConfig(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  await putLobby(kv, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
+    ? { type: 'set-draft-config', expectedVersion: lobby.revision, draftConfig: normalizedDraftConfig, now: updated.updatedAt }
+    : undefined)
 }
 
 export async function setLobbyMinRole(
@@ -188,8 +190,9 @@ export async function setLobbyMinRole(
   lobbyId: string,
   minRole: CompetitiveTier | null,
   currentLobby?: LobbyState,
+  options?: LobbySessionProjectionOptions,
 ): Promise<LobbyState | null> {
-  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
+  const lobby = await getMutationLobby(kv, lobbyId, currentLobby, options)
   if (!lobby) return null
 
   const normalizedMinRole = normalizeCompetitiveTier(minRole)
@@ -201,8 +204,9 @@ export async function setLobbyMinRole(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  await putLobby(kv, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
+    ? { type: 'set-min-role', expectedVersion: lobby.revision, minRole: normalizedMinRole, now: updated.updatedAt }
+    : undefined)
 }
 
 export async function setLobbyMaxRole(
@@ -210,8 +214,9 @@ export async function setLobbyMaxRole(
   lobbyId: string,
   maxRole: CompetitiveTier | null,
   currentLobby?: LobbyState,
+  options?: LobbySessionProjectionOptions,
 ): Promise<LobbyState | null> {
-  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
+  const lobby = await getMutationLobby(kv, lobbyId, currentLobby, options)
   if (!lobby) return null
 
   const normalizedMaxRole = normalizeCompetitiveTier(maxRole)
@@ -223,8 +228,9 @@ export async function setLobbyMaxRole(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  await putLobby(kv, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
+    ? { type: 'set-max-role', expectedVersion: lobby.revision, maxRole: normalizedMaxRole, now: updated.updatedAt }
+    : undefined)
 }
 
 export async function setLobbySteamLobbyLink(
@@ -232,8 +238,9 @@ export async function setLobbySteamLobbyLink(
   lobbyId: string,
   steamLobbyLink: string | null,
   currentLobby?: LobbyState,
+  options?: LobbySessionProjectionOptions,
 ): Promise<LobbyState | null> {
-  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
+  const lobby = await getMutationLobby(kv, lobbyId, currentLobby, options)
   if (!lobby) return null
 
   if (lobby.steamLobbyLink === steamLobbyLink) return lobby
@@ -244,8 +251,9 @@ export async function setLobbySteamLobbyLink(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  await putLobby(kv, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
+    ? { type: 'set-steam-lobby-link', expectedVersion: lobby.revision, steamLobbyLink, now: updated.updatedAt }
+    : () => runSessionProjectionCommand(options?.sessionNamespace, updated.id, { type: 'set-steam-lobby-link', expectedVersion: lobby.revision, steamLobbyLink, now: updated.updatedAt }))
 }
 
 export async function setLobbySlots(
@@ -253,8 +261,9 @@ export async function setLobbySlots(
   lobbyId: string,
   slots: (string | null)[],
   currentLobby?: LobbyState,
+  options?: LobbySessionProjectionOptions,
 ): Promise<LobbyState | null> {
-  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
+  const lobby = await getMutationLobby(kv, lobbyId, currentLobby, options)
   if (!lobby) return null
 
   const normalizedSlots = normalizeStoredSlots(lobby.mode, slots)
@@ -266,8 +275,9 @@ export async function setLobbySlots(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  await putLobby(kv, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
+    ? { type: 'set-slots', expectedVersion: lobby.revision, slots: normalizedSlots, queueEntries: options?.queueEntries ? [...options.queueEntries] : undefined, now: updated.updatedAt }
+    : undefined)
 }
 
 export async function setLobbyArranged(
@@ -279,8 +289,9 @@ export async function setLobbyArranged(
     at?: number
   },
   currentLobby?: LobbyState,
+  options?: LobbySessionProjectionOptions,
 ): Promise<LobbyState | null> {
-  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
+  const lobby = await getMutationLobby(kv, lobbyId, currentLobby, options)
   if (!lobby) return null
 
   const now = input.at == null ? Date.now() : Math.max(1, Math.round(input.at))
@@ -293,8 +304,112 @@ export async function setLobbyArranged(
     updatedAt: now,
     revision: lobby.revision + 1,
   }
-  await putLobby(kv, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
+    ? { type: 'arrange-roster', expectedVersion: lobby.revision, slots: normalizedSlots, strategy: input.strategy, at: now, queueEntries: options?.queueEntries ? [...options.queueEntries] : undefined }
+    : undefined)
+}
+
+export async function setLobbyRoster(
+  kv: KVNamespace,
+  lobbyId: string,
+  input: {
+    memberPlayerIds: string[]
+    slots: (string | null)[]
+    lastActivityAt?: number
+    now?: number
+  },
+  currentLobby?: LobbyState,
+  options?: LobbySessionProjectionOptions,
+): Promise<LobbyState | null> {
+  const lobby = await getMutationLobby(kv, lobbyId, currentLobby, options)
+  if (!lobby) return null
+
+  const normalizedMemberIds = normalizeMemberPlayerIds(input.memberPlayerIds)
+  const normalizedSlots = normalizeStoredSlots(lobby.mode, input.slots)
+  const lastActivityAt = input.lastActivityAt !== undefined ? normalizeTimestamp(input.lastActivityAt) : lobby.lastActivityAt
+  if (sameStringArray(lobby.memberPlayerIds, normalizedMemberIds) && sameStringArray(lobby.slots.map(value => value ?? ''), normalizedSlots.map(value => value ?? '')) && lobby.lastActivityAt === lastActivityAt) return lobby
+
+  const updatedAt = normalizeTimestamp(input.now ?? Date.now())
+  const updated: LobbyState = {
+    ...lobby,
+    memberPlayerIds: normalizedMemberIds,
+    slots: normalizedSlots,
+    lastActivityAt,
+    updatedAt,
+    revision: lobby.revision + 1,
+  }
+  return await commitLobbyMutation(kv, updated, options, putLobbyEntries, lobby.status === 'open'
+    ? {
+        type: 'set-roster',
+        expectedVersion: lobby.revision,
+        memberPlayerIds: normalizedMemberIds,
+        slots: normalizedSlots,
+        lastActivityAt,
+        now: updatedAt,
+        queueEntries: options?.queueEntries ? [...options.queueEntries] : undefined,
+      }
+    : undefined)
+}
+
+export async function setLobbyModeAndLayout(
+  kv: KVNamespace,
+  lobbyId: string,
+  input: {
+    mode: GameMode
+    draftConfig: LobbyDraftConfig
+    slots: (string | null)[]
+    minRole: CompetitiveTier | null
+    maxRole: CompetitiveTier | null
+    lastActivityAt?: number
+    now?: number
+  },
+  currentLobby?: LobbyState,
+  options?: LobbySessionProjectionOptions,
+): Promise<LobbyState | null> {
+  const lobby = await getMutationLobby(kv, lobbyId, currentLobby, options)
+  if (!lobby) return null
+
+  const normalizedSlots = normalizeStoredSlots(input.mode, input.slots)
+  const normalizedDraftConfig = normalizeDraftConfigForMode(input.mode, input.draftConfig, normalizedSlots.length)
+  const normalizedMinRole = normalizeCompetitiveTier(input.minRole)
+  const normalizedMaxRole = normalizeCompetitiveTier(input.maxRole)
+  const lastActivityAt = input.lastActivityAt !== undefined ? normalizeTimestamp(input.lastActivityAt) : lobby.lastActivityAt
+  const modeChanged = lobby.mode !== input.mode
+  const slotsChanged = !sameStringArray(lobby.slots.map(value => value ?? ''), normalizedSlots.map(value => value ?? ''))
+  const configChanged = !sameDraftConfig(lobby.draftConfig, normalizedDraftConfig)
+  const roleChanged = lobby.minRole !== normalizedMinRole || lobby.maxRole !== normalizedMaxRole
+  if (!modeChanged && !slotsChanged && !configChanged && !roleChanged && lobby.lastActivityAt === lastActivityAt) return lobby
+
+  const updatedAt = normalizeTimestamp(input.now ?? Date.now())
+  const updated: LobbyState = {
+    ...lobby,
+    mode: input.mode,
+    draftConfig: normalizedDraftConfig,
+    minRole: normalizedMinRole,
+    maxRole: normalizedMaxRole,
+    slots: normalizedSlots,
+    lastActivityAt,
+    updatedAt,
+    revision: lobby.revision + 1,
+  }
+  const writeWithModeIndexCleanup: LobbyWriter = async (targetKv, authoritative) => {
+    if (lobby.mode !== authoritative.mode) await kvMdelete(targetKv, [modeIndexKey(lobby.mode, lobby.id)])
+    await putLobby(targetKv, authoritative)
+  }
+  return await commitLobbyMutation(kv, updated, options, writeWithModeIndexCleanup, lobby.status === 'open'
+    ? {
+        type: 'change-mode',
+        expectedVersion: lobby.revision,
+        mode: input.mode,
+        draftConfig: normalizedDraftConfig,
+        slots: normalizedSlots,
+        minRole: normalizedMinRole,
+        maxRole: normalizedMaxRole,
+        lastActivityAt,
+        now: updatedAt,
+        queueEntries: options?.queueEntries ? [...options.queueEntries] : undefined,
+      }
+    : undefined)
 }
 
 export async function setLobbyMemberPlayerIds(
@@ -302,8 +417,9 @@ export async function setLobbyMemberPlayerIds(
   lobbyId: string,
   memberPlayerIds: string[],
   currentLobby?: LobbyState,
+  options?: LobbySessionProjectionOptions,
 ): Promise<LobbyState | null> {
-  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
+  const lobby = await getMutationLobby(kv, lobbyId, currentLobby, options)
   if (!lobby) return null
 
   const normalizedMemberIds = normalizeMemberPlayerIds(memberPlayerIds)
@@ -315,8 +431,9 @@ export async function setLobbyMemberPlayerIds(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  await putLobbyEntries(kv, updated)
-  return updated
+  return await commitLobbyMutation(kv, updated, options, putLobbyEntries, lobby.status === 'open'
+    ? { type: 'set-member-player-ids', expectedVersion: lobby.revision, memberPlayerIds: normalizedMemberIds, queueEntries: options?.queueEntries ? [...options.queueEntries] : undefined, now: updated.updatedAt }
+    : undefined)
 }
 
 export async function setLobbyLastActivityAt(
@@ -324,8 +441,9 @@ export async function setLobbyLastActivityAt(
   lobbyId: string,
   lastActivityAt: number,
   currentLobby?: LobbyState,
+  options?: LobbySessionProjectionOptions,
 ): Promise<LobbyState | null> {
-  const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
+  const lobby = await getMutationLobby(kv, lobbyId, currentLobby, options)
   if (!lobby) return null
 
   const normalizedLastActivityAt = Math.max(1, Math.round(lastActivityAt))
@@ -337,6 +455,59 @@ export async function setLobbyLastActivityAt(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  await putLobby(kv, updated)
+  return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
+    ? { type: 'set-last-activity-at', expectedVersion: lobby.revision, lastActivityAt: normalizedLastActivityAt, now: updated.updatedAt }
+    : undefined)
+}
+
+type LobbyWriter = (kv: KVNamespace, lobby: LobbyState) => Promise<void>
+
+async function getMutationLobby(
+  kv: KVNamespace,
+  lobbyId: string,
+  currentLobby?: LobbyState,
+  options?: LobbySessionProjectionOptions,
+): Promise<LobbyState | null> {
+  if (currentLobby?.id === lobbyId) return currentLobby
+
+  if (options?.sessionNamespace) {
+    const record = await getSessionRecord(options.sessionNamespace, lobbyId).catch(() => null)
+    if (record) return buildLobbyProjectionFromSessionRecord(record)
+  }
+
+  const legacyLobby = await getLobbyById(kv, lobbyId)
+  if (legacyLobby) return legacyLobby
+
+  return null
+}
+
+async function commitLobbyMutation(
+  kv: KVNamespace,
+  updated: LobbyState,
+  options?: LobbySessionProjectionOptions,
+  write: LobbyWriter = putLobby,
+  command?: LobbySessionCommand,
+): Promise<LobbyState> {
+  if (updated.status === 'open' && !command) throw new Error(`Open lobby mutation for ${updated.id} must go through SessionDO`)
+  const commandRecord = typeof command === 'function'
+    ? await command()
+    : command
+    ? await runSessionOpenLobbyCommand(options?.sessionNamespace, updated.id, command)
+    : null
+  if (commandRecord) {
+    const authoritative = buildLobbyStateFromSessionRecord(commandRecord, updated)
+    if (shouldWriteLegacyLobbyProjection(options)) await write(kv, authoritative)
+    return authoritative
+  }
+
+  if (shouldWriteLegacyLobbyProjection(options)) await write(kv, updated)
   return updated
+}
+
+function shouldWriteLegacyLobbyProjection(options?: LobbySessionProjectionOptions): boolean {
+  return !options?.sessionNamespace
+}
+
+function normalizeTimestamp(value: number): number {
+  return Math.max(1, Math.round(value))
 }

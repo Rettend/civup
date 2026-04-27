@@ -75,6 +75,10 @@ describe('draft match activation', () => {
         hostId: seats[0]?.playerId ?? 'p1',
       })
       if ('error' in activated) throw new Error(activated.error)
+      const bansBeforeSync = await db
+        .select()
+        .from(matchBans)
+        .where(eq(matchBans.matchId, matchId))
 
       const swappedPicks = swapSeatPicks(completedState, 0, 2)
       if ('error' in swappedPicks) throw new Error(swappedPicks.error)
@@ -100,8 +104,13 @@ describe('draft match activation', () => {
         .select()
         .from(matchParticipants)
         .where(eq(matchParticipants.matchId, matchId))
+      const bansAfterSync = await db
+        .select()
+        .from(matchBans)
+        .where(eq(matchBans.matchId, matchId))
       const civByPlayer = new Map(storedParticipants.map(participant => [participant.playerId, participant.civId]))
 
+      expect(bansAfterSync).toEqual(bansBeforeSync)
       expect(civByPlayer.get('p1')).toBe(completedState.picks.find(pick => pick.seatIndex === 2)?.civId ?? null)
       expect(civByPlayer.get('p3')).toBe(completedState.picks.find(pick => pick.seatIndex === 0)?.civId ?? null)
       expect(civByPlayer.get('p2')).toBe(completedState.picks.find(pick => pick.seatIndex === 1)?.civId ?? null)
@@ -127,6 +136,59 @@ describe('draft match activation', () => {
     expect(chunks).toHaveLength(2)
     expect(chunks[0]).toHaveLength(11)
     expect(chunks[1]).toHaveLength(1)
+  })
+
+  test('restarts a cancelled session match with the new draft roster', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      const matchId = 'match-draft-restart-cancelled'
+      await createDraftMatch(db, {
+        matchId,
+        mode: '1v1',
+        seats: [
+          { playerId: 'p1', displayName: 'P1' },
+          { playerId: 'p2', displayName: 'P2' },
+        ],
+      })
+      await db.update(matches).set({
+        status: 'cancelled',
+        completedAt: 1_700_000_000_000,
+        draftData: '{"old":true}',
+      }).where(eq(matches.id, matchId))
+      await db.update(matchParticipants).set({ civId: 'old-civ' }).where(eq(matchParticipants.matchId, matchId))
+      await db.insert(matchBans).values({
+        matchId,
+        civId: 'old-ban',
+        bannedBy: 'p1',
+        phase: 0,
+      })
+
+      await createDraftMatch(db, {
+        matchId,
+        mode: '1v1',
+        seats: [
+          { playerId: 'p2', displayName: 'P2' },
+          { playerId: 'p3', displayName: 'P3' },
+        ],
+      })
+
+      const [storedMatch] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
+      const storedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
+      const storedBans = await db.select().from(matchBans).where(eq(matchBans.matchId, matchId))
+
+      expect(storedMatch).toMatchObject({
+        status: 'drafting',
+        completedAt: null,
+        draftData: null,
+      })
+      expect(storedParticipants.map(participant => participant.playerId).sort()).toEqual(['p2', 'p3'])
+      expect(storedParticipants.every(participant => participant.civId == null)).toBe(true)
+      expect(storedBans).toEqual([])
+    }
+    finally {
+      sqlite.close()
+    }
   })
 
   test('creates a 6v6 draft match', async () => {

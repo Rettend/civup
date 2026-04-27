@@ -3,6 +3,8 @@ import { DEFAULT_MU, DEFAULT_SIGMA, displayRating } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
 import { recalculateLeaderboardMode, reportMatch } from '../../src/services/match/index.ts'
+import { getSessionRecord, runSessionDraftLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
+import { createLobby, getTestLobbyRuntime, setLobbyMemberPlayerIds, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
@@ -14,6 +16,8 @@ const INITIAL_SEED_MU = DEFAULT_MU + 10
 const SEED_STEP_MU = (INITIAL_SEED_MU - DEFAULT_MU) / 10
 
 describe('match seed fade', () => {
+  const directTerminalOptions = { allowDirectTerminalWriteForTests: true }
+
   test('recalculation removes one seed step after each new-bot game', async () => {
     const { db: decayDb, sqlite: decaySqlite } = await createTestDatabase()
     const { db: permanentDb, sqlite: permanentSqlite } = await createTestDatabase()
@@ -103,7 +107,7 @@ describe('match seed fade', () => {
         matchId: 'active-1',
         reporterId: HERO_ID,
         placements: `<@${HERO_ID}>`,
-      })
+      }, directTerminalOptions)
       const permanentResult = await recalculateLeaderboardMode(permanentDb, 'duel')
 
       expect('error' in decayResult).toBe(false)
@@ -160,7 +164,7 @@ describe('match seed fade', () => {
         createdAt: NOW,
         completedAt: null,
         seasonId: null,
-        draftData: null,
+        draftData: JSON.stringify({ completedAt: NOW }),
       })
       await db.insert(matchParticipants).values([
         { matchId: 'duo-active-1', playerId: HERO_ID, team: 0, civId: 'babylon-hammurabi', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
@@ -173,7 +177,7 @@ describe('match seed fade', () => {
         matchId: 'duo-active-1',
         reporterId: HERO_ID,
         placements: '<@p1>',
-      })
+      }, directTerminalOptions)
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -212,7 +216,7 @@ describe('match seed fade', () => {
         matchId: 'completed-broken',
         reporterId: HERO_ID,
         placements: `<@${HERO_ID}>`,
-      })
+      }, directTerminalOptions)
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -253,7 +257,7 @@ describe('match seed fade', () => {
         matchId: 'active-rollback',
         reporterId: HERO_ID,
         placements: `<@${HERO_ID}>`,
-      })
+      }, directTerminalOptions)
 
       expect('error' in result).toBe(true)
       if (!('error' in result)) return
@@ -279,6 +283,138 @@ describe('match seed fade', () => {
         && participant.ratingBeforeMu == null
         && participant.ratingAfterMu == null
       ))).toBe(true)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('seeded report rollback does not mark SessionDO reported', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedDuelPlayers(db)
+      await seedSeedRow(db, 10)
+      await seedCompletedDuel(db, { matchId: 'broken-old', completedAt: NOW - 10_000, isOld: false })
+
+      const lobby = await createLobby(kv, {
+        mode: '1v1',
+        hostId: HERO_ID,
+        channelId: 'channel-1',
+        messageId: 'message-1',
+        db,
+        queueEntries: [{ playerId: HERO_ID, displayName: HERO_ID, avatarUrl: null, joinedAt: NOW }],
+      })
+      const runtime = await getTestLobbyRuntime(kv, db)
+      const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, [HERO_ID, VILLAIN_ID], lobby, {
+        db,
+        sessionNamespace: runtime.sessionNamespace,
+        queueEntries: [
+          { playerId: HERO_ID, displayName: HERO_ID, avatarUrl: null, joinedAt: NOW },
+          { playerId: VILLAIN_ID, displayName: VILLAIN_ID, avatarUrl: null, joinedAt: NOW },
+        ],
+      })
+      const draftingLobby = await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, {
+        db,
+        sessionNamespace: runtime.sessionNamespace,
+      })
+      await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: NOW })
+      await db.update(matches).set({
+        status: 'active',
+        draftData: JSON.stringify({
+          completedAt: NOW,
+          state: {
+            seats: [
+              { playerId: HERO_ID, displayName: HERO_ID, avatarUrl: null, team: 0 },
+              { playerId: VILLAIN_ID, displayName: VILLAIN_ID, avatarUrl: null, team: 1 },
+            ],
+          },
+        }),
+      }).where(eq(matches.id, lobby.id))
+
+      const result = await reportMatch(db, kv, {
+        matchId: lobby.id,
+        reporterId: HERO_ID,
+        placements: `<@${HERO_ID}>`,
+      }, {
+        sessionNamespace: runtime.sessionNamespace,
+      })
+
+      expect('error' in result).toBe(true)
+      if (!('error' in result)) return
+      expect(result.error).toContain('missing rating snapshots')
+      expect((await getSessionRecord(runtime.sessionNamespace, lobby.id))?.phase).toBe('active')
+      expect((await db.select().from(matches).where(eq(matches.id, lobby.id)).limit(1))[0]?.status).toBe('active')
+      expect(draftingLobby?.id).toBe(lobby.id)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('seeded report terminal failure rolls back D1 when SessionDO remains active', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedDuelPlayers(db)
+      await seedSeedRow(db, 10)
+
+      const lobby = await createLobby(kv, {
+        mode: '1v1',
+        hostId: HERO_ID,
+        channelId: 'channel-1',
+        messageId: 'message-1',
+        db,
+        queueEntries: [{ playerId: HERO_ID, displayName: HERO_ID, avatarUrl: null, joinedAt: NOW }],
+      })
+      const runtime = await getTestLobbyRuntime(kv, db)
+      const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, [HERO_ID, VILLAIN_ID], lobby, {
+        db,
+        sessionNamespace: runtime.sessionNamespace,
+        queueEntries: [
+          { playerId: HERO_ID, displayName: HERO_ID, avatarUrl: null, joinedAt: NOW },
+          { playerId: VILLAIN_ID, displayName: VILLAIN_ID, avatarUrl: null, joinedAt: NOW },
+        ],
+      })
+      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, {
+        db,
+        sessionNamespace: runtime.sessionNamespace,
+      })
+      await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: NOW })
+      await db.update(matches).set({
+        status: 'active',
+        draftData: JSON.stringify({
+          completedAt: NOW,
+          state: {
+            seats: [
+              { playerId: HERO_ID, displayName: HERO_ID, avatarUrl: null, team: 0 },
+              { playerId: VILLAIN_ID, displayName: VILLAIN_ID, avatarUrl: null, team: 1 },
+            ],
+          },
+        }),
+      }).where(eq(matches.id, lobby.id))
+
+      const result = await reportMatch(db, kv, {
+        matchId: lobby.id,
+        reporterId: HERO_ID,
+        placements: `<@${HERO_ID}>`,
+      }, {
+        sessionNamespace: failTerminalLifecycleForSession(runtime.sessionNamespace, lobby.id),
+      })
+
+      expect('error' in result).toBe(true)
+      if (!('error' in result)) return
+      expect(result.error).toContain('terminal lifecycle failed')
+      expect((await getSessionRecord(runtime.sessionNamespace, lobby.id))?.phase).toBe('active')
+
+      const [rolledBackMatch] = await db.select().from(matches).where(eq(matches.id, lobby.id)).limit(1)
+      expect(rolledBackMatch?.status).toBe('active')
+      expect(rolledBackMatch?.completedAt).toBeNull()
+
+      const rolledBackParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, lobby.id))
+      expect(rolledBackParticipants.every(participant => participant.placement == null && participant.ratingBeforeMu == null && participant.ratingAfterMu == null)).toBe(true)
     }
     finally {
       sqlite.close()
@@ -349,6 +485,29 @@ async function seedDuelPlayers(db: Awaited<ReturnType<typeof createTestDatabase>
   ]).onConflictDoNothing()
 }
 
+function failTerminalLifecycleForSession(namespace: DurableObjectNamespace, sessionId: string): DurableObjectNamespace {
+  return {
+    idFromName(name: string) {
+      return namespace.idFromName(name)
+    },
+    get(id: DurableObjectId) {
+      const stub = namespace.get(id)
+      return {
+        fetch(input: RequestInfo | URL, init?: RequestInit) {
+          const request = input instanceof Request ? input : new Request(input, init)
+          if (String(id) === sessionId && new URL(request.url).pathname === '/commands/session-lifecycle') {
+            return Promise.resolve(new Response(JSON.stringify({ error: 'terminal lifecycle failed' }), {
+              status: 503,
+              headers: { 'Content-Type': 'application/json' },
+            }))
+          }
+          return stub.fetch(request)
+        },
+      } as DurableObjectStub
+    },
+  } as unknown as DurableObjectNamespace
+}
+
 async function seedSeedRow(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   fadeGamesRemaining: number | null,
@@ -400,7 +559,7 @@ async function seedActiveDuel(
     createdAt,
     completedAt: null,
     seasonId: null,
-    draftData: null,
+    draftData: JSON.stringify({ completedAt: createdAt }),
   })
   await db.insert(matchParticipants).values([
     { matchId, playerId: HERO_ID, team: 0, civId: 'babylon-hammurabi', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },

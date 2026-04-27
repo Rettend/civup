@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import { getLobbyForUser, getUserActivityTarget, storeUserLobbyState } from '../../src/services/activity/index.ts'
-import { createLobby, getLobbyById, setLobbyMemberPlayerIds, setLobbySlots } from '../../src/services/lobby/index.ts'
+import { getLobbyForUser } from '../../src/services/activity/index.ts'
+import { createLobby, getLobbyById, getTestLobbyRuntime, setLobbyMemberPlayerIds, setLobbySlots } from '../helpers/lobby-runtime.ts'
 import { leaveOpenLobbyForLobbyJoin } from '../../src/services/lobby/transfer.ts'
-import { addToQueue } from '../../src/services/queue/index.ts'
+import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 describe('lobby transfer', () => {
-  test('leaving a source lobby does not clear a newer channel target', async () => {
+  test('leaving a source lobby removes canonical membership without touching another lobby', async () => {
     const { kv } = createTrackedKv()
 
     const sourceLobby = await createLobby(kv, {
@@ -15,7 +15,7 @@ describe('lobby transfer', () => {
       channelId: 'channel-1',
       messageId: 'message-source',
     })
-    const targetLobby = await createLobby(kv, {
+    await createLobby(kv, {
       mode: '2v2',
       hostId: 'host-2',
       channelId: 'channel-1',
@@ -38,15 +38,14 @@ describe('lobby transfer', () => {
     const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['host-1', 'player-1'], sourceLobby)
     await setLobbySlots(kv, sourceLobby.id, ['host-1', 'player-1', null, null], populatedSource ?? sourceLobby)
 
-    await storeUserLobbyState(kv, 'channel-1', ['player-1'], sourceLobby.id)
-    await storeUserLobbyState(kv, 'channel-1', ['player-1'], targetLobby.id, { pendingJoin: true })
-
+    const runtime = await getTestLobbyRuntime(kv)
     const result = await leaveOpenLobbyForLobbyJoin(
       kv,
       undefined,
       (await getLobbyById(kv, sourceLobby.id))!,
       ['player-1'],
       '2v2',
+      { db: runtime.db, sessionNamespace: runtime.sessionNamespace },
     )
 
     expect(result).toEqual({
@@ -56,12 +55,45 @@ describe('lobby transfer', () => {
         mode: '2v2',
       },
     })
-    expect(await getLobbyForUser(kv, 'player-1')).toBeNull()
-    await expect(getUserActivityTarget(kv, 'channel-1', 'player-1')).resolves.toEqual({
-      kind: 'lobby',
-      id: targetLobby.id,
-      pendingJoin: true,
-      selectedAt: expect.any(Number),
+    expect(await getLobbyForUser(runtime.db, 'player-1')).toBeNull()
+  })
+
+  test('one-player source transfers cancel the source through the canonical session', async () => {
+    const { kv } = createTrackedKv()
+    const sourceLobby = await createLobby(kv, {
+      mode: '1v1',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-source',
+      queueEntries: [{ playerId: 'host-1', displayName: 'Host 1', avatarUrl: null, joinedAt: 1 }],
     })
+    await createLobby(kv, {
+      mode: '1v1',
+      hostId: 'host-2',
+      channelId: 'channel-1',
+      messageId: 'message-target',
+      queueEntries: [{ playerId: 'host-2', displayName: 'Host 2', avatarUrl: null, joinedAt: 1 }],
+    })
+    const runtime = await getTestLobbyRuntime(kv)
+
+    const result = await leaveOpenLobbyForLobbyJoin(
+      kv,
+      undefined,
+      (await getLobbyById(kv, sourceLobby.id))!,
+      ['host-1'],
+      '1v1',
+      { db: runtime.db, sessionNamespace: runtime.sessionNamespace },
+    )
+
+    expect(result).toEqual({
+      ok: true,
+      transferredFrom: {
+        lobbyId: sourceLobby.id,
+        mode: '1v1',
+      },
+    })
+    expect('deferredSource' in result && result.deferredSource).toBe(false)
+    expect(await getLobbyForUser(runtime.db, 'host-1')).toBeNull()
+    expect((await getLobbyById(kv, sourceLobby.id))?.status).toBe('cancelled')
   })
 })

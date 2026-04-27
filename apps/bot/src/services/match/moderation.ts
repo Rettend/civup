@@ -3,13 +3,17 @@ import type { LeaderboardMode } from '@civup/game'
 import type { CancelMatchInput, CancelMatchResult, MatchRow, ParticipantRow, ResolveMatchInput, ResolveMatchResult } from './types.ts'
 import { matchBans, matches, matchParticipants } from '@civup/db'
 import { and, eq } from 'drizzle-orm'
-import { clearActivityMappings, getChannelForMatch } from '../activity/index.ts'
+import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
-import { clearLobbyByMatch } from '../lobby/index.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
 import { parseModerationPlacements } from './placements.ts'
 import { recalculateLeaderboardMode } from './ratings.ts'
+
+interface MatchSessionLifecycleOptions {
+  sessionNamespace?: DurableObjectNamespace | null
+  allowDirectTerminalWriteForTests?: boolean
+}
 
 type BatchItem = Parameters<Database['batch']>[0][number]
 interface MatchBanRow {
@@ -27,6 +31,7 @@ export async function resolveMatchByModerator(
   db: Database,
   kv: KVNamespace,
   input: ResolveMatchInput,
+  options: MatchSessionLifecycleOptions = {},
 ): Promise<ResolveMatchResult> {
   const [match] = await db
     .select()
@@ -49,11 +54,15 @@ export async function resolveMatchByModerator(
   const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
   if (!gameContext) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
 
+  const previousStatus = match.status
+
+  const sessionValidationError = await validateReportableSession(options, input.matchId)
+  if (sessionValidationError) return { error: sessionValidationError }
+
   const parsedPlacements = parseModerationPlacements(gameContext.mode, input.placements, participants)
   if ('error' in parsedPlacements) return parsedPlacements
 
   const leaderboardMode = gameContext.leaderboardMode
-  const previousStatus = match.status
   const originalBans = await db
     .select()
     .from(matchBans)
@@ -77,21 +86,21 @@ export async function resolveMatchByModerator(
     )
   }
 
-  applyQueries.push(
-    db
-      .update(matches)
-      .set({ status: 'completed', completedAt: match.completedAt ?? input.resolvedAt })
-      .where(eq(matches.id, input.matchId)),
-    db.delete(matchBans).where(eq(matchBans.matchId, input.matchId)),
-  )
-
   let recalculatedMatchIds: string[] = []
   if (leaderboardMode == null) {
     await runBatch(db, applyQueries)
+    const lifecycleError = await runTerminalSessionCommand(db, options, input.matchId, { type: 'mark-reported', at: input.resolvedAt })
+    if (lifecycleError) {
+      const rollbackError = await rollbackParticipantRowsAfterLifecycleFailure(db, options, input.matchId, participants)
+      if (rollbackError) return { error: `${lifecycleError} Automatic rollback also failed: ${rollbackError}` }
+      return { error: lifecycleError }
+    }
   }
   else {
     try {
       await runBatch(db, applyQueries)
+      const prepareError = await prepareReportedMatchForRecalculation(db, input.matchId, input.resolvedAt)
+      if (prepareError) return { error: prepareError }
 
       const recalculated = await recalculateLeaderboardMode(db, leaderboardMode, {
         fromMatchId: input.matchId,
@@ -110,6 +119,19 @@ export async function resolveMatchByModerator(
       }
 
       recalculatedMatchIds = recalculated.matchIds
+
+      const lifecycleError = await runTerminalSessionCommand(db, options, input.matchId, { type: 'mark-reported', at: input.resolvedAt })
+      if (lifecycleError) {
+        const rollbackError = await rollbackResolvedMatchAfterLifecycleFailure(db, kv, options, {
+          input,
+          match,
+          participants,
+          bans: originalBans,
+          leaderboardMode,
+        })
+        if (rollbackError) return { error: `${lifecycleError} Automatic rollback also failed: ${rollbackError}` }
+        return { error: lifecycleError }
+      }
     }
     catch (error) {
       const rollbackError = await rollbackResolvedMatchModeration(db, kv, {
@@ -138,17 +160,6 @@ export async function resolveMatchByModerator(
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, input.matchId))
 
-  if (previousStatus !== 'completed') {
-    const channelId = await getChannelForMatch(kv, input.matchId)
-    await clearActivityMappings(
-      kv,
-      input.matchId,
-      participants.map(participant => participant.playerId),
-      channelId ?? undefined,
-    )
-    await clearLobbyByMatch(kv, input.matchId)
-  }
-
   return {
     match: updatedMatch,
     participants: updatedParticipants,
@@ -171,7 +182,13 @@ async function rollbackResolvedMatchModeration(
   try {
     const rollbackQueries: BatchItem[] = options.participants.map(participant => db
       .update(matchParticipants)
-      .set({ placement: participant.placement })
+      .set({
+        placement: participant.placement,
+        ratingBeforeMu: participant.ratingBeforeMu,
+        ratingBeforeSigma: participant.ratingBeforeSigma,
+        ratingAfterMu: participant.ratingAfterMu,
+        ratingAfterSigma: participant.ratingAfterSigma,
+      })
       .where(
         and(
           eq(matchParticipants.matchId, options.input.matchId),
@@ -211,6 +228,56 @@ async function rollbackResolvedMatchModeration(
   }
 }
 
+async function rollbackResolvedMatchAfterLifecycleFailure(
+  db: Database,
+  kv: KVNamespace,
+  options: MatchSessionLifecycleOptions,
+  rollbackOptions: Parameters<typeof rollbackResolvedMatchModeration>[2],
+): Promise<string | null> {
+  if (!await shouldRollbackPreparedReportedMatch(options, rollbackOptions.input.matchId)) return null
+  return await rollbackResolvedMatchModeration(db, kv, rollbackOptions)
+}
+
+async function rollbackParticipantRowsAfterLifecycleFailure(
+  db: Database,
+  options: MatchSessionLifecycleOptions,
+  matchId: string,
+  participants: ParticipantRow[],
+): Promise<string | null> {
+  if (!await shouldRollbackPreparedReportedMatch(options, matchId)) return null
+  try {
+    await runBatch(db, participants.map(participant => db
+      .update(matchParticipants)
+      .set({
+        placement: participant.placement,
+        ratingBeforeMu: participant.ratingBeforeMu,
+        ratingBeforeSigma: participant.ratingBeforeSigma,
+        ratingAfterMu: participant.ratingAfterMu,
+        ratingAfterSigma: participant.ratingAfterSigma,
+      })
+      .where(and(
+        eq(matchParticipants.matchId, matchId),
+        eq(matchParticipants.playerId, participant.playerId),
+      ))))
+    return null
+  }
+  catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+
+async function shouldRollbackPreparedReportedMatch(options: MatchSessionLifecycleOptions, matchId: string): Promise<boolean> {
+  if (!options.sessionNamespace) return false
+  try {
+    const record = await getSessionRecord(options.sessionNamespace, matchId)
+    if (!record) return false
+    return record.phase === 'active' || record.phase === 'swap'
+  }
+  catch {
+    return false
+  }
+}
+
 async function runBatch(db: Database, queries: BatchItem[]): Promise<void> {
   if (queries.length === 0) return
 
@@ -225,10 +292,54 @@ async function runBatch(db: Database, queries: BatchItem[]): Promise<void> {
   }
 }
 
+async function prepareReportedMatchForRecalculation(
+  db: Database,
+  matchId: string,
+  reportedAt: number,
+): Promise<string | null> {
+  try {
+    const [match] = await db
+      .select({ completedAt: matches.completedAt })
+      .from(matches)
+      .where(eq(matches.id, matchId))
+      .limit(1)
+    await db.update(matches)
+      .set({ status: 'completed', completedAt: match?.completedAt ?? reportedAt })
+      .where(eq(matches.id, matchId))
+    await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
+    return null
+  }
+  catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+
+async function validateReportableSession(
+  options: MatchSessionLifecycleOptions,
+  matchId: string,
+): Promise<string | null> {
+  const { sessionNamespace } = options
+  if (!sessionNamespace) {
+    return options.allowDirectTerminalWriteForTests ? null : 'SessionDO binding is required to validate match lifecycle.'
+  }
+  try {
+    const record = await getSessionRecord(sessionNamespace, matchId)
+    if (!record) return `Session **${matchId}** not found.`
+    if (record.phase === 'reported') return null
+    if (record.phase === 'cancelled') return 'Cancelled sessions cannot be reported'
+    if (record.phase !== 'active' && record.phase !== 'swap') return `Session is not reportable (phase: ${record.phase})`
+    return null
+  }
+  catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+
 export async function cancelMatchByModerator(
   db: Database,
   kv: KVNamespace,
   input: CancelMatchInput,
+  options: MatchSessionLifecycleOptions = {},
 ): Promise<CancelMatchResult> {
   const [match] = await db
     .select()
@@ -246,6 +357,15 @@ export async function cancelMatchByModerator(
   if (participants.length === 0) return { error: `Match **${input.matchId}** has no participants.` }
 
   const previousStatus = match.status
+  let completedLeaderboardMode: LeaderboardMode | null = null
+  if (previousStatus === 'completed') {
+    const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
+    if (!gameContext) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
+    completedLeaderboardMode = gameContext.leaderboardMode
+  }
+
+  const lifecycleError = await runTerminalSessionCommand(db, options, input.matchId, { type: 'cancel-session', at: input.cancelledAt })
+  if (lifecycleError) return { error: lifecycleError }
 
   await db
     .update(matchParticipants)
@@ -258,43 +378,18 @@ export async function cancelMatchByModerator(
     })
     .where(eq(matchParticipants.matchId, input.matchId))
 
-  await db
-    .update(matches)
-    .set({
-      status: 'cancelled',
-      completedAt: match.completedAt ?? input.cancelledAt,
-    })
-    .where(eq(matches.id, input.matchId))
-
-  await db.delete(matchBans).where(eq(matchBans.matchId, input.matchId))
-
-  const channelId = await getChannelForMatch(kv, input.matchId)
-  await clearActivityMappings(
-    kv,
-    input.matchId,
-    participants.map(participant => participant.playerId),
-    channelId ?? undefined,
-  )
-  await clearLobbyByMatch(kv, input.matchId)
-
   let recalculatedMatchIds: string[] = []
-  if (previousStatus === 'completed') {
-    const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
-    if (!gameContext) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
-
-    const leaderboardMode = gameContext.leaderboardMode
-    if (leaderboardMode != null) {
-      const recalculated = await recalculateLeaderboardMode(db, leaderboardMode, {
-        fromMatchId: input.matchId,
-        includeFromMatch: false,
-      })
-      if ('error' in recalculated) return recalculated
-      await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode)
-      if (leaderboardMode === 'duo' || leaderboardMode === 'squad') {
-        await clearTeamLeaderboardModeSnapshots(kv, leaderboardMode)
-      }
-      recalculatedMatchIds = recalculated.matchIds
+  if (completedLeaderboardMode != null) {
+    const recalculated = await recalculateLeaderboardMode(db, completedLeaderboardMode, {
+      fromMatchId: input.matchId,
+      includeFromMatch: false,
+    })
+    if ('error' in recalculated) return recalculated
+    await rebuildLeaderboardModeSnapshot(db, kv, completedLeaderboardMode)
+    if (completedLeaderboardMode === 'duo' || completedLeaderboardMode === 'squad') {
+      await clearTeamLeaderboardModeSnapshots(kv, completedLeaderboardMode)
     }
+    recalculatedMatchIds = recalculated.matchIds
   }
 
   const [updatedMatch] = await db
@@ -314,4 +409,49 @@ export async function cancelMatchByModerator(
     previousStatus,
     recalculatedMatchIds,
   }
+}
+
+async function runTerminalSessionCommand(
+  db: Database,
+  options: MatchSessionLifecycleOptions,
+  matchId: string,
+  command: { type: 'mark-reported' | 'cancel-session', at: number },
+): Promise<string | null> {
+  const { sessionNamespace } = options
+  if (sessionNamespace) {
+    try {
+      await runSessionTerminalLifecycleCommand(sessionNamespace, matchId, { ...command, matchId })
+      return null
+    }
+    catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  if (!options.allowDirectTerminalWriteForTests) {
+    return 'SessionDO binding is required to update terminal match state.'
+  }
+
+  if (command.type === 'mark-reported') {
+    const [match] = await db
+      .select({ completedAt: matches.completedAt })
+      .from(matches)
+      .where(eq(matches.id, matchId))
+      .limit(1)
+    await db.update(matches)
+      .set({ status: 'completed', completedAt: match?.completedAt ?? command.at })
+      .where(eq(matches.id, matchId))
+  }
+  else {
+    const [match] = await db
+      .select({ completedAt: matches.completedAt })
+      .from(matches)
+      .where(eq(matches.id, matchId))
+      .limit(1)
+    await db.update(matches)
+      .set({ status: 'cancelled', completedAt: match?.completedAt ?? command.at })
+      .where(eq(matches.id, matchId))
+  }
+  await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
+  return null
 }

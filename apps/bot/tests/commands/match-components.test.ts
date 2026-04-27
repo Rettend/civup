@@ -1,14 +1,12 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { resolveJoinButtonLiveMatchId } from '../../src/commands/match/components.ts'
-import { storeUserMatchMappings } from '../../src/services/activity/index.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
-import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
+import { createTestDatabase } from '../helpers/test-env.ts'
 
 describe('resolveJoinButtonLiveMatchId', () => {
-  test('prefers the clicked message match over a user-global fallback', async () => {
+  test('resolves the clicked message match', async () => {
     const { db, sqlite } = await createTestDatabase()
-    const kv = createTestKv()
 
     try {
       await db.insert(players).values([{ id: 'p1', displayName: 'Player 1', avatarUrl: null, createdAt: 1 }])
@@ -21,9 +19,8 @@ describe('resolveJoinButtonLiveMatchId', () => {
         { matchId: 'match-from-user-map', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
       ])
       await storeMatchMessageMapping(db, 'message-1', 'match-from-message')
-      await storeUserMatchMappings(kv, ['p1'], 'match-from-user-map')
 
-      await expect(resolveJoinButtonLiveMatchId(kv, createTestD1Adapter(db), 'p1', 'message-1', db)).resolves.toBe('match-from-message')
+      await expect(resolveJoinButtonLiveMatchId(createTestD1Adapter(db), 'p1', 'message-1', db)).resolves.toBe('match-from-message')
     }
     finally {
       sqlite.close()
