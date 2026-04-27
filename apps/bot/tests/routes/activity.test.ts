@@ -130,7 +130,7 @@ describe('activity lobby join eligibility', () => {
     })
   })
 
-  test('blocks joining when the only other lobby is draft-complete active', async () => {
+  test('blocks joining when the active match is not yet reportable', async () => {
     const { kv } = createTrackedKv()
     const liveLobby = await createLobby(kv, {
       mode: '2v2',

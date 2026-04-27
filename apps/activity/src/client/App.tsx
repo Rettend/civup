@@ -932,7 +932,7 @@ function resolveLiveJoinEligibility(
     }
   }
 
-  if (options.some(option => option.kind === 'match' && option.id !== selectedOption.id && (option.isHost || option.isMember))) {
+  if (options.some(option => option.kind === 'match' && option.status === 'drafting' && option.id !== selectedOption.id && (option.isHost || option.isMember))) {
     return {
       canJoin: false,
       blockedReason: 'You are already in a live match.',
