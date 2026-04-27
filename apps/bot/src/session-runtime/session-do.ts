@@ -701,6 +701,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         timerConfig,
         leaderPoolSize: record.config.leaderPoolSize,
         dealOptionsSize: record.config.dealOptionsSize,
+        steamLobbyLink: record.projectionState.steamLobbyLink,
       })
       const initialized = await this.initializeDraftRuntime(runtime.config, { existing: existingRoom })
       room = { matchId: initialized.state.matchId, seats: initialized.config.seats }
@@ -1227,6 +1228,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         } satisfies SessionRecord
         const commit = await this.commitRecord(record)
         if (commit) return commit
+        await this.syncDraftRuntimeProjectionState(record)
         return json({ ok: true, record })
       }
       case 'set-steam-lobby-link': {
@@ -1506,6 +1508,11 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     catch (error) {
       console.warn('[session-do] failed to publish activity update', error)
     }
+  }
+
+  private async syncDraftRuntimeProjectionState(record: SessionRecord): Promise<void> {
+    if (record.phase !== 'draft' && record.phase !== 'swap') return
+    await this.syncDraftRuntimeSteamLobbyLink(record.projectionState.steamLobbyLink)
   }
 
   private async broadcastSelectedSessionUpdate(record: SessionRecord): Promise<void> {

@@ -2,6 +2,7 @@ import type { DraftSeat, DraftState } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { matchBans, matchParticipants, matches, sessionDirectory } from '@civup/db'
 import { allLeaderIds } from '@civup/game'
+import { createSessionAccessToken } from '@civup/utils'
 import { eq } from 'drizzle-orm'
 import { DEFAULT_DRAFT_CONFIG } from '../../src/services/lobby/normalize.ts'
 import { SessionDO } from '../../src/session-runtime/session-do.ts'
@@ -241,6 +242,69 @@ describe('SessionDO open session commands', () => {
     finally {
       sqlite.close()
     }
+  })
+
+  test('projects Steam lobby link changes into draft and swap runtime snapshots', async () => {
+    const { sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      CIVUP_SECRET: 'secret',
+      DB: createSqliteD1Database(sqlite),
+      KV: kv,
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+    const accessToken = await createSessionAccessToken('secret', {
+      userId: 'p1',
+      sessionId: openLobby.id,
+      channelId: openLobby.channelId,
+    })
+
+    await room.fetch(sessionRequest('/commands/create-from-lobby', {
+      method: 'POST',
+      body: JSON.stringify({
+        lobby: openLobby,
+        queueEntries: [
+          { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+          { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+        ],
+      }),
+    }))
+    await room.fetch(sessionRequest('/commands/start-draft', {
+      method: 'POST',
+      body: JSON.stringify({ hostId: 'p1', now: 2 }),
+    }))
+
+    const draftLink = 'steam://joinlobby/289070/12345678901234567/76561198000000000'
+    const draftProjectionResponse = await room.fetch(sessionRequest('/commands/session-projection', {
+      method: 'POST',
+      body: JSON.stringify({ type: 'set-steam-lobby-link', steamLobbyLink: draftLink, now: 3 }),
+    }))
+    expect(draftProjectionResponse.status).toBe(200)
+
+    let statusResponse = await room.fetch(draftStatusRequest(accessToken))
+    expect(statusResponse.status).toBe(200)
+    expect((await statusResponse.json() as any).steamLobbyLink).toBe(draftLink)
+
+    await room.fetch(sessionRequest('/commands/draft-lifecycle', {
+      method: 'POST',
+      body: JSON.stringify({ type: 'draft-completed', opensSwapWindow: true, at: 4 }),
+    }))
+    const swapLink = 'steam://joinlobby/289070/22345678901234567/76561198000000001'
+    const swapProjectionResponse = await room.fetch(sessionRequest('/commands/session-projection', {
+      method: 'POST',
+      body: JSON.stringify({ type: 'set-steam-lobby-link', steamLobbyLink: swapLink, now: 5 }),
+    }))
+    expect(swapProjectionResponse.status).toBe(200)
+
+    statusResponse = await room.fetch(draftStatusRequest(accessToken))
+    expect(statusResponse.status).toBe(200)
+    const statusBody = await statusResponse.json() as any
+    expect(statusBody.state.status).toBe('complete')
+    expect(statusBody.swapState).not.toBeNull()
+    expect(statusBody.steamLobbyLink).toBe(swapLink)
   })
 
   test('draft start and lifecycle sync continue without KV binding', async () => {
@@ -1055,6 +1119,15 @@ function sessionRequest(pathname: string, init?: RequestInit): Request {
   headers.set('x-partykit-room', 'session-1')
   headers.set('x-partykit-namespace', 'session')
   return new Request(`https://session.local${pathname}`, { ...init, headers })
+}
+
+function draftStatusRequest(accessToken: string): Request {
+  return sessionRequest(`/?accessToken=${encodeURIComponent(accessToken)}`, {
+    headers: {
+      'X-CivUp-Internal-Secret': 'secret',
+      'X-CivUp-Activity-User-Id': 'p1',
+    },
+  })
 }
 
 function createFakeDurableObjectState(): DurableObjectState {

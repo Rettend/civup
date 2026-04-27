@@ -25,6 +25,7 @@ export interface DraftRuntimeConfig {
   mapVoteEnabled?: boolean
   leaderDataVersion?: LeaderDataVersion
   timerConfig?: DraftTimerConfig
+  steamLobbyLink?: string | null
 }
 
 export type SessionClientMessage
@@ -69,6 +70,7 @@ export type SessionServerMessage
     completedAt: number | null
     previews: DraftPreviewState
     swapState?: LeaderSwapState | null
+    steamLobbyLink?: string | null
   }
   | {
     type: 'update'
@@ -81,7 +83,9 @@ export type SessionServerMessage
     completedAt: number | null
     previews: DraftPreviewState
     swapState?: LeaderSwapState | null
+    steamLobbyLink?: string | null
   }
   | { type: 'preview', previews: DraftPreviewState }
   | { type: 'swap-update', swapState: LeaderSwapState, picks?: DraftSelection[] }
+  | { type: 'projection-update', steamLobbyLink: string | null }
   | { type: 'error', message: string }

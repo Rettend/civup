@@ -780,6 +780,50 @@ describe('activity target selection', () => {
     expect(selected.snapshot.selection?.kind).toBe('lobby')
     expect(selected.snapshot.selection?.option.id).toBe(lobby.id)
   })
+
+  test('selecting a full lobby persists spectator membership for reopen focus', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    const playerIds = ['host-1', 'player-2', 'player-3', 'player-4']
+    for (let index = 0; index < playerIds.length; index++) {
+      await addToQueue(kv, '2v2', {
+        playerId: playerIds[index]!,
+        displayName: `Player ${index + 1}`,
+        avatarUrl: null,
+        joinedAt: Date.now() + index,
+      })
+    }
+    const fullLobby = await setLobbyMemberPlayerIds(kv, lobby.id, playerIds, lobby)
+    await setLobbySlots(kv, lobby.id, playerIds, fullLobby ?? lobby)
+
+    const options = activityRuntimeOptions(kv)
+    const selected = await selectActivityTargetForUser(undefined, 'secret', kv, 'channel-1', 'spectator-1', {
+      kind: 'lobby',
+      id: lobby.id,
+    }, {
+      ...options,
+      viewer: { userId: 'spectator-1', displayName: 'Spectator One', avatarUrl: null },
+    })
+    expect(selected.ok).toBe(true)
+    if (!selected.ok) return
+    expect(selected.snapshot.selection?.kind).toBe('lobby')
+    expect(selected.snapshot.selection?.option.isMember).toBe(true)
+    expect(selected.snapshot.options.find(option => option.id === lobby.id)?.isMember).toBe(true)
+
+    const reopened = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'spectator-1', options)
+    expect(reopened.selection?.kind).toBe('lobby')
+    expect(reopened.selection?.option.id).toBe(lobby.id)
+    expect(reopened.selection?.option.isMember).toBe(true)
+
+    const persistedLobby = await getLobbyById(kv, lobby.id)
+    expect(persistedLobby?.memberPlayerIds).toContain('spectator-1')
+    expect(persistedLobby?.slots).not.toContain('spectator-1')
+  })
 })
 
 function buildEnv(kv: KVNamespace) {
