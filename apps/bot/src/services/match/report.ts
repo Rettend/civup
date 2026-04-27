@@ -238,13 +238,11 @@ async function finalizeReportedMatch(
   }
 
   if (usesLiveSeedFade) {
-    const prepareError = await prepareReportedMatchForRecalculation(db, matchId, now, reporterId)
-    if (prepareError) return { error: prepareError }
-
     try {
       const recalculated = await recalculateLeaderboardMode(db, leaderboardMode, {
         fromMatchId: matchId,
         includeFromMatch: true,
+        includeActiveBoundary: true,
       })
       if ('error' in recalculated) {
         const rollbackError = await rollbackReportedRatedMatch(db, kv, {
@@ -266,7 +264,7 @@ async function finalizeReportedMatch(
       throw error
     }
 
-    const cleanupError = await ensureReportedMatchCleanup(db, options, matchId, now, reporterId, false)
+    const cleanupError = await ensureReportedMatchCleanup(db, options, matchId, now, reporterId, true)
     if (cleanupError) {
       const rollbackError = await rollbackPreparedReportAfterLifecycleFailure(db, kv, options, match, leaderboardMode)
       if (rollbackError) return { error: `${cleanupError} Automatic rollback also failed: ${rollbackError}` }
@@ -507,34 +505,6 @@ async function ensureReportedMatchCleanup(
   }
   await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
   return null
-}
-
-async function prepareReportedMatchForRecalculation(
-  db: Database,
-  matchId: string,
-  reportedAt: number,
-  reportedById: string | null,
-): Promise<string | null> {
-  try {
-    const values: { status: string, completedAt: number, draftData?: string | null } = {
-      status: 'completed',
-      completedAt: reportedAt,
-    }
-    if (reportedById) {
-      const [match] = await db
-        .select({ draftData: matches.draftData })
-        .from(matches)
-        .where(eq(matches.id, matchId))
-        .limit(1)
-      if (match) values.draftData = setReportedByInDraftData(match.draftData, reportedById)
-    }
-    await db.update(matches).set(values).where(eq(matches.id, matchId))
-    await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
-    return null
-  }
-  catch (error) {
-    return error instanceof Error ? error.message : String(error)
-  }
 }
 
 async function validateReportableSession(

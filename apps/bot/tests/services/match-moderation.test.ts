@@ -208,6 +208,60 @@ describe('match moderation recalculation', () => {
     }
   })
 
+  test('resolve repairs an earlier completed squad match with missing rating snapshots', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      const playerIds = Array.from({ length: 11 }, (_, index) => `p${index + 1}`)
+      await db.insert(players).values(playerIds.map(playerId => ({
+        id: playerId,
+        displayName: playerId,
+        avatarUrl: null,
+        createdAt: 1,
+      })))
+      await db.insert(matches).values([
+        { id: 'corrupt-squad', gameMode: '3v3', status: 'completed', createdAt: 1000, completedAt: 1500, seasonId: null, draftData: null },
+        { id: 'later-squad', gameMode: '3v3', status: 'active', createdAt: 2000, completedAt: null, seasonId: null, draftData: JSON.stringify({ completedAt: 2100 }) },
+      ])
+      await db.insert(matchParticipants).values([
+        { matchId: 'corrupt-squad', playerId: 'p1', team: 0, civId: 'rome', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'corrupt-squad', playerId: 'p2', team: 0, civId: 'greece', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'corrupt-squad', playerId: 'p3', team: 0, civId: 'india', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'corrupt-squad', playerId: 'p4', team: 1, civId: 'china', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'corrupt-squad', playerId: 'p5', team: 1, civId: 'japan', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'corrupt-squad', playerId: 'p6', team: 1, civId: 'france', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'later-squad', playerId: 'p1', team: 0, civId: 'rome', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'later-squad', playerId: 'p7', team: 0, civId: 'greece', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'later-squad', playerId: 'p8', team: 0, civId: 'india', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'later-squad', playerId: 'p9', team: 1, civId: 'china', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'later-squad', playerId: 'p10', team: 1, civId: 'japan', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'later-squad', playerId: 'p11', team: 1, civId: 'france', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ])
+
+      const result = await resolveMatchByModerator(db, kv, {
+        matchId: 'later-squad',
+        placements: '<@p1>',
+        resolvedAt: 3000,
+      }, directTerminalOptions)
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.recalculatedMatchIds).toEqual(['corrupt-squad', 'later-squad'])
+
+      const repairedParticipants = await db
+        .select()
+        .from(matchParticipants)
+      expect(repairedParticipants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
+
+      const ratings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'squad'))
+      expect(ratings.find(row => row.playerId === 'p1')?.gamesPlayed).toBe(2)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('resolve on the latest completed 1v1 match only recalculates that match', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
