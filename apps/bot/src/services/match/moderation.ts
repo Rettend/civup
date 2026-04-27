@@ -99,12 +99,15 @@ export async function resolveMatchByModerator(
   else {
     try {
       await runBatch(db, applyQueries)
-      const prepareError = await prepareReportedMatchForRecalculation(db, input.matchId, input.resolvedAt)
-      if (prepareError) return { error: prepareError }
+      if (previousStatus === 'completed') {
+        const prepareError = await prepareReportedMatchForRecalculation(db, input.matchId, input.resolvedAt)
+        if (prepareError) return { error: prepareError }
+      }
 
       const recalculated = await recalculateLeaderboardMode(db, leaderboardMode, {
         fromMatchId: input.matchId,
         includeFromMatch: true,
+        includeActiveBoundary: previousStatus !== 'completed',
       })
       if ('error' in recalculated) {
         const rollbackError = await rollbackResolvedMatchModeration(db, kv, {
