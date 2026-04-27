@@ -23,11 +23,13 @@ export interface LeaderboardModeSnapshot {
 }
 
 interface StoredLeaderboardModeSnapshot {
+  version?: unknown
   updatedAt?: unknown
   rows?: unknown
 }
 
 const LEADERBOARD_MODE_SNAPSHOT_KEY_PREFIX = 'leaderboard:snapshot:'
+const LEADERBOARD_MODE_SNAPSHOT_VERSION = 2
 
 export function leaderboardModeSnapshotKey(mode: LeaderboardMode): string {
   return `${LEADERBOARD_MODE_SNAPSHOT_KEY_PREFIX}${mode}`
@@ -122,6 +124,7 @@ export async function getLeaderboardModeSnapshotsForPreview(
   if (missingModes.length === 0) return snapshots
 
   const rebuilt = await buildLeaderboardModeSnapshotsFromD1(db, missingModes)
+  await setLeaderboardModeSnapshots(kv, [...rebuilt.values()])
   for (const [mode, snapshot] of rebuilt) snapshots.set(mode, snapshot)
   return snapshots
 }
@@ -193,6 +196,7 @@ async function setLeaderboardModeSnapshots(
   await kvMput(kv, snapshots.map(snapshot => ({
     key: leaderboardModeSnapshotKey(snapshot.mode),
     value: JSON.stringify({
+      version: LEADERBOARD_MODE_SNAPSHOT_VERSION,
       updatedAt: snapshot.updatedAt,
       rows: snapshot.rows.map(row => ({
         playerId: row.playerId,
@@ -259,6 +263,7 @@ export function normalizeLeaderboardModeSnapshot(
   if (!value || typeof value !== 'object') return null
 
   const raw = value as StoredLeaderboardModeSnapshot
+  if (raw.version !== LEADERBOARD_MODE_SNAPSHOT_VERSION) return null
   if (!Array.isArray(raw.rows)) return null
 
   const rows = raw.rows
