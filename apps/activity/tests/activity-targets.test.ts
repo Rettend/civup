@@ -138,27 +138,24 @@ describe('activity target helpers', () => {
     expect(selected).toBeNull()
   })
 
-  test('re-confirms an already selected full lobby so spectator membership can persist', () => {
-    const fullLobby = {
-      ...staleLobby,
-      participantCount: 4,
-      targetSize: 4,
-    }
-
-    expect(shouldRequestActivityTargetSelection({
-      option: fullLobby,
-      currentTargetKey: activityTargetOptionKey(fullLobby),
-    })).toBe(true)
-  })
-
-  test('does not re-request the same joined or not-full lobby selection', () => {
-    expect(shouldRequestActivityTargetSelection({
-      option: joinedLobby,
-      currentTargetKey: activityTargetOptionKey(joinedLobby),
-    })).toBe(false)
+  test('re-confirms an already selected lobby so the full lobby snapshot can hydrate', () => {
     expect(shouldRequestActivityTargetSelection({
       option: staleLobby,
       currentTargetKey: activityTargetOptionKey(staleLobby),
+    })).toBe(true)
+  })
+
+  test('re-confirms an already selected joined lobby', () => {
+    expect(shouldRequestActivityTargetSelection({
+      option: joinedLobby,
+      currentTargetKey: activityTargetOptionKey(joinedLobby),
+    })).toBe(true)
+  })
+
+  test('does not re-request the same selected match', () => {
+    expect(shouldRequestActivityTargetSelection({
+      option: joinedMatch,
+      currentTargetKey: activityTargetOptionKey(joinedMatch),
     })).toBe(false)
   })
 

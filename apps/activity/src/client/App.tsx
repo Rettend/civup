@@ -758,7 +758,7 @@ export default function App() {
     if (!lastSelection) return
     suppressAutoSelection = false
     const optionKey = activityTargetOptionKey(lastSelection.option)
-    if (currentTargetKey() === optionKey) {
+    if (!shouldRequestActivityTargetSelection({ option: lastSelection.option, currentTargetKey: currentTargetKey() })) {
       pendingTargetSelectionKey = optionKey
       applyLiveActivityState()
       return
