@@ -63,6 +63,7 @@ export {
   currentStep,
   currentStepDuration,
   dealtCivIds,
+  draftNow,
   draftStore,
   getOptimisticSeatPick,
   getPreviewPickForSeat,
@@ -79,6 +80,7 @@ export {
   seatHasLockedPick,
   seatHasOutgoingSwap,
   seatJustSwapped,
+  syncDraftServerTime,
   updateDraftPreviews,
   updateDraftSteamLobbyLink,
 } from './draft-store'

@@ -222,6 +222,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     return json({
       state: this.censorState(room.state, seatIndex),
       timerEndsAt: room.timerEndsAt,
+      serverNow: Date.now(),
       mapVote,
       completedAt: room.completedAt,
       cancelledAt: room.cancelledAt,
@@ -391,6 +392,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       leaderDataVersion: room.config.leaderDataVersion ?? 'live',
       hostId,
       seatIndex: seatIndex >= 0 ? seatIndex : null,
+      serverNow: Date.now(),
       timerEndsAt: room.timerEndsAt,
       completedAt: room.completedAt,
       previews: censorDraftPreviews(room.state, room.previews, seatIndex),
@@ -1272,6 +1274,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         leaderDataVersion: leaderDataVersion ?? 'live',
         hostId,
         events: this.censorEvents(events, seatIndex),
+        serverNow: Date.now(),
         timerEndsAt,
         completedAt,
         previews: censorDraftPreviews(state, previews, seatIndex),
