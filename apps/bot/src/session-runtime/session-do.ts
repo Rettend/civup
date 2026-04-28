@@ -1328,8 +1328,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
           if (!finished.ok) return json({ error: finished.error }, finished.status)
           return json({ ok: true, record: finished.record })
         }
-        if (existing.phase === 'cancelled') return json({ error: 'Cancelled sessions cannot be reported' }, 409)
-        if (existing.phase !== 'active' && existing.phase !== 'swap' && persistedMatchStatus !== 'completed') {
+        if (existing.phase !== 'active' && existing.phase !== 'swap' && existing.phase !== 'cancelled' && persistedMatchStatus !== 'completed') {
           return json({ error: `Session is not reportable (phase: ${existing.phase})` }, 409)
         }
         record = markActiveSessionReported(existing, at)
@@ -1341,7 +1340,6 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
           if (!finished.ok) return json({ error: finished.error }, finished.status)
           return json({ ok: true, record: finished.record })
         }
-        if (existing.phase === 'reported') return json({ error: 'Reported sessions cannot be cancelled' }, 409)
         if (existing.phase === 'open') return json({ error: 'Open sessions must use cancel-open-session' }, 409)
         record = cancelNonOpenSession(existing, at)
         break

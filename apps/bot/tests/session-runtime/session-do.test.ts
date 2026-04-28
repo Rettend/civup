@@ -194,15 +194,21 @@ describe('SessionDO open session commands', () => {
       expect(await staleFinalized.json()).toMatchObject({ ok: true, ignored: true })
       expect(warnings.flat().some(value => typeof value === 'string' && value.includes('ignoring stale draft completion'))).toBe(false)
 
-      const cancelled = await room.fetch(sessionRequest('/commands/session-lifecycle', {
-        method: 'POST',
-        body: JSON.stringify({ type: 'cancel-session', matchId: openLobby.id, at: 50 }),
-      }))
-      expect(cancelled.status).toBe(409)
-      expect(await cancelled.json()).toEqual({ error: 'Reported sessions cannot be cancelled' })
+      const cancelled = await sessionLifecycleCommand(room, { type: 'cancel-session', matchId: openLobby.id, at: 50 })
+      expect(cancelled.record).toMatchObject({ phase: 'cancelled', version: 5, closedAt: 50 })
 
       const [terminalDirectoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
-      expect(terminalDirectoryRow).toMatchObject({ phase: 'reported', closedAt: 40 })
+      expect(terminalDirectoryRow).toMatchObject({ phase: 'cancelled', closedAt: 50 })
+      const [terminalMatchRow] = await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1)
+      expect(terminalMatchRow).toMatchObject({ status: 'cancelled', completedAt: 50 })
+
+      const resolved = await sessionLifecycleCommand(room, { type: 'mark-reported', matchId: openLobby.id, at: 60 })
+      expect(resolved.record).toMatchObject({ phase: 'reported', version: 6, closedAt: 60 })
+
+      const [reportedDirectoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
+      expect(reportedDirectoryRow).toMatchObject({ phase: 'reported', closedAt: 60 })
+      const [reportedMatchRow] = await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1)
+      expect(reportedMatchRow).toMatchObject({ status: 'completed', completedAt: 50 })
     }
     finally {
       console.warn = originalConsoleWarn
