@@ -18,6 +18,7 @@ import { relayDevLog } from './lib/dev-log'
 import { DraftPage } from './pages/draft'
 import { DraftSetupPage } from './pages/draft-setup'
 import { LobbyOverviewPage } from './pages/lobby-overview'
+import { ReportedMatchPage } from './pages/reported-match'
 import {
   connectionStatus,
   connectToSession,
@@ -37,6 +38,7 @@ type AppState
     | { status: 'error', message: string }
     | { status: 'overview' }
     | { status: 'lobby-waiting', lobby: LobbySnapshot, joinPending: boolean, joinEligibility: LobbyJoinEligibilitySnapshot }
+    | { status: 'reported', matchId: string, lobbyMode: string | null }
     | {
       status: 'authenticated'
       matchId: string
@@ -69,6 +71,7 @@ type LiveActivityTargetState
     steamLobbyLink: string | null
     lobbyId: string | null
     mode: string | null
+    status: ActivityTargetOption['status']
   }
 
 export default function App() {
@@ -165,6 +168,7 @@ export default function App() {
   const currentTargetKey = () => {
     const current = state()
     if (current.status === 'lobby-waiting') return activityTargetOptionKey({ kind: 'lobby', id: current.lobby.id })
+    if (current.status === 'reported') return activityTargetOptionKey({ kind: 'match', id: current.matchId })
     if (current.status === 'authenticated') return activityTargetOptionKey({ kind: 'match', id: current.matchId })
     const lastSelection = lastResolvedSelection()
     if (!lastSelection) return null
@@ -190,6 +194,7 @@ export default function App() {
       steamLobbyLink: selection.steamLobbyLink,
       lobbyId: selection.lobbyId ?? selection.option.lobbyId,
       mode: selection.mode ?? selection.option.mode,
+      status: selection.option.status,
     }
   }
 
@@ -271,6 +276,16 @@ export default function App() {
     connectToSession(SESSION_SOCKET_TARGET, matchId, sessionAccessToken, { onStateChanged: handleSelectedSessionStateChange })
   }
 
+  const transitionToReportedMatch = (selection: Extract<ActivityLaunchSelection, { kind: 'match' }>) => {
+    setPickerError(null)
+    clearDraftConnection()
+    setState({
+      status: 'reported',
+      matchId: selection.matchId,
+      lobbyMode: selection.mode ?? selection.option.mode,
+    })
+  }
+
   const handleSelectedSessionStateChange = (change: SelectedSessionStateChange) => {
     liveStateRevision += 1
 
@@ -345,6 +360,8 @@ export default function App() {
       options: visibleTargetOptions(snapshot.options),
     }
     const current = state()
+    if (!filteredSnapshot.selection && current.status === 'reported') return
+
     setAvailableTargets(filteredSnapshot.options)
 
     if (!filteredSnapshot.selection) {
@@ -398,6 +415,11 @@ export default function App() {
         return { status: 'lobby-waiting', lobby: resolvedLobby, joinPending, joinEligibility }
       })
       connectToSession(SESSION_SOCKET_TARGET, nextLobby.id, null, { onStateChanged: handleSelectedSessionStateChange })
+      return
+    }
+
+    if (filteredSnapshot.selection.option.status === 'completed') {
+      transitionToReportedMatch(filteredSnapshot.selection)
       return
     }
 
@@ -831,6 +853,14 @@ export default function App() {
             steamLobbyLink={(state() as Extract<AppState, { status: 'authenticated' }>).steamLobbyLink}
             lobbyId={(state() as Extract<AppState, { status: 'authenticated' }>).lobbyId}
             lobbyMode={(state() as Extract<AppState, { status: 'authenticated' }>).lobbyMode}
+            onSwitchTarget={openOverview}
+          />
+        </Match>
+
+        <Match when={state().status === 'reported'}>
+          <ReportedMatchPage
+            matchId={(state() as Extract<AppState, { status: 'reported' }>).matchId}
+            mode={(state() as Extract<AppState, { status: 'reported' }>).lobbyMode}
             onSwitchTarget={openOverview}
           />
         </Match>

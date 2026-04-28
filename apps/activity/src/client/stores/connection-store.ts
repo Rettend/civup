@@ -126,7 +126,7 @@ export interface ActivityTargetOption {
   matchId: string | null
   channelId: string
   mode: string
-  status: 'open' | 'drafting' | 'active'
+  status: 'open' | 'drafting' | 'active' | 'completed'
   participantCount: number
   targetSize: number
   redDeath: boolean
@@ -142,7 +142,7 @@ export interface ActivityOverviewOptionSnapshot {
   matchId: string | null
   channelId: string
   mode: string
-  status: 'open' | 'drafting' | 'active'
+  status: 'open' | 'drafting' | 'active' | 'completed'
   participantCount: number
   targetSize: number
   redDeath: boolean

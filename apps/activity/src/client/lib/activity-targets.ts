@@ -113,7 +113,7 @@ export function shouldApplyActivityLaunchSnapshotRefresh(input: {
 }
 
 export function getBrokenMatchRefreshKey(input: {
-  appStatus: 'loading' | 'error' | 'overview' | 'lobby-waiting' | 'authenticated'
+  appStatus: 'loading' | 'error' | 'overview' | 'lobby-waiting' | 'authenticated' | 'reported'
   currentMatchId: string | null
   connectionStatus: string
   draftState: { matchId?: string, status?: string, cancelReason?: string | null } | null | undefined
