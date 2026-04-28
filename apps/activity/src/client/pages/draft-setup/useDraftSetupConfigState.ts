@@ -221,6 +221,7 @@ export function useDraftSetupConfigState(input: {
 
   const optimisticTimerConfig = createOptimisticState(draftConfig, { equals: sameLobbyDraftConfig })
   const optimisticDraftConfig = () => optimisticTimerConfig.value()
+  const formattedMapVote = () => draftConfig().mapVoteEnabled ? 'On' : 'Off'
   const formattedBbgVersion = () => normalizeAvailableLeaderDataVersion(draftConfig().leaderDataVersion) === 'beta' ? 'Beta' : 'Live'
   const formattedBlindBans = () => draftConfig().blindBans ? 'On' : 'Off'
   const formattedSimultaneousPick = () => draftConfig().simultaneousPick ? 'On' : 'Off'
@@ -581,6 +582,7 @@ export function useDraftSetupConfigState(input: {
     formattedLeaderPool,
     formattedLobbyMinRole,
     formattedLobbyMaxRole,
+    formattedMapVote,
     formattedPickTimer,
     formattedRandomDraft,
     formattedSimultaneousPick,
