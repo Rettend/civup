@@ -98,6 +98,7 @@ export default function App() {
   let suppressAutoSelection = false
   let refreshInFlight = false
   const liveLobbySnapshots = new Map<string, LobbySnapshot>()
+  const failedAutoSelectionKeys = new Set<string>()
 
   const stopActivityWatch = () => {
     if (!activityWatch) return
@@ -543,6 +544,7 @@ export default function App() {
     if (requestVersion !== selectionRequestVersion) return
     if (result.ok) {
       pendingTargetSelectionKey = null
+      failedAutoSelectionKeys.delete(optionKey)
       setPickerBusy(false)
       setPickerError(null)
       hydrateActivityLaunchSnapshot(result.snapshot, true)
@@ -552,6 +554,7 @@ export default function App() {
     if (pendingTargetSelectionKey === optionKey) {
       pendingTargetSelectionKey = null
     }
+    if (auto && result.status === 409) failedAutoSelectionKeys.add(optionKey)
     setPickerBusy(false)
     setPickerError(result.error)
     void requestActivityLaunchSnapshotRefresh()
@@ -580,12 +583,15 @@ export default function App() {
       : null
     const waitingOnLobbySnapshot = targetState?.kind === 'lobby' && targetOption != null && !liveLobbySnapshots.has(targetState.id)
     const pendingSelectionKey = pendingTargetSelectionKey
-    const autoSelectedOption = resolveAutoSelectedActivityTarget({
+    const resolvedAutoSelectedOption = resolveAutoSelectedActivityTarget({
       options,
       target: targetState,
       overviewPinned: overviewPinned(),
       suppressAutoSelection,
     })
+    const autoSelectedOption = resolvedAutoSelectedOption && !failedAutoSelectionKeys.has(activityTargetOptionKey(resolvedAutoSelectedOption))
+      ? resolvedAutoSelectedOption
+      : null
 
     setAvailableTargets(options)
 
@@ -593,8 +599,10 @@ export default function App() {
       if (targetState.kind === 'lobby') {
         const promotedMatch = options.find(option => option.kind === 'match' && option.lobbyId === targetState.id) ?? null
         if (promotedMatch) {
-          void requestTargetSelection(promotedMatch, true)
-          return
+          if (!failedAutoSelectionKeys.has(activityTargetOptionKey(promotedMatch))) {
+            void requestTargetSelection(promotedMatch, true)
+            return
+          }
         }
       }
       setLiveTargetState(null)
@@ -705,6 +713,7 @@ export default function App() {
     liveStateRevision += 1
     launchSnapshotRequestVersion += 1
     suppressAutoSelection = false
+    failedAutoSelectionKeys.clear()
     setPickerBusy(false)
     setFallbackOptions([])
     setLiveOverviewSnapshot(undefined)
@@ -745,6 +754,7 @@ export default function App() {
   const handleTargetSelection = async (option: ActivityTargetOption) => {
     suppressAutoSelection = false
     const optionKey = activityTargetOptionKey(option)
+    failedAutoSelectionKeys.delete(optionKey)
     if (!shouldRequestActivityTargetSelection({ option, currentTargetKey: currentTargetKey() })) {
       pendingTargetSelectionKey = optionKey
       applyLiveActivityState()
@@ -758,6 +768,7 @@ export default function App() {
     if (!lastSelection) return
     suppressAutoSelection = false
     const optionKey = activityTargetOptionKey(lastSelection.option)
+    failedAutoSelectionKeys.delete(optionKey)
     if (!shouldRequestActivityTargetSelection({ option: lastSelection.option, currentTargetKey: currentTargetKey() })) {
       pendingTargetSelectionKey = optionKey
       applyLiveActivityState()

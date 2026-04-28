@@ -1,6 +1,6 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
-import { resolveJoinButtonLiveMatchId } from '../../src/commands/match/components.ts'
+import { resolveJoinButtonLiveMatchId, shouldJoinOpenLobbyFromActivityButton } from '../../src/commands/match/components.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 
@@ -25,6 +25,22 @@ describe('resolveJoinButtonLiveMatchId', () => {
     finally {
       sqlite.close()
     }
+  })
+})
+
+describe('match join activity button', () => {
+  test('does not auto-join a full lobby for a non-member spectator', () => {
+    expect(shouldJoinOpenLobbyFromActivityButton({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    }, 'spectator')).toBe(false)
+  })
+
+  test('still auto-joins when an open seat exists', () => {
+    expect(shouldJoinOpenLobbyFromActivityButton({
+      memberPlayerIds: ['p1'],
+      slots: ['p1', null],
+    }, 'spectator')).toBe(true)
   })
 })
 

@@ -854,7 +854,7 @@ export async function selectActivityTarget(
   channelId: string,
   userId: string,
   target: Pick<ActivityTargetOption, 'kind' | 'id'>,
-): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string }> {
+): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string, status?: number }> {
   try {
     const data = await activityApiPost<{ snapshot?: ActivityLaunchSnapshot }>('/api/activity/target', {
       channelId,
@@ -867,7 +867,7 @@ export async function selectActivityTarget(
   }
   catch (err) {
     console.error('Failed to select activity target:', err)
-    if (err instanceof ApiError) return { ok: false, error: err.message }
+    if (err instanceof ApiError) return { ok: false, error: err.message, status: err.status }
     return { ok: false, error: 'Network error while switching activity target' }
   }
 }

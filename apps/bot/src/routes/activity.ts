@@ -1,24 +1,21 @@
-import type { GameMode, QueueEntry } from '@civup/game'
+import type { GameMode } from '@civup/game'
 import type { Hono } from 'hono'
 import type { Env } from '../env.ts'
 import type { ActivitySessionDirectoryEntry, LobbySnapshot } from '../services/activity/session-state.ts'
 import type { LeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import type { LobbyState } from '../services/lobby/index.ts'
 import type { SessionRecord } from '../session-runtime/session-record.ts'
-import type { AuthenticatedActivityIdentity } from './auth.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel, GAME_MODES, toBalanceLeaderboardMode } from '@civup/game'
 import { createSessionAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { clearActivityLaunchTargetSelection, readActivityLaunchTargetSelection, type ActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
+import { clearActivityFollowTargetSelection, clearActivityLaunchTargetSelection, readActivityFollowTargetSelection, readActivityLaunchTargetSelection, storeActivityFollowTargetSelection, type ActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
 import { buildActivityOverviewOptions, buildActivityOverviewOptionsFromSessionRecord, buildLobbySnapshotFromDirectoryEntry, buildLobbySnapshotFromSessionRecord, getActivitySessionById, getActivitySessionsByChannel, getOpenActivitySessionsForUser } from '../services/activity/session-state.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
-import { leaveOpenLobbyForLobbyJoin } from '../services/lobby/transfer.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../services/match/live.ts'
 import { getCurrentSessionLobbyProjectionsForPlayer } from '../services/session/index.ts'
 import { getKvStore, kvMget } from '../services/kv/batch.ts'
-import { getSessionRecord, runSessionOpenLobbyCommand } from '../session-runtime/session-do-client.ts'
-import { buildSessionRosterQueueEntries } from '../session-runtime/session-record.ts'
+import { getSessionRecord } from '../session-runtime/session-do-client.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
 import { buildOpenLobbySnapshot } from './lobby/snapshot.ts'
 
@@ -85,7 +82,8 @@ interface ActivityLaunchContext {
 interface ActivityRuntimeOptions {
   db?: D1Database | null
   sessionNamespace?: DurableObjectNamespace | null
-  viewer?: AuthenticatedActivityIdentity | null
+  activityNamespace?: DurableObjectNamespace | null
+  internalSecret?: string | null
 }
 
 export function registerActivityRoutes(app: Hono<Env>) {
@@ -246,7 +244,8 @@ export function registerActivityRoutes(app: Hono<Env>) {
     }, {
       db: c.env.DB,
       sessionNamespace: c.env.SessionDO,
-      viewer: auth.identity,
+      activityNamespace: c.env.Activity,
+      internalSecret: c.env.CIVUP_SECRET,
     })
     if (!result.ok) {
       return c.json({ error: result.error }, result.status)
@@ -268,77 +267,14 @@ export async function selectActivityTargetForUser(
   },
   options?: ActivityRuntimeOptions,
 ): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string, status: 409 }> {
-  let context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.sessionNamespace)
-  let selectionTarget = context.targets.find(candidate => candidate.option.kind === target.kind && candidate.option.id === target.id) ?? null
-  if (!selectionTarget) return { ok: false, error: 'That target is no longer available.', status: 409 }
+  const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.sessionNamespace)
+  const selection = pickActivityLaunchSelectionForTarget(context.targets, target)
+  if (!selection) return { ok: false, error: 'That target is no longer available.', status: 409 }
 
-  if (await persistOpenLobbySpectatorSelection(token, kv, userId, selectionTarget, options)) {
-    context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.sessionNamespace)
-    selectionTarget = context.targets.find(candidate => candidate.option.kind === target.kind && candidate.option.id === target.id) ?? selectionTarget
-  }
+  await storeActivityFollowTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId, target)
 
-  const snapshot = await buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, {
-    target: selectionTarget,
-    pendingJoin: false,
-  }, options?.db, options?.sessionNamespace)
+  const snapshot = await buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, selection, options?.db, options?.sessionNamespace)
   return { ok: true, snapshot }
-}
-
-async function persistOpenLobbySpectatorSelection(
-  token: string | undefined,
-  kv: KVNamespace,
-  userId: string,
-  target: ChannelActivityTarget,
-  options: ActivityRuntimeOptions | undefined,
-): Promise<boolean> {
-  if (target.option.kind !== 'lobby') return false
-  if (target.session.phase !== 'open') return false
-  if (target.option.isHost || target.option.isMember) return false
-  if (!options?.sessionNamespace || !options.viewer || !options.db) return false
-
-  const record = await resolveAuthoritativeSessionRecord(options.sessionNamespace, target.session)
-  if (record?.phase !== 'open') return false
-  if (record.roster.participants.some(member => member.playerId === userId)) return false
-
-  const db = createDb(options.db)
-  const currentLobbies = await getCurrentSessionLobbyProjectionsForPlayer(db, userId, { excludeLobbyIds: [record.id] })
-  if (currentLobbies.some(lobby => lobby.status !== 'open')) return false
-
-  const sourceLobby = currentLobbies.find(lobby => lobby.status === 'open') ?? null
-  if (sourceLobby) {
-    const sourceHasOtherMembers = sourceLobby.memberPlayerIds.some(playerId => playerId !== userId)
-    if (sourceLobby.hostId === userId && sourceHasOtherMembers) return false
-
-    const sourceRecord = await getSessionRecord(options.sessionNamespace, sourceLobby.id).catch(() => null)
-    const transfer = await leaveOpenLobbyForLobbyJoin(kv, token, sourceLobby, [userId], record.mode, {
-      db,
-      sessionNamespace: options.sessionNamespace,
-      queueEntries: sourceRecord ? buildSessionRosterQueueEntries(sourceRecord) : undefined,
-    })
-    if (!transfer.ok) return false
-  }
-
-  const queueEntry = buildSpectatorQueueEntry(userId, options.viewer)
-  const queueEntries = [...buildSessionRosterQueueEntries(record), queueEntry]
-  await runSessionOpenLobbyCommand(options.sessionNamespace, record.id, {
-    type: 'set-member-player-ids',
-    expectedVersion: record.version,
-    memberPlayerIds: [...record.roster.participants.map(member => member.playerId), userId],
-    queueEntries,
-    now: queueEntry.joinedAt,
-  })
-
-  return true
-}
-
-function buildSpectatorQueueEntry(userId: string, identity: AuthenticatedActivityIdentity): QueueEntry {
-  const displayName = identity.displayName?.trim() || userId
-  return {
-    playerId: userId,
-    displayName,
-    avatarUrl: identity.avatarUrl,
-    joinedAt: Date.now(),
-  }
 }
 
 export async function buildActivityLaunchSnapshot(
@@ -357,9 +293,20 @@ export async function buildActivityLaunchSnapshot(
   const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.sessionNamespace)
   const launchTarget = await readActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
   await addRequestedReportedActivityTarget(context, launchTarget, userId, options?.db)
-  const requestedSelection = pickRequestedActivityLaunchSelection(context.targets, launchTarget)
-  if (requestedSelection) await clearActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
+  const requestedSelection = pickActivityLaunchSelectionForTarget(context.targets, launchTarget)
+  if (launchTarget && requestedSelection) {
+    await clearActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
+    await storeActivityFollowTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId, launchTarget)
+  }
+  const followTarget = requestedSelection
+    ? null
+    : await readActivityFollowTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
+  const followedSelection = pickActivityLaunchSelectionForTarget(context.targets, followTarget)
+  if (followTarget && !followedSelection) {
+    await clearActivityFollowTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
+  }
   const selection = requestedSelection
+    ?? followedSelection
     ?? pickDefaultActivityLaunchSelection(context.targets)
   return buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, selection, options?.db, options?.sessionNamespace)
 }
@@ -741,10 +688,20 @@ function pickDefaultActivityLaunchSelection(targets: ChannelActivityTarget[]): R
   }
 }
 
-function pickRequestedActivityLaunchSelection(targets: ChannelActivityTarget[], launchTarget: ActivityLaunchTargetSelection | null): ResolvedActivitySelection | null {
-  if (!launchTarget) return null
-  const target = targets.find(candidate => candidate.option.kind === launchTarget.kind && candidate.option.id === launchTarget.id) ?? null
+function pickActivityLaunchSelectionForTarget(targets: ChannelActivityTarget[], requestedTarget: ActivityLaunchTargetSelection | null): ResolvedActivitySelection | null {
+  if (!requestedTarget) return null
+  const target = targets.find(candidate => candidate.option.kind === requestedTarget.kind && candidate.option.id === requestedTarget.id)
+    ?? findLifecycleSuccessorTarget(targets, requestedTarget)
+    ?? null
   return target ? { target, pendingJoin: false } : null
+}
+
+function findLifecycleSuccessorTarget(targets: ChannelActivityTarget[], requestedTarget: ActivityLaunchTargetSelection): ChannelActivityTarget | null {
+  if (requestedTarget.kind === 'lobby') {
+    return targets.find(candidate => candidate.option.kind === 'match' && candidate.option.lobbyId === requestedTarget.id) ?? null
+  }
+
+  return targets.find(candidate => candidate.option.kind === 'lobby' && (candidate.option.id === requestedTarget.id || candidate.option.lobbyId === requestedTarget.id || candidate.option.matchId === requestedTarget.id)) ?? null
 }
 
 function pickCurrentActivityMembershipTarget(targets: ChannelActivityTarget[]): ChannelActivityTarget | null {

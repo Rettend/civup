@@ -88,6 +88,14 @@ export function shouldHoldAuthenticatedDraftStateForSelection(input: {
   }
 
   if (
+    input.nextSelectionKind == null
+    && input.draftState.status === 'cancelled'
+    && (input.draftState.cancelReason === 'timeout' || input.draftState.cancelReason === 'revert')
+  ) {
+    return false
+  }
+
+  if (
     input.nextSelectionKind === 'lobby'
     && input.draftState.status === 'cancelled'
     && (input.draftState.cancelReason === 'timeout' || input.draftState.cancelReason === 'revert')
