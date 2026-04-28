@@ -13,7 +13,7 @@ import type {
 } from './stores'
 import { batch, createEffect, createSignal, Match, onCleanup, onMount, Switch, untrack } from 'solid-js'
 import { discordSdk, setupDiscordSdk } from './discord'
-import { activityTargetOptionKey, activityTargetsMatch, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldRequestActivityTargetSelection } from './lib/activity-targets'
+import { activityTargetOptionKey, activityTargetsMatch, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldReconnectVisibleActivityTarget, shouldRequestActivityTargetSelection } from './lib/activity-targets'
 import { relayDevLog } from './lib/dev-log'
 import { DraftPage } from './pages/draft'
 import { DraftSetupPage } from './pages/draft-setup'
@@ -345,6 +345,24 @@ export default function App() {
       setClearedTarget({ kind: 'lobby', id: change.lobbyId })
       setState({ status: 'overview' })
       void requestActivityLaunchSnapshotRefresh()
+    }
+  }
+
+  const reconnectVisibleSelection = () => {
+    const current = state()
+    if (!shouldReconnectVisibleActivityTarget({
+      appStatus: current.status,
+      connectionStatus: connectionStatus(),
+      draftStatus: draftStore.state?.status ?? null,
+    })) { return }
+
+    if (current.status === 'authenticated') {
+      connectToSession(SESSION_SOCKET_TARGET, current.matchId, current.sessionAccessToken, { onStateChanged: handleSelectedSessionStateChange })
+      return
+    }
+
+    if (current.status === 'lobby-waiting') {
+      connectToSession(SESSION_SOCKET_TARGET, current.lobby.id, null, { onStateChanged: handleSelectedSessionStateChange })
     }
   }
 
@@ -791,6 +809,7 @@ export default function App() {
         if (!activityWatch) startActivityWatch(activeChannelId, activeUserId)
         return
       }
+      reconnectVisibleSelection()
       void requestActivityLaunchSnapshotRefresh()
     }
 

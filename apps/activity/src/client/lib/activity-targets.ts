@@ -66,6 +66,18 @@ export function shouldApplyResolvedActivitySelection(input: {
   return !input.isOverviewVisible || input.allowSelectionWhileOverview
 }
 
+export function shouldReconnectVisibleActivityTarget(input: {
+  appStatus: 'loading' | 'error' | 'overview' | 'lobby-waiting' | 'authenticated' | 'reported'
+  connectionStatus: string
+  draftStatus?: string | null
+}): boolean {
+  if (input.connectionStatus === 'connecting' || input.connectionStatus === 'reconnecting' || input.connectionStatus === 'connected') return false
+  if (input.appStatus === 'lobby-waiting') return true
+  if (input.appStatus !== 'authenticated') return false
+  if (input.draftStatus === 'complete' || input.draftStatus === 'cancelled') return false
+  return true
+}
+
 export function shouldHoldAuthenticatedDraftStateForSelection(input: {
   nextSelectionKind: 'lobby' | 'match' | null
   hasInFlightConnection: boolean
