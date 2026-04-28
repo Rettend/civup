@@ -1,13 +1,258 @@
 import type { RankRoleSetDetail } from './helpers'
 import type { useDraftSetupState } from './useDraftSetupState'
 import type { RankedRoleOptionSnapshot } from '~/client/stores'
+import type { JSX } from 'solid-js'
 import { hasBetaLeaderData, inferGameMode, normalizeAvailableLeaderDataVersion } from '@civup/game'
-import { Show } from 'solid-js'
+import { For, Show } from 'solid-js'
 import { Dropdown, Switch, TextInput } from '~/client/components/ui'
 import { cn } from '~/client/lib/css'
 import { buildRankDotStyle, buildRolePillStyle, MAX_LEADER_POOL_INPUT, MAX_TIMER_MINUTES } from './helpers'
 
 type DraftSetupConfigState = ReturnType<typeof useDraftSetupState>['config']
+type ConfigRowMode = 'editable' | 'readonly'
+type RoleDropdownOption = {
+  value: string
+  label: string
+  disabled?: boolean
+  render?: () => JSX.Element
+}
+type ConfigRowHelpers = {
+  buildRoleDropdownOptions: (clearLabel: string) => RoleDropdownOption[]
+}
+type ConfigRowDefinition = {
+  key: string
+  when: (state: DraftSetupConfigState) => boolean
+  renderEditable?: (state: DraftSetupConfigState, helpers: ConfigRowHelpers) => JSX.Element
+  renderReadonly?: (state: DraftSetupConfigState) => JSX.Element
+}
+
+const CONFIG_ROWS: ConfigRowDefinition[] = [
+  {
+    key: 'mapVote',
+    when: state => state.isLobbyMode() && state.derived.supportsMapVote(),
+    renderEditable: state => (
+      <SwitchRow
+        label="Map Vote"
+        active={state.derived.optimisticDraftConfig().mapVoteEnabled}
+        disabled={state.lobbyActionPending() || state.pending.mapVoteEnabled()}
+        onChange={checked => void state.actions.changeMapVoteEnabled(checked)}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="Map Vote" value={state.derived.formattedMapVote()} valueClass={state.derived.draftConfig().mapVoteEnabled ? 'text-accent' : undefined} />
+    ),
+  },
+  {
+    key: 'blindBans',
+    when: state => state.isLobbyMode() && state.derived.supportsBlindBans(),
+    renderEditable: state => (
+      <SwitchRow
+        label="Blind Bans"
+        active={state.derived.optimisticDraftConfig().blindBans}
+        disabled={state.lobbyActionPending() || state.pending.blindBans()}
+        onChange={checked => void state.actions.changeBlindBans(checked)}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="Blind Bans" value={state.derived.formattedBlindBans()} valueClass={state.derived.draftConfig().blindBans ? 'text-accent' : undefined} />
+    ),
+  },
+  {
+    key: 'leaderDataVersion',
+    when: state => state.isLobbyMode() && !state.derived.isRedDeath() && hasBetaLeaderData,
+    renderEditable: state => (
+      <SwitchRow
+        label="BBG Beta"
+        active={normalizeAvailableLeaderDataVersion(state.derived.optimisticDraftConfig().leaderDataVersion) === 'beta'}
+        disabled={state.lobbyActionPending() || state.pending.leaderDataVersion()}
+        onChange={checked => void state.actions.changeLeaderDataVersion(checked)}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow
+        label="BBG Beta"
+        value={state.derived.formattedBbgVersion()}
+        valueClass={normalizeAvailableLeaderDataVersion(state.derived.draftConfig().leaderDataVersion) === 'beta' ? 'text-accent' : undefined}
+      />
+    ),
+  },
+  {
+    key: 'simultaneousPick',
+    when: state => state.isLobbyMode() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath(),
+    renderEditable: state => (
+      <SwitchRow
+        label="Simultaneous pick"
+        active={state.derived.optimisticDraftConfig().simultaneousPick}
+        disabled={state.lobbyActionPending() || state.pending.simultaneousPick()}
+        onChange={checked => void state.actions.changeSimultaneousPick(checked)}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="Simultaneous pick" value={state.derived.formattedSimultaneousPick()} valueClass={state.derived.draftConfig().simultaneousPick ? 'text-accent' : undefined} />
+    ),
+  },
+  {
+    key: 'gameMode',
+    when: state => state.isLobbyMode(),
+    renderEditable: state => (
+      <Dropdown
+        label="Game Mode"
+        value={state.lobbyMode()}
+        disabled={state.lobbyActionPending()}
+        options={state.options.lobbyModes()}
+        onChange={value => void state.actions.changeLobbyMode(inferGameMode(value))}
+      />
+    ),
+  },
+  {
+    key: 'rankBounds',
+    when: state => state.isLobbyMode() && !state.derived.isUnranked(),
+    renderEditable: (state, helpers) => (
+      <div class="flex flex-col gap-1.5">
+        <div class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">Min and max matchmaking rank</div>
+        <div class="gap-2 grid grid-cols-1 sm:grid-cols-2">
+          <Dropdown
+            ariaLabel="Minimum matchmaking rank"
+            value={state.fields.minRoleValue()}
+            disabled={state.lobbyActionPending()}
+            options={helpers.buildRoleDropdownOptions('Anyone')}
+            onChange={value => void state.actions.changeMinRole(value)}
+          />
+          <Dropdown
+            ariaLabel="Maximum matchmaking rank"
+            value={state.fields.maxRoleValue()}
+            disabled={state.lobbyActionPending()}
+            options={helpers.buildRoleDropdownOptions('Anyone')}
+            onChange={value => void state.actions.changeMaxRole(value)}
+          />
+        </div>
+      </div>
+    ),
+    renderReadonly: state => (
+      <>
+        <ReadonlyTimerRow label="Min rank" value={state.derived.formattedLobbyMinRole()} />
+        <ReadonlyTimerRow label="Max rank" value={state.derived.formattedLobbyMaxRole()} />
+      </>
+    ),
+  },
+  {
+    key: 'leaderPool',
+    when: state => state.isLobbyMode(),
+    renderEditable: state => (
+      <TextInput
+        type="number"
+        label={state.derived.poolInputLabel()}
+        ariaLabel={state.derived.poolInputLabel()}
+        min={state.derived.isRedDeath() ? '2' : String(state.derived.leaderPoolMinimum())}
+        max={state.derived.isRedDeath() ? '10' : String(MAX_LEADER_POOL_INPUT)}
+        step="1"
+        value={state.fields.leaderPoolInput()}
+        placeholder={state.derived.leaderPoolPlaceholder()}
+        onFocus={() => state.actions.setEditingField('leaderPool')}
+        onClamp={() => state.actions.clampField('leaderPool')}
+        onInput={event => state.actions.inputLeaderPool(event.currentTarget.value)}
+        onBlur={() => void state.actions.saveOnBlur()}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label={state.derived.poolInputLabel()} value={state.derived.formattedLeaderPool()} />
+    ),
+  },
+  {
+    key: 'banTimer',
+    when: state => !state.derived.isRedDeath(),
+    renderEditable: state => (
+      <TextInput
+        type="number"
+        label="Ban Timer (minutes)"
+        ariaLabel="Ban Timer (minutes)"
+        min="0"
+        max={String(MAX_TIMER_MINUTES)}
+        step={state.derived.timerInputStep(state.fields.banMinutes())}
+        roundOnBlur={false}
+        value={state.fields.banMinutes()}
+        placeholder={state.derived.banTimerPlaceholder()}
+        onFocus={() => state.actions.setEditingField('ban')}
+        onClamp={() => state.actions.clampField('ban')}
+        onInput={event => state.actions.inputBanMinutes(event.currentTarget.value)}
+        onBlur={() => void state.actions.saveOnBlur()}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="Ban Timer (minutes)" value={state.derived.formattedBanTimer()} />
+    ),
+  },
+  {
+    key: 'pickTimer',
+    when: () => true,
+    renderEditable: state => (
+      <TextInput
+        type="number"
+        label="Pick Timer (minutes)"
+        ariaLabel="Pick Timer (minutes)"
+        min="0"
+        max={String(MAX_TIMER_MINUTES)}
+        step={state.derived.timerInputStep(state.fields.pickMinutes())}
+        roundOnBlur={false}
+        value={state.fields.pickMinutes()}
+        placeholder={state.derived.pickTimerPlaceholder()}
+        onFocus={() => state.actions.setEditingField('pick')}
+        onClamp={() => state.actions.clampField('pick')}
+        onInput={event => state.actions.inputPickMinutes(event.currentTarget.value)}
+        onBlur={() => void state.actions.saveOnBlur()}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="Pick Timer (minutes)" value={state.derived.formattedPickTimer()} />
+    ),
+  },
+  {
+    key: 'randomDraft',
+    when: state => state.isLobbyMode(),
+    renderEditable: state => (
+      <SwitchRow
+        label="Random draft"
+        active={state.derived.optimisticDraftConfig().randomDraft}
+        disabled={state.lobbyActionPending() || state.pending.randomDraft()}
+        onChange={checked => void state.actions.changeRandomDraft(checked)}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="Random draft" value={state.derived.formattedRandomDraft()} valueClass={state.derived.draftConfig().randomDraft ? 'text-accent' : undefined} />
+    ),
+  },
+  {
+    key: 'duplicateFactions',
+    when: state => state.isLobbyMode(),
+    renderEditable: state => (
+      <SwitchRow
+        label={state.derived.duplicateOptionLabel()}
+        active={state.derived.optimisticDuplicateFactions()}
+        disabled={state.lobbyActionPending() || state.pending.duplicateFactions() || state.derived.duplicateFactionsLocked()}
+        onChange={checked => void state.actions.changeDuplicateFactions(checked)}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label={state.derived.duplicateOptionLabel()} value={state.derived.formattedDuplicateFactions()} valueClass={state.derived.draftDuplicateFactions() ? 'text-accent' : undefined} />
+    ),
+  },
+  {
+    key: 'redDeath',
+    when: state => state.isLobbyMode(),
+    renderEditable: state => (
+      <div class="mt-1 pt-3 border-t border-border-subtle">
+        <SwitchRow
+          label="Red Death"
+          active={state.derived.optimisticDraftConfig().redDeath}
+          activeClass="text-[#f97316]"
+          tone="orange"
+          disabled={state.lobbyActionPending() || state.pending.redDeath() || !state.derived.canToggleRedDeath()}
+          onChange={checked => void state.actions.changeRedDeath(checked)}
+        />
+      </div>
+    ),
+  },
+]
 
 export function DraftSetupConfigPanel(props: { state: DraftSetupConfigState }) {
   const state = () => props.state
@@ -46,155 +291,11 @@ export function DraftSetupConfigPanel(props: { state: DraftSetupConfigState }) {
       </div>
 
       <div class="pr-4 flex flex-1 flex-col gap-3 min-h-0 overflow-y-auto -mr-3">
-        <Show when={state().isLobbyMode() && state().isHost() && state().derived.supportsMapVote()}>
-          <SwitchRow
-            label="Map Vote"
-            active={state().derived.optimisticDraftConfig().mapVoteEnabled}
-            disabled={state().lobbyActionPending() || state().pending.mapVoteEnabled()}
-            onChange={checked => void state().actions.changeMapVoteEnabled(checked)}
-          />
-        </Show>
-
-        <Show when={state().isLobbyMode() && state().isHost() && state().derived.supportsBlindBans()}>
-          <SwitchRow
-            label="Blind Bans"
-            active={state().derived.optimisticDraftConfig().blindBans}
-            disabled={state().lobbyActionPending() || state().pending.blindBans()}
-            onChange={checked => void state().actions.changeBlindBans(checked)}
-          />
-        </Show>
-
-        <Show when={state().isLobbyMode() && state().isHost() && !state().derived.isRedDeath() && hasBetaLeaderData}>
-          <SwitchRow
-            label="BBG Beta"
-            active={normalizeAvailableLeaderDataVersion(state().derived.optimisticDraftConfig().leaderDataVersion) === 'beta'}
-            disabled={state().lobbyActionPending() || state().pending.leaderDataVersion()}
-            onChange={checked => void state().actions.changeLeaderDataVersion(checked)}
-          />
-        </Show>
-
-        <Show when={state().isLobbyMode() && state().isHost() && state().lobbyMode() === 'ffa' && !state().derived.isRedDeath()}>
-          <SwitchRow
-            label="Simultaneous pick"
-            active={state().derived.optimisticDraftConfig().simultaneousPick}
-            disabled={state().lobbyActionPending() || state().pending.simultaneousPick()}
-            onChange={checked => void state().actions.changeSimultaneousPick(checked)}
-          />
-        </Show>
-
-        <Show when={state().isLobbyMode() && state().isHost()}>
-          <Dropdown
-            label="Game Mode"
-            value={state().lobbyMode()}
-            disabled={state().lobbyActionPending()}
-            options={state().options.lobbyModes()}
-            onChange={value => void state().actions.changeLobbyMode(inferGameMode(value))}
-          />
-        </Show>
-
-        <Show when={state().isHost()} fallback={<ReadonlyConfig state={state()} />}>
-          <div class="flex flex-col gap-2">
-            <Show when={state().isLobbyMode() && !state().derived.isUnranked()}>
-              <div class="flex flex-col gap-1.5">
-                <div class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">Min and max matchmaking rank</div>
-                <div class="gap-2 grid grid-cols-1 sm:grid-cols-2">
-                  <Dropdown
-                    ariaLabel="Minimum matchmaking rank"
-                    value={state().fields.minRoleValue()}
-                    disabled={state().lobbyActionPending()}
-                    options={buildRoleDropdownOptions('Anyone')}
-                    onChange={value => void state().actions.changeMinRole(value)}
-                  />
-                  <Dropdown
-                    ariaLabel="Maximum matchmaking rank"
-                    value={state().fields.maxRoleValue()}
-                    disabled={state().lobbyActionPending()}
-                    options={buildRoleDropdownOptions('Anyone')}
-                    onChange={value => void state().actions.changeMaxRole(value)}
-                  />
-                </div>
-              </div>
-            </Show>
-
-            <Show when={state().isLobbyMode()}>
-              <TextInput
-                type="number"
-                label={state().derived.poolInputLabel()}
-                ariaLabel={state().derived.poolInputLabel()}
-                min={state().derived.isRedDeath() ? '2' : String(state().derived.leaderPoolMinimum())}
-                max={state().derived.isRedDeath() ? '10' : String(MAX_LEADER_POOL_INPUT)}
-                step="1"
-                value={state().fields.leaderPoolInput()}
-                placeholder={state().derived.leaderPoolPlaceholder()}
-                onFocus={() => state().actions.setEditingField('leaderPool')}
-                onClamp={() => state().actions.clampField('leaderPool')}
-                onInput={event => state().actions.inputLeaderPool(event.currentTarget.value)}
-                onBlur={() => void state().actions.saveOnBlur()}
-              />
-            </Show>
-
-            <Show when={!state().derived.isRedDeath()}>
-              <TextInput
-                type="number"
-                label="Ban Timer (minutes)"
-                ariaLabel="Ban Timer (minutes)"
-                min="0"
-                max={String(MAX_TIMER_MINUTES)}
-                step={state().derived.timerInputStep(state().fields.banMinutes())}
-                roundOnBlur={false}
-                value={state().fields.banMinutes()}
-                placeholder={state().derived.banTimerPlaceholder()}
-                onFocus={() => state().actions.setEditingField('ban')}
-                onClamp={() => state().actions.clampField('ban')}
-                onInput={event => state().actions.inputBanMinutes(event.currentTarget.value)}
-                onBlur={() => void state().actions.saveOnBlur()}
-              />
-            </Show>
-
-            <TextInput
-              type="number"
-              label="Pick Timer (minutes)"
-              ariaLabel="Pick Timer (minutes)"
-              min="0"
-              max={String(MAX_TIMER_MINUTES)}
-              step={state().derived.timerInputStep(state().fields.pickMinutes())}
-              roundOnBlur={false}
-              value={state().fields.pickMinutes()}
-              placeholder={state().derived.pickTimerPlaceholder()}
-              onFocus={() => state().actions.setEditingField('pick')}
-              onClamp={() => state().actions.clampField('pick')}
-              onInput={event => state().actions.inputPickMinutes(event.currentTarget.value)}
-              onBlur={() => void state().actions.saveOnBlur()}
-            />
-
-            <Show when={state().isLobbyMode()}>
-              <SwitchRow
-                label="Random draft"
-                active={state().derived.optimisticDraftConfig().randomDraft}
-                disabled={state().lobbyActionPending() || state().pending.randomDraft()}
-                onChange={checked => void state().actions.changeRandomDraft(checked)}
-              />
-
-              <SwitchRow
-                label={state().derived.duplicateOptionLabel()}
-                active={state().derived.optimisticDuplicateFactions()}
-                disabled={state().lobbyActionPending() || state().pending.duplicateFactions() || state().derived.duplicateFactionsLocked()}
-                onChange={checked => void state().actions.changeDuplicateFactions(checked)}
-              />
-
-              <div class="mt-1 pt-3 border-t border-border-subtle">
-                <SwitchRow
-                  label="Red Death"
-                  active={state().derived.optimisticDraftConfig().redDeath}
-                  activeClass="text-[#f97316]"
-                  tone="orange"
-                  disabled={state().lobbyActionPending() || state().pending.redDeath() || !state().derived.canToggleRedDeath()}
-                  onChange={checked => void state().actions.changeRedDeath(checked)}
-                />
-              </div>
-            </Show>
-          </div>
-        </Show>
+        <ConfigRows
+          state={state()}
+          mode={state().isHost() ? 'editable' : 'readonly'}
+          buildRoleDropdownOptions={buildRoleDropdownOptions}
+        />
       </div>
 
       <div class="shrink-0 min-h-5">
@@ -216,38 +317,23 @@ export function DraftSetupConfigPanel(props: { state: DraftSetupConfigState }) {
   )
 }
 
-function ReadonlyConfig(props: { state: DraftSetupConfigState }) {
+function ConfigRows(props: { state: DraftSetupConfigState, mode: ConfigRowMode, buildRoleDropdownOptions: ConfigRowHelpers['buildRoleDropdownOptions'] }) {
   const state = () => props.state
+  const helpers = (): ConfigRowHelpers => ({ buildRoleDropdownOptions: props.buildRoleDropdownOptions })
+  const canRenderRow = (row: ConfigRowDefinition) => row.when(state()) && (props.mode === 'editable' ? row.renderEditable != null : row.renderReadonly != null)
+  const renderRow = (row: ConfigRowDefinition) => props.mode === 'editable'
+    ? row.renderEditable?.(state(), helpers())
+    : row.renderReadonly?.(state())
+
   return (
     <div class="flex flex-col gap-2">
-      <Show when={state().isLobbyMode() && state().derived.supportsBlindBans()}>
-        <ReadonlyTimerRow label="Blind bans" value={state().derived.formattedBlindBans()} valueClass={state().derived.draftConfig().blindBans ? 'text-accent' : undefined} />
-      </Show>
-      <Show when={!state().derived.isRedDeath() && hasBetaLeaderData}>
-        <ReadonlyTimerRow
-          label="BBG"
-          value={state().derived.formattedBbgVersion()}
-          valueClass={normalizeAvailableLeaderDataVersion(state().derived.draftConfig().leaderDataVersion) === 'beta' ? 'text-accent' : undefined}
-        />
-      </Show>
-      <Show when={state().isLobbyMode() && state().lobbyMode() === 'ffa' && !state().derived.isRedDeath()}>
-        <ReadonlyTimerRow label="Simultaneous pick" value={state().derived.formattedSimultaneousPick()} valueClass={state().derived.draftConfig().simultaneousPick ? 'text-accent' : undefined} />
-      </Show>
-      <Show when={state().isLobbyMode() && !state().derived.isUnranked()}>
-        <>
-          <ReadonlyTimerRow label="Min rank" value={state().derived.formattedLobbyMinRole()} />
-          <ReadonlyTimerRow label="Max rank" value={state().derived.formattedLobbyMaxRole()} />
-        </>
-      </Show>
-      <ReadonlyTimerRow label={state().derived.poolInputLabel()} value={state().derived.formattedLeaderPool()} />
-      <Show when={!state().derived.isRedDeath()}>
-        <ReadonlyTimerRow label="Ban timer" value={state().derived.formattedBanTimer()} />
-      </Show>
-      <ReadonlyTimerRow label="Pick timer" value={state().derived.formattedPickTimer()} />
-      <Show when={state().isLobbyMode()}>
-        <ReadonlyTimerRow label="Random draft" value={state().derived.formattedRandomDraft()} valueClass={state().derived.draftConfig().randomDraft ? 'text-accent' : undefined} />
-        <ReadonlyTimerRow label={state().derived.duplicateOptionLabel()} value={state().derived.formattedDuplicateFactions()} valueClass={state().derived.draftDuplicateFactions() ? 'text-accent' : undefined} />
-      </Show>
+      <For each={CONFIG_ROWS}>
+        {row => (
+          <Show when={canRenderRow(row)}>
+            {renderRow(row)}
+          </Show>
+        )}
+      </For>
     </div>
   )
 }
