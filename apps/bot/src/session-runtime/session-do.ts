@@ -1,13 +1,15 @@
 import type { CompetitiveTier, DraftSeat, DraftSelection, DraftState, GameMode, QueueEntry } from '@civup/game'
 import type { SessionServerMessage } from '@civup/session'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
+import type { ParticipantRow } from '../services/match/types.ts'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
 import type { DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionDraftStartSyncState, SessionLifecycleSyncState, SessionProjectionState, SessionProjectionSyncPayload, SessionProjectionSyncState, SessionRecord, SessionRoster, SessionTerminalSyncCommand, SessionTerminalSyncState } from './session-record.ts'
 import { createDb, matchBans, matches, matchParticipants } from '@civup/db'
 import { allFactionIds, allLeaderIds, canStartWithPlayerCount, EMPTY_MAP_VOTE_SNAPSHOT, formatModeLabel, GAME_MODES, getDraftFormat, getMinimumLeaderPoolSize, slotToTeamIndex } from '@civup/game'
 import { CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest, verifySessionAccessToken } from '@civup/utils'
 import { eq } from 'drizzle-orm'
-import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed } from '../embeds/match.ts'
+import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyResultEmbed } from '../embeds/match.ts'
+import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../services/discord/index.ts'
 import { buildDraftRuntimeConfig } from '../services/activity/index.ts'
 import { buildLobbySnapshotFromSessionRecord } from '../services/activity/session-state.ts'
 import { resolveDraftTimerConfig } from '../services/config/index.ts'
@@ -16,8 +18,10 @@ import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
 import { mapLobbySlotsToEntries } from '../services/lobby/slots.ts'
 import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../services/match/index.ts'
-import { clearMatchMessageMapping, storeMatchMessageMapping } from '../services/match/message.ts'
+import { getMapVoteResultFromDraftData, getReporterIdentityFromDraftData, getStoredGameModeContext } from '../services/match/draft-data.ts'
+import { clearMatchMessageMapping, listMatchMessageIds, storeMatchMessageMapping } from '../services/match/message.ts'
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
+import { getSystemChannel } from '../services/system/channels.ts'
 import { publishActivitySessionUpdate } from './activity-feed-client.ts'
 import { SessionDraftRuntime, type DraftRuntimeEnv } from './draft-room.ts'
 import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from './session-record.ts'
@@ -187,6 +191,12 @@ type SessionLifecycleCommandRequest
     at?: number
   }
 
+interface ReportedDiscordSyncCommandRequest {
+  matchId?: string
+  reason?: string
+  at?: number
+}
+
 interface OpenSessionPatch {
   expectedVersion?: number
   mode?: GameMode
@@ -206,10 +216,20 @@ interface OpenSessionPatch {
 
 const SESSION_RECORD_STORAGE_KEY = 'session-record'
 const SESSION_COMMIT_INTENT_STORAGE_KEY = 'session-commit-intent'
+const REPORTED_DISCORD_SYNC_STORAGE_KEY = 'reported-discord-sync'
 
 interface SessionCommitIntent {
   record: SessionRecord
   createdAt: number
+}
+
+interface ReportedDiscordSyncMarker {
+  matchId: string
+  attempts: number
+  nextRetryAt: number
+  lastError: string
+  createdAt: number
+  updatedAt: number
 }
 
 class TerminalMatchNotFoundError extends Error {
@@ -260,6 +280,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return await this.runSerializedCommand(() => this.handleSessionProjectionCommand(request))
     }
 
+    if (request.method === 'POST' && url.pathname === '/commands/reported-discord-sync') {
+      return await this.runSerializedCommand(() => this.handleReportedDiscordSyncCommand(request))
+    }
+
     return await super.onRequest(request)
   }
 
@@ -269,6 +293,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       await this.retryPendingLifecycleSync()
       await this.retryPendingTerminalSync()
       await this.retryPendingProjectionSync()
+      await this.retryPendingReportedDiscordSync()
       await this.handleDraftRuntimeAlarmIfDue()
       await this.rescheduleSessionAlarm(await this.getRecord())
       return json({ ok: true })
@@ -797,6 +822,142 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     }
   }
 
+  private async retryPendingReportedDiscordSync(): Promise<void> {
+    const pending = await this.getReportedDiscordSyncMarker()
+    if (!pending) return
+
+    const now = Date.now()
+    if (pending.nextRetryAt > now) {
+      await this.rescheduleSessionAlarm(await this.getRecord())
+      return
+    }
+
+    const result = await this.finishReportedDiscordSync(pending)
+    if (!result.ok) {
+      console.warn('[session-do] reported Discord sync retry deferred', {
+        matchId: pending.matchId,
+        status: result.status,
+        error: result.error,
+      })
+    }
+  }
+
+  private async finishReportedDiscordSync(marker: ReportedDiscordSyncMarker): Promise<{ ok: true } | { ok: false, status: number, error: string }> {
+    if (!this.env.DB) return await this.deferReportedDiscordSync(marker, 503, 'D1 binding is not configured')
+    if (!this.env.KV) return await this.deferReportedDiscordSync(marker, 503, 'KV binding is not configured')
+    if (!this.env.DISCORD_TOKEN) return await this.deferReportedDiscordSync(marker, 503, 'Discord token is not configured')
+
+    const record = await this.getRecord()
+    if (!record || (record.id !== marker.matchId && record.matchId !== marker.matchId)) {
+      await this.clearReportedDiscordSyncMarker()
+      return { ok: true }
+    }
+
+    try {
+      await this.syncReportedDiscordMessages(record, marker.matchId)
+    }
+    catch (error) {
+      return await this.deferReportedDiscordSync(marker, 503, error instanceof Error ? error.message : String(error))
+    }
+
+    await this.clearReportedDiscordSyncMarker()
+    await this.rescheduleSessionAlarm(await this.getRecord())
+    return { ok: true }
+  }
+
+  private async syncReportedDiscordMessages(record: SessionRecord, matchId: string): Promise<void> {
+    if (!this.env.DB || !this.env.KV || !this.env.DISCORD_TOKEN) throw new Error('Reported Discord sync bindings are not configured')
+    const db = createDb(this.env.DB)
+    const [match] = await db
+      .select({ id: matches.id, gameMode: matches.gameMode, status: matches.status, draftData: matches.draftData })
+      .from(matches)
+      .where(eq(matches.id, matchId))
+      .limit(1)
+
+    if (!match) throw new Error(`Match **${matchId}** not found.`)
+    if (match.status !== 'completed') return
+
+    const context = getStoredGameModeContext(match.gameMode, match.draftData)
+    const reportedMode = context?.mode ?? record.mode
+    const reportedRedDeath = context?.redDeath ?? record.config.redDeath
+    const participants = await db
+      .select()
+      .from(matchParticipants)
+      .where(eq(matchParticipants.matchId, matchId)) as ParticipantRow[]
+    const embed = lobbyResultEmbed(reportedMode, participants, undefined, {
+      mapVoteResult: getMapVoteResultFromDraftData(match.draftData),
+      reporter: getReporterIdentityFromDraftData(match.draftData),
+    }, reportedRedDeath)
+
+    const messageIds = await listMatchMessageIds(db, matchId)
+    const candidateMessageIds = uniqueStrings([record.projectionState.messageId, ...messageIds])
+    const draftMessageId = await this.editOrRecreateReportedDraftMessage(record, matchId, candidateMessageIds, embed)
+    await storeMatchMessageMapping(db, draftMessageId, matchId)
+
+    const refreshedMessageIds = uniqueStrings([draftMessageId, ...await listMatchMessageIds(db, matchId)])
+    if (refreshedMessageIds.length >= 2) return
+
+    const archiveChannelId = await getSystemChannel(this.env.KV, 'archive')
+    if (!archiveChannelId) return
+
+    const archiveMessage = await createChannelMessage(this.env.DISCORD_TOKEN, archiveChannelId, {
+      embeds: [embed],
+      allowed_mentions: { parse: [] },
+    })
+    await storeMatchMessageMapping(db, archiveMessage.id, matchId)
+  }
+
+  private async editOrRecreateReportedDraftMessage(record: SessionRecord, matchId: string, messageIds: string[], embed: unknown): Promise<string> {
+    if (!this.env.DISCORD_TOKEN) throw new Error('Discord token is not configured')
+    let lastError: unknown = null
+    for (const messageId of messageIds) {
+      try {
+        await editChannelMessage(this.env.DISCORD_TOKEN, record.projectionState.channelId, messageId, {
+          content: null,
+          embeds: [embed],
+          components: [],
+          allowed_mentions: { parse: [] },
+        })
+        return messageId
+      }
+      catch (error) {
+        lastError = error
+        if (!isDiscordApiError(error, 404)) throw error
+      }
+    }
+
+    const created = await createChannelMessage(this.env.DISCORD_TOKEN, record.projectionState.channelId, {
+      content: null,
+      embeds: [embed],
+      components: [],
+      allowed_mentions: { parse: [] },
+    })
+    await this.updateMessageProjection(record, created.id)
+    if (lastError) console.warn('[session-do] recreated missing reported draft message', { matchId, messageId: created.id })
+    return created.id
+  }
+
+  private async deferReportedDiscordSync(marker: ReportedDiscordSyncMarker, status: number, error: string): Promise<{ ok: false, status: number, error: string }> {
+    const now = Date.now()
+    const attempts = marker.attempts + 1
+    const pending: ReportedDiscordSyncMarker = {
+      ...marker,
+      attempts,
+      nextRetryAt: now + getProjectionSyncRetryDelay(attempts),
+      lastError: error,
+      updatedAt: now,
+    }
+    await this.ctx.storage.put(REPORTED_DISCORD_SYNC_STORAGE_KEY, pending)
+    await this.rescheduleSessionAlarm(await this.getRecord())
+    console.warn('[session-do] reported Discord sync retry scheduled', {
+      matchId: pending.matchId,
+      attempts,
+      nextRetryAt: pending.nextRetryAt,
+      error,
+    })
+    return { ok: false, status, error }
+  }
+
   private async finishProjectionSync(
     record: SessionRecord,
     pending: SessionProjectionSyncState,
@@ -1194,6 +1355,39 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     return json({ ok: true, record: finished.record })
   }
 
+  private async handleReportedDiscordSyncCommand(request: Request): Promise<Response> {
+    let body: ReportedDiscordSyncCommandRequest | null = null
+    try {
+      body = await request.json<ReportedDiscordSyncCommandRequest>()
+    }
+    catch {
+      body = null
+    }
+
+    const record = await this.getRecord()
+    if (!record) return json({ error: 'Session not found' }, 404)
+    const matchId = typeof body?.matchId === 'string' && body.matchId.length > 0 ? body.matchId : record.matchId ?? record.id
+    if (record.id !== matchId && record.matchId !== matchId) {
+      return json({ error: `Session ${record.id} does not belong to match ${matchId}` }, 409)
+    }
+
+    const now = normalizePositiveInteger(body?.at, Date.now())
+    const existing = await this.getReportedDiscordSyncMarker()
+    const marker: ReportedDiscordSyncMarker = {
+      matchId,
+      attempts: existing?.matchId === matchId ? existing.attempts : 0,
+      nextRetryAt: 0,
+      lastError: typeof body?.reason === 'string' && body.reason.length > 0 ? body.reason : 'reported Discord sync requested',
+      createdAt: existing?.matchId === matchId ? existing.createdAt : now,
+      updatedAt: now,
+    }
+    await this.ctx.storage.put(REPORTED_DISCORD_SYNC_STORAGE_KEY, marker)
+
+    const result = await this.finishReportedDiscordSync(marker)
+    if (!result.ok) return json({ ok: true, queued: true, error: result.error })
+    return json({ ok: true, queued: false })
+  }
+
   private async handleSessionProjectionCommand(request: Request): Promise<Response> {
     let body: SessionProjectionCommandRequest
     try {
@@ -1375,6 +1569,14 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     await this.rescheduleSessionAlarm(await this.getRecord())
   }
 
+  private async getReportedDiscordSyncMarker(): Promise<ReportedDiscordSyncMarker | null> {
+    return await this.ctx.storage.get<ReportedDiscordSyncMarker>(REPORTED_DISCORD_SYNC_STORAGE_KEY) ?? null
+  }
+
+  private async clearReportedDiscordSyncMarker(): Promise<void> {
+    await this.ctx.storage.delete(REPORTED_DISCORD_SYNC_STORAGE_KEY)
+  }
+
   protected override async setDraftRuntimeAlarm(_nextAlarm: number | null): Promise<void> {
     await this.rescheduleSessionAlarm(await this.getRecord())
   }
@@ -1392,8 +1594,12 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const projectionRetryAt = record?.projectionSync && record.projectionSync.nextRetryAt > 0
       ? record.projectionSync.nextRetryAt
       : null
+    const reportedDiscordSync = await this.getReportedDiscordSyncMarker()
+    const reportedDiscordRetryAt = reportedDiscordSync
+      ? reportedDiscordSync.nextRetryAt > 0 ? reportedDiscordSync.nextRetryAt : Date.now()
+      : null
     const draftRuntimeAlarmAt = await this.getDraftRuntimeAlarmAt()
-    const candidates = [draftStartRetryAt, lifecycleRetryAt, terminalRetryAt, projectionRetryAt, draftRuntimeAlarmAt].filter((value): value is number => typeof value === 'number')
+    const candidates = [draftStartRetryAt, lifecycleRetryAt, terminalRetryAt, projectionRetryAt, reportedDiscordRetryAt, draftRuntimeAlarmAt].filter((value): value is number => typeof value === 'number')
     const storage = this.ctx.storage as DurableObjectStorage & {
       setAlarm?: (scheduledTime: number | Date) => Promise<void>
       deleteAlarm?: () => Promise<void>
@@ -1929,6 +2135,10 @@ function buildProjectionSyncLogContext(projection: SessionProjectionSyncPayload,
 
 function getLifecycleSyncRetryDelay(attempts: number): number {
   return Math.min(LIFECYCLE_SYNC_RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1), LIFECYCLE_SYNC_RETRY_MAX_MS)
+}
+
+function uniqueStrings(values: readonly (string | null | undefined)[]): string[] {
+  return [...new Set(values.filter((value): value is string => typeof value === 'string' && value.length > 0))]
 }
 
 function getProjectionSyncRetryDelay(attempts: number): number {

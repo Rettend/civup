@@ -670,6 +670,32 @@ describe('activity target selection', () => {
     expect(reopened.selection).toBeNull()
   })
 
+  test('opens a clicked reported match as an already-reported activity target', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '1v1',
+      hostId: 'player-1',
+      channelId: 'channel-1',
+      messageId: 'message-reported',
+    })
+
+    await createDbFromRuntime(kv).update(sessionDirectory).set({
+      phase: 'reported',
+      matchId: lobby.id,
+      updatedAt: Date.now(),
+      closedAt: Date.now(),
+    }).where(eq(sessionDirectory.sessionId, lobby.id))
+    await storeActivityLaunchTargetSelection(activityRuntimeOptions(kv).activityNamespace, 'secret', 'button-channel', 'player-1', { kind: 'match', id: lobby.id })
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'player-1', activityRuntimeOptions(kv))
+    expect(snapshot.selection?.kind).toBe('match')
+    if (snapshot.selection?.kind !== 'match') return
+    expect(snapshot.selection.matchId).toBe(lobby.id)
+    expect(snapshot.selection.option.status).toBe('completed')
+    expect(snapshot.selection.sessionAccessToken).toBeNull()
+    expect(snapshot.options).toEqual([expect.objectContaining({ kind: 'match', id: lobby.id, status: 'completed' })])
+  })
+
   test('opens a clicked reportable active match when Discord launch channel differs from the button interaction channel', async () => {
     const { kv } = createTrackedKv()
     const matchLobby = await createLobby(kv, {
