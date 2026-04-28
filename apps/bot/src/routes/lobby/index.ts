@@ -746,8 +746,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const sourceSlot = slots.findIndex(playerId => playerId === movingPlayerId)
     const targetPlayerId = slots[targetSlot]
     if (targetPlayerId === movingPlayerId) {
+      const snapshot = await buildOpenLobbySnapshotFromParts(kv, mode, lobby, lobbyQueueEntries, slots)
       return c.json({
-        lobby: await buildOpenLobbySnapshotFromParts(kv, mode, lobby, lobbyQueueEntries, slots),
+        lobby: snapshot,
         transferNotice,
       })
     }
@@ -859,7 +860,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       }
     }
 
-    lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, nextLobby, lobbyQueueEntries)
+    lobbyQueueEntries = buildLobbyQueueEntries(nextLobby, lobbyQueueEntries)
     slots = normalizeLobbySlots(mode, nextLobby.slots, lobbyQueueEntries)
     const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
       queueEntries: lobbyQueueEntries,
@@ -877,8 +878,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       }, lobbySessionMutationOptions(c))
     }, `Failed to update lobby embed after slot placement in ${mode}:`)
 
+    const responseLobby = snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, lobbyQueueEntries, slots)
     return c.json({
-      lobby: snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, lobbyQueueEntries, slots),
+      lobby: responseLobby,
       transferNotice,
     })
   })

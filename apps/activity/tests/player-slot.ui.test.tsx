@@ -125,6 +125,31 @@ describe('PlayerSlot UI', () => {
     }
   })
 
+  test('syncs the map-vote breathing phase across seats', () => {
+    const now = Date.now()
+    const realDateNow = Date.now
+    Date.now = () => now
+
+    try {
+      uiMockState.userId = 'host-1'
+      uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
+      uiMockState.draftState.status = 'waiting'
+      uiMockState.mapVotePhase = 'voting'
+      uiMockState.mapVoteVotingEndsAt = Date.now() + 30_000
+
+      const firstRender = render(() => <PlayerSlot seatIndex={0} />)
+      const secondRender = render(() => <PlayerSlot seatIndex={1} />)
+      const firstDelay = firstRender.container.querySelector('.anim-glow-breathe')?.getAttribute('style') ?? ''
+      const secondDelay = secondRender.container.querySelector('.anim-glow-breathe')?.getAttribute('style') ?? ''
+
+      expect(firstDelay).toContain('animation-delay')
+      expect(secondDelay).toBe(firstDelay)
+    }
+    finally {
+      Date.now = realDateNow
+    }
+  })
+
   test('shows only the final winning map during reveal and highlights supporting ballots', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
