@@ -361,7 +361,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
     connection.setState({ playerId } satisfies ConnectionState)
 
-    const room = await this.getRoomRecord()
+    let room = await this.getRoomRecord()
     if (!room) {
       this.send(connection, { type: 'error', message: 'Room not initialized' })
       connection.close(4000, 'Room not initialized')
@@ -377,6 +377,11 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       this.send(connection, { type: 'error', message: 'Session access token is invalid or expired' })
       connection.close(4403, 'Forbidden')
       return
+    }
+
+    if (await this.handleDraftRuntimeAlarmIfDue()) {
+      room = await this.requireRoomRecord()
+      if (connection.readyState >= 2) return
     }
 
     const hostId = room.config.hostId ?? room.state.seats[0]?.playerId ?? ''
@@ -835,6 +840,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       return true
     }
 
+    if (dueAt == null) return false
     if (state.status !== 'active') return false
 
     // Guard against stale alarms (step already advanced)
@@ -845,7 +851,9 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
     const previews = sanitizeDraftPreviews(state, room.previews)
     const result = resolveTimeoutWithPreviews(state, format.blindBans, previews, () => this.random())
-    if (isDraftError(result)) return false
+    if (isDraftError(result)) {
+      return await this.recoverFailedDraftTimeout(room, result.error, format.blindBans)
+    }
 
     await this.applyResult(result.state, result.events)
     return true
@@ -868,6 +876,38 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     await this.applyRoomTransition(transition, 'apply-result', {
       eventTypes: events.map(event => event.type),
     })
+  }
+
+  private async recoverFailedDraftTimeout(room: RoomRecord, error: string, blindBans: boolean): Promise<boolean> {
+    const state = room.state
+    const step = getCurrentStep(state)
+    console.error('[draft-room] timeout resolution failed; cancelling draft to recover stale timer', buildDraftRoomLogContext('alarm-timeout-recovery', state, {
+      error,
+      timerEndsAt: room.timerEndsAt,
+      alarmStepIndex: room.alarmStepIndex,
+      stepAction: step?.action ?? null,
+      stepSeats: step?.seats ?? null,
+      stepCount: step?.count ?? null,
+      mapVotePhase: room.mapVote.phase,
+      mapVoteEndsAt: room.mapVote.endsAt,
+    }))
+
+    const cancelResult = processDraftInput(state, { type: 'CANCEL', reason: 'timeout' }, blindBans)
+    if (isDraftError(cancelResult)) {
+      console.error('[draft-room] timeout recovery cancellation failed', buildDraftRoomLogContext('alarm-timeout-recovery', state, {
+        error: cancelResult.error,
+        originalError: error,
+        timerEndsAt: room.timerEndsAt,
+        alarmStepIndex: room.alarmStepIndex,
+        mapVotePhase: room.mapVote.phase,
+        mapVoteEndsAt: room.mapVote.endsAt,
+      }))
+      await this.rescheduleRoomAlarm()
+      return false
+    }
+
+    await this.applyResult(cancelResult.state, cancelResult.events)
+    return true
   }
 
   private scheduleDebugActiveBotActions(state: DraftState, blindBans: boolean) {
