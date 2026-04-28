@@ -7,6 +7,7 @@ import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/match.ts'
 import { getMatchForUser } from '../../services/activity/index.ts'
+import { storeActivityLaunchTargetSelection } from '../../services/activity/launch-target.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
 import { createLobby, filterQueueEntriesForLobby, getLobbyBumpCooldownRemainingMs, getLobbyById, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, setLobbyLastActivityAt, setLobbyRoster, setLobbyStatus, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
@@ -23,7 +24,7 @@ import { formatSessionAdmissionError, getLiveSessionLobbyProjections, getLiveSes
 import { getKvStore } from '../../services/kv/batch.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
-import { getSessionRecord } from '../../session-runtime/session-do-client.ts'
+import { getSessionRecord, queueSessionReportedDiscordSync } from '../../session-runtime/session-do-client.ts'
 import { buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 import { factory } from '../../setup.ts'
 import { buildFfaPlacementOptions, collectFfaPlacementUserIds, findBlockingDraftMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS, preflightMatchCreateSessionState, resolveReportableMatchIdForPlayer } from './shared.ts'
@@ -270,6 +271,7 @@ export const command_match = factory.command<MatchVar>(
         const mode = parseGameMode(c.var.mode)
         const kv = getKvStore(c.env)
         const identity = getIdentity(c)
+        const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
         if (!mode) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
             await sendTransientEphemeralResponse(c, 'Please provide a valid game mode.', 'error')
@@ -303,6 +305,7 @@ export const command_match = factory.command<MatchVar>(
           }
 
           if (userMatchId) {
+            await storeActivityLaunchTargetSelection(c.env.Activity, c.env.CIVUP_SECRET, interactionChannelId, identity.userId, { kind: 'match', id: userMatchId })
             return c.resActivity()
           }
           return c.flags('EPHEMERAL').resDefer(async (c) => {
@@ -830,7 +833,7 @@ export const command_match = factory.command<MatchVar>(
               matchId: result.match.id,
               reporterId: identity.userId,
             })
-            await syncReportedMatchDiscordMessages({
+            const discordSync = await syncReportedMatchDiscordMessages({
               db,
               kv,
               token: c.env.DISCORD_TOKEN,
@@ -843,6 +846,7 @@ export const command_match = factory.command<MatchVar>(
               sessionNamespace: c.env.SessionDO,
               archivePolicy: 'if-missing',
             })
+            queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
             await sendTransientEphemeralResponse(c, `Match **${result.match.id}** was already reported. Checked Discord result state.`, 'info')
             return
           }
@@ -875,7 +879,7 @@ export const command_match = factory.command<MatchVar>(
             }
           }
 
-          await syncReportedMatchDiscordMessages({
+          const discordSync = await syncReportedMatchDiscordMessages({
             db,
             kv,
             token: c.env.DISCORD_TOKEN,
@@ -894,6 +898,7 @@ export const command_match = factory.command<MatchVar>(
             },
             archivePolicy: 'always',
           })
+          queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
           if (isRankedResult) {
             try {
               await markLeaderboardsDirty(db, `match-report:${result.match.id}`)
@@ -1228,4 +1233,30 @@ function buildCancelledLobbyParticipants(lobby: { mode: GameMode, slots: (string
 function formatLobbyMessageLink(guildId: string | null, channelId: string, messageId: string): string {
   if (!guildId) return `<#${channelId}>`
   return `https://discord.com/channels/${guildId}/${channelId}/${messageId}`
+}
+
+function queueReportedDiscordRepairIfNeeded(
+  context: { env: { SessionDO?: DurableObjectNamespace }, executionCtx: { waitUntil: (promise: Promise<unknown>) => void } },
+  matchId: string,
+  errors: string[],
+): void {
+  if (errors.length === 0) return
+  const task = (async () => {
+    try {
+      await queueSessionReportedDiscordSync(context.env.SessionDO, matchId, {
+        matchId,
+        reason: errors.join('; '),
+      })
+    }
+    catch (error) {
+      console.error(`[match-report] failed to queue reported Discord repair for ${matchId}:`, error)
+    }
+  })()
+
+  try {
+    context.executionCtx.waitUntil(task)
+  }
+  catch {
+    void task
+  }
 }

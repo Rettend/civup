@@ -29,6 +29,16 @@ export function didClearResolvedActivityTarget(
   return previous != null && next == null
 }
 
+export function shouldRequestActivityTargetSelection(input: {
+  option: ActivityTargetOption
+  currentTargetKey: string | null
+}): boolean {
+  const optionKey = activityTargetOptionKey(input.option)
+  if (input.currentTargetKey !== optionKey) return true
+
+  return input.option.kind === 'lobby'
+}
+
 /** Chooses a default target only when it is still safe to auto-select one. */
 export function resolveAutoSelectedActivityTarget(input: {
   options: readonly ActivityTargetOption[]
@@ -41,8 +51,8 @@ export function resolveAutoSelectedActivityTarget(input: {
 
   if (hasResolvedTarget || input.overviewPinned || input.suppressAutoSelection) return null
 
-  return input.options.find(option => (option.isHost || option.isMember) && option.kind === 'match')
-    ?? input.options.find(option => option.isHost || option.isMember)
+  return input.options.find(option => (option.isHost || option.isMember) && option.kind === 'match' && option.status === 'drafting')
+    ?? input.options.find(option => (option.isHost || option.isMember) && option.kind === 'lobby')
     ?? null
 }
 
@@ -51,6 +61,18 @@ export function shouldApplyResolvedActivitySelection(input: {
   allowSelectionWhileOverview: boolean
 }): boolean {
   return !input.isOverviewVisible || input.allowSelectionWhileOverview
+}
+
+export function shouldReconnectVisibleActivityTarget(input: {
+  appStatus: 'loading' | 'error' | 'overview' | 'lobby-waiting' | 'authenticated' | 'reported'
+  connectionStatus: string
+  draftStatus?: string | null
+}): boolean {
+  if (input.connectionStatus === 'connecting' || input.connectionStatus === 'reconnecting' || input.connectionStatus === 'connected') return false
+  if (input.appStatus === 'lobby-waiting') return true
+  if (input.appStatus !== 'authenticated') return false
+  if (input.draftStatus === 'complete' || input.draftStatus === 'cancelled') return false
+  return true
 }
 
 export function shouldHoldAuthenticatedDraftStateForSelection(input: {
@@ -62,6 +84,14 @@ export function shouldHoldAuthenticatedDraftStateForSelection(input: {
   if (!input.draftState) return false
 
   if (input.nextSelectionKind == null && input.draftState.status === 'complete') {
+    return false
+  }
+
+  if (
+    input.nextSelectionKind == null
+    && input.draftState.status === 'cancelled'
+    && (input.draftState.cancelReason === 'timeout' || input.draftState.cancelReason === 'revert')
+  ) {
     return false
   }
 
@@ -100,7 +130,7 @@ export function shouldApplyActivityLaunchSnapshotRefresh(input: {
 }
 
 export function getBrokenMatchRefreshKey(input: {
-  appStatus: 'loading' | 'error' | 'overview' | 'lobby-waiting' | 'authenticated'
+  appStatus: 'loading' | 'error' | 'overview' | 'lobby-waiting' | 'authenticated' | 'reported'
   currentMatchId: string | null
   connectionStatus: string
   draftState: { matchId?: string, status?: string, cancelReason?: string | null } | null | undefined

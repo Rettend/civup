@@ -235,7 +235,7 @@ async function runDirectoryProjectionTransaction<T>(db: Database, operation: (tx
 }
 
 function isLiveMembershipPhase(phase: SessionPhase): boolean {
-  return phase === 'open' || phase === 'draft' || phase === 'swap'
+  return phase === 'open' || phase === 'draft'
 }
 
 function isCurrentSessionPhase(phase: SessionPhase): boolean {

@@ -25,6 +25,17 @@ describe('DraftPage UI', () => {
     expect(screen.getByText('Joining draft room...')).toBeTruthy()
   })
 
+  test('keeps the joining shell after socket connect until draft state hydrates', () => {
+    uiMockState.connectionStatus = 'connected'
+    uiMockState.draftState = null
+
+    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
+
+    expect(screen.getByText('Joining draft room...')).toBeTruthy()
+    expect(screen.queryByText('Waiting for host to start draft...')).toBeNull()
+    expect(screen.queryByText('Preparing draft room...')).toBeNull()
+  })
+
   test('shows the reconnecting shell before draft state hydrates', () => {
     uiMockState.connectionStatus = 'reconnecting'
 

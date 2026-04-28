@@ -222,11 +222,13 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     return json({
       state: this.censorState(room.state, seatIndex),
       timerEndsAt: room.timerEndsAt,
+      serverNow: Date.now(),
       mapVote,
       completedAt: room.completedAt,
       cancelledAt: room.cancelledAt,
       previews: censorDraftPreviews(room.state, room.previews, seatIndex),
       swapState: room.swapWindowOpen ? this.getNormalizedSwapState(room) : null,
+      steamLobbyLink: room.config.steamLobbyLink ?? null,
     })
   }
 
@@ -339,6 +341,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       room.previews,
       swapState,
       room.mapVote,
+      room.config.steamLobbyLink ?? null,
     )
   }
 
@@ -358,7 +361,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
     connection.setState({ playerId } satisfies ConnectionState)
 
-    const room = await this.getRoomRecord()
+    let room = await this.getRoomRecord()
     if (!room) {
       this.send(connection, { type: 'error', message: 'Room not initialized' })
       connection.close(4000, 'Room not initialized')
@@ -376,6 +379,11 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       return
     }
 
+    if (await this.handleDraftRuntimeAlarmIfDue()) {
+      room = await this.requireRoomRecord()
+      if (connection.readyState >= 2) return
+    }
+
     const hostId = room.config.hostId ?? room.state.seats[0]?.playerId ?? ''
     const seatIndex = playerId
       ? room.state.seats.findIndex(s => s.playerId === playerId)
@@ -389,10 +397,12 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       leaderDataVersion: room.config.leaderDataVersion ?? 'live',
       hostId,
       seatIndex: seatIndex >= 0 ? seatIndex : null,
+      serverNow: Date.now(),
       timerEndsAt: room.timerEndsAt,
       completedAt: room.completedAt,
       previews: censorDraftPreviews(room.state, room.previews, seatIndex),
       swapState: room.swapWindowOpen ? this.getNormalizedSwapState(room) : null,
+      steamLobbyLink: room.config.steamLobbyLink ?? null,
     })
 
     if (room.swapWindowOpen && seatIndex >= 0 && room.swapDisconnectFinalizeAt != null) {
@@ -830,6 +840,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       return true
     }
 
+    if (dueAt == null) return false
     if (state.status !== 'active') return false
 
     // Guard against stale alarms (step already advanced)
@@ -840,7 +851,9 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
     const previews = sanitizeDraftPreviews(state, room.previews)
     const result = resolveTimeoutWithPreviews(state, format.blindBans, previews, () => this.random())
-    if (isDraftError(result)) return false
+    if (isDraftError(result)) {
+      return await this.recoverFailedDraftTimeout(room, result.error, format.blindBans)
+    }
 
     await this.applyResult(result.state, result.events)
     return true
@@ -863,6 +876,38 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     await this.applyRoomTransition(transition, 'apply-result', {
       eventTypes: events.map(event => event.type),
     })
+  }
+
+  private async recoverFailedDraftTimeout(room: RoomRecord, error: string, blindBans: boolean): Promise<boolean> {
+    const state = room.state
+    const step = getCurrentStep(state)
+    console.error('[draft-room] timeout resolution failed; cancelling draft to recover stale timer', buildDraftRoomLogContext('alarm-timeout-recovery', state, {
+      error,
+      timerEndsAt: room.timerEndsAt,
+      alarmStepIndex: room.alarmStepIndex,
+      stepAction: step?.action ?? null,
+      stepSeats: step?.seats ?? null,
+      stepCount: step?.count ?? null,
+      mapVotePhase: room.mapVote.phase,
+      mapVoteEndsAt: room.mapVote.endsAt,
+    }))
+
+    const cancelResult = processDraftInput(state, { type: 'CANCEL', reason: 'timeout' }, blindBans)
+    if (isDraftError(cancelResult)) {
+      console.error('[draft-room] timeout recovery cancellation failed', buildDraftRoomLogContext('alarm-timeout-recovery', state, {
+        error: cancelResult.error,
+        originalError: error,
+        timerEndsAt: room.timerEndsAt,
+        alarmStepIndex: room.alarmStepIndex,
+        mapVotePhase: room.mapVote.phase,
+        mapVoteEndsAt: room.mapVote.endsAt,
+      }))
+      await this.rescheduleRoomAlarm()
+      return false
+    }
+
+    await this.applyResult(cancelResult.state, cancelResult.events)
+    return true
   }
 
   private scheduleDebugActiveBotActions(state: DraftState, blindBans: boolean) {
@@ -1184,6 +1229,24 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     this.broadcastRoomRecord(room, events)
   }
 
+  protected async syncDraftRuntimeSteamLobbyLink(steamLobbyLink: string | null): Promise<void> {
+    const room = await this.getRoomRecord()
+    if (!room) return
+    if ((room.config.steamLobbyLink ?? null) === steamLobbyLink) return
+
+    await this.setRoomRecord({
+      ...room,
+      config: {
+        ...room.config,
+        steamLobbyLink,
+      },
+    })
+
+    for (const connection of this.getConnections()) {
+      this.send(connection, { type: 'projection-update', steamLobbyLink })
+    }
+  }
+
   private async getStoredMapVoteState(): Promise<StoredMapVoteState> {
     return (await this.getRoomRecord())?.mapVote ?? { ...EMPTY_STORED_MAP_VOTE_STATE }
   }
@@ -1235,6 +1298,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     previews: DraftPreviewState,
     swapState: LeaderSwapState | null,
     mapVoteState: StoredMapVoteState,
+    steamLobbyLink: string | null,
   ) {
     for (const conn of this.getConnections()) {
       const connState = conn.state as ConnectionState | null
@@ -1250,10 +1314,12 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         leaderDataVersion: leaderDataVersion ?? 'live',
         hostId,
         events: this.censorEvents(events, seatIndex),
+        serverNow: Date.now(),
         timerEndsAt,
         completedAt,
         previews: censorDraftPreviews(state, previews, seatIndex),
         swapState,
+        steamLobbyLink,
       })
     }
   }

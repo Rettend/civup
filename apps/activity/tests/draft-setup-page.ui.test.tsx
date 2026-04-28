@@ -19,6 +19,16 @@ async function selectDropdownOption(label: string, optionLabel: string) {
   fireEvent.click(option)
 }
 
+function expectTextInOrder(container: HTMLElement, labels: string[]) {
+  const text = container.textContent ?? ''
+  let previousIndex = -1
+  for (const label of labels) {
+    const nextIndex = text.indexOf(label)
+    expect(nextIndex).toBeGreaterThan(previousIndex)
+    previousIndex = nextIndex
+  }
+}
+
 describe('DraftSetupPage UI', () => {
   beforeEach(() => {
     resetUiMocks()
@@ -415,8 +425,24 @@ describe('DraftSetupPage UI', () => {
     expect(screen.getByText('Waiting for host')).toBeTruthy()
     expect(screen.queryByRole('switch', { name: 'Blind Bans' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Start Draft' })).toBeNull()
-    expect(screen.getByText('Blind bans')).toBeTruthy()
+    expect(screen.getByText('Map Vote')).toBeTruthy()
+    expect(screen.getByText('Blind Bans')).toBeTruthy()
     expect(screen.getByText('Random draft')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Leave Lobby' })).toBeTruthy()
+
+    const configCard = screen.getByText('Config').closest('.bg-bg-subtle') as HTMLElement
+    expectTextInOrder(configCard, [
+      'Map Vote',
+      'Blind Bans',
+      'Min rank',
+      'Max rank',
+      'Leaders',
+      'Ban Timer (minutes)',
+      'Pick Timer (minutes)',
+      'Random draft',
+      'Duplicate leaders',
+    ])
+    expect(configCard.textContent?.includes('Game Mode')).toBe(false)
+    expect(configCard.textContent?.includes('Red Death')).toBe(false)
   })
 })

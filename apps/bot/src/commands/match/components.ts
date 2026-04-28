@@ -1,13 +1,16 @@
 import type { GameMode } from '@civup/game'
+import type { LobbyState } from '../../services/lobby/types.ts'
 import { createDb } from '@civup/db'
 import { Button } from 'discord-hono'
 import { getMatchForUser } from '../../services/activity/index.ts'
+import { storeActivityLaunchTargetSelection } from '../../services/activity/launch-target.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIds } from '../../services/match/live.ts'
 import { getMatchIdForMessage } from '../../services/match/message.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { getSessionLobbyProjectionByMatch } from '../../services/session/index.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
+import { queueSessionReportedDiscordSync } from '../../session-runtime/session-do-client.ts'
 import { factory } from '../../setup.ts'
 import { findBlockingDraftMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
 
@@ -25,12 +28,42 @@ export const component_match_join = factory.component(
 
     const env = c.env
     const kv = getKvStore(env)
+    const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
+    const interactionMessageId = c.interaction.message?.id ?? null
+    const db = createDb(env.DB)
+    const clickedLobby = await getSessionLobbyProjectionByMatch(db, lobbyId).catch(() => null)
+    if (clickedLobby?.status === 'completed' && clickedLobby.matchId) {
+      await storeActivityLaunchTargetSelection(env.Activity, env.CIVUP_SECRET, interactionChannelId ?? clickedLobby.channelId, identity.userId, {
+        kind: 'match',
+        id: clickedLobby.matchId,
+      })
+      queueBackgroundTask(c, async () => {
+        await queueSessionReportedDiscordSync(env.SessionDO, clickedLobby.id, {
+          matchId: clickedLobby.matchId ?? clickedLobby.id,
+          reason: 'stale completed join button clicked',
+        })
+      }, '[match-join] failed to queue completed match Discord repair:')
+
+      return c.resActivity()
+    }
+
+    const clickedMatchId = clickedLobby
+      ? clickedLobby.status === 'open'
+        ? null
+        : clickedLobby.matchId ?? clickedLobby.id
+      : await resolveJoinButtonLiveMatchId(env.DB, identity.userId, interactionMessageId, db)
+
+    await storeActivityLaunchTargetSelection(env.Activity, env.CIVUP_SECRET, interactionChannelId ?? clickedLobby?.channelId ?? null, identity.userId, clickedLobby?.status === 'open'
+      ? { kind: 'lobby', id: clickedLobby.id }
+      : clickedMatchId
+        ? { kind: 'match', id: clickedMatchId }
+        : { kind: 'lobby', id: lobbyId })
 
     queueBackgroundTask(c, async () => {
       const db = createDb(env.DB)
-      const lobby = await getSessionLobbyProjectionByMatch(db, lobbyId)
+      const lobby = clickedLobby ?? await getSessionLobbyProjectionByMatch(db, lobbyId)
       if (!lobby) {
-        const userMatchId = await resolveJoinButtonLiveMatchId(env.DB, identity.userId, c.interaction.message?.id ?? null)
+        const userMatchId = clickedMatchId ?? await resolveJoinButtonLiveMatchId(env.DB, identity.userId, interactionMessageId)
 
         if (userMatchId) return
         return
@@ -45,6 +78,7 @@ export const component_match_join = factory.component(
       }
 
       if (lobby.memberPlayerIds.length === 0) return
+      if (!shouldJoinOpenLobbyFromActivityButton(lobby, identity.userId)) return
 
       const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, [identity.userId])
       const currentMatchId = blockingDraftMatchIdByPlayer.get(identity.userId) ?? null
@@ -90,7 +124,18 @@ export const component_match_join = factory.component(
 
 export const component_draft_activity = factory.component(
   new Button('draft-activity', 'Open Draft Activity', 'Primary'),
-  c => c.resActivity(),
+  async (c) => {
+    const identity = getIdentity(c)
+    const channelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
+    const messageId = c.interaction.message?.id ?? null
+    if (identity && channelId && messageId) {
+      const matchId = await getMatchIdForMessage(createDb(c.env.DB), messageId).catch(() => null)
+      if (matchId) {
+        await storeActivityLaunchTargetSelection(c.env.Activity, c.env.CIVUP_SECRET, channelId, identity.userId, { kind: 'match', id: matchId })
+      }
+    }
+    return c.resActivity()
+  },
 )
 
 export async function resolveJoinButtonLiveMatchId(
@@ -132,4 +177,10 @@ function queueBackgroundTask(context: { executionCtx: { waitUntil: (promise: Pro
   catch {
     void task
   }
+}
+
+export function shouldJoinOpenLobbyFromActivityButton(lobby: Pick<LobbyState, 'memberPlayerIds' | 'slots'>, userId: string): boolean {
+  return lobby.memberPlayerIds.includes(userId)
+    || lobby.slots.includes(userId)
+    || lobby.slots.some(slot => slot == null)
 }

@@ -9,7 +9,8 @@ import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel, GAME_MODES, toBalanceLeaderboardMode } from '@civup/game'
 import { createSessionAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { buildActivityOverviewOptions, buildLobbySnapshotFromDirectoryEntry, buildLobbySnapshotFromSessionRecord, getActivitySessionById, getActivitySessionsByChannel, getOpenActivitySessionsForUser } from '../services/activity/session-state.ts'
+import { clearActivityFollowTargetSelection, clearActivityLaunchTargetSelection, readActivityFollowTargetSelection, readActivityLaunchTargetSelection, storeActivityFollowTargetSelection, type ActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
+import { buildActivityOverviewOptions, buildActivityOverviewOptionsFromSessionRecord, buildLobbySnapshotFromDirectoryEntry, buildLobbySnapshotFromSessionRecord, getActivitySessionById, getActivitySessionsByChannel, getOpenActivitySessionsForUser } from '../services/activity/session-state.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../services/match/live.ts'
 import { getCurrentSessionLobbyProjectionsForPlayer } from '../services/session/index.ts'
@@ -31,7 +32,7 @@ interface ActivityTargetOption {
   matchId: string | null
   channelId: string
   mode: GameMode
-  status: 'open' | 'drafting' | 'active'
+  status: 'open' | 'drafting' | 'active' | 'completed'
   participantCount: number
   targetSize: number
   redDeath: boolean
@@ -76,6 +77,13 @@ interface ResolvedActivitySelection {
 
 interface ActivityLaunchContext {
   targets: ChannelActivityTarget[]
+}
+
+interface ActivityRuntimeOptions {
+  db?: D1Database | null
+  sessionNamespace?: DurableObjectNamespace | null
+  activityNamespace?: DurableObjectNamespace | null
+  internalSecret?: string | null
 }
 
 export function registerActivityRoutes(app: Hono<Env>) {
@@ -185,6 +193,8 @@ export function registerActivityRoutes(app: Hono<Env>) {
     return c.json(await buildActivityLaunchSnapshot(c.env.DISCORD_TOKEN, c.env.CIVUP_SECRET, kv, channelId, userId, {
       db: c.env.DB,
       sessionNamespace: c.env.SessionDO,
+      activityNamespace: c.env.Activity,
+      internalSecret: c.env.CIVUP_SECRET,
     }))
   })
 
@@ -234,6 +244,8 @@ export function registerActivityRoutes(app: Hono<Env>) {
     }, {
       db: c.env.DB,
       sessionNamespace: c.env.SessionDO,
+      activityNamespace: c.env.Activity,
+      internalSecret: c.env.CIVUP_SECRET,
     })
     if (!result.ok) {
       return c.json({ error: result.error }, result.status)
@@ -253,19 +265,15 @@ export async function selectActivityTargetForUser(
     kind: 'lobby' | 'match'
     id: string
   },
-  options?: {
-    db?: D1Database | null
-    sessionNamespace?: DurableObjectNamespace | null
-  },
+  options?: ActivityRuntimeOptions,
 ): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string, status: 409 }> {
-  const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db)
-  const selectionTarget = context.targets.find(candidate => candidate.option.kind === target.kind && candidate.option.id === target.id) ?? null
-  if (!selectionTarget) return { ok: false, error: 'That target is no longer available.', status: 409 }
+  const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.sessionNamespace)
+  const selection = pickActivityLaunchSelectionForTarget(context.targets, target)
+  if (!selection) return { ok: false, error: 'That target is no longer available.', status: 409 }
 
-  const snapshot = await buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, {
-    target: selectionTarget,
-    pendingJoin: false,
-  }, options?.db, options?.sessionNamespace)
+  await storeActivityFollowTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId, target)
+
+  const snapshot = await buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, selection, options?.db, options?.sessionNamespace)
   return { ok: true, snapshot }
 }
 
@@ -278,11 +286,54 @@ export async function buildActivityLaunchSnapshot(
   options?: {
     db?: D1Database | null
     sessionNamespace?: DurableObjectNamespace | null
+    activityNamespace?: DurableObjectNamespace | null
+    internalSecret?: string | null
   },
 ): Promise<ActivityLaunchSnapshot> {
-  const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db)
-  const selection = pickDefaultActivityLaunchSelection(context.targets)
+  const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.sessionNamespace)
+  const launchTarget = await readActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
+  await addRequestedReportedActivityTarget(context, launchTarget, userId, options?.db)
+  const requestedSelection = pickActivityLaunchSelectionForTarget(context.targets, launchTarget)
+  if (launchTarget && requestedSelection) {
+    await clearActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
+    await storeActivityFollowTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId, launchTarget)
+  }
+  const followTarget = requestedSelection
+    ? null
+    : await readActivityFollowTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
+  const followedSelection = pickActivityLaunchSelectionForTarget(context.targets, followTarget)
+  if (followTarget && !followedSelection) {
+    await clearActivityFollowTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
+  }
+  const selection = requestedSelection
+    ?? followedSelection
+    ?? pickDefaultActivityLaunchSelection(context.targets)
   return buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, selection, options?.db, options?.sessionNamespace)
+}
+
+async function addRequestedReportedActivityTarget(
+  context: ActivityLaunchContext,
+  launchTarget: ActivityLaunchTargetSelection | null,
+  userId: string,
+  d1: D1Database | null | undefined,
+): Promise<void> {
+  if (!d1 || launchTarget?.kind !== 'match') return
+  if (context.targets.some(candidate => candidate.option.kind === 'match' && candidate.option.id === launchTarget.id)) return
+
+  const session = await getActivitySessionById(createDb(d1), launchTarget.id)
+  if (session?.phase !== 'reported') return
+
+  const option = buildActivityOverviewOptions(session)[0]
+  if (!option) return
+
+  context.targets.unshift({
+    session,
+    option: {
+      ...option,
+      isMember: option.memberPlayerIds.includes(userId),
+      isHost: option.hostId === userId,
+    },
+  })
 }
 
 async function buildActivityLaunchSnapshotFromTargets(
@@ -330,7 +381,9 @@ async function serializeActivityLaunchSelection(
     option: selection.target.option,
     matchId: selection.target.option.id,
     steamLobbyLink: selection.target.session.steamLobbyLink,
-    sessionAccessToken: await issueSessionAccessToken(activitySecret, userId, selection.target.option.id, selection.target.option.channelId),
+    sessionAccessToken: selection.target.option.status === 'completed'
+      ? null
+      : await issueSessionAccessToken(activitySecret, userId, selection.target.option.id, selection.target.option.channelId),
     lobbyId: selection.target.session.sessionId,
     mode: selection.target.session.mode,
   }
@@ -528,6 +581,7 @@ async function loadActivityLaunchContext(
   channelId: string,
   userId: string,
   db: D1Database | null | undefined,
+  sessionNamespace: DurableObjectNamespace | null | undefined,
 ): Promise<ActivityLaunchContext> {
   if (!db) return { targets: [] }
 
@@ -536,7 +590,13 @@ async function loadActivityLaunchContext(
   const targets: ChannelActivityTarget[] = []
 
   for (const session of channelSessions) {
-    const option = buildActivityOverviewOptions(session)[0]
+    const authoritativeRecord = session.phase === 'open'
+      ? await resolveAuthoritativeSessionRecord(sessionNamespace, session).catch(() => null)
+      : null
+    const authoritativeOpenRecord = authoritativeRecord?.phase === 'open' ? authoritativeRecord : null
+    const option = authoritativeOpenRecord
+      ? buildActivityOverviewOptionsFromSessionRecord(authoritativeOpenRecord)[0]
+      : buildActivityOverviewOptions(session)[0]
     if (!option) continue
 
     targets.push({
@@ -628,9 +688,25 @@ function pickDefaultActivityLaunchSelection(targets: ChannelActivityTarget[]): R
   }
 }
 
+function pickActivityLaunchSelectionForTarget(targets: ChannelActivityTarget[], requestedTarget: ActivityLaunchTargetSelection | null): ResolvedActivitySelection | null {
+  if (!requestedTarget) return null
+  const target = targets.find(candidate => candidate.option.kind === requestedTarget.kind && candidate.option.id === requestedTarget.id)
+    ?? findLifecycleSuccessorTarget(targets, requestedTarget)
+    ?? null
+  return target ? { target, pendingJoin: false } : null
+}
+
+function findLifecycleSuccessorTarget(targets: ChannelActivityTarget[], requestedTarget: ActivityLaunchTargetSelection): ChannelActivityTarget | null {
+  if (requestedTarget.kind === 'lobby') {
+    return targets.find(candidate => candidate.option.kind === 'match' && candidate.option.lobbyId === requestedTarget.id) ?? null
+  }
+
+  return targets.find(candidate => candidate.option.kind === 'lobby' && (candidate.option.id === requestedTarget.id || candidate.option.lobbyId === requestedTarget.id || candidate.option.matchId === requestedTarget.id)) ?? null
+}
+
 function pickCurrentActivityMembershipTarget(targets: ChannelActivityTarget[]): ChannelActivityTarget | null {
-  return targets.find(target => (target.option.isHost || target.option.isMember) && target.option.kind === 'match')
-    ?? targets.find(target => target.option.isHost || target.option.isMember)
+  return targets.find(target => (target.option.isHost || target.option.isMember) && target.option.kind === 'match' && (target.session.phase === 'draft' || target.session.phase === 'swap'))
+    ?? targets.find(target => (target.option.isHost || target.option.isMember) && target.option.kind === 'lobby')
     ?? null
 }
 

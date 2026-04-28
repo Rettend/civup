@@ -84,7 +84,7 @@ export const leaderTagsById = {
   'sweden-kristina': ['econ:gold', 'econ:production', 'win:culture', 'spike:late', 'role:backline', 'other:greatpeople', 'other:greatworks'],
   'teotihuacan-spearthrower-owl': ['econ:gold', 'win:domination', 'spike:mid', 'role:flex', 'other:diplo'],
   'thule-kiviuq': ['econ:gold', 'econ:food', 'win:domination', 'spike:early', 'role:flex', 'other:naval', 'other:defense'],
-  'tibet-trisong-detsen': ['econ:faith', 'econ:gold', 'win:domination', 'spike:mid', 'role:flex', 'other:defense'],
+  'tibet-trisong-detsen': ['econ:faith', 'win:domination', 'spike:mid', 'role:flex', 'other:defense'],
   'vietnam-ba-trieu': ['win:domination', 'win:culture', 'spike:mid', 'role:frontline', 'other:defense'],
   'zulu-shaka': ['win:domination', 'win:culture', 'spike:mid', 'role:frontline'],
 } as const satisfies Record<string, readonly string[]>
