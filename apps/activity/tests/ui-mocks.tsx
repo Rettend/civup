@@ -11,8 +11,8 @@ import { getTagCategory } from '../src/client/lib/leader-tags'
 export const storeSpies = {
   sendStart: mock(() => true),
   sendCancel: mock(() => {}),
-  sendScrub: mock(() => {}),
-  sendRevert: mock(() => {}),
+  sendScrub: mock(() => true),
+  sendRevert: mock(() => true),
   sendBan: mock((_civIds: string[]) => {}),
   sendPick: mock((_civId: string) => {}),
   sendPreview: mock((_kind: 'ban' | 'pick', _civIds: string[]) => {}),
@@ -289,6 +289,8 @@ export function resetUiMocks() {
   for (const spy of Object.values(clipboardSpies)) spy.mockClear()
   for (const spy of Object.values(storeSpies)) spy.mockClear()
   storeSpies.sendStart.mockImplementation(() => uiMockState.sendStartResult)
+  storeSpies.sendScrub.mockImplementation(() => true)
+  storeSpies.sendRevert.mockImplementation(() => true)
 }
 
 function currentStep() {
