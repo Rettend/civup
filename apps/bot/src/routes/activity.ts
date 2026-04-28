@@ -35,7 +35,7 @@ interface ActivityTargetOption {
   matchId: string | null
   channelId: string
   mode: GameMode
-  status: 'open' | 'drafting' | 'active'
+  status: 'open' | 'drafting' | 'active' | 'completed'
   participantCount: number
   targetSize: number
   redDeath: boolean
@@ -356,11 +356,37 @@ export async function buildActivityLaunchSnapshot(
 ): Promise<ActivityLaunchSnapshot> {
   const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.sessionNamespace)
   const launchTarget = await readActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
+  await addRequestedReportedActivityTarget(context, launchTarget, userId, options?.db)
   const requestedSelection = pickRequestedActivityLaunchSelection(context.targets, launchTarget)
   if (requestedSelection) await clearActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
   const selection = requestedSelection
     ?? pickDefaultActivityLaunchSelection(context.targets)
   return buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, selection, options?.db, options?.sessionNamespace)
+}
+
+async function addRequestedReportedActivityTarget(
+  context: ActivityLaunchContext,
+  launchTarget: ActivityLaunchTargetSelection | null,
+  userId: string,
+  d1: D1Database | null | undefined,
+): Promise<void> {
+  if (!d1 || launchTarget?.kind !== 'match') return
+  if (context.targets.some(candidate => candidate.option.kind === 'match' && candidate.option.id === launchTarget.id)) return
+
+  const session = await getActivitySessionById(createDb(d1), launchTarget.id)
+  if (session?.phase !== 'reported') return
+
+  const option = buildActivityOverviewOptions(session)[0]
+  if (!option) return
+
+  context.targets.unshift({
+    session,
+    option: {
+      ...option,
+      isMember: option.memberPlayerIds.includes(userId),
+      isHost: option.hostId === userId,
+    },
+  })
 }
 
 async function buildActivityLaunchSnapshotFromTargets(
@@ -408,7 +434,9 @@ async function serializeActivityLaunchSelection(
     option: selection.target.option,
     matchId: selection.target.option.id,
     steamLobbyLink: selection.target.session.steamLobbyLink,
-    sessionAccessToken: await issueSessionAccessToken(activitySecret, userId, selection.target.option.id, selection.target.option.channelId),
+    sessionAccessToken: selection.target.option.status === 'completed'
+      ? null
+      : await issueSessionAccessToken(activitySecret, userId, selection.target.option.id, selection.target.option.channelId),
     lobbyId: selection.target.session.sessionId,
     mode: selection.target.session.mode,
   }

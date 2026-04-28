@@ -9,6 +9,7 @@ import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { getSessionLobbyProjectionByMatch } from '../../services/session/index.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
+import { queueSessionReportedDiscordSync } from '../../session-runtime/session-do-client.ts'
 import { factory } from '../../setup.ts'
 import { findBlockingDraftMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
 
@@ -30,6 +31,21 @@ export const component_match_join = factory.component(
     const interactionMessageId = c.interaction.message?.id ?? null
     const db = createDb(env.DB)
     const clickedLobby = await getSessionLobbyProjectionByMatch(db, lobbyId).catch(() => null)
+    if (clickedLobby?.status === 'completed' && clickedLobby.matchId) {
+      await storeActivityLaunchTargetSelection(env.Activity, env.CIVUP_SECRET, interactionChannelId ?? clickedLobby.channelId, identity.userId, {
+        kind: 'match',
+        id: clickedLobby.matchId,
+      })
+      queueBackgroundTask(c, async () => {
+        await queueSessionReportedDiscordSync(env.SessionDO, clickedLobby.id, {
+          matchId: clickedLobby.matchId ?? clickedLobby.id,
+          reason: 'stale completed join button clicked',
+        })
+      }, '[match-join] failed to queue completed match Discord repair:')
+
+      return c.resActivity()
+    }
+
     const clickedMatchId = clickedLobby
       ? clickedLobby.status === 'open'
         ? null
