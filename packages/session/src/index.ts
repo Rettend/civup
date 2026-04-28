@@ -66,6 +66,7 @@ export type SessionServerMessage
     leaderDataVersion?: LeaderDataVersion
     hostId?: string
     seatIndex: number | null
+    serverNow?: number
     timerEndsAt: number | null
     completedAt: number | null
     previews: DraftPreviewState
@@ -79,6 +80,7 @@ export type SessionServerMessage
     leaderDataVersion?: LeaderDataVersion
     hostId?: string
     events: DraftEvent[]
+    serverNow?: number
     timerEndsAt: number | null
     completedAt: number | null
     previews: DraftPreviewState

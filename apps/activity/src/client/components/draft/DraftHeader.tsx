@@ -5,6 +5,7 @@ import {
   clearFfaPlacements,
   clearResultSelections,
   currentStepDuration,
+  draftNow,
   draftStore,
   ffaPlacementOrder,
   isMapVotePhase,
@@ -138,7 +139,7 @@ export function DraftHeader(props: DraftHeaderProps) {
     }
     const nextEndsAt = endsAt
 
-    function tick() { setRemaining(Math.max(0, nextEndsAt - Date.now())) }
+    function tick() { setRemaining(Math.max(0, nextEndsAt - draftNow())) }
     tick()
     const interval = setInterval(tick, 100)
     onCleanup(() => clearInterval(interval))

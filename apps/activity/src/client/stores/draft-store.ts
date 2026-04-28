@@ -1,5 +1,6 @@
 import type { DraftEvent, DraftPreviewState, DraftSelection, DraftState, DraftStep, LeaderDataVersion, LeaderSwapState, MapVoteSnapshot, PendingLeaderSwapRequest } from '@civup/game'
 import { EMPTY_MAP_VOTE_SNAPSHOT, getPickSeatForPlayer, inferGameMode, isRedDeathFormatId } from '@civup/game'
+import { createSignal } from 'solid-js'
 import { createStore, produce } from 'solid-js/store'
 
 const EMPTY_DRAFT_PREVIEWS: DraftPreviewState = {
@@ -61,6 +62,8 @@ const [draftStore, setDraftStore] = createStore<DraftStore>({
   initVersion: 0,
 })
 
+const [serverTimeOffsetMs, setServerTimeOffsetMs] = createSignal(0)
+
 export { draftStore }
 
 let swapFlashTimeout: ReturnType<typeof setTimeout> | null = null
@@ -101,6 +104,7 @@ export function initDraft(
 
 export function resetDraft() {
   clearSwapFlash()
+  setServerTimeOffsetMs(0)
   setDraftStore({
     state: null,
     leaderDataVersion: 'live',
@@ -117,6 +121,15 @@ export function resetDraft() {
     swapFlashSeatIndices: [],
     initVersion: 0,
   })
+}
+
+export function syncDraftServerTime(serverNow: number | null | undefined, receivedAt: number = Date.now()): void {
+  if (typeof serverNow !== 'number' || !Number.isFinite(serverNow)) return
+  setServerTimeOffsetMs(serverNow - receivedAt)
+}
+
+export function draftNow(localNow: number = Date.now()): number {
+  return localNow + serverTimeOffsetMs()
 }
 
 export function updateDraft(

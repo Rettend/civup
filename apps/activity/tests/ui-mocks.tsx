@@ -496,6 +496,7 @@ mock.module('~/client/stores', () => ({
   dealtCivIds: () => [],
   detailLeaderId: () => uiMockState.detailLeaderId,
   displayName: () => uiMockState.displayName,
+  draftNow: (localNow = Date.now()) => localNow,
   draftStore: {
     get state() {
       return uiMockState.draftState

@@ -6,13 +6,16 @@ import {
   canSendPickPreview,
   currentStep,
   currentStepDuration,
+  draftNow,
   getPreviewPickForSeat,
   hasSubmitted,
   initDraft,
   isMyTurn,
   isSwapWindowOpen,
   phaseLabel,
+  resetDraft,
   seatHasIncomingSwap,
+  syncDraftServerTime,
   updateDraft,
 } from '../src/client/stores/draft-store'
 
@@ -118,6 +121,16 @@ function createComplete4v4State(): DraftState {
 }
 
 describe('draft-store helpers', () => {
+  test('tracks server time offset for draft countdowns', () => {
+    try {
+      syncDraftServerTime(112_000, 100_000)
+      expect(draftNow(130_000)).toBe(142_000)
+    }
+    finally {
+      resetDraft()
+    }
+  })
+
   test('phaseLabel returns WAITING before draft starts', () => {
     initDraft(createWaitingState(), 'live', 'a1', 0, null, null, { bans: {}, picks: {} }, null)
     expect(phaseLabel()).toBe('WAITING')
