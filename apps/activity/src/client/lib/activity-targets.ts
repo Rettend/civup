@@ -37,9 +37,6 @@ export function shouldRequestActivityTargetSelection(input: {
   if (input.currentTargetKey !== optionKey) return true
 
   return input.option.kind === 'lobby'
-    && !input.option.isHost
-    && !input.option.isMember
-    && input.option.participantCount >= input.option.targetSize
 }
 
 /** Chooses a default target only when it is still safe to auto-select one. */
