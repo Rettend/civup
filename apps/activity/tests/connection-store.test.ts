@@ -1,5 +1,5 @@
-import type { DraftState } from '@civup/game'
-import { createDraft, default2v2, isDraftError, processDraftInput } from '@civup/game'
+import type { DraftState, MapVoteSnapshot } from '@civup/game'
+import { createDraft, default2v2, EMPTY_MAP_VOTE_SNAPSHOT, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { shouldForceReconnectForStaleDraft } from '../src/client/lib/stale-draft'
 import { isFatalSocketClose, isUnauthorizedSocketClose } from '../src/client/stores/connection-store'
@@ -18,6 +18,16 @@ function createActiveState(): DraftState {
   const result = processDraftInput(waiting, { type: 'START' })
   if (isDraftError(result)) throw new Error(result.error)
   return result.state
+}
+
+function createVotingMapVote(endsAt: number): MapVoteSnapshot {
+  return {
+    ...EMPTY_MAP_VOTE_SNAPSHOT,
+    enabled: true,
+    supported: true,
+    phase: 'voting',
+    endsAt,
+  }
 }
 
 describe('stale draft reconnect watchdog', () => {
@@ -45,6 +55,19 @@ describe('stale draft reconnect watchdog', () => {
       lastSocketActivityAt: timerEndsAt + 1,
       nowMs: timerEndsAt + 5_001,
     })).toBe(false)
+  })
+
+  test('reconnects when a map vote timer stays expired without newer socket activity', () => {
+    const mapVoteEndsAt = 10_000
+
+    expect(shouldForceReconnectForStaleDraft({
+      connectionStatus: 'connected',
+      state: null,
+      timerEndsAt: null,
+      mapVote: createVotingMapVote(mapVoteEndsAt),
+      lastSocketActivityAt: mapVoteEndsAt - 1,
+      nowMs: mapVoteEndsAt + 5_001,
+    })).toBe(true)
   })
 
   test('forces at most one reconnect per stale timer value', () => {

@@ -382,6 +382,7 @@ function startStaleDraftReconnectWatchdog() {
       connectionStatus: connectionStatus(),
       state: draftStore.state,
       timerEndsAt: draftStore.timerEndsAt,
+      mapVote: draftStore.mapVote,
       lastSocketActivityAt,
       lastForcedReconnectTimerEndsAt,
       nowMs: draftNow(),
@@ -394,6 +395,8 @@ function startStaleDraftReconnectWatchdog() {
     relayDevLog('warn', 'Forcing session socket reconnect after stale timer', {
       sessionId: currentSession.sessionId,
       timerEndsAt: draftStore.timerEndsAt,
+      mapVotePhase: draftStore.mapVote.phase,
+      mapVoteEndsAt: draftStore.mapVote.endsAt,
       currentStepIndex: draftStore.state?.currentStepIndex ?? null,
       lastSocketActivityAt,
       target: describeSessionSocketTarget(currentSession.target),
