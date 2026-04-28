@@ -25,6 +25,7 @@ export interface TeamLeaderboardBucketSnapshot {
 }
 
 interface StoredTeamLeaderboardSnapshot {
+  version?: unknown
   updatedAt?: unknown
   buckets?: unknown
 }
@@ -50,6 +51,7 @@ interface TeamParticipantRow {
 }
 
 const TEAM_LEADERBOARD_SNAPSHOT_KEY = 'leaderboard:team-snapshot'
+const TEAM_LEADERBOARD_SNAPSHOT_VERSION = 2
 
 export const TEAM_LEADERBOARD_BUCKETS = ['duo', 'squad-3v3', 'squad-4v4', 'squad-5v5', 'squad-6v6'] as const satisfies readonly TeamLeaderboardBucket[]
 export const TEAM_LEADERBOARD_MIN_GAMES = 5
@@ -304,6 +306,7 @@ async function setTeamLeaderboardBucketSnapshots(
   await kvMput(kv, [{
     key: teamLeaderboardSnapshotKey(),
     value: JSON.stringify({
+      version: TEAM_LEADERBOARD_SNAPSHOT_VERSION,
       updatedAt: Math.max(0, ...snapshots.map(snapshot => snapshot.updatedAt)),
       buckets: Object.fromEntries(snapshots.map(snapshot => [snapshot.bucket, snapshot.rows.map(row => ({
         playerIds: [...row.playerIds],
@@ -320,6 +323,7 @@ function normalizeTeamLeaderboardSnapshots(value: unknown): Map<TeamLeaderboardB
   if (!value || typeof value !== 'object') return new Map()
 
   const raw = value as StoredTeamLeaderboardSnapshot
+  if (raw.version !== TEAM_LEADERBOARD_SNAPSHOT_VERSION) return new Map()
   if (!raw.buckets || typeof raw.buckets !== 'object') return new Map()
 
   const updatedAt = typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt)

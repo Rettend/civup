@@ -844,7 +844,7 @@ describe('system scenarios', () => {
     })).resolves.toBeNull()
   })
 
-  test('spectator retargeting returns the latest selected snapshot without persistence', async () => {
+  test('spectator retargeting persists the latest selected follow target', async () => {
     const world = await createTrackedWorld()
     const firstLobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -886,7 +886,14 @@ describe('system scenarios', () => {
     })
     expect(launch.status).toBe(200)
     expect(launch.body).toMatchObject({
-      selection: null,
+      selection: {
+        kind: 'lobby',
+        option: {
+          id: secondLobby.id,
+          isHost: false,
+          isMember: false,
+        },
+      },
       options: expect.arrayContaining([
         expect.objectContaining({ id: firstLobby.id, kind: 'lobby' }),
         expect.objectContaining({ id: secondLobby.id, kind: 'lobby' }),
@@ -935,7 +942,15 @@ describe('system scenarios', () => {
 
     expect(launch.status).toBe(200)
     expect(launch.body).toMatchObject({
-      selection: null,
+      selection: {
+        kind: 'match',
+        matchId: started.matchId,
+        option: {
+          id: started.matchId,
+          lobbyId: targetLobby.id,
+          isMember: false,
+        },
+      },
       options: expect.arrayContaining([
         expect.objectContaining({ id: started.matchId, kind: 'match', lobbyId: targetLobby.id }),
         expect.objectContaining({ id: otherLobby.id, kind: 'lobby' }),
@@ -949,13 +964,29 @@ describe('system scenarios', () => {
           option: {
             id: started.matchId,
             lobbyId: targetLobby.id,
+            isMember: false,
           },
+        },
+      },
+    })
+
+    expect((await world.party.cancelDraft(started.matchId, { reason: 'revert' })).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const revertedLaunch = await world.activity.launch({ channelId: targetLobby.channelId, userId: 'spectator' })
+    expect(revertedLaunch.status).toBe(200)
+    expect(revertedLaunch.body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        option: {
+          id: targetLobby.id,
+          isMember: false,
         },
       },
     })
   })
 
-  test('participant launch after start ignores an old open-lobby selection and resolves to the live match token', async () => {
+  test('participant launch after start respects an explicit spectator follow target', async () => {
     const world = await createTrackedWorld()
     const liveLobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -983,22 +1014,16 @@ describe('system scenarios', () => {
     expect(launch.status).toBe(200)
     expect(launch.body).toMatchObject({
       selection: {
-        kind: 'match',
-        matchId: started.matchId,
+        kind: 'lobby',
         option: {
-          id: started.matchId,
-          lobbyId: liveLobby.id,
-          isMember: true,
+          id: staleOpenLobby.id,
+          isMember: false,
         },
       },
+      options: expect.arrayContaining([
+        expect.objectContaining({ id: started.matchId, kind: 'match', lobbyId: liveLobby.id, isMember: true }),
+      ]),
     })
-
-    const sessionAccessToken = (launch.body as { selection?: { sessionAccessToken?: string | null } }).selection?.sessionAccessToken ?? null
-    expect(sessionAccessToken).not.toBeNull()
-    await expect(verifySessionAccessToken('secret', sessionAccessToken, {
-      sessionId: started.matchId,
-      userId: 'p1',
-    })).resolves.not.toBeNull()
   })
 
   test('revert cancel lifecycle sync restores the original roster and lobby targeting', async () => {
@@ -1184,7 +1209,13 @@ describe('system scenarios', () => {
     expect(await world.inspect.lobbyMapping('p1')).toBe(newLobby.id)
     expect(await world.inspect.lobbyMapping('p2')).toBeNull()
     expect(launch.body).toMatchObject({
-      selection: null,
+      selection: {
+        kind: 'lobby',
+        option: {
+          id: newLobby.id,
+          isMember: false,
+        },
+      },
       options: expect.arrayContaining([
         expect.objectContaining({ id: newLobby.id, kind: 'lobby' }),
       ]),
@@ -1238,7 +1269,14 @@ describe('system scenarios', () => {
     expect(await world.inspect.matchMapping('p1')).toBe(newMatch.matchId)
     expect(await world.inspect.matchMapping('fresh-host')).toBe(newMatch.matchId)
     expect(spectatorLaunch.body).toMatchObject({
-      selection: null,
+      selection: {
+        kind: 'match',
+        matchId: newMatch.matchId,
+        option: {
+          id: newMatch.matchId,
+          isMember: false,
+        },
+      },
       options: expect.arrayContaining([
         expect.objectContaining({ id: newMatch.matchId, kind: 'match' }),
       ]),
@@ -1289,7 +1327,7 @@ describe('system scenarios', () => {
     expect(await world.inspect.lobbyMapping('p1')).toBe(freshLobby.id)
   })
 
-  test('activity launch prefers the real current lobby over a stale target in the same channel', async () => {
+  test('activity launch keeps explicit spectator follow target separate from real membership', async () => {
     const world = await createTrackedWorld()
     const currentLobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -1317,10 +1355,13 @@ describe('system scenarios', () => {
       selection: {
         kind: 'lobby',
         option: {
-          id: currentLobby.id,
-          isMember: true,
+          id: staleLobby.id,
+          isMember: false,
         },
       },
+      options: expect.arrayContaining([
+        expect.objectContaining({ id: currentLobby.id, kind: 'lobby', isMember: true }),
+      ]),
     })
   })
 
@@ -1704,8 +1745,8 @@ describe('system scenarios', () => {
     expect(await world.lobby.getById(lobby.id)).toBeNull()
     expect(await world.inspect.matchMapping('p1')).toBeNull()
     expect(await world.inspect.matchMapping('p2')).toBeNull()
-    expect((await world.match.getMessageIds(started.matchId))).toHaveLength(1)
-    expect(world.discord.messages().some(message => message.channelId === 'channel-archive')).toBe(false)
+    expect(await world.match.getMessageIds(started.matchId)).toHaveLength(2)
+    expect(world.discord.messages().filter(message => message.channelId === 'channel-archive')).toHaveLength(1)
   })
 
   test('moving from one open lobby to another uses the real join path and keeps mappings coherent', async () => {
@@ -2250,7 +2291,13 @@ describe('system scenarios', () => {
     expect(first.arrangedLobby?.slots).toEqual(second.arrangedLobby?.slots)
     expect(first.arrangedLobby?.slots).not.toEqual(third.arrangedLobby?.slots)
     expect(first.launch.body).toMatchObject({
-      selection: null,
+      selection: {
+        kind: 'lobby',
+        option: {
+          id: first.lobby.id,
+          isMember: false,
+        },
+      },
       options: expect.arrayContaining([
         expect.objectContaining({ id: first.lobby.id, kind: 'lobby' }),
       ]),

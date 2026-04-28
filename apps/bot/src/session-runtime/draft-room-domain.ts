@@ -295,14 +295,14 @@ export function applyDraftResultCommand(
       alarmEffect = { type: 'delete-alarm' }
       const lifecycleSync = createCompleteLifecycleSync(nextRoom, {
         completedAt,
-        delivery: 'background',
+        delivery: 'await',
         kind: 'DraftCompleted',
       })
       nextRoom = lifecycleSync.room
       effects.push(
+        lifecycleSync.effect,
         { type: 'broadcast-update', events: command.events },
         { type: 'close-connections', reason: 'Draft closed' },
-        lifecycleSync.effect,
       )
     }
   }
@@ -315,16 +315,26 @@ export function applyDraftResultCommand(
       cancelledAt,
     }
     alarmEffect = { type: 'delete-alarm' }
+    const shouldReopenLobby = nextState.cancelReason === 'timeout' || nextState.cancelReason === 'revert'
     const lifecycleSync = createCancelledLifecycleSync(nextRoom, {
       cancelledAt,
-      delivery: 'background',
+      delivery: shouldReopenLobby ? 'await' : 'background',
     })
     nextRoom = lifecycleSync.room
-    effects.push(
-      { type: 'broadcast-update', events: command.events },
-      { type: 'close-connections', reason: 'Draft closed' },
-      lifecycleSync.effect,
-    )
+    if (shouldReopenLobby) {
+      effects.push(
+        lifecycleSync.effect,
+        { type: 'broadcast-update', events: command.events },
+        { type: 'close-connections', reason: 'Draft closed' },
+      )
+    }
+    else {
+      effects.push(
+        { type: 'broadcast-update', events: command.events },
+        { type: 'close-connections', reason: 'Draft closed' },
+        lifecycleSync.effect,
+      )
+    }
   }
   else {
     nextRoom = clearSwapWindowState(nextRoom)
@@ -468,7 +478,7 @@ export function finalizeCompletedDraftCommand(
   }
   const lifecycleSync = createCompleteLifecycleSync(nextRoom, {
     completedAt,
-    delivery: 'background',
+    delivery: 'await',
     finalized: true,
     kind: 'DraftFinalized',
   })
@@ -476,8 +486,8 @@ export function finalizeCompletedDraftCommand(
 
   return createTransition(nextRoom, [
     { type: 'delete-alarm' },
-    { type: 'close-connections', reason: 'Draft closed' },
     lifecycleSync.effect,
+    { type: 'close-connections', reason: 'Draft closed' },
   ], true)
 }
 

@@ -170,9 +170,13 @@ function isNullBodyStatus(status: number): boolean {
 
 function shouldUseBotServiceBinding(request: Request, env: Env): boolean {
   if (!env.BOT) return false
-  if (isDev({ viteDev: import.meta.env.DEV, host: request.url, configuredHosts: [env.BOT_HOST] })) return false
+  if (isDev({ viteDev: getImportMetaDev(), host: request.url, configuredHosts: [env.BOT_HOST] })) return false
 
   return true
+}
+
+function getImportMetaDev(): boolean | undefined {
+  return import.meta.env?.DEV
 }
 
 async function handlePartyProxy(request: Request, url: URL, env: Env): Promise<Response> {
@@ -181,7 +185,7 @@ async function handlePartyProxy(request: Request, url: URL, env: Env): Promise<R
     const session = await requireActivitySession(request, env)
     if (session instanceof Response) return session
 
-    const targetPath = url.pathname.replace(/^\/api\/parties/, '/parties')
+    const targetPath = buildPartyProxyTargetPath(url)
     const resolvedTargetPath = buildTargetPath(url, targetPath)
     const botService = env.BOT
     if (botService && shouldUseBotServiceBinding(request, env)) {
@@ -197,6 +201,26 @@ async function handlePartyProxy(request: Request, url: URL, env: Env): Promise<R
     console.error('Party proxy error:', { targetUrl, err })
     return json({ error: 'Party proxy failed' }, 502)
   }
+}
+
+function buildPartyProxyTargetPath(url: URL): string {
+  const targetPath = url.pathname.replace(/^\/api\/parties/, '/parties')
+  const mainPrefix = '/parties/main/'
+  if (!targetPath.startsWith(mainPrefix)) return targetPath
+
+  const roomAndRest = targetPath.slice(mainPrefix.length)
+  const slashIndex = roomAndRest.indexOf('/')
+  const room = slashIndex === -1 ? roomAndRest : roomAndRest.slice(0, slashIndex)
+  if (!room) return targetPath
+
+  const namespace = url.searchParams.has('accessToken') || !isLikelyDiscordSnowflake(room)
+    ? 'session'
+    : 'activity'
+  return `/parties/${namespace}/${roomAndRest}`
+}
+
+function isLikelyDiscordSnowflake(value: string): boolean {
+  return /^\d{17,20}$/.test(value)
 }
 
 function buildProxyRequest(targetUrl: string, request: Request, env: Env, session: ActivityProxySession): Request {

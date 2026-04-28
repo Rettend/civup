@@ -10,6 +10,15 @@ export interface DiscordMessagePayload {
   }
 }
 
+export interface DiscordInteractionFilePayload {
+  applicationId: string
+  interactionToken: string
+  content?: string
+  filename: string
+  contentType: string
+  data: Uint8Array
+}
+
 export interface DiscordGuildRolePayload {
   name: string
   color?: number
@@ -70,6 +79,27 @@ export async function createChannelMessage(
   )
 
   return await response.json() as DiscordMessageResponse
+}
+
+export async function editOriginalInteractionResponseWithFile(payload: DiscordInteractionFilePayload): Promise<void> {
+  const form = new FormData()
+  const messagePayload: Record<string, unknown> = {
+    allowed_mentions: { parse: [] },
+    attachments: [{ id: 0, filename: payload.filename }],
+  }
+  if (payload.content != null) messagePayload.content = payload.content
+
+  form.append('payload_json', JSON.stringify(messagePayload))
+  form.append('files[0]', new Blob([payload.data], { type: payload.contentType }), payload.filename)
+
+  await requestDiscord(
+    'edit interaction response',
+    `https://discord.com/api/v10/webhooks/${payload.applicationId}/${payload.interactionToken}/messages/@original`,
+    {
+      method: 'PATCH',
+      body: form,
+    },
+  )
 }
 
 export async function createDmChannel(

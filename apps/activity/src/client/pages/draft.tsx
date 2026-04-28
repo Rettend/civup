@@ -59,17 +59,19 @@ export function DraftPage(props: DraftPageProps) {
         <>
           <Show
             when={shouldShowDraftView()}
-            fallback={autoStartSent() || (props.autoStart && amHost())
-              ? <AutoStartingDraftScreen />
-              : (
-                  <WaitingForDraftStartScreen
-                    isHost={amHost()}
-                    onStart={() => {
-                      const sent = sendStart()
-                      if (sent) setAutoStartSent(true)
-                    }}
-                  />
-                )}
+            fallback={hasDraftState()
+              ? autoStartSent() || (props.autoStart && amHost())
+                ? <AutoStartingDraftScreen />
+                : (
+                    <WaitingForDraftStartScreen
+                      isHost={amHost()}
+                      onStart={() => {
+                        const sent = sendStart()
+                        if (sent) setAutoStartSent(true)
+                      }}
+                    />
+                  )
+              : <JoiningDraftRoomScreen />}
           >
             <DraftView
               matchId={props.matchId}
@@ -128,6 +130,17 @@ export function DraftPage(props: DraftPageProps) {
         </main>
       </Match>
     </Switch>
+  )
+}
+
+function JoiningDraftRoomScreen() {
+  return (
+    <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
+      <div class="text-center">
+        <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
+        <div class="text-sm text-fg-muted">Joining draft room...</div>
+      </div>
+    </main>
   )
 }
 

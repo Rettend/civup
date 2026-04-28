@@ -208,6 +208,109 @@ describe('match moderation recalculation', () => {
     }
   })
 
+  test('resolve on a cancelled mid-history 1v1 match replays from that match onward', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedThreeCompletedDuels(db)
+      await db.insert(matches).values({
+        id: 'm1a',
+        gameMode: '1v1',
+        status: 'cancelled',
+        createdAt: 2500,
+        completedAt: 2600,
+        seasonId: null,
+        draftData: JSON.stringify({ completedAt: 2100 }),
+      })
+      await db.insert(matchParticipants).values([
+        { matchId: 'm1a', playerId: 'p1', team: 0, civId: 'aztec', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'm1a', playerId: 'p2', team: 1, civId: 'egypt', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ])
+
+      const result = await resolveMatchByModerator(db, kv, {
+        matchId: 'm1a',
+        placements: 'B',
+        resolvedAt: 10_000,
+      }, directTerminalOptions)
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+
+      expect(result.previousStatus).toBe('cancelled')
+      expect(result.match.status).toBe('completed')
+      expect(result.recalculatedMatchIds).toEqual(['m1a', 'm2', 'm3'])
+
+      const [m2p1] = await db
+        .select({ ratingBeforeMu: matchParticipants.ratingBeforeMu })
+        .from(matchParticipants)
+        .where(and(
+          eq(matchParticipants.matchId, 'm2'),
+          eq(matchParticipants.playerId, 'p1'),
+        ))
+        .limit(1)
+
+      expect(m2p1?.ratingBeforeMu).not.toBeCloseTo(27, 5)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('resolve repairs an earlier completed squad match with missing rating snapshots', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      const playerIds = Array.from({ length: 11 }, (_, index) => `p${index + 1}`)
+      await db.insert(players).values(playerIds.map(playerId => ({
+        id: playerId,
+        displayName: playerId,
+        avatarUrl: null,
+        createdAt: 1,
+      })))
+      await db.insert(matches).values([
+        { id: 'corrupt-squad', gameMode: '3v3', status: 'completed', createdAt: 1000, completedAt: 1500, seasonId: null, draftData: null },
+        { id: 'later-squad', gameMode: '3v3', status: 'active', createdAt: 2000, completedAt: null, seasonId: null, draftData: JSON.stringify({ completedAt: 2100 }) },
+      ])
+      await db.insert(matchParticipants).values([
+        { matchId: 'corrupt-squad', playerId: 'p1', team: 0, civId: 'rome', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'corrupt-squad', playerId: 'p2', team: 0, civId: 'greece', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'corrupt-squad', playerId: 'p3', team: 0, civId: 'india', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'corrupt-squad', playerId: 'p4', team: 1, civId: 'china', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'corrupt-squad', playerId: 'p5', team: 1, civId: 'japan', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'corrupt-squad', playerId: 'p6', team: 1, civId: 'france', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'later-squad', playerId: 'p1', team: 0, civId: 'rome', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'later-squad', playerId: 'p7', team: 0, civId: 'greece', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'later-squad', playerId: 'p8', team: 0, civId: 'india', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'later-squad', playerId: 'p9', team: 1, civId: 'china', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'later-squad', playerId: 'p10', team: 1, civId: 'japan', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'later-squad', playerId: 'p11', team: 1, civId: 'france', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ])
+
+      const result = await resolveMatchByModerator(db, kv, {
+        matchId: 'later-squad',
+        placements: '<@p1>',
+        resolvedAt: 3000,
+      }, directTerminalOptions)
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.recalculatedMatchIds).toEqual(['corrupt-squad', 'later-squad'])
+
+      const repairedParticipants = await db
+        .select()
+        .from(matchParticipants)
+      expect(repairedParticipants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
+
+      const ratings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'squad'))
+      expect(ratings.find(row => row.playerId === 'p1')?.gamesPlayed).toBe(2)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('resolve on the latest completed 1v1 match only recalculates that match', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -316,7 +419,7 @@ describe('match moderation recalculation', () => {
     }
   })
 
-  test('cancel rejected by reported SessionDO does not clear completed participant results', async () => {
+  test('cancel on a reported SessionDO clears completed participant results', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
@@ -355,14 +458,84 @@ describe('match moderation recalculation', () => {
         sessionNamespace: runtime.sessionNamespace,
       })
 
-      expect('error' in result).toBe(true)
-      if (!('error' in result)) return
-      expect(result.error).toContain('Reported sessions cannot be cancelled')
-      expect((await getSessionRecord(runtime.sessionNamespace, lobby.id))?.phase).toBe('reported')
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.previousStatus).toBe('completed')
+      expect(result.match.status).toBe('cancelled')
+      expect(result.recalculatedMatchIds).toEqual([])
+      expect((await getSessionRecord(runtime.sessionNamespace, lobby.id))?.phase).toBe('cancelled')
 
       const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, lobby.id))
-      expect(participants.every(participant => participant.placement === 1)).toBe(true)
-      expect(participants.every(participant => participant.ratingBeforeMu === 25 && participant.ratingAfterMu === 27)).toBe(true)
+      expect(participants.every(participant => participant.placement == null)).toBe(true)
+      expect(participants.every(participant => participant.ratingBeforeMu == null && participant.ratingAfterMu == null)).toBe(true)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('resolve reports a cancelled SessionDO match', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await db.insert(players).values([
+        { id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 },
+        { id: 'p2', displayName: 'P2', avatarUrl: null, createdAt: 1 },
+      ])
+      const lobby = await createLobby(kv, {
+        mode: '1v1',
+        hostId: 'p1',
+        channelId: 'channel-1',
+        messageId: 'message-1',
+        db,
+        queueEntries: [{ playerId: 'p1', displayName: 'P1', avatarUrl: null, joinedAt: 1 }],
+      })
+      const runtime = await getTestLobbyRuntime(kv, db)
+      const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['p1', 'p2'], lobby, {
+        db,
+        sessionNamespace: runtime.sessionNamespace,
+        queueEntries: [
+          { playerId: 'p1', displayName: 'P1', avatarUrl: null, joinedAt: 1 },
+          { playerId: 'p2', displayName: 'P2', avatarUrl: null, joinedAt: 1 },
+        ],
+      })
+      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, { db, sessionNamespace: runtime.sessionNamespace })
+      await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: 2 })
+      await db.update(matches).set({ status: 'active', draftData: JSON.stringify({ completedAt: 2 }) }).where(eq(matches.id, lobby.id))
+
+      const cancelled = await cancelMatchByModerator(db, kv, {
+        matchId: lobby.id,
+        cancelledAt: 3,
+      }, {
+        sessionNamespace: runtime.sessionNamespace,
+      })
+      expect('error' in cancelled).toBe(false)
+      if ('error' in cancelled) return
+      expect((await getSessionRecord(runtime.sessionNamespace, lobby.id))?.phase).toBe('cancelled')
+      expect(cancelled.match.status).toBe('cancelled')
+
+      const result = await resolveMatchByModerator(db, kv, {
+        matchId: lobby.id,
+        placements: '<@p2>',
+        resolvedAt: 4,
+      }, {
+        sessionNamespace: runtime.sessionNamespace,
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.previousStatus).toBe('cancelled')
+      expect(result.recalculatedMatchIds).toEqual([lobby.id])
+      expect((await getSessionRecord(runtime.sessionNamespace, lobby.id))?.phase).toBe('reported')
+      expect(result.match.status).toBe('completed')
+
+      const p1 = result.participants.find(participant => participant.playerId === 'p1')
+      const p2 = result.participants.find(participant => participant.playerId === 'p2')
+      expect(p1?.placement).toBe(2)
+      expect(p2?.placement).toBe(1)
+      expect(p1?.ratingBeforeMu).not.toBeNull()
+      expect(p2?.ratingAfterMu).not.toBeNull()
     }
     finally {
       sqlite.close()

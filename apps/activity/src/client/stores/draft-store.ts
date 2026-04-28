@@ -1,5 +1,6 @@
 import type { DraftEvent, DraftPreviewState, DraftSelection, DraftState, DraftStep, LeaderDataVersion, LeaderSwapState, MapVoteSnapshot, PendingLeaderSwapRequest } from '@civup/game'
 import { EMPTY_MAP_VOTE_SNAPSHOT, getPickSeatForPlayer, inferGameMode, isRedDeathFormatId } from '@civup/game'
+import { createSignal } from 'solid-js'
 import { createStore, produce } from 'solid-js/store'
 
 const EMPTY_DRAFT_PREVIEWS: DraftPreviewState = {
@@ -32,6 +33,8 @@ export interface DraftStore {
   previews: DraftPreviewState
   /** Post-draft teammate swap state, when the swap window is open. */
   swapState: LeaderSwapState | null
+  /** Steam lobby deep link projected by the session aggregate. */
+  steamLobbyLink: string | null
   /** Server-authoritative pre-draft map vote state. */
   mapVote: MapVoteSnapshot
   /** Recently swapped seats for transient portrait flash effects. */
@@ -53,10 +56,13 @@ const [draftStore, setDraftStore] = createStore<DraftStore>({
   optimisticSeatPicks: {},
   previews: EMPTY_DRAFT_PREVIEWS,
   swapState: null,
+  steamLobbyLink: null,
   mapVote: EMPTY_MAP_VOTE_SNAPSHOT,
   swapFlashSeatIndices: [],
   initVersion: 0,
 })
+
+const [serverTimeOffsetMs, setServerTimeOffsetMs] = createSignal(0)
 
 export { draftStore }
 
@@ -74,6 +80,7 @@ export function initDraft(
   previews: DraftPreviewState,
   swapState: LeaderSwapState | null,
   mapVote: MapVoteSnapshot = EMPTY_MAP_VOTE_SNAPSHOT,
+  steamLobbyLink: string | null = null,
 ) {
   clearSwapFlash()
   const nextInitVersion = draftStore.initVersion + 1
@@ -88,6 +95,7 @@ export function initDraft(
     optimisticSeatPicks: {},
     previews,
     swapState,
+    steamLobbyLink,
     mapVote,
     swapFlashSeatIndices: [],
     initVersion: nextInitVersion,
@@ -96,6 +104,7 @@ export function initDraft(
 
 export function resetDraft() {
   clearSwapFlash()
+  setServerTimeOffsetMs(0)
   setDraftStore({
     state: null,
     leaderDataVersion: 'live',
@@ -107,10 +116,20 @@ export function resetDraft() {
     optimisticSeatPicks: {},
     previews: EMPTY_DRAFT_PREVIEWS,
     swapState: null,
+    steamLobbyLink: null,
     mapVote: EMPTY_MAP_VOTE_SNAPSHOT,
     swapFlashSeatIndices: [],
     initVersion: 0,
   })
+}
+
+export function syncDraftServerTime(serverNow: number | null | undefined, receivedAt: number = Date.now()): void {
+  if (typeof serverNow !== 'number' || !Number.isFinite(serverNow)) return
+  setServerTimeOffsetMs(serverNow - receivedAt)
+}
+
+export function draftNow(localNow: number = Date.now()): number {
+  return localNow + serverTimeOffsetMs()
 }
 
 export function updateDraft(
@@ -123,6 +142,7 @@ export function updateDraft(
   previews: DraftPreviewState,
   swapState: LeaderSwapState | null,
   mapVote: MapVoteSnapshot = EMPTY_MAP_VOTE_SNAPSHOT,
+  steamLobbyLink: string | null = null,
 ) {
   setDraftStore(produce((s) => {
     s.state = state
@@ -134,8 +154,13 @@ export function updateDraft(
     s.optimisticSeatPicks = {}
     s.previews = previews
     s.swapState = swapState
+    s.steamLobbyLink = steamLobbyLink
     s.mapVote = mapVote
   }))
+}
+
+export function updateDraftSteamLobbyLink(steamLobbyLink: string | null) {
+  setDraftStore('steamLobbyLink', steamLobbyLink)
 }
 
 export function updateDraftPreviews(previews: DraftPreviewState) {

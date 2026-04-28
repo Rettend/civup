@@ -135,6 +135,12 @@ export type SessionTerminalLifecycleCommand
     at?: number
   }
 
+export interface SessionReportedDiscordSyncCommand {
+  matchId?: string
+  reason?: string
+  at?: number
+}
+
 export type SessionDraftLifecycleSyncResult =
   | { ok: true, ignored?: boolean, synced?: boolean }
   | { ok: false, status: number, error: string }
@@ -306,6 +312,26 @@ export async function runSessionTerminalLifecycleCommand(
   const body = await response.json<{ record?: SessionRecord }>()
   if (!body.record) throw new Error(`Failed to run session lifecycle command ${command.type} for ${sessionId}: invalid response`)
   return body.record
+}
+
+export async function queueSessionReportedDiscordSync(
+  namespace: DurableObjectNamespace | null | undefined,
+  sessionId: string,
+  command: SessionReportedDiscordSyncCommand = {},
+): Promise<void> {
+  if (!namespace) throw new Error('SessionDO binding is required')
+
+  const id = namespace.idFromName(sessionId)
+  const stub = namespace.get(id)
+  const response = await stub.fetch(buildSessionRequest(sessionId, '/commands/reported-discord-sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(command),
+  }))
+
+  if (!response.ok) {
+    await throwSessionCommandError(response, `queue reported Discord sync for ${sessionId}`)
+  }
 }
 
 async function postSessionLobbyCommand(
