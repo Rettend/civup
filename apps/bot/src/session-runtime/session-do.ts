@@ -1484,11 +1484,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       console.error('[session-do] failed to clear completed commit intent', error)
     })
 
-    await this.publishActivityUpdate(record)
-    await this.broadcastSelectedSessionUpdate(record)
-    await this.scheduleLifecycleSyncAlarm(record).catch((error) => {
-      console.error('[session-do] failed to schedule session alarm after commit', error)
-    })
+    await this.finalizeCommittedRecord(record, 'commit')
     return null
   }
 
@@ -1517,11 +1513,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return
     }
 
-    await this.publishActivityUpdate(intent.record)
-    await this.broadcastSelectedSessionUpdate(intent.record)
-    await this.scheduleLifecycleSyncAlarm(intent.record).catch((error) => {
-      console.error('[session-do] failed to schedule session alarm after commit intent recovery', error)
-    })
+    await this.finalizeCommittedRecord(intent.record, 'commit-recovery')
   }
 
   private async clearPendingCommitIntent(): Promise<void> {
@@ -1657,11 +1649,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     }
 
     await this.ctx.storage.put(SESSION_RECORD_STORAGE_KEY, cleared)
-    await this.publishActivityUpdate(cleared)
-    await this.broadcastSelectedSessionUpdate(cleared)
-    await this.scheduleLifecycleSyncAlarm(cleared).catch((error) => {
-      console.error('[session-do] failed to schedule session alarm after terminal sync', error)
-    })
+    await this.finalizeCommittedRecord(cleared, 'terminal-sync')
     return { ok: true, record: cleared }
   }
 
@@ -1719,6 +1707,21 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     }
   }
 
+  private queueActivityUpdate(record: SessionRecord): void {
+    const task = this.publishActivityUpdate(record)
+    if (typeof this.ctx.waitUntil === 'function') {
+      this.ctx.waitUntil(task)
+    }
+  }
+
+  private async finalizeCommittedRecord(record: SessionRecord, action: string): Promise<void> {
+    await this.broadcastSelectedSessionUpdate(record)
+    this.queueActivityUpdate(record)
+    await this.scheduleLifecycleSyncAlarm(record).catch((error) => {
+      console.error(`[session-do] failed to schedule session alarm after ${action}`, error)
+    })
+  }
+
   private async syncDraftRuntimeProjectionState(record: SessionRecord): Promise<void> {
     if (record.phase !== 'draft' && record.phase !== 'swap') return
     await this.syncDraftRuntimeSteamLobbyLink(record.projectionState.steamLobbyLink)
@@ -1732,7 +1735,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (openLobbyConnections.length === 0) return
 
     if (record.phase === 'open') {
-      await Promise.all(openLobbyConnections.map(connection => this.sendOpenLobbySnapshot(connection, record)))
+      const message = await this.buildOpenLobbySnapshotMessage(record)
+      for (const connection of openLobbyConnections) connection.send(message)
       return
     }
 
@@ -1742,22 +1746,26 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     }
 
     if (record.phase === 'cancelled' || record.phase === 'reported') {
+      const message = JSON.stringify({ type: 'lobby', lobbyId: record.id, snapshot: null } satisfies SessionServerMessage)
       for (const connection of openLobbyConnections) {
-        this.sendSessionMessage(connection, { type: 'lobby', lobbyId: record.id, snapshot: null })
+        connection.send(message)
       }
     }
   }
 
   private async sendOpenLobbySnapshot(connection: Connection, record: OpenSessionRecord): Promise<void> {
+    connection.send(await this.buildOpenLobbySnapshotMessage(record))
+  }
+
+  private async buildOpenLobbySnapshotMessage(record: OpenSessionRecord): Promise<string> {
     if (!this.env.KV) {
-      this.sendSessionMessage(connection, { type: 'error', message: 'Session lobby snapshots are not configured' })
-      return
+      return JSON.stringify({ type: 'error', message: 'Session lobby snapshots are not configured' } satisfies SessionServerMessage)
     }
-    this.sendSessionMessage(connection, {
+    return JSON.stringify({
       type: 'lobby',
       lobbyId: record.id,
       snapshot: await buildLobbySnapshotFromSessionRecord(this.env.KV, record),
-    })
+    } satisfies SessionServerMessage)
   }
 
   private async sendSessionStarted(connection: Connection, record: DraftSessionRecord): Promise<void> {

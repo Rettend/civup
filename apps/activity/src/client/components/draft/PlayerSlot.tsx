@@ -1,6 +1,6 @@
 import type { Leader } from '@civup/game'
 import { getLeader, MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '@civup/game'
-import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, onCleanup, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { placementIconClass } from '~/client/lib/placement-icons'
@@ -518,12 +518,15 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
       'linear-gradient(to bottom, rgba(255,255,255,0.015) 0%, transparent 32%)',
     ].join(', '),
   }
-  const breatheAnimationStyle = () => createStableBreatheAnimationStyle({
-    active: showVotingGlow(),
-    endsAt: isVoting() ? draftStore.mapVote.endsAt : null,
-    durationSeconds: MAP_VOTE_VOTING_DURATION_SECONDS,
-    seed: props.seatIndex,
-  })
+  const breatheAnimationStyle = createMemo<StableBreatheAnimationStyle>(
+    () => createStableBreatheAnimationStyle({
+      active: showVotingGlow(),
+      endsAt: isVoting() ? draftStore.mapVote.endsAt : null,
+      durationSeconds: MAP_VOTE_VOTING_DURATION_SECONDS,
+    }),
+    { key: 'initial', style: {} },
+    { equals: (previous, next) => previous.key === next.key },
+  )
 
   const clearWinnerFlashTimeout = () => {
     if (winnerFlashTimeout == null) return
@@ -577,7 +580,7 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
           'opacity-0': !showVotingGlow(),
         }}
         style={{
-          ...breatheAnimationStyle(),
+          ...breatheAnimationStyle().style,
           '-webkit-mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
           'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
         }}
@@ -589,7 +592,7 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
           'opacity-0': !showVotingGlow(),
         }}
         style={{
-          ...breatheAnimationStyle(),
+          ...breatheAnimationStyle().style,
           '-webkit-mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
           'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
         }}
@@ -600,7 +603,7 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
           'anim-bar-breathe': showVotingGlow(),
           'opacity-0': !showVotingGlow(),
         }}
-        style={breatheAnimationStyle()}
+        style={breatheAnimationStyle().style}
       />
 
       <Show when={showWinnerFlash()}>
@@ -742,13 +745,21 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
   )
 }
 
-function createStableBreatheAnimationStyle(props: { active: boolean, endsAt: number | null, durationSeconds: number, seed: number }) {
-  if (!props.active || props.endsAt == null || props.durationSeconds <= 0) return {}
+interface StableBreatheAnimationStyle {
+  key: string
+  style: { 'animation-delay'?: string }
+}
 
+function createStableBreatheAnimationStyle(props: { active: boolean, endsAt: number | null, durationSeconds: number }): StableBreatheAnimationStyle {
+  if (!props.active || props.endsAt == null || props.durationSeconds <= 0) return { key: 'inactive', style: {} }
+
+  const key = `${props.endsAt}:${props.durationSeconds}`
   const phaseStartedAt = props.endsAt - (props.durationSeconds * 1000)
   const phaseElapsedMs = Math.max(0, Date.now() - phaseStartedAt)
-  const seatOffsetMs = (props.seed * 197) % SLOT_BREATHE_CYCLE_MS
-  const animationDelayMs = -((phaseElapsedMs + seatOffsetMs) % SLOT_BREATHE_CYCLE_MS)
+  const animationDelayMs = -(phaseElapsedMs % SLOT_BREATHE_CYCLE_MS)
 
-  return { 'animation-delay': `${animationDelayMs}ms` }
+  return {
+    key,
+    style: { 'animation-delay': `${animationDelayMs}ms` },
+  }
 }
