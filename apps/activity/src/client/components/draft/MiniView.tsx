@@ -1,7 +1,7 @@
 import type { MiniSeatItem } from './MiniLayout'
 import { formatModeLabel, inferGameMode } from '@civup/game'
 import { createEffect, createSignal, onCleanup } from 'solid-js'
-import { draftStore, isMapVotePhase, isRedDeathDraft, mapVotePhase, mapVoteRevealEndsAt, mapVoteVotingEndsAt, phaseAccent, phaseLabel } from '~/client/stores'
+import { draftNow, draftStore, isMapVotePhase, isRedDeathDraft, mapVotePhase, mapVoteRevealEndsAt, mapVoteVotingEndsAt, phaseAccent, phaseLabel } from '~/client/stores'
 import { MiniFrame, MiniSeatGrid } from './MiniLayout'
 
 /** Minimized PiP view */
@@ -19,7 +19,7 @@ export function MiniView() {
       return
     }
 
-    const tick = () => setRemaining(Math.max(0, endsAt - Date.now()))
+    const tick = () => setRemaining(Math.max(0, endsAt - draftNow()))
     tick()
     const interval = setInterval(tick, 100)
     onCleanup(() => clearInterval(interval))

@@ -1,7 +1,8 @@
 import type { DraftSeat, DraftState } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { matchBans, matchParticipants, matches, sessionDirectory } from '@civup/db'
+import { matchBans, matchParticipants, matches, players, sessionDirectory } from '@civup/db'
 import { allLeaderIds } from '@civup/game'
+import { createSessionAccessToken, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
 import { eq } from 'drizzle-orm'
 import { DEFAULT_DRAFT_CONFIG } from '../../src/services/lobby/normalize.ts'
 import { SessionDO } from '../../src/session-runtime/session-do.ts'
@@ -193,18 +194,95 @@ describe('SessionDO open session commands', () => {
       expect(await staleFinalized.json()).toMatchObject({ ok: true, ignored: true })
       expect(warnings.flat().some(value => typeof value === 'string' && value.includes('ignoring stale draft completion'))).toBe(false)
 
-      const cancelled = await room.fetch(sessionRequest('/commands/session-lifecycle', {
-        method: 'POST',
-        body: JSON.stringify({ type: 'cancel-session', matchId: openLobby.id, at: 50 }),
-      }))
-      expect(cancelled.status).toBe(409)
-      expect(await cancelled.json()).toEqual({ error: 'Reported sessions cannot be cancelled' })
+      const cancelled = await sessionLifecycleCommand(room, { type: 'cancel-session', matchId: openLobby.id, at: 50 })
+      expect(cancelled.record).toMatchObject({ phase: 'cancelled', version: 5, closedAt: 50 })
 
       const [terminalDirectoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
-      expect(terminalDirectoryRow).toMatchObject({ phase: 'reported', closedAt: 40 })
+      expect(terminalDirectoryRow).toMatchObject({ phase: 'cancelled', closedAt: 50 })
+      const [terminalMatchRow] = await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1)
+      expect(terminalMatchRow).toMatchObject({ status: 'cancelled', completedAt: 50 })
+
+      const resolved = await sessionLifecycleCommand(room, { type: 'mark-reported', matchId: openLobby.id, at: 60 })
+      expect(resolved.record).toMatchObject({ phase: 'reported', version: 6, closedAt: 60 })
+
+      const [reportedDirectoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
+      expect(reportedDirectoryRow).toMatchObject({ phase: 'reported', closedAt: 60 })
+      const [reportedMatchRow] = await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1)
+      expect(reportedMatchRow).toMatchObject({ status: 'completed', completedAt: 50 })
     }
     finally {
       console.warn = originalConsoleWarn
+      sqlite.close()
+    }
+  })
+
+  test('opens imported active sessions without an initialized draft room', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const { state, storage } = createFakeDurableObjectStateWithStorage()
+    const room = new SessionDO(state, {
+      DB: createSqliteD1Database(sqlite),
+      CIVUP_SECRET: 'secret',
+    } as any)
+    const matchId = 'legacy-active-match'
+
+    try {
+      await db.insert(players).values([
+        { id: 'p1', displayName: 'Player One', avatarUrl: null, createdAt: 1_700_000_000_000 },
+        { id: 'p2', displayName: 'Player Two', avatarUrl: null, createdAt: 1_700_000_000_000 },
+      ])
+      await db.insert(matches).values({
+        id: matchId,
+        gameMode: '1v1',
+        status: 'active',
+        isOld: false,
+        seasonId: null,
+        draftData: JSON.stringify({ completedAt: 1_700_000_050_000 }),
+        createdAt: 1_700_000_000_000,
+        completedAt: null,
+      })
+      await db.insert(matchParticipants).values([
+        { matchId, playerId: 'p1', team: 0, civId: 'greece-gorgo', placement: null },
+        { matchId, playerId: 'p2', team: 1, civId: 'babylon-hammurabi', placement: null },
+      ])
+      storage.set('session-record', buildActiveSessionRecord({ id: matchId, matchId }))
+
+      const token = await createSessionAccessToken('secret', {
+        userId: 'p1',
+        sessionId: matchId,
+        channelId: 'channel-1',
+      })
+      const connection = createFakeConnection()
+      await room.onConnect(connection.connection, {
+        request: sessionRequest(`/?accessToken=${encodeURIComponent(token)}`, {
+          headers: {
+            'X-CivUp-Internal-Secret': 'secret',
+            'X-CivUp-Activity-User-Id': 'p1',
+          },
+        }),
+      } as any)
+
+      expect(connection.messages).toHaveLength(1)
+      expect(connection.messages[0]).toMatchObject({
+        type: 'init',
+        completedAt: 1_700_000_050_000,
+        hostId: 'p1',
+        seatIndex: 0,
+        state: {
+          matchId,
+          status: 'complete',
+          seats: [
+            { playerId: 'p1', displayName: 'Player One', team: 0 },
+            { playerId: 'p2', displayName: 'Player Two', team: 1 },
+          ],
+          picks: [
+            { seatIndex: 0, civId: 'greece-gorgo' },
+            { seatIndex: 1, civId: 'babylon-hammurabi' },
+          ],
+        },
+      })
+      expect(connection.closed).toEqual({ code: 1000, reason: 'Draft closed' })
+    }
+    finally {
       sqlite.close()
     }
   })
@@ -241,6 +319,67 @@ describe('SessionDO open session commands', () => {
     finally {
       sqlite.close()
     }
+  })
+
+  test('projects Steam lobby link changes into draft and swap runtime snapshots', async () => {
+    const { sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      CIVUP_SECRET: 'secret',
+      DB: createSqliteD1Database(sqlite),
+      KV: kv,
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+    const accessToken = await createSessionAccessToken('secret', {
+      userId: 'p1',
+      sessionId: openLobby.id,
+      channelId: openLobby.channelId,
+    })
+
+    await room.fetch(sessionRequest('/commands/create-from-lobby', {
+      method: 'POST',
+      body: JSON.stringify({
+        lobby: openLobby,
+        queueEntries: [
+          { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+          { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+        ],
+      }),
+    }))
+    await room.fetch(sessionRequest('/commands/start-draft', {
+      method: 'POST',
+      body: JSON.stringify({ hostId: 'p1', now: 2 }),
+    }))
+
+    const draftLink = 'steam://joinlobby/289070/12345678901234567/76561198000000000'
+    const draftProjectionResponse = await room.fetch(sessionRequest('/commands/session-projection', {
+      method: 'POST',
+      body: JSON.stringify({ type: 'set-steam-lobby-link', steamLobbyLink: draftLink, now: 3 }),
+    }))
+    expect(draftProjectionResponse.status).toBe(200)
+
+    let statusResponse = await room.fetch(draftStatusRequest(accessToken))
+    expect(statusResponse.status).toBe(200)
+    expect((await statusResponse.json() as any).steamLobbyLink).toBe(draftLink)
+
+    await room.fetch(sessionRequest('/commands/draft-lifecycle', {
+      method: 'POST',
+      body: JSON.stringify({ type: 'draft-completed', opensSwapWindow: true, at: 4 }),
+    }))
+    const swapLink = 'steam://joinlobby/289070/22345678901234567/76561198000000001'
+    const swapProjectionResponse = await room.fetch(sessionRequest('/commands/session-projection', {
+      method: 'POST',
+      body: JSON.stringify({ type: 'set-steam-lobby-link', steamLobbyLink: swapLink, now: 5 }),
+    }))
+    expect(swapProjectionResponse.status).toBe(200)
+
+    statusResponse = await room.fetch(draftStatusRequest(accessToken))
+    expect(statusResponse.status).toBe(200)
+    const statusBody = await statusResponse.json() as any
+    expect(statusBody.steamLobbyLink).toBe(swapLink)
   })
 
   test('draft start and lifecycle sync continue without KV binding', async () => {
@@ -1052,15 +1191,28 @@ function wrapFailingBoundStatement(
 
 function sessionRequest(pathname: string, init?: RequestInit): Request {
   const headers = new Headers(init?.headers)
-  headers.set('x-partykit-room', 'session-1')
-  headers.set('x-partykit-namespace', 'session')
+  headers.set(PARTYSERVER_ROOM_HEADER, 'session-1')
+  headers.set(PARTYSERVER_NAMESPACE_HEADER, 'session')
   return new Request(`https://session.local${pathname}`, { ...init, headers })
 }
 
+function draftStatusRequest(accessToken: string): Request {
+  return sessionRequest(`/?accessToken=${encodeURIComponent(accessToken)}`, {
+    headers: {
+      'X-CivUp-Internal-Secret': 'secret',
+      'X-CivUp-Activity-User-Id': 'p1',
+    },
+  })
+}
+
 function createFakeDurableObjectState(): DurableObjectState {
+  return createFakeDurableObjectStateWithStorage().state
+}
+
+function createFakeDurableObjectStateWithStorage(): { state: DurableObjectState, storage: Map<string, unknown> } {
   const storage = new Map<string, unknown>()
   let alarmAt: number | null = null
-  return {
+  const state = {
     async blockConcurrencyWhile(callback: () => Promise<void> | void) {
       await callback()
     },
@@ -1089,6 +1241,33 @@ function createFakeDurableObjectState(): DurableObjectState {
       },
     },
   } as unknown as DurableObjectState
+  return { state, storage }
+}
+
+function createFakeConnection() {
+  const messages: any[] = []
+  let connectionState: unknown = null
+  let closed: { code: number, reason: string } | null = null
+  return {
+    messages,
+    get closed() {
+      return closed
+    },
+    connection: {
+      send(message: string) {
+        messages.push(JSON.parse(message))
+      },
+      close(code = 1000, reason = '') {
+        closed = { code, reason }
+      },
+      setState(state: unknown) {
+        connectionState = state
+      },
+      get state() {
+        return connectionState
+      },
+    } as any,
+  }
 }
 
 function buildLobby(overrides: Record<string, unknown> = {}) {
@@ -1112,6 +1291,46 @@ function buildLobby(overrides: Record<string, unknown> = {}) {
     createdAt: 1,
     updatedAt: 1,
     revision: 1,
+    ...overrides,
+  }
+}
+
+function buildActiveSessionRecord(overrides: Record<string, unknown> = {}) {
+  const id = typeof overrides.id === 'string' ? overrides.id : 'legacy-active-match'
+  const matchId = typeof overrides.matchId === 'string' ? overrides.matchId : id
+  return {
+    id,
+    phase: 'active',
+    version: 1,
+    hostId: 'p1',
+    guildId: 'guild-1',
+    channelId: 'channel-1',
+    mode: '1v1',
+    matchId,
+    config: { ...DEFAULT_DRAFT_CONFIG, minRole: null, maxRole: null },
+    roster: {
+      participants: [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 1_700_000_000_000, slotIndex: 0 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 1_700_000_000_000, slotIndex: 1 },
+      ],
+      slots: ['p1', 'p2'],
+    },
+    lastArrange: null,
+    projectionState: {
+      channelId: 'channel-1',
+      messageId: 'message-1',
+      steamLobbyLink: null,
+    },
+    createdAt: 1_700_000_000_000,
+    updatedAt: 1_700_000_050_000,
+    lastActivityAt: 1_700_000_050_000,
+    closedAt: null,
+    frozenAt: 1_700_000_000_000,
+    draftStartSync: null,
+    lifecycleEventSequence: 0,
+    lifecycleSync: null,
+    projectionSync: null,
+    terminalSync: null,
     ...overrides,
   }
 }

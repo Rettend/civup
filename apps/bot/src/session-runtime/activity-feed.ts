@@ -4,6 +4,7 @@ import type { SessionRecord } from './session-record.ts'
 import { createDb } from '@civup/db'
 import { CIVUP_ACTIVITY_USER_ID_HEADER, isAuthorizedInternalRequest } from '@civup/utils'
 import { Server } from 'partyserver'
+import { parseStoredActivityFollowTargetSelection, parseStoredActivityLaunchTargetSelection, type StoredActivityFollowTargetSelection, type StoredActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
 import { buildActivityOverviewOptionsFromSessionRecord, buildActivityOverviewSnapshotFromDirectory, compareActivityOverviewOptions } from '../services/activity/session-state.ts'
 
 interface ActivityFeedEnv extends Cloudflare.Env {
@@ -25,6 +26,8 @@ interface PublishSessionUpdateRequest {
 }
 
 const ACTIVITY_OVERVIEW_STORAGE_KEY = 'activity-overview-snapshot'
+const ACTIVITY_LAUNCH_TARGET_STORAGE_KEY = 'activity-launch-target'
+const ACTIVITY_FOLLOW_TARGET_STORAGE_KEY = 'activity-follow-target'
 
 export class Activity extends Server<ActivityFeedEnv> {
   static override options = {
@@ -32,8 +35,13 @@ export class Activity extends Server<ActivityFeedEnv> {
   }
 
   override async onRequest(req: Request): Promise<Response> {
-    if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 })
     if (!isAuthorizedInternalRequest(req.headers, this.env.CIVUP_SECRET)) return json({ error: 'Unauthorized' }, 401)
+
+    const pathname = new URL(req.url).pathname
+    if (pathname === '/activity-launch-target') return await this.handleActivityLaunchTargetRequest(req)
+    if (pathname === '/activity-follow-target') return await this.handleActivityFollowTargetRequest(req)
+
+    if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 })
 
     let body: PublishSessionUpdateRequest
     try {
@@ -48,6 +56,64 @@ export class Activity extends Server<ActivityFeedEnv> {
 
     await this.broadcastSessionUpdate(record)
     return json({ ok: true })
+  }
+
+  private async handleActivityLaunchTargetRequest(req: Request): Promise<Response> {
+    switch (req.method) {
+      case 'GET': {
+        const stored = await this.ctx.storage.get<StoredActivityLaunchTargetSelection>(ACTIVITY_LAUNCH_TARGET_STORAGE_KEY)
+        const target = parseStoredActivityLaunchTargetSelection(stored ?? null)
+        if (!target && stored) await this.ctx.storage.delete(ACTIVITY_LAUNCH_TARGET_STORAGE_KEY)
+        return json({ target })
+      }
+      case 'POST': {
+        let body: unknown
+        try {
+          body = await req.json()
+        }
+        catch {
+          return json({ error: 'Invalid JSON payload' }, 400)
+        }
+        const target = parseStoredActivityLaunchTargetSelection(body)
+        if (!target) return json({ error: 'Invalid launch target' }, 400)
+        await this.ctx.storage.put(ACTIVITY_LAUNCH_TARGET_STORAGE_KEY, target)
+        return json({ ok: true })
+      }
+      case 'DELETE':
+        await this.ctx.storage.delete(ACTIVITY_LAUNCH_TARGET_STORAGE_KEY)
+        return json({ ok: true })
+      default:
+        return new Response('Method not allowed', { status: 405 })
+    }
+  }
+
+  private async handleActivityFollowTargetRequest(req: Request): Promise<Response> {
+    switch (req.method) {
+      case 'GET': {
+        const stored = await this.ctx.storage.get<StoredActivityFollowTargetSelection>(ACTIVITY_FOLLOW_TARGET_STORAGE_KEY)
+        const target = parseStoredActivityFollowTargetSelection(stored ?? null)
+        if (!target && stored) await this.ctx.storage.delete(ACTIVITY_FOLLOW_TARGET_STORAGE_KEY)
+        return json({ target })
+      }
+      case 'POST': {
+        let body: unknown
+        try {
+          body = await req.json()
+        }
+        catch {
+          return json({ error: 'Invalid JSON payload' }, 400)
+        }
+        const target = parseStoredActivityFollowTargetSelection(body)
+        if (!target) return json({ error: 'Invalid follow target' }, 400)
+        await this.ctx.storage.put(ACTIVITY_FOLLOW_TARGET_STORAGE_KEY, target)
+        return json({ ok: true })
+      }
+      case 'DELETE':
+        await this.ctx.storage.delete(ACTIVITY_FOLLOW_TARGET_STORAGE_KEY)
+        return json({ ok: true })
+      default:
+        return new Response('Method not allowed', { status: 405 })
+    }
   }
 
   override async onConnect(connection: Connection, ctx: ConnectionContext) {

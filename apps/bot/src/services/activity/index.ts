@@ -27,6 +27,7 @@ export interface CreateDraftRuntimeOptions {
   timerConfig?: DraftTimerConfig
   leaderPoolSize?: number | null
   dealOptionsSize?: number | null
+  steamLobbyLink?: string | null
 }
 
 export interface DraftRuntimeConfigResult extends MatchCreationResult {
@@ -67,6 +68,7 @@ export function buildDraftRuntimeConfig(
     mapVoteEnabled,
     leaderDataVersion: options.leaderDataVersion ?? 'live',
     timerConfig: options.timerConfig,
+    steamLobbyLink: options.steamLobbyLink ?? null,
   }
 
   return { matchId, formatId: format.id, seats, config }

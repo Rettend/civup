@@ -53,6 +53,7 @@ export function createLobbySnapshot(overrides: Partial<LobbySnapshot> = {}): Lob
     minRole: null,
     maxRole: null,
     lastArrange: null,
+    memberPlayerIds: ['host-1', 'player-2'],
     entries: [
       { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
       { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },

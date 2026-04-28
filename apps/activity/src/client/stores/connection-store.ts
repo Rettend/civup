@@ -6,7 +6,7 @@ import { createSignal, untrack } from 'solid-js'
 import { buildActivitySessionHeaders, clearActivitySessionToken, getActivitySessionToken } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
 import { shouldForceReconnectForStaleDraft } from '../lib/stale-draft'
-import { applySwapUpdate, draftStore, initDraft, setOptimisticSeatPick, updateDraft, updateDraftPreviews } from './draft-store'
+import { applySwapUpdate, draftNow, draftStore, initDraft, setOptimisticSeatPick, syncDraftServerTime, updateDraft, updateDraftPreviews, updateDraftSteamLobbyLink } from './draft-store'
 import { clearSelections } from './ui-store'
 
 // ── Types ──────────────────────────────────────────────────
@@ -43,6 +43,7 @@ export interface LobbySnapshot {
     strategy: LobbyArrangeStrategy
     at: number
   } | null
+  memberPlayerIds?: string[]
   entries: ({
     playerId: string
     displayName: string
@@ -125,7 +126,7 @@ export interface ActivityTargetOption {
   matchId: string | null
   channelId: string
   mode: string
-  status: 'open' | 'drafting' | 'active'
+  status: 'open' | 'drafting' | 'active' | 'completed'
   participantCount: number
   targetSize: number
   redDeath: boolean
@@ -141,7 +142,7 @@ export interface ActivityOverviewOptionSnapshot {
   matchId: string | null
   channelId: string
   mode: string
-  status: 'open' | 'drafting' | 'active'
+  status: 'open' | 'drafting' | 'active' | 'completed'
   participantCount: number
   targetSize: number
   redDeath: boolean
@@ -264,7 +265,7 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
 
   nextSocket.addEventListener('open', () => {
     if (socket !== nextSocket) return
-    lastSocketActivityAt = Date.now()
+    lastSocketActivityAt = draftNow()
     lastServerErrorMessage = null
     setConnectionStatus('connected')
     setConnectionError(null)
@@ -272,12 +273,15 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
 
   nextSocket.addEventListener('message', (event) => {
     if (socket !== nextSocket) return
-    lastSocketActivityAt = Date.now()
+    const receivedAt = Date.now()
     try {
       const msg = JSON.parse(event.data as string) as SessionServerMessage
+      if (msg.type === 'init' || msg.type === 'update') syncDraftServerTime(msg.serverNow, receivedAt)
+      lastSocketActivityAt = draftNow(receivedAt)
       handleServerMessage(msg)
     }
     catch (err) {
+      lastSocketActivityAt = draftNow(receivedAt)
       relayDevLog('error', 'Failed to parse server message', err)
       console.error('Failed to parse server message:', err)
     }
@@ -378,8 +382,10 @@ function startStaleDraftReconnectWatchdog() {
       connectionStatus: connectionStatus(),
       state: draftStore.state,
       timerEndsAt: draftStore.timerEndsAt,
+      mapVote: draftStore.mapVote,
       lastSocketActivityAt,
       lastForcedReconnectTimerEndsAt,
+      nowMs: draftNow(),
     })) { return }
 
     const currentSession = currentSessionConnection
@@ -389,6 +395,8 @@ function startStaleDraftReconnectWatchdog() {
     relayDevLog('warn', 'Forcing session socket reconnect after stale timer', {
       sessionId: currentSession.sessionId,
       timerEndsAt: draftStore.timerEndsAt,
+      mapVotePhase: draftStore.mapVote.phase,
+      mapVoteEndsAt: draftStore.mapVote.endsAt,
       currentStepIndex: draftStore.state?.currentStepIndex ?? null,
       lastSocketActivityAt,
       target: describeSessionSocketTarget(currentSession.target),
@@ -846,7 +854,7 @@ export async function selectActivityTarget(
   channelId: string,
   userId: string,
   target: Pick<ActivityTargetOption, 'kind' | 'id'>,
-): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string }> {
+): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string, status?: number }> {
   try {
     const data = await activityApiPost<{ snapshot?: ActivityLaunchSnapshot }>('/api/activity/target', {
       channelId,
@@ -859,7 +867,7 @@ export async function selectActivityTarget(
   }
   catch (err) {
     console.error('Failed to select activity target:', err)
-    if (err instanceof ApiError) return { ok: false, error: err.message }
+    if (err instanceof ApiError) return { ok: false, error: err.message, status: err.status }
     return { ok: false, error: 'Network error while switching activity target' }
   }
 }
@@ -975,7 +983,7 @@ function handleServerMessage(msg: SessionServerMessage) {
       clearSelections()
       syncForcedReconnectTimer(msg.timerEndsAt)
       syncPreviewCache(msg.previews, msg.seatIndex)
-      initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote)
+      initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.steamLobbyLink ?? null)
       if (shouldDisconnectAfterState(msg.state.status, msg.swapState ?? null)) {
         disconnect()
       }
@@ -983,7 +991,7 @@ function handleServerMessage(msg: SessionServerMessage) {
     case 'update':
       syncForcedReconnectTimer(msg.timerEndsAt)
       syncPreviewCache(msg.previews)
-      updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote)
+      updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.steamLobbyLink ?? null)
       if (pendingConfigAck) {
         clearTimeout(pendingConfigAck.timeout)
         pendingConfigAck.resolve()
@@ -1000,6 +1008,9 @@ function handleServerMessage(msg: SessionServerMessage) {
       break
     case 'swap-update':
       applySwapUpdate(msg.swapState, msg.picks)
+      break
+    case 'projection-update':
+      updateDraftSteamLobbyLink(msg.steamLobbyLink)
       break
     case 'error':
       lastServerErrorMessage = {

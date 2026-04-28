@@ -99,12 +99,15 @@ export async function resolveMatchByModerator(
   else {
     try {
       await runBatch(db, applyQueries)
-      const prepareError = await prepareReportedMatchForRecalculation(db, input.matchId, input.resolvedAt)
-      if (prepareError) return { error: prepareError }
+      if (previousStatus === 'completed') {
+        const prepareError = await prepareReportedMatchForRecalculation(db, input.matchId, input.resolvedAt)
+        if (prepareError) return { error: prepareError }
+      }
 
       const recalculated = await recalculateLeaderboardMode(db, leaderboardMode, {
         fromMatchId: input.matchId,
         includeFromMatch: true,
+        includeActiveBoundary: previousStatus !== 'completed',
       })
       if ('error' in recalculated) {
         const rollbackError = await rollbackResolvedMatchModeration(db, kv, {
@@ -271,7 +274,7 @@ async function shouldRollbackPreparedReportedMatch(options: MatchSessionLifecycl
   try {
     const record = await getSessionRecord(options.sessionNamespace, matchId)
     if (!record) return false
-    return record.phase === 'active' || record.phase === 'swap'
+    return record.phase === 'active' || record.phase === 'swap' || record.phase === 'cancelled'
   }
   catch {
     return false
@@ -326,8 +329,7 @@ async function validateReportableSession(
     const record = await getSessionRecord(sessionNamespace, matchId)
     if (!record) return `Session **${matchId}** not found.`
     if (record.phase === 'reported') return null
-    if (record.phase === 'cancelled') return 'Cancelled sessions cannot be reported'
-    if (record.phase !== 'active' && record.phase !== 'swap') return `Session is not reportable (phase: ${record.phase})`
+    if (record.phase !== 'active' && record.phase !== 'swap' && record.phase !== 'cancelled') return `Session is not reportable (phase: ${record.phase})`
     return null
   }
   catch (error) {

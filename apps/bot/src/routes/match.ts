@@ -11,6 +11,7 @@ import { syncReportedMatchDiscordMessages } from '../services/match/report-disco
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../services/ranked/role-sync.ts'
 import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
 import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
+import { queueSessionReportedDiscordSync } from '../session-runtime/session-do-client.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from './auth.ts'
 
@@ -96,7 +97,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
         matchId: result.match.id,
         reporterId,
       })
-      await syncReportedMatchDiscordMessages({
+      const discordSync = await syncReportedMatchDiscordMessages({
         db,
         kv,
         token: c.env.DISCORD_TOKEN,
@@ -109,6 +110,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
         sessionNamespace: c.env.SessionDO,
         archivePolicy: 'if-missing',
       })
+      queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
       return c.json({ ok: true, alreadyReported: true, match: result.match, participants: result.participants })
     }
 
@@ -140,7 +142,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       }
     }
 
-    await syncReportedMatchDiscordMessages({
+    const discordSync = await syncReportedMatchDiscordMessages({
       db,
       kv,
       token: c.env.DISCORD_TOKEN,
@@ -159,6 +161,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       },
       archivePolicy: 'always',
     })
+    queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
     if (isRankedResult) {
       try {
         await markLeaderboardsDirty(db, `activity-report:${result.match.id}`)
@@ -284,4 +287,36 @@ export function registerMatchRoutes(app: Hono<Env>) {
 
 function isLiveLobbyProjection(lobby: { status: string } | null): boolean {
   return lobby != null && (lobby.status === 'open' || lobby.status === 'drafting' || lobby.status === 'active')
+}
+
+function queueReportedDiscordRepairIfNeeded(
+  context: { env: Env['Bindings'], executionCtx: ExecutionContext },
+  matchId: string,
+  errors: string[],
+): void {
+  if (errors.length === 0) return
+  queueBackgroundTask(context, async () => {
+    await queueSessionReportedDiscordSync(context.env.SessionDO, matchId, {
+      matchId,
+      reason: errors.join('; '),
+    })
+  }, `[match-report] failed to queue reported Discord repair for ${matchId}:`)
+}
+
+function queueBackgroundTask(context: { executionCtx: ExecutionContext }, run: () => Promise<void>, errorMessage: string): void {
+  const task = (async () => {
+    try {
+      await run()
+    }
+    catch (error) {
+      console.error(errorMessage, error)
+    }
+  })()
+
+  try {
+    context.executionCtx.waitUntil(task)
+  }
+  catch {
+    void task
+  }
 }

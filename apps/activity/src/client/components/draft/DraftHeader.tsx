@@ -5,6 +5,7 @@ import {
   clearFfaPlacements,
   clearResultSelections,
   currentStepDuration,
+  draftNow,
   draftStore,
   ffaPlacementOrder,
   isMapVotePhase,
@@ -57,6 +58,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   }
   const [phaseFlash, setPhaseFlash] = createSignal(false)
   const [armedHostAction, setArmedHostAction] = createSignal<DraftHostAction | null>(null)
+  const [pendingHostAction, setPendingHostAction] = createSignal<DraftHostAction | null>(null)
   let phaseFlashTimeout: ReturnType<typeof setTimeout> | null = null
   let armedHostActionTimeout: ReturnType<typeof setTimeout> | null = null
 
@@ -137,7 +139,7 @@ export function DraftHeader(props: DraftHeaderProps) {
     }
     const nextEndsAt = endsAt
 
-    function tick() { setRemaining(Math.max(0, nextEndsAt - Date.now())) }
+    function tick() { setRemaining(Math.max(0, nextEndsAt - draftNow())) }
     tick()
     const interval = setInterval(tick, 100)
     onCleanup(() => clearInterval(interval))
@@ -184,15 +186,27 @@ export function DraftHeader(props: DraftHeaderProps) {
     setResultSelectionsLocked(resultStatus() !== 'idle')
   })
 
-  createEffect(on(() => state()?.matchId, () => {
+  let lastResultMatchId = state()?.matchId ?? null
+  createEffect(() => {
+    const matchId = state()?.matchId ?? null
+    if (matchId === lastResultMatchId) return
+    lastResultMatchId = matchId
     setResultStatus('idle')
+    setPendingHostAction(null)
     clearResultSelections()
     disarmHostAction()
-  }, { defer: true }))
+  })
 
+  let hasTrackedResultStatus = false
+  let lastDraftStatus = state()?.status
   createEffect(() => {
-    if (state()?.status === 'complete') return
+    const status = state()?.status
+    if (hasTrackedResultStatus && status === lastDraftStatus) return
+    hasTrackedResultStatus = true
+    lastDraftStatus = status
+    if (status === 'complete') return
     setResultStatus('idle')
+    setPendingHostAction(null)
     clearResultSelections()
   })
 
@@ -261,7 +275,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   const scrubMatch = async () => {
     const uid = userId()
     const s = state()
-    if (!amHost() || !uid || !s) return
+    if (!amHost() || !uid || !s || pendingHostAction() != null || resultStatus().startsWith('submitting')) return
 
     if (s.status === 'complete') {
       setResultStatus('submitting:scrub')
@@ -270,18 +284,16 @@ export function DraftHeader(props: DraftHeaderProps) {
       return
     }
 
-    setResultStatus('submitting:scrub')
-    sendScrub()
-    setResultStatus('idle')
+    setPendingHostAction('scrub')
+    if (sendScrub() === false) setPendingHostAction(null)
   }
 
   const revertDraft = () => {
     const s = state()
-    if (!amHost() || !s || (s.status !== 'active' && !isMapVotePhase())) return
+    if (!amHost() || !s || pendingHostAction() != null || resultStatus().startsWith('submitting') || (s.status !== 'active' && !isMapVotePhase())) return
 
-    setResultStatus('submitting:revert')
-    sendRevert()
-    setResultStatus('idle')
+    setPendingHostAction('revert')
+    if (sendRevert() === false) setPendingHostAction(null)
   }
 
   const confirmHostAction = (action: DraftHostAction) => {
@@ -300,7 +312,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   }
 
   const canManageDraft = () => amHost() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
-  const canManageDraftPhase = () => showHostActions() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
+  const canManageDraftPhase = () => showHostActions() && pendingHostAction() == null && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
   const canSubmitResult = () => isParticipant() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
   const resultSelectionReady = () => {
     if (!isTeamMode()) return ffaPlacementOrder().length === seatCount()
@@ -349,57 +361,58 @@ export function DraftHeader(props: DraftHeaderProps) {
     return null
   }
 
-  const renderHostActionButton = (
-    action: DraftHostAction,
-    label: string,
-    iconClass: string,
-    iconOnly: boolean,
-  ) => (
-    <button
-      type="button"
-      class={cn(
-        'border rounded-full bg-bg-muted/30 cursor-pointer whitespace-nowrap transition-colors',
-        'disabled:opacity-50 disabled:pointer-events-none',
-        iconOnly ? 'flex h-9 w-9 items-center justify-center px-0 py-0 text-sm' : 'px-3 py-1.5 text-xs text-fg-muted',
-        armedHostAction() === action
-          ? 'border-danger/70 bg-danger/20 text-danger hover:border-danger hover:bg-danger/25'
-          : 'border-border text-fg-muted hover:border-border-hover hover:bg-bg-muted/50',
-      )}
-      disabled={!canManageDraftPhase()}
-      title={label}
-      aria-label={label}
-      onClick={() => confirmHostAction(action)}
-    >
-      <Show when={iconOnly} fallback={label}>
-        <span class={cn(iconClass, 'text-sm')} />
-      </Show>
-    </button>
-  )
+  function HostActionButton(props: { action: DraftHostAction, label: string, iconClass: string, iconOnly: boolean }) {
+    const loadingLabel = props.action === 'revert' ? 'Reverting' : 'Scrubbing'
 
-  const renderActiveHostActions = (iconOnly: boolean) => (
-    <div class="flex gap-2 items-center relative">
-      <div class="flex gap-2 items-center">
-        {renderHostActionButton('revert', 'Revert', 'i-ph-arrow-u-up-left-bold', iconOnly)}
-        {renderHostActionButton('scrub', 'Scrub', 'i-ph-x-bold', iconOnly)}
-      </div>
-      <Show when={confirmationHint()}>
-        {hint => (
-          <div
-            class={cn(
-              'pointer-events-none absolute z-20 border border-border rounded-lg bg-bg-subtle/80 px-3 py-1.5 text-xs text-fg-muted shadow-lg backdrop-blur-sm text-center',
-              iconOnly
-                ? 'left-1/2 top-full mt-2 -translate-x-1/2 w-max max-w-[calc(100vw-2rem)]'
-                : 'left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap',
-            )}
-          >
-            {hint().line1}
-            <br />
-            {hint().line2}
-          </div>
+    return (
+      <button
+        type="button"
+        class={cn(
+          'border rounded-full bg-bg-muted/30 cursor-pointer whitespace-nowrap transition-colors',
+          'disabled:opacity-50 disabled:pointer-events-none',
+          props.iconOnly ? 'flex h-9 w-9 items-center justify-center px-0 py-0 text-sm' : 'px-3 py-1.5 text-xs text-fg-muted',
+          armedHostAction() === props.action || pendingHostAction() === props.action
+            ? 'border-danger/70 bg-danger/20 text-danger hover:border-danger hover:bg-danger/25'
+            : 'border-border text-fg-muted hover:border-border-hover hover:bg-bg-muted/50',
         )}
-      </Show>
-    </div>
-  )
+        disabled={pendingHostAction() != null || !canManageDraftPhase()}
+        title={pendingHostAction() === props.action ? loadingLabel : props.label}
+        aria-label={pendingHostAction() === props.action ? loadingLabel : props.label}
+        onClick={() => confirmHostAction(props.action)}
+      >
+        <Show when={props.iconOnly} fallback={pendingHostAction() === props.action ? loadingLabel : props.label}>
+          <span class={pendingHostAction() === props.action ? 'i-gg:spinner text-sm text-accent animate-spin' : cn(props.iconClass, 'text-sm')} />
+        </Show>
+      </button>
+    )
+  }
+
+  function ActiveHostActions(props: { iconOnly: boolean }) {
+    return (
+      <div class="flex gap-2 items-center relative">
+        <div class="flex gap-2 items-center">
+          <HostActionButton action="revert" label="Revert" iconClass="i-ph-arrow-u-up-left-bold" iconOnly={props.iconOnly} />
+          <HostActionButton action="scrub" label="Scrub" iconClass="i-ph-x-bold" iconOnly={props.iconOnly} />
+        </div>
+        <Show when={confirmationHint()}>
+          {hint => (
+            <div
+              class={cn(
+                'pointer-events-none absolute z-20 border border-border rounded-lg bg-bg-subtle/80 px-3 py-1.5 text-xs text-fg-muted shadow-lg backdrop-blur-sm text-center',
+                props.iconOnly
+                  ? 'left-1/2 top-full mt-2 -translate-x-1/2 w-max max-w-[calc(100vw-2rem)]'
+                  : 'left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap',
+              )}
+            >
+              {hint().line1}
+              <br />
+              {hint().line2}
+            </div>
+          )}
+        </Show>
+      </div>
+    )
+  }
 
   const renderResultActions = () => (
     <Show
@@ -519,7 +532,7 @@ export function DraftHeader(props: DraftHeaderProps) {
 
       <div data-testid="draft-header-desktop-phase-cluster-right" class="flex min-w-0 items-center justify-start">
         <Show when={showHostActions()}>
-          {renderActiveHostActions(false)}
+          <ActiveHostActions iconOnly={false} />
         </Show>
       </div>
     </div>
@@ -585,7 +598,7 @@ export function DraftHeader(props: DraftHeaderProps) {
                 </Show>
 
                 <Show when={showHostActions()} fallback={renderResultActions()}>
-                  {renderActiveHostActions(true)}
+                  <ActiveHostActions iconOnly />
                 </Show>
               </div>
             </div>

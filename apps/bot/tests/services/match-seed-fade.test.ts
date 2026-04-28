@@ -150,7 +150,7 @@ describe('match seed fade', () => {
         sigma: DEFAULT_SIGMA,
         eligibleForRanked: false,
         fadeGamesRemaining: 10,
-        source: 'ppl-manual-role',
+        source: 'manual-role',
         note: 'Legion',
         createdAt: NOW,
         updatedAt: NOW,
@@ -243,7 +243,7 @@ describe('match seed fade', () => {
     }
   })
 
-  test('reportMatch rolls back a seeded report when boundary replay fails', async () => {
+  test('reportMatch repairs an earlier completed match with missing seed-fade snapshots', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
@@ -259,37 +259,37 @@ describe('match seed fade', () => {
         placements: `<@${HERO_ID}>`,
       }, directTerminalOptions)
 
-      expect('error' in result).toBe(true)
-      if (!('error' in result)) return
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
 
-      expect(result.error).toContain('missing rating snapshots')
-
-      const [rolledBackMatch] = await db
+      const [reportedMatch] = await db
         .select()
         .from(matches)
         .where(eq(matches.id, 'active-rollback'))
         .limit(1)
 
-      expect(rolledBackMatch?.status).toBe('active')
-      expect(rolledBackMatch?.completedAt).toBeNull()
+      expect(reportedMatch?.status).toBe('completed')
+      expect(reportedMatch?.completedAt).not.toBeNull()
 
-      const rolledBackParticipants = await db
+      const reportedParticipants = await db
         .select()
         .from(matchParticipants)
         .where(eq(matchParticipants.matchId, 'active-rollback'))
+      expect(reportedParticipants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
 
-      expect(rolledBackParticipants.every(participant => (
-        participant.placement == null
-        && participant.ratingBeforeMu == null
-        && participant.ratingAfterMu == null
-      ))).toBe(true)
+      const repairedParticipants = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, 'broken-old'))
+
+      expect(repairedParticipants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
     }
     finally {
       sqlite.close()
     }
   })
 
-  test('seeded report rollback does not mark SessionDO reported', async () => {
+  test('seeded report repairs missing snapshots before marking SessionDO reported', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
@@ -341,11 +341,20 @@ describe('match seed fade', () => {
         sessionNamespace: runtime.sessionNamespace,
       })
 
-      expect('error' in result).toBe(true)
-      if (!('error' in result)) return
-      expect(result.error).toContain('missing rating snapshots')
-      expect((await getSessionRecord(runtime.sessionNamespace, lobby.id))?.phase).toBe('active')
-      expect((await db.select().from(matches).where(eq(matches.id, lobby.id)).limit(1))[0]?.status).toBe('active')
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect((await getSessionRecord(runtime.sessionNamespace, lobby.id))?.phase).toBe('reported')
+      expect((await db.select().from(matches).where(eq(matches.id, lobby.id)).limit(1))[0]?.status).toBe('completed')
+      const reportedParticipants = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, lobby.id))
+      expect(reportedParticipants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
+      const repairedParticipants = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, 'broken-old'))
+      expect(repairedParticipants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
       expect(draftingLobby?.id).toBe(lobby.id)
     }
     finally {
@@ -519,7 +528,7 @@ async function seedSeedRow(
     sigma: DEFAULT_SIGMA,
     eligibleForRanked: false,
     fadeGamesRemaining,
-    source: 'ppl-manual-role',
+    source: 'manual-role',
     note: 'Legion',
     createdAt: NOW,
     updatedAt: NOW,

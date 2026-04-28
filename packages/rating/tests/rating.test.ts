@@ -11,6 +11,8 @@ import {
   DISPLAY_RATING_BASE,
   DISPLAY_RATING_SCALE,
   displayRating,
+  getLeaderboardMinGames,
+  LEADERBOARD_MIN_GAMES,
 
   predictWinProbabilities,
   seasonReset,
@@ -273,6 +275,15 @@ describe('buildLeaderboard', () => {
 
     expect(buildLeaderboard(players, 3)).toHaveLength(1)
     expect(buildLeaderboard(players, 5)).toHaveLength(0)
+  })
+})
+
+describe('getLeaderboardMinGames', () => {
+  test('uses one minimum for every leaderboard mode', () => {
+    const modes = ['duel', 'duo', 'squad', 'ffa', 'red-death'] as const
+
+    expect(modes.map(mode => getLeaderboardMinGames(mode))).toEqual(modes.map(() => LEADERBOARD_MIN_GAMES))
+    expect(LEADERBOARD_MIN_GAMES).toBe(5)
   })
 })
 

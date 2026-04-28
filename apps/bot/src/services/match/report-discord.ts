@@ -27,6 +27,12 @@ interface SyncReportedMatchDiscordMessagesInput {
   archivePolicy?: ArchivePolicy
 }
 
+export interface ReportedMatchDiscordSyncResult {
+  draftMessageUpdated: boolean
+  archiveMessageCreated: boolean
+  errors: string[]
+}
+
 export async function syncReportedMatchDiscordMessages({
   db,
   kv,
@@ -41,11 +47,22 @@ export async function syncReportedMatchDiscordMessages({
   matchDraftData = null,
   reporter = null,
   archivePolicy = 'always',
-}: SyncReportedMatchDiscordMessagesInput): Promise<void> {
-  const messageIds = await listMatchMessageIds(db, matchId)
+}: SyncReportedMatchDiscordMessagesInput): Promise<ReportedMatchDiscordSyncResult> {
+  const errors: string[] = []
+  let messageIds: string[] = []
+  try {
+    messageIds = await listMatchMessageIds(db, matchId)
+  }
+  catch (error) {
+    console.error(`Failed to list Discord message mappings for reported match ${matchId}:`, error)
+    errors.push(`message mapping lookup failed: ${formatError(error)}`)
+  }
   const draftMessageId = messageIds[0] ?? null
   const resolvedReporter = resolveMatchReporterIdentity(matchDraftData, reporter)
   const mapVoteResult = getMapVoteResultFromDraftData(matchDraftData)
+  let draftMessageUpdated = false
+  let archiveMessageCreated = false
+  let draftUpdateError: unknown = null
 
   if (lobby) {
     try {
@@ -58,13 +75,20 @@ export async function syncReportedMatchDiscordMessages({
         components: [],
       }, { db, sessionNamespace })
       await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
+      draftMessageUpdated = true
     }
     catch (error) {
       console.error(`Failed to update lobby result embed for match ${matchId}:`, error)
+      draftUpdateError = error
     }
   }
-  else if (draftMessageId) {
-    const draftChannelId = await getSystemChannel(kv, 'draft')
+
+  if (!draftMessageUpdated && draftMessageId) {
+    const draftChannelId = await getSystemChannel(kv, 'draft').catch((error) => {
+      console.error(`Failed to read draft channel for reported match ${matchId}:`, error)
+      draftUpdateError = error
+      return null
+    })
     if (draftChannelId) {
       let draftRepairError: unknown = null
       for (const messageId of messageIds) {
@@ -79,6 +103,7 @@ export async function syncReportedMatchDiscordMessages({
             components: [],
             allowed_mentions: { parse: [] },
           })
+          draftMessageUpdated = true
           draftRepairError = null
           break
         }
@@ -90,15 +115,24 @@ export async function syncReportedMatchDiscordMessages({
 
       if (draftRepairError) {
         console.error(`Failed to repair draft result embed for match ${matchId}:`, draftRepairError)
+        draftUpdateError = draftRepairError
       }
     }
   }
 
-  const archiveChannelId = await getSystemChannel(kv, 'archive')
-  if (!archiveChannelId) return
+  if (!draftMessageUpdated && draftUpdateError) {
+    errors.push(`draft result update failed: ${formatError(draftUpdateError)}`)
+  }
+
+  const archiveChannelId = await getSystemChannel(kv, 'archive').catch((error) => {
+    console.error(`Failed to read archive channel for reported match ${matchId}:`, error)
+    errors.push(`archive channel lookup failed: ${formatError(error)}`)
+    return null
+  })
+  if (!archiveChannelId) return { draftMessageUpdated, archiveMessageCreated, errors }
 
   const shouldCreateArchive = archivePolicy === 'always' || messageIds.length < 2
-  if (!shouldCreateArchive) return
+  if (!shouldCreateArchive) return { draftMessageUpdated, archiveMessageCreated, errors }
 
   try {
     const archiveMessage = await createChannelMessage(token, archiveChannelId, {
@@ -110,10 +144,14 @@ export async function syncReportedMatchDiscordMessages({
       allowed_mentions: { parse: [] },
     })
     await storeMatchMessageMapping(db, archiveMessage.id, matchId)
+    archiveMessageCreated = true
   }
   catch (error) {
     console.error(`Failed to post archive result for match ${matchId}:`, error)
+    errors.push(`archive result post failed: ${formatError(error)}`)
   }
+
+  return { draftMessageUpdated, archiveMessageCreated, errors }
 }
 
 function resolveMatchReporterIdentity(
@@ -128,5 +166,16 @@ function resolveMatchReporterIdentity(
     userId: reporter.userId,
     displayName: (reporter.displayName?.trim() || storedReporter.displayName) ?? null,
     avatarUrl: (reporter.avatarUrl?.trim() || storedReporter.avatarUrl) ?? null,
+  }
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) return `${error.name}: ${error.message}`
+  if (typeof error === 'string') return error
+  try {
+    return JSON.stringify(error)
+  }
+  catch {
+    return String(error)
   }
 }

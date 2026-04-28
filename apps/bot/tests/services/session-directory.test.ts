@@ -156,6 +156,26 @@ describe('session directory admission', () => {
     }
   })
 
+  test('releases swap admission while keeping the completed draft visible', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await projectSessionRecord(db, buildSessionRecord({ id: 'first', playerIds: ['host-1'] }))
+      await projectSessionRecord(db, buildSessionRecord({ id: 'first', phase: 'swap', matchId: 'first', version: 2, playerIds: ['host-1'] }))
+
+      const [swapRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, 'first')).limit(1)
+      expect(swapRow).toMatchObject({ sessionId: 'first', phase: 'swap', closedAt: null })
+      expect((await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).map(row => row.sessionId)).toEqual([])
+
+      await projectSessionRecord(db, buildSessionRecord({ id: 'second', playerIds: ['host-1'] }))
+
+      expect((await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).map(row => row.sessionId)).toEqual(['second'])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('ignores stale projections before checking live admission conflicts', async () => {
     const { db, sqlite } = await createTestDatabase()
 

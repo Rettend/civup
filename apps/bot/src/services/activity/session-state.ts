@@ -16,7 +16,7 @@ export interface ActivityOverviewOptionSnapshot {
   matchId: string | null
   channelId: string
   mode: GameMode
-  status: 'open' | 'drafting' | 'active'
+  status: 'open' | 'drafting' | 'active' | 'completed'
   participantCount: number
   targetSize: number
   redDeath: boolean
@@ -40,6 +40,7 @@ export interface LobbySnapshot {
   minRole: SessionConfig['minRole']
   maxRole: SessionConfig['maxRole']
   lastArrange: LobbyArrangeMarker | null
+  memberPlayerIds: string[]
   entries: ({
     playerId: string
     displayName: string
@@ -61,7 +62,7 @@ export interface LobbySnapshot {
 
 export interface ActivitySessionDirectoryEntry {
   sessionId: string
-  phase: Extract<SessionPhase, 'open' | 'draft' | 'swap' | 'active'>
+  phase: Extract<SessionPhase, 'open' | 'draft' | 'swap' | 'active' | 'reported'>
   mode: GameMode
   guildId: string | null
   channelId: string
@@ -81,6 +82,7 @@ export interface ActivitySessionDirectoryEntry {
 type ActivityDirectoryRow = typeof sessionDirectory.$inferSelect
 
 const ACTIVITY_DIRECTORY_PHASES = ['open', 'draft', 'swap', 'active'] as const
+const ACTIVITY_TARGET_PHASES = ['open', 'draft', 'swap', 'active', 'reported'] as const
 
 export async function buildActivityOverviewSnapshotFromDirectory(
   db: Database,
@@ -116,7 +118,7 @@ export async function getActivitySessionById(
   const [row] = await db.select().from(sessionDirectory)
     .where(and(
       eq(sessionDirectory.sessionId, sessionId),
-      inArray(sessionDirectory.phase, [...ACTIVITY_DIRECTORY_PHASES]),
+      inArray(sessionDirectory.phase, [...ACTIVITY_TARGET_PHASES]),
     ))
     .limit(1)
 
@@ -324,6 +326,7 @@ async function buildLobbySnapshotFromSessionParts(
 ): Promise<LobbySnapshot> {
   const serverDefaults = await getServerDraftTimerDefaults(kv)
   const memberByPlayerId = new Map(session.roster.participants.map(member => [member.playerId, member]))
+  const memberPlayerIds = session.roster.participants.map(member => member.playerId)
   const entries = session.roster.slots.map((playerId) => {
     if (!playerId) return null
     const member = memberByPlayerId.get(playerId)
@@ -346,6 +349,7 @@ async function buildLobbySnapshotFromSessionParts(
     minRole: session.minRole,
     maxRole: session.maxRole,
     lastArrange: session.lastArrange,
+    memberPlayerIds,
     entries,
     minPlayers: startPlayerCountOptions(session.mode, targetSize, { redDeath: session.config.redDeath })[0] ?? targetSize,
     targetSize,
@@ -435,6 +439,7 @@ function mapSessionPhaseToActivityStatus(phase: SessionPhase): ActivityOverviewO
     case 'active':
       return 'active'
     case 'reported':
+      return 'completed'
     case 'cancelled':
       return null
   }
@@ -466,7 +471,7 @@ function countFilledSlots(slots: readonly (string | null)[]): number {
 }
 
 function isActivitySessionPhase(value: string): value is ActivitySessionDirectoryEntry['phase'] {
-  return value === 'open' || value === 'draft' || value === 'swap' || value === 'active'
+  return value === 'open' || value === 'draft' || value === 'swap' || value === 'active' || value === 'reported'
 }
 
 function isGameMode(value: unknown): value is GameMode {

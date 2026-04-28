@@ -86,7 +86,10 @@ interface SeasonProgress {
 interface RecalculateLeaderboardModeOptions {
   fromMatchId?: string
   includeFromMatch?: boolean
+  includeActiveBoundary?: boolean
 }
+
+const MISSING_RATING_SNAPSHOTS_MESSAGE = 'has missing rating snapshots'
 
 export function buildRankByPlayer(rows: LeaderboardSnapshotRow[], mode: LeaderboardMode): Map<string, number> {
   const ranked = rows
@@ -135,6 +138,7 @@ export async function recalculateLeaderboardMode(
       seedRows,
       options.fromMatchId,
       options.includeFromMatch ?? true,
+      options.includeActiveBoundary ?? false,
     )
   }
 
@@ -211,6 +215,8 @@ async function recalculateLeaderboardModeFromBoundary(
   seedRows: StoredSeedRow[],
   fromMatchId: string,
   includeFromMatch: boolean,
+  includeActiveBoundary: boolean,
+  extraReplayMatches: StoredMatchRow[] = [],
 ): Promise<{ matchIds: string[] } | { error: string }> {
   const [boundaryMatch] = await db
     .select({
@@ -233,6 +239,23 @@ async function recalculateLeaderboardModeFromBoundary(
     return { error: `Match **${boundaryMatch.id}** does not belong to the **${leaderboardMode}** leaderboard.` }
   }
 
+  const extraReplayMatchIds = extraReplayMatches.map(match => match.id)
+  const boundaryReplayCondition = includeActiveBoundary
+    ? or(
+        and(
+          eq(matches.status, 'completed'),
+          buildBoundaryCondition(boundaryMatch, includeFromMatch, 'after'),
+        ),
+        eq(matches.id, fromMatchId),
+      )
+    : and(
+        eq(matches.status, 'completed'),
+        buildBoundaryCondition(boundaryMatch, includeFromMatch, 'after'),
+      )
+  const replayCondition = extraReplayMatchIds.length > 0
+    ? or(boundaryReplayCondition, inArray(matches.id, extraReplayMatchIds))
+    : boundaryReplayCondition
+
   const [boundaryParticipants, replayMatches] = await Promise.all([
     db
       .select({ playerId: matchParticipants.playerId })
@@ -249,9 +272,8 @@ async function recalculateLeaderboardModeFromBoundary(
       })
       .from(matches)
       .where(and(
-        eq(matches.status, 'completed'),
         inArray(matches.gameMode, gameModes),
-        buildBoundaryCondition(boundaryMatch, includeFromMatch, 'after'),
+        replayCondition,
       ))
       .orderBy(asc(matches.createdAt), asc(matches.id)),
   ])
@@ -311,6 +333,21 @@ async function recalculateLeaderboardModeFromBoundary(
     earlierParticipantRows,
     boundaryMatch.createdAt,
   )
+  if (typeof hydrateResult === 'string' && isMissingRatingSnapshotsError(hydrateResult)) {
+    const missingSnapshotMatchId = parseMissingRatingSnapshotMatchId(hydrateResult)
+    if (!missingSnapshotMatchId) return { error: hydrateResult }
+    return await recalculateLeaderboardModeFromBoundary(
+      db,
+      leaderboardMode,
+      gameModes,
+      seasonRows,
+      seedRows,
+      missingSnapshotMatchId,
+      true,
+      false,
+      includeActiveBoundary ? [boundaryMatch, ...extraReplayMatches] : extraReplayMatches,
+    )
+  }
   if (typeof hydrateResult === 'string') return { error: hydrateResult }
 
   const participantsByMatchId = buildParticipantsByMatchId(replayParticipantRows)
@@ -646,6 +683,14 @@ function currentSeedBonusMu(state: SeedFadeState): number {
   if (state.fadeGamesRemaining <= 0) return 0
   const remainingGames = Math.max(0, state.fadeGamesRemaining - state.newBotGamesPlayed)
   return state.initialBonusMu * (remainingGames / state.fadeGamesRemaining)
+}
+
+function isMissingRatingSnapshotsError(error: string): boolean {
+  return error.includes(MISSING_RATING_SNAPSHOTS_MESSAGE)
+}
+
+function parseMissingRatingSnapshotMatchId(error: string): string | null {
+  return /^Completed match \*\*(.+)\*\* has missing rating snapshots\.$/.exec(error)?.[1] ?? null
 }
 
 function buildBoundaryCondition(

@@ -13,11 +13,12 @@ import type {
 } from './stores'
 import { batch, createEffect, createSignal, Match, onCleanup, onMount, Switch, untrack } from 'solid-js'
 import { discordSdk, setupDiscordSdk } from './discord'
-import { activityTargetOptionKey, activityTargetsMatch, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from './lib/activity-targets'
+import { activityTargetOptionKey, activityTargetsMatch, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldReconnectVisibleActivityTarget, shouldRequestActivityTargetSelection } from './lib/activity-targets'
 import { relayDevLog } from './lib/dev-log'
 import { DraftPage } from './pages/draft'
 import { DraftSetupPage } from './pages/draft-setup'
 import { LobbyOverviewPage } from './pages/lobby-overview'
+import { ReportedMatchPage } from './pages/reported-match'
 import {
   connectionStatus,
   connectToSession,
@@ -37,6 +38,7 @@ type AppState
     | { status: 'error', message: string }
     | { status: 'overview' }
     | { status: 'lobby-waiting', lobby: LobbySnapshot, joinPending: boolean, joinEligibility: LobbyJoinEligibilitySnapshot }
+    | { status: 'reported', matchId: string, lobbyMode: string | null }
     | {
       status: 'authenticated'
       matchId: string
@@ -69,6 +71,7 @@ type LiveActivityTargetState
     steamLobbyLink: string | null
     lobbyId: string | null
     mode: string | null
+    status: ActivityTargetOption['status']
   }
 
 export default function App() {
@@ -95,6 +98,7 @@ export default function App() {
   let suppressAutoSelection = false
   let refreshInFlight = false
   const liveLobbySnapshots = new Map<string, LobbySnapshot>()
+  const failedAutoSelectionKeys = new Set<string>()
 
   const stopActivityWatch = () => {
     if (!activityWatch) return
@@ -165,6 +169,7 @@ export default function App() {
   const currentTargetKey = () => {
     const current = state()
     if (current.status === 'lobby-waiting') return activityTargetOptionKey({ kind: 'lobby', id: current.lobby.id })
+    if (current.status === 'reported') return activityTargetOptionKey({ kind: 'match', id: current.matchId })
     if (current.status === 'authenticated') return activityTargetOptionKey({ kind: 'match', id: current.matchId })
     const lastSelection = lastResolvedSelection()
     if (!lastSelection) return null
@@ -190,6 +195,7 @@ export default function App() {
       steamLobbyLink: selection.steamLobbyLink,
       lobbyId: selection.lobbyId ?? selection.option.lobbyId,
       mode: selection.mode ?? selection.option.mode,
+      status: selection.option.status,
     }
   }
 
@@ -268,7 +274,17 @@ export default function App() {
     if (isSameMatch && (isDraftConnectionInFlight() || hasTerminalDraft)) return
 
     resetDraft()
-    connectToSession(SESSION_SOCKET_TARGET, matchId, sessionAccessToken)
+    connectToSession(SESSION_SOCKET_TARGET, matchId, sessionAccessToken, { onStateChanged: handleSelectedSessionStateChange })
+  }
+
+  const transitionToReportedMatch = (selection: Extract<ActivityLaunchSelection, { kind: 'match' }>) => {
+    setPickerError(null)
+    clearDraftConnection()
+    setState({
+      status: 'reported',
+      matchId: selection.matchId,
+      lobbyMode: selection.mode ?? selection.option.mode,
+    })
   }
 
   const handleSelectedSessionStateChange = (change: SelectedSessionStateChange) => {
@@ -288,6 +304,27 @@ export default function App() {
       if (current && snapshot.revision < current.revision) return
       liveLobbySnapshots.set(snapshot.id, snapshot)
       setLiveLobbySnapshotVersion(version => version + 1)
+
+      const currentState = state()
+      if (currentState.status === 'authenticated' && (currentState.matchId === snapshot.id || currentState.lobbyId === snapshot.id)) {
+        const currentUserId = activeUserId ?? ''
+        const existingOption = availableTargets().find(option => option.kind === 'lobby' && option.id === snapshot.id) ?? null
+        const option = existingOption ?? buildLobbyTargetOptionFromSnapshot(snapshot, currentUserId, activeChannelId)
+        const options = existingOption ? availableTargets() : [...availableTargets(), option]
+        const joinEligibility = resolveLiveJoinEligibility(options, option, snapshot, currentUserId)
+
+        resetDraft()
+        setLastResolvedSelection({
+          kind: 'lobby',
+          option,
+          pendingJoin: false,
+          joinEligibility,
+          lobby: snapshot,
+        })
+        setLiveTargetState({ kind: 'lobby', id: snapshot.id, pendingJoin: false })
+        setState({ status: 'lobby-waiting', lobby: snapshot, joinPending: false, joinEligibility })
+        return
+      }
 
       setState((prev) => {
         if (prev.status !== 'lobby-waiting' || prev.lobby.id !== snapshot.id) return prev
@@ -312,6 +349,24 @@ export default function App() {
     }
   }
 
+  const reconnectVisibleSelection = () => {
+    const current = state()
+    if (!shouldReconnectVisibleActivityTarget({
+      appStatus: current.status,
+      connectionStatus: connectionStatus(),
+      draftStatus: draftStore.state?.status ?? null,
+    })) { return }
+
+    if (current.status === 'authenticated') {
+      connectToSession(SESSION_SOCKET_TARGET, current.matchId, current.sessionAccessToken, { onStateChanged: handleSelectedSessionStateChange })
+      return
+    }
+
+    if (current.status === 'lobby-waiting') {
+      connectToSession(SESSION_SOCKET_TARGET, current.lobby.id, null, { onStateChanged: handleSelectedSessionStateChange })
+    }
+  }
+
   const applyLaunchSnapshot = (
     snapshot: ActivityLaunchSnapshot,
     autoStart = false,
@@ -324,6 +379,8 @@ export default function App() {
       options: visibleTargetOptions(snapshot.options),
     }
     const current = state()
+    if (!filteredSnapshot.selection && current.status === 'reported') return
+
     setAvailableTargets(filteredSnapshot.options)
 
     if (!filteredSnapshot.selection) {
@@ -377,6 +434,11 @@ export default function App() {
         return { status: 'lobby-waiting', lobby: resolvedLobby, joinPending, joinEligibility }
       })
       connectToSession(SESSION_SOCKET_TARGET, nextLobby.id, null, { onStateChanged: handleSelectedSessionStateChange })
+      return
+    }
+
+    if (filteredSnapshot.selection.option.status === 'completed') {
+      transitionToReportedMatch(filteredSnapshot.selection)
       return
     }
 
@@ -482,6 +544,7 @@ export default function App() {
     if (requestVersion !== selectionRequestVersion) return
     if (result.ok) {
       pendingTargetSelectionKey = null
+      failedAutoSelectionKeys.delete(optionKey)
       setPickerBusy(false)
       setPickerError(null)
       hydrateActivityLaunchSnapshot(result.snapshot, true)
@@ -491,6 +554,7 @@ export default function App() {
     if (pendingTargetSelectionKey === optionKey) {
       pendingTargetSelectionKey = null
     }
+    if (auto && result.status === 409) failedAutoSelectionKeys.add(optionKey)
     setPickerBusy(false)
     setPickerError(result.error)
     void requestActivityLaunchSnapshotRefresh()
@@ -512,19 +576,22 @@ export default function App() {
       : overviewSnapshot
         ? materializeOverviewOptions(overviewSnapshot, currentUserId)
         : []
-    const options = visibleTargetOptions(rawOptions)
+    const options = applyLiveLobbyMembership(visibleTargetOptions(rawOptions), liveLobbySnapshots, currentUserId)
     const resolvedSnapshot = buildLiveActivityLaunchSnapshot(options, targetState, liveLobbySnapshots, currentUserId)
     const targetOption = targetState
       ? options.find(option => activityTargetOptionKey(option) === activityTargetOptionKey(targetState)) ?? null
       : null
     const waitingOnLobbySnapshot = targetState?.kind === 'lobby' && targetOption != null && !liveLobbySnapshots.has(targetState.id)
     const pendingSelectionKey = pendingTargetSelectionKey
-    const autoSelectedOption = resolveAutoSelectedActivityTarget({
+    const resolvedAutoSelectedOption = resolveAutoSelectedActivityTarget({
       options,
       target: targetState,
       overviewPinned: overviewPinned(),
       suppressAutoSelection,
     })
+    const autoSelectedOption = resolvedAutoSelectedOption && !failedAutoSelectionKeys.has(activityTargetOptionKey(resolvedAutoSelectedOption))
+      ? resolvedAutoSelectedOption
+      : null
 
     setAvailableTargets(options)
 
@@ -532,8 +599,10 @@ export default function App() {
       if (targetState.kind === 'lobby') {
         const promotedMatch = options.find(option => option.kind === 'match' && option.lobbyId === targetState.id) ?? null
         if (promotedMatch) {
-          void requestTargetSelection(promotedMatch, true)
-          return
+          if (!failedAutoSelectionKeys.has(activityTargetOptionKey(promotedMatch))) {
+            void requestTargetSelection(promotedMatch, true)
+            return
+          }
         }
       }
       setLiveTargetState(null)
@@ -644,6 +713,7 @@ export default function App() {
     liveStateRevision += 1
     launchSnapshotRequestVersion += 1
     suppressAutoSelection = false
+    failedAutoSelectionKeys.clear()
     setPickerBusy(false)
     setFallbackOptions([])
     setLiveOverviewSnapshot(undefined)
@@ -684,7 +754,8 @@ export default function App() {
   const handleTargetSelection = async (option: ActivityTargetOption) => {
     suppressAutoSelection = false
     const optionKey = activityTargetOptionKey(option)
-    if (currentTargetKey() === optionKey) {
+    failedAutoSelectionKeys.delete(optionKey)
+    if (!shouldRequestActivityTargetSelection({ option, currentTargetKey: currentTargetKey() })) {
       pendingTargetSelectionKey = optionKey
       applyLiveActivityState()
       return
@@ -697,7 +768,8 @@ export default function App() {
     if (!lastSelection) return
     suppressAutoSelection = false
     const optionKey = activityTargetOptionKey(lastSelection.option)
-    if (currentTargetKey() === optionKey) {
+    failedAutoSelectionKeys.delete(optionKey)
+    if (!shouldRequestActivityTargetSelection({ option: lastSelection.option, currentTargetKey: currentTargetKey() })) {
       pendingTargetSelectionKey = optionKey
       applyLiveActivityState()
       return
@@ -748,6 +820,7 @@ export default function App() {
         if (!activityWatch) startActivityWatch(activeChannelId, activeUserId)
         return
       }
+      reconnectVisibleSelection()
       void requestActivityLaunchSnapshotRefresh()
     }
 
@@ -810,6 +883,14 @@ export default function App() {
             steamLobbyLink={(state() as Extract<AppState, { status: 'authenticated' }>).steamLobbyLink}
             lobbyId={(state() as Extract<AppState, { status: 'authenticated' }>).lobbyId}
             lobbyMode={(state() as Extract<AppState, { status: 'authenticated' }>).lobbyMode}
+            onSwitchTarget={openOverview}
+          />
+        </Match>
+
+        <Match when={state().status === 'reported'}>
+          <ReportedMatchPage
+            matchId={(state() as Extract<AppState, { status: 'reported' }>).matchId}
+            mode={(state() as Extract<AppState, { status: 'reported' }>).lobbyMode}
             onSwitchTarget={openOverview}
           />
         </Match>
@@ -910,13 +991,35 @@ function buildLiveActivityLaunchSnapshot(
   }
 }
 
+function buildLobbyTargetOptionFromSnapshot(
+  snapshot: LobbySnapshot,
+  currentUserId: string,
+  channelId: string | null,
+): ActivityTargetOption {
+  return {
+    kind: 'lobby',
+    id: snapshot.id,
+    lobbyId: snapshot.id,
+    matchId: null,
+    channelId: channelId ?? '',
+    mode: snapshot.mode as ActivityTargetOption['mode'],
+    status: 'open',
+    participantCount: snapshot.entries.filter(entry => entry != null).length,
+    targetSize: snapshot.targetSize,
+    redDeath: snapshot.draftConfig.redDeath,
+    isMember: isLobbySnapshotMember(snapshot, currentUserId),
+    isHost: snapshot.hostId === currentUserId,
+    updatedAt: Date.now(),
+  }
+}
+
 function resolveLiveJoinEligibility(
   options: ActivityTargetOption[],
   selectedOption: ActivityTargetOption,
   lobby: LobbySnapshot,
   currentUserId: string,
 ): LobbyJoinEligibilitySnapshot {
-  if (lobby.entries.some(entry => entry?.playerId === currentUserId)) {
+  if (selectedOption.isMember || isLobbySnapshotMember(lobby, currentUserId)) {
     return {
       canJoin: true,
       blockedReason: null,
@@ -962,6 +1065,25 @@ function resolveLiveJoinEligibility(
     blockedReason: null,
     pendingSlot,
   }
+}
+
+function applyLiveLobbyMembership(
+  options: ActivityTargetOption[],
+  liveLobbySnapshots: ReadonlyMap<string, LobbySnapshot>,
+  currentUserId: string,
+): ActivityTargetOption[] {
+  return options.map((option) => {
+    if (option.kind !== 'lobby' || option.isMember) return option
+    const snapshot = liveLobbySnapshots.get(option.id)
+    if (!snapshot || !isLobbySnapshotMember(snapshot, currentUserId)) return option
+    return { ...option, isMember: true }
+  })
+}
+
+function isLobbySnapshotMember(snapshot: LobbySnapshot, currentUserId: string): boolean {
+  if (!currentUserId) return false
+  return snapshot.entries.some(entry => entry?.playerId === currentUserId)
+    || snapshot.memberPlayerIds?.includes(currentUserId) === true
 }
 
 function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {

@@ -1,6 +1,6 @@
 import type { ActivityTargetOption } from '../src/client/stores'
 import { describe, expect, test } from 'bun:test'
-import { activityTargetOptionKey, activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection } from '../src/client/lib/activity-targets'
+import { activityTargetOptionKey, activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldReconnectVisibleActivityTarget, shouldRequestActivityTargetSelection } from '../src/client/lib/activity-targets'
 
 const joinedMatch: ActivityTargetOption = {
   kind: 'match',
@@ -16,6 +16,15 @@ const joinedMatch: ActivityTargetOption = {
   isMember: true,
   isHost: false,
   updatedAt: 20,
+}
+
+const joinedActiveMatch: ActivityTargetOption = {
+  ...joinedMatch,
+  id: 'match-active',
+  lobbyId: 'lobby-active',
+  matchId: 'match-active',
+  status: 'active',
+  updatedAt: 30,
 }
 
 const staleLobby: ActivityTargetOption = {
@@ -34,6 +43,14 @@ const staleLobby: ActivityTargetOption = {
   updatedAt: 10,
 }
 
+const joinedLobby: ActivityTargetOption = {
+  ...staleLobby,
+  id: 'lobby-joined',
+  lobbyId: 'lobby-joined',
+  isMember: true,
+  updatedAt: 40,
+}
+
 describe('activity target helpers', () => {
   test('does not treat the initial missing target replay as a cleared selection', () => {
     expect(didClearResolvedActivityTarget(undefined, null)).toBe(false)
@@ -48,6 +65,28 @@ describe('activity target helpers', () => {
     })
 
     expect(selected).toEqual(joinedMatch)
+  })
+
+  test('prefers open lobby membership over old active matches', () => {
+    const selected = resolveAutoSelectedActivityTarget({
+      options: [joinedActiveMatch, joinedLobby],
+      target: null,
+      overviewPinned: false,
+      suppressAutoSelection: false,
+    })
+
+    expect(selected).toEqual(joinedLobby)
+  })
+
+  test('does not auto-select active matches without a live draft room', () => {
+    const selected = resolveAutoSelectedActivityTarget({
+      options: [joinedActiveMatch],
+      target: null,
+      overviewPinned: false,
+      suppressAutoSelection: false,
+    })
+
+    expect(selected).toBeNull()
   })
 
   test('suppresses auto-selection after an existing target is cleared', () => {
@@ -99,6 +138,27 @@ describe('activity target helpers', () => {
     expect(selected).toBeNull()
   })
 
+  test('re-confirms an already selected lobby so the full lobby snapshot can hydrate', () => {
+    expect(shouldRequestActivityTargetSelection({
+      option: staleLobby,
+      currentTargetKey: activityTargetOptionKey(staleLobby),
+    })).toBe(true)
+  })
+
+  test('re-confirms an already selected joined lobby', () => {
+    expect(shouldRequestActivityTargetSelection({
+      option: joinedLobby,
+      currentTargetKey: activityTargetOptionKey(joinedLobby),
+    })).toBe(true)
+  })
+
+  test('does not re-request the same selected match', () => {
+    expect(shouldRequestActivityTargetSelection({
+      option: joinedMatch,
+      currentTargetKey: activityTargetOptionKey(joinedMatch),
+    })).toBe(false)
+  })
+
   test('keeps pinned overview from applying background selections', () => {
     expect(shouldApplyResolvedActivitySelection({
       isOverviewVisible: true,
@@ -110,6 +170,37 @@ describe('activity target helpers', () => {
     expect(shouldApplyResolvedActivitySelection({
       isOverviewVisible: true,
       allowSelectionWhileOverview: true,
+    })).toBe(true)
+  })
+
+  test('reconnects a visible selected draft after the hidden tab disconnects it', () => {
+    expect(shouldReconnectVisibleActivityTarget({
+      appStatus: 'authenticated',
+      connectionStatus: 'disconnected',
+      draftStatus: 'active',
+    })).toBe(true)
+  })
+
+  test('does not duplicate an already in-flight visible reconnect', () => {
+    expect(shouldReconnectVisibleActivityTarget({
+      appStatus: 'authenticated',
+      connectionStatus: 'reconnecting',
+      draftStatus: 'active',
+    })).toBe(false)
+  })
+
+  test('does not reconnect completed selected drafts when returning visible', () => {
+    expect(shouldReconnectVisibleActivityTarget({
+      appStatus: 'authenticated',
+      connectionStatus: 'disconnected',
+      draftStatus: 'complete',
+    })).toBe(false)
+  })
+
+  test('reconnects visible lobby targets after the hidden tab disconnects them', () => {
+    expect(shouldReconnectVisibleActivityTarget({
+      appStatus: 'lobby-waiting',
+      connectionStatus: 'disconnected',
     })).toBe(true)
   })
 
@@ -142,6 +233,17 @@ describe('activity target helpers', () => {
       draftState: {
         status: 'complete',
         cancelReason: null,
+      },
+    })).toBe(false)
+  })
+
+  test('releases a reverted draft when the target is cleared', () => {
+    expect(shouldHoldAuthenticatedDraftStateForSelection({
+      nextSelectionKind: null,
+      hasInFlightConnection: false,
+      draftState: {
+        status: 'cancelled',
+        cancelReason: 'revert',
       },
     })).toBe(false)
   })
