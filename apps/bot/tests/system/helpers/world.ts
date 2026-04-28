@@ -199,6 +199,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
     DB: d1,
     KV: kv,
     SessionDO: createTestSessionNamespace({ DB: d1, KV: kv, DISCORD_TOKEN: 'token', BOT_HOST, CIVUP_SECRET }),
+    Activity: createTestActivityNamespace(),
     DISCORD_APPLICATION_ID: 'app',
     DISCORD_PUBLIC_KEY: 'public-key',
     DISCORD_TOKEN: 'token',
@@ -674,6 +675,41 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       sqlite.close()
     },
   }
+}
+
+function createTestActivityNamespace(): DurableObjectNamespace {
+  const rooms = new Map<string, Map<string, unknown>>()
+  return {
+    idFromName(name: string) {
+      return name as unknown as DurableObjectId
+    },
+    get(id: DurableObjectId) {
+      const roomId = String(id)
+      let storage = rooms.get(roomId)
+      if (!storage) {
+        storage = new Map<string, unknown>()
+        rooms.set(roomId, storage)
+      }
+      return {
+        async fetch(input: RequestInfo | URL, init?: RequestInit) {
+          const request = input instanceof Request ? input : new Request(input, init)
+          const key = new URL(request.url).pathname === '/activity-follow-target'
+            ? 'activity-follow-target'
+            : 'activity-launch-target'
+          if (request.method === 'GET') return Response.json({ target: storage.get(key) ?? null })
+          if (request.method === 'POST') {
+            storage.set(key, await request.json())
+            return Response.json({ ok: true })
+          }
+          if (request.method === 'DELETE') {
+            storage.delete(key)
+            return Response.json({ ok: true })
+          }
+          return new Response('Method not allowed', { status: 405 })
+        },
+      } as DurableObjectStub
+    },
+  } as unknown as DurableObjectNamespace
 }
 
 function isLiveLobbyProjection(lobby: LobbyState | null): lobby is LobbyState {

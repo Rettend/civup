@@ -1,4 +1,5 @@
 import type { GameMode } from '@civup/game'
+import type { LobbyState } from '../../services/lobby/types.ts'
 import { createDb } from '@civup/db'
 import { Button } from 'discord-hono'
 import { getMatchForUser } from '../../services/activity/index.ts'
@@ -77,6 +78,7 @@ export const component_match_join = factory.component(
       }
 
       if (lobby.memberPlayerIds.length === 0) return
+      if (!shouldJoinOpenLobbyFromActivityButton(lobby, identity.userId)) return
 
       const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, [identity.userId])
       const currentMatchId = blockingDraftMatchIdByPlayer.get(identity.userId) ?? null
@@ -175,4 +177,10 @@ function queueBackgroundTask(context: { executionCtx: { waitUntil: (promise: Pro
   catch {
     void task
   }
+}
+
+export function shouldJoinOpenLobbyFromActivityButton(lobby: Pick<LobbyState, 'memberPlayerIds' | 'slots'>, userId: string): boolean {
+  return lobby.memberPlayerIds.includes(userId)
+    || lobby.slots.includes(userId)
+    || lobby.slots.some(slot => slot == null)
 }
