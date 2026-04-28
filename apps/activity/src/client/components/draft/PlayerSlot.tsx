@@ -5,7 +5,7 @@ import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { placementIconClass } from '~/client/lib/placement-icons'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
-import { canRequestSwapWith, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, isMapVotePhase, isMobileLayout, isSeatMapVoteConfirmed, isSwapWindowOpen, MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
+import { canRequestSwapWith, draftNow, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, isMapVotePhase, isMobileLayout, isSeatMapVoteConfirmed, isSwapWindowOpen, MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -523,6 +523,7 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
       active: showVotingGlow(),
       endsAt: isVoting() ? draftStore.mapVote.endsAt : null,
       durationSeconds: MAP_VOTE_VOTING_DURATION_SECONDS,
+      nowMs: draftNow(),
     }),
     { key: 'initial', style: {} },
     { equals: (previous, next) => previous.key === next.key },
@@ -547,7 +548,7 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
     if (lastWinnerFlashRevealEndsAt === revealEndsAt) return
 
     const revealStartedAt = revealEndsAt - (MAP_VOTE_REVEAL_DURATION_SECONDS * 1000)
-    const flashRemainingMs = (revealStartedAt + 420) - Date.now()
+    const flashRemainingMs = (revealStartedAt + 420) - draftNow()
     lastWinnerFlashRevealEndsAt = revealEndsAt
     if (flashRemainingMs <= 0) return
 
@@ -750,12 +751,12 @@ interface StableBreatheAnimationStyle {
   style: { 'animation-delay'?: string }
 }
 
-function createStableBreatheAnimationStyle(props: { active: boolean, endsAt: number | null, durationSeconds: number }): StableBreatheAnimationStyle {
+function createStableBreatheAnimationStyle(props: { active: boolean, endsAt: number | null, durationSeconds: number, nowMs: number }): StableBreatheAnimationStyle {
   if (!props.active || props.endsAt == null || props.durationSeconds <= 0) return { key: 'inactive', style: {} }
 
   const key = `${props.endsAt}:${props.durationSeconds}`
   const phaseStartedAt = props.endsAt - (props.durationSeconds * 1000)
-  const phaseElapsedMs = Math.max(0, Date.now() - phaseStartedAt)
+  const phaseElapsedMs = Math.max(0, props.nowMs - phaseStartedAt)
   const animationDelayMs = -(phaseElapsedMs % SLOT_BREATHE_CYCLE_MS)
 
   return {

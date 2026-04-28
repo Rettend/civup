@@ -6,7 +6,7 @@ import { createSignal, untrack } from 'solid-js'
 import { buildActivitySessionHeaders, clearActivitySessionToken, getActivitySessionToken } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
 import { shouldForceReconnectForStaleDraft } from '../lib/stale-draft'
-import { applySwapUpdate, draftStore, initDraft, setOptimisticSeatPick, updateDraft, updateDraftPreviews, updateDraftSteamLobbyLink } from './draft-store'
+import { applySwapUpdate, draftNow, draftStore, initDraft, setOptimisticSeatPick, syncDraftServerTime, updateDraft, updateDraftPreviews, updateDraftSteamLobbyLink } from './draft-store'
 import { clearSelections } from './ui-store'
 
 // ── Types ──────────────────────────────────────────────────
@@ -265,7 +265,7 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
 
   nextSocket.addEventListener('open', () => {
     if (socket !== nextSocket) return
-    lastSocketActivityAt = Date.now()
+    lastSocketActivityAt = draftNow()
     lastServerErrorMessage = null
     setConnectionStatus('connected')
     setConnectionError(null)
@@ -273,12 +273,15 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
 
   nextSocket.addEventListener('message', (event) => {
     if (socket !== nextSocket) return
-    lastSocketActivityAt = Date.now()
+    const receivedAt = Date.now()
     try {
       const msg = JSON.parse(event.data as string) as SessionServerMessage
+      if (msg.type === 'init' || msg.type === 'update') syncDraftServerTime(msg.serverNow, receivedAt)
+      lastSocketActivityAt = draftNow(receivedAt)
       handleServerMessage(msg)
     }
     catch (err) {
+      lastSocketActivityAt = draftNow(receivedAt)
       relayDevLog('error', 'Failed to parse server message', err)
       console.error('Failed to parse server message:', err)
     }
@@ -381,6 +384,7 @@ function startStaleDraftReconnectWatchdog() {
       timerEndsAt: draftStore.timerEndsAt,
       lastSocketActivityAt,
       lastForcedReconnectTimerEndsAt,
+      nowMs: draftNow(),
     })) { return }
 
     const currentSession = currentSessionConnection
