@@ -1,6 +1,6 @@
 import type { ActivityTargetOption } from '../src/client/stores'
 import { describe, expect, test } from 'bun:test'
-import { activityTargetOptionKey, activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldRequestActivityTargetSelection } from '../src/client/lib/activity-targets'
+import { activityTargetOptionKey, activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldReconnectVisibleActivityTarget, shouldRequestActivityTargetSelection } from '../src/client/lib/activity-targets'
 
 const joinedMatch: ActivityTargetOption = {
   kind: 'match',
@@ -173,6 +173,37 @@ describe('activity target helpers', () => {
     expect(shouldApplyResolvedActivitySelection({
       isOverviewVisible: true,
       allowSelectionWhileOverview: true,
+    })).toBe(true)
+  })
+
+  test('reconnects a visible selected draft after the hidden tab disconnects it', () => {
+    expect(shouldReconnectVisibleActivityTarget({
+      appStatus: 'authenticated',
+      connectionStatus: 'disconnected',
+      draftStatus: 'active',
+    })).toBe(true)
+  })
+
+  test('does not duplicate an already in-flight visible reconnect', () => {
+    expect(shouldReconnectVisibleActivityTarget({
+      appStatus: 'authenticated',
+      connectionStatus: 'reconnecting',
+      draftStatus: 'active',
+    })).toBe(false)
+  })
+
+  test('does not reconnect completed selected drafts when returning visible', () => {
+    expect(shouldReconnectVisibleActivityTarget({
+      appStatus: 'authenticated',
+      connectionStatus: 'disconnected',
+      draftStatus: 'complete',
+    })).toBe(false)
+  })
+
+  test('reconnects visible lobby targets after the hidden tab disconnects them', () => {
+    expect(shouldReconnectVisibleActivityTarget({
+      appStatus: 'lobby-waiting',
+      connectionStatus: 'disconnected',
     })).toBe(true)
   })
 
