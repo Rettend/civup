@@ -16,7 +16,7 @@ describe('DraftHeader UI', () => {
     onSwitchTarget.mockClear()
   })
 
-  test('shows active host controls, overview navigation, and confirmation-gated revert or scrub actions', async () => {
+  test('keeps active revert pending after confirmation', async () => {
     const user = userEvent.setup()
     uiMockState.userId = 'host-1'
     uiMockState.draftHostId = 'host-1'
@@ -41,11 +41,50 @@ describe('DraftHeader UI', () => {
     await user.click(screen.getByRole('button', { name: 'Revert' }))
     await waitFor(() => expect(storeSpies.sendRevert).toHaveBeenCalledTimes(1))
 
+    await user.click(screen.getByRole('button', { name: 'Revert' }))
+    await user.click(screen.getByRole('button', { name: 'Scrub' }))
+    expect(storeSpies.sendRevert).toHaveBeenCalledTimes(1)
+    expect(storeSpies.sendScrub).toHaveBeenCalledTimes(0)
+  })
+
+  test('keeps active scrub pending after confirmation', async () => {
+    const user = userEvent.setup()
+    uiMockState.userId = 'host-1'
+    uiMockState.draftHostId = 'host-1'
+    uiMockState.timerEndsAt = Date.now() + 30_000
+    uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1, formatId: '2v2' })
+
+    render(() => <DraftHeader steamLobbyLink="steam://joinlobby/289070/example" onSwitchTarget={onSwitchTarget} />)
+
     await user.click(screen.getByRole('button', { name: 'Scrub' }))
     expect(storeSpies.sendScrub).toHaveBeenCalledTimes(0)
 
     await user.click(screen.getByRole('button', { name: 'Scrub' }))
     await waitFor(() => expect(storeSpies.sendScrub).toHaveBeenCalledTimes(1))
+
+    await user.click(screen.getByRole('button', { name: 'Scrub' }))
+    await user.click(screen.getByRole('button', { name: 'Revert' }))
+    expect(storeSpies.sendScrub).toHaveBeenCalledTimes(1)
+    expect(storeSpies.sendRevert).toHaveBeenCalledTimes(0)
+  })
+
+  test('keeps mobile active host action pending after confirmation', async () => {
+    const user = userEvent.setup()
+    uiMockState.isMobileLayout = true
+    uiMockState.userId = 'host-1'
+    uiMockState.draftHostId = 'host-1'
+    uiMockState.timerEndsAt = Date.now() + 30_000
+    uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1, formatId: '2v2' })
+
+    render(() => <DraftHeader steamLobbyLink="steam://joinlobby/289070/example" onSwitchTarget={onSwitchTarget} />)
+
+    const revertButton = screen.getByRole('button', { name: 'Revert' })
+    await user.click(revertButton)
+    await user.click(revertButton)
+
+    await waitFor(() => expect(storeSpies.sendRevert).toHaveBeenCalledTimes(1))
+    await user.click(revertButton)
+    expect(storeSpies.sendRevert).toHaveBeenCalledTimes(1)
   })
 
   test('shows host controls during map voting while the draft is still waiting', async () => {
