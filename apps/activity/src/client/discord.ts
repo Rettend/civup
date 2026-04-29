@@ -34,6 +34,7 @@ interface AuthorizeErrorPayload {
 
 export const discordSdk = new DiscordSDK(CLIENT_ID)
 let setupInFlight: Promise<Auth> | null = null
+let authenticatedSession: Auth | null = null
 
 function getSessionStorage(): Storage | null {
   if (typeof window === 'undefined') return null
@@ -243,8 +244,13 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
 }
 
 export async function setupDiscordSdk(): Promise<Auth> {
+  if (authenticatedSession) return authenticatedSession
   if (setupInFlight) return setupInFlight
   setupInFlight = setupDiscordSdkInternal()
+    .then((auth) => {
+      authenticatedSession = auth
+      return auth
+    })
     .catch((error) => {
       relayDevLog('error', 'Discord SDK setup failed', error)
       throw new Error(describeError(error))

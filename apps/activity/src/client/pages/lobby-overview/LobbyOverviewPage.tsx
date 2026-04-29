@@ -1,5 +1,6 @@
 import type { ActivityTargetOption } from '~/client/stores'
 import { Show } from 'solid-js'
+import { preloadPracticePage } from '~/client/activity/route-preloads'
 import { cn } from '~/client/lib/css'
 import { isMiniView, isMobileLayout } from '~/client/stores'
 import { LobbyOverviewTargetPicker } from './LobbyOverviewTargetPicker'
@@ -11,6 +12,7 @@ export interface LobbyOverviewPageProps {
   error?: string | null
   onSelect: (option: ActivityTargetOption) => void
   onResume?: () => void
+  onPractice?: () => void
 }
 
 export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
@@ -33,9 +35,21 @@ export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
               <span class="i-ph-arrow-right-bold text-base" />
             </button>
           </Show>
-          <div class="mx-auto px-6 py-4 max-w-5xl">
+          <div class="mx-auto px-6 py-4 pb-24 max-w-5xl">
             <TargetPickerPanel {...props} />
           </div>
+          <Show when={props.onPractice}>
+            <button
+              type="button"
+              class="absolute bottom-6 left-1/2 z-20 inline-flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full border border-accent/30 bg-accent/12 px-4 py-2 text-sm font-bold text-accent shadow-[0_0_28px_rgba(250,204,21,0.16)] transition hover:border-accent/60 hover:bg-accent/18 hover:text-accent"
+              onPointerEnter={() => { void preloadPracticePage() }}
+              onFocus={() => { void preloadPracticePage() }}
+              onClick={() => props.onPractice?.()}
+            >
+              <span class="i-ph-game-controller-bold text-lg" />
+              Practice
+            </button>
+          </Show>
         </main>
       )}
     >

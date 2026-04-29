@@ -1,12 +1,13 @@
 /** @jsxImportSource solid-js */
 
-import { render, screen } from '@solidjs/testing-library'
+import { fireEvent, render, screen } from '@solidjs/testing-library'
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
 import { createActivityTargetOption } from './ui-fixtures'
 import { resetUiMocks, uiMockState } from './ui-mocks'
 
 const onSelect = mock(() => {})
 const onResume = mock(() => {})
+const onPractice = mock(() => {})
 
 const { LobbyOverviewPage, activityTargetOptionKey } = await import('../src/client/pages/lobby-overview')
 
@@ -15,6 +16,7 @@ describe('LobbyOverviewPage UI', () => {
     resetUiMocks()
     onSelect.mockClear()
     onResume.mockClear()
+    onPractice.mockClear()
   })
 
   test('shows the empty overview state and return affordance', () => {
@@ -46,6 +48,19 @@ describe('LobbyOverviewPage UI', () => {
     expect(screen.getByText('Joined')).toBeTruthy()
     expect(screen.getByText('Completed')).toBeTruthy()
     expect(screen.getByText('Could not refresh lobby list')).toBeTruthy()
+  })
+
+  test('shows the practice action only in the full overview', () => {
+    render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} onPractice={onPractice} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Practice' }))
+    expect(onPractice).toHaveBeenCalledTimes(1)
+
+    document.body.innerHTML = ''
+    uiMockState.isMiniView = true
+    render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} onPractice={onPractice} />)
+
+    expect(screen.queryByRole('button', { name: 'Practice' })).toBeNull()
   })
 
   test('shows the mini overview with hidden-count, host or joined tags, and mini empty fallback', () => {

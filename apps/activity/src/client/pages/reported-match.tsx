@@ -1,4 +1,5 @@
 import { Show } from 'solid-js'
+import { preloadLobbyOverviewRoute } from '~/client/activity/route-preloads'
 import { cn } from '~/client/lib/css'
 import { isMobileLayout } from '~/client/stores'
 
@@ -20,6 +21,8 @@ export function ReportedMatchPage(props: ReportedMatchPageProps) {
           )}
           title="Lobby Overview"
           aria-label="Lobby Overview"
+          onPointerEnter={() => { void preloadLobbyOverviewRoute() }}
+          onFocus={() => { void preloadLobbyOverviewRoute() }}
           onClick={() => props.onSwitchTarget?.()}
         >
           <span class="i-ph-squares-four-bold text-base" />
