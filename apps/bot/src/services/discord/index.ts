@@ -19,6 +19,12 @@ export interface DiscordInteractionFilePayload {
   data: Uint8Array
 }
 
+export interface DiscordInteractionFollowupPayload {
+  applicationId: string
+  interactionToken: string
+  payload: DiscordMessagePayload
+}
+
 export interface DiscordGuildRolePayload {
   name: string
   color?: number
@@ -100,6 +106,22 @@ export async function editOriginalInteractionResponseWithFile(payload: DiscordIn
       body: form,
     },
   )
+}
+
+export async function createInteractionFollowupMessage(payload: DiscordInteractionFollowupPayload): Promise<DiscordMessageResponse> {
+  const response = await requestDiscord(
+    'create interaction followup',
+    `https://discord.com/api/v10/webhooks/${payload.applicationId}/${payload.interactionToken}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload.payload),
+    },
+  )
+
+  return await response.json() as DiscordMessageResponse
 }
 
 export async function createDmChannel(
