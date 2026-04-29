@@ -272,6 +272,7 @@ function parseSessionConfig(raw: string): SessionConfig | null {
       redDeath: parsed.redDeath === true,
       dealOptionsSize: typeof parsed.dealOptionsSize === 'number' ? parsed.dealOptionsSize : null,
       randomDraft: parsed.randomDraft === true,
+      hiddenDraft: parsed.hiddenDraft === true,
       duplicateFactions: parsed.duplicateFactions === true,
       minRole: parsed.minRole ?? null,
       maxRole: parsed.maxRole ?? null,

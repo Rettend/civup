@@ -73,6 +73,7 @@ export function createLobbySnapshot(overrides: Partial<LobbySnapshot> = {}): Lob
       redDeath: false,
       dealOptionsSize: null,
       randomDraft: false,
+      hiddenDraft: false,
       duplicateFactions: false,
     },
     serverDefaults: {

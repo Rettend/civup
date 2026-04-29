@@ -31,6 +31,9 @@ import {
   gridOpen,
   gridViewMode,
   hasSubmitted,
+  hiddenDraftLeaderAssignments,
+  hiddenDraftLeaderTargetSeatIndex,
+  isHiddenDraftComplete,
   isMyOwnPickTurn,
   isMyTurn,
   isRandomSelected,
@@ -48,6 +51,8 @@ import {
   setGridExpanded,
   setGridOpen,
   setGridViewMode,
+  setHiddenDraftLeaderAssignment,
+  setHiddenDraftLeaderTargetSeatIndex,
   setIsRandomSelected,
   setPickSelections,
   setSearchQuery,
@@ -188,6 +193,43 @@ export function LeaderGridOverlay() {
   const accent = () => phaseAccent()
   const ownSeatIndex = () => draftStore.seatIndex
   const pickSelectionSeatIndex = () => currentPickTargetSeatIndex() ?? ownSeatIndex()
+  const reportAssignmentMode = () => isHiddenDraftComplete()
+  const reportSeatIndices = () => state()?.seats.map((_, index) => index) ?? []
+  const firstUnassignedReportSeatIndex = (afterSeatIndex?: number): number | null => {
+    const seats = reportSeatIndices()
+    if (seats.length === 0) return null
+    const assignments = hiddenDraftLeaderAssignments()
+    const startIndex = afterSeatIndex == null ? 0 : Math.max(0, seats.indexOf(afterSeatIndex) + 1)
+    for (let offset = 0; offset < seats.length; offset++) {
+      const seatIndex = seats[(startIndex + offset) % seats.length]!
+      if (!assignments[seatIndex]) return seatIndex
+    }
+    return null
+  }
+  const reportTargetSeatIndex = () => {
+    if (!reportAssignmentMode()) return null
+    const seats = reportSeatIndices()
+    const target = hiddenDraftLeaderTargetSeatIndex()
+    if (target != null && seats.includes(target)) return target
+    return firstUnassignedReportSeatIndex() ?? seats[0] ?? null
+  }
+  const reportAllowsDuplicateLeaders = () => state()?.duplicateFactions === true
+  const reportAssignedSeatForLeader = (leaderId: string): number | null => {
+    for (const [seatIndex, civId] of Object.entries(hiddenDraftLeaderAssignments())) {
+      if (civId === leaderId) return Number(seatIndex)
+    }
+    return null
+  }
+  const isReportLeaderSelected = (leaderId: string): boolean => {
+    const target = reportTargetSeatIndex()
+    return target != null && hiddenDraftLeaderAssignments()[target] === leaderId
+  }
+  const isReportLeaderUnavailable = (leaderId: string): boolean => {
+    if (!reportAssignmentMode() || reportAllowsDuplicateLeaders()) return false
+    const assignedSeat = reportAssignedSeatForLeader(leaderId)
+    const targetSeat = reportTargetSeatIndex()
+    return assignedSeat != null && assignedSeat !== targetSeat
+  }
   const currentHydrationToken = () => {
     const current = state()
     const seatIndex = step()?.action === 'pick' ? pickSelectionSeatIndex() : ownSeatIndex()
@@ -276,7 +318,7 @@ export function LeaderGridOverlay() {
   const showDockedPanels = () => panelsDocked()
   const showStackedShelf = () => !panelsDocked() && !gridExpanded()
   const showFocusPanelStrip = () => !panelsDocked() && gridExpanded() && (filtersOpen() || hasDetail())
-  const showWideWangTranscript = () => !isRedDeathDraft() && wideWangVisibleLineCount() > 0
+  const showWideWangTranscript = () => !reportAssignmentMode() && !isRedDeathDraft() && wideWangVisibleLineCount() > 0
   const singleClickShowsDetail = () => panelsDocked()
   const overlayEntranceClass = () => skipNextOverlayAnimation ? '' : 'anim-overlay-in'
 
@@ -324,8 +366,16 @@ export function LeaderGridOverlay() {
   })
 
   createEffect(() => {
-    if (canOpenLeaderGrid()) return
+    if (canOpenLeaderGrid() || reportAssignmentMode()) return
     if (gridOpen()) setGridOpen(false)
+  })
+
+  createEffect(() => {
+    if (!reportAssignmentMode()) return
+    const seats = reportSeatIndices()
+    const target = hiddenDraftLeaderTargetSeatIndex()
+    if (target != null && seats.includes(target)) return
+    setHiddenDraftLeaderTargetSeatIndex(firstUnassignedReportSeatIndex() ?? seats[0] ?? null)
   })
 
   createRenderEffect(() => {
@@ -421,6 +471,7 @@ export function LeaderGridOverlay() {
   })
 
   const draftLeaderPoolIds = createMemo(() => {
+    if (reportAssignmentMode()) return new Set(allEntries().map(entry => entry.id))
     if (isRedDeathDraft()) return new Set(dealtCivIds() ?? [])
 
     const draftState = state()
@@ -451,7 +502,7 @@ export function LeaderGridOverlay() {
 
   const ghostCount = createMemo(() => Math.max(0, draftLeaderPoolIds().size - filteredLeaders().length))
 
-  const showRandomInList = () => !isRedDeathDraft() && !showWideWangTranscript()
+  const showRandomInList = () => !reportAssignmentMode() && !isRedDeathDraft() && !showWideWangTranscript()
   const [hoveredListIndex, setHoveredListIndex] = createSignal<number | null>(null)
   const [multiListColumns, setMultiListColumns] = createSignal(1)
 
@@ -464,6 +515,7 @@ export function LeaderGridOverlay() {
 
   const isItemVisuallySelected = (id: string): boolean => {
     if (id === '__random__') return isRandomSelected()
+    if (reportAssignmentMode()) return isReportLeaderSelected(id)
     return selectedLeader() === id || banSelections().includes(id)
   }
 
@@ -577,6 +629,16 @@ export function LeaderGridOverlay() {
     setGridOpen(false)
   }
 
+  const handleReportLeaderSelect = (leader: Leader) => {
+    const targetSeat = reportTargetSeatIndex()
+    if (targetSeat == null || isReportLeaderUnavailable(leader.id)) return
+
+    setHiddenDraftLeaderAssignment(targetSeat, leader.id)
+    const nextSeat = firstUnassignedReportSeatIndex(targetSeat)
+    setHiddenDraftLeaderTargetSeatIndex(nextSeat ?? targetSeat)
+    clearHoverTooltip()
+  }
+
   const handleBackdropClick = () => {
     if (isMyTurn() && !hasSubmitted()) return
     clearHoverTooltip()
@@ -657,6 +719,11 @@ export function LeaderGridOverlay() {
   })
 
   createEffect(() => {
+    if (reportAssignmentMode()) {
+      if (wideWangVisibleLineCount() > 0) stopWideWangEasterEgg()
+      return
+    }
+
     if (isRedDeathDraft()) {
       if (wideWangVisibleLineCount() > 0) stopWideWangEasterEgg()
       return
@@ -910,7 +977,10 @@ export function LeaderGridOverlay() {
                   >
                     <LeaderListItem
                       leader={leader}
-                      singleClickShowsDetail={singleClickShowsDetail()}
+                      singleClickShowsDetail={!reportAssignmentMode() && singleClickShowsDetail()}
+                      selected={reportAssignmentMode() && isReportLeaderSelected(leader.id)}
+                      unavailable={reportAssignmentMode() && isReportLeaderUnavailable(leader.id)}
+                      onSelect={reportAssignmentMode() ? handleReportLeaderSelect : undefined}
                       neighborState={listNeighborMap().get(leader.id)}
                       onHoverMove={handleLeaderHoverMove}
                       onHoverLeave={handleLeaderHoverLeave}
@@ -938,7 +1008,10 @@ export function LeaderGridOverlay() {
                   <div onMouseEnter={() => setHoveredListIndex(index() + (showRandomInList() ? 1 : 0))}>
                     <LeaderListItem
                       leader={leader}
-                      singleClickShowsDetail={singleClickShowsDetail()}
+                      singleClickShowsDetail={!reportAssignmentMode() && singleClickShowsDetail()}
+                      selected={reportAssignmentMode() && isReportLeaderSelected(leader.id)}
+                      unavailable={reportAssignmentMode() && isReportLeaderUnavailable(leader.id)}
+                      onSelect={reportAssignmentMode() ? handleReportLeaderSelect : undefined}
                       neighborState={listNeighborMap().get(leader.id)}
                       onHoverMove={handleLeaderHoverMove}
                       onHoverLeave={handleLeaderHoverLeave}
@@ -950,7 +1023,7 @@ export function LeaderGridOverlay() {
           </Match>
           <Match when={gridViewMode() === 'grid'}>
             <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
-              <Show when={!isRedDeathDraft() && !showWideWangTranscript()}>
+              <Show when={!reportAssignmentMode() && !isRedDeathDraft() && !showWideWangTranscript()}>
                 <RandomLeaderCard
                   disabled={!canUseRandom()}
                   active={isRandomSelected()}
@@ -962,7 +1035,10 @@ export function LeaderGridOverlay() {
                 {leader => (
                   <LeaderCard
                     leader={leader}
-                    singleClickShowsDetail={singleClickShowsDetail()}
+                    singleClickShowsDetail={!reportAssignmentMode() && singleClickShowsDetail()}
+                    selected={reportAssignmentMode() && isReportLeaderSelected(leader.id)}
+                    unavailable={reportAssignmentMode() && isReportLeaderUnavailable(leader.id)}
+                    onSelect={reportAssignmentMode() ? handleReportLeaderSelect : undefined}
                     onHoverMove={handleLeaderHoverMove}
                     onHoverLeave={handleLeaderHoverLeave}
                   />

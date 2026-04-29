@@ -20,6 +20,7 @@ export interface DraftLifecycleCompletePayload {
   finalized?: boolean
   state: DraftState
   mapVoteResult?: ResolvedMapVoteResult | null
+  hiddenDraft?: boolean
 }
 
 export interface DraftLifecycleCancelledPayload {
@@ -33,6 +34,7 @@ export interface DraftLifecycleCancelledPayload {
   reason: DraftCancelReason
   state: DraftState
   mapVoteResult?: ResolvedMapVoteResult | null
+  hiddenDraft?: boolean
 }
 
 export type DraftLifecyclePayload = DraftLifecycleCompletePayload | DraftLifecycleCancelledPayload

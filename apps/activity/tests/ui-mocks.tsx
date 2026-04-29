@@ -161,6 +161,7 @@ function mockLobbySnapshot(): LobbySnapshot {
       redDeath: false,
       dealOptionsSize: null,
       randomDraft: false,
+      hiddenDraft: false,
       duplicateFactions: false,
     },
     serverDefaults: {

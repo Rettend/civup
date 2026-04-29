@@ -1,7 +1,10 @@
 import type { DraftState, LeaderSwapState } from '@civup/game'
 
 export function canOpenSwapWindowForState(state: DraftState): boolean {
-  return state.status === 'complete' && state.seats.some(seat => seat.team != null)
+  if (state.status !== 'complete') return false
+  if (!state.seats.some(seat => seat.team != null)) return false
+  const pickedSeats = new Set(state.picks.map(pick => pick.seatIndex))
+  return state.seats.every((_, seatIndex) => pickedSeats.has(seatIndex))
 }
 
 export function countConnectedDraftParticipants<TConnection>(

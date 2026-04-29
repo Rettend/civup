@@ -35,6 +35,8 @@ export interface ReportInput {
   reporterId: string
   /** For team and 1v1 games: "A" or "B". For FFA: player IDs in placement order, newline-separated. */
   placements: string
+  /** Hidden draft reports provide final in-game leader IDs keyed by player ID. */
+  leaderAssignments?: Record<string, string>
 }
 
 export type ReportResult = { match: MatchRow, participants: ParticipantRow[], idempotent?: boolean } | { error: string }
@@ -71,6 +73,7 @@ export interface ActivateDraftInput {
   completedAt: number
   hostId: string
   mapVoteResult?: ResolvedMapVoteResult | null
+  hiddenDraft?: boolean
 }
 
 export type ActivateDraftResult = { match: MatchRow, participants: ParticipantRow[], alreadyActive: boolean } | { error: string }
@@ -81,6 +84,7 @@ export interface CancelDraftInput {
   reason: DraftCancelReason
   hostId: string
   mapVoteResult?: ResolvedMapVoteResult | null
+  hiddenDraft?: boolean
   allowActive?: boolean
 }
 
