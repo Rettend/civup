@@ -97,6 +97,8 @@ describe('player data export', () => {
       expect(sheetByName.get('overview')?.rows).toContainEqual(['Recorded bans in completed matches', 2])
       expect(sheetByName.get('overview')?.rows).toContainEqual(['Mode', 'Completed matches'])
       expect(sheetByName.get('overview')?.rows).toContainEqual(['ffa', 2])
+      expect(sheetByName.get('overview')?.rows).toContainEqual(['Leader', 'Civilization', 'Bans', 'Picks', 'Wins', 'Win rate'])
+      expect(sheetByName.get('overview')?.rows).toContainEqual(['civ-russia', null, 1, 0, 0, ''])
       expect(sheetByName.get('players')?.columns).toEqual(['player_id', 'display_name', 'created_at_utc', 'last_match_at_utc'])
       expect(sheetByName.get('players')?.rows[0]).toEqual(['p1', 'Alice & Bob', excelDate(46023), excelDate(46029)])
       expect(sheetByName.get('players')?.rows[1]).toEqual(['p2', 'Charlie', excelDate(46024), null])
