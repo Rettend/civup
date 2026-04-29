@@ -1,4 +1,5 @@
 export { command_admin, component_admin_season_cancel, component_admin_season_confirm, component_admin_show_response } from './admin/index.ts'
+export { command_civleaderboard } from './civ-leaderboard.ts'
 export { command_help } from './help.ts'
 export { command_leaderboard } from './leaderboard.ts'
 export { command_match_id } from './match-id.ts'

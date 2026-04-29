@@ -71,6 +71,7 @@ export const command_admin = factory.command<AdminVar>(
           { name: 'Archive', value: 'archive' },
           { name: 'Bot Commands', value: 'commands' },
           { name: 'Leaderboard', value: 'leaderboard' },
+          { name: 'Civ Leaderboard', value: 'civ-leaderboard' },
         ),
       ),
       new SubCommand('config', 'View or update configuration').options(
