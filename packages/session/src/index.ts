@@ -21,6 +21,7 @@ export interface DraftRuntimeConfig {
   civPool: string[]
   dealOptionsSize?: number
   randomDraft?: boolean
+  hiddenDraft?: boolean
   duplicateFactions?: boolean
   mapVoteEnabled?: boolean
   leaderDataVersion?: LeaderDataVersion

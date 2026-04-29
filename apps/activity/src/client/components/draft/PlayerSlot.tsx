@@ -5,7 +5,7 @@ import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { placementIconClass } from '~/client/lib/placement-icons'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
-import { canRequestSwapWith, draftNow, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, isMapVotePhase, isMobileLayout, isSeatMapVoteConfirmed, isSwapWindowOpen, MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
+import { canRequestSwapWith, draftNow, draftStore, ffaPlacementOrder, getHiddenDraftLeaderAssignment, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, gridOpen, hiddenDraftLeaderTargetSeatIndex, isHiddenDraftComplete, isMapVotePhase, isMobileLayout, isSeatMapVoteConfirmed, isSwapWindowOpen, MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, setHiddenDraftLeaderTargetSeatIndex, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -26,11 +26,12 @@ export function PlayerSlot(props: PlayerSlotProps) {
     if (serverPick) return serverPick
 
     const optimisticCivId = getOptimisticSeatPick(props.seatIndex)
-    if (!optimisticCivId) return null
+    const civId = optimisticCivId ?? (isHiddenDraftComplete() ? getHiddenDraftLeaderAssignment(props.seatIndex) : null)
+    if (!civId) return null
 
     return {
       seatIndex: props.seatIndex,
-      civId: optimisticCivId,
+      civId,
     }
   }
 
@@ -89,6 +90,8 @@ export function PlayerSlot(props: PlayerSlotProps) {
   const isMultiTeamResultMode = () => isComplete() && !isFfa() && isParticipant() && teamCount() > 2
   const isTeamResultMode = () => isTwoTeamResultMode() || isMultiTeamResultMode()
   const canSelectResult = () => !resultSelectionsLocked()
+  const isHiddenDraftLeaderAssignmentMode = () => isHiddenDraftComplete() && gridOpen() && isParticipant()
+  const isHiddenDraftLeaderTarget = () => isHiddenDraftLeaderAssignmentMode() && hiddenDraftLeaderTargetSeatIndex() === props.seatIndex
 
   const placementRank = () => {
     if (!isFfaPlacementMode()) return -1
@@ -204,13 +207,17 @@ export function PlayerSlot(props: PlayerSlotProps) {
     <div
       class={cn(
         'relative flex flex-col overflow-hidden bg-bg-subtle h-full isolate',
-        canSelectResult() && (isFfaPlacementMode() || isTeamResultMode()) && 'cursor-pointer',
+        canSelectResult() && (isFfaPlacementMode() || isTeamResultMode() || isHiddenDraftLeaderAssignmentMode()) && 'cursor-pointer',
       )}
       classList={{
         'slot-accent-gold': isActive() && accent() === 'gold',
         'slot-accent-red': isActive() && accent() === 'red',
       }}
       onClick={() => {
+        if (isHiddenDraftLeaderAssignmentMode() && canSelectResult()) {
+          setHiddenDraftLeaderTargetSeatIndex(props.seatIndex)
+          return
+        }
         handleSlotClick()
         handleTeamResultClick()
       }}
@@ -386,11 +393,15 @@ export function PlayerSlot(props: PlayerSlotProps) {
       <Show when={!filled() && !hasPreview()}>
         <div class="flex flex-1 items-center justify-center">
           <div class={cn(
-            'i-ph-user-bold text-3xl',
+            isHiddenDraftComplete() ? 'i-ph-question-bold text-4xl' : 'i-ph-user-bold text-3xl',
             isActive() ? (accent() === 'red' ? 'text-danger/80' : 'text-accent/80') : 'text-fg-muted/40',
           )}
           />
         </div>
+      </Show>
+
+      <Show when={isHiddenDraftLeaderTarget()}>
+        <div class="pointer-events-none inset-0 absolute z-35 shadow-[inset_0_0_0_2px_var(--accent),inset_0_0_28px_var(--glow-gold-dim)]" />
       </Show>
 
       {/* Bottom gradient overlay */}

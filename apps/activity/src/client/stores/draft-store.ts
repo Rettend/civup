@@ -254,6 +254,11 @@ export function isSwapWindowOpen(): boolean {
   return draftStore.state?.status === 'complete' && draftStore.swapState != null
 }
 
+export function isHiddenDraftComplete(): boolean {
+  const state = draftStore.state
+  return state?.status === 'complete' && state.picks.length === 0
+}
+
 export function canRequestSwapWith(seatIndex: number): boolean {
   const state = draftStore.state
   const mySeatIndex = draftStore.seatIndex

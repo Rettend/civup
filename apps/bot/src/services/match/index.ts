@@ -1,5 +1,5 @@
 export { pruneAbandonedMatches } from './cleanup.ts'
-export { getCompletedAtFromDraftData, getHostIdFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
+export { getCompletedAtFromDraftData, getHiddenDraftFromDraftData, getHostIdFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 export { activateDraftMatch, cancelDraftMatch, createDraftMatch } from './draft.ts'
 export { handleDraftLifecyclePayload } from './draft-lifecycle.ts'
 export { cancelMatchByModerator, resolveMatchByModerator } from './moderation.ts'

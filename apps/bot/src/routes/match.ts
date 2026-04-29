@@ -62,9 +62,12 @@ export function registerMatchRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-    const { reporterId, placements } = body as { reporterId?: string, placements?: string }
+    const { reporterId, placements, leaderAssignments } = body as { reporterId?: string, placements?: string, leaderAssignments?: unknown }
     if (typeof reporterId !== 'string' || typeof placements !== 'string') {
       return c.json({ error: 'reporterId and placements are required strings' }, 400)
+    }
+    if (leaderAssignments !== undefined && !isStringRecord(leaderAssignments)) {
+      return c.json({ error: 'leaderAssignments must be an object of player IDs to leader IDs' }, 400)
     }
 
     const mismatch = rejectMismatchedActivityUser(c, reporterId, auth.identity.userId)
@@ -76,6 +79,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       matchId: c.req.param('matchId'),
       reporterId: auth.identity.userId,
       placements,
+      leaderAssignments,
     }, {
       sessionNamespace: c.env.SessionDO,
     })
@@ -287,6 +291,11 @@ export function registerMatchRoutes(app: Hono<Env>) {
 
 function isLiveLobbyProjection(lobby: { status: string } | null): boolean {
   return lobby != null && (lobby.status === 'open' || lobby.status === 'drafting' || lobby.status === 'active')
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  return Object.values(value).every(entry => typeof entry === 'string')
 }
 
 function queueReportedDiscordRepairIfNeeded(

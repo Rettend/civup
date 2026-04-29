@@ -37,6 +37,9 @@ const SLIGHTLY_ZOOMED_LEADERS = [
 interface LeaderCardProps {
   leader: Leader
   singleClickShowsDetail?: boolean
+  selected?: boolean
+  unavailable?: boolean
+  onSelect?: (leader: Leader) => void
   /** Called while hovering to position the lightweight tooltip */
   onHoverMove?: (leader: Leader, x: number, y: number) => void
   /** Called when hover/focus leaves this card */
@@ -107,8 +110,8 @@ function useLeaderCardState(props: LeaderCardProps) {
 
   const isBanned = (): boolean => state()?.bans.some(b => b.civId === props.leader.id) ?? false
   const isPicked = (): boolean => state()?.picks.some(p => p.civId === props.leader.id) ?? false
-  const isUnavailable = (): boolean => isDraftCardUnavailable(state(), props.leader.id)
-  const isSelected = (): boolean => selectedLeader() === props.leader.id
+  const isUnavailable = (): boolean => props.unavailable === true || isDraftCardUnavailable(state(), props.leader.id)
+  const isSelected = (): boolean => props.selected === true || selectedLeader() === props.leader.id
   const isBanSelected = (): boolean => banSelections().includes(props.leader.id)
   const hasSelectionVisual = (): boolean => isSelected() || isBanSelected()
   const isFavorited = (): boolean => isLeaderFavorited(props.leader.id)
@@ -135,7 +138,7 @@ function useLeaderCardState(props: LeaderCardProps) {
   }
 
   const isInteractive = (): boolean => {
-    return canToggleBanSelection() || canTogglePickSelection()
+    return (props.onSelect != null && !isUnavailable()) || canToggleBanSelection() || canTogglePickSelection()
   }
 
   const handlePickSelection = () => {
@@ -150,6 +153,11 @@ function useLeaderCardState(props: LeaderCardProps) {
 
     if (props.singleClickShowsDetail && !willDeselect) {
       setDetailLeaderId(props.leader.id)
+    }
+
+    if (props.onSelect && !isUnavailable()) {
+      props.onSelect(props.leader)
+      return
     }
 
     if (!isInteractive()) return

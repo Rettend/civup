@@ -31,6 +31,7 @@ const baseLobby: LobbySnapshot = {
     redDeath: false,
     dealOptionsSize: 2,
     randomDraft: false,
+    hiddenDraft: false,
     duplicateFactions: false,
   },
   serverDefaults: {

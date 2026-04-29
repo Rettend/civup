@@ -688,6 +688,7 @@ function createCompleteLifecycleSync(
     finalized: options.finalized === true ? true : undefined,
     state: room.state,
     mapVoteResult: room.mapVote.result ?? null,
+    hiddenDraft: room.config.hiddenDraft === true ? true : undefined,
   }
   return createLifecycleSyncEffect(room, payload, options.delivery)
 }
@@ -711,6 +712,7 @@ function createCancelledLifecycleSync(
     reason: room.state.cancelReason ?? 'scrub',
     state: room.state,
     mapVoteResult: room.mapVote.result ?? null,
+    hiddenDraft: room.config.hiddenDraft === true ? true : undefined,
   }
   return createLifecycleSyncEffect(room, payload, options.delivery)
 }
