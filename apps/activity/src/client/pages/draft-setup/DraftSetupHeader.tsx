@@ -1,5 +1,6 @@
 import type { useDraftSetupState } from './useDraftSetupState'
 import { Show } from 'solid-js'
+import { preloadLobbyOverviewRoute } from '~/client/activity/route-preloads'
 import { SteamLobbyButton } from '~/client/components/draft/SteamLobbyButton'
 import { cn } from '~/client/lib/css'
 
@@ -24,6 +25,8 @@ export function DraftSetupHeader(props: DraftSetupHeaderProps) {
           )}
           title="Lobby Overview"
           aria-label="Lobby Overview"
+          onPointerEnter={() => { void preloadLobbyOverviewRoute() }}
+          onFocus={() => { void preloadLobbyOverviewRoute() }}
           onClick={() => props.onSwitchTarget?.()}
         >
           <span class="i-ph-squares-four-bold text-base" />

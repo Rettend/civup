@@ -1,5 +1,6 @@
 import { formatMapVoteResultLabel, formatMapVoteResultTitle, MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '@civup/game'
 import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
+import { preloadLobbyOverviewRoute } from '~/client/activity/route-preloads'
 import { cn } from '~/client/lib/css'
 import {
   clearFfaPlacements,
@@ -338,6 +339,8 @@ export function DraftHeader(props: DraftHeaderProps) {
         class="text-fg-muted border border-border rounded-md flex shrink-0 h-8 w-8 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:bg-bg-muted"
         title="Lobby Overview"
         aria-label="Lobby Overview"
+        onPointerEnter={() => { void preloadLobbyOverviewRoute() }}
+        onFocus={() => { void preloadLobbyOverviewRoute() }}
         onClick={() => props.onSwitchTarget?.()}
       >
         <span class="i-ph-squares-four-bold text-sm" />

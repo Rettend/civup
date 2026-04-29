@@ -1,6 +1,7 @@
 import type { ActivityTargetOption } from '~/client/stores'
 import { formatModeLabel } from '@civup/game'
 import { For, Show } from 'solid-js'
+import { preloadActivityTargetRoute } from '~/client/activity/route-preloads'
 import { MiniFrame } from '~/client/components/draft/MiniLayout'
 import { activityTargetOptionKey } from '~/client/lib/activity-targets'
 import { cn } from '~/client/lib/css'
@@ -129,6 +130,8 @@ function LobbyOverviewTargetPickerFull(props: LobbyOverviewTargetPickerProps) {
                   type="button"
                   aria-pressed={selected()}
                   disabled={props.busy}
+                  onPointerEnter={() => preloadActivityTargetRoute(option)}
+                  onFocus={() => preloadActivityTargetRoute(option)}
                   onClick={() => props.onSelect(option)}
                   class={cn(
                     'group flex flex-col rounded-xl border p-4 text-left transition-all duration-150 cursor-pointer min-h-[120px]',
