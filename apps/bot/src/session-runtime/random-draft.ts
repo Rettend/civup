@@ -46,3 +46,21 @@ export function buildRandomDraftResult(state: DraftState, random: RandomSource =
     ],
   }
 }
+
+export function buildHiddenDraftResult(state: DraftState): { state: DraftState, events: DraftEvent[] } {
+  return {
+    state: {
+      ...state,
+      currentStepIndex: state.steps.length,
+      submissions: {},
+      picks: [],
+      dealtCivIds: null,
+      status: 'complete',
+      cancelReason: null,
+    },
+    events: [
+      { type: 'DRAFT_STARTED' },
+      { type: 'DRAFT_COMPLETE' },
+    ],
+  }
+}

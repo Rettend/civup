@@ -46,6 +46,7 @@ function sameLobbyDraftConfig(a: LobbyEditableDraftConfig, b: LobbyEditableDraft
     && a.redDeath === b.redDeath
     && a.dealOptionsSize === b.dealOptionsSize
     && a.randomDraft === b.randomDraft
+    && a.hiddenDraft === b.hiddenDraft
     && a.duplicateFactions === b.duplicateFactions
 }
 
@@ -75,6 +76,7 @@ export function useDraftSetupConfigState(input: {
   const [simultaneousPickPending, setSimultaneousPickPending] = createSignal(false)
   const [redDeathPending, setRedDeathPending] = createSignal(false)
   const [randomDraftPending, setRandomDraftPending] = createSignal(false)
+  const [hiddenDraftPending, setHiddenDraftPending] = createSignal(false)
   const [duplicateFactionsPending, setDuplicateFactionsPending] = createSignal(false)
   const [lobbyTimerConfig, setLobbyTimerConfig] = createSignal<LobbyEditableDraftConfig | null>(input.props.lobby ? buildEditableLobbyDraftConfig(input.props.lobby) : null)
   const [rankedRoleOptions, setRankedRoleOptions] = createSignal<RankedRoleOptionSnapshot[]>(input.props.prefetchedRankedRoleOptions ?? [])
@@ -174,6 +176,7 @@ export function useDraftSetupConfigState(input: {
       redDeath: isRedDeathDraft(),
       dealOptionsSize: null,
       randomDraft: false,
+      hiddenDraft: false,
       duplicateFactions: false,
     }
   }
@@ -226,6 +229,7 @@ export function useDraftSetupConfigState(input: {
   const formattedBlindBans = () => draftConfig().blindBans ? 'On' : 'Off'
   const formattedSimultaneousPick = () => draftConfig().simultaneousPick ? 'On' : 'Off'
   const formattedRandomDraft = () => draftConfig().randomDraft ? 'On' : 'Off'
+  const formattedHiddenDraft = () => draftConfig().hiddenDraft ? 'On' : 'Off'
   const duplicateFactionsLocked = () => isRedDeathLobbyMode() && requiresRedDeathDuplicateFactions(input.lobbyMode())
   const draftDuplicateFactions = () => duplicateFactionsLocked() ? true : draftConfig().duplicateFactions
   const optimisticDuplicateFactions = () => duplicateFactionsLocked() ? true : optimisticDraftConfig().duplicateFactions
@@ -290,6 +294,7 @@ export function useDraftSetupConfigState(input: {
           redDeath: nextConfig.redDeath,
           dealOptionsSize: nextConfig.dealOptionsSize,
           randomDraft: nextConfig.randomDraft,
+          hiddenDraft: nextConfig.hiddenDraft,
           duplicateFactions: nextConfig.duplicateFactions,
           targetSize: options.targetSize,
           minRole: lobby.minRole,
@@ -347,6 +352,7 @@ export function useDraftSetupConfigState(input: {
         redDeath: current.redDeath,
         dealOptionsSize,
         randomDraft: current.randomDraft,
+        hiddenDraft: current.hiddenDraft,
         duplicateFactions: current.duplicateFactions,
       }, { preserveConfigMessage: preserveClampMessage })
     }
@@ -399,6 +405,7 @@ export function useDraftSetupConfigState(input: {
         redDeath: checked,
         dealOptionsSize: checked ? current.dealOptionsSize : null,
         randomDraft: current.randomDraft,
+        hiddenDraft: current.hiddenDraft,
         duplicateFactions: checked && requiresRedDeathDuplicateFactions(input.lobbyMode()) ? true : current.duplicateFactions,
       }, { targetSize: lobby?.mode === 'ffa' ? (checked ? 10 : 8) : undefined })
       input.showInfoMessage(checked ? 'Red Death enabled.' : 'Red Death disabled.')
@@ -409,7 +416,11 @@ export function useDraftSetupConfigState(input: {
   }
   const handleRandomDraftChange = async (checked: boolean) => {
     if (!input.isLobbyMode() || !input.amHost() || input.lobbyActionPending() || randomDraftPending()) return
-    await commitToggleConfigChange(checked, optimisticDraftConfig().randomDraft, setRandomDraftPending, current => ({ ...current, randomDraft: checked }))
+    await commitToggleConfigChange(checked, optimisticDraftConfig().randomDraft, setRandomDraftPending, current => ({ ...current, randomDraft: checked, hiddenDraft: checked ? false : current.hiddenDraft }))
+  }
+  const handleHiddenDraftChange = async (checked: boolean) => {
+    if (!input.isLobbyMode() || !input.amHost() || input.lobbyActionPending() || hiddenDraftPending()) return
+    await commitToggleConfigChange(checked, optimisticDraftConfig().hiddenDraft, setHiddenDraftPending, current => ({ ...current, hiddenDraft: checked, randomDraft: checked ? false : current.randomDraft }))
   }
   const handleDuplicateFactionsChange = async (checked: boolean) => {
     if (!input.isLobbyMode() || !input.amHost() || input.lobbyActionPending() || duplicateFactionsPending() || duplicateFactionsLocked()) return
@@ -549,6 +560,7 @@ export function useDraftSetupConfigState(input: {
     simultaneousPick: simultaneousPickPending,
     redDeath: redDeathPending,
     randomDraft: randomDraftPending,
+    hiddenDraft: hiddenDraftPending,
     duplicateFactions: duplicateFactionsPending,
     spinner: showConfigSpinner,
   }
@@ -579,6 +591,7 @@ export function useDraftSetupConfigState(input: {
     formattedBbgVersion,
     formattedBlindBans,
     formattedDuplicateFactions,
+    formattedHiddenDraft,
     formattedLeaderPool,
     formattedLobbyMinRole,
     formattedLobbyMaxRole,
@@ -606,6 +619,7 @@ export function useDraftSetupConfigState(input: {
     changeSimultaneousPick: handleSimultaneousPickChange,
     changeRedDeath: handleRedDeathChange,
     changeRandomDraft: handleRandomDraftChange,
+    changeHiddenDraft: handleHiddenDraftChange,
     changeDuplicateFactions: handleDuplicateFactionsChange,
     changeLobbyMode: handleLobbyModeChange,
     changeMinRole: handleLobbyMinRoleChange,
@@ -634,6 +648,7 @@ export function buildEditableLobbyDraftConfig(lobby: LobbySnapshot): LobbyEditab
     redDeath: lobby.draftConfig.redDeath,
     dealOptionsSize: lobby.draftConfig.dealOptionsSize,
     randomDraft: lobby.draftConfig.randomDraft,
+    hiddenDraft: lobby.draftConfig.hiddenDraft,
     duplicateFactions: lobby.draftConfig.duplicateFactions,
   }
 }

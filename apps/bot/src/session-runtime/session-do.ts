@@ -727,6 +727,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         redDeath: record.config.redDeath,
         mapVoteEnabled: record.config.mapVoteEnabled,
         randomDraft: record.config.randomDraft,
+        hiddenDraft: record.config.hiddenDraft,
         duplicateFactions: record.config.duplicateFactions,
         timerConfig,
         leaderPoolSize: record.config.leaderPoolSize,
@@ -1026,6 +1027,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       completedAt: payload.completedAt,
       hostId,
       mapVoteResult: payload.mapVoteResult ?? null,
+      hiddenDraft: payload.hiddenDraft === true,
     })
 
     if ('error' in result) {
@@ -1066,6 +1068,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       reason: payload.reason,
       hostId,
       mapVoteResult: payload.mapVoteResult ?? null,
+      hiddenDraft: payload.hiddenDraft === true,
       allowActive: record.phase === 'swap' && payload.state.picks.length > 0,
     })
 

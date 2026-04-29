@@ -75,6 +75,7 @@ import {
 
 } from './map-vote-room-state.ts'
 import {
+  buildHiddenDraftResult,
   buildRandomDraftResult,
   pickRandomDistinct,
 } from './random-draft.ts'
@@ -183,6 +184,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     const state = withWaitingTimerConfig(format, baseState, config.timerConfig)
     const nextConfig: DraftRuntimeConfig = {
       ...config,
+      randomDraft: config.hiddenDraft === true ? false : config.randomDraft,
       mapVoteEnabled,
     }
     const previews = createEmptyDraftPreviews()
@@ -1212,6 +1214,12 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
   }
 
   private async startActualDraft(state: DraftState, config: DraftRuntimeConfig, format: NonNullable<ReturnType<typeof draftFormatMap.get>>): Promise<string | null> {
+    if (config.hiddenDraft) {
+      const result = buildHiddenDraftResult(state)
+      await this.applyResult(result.state, result.events)
+      return null
+    }
+
     if (config.randomDraft) {
       const result = buildRandomDraftResult(state, () => this.random())
       await this.applyResult(result.state, result.events)

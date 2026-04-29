@@ -7,6 +7,7 @@ import {
   draftStore,
   gridOpen,
   hasSubmitted,
+  isHiddenDraftComplete,
   isMapVotePhase,
   isMiniView,
   isMobileLayout,
@@ -153,8 +154,8 @@ export function DraftView(props: DraftViewProps) {
 
   const isActiveOrComplete = () => isMapVotePhase() || state()?.status === 'active' || state()?.status === 'complete'
   const canSaveSteamLobbyLink = () => amHost() && Boolean(props.lobbyId) && Boolean(props.lobbyMode)
-  const canToggleOverlay = () => isMapVoteVoting() || canOpenLeaderGrid()
-  const showOverlayToggle = () => state()?.status === 'active' || isMapVoteVoting()
+  const canToggleOverlay = () => isMapVoteVoting() || canOpenLeaderGrid() || isHiddenDraftComplete()
+  const showOverlayToggle = () => state()?.status === 'active' || isMapVoteVoting() || isHiddenDraftComplete()
   const overlayToggleLabel = () => {
     if (isMapVoteVoting()) return gridOpen() ? 'Close map vote' : 'Open map vote'
     return gridOpen() ? 'Close leader grid' : 'Open leader grid'
@@ -204,7 +205,7 @@ export function DraftView(props: DraftViewProps) {
               {/* Main area */}
               <div class="flex flex-1 min-h-0 relative z-0">
                 <SlotStrip />
-                <Show when={state()?.status === 'active' && !isMapVotePhase()}>
+                <Show when={(state()?.status === 'active' && !isMapVotePhase()) || isHiddenDraftComplete()}>
                   <LeaderGridOverlay />
                 </Show>
                 <Show when={isMapVoteVoting()}>

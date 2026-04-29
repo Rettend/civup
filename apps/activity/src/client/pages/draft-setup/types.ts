@@ -22,6 +22,7 @@ export interface LobbyEditableDraftConfig {
   redDeath: boolean
   dealOptionsSize: number | null
   randomDraft: boolean
+  hiddenDraft: boolean
   duplicateFactions: boolean
 }
 
