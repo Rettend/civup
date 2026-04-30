@@ -178,7 +178,7 @@ function formatPercent(value: number | null): string {
 }
 
 function formatCodePercent(value: number | null): string {
-  return `\`${formatPercent(value).padStart(STAT_PERCENT_WIDTH, ' ')}\``
+  return `\`${formatPercent(value).padEnd(STAT_PERCENT_WIDTH, ' ')}\``
 }
 
 function ratePct(count: number, total: number): number | null {
