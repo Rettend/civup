@@ -154,7 +154,7 @@ type DraftLifecycleCommandRequest
     at?: number
   }
   | {
-    type: 'leader-swapped' | 'draft-finalized'
+    type: 'draft-finalized'
     at?: number
   }
   | {
@@ -583,18 +583,6 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         record = {
           ...existing,
           phase: body.opensSwapWindow === true ? 'swap' : 'active',
-          version: existing.version + 1,
-          updatedAt: at,
-          lastActivityAt: at,
-          closedAt: null,
-          draftStartSync: null,
-        }
-        break
-      case 'leader-swapped':
-        if (existing.phase === 'active') return json({ ok: true, record: existing })
-        if (existing.phase !== 'swap') return json({ error: `Session is not in swap (phase: ${existing.phase})` }, 409)
-        record = {
-          ...existing,
           version: existing.version + 1,
           updatedAt: at,
           lastActivityAt: at,
@@ -1981,20 +1969,6 @@ function transitionRecordForDraftLifecycle(record: SessionRecord, payload: Draft
             draftStartSync: null,
           },
         }
-      case 'LeaderSwapped':
-        if (record.phase === 'active') return { record }
-        if (record.phase !== 'swap' && record.phase !== 'draft') return { record, ignored: true }
-        return {
-          record: {
-            ...record,
-            phase: 'swap',
-            version: record.version + 1,
-            updatedAt: at,
-            lastActivityAt: at,
-            closedAt: null,
-            draftStartSync: null,
-          },
-        }
       case 'DraftFinalized':
         if (record.phase === 'active') return { record }
         if (record.phase !== 'swap' && record.phase !== 'draft') return { record, ignored: true }
@@ -2104,7 +2078,7 @@ function validateDraftLifecyclePayload(payload: DraftLifecyclePayload): string |
   if (typeof payload.matchId !== 'string' || payload.matchId.length === 0) return 'matchId is required'
   if (!payload.state || typeof payload.state !== 'object') return 'state is required'
   if (payload.outcome === 'complete') {
-    if (payload.eventKind !== 'DraftCompleted' && payload.eventKind !== 'LeaderSwapped' && payload.eventKind !== 'DraftFinalized') return 'invalid complete eventKind'
+    if (payload.eventKind !== 'DraftCompleted' && payload.eventKind !== 'DraftFinalized') return 'invalid complete eventKind'
     if (typeof payload.completedAt !== 'number' || !Number.isFinite(payload.completedAt)) return 'completedAt is required'
     if (payload.state.status !== 'complete') return 'complete lifecycle state must be complete'
     return null

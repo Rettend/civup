@@ -3,7 +3,6 @@ import type {
   DraftEvent,
   DraftPreviewState,
   DraftSeat,
-  DraftSelection,
   DraftState,
   DraftTimerConfig,
   LeaderDataVersion,
@@ -87,6 +86,5 @@ export type SessionServerMessage
     steamLobbyLink?: string | null
   }
   | { type: 'preview', previews: DraftPreviewState }
-  | { type: 'swap-update', swapState: LeaderSwapState, picks?: DraftSelection[] }
   | { type: 'projection-update', steamLobbyLink: string | null }
   | { type: 'error', message: string }

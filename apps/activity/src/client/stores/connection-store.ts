@@ -6,7 +6,7 @@ import { createSignal, untrack } from 'solid-js'
 import { buildActivitySessionHeaders, clearActivitySessionToken, getActivitySessionToken } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
 import { shouldForceReconnectForStaleDraft } from '../lib/stale-draft'
-import { applySwapUpdate, draftNow, draftStore, initDraft, setOptimisticSeatPick, syncDraftServerTime, updateDraft, updateDraftPreviews, updateDraftSteamLobbyLink } from './draft-store'
+import { draftNow, draftStore, initDraft, setOptimisticSeatPick, syncDraftServerTime, updateDraft, updateDraftPreviews, updateDraftSteamLobbyLink } from './draft-store'
 import { clearSelections } from './ui-store'
 
 // ── Types ──────────────────────────────────────────────────
@@ -1001,9 +1001,6 @@ function handleServerMessage(msg: SessionServerMessage) {
     case 'preview':
       syncPreviewCache(msg.previews)
       updateDraftPreviews(msg.previews)
-      break
-    case 'swap-update':
-      applySwapUpdate(msg.swapState, msg.picks)
       break
     case 'projection-update':
       updateDraftSteamLobbyLink(msg.steamLobbyLink)

@@ -6,7 +6,7 @@ import { cn } from '~/client/lib/css'
 import { placementIconClass } from '~/client/lib/placement-icons'
 import { getVisualSeatOrder } from '~/client/lib/seat-order'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
-import { canSwapLeadersWith, draftNow, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, gridOpen, hiddenDraftLeaderSelections, isHiddenDraftComplete, isMapVotePhase, isMobileLayout, isSeatMapVoteConfirmed, MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, selectWinningTeam, sendLeaderSwap, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
+import { canSwapLeadersWith, draftNow, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, gridOpen, hiddenDraftLeaderSelections, isHiddenDraftComplete, isMapVotePhase, isMobileLayout, isSeatMapVoteConfirmed, MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatJustSwapped, selectWinningTeam, sendLeaderSwap, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -48,6 +48,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
   }
 
   const filled = () => !!pick()
+  const shouldAnimatePortrait = () => state()?.status !== 'complete' || seatJustSwapped(props.seatIndex)
   const previewLeader = (): Leader | null => {
     if (filled()) return null
     const civId = getPreviewPickForSeat(props.seatIndex)
@@ -322,7 +323,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
             class={cn(
               'absolute inset-0 h-full w-full object-cover',
               props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
-              'anim-portrait-in',
+              shouldAnimatePortrait() && 'anim-portrait-in',
             )}
           />
         )}
@@ -337,7 +338,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
               class={cn(
                 'absolute inset-0 h-full w-full object-cover',
                 props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
-                'anim-portrait-in',
+                shouldAnimatePortrait() && 'anim-portrait-in',
               )}
             />
           </div>

@@ -285,10 +285,6 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
           this.broadcastRoomRecord(room, effect.events)
           break
 
-        case 'broadcast-swap-update':
-          this.broadcastSwapUpdate(room.state, this.getNormalizedSwapState(room), effect.picks)
-          break
-
         case 'sync-draft-lifecycle': {
           const task = this.syncDraftRuntimeLifecyclePayload(effect.payload, action)
           if (effect.delivery === 'await') {
@@ -642,7 +638,6 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
           type: 'apply-leader-swap',
           nextState,
           swapState: nextSwapState,
-          picks: swappedPicks,
         }), 'leader-swap', {
           fromSeat: seatIndex,
           toSeat: msg.toSeat,
@@ -1249,16 +1244,6 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         previews: censorDraftPreviews(state, previews, seatIndex),
         swapState,
         steamLobbyLink,
-      })
-    }
-  }
-
-  private broadcastSwapUpdate(_state: DraftState, swapState: LeaderSwapState, picks?: DraftState['picks']) {
-    for (const conn of this.getConnections()) {
-      this.send(conn, {
-        type: 'swap-update',
-        swapState,
-        picks,
       })
     }
   }

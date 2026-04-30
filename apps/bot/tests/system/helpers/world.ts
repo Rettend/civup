@@ -760,9 +760,7 @@ function buildCompletedPayload(room: CapturedDraftRuntimeRecord, options: Comple
   const eventSequence = nextTestLifecycleSequence(room)
   const eventKind = options.finalized === true
     ? 'DraftFinalized'
-    : options.transformState
-      ? 'LeaderSwapped'
-      : 'DraftCompleted'
+    : 'DraftCompleted'
 
   return {
     eventId: `${config.matchId}:test:${eventSequence}`,

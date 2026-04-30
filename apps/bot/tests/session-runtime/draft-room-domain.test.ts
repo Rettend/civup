@@ -5,7 +5,7 @@ import { applyDraftResultCommand, applyLeaderSwapCommand, createRoomRecord, fina
 import { EMPTY_STORED_MAP_VOTE_STATE } from '../../src/session-runtime/map-vote-room-state.ts'
 
 describe('draft room domain', () => {
-  test('applying a leader swap broadcasts picks and syncs a LeaderSwapped lifecycle event', () => {
+  test('applying a leader swap broadcasts the updated room without syncing lifecycle projection', () => {
     const seats: DraftSeat[] = [
       { playerId: 'a1', displayName: 'A1', team: 0 },
       { playerId: 'b1', displayName: 'B1', team: 1 },
@@ -48,24 +48,17 @@ describe('draft room domain', () => {
       type: 'apply-leader-swap',
       nextState: { ...state, picks: swappedPicks },
       swapState: { completedSwaps: [{ fromSeat: 0, toSeat: 2 }] },
-      picks: swappedPicks,
     })
 
     expect(transition.room.state.picks).toEqual(swappedPicks)
     expect(transition.room.swapState).toEqual({ completedSwaps: [{ fromSeat: 0, toSeat: 2 }] })
     expect(transition.effects.map(effect => effect.type)).toEqual([
       'schedule-swap-alarm',
-      'broadcast-swap-update',
-      'sync-draft-lifecycle',
+      'broadcast-update',
     ])
-    expect(transition.effects[2]).toMatchObject({
-      type: 'sync-draft-lifecycle',
-      delivery: 'await',
-      payload: expect.objectContaining({ eventKind: 'LeaderSwapped' }),
-    })
   })
 
-  test('finalizing a completed swap window syncs lifecycle before closing selected-session sockets', () => {
+  test('finalizing a completed swap window syncs lifecycle and broadcasts cleared swap state before closing selected-session sockets', () => {
     const seats: DraftSeat[] = [
       { playerId: 'p1', displayName: 'Player One' },
       { playerId: 'p2', displayName: 'Player Two' },
@@ -112,6 +105,7 @@ describe('draft room domain', () => {
     expect(transition.effects.map(effect => effect.type)).toEqual([
       'delete-alarm',
       'sync-draft-lifecycle',
+      'broadcast-update',
       'close-connections',
     ])
     expect(transition.effects[1]).toMatchObject({

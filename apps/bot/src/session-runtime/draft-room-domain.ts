@@ -58,7 +58,6 @@ export type RoomEffect =
   | { type: 'delete-alarm' }
   | { type: 'schedule-swap-alarm' }
   | { type: 'broadcast-update', events: DraftEvent[] }
-  | { type: 'broadcast-swap-update', picks?: DraftState['picks'] }
   | { type: 'sync-draft-lifecycle', payload: DraftLifecyclePayload, delivery: 'await' | 'background' }
   | { type: 'schedule-debug-active-bots', blindBans: boolean }
   | { type: 'schedule-debug-map-vote-bots' }
@@ -107,7 +106,6 @@ export interface ApplyLeaderSwapCommand {
   type: 'apply-leader-swap'
   nextState: DraftState
   swapState: LeaderSwapState
-  picks: DraftState['picks']
 }
 
 export interface SetSwapDisconnectFinalizeAtCommand {
@@ -368,24 +366,15 @@ export function applyLeaderSwapCommand(
   room: RoomRecord,
   command: ApplyLeaderSwapCommand,
 ): RoomTransition {
-  let nextRoom: RoomRecord = {
+  const nextRoom: RoomRecord = {
     ...room,
     state: command.nextState,
     swapState: command.swapState,
   }
   const effects: RoomEffect[] = [
     { type: 'schedule-swap-alarm' },
-    { type: 'broadcast-swap-update', picks: command.picks },
+    { type: 'broadcast-update', events: [] },
   ]
-  if (nextRoom.completedAt != null) {
-    const lifecycleSync = createCompleteLifecycleSync(nextRoom, {
-      completedAt: nextRoom.completedAt,
-      delivery: 'await',
-      kind: 'LeaderSwapped',
-    })
-    nextRoom = lifecycleSync.room
-    effects.push(lifecycleSync.effect)
-  }
 
   return createTransition(nextRoom, effects)
 }
@@ -440,6 +429,7 @@ export function finalizeCompletedDraftCommand(
   return createTransition(nextRoom, [
     { type: 'delete-alarm' },
     lifecycleSync.effect,
+    { type: 'broadcast-update', events: [] },
     { type: 'close-connections', reason: 'Draft closed' },
   ], true)
 }
@@ -621,7 +611,7 @@ function createCompleteLifecycleSync(
     completedAt: number
     delivery: 'await' | 'background'
     finalized?: boolean
-    kind: 'DraftCompleted' | 'LeaderSwapped' | 'DraftFinalized'
+    kind: 'DraftCompleted' | 'DraftFinalized'
   },
 ): { room: RoomRecord, effect: RoomEffect } {
   const eventSequence = room.lifecycleEventSequence + 1
