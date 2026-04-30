@@ -13,10 +13,6 @@ interface ActivityFeedEnv extends Cloudflare.Env {
   CIVUP_SECRET?: string
 }
 
-interface ActivityFeedConnectionState {
-  userId: string
-}
-
 export type ActivityFeedMessage
   = | { type: 'overview', snapshot: ActivityOverviewSnapshot | null }
     | { type: 'error', message: string }
@@ -122,13 +118,11 @@ export class Activity extends Server<ActivityFeedEnv> {
       return
     }
 
-    const userId = readActivityUserId(ctx.request.headers)
-    if (!userId) {
+    if (!readActivityUserId(ctx.request.headers)) {
       connection.close(4401, 'Unauthorized')
       return
     }
 
-    connection.setState({ userId } satisfies ActivityFeedConnectionState)
     await this.sendInitialState(connection, readActivityChannelId(ctx.request))
   }
 
@@ -142,11 +136,14 @@ export class Activity extends Server<ActivityFeedEnv> {
       return
     }
 
-    const overview = await this.rebuildOverviewSnapshot(channelId)
+    const overview = await this.loadOverviewSnapshot(channelId)
     this.send(connection, { type: 'overview', snapshot: overview })
   }
 
   private async broadcastSessionUpdate(record: SessionRecord): Promise<void> {
+    const connections = Array.from(this.getConnections())
+    if (connections.length === 0) return
+
     const channelId = record.projectionState.channelId
     const current = await this.getOverviewSnapshot(channelId)
     const options = [
@@ -155,7 +152,7 @@ export class Activity extends Server<ActivityFeedEnv> {
     ].sort(compareActivityOverviewOptions)
     const overview = options.length > 0 ? { channelId, options } satisfies ActivityOverviewSnapshot : null
     await this.ctx.storage.put(ACTIVITY_OVERVIEW_STORAGE_KEY, overview)
-    this.broadcastFeedMessage({ type: 'overview', snapshot: overview })
+    this.broadcastFeedMessage(connections, { type: 'overview', snapshot: overview })
   }
 
   private async getOverviewSnapshot(channelId: string): Promise<ActivityOverviewSnapshot | null> {
@@ -165,19 +162,23 @@ export class Activity extends Server<ActivityFeedEnv> {
   }
 
   private async rebuildOverviewSnapshot(channelId: string): Promise<ActivityOverviewSnapshot | null> {
-    if (!this.env.DB) return null
-    const overview = await buildActivityOverviewSnapshotFromDirectory(createDb(this.env.DB), channelId)
+    const overview = await this.loadOverviewSnapshot(channelId)
     await this.ctx.storage.put(ACTIVITY_OVERVIEW_STORAGE_KEY, overview)
     return overview
+  }
+
+  private async loadOverviewSnapshot(channelId: string): Promise<ActivityOverviewSnapshot | null> {
+    if (!this.env.DB) return null
+    return await buildActivityOverviewSnapshotFromDirectory(createDb(this.env.DB), channelId)
   }
 
   private send(connection: Connection, message: ActivityFeedMessage): void {
     connection.send(JSON.stringify(message))
   }
 
-  private broadcastFeedMessage(message: ActivityFeedMessage): void {
+  private broadcastFeedMessage(connections: readonly Connection[], message: ActivityFeedMessage): void {
     const encoded = JSON.stringify(message)
-    for (const connection of this.getConnections()) {
+    for (const connection of connections) {
       connection.send(encoded)
     }
   }
