@@ -35,7 +35,7 @@ export const leaderTagsById = {
   'gaul-vercingetorix': ['econ:production', 'win:culture', 'win:domination', 'spike:mid', 'role:flex', 'other:defense', 'other:diplo', 'other:greatpeople'],
   'georgia-tamar': ['econ:faith', 'win:domination', 'win:culture', 'spike:mid', 'role:flex', 'other:defense', 'other:diplo'],
   'germany-frederick-barbarossa': ['econ:production', 'win:domination', 'spike:mid', 'role:flex'],
-  'germany-ludwig-ii': ['econ:production', 'win:culture', 'spike:mid', 'role:backline'],
+  'germany-ludwig-ii': ['econ:production', 'econ:gold', 'win:culture', 'spike:mid', 'role:backline'],
   'gran-colombia-simon-bolivar': ['econ:production', 'econ:gold', 'win:domination', 'win:science', 'spike:mid', 'role:frontline', 'other:cavalry', 'other:greatpeople'],
   'greece-gorgo': ['win:domination', 'win:culture', 'spike:early', 'role:frontline'],
   'greece-pericles': ['win:culture', 'spike:mid', 'role:backline', 'other:diplo'],

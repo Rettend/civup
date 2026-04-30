@@ -255,8 +255,13 @@ export function registerMatchRoutes(app: Hono<Env>) {
 
     if (lobby) {
       try {
+        const scrubber = {
+          userId: auth.identity.userId,
+          displayName: auth.identity.displayName,
+          avatarUrl: auth.identity.avatarUrl,
+        }
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-          embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'scrub', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
+          embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'scrub', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath, scrubber)],
           components: [],
         }, { db, sessionNamespace: c.env.SessionDO })
         await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)

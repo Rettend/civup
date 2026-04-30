@@ -267,6 +267,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   }
 
   const confirmResult = async () => {
+    disarmHostAction()
     if (isTeamMode()) {
       if (teamCount() > 2) {
         await reportOrderedTeams()
@@ -292,6 +293,17 @@ export function DraftHeader(props: DraftHeaderProps) {
 
     setPendingHostAction('scrub')
     if (sendScrub() === false) setPendingHostAction(null)
+  }
+
+  const confirmCompleteScrub = () => {
+    if (!amHost() || !isComplete() || pendingHostAction() != null || resultStatus().startsWith('submitting')) return
+    if (armedHostAction() !== 'scrub') {
+      armHostAction('scrub')
+      return
+    }
+
+    disarmHostAction()
+    void scrubMatch()
   }
 
   const revertDraft = () => {
@@ -455,9 +467,9 @@ export function DraftHeader(props: DraftHeaderProps) {
             size="sm"
             variant="redOutline"
             disabled={!canManageDraft()}
-            onClick={scrubMatch}
+            onClick={confirmCompleteScrub}
           >
-            {resultStatus() === 'submitting:scrub' ? 'Submitting' : 'Scrub'}
+            {resultStatus() === 'submitting:scrub' ? 'Submitting' : armedHostAction() === 'scrub' ? 'Confirm Scrub' : 'Scrub'}
           </Button>
         </Show>
       </div>
