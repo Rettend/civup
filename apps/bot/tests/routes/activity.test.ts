@@ -4,7 +4,7 @@ import { sessionDirectory } from '@civup/db'
 import { Hono } from 'hono'
 import { eq } from 'drizzle-orm'
 import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility, selectActivityTargetForUser } from '../../src/routes/activity.ts'
-import { storeActivityLaunchTargetSelection } from '../../src/services/activity/launch-target.ts'
+import { storeActivityFollowTargetSelection, storeActivityLaunchTargetSelection } from '../../src/services/activity/launch-target.ts'
 import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, resolveOpenLobbyFromBody } from '../../src/routes/lobby/snapshot.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
 import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
@@ -645,6 +645,23 @@ describe('activity target selection', () => {
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, oldMatchLobby.channelId, 'player-1', activityRuntimeOptions(kv))
     expect(snapshot.selection).toBeNull()
     expect(snapshot.options).toEqual([expect.objectContaining({ kind: 'match', id: oldMatchLobby.id, status: 'active', isMember: true })])
+  })
+
+  test('opens overview from an explicit launch target even when following a lobby', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-open',
+    })
+
+    await storeActivityFollowTargetSelection(activityRuntimeOptions(kv).activityNamespace, 'secret', 'channel-1', 'player-1', { kind: 'lobby', id: lobby.id })
+    await storeActivityLaunchTargetSelection(activityRuntimeOptions(kv).activityNamespace, 'secret', 'channel-1', 'player-1', { kind: 'overview' })
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'player-1', activityRuntimeOptions(kv))
+    expect(snapshot.selection).toBeNull()
+    expect(snapshot.options).toEqual([expect.objectContaining({ kind: 'lobby', id: lobby.id, isHost: false, isMember: false })])
   })
 
   test('opens a clicked reportable active match from a launch target hint', async () => {

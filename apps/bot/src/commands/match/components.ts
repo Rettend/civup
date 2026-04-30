@@ -122,6 +122,18 @@ export const component_match_join = factory.component(
   },
 )
 
+export const component_match_browse = factory.component(
+  new Button('match-browse', 'Browse', 'Secondary'),
+  async (c) => {
+    const identity = getIdentity(c)
+    if (identity) {
+      const channelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
+      await storeActivityLaunchTargetSelection(c.env.Activity, c.env.CIVUP_SECRET, channelId, identity.userId, { kind: 'overview' })
+    }
+    return c.resActivity()
+  },
+)
+
 export const component_draft_activity = factory.component(
   new Button('draft-activity', 'Open Draft Activity', 'Primary'),
   async (c) => {
