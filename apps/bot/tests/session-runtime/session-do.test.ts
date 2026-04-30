@@ -412,6 +412,48 @@ describe('SessionDO open session commands', () => {
     }
   })
 
+  test('revert lifecycle sync pushes the reopened lobby to selected draft sockets', async () => {
+    const { sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      DB: createSqliteD1Database(sqlite),
+      KV: kv,
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      const started = await startDraft(room, { hostId: 'p1', now: 20 })
+      const draftConnection = createFakeConnection()
+      draftConnection.connection.setState({ playerId: 'p2' })
+      const connections = (room as any).connections as Set<unknown>
+      connections.add(draftConnection.connection)
+
+      await (room as any).syncDraftRuntimeLifecyclePayload(buildCancelledPayload(openLobby.id, started.seats, 'revert'), 'test-revert')
+
+      expect(await getSessionRecordBody(room)).toMatchObject({ phase: 'open', matchId: null })
+      expect(draftConnection.messages).toHaveLength(1)
+      expect(draftConnection.messages[0]).toMatchObject({
+        type: 'lobby',
+        lobbyId: openLobby.id,
+        snapshot: {
+          id: openLobby.id,
+          status: 'open',
+          memberPlayerIds: ['p1', 'p2'],
+        },
+      })
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('lifecycle retry after partial activation still commits session and updates Discord projection', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -1098,6 +1140,33 @@ function buildCompletePayload(matchId: string, seats: DraftSeat[]) {
   }
 }
 
+function buildCancelledPayload(matchId: string, seats: DraftSeat[], reason: 'cancel' | 'scrub' | 'timeout' | 'revert') {
+  const cancelledAt = 30
+  return {
+    eventId: `${matchId}:cancelled:${reason}:1`,
+    eventKind: 'DraftCancelled',
+    eventSequence: 1,
+    outcome: 'cancelled',
+    matchId,
+    hostId: seats[0]?.playerId,
+    cancelledAt,
+    reason,
+    state: {
+      matchId,
+      formatId: 'default-1v1',
+      seats,
+      steps: [],
+      currentStepIndex: 0,
+      submissions: {},
+      bans: [],
+      picks: [],
+      availableCivIds: [],
+      status: 'cancelled',
+      cancelReason: reason,
+    } satisfies DraftState,
+  }
+}
+
 function createFailingSessionDirectoryD1(base: D1Database) {
   let pendingSessionDirectoryFailures = 0
   return {
@@ -1242,6 +1311,7 @@ function createFakeConnection() {
   const messages: any[] = []
   let connectionState: unknown = null
   let closed: { code: number, reason: string } | null = null
+  let readyState = 1
   return {
     messages,
     get closed() {
@@ -1252,6 +1322,7 @@ function createFakeConnection() {
         messages.push(JSON.parse(message))
       },
       close(code = 1000, reason = '') {
+        readyState = 3
         closed = { code, reason }
       },
       setState(state: unknown) {
@@ -1259,6 +1330,9 @@ function createFakeConnection() {
       },
       get state() {
         return connectionState
+      },
+      get readyState() {
+        return readyState
       },
     } as any,
   }
