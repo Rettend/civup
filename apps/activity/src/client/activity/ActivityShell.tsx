@@ -520,17 +520,17 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     const replace = options.replace ?? false
     void preloadLobbyOverviewRoute()
     pendingTargetSelectionKey = null
-    pendingLiveRoutePath = null
+    pendingLiveRoutePath = '/overview'
     selectionRequestVersion += 1
     setPickerBusy(false)
     setPickerError(null)
     if (!replace && location.pathname !== '/overview') overviewPushSourcePath = location.pathname
+    batch(() => {
+      setOverviewPinned(true)
+      setState({ status: 'overview' })
+    })
     void startTransition(() => {
       navigate('/overview', { replace, scroll: false })
-      batch(() => {
-        setOverviewPinned(true)
-        setState({ status: 'overview' })
-      })
     })
     if (current.status === 'authenticated') {
       clearDraftConnection()
@@ -601,6 +601,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     const currentUserId = activeUserId
     const overviewSnapshot = liveOverviewSnapshot()
     const targetState = liveTargetState()
+    const current = state()
     if (!currentUserId || overviewSnapshot === undefined) return
 
     clearLaunchSnapshotFallback()
@@ -631,6 +632,10 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 
     if (targetState && !targetOption) {
       if (targetState.kind === 'lobby') {
+        const isShowingSelectedLobby = current.status === 'lobby-waiting' && current.lobby.id === targetState.id
+        // A reverted draft can reopen the selected lobby before the overview feed catches up.
+        if (isShowingSelectedLobby) return
+
         const promotedMatch = options.find(option => option.kind === 'match' && option.lobbyId === targetState.id) ?? null
         if (promotedMatch) {
           if (!failedAutoSelectionKeys.has(activityTargetOptionKey(promotedMatch))) {
@@ -650,7 +655,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       const resolvedKey = activityTargetOptionKey(resolvedSnapshot.selection.option)
       const allowSelectionWhileOverview = !overviewPinned() || (pendingSelectionKey != null && pendingSelectionKey === resolvedKey)
       if (!shouldApplyResolvedActivitySelection({
-        isOverviewVisible: state().status === 'overview',
+        isOverviewVisible: current.status === 'overview',
         allowSelectionWhileOverview,
       })) { return }
 
@@ -897,6 +902,8 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       routeRestoreAttemptKey = null
       return
     }
+
+    if (overviewPushSourcePath === location.pathname) return
 
     if (!liveRouteMatchesSelection(route, lastResolvedSelection())) return
 
