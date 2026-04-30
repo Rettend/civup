@@ -30,6 +30,7 @@ export async function getLiveSessionLobbyProjections(
 export async function getOpenSessionLobbyProjectionsByMode(
   db: Database,
   mode: GameMode,
+  options: { includeStale?: boolean } = {},
 ): Promise<LobbyState[]> {
   const rows = await db.select().from(sessionDirectory)
     .where(and(
@@ -38,7 +39,8 @@ export async function getOpenSessionLobbyProjectionsByMode(
     ))
     .orderBy(asc(sessionDirectory.createdAt))
 
-  return filterStaleOpenDirectoryRows(rows).flatMap(row => parseSessionLobbyProjection(row) ?? [])
+  const visibleRows = options.includeStale ? rows : filterStaleOpenDirectoryRows(rows)
+  return visibleRows.flatMap(row => parseSessionLobbyProjection(row) ?? [])
 }
 
 export async function getOpenSessionLobbyProjectionsByChannel(
