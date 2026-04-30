@@ -1,6 +1,7 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { resolveJoinButtonLiveMatchId, shouldJoinOpenLobbyFromActivityButton } from '../../src/commands/match/components.ts'
+import { lobbyComponents } from '../../src/embeds/match.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 
@@ -41,6 +42,18 @@ describe('match join activity button', () => {
       memberPlayerIds: ['p1'],
       slots: ['p1', null],
     }, 'spectator')).toBe(true)
+  })
+})
+
+describe('lobby components', () => {
+  test('renders join and browse buttons', () => {
+    expect(JSON.parse(JSON.stringify(lobbyComponents('1v1', 'lobby-1')))).toEqual([{
+      type: 1,
+      components: [
+        expect.objectContaining({ type: 2, label: 'Join', style: 1, custom_id: 'match-join;1v1:lobby-1' }),
+        expect.objectContaining({ type: 2, label: 'Browse', style: 2, custom_id: 'match-browse;' }),
+      ],
+    }])
   })
 })
 

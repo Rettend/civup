@@ -67,6 +67,33 @@ describe('activity launch target selection', () => {
     expect(warnings[0]?.[0]).toBe('Activity launch target store failed: 500 Injected failure')
   })
 
+  test('stores one-shot overview launch targets', async () => {
+    const rooms = new Map<string, unknown>()
+    const namespace = {
+      idFromName(name: string) {
+        return name as unknown as DurableObjectId
+      },
+      get(id: DurableObjectId) {
+        const roomId = String(id)
+        return {
+          async fetch(input: RequestInfo | URL, init?: RequestInit) {
+            const request = input instanceof Request ? input : new Request(input, init)
+            if (request.method === 'POST') {
+              rooms.set(roomId, await request.json())
+              return Response.json({ ok: true })
+            }
+            if (request.method === 'GET') return Response.json({ target: rooms.get(roomId) ?? null })
+            return new Response('Method not allowed', { status: 405 })
+          },
+        } as DurableObjectStub
+      },
+    } as unknown as DurableObjectNamespace
+
+    await storeActivityLaunchTargetSelection(namespace, 'secret', 'channel-1', 'player-1', { kind: 'overview' })
+
+    await expect(readActivityLaunchTargetSelection(namespace, 'secret', 'channel-1', 'player-1')).resolves.toEqual({ kind: 'overview' })
+  })
+
   test('stores spectator follow targets per channel and user', async () => {
     const requests: Request[] = []
     const rooms = new Map<string, unknown>()
