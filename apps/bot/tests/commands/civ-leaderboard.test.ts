@@ -2,7 +2,7 @@ import { matches, matchParticipants, players } from '@civup/db'
 import { allLeaderIds, getLeader } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { buildCivLeaderboardCommandPayload } from '../../src/commands/civ-leaderboard.ts'
-import { civLeaderboardEmbedGroups } from '../../src/embeds/civ-leaderboard.ts'
+import { CIV_LEADERBOARD_DESCRIPTION_CHAR_LIMIT, CIV_LEADERBOARD_TOP_LIMIT, civLeaderboardEmbedGroups } from '../../src/embeds/civ-leaderboard.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('civ leaderboard command payload', () => {
@@ -28,6 +28,15 @@ describe('civ leaderboard command payload', () => {
         wins: 9,
         bans: 8,
       })
+      await seedLeaderMatches({
+        civId: 'rd-aliens',
+        matchPrefix: 'red-death',
+        playerId: 'p1',
+        total: 20,
+        wins: 20,
+        bans: 20,
+        redDeath: true,
+      })
 
       const payload = await buildCivLeaderboardCommandPayload(db, kv)
       const embeds = payload.embeds?.map(embed => embed.toJSON()) ?? []
@@ -40,9 +49,12 @@ describe('civ leaderboard command payload', () => {
       ])
       expect(embeds).toHaveLength(3)
       expect(embeds[0]?.description).toContain('`#1 `')
-      expect(embeds[0]?.description).toContain('Trajan — **50%** Pick, **50%** WR, **16.7%** Ban')
-      expect(embeds[1]?.description).toContain('**75%** WR, **50%** Pick, **33.3%** Ban')
-      expect(embeds[2]?.description).toContain('**33.3%** Ban, **50%** Pick, **75%** WR')
+      expect(embeds[0]?.description).toContain('🖱️ `  50%` 🏆 `  50%` 🚫 `16.7%`')
+      expect(embeds[0]?.description).toContain('Trajan')
+      expect(embeds[0]?.description).not.toContain('`Rome`')
+      expect(embeds[1]?.description).toContain('🏆 `  75%` 🖱️ `  50%` 🚫 `33.3%`')
+      expect(embeds[2]?.description).toContain('🚫 `33.3%` 🖱️ `  50%` 🏆 `  75%`')
+      expect(embeds.map(embed => embed.description).join('\n')).not.toContain('Aliens')
       expect(embeds[0]?.footer).toBeUndefined()
     }
     finally {
@@ -56,6 +68,7 @@ describe('civ leaderboard command payload', () => {
       total: number
       wins: number
       bans: number
+      redDeath?: boolean
     }): Promise<void> {
       for (let index = 1; index <= input.total; index++) {
         const matchId = `${input.matchPrefix}-${index}`
@@ -66,6 +79,7 @@ describe('civ leaderboard command payload', () => {
           isOld: false,
           seasonId: null,
           draftData: JSON.stringify({
+            ...(input.redDeath ? { redDeath: true } : {}),
             state: {
               bans: index <= input.bans ? [{ civId: input.civId }] : [],
             },
@@ -88,7 +102,7 @@ describe('civ leaderboard command payload', () => {
     }
   })
 
-  test('chunks full top 25 boards below Discord embed character limits', () => {
+  test('keeps full leaderboards below Discord embed character limits', () => {
     const rows = allLeaderIds.slice(0, 75).map((civId, index) => {
       const leader = getLeader(civId)
       const picks = 100 - index
@@ -96,7 +110,6 @@ describe('civ leaderboard command payload', () => {
       return {
         civId,
         leaderName: leader.name,
-        civilizationName: leader.civilization,
         picks,
         bans: 80 - (index % 25),
         wins,
@@ -111,7 +124,7 @@ describe('civ leaderboard command payload', () => {
       rows,
     })
 
-    expect(groups).toHaveLength(2)
+    expect(groups.length).toBeGreaterThanOrEqual(1)
     expect(groups.flatMap(group => group.map(embed => embed.toJSON().title))).toEqual([
       'Top Picked Leaders',
       'Top Win Rate Leaders',
@@ -119,6 +132,11 @@ describe('civ leaderboard command payload', () => {
     ])
     for (const group of groups) {
       expect(embedGroupTextLength(group)).toBeLessThanOrEqual(6000)
+      for (const embed of group) {
+        const description = embed.toJSON().description
+        expect(stringLength(description)).toBeLessThanOrEqual(CIV_LEADERBOARD_DESCRIPTION_CHAR_LIMIT)
+        expect(lineCount(description)).toBeLessThan(CIV_LEADERBOARD_TOP_LIMIT)
+      }
     }
   })
 })
@@ -132,4 +150,8 @@ function embedGroupTextLength(embeds: Array<{ toJSON: () => { title?: unknown, d
 
 function stringLength(value: unknown): number {
   return typeof value === 'string' ? value.length : 0
+}
+
+function lineCount(value: unknown): number {
+  return typeof value === 'string' ? value.split('\n').length : 0
 }
