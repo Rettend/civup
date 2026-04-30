@@ -5,7 +5,6 @@ import type {
   LeaderSwapState,
   MapVoteSelection,
   MapVoteSnapshot,
-  PendingLeaderSwapRequest,
 } from '@civup/game'
 import type { DraftRuntimeConfig, SessionClientMessage, SessionServerMessage } from '@civup/session'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
@@ -44,7 +43,7 @@ import {
   sanitizeDraftPreviews,
 } from './draft-previews.ts'
 import {
-  acceptSwapCommand,
+  applyLeaderSwapCommand,
   applyDraftResultCommand,
   clearSwapDisconnectFinalizeAtCommand,
   confirmMapVoteCommand,
@@ -55,17 +54,14 @@ import {
   finishMapVoteVotingCommand,
   normalizeRoomSwapState,
   normalizeStoredRoomRecord,
-  pruneExpiredSwapsCommand,
   ROOM_RECORD_KEY,
   type RoomEffect,
   type RoomRecord,
   setSwapDisconnectFinalizeAtCommand,
-  setSwapStateCommand,
   startMapVoteCommand,
   updateConfigCommand,
   updateMapVoteSelectionCommand,
 } from './draft-room-domain.ts'
-import { resolveAcceptedSwapState } from './leader-swaps.ts'
 import {
   createInitialMapVoteState,
   EMPTY_STORED_MAP_VOTE_STATE,
@@ -105,7 +101,6 @@ interface ConnectionState {
 const DEBUG_ACTIVE_BOT_PLAYER_ID_PREFIX = 'bot:'
 const DEBUG_ACTIVE_BOT_DELAY_MS = 5000
 const DEBUG_ACTIVE_BOT_STAGGER_MS = 150
-const SWAP_REQUEST_TIMEOUT_MS = 30_000
 const SWAP_DISCONNECT_GRACE_MS = 5_000
 
 // ── Draft Room Server ────────────────────────────────────────
@@ -614,7 +609,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         break
       }
 
-      case 'swap-request': {
+      case 'leader-swap': {
         if (seatIndex < 0) {
           this.send(sender, { type: 'error', message: 'Not a participant' })
           return
@@ -628,92 +623,29 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
           return
         }
 
-        const swapState = await this.getSwapState()
-        const nextSwapState = createPendingSwap(state, swapState, seatIndex, msg.toSeat, this.now() + SWAP_REQUEST_TIMEOUT_MS)
-        if ('error' in nextSwapState) {
-          this.send(sender, { type: 'error', message: nextSwapState.error })
-          return
-        }
-
-        await this.applyRoomTransition(setSwapStateCommand(room, {
-          type: 'set-swap-state',
-          swapState: nextSwapState,
-        }), 'swap-request', {
-          fromSeat: seatIndex,
-          toSeat: msg.toSeat,
-        })
-        break
-      }
-
-      case 'swap-accept': {
-        if (seatIndex < 0) {
-          this.send(sender, { type: 'error', message: 'Not a participant' })
-          return
-        }
-        if (!(await this.isSwapWindowOpen())) {
-          this.send(sender, { type: 'error', message: 'Leader swaps are not available right now' })
-          return
-        }
-
-        const swapState = await this.getSwapState()
-        const pendingSwap = getIncomingSwapForSeat(swapState, seatIndex)
-        if (!pendingSwap) {
-          this.send(sender, { type: 'error', message: 'No pending swap request' })
-          return
-        }
-
-        const swappedPicks = swapSeatPicks(state, pendingSwap.fromSeat, pendingSwap.toSeat)
+        const swappedPicks = swapSeatPicks(state, seatIndex, msg.toSeat)
         if ('error' in swappedPicks) {
           this.send(sender, { type: 'error', message: swappedPicks.error })
           return
         }
 
+        const swapState = await this.getSwapState()
         const nextState: DraftState = {
           ...state,
           picks: swappedPicks,
         }
-        const nextSwapState = resolveAcceptedSwapState(swapState, pendingSwap)
+        const nextSwapState: LeaderSwapState = {
+          completedSwaps: [...swapState.completedSwaps, { fromSeat: seatIndex, toSeat: msg.toSeat }],
+        }
 
-        await this.applyRoomTransition(acceptSwapCommand(room, {
-          type: 'accept-swap',
+        await this.applyRoomTransition(applyLeaderSwapCommand(room, {
+          type: 'apply-leader-swap',
           nextState,
           swapState: nextSwapState,
           picks: swappedPicks,
-        }), 'swap-accept', {
-          fromSeat: pendingSwap.fromSeat,
-          toSeat: pendingSwap.toSeat,
-        })
-        break
-      }
-
-      case 'swap-cancel': {
-        if (seatIndex < 0) {
-          this.send(sender, { type: 'error', message: 'Not a participant' })
-          return
-        }
-        if (!(await this.isSwapWindowOpen())) {
-          this.send(sender, { type: 'error', message: 'Leader swaps are not available right now' })
-          return
-        }
-
-        const swapState = await this.getSwapState()
-        const pendingSwap = getOutgoingSwapForSeat(swapState, seatIndex) ?? getIncomingSwapForSeat(swapState, seatIndex)
-        if (!pendingSwap) return
-        if (pendingSwap.fromSeat !== seatIndex && pendingSwap.toSeat !== seatIndex) {
-          this.send(sender, { type: 'error', message: 'Only the players in this swap can cancel it' })
-          return
-        }
-
-        const nextSwapState: LeaderSwapState = {
-          pendingSwaps: swapState.pendingSwaps.filter(swap => !isSamePendingSwap(swap, pendingSwap)),
-          completedSwaps: swapState.completedSwaps,
-        }
-        await this.applyRoomTransition(setSwapStateCommand(room, {
-          type: 'set-swap-state',
-          swapState: nextSwapState,
-        }), 'swap-cancel', {
-          fromSeat: pendingSwap.fromSeat,
-          toSeat: pendingSwap.toSeat,
+        }), 'leader-swap', {
+          fromSeat: seatIndex,
+          toSeat: msg.toSeat,
         })
         break
       }
@@ -793,7 +725,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     let room = await this.getRoomRecord()
     if (!room) return false
 
-    const dueAt = getNextRoomAlarmAt(room, this.getNormalizedSwapState(room))
+    const dueAt = getNextRoomAlarmAt(room)
     if (dueAt != null && dueAt > now + 50) {
       await this.rescheduleRoomAlarm()
       return false
@@ -809,17 +741,6 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     if (state.status === 'complete' && room.swapWindowOpen) {
       const disconnectFinalizeAt = room.swapDisconnectFinalizeAt
       const safetyEndsAt = room.swapSafetyEndsAt
-      const swapState = this.getNormalizedSwapState(room)
-      const prunedSwapState = pruneExpiredSwapsCommand(room, {
-        type: 'prune-expired-swaps',
-        now,
-      })
-      if (prunedSwapState.response) {
-        await this.applyRoomTransition(prunedSwapState, 'swap-alarm-prune', {
-          now,
-        })
-      }
-
       const alarmAction = getSwapWindowAlarmAction({
         now,
         connectedParticipantCount: this.getConnectedParticipantCount(state),
@@ -1079,7 +1000,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
   protected async getDraftRuntimeAlarmAt(): Promise<number | null> {
     const room = await this.getRoomRecord()
     if (!room) return null
-    return getNextRoomAlarmAt(room, this.getNormalizedSwapState(room))
+    return getNextRoomAlarmAt(room)
   }
 
   protected async setDraftRuntimeAlarm(nextAlarm: number | null): Promise<void> {
@@ -1440,7 +1361,7 @@ function buildDraftLifecycleLogContext(
   })
 }
 
-function getNextRoomAlarmAt(room: RoomRecord, swapState: LeaderSwapState): number | null {
+function getNextRoomAlarmAt(room: RoomRecord): number | null {
   const candidates: number[] = []
 
   if (
@@ -1461,7 +1382,6 @@ function getNextRoomAlarmAt(room: RoomRecord, swapState: LeaderSwapState): numbe
 
   if (room.state.status === 'complete' && room.swapWindowOpen) {
     const swapAlarmAt = getNextSwapLifecycleAlarmAt({
-      swapState,
       disconnectFinalizeAt: room.swapDisconnectFinalizeAt,
       safetyEndsAt: room.swapSafetyEndsAt,
     })
@@ -1553,64 +1473,6 @@ function parseConfigTimer(value: unknown): number | null | undefined {
 
 function wait(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-function createPendingSwap(
-  state: DraftState,
-  swapState: LeaderSwapState,
-  fromSeat: number,
-  toSeat: number,
-  expiresAt: number,
-): LeaderSwapState | { error: string } {
-  if (findPendingSwapBetweenSeats(swapState, fromSeat, toSeat)) {
-    return { error: 'A swap request between those players is already pending' }
-  }
-  if (getOutgoingSwapForSeat(swapState, fromSeat)) {
-    return { error: 'You already have a pending outgoing swap request' }
-  }
-  if (getIncomingSwapForSeat(swapState, toSeat)) {
-    return { error: 'That player already has a pending incoming swap request' }
-  }
-
-  const validation = swapSeatPicks(state, fromSeat, toSeat)
-  if ('error' in validation) return validation
-
-  return {
-    pendingSwaps: [...swapState.pendingSwaps, { fromSeat, toSeat, expiresAt }],
-    completedSwaps: swapState.completedSwaps,
-  }
-}
-
-function getIncomingSwapForSeat(
-  swapState: LeaderSwapState,
-  seatIndex: number,
-): PendingLeaderSwapRequest | null {
-  return swapState.pendingSwaps.find(swap => swap.toSeat === seatIndex) ?? null
-}
-
-function getOutgoingSwapForSeat(
-  swapState: LeaderSwapState,
-  seatIndex: number,
-): PendingLeaderSwapRequest | null {
-  return swapState.pendingSwaps.find(swap => swap.fromSeat === seatIndex) ?? null
-}
-
-function findPendingSwapBetweenSeats(
-  swapState: LeaderSwapState,
-  leftSeat: number,
-  rightSeat: number,
-): PendingLeaderSwapRequest | null {
-  return swapState.pendingSwaps.find(
-    swap => (swap.fromSeat === leftSeat && swap.toSeat === rightSeat)
-      || (swap.fromSeat === rightSeat && swap.toSeat === leftSeat),
-  ) ?? null
-}
-
-function isSamePendingSwap(
-  left: Pick<PendingLeaderSwapRequest, 'fromSeat' | 'toSeat'>,
-  right: Pick<PendingLeaderSwapRequest, 'fromSeat' | 'toSeat'>,
-): boolean {
-  return left.fromSeat === right.fromSeat && left.toSeat === right.toSeat
 }
 
 function isAuthorizedRequest(request: Request, expectedSecret: string | undefined): boolean {

@@ -52,6 +52,20 @@ export interface CancelMatchInput {
   cancelledAt: number
 }
 
+export interface CorrectMatchLeadersInput {
+  matchId: string
+  playerId: string
+  leaderId?: string | null
+  swapWithPlayerId?: string | null
+  correctedAt: number
+}
+
+export interface MatchLeaderCorrection {
+  playerId: string
+  previousCivId: string | null
+  nextCivId: string | null
+}
+
 export interface ModeratedMatchResult {
   match: MatchRow
   participants: ParticipantRow[]
@@ -59,8 +73,13 @@ export interface ModeratedMatchResult {
   recalculatedMatchIds: string[]
 }
 
+export interface MatchLeaderCorrectionResult extends ModeratedMatchResult {
+  corrections: MatchLeaderCorrection[]
+}
+
 export type ResolveMatchResult = ModeratedMatchResult | { error: string }
 export type CancelMatchResult = ModeratedMatchResult | { error: string }
+export type CorrectMatchLeadersResult = MatchLeaderCorrectionResult | { error: string }
 
 export interface CreateDraftMatchInput {
   matchId: string

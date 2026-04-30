@@ -2,7 +2,7 @@ import type { DraftCancelReason, DraftState, ResolvedMapVoteResult } from '@civu
 
 export const DRAFT_LIFECYCLE_EVENT_KINDS = [
   'DraftCompleted',
-  'SwapAccepted',
+  'LeaderSwapped',
   'DraftFinalized',
   'DraftCancelled',
 ] as const

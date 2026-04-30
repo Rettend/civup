@@ -37,9 +37,7 @@ export type SessionClientMessage
     | { type: 'pick', civId: string }
     | { type: 'preview', action: DraftAction, civIds: string[] }
     | { type: 'cancel', reason: 'cancel' | 'scrub' | 'revert' }
-    | { type: 'swap-request', toSeat: number }
-    | { type: 'swap-accept' }
-    | { type: 'swap-cancel' }
+    | { type: 'leader-swap', toSeat: number }
     | {
       type: 'config'
       banTimerSeconds: number | null
