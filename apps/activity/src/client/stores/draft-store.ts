@@ -144,6 +144,8 @@ export function updateDraft(
   mapVote: MapVoteSnapshot = EMPTY_MAP_VOTE_SNAPSHOT,
   steamLobbyLink: string | null = null,
 ) {
+  const flashSeats = swapState ? findChangedPickSeats(draftStore.state?.picks ?? [], state.picks) : []
+
   setDraftStore(produce((s) => {
     s.state = state
     s.leaderDataVersion = leaderDataVersion
@@ -156,23 +158,6 @@ export function updateDraft(
     s.swapState = swapState
     s.steamLobbyLink = steamLobbyLink
     s.mapVote = mapVote
-  }))
-}
-
-export function updateDraftSteamLobbyLink(steamLobbyLink: string | null) {
-  setDraftStore('steamLobbyLink', steamLobbyLink)
-}
-
-export function updateDraftPreviews(previews: DraftPreviewState) {
-  setDraftStore('previews', previews)
-}
-
-export function applySwapUpdate(swapState: LeaderSwapState, picks?: DraftSelection[]) {
-  const flashSeats = picks ? findChangedPickSeats(draftStore.state?.picks ?? [], picks) : []
-
-  setDraftStore(produce((s) => {
-    s.swapState = swapState
-    if (picks && s.state) s.state.picks = picks
     if (flashSeats.length > 0) s.swapFlashSeatIndices = flashSeats
   }))
 
@@ -183,6 +168,14 @@ export function applySwapUpdate(swapState: LeaderSwapState, picks?: DraftSelecti
     setDraftStore('swapFlashSeatIndices', [])
     swapFlashTimeout = null
   }, SWAP_FLASH_DURATION_MS)
+}
+
+export function updateDraftSteamLobbyLink(steamLobbyLink: string | null) {
+  setDraftStore('steamLobbyLink', steamLobbyLink)
+}
+
+export function updateDraftPreviews(previews: DraftPreviewState) {
+  setDraftStore('previews', previews)
 }
 
 /** Optimistically show a pick for this client's seat until server update arrives. */

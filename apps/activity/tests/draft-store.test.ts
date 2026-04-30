@@ -14,6 +14,7 @@ import {
   isSwapWindowOpen,
   phaseLabel,
   resetDraft,
+  seatJustSwapped,
   syncDraftServerTime,
   updateDraft,
 } from '../src/client/stores/draft-store'
@@ -257,5 +258,56 @@ describe('draft-store helpers', () => {
 
     expect(canSwapLeadersWith(4)).toBe(true)
     expect(canSwapLeadersWith(6)).toBe(true)
+  })
+
+  test('full draft updates during the swap window update picks and flash changed seats', () => {
+    const complete = createCompleteTeamState()
+    const swapped: DraftState = {
+      ...complete,
+      picks: complete.picks.map((pick) => {
+        if (pick.seatIndex === 0) return { ...pick, civId: complete.picks.find(current => current.seatIndex === 2)!.civId }
+        if (pick.seatIndex === 2) return { ...pick, civId: complete.picks.find(current => current.seatIndex === 0)!.civId }
+        return pick
+      }),
+    }
+
+    try {
+      initDraft(complete, 'live', 'a1', 0, null, Date.now(), { bans: {}, picks: {} }, {
+        completedSwaps: [],
+      })
+
+      updateDraft(swapped, 'live', 'a1', [], null, Date.now(), { bans: {}, picks: {} }, {
+        completedSwaps: [{ fromSeat: 0, toSeat: 2 }],
+      })
+
+      expect(seatJustSwapped(0)).toBe(true)
+      expect(seatJustSwapped(2)).toBe(true)
+      expect(canSwapLeadersWith(2)).toBe(true)
+    }
+    finally {
+      resetDraft()
+    }
+  })
+
+  test('full draft updates after swap window finalization hide swap actions', () => {
+    const complete = createCompleteTeamState()
+
+    try {
+      initDraft(complete, 'live', 'a1', 0, null, Date.now(), { bans: {}, picks: {} }, {
+        completedSwaps: [],
+      })
+      expect(isSwapWindowOpen()).toBe(true)
+      expect(canSwapLeadersWith(2)).toBe(true)
+
+      updateDraft(complete, 'live', 'a1', [], null, Date.now(), { bans: {}, picks: {} }, null)
+
+      expect(isSwapWindowOpen()).toBe(false)
+      expect(canSwapLeadersWith(2)).toBe(false)
+      expect(seatJustSwapped(0)).toBe(false)
+      expect(seatJustSwapped(2)).toBe(false)
+    }
+    finally {
+      resetDraft()
+    }
   })
 })

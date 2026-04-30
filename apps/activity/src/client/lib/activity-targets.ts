@@ -67,11 +67,13 @@ export function shouldReconnectVisibleActivityTarget(input: {
   appStatus: 'loading' | 'error' | 'overview' | 'lobby-waiting' | 'authenticated' | 'reported'
   connectionStatus: string
   draftStatus?: string | null
+  hasOpenSwapWindow?: boolean
 }): boolean {
   if (input.connectionStatus === 'connecting' || input.connectionStatus === 'reconnecting' || input.connectionStatus === 'connected') return false
   if (input.appStatus === 'lobby-waiting') return true
   if (input.appStatus !== 'authenticated') return false
-  if (input.draftStatus === 'complete' || input.draftStatus === 'cancelled') return false
+  if (input.draftStatus === 'complete') return input.hasOpenSwapWindow === true
+  if (input.draftStatus === 'cancelled') return false
   return true
 }
 
