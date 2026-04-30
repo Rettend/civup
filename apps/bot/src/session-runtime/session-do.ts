@@ -650,13 +650,39 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
   protected override async syncDraftRuntimeLifecyclePayload(payload: DraftLifecyclePayload, action: string): Promise<void> {
     const result = await this.syncDraftLifecyclePayload(payload)
-    if (result.ok) return
+    if (result.ok) {
+      await this.broadcastReopenedLobbyToDraftConnections(payload)
+      return
+    }
 
     console.error('[session-do] lifecycle sync deferred', buildDraftLifecycleLogContext(payload, {
       action,
       status: result.status,
       error: result.error,
     }))
+  }
+
+  private async broadcastReopenedLobbyToDraftConnections(payload: DraftLifecyclePayload): Promise<void> {
+    if (payload.outcome !== 'cancelled') return
+    if (payload.reason !== 'timeout' && payload.reason !== 'revert') return
+
+    const record = await this.getRecord()
+    if (!record || record.phase !== 'open') return
+
+    const connections = Array.from(this.getConnections<SessionConnectionState>())
+      .filter((connection) => {
+        const state = connection.state as SessionConnectionState | null
+        return state?.openLobby !== true && connection.readyState < 2
+      })
+    if (connections.length === 0) return
+
+    try {
+      const message = await this.buildOpenLobbySnapshotMessage(record)
+      for (const connection of connections) connection.send(message)
+    }
+    catch (error) {
+      console.error('[session-do] failed to broadcast reopened lobby snapshot', buildDraftLifecycleLogContext(payload), error)
+    }
   }
 
   private async retryPendingDraftStartSync(): Promise<void> {
