@@ -6,6 +6,7 @@ export type CivLeaderboardBoard = 'picked' | 'winrate' | 'banned'
 
 export const CIV_LEADERBOARD_BOARDS: readonly CivLeaderboardBoard[] = ['picked', 'winrate', 'banned']
 export const CIV_LEADERBOARD_TOP_LIMIT = 25
+export const CIV_LEADERBOARD_DESCRIPTION_CHAR_LIMIT = 2100
 
 const DISCORD_EMBEDS_TOTAL_CHAR_LIMIT = 6000
 
@@ -14,6 +15,32 @@ const BOARD_COLORS: Record<CivLeaderboardBoard, number> = {
   winrate: 0x16A34A,
   banned: 0xDC2626,
 }
+
+const BOARD_TITLES: Record<CivLeaderboardBoard, string> = {
+  picked: 'Top Picked Leaders',
+  winrate: 'Top Win Rate Leaders',
+  banned: 'Top Banned Leaders',
+}
+
+const EMPTY_DESCRIPTIONS: Record<CivLeaderboardBoard, string> = {
+  picked: 'No completed matches with picked leaders yet.',
+  winrate: 'No completed matches with picked leaders yet.',
+  banned: 'No recorded draft bans yet.',
+}
+
+const STAT_EMOJIS = {
+  picked: '🖱️',
+  winrate: '🏆',
+  banned: '🚫',
+} as const
+
+const STAT_ORDER: Record<CivLeaderboardBoard, readonly CivLeaderboardBoard[]> = {
+  picked: ['picked', 'winrate', 'banned'],
+  winrate: ['winrate', 'picked', 'banned'],
+  banned: ['banned', 'picked', 'winrate'],
+}
+
+const STAT_PERCENT_WIDTH = 5
 
 export function civLeaderboardEmbeds(
   snapshot: CivLeaderboardSnapshot,
@@ -67,10 +94,32 @@ export function civLeaderboardEmbed(
       .color(BOARD_COLORS[board])
   }
 
+  const description = formatBoardDescription(board, rows, snapshot.completedMatchCount)
+
   return new Embed()
     .title(title)
-    .description(rows.map((row, index) => formatRow(board, row, index + 1, snapshot.completedMatchCount)).join('\n'))
+    .description(description)
     .color(BOARD_COLORS[board])
+}
+
+function formatBoardDescription(
+  board: CivLeaderboardBoard,
+  rows: readonly CivLeaderboardSnapshotRow[],
+  completedMatchCount: number,
+): string {
+  const lines: string[] = []
+  let length = 0
+
+  for (let index = 0; index < rows.length; index++) {
+    const line = formatRow(board, rows[index]!, index + 1, completedMatchCount)
+    const nextLength = length + (lines.length > 0 ? 1 : 0) + line.length
+    if (nextLength > CIV_LEADERBOARD_DESCRIPTION_CHAR_LIMIT) break
+
+    lines.push(line)
+    length = nextLength
+  }
+
+  return lines.length > 0 ? lines.join('\n') : emptyDescriptionForBoard(board)
 }
 
 function rowsForBoard(
@@ -96,19 +145,13 @@ function rowsForBoard(
 
 function formatRow(board: CivLeaderboardBoard, row: CivLeaderboardSnapshotRow, rank: number, completedMatchCount: number): string {
   const leader = formatLeader(row)
-  const pickRate = formatBoldPercent(ratePct(row.picks, completedMatchCount))
-  const banRate = formatBoldPercent(row.banRatePct)
-  const winRate = formatBoldPercent(row.winRatePct)
-
-  if (board === 'picked') {
-    return `${formatPlacementCode(rank)} ${leader} — ${pickRate} Pick, ${winRate} WR, ${banRate} Ban`
+  const stats = {
+    picked: formatCodePercent(ratePct(row.picks, completedMatchCount)),
+    winrate: formatCodePercent(row.winRatePct),
+    banned: formatCodePercent(row.banRatePct),
   }
-
-  if (board === 'winrate') {
-    return `${formatPlacementCode(rank)} ${leader} — ${winRate} WR, ${pickRate} Pick, ${banRate} Ban`
-  }
-
-  return `${formatPlacementCode(rank)} ${leader} — ${banRate} Ban, ${pickRate} Pick, ${winRate} WR`
+  const statText = STAT_ORDER[board].map(stat => formatStat(stat, stats[stat])).join(' ')
+  return `${formatPlacementCode(rank)} ${statText} — ${leader}`
 }
 
 function formatLeader(row: CivLeaderboardSnapshotRow): string {
@@ -117,28 +160,25 @@ function formatLeader(row: CivLeaderboardSnapshotRow): string {
   return `${emoji ? `${emoji} ` : ''}${leaderName}`
 }
 
+function formatStat(stat: CivLeaderboardBoard, value: string): string {
+  return `${STAT_EMOJIS[stat]} ${value}`
+}
+
 function formatCivLeaderboardTitle(board: CivLeaderboardBoard, titlePrefix?: string): string {
-  const baseTitle = board === 'picked'
-    ? 'Top Picked Leaders'
-    : board === 'winrate'
-      ? 'Top Win Rate Leaders'
-      : 'Top Banned Leaders'
+  const baseTitle = BOARD_TITLES[board]
   return titlePrefix ? `${titlePrefix} ${baseTitle}` : baseTitle
 }
 
 function emptyDescriptionForBoard(board: CivLeaderboardBoard): string {
-  if (board === 'picked') return 'No completed matches with picked leaders yet.'
-  if (board === 'winrate') return 'No completed matches with picked leaders yet.'
-  return 'No recorded draft bans yet.'
+  return EMPTY_DESCRIPTIONS[board]
 }
 
 function formatPercent(value: number | null): string {
   return value == null ? 'n/a' : `${value}%`
 }
 
-function formatBoldPercent(value: number | null): string {
-  const formatted = formatPercent(value)
-  return value == null ? formatted : `**${formatted}**`
+function formatCodePercent(value: number | null): string {
+  return `\`${formatPercent(value).padStart(STAT_PERCENT_WIDTH, ' ')}\``
 }
 
 function ratePct(count: number, total: number): number | null {

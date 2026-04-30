@@ -1,13 +1,12 @@
 import type { Database } from '@civup/db'
 import { matches, matchParticipants } from '@civup/db'
-import { getLeader } from '@civup/game'
+import { getLeader, redDeathLeaderMap } from '@civup/game'
 import { and, eq, sql } from 'drizzle-orm'
 import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
 
 export interface CivLeaderboardSnapshotRow {
   civId: string
   leaderName: string
-  civilizationName: string
   picks: number
   bans: number
   wins: number
@@ -22,7 +21,6 @@ export interface CivLeaderboardSnapshot {
 }
 
 interface StoredCivLeaderboardSnapshot {
-  version?: unknown
   updatedAt?: unknown
   completedMatchCount?: unknown
   rows?: unknown
@@ -31,13 +29,13 @@ interface StoredCivLeaderboardSnapshot {
 interface CivAggregate {
   civId: string
   leaderName: string
-  civilizationName: string
   picks: number
   bans: number
   wins: number
 }
 
 interface ParsedDraftData {
+  redDeath?: unknown
   state?: {
     bans?: Array<{
       civId?: unknown
@@ -46,7 +44,6 @@ interface ParsedDraftData {
 }
 
 const CIV_LEADERBOARD_SNAPSHOT_KEY = 'leaderboard:civ:snapshot'
-const CIV_LEADERBOARD_SNAPSHOT_VERSION = 1
 
 export function civLeaderboardSnapshotKey(): string {
   return CIV_LEADERBOARD_SNAPSHOT_KEY
@@ -83,7 +80,6 @@ export async function buildCivLeaderboardSnapshotFromD1(
   const [matchRows, pickRows] = await Promise.all([
     db
       .select({
-        id: matches.id,
         draftData: matches.draftData,
       })
       .from(matches)
@@ -104,16 +100,20 @@ export async function buildCivLeaderboardSnapshotFromD1(
   ])
 
   const aggregates = new Map<string, CivAggregate>()
+  const completedCivMatchCount = matchRows.filter(match => !isRedDeathMatch(match.draftData)).length
 
   for (const row of pickRows) {
     if (!row.civId) continue
+    if (isRedDeathFaction(row.civId)) continue
     const aggregate = getCivAggregate(aggregates, row.civId)
     aggregate.picks += normalizeCount(row.picks)
     aggregate.wins += normalizeCount(row.wins)
   }
 
   for (const match of matchRows) {
+    if (isRedDeathMatch(match.draftData)) continue
     for (const civId of extractDraftDataBanCivIds(match.draftData)) {
+      if (isRedDeathFaction(civId)) continue
       const aggregate = getCivAggregate(aggregates, civId)
       aggregate.bans += 1
     }
@@ -121,9 +121,9 @@ export async function buildCivLeaderboardSnapshotFromD1(
 
   return {
     updatedAt,
-    completedMatchCount: matchRows.length,
+    completedMatchCount: completedCivMatchCount,
     rows: Array.from(aggregates.values())
-      .map(row => toSnapshotRow(row, matchRows.length))
+      .map(row => toSnapshotRow(row, completedCivMatchCount))
       .sort((left, right) => right.picks - left.picks || right.bans - left.bans || left.civId.localeCompare(right.civId)),
   }
 }
@@ -136,11 +136,9 @@ function getCivAggregate(aggregates: Map<string, CivAggregate>, civId: string): 
   const existing = aggregates.get(civId)
   if (existing) return existing
 
-  const meta = resolveLeaderMeta(civId)
   const created: CivAggregate = {
     civId,
-    leaderName: meta.leaderName,
-    civilizationName: meta.civilizationName,
+    leaderName: resolveLeaderName(civId),
     picks: 0,
     bans: 0,
     wins: 0,
@@ -149,13 +147,12 @@ function getCivAggregate(aggregates: Map<string, CivAggregate>, civId: string): 
   return created
 }
 
-function resolveLeaderMeta(civId: string): { leaderName: string, civilizationName: string } {
+function resolveLeaderName(civId: string): string {
   try {
-    const leader = getLeader(civId)
-    return { leaderName: leader.name, civilizationName: leader.civilization }
+    return getLeader(civId).name
   }
   catch {
-    return { leaderName: '', civilizationName: '' }
+    return ''
   }
 }
 
@@ -163,7 +160,6 @@ function toSnapshotRow(row: CivAggregate, completedMatchCount: number): CivLeade
   return {
     civId: row.civId,
     leaderName: row.leaderName,
-    civilizationName: row.civilizationName,
     picks: row.picks,
     bans: row.bans,
     wins: row.wins,
@@ -179,7 +175,6 @@ async function setCivLeaderboardSnapshot(
   await kvMput(kv, [{
     key: CIV_LEADERBOARD_SNAPSHOT_KEY,
     value: JSON.stringify({
-      version: CIV_LEADERBOARD_SNAPSHOT_VERSION,
       updatedAt: snapshot.updatedAt,
       completedMatchCount: snapshot.completedMatchCount,
       rows: snapshot.rows,
@@ -191,7 +186,6 @@ export function normalizeCivLeaderboardSnapshot(value: unknown): CivLeaderboardS
   if (!value || typeof value !== 'object') return null
 
   const raw = value as StoredCivLeaderboardSnapshot
-  if (raw.version !== CIV_LEADERBOARD_SNAPSHOT_VERSION) return null
   if (!Array.isArray(raw.rows)) return null
 
   return {
@@ -199,8 +193,16 @@ export function normalizeCivLeaderboardSnapshot(value: unknown): CivLeaderboardS
     completedMatchCount: normalizeNonNegativeInteger(raw.completedMatchCount) ?? 0,
     rows: raw.rows
       .map(normalizeCivLeaderboardSnapshotRow)
-      .filter((row): row is CivLeaderboardSnapshotRow => row !== null),
+      .filter((row): row is CivLeaderboardSnapshotRow => row !== null && !isRedDeathFaction(row.civId)),
   }
+}
+
+function isRedDeathFaction(civId: string): boolean {
+  return redDeathLeaderMap.has(civId)
+}
+
+function isRedDeathMatch(draftData: string | null): boolean {
+  return parseDraftData(draftData)?.redDeath === true
 }
 
 function normalizeCivLeaderboardSnapshotRow(value: unknown): CivLeaderboardSnapshotRow | null {
@@ -216,7 +218,6 @@ function normalizeCivLeaderboardSnapshotRow(value: unknown): CivLeaderboardSnaps
   return {
     civId,
     leaderName: typeof raw.leaderName === 'string' ? raw.leaderName : '',
-    civilizationName: typeof raw.civilizationName === 'string' ? raw.civilizationName : '',
     picks,
     bans,
     wins,
