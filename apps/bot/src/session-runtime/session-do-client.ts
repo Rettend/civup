@@ -98,7 +98,7 @@ export type SessionDraftLifecycleCommand
     at?: number
   }
   | {
-    type: 'swap-accepted' | 'draft-finalized'
+    type: 'leader-swapped' | 'draft-finalized'
     at?: number
   }
   | {

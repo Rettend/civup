@@ -54,6 +54,7 @@ export function useDraftSetupConfigState(input: {
   props: DraftSetupPageProps
   currentLobby: Accessor<LobbySnapshot | null>
   amHost: Accessor<boolean>
+  canSaveSteamLobbyLink: Accessor<boolean>
   isLobbyMode: Accessor<boolean>
   lobbyMode: Accessor<LobbyModeValue>
   filledSlots: Accessor<number>
@@ -502,18 +503,21 @@ export function useDraftSetupConfigState(input: {
   const handleSaveSteamLink = async (link: string | null) => {
     const lobby = input.currentLobby()
     const currentUserId = userId()
-    if (!lobby || !currentUserId || !input.amHost() || input.lobbyActionPending() || link === lobby.steamLobbyLink) return
+    if (!lobby || !currentUserId || !input.canSaveSteamLobbyLink() || input.lobbyActionPending() || link === lobby.steamLobbyLink) return
     input.setLobbyActionPending(true)
     input.clearConfigMessage()
     try {
-      const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, {
-        banTimerSeconds: timerConfig().banTimerSeconds,
-        pickTimerSeconds: timerConfig().pickTimerSeconds,
-        leaderPoolSize: draftConfig().leaderPoolSize,
-        steamLobbyLink: link,
-        minRole: lobby.minRole,
-        maxRole: lobby.maxRole,
-      })
+      const payload = input.amHost()
+        ? {
+            banTimerSeconds: timerConfig().banTimerSeconds,
+            pickTimerSeconds: timerConfig().pickTimerSeconds,
+            leaderPoolSize: draftConfig().leaderPoolSize,
+            steamLobbyLink: link,
+            minRole: lobby.minRole,
+            maxRole: lobby.maxRole,
+          }
+        : { steamLobbyLink: link }
+      const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, payload)
       if (!result.ok) return input.showErrorMessage(result.error)
       input.showInfoMessage(link ? 'Steam lobby link updated.' : 'Steam lobby link cleared.')
     }

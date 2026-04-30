@@ -15,11 +15,10 @@ describe('SteamLobbyButton UI', () => {
     onSaveSteamLink.mockClear()
   })
 
-  test('shows the editable host affordance when a steam link can be managed', () => {
+  test('shows the editable affordance when a steam link can be managed', () => {
     render(() => (
       <SteamLobbyButton
         steamLobbyLink="steam://joinlobby/289070/example"
-        isHost
         onSaveSteamLink={onSaveSteamLink}
       />
     ))
@@ -34,6 +33,18 @@ describe('SteamLobbyButton UI', () => {
 
     const button = screen.getByRole('button', { name: 'No Steam link set' })
     expect(button.getAttribute('title')).toBe('No Steam link set')
+  })
+
+  test('uses the setter affordance instead of missing-link copy affordances when no steam link is set but save is allowed', () => {
+    render(() => <SteamLobbyButton steamLobbyLink={null} onSaveSteamLink={onSaveSteamLink} />)
+
+    const button = screen.getByRole('button', { name: 'Set Steam lobby link' })
+    expect(button.getAttribute('title')).toBe('Set Steam lobby link')
+    fireEvent.click(button)
+
+    expect(screen.queryByText('No Steam link set')).toBeNull()
+    expect(discordSpies.openExternalLink).not.toHaveBeenCalled()
+    expect(clipboardSpies.copyTextToClipboard).not.toHaveBeenCalled()
   })
 
   test('does not try to open or copy when the steam link is missing', () => {

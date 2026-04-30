@@ -761,7 +761,7 @@ function buildCompletedPayload(room: CapturedDraftRuntimeRecord, options: Comple
   const eventKind = options.finalized === true
     ? 'DraftFinalized'
     : options.transformState
-      ? 'SwapAccepted'
+      ? 'LeaderSwapped'
       : 'DraftCompleted'
 
   return {
