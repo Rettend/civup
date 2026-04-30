@@ -114,12 +114,6 @@ describe('SessionDO open session commands', () => {
       const [directoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
       expect(directoryRow?.phase).toBe('swap')
 
-      const swapResponse = await room.fetch(sessionRequest('/commands/draft-lifecycle', {
-        method: 'POST',
-        body: JSON.stringify({ type: 'leader-swapped', at: 4 }),
-      }))
-      expect(swapResponse.status).toBe(200)
-
       const finalizeResponse = await room.fetch(sessionRequest('/commands/draft-lifecycle', {
         method: 'POST',
         body: JSON.stringify({ type: 'draft-finalized', at: 5 }),
@@ -129,7 +123,7 @@ describe('SessionDO open session commands', () => {
       recordResponse = await room.fetch(sessionRequest('/record'))
       body = await recordResponse.json() as any
       expect(body.record.phase).toBe('active')
-      expect(body.record.version).toBe(5)
+      expect(body.record.version).toBe(4)
       expect(body.record.matchId).toBe(openLobby.id)
       expect(body.record.config.pickTimerSeconds).toBe(30)
       expect(body.record.roster.participants.map((member: any) => member.playerId)).toEqual(['p1', 'p2'])

@@ -111,6 +111,7 @@ interface MockState {
   draftPreviewPicks: Record<number, string[]>
   steamLobbyLink: string | null
   canSwapLeaderSeatIndices: number[]
+  swapFlashSeatIndices: number[]
   swapWindowOpen: boolean
   tagFiltersState: Record<LeaderTagCategory, string[]>
   arrangeLobbySlotsResult: { ok: true } | { ok: false, error: string }
@@ -225,6 +226,7 @@ function defaults(): MockState {
     draftPreviewPicks: {},
     steamLobbyLink: null,
     canSwapLeaderSeatIndices: [],
+    swapFlashSeatIndices: [],
     swapWindowOpen: false,
     tagFiltersState: emptyTagFilters(),
     arrangeLobbySlotsResult: { ok: true },
@@ -283,6 +285,7 @@ export function resetUiMocks() {
   uiMockState.draftPreviewPicks = {}
   uiMockState.steamLobbyLink = null
   uiMockState.canSwapLeaderSeatIndices = []
+  uiMockState.swapFlashSeatIndices = []
   uiMockState.swapWindowOpen = false
   uiMockState.tagFiltersState = emptyTagFilters()
   for (const spy of Object.values(discordSpies)) spy.mockClear()
@@ -612,6 +615,7 @@ mock.module('~/client/stores', () => ({
   reportMatchResult: (...args: Parameters<typeof storeSpies.reportMatchResult>) => storeSpies.reportMatchResult(...args),
   resetMapVote,
   resultSelectionsLocked: () => uiMockState.resultSelectionsLocked,
+  seatJustSwapped: (seatIndex: number) => uiMockState.swapFlashSeatIndices.includes(seatIndex),
   scrubMatchResult: (...args: Parameters<typeof storeSpies.scrubMatchResult>) => storeSpies.scrubMatchResult(...args),
   searchQuery: () => uiMockState.searchQuery,
   selectedWinningTeam: () => uiMockState.selectedWinningTeam,

@@ -357,6 +357,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       appStatus: current.status,
       connectionStatus: connectionStatus(),
       draftStatus: draftStore.state?.status ?? null,
+      hasOpenSwapWindow: draftStore.swapState != null,
     })) { return }
 
     if (current.status === 'authenticated') {

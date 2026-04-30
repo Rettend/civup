@@ -52,7 +52,6 @@ export {
   watchLobbyState,
 } from './connection-store'
 export {
-  applySwapUpdate,
   canOpenLeaderGrid,
   canSwapLeadersWith,
   canSendPickPreview,

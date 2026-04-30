@@ -49,6 +49,17 @@ describe('PlayerSlot UI', () => {
     expect(storeSpies.sendLeaderSwap).toHaveBeenCalledWith(1)
   })
 
+  test('only animates completed portraits for seats that just swapped', () => {
+    uiMockState.draftState = createCompleteDraftState({ formatId: '2v2' })
+    uiMockState.swapFlashSeatIndices = [2]
+
+    const firstRender = render(() => <PlayerSlot seatIndex={0} />)
+    const secondRender = render(() => <PlayerSlot seatIndex={2} />)
+
+    expect(firstRender.container.querySelector('img[alt="Abraham Lincoln"]')?.className).not.toContain('anim-portrait-in')
+    expect(secondRender.container.querySelector('img[alt="John Curtin"]')?.className).toContain('anim-portrait-in')
+  })
+
   test('keeps the map-vote breathing nodes mounted and grays out a confirmed seat during voting', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
