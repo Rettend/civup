@@ -4,14 +4,17 @@ import { createEffect, createMemo, createSignal, onCleanup, Show } from 'solid-j
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { placementIconClass } from '~/client/lib/placement-icons'
+import { getVisualSeatOrder } from '~/client/lib/seat-order'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
-import { canRequestSwapWith, draftNow, draftStore, ffaPlacementOrder, getHiddenDraftLeaderAssignment, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, gridOpen, hiddenDraftLeaderTargetSeatIndex, isHiddenDraftComplete, isMapVotePhase, isMobileLayout, isSeatMapVoteConfirmed, isSwapWindowOpen, MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, setHiddenDraftLeaderTargetSeatIndex, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
+import { canRequestSwapWith, draftNow, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, gridOpen, hiddenDraftLeaderSelections, isHiddenDraftComplete, isMapVotePhase, isMobileLayout, isSeatMapVoteConfirmed, isSwapWindowOpen, MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatHasIncomingSwap, selectWinningTeam, sendSwapAccept, sendSwapRequest, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
   seatIndex: number
   /** Whether this is a half-height FFA slot */
   compact?: boolean
+  /** One-based visual slot number shown in the slot corner. */
+  displayNumber?: number
 }
 
 const SLOT_BREATHE_CYCLE_MS = 3000
@@ -26,7 +29,9 @@ export function PlayerSlot(props: PlayerSlotProps) {
     if (serverPick) return serverPick
 
     const optimisticCivId = getOptimisticSeatPick(props.seatIndex)
-    const civId = optimisticCivId ?? (isHiddenDraftComplete() ? getHiddenDraftLeaderAssignment(props.seatIndex) : null)
+    const visualIndex = getVisualSeatOrder(state()?.seats).indexOf(props.seatIndex)
+    const hiddenDraftCivId = visualIndex >= 0 ? hiddenDraftLeaderSelections()[visualIndex] ?? null : null
+    const civId = optimisticCivId ?? (isHiddenDraftComplete() ? hiddenDraftCivId : null)
     if (!civId) return null
 
     return {
@@ -56,6 +61,8 @@ export function PlayerSlot(props: PlayerSlotProps) {
   const leaderFullPortraitUrl = (currentLeader: { id: string, fullPortraitUrl?: string }) => resolveAssetUrl(currentLeader.fullPortraitUrl ?? `/assets/leaders-full/${currentLeader.id}.webp`) ?? (currentLeader.fullPortraitUrl ?? `/assets/leaders-full/${currentLeader.id}.webp`)
 
   const isActive = (): boolean => {
+    if (isHiddenDraftNextPickSeat()) return true
+
     const s = state()
     if (!s || s.status !== 'active') return false
     const step = s.steps[s.currentStepIndex]
@@ -91,7 +98,11 @@ export function PlayerSlot(props: PlayerSlotProps) {
   const isTeamResultMode = () => isTwoTeamResultMode() || isMultiTeamResultMode()
   const canSelectResult = () => !resultSelectionsLocked()
   const isHiddenDraftLeaderAssignmentMode = () => isHiddenDraftComplete() && gridOpen() && isParticipant()
-  const isHiddenDraftLeaderTarget = () => isHiddenDraftLeaderAssignmentMode() && hiddenDraftLeaderTargetSeatIndex() === props.seatIndex
+  const isHiddenDraftNextPickSeat = () => {
+    if (!isHiddenDraftLeaderAssignmentMode()) return false
+    const nextSeatIndex = getVisualSeatOrder(state()?.seats)[hiddenDraftLeaderSelections().length]
+    return nextSeatIndex === props.seatIndex
+  }
 
   const placementRank = () => {
     if (!isFfaPlacementMode()) return -1
@@ -207,17 +218,14 @@ export function PlayerSlot(props: PlayerSlotProps) {
     <div
       class={cn(
         'relative flex flex-col overflow-hidden bg-bg-subtle h-full isolate',
-        canSelectResult() && (isFfaPlacementMode() || isTeamResultMode() || isHiddenDraftLeaderAssignmentMode()) && 'cursor-pointer',
+        canSelectResult() && (isFfaPlacementMode() || isTeamResultMode()) && 'cursor-pointer',
       )}
       classList={{
         'slot-accent-gold': isActive() && accent() === 'gold',
         'slot-accent-red': isActive() && accent() === 'red',
       }}
       onClick={() => {
-        if (isHiddenDraftLeaderAssignmentMode() && canSelectResult()) {
-          setHiddenDraftLeaderTargetSeatIndex(props.seatIndex)
-          return
-        }
+        if (isHiddenDraftLeaderAssignmentMode() && canSelectResult()) return
         handleSlotClick()
         handleTeamResultClick()
       }}
@@ -400,10 +408,6 @@ export function PlayerSlot(props: PlayerSlotProps) {
         </div>
       </Show>
 
-      <Show when={isHiddenDraftLeaderTarget()}>
-        <div class="pointer-events-none inset-0 absolute z-35 shadow-[inset_0_0_0_2px_var(--accent),inset_0_0_28px_var(--glow-gold-dim)]" />
-      </Show>
-
       {/* Bottom gradient overlay */}
       <div class={cn(
         'absolute inset-x-0 bottom-0 px-2 pb-2 pt-8 z-20',
@@ -455,7 +459,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
           isActive() ? (accent() === 'red' ? 'text-danger' : 'text-accent') : (filled() ? 'text-white/80 drop-shadow-md' : 'text-fg-muted/50'),
         )}
         >
-          {props.seatIndex + 1}
+          {props.displayNumber ?? props.seatIndex + 1}
         </span>
       </div>
 

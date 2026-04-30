@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
 import type { DraftRuntimeConfig } from '@civup/session'
 import { matches, matchParticipants, sessionDirectory } from '@civup/db'
-import { allFactionIds, allLeaderIds, getDraftFormat, isTeamMode, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex } from '@civup/game'
+import { allFactionIds, allLeaderIds, getDraftFormat, isTeamMode, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
 import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import { getActivitySessionsByChannel, getOpenActivitySessionsForUser } from './session-state.ts'
 
@@ -83,12 +83,24 @@ export function buildDraftRuntimeConfig(
 
 function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
   if (isTeamMode(mode)) {
-    return entries.map((entry, index) => ({
-      playerId: entry.playerId,
-      displayName: entry.displayName,
-      avatarUrl: entry.avatarUrl ?? null,
-      team: slotToTeamIndex(mode, index, entries.length) ?? undefined,
-    }))
+    const teams = teamCount(mode, entries.length)
+    const playersPerTeam = teamSize(mode, entries.length) ?? 1
+    const seats: DraftSeat[] = []
+
+    for (let position = 0; position < playersPerTeam; position++) {
+      for (let team = 0; team < teams; team++) {
+        const entry = entries[team * playersPerTeam + position]
+        if (!entry) continue
+        seats.push({
+          playerId: entry.playerId,
+          displayName: entry.displayName,
+          avatarUrl: entry.avatarUrl ?? null,
+          team,
+        })
+      }
+    }
+
+    return seats
   }
 
   if (mode === '1v1') {
