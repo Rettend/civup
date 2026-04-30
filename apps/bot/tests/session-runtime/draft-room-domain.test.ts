@@ -1,10 +1,70 @@
 import type { DraftSeat } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { allLeaderIds, createDraft, draftFormatMap, isDraftError, processDraftInput } from '@civup/game'
-import { applyDraftResultCommand, createRoomRecord, finalizeCompletedDraftCommand } from '../../src/session-runtime/draft-room-domain.ts'
+import { applyDraftResultCommand, applyLeaderSwapCommand, createRoomRecord, finalizeCompletedDraftCommand } from '../../src/session-runtime/draft-room-domain.ts'
 import { EMPTY_STORED_MAP_VOTE_STATE } from '../../src/session-runtime/map-vote-room-state.ts'
 
 describe('draft room domain', () => {
+  test('applying a leader swap broadcasts picks and syncs a LeaderSwapped lifecycle event', () => {
+    const seats: DraftSeat[] = [
+      { playerId: 'a1', displayName: 'A1', team: 0 },
+      { playerId: 'b1', displayName: 'B1', team: 1 },
+      { playerId: 'a2', displayName: 'A2', team: 0 },
+      { playerId: 'b2', displayName: 'B2', team: 1 },
+    ]
+    const format = draftFormatMap.get('default-2v2')
+    expect(format).toBeDefined()
+    if (!format) return
+
+    const state = {
+      ...createDraft('match-swap', format, seats, allLeaderIds.slice(0, 12)),
+      status: 'complete' as const,
+      currentStepIndex: format.getSteps(seats.length).length,
+      picks: seats.map((_, seatIndex) => ({
+        civId: allLeaderIds[seatIndex] ?? allLeaderIds[0]!,
+        seatIndex,
+        stepIndex: seatIndex,
+      })),
+    }
+    const swappedPicks = state.picks.map(pick => {
+      if (pick.seatIndex === 0) return { ...pick, civId: state.picks[2]!.civId }
+      if (pick.seatIndex === 2) return { ...pick, civId: state.picks[0]!.civId }
+      return pick
+    })
+    const room = createRoomRecord({
+      matchId: 'match-swap',
+      hostId: 'a1',
+      formatId: 'default-2v2',
+      seats,
+      civPool: allLeaderIds.slice(0, 12),
+    }, state, EMPTY_STORED_MAP_VOTE_STATE, {
+      completedAt: 100,
+      swapWindowOpen: true,
+      swapState: { completedSwaps: [] },
+      swapSafetyEndsAt: 1_000,
+    })
+
+    const transition = applyLeaderSwapCommand(room, {
+      type: 'apply-leader-swap',
+      nextState: { ...state, picks: swappedPicks },
+      swapState: { completedSwaps: [{ fromSeat: 0, toSeat: 2 }] },
+      picks: swappedPicks,
+    })
+
+    expect(transition.room.state.picks).toEqual(swappedPicks)
+    expect(transition.room.swapState).toEqual({ completedSwaps: [{ fromSeat: 0, toSeat: 2 }] })
+    expect(transition.effects.map(effect => effect.type)).toEqual([
+      'schedule-swap-alarm',
+      'broadcast-swap-update',
+      'sync-draft-lifecycle',
+    ])
+    expect(transition.effects[2]).toMatchObject({
+      type: 'sync-draft-lifecycle',
+      delivery: 'await',
+      payload: expect.objectContaining({ eventKind: 'LeaderSwapped' }),
+    })
+  })
+
   test('finalizing a completed swap window syncs lifecycle before closing selected-session sockets', () => {
     const seats: DraftSeat[] = [
       { playerId: 'p1', displayName: 'Player One' },
@@ -32,7 +92,7 @@ describe('draft room domain', () => {
     }, state, EMPTY_STORED_MAP_VOTE_STATE, {
       completedAt: 100,
       swapWindowOpen: true,
-      swapState: { pendingSwaps: [], completedSwaps: [] },
+      swapState: { completedSwaps: [] },
       swapSafetyEndsAt: 1_000,
       timerEndsAt: 1_000,
       alarmStepIndex: 2,

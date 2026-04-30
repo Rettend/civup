@@ -393,8 +393,27 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     const minRoleChanged = normalizedMinRole !== lobby.minRole
     const maxRoleChanged = normalizedMaxRole !== lobby.maxRole
+    const hasDraftConfigUpdate = hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasMapVoteEnabled || hasBlindBans || hasSimultaneousPick || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasHiddenDraft || hasDuplicateFactions || hasTargetSize || hasMinRole || hasMaxRole
+    const isSteamLobbyLinkOnlyUpdate = hasSteamLobbyLink && !hasDraftConfigUpdate
+    const currentUserIsHost = lobby.hostId === auth.identity.userId
+    const currentUserIsSlotted = lobby.slots.includes(auth.identity.userId)
 
-    if (lobby.hostId !== auth.identity.userId) {
+    if (isSteamLobbyLinkOnlyUpdate) {
+      if (!isSteamLobbyEditableStatus(lobby.status)) {
+        return c.json({ error: 'Steam lobby links can only be managed while the lobby is open or the match is live.' }, 409)
+      }
+      if (!currentUserIsHost && !currentUserIsSlotted) {
+        return c.json({ error: 'Only lobby players can update the Steam lobby link' }, 403)
+      }
+
+      const updated = await setLobbySteamLobbyLink(kv, lobby.id, parsedSteamLobbyLink ?? null, lobby, lobbySessionMutationOptions(c)) ?? lobby
+      if (updated.revision !== lobby.revision) {
+        await syncLobbyDerivedState(kv, updated)
+      }
+      return c.json(await buildStoredLobbySnapshot(kv, mode, updated))
+    }
+
+    if (!currentUserIsHost) {
       return c.json({ error: 'Only the lobby host can update draft config' }, 403)
     }
 
@@ -405,7 +424,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       if (!hasSteamLobbyLink) {
         return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
       }
-      if (hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasMapVoteEnabled || hasBlindBans || hasSimultaneousPick || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasHiddenDraft || hasDuplicateFactions || hasTargetSize || hasMinRole || hasMaxRole) {
+      if (hasDraftConfigUpdate) {
         return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
       }
 

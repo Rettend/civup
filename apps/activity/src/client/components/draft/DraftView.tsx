@@ -153,7 +153,7 @@ export function DraftView(props: DraftViewProps) {
   })
 
   const isActiveOrComplete = () => isMapVotePhase() || state()?.status === 'active' || state()?.status === 'complete'
-  const canSaveSteamLobbyLink = () => amHost() && Boolean(props.lobbyId) && Boolean(props.lobbyMode)
+  const canSaveSteamLobbyLink = () => draftStore.seatIndex != null && Boolean(props.lobbyId) && Boolean(props.lobbyMode)
   const canToggleOverlay = () => isMapVoteVoting() || canOpenLeaderGrid() || isHiddenDraftComplete()
   const showOverlayToggle = () => state()?.status === 'active' || isMapVoteVoting() || isHiddenDraftComplete()
   const overlayToggleLabel = () => {
@@ -276,7 +276,6 @@ export function DraftView(props: DraftViewProps) {
       <Show when={!isMiniView()} fallback={<MiniView />}>
         <CancelledDraftScreen
           steamLobbyLink={steamLobbyLink()}
-          isHost={amHost()}
           onSwitchTarget={props.onSwitchTarget}
         />
       </Show>
@@ -286,7 +285,6 @@ export function DraftView(props: DraftViewProps) {
 
 function CancelledDraftScreen(props: {
   steamLobbyLink: string | null
-  isHost: boolean
   onSwitchTarget?: () => void
 }) {
   const state = () => draftStore.state
@@ -327,7 +325,6 @@ function CancelledDraftScreen(props: {
       <Show when={reason() !== 'scrub'}>
         <SteamLobbyButton
           steamLobbyLink={props.steamLobbyLink}
-          isHost={props.isHost}
           class={cn('z-20 absolute', isMobileLayout() ? 'top-12 left-4 h-9 w-9' : 'top-4 left-4 h-9 w-9')}
         />
       </Show>

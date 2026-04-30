@@ -187,12 +187,7 @@ export interface LeaderSwapRequest {
   toSeat: number
 }
 
-export interface PendingLeaderSwapRequest extends LeaderSwapRequest {
-  expiresAt: number
-}
-
 export interface LeaderSwapState {
-  pendingSwaps: PendingLeaderSwapRequest[]
   completedSwaps: LeaderSwapRequest[]
 }
 

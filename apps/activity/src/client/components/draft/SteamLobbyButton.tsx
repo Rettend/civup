@@ -11,9 +11,7 @@ const BLUR_CLOSE_DELAY_MS = 150
 interface SteamLobbyButtonProps {
   /** Current steam lobby link, or null if not set. */
   steamLobbyLink: string | null
-  /** Whether the current user is the lobby host. */
-  isHost?: boolean
-  /** Callback to save a new steam link. When provided, the host can edit the link via dropdown. */
+  /** Callback to save a new steam link. When provided, the user can edit the link via dropdown. */
   onSaveSteamLink?: (link: string | null) => void
   /** Whether a save is currently in progress. */
   savePending?: boolean
@@ -30,12 +28,11 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
   let missingLinkHintTimeout: ReturnType<typeof setTimeout> | null = null
   let inputRef: HTMLInputElement | undefined
 
-  const isHost = () => props.isHost === true
   const canSave = () => Boolean(props.onSaveSteamLink)
-  const isEditableHost = () => isHost() && canSave()
+  const canEdit = canSave
   const isGhost = () => !props.steamLobbyLink
 
-  // ── Copy / flash logic (non-host) ────────────
+  // ── Copy / flash logic (read-only) ────────────
 
   const clearCopiedTimeout = () => {
     if (!copiedTimeout) return
@@ -91,7 +88,7 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
     await copyLink()
   }
 
-  // ── Dropdown logic (host) ────────────────────
+  // ── Dropdown logic ────────────────────
 
   const clearBlurTimeout = () => {
     if (!blurCloseTimeout) return
@@ -124,7 +121,7 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
   // ── Event handlers ───────────────────────────
 
   const handleButtonClick: JSX.EventHandler<HTMLButtonElement, MouseEvent> = () => {
-    if (!isEditableHost()) {
+    if (!canEdit()) {
       if (!props.steamLobbyLink) {
         flashMissingLinkHint()
         return
@@ -134,7 +131,6 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
       return
     }
 
-    // Host: toggle dropdown
     if (blurCloseTimeout) {
       // Blur just fired from clicking the button → save and close
       clearBlurTimeout()
@@ -147,7 +143,7 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
   }
 
   const handleContextMenu: JSX.EventHandler<HTMLButtonElement, MouseEvent> = (event) => {
-    if (isEditableHost()) return
+    if (canEdit()) return
     event.preventDefault()
     if (!props.steamLobbyLink) {
       flashMissingLinkHint()
@@ -176,13 +172,13 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
   }
 
   const buttonTitle = () => {
-    if (isEditableHost()) return props.steamLobbyLink ? 'Edit Steam lobby link' : 'Set Steam lobby link'
+    if (canEdit()) return props.steamLobbyLink ? 'Edit Steam lobby link' : 'Set Steam lobby link'
     if (!props.steamLobbyLink) return 'No Steam link set'
     return shouldCopyOnPrimaryAction() ? 'Copy Steam link' : 'Open Steam link, or right-click to copy'
   }
 
   const buttonAriaLabel = () => {
-    if (isEditableHost()) return props.steamLobbyLink ? 'Edit Steam lobby link' : 'Set Steam lobby link'
+    if (canEdit()) return props.steamLobbyLink ? 'Edit Steam lobby link' : 'Set Steam lobby link'
     if (!props.steamLobbyLink) return 'No Steam link set'
     return shouldCopyOnPrimaryAction() ? 'Copy Steam link' : 'Open Steam link'
   }
@@ -232,7 +228,7 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
         </div>
       </Show>
 
-      {/* Host dropdown with steam link input */}
+      {/* Steam link editor */}
       <Show when={dropdownOpen()}>
         <div class="mt-1.5 left-0 top-full absolute z-[100]">
           <div class="p-2 border border-border rounded-lg bg-bg-subtle shadow-black/25 shadow-xl">

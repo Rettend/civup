@@ -384,7 +384,6 @@ export function DraftHeader(props: DraftHeaderProps) {
   const renderSteamLobbyButton = (sizeClass: string) => (
     <SteamLobbyButton
       steamLobbyLink={props.steamLobbyLink ?? null}
-      isHost={amHost()}
       onSaveSteamLink={props.onSaveSteamLink}
       savePending={props.savePending}
       class={sizeClass}

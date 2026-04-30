@@ -116,7 +116,7 @@ describe('SessionDO open session commands', () => {
 
       const swapResponse = await room.fetch(sessionRequest('/commands/draft-lifecycle', {
         method: 'POST',
-        body: JSON.stringify({ type: 'swap-accepted', at: 4 }),
+        body: JSON.stringify({ type: 'leader-swapped', at: 4 }),
       }))
       expect(swapResponse.status).toBe(200)
 

@@ -35,8 +35,7 @@ export function DraftSetupHeader(props: DraftSetupHeaderProps) {
 
       <SteamLobbyButton
         steamLobbyLink={header().steamLobbyLink()}
-        isHost={header().isHost()}
-        onSaveSteamLink={header().isLobbyMode() ? header().saveSteamLobbyLink : undefined}
+        onSaveSteamLink={header().canSaveSteamLobbyLink() ? header().saveSteamLobbyLink : undefined}
         savePending={header().savePending()}
         class={cn(
           'z-20 absolute',

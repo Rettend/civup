@@ -189,11 +189,19 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     return Array.from(new Set((state()?.seats ?? []).flatMap(seat => seat.team == null ? [] : [seat.team]))).sort((a, b) => a - b)
   }
   const filledSlots = () => currentLobby()?.entries.filter(entry => entry != null).length ?? 0
+  const currentUserLobbySlot = createMemo(() => {
+    const id = userId()
+    if (!id) return null
+    const slot = currentLobby()?.entries.findIndex(entry => entry?.playerId === id) ?? -1
+    return slot >= 0 ? slot : null
+  })
+  const isCurrentUserSlotted = () => currentUserLobbySlot() != null
 
   const configState = useDraftSetupConfigState({
     props,
     currentLobby,
     amHost,
+    canSaveSteamLobbyLink: isCurrentUserSlotted,
     isLobbyMode,
     lobbyMode,
     filledSlots,
@@ -235,13 +243,6 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const twoVTwoTeamCountToggleLabel = () => hasExpanded2v2Teams() ? 'Remove extra teams' : 'Add two extra teams'
   const twoVTwoTeamCountToggleTitle = () => hasExpanded2v2Teams() && extra2v2SeatsOccupied() ? 'Clear Teams C and D before removing them.' : twoVTwoTeamCountToggleLabel()
   const isLargeTeamLobbyMode = () => isLobbyMode() && (lobbyMode() === '5v5' || lobbyMode() === '6v6')
-  const currentUserLobbySlot = createMemo(() => {
-    const id = userId()
-    if (!id) return null
-    const slot = currentLobby()?.entries.findIndex(entry => entry?.playerId === id) ?? -1
-    return slot >= 0 ? slot : null
-  })
-  const isCurrentUserSlotted = () => currentUserLobbySlot() != null
   const canCurrentUserPlaceSelf = () => {
     if (!isLobbyMode() || !userId()) return false
     if (props.showJoinPending && !isCurrentUserSlotted()) return false
@@ -537,6 +538,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     steamLobbyLink,
     isLobbyMode,
     isHost: amHost,
+    canSaveSteamLobbyLink: isCurrentUserSlotted,
     savePending: lobbyActionPending,
     formatLabel,
     modeLabelClass: configState.derived.modeLabelClass,

@@ -544,16 +544,8 @@ export function sendRevert() {
   return sendCancel('revert')
 }
 
-export function sendSwapRequest(toSeat: number) {
-  return sendMessage({ type: 'swap-request', toSeat })
-}
-
-export function sendSwapAccept() {
-  return sendMessage({ type: 'swap-accept' })
-}
-
-export function sendSwapCancel() {
-  return sendMessage({ type: 'swap-cancel' })
+export function sendLeaderSwap(toSeat: number) {
+  return sendMessage({ type: 'leader-swap', toSeat })
 }
 
 export function sendConfig(banTimerSeconds: number | null, pickTimerSeconds: number | null): Promise<void> {

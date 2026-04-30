@@ -1,4 +1,4 @@
-import type { DraftState, LeaderSwapState } from '@civup/game'
+import type { DraftState } from '@civup/game'
 
 export function canOpenSwapWindowForState(state: DraftState): boolean {
   if (state.status !== 'complete') return false
@@ -36,11 +36,10 @@ export function getSwapDisconnectFinalizeAtAfterDisconnect(input: {
 }
 
 export function getNextSwapLifecycleAlarmAt(input: {
-  swapState: LeaderSwapState
   disconnectFinalizeAt: number | null
   safetyEndsAt: number | null
 }): number | null {
-  return [getNextSwapPendingExpiry(input.swapState), input.disconnectFinalizeAt, input.safetyEndsAt]
+  return [input.disconnectFinalizeAt, input.safetyEndsAt]
     .filter((timestamp): timestamp is number => typeof timestamp === 'number' && Number.isFinite(timestamp))
     .sort((left, right) => left - right)[0] ?? null
 }
@@ -58,11 +57,4 @@ export function getSwapWindowAlarmAction(input: {
 
   if (input.safetyEndsAt != null && input.safetyEndsAt <= input.now) return 'finalize'
   return 'keep-open'
-}
-
-function getNextSwapPendingExpiry(swapState: LeaderSwapState): number | null {
-  return swapState.pendingSwaps
-    .map(swap => swap.expiresAt)
-    .filter(timestamp => Number.isFinite(timestamp))
-    .sort((left, right) => left - right)[0] ?? null
 }

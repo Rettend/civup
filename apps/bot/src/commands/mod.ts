@@ -1,8 +1,9 @@
 import type { MatchVar } from './match/shared'
-import type { GameMode, QueueEntry } from '@civup/game'
+import type { GameMode, Leader, QueueEntry } from '@civup/game'
 import { createDb } from '@civup/db'
-import { formatModeLabel, slotToTeamIndex } from '@civup/game'
-import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
+import { formatModeLabel, getLeader, getLeaders, searchLeaders, slotToTeamIndex } from '@civup/game'
+import { Autocomplete, Command, Option, SubCommand, SubGroup } from 'discord-hono'
+import { leaderEmojiMention } from '../constants/leader-emojis.ts'
 import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
 import { createChannelMessage } from '../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
@@ -10,8 +11,9 @@ import { rebuildLeaderboardModeSnapshot } from '../services/leaderboard/snapshot
 import { clearTeamLeaderboardModeSnapshots } from '../services/leaderboard/team-snapshot.ts'
 import { filterQueueEntriesForLobby, getLobbyById, setLobbyStatus } from '../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
-import { cancelMatchByModerator, getStoredGameModeContext, resolveMatchByModerator } from '../services/match/index.ts'
+import { cancelMatchByModerator, correctMatchLeadersByModerator, getStoredGameModeContext, resolveMatchByModerator } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
+import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
 import { canUseModCommands, parseRoleIds } from '../services/permissions/index.ts'
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../services/ranked/role-sync.ts'
 import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
@@ -23,10 +25,14 @@ import { factory } from '../setup'
 import { buildFfaPlacementOptions, collectFfaPlacementUserIds } from './match/shared'
 
 interface ModVar extends MatchVar {
+  leader?: string
   reason?: string
+  swap_with?: string
 }
 
-export const command_mod = factory.command<ModVar>(
+const LIVE_LEADER_ID_SET = new Set(getLeaders('live').map(leader => leader.id))
+
+export const command_mod = factory.autocomplete<ModVar>(
   new Command('mod', 'Moderation commands for match and lobby operations').options(
     new SubGroup('match', 'Match moderation').options(
       new SubCommand('cancel', 'Cancel a match, including completed history').options(
@@ -39,6 +45,18 @@ export const command_mod = factory.command<ModVar>(
         ...buildFfaPlacementOptions(),
         new Option('reason', 'Optional short reason for correction').max_length(140),
       ),
+      new SubCommand('swap', 'Set or swap reported match leaders').options(
+        new Option('match_id', 'Match ID').required(),
+        new Option('player', 'Participant to correct', 'User').required(),
+        new Option('leader', 'Leader to assign').autocomplete(),
+        new Option('swap_with', 'Participant to swap leaders with', 'User'),
+        new Option('reason', 'Optional short reason for correction').max_length(140),
+      ),
+    ),
+  ),
+  c => c.resAutocomplete(
+    new Autocomplete(typeof c.focused?.value === 'string' ? c.focused.value : '').choices(
+      ...buildLeaderAutocompleteChoices(typeof c.focused?.value === 'string' ? c.focused.value : ''),
     ),
   ),
   async (c) => {
@@ -355,6 +373,95 @@ export const command_mod = factory.command<ModVar>(
         })
       }
 
+      // ── match swap ──────────────────────────────────────
+      case 'match swap': {
+        const matchId = c.var.match_id
+        const playerId = c.var.player
+        const leaderInput = c.var.leader?.trim() ?? ''
+        const swapWithPlayerId = c.var.swap_with ?? null
+        const reason = c.var.reason?.trim() ?? null
+
+        if (!matchId || !playerId) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'Please provide a match ID and player.', 'error')
+          })
+        }
+
+        const hasLeader = leaderInput.length > 0
+        const hasSwapWith = Boolean(swapWithPlayerId)
+        if (hasLeader === hasSwapWith) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'Provide exactly one of `leader` or `swap_with`.', 'error')
+          })
+        }
+
+        const leaderId = hasLeader ? resolveLeaderInput(leaderInput) : null
+        if (hasLeader && !leaderId) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'Choose a leader from the autocomplete suggestions.', 'error')
+          })
+        }
+
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          try {
+            const db = createDb(c.env.DB)
+            const result = await correctMatchLeadersByModerator(db, {
+              matchId,
+              playerId,
+              leaderId,
+              swapWithPlayerId,
+              correctedAt: Date.now(),
+            })
+
+            if ('error' in result) {
+              await sendTransientEphemeralResponse(c, result.error, 'error')
+              return
+            }
+
+            const matchContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
+            if (!matchContext) {
+              await sendTransientEphemeralResponse(c, `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.`, 'error')
+              return
+            }
+
+            await sendEphemeralResponse(
+              c,
+              `Updated leaders for match **${result.match.id}**.${reason ? ` Reason: ${reason}` : ''}\n${formatLeaderCorrections(result.corrections)}`,
+              'success',
+            )
+
+            c.executionCtx.waitUntil((async () => {
+              const existingLobby = await getSessionLobbyProjectionByMatch(db, result.match.id)
+              const syncResult = await syncReportedMatchDiscordMessages({
+                db,
+                kv,
+                token: c.env.DISCORD_TOKEN,
+                matchId: result.match.id,
+                reportedMode: matchContext.mode,
+                reportedRedDeath: matchContext.redDeath,
+                participants: result.participants,
+                lobby: existingLobby,
+                sessionNamespace: c.env.SessionDO,
+                matchDraftData: result.match.draftData,
+                archivePolicy: 'if-missing',
+              })
+              if (syncResult.errors.length > 0) {
+                console.error(`Failed to refresh leader-corrected match ${result.match.id} embeds:`, syncResult.errors)
+              }
+            })())
+          }
+          catch (error) {
+            console.error(`Failed to correct leaders for match ${matchId} by moderator:`, error)
+            try {
+              await sendTransientEphemeralResponse(c, 'Failed to correct match leaders. Check bot logs for details.', 'error')
+            }
+            catch (responseError) {
+              console.error(`Failed to send leader correction error response for match ${matchId}:`, responseError)
+            }
+          }
+        })
+      }
+
       default:
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           await sendTransientEphemeralResponse(c, 'Unknown mod subcommand.', 'error')
@@ -382,4 +489,61 @@ function buildCancelledLobbyParticipants(lobby: { mode: GameMode, slots: (string
       }
     })
     .filter((participant): participant is NonNullable<typeof participant> => participant != null)
+}
+
+function buildLeaderAutocompleteChoices(query: string): Array<{ name: string, value: string }> {
+  const leaders = query.trim().length > 0 ? searchLeaders(query, 'live') : getLeaders('live')
+  const seen = new Set<string>()
+  const choices: Array<{ name: string, value: string }> = []
+
+  for (const leader of leaders) {
+    if (!LIVE_LEADER_ID_SET.has(leader.id) || seen.has(leader.id)) continue
+    seen.add(leader.id)
+    choices.push({
+      name: truncateAutocompleteName(formatLeaderAutocompleteName(leader)),
+      value: leader.id,
+    })
+    if (choices.length >= 25) break
+  }
+
+  return choices
+}
+
+function resolveLeaderInput(input: string): string | null {
+  const normalized = input.trim()
+  if (LIVE_LEADER_ID_SET.has(normalized)) return normalized
+
+  const lower = normalized.toLowerCase()
+  const exact = getLeaders('live').find(leader => leader.name.toLowerCase() === lower || `${leader.name} ${leader.civilization}`.toLowerCase() === lower)
+  if (exact) return exact.id
+
+  const matches = searchLeaders(normalized, 'live').filter(leader => LIVE_LEADER_ID_SET.has(leader.id))
+  return matches.length === 1 ? matches[0]!.id : null
+}
+
+function formatLeaderCorrections(corrections: Array<{ playerId: string, previousCivId: string | null, nextCivId: string | null }>): string {
+  return corrections
+    .map(correction => `<@${correction.playerId}>: ${formatLeaderLabel(correction.previousCivId)} -> ${formatLeaderLabel(correction.nextCivId)}`)
+    .join('\n')
+}
+
+function formatLeaderLabel(leaderId: string | null): string {
+  if (!leaderId) return 'No leader'
+  try {
+    const leader = getLeader(leaderId, 'live')
+    return `${leader.name} (${leader.civilization})`
+  }
+  catch {
+    return leaderId
+  }
+}
+
+function formatLeaderAutocompleteName(leader: Leader): string {
+  const label = `${leader.name} - ${leader.civilization}`
+  const emoji = leaderEmojiMention(leader.id)
+  return emoji ? `${emoji} ${label}` : label
+}
+
+function truncateAutocompleteName(name: string): string {
+  return name.length <= 100 ? name : `${name.slice(0, 97)}...`
 }

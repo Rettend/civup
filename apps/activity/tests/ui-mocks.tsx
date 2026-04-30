@@ -18,8 +18,7 @@ export const storeSpies = {
   sendPreview: mock((_kind: 'ban' | 'pick', _civIds: string[]) => {}),
   sendMapVoteConfirm: mock(() => true),
   sendMapVoteSelection: mock((_selection: { mapTypes: MapTypeId[], mapScripts: MapScriptId[] }) => true),
-  sendSwapAccept: mock(() => {}),
-  sendSwapRequest: mock((_seatIndex: number) => {}),
+  sendLeaderSwap: mock((_seatIndex: number) => {}),
   updateDraftSteamLobbyLink: mock((steamLobbyLink: string | null) => {
     uiMockState.steamLobbyLink = steamLobbyLink
   }),
@@ -87,6 +86,7 @@ interface MockState {
   favoriteLeaderIds: string[]
   ffaPlacementOrder: number[]
   teamPlacementOrder: number[]
+  hiddenDraftLeaderSelections: string[]
   canOpenLeaderGrid: boolean
   canSendPickPreview: boolean
   sendStartResult: boolean
@@ -110,9 +110,8 @@ interface MockState {
   draftPreviewBans: Record<number, string[]>
   draftPreviewPicks: Record<number, string[]>
   steamLobbyLink: string | null
-  canRequestSwapSeatIndices: number[]
+  canSwapLeaderSeatIndices: number[]
   swapWindowOpen: boolean
-  incomingSwapSeatIndices: number[]
   tagFiltersState: Record<LeaderTagCategory, string[]>
   arrangeLobbySlotsResult: { ok: true } | { ok: false, error: string }
   cancelLobbyResult: { ok: true } | { ok: false, error: string }
@@ -201,6 +200,7 @@ function defaults(): MockState {
     favoriteLeaderIds: [],
     ffaPlacementOrder: [],
     teamPlacementOrder: [],
+    hiddenDraftLeaderSelections: [],
     canOpenLeaderGrid: true,
     canSendPickPreview: false,
     sendStartResult: true,
@@ -224,9 +224,8 @@ function defaults(): MockState {
     draftPreviewBans: {},
     draftPreviewPicks: {},
     steamLobbyLink: null,
-    canRequestSwapSeatIndices: [],
+    canSwapLeaderSeatIndices: [],
     swapWindowOpen: false,
-    incomingSwapSeatIndices: [],
     tagFiltersState: emptyTagFilters(),
     arrangeLobbySlotsResult: { ok: true },
     cancelLobbyResult: { ok: true },
@@ -259,6 +258,7 @@ export function resetUiMocks() {
   uiMockState.favoriteLeaderIds = []
   uiMockState.ffaPlacementOrder = []
   uiMockState.teamPlacementOrder = []
+  uiMockState.hiddenDraftLeaderSelections = []
   uiMockState.canOpenLeaderGrid = true
   uiMockState.canSendPickPreview = false
   uiMockState.sendStartResult = true
@@ -282,9 +282,8 @@ export function resetUiMocks() {
   uiMockState.draftPreviewBans = {}
   uiMockState.draftPreviewPicks = {}
   uiMockState.steamLobbyLink = null
-  uiMockState.canRequestSwapSeatIndices = []
+  uiMockState.canSwapLeaderSeatIndices = []
   uiMockState.swapWindowOpen = false
-  uiMockState.incomingSwapSeatIndices = []
   uiMockState.tagFiltersState = emptyTagFilters()
   for (const spy of Object.values(discordSpies)) spy.mockClear()
   for (const spy of Object.values(clipboardSpies)) spy.mockClear()
@@ -371,6 +370,17 @@ function clearSelections() {
   uiMockState.selectedWinningTeam = null
   uiMockState.ffaPlacementOrder = []
   uiMockState.teamPlacementOrder = []
+  uiMockState.hiddenDraftLeaderSelections = []
+}
+
+function clearHiddenDraftLeaderSelections() {
+  uiMockState.hiddenDraftLeaderSelections = []
+}
+
+function toggleHiddenDraftLeaderSelection(leaderId: string) {
+  uiMockState.hiddenDraftLeaderSelections = uiMockState.hiddenDraftLeaderSelections.includes(leaderId)
+    ? uiMockState.hiddenDraftLeaderSelections.filter(current => current !== leaderId)
+    : [...uiMockState.hiddenDraftLeaderSelections, leaderId]
 }
 
 function phaseHeaderBg() {
@@ -474,10 +484,11 @@ mock.module('~/client/stores', () => ({
   banSelectionStepToken: () => uiMockState.banSelectionStepToken,
   banSelections: () => uiMockState.banSelections,
   clearLeaderFavorites: () => { uiMockState.favoriteLeaderIds = [] },
+  clearHiddenDraftLeaderSelections,
   clearWinningTeam: () => { uiMockState.selectedWinningTeam = null },
   cancelLobby: (...args: Parameters<typeof storeSpies.cancelLobby>) => storeSpies.cancelLobby(...args),
   canFillLobbyWithTestPlayers: (...args: Parameters<typeof storeSpies.canFillLobbyWithTestPlayers>) => storeSpies.canFillLobbyWithTestPlayers(...args),
-  canRequestSwapWith: (seatIndex: number) => uiMockState.canRequestSwapSeatIndices.includes(seatIndex),
+  canSwapLeadersWith: (seatIndex: number) => uiMockState.canSwapLeaderSeatIndices.includes(seatIndex),
   canSendPickPreview: () => uiMockState.canSendPickPreview,
   avatarUrl: () => uiMockState.avatarUrl,
   canOpenLeaderGrid: () => uiMockState.canOpenLeaderGrid,
@@ -562,6 +573,8 @@ mock.module('~/client/stores', () => ({
   gridExpanded: () => uiMockState.gridExpanded,
   gridViewMode: () => uiMockState.gridViewMode,
   hasSubmitted,
+  hiddenDraftLeaderSelections: () => uiMockState.hiddenDraftLeaderSelections,
+  isHiddenDraftComplete: () => false,
   isMiniView: () => uiMockState.isMiniView,
   isMapVotePhase,
   isSeatMapVoteConfirmed: (seatIndex: number) => uiMockState.mapVoteConfirmedSeatIndices.includes(seatIndex),
@@ -603,7 +616,6 @@ mock.module('~/client/stores', () => ({
   searchQuery: () => uiMockState.searchQuery,
   selectedWinningTeam: () => uiMockState.selectedWinningTeam,
   selectedLeader: () => uiMockState.selectedLeaderId,
-  seatHasIncomingSwap: (seatIndex: number) => uiMockState.incomingSwapSeatIndices.includes(seatIndex),
   sendCancel: (...args: Parameters<typeof storeSpies.sendCancel>) => storeSpies.sendCancel(...args),
   sendBan: (...args: Parameters<typeof storeSpies.sendBan>) => storeSpies.sendBan(...args),
   confirmMapVote,
@@ -615,8 +627,7 @@ mock.module('~/client/stores', () => ({
   sendRevert: (...args: Parameters<typeof storeSpies.sendRevert>) => storeSpies.sendRevert(...args),
   sendScrub: (...args: Parameters<typeof storeSpies.sendScrub>) => storeSpies.sendScrub(...args),
   sendStart: (...args: Parameters<typeof storeSpies.sendStart>) => storeSpies.sendStart(...args),
-  sendSwapAccept: (...args: Parameters<typeof storeSpies.sendSwapAccept>) => storeSpies.sendSwapAccept(...args),
-  sendSwapRequest: (...args: Parameters<typeof storeSpies.sendSwapRequest>) => storeSpies.sendSwapRequest(...args),
+  sendLeaderSwap: (...args: Parameters<typeof storeSpies.sendLeaderSwap>) => storeSpies.sendLeaderSwap(...args),
   setBanSelections: (next: string[]) => { uiMockState.banSelections = [...next] },
   setDetailLeaderId: (leaderId: string | null) => { uiMockState.detailLeaderId = leaderId },
   setIsMiniView: () => {},
@@ -664,6 +675,7 @@ mock.module('~/client/stores', () => ({
     uiMockState.banSelections = [...uiMockState.banSelections, leaderId]
   },
   toggleFfaPlacement: (...args: Parameters<typeof storeSpies.toggleFfaPlacement>) => storeSpies.toggleFfaPlacement(...args),
+  toggleHiddenDraftLeaderSelection,
   toggleLeaderFavorite: (leaderId: string) => {
     if (uiMockState.favoriteLeaderIds.includes(leaderId)) {
       uiMockState.favoriteLeaderIds = uiMockState.favoriteLeaderIds.filter(id => id !== leaderId)
