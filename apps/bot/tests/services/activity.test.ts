@@ -134,14 +134,15 @@ describe('draft runtime config', () => {
     expect(result.config.civPool).toEqual(allLeaderIds)
   })
 
-  test('preserves lobby slot order for team draft seats', async () => {
+  test('uses draft-format pick order for team draft seats', async () => {
     const result = buildDraftRuntimeConfig('2v2', baseFfaEntries, {
       matchId: 'session-team-order',
       hostId: 'p1',
     })
 
-    expect(result.seats.map(seat => seat.playerId)).toEqual(['p1', 'p2', 'p3', 'p4'])
-    expect(result.seats.map(seat => seat.team)).toEqual([0, 0, 1, 1])
+    expect(result.seats.map(seat => seat.playerId)).toEqual(['p1', 'p3', 'p2', 'p4'])
+    expect(result.seats.map(seat => seat.team)).toEqual([0, 1, 0, 1])
+    expect(result.config.randomDraft).toBe(false)
   })
 
   test('forces duplicate factions for Red Death 6v6 rooms', async () => {

@@ -2,15 +2,16 @@ import { formatMapVoteResultLabel, formatMapVoteResultTitle, MAP_SCRIPT_BY_ID, M
 import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
 import { preloadLobbyOverviewRoute } from '~/client/activity/route-preloads'
 import { cn } from '~/client/lib/css'
+import { getVisualSeatOrder } from '~/client/lib/seat-order'
 import {
   clearFfaPlacements,
-  clearHiddenDraftLeaderAssignments,
+  clearHiddenDraftLeaderSelections,
   clearResultSelections,
   currentStepDuration,
   draftNow,
   draftStore,
   ffaPlacementOrder,
-  hiddenDraftLeaderAssignments,
+  hiddenDraftLeaderSelections,
   isHiddenDraftComplete,
   isMapVotePhase,
   isMobileLayout,
@@ -198,7 +199,7 @@ export function DraftHeader(props: DraftHeaderProps) {
     setResultStatus('idle')
     setPendingHostAction(null)
     clearResultSelections()
-    clearHiddenDraftLeaderAssignments()
+    clearHiddenDraftLeaderSelections()
     disarmHostAction()
   })
 
@@ -213,7 +214,7 @@ export function DraftHeader(props: DraftHeaderProps) {
     setResultStatus('idle')
     setPendingHostAction(null)
     clearResultSelections()
-    clearHiddenDraftLeaderAssignments()
+    clearHiddenDraftLeaderSelections()
   })
 
   createEffect(on(
@@ -335,14 +336,16 @@ export function DraftHeader(props: DraftHeaderProps) {
   const hiddenDraftLeaderSelectionReady = () => {
     const s = state()
     if (!isHiddenDraftComplete() || !s) return true
-    const assignments = hiddenDraftLeaderAssignments()
-    return s.seats.every((_, seatIndex) => assignments[seatIndex])
+    return hiddenDraftLeaderSelections().length >= s.seats.length
   }
   const hiddenDraftLeaderAssignmentPayload = (): Record<string, string> | undefined => {
     const s = state()
     if (!isHiddenDraftComplete() || !s) return undefined
-    const assignments = hiddenDraftLeaderAssignments()
-    return Object.fromEntries(s.seats.map((seat, seatIndex) => [seat.playerId, assignments[seatIndex]!]))
+    const selections = hiddenDraftLeaderSelections()
+    return Object.fromEntries(getVisualSeatOrder(s.seats).map((seatIndex, selectionIndex) => [
+      s.seats[seatIndex]!.playerId,
+      selections[selectionIndex]!,
+    ]))
   }
   const resultSelectionReady = () => {
     if (!hiddenDraftLeaderSelectionReady()) return false

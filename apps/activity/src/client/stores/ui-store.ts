@@ -20,8 +20,7 @@ interface UiMemoryState {
   ffaPlacementOrder: number[]
   teamPlacementOrder: number[]
   resultSelectionsLocked: boolean
-  hiddenDraftLeaderAssignments: Record<number, string>
-  hiddenDraftLeaderTargetSeatIndex: number | null
+  hiddenDraftLeaderSelections: string[]
 }
 
 type GridViewMode = 'grid' | 'multi-list' | 'list'
@@ -49,8 +48,7 @@ const [uiState, setUiState] = createStore<UiMemoryState>({
   ffaPlacementOrder: [],
   teamPlacementOrder: [],
   resultSelectionsLocked: false,
-  hiddenDraftLeaderAssignments: {},
-  hiddenDraftLeaderTargetSeatIndex: null,
+  hiddenDraftLeaderSelections: [],
 })
 
 const [persistedUiStateBase, setPersistedUiStateBase] = createStore<UiPersistedState>({
@@ -85,9 +83,7 @@ export const ffaPlacementOrder = () => uiState.ffaPlacementOrder
 export const teamPlacementOrder = () => uiState.teamPlacementOrder
 export const selectedWinningTeam = (): number | null => teamPlacementOrder()[0] ?? null
 export const resultSelectionsLocked = () => uiState.resultSelectionsLocked
-export const hiddenDraftLeaderAssignments = () => uiState.hiddenDraftLeaderAssignments
-export const hiddenDraftLeaderTargetSeatIndex = () => uiState.hiddenDraftLeaderTargetSeatIndex
-export const getHiddenDraftLeaderAssignment = (seatIndex: number): string | null => uiState.hiddenDraftLeaderAssignments[seatIndex] ?? null
+export const hiddenDraftLeaderSelections = () => uiState.hiddenDraftLeaderSelections
 
 export function setSearchQuery(next: string | ((prev: string) => string)) {
   setUiState('searchQuery', next)
@@ -145,18 +141,17 @@ export function setResultSelectionsLocked(next: boolean | ((prev: boolean) => bo
   setUiState('resultSelectionsLocked', next)
 }
 
-export function setHiddenDraftLeaderTargetSeatIndex(next: number | null | ((prev: number | null) => number | null)) {
-  setUiState('hiddenDraftLeaderTargetSeatIndex', next)
+export function toggleHiddenDraftLeaderSelection(civId: string, maxSelections: number) {
+  if (civId.length === 0 || maxSelections <= 0) return
+  setUiState('hiddenDraftLeaderSelections', (prev) => {
+    if (prev.includes(civId)) return prev.filter(id => id !== civId)
+    if (prev.length >= maxSelections) return prev
+    return [...prev, civId]
+  })
 }
 
-export function setHiddenDraftLeaderAssignment(seatIndex: number, civId: string) {
-  if (!Number.isInteger(seatIndex) || seatIndex < 0 || civId.length === 0) return
-  setUiState('hiddenDraftLeaderAssignments', seatIndex, civId)
-}
-
-export function clearHiddenDraftLeaderAssignments() {
-  setUiState('hiddenDraftLeaderAssignments', {})
-  setUiState('hiddenDraftLeaderTargetSeatIndex', null)
+export function clearHiddenDraftLeaderSelections() {
+  setUiState('hiddenDraftLeaderSelections', [])
 }
 
 // ── Phase Accent ───────────────────────────────────────────

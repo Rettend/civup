@@ -31,8 +31,7 @@ import {
   gridOpen,
   gridViewMode,
   hasSubmitted,
-  hiddenDraftLeaderAssignments,
-  hiddenDraftLeaderTargetSeatIndex,
+  hiddenDraftLeaderSelections,
   isHiddenDraftComplete,
   isMyOwnPickTurn,
   isMyTurn,
@@ -51,13 +50,12 @@ import {
   setGridExpanded,
   setGridOpen,
   setGridViewMode,
-  setHiddenDraftLeaderAssignment,
-  setHiddenDraftLeaderTargetSeatIndex,
   setIsRandomSelected,
   setPickSelections,
   setSearchQuery,
   setSelectedLeader,
   tagFilters,
+  toggleHiddenDraftLeaderSelection,
   toggleTagFilter,
 } from '~/client/stores'
 import { allowsDuplicateDraftPicks, isDraftCardUnavailable } from './draftAvailability'
@@ -194,42 +192,8 @@ export function LeaderGridOverlay() {
   const ownSeatIndex = () => draftStore.seatIndex
   const pickSelectionSeatIndex = () => currentPickTargetSeatIndex() ?? ownSeatIndex()
   const reportAssignmentMode = () => isHiddenDraftComplete()
-  const reportSeatIndices = () => state()?.seats.map((_, index) => index) ?? []
-  const firstUnassignedReportSeatIndex = (afterSeatIndex?: number): number | null => {
-    const seats = reportSeatIndices()
-    if (seats.length === 0) return null
-    const assignments = hiddenDraftLeaderAssignments()
-    const startIndex = afterSeatIndex == null ? 0 : Math.max(0, seats.indexOf(afterSeatIndex) + 1)
-    for (let offset = 0; offset < seats.length; offset++) {
-      const seatIndex = seats[(startIndex + offset) % seats.length]!
-      if (!assignments[seatIndex]) return seatIndex
-    }
-    return null
-  }
-  const reportTargetSeatIndex = () => {
-    if (!reportAssignmentMode()) return null
-    const seats = reportSeatIndices()
-    const target = hiddenDraftLeaderTargetSeatIndex()
-    if (target != null && seats.includes(target)) return target
-    return firstUnassignedReportSeatIndex() ?? seats[0] ?? null
-  }
-  const reportAllowsDuplicateLeaders = () => state()?.duplicateFactions === true
-  const reportAssignedSeatForLeader = (leaderId: string): number | null => {
-    for (const [seatIndex, civId] of Object.entries(hiddenDraftLeaderAssignments())) {
-      if (civId === leaderId) return Number(seatIndex)
-    }
-    return null
-  }
-  const isReportLeaderSelected = (leaderId: string): boolean => {
-    const target = reportTargetSeatIndex()
-    return target != null && hiddenDraftLeaderAssignments()[target] === leaderId
-  }
-  const isReportLeaderUnavailable = (leaderId: string): boolean => {
-    if (!reportAssignmentMode() || reportAllowsDuplicateLeaders()) return false
-    const assignedSeat = reportAssignedSeatForLeader(leaderId)
-    const targetSeat = reportTargetSeatIndex()
-    return assignedSeat != null && assignedSeat !== targetSeat
-  }
+  const reportSeatCount = () => state()?.seats.length ?? 0
+  const isReportLeaderSelected = (leaderId: string): boolean => hiddenDraftLeaderSelections().includes(leaderId)
   const currentHydrationToken = () => {
     const current = state()
     const seatIndex = step()?.action === 'pick' ? pickSelectionSeatIndex() : ownSeatIndex()
@@ -368,14 +332,6 @@ export function LeaderGridOverlay() {
   createEffect(() => {
     if (canOpenLeaderGrid() || reportAssignmentMode()) return
     if (gridOpen()) setGridOpen(false)
-  })
-
-  createEffect(() => {
-    if (!reportAssignmentMode()) return
-    const seats = reportSeatIndices()
-    const target = hiddenDraftLeaderTargetSeatIndex()
-    if (target != null && seats.includes(target)) return
-    setHiddenDraftLeaderTargetSeatIndex(firstUnassignedReportSeatIndex() ?? seats[0] ?? null)
   })
 
   createRenderEffect(() => {
@@ -630,12 +586,7 @@ export function LeaderGridOverlay() {
   }
 
   const handleReportLeaderSelect = (leader: Leader) => {
-    const targetSeat = reportTargetSeatIndex()
-    if (targetSeat == null || isReportLeaderUnavailable(leader.id)) return
-
-    setHiddenDraftLeaderAssignment(targetSeat, leader.id)
-    const nextSeat = firstUnassignedReportSeatIndex(targetSeat)
-    setHiddenDraftLeaderTargetSeatIndex(nextSeat ?? targetSeat)
+    toggleHiddenDraftLeaderSelection(leader.id, reportSeatCount())
     clearHoverTooltip()
   }
 
@@ -979,7 +930,6 @@ export function LeaderGridOverlay() {
                       leader={leader}
                       singleClickShowsDetail={!reportAssignmentMode() && singleClickShowsDetail()}
                       selected={reportAssignmentMode() && isReportLeaderSelected(leader.id)}
-                      unavailable={reportAssignmentMode() && isReportLeaderUnavailable(leader.id)}
                       onSelect={reportAssignmentMode() ? handleReportLeaderSelect : undefined}
                       neighborState={listNeighborMap().get(leader.id)}
                       onHoverMove={handleLeaderHoverMove}
@@ -1010,7 +960,6 @@ export function LeaderGridOverlay() {
                       leader={leader}
                       singleClickShowsDetail={!reportAssignmentMode() && singleClickShowsDetail()}
                       selected={reportAssignmentMode() && isReportLeaderSelected(leader.id)}
-                      unavailable={reportAssignmentMode() && isReportLeaderUnavailable(leader.id)}
                       onSelect={reportAssignmentMode() ? handleReportLeaderSelect : undefined}
                       neighborState={listNeighborMap().get(leader.id)}
                       onHoverMove={handleLeaderHoverMove}
@@ -1037,7 +986,6 @@ export function LeaderGridOverlay() {
                     leader={leader}
                     singleClickShowsDetail={!reportAssignmentMode() && singleClickShowsDetail()}
                     selected={reportAssignmentMode() && isReportLeaderSelected(leader.id)}
-                    unavailable={reportAssignmentMode() && isReportLeaderUnavailable(leader.id)}
                     onSelect={reportAssignmentMode() ? handleReportLeaderSelect : undefined}
                     onHoverMove={handleLeaderHoverMove}
                     onHoverLeave={handleLeaderHoverLeave}
@@ -1095,10 +1043,10 @@ export function LeaderGridOverlay() {
   return (
     <Show when={gridOpen()}>
       {/* Backdrop */}
-      <div class="bg-black/40 inset-0 absolute z-10" onClick={handleBackdropClick} />
+      <div class="bg-black/40 inset-0 absolute z-45" onClick={handleBackdropClick} />
 
       {/* Centered grid */}
-      <div class={cn('flex pointer-events-none inset-x-0 bottom-14 justify-center absolute z-20', gridExpanded() || showStackedShelf() ? 'items-stretch top-3' : 'items-end top-6')}>
+      <div class={cn('flex pointer-events-none inset-x-0 bottom-14 justify-center absolute z-50', gridExpanded() || showStackedShelf() ? 'items-stretch top-3' : 'items-end top-6')}>
         <Show
           when={showStackedShelf()}
           fallback={(
@@ -1188,7 +1136,7 @@ export function LeaderGridOverlay() {
               tooltipRef = el
             }}
             role="tooltip"
-            class="px-2 py-1 border border-border rounded bg-bg/95 max-w-56 pointer-events-none shadow-black/40 shadow-lg fixed z-30"
+            class="px-2 py-1 border border-border rounded bg-bg/95 max-w-56 pointer-events-none shadow-black/40 shadow-lg fixed z-60"
             style={{
               left: `${tooltipPosition().left}px`,
               top: `${tooltipPosition().top}px`,
