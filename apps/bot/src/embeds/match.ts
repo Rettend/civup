@@ -197,6 +197,7 @@ export function lobbyComponents(mode: GameMode, lobbyId: string): Components {
   const label = 'Join'
   return new Components().row(
     new Button('match-join', label, 'Primary').custom_id(`${mode}:${lobbyId}`),
+    new Button('match-browse', 'Browse', 'Secondary'),
   )
 }
 

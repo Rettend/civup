@@ -9,7 +9,7 @@ import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel, GAME_MODES, toBalanceLeaderboardMode } from '@civup/game'
 import { createSessionAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { clearActivityFollowTargetSelection, clearActivityLaunchTargetSelection, readActivityFollowTargetSelection, readActivityLaunchTargetSelection, storeActivityFollowTargetSelection, type ActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
+import { clearActivityFollowTargetSelection, clearActivityLaunchTargetSelection, readActivityFollowTargetSelection, readActivityLaunchTargetSelection, storeActivityFollowTargetSelection, type ActivityTargetSelection } from '../services/activity/launch-target.ts'
 import { buildActivityOverviewOptions, buildActivityOverviewOptionsFromSessionRecord, buildLobbySnapshotFromDirectoryEntry, buildLobbySnapshotFromSessionRecord, getActivitySessionById, getActivitySessionsByChannel, getOpenActivitySessionsForUser } from '../services/activity/session-state.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../services/match/live.ts'
@@ -292,6 +292,11 @@ export async function buildActivityLaunchSnapshot(
 ): Promise<ActivityLaunchSnapshot> {
   const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.sessionNamespace)
   const launchTarget = await readActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
+  if (launchTarget?.kind === 'overview') {
+    await clearActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
+    await clearActivityFollowTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
+    return buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, null, options?.db, options?.sessionNamespace)
+  }
   await addRequestedReportedActivityTarget(context, launchTarget, userId, options?.db)
   const requestedSelection = pickActivityLaunchSelectionForTarget(context.targets, launchTarget)
   if (launchTarget && requestedSelection) {
@@ -313,7 +318,7 @@ export async function buildActivityLaunchSnapshot(
 
 async function addRequestedReportedActivityTarget(
   context: ActivityLaunchContext,
-  launchTarget: ActivityLaunchTargetSelection | null,
+  launchTarget: ActivityTargetSelection | null,
   userId: string,
   d1: D1Database | null | undefined,
 ): Promise<void> {
@@ -688,7 +693,7 @@ function pickDefaultActivityLaunchSelection(targets: ChannelActivityTarget[]): R
   }
 }
 
-function pickActivityLaunchSelectionForTarget(targets: ChannelActivityTarget[], requestedTarget: ActivityLaunchTargetSelection | null): ResolvedActivitySelection | null {
+function pickActivityLaunchSelectionForTarget(targets: ChannelActivityTarget[], requestedTarget: ActivityTargetSelection | null): ResolvedActivitySelection | null {
   if (!requestedTarget) return null
   const target = targets.find(candidate => candidate.option.kind === requestedTarget.kind && candidate.option.id === requestedTarget.id)
     ?? findLifecycleSuccessorTarget(targets, requestedTarget)
@@ -696,7 +701,7 @@ function pickActivityLaunchSelectionForTarget(targets: ChannelActivityTarget[], 
   return target ? { target, pendingJoin: false } : null
 }
 
-function findLifecycleSuccessorTarget(targets: ChannelActivityTarget[], requestedTarget: ActivityLaunchTargetSelection): ChannelActivityTarget | null {
+function findLifecycleSuccessorTarget(targets: ChannelActivityTarget[], requestedTarget: ActivityTargetSelection): ChannelActivityTarget | null {
   if (requestedTarget.kind === 'lobby') {
     return targets.find(candidate => candidate.option.kind === 'match' && candidate.option.lobbyId === requestedTarget.id) ?? null
   }
