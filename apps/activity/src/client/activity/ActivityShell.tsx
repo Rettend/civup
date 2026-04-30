@@ -325,6 +325,8 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         })
         setLiveTargetState({ kind: 'lobby', id: snapshot.id, pendingJoin: false })
         setState({ status: 'lobby-waiting', lobby: snapshot, joinPending: false, joinEligibility })
+        disconnect()
+        connectToSession(SESSION_SOCKET_TARGET, snapshot.id, null, { onStateChanged: handleSelectedSessionStateChange })
         return
       }
 
