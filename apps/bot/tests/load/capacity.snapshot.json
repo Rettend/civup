@@ -30,7 +30,7 @@
     "workersRequests": 745,
     "botWorkerRequests": 745,
     "activityWorkerRequests": 0,
-    "d1RowsRead": 8,
+    "d1RowsRead": 0,
     "d1RowsWritten": 0,
     "doSqliteRowsRead": 0,
     "doSqliteRowsWritten": 0,
