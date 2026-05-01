@@ -881,6 +881,62 @@ describe('SessionDO open session commands', () => {
     }
   })
 
+  test('connecting to a cancelled draft room recovers a missed lifecycle sync', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const d1 = createSqliteD1Database(sqlite)
+    const env: { DB?: D1Database, KV?: KVNamespace, CIVUP_SECRET?: string } = { DB: d1, KV: kv, CIVUP_SECRET: 'secret' }
+    const room = new SessionDO(createFakeDurableObjectState(), env as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+    const accessToken = await createSessionAccessToken('secret', {
+      userId: 'p1',
+      sessionId: openLobby.id,
+      channelId: openLobby.channelId,
+    })
+    const originalConsoleWarn = console.warn
+    const originalConsoleError = console.error
+    const originalConsoleLog = console.log
+    console.warn = (() => {}) as typeof console.warn
+    console.error = (() => {}) as typeof console.error
+    console.log = (() => {}) as typeof console.log
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      await startDraft(room, { hostId: 'p1', now: 20 })
+
+      const connection = createFakeConnection()
+      await room.onConnect(connection.connection, { request: draftStatusRequest(accessToken) } as any)
+
+      env.DB = undefined
+      await room.onMessage(connection.connection, JSON.stringify({ type: 'cancel', reason: 'cancel' }))
+
+      expect((await getSessionRecordBody(room)).phase).toBe('draft')
+      expect((await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1))[0]?.status).toBe('drafting')
+
+      env.DB = d1
+      const reconnect = createFakeConnection()
+      await room.onConnect(reconnect.connection, { request: draftStatusRequest(accessToken) } as any)
+
+      const record = await getSessionRecordBody(room)
+      expect(record.phase).toBe('cancelled')
+      expect(record.lifecycleSync).toBeNull()
+      expect((await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1))[0]?.status).toBe('cancelled')
+      expect((await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1))[0]?.phase).toBe('cancelled')
+    }
+    finally {
+      console.warn = originalConsoleWarn
+      console.error = originalConsoleError
+      console.log = originalConsoleLog
+      sqlite.close()
+    }
+  })
+
   test('pending terminal lifecycle sync retries from alarm after transient backend outage', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -1443,6 +1499,9 @@ function createFakeDurableObjectStateWithStorage(): { state: DurableObjectState,
   const state = {
     async blockConcurrencyWhile(callback: () => Promise<void> | void) {
       await callback()
+    },
+    waitUntil(promise: Promise<unknown>) {
+      void promise.catch(() => {})
     },
     getWebSockets() {
       return []

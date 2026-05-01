@@ -314,7 +314,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       }
 
       if (record?.phase === 'draft') {
-        await this.recoverCompletedDraftRuntime(record)
+        await this.recoverTerminalDraftRuntime(record)
         record = await this.getRecord()
       }
 
@@ -336,7 +336,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     await this.runSerializedOperation(async () => {
       let record = await this.getRecord()
       if (record?.phase === 'draft') {
-        await this.recoverCompletedDraftRuntime(record)
+        await this.recoverTerminalDraftRuntime(record)
         record = await this.getRecord()
       }
       if (record && isTerminalSessionPhase(record.phase)) {
@@ -792,28 +792,39 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     return room
   }
 
-  private async recoverCompletedDraftRuntime(record: SessionRecord): Promise<void> {
+  private async recoverTerminalDraftRuntime(record: SessionRecord): Promise<void> {
     if (record.phase !== 'draft') return
     const room = await this.getRoomRecord()
-    if (!room || room.state.status !== 'complete') return
+    if (!room || (room.state.status !== 'complete' && room.state.status !== 'cancelled')) return
 
     const eventSequence = Math.max(room.lifecycleEventSequence, (record.lifecycleEventSequence ?? 0) + 1)
-    const payload: DraftLifecyclePayload = {
+    const basePayload = {
       eventId: `${room.state.matchId}:lifecycle:${eventSequence}`,
-      eventKind: 'DraftCompleted',
       eventSequence,
-      outcome: 'complete',
       matchId: room.state.matchId,
       hostId: room.config.hostId || room.state.seats[0]?.playerId || undefined,
-      completedAt: room.completedAt ?? Date.now(),
       state: room.state,
       mapVoteResult: room.mapVote.result ?? null,
       hiddenDraft: room.config.hiddenDraft === true ? true : undefined,
     }
+    const payload: DraftLifecyclePayload = room.state.status === 'complete'
+      ? {
+          ...basePayload,
+          eventKind: 'DraftCompleted',
+          outcome: 'complete',
+          completedAt: room.completedAt ?? Date.now(),
+        }
+      : {
+          ...basePayload,
+          eventKind: 'DraftCancelled',
+          outcome: 'cancelled',
+          cancelledAt: room.cancelledAt ?? Date.now(),
+          reason: room.state.cancelReason ?? 'scrub',
+        }
 
     const result = await this.syncDraftLifecyclePayload(payload)
     if (!result.ok) {
-      console.warn('[session-do] completed draft runtime recovery deferred', buildDraftLifecycleLogContext(payload, {
+      console.warn('[session-do] terminal draft runtime recovery deferred', buildDraftLifecycleLogContext(payload, {
         status: result.status,
         error: result.error,
       }))
