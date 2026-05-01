@@ -210,6 +210,56 @@ describe('SessionDO open session commands', () => {
     }
   })
 
+  test('terminal cancellation closes stale draft runtime access', async () => {
+    const { sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      CIVUP_SECRET: 'secret',
+      DB: createSqliteD1Database(sqlite),
+      KV: kv,
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+    const accessToken = await createSessionAccessToken('secret', {
+      userId: 'p1',
+      sessionId: openLobby.id,
+      channelId: openLobby.channelId,
+    })
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      await startDraft(room, { hostId: 'p1', now: 20 })
+
+      const draftConnection = createFakeConnection()
+      draftConnection.connection.setState({ playerId: 'p1' })
+      const connections = (room as any).connections as Set<unknown>
+      connections.add(draftConnection.connection)
+
+      await sessionLifecycleCommand(room, { type: 'cancel-session', matchId: openLobby.id, at: 30 })
+
+      expect(draftConnection.closed).toEqual({ code: 1000, reason: 'Session closed' })
+
+      const statusAfterCancel = await room.fetch(draftStatusRequest(accessToken))
+      expect(statusAfterCancel.status).toBe(410)
+      expect(await statusAfterCancel.json()).toEqual({ error: 'Session closed' })
+
+      const reconnect = createFakeConnection()
+      await room.onConnect(reconnect.connection, {
+        request: draftStatusRequest(accessToken),
+      } as any)
+      expect(reconnect.messages).toEqual([])
+      expect(reconnect.closed).toEqual({ code: 1000, reason: 'Session closed' })
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('opens imported active sessions without an initialized draft room', async () => {
     const { db, sqlite } = await createTestDatabase()
     const { state, storage } = createFakeDurableObjectStateWithStorage()
