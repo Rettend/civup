@@ -307,10 +307,15 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
   override async onConnect(connection: Connection, ctx: ConnectionContext): Promise<void> {
     await this.runSerializedOperation(async () => {
-      const record = await this.getRecord()
+      let record = await this.getRecord()
       if (record?.phase === 'open') {
         await this.handleOpenSessionConnect(connection, ctx, record)
         return
+      }
+
+      if (record?.phase === 'draft') {
+        await this.recoverCompletedDraftRuntime(record)
+        record = await this.getRecord()
       }
 
       if (record?.phase === 'active' && !await this.getRoomRecord()) {
@@ -329,7 +334,11 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
   override async onMessage(connection: Connection, message: WSMessage): Promise<void> {
     await this.runSerializedOperation(async () => {
-      const record = await this.getRecord()
+      let record = await this.getRecord()
+      if (record?.phase === 'draft') {
+        await this.recoverCompletedDraftRuntime(record)
+        record = await this.getRecord()
+      }
       if (record && isTerminalSessionPhase(record.phase)) {
         if (connection.readyState < 2) connection.close(1000, 'Session closed')
         return
@@ -746,6 +755,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
   private async ensureDraftRuntimeAndMatch(record: DraftSessionRecord): Promise<{ matchId: string, seats: DraftSeat[] }> {
     if (!this.env.DB) throw new Error('D1 binding is not configured')
+    const db = createDb(this.env.DB)
 
     const existingRoom = await this.getRoomRecord()
     let room: { matchId: string, seats: DraftSeat[] }
@@ -771,12 +781,43 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         dealOptionsSize: record.config.dealOptionsSize,
         steamLobbyLink: record.projectionState.steamLobbyLink,
       })
+      await createDraftMatch(db, { matchId: runtime.config.matchId, mode: record.mode, seats: runtime.config.seats })
       const initialized = await this.initializeDraftRuntime(runtime.config, { existing: existingRoom })
       room = { matchId: initialized.state.matchId, seats: initialized.config.seats }
     }
 
-    await createDraftMatch(createDb(this.env.DB), { matchId: room.matchId, mode: record.mode, seats: room.seats })
+    if (existingRoom && existingRoom.state.status !== 'cancelled') {
+      await createDraftMatch(db, { matchId: room.matchId, mode: record.mode, seats: room.seats })
+    }
     return room
+  }
+
+  private async recoverCompletedDraftRuntime(record: SessionRecord): Promise<void> {
+    if (record.phase !== 'draft') return
+    const room = await this.getRoomRecord()
+    if (!room || room.state.status !== 'complete') return
+
+    const eventSequence = Math.max(room.lifecycleEventSequence, (record.lifecycleEventSequence ?? 0) + 1)
+    const payload: DraftLifecyclePayload = {
+      eventId: `${room.state.matchId}:lifecycle:${eventSequence}`,
+      eventKind: 'DraftCompleted',
+      eventSequence,
+      outcome: 'complete',
+      matchId: room.state.matchId,
+      hostId: room.config.hostId || room.state.seats[0]?.playerId || undefined,
+      completedAt: room.completedAt ?? Date.now(),
+      state: room.state,
+      mapVoteResult: room.mapVote.result ?? null,
+      hiddenDraft: room.config.hiddenDraft === true ? true : undefined,
+    }
+
+    const result = await this.syncDraftLifecyclePayload(payload)
+    if (!result.ok) {
+      console.warn('[session-do] completed draft runtime recovery deferred', buildDraftLifecycleLogContext(payload, {
+        status: result.status,
+        error: result.error,
+      }))
+    }
   }
 
   private async deferDraftStartSync(record: DraftSessionRecord, error: string): Promise<{ ok: false, status: number, error: string }> {
@@ -1072,6 +1113,9 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         console.warn('[session-do] ignoring stale draft completion', { ...context, error: result.error })
         await this.clearLifecycleSyncMarker(record)
         return { ok: true, ignored: true }
+      }
+      if (isRetriableDraftCompleteError(result.error)) {
+        return { ok: false, status: 503, error: result.error }
       }
       return { ok: false, status: 400, error: result.error }
     }
@@ -2241,6 +2285,11 @@ async function readErrorResponse(response: Response): Promise<string> {
 function isIgnorableDraftCompleteError(error: string): boolean {
   return error.includes('cannot be activated (status: cancelled)')
     || error.includes('cannot be activated (status: completed)')
+}
+
+function isRetriableDraftCompleteError(error: string): boolean {
+  return error.includes('not found')
+    || error.includes('has no participants')
 }
 
 function isIgnorableDraftCancelError(error: string): boolean {
