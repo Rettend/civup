@@ -298,6 +298,7 @@ export function applyDraftResultCommand(
       alarmStepIndex: -1,
       timerEndsAt: null,
       cancelledAt,
+      mapVote: { ...EMPTY_STORED_MAP_VOTE_STATE },
     }
     alarmEffect = { type: 'delete-alarm' }
     const shouldReopenLobby = nextState.cancelReason === 'timeout' || nextState.cancelReason === 'revert'

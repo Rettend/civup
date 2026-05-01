@@ -25,7 +25,7 @@ import { getSystemChannel } from '../services/system/channels.ts'
 import { publishActivitySessionUpdate } from './activity-feed-client.ts'
 import { SessionDraftRuntime, type DraftRuntimeEnv } from './draft-room.ts'
 import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from './session-record.ts'
-import type { Connection, ConnectionContext } from './socket-server.ts'
+import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import { canOpenSwapWindowForState } from './swap-window.ts'
 
 interface SessionDOEnv extends DraftRuntimeEnv {
@@ -284,7 +284,11 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return await this.runSerializedCommand(() => this.handleReportedDiscordSyncCommand(request))
     }
 
-    return await super.onRequest(request)
+    return await this.runSerializedCommand(async () => {
+      const record = await this.getRecord()
+      if (record && isTerminalSessionPhase(record.phase)) return json({ error: 'Session closed' }, 410)
+      return await super.onRequest(request)
+    })
   }
 
   override async onAlarm(): Promise<void> {
@@ -294,26 +298,45 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       await this.retryPendingTerminalSync()
       await this.retryPendingProjectionSync()
       await this.retryPendingReportedDiscordSync()
-      await this.handleDraftRuntimeAlarmIfDue()
+      const record = await this.getRecord()
+      if (!record || !isTerminalSessionPhase(record.phase)) await this.handleDraftRuntimeAlarmIfDue()
       await this.rescheduleSessionAlarm(await this.getRecord())
       return json({ ok: true })
     })
   }
 
   override async onConnect(connection: Connection, ctx: ConnectionContext): Promise<void> {
-    await this.recoverPendingCommitIntent()
-    const record = await this.getRecord()
-    if (record?.phase === 'open') {
-      await this.handleOpenSessionConnect(connection, ctx, record)
-      return
-    }
+    await this.runSerializedOperation(async () => {
+      const record = await this.getRecord()
+      if (record?.phase === 'open') {
+        await this.handleOpenSessionConnect(connection, ctx, record)
+        return
+      }
 
-    if (record?.phase === 'active' && !await this.getRoomRecord()) {
-      await this.handleActiveSessionConnectWithoutRuntime(connection, ctx, record)
-      return
-    }
+      if (record?.phase === 'active' && !await this.getRoomRecord()) {
+        await this.handleActiveSessionConnectWithoutRuntime(connection, ctx, record)
+        return
+      }
 
-    await super.onConnect(connection, ctx)
+      if (record && isTerminalSessionPhase(record.phase)) {
+        connection.close(1000, 'Session closed')
+        return
+      }
+
+      await super.onConnect(connection, ctx)
+    })
+  }
+
+  override async onMessage(connection: Connection, message: WSMessage): Promise<void> {
+    await this.runSerializedOperation(async () => {
+      const record = await this.getRecord()
+      if (record && isTerminalSessionPhase(record.phase)) {
+        if (connection.readyState < 2) connection.close(1000, 'Session closed')
+        return
+      }
+
+      await super.onMessage(connection, message)
+    })
   }
 
   private async getRecord(): Promise<SessionRecord | null> {
@@ -1605,7 +1628,9 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const reportedDiscordRetryAt = reportedDiscordSync
       ? reportedDiscordSync.nextRetryAt > 0 ? reportedDiscordSync.nextRetryAt : Date.now()
       : null
-    const draftRuntimeAlarmAt = await this.getDraftRuntimeAlarmAt()
+    const draftRuntimeAlarmAt = record && !isTerminalSessionPhase(record.phase)
+      ? await this.getDraftRuntimeAlarmAt()
+      : null
     const candidates = [draftStartRetryAt, lifecycleRetryAt, terminalRetryAt, projectionRetryAt, reportedDiscordRetryAt, draftRuntimeAlarmAt].filter((value): value is number => typeof value === 'number')
     const storage = this.ctx.storage as DurableObjectStorage & {
       setAlarm?: (scheduledTime: number | Date) => Promise<void>
@@ -1667,6 +1692,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     await this.ctx.storage.put(SESSION_RECORD_STORAGE_KEY, cleared)
     await this.finalizeCommittedRecord(cleared, 'terminal-sync')
+    this.closeSelectedDraftConnections('Session closed')
     return { ok: true, record: cleared }
   }
 
@@ -1737,6 +1763,14 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     await this.scheduleLifecycleSyncAlarm(record).catch((error) => {
       console.error(`[session-do] failed to schedule session alarm after ${action}`, error)
     })
+  }
+
+  private closeSelectedDraftConnections(reason: string): void {
+    for (const connection of this.getConnections<SessionConnectionState>()) {
+      const state = connection.state as SessionConnectionState | null
+      if (state?.openLobby === true || connection.readyState >= 2) continue
+      connection.close(1000, reason)
+    }
   }
 
   private async syncDraftRuntimeProjectionState(record: SessionRecord): Promise<void> {
@@ -1949,6 +1983,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   }
 
   private async runSerializedCommand(operation: () => Promise<Response>): Promise<Response> {
+    return await this.runSerializedOperation(operation)
+  }
+
+  private async runSerializedOperation<T>(operation: () => Promise<T>): Promise<T> {
     const previous = this.commandQueue
     let release!: () => void
     this.commandQueue = new Promise<void>((resolve) => {

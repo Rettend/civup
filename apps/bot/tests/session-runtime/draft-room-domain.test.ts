@@ -147,7 +147,15 @@ describe('draft room domain', () => {
       formatId: 'default-1v1',
       seats,
       civPool: allLeaderIds.slice(0, 8),
-    }, started.state, EMPTY_STORED_MAP_VOTE_STATE, {
+    }, started.state, {
+      enabled: true,
+      phase: 'voting',
+      endsAt: 1_000,
+      selections: {},
+      confirmations: {},
+      revealedVotes: null,
+      result: null,
+    }, {
       timerEndsAt: 1_000,
       alarmStepIndex: 0,
     })
@@ -223,5 +231,6 @@ describe('draft room domain', () => {
         reason: 'revert',
       }),
     })
+    expect(transition.room.mapVote).toEqual(EMPTY_STORED_MAP_VOTE_STATE)
   })
 })
