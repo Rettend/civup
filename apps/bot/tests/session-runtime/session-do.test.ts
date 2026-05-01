@@ -5,6 +5,7 @@ import { allLeaderIds } from '@civup/game'
 import { createSessionAccessToken, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
 import { eq } from 'drizzle-orm'
 import { DEFAULT_DRAFT_CONFIG } from '../../src/services/lobby/normalize.ts'
+import { createDraftMatch } from '../../src/services/match/draft.ts'
 import { SessionDO } from '../../src/session-runtime/session-do.ts'
 import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
@@ -762,6 +763,120 @@ describe('SessionDO open session commands', () => {
     finally {
       Date.now = originalDateNow
       console.warn = originalConsoleWarn
+      sqlite.close()
+    }
+  })
+
+  test('draft completion lifecycle retries when match creation has not finished yet', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const d1 = createSqliteD1Database(sqlite)
+    const room = new SessionDO(createFakeDurableObjectState(), { DB: d1, KV: kv } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+    const originalDateNow = Date.now
+    const originalConsoleWarn = console.warn
+    console.warn = (() => {}) as typeof console.warn
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      const started = await startDraft(room, { hostId: 'p1', now: 20 })
+      const payload = buildCompletePayload(openLobby.id, started.seats)
+
+      await db.delete(matchParticipants).where(eq(matchParticipants.matchId, openLobby.id))
+      await db.delete(matches).where(eq(matches.id, openLobby.id))
+
+      Date.now = () => 1_000
+      const deferred = await room.fetch(sessionRequest('/commands/draft-lifecycle-sync', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }))
+
+      expect(deferred.status).toBe(503)
+      const pending = await getSessionRecordBody(room)
+      expect(pending.phase).toBe('draft')
+      expect(pending.lifecycleSync).toMatchObject({
+        payload: expect.objectContaining({ eventId: payload.eventId }),
+        attempts: 1,
+        nextRetryAt: 2_000,
+      })
+
+      await createDraftMatch(db, { matchId: openLobby.id, mode: '1v1', seats: started.seats })
+
+      Date.now = () => 2_000
+      await room.onAlarm()
+
+      const record = await getSessionRecordBody(room)
+      expect(record.phase).toBe('swap')
+      expect(record.lifecycleSync).toBeNull()
+      expect((await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1))[0]?.status).toBe('active')
+      expect((await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1))[0]?.phase).toBe('swap')
+    }
+    finally {
+      Date.now = originalDateNow
+      console.warn = originalConsoleWarn
+      sqlite.close()
+    }
+  })
+
+  test('connecting to a completed draft room recovers a missed lifecycle sync', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const d1 = createSqliteD1Database(sqlite)
+    const env: { DB?: D1Database, KV?: KVNamespace, CIVUP_SECRET?: string } = { DB: d1, KV: kv, CIVUP_SECRET: 'secret' }
+    const room = new SessionDO(createFakeDurableObjectState(), env as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+      draftConfig: { ...DEFAULT_DRAFT_CONFIG, hiddenDraft: true },
+    })
+    const accessToken = await createSessionAccessToken('secret', {
+      userId: 'p1',
+      sessionId: openLobby.id,
+      channelId: openLobby.channelId,
+    })
+    const originalConsoleWarn = console.warn
+    const originalConsoleError = console.error
+    const originalConsoleLog = console.log
+    console.warn = (() => {}) as typeof console.warn
+    console.error = (() => {}) as typeof console.error
+    console.log = (() => {}) as typeof console.log
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      await startDraft(room, { hostId: 'p1', now: 20 })
+
+      const connection = createFakeConnection()
+      await room.onConnect(connection.connection, { request: draftStatusRequest(accessToken) } as any)
+
+      env.DB = undefined
+      await room.onMessage(connection.connection, JSON.stringify({ type: 'start' }))
+
+      expect((await getSessionRecordBody(room)).phase).toBe('draft')
+      expect((await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1))[0]?.status).toBe('drafting')
+
+      env.DB = d1
+      const reconnect = createFakeConnection()
+      await room.onConnect(reconnect.connection, { request: draftStatusRequest(accessToken) } as any)
+
+      const record = await getSessionRecordBody(room)
+      expect(record.phase).toBe('active')
+      expect(record.lifecycleSync).toBeNull()
+      expect((await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1))[0]?.status).toBe('active')
+      expect((await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1))[0]?.phase).toBe('active')
+    }
+    finally {
+      console.warn = originalConsoleWarn
+      console.error = originalConsoleError
+      console.log = originalConsoleLog
       sqlite.close()
     }
   })
