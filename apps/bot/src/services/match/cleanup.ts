@@ -1,7 +1,7 @@
 import type { Database } from '@civup/db'
 import type { PruneMatchesOptions, PruneMatchesResult } from './types.ts'
 import { matchBans, matches, matchParticipants } from '@civup/db'
-import { and, eq, inArray, isNull, lt, or } from 'drizzle-orm'
+import { and, eq, inArray, lt, or } from 'drizzle-orm'
 import { runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { getLiveSessionLobbyProjections } from '../session/index.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS, STALE_CANCELLED_MATCH_TIMEOUT_MS, STALE_DRAFTING_MATCH_TIMEOUT_MS } from './retention.ts'
@@ -58,39 +58,6 @@ export async function pruneAbandonedMatches(
       if (!await runCleanupTerminalSessionCommand(db, options, matchId, commandType, now)) continue
       clearedLiveLobbyMatchIds.push(matchId)
     }
-  }
-
-  const completedBanRows = await db
-    .select({ matchId: matchBans.matchId })
-    .from(matchBans)
-    .innerJoin(matches, eq(matchBans.matchId, matches.id))
-    .where(eq(matches.status, 'completed'))
-
-  const completedBanMatchIds = [...new Set(completedBanRows.map(row => row.matchId))]
-  for (const matchId of completedBanMatchIds) {
-    await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
-  }
-
-  const orphanParticipantRows = await db
-    .select({ matchId: matchParticipants.matchId })
-    .from(matchParticipants)
-    .leftJoin(matches, eq(matchParticipants.matchId, matches.id))
-    .where(isNull(matches.id))
-
-  const orphanParticipantMatchIds = [...new Set(orphanParticipantRows.map(row => row.matchId))]
-  for (const matchId of orphanParticipantMatchIds) {
-    await db.delete(matchParticipants).where(eq(matchParticipants.matchId, matchId))
-  }
-
-  const orphanBanRows = await db
-    .select({ matchId: matchBans.matchId })
-    .from(matchBans)
-    .leftJoin(matches, eq(matchBans.matchId, matches.id))
-    .where(isNull(matches.id))
-
-  const orphanBanMatchIds = [...new Set(orphanBanRows.map(row => row.matchId))]
-  for (const matchId of orphanBanMatchIds) {
-    await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
   }
 
   return { removedMatchIds, clearedLiveLobbyMatchIds }
