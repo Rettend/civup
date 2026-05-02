@@ -1,11 +1,11 @@
 import type { Connection, ConnectionContext } from 'partyserver'
-import type { ActivityOverviewSnapshot } from '../services/activity/session-state.ts'
+import type { ActivityOverviewSnapshot, LobbySnapshot } from '../services/activity/session-state.ts'
 import type { SessionRecord } from './session-record.ts'
 import { createDb } from '@civup/db'
 import { CIVUP_ACTIVITY_USER_ID_HEADER, isAuthorizedInternalRequest } from '@civup/utils'
 import { Server } from 'partyserver'
 import { parseStoredActivityFollowTargetSelection, parseStoredActivityLaunchTargetSelection, type StoredActivityFollowTargetSelection, type StoredActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
-import { buildActivityOverviewOptionsFromSessionRecord, buildActivityOverviewSnapshotFromDirectory, compareActivityOverviewOptions } from '../services/activity/session-state.ts'
+import { buildActivityOverviewOptionsFromSessionRecord, buildActivityOverviewSnapshotFromDirectory, buildLobbySnapshotFromSessionRecord, compareActivityOverviewOptions } from '../services/activity/session-state.ts'
 
 interface ActivityFeedEnv extends Cloudflare.Env {
   DB?: D1Database
@@ -15,6 +15,7 @@ interface ActivityFeedEnv extends Cloudflare.Env {
 
 export type ActivityFeedMessage
   = | { type: 'overview', snapshot: ActivityOverviewSnapshot | null }
+    | { type: 'lobby', lobbyId: string, snapshot: LobbySnapshot | null }
     | { type: 'error', message: string }
 
 interface PublishSessionUpdateRequest {
@@ -153,6 +154,17 @@ export class Activity extends Server<ActivityFeedEnv> {
     const overview = options.length > 0 ? { channelId, options } satisfies ActivityOverviewSnapshot : null
     await this.ctx.storage.put(ACTIVITY_OVERVIEW_STORAGE_KEY, overview)
     this.broadcastFeedMessage(connections, { type: 'overview', snapshot: overview })
+    this.broadcastFeedMessage(connections, await this.buildLobbyFeedMessage(record))
+  }
+
+  private async buildLobbyFeedMessage(record: SessionRecord): Promise<ActivityFeedMessage> {
+    if (record.phase !== 'open') return { type: 'lobby', lobbyId: record.id, snapshot: null }
+    if (!this.env.KV) return { type: 'error', message: 'Activity lobby snapshots are not configured' }
+    return {
+      type: 'lobby',
+      lobbyId: record.id,
+      snapshot: await buildLobbySnapshotFromSessionRecord(this.env.KV, record),
+    }
   }
 
   private async getOverviewSnapshot(channelId: string): Promise<ActivityOverviewSnapshot | null> {

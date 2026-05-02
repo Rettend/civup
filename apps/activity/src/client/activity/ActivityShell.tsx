@@ -326,7 +326,6 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         setLiveTargetState({ kind: 'lobby', id: snapshot.id, pendingJoin: false })
         setState({ status: 'lobby-waiting', lobby: snapshot, joinPending: false, joinEligibility })
         disconnect()
-        connectToSession(SESSION_SOCKET_TARGET, snapshot.id, null, { onStateChanged: handleSelectedSessionStateChange })
         return
       }
 
@@ -367,9 +366,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       return
     }
 
-    if (current.status === 'lobby-waiting') {
-      connectToSession(SESSION_SOCKET_TARGET, current.lobby.id, null, { onStateChanged: handleSelectedSessionStateChange })
-    }
+    if (current.status === 'lobby-waiting' && activeChannelId && activeUserId && !activityWatch) startActivityWatch(activeChannelId, activeUserId)
   }
 
   const applyLaunchSnapshot = (
@@ -438,7 +435,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         }
         return { status: 'lobby-waiting', lobby: resolvedLobby, joinPending, joinEligibility }
       })
-      connectToSession(SESSION_SOCKET_TARGET, nextLobby.id, null, { onStateChanged: handleSelectedSessionStateChange })
+      disconnect()
       return
     }
 
@@ -786,7 +783,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     const current = state()
     const channelId = activeChannelId
     const userId = activeUserId
-    if (current.status !== 'overview' || !channelId || !userId) {
+    if ((current.status !== 'overview' && current.status !== 'lobby-waiting') || !channelId || !userId) {
       stopActivityWatch()
       return
     }
@@ -868,8 +865,9 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         clearLaunchSnapshotFallback()
         return
       }
-      if (state().status === 'overview') {
+      if (state().status === 'overview' || state().status === 'lobby-waiting') {
         if (!activityWatch) startActivityWatch(activeChannelId, activeUserId)
+        void requestActivityLaunchSnapshotRefresh()
         return
       }
       reconnectVisibleSelection()
