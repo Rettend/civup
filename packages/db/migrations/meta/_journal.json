@@ -71,6 +71,13 @@
       "when": 1772887383750,
       "tag": "0010_session_directory",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1772887383751,
+      "tag": "0011_session_directory_live_indexes",
+      "breakpoints": true
     }
   ]
 }

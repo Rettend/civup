@@ -42,8 +42,11 @@ export const sessionDirectory = sqliteTable('session_directory', {
 }, table => [
   index('session_directory_phase_updated_at_idx').on(table.phase, table.updatedAt),
   index('session_directory_channel_updated_at_idx').on(table.channelId, table.updatedAt),
+  index('session_directory_channel_phase_updated_at_idx').on(table.channelId, table.phase, table.updatedAt),
   index('session_directory_mode_updated_at_idx').on(table.mode, table.updatedAt),
+  index('session_directory_mode_phase_created_at_idx').on(table.mode, table.phase, table.createdAt),
   index('session_directory_host_id_idx').on(table.hostId),
+  index('session_directory_host_phase_created_at_idx').on(table.hostId, table.phase, table.createdAt),
   index('session_directory_match_id_idx').on(table.matchId),
 ])
 
