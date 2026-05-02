@@ -189,12 +189,22 @@ describe('activity target helpers', () => {
     })).toBe(false)
   })
 
-  test('does not reconnect completed selected drafts when returning visible', () => {
+  test('does not reconnect completed selected drafts after the swap window closes', () => {
     expect(shouldReconnectVisibleActivityTarget({
       appStatus: 'authenticated',
       connectionStatus: 'disconnected',
       draftStatus: 'complete',
+      hasOpenSwapWindow: false,
     })).toBe(false)
+  })
+
+  test('reconnects completed selected drafts while the swap window is still open', () => {
+    expect(shouldReconnectVisibleActivityTarget({
+      appStatus: 'authenticated',
+      connectionStatus: 'disconnected',
+      draftStatus: 'complete',
+      hasOpenSwapWindow: true,
+    })).toBe(true)
   })
 
   test('reconnects visible lobby targets after the hidden tab disconnects them', () => {

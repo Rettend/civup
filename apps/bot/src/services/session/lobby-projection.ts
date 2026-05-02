@@ -30,6 +30,7 @@ export async function getLiveSessionLobbyProjections(
 export async function getOpenSessionLobbyProjectionsByMode(
   db: Database,
   mode: GameMode,
+  options: { includeStale?: boolean } = {},
 ): Promise<LobbyState[]> {
   const rows = await db.select().from(sessionDirectory)
     .where(and(
@@ -38,7 +39,8 @@ export async function getOpenSessionLobbyProjectionsByMode(
     ))
     .orderBy(asc(sessionDirectory.createdAt))
 
-  return filterStaleOpenDirectoryRows(rows).flatMap(row => parseSessionLobbyProjection(row) ?? [])
+  const visibleRows = options.includeStale ? rows : filterStaleOpenDirectoryRows(rows)
+  return visibleRows.flatMap(row => parseSessionLobbyProjection(row) ?? [])
 }
 
 export async function getOpenSessionLobbyProjectionsByChannel(
@@ -272,6 +274,7 @@ function parseSessionConfig(raw: string): SessionConfig | null {
       redDeath: parsed.redDeath === true,
       dealOptionsSize: typeof parsed.dealOptionsSize === 'number' ? parsed.dealOptionsSize : null,
       randomDraft: parsed.randomDraft === true,
+      hiddenDraft: parsed.hiddenDraft === true,
       duplicateFactions: parsed.duplicateFactions === true,
       minRole: parsed.minRole ?? null,
       maxRole: parsed.maxRole ?? null,

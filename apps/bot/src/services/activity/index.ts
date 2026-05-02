@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
 import type { DraftRuntimeConfig } from '@civup/session'
 import { matches, matchParticipants, sessionDirectory } from '@civup/db'
-import { allFactionIds, getDraftFormat, isTeamMode, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
+import { allFactionIds, allLeaderIds, getDraftFormat, isTeamMode, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
 import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import { getActivitySessionsByChannel, getOpenActivitySessionsForUser } from './session-state.ts'
 
@@ -23,6 +23,7 @@ export interface CreateDraftRuntimeOptions {
   redDeath?: boolean
   mapVoteEnabled?: boolean
   randomDraft?: boolean
+  hiddenDraft?: boolean
   duplicateFactions?: boolean
   timerConfig?: DraftTimerConfig
   leaderPoolSize?: number | null
@@ -46,7 +47,8 @@ export function buildDraftRuntimeConfig(
   const seats: DraftSeat[] = buildSeats(mode, entries)
   const redDeathMode = options.redDeath === true
   const simultaneousPick = mode === 'ffa' && !redDeathMode && options.simultaneousPick === true
-  const randomDraft = options.randomDraft === true
+  const hiddenDraft = options.hiddenDraft === true
+  const randomDraft = !hiddenDraft && options.randomDraft === true
   // Duplicate picks are a general draft-engine capability; only Red Death forces them on.
   const duplicateFactions = redDeathMode
     ? (requiresRedDeathDuplicateFactions(mode) || options.duplicateFactions === true)
@@ -55,7 +57,9 @@ export function buildDraftRuntimeConfig(
   const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode, blindBans: options.blindBans, seatCount: seats.length })
   const civPool = redDeathMode
     ? [...allFactionIds]
-    : sampleLeaderPool(resolveLeaderPoolSize(mode, seats.length, options.leaderPoolSize))
+    : hiddenDraft
+      ? [...allLeaderIds]
+      : sampleLeaderPool(resolveLeaderPoolSize(mode, seats.length, options.leaderPoolSize))
   const config: DraftRuntimeConfig = {
     matchId,
     hostId: options.hostId,
@@ -64,6 +68,7 @@ export function buildDraftRuntimeConfig(
     civPool,
     dealOptionsSize: redDeathMode ? options.dealOptionsSize ?? undefined : undefined,
     randomDraft,
+    hiddenDraft,
     duplicateFactions,
     mapVoteEnabled,
     leaderDataVersion: options.leaderDataVersion ?? 'live',
@@ -78,8 +83,8 @@ export function buildDraftRuntimeConfig(
 
 function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
   if (isTeamMode(mode)) {
-    const playersPerTeam = teamSize(mode, entries.length) ?? 0
     const teams = teamCount(mode, entries.length)
+    const playersPerTeam = teamSize(mode, entries.length) ?? 1
     const seats: DraftSeat[] = []
 
     for (let position = 0; position < playersPerTeam; position++) {

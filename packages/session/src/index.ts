@@ -3,7 +3,6 @@ import type {
   DraftEvent,
   DraftPreviewState,
   DraftSeat,
-  DraftSelection,
   DraftState,
   DraftTimerConfig,
   LeaderDataVersion,
@@ -21,6 +20,7 @@ export interface DraftRuntimeConfig {
   civPool: string[]
   dealOptionsSize?: number
   randomDraft?: boolean
+  hiddenDraft?: boolean
   duplicateFactions?: boolean
   mapVoteEnabled?: boolean
   leaderDataVersion?: LeaderDataVersion
@@ -36,9 +36,7 @@ export type SessionClientMessage
     | { type: 'pick', civId: string }
     | { type: 'preview', action: DraftAction, civIds: string[] }
     | { type: 'cancel', reason: 'cancel' | 'scrub' | 'revert' }
-    | { type: 'swap-request', toSeat: number }
-    | { type: 'swap-accept' }
-    | { type: 'swap-cancel' }
+    | { type: 'leader-swap', toSeat: number }
     | {
       type: 'config'
       banTimerSeconds: number | null
@@ -88,6 +86,5 @@ export type SessionServerMessage
     steamLobbyLink?: string | null
   }
   | { type: 'preview', previews: DraftPreviewState }
-  | { type: 'swap-update', swapState: LeaderSwapState, picks?: DraftSelection[] }
   | { type: 'projection-update', steamLobbyLink: string | null }
   | { type: 'error', message: string }

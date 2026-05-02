@@ -1,4 +1,5 @@
 import type { QueueEntry } from '@civup/game'
+import { allLeaderIds } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import {
   buildDraftRuntimeConfig,
@@ -118,6 +119,30 @@ describe('draft runtime config', () => {
     expect(result.config.formatId).toBe('default-1v1')
     expect(result.config.duplicateFactions).toBe(true)
     expect(result.formatId).toBe('default-1v1')
+  })
+
+  test('hidden drafts use the full leader pool and suppress random draft', async () => {
+    const result = buildDraftRuntimeConfig('1v1', baseFfaEntries.slice(0, 2), {
+      matchId: 'session-hidden',
+      hostId: 'p1',
+      hiddenDraft: true,
+      randomDraft: true,
+    })
+
+    expect(result.config.hiddenDraft).toBe(true)
+    expect(result.config.randomDraft).toBe(false)
+    expect(result.config.civPool).toEqual(allLeaderIds)
+  })
+
+  test('uses draft-format pick order for team draft seats', async () => {
+    const result = buildDraftRuntimeConfig('2v2', baseFfaEntries, {
+      matchId: 'session-team-order',
+      hostId: 'p1',
+    })
+
+    expect(result.seats.map(seat => seat.playerId)).toEqual(['p1', 'p3', 'p2', 'p4'])
+    expect(result.seats.map(seat => seat.team)).toEqual([0, 1, 0, 1])
+    expect(result.config.randomDraft).toBe(false)
   })
 
   test('forces duplicate factions for Red Death 6v6 rooms', async () => {

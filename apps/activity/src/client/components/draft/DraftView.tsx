@@ -7,6 +7,7 @@ import {
   draftStore,
   gridOpen,
   hasSubmitted,
+  isHiddenDraftComplete,
   isMapVotePhase,
   isMiniView,
   isMobileLayout,
@@ -152,9 +153,9 @@ export function DraftView(props: DraftViewProps) {
   })
 
   const isActiveOrComplete = () => isMapVotePhase() || state()?.status === 'active' || state()?.status === 'complete'
-  const canSaveSteamLobbyLink = () => amHost() && Boolean(props.lobbyId) && Boolean(props.lobbyMode)
-  const canToggleOverlay = () => isMapVoteVoting() || canOpenLeaderGrid()
-  const showOverlayToggle = () => state()?.status === 'active' || isMapVoteVoting()
+  const canSaveSteamLobbyLink = () => draftStore.seatIndex != null && Boolean(props.lobbyId) && Boolean(props.lobbyMode)
+  const canToggleOverlay = () => isMapVoteVoting() || canOpenLeaderGrid() || isHiddenDraftComplete()
+  const showOverlayToggle = () => state()?.status === 'active' || isMapVoteVoting() || isHiddenDraftComplete()
   const overlayToggleLabel = () => {
     if (isMapVoteVoting()) return gridOpen() ? 'Close map vote' : 'Open map vote'
     return gridOpen() ? 'Close leader grid' : 'Open leader grid'
@@ -204,7 +205,7 @@ export function DraftView(props: DraftViewProps) {
               {/* Main area */}
               <div class="flex flex-1 min-h-0 relative z-0">
                 <SlotStrip />
-                <Show when={state()?.status === 'active' && !isMapVotePhase()}>
+                <Show when={(state()?.status === 'active' && !isMapVotePhase()) || isHiddenDraftComplete()}>
                   <LeaderGridOverlay />
                 </Show>
                 <Show when={isMapVoteVoting()}>
@@ -247,8 +248,8 @@ export function DraftView(props: DraftViewProps) {
 
                 {/* Post-draft message */}
                 <Show when={state()?.status === 'complete'}>
-                  <div class="flex inset-x-0 top-16 justify-center absolute z-50">
-                    <div class="px-4 py-2 border border-border-subtle rounded-lg bg-bg-subtle/80 flex flex-col gap-1 shadow-2xl shadow-black/50 items-center backdrop-blur-sm">
+                  <div class="pointer-events-none flex inset-x-0 top-16 justify-center absolute z-50">
+                    <div class="pointer-events-auto px-4 py-2 border border-border-subtle rounded-lg bg-bg-subtle/80 flex flex-col gap-1 shadow-2xl shadow-black/50 items-center backdrop-blur-sm">
                       <span class="text-base text-accent font-bold">You can close the activity!</span>
                       <span class="text-sm text-fg/80">Don't forget to report the result</span>
                     </div>
@@ -275,7 +276,6 @@ export function DraftView(props: DraftViewProps) {
       <Show when={!isMiniView()} fallback={<MiniView />}>
         <CancelledDraftScreen
           steamLobbyLink={steamLobbyLink()}
-          isHost={amHost()}
           onSwitchTarget={props.onSwitchTarget}
         />
       </Show>
@@ -285,7 +285,6 @@ export function DraftView(props: DraftViewProps) {
 
 function CancelledDraftScreen(props: {
   steamLobbyLink: string | null
-  isHost: boolean
   onSwitchTarget?: () => void
 }) {
   const state = () => draftStore.state
@@ -326,7 +325,6 @@ function CancelledDraftScreen(props: {
       <Show when={reason() !== 'scrub'}>
         <SteamLobbyButton
           steamLobbyLink={props.steamLobbyLink}
-          isHost={props.isHost}
           class={cn('z-20 absolute', isMobileLayout() ? 'top-12 left-4 h-9 w-9' : 'top-4 left-4 h-9 w-9')}
         />
       </Show>

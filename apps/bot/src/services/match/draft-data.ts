@@ -1,4 +1,4 @@
-import type { GameMode, LeaderboardMode, ResolvedMapVoteResult } from '@civup/game'
+import type { DraftState, GameMode, LeaderboardMode, ResolvedMapVoteResult } from '@civup/game'
 import type { MatchReporterIdentity } from './types.ts'
 import { formatModeLabel, parseGameMode, toLeaderboardMode } from '@civup/game'
 
@@ -8,6 +8,7 @@ interface ParsedDraftData {
   reportedById?: unknown
   mapVoteResult?: unknown
   redDeath?: unknown
+  hiddenDraft?: unknown
   state?: {
     seats?: Array<{ playerId?: unknown, displayName?: unknown, avatarUrl?: unknown }>
   }
@@ -76,6 +77,18 @@ export function getReporterIdentityFromDraftData(draftData: string | null): Matc
 export function getRedDeathFromDraftData(draftData: string | null): boolean {
   const parsed = parseDraftData(draftData)
   return parsed?.redDeath === true
+}
+
+export function getHiddenDraftFromDraftData(draftData: string | null): boolean {
+  const parsed = parseDraftData(draftData)
+  return parsed?.hiddenDraft === true
+}
+
+export function getDraftStateFromDraftData(draftData: string | null): DraftState | null {
+  const parsed = parseDraftData(draftData)
+  return parsed?.state && typeof parsed.state === 'object'
+    ? parsed.state as DraftState
+    : null
 }
 
 export function getMapVoteResultFromDraftData(draftData: string | null): ResolvedMapVoteResult | null {
