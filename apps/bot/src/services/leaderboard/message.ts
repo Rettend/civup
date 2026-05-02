@@ -4,15 +4,20 @@ import type { LeaderboardDirtyState, LeaderboardMessageState } from '../system/c
 import { leaderboardDirtyStates, leaderboardMessageStates } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
 import { eq } from 'drizzle-orm'
+import { civLeaderboardEmbedGroups } from '../../embeds/civ-leaderboard.ts'
 import { leaderboardEmbed } from '../../embeds/leaderboard.ts'
-import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
+import { createChannelMessage, deleteChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
 import {
   getSystemChannel,
 } from '../system/channels.ts'
+import { ensureCivLeaderboardSnapshot, rebuildCivLeaderboardSnapshot } from './civ-snapshot.ts'
 import { clearAllTeamLeaderboardSnapshots } from './team-snapshot.ts'
 import { ensureLeaderboardModeSnapshots, rebuildLeaderboardModeSnapshot } from './snapshot.ts'
 
-const LEADERBOARD_SCOPE = 'global'
+const PLAYER_LEADERBOARD_SCOPE = 'global'
+const CIV_LEADERBOARD_SCOPE = 'civ'
+const CIV_LEADERBOARD_MESSAGE_SCOPES = [CIV_LEADERBOARD_SCOPE, 'civ:2', 'civ:3'] as const
+const LEADERBOARD_DIRTY_SCOPE = 'global'
 
 export async function markLeaderboardsDirty(db: Database, reason: string): Promise<LeaderboardDirtyState> {
   const existing = await getLeaderboardDirtyState(db)
@@ -24,7 +29,7 @@ export async function markLeaderboardsDirty(db: Database, reason: string): Promi
   await db
     .insert(leaderboardDirtyStates)
     .values({
-      scope: LEADERBOARD_SCOPE,
+      scope: LEADERBOARD_DIRTY_SCOPE,
       dirtyAt,
       reason: normalizedReason,
     })
@@ -51,6 +56,18 @@ export async function refreshConfiguredLeaderboards(
   return true
 }
 
+export async function refreshConfiguredCivLeaderboards(
+  db: Database,
+  kv: KVNamespace,
+  token: string,
+): Promise<boolean> {
+  const leaderboardChannelId = await getSystemChannel(kv, 'civ-leaderboard')
+  if (!leaderboardChannelId) return false
+
+  await upsertCivLeaderboardMessageForChannel(db, kv, token, leaderboardChannelId)
+  return true
+}
+
 export async function archiveSeasonLeaderboards(
   db: Database,
   kv: KVNamespace,
@@ -63,7 +80,7 @@ export async function archiveSeasonLeaderboards(
   const leaderboardChannelId = await getSystemChannel(kv, 'leaderboard')
   if (!leaderboardChannelId) return false
 
-  const existing = await getLeaderboardMessageState(db)
+  const existing = await getLeaderboardMessageState(db, PLAYER_LEADERBOARD_SCOPE)
   const archivedEmbeds = await buildLeaderboardEmbeds(db, kv, {
     titlePrefix: seasonName,
     modes: options.modes,
@@ -104,11 +121,26 @@ export async function refreshDirtyLeaderboards(
   if (!dirtyState) return false
 
   const modes = [...new Set(options.modes ?? LEADERBOARD_MODES)]
-  await rebuildLeaderboardSnapshots(db, kv, modes)
+  const [leaderboardChannelId, civLeaderboardChannelId] = await Promise.all([
+    getSystemChannel(kv, 'leaderboard'),
+    getSystemChannel(kv, 'civ-leaderboard'),
+  ])
 
-  const refreshed = await refreshConfiguredLeaderboards(db, kv, token, { modes })
+  await Promise.all([
+    rebuildLeaderboardSnapshots(db, kv, modes),
+    civLeaderboardChannelId ? rebuildCivLeaderboardSnapshot(db, kv) : Promise.resolve(),
+  ])
+
+  const [leaderboardState, civLeaderboardState] = await Promise.all([
+    leaderboardChannelId
+      ? upsertLeaderboardMessagesForChannel(db, kv, token, leaderboardChannelId, { modes })
+      : Promise.resolve(null),
+    civLeaderboardChannelId
+      ? upsertCivLeaderboardMessageForChannel(db, kv, token, civLeaderboardChannelId)
+      : Promise.resolve(null),
+  ])
   await clearLeaderboardDirtyState(db)
-  return refreshed
+  return Boolean(leaderboardState || civLeaderboardState)
 }
 
 export async function upsertLeaderboardMessagesForChannel(
@@ -121,7 +153,7 @@ export async function upsertLeaderboardMessagesForChannel(
     modes?: readonly LeaderboardMode[]
   } = {},
 ): Promise<LeaderboardMessageState> {
-  const existing = await getLeaderboardMessageState(db)
+  const existing = await getLeaderboardMessageState(db, PLAYER_LEADERBOARD_SCOPE)
   const previousMessageId = !options.forceCreate && existing?.channelId === channelId ? existing.messageId : null
   const embeds = await buildLeaderboardEmbeds(db, kv, { modes: options.modes })
 
@@ -137,7 +169,7 @@ export async function upsertLeaderboardMessagesForChannel(
         messageId: previousMessageId,
         updatedAt: Date.now(),
       }
-      await setLeaderboardMessageState(db, state)
+      await setLeaderboardMessageState(db, PLAYER_LEADERBOARD_SCOPE, state)
       return state
     }
     catch (error) {
@@ -154,8 +186,36 @@ export async function upsertLeaderboardMessagesForChannel(
     messageId: created.id,
     updatedAt: Date.now(),
   }
-  await setLeaderboardMessageState(db, state)
+  await setLeaderboardMessageState(db, PLAYER_LEADERBOARD_SCOPE, state)
   return state
+}
+
+export async function upsertCivLeaderboardMessageForChannel(
+  db: Database,
+  kv: KVNamespace,
+  token: string,
+  channelId: string,
+  options: {
+    forceCreate?: boolean
+  } = {},
+): Promise<LeaderboardMessageState> {
+  const embedGroups = await buildCivLeaderboardEmbedGroups(db, kv)
+  const states: LeaderboardMessageState[] = []
+
+  for (const [index, embeds] of embedGroups.entries()) {
+    const scope = CIV_LEADERBOARD_MESSAGE_SCOPES[index]
+    if (!scope) break
+
+    const state = await upsertScopedLeaderboardMessage(db, token, channelId, scope, embeds, {
+      forceCreate: options.forceCreate,
+    })
+    states.push(state)
+  }
+
+  await deleteUnusedCivLeaderboardMessages(db, token, channelId, embedGroups.length)
+  return states[0] ?? await upsertScopedLeaderboardMessage(db, token, channelId, CIV_LEADERBOARD_SCOPE, [], {
+    forceCreate: options.forceCreate,
+  })
 }
 
 async function buildLeaderboardEmbeds(
@@ -174,6 +234,77 @@ async function buildLeaderboardEmbeds(
   })
 }
 
+async function buildCivLeaderboardEmbedGroups(
+  db: Database,
+  kv: KVNamespace,
+) {
+  const snapshot = await ensureCivLeaderboardSnapshot(db, kv)
+  return civLeaderboardEmbedGroups(snapshot)
+}
+
+async function upsertScopedLeaderboardMessage(
+  db: Database,
+  token: string,
+  channelId: string,
+  scope: string,
+  embeds: unknown[],
+  options: {
+    forceCreate?: boolean
+  } = {},
+): Promise<LeaderboardMessageState> {
+  const existing = await getLeaderboardMessageState(db, scope)
+  const previousMessageId = !options.forceCreate && existing?.channelId === channelId ? existing.messageId : null
+
+  if (previousMessageId) {
+    try {
+      await editChannelMessage(token, channelId, previousMessageId, {
+        content: null,
+        embeds,
+      })
+
+      const state: LeaderboardMessageState = {
+        channelId,
+        messageId: previousMessageId,
+        updatedAt: Date.now(),
+      }
+      await setLeaderboardMessageState(db, scope, state)
+      return state
+    }
+    catch (error) {
+      if (!isDiscordApiError(error, 404)) throw error
+    }
+  }
+
+  const created = await createChannelMessage(token, channelId, { embeds })
+  const state: LeaderboardMessageState = {
+    channelId,
+    messageId: created.id,
+    updatedAt: Date.now(),
+  }
+  await setLeaderboardMessageState(db, scope, state)
+  return state
+}
+
+async function deleteUnusedCivLeaderboardMessages(
+  db: Database,
+  token: string,
+  channelId: string,
+  activeCount: number,
+): Promise<void> {
+  for (const scope of CIV_LEADERBOARD_MESSAGE_SCOPES.slice(activeCount)) {
+    const existing = await getLeaderboardMessageState(db, scope)
+    if (existing?.channelId === channelId) {
+      try {
+        await deleteChannelMessage(token, channelId, existing.messageId)
+      }
+      catch (error) {
+        if (!isDiscordApiError(error, 404)) throw error
+      }
+    }
+    await deleteLeaderboardMessageState(db, scope)
+  }
+}
+
 async function rebuildLeaderboardSnapshots(
   db: Database,
   kv: KVNamespace,
@@ -185,7 +316,7 @@ async function rebuildLeaderboardSnapshots(
   }
 }
 
-async function getLeaderboardMessageState(db: Database): Promise<LeaderboardMessageState | null> {
+async function getLeaderboardMessageState(db: Database, scope: string): Promise<LeaderboardMessageState | null> {
   const [row] = await db
     .select({
       channelId: leaderboardMessageStates.channelId,
@@ -193,7 +324,7 @@ async function getLeaderboardMessageState(db: Database): Promise<LeaderboardMess
       updatedAt: leaderboardMessageStates.updatedAt,
     })
     .from(leaderboardMessageStates)
-    .where(eq(leaderboardMessageStates.scope, LEADERBOARD_SCOPE))
+    .where(eq(leaderboardMessageStates.scope, scope))
     .limit(1)
 
   if (!row) return null
@@ -202,12 +333,13 @@ async function getLeaderboardMessageState(db: Database): Promise<LeaderboardMess
 
 async function setLeaderboardMessageState(
   db: Database,
+  scope: string,
   state: LeaderboardMessageState,
 ): Promise<void> {
   await db
     .insert(leaderboardMessageStates)
     .values({
-      scope: LEADERBOARD_SCOPE,
+      scope,
       channelId: state.channelId,
       messageId: state.messageId,
       updatedAt: state.updatedAt,
@@ -222,6 +354,10 @@ async function setLeaderboardMessageState(
     })
 }
 
+async function deleteLeaderboardMessageState(db: Database, scope: string): Promise<void> {
+  await db.delete(leaderboardMessageStates).where(eq(leaderboardMessageStates.scope, scope))
+}
+
 async function getLeaderboardDirtyState(db: Database): Promise<LeaderboardDirtyState | null> {
   const [row] = await db
     .select({
@@ -229,7 +365,7 @@ async function getLeaderboardDirtyState(db: Database): Promise<LeaderboardDirtyS
       reason: leaderboardDirtyStates.reason,
     })
     .from(leaderboardDirtyStates)
-    .where(eq(leaderboardDirtyStates.scope, LEADERBOARD_SCOPE))
+    .where(eq(leaderboardDirtyStates.scope, LEADERBOARD_DIRTY_SCOPE))
     .limit(1)
 
   if (!row) return null
@@ -240,5 +376,5 @@ async function getLeaderboardDirtyState(db: Database): Promise<LeaderboardDirtyS
 }
 
 async function clearLeaderboardDirtyState(db: Database): Promise<void> {
-  await db.delete(leaderboardDirtyStates).where(eq(leaderboardDirtyStates.scope, LEADERBOARD_SCOPE))
+  await db.delete(leaderboardDirtyStates).where(eq(leaderboardDirtyStates.scope, LEADERBOARD_DIRTY_SCOPE))
 }

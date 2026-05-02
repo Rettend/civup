@@ -222,6 +222,21 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     ),
   },
   {
+    key: 'hiddenDraft',
+    when: state => state.isLobbyMode(),
+    renderEditable: state => (
+      <SwitchRow
+        label="Hidden draft"
+        active={state.derived.optimisticDraftConfig().hiddenDraft}
+        disabled={state.lobbyActionPending() || state.pending.hiddenDraft()}
+        onChange={checked => void state.actions.changeHiddenDraft(checked)}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="Hidden draft" value={state.derived.formattedHiddenDraft()} valueClass={state.derived.draftConfig().hiddenDraft ? 'text-accent' : undefined} />
+    ),
+  },
+  {
     key: 'duplicateFactions',
     when: state => state.isLobbyMode(),
     renderEditable: state => (

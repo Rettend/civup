@@ -31,6 +31,8 @@ import {
   gridOpen,
   gridViewMode,
   hasSubmitted,
+  hiddenDraftLeaderSelections,
+  isHiddenDraftComplete,
   isMyOwnPickTurn,
   isMyTurn,
   isRandomSelected,
@@ -53,6 +55,7 @@ import {
   setSearchQuery,
   setSelectedLeader,
   tagFilters,
+  toggleHiddenDraftLeaderSelection,
   toggleTagFilter,
 } from '~/client/stores'
 import { allowsDuplicateDraftPicks, isDraftCardUnavailable } from './draftAvailability'
@@ -188,6 +191,9 @@ export function LeaderGridOverlay() {
   const accent = () => phaseAccent()
   const ownSeatIndex = () => draftStore.seatIndex
   const pickSelectionSeatIndex = () => currentPickTargetSeatIndex() ?? ownSeatIndex()
+  const reportAssignmentMode = () => isHiddenDraftComplete()
+  const reportSeatCount = () => state()?.seats.length ?? 0
+  const isReportLeaderSelected = (leaderId: string): boolean => hiddenDraftLeaderSelections().includes(leaderId)
   const currentHydrationToken = () => {
     const current = state()
     const seatIndex = step()?.action === 'pick' ? pickSelectionSeatIndex() : ownSeatIndex()
@@ -276,7 +282,7 @@ export function LeaderGridOverlay() {
   const showDockedPanels = () => panelsDocked()
   const showStackedShelf = () => !panelsDocked() && !gridExpanded()
   const showFocusPanelStrip = () => !panelsDocked() && gridExpanded() && (filtersOpen() || hasDetail())
-  const showWideWangTranscript = () => !isRedDeathDraft() && wideWangVisibleLineCount() > 0
+  const showWideWangTranscript = () => !reportAssignmentMode() && !isRedDeathDraft() && wideWangVisibleLineCount() > 0
   const singleClickShowsDetail = () => panelsDocked()
   const overlayEntranceClass = () => skipNextOverlayAnimation ? '' : 'anim-overlay-in'
 
@@ -324,7 +330,7 @@ export function LeaderGridOverlay() {
   })
 
   createEffect(() => {
-    if (canOpenLeaderGrid()) return
+    if (canOpenLeaderGrid() || reportAssignmentMode()) return
     if (gridOpen()) setGridOpen(false)
   })
 
@@ -421,6 +427,7 @@ export function LeaderGridOverlay() {
   })
 
   const draftLeaderPoolIds = createMemo(() => {
+    if (reportAssignmentMode()) return new Set(allEntries().map(entry => entry.id))
     if (isRedDeathDraft()) return new Set(dealtCivIds() ?? [])
 
     const draftState = state()
@@ -451,7 +458,7 @@ export function LeaderGridOverlay() {
 
   const ghostCount = createMemo(() => Math.max(0, draftLeaderPoolIds().size - filteredLeaders().length))
 
-  const showRandomInList = () => !isRedDeathDraft() && !showWideWangTranscript()
+  const showRandomInList = () => !reportAssignmentMode() && !isRedDeathDraft() && !showWideWangTranscript()
   const [hoveredListIndex, setHoveredListIndex] = createSignal<number | null>(null)
   const [multiListColumns, setMultiListColumns] = createSignal(1)
 
@@ -464,6 +471,7 @@ export function LeaderGridOverlay() {
 
   const isItemVisuallySelected = (id: string): boolean => {
     if (id === '__random__') return isRandomSelected()
+    if (reportAssignmentMode()) return isReportLeaderSelected(id)
     return selectedLeader() === id || banSelections().includes(id)
   }
 
@@ -577,6 +585,11 @@ export function LeaderGridOverlay() {
     setGridOpen(false)
   }
 
+  const handleReportLeaderSelect = (leader: Leader) => {
+    toggleHiddenDraftLeaderSelection(leader.id, reportSeatCount())
+    clearHoverTooltip()
+  }
+
   const handleBackdropClick = () => {
     if (isMyTurn() && !hasSubmitted()) return
     clearHoverTooltip()
@@ -657,6 +670,11 @@ export function LeaderGridOverlay() {
   })
 
   createEffect(() => {
+    if (reportAssignmentMode()) {
+      if (wideWangVisibleLineCount() > 0) stopWideWangEasterEgg()
+      return
+    }
+
     if (isRedDeathDraft()) {
       if (wideWangVisibleLineCount() > 0) stopWideWangEasterEgg()
       return
@@ -910,7 +928,9 @@ export function LeaderGridOverlay() {
                   >
                     <LeaderListItem
                       leader={leader}
-                      singleClickShowsDetail={singleClickShowsDetail()}
+                      singleClickShowsDetail={!reportAssignmentMode() && singleClickShowsDetail()}
+                      selected={reportAssignmentMode() && isReportLeaderSelected(leader.id)}
+                      onSelect={reportAssignmentMode() ? handleReportLeaderSelect : undefined}
                       neighborState={listNeighborMap().get(leader.id)}
                       onHoverMove={handleLeaderHoverMove}
                       onHoverLeave={handleLeaderHoverLeave}
@@ -938,7 +958,9 @@ export function LeaderGridOverlay() {
                   <div onMouseEnter={() => setHoveredListIndex(index() + (showRandomInList() ? 1 : 0))}>
                     <LeaderListItem
                       leader={leader}
-                      singleClickShowsDetail={singleClickShowsDetail()}
+                      singleClickShowsDetail={!reportAssignmentMode() && singleClickShowsDetail()}
+                      selected={reportAssignmentMode() && isReportLeaderSelected(leader.id)}
+                      onSelect={reportAssignmentMode() ? handleReportLeaderSelect : undefined}
                       neighborState={listNeighborMap().get(leader.id)}
                       onHoverMove={handleLeaderHoverMove}
                       onHoverLeave={handleLeaderHoverLeave}
@@ -950,7 +972,7 @@ export function LeaderGridOverlay() {
           </Match>
           <Match when={gridViewMode() === 'grid'}>
             <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
-              <Show when={!isRedDeathDraft() && !showWideWangTranscript()}>
+              <Show when={!reportAssignmentMode() && !isRedDeathDraft() && !showWideWangTranscript()}>
                 <RandomLeaderCard
                   disabled={!canUseRandom()}
                   active={isRandomSelected()}
@@ -962,7 +984,9 @@ export function LeaderGridOverlay() {
                 {leader => (
                   <LeaderCard
                     leader={leader}
-                    singleClickShowsDetail={singleClickShowsDetail()}
+                    singleClickShowsDetail={!reportAssignmentMode() && singleClickShowsDetail()}
+                    selected={reportAssignmentMode() && isReportLeaderSelected(leader.id)}
+                    onSelect={reportAssignmentMode() ? handleReportLeaderSelect : undefined}
                     onHoverMove={handleLeaderHoverMove}
                     onHoverLeave={handleLeaderHoverLeave}
                   />
@@ -1019,10 +1043,10 @@ export function LeaderGridOverlay() {
   return (
     <Show when={gridOpen()}>
       {/* Backdrop */}
-      <div class="bg-black/40 inset-0 absolute z-10" onClick={handleBackdropClick} />
+      <div class="bg-black/40 inset-0 absolute z-45" onClick={handleBackdropClick} />
 
       {/* Centered grid */}
-      <div class={cn('flex pointer-events-none inset-x-0 bottom-14 justify-center absolute z-20', gridExpanded() || showStackedShelf() ? 'items-stretch top-3' : 'items-end top-6')}>
+      <div class={cn('flex pointer-events-none inset-x-0 bottom-14 justify-center absolute z-50', gridExpanded() || showStackedShelf() ? 'items-stretch top-3' : 'items-end top-6')}>
         <Show
           when={showStackedShelf()}
           fallback={(
@@ -1112,7 +1136,7 @@ export function LeaderGridOverlay() {
               tooltipRef = el
             }}
             role="tooltip"
-            class="px-2 py-1 border border-border rounded bg-bg/95 max-w-56 pointer-events-none shadow-black/40 shadow-lg fixed z-30"
+            class="px-2 py-1 border border-border rounded bg-bg/95 max-w-56 pointer-events-none shadow-black/40 shadow-lg fixed z-60"
             style={{
               left: `${tooltipPosition().left}px`,
               top: `${tooltipPosition().top}px`,

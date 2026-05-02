@@ -1,15 +1,78 @@
 import { matches, matchParticipants, playerRatings, players } from '@civup/db'
+import { allLeaderIds } from '@civup/game'
 import { buildLeaderboard } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
-import { cancelMatchByModerator, recalculateLeaderboardMode, reportMatch, resolveMatchByModerator } from '../../src/services/match/index.ts'
+import { cancelMatchByModerator, correctMatchLeadersByModerator, recalculateLeaderboardMode, reportMatch, resolveMatchByModerator } from '../../src/services/match/index.ts'
 import { getSessionRecord, runSessionDraftLifecycleCommand, runSessionTerminalLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
 import { createLobby, getTestLobbyRuntime, setLobbyMemberPlayerIds, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('match moderation recalculation', () => {
   const directTerminalOptions = { allowDirectTerminalWriteForTests: true }
+
+  test('mod leader correction sets a reported participant to a live leader outside the original draft', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await seedThreeCompletedDuels(db)
+      const leaderId = allLeaderIds.find(id => id !== 'rome' && id !== 'greece') ?? allLeaderIds[0]!
+
+      const result = await correctMatchLeadersByModerator(db, {
+        matchId: 'm1',
+        playerId: 'p1',
+        leaderId,
+        correctedAt: 10_000,
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.corrections).toEqual([{ playerId: 'p1', previousCivId: 'rome', nextCivId: leaderId }])
+
+      const p1 = result.participants.find(participant => participant.playerId === 'p1')
+      const p2 = result.participants.find(participant => participant.playerId === 'p2')
+      expect(p1?.civId).toBe(leaderId)
+      expect(p1?.placement).toBe(1)
+      expect(p2?.civId).toBe('greece')
+      expect(result.recalculatedMatchIds).toEqual([])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('mod leader correction swaps two reported participants leaders', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await seedThreeCompletedDuels(db)
+
+      const result = await correctMatchLeadersByModerator(db, {
+        matchId: 'm1',
+        playerId: 'p1',
+        swapWithPlayerId: 'p2',
+        correctedAt: 10_000,
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.corrections).toEqual([
+        { playerId: 'p1', previousCivId: 'rome', nextCivId: 'greece' },
+        { playerId: 'p2', previousCivId: 'greece', nextCivId: 'rome' },
+      ])
+
+      const p1 = result.participants.find(participant => participant.playerId === 'p1')
+      const p2 = result.participants.find(participant => participant.playerId === 'p2')
+      expect(p1?.civId).toBe('greece')
+      expect(p2?.civId).toBe('rome')
+      expect(p1?.ratingAfterMu).toBe(27)
+      expect(p2?.ratingAfterMu).toBe(23)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
 
   test('reporting a 5v5 match records squad ratings', async () => {
     const { db, sqlite } = await createTestDatabase()

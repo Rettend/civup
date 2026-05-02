@@ -186,7 +186,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, mapVoteEnabled: mapVoteEnabledRaw, blindBans: blindBansRaw, simultaneousPick: simultaneousPickRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, duplicateFactions: duplicateFactionsRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
+    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, mapVoteEnabled: mapVoteEnabledRaw, blindBans: blindBansRaw, simultaneousPick: simultaneousPickRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, hiddenDraft: hiddenDraftRaw, duplicateFactions: duplicateFactionsRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
       userId?: string
       banTimerSeconds?: unknown
       pickTimerSeconds?: unknown
@@ -198,6 +198,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       redDeath?: unknown
       dealOptionsSize?: unknown
       randomDraft?: unknown
+      hiddenDraft?: unknown
       duplicateFactions?: unknown
       minRole?: unknown
       maxRole?: unknown
@@ -231,6 +232,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const hasRedDeath = Object.prototype.hasOwnProperty.call(body, 'redDeath')
     const hasDealOptionsSize = Object.prototype.hasOwnProperty.call(body, 'dealOptionsSize')
     const hasRandomDraft = Object.prototype.hasOwnProperty.call(body, 'randomDraft')
+    const hasHiddenDraft = Object.prototype.hasOwnProperty.call(body, 'hiddenDraft')
     const hasDuplicateFactions = Object.prototype.hasOwnProperty.call(body, 'duplicateFactions')
     const hasTargetSize = Object.prototype.hasOwnProperty.call(body, 'targetSize')
     const parsedLeaderPoolSize = hasLeaderPoolSize
@@ -263,6 +265,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const parsedRandomDraft = hasRandomDraft
       ? parseLobbyRandomDraft(randomDraftRaw)
       : undefined
+    const parsedHiddenDraft = hasHiddenDraft
+      ? parseLobbyHiddenDraft(hiddenDraftRaw)
+      : undefined
     const parsedDuplicateFactions = hasDuplicateFactions
       ? parseLobbyDuplicateFactions(duplicateFactionsRaw)
       : undefined
@@ -289,6 +294,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     if (hasRandomDraft && parsedRandomDraft === undefined) {
       return c.json({ error: 'randomDraft must be true or false' }, 400)
+    }
+    if (hasHiddenDraft && parsedHiddenDraft === undefined) {
+      return c.json({ error: 'hiddenDraft must be true or false' }, 400)
     }
     if (hasDuplicateFactions && parsedDuplicateFactions === undefined) {
       return c.json({ error: 'duplicateFactions must be true or false' }, 400)
@@ -356,9 +364,14 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const normalizedDealOptionsSize = hasDealOptionsSize
       ? parsedDealOptionsSize ?? null
       : lobby.draftConfig.dealOptionsSize
-    const normalizedRandomDraft = hasRandomDraft
+    let normalizedRandomDraft = hasRandomDraft
       ? parsedRandomDraft ?? false
       : lobby.draftConfig.randomDraft
+    let normalizedHiddenDraft = hasHiddenDraft
+      ? parsedHiddenDraft ?? false
+      : lobby.draftConfig.hiddenDraft
+    if (hasHiddenDraft && parsedHiddenDraft === true) normalizedRandomDraft = false
+    if (hasRandomDraft && parsedRandomDraft === true) normalizedHiddenDraft = false
     const normalizedDuplicateFactions = hasDuplicateFactions
       ? parsedDuplicateFactions ?? false
       : lobby.draftConfig.duplicateFactions
@@ -380,8 +393,27 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     const minRoleChanged = normalizedMinRole !== lobby.minRole
     const maxRoleChanged = normalizedMaxRole !== lobby.maxRole
+    const hasDraftConfigUpdate = hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasMapVoteEnabled || hasBlindBans || hasSimultaneousPick || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasHiddenDraft || hasDuplicateFactions || hasTargetSize || hasMinRole || hasMaxRole
+    const isSteamLobbyLinkOnlyUpdate = hasSteamLobbyLink && !hasDraftConfigUpdate
+    const currentUserIsHost = lobby.hostId === auth.identity.userId
+    const currentUserIsSlotted = lobby.slots.includes(auth.identity.userId)
 
-    if (lobby.hostId !== auth.identity.userId) {
+    if (isSteamLobbyLinkOnlyUpdate) {
+      if (!isSteamLobbyEditableStatus(lobby.status)) {
+        return c.json({ error: 'Steam lobby links can only be managed while the lobby is open or the match is live.' }, 409)
+      }
+      if (!currentUserIsHost && !currentUserIsSlotted) {
+        return c.json({ error: 'Only lobby players can update the Steam lobby link' }, 403)
+      }
+
+      const updated = await setLobbySteamLobbyLink(kv, lobby.id, parsedSteamLobbyLink ?? null, lobby, lobbySessionMutationOptions(c)) ?? lobby
+      if (updated.revision !== lobby.revision) {
+        await syncLobbyDerivedState(kv, updated)
+      }
+      return c.json(await buildStoredLobbySnapshot(kv, mode, updated))
+    }
+
+    if (!currentUserIsHost) {
       return c.json({ error: 'Only the lobby host can update draft config' }, 403)
     }
 
@@ -392,7 +424,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       if (!hasSteamLobbyLink) {
         return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
       }
-      if (hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasMapVoteEnabled || hasBlindBans || hasSimultaneousPick || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasDuplicateFactions || hasTargetSize || hasMinRole || hasMaxRole) {
+      if (hasDraftConfigUpdate) {
         return c.json({ error: 'Only the Steam lobby link can be updated after the draft starts.' }, 409)
       }
 
@@ -466,6 +498,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       redDeath: normalizedRedDeath,
       dealOptionsSize: normalizedDealOptionsSize,
       randomDraft: normalizedRandomDraft,
+      hiddenDraft: normalizedHiddenDraft,
       duplicateFactions: normalizedDuplicateFactions,
     }, requestedTargetSize)
 
@@ -1444,6 +1477,10 @@ function parseLobbyDealOptionsSize(value: unknown): number | null | undefined {
 }
 
 function parseLobbyRandomDraft(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function parseLobbyHiddenDraft(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
 }
 

@@ -16,6 +16,7 @@ export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   redDeath: false,
   dealOptionsSize: null,
   randomDraft: false,
+  hiddenDraft: false,
   duplicateFactions: false,
 }
 
@@ -75,6 +76,8 @@ export function normalizeStoredSlots(mode: GameMode, value: unknown): (string | 
 }
 
 export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDraftConfig | null | undefined): LobbyDraftConfig {
+  const randomDraft = normalizeRandomDraft(config?.randomDraft)
+  const hiddenDraft = normalizeHiddenDraft(config?.hiddenDraft)
   return {
     banTimerSeconds: normalizeTimerSeconds(config?.banTimerSeconds),
     pickTimerSeconds: normalizeTimerSeconds(config?.pickTimerSeconds),
@@ -85,7 +88,8 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
     simultaneousPick: normalizeSimultaneousPick(config?.simultaneousPick),
     redDeath: normalizeRedDeath(config?.redDeath),
     dealOptionsSize: normalizeDealOptionsSize(config?.dealOptionsSize),
-    randomDraft: normalizeRandomDraft(config?.randomDraft),
+    randomDraft: hiddenDraft ? false : randomDraft,
+    hiddenDraft,
     duplicateFactions: normalizeDuplicateFactions(config?.duplicateFactions),
   }
 }
@@ -106,7 +110,8 @@ export function normalizeDraftConfigForMode(
     simultaneousPick: mode === 'ffa' && !redDeath ? normalized.simultaneousPick : false,
     redDeath,
     dealOptionsSize: redDeath ? normalized.dealOptionsSize : null,
-    randomDraft: normalized.randomDraft,
+    randomDraft: normalized.hiddenDraft ? false : normalized.randomDraft,
+    hiddenDraft: normalized.hiddenDraft,
     duplicateFactions: redDeath ? (requiresRedDeathDuplicateFactions(mode) || normalized.duplicateFactions) : normalized.duplicateFactions,
   }
 }
@@ -171,6 +176,7 @@ export function sameDraftConfig(a: LobbyDraftConfig, b: LobbyDraftConfig): boole
     && a.redDeath === b.redDeath
     && a.dealOptionsSize === b.dealOptionsSize
     && a.randomDraft === b.randomDraft
+    && a.hiddenDraft === b.hiddenDraft
     && a.duplicateFactions === b.duplicateFactions
 }
 
@@ -237,6 +243,10 @@ function normalizeDealOptionsSize(value: unknown): number | null {
 }
 
 function normalizeRandomDraft(value: unknown): boolean {
+  return value === true
+}
+
+function normalizeHiddenDraft(value: unknown): boolean {
   return value === true
 }
 

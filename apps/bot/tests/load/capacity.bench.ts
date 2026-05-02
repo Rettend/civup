@@ -631,9 +631,6 @@ async function simulateScenarioLifecycle(input: {
     const acceptedSwaps = isTeamMode(input.mode.mode) ? Math.max(0, Math.trunc(input.acceptedSwaps ?? 0)) : 0
     for (let index = 0; index < acceptedSwaps; index++) {
       completedDraftState = applyAcceptedTeamSwap(completedDraftState)
-      botRequests += 1
-      await handleDraftCompleteLifecycleSync(db, kv, started.matchId, completedDraftState)
-      await runUnmetered(() => assertActiveCapacityState(db, kv, started.matchId, playerIds))
       draftRoomIncomingMessages += ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES
       draftRoomIncomingMessagesWithSelectionPreviews += ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES
       draftRoomIncomingMessagesWithTeamPickPreviews += ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES
@@ -1156,8 +1153,7 @@ function projectSimulationResultToTargetArchitecture(
   const playerCount = scenarioPlayersPerDraft(mode)
   const viewerCount = scenarioViewerIds(mode).length
   const spectatorCount = mode.spectatorIds?.length ?? 0
-  const averageAcceptedSwaps = isTeamMode(mode.mode) ? AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT : 0
-  const lifecycleSyncBotRequests = 1 + averageAcceptedSwaps + (isTeamMode(mode.mode) ? 1 : 0)
+  const lifecycleSyncBotRequests = 1 + (isTeamMode(mode.mode) ? 1 : 0)
   const sessionCommandRequests = estimateTargetSessionCommandRequests(mode, current.openLobbyMutationRequests)
   const activityFeedSessionUpdates = sessionCommandRequests + lifecycleSyncBotRequests
   const activityFeedConnections = viewerCount

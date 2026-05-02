@@ -20,6 +20,7 @@ interface UiMemoryState {
   ffaPlacementOrder: number[]
   teamPlacementOrder: number[]
   resultSelectionsLocked: boolean
+  hiddenDraftLeaderSelections: string[]
 }
 
 type GridViewMode = 'grid' | 'multi-list' | 'list'
@@ -47,6 +48,7 @@ const [uiState, setUiState] = createStore<UiMemoryState>({
   ffaPlacementOrder: [],
   teamPlacementOrder: [],
   resultSelectionsLocked: false,
+  hiddenDraftLeaderSelections: [],
 })
 
 const [persistedUiStateBase, setPersistedUiStateBase] = createStore<UiPersistedState>({
@@ -81,6 +83,7 @@ export const ffaPlacementOrder = () => uiState.ffaPlacementOrder
 export const teamPlacementOrder = () => uiState.teamPlacementOrder
 export const selectedWinningTeam = (): number | null => teamPlacementOrder()[0] ?? null
 export const resultSelectionsLocked = () => uiState.resultSelectionsLocked
+export const hiddenDraftLeaderSelections = () => uiState.hiddenDraftLeaderSelections
 
 export function setSearchQuery(next: string | ((prev: string) => string)) {
   setUiState('searchQuery', next)
@@ -136,6 +139,19 @@ export function setTeamPlacementOrder(next: number[] | ((prev: number[]) => numb
 
 export function setResultSelectionsLocked(next: boolean | ((prev: boolean) => boolean)) {
   setUiState('resultSelectionsLocked', next)
+}
+
+export function toggleHiddenDraftLeaderSelection(civId: string, maxSelections: number) {
+  if (civId.length === 0 || maxSelections <= 0) return
+  setUiState('hiddenDraftLeaderSelections', (prev) => {
+    if (prev.includes(civId)) return prev.filter(id => id !== civId)
+    if (prev.length >= maxSelections) return prev
+    return [...prev, civId]
+  })
+}
+
+export function clearHiddenDraftLeaderSelections() {
+  setUiState('hiddenDraftLeaderSelections', [])
 }
 
 // ── Phase Accent ───────────────────────────────────────────

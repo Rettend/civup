@@ -54,11 +54,12 @@ export function setupTargetLabel(target: SystemChannelType): string {
   if (target === 'draft') return 'Draft'
   if (target === 'archive') return 'Archive'
   if (target === 'commands') return 'Bot Commands'
+  if (target === 'civ-leaderboard') return 'Civ Leaderboard'
   return 'Leaderboard'
 }
 
 export function parseSetupTarget(value: string): SystemChannelType | null {
-  if (value === 'draft' || value === 'archive' || value === 'leaderboard' || value === 'commands') return value
+  if (value === 'draft' || value === 'archive' || value === 'leaderboard' || value === 'civ-leaderboard' || value === 'commands') return value
   return null
 }
 

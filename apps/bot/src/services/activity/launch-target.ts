@@ -1,15 +1,17 @@
 import { CIVUP_INTERNAL_SECRET_HEADER, fetchPartyServerDurableObject } from '@civup/utils'
 
-export interface ActivityLaunchTargetSelection {
+export interface ActivityTargetSelection {
   kind: 'lobby' | 'match'
   id: string
 }
 
-export interface StoredActivityLaunchTargetSelection extends ActivityLaunchTargetSelection {
+export type ActivityLaunchTargetSelection = ActivityTargetSelection | { kind: 'overview' }
+
+export type StoredActivityLaunchTargetSelection = ActivityLaunchTargetSelection & {
   createdAt: number
 }
 
-export interface StoredActivityFollowTargetSelection extends ActivityLaunchTargetSelection {
+export interface StoredActivityFollowTargetSelection extends ActivityTargetSelection {
   updatedAt: number
 }
 
@@ -27,7 +29,7 @@ export async function storeActivityLaunchTargetSelection(
   userId: string | null | undefined,
   target: ActivityLaunchTargetSelection,
 ): Promise<void> {
-  if (!namespace || !userId || !target.id) return
+  if (!namespace || !userId || (target.kind !== 'overview' && !target.id)) return
   const payload: StoredActivityLaunchTargetSelection = {
     ...target,
     createdAt: Date.now(),
@@ -60,7 +62,8 @@ export async function readActivityLaunchTargetSelection(
     if (!response.ok) return null
     const body = await response.json<{ target?: unknown }>().catch(() => null)
     const target = parseStoredActivityLaunchTargetSelection(body?.target ?? null)
-    return target ? { kind: target.kind, id: target.id } : null
+    if (!target) return null
+    return target.kind === 'overview' ? { kind: 'overview' } : { kind: target.kind, id: target.id }
   }
   catch (error) {
     console.warn('Activity launch target read failed', error)
@@ -91,7 +94,7 @@ export async function storeActivityFollowTargetSelection(
   internalSecret: string | undefined,
   channelId: string | null | undefined,
   userId: string | null | undefined,
-  target: ActivityLaunchTargetSelection,
+  target: ActivityTargetSelection,
 ): Promise<void> {
   if (!namespace || !channelId || !userId || !target.id) return
   const payload: StoredActivityFollowTargetSelection = {
@@ -116,7 +119,7 @@ export async function readActivityFollowTargetSelection(
   internalSecret: string | undefined,
   channelId: string,
   userId: string,
-): Promise<ActivityLaunchTargetSelection | null> {
+): Promise<ActivityTargetSelection | null> {
   if (!namespace || !channelId || !userId) return null
   try {
     const response = await fetchActivityFollowTarget(namespace, channelId, userId, {
@@ -155,9 +158,10 @@ export async function clearActivityFollowTargetSelection(
 export function parseStoredActivityLaunchTargetSelection(value: unknown): StoredActivityLaunchTargetSelection | null {
   if (!value || typeof value !== 'object') return null
   const target = value as Partial<StoredActivityLaunchTargetSelection>
+  if (typeof target.createdAt !== 'number' || Date.now() - target.createdAt > ACTIVITY_LAUNCH_TARGET_TTL_MS) return null
+  if (target.kind === 'overview') return { kind: 'overview', createdAt: target.createdAt }
   if (target.kind !== 'lobby' && target.kind !== 'match') return null
   if (typeof target.id !== 'string' || target.id.length === 0) return null
-  if (typeof target.createdAt !== 'number' || Date.now() - target.createdAt > ACTIVITY_LAUNCH_TARGET_TTL_MS) return null
   return { kind: target.kind, id: target.id, createdAt: target.createdAt }
 }
 

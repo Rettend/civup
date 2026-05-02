@@ -158,6 +158,7 @@ export function lobbyCancelledEmbed(
   moderation?: ModerationContext,
   leaderDataVersion?: LeaderDataVersion | null,
   redDeath = false,
+  footerUser?: ReporterContext | null,
 ): Embed {
   const stage: 'cancelled' | 'scrubbed' = reason === 'cancel' ? 'cancelled' : 'scrubbed'
   return lobbyDraftCompleteLeaderEmbed(
@@ -169,6 +170,7 @@ export function lobbyCancelledEmbed(
     stage === 'scrubbed' ? undefined : leaderDataVersion,
     redDeath,
     participants.length,
+    footerUser,
   )
 }
 
@@ -195,6 +197,7 @@ export function lobbyComponents(mode: GameMode, lobbyId: string): Components {
   const label = 'Join'
   return new Components().row(
     new Button('match-join', label, 'Primary').custom_id(`${mode}:${lobbyId}`),
+    new Button('match-browse', 'Browse', 'Secondary'),
   )
 }
 
@@ -222,11 +225,14 @@ function lobbyDraftCompleteLeaderEmbed(
   leaderDataVersion?: LeaderDataVersion | null,
   redDeath = false,
   targetSize?: number,
+  footerUser?: ReporterContext | null,
 ): Embed {
   const embed = baseLobbyEmbed(mode, stage, leaderDataVersion, redDeath, targetSize)
   const hasTeams = participants.some(participant => participant.team != null)
   const moderationField = buildModerationField(moderation)
   const mapField = buildMapField(mapVoteResult)
+  const userFooter = buildReporterFooter(footerUser)
+  if (userFooter) embed.footer(userFooter)
 
   if (hasTeams) {
     const teamIndexes = Array.from(new Set(participants.flatMap(participant => participant.team == null ? [] : [participant.team]))).sort((a, b) => a - b)
