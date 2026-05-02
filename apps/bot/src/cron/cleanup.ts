@@ -6,6 +6,8 @@ import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleCon
 import { getKvStore } from '../services/kv/batch.ts'
 import { factory } from '../setup.ts'
 
+const LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS = 5 * 60 * 1000
+
 export const cron_cleanup = factory.cron(
   '0 * * * *', // every hour
   async (c) => {
@@ -44,7 +46,9 @@ export const cron_leaderboards = factory.cron(
     const db = createDb(c.env.DB)
     const kv = getKvStore(c.env)
     try {
-      const refreshed = await refreshDirtyLeaderboards(db, kv, c.env.DISCORD_TOKEN)
+      const refreshed = await refreshDirtyLeaderboards(db, kv, c.env.DISCORD_TOKEN, {
+        minDirtyAgeMs: LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS,
+      })
       if (refreshed) {
         // eslint-disable-next-line no-console
         console.log('[cron] Refreshed dirty leaderboards')

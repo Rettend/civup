@@ -115,10 +115,13 @@ export async function refreshDirtyLeaderboards(
   token: string,
   options: {
     modes?: readonly LeaderboardMode[]
+    minDirtyAgeMs?: number
+    now?: number
   } = {},
 ): Promise<boolean> {
   const dirtyState = await getLeaderboardDirtyState(db)
   if (!dirtyState) return false
+  if (options.minDirtyAgeMs != null && (options.now ?? Date.now()) - dirtyState.dirtyAt < options.minDirtyAgeMs) return false
 
   const modes = [...new Set(options.modes ?? LEADERBOARD_MODES)]
   const [leaderboardChannelId, civLeaderboardChannelId] = await Promise.all([
