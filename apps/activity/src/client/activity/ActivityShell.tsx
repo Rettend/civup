@@ -15,7 +15,7 @@ import type { JSX } from 'solid-js'
 import { useLocation, useNavigate } from '@solidjs/router'
 import { batch, createEffect, createSignal, onCleanup, onMount, startTransition, untrack } from 'solid-js'
 import { discordSdk, setupDiscordSdk } from '../discord'
-import { activityTargetOptionKey, activityTargetsMatch, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldReconnectVisibleActivityTarget, shouldRequestActivityTargetSelection } from '../lib/activity-targets'
+import { activityTargetOptionKey, activityTargetsMatch, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, resolveMissingLiveTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldReconnectVisibleActivityTarget, shouldRequestActivityTargetSelection } from '../lib/activity-targets'
 import { relayDevLog } from '../lib/dev-log'
 import {
   connectionStatus,
@@ -631,19 +631,19 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     updateAvailableTargets(options)
 
     if (targetState && !targetOption) {
-      if (targetState.kind === 'lobby') {
-        const isShowingSelectedLobby = current.status === 'lobby-waiting' && current.lobby.id === targetState.id
-        // A reverted draft can reopen the selected lobby before the overview feed catches up.
-        if (isShowingSelectedLobby) return
-
-        const promotedMatch = options.find(option => option.kind === 'match' && option.lobbyId === targetState.id) ?? null
-        if (promotedMatch) {
-          if (!failedAutoSelectionKeys.has(activityTargetOptionKey(promotedMatch))) {
-            void requestTargetSelection(promotedMatch, true)
-            return
-          }
-        }
+      const missingTarget = resolveMissingLiveTarget({
+        options,
+        target: targetState,
+        currentLobbyId: current.status === 'lobby-waiting' ? current.lobby.id : null,
+        hasCurrentLobbySnapshot: targetState.kind === 'lobby' && liveLobbySnapshots.has(targetState.id),
+        failedAutoSelectionKeys,
+      })
+      if (missingTarget.kind === 'promote') {
+        void requestTargetSelection(missingTarget.option, true)
+        return
       }
+      if (missingTarget.kind === 'hold') return
+
       setLiveTargetState(null)
       setClearedTarget(targetState)
       suppressAutoSelection = true
