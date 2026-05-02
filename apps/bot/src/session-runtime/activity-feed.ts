@@ -5,7 +5,7 @@ import { createDb } from '@civup/db'
 import { CIVUP_ACTIVITY_USER_ID_HEADER, isAuthorizedInternalRequest } from '@civup/utils'
 import { Server } from 'partyserver'
 import { parseStoredActivityFollowTargetSelection, parseStoredActivityLaunchTargetSelection, type StoredActivityFollowTargetSelection, type StoredActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
-import { buildActivityOverviewOptionsFromSessionRecord, buildActivityOverviewSnapshotFromDirectory, buildLobbySnapshotFromSessionRecord, compareActivityOverviewOptions } from '../services/activity/session-state.ts'
+import { buildActivityOverviewSnapshotFromDirectory, buildLobbySnapshotFromSessionRecord, mergeActivityOverviewSnapshotForSessionUpdate } from '../services/activity/session-state.ts'
 
 interface ActivityFeedEnv extends Cloudflare.Env {
   DB?: D1Database
@@ -146,12 +146,9 @@ export class Activity extends Server<ActivityFeedEnv> {
     if (connections.length === 0) return
 
     const channelId = record.projectionState.channelId
-    const current = await this.getOverviewSnapshot(channelId)
-    const options = [
-      ...(current?.options ?? []).filter(option => option.lobbyId !== record.id),
-      ...buildActivityOverviewOptionsFromSessionRecord(record),
-    ].sort(compareActivityOverviewOptions)
-    const overview = options.length > 0 ? { channelId, options } satisfies ActivityOverviewSnapshot : null
+    const overview = this.env.DB
+      ? await this.loadOverviewSnapshot(channelId)
+      : mergeActivityOverviewSnapshotForSessionUpdate(await this.getOverviewSnapshot(channelId), record)
     await this.ctx.storage.put(ACTIVITY_OVERVIEW_STORAGE_KEY, overview)
     this.broadcastFeedMessage(connections, { type: 'overview', snapshot: overview })
     this.broadcastFeedMessage(connections, await this.buildLobbyFeedMessage(record))
