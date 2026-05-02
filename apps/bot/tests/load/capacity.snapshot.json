@@ -5,7 +5,7 @@
     "leaderboardCronRunsPerDay": 720,
     "inactiveLobbyCleanupCronRunsPerDay": 24,
     "rankedRoleCronRunsPerDay": 1,
-    "architectureModel": "target-session-do-v3-low-kv-do-sqlite-overview",
+    "architectureModel": "target-session-do-v4-hibernating-selected-sockets",
     "lobbyWatchMsgsPerConnection": 4,
     "doWebsocketBillingRatio": 1,
     "estimatedDoGbSecondsPerRequest": 0.0025,

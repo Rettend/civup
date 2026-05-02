@@ -348,6 +348,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     })
   }
 
+  protected override async runBackgroundRoomOperation<T>(operation: () => Promise<T>): Promise<T> {
+    return await this.runSerializedOperation(operation)
+  }
+
   private async getRecord(): Promise<SessionRecord | null> {
     return await this.ctx.storage.get<SessionRecord>(SESSION_RECORD_STORAGE_KEY) ?? null
   }
