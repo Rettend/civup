@@ -35,7 +35,7 @@ export async function pruneInactiveOpenLobbies(
   const pruned: PrunedInactiveLobby[] = []
   if (!options.db) return pruned
 
-  const currentLobbies = (await Promise.all(GAME_MODES.map(mode => getOpenSessionLobbyProjectionsByMode(options.db!, mode)))).flat()
+  const currentLobbies = (await Promise.all(GAME_MODES.map(mode => getOpenSessionLobbyProjectionsByMode(options.db!, mode, { includeStale: true })))).flat()
   for (const lobby of currentLobbies) {
     if (!isLobbyInactive(lobby, now)) continue
     pruned.push(await expireOpenLobby(kv, token, lobby, {

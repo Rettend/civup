@@ -1,7 +1,8 @@
 import type { Database } from '@civup/db'
-import type { LeaderboardMode } from '@civup/game'
-import type { CancelMatchInput, CancelMatchResult, MatchRow, ParticipantRow, ResolveMatchInput, ResolveMatchResult } from './types.ts'
+import type { DraftState, LeaderboardMode } from '@civup/game'
+import type { CancelMatchInput, CancelMatchResult, CorrectMatchLeadersInput, CorrectMatchLeadersResult, MatchLeaderCorrection, MatchRow, ParticipantRow, ResolveMatchInput, ResolveMatchResult } from './types.ts'
 import { matchBans, matches, matchParticipants } from '@civup/db'
+import { allLeaderIds, isTeamMode, parseGameMode } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
@@ -16,6 +17,8 @@ interface MatchSessionLifecycleOptions {
 }
 
 type BatchItem = Parameters<Database['batch']>[0][number]
+const LIVE_LEADER_IDS = new Set<string>(allLeaderIds)
+
 interface MatchBanRow {
   matchId: string
   civId: string
@@ -171,6 +174,98 @@ export async function resolveMatchByModerator(
   }
 }
 
+export async function correctMatchLeadersByModerator(
+  db: Database,
+  input: CorrectMatchLeadersInput,
+): Promise<CorrectMatchLeadersResult> {
+  const [match] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, input.matchId))
+    .limit(1)
+
+  if (!match) return { error: `Match **${input.matchId}** not found.` }
+  if (match.status !== 'completed') return { error: `Match **${input.matchId}** must be reported before leaders can be corrected.` }
+
+  const hasLeader = typeof input.leaderId === 'string' && input.leaderId.trim().length > 0
+  const hasSwapWith = typeof input.swapWithPlayerId === 'string' && input.swapWithPlayerId.trim().length > 0
+  if (hasLeader === hasSwapWith) return { error: 'Provide exactly one of `leader` or `swap_with`.' }
+
+  const participants = await db
+    .select()
+    .from(matchParticipants)
+    .where(eq(matchParticipants.matchId, input.matchId))
+
+  if (participants.length === 0) return { error: `Match **${input.matchId}** has no participants.` }
+
+  const participant = participants.find(candidate => candidate.playerId === input.playerId)
+  if (!participant) return { error: `<@${input.playerId}> is not a participant in match **${input.matchId}**.` }
+
+  const corrections: MatchLeaderCorrection[] = []
+  if (hasLeader) {
+    const leaderId = input.leaderId!.trim()
+    if (!LIVE_LEADER_IDS.has(leaderId)) return { error: `Unknown leader: **${leaderId}**.` }
+    corrections.push({
+      playerId: participant.playerId,
+      previousCivId: participant.civId,
+      nextCivId: leaderId,
+    })
+  }
+  else {
+    const swapWithPlayerId = input.swapWithPlayerId!.trim()
+    if (swapWithPlayerId === participant.playerId) return { error: '`swap_with` must be a different participant.' }
+    const swapParticipant = participants.find(candidate => candidate.playerId === swapWithPlayerId)
+    if (!swapParticipant) return { error: `<@${swapWithPlayerId}> is not a participant in match **${input.matchId}**.` }
+    if (!participant.civId || !swapParticipant.civId) return { error: 'Both participants must already have leaders to swap.' }
+    corrections.push(
+      { playerId: participant.playerId, previousCivId: participant.civId, nextCivId: swapParticipant.civId },
+      { playerId: swapParticipant.playerId, previousCivId: swapParticipant.civId, nextCivId: participant.civId },
+    )
+  }
+
+  const applyQueries: BatchItem[] = []
+  for (const correction of corrections) {
+    if (correction.previousCivId === correction.nextCivId) continue
+    applyQueries.push(db
+      .update(matchParticipants)
+      .set({ civId: correction.nextCivId })
+      .where(and(
+        eq(matchParticipants.matchId, input.matchId),
+        eq(matchParticipants.playerId, correction.playerId),
+      )))
+  }
+
+  const nextDraftData = applyLeaderCorrectionsToDraftData(match.draftData, match.gameMode, participants, corrections)
+  if (nextDraftData !== match.draftData) {
+    applyQueries.push(db
+      .update(matches)
+      .set({ draftData: nextDraftData })
+      .where(eq(matches.id, input.matchId)))
+  }
+
+  await runBatch(db, applyQueries)
+
+  const [updatedMatch] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, input.matchId))
+    .limit(1)
+  if (!updatedMatch) return { error: `Match **${input.matchId}** not found after correcting leaders.` }
+
+  const updatedParticipants = await db
+    .select()
+    .from(matchParticipants)
+    .where(eq(matchParticipants.matchId, input.matchId))
+
+  return {
+    match: updatedMatch,
+    participants: updatedParticipants,
+    previousStatus: match.status,
+    recalculatedMatchIds: [],
+    corrections,
+  }
+}
+
 async function rollbackResolvedMatchModeration(
   db: Database,
   kv: KVNamespace,
@@ -293,6 +388,83 @@ async function runBatch(db: Database, queries: BatchItem[]): Promise<void> {
   for (const query of queries) {
     await query
   }
+}
+
+function applyLeaderCorrectionsToDraftData(
+  draftData: string | null,
+  gameMode: string,
+  participants: ParticipantRow[],
+  corrections: MatchLeaderCorrection[],
+): string | null {
+  if (!draftData || corrections.length === 0) return draftData
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(draftData)
+  }
+  catch {
+    return draftData
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return draftData
+  const state = (parsed as { state?: unknown }).state
+  if (!state || typeof state !== 'object' || Array.isArray(state)) return draftData
+  const draftState = state as DraftState
+  if (!Array.isArray(draftState.seats) || !Array.isArray(draftState.picks)) return draftData
+
+  const mode = parseGameMode(gameMode)
+  if (!mode) return draftData
+
+  const nextState: DraftState = {
+    ...draftState,
+    picks: draftState.picks.map(pick => ({ ...pick })),
+  }
+  const nextLeaderByPlayer = new Map(corrections.map(correction => [correction.playerId, correction.nextCivId]))
+  let changed = false
+
+  if (isTeamMode(mode)) {
+    const playerToSeatIndex = new Map<string, number>()
+    nextState.seats.forEach((seat, index) => playerToSeatIndex.set(seat.playerId, index))
+    const orderedParticipants = [...participants].sort((left, right) => {
+      const leftSeat = playerToSeatIndex.get(left.playerId) ?? Number.MAX_SAFE_INTEGER
+      const rightSeat = playerToSeatIndex.get(right.playerId) ?? Number.MAX_SAFE_INTEGER
+      return leftSeat - rightSeat
+    })
+    const picksByTeam = new Map<number, DraftState['picks']>()
+    for (const pick of nextState.picks) {
+      const team = nextState.seats[pick.seatIndex]?.team
+      if (team == null) continue
+      const picks = picksByTeam.get(team) ?? []
+      picks.push(pick)
+      picksByTeam.set(team, picks)
+    }
+    const teamPickOffsets = new Map<number, number>()
+    for (const participant of orderedParticipants) {
+      const team = participant.team
+      if (team == null) continue
+      const offset = teamPickOffsets.get(team) ?? 0
+      const pick = picksByTeam.get(team)?.[offset]
+      const nextLeaderId = nextLeaderByPlayer.get(participant.playerId)
+      if (pick && nextLeaderId && pick.civId !== nextLeaderId) {
+        pick.civId = nextLeaderId
+        changed = true
+      }
+      teamPickOffsets.set(team, offset + 1)
+    }
+  }
+  else {
+    const pickBySeat = new Map(nextState.picks.map(pick => [pick.seatIndex, pick]))
+    nextState.seats.forEach((seat, seatIndex) => {
+      const nextLeaderId = nextLeaderByPlayer.get(seat.playerId)
+      const pick = pickBySeat.get(seatIndex)
+      if (pick && nextLeaderId && pick.civId !== nextLeaderId) {
+        pick.civId = nextLeaderId
+        changed = true
+      }
+    })
+  }
+
+  return changed ? JSON.stringify({ ...parsed, state: nextState }) : draftData
 }
 
 async function prepareReportedMatchForRecalculation(

@@ -5,6 +5,7 @@ import { allLeaderIds } from '@civup/game'
 import { createSessionAccessToken, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
 import { eq } from 'drizzle-orm'
 import { DEFAULT_DRAFT_CONFIG } from '../../src/services/lobby/normalize.ts'
+import { createDraftMatch } from '../../src/services/match/draft.ts'
 import { SessionDO } from '../../src/session-runtime/session-do.ts'
 import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
@@ -114,12 +115,6 @@ describe('SessionDO open session commands', () => {
       const [directoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
       expect(directoryRow?.phase).toBe('swap')
 
-      const swapResponse = await room.fetch(sessionRequest('/commands/draft-lifecycle', {
-        method: 'POST',
-        body: JSON.stringify({ type: 'swap-accepted', at: 4 }),
-      }))
-      expect(swapResponse.status).toBe(200)
-
       const finalizeResponse = await room.fetch(sessionRequest('/commands/draft-lifecycle', {
         method: 'POST',
         body: JSON.stringify({ type: 'draft-finalized', at: 5 }),
@@ -129,7 +124,7 @@ describe('SessionDO open session commands', () => {
       recordResponse = await room.fetch(sessionRequest('/record'))
       body = await recordResponse.json() as any
       expect(body.record.phase).toBe('active')
-      expect(body.record.version).toBe(5)
+      expect(body.record.version).toBe(4)
       expect(body.record.matchId).toBe(openLobby.id)
       expect(body.record.config.pickTimerSeconds).toBe(30)
       expect(body.record.roster.participants.map((member: any) => member.playerId)).toEqual(['p1', 'p2'])
@@ -212,6 +207,56 @@ describe('SessionDO open session commands', () => {
     }
     finally {
       console.warn = originalConsoleWarn
+      sqlite.close()
+    }
+  })
+
+  test('terminal cancellation closes stale draft runtime access', async () => {
+    const { sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      CIVUP_SECRET: 'secret',
+      DB: createSqliteD1Database(sqlite),
+      KV: kv,
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+    const accessToken = await createSessionAccessToken('secret', {
+      userId: 'p1',
+      sessionId: openLobby.id,
+      channelId: openLobby.channelId,
+    })
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      await startDraft(room, { hostId: 'p1', now: 20 })
+
+      const draftConnection = createFakeConnection()
+      draftConnection.connection.setState({ playerId: 'p1' })
+      const connections = (room as any).connections as Set<unknown>
+      connections.add(draftConnection.connection)
+
+      await sessionLifecycleCommand(room, { type: 'cancel-session', matchId: openLobby.id, at: 30 })
+
+      expect(draftConnection.closed).toEqual({ code: 1000, reason: 'Session closed' })
+
+      const statusAfterCancel = await room.fetch(draftStatusRequest(accessToken))
+      expect(statusAfterCancel.status).toBe(410)
+      expect(await statusAfterCancel.json()).toEqual({ error: 'Session closed' })
+
+      const reconnect = createFakeConnection()
+      await room.onConnect(reconnect.connection, {
+        request: draftStatusRequest(accessToken),
+      } as any)
+      expect(reconnect.messages).toEqual([])
+      expect(reconnect.closed).toEqual({ code: 1000, reason: 'Session closed' })
+    }
+    finally {
       sqlite.close()
     }
   })
@@ -412,6 +457,48 @@ describe('SessionDO open session commands', () => {
       expect(record.lifecycleSync).toBeNull()
       expect(record.projectionSync).toBeNull()
       expect((await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1))[0]?.status).toBe('active')
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('revert lifecycle sync pushes the reopened lobby to selected draft sockets', async () => {
+    const { sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      DB: createSqliteD1Database(sqlite),
+      KV: kv,
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      const started = await startDraft(room, { hostId: 'p1', now: 20 })
+      const draftConnection = createFakeConnection()
+      draftConnection.connection.setState({ playerId: 'p2' })
+      const connections = (room as any).connections as Set<unknown>
+      connections.add(draftConnection.connection)
+
+      await (room as any).syncDraftRuntimeLifecyclePayload(buildCancelledPayload(openLobby.id, started.seats, 'revert'), 'test-revert')
+
+      expect(await getSessionRecordBody(room)).toMatchObject({ phase: 'open', matchId: null })
+      expect(draftConnection.messages).toHaveLength(1)
+      expect(draftConnection.messages[0]).toMatchObject({
+        type: 'lobby',
+        lobbyId: openLobby.id,
+        snapshot: {
+          id: openLobby.id,
+          status: 'open',
+          memberPlayerIds: ['p1', 'p2'],
+        },
+      })
     }
     finally {
       sqlite.close()
@@ -676,6 +763,176 @@ describe('SessionDO open session commands', () => {
     finally {
       Date.now = originalDateNow
       console.warn = originalConsoleWarn
+      sqlite.close()
+    }
+  })
+
+  test('draft completion lifecycle retries when match creation has not finished yet', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const d1 = createSqliteD1Database(sqlite)
+    const room = new SessionDO(createFakeDurableObjectState(), { DB: d1, KV: kv } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+    const originalDateNow = Date.now
+    const originalConsoleWarn = console.warn
+    console.warn = (() => {}) as typeof console.warn
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      const started = await startDraft(room, { hostId: 'p1', now: 20 })
+      const payload = buildCompletePayload(openLobby.id, started.seats)
+
+      await db.delete(matchParticipants).where(eq(matchParticipants.matchId, openLobby.id))
+      await db.delete(matches).where(eq(matches.id, openLobby.id))
+
+      Date.now = () => 1_000
+      const deferred = await room.fetch(sessionRequest('/commands/draft-lifecycle-sync', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }))
+
+      expect(deferred.status).toBe(503)
+      const pending = await getSessionRecordBody(room)
+      expect(pending.phase).toBe('draft')
+      expect(pending.lifecycleSync).toMatchObject({
+        payload: expect.objectContaining({ eventId: payload.eventId }),
+        attempts: 1,
+        nextRetryAt: 2_000,
+      })
+
+      await createDraftMatch(db, { matchId: openLobby.id, mode: '1v1', seats: started.seats })
+
+      Date.now = () => 2_000
+      await room.onAlarm()
+
+      const record = await getSessionRecordBody(room)
+      expect(record.phase).toBe('swap')
+      expect(record.lifecycleSync).toBeNull()
+      expect((await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1))[0]?.status).toBe('active')
+      expect((await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1))[0]?.phase).toBe('swap')
+    }
+    finally {
+      Date.now = originalDateNow
+      console.warn = originalConsoleWarn
+      sqlite.close()
+    }
+  })
+
+  test('connecting to a completed draft room recovers a missed lifecycle sync', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const d1 = createSqliteD1Database(sqlite)
+    const env: { DB?: D1Database, KV?: KVNamespace, CIVUP_SECRET?: string } = { DB: d1, KV: kv, CIVUP_SECRET: 'secret' }
+    const room = new SessionDO(createFakeDurableObjectState(), env as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+      draftConfig: { ...DEFAULT_DRAFT_CONFIG, hiddenDraft: true },
+    })
+    const accessToken = await createSessionAccessToken('secret', {
+      userId: 'p1',
+      sessionId: openLobby.id,
+      channelId: openLobby.channelId,
+    })
+    const originalConsoleWarn = console.warn
+    const originalConsoleError = console.error
+    const originalConsoleLog = console.log
+    console.warn = (() => {}) as typeof console.warn
+    console.error = (() => {}) as typeof console.error
+    console.log = (() => {}) as typeof console.log
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      await startDraft(room, { hostId: 'p1', now: 20 })
+
+      const connection = createFakeConnection()
+      await room.onConnect(connection.connection, { request: draftStatusRequest(accessToken) } as any)
+
+      env.DB = undefined
+      await room.onMessage(connection.connection, JSON.stringify({ type: 'start' }))
+
+      expect((await getSessionRecordBody(room)).phase).toBe('draft')
+      expect((await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1))[0]?.status).toBe('drafting')
+
+      env.DB = d1
+      const reconnect = createFakeConnection()
+      await room.onConnect(reconnect.connection, { request: draftStatusRequest(accessToken) } as any)
+
+      const record = await getSessionRecordBody(room)
+      expect(record.phase).toBe('active')
+      expect(record.lifecycleSync).toBeNull()
+      expect((await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1))[0]?.status).toBe('active')
+      expect((await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1))[0]?.phase).toBe('active')
+    }
+    finally {
+      console.warn = originalConsoleWarn
+      console.error = originalConsoleError
+      console.log = originalConsoleLog
+      sqlite.close()
+    }
+  })
+
+  test('connecting to a cancelled draft room recovers a missed lifecycle sync', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const d1 = createSqliteD1Database(sqlite)
+    const env: { DB?: D1Database, KV?: KVNamespace, CIVUP_SECRET?: string } = { DB: d1, KV: kv, CIVUP_SECRET: 'secret' }
+    const room = new SessionDO(createFakeDurableObjectState(), env as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+    const accessToken = await createSessionAccessToken('secret', {
+      userId: 'p1',
+      sessionId: openLobby.id,
+      channelId: openLobby.channelId,
+    })
+    const originalConsoleWarn = console.warn
+    const originalConsoleError = console.error
+    const originalConsoleLog = console.log
+    console.warn = (() => {}) as typeof console.warn
+    console.error = (() => {}) as typeof console.error
+    console.log = (() => {}) as typeof console.log
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      await startDraft(room, { hostId: 'p1', now: 20 })
+
+      const connection = createFakeConnection()
+      await room.onConnect(connection.connection, { request: draftStatusRequest(accessToken) } as any)
+
+      env.DB = undefined
+      await room.onMessage(connection.connection, JSON.stringify({ type: 'cancel', reason: 'cancel' }))
+
+      expect((await getSessionRecordBody(room)).phase).toBe('draft')
+      expect((await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1))[0]?.status).toBe('drafting')
+
+      env.DB = d1
+      const reconnect = createFakeConnection()
+      await room.onConnect(reconnect.connection, { request: draftStatusRequest(accessToken) } as any)
+
+      const record = await getSessionRecordBody(room)
+      expect(record.phase).toBe('cancelled')
+      expect(record.lifecycleSync).toBeNull()
+      expect((await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1))[0]?.status).toBe('cancelled')
+      expect((await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1))[0]?.phase).toBe('cancelled')
+    }
+    finally {
+      console.warn = originalConsoleWarn
+      console.error = originalConsoleError
+      console.log = originalConsoleLog
       sqlite.close()
     }
   })
@@ -1104,6 +1361,33 @@ function buildCompletePayload(matchId: string, seats: DraftSeat[]) {
   }
 }
 
+function buildCancelledPayload(matchId: string, seats: DraftSeat[], reason: 'cancel' | 'scrub' | 'timeout' | 'revert') {
+  const cancelledAt = 30
+  return {
+    eventId: `${matchId}:cancelled:${reason}:1`,
+    eventKind: 'DraftCancelled',
+    eventSequence: 1,
+    outcome: 'cancelled',
+    matchId,
+    hostId: seats[0]?.playerId,
+    cancelledAt,
+    reason,
+    state: {
+      matchId,
+      formatId: 'default-1v1',
+      seats,
+      steps: [],
+      currentStepIndex: 0,
+      submissions: {},
+      bans: [],
+      picks: [],
+      availableCivIds: [],
+      status: 'cancelled',
+      cancelReason: reason,
+    } satisfies DraftState,
+  }
+}
+
 function createFailingSessionDirectoryD1(base: D1Database) {
   let pendingSessionDirectoryFailures = 0
   return {
@@ -1216,6 +1500,9 @@ function createFakeDurableObjectStateWithStorage(): { state: DurableObjectState,
     async blockConcurrencyWhile(callback: () => Promise<void> | void) {
       await callback()
     },
+    waitUntil(promise: Promise<unknown>) {
+      void promise.catch(() => {})
+    },
     getWebSockets() {
       return []
     },
@@ -1248,6 +1535,7 @@ function createFakeConnection() {
   const messages: any[] = []
   let connectionState: unknown = null
   let closed: { code: number, reason: string } | null = null
+  let readyState = 1
   return {
     messages,
     get closed() {
@@ -1258,6 +1546,7 @@ function createFakeConnection() {
         messages.push(JSON.parse(message))
       },
       close(code = 1000, reason = '') {
+        readyState = 3
         closed = { code, reason }
       },
       setState(state: unknown) {
@@ -1265,6 +1554,9 @@ function createFakeConnection() {
       },
       get state() {
         return connectionState
+      },
+      get readyState() {
+        return readyState
       },
     } as any,
   }

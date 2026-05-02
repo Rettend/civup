@@ -35,6 +35,8 @@ export interface ReportInput {
   reporterId: string
   /** For team and 1v1 games: "A" or "B". For FFA: player IDs in placement order, newline-separated. */
   placements: string
+  /** Hidden draft reports provide final in-game leader IDs keyed by player ID. */
+  leaderAssignments?: Record<string, string>
 }
 
 export type ReportResult = { match: MatchRow, participants: ParticipantRow[], idempotent?: boolean } | { error: string }
@@ -50,6 +52,20 @@ export interface CancelMatchInput {
   cancelledAt: number
 }
 
+export interface CorrectMatchLeadersInput {
+  matchId: string
+  playerId: string
+  leaderId?: string | null
+  swapWithPlayerId?: string | null
+  correctedAt: number
+}
+
+export interface MatchLeaderCorrection {
+  playerId: string
+  previousCivId: string | null
+  nextCivId: string | null
+}
+
 export interface ModeratedMatchResult {
   match: MatchRow
   participants: ParticipantRow[]
@@ -57,8 +73,13 @@ export interface ModeratedMatchResult {
   recalculatedMatchIds: string[]
 }
 
+export interface MatchLeaderCorrectionResult extends ModeratedMatchResult {
+  corrections: MatchLeaderCorrection[]
+}
+
 export type ResolveMatchResult = ModeratedMatchResult | { error: string }
 export type CancelMatchResult = ModeratedMatchResult | { error: string }
+export type CorrectMatchLeadersResult = MatchLeaderCorrectionResult | { error: string }
 
 export interface CreateDraftMatchInput {
   matchId: string
@@ -71,6 +92,7 @@ export interface ActivateDraftInput {
   completedAt: number
   hostId: string
   mapVoteResult?: ResolvedMapVoteResult | null
+  hiddenDraft?: boolean
 }
 
 export type ActivateDraftResult = { match: MatchRow, participants: ParticipantRow[], alreadyActive: boolean } | { error: string }
@@ -81,6 +103,7 @@ export interface CancelDraftInput {
   reason: DraftCancelReason
   hostId: string
   mapVoteResult?: ResolvedMapVoteResult | null
+  hiddenDraft?: boolean
   allowActive?: boolean
 }
 

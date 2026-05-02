@@ -1,6 +1,10 @@
 import type { QueueEntry } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
+import { sessionDirectory } from '@civup/db'
+import { eq } from 'drizzle-orm'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
+import { SESSION_DIRECTORY_OPEN_STALE_MS } from '../../src/services/session/directory.ts'
+import { getOpenSessionLobbyProjectionsByMode } from '../../src/services/session/index.ts'
 import { createLobby, getExistingTestLobbyRuntime, getLobbyById, pruneInactiveOpenLobbies, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots } from '../helpers/lobby-runtime.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
@@ -84,6 +88,34 @@ describe('inactive lobby cleanup', () => {
     })).resolves.toEqual([])
     expect(await getLobbyById(kv, lobby.id)).not.toBeNull()
     expect(fetchCalls).toBe(0)
+  })
+
+  test('prunes open lobbies hidden by stale directory filtering', async () => {
+    const { kv } = createTrackedKv()
+    const now = Date.now()
+    const staleAt = now - SESSION_DIRECTORY_OPEN_STALE_MS - 1
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    const runtime = getExistingTestLobbyRuntime(kv)
+    await runtime.db.update(sessionDirectory)
+      .set({ updatedAt: staleAt, lastActivityAt: staleAt })
+      .where(eq(sessionDirectory.sessionId, lobby.id))
+
+    expect(await getOpenSessionLobbyProjectionsByMode(runtime.db, lobby.mode)).toEqual([])
+
+    const pruned = await pruneInactiveOpenLobbies(kv, undefined, { now })
+
+    expect(pruned).toEqual([{
+      lobbyId: lobby.id,
+      mode: '2v2',
+      removedPlayerIds: ['host'],
+    }])
+    expect((await getLobbyById(kv, lobby.id))?.status).toBe('cancelled')
+    expect(await getLobbyForUser(runtime.db, 'host')).toBeNull()
   })
 
 })

@@ -1,4 +1,5 @@
 import { matches, matchParticipants, playerRatings, players } from '@civup/db'
+import { allLeaderIds } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { createLobby, getLobbyById, getTestLobbyRuntime, setLobbyMemberPlayerIds, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
@@ -139,7 +140,7 @@ describe('match reporter identity', () => {
     }
   })
 
-  test('non-seed rated report terminal failure rolls back D1 mutations when SessionDO remains active', async () => {
+  test('non-seed rated report terminal failure rolls back D1 and hidden leader mutations when SessionDO remains active', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
@@ -167,12 +168,16 @@ describe('match reporter identity', () => {
       })
       await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, { db, sessionNamespace: runtime.sessionNamespace })
       await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: 2 })
-      await db.update(matches).set({ status: 'active', draftData: JSON.stringify({ completedAt: 2 }) }).where(eq(matches.id, lobby.id))
+      await db.update(matches).set({ status: 'active', draftData: JSON.stringify({ completedAt: 2, hiddenDraft: true }) }).where(eq(matches.id, lobby.id))
 
       const result = await reportMatch(db, kv, {
         matchId: lobby.id,
         reporterId: 'p1',
         placements: '<@p1>',
+        leaderAssignments: {
+          p1: allLeaderIds[0]!,
+          p2: allLeaderIds[1]!,
+        },
       }, {
         sessionNamespace: failTerminalLifecycleForSession(runtime.sessionNamespace, lobby.id),
       })
@@ -187,7 +192,7 @@ describe('match reporter identity', () => {
       expect(rolledBackMatch?.completedAt).toBeNull()
 
       const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, lobby.id))
-      expect(participants.every(participant => participant.placement == null && participant.ratingBeforeMu == null && participant.ratingAfterMu == null)).toBe(true)
+      expect(participants.every(participant => participant.civId == null && participant.placement == null && participant.ratingBeforeMu == null && participant.ratingAfterMu == null)).toBe(true)
       expect(await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duel'))).toHaveLength(0)
     }
     finally {
@@ -340,6 +345,117 @@ describe('match reporter identity', () => {
 
       expect(result.idempotent).toBe(true)
       expect(result.participants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('hidden draft reports require leader assignments for every participant', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await db.insert(players).values([
+        { id: 'p1', displayName: 'Player One', avatarUrl: null, createdAt: 1 },
+        { id: 'p2', displayName: 'Player Two', avatarUrl: null, createdAt: 1 },
+      ])
+      await db.insert(matches).values({
+        id: 'hidden-missing-leaders',
+        gameMode: '1v1',
+        status: 'active',
+        createdAt: 1,
+        completedAt: null,
+        seasonId: null,
+        draftData: JSON.stringify({
+          completedAt: 1,
+          hiddenDraft: true,
+          state: {
+            seats: [
+              { playerId: 'p1', displayName: 'Player One', avatarUrl: null, team: 0 },
+              { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, team: 1 },
+            ],
+            availableCivIds: allLeaderIds.slice(0, 2),
+            bans: [],
+            picks: [],
+          },
+        }),
+      })
+      await db.insert(matchParticipants).values([
+        { matchId: 'hidden-missing-leaders', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'hidden-missing-leaders', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ])
+
+      const result = await reportMatch(db, kv, {
+        matchId: 'hidden-missing-leaders',
+        reporterId: 'p1',
+        placements: '<@p1>',
+      }, directTerminalOptions)
+
+      expect(result).toEqual({ error: 'Hidden draft reports require leader assignments for every participant.' })
+      const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'hidden-missing-leaders'))
+      expect(participants.every(participant => participant.civId == null && participant.placement == null)).toBe(true)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('hidden draft reports store leader assignments while finalizing', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const leaderOne = allLeaderIds[0]!
+    const leaderTwo = allLeaderIds[1]!
+
+    try {
+      await db.insert(players).values([
+        { id: 'p1', displayName: 'Player One', avatarUrl: null, createdAt: 1 },
+        { id: 'p2', displayName: 'Player Two', avatarUrl: null, createdAt: 1 },
+      ])
+      await db.insert(matches).values({
+        id: 'hidden-report',
+        gameMode: '1v1',
+        status: 'active',
+        createdAt: 1,
+        completedAt: null,
+        seasonId: null,
+        draftData: JSON.stringify({
+          completedAt: 1,
+          hiddenDraft: true,
+          state: {
+            seats: [
+              { playerId: 'p1', displayName: 'Player One', avatarUrl: null, team: 0 },
+              { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, team: 1 },
+            ],
+            availableCivIds: [leaderOne, leaderTwo],
+            bans: [],
+            picks: [],
+          },
+        }),
+      })
+      await db.insert(matchParticipants).values([
+        { matchId: 'hidden-report', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'hidden-report', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ])
+
+      const result = await reportMatch(db, kv, {
+        matchId: 'hidden-report',
+        reporterId: 'p1',
+        placements: '<@p1>',
+        leaderAssignments: {
+          p1: leaderOne,
+          p2: leaderTwo,
+        },
+      }, directTerminalOptions)
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.match.status).toBe('completed')
+
+      const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'hidden-report'))
+      const civByPlayer = new Map(participants.map(participant => [participant.playerId, participant.civId]))
+      expect(civByPlayer.get('p1')).toBe(leaderOne)
+      expect(civByPlayer.get('p2')).toBe(leaderTwo)
     }
     finally {
       sqlite.close()

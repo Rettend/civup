@@ -342,6 +342,37 @@ describe('system scenarios', () => {
     expect(await world.lobby.getById(lobby.id)).toBeNull()
   })
 
+  test('activity scrub result embed names the scrubber', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'host', displayName: 'Host Player' }, { id: 'potato', displayName: 'Potato' }],
+      hostId: 'host',
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: 'host', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const scrubbed = await world.match.scrub(started.matchId, {
+      userId: 'host',
+      displayName: 'Host Player',
+      avatarUrl: 'https://cdn.discordapp.com/avatars/host/avatar.png',
+    })
+    expect(scrubbed.status).toBe(200)
+
+    const message = world.discord.message(lobby.messageId)
+    const payload = message?.payload as { embeds?: Array<{ title?: string, footer?: { text?: string, icon_url?: string }, fields?: Array<{ name: string, value: string, inline: boolean }> }> } | null | undefined
+    const embed = payload?.embeds?.[0]
+    expect(embed?.title).toContain('MATCH SCRUBBED')
+    expect(embed?.fields?.some(field => field.name === 'Note')).toBe(false)
+    expect(embed?.footer).toEqual({
+      text: 'Host Player',
+      icon_url: 'https://cdn.discordapp.com/avatars/host/avatar.png',
+    })
+  })
+
   test('deferred completion payloads keep the draft live until delivered, then apply activation and finalization', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
@@ -1524,10 +1555,15 @@ describe('system scenarios', () => {
     })
 
     expect((await world.lobby.config('1v1', {
-      hostId: 'p1',
+      hostId: 'p2',
       lobbyId: lobby.id,
       steamLobbyLink: 'steam://joinlobby/289070/222222222/111111111',
     })).status).toBe(200)
+    expect((await world.lobby.config('1v1', {
+      hostId: 'spectator',
+      lobbyId: lobby.id,
+      steamLobbyLink: 'steam://joinlobby/289070/333333333/111111111',
+    })).status).toBe(403)
     expect((await world.lobby.config('1v1', {
       hostId: 'p1',
       lobbyId: lobby.id,
@@ -1559,7 +1595,7 @@ describe('system scenarios', () => {
     await world.flushBackgroundTasks()
 
     expect((await world.lobby.config('1v1', {
-      hostId: 'p1',
+      hostId: 'p2',
       lobbyId: lobby.id,
       steamLobbyLink: null,
     })).status).toBe(200)

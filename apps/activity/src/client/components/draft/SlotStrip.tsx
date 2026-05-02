@@ -1,6 +1,7 @@
 import { For, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import { placementIconClass } from '~/client/lib/placement-icons'
+import { getVisualSeatOrder } from '~/client/lib/seat-order'
 import { createCellGridLayout, createSeatGridLayout } from '~/client/lib/seat-grid'
 import { draftStore, isMobileLayout, teamPlacementOrder, userId } from '~/client/stores'
 import { PlayerSlot } from './PlayerSlot'
@@ -27,6 +28,7 @@ export function SlotStrip() {
     if (!s) return [] as number[]
     return s.seats.map((seat, i) => ({ seat, i })).filter(x => x.seat.team === team).map(x => x.i)
   }
+  const displayNumberBySeat = () => new Map(getVisualSeatOrder(state()?.seats).map((seatIndex, index) => [seatIndex, index + 1]))
 
   const ffaLayout = () => createSeatGridLayout(
     seatCount(),
@@ -170,7 +172,7 @@ export function SlotStrip() {
                 fallback={<div class="h-full min-h-0 w-full" />}
               >
                 <div class={shouldUseTeamGrid(seatIndices) ? 'h-full min-h-0 w-full' : 'slot-cell'}>
-                  <PlayerSlot seatIndex={seatIdx!} />
+                  <PlayerSlot seatIndex={seatIdx!} displayNumber={displayNumberBySeat().get(seatIdx!) ?? seatIdx! + 1} />
                 </div>
               </Show>
             )}
@@ -219,7 +221,7 @@ export function SlotStrip() {
               {seatIdx => (
                 <div class="slot-cell-ffa h-full min-h-0 w-full">
                   <Show when={seatIdx != null}>
-                    <PlayerSlot seatIndex={seatIdx!} compact />
+                    <PlayerSlot seatIndex={seatIdx!} compact displayNumber={displayNumberBySeat().get(seatIdx!) ?? seatIdx! + 1} />
                   </Show>
                 </div>
               )}

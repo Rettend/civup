@@ -5,7 +5,6 @@ import type {
   LeaderSwapRequest,
   LeaderSwapState,
   MapVoteSelection,
-  PendingLeaderSwapRequest,
   RandomSource,
   RevealedMapVoteSeatBallot,
 } from '@civup/game'
@@ -59,7 +58,6 @@ export type RoomEffect =
   | { type: 'delete-alarm' }
   | { type: 'schedule-swap-alarm' }
   | { type: 'broadcast-update', events: DraftEvent[] }
-  | { type: 'broadcast-swap-update', picks?: DraftState['picks'] }
   | { type: 'sync-draft-lifecycle', payload: DraftLifecyclePayload, delivery: 'await' | 'background' }
   | { type: 'schedule-debug-active-bots', blindBans: boolean }
   | { type: 'schedule-debug-map-vote-bots' }
@@ -69,11 +67,9 @@ export type RoomCommand =
   | ApplyDraftResultCommand
   | UpdatePreviewsCommand
   | UpdateConfigCommand
-  | SetSwapStateCommand
-  | AcceptSwapCommand
+  | ApplyLeaderSwapCommand
   | SetSwapDisconnectFinalizeAtCommand
   | ClearSwapDisconnectFinalizeAtCommand
-  | PruneExpiredSwapsCommand
   | FinalizeCompletedDraftCommand
   | StartMapVoteCommand
   | UpdateMapVoteSelectionCommand
@@ -106,16 +102,10 @@ export interface UpdateConfigCommand {
   nextConfig: DraftRuntimeConfig
 }
 
-export interface SetSwapStateCommand {
-  type: 'set-swap-state'
-  swapState: LeaderSwapState
-}
-
-export interface AcceptSwapCommand {
-  type: 'accept-swap'
+export interface ApplyLeaderSwapCommand {
+  type: 'apply-leader-swap'
   nextState: DraftState
   swapState: LeaderSwapState
-  picks: DraftState['picks']
 }
 
 export interface SetSwapDisconnectFinalizeAtCommand {
@@ -125,11 +115,6 @@ export interface SetSwapDisconnectFinalizeAtCommand {
 
 export interface ClearSwapDisconnectFinalizeAtCommand {
   type: 'clear-swap-disconnect-finalize-at'
-}
-
-export interface PruneExpiredSwapsCommand {
-  type: 'prune-expired-swaps'
-  now: number
 }
 
 export interface FinalizeCompletedDraftCommand {
@@ -313,6 +298,7 @@ export function applyDraftResultCommand(
       alarmStepIndex: -1,
       timerEndsAt: null,
       cancelledAt,
+      mapVote: { ...EMPTY_STORED_MAP_VOTE_STATE },
     }
     alarmEffect = { type: 'delete-alarm' }
     const shouldReopenLobby = nextState.cancelReason === 'timeout' || nextState.cancelReason === 'revert'
@@ -377,41 +363,19 @@ export function updateConfigCommand(
   ])
 }
 
-export function setSwapStateCommand(
+export function applyLeaderSwapCommand(
   room: RoomRecord,
-  command: SetSwapStateCommand,
+  command: ApplyLeaderSwapCommand,
 ): RoomTransition {
-  return createTransition({
-    ...room,
-    swapState: command.swapState,
-  }, [
-    { type: 'schedule-swap-alarm' },
-    { type: 'broadcast-swap-update' },
-  ])
-}
-
-export function acceptSwapCommand(
-  room: RoomRecord,
-  command: AcceptSwapCommand,
-): RoomTransition {
-  let nextRoom: RoomRecord = {
+  const nextRoom: RoomRecord = {
     ...room,
     state: command.nextState,
     swapState: command.swapState,
   }
   const effects: RoomEffect[] = [
     { type: 'schedule-swap-alarm' },
-    { type: 'broadcast-swap-update', picks: command.picks },
+    { type: 'broadcast-update', events: [] },
   ]
-  if (nextRoom.completedAt != null) {
-    const lifecycleSync = createCompleteLifecycleSync(nextRoom, {
-      completedAt: nextRoom.completedAt,
-      delivery: 'await',
-      kind: 'SwapAccepted',
-    })
-    nextRoom = lifecycleSync.room
-    effects.push(lifecycleSync.effect)
-  }
 
   return createTransition(nextRoom, effects)
 }
@@ -440,27 +404,6 @@ export function clearSwapDisconnectFinalizeAtCommand(
   ])
 }
 
-export function pruneExpiredSwapsCommand(
-  room: RoomRecord,
-  command: PruneExpiredSwapsCommand,
-): RoomTransition<boolean> {
-  const swapState = normalizeRoomSwapState(room)
-  const pendingSwaps = swapState.pendingSwaps.filter(swap => swap.expiresAt > command.now)
-  if (pendingSwaps.length === swapState.pendingSwaps.length) {
-    return createTransition(room, [], false)
-  }
-
-  return createTransition({
-    ...room,
-    swapState: {
-      pendingSwaps,
-      completedSwaps: swapState.completedSwaps,
-    },
-  }, [
-    { type: 'broadcast-swap-update' },
-  ], true)
-}
-
 export function finalizeCompletedDraftCommand(
   room: RoomRecord,
   command: FinalizeCompletedDraftCommand,
@@ -487,6 +430,7 @@ export function finalizeCompletedDraftCommand(
   return createTransition(nextRoom, [
     { type: 'delete-alarm' },
     lifecycleSync.effect,
+    { type: 'broadcast-update', events: [] },
     { type: 'close-connections', reason: 'Draft closed' },
   ], true)
 }
@@ -594,7 +538,6 @@ export function finishMapVoteRevealCommand(
 
 export function createEmptySwapState(): LeaderSwapState {
   return {
-    pendingSwaps: [],
     completedSwaps: [],
   }
 }
@@ -605,14 +548,10 @@ export function normalizeStoredSwapState(
   if (!value || typeof value !== 'object') return createEmptySwapState()
 
   const raw = value as {
-    pendingSwaps?: unknown
     completedSwaps?: unknown
   }
 
   return {
-    pendingSwaps: Array.isArray(raw.pendingSwaps)
-      ? raw.pendingSwaps.flatMap(normalizePendingSwapRequest)
-      : [],
     completedSwaps: Array.isArray(raw.completedSwaps)
       ? raw.completedSwaps.flatMap(normalizeCompletedSwapRequest)
       : [],
@@ -673,7 +612,7 @@ function createCompleteLifecycleSync(
     completedAt: number
     delivery: 'await' | 'background'
     finalized?: boolean
-    kind: 'DraftCompleted' | 'SwapAccepted' | 'DraftFinalized'
+    kind: 'DraftCompleted' | 'DraftFinalized'
   },
 ): { room: RoomRecord, effect: RoomEffect } {
   const eventSequence = room.lifecycleEventSequence + 1
@@ -688,6 +627,7 @@ function createCompleteLifecycleSync(
     finalized: options.finalized === true ? true : undefined,
     state: room.state,
     mapVoteResult: room.mapVote.result ?? null,
+    hiddenDraft: room.config.hiddenDraft === true ? true : undefined,
   }
   return createLifecycleSyncEffect(room, payload, options.delivery)
 }
@@ -711,6 +651,7 @@ function createCancelledLifecycleSync(
     reason: room.state.cancelReason ?? 'scrub',
     state: room.state,
     mapVoteResult: room.mapVote.result ?? null,
+    hiddenDraft: room.config.hiddenDraft === true ? true : undefined,
   }
   return createLifecycleSyncEffect(room, payload, options.delivery)
 }
@@ -794,17 +735,6 @@ function normalizeDealOptionsSize(value: number | null | undefined): number {
 
 function isRedDeathDraftConfig(config: Pick<DraftRuntimeConfig, 'formatId'>): boolean {
   return isRedDeathFormatId(config.formatId)
-}
-
-function normalizePendingSwapRequest(value: unknown): PendingLeaderSwapRequest[] {
-  if (!value || typeof value !== 'object') return []
-  const request = value as Partial<PendingLeaderSwapRequest>
-  if (!Number.isInteger(request.fromSeat) || !Number.isInteger(request.toSeat) || !Number.isFinite(request.expiresAt)) return []
-  const fromSeat = Number(request.fromSeat)
-  const toSeat = Number(request.toSeat)
-  const expiresAt = Number(request.expiresAt)
-  if (fromSeat < 0 || toSeat < 0) return []
-  return [{ fromSeat, toSeat, expiresAt }]
 }
 
 function normalizeCompletedSwapRequest(value: unknown): LeaderSwapRequest[] {

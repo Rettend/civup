@@ -1,4 +1,4 @@
-import type { DraftEvent, DraftPreviewState, DraftSelection, DraftState, DraftStep, LeaderDataVersion, LeaderSwapState, MapVoteSnapshot, PendingLeaderSwapRequest } from '@civup/game'
+import type { DraftEvent, DraftPreviewState, DraftSelection, DraftState, DraftStep, LeaderDataVersion, LeaderSwapState, MapVoteSnapshot } from '@civup/game'
 import { EMPTY_MAP_VOTE_SNAPSHOT, getPickSeatForPlayer, inferGameMode, isRedDeathFormatId } from '@civup/game'
 import { createSignal } from 'solid-js'
 import { createStore, produce } from 'solid-js/store'
@@ -144,6 +144,8 @@ export function updateDraft(
   mapVote: MapVoteSnapshot = EMPTY_MAP_VOTE_SNAPSHOT,
   steamLobbyLink: string | null = null,
 ) {
+  const flashSeats = swapState ? findChangedPickSeats(draftStore.state?.picks ?? [], state.picks) : []
+
   setDraftStore(produce((s) => {
     s.state = state
     s.leaderDataVersion = leaderDataVersion
@@ -156,25 +158,6 @@ export function updateDraft(
     s.swapState = swapState
     s.steamLobbyLink = steamLobbyLink
     s.mapVote = mapVote
-  }))
-}
-
-export function updateDraftSteamLobbyLink(steamLobbyLink: string | null) {
-  setDraftStore('steamLobbyLink', steamLobbyLink)
-}
-
-export function updateDraftPreviews(previews: DraftPreviewState) {
-  setDraftStore('previews', previews)
-}
-
-export function applySwapUpdate(swapState: LeaderSwapState, picks?: DraftSelection[]) {
-  const previousPendingSwaps = draftStore.swapState?.pendingSwaps ?? []
-  const resolvedSwap = picks ? findResolvedPendingSwap(previousPendingSwaps, swapState.pendingSwaps) : null
-  const flashSeats = resolvedSwap ? [resolvedSwap.fromSeat, resolvedSwap.toSeat] : []
-
-  setDraftStore(produce((s) => {
-    s.swapState = swapState
-    if (picks && s.state) s.state.picks = picks
     if (flashSeats.length > 0) s.swapFlashSeatIndices = flashSeats
   }))
 
@@ -185,6 +168,14 @@ export function applySwapUpdate(swapState: LeaderSwapState, picks?: DraftSelecti
     setDraftStore('swapFlashSeatIndices', [])
     swapFlashTimeout = null
   }, SWAP_FLASH_DURATION_MS)
+}
+
+export function updateDraftSteamLobbyLink(steamLobbyLink: string | null) {
+  setDraftStore('steamLobbyLink', steamLobbyLink)
+}
+
+export function updateDraftPreviews(previews: DraftPreviewState) {
+  setDraftStore('previews', previews)
 }
 
 /** Optimistically show a pick for this client's seat until server update arrives. */
@@ -254,7 +245,12 @@ export function isSwapWindowOpen(): boolean {
   return draftStore.state?.status === 'complete' && draftStore.swapState != null
 }
 
-export function canRequestSwapWith(seatIndex: number): boolean {
+export function isHiddenDraftComplete(): boolean {
+  const state = draftStore.state
+  return state?.status === 'complete' && state.picks.length === 0
+}
+
+export function canSwapLeadersWith(seatIndex: number): boolean {
   const state = draftStore.state
   const mySeatIndex = draftStore.seatIndex
   if (!state || !isSwapWindowOpen() || mySeatIndex == null) return false
@@ -264,20 +260,9 @@ export function canRequestSwapWith(seatIndex: number): boolean {
   const targetSeat = state.seats[seatIndex]
   if (!mySeat || !targetSeat) return false
   if (mySeat.team == null || targetSeat.team == null || mySeat.team !== targetSeat.team) return false
-  if (getOutgoingSwapForSeat(mySeatIndex)) return false
-  if (getIncomingSwapForSeat(seatIndex)) return false
-  if (hasPendingSwapBetweenSeats(mySeatIndex, seatIndex)) return false
 
   return state.picks.some(pick => pick.seatIndex === mySeatIndex)
     && state.picks.some(pick => pick.seatIndex === seatIndex)
-}
-
-export function seatHasIncomingSwap(seatIndex: number): boolean {
-  return getIncomingSwapForSeat(seatIndex) != null
-}
-
-export function seatHasOutgoingSwap(seatIndex: number): boolean {
-  return getOutgoingSwapForSeat(seatIndex) != null
 }
 
 export function seatJustSwapped(seatIndex: number): boolean {
@@ -386,28 +371,10 @@ function clearSwapFlashTimeout() {
   swapFlashTimeout = null
 }
 
-function getIncomingSwapForSeat(seatIndex: number): PendingLeaderSwapRequest | null {
-  return draftStore.swapState?.pendingSwaps.find(swap => swap.toSeat === seatIndex) ?? null
-}
+function findChangedPickSeats(previousPicks: DraftSelection[], nextPicks: DraftSelection[]): number[] {
+  const previousBySeat = new Map(previousPicks.map(pick => [pick.seatIndex, pick.civId]))
+  const nextBySeat = new Map(nextPicks.map(pick => [pick.seatIndex, pick.civId]))
+  const seatIndices = new Set([...previousBySeat.keys(), ...nextBySeat.keys()])
 
-function getOutgoingSwapForSeat(seatIndex: number): PendingLeaderSwapRequest | null {
-  return draftStore.swapState?.pendingSwaps.find(swap => swap.fromSeat === seatIndex) ?? null
-}
-
-function hasPendingSwapBetweenSeats(leftSeat: number, rightSeat: number): boolean {
-  return draftStore.swapState?.pendingSwaps.some(
-    swap => (swap.fromSeat === leftSeat && swap.toSeat === rightSeat)
-      || (swap.fromSeat === rightSeat && swap.toSeat === leftSeat),
-  ) ?? false
-}
-
-function findResolvedPendingSwap(
-  previousPendingSwaps: PendingLeaderSwapRequest[],
-  nextPendingSwaps: PendingLeaderSwapRequest[],
-): PendingLeaderSwapRequest | null {
-  return previousPendingSwaps.find(
-    previous => !nextPendingSwaps.some(
-      next => next.fromSeat === previous.fromSeat && next.toSeat === previous.toSeat,
-    ),
-  ) ?? null
+  return [...seatIndices].filter(seatIndex => previousBySeat.get(seatIndex) !== nextBySeat.get(seatIndex))
 }

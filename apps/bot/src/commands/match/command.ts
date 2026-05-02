@@ -32,14 +32,18 @@ import { buildFfaPlacementOptions, collectFfaPlacementUserIds, findBlockingDraft
 const MATCH_MODE_CHOICES = GAME_MODE_CHOICES
 const MATCH_BUMP_RESPONSE_DELETE_MS = 5_000
 
+function buildMatchCreateSubCommand() {
+  return new SubCommand('create', 'Create a lobby and auto-join as host').options(
+    new Option('mode', 'Game mode for the lobby')
+      .required()
+      .choices(...MATCH_MODE_CHOICES),
+    new Option('steam_link', 'Optional Civ 6 Steam lobby link').max_length(MAX_STEAM_LOBBY_LINK_LENGTH),
+  )
+}
+
 export const command_match = factory.command<MatchVar>(
   new Command('match', 'Looking for game and lobby management').options(
-    new SubCommand('create', 'Create a lobby and auto-join as host').options(
-      new Option('mode', 'Game mode for the lobby')
-        .required()
-        .choices(...MATCH_MODE_CHOICES),
-      new Option('steam_link', 'Optional Civ 6 Steam lobby link').max_length(MAX_STEAM_LOBBY_LINK_LENGTH),
-    ),
+    buildMatchCreateSubCommand(),
     new SubCommand('join', 'Join an open lobby for a game mode').options(
       new Option('mode', 'Game mode to join')
         .required()
@@ -923,6 +927,11 @@ export const command_match = factory.command<MatchVar>(
         return c.res('Unknown subcommand.')
     }
   },
+)
+
+export const command_draft = factory.command<MatchVar>(
+  new Command('draft', 'Draft lobby shortcuts').options(buildMatchCreateSubCommand()),
+  command_match.handler,
 )
 
 function formatPlayerCountList(counts: readonly number[], fallback: number): string {

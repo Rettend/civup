@@ -1,9 +1,9 @@
 import type { DiscordMessagePayload } from '../discord/index.ts'
-import { createChannelMessage } from '../discord/index.ts'
+import { createChannelMessage, createInteractionFollowupMessage } from '../discord/index.ts'
 import { sendTransientEphemeralResponse } from './ephemeral.ts'
 import { getSystemChannel } from '../system/channels.ts'
 
-type GeneralCommandResponse = string | DiscordMessagePayload | null
+type GeneralCommandResponse = string | DiscordMessagePayload | DiscordMessagePayload[] | null
 
 interface GeneralCommandDeferredContext {
   executionCtx: {
@@ -12,9 +12,11 @@ interface GeneralCommandDeferredContext {
   env: {
     KV: KVNamespace
     DISCORD_TOKEN: string
+    DISCORD_APPLICATION_ID: string
     [key: string]: any
   }
   interaction: {
+    token: string
     guild_id?: string
     channel?: { id?: string }
     channel_id?: string
@@ -48,18 +50,31 @@ export async function resDeferGeneralCommandResponse(
   const responder = shouldRedirect ? c.flags('EPHEMERAL') : c
   return await responder.resDefer(async (deferred) => {
     const payload = await buildPayload(deferred)
-    if (payload == null) return
+    const payloads = normalizeGeneralCommandPayloads(payload)
+    if (payloads.length === 0) return
+
     if (!shouldRedirect || !commandsChannelId) {
-      await deferred.followup(payload)
+      const [firstPayload, ...additionalPayloads] = payloads
+      await deferred.followup(firstPayload)
+
+      for (const additionalPayload of additionalPayloads) {
+        await createInteractionFollowupMessage({
+          applicationId: deferred.env.DISCORD_APPLICATION_ID,
+          interactionToken: deferred.interaction.token,
+          payload: additionalPayload,
+        })
+      }
       return
     }
 
     try {
-      await (options?.createMessage ?? createChannelMessage)(
-        deferred.env.DISCORD_TOKEN,
-        commandsChannelId,
-        normalizeGeneralCommandPayload(payload),
-      )
+      for (const normalizedPayload of payloads) {
+        await (options?.createMessage ?? createChannelMessage)(
+          deferred.env.DISCORD_TOKEN,
+          commandsChannelId,
+          normalizedPayload,
+        )
+      }
     }
     catch (error) {
       console.error(`Failed to post redirected command output to ${commandsChannelId}:`, error)
@@ -83,4 +98,10 @@ export function normalizeGeneralCommandPayload(payload: string | DiscordMessageP
     ...payload,
     allowed_mentions: payload.allowed_mentions ?? { parse: [] },
   }
+}
+
+function normalizeGeneralCommandPayloads(payload: GeneralCommandResponse): DiscordMessagePayload[] {
+  if (payload == null) return []
+  if (Array.isArray(payload)) return payload.map(normalizeGeneralCommandPayload)
+  return [normalizeGeneralCommandPayload(payload)]
 }

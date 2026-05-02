@@ -103,7 +103,6 @@ export type {
   LeaderSwapState,
   LeaderUnique,
   MatchStatus,
-  PendingLeaderSwapRequest,
   QueueEntry,
   QueueState,
 } from './types.ts'

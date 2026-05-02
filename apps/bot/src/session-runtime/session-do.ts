@@ -25,7 +25,7 @@ import { getSystemChannel } from '../services/system/channels.ts'
 import { publishActivitySessionUpdate } from './activity-feed-client.ts'
 import { SessionDraftRuntime, type DraftRuntimeEnv } from './draft-room.ts'
 import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from './session-record.ts'
-import type { Connection, ConnectionContext } from './socket-server.ts'
+import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import { canOpenSwapWindowForState } from './swap-window.ts'
 
 interface SessionDOEnv extends DraftRuntimeEnv {
@@ -154,7 +154,7 @@ type DraftLifecycleCommandRequest
     at?: number
   }
   | {
-    type: 'swap-accepted' | 'draft-finalized'
+    type: 'draft-finalized'
     at?: number
   }
   | {
@@ -284,7 +284,11 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return await this.runSerializedCommand(() => this.handleReportedDiscordSyncCommand(request))
     }
 
-    return await super.onRequest(request)
+    return await this.runSerializedCommand(async () => {
+      const record = await this.getRecord()
+      if (record && isTerminalSessionPhase(record.phase)) return json({ error: 'Session closed' }, 410)
+      return await super.onRequest(request)
+    })
   }
 
   override async onAlarm(): Promise<void> {
@@ -294,26 +298,54 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       await this.retryPendingTerminalSync()
       await this.retryPendingProjectionSync()
       await this.retryPendingReportedDiscordSync()
-      await this.handleDraftRuntimeAlarmIfDue()
+      const record = await this.getRecord()
+      if (!record || !isTerminalSessionPhase(record.phase)) await this.handleDraftRuntimeAlarmIfDue()
       await this.rescheduleSessionAlarm(await this.getRecord())
       return json({ ok: true })
     })
   }
 
   override async onConnect(connection: Connection, ctx: ConnectionContext): Promise<void> {
-    await this.recoverPendingCommitIntent()
-    const record = await this.getRecord()
-    if (record?.phase === 'open') {
-      await this.handleOpenSessionConnect(connection, ctx, record)
-      return
-    }
+    await this.runSerializedOperation(async () => {
+      let record = await this.getRecord()
+      if (record?.phase === 'open') {
+        await this.handleOpenSessionConnect(connection, ctx, record)
+        return
+      }
 
-    if (record?.phase === 'active' && !await this.getRoomRecord()) {
-      await this.handleActiveSessionConnectWithoutRuntime(connection, ctx, record)
-      return
-    }
+      if (record?.phase === 'draft') {
+        await this.recoverTerminalDraftRuntime(record)
+        record = await this.getRecord()
+      }
 
-    await super.onConnect(connection, ctx)
+      if (record?.phase === 'active' && !await this.getRoomRecord()) {
+        await this.handleActiveSessionConnectWithoutRuntime(connection, ctx, record)
+        return
+      }
+
+      if (record && isTerminalSessionPhase(record.phase)) {
+        connection.close(1000, 'Session closed')
+        return
+      }
+
+      await super.onConnect(connection, ctx)
+    })
+  }
+
+  override async onMessage(connection: Connection, message: WSMessage): Promise<void> {
+    await this.runSerializedOperation(async () => {
+      let record = await this.getRecord()
+      if (record?.phase === 'draft') {
+        await this.recoverTerminalDraftRuntime(record)
+        record = await this.getRecord()
+      }
+      if (record && isTerminalSessionPhase(record.phase)) {
+        if (connection.readyState < 2) connection.close(1000, 'Session closed')
+        return
+      }
+
+      await super.onMessage(connection, message)
+    })
   }
 
   private async getRecord(): Promise<SessionRecord | null> {
@@ -590,18 +622,6 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
           draftStartSync: null,
         }
         break
-      case 'swap-accepted':
-        if (existing.phase === 'active') return json({ ok: true, record: existing })
-        if (existing.phase !== 'swap') return json({ error: `Session is not in swap (phase: ${existing.phase})` }, 409)
-        record = {
-          ...existing,
-          version: existing.version + 1,
-          updatedAt: at,
-          lastActivityAt: at,
-          closedAt: null,
-          draftStartSync: null,
-        }
-        break
       case 'draft-finalized':
         if (existing.phase === 'active') return json({ ok: true, record: existing })
         if (existing.phase !== 'swap') return json({ error: `Session is not in swap (phase: ${existing.phase})` }, 409)
@@ -662,13 +682,39 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
   protected override async syncDraftRuntimeLifecyclePayload(payload: DraftLifecyclePayload, action: string): Promise<void> {
     const result = await this.syncDraftLifecyclePayload(payload)
-    if (result.ok) return
+    if (result.ok) {
+      await this.broadcastReopenedLobbyToDraftConnections(payload)
+      return
+    }
 
     console.error('[session-do] lifecycle sync deferred', buildDraftLifecycleLogContext(payload, {
       action,
       status: result.status,
       error: result.error,
     }))
+  }
+
+  private async broadcastReopenedLobbyToDraftConnections(payload: DraftLifecyclePayload): Promise<void> {
+    if (payload.outcome !== 'cancelled') return
+    if (payload.reason !== 'timeout' && payload.reason !== 'revert') return
+
+    const record = await this.getRecord()
+    if (!record || record.phase !== 'open') return
+
+    const connections = Array.from(this.getConnections<SessionConnectionState>())
+      .filter((connection) => {
+        const state = connection.state as SessionConnectionState | null
+        return state?.openLobby !== true && connection.readyState < 2
+      })
+    if (connections.length === 0) return
+
+    try {
+      const message = await this.buildOpenLobbySnapshotMessage(record)
+      for (const connection of connections) connection.send(message)
+    }
+    catch (error) {
+      console.error('[session-do] failed to broadcast reopened lobby snapshot', buildDraftLifecycleLogContext(payload), error)
+    }
   }
 
   private async retryPendingDraftStartSync(): Promise<void> {
@@ -709,6 +755,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
   private async ensureDraftRuntimeAndMatch(record: DraftSessionRecord): Promise<{ matchId: string, seats: DraftSeat[] }> {
     if (!this.env.DB) throw new Error('D1 binding is not configured')
+    const db = createDb(this.env.DB)
 
     const existingRoom = await this.getRoomRecord()
     let room: { matchId: string, seats: DraftSeat[] }
@@ -727,18 +774,61 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         redDeath: record.config.redDeath,
         mapVoteEnabled: record.config.mapVoteEnabled,
         randomDraft: record.config.randomDraft,
+        hiddenDraft: record.config.hiddenDraft,
         duplicateFactions: record.config.duplicateFactions,
         timerConfig,
         leaderPoolSize: record.config.leaderPoolSize,
         dealOptionsSize: record.config.dealOptionsSize,
         steamLobbyLink: record.projectionState.steamLobbyLink,
       })
+      await createDraftMatch(db, { matchId: runtime.config.matchId, mode: record.mode, seats: runtime.config.seats })
       const initialized = await this.initializeDraftRuntime(runtime.config, { existing: existingRoom })
       room = { matchId: initialized.state.matchId, seats: initialized.config.seats }
     }
 
-    await createDraftMatch(createDb(this.env.DB), { matchId: room.matchId, mode: record.mode, seats: room.seats })
+    if (existingRoom && existingRoom.state.status !== 'cancelled') {
+      await createDraftMatch(db, { matchId: room.matchId, mode: record.mode, seats: room.seats })
+    }
     return room
+  }
+
+  private async recoverTerminalDraftRuntime(record: SessionRecord): Promise<void> {
+    if (record.phase !== 'draft') return
+    const room = await this.getRoomRecord()
+    if (!room || (room.state.status !== 'complete' && room.state.status !== 'cancelled')) return
+
+    const eventSequence = Math.max(room.lifecycleEventSequence, (record.lifecycleEventSequence ?? 0) + 1)
+    const basePayload = {
+      eventId: `${room.state.matchId}:lifecycle:${eventSequence}`,
+      eventSequence,
+      matchId: room.state.matchId,
+      hostId: room.config.hostId || room.state.seats[0]?.playerId || undefined,
+      state: room.state,
+      mapVoteResult: room.mapVote.result ?? null,
+      hiddenDraft: room.config.hiddenDraft === true ? true : undefined,
+    }
+    const payload: DraftLifecyclePayload = room.state.status === 'complete'
+      ? {
+          ...basePayload,
+          eventKind: 'DraftCompleted',
+          outcome: 'complete',
+          completedAt: room.completedAt ?? Date.now(),
+        }
+      : {
+          ...basePayload,
+          eventKind: 'DraftCancelled',
+          outcome: 'cancelled',
+          cancelledAt: room.cancelledAt ?? Date.now(),
+          reason: room.state.cancelReason ?? 'scrub',
+        }
+
+    const result = await this.syncDraftLifecyclePayload(payload)
+    if (!result.ok) {
+      console.warn('[session-do] terminal draft runtime recovery deferred', buildDraftLifecycleLogContext(payload, {
+        status: result.status,
+        error: result.error,
+      }))
+    }
   }
 
   private async deferDraftStartSync(record: DraftSessionRecord, error: string): Promise<{ ok: false, status: number, error: string }> {
@@ -1026,6 +1116,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       completedAt: payload.completedAt,
       hostId,
       mapVoteResult: payload.mapVoteResult ?? null,
+      hiddenDraft: payload.hiddenDraft === true,
     })
 
     if ('error' in result) {
@@ -1033,6 +1124,9 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         console.warn('[session-do] ignoring stale draft completion', { ...context, error: result.error })
         await this.clearLifecycleSyncMarker(record)
         return { ok: true, ignored: true }
+      }
+      if (isRetriableDraftCompleteError(result.error)) {
+        return { ok: false, status: 503, error: result.error }
       }
       return { ok: false, status: 400, error: result.error }
     }
@@ -1066,6 +1160,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       reason: payload.reason,
       hostId,
       mapVoteResult: payload.mapVoteResult ?? null,
+      hiddenDraft: payload.hiddenDraft === true,
       allowActive: record.phase === 'swap' && payload.state.picks.length > 0,
     })
 
@@ -1588,7 +1683,9 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const reportedDiscordRetryAt = reportedDiscordSync
       ? reportedDiscordSync.nextRetryAt > 0 ? reportedDiscordSync.nextRetryAt : Date.now()
       : null
-    const draftRuntimeAlarmAt = await this.getDraftRuntimeAlarmAt()
+    const draftRuntimeAlarmAt = record && !isTerminalSessionPhase(record.phase)
+      ? await this.getDraftRuntimeAlarmAt()
+      : null
     const candidates = [draftStartRetryAt, lifecycleRetryAt, terminalRetryAt, projectionRetryAt, reportedDiscordRetryAt, draftRuntimeAlarmAt].filter((value): value is number => typeof value === 'number')
     const storage = this.ctx.storage as DurableObjectStorage & {
       setAlarm?: (scheduledTime: number | Date) => Promise<void>
@@ -1650,6 +1747,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     await this.ctx.storage.put(SESSION_RECORD_STORAGE_KEY, cleared)
     await this.finalizeCommittedRecord(cleared, 'terminal-sync')
+    this.closeSelectedDraftConnections('Session closed')
     return { ok: true, record: cleared }
   }
 
@@ -1720,6 +1818,14 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     await this.scheduleLifecycleSyncAlarm(record).catch((error) => {
       console.error(`[session-do] failed to schedule session alarm after ${action}`, error)
     })
+  }
+
+  private closeSelectedDraftConnections(reason: string): void {
+    for (const connection of this.getConnections<SessionConnectionState>()) {
+      const state = connection.state as SessionConnectionState | null
+      if (state?.openLobby === true || connection.readyState >= 2) continue
+      connection.close(1000, reason)
+    }
   }
 
   private async syncDraftRuntimeProjectionState(record: SessionRecord): Promise<void> {
@@ -1932,6 +2038,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   }
 
   private async runSerializedCommand(operation: () => Promise<Response>): Promise<Response> {
+    return await this.runSerializedOperation(operation)
+  }
+
+  private async runSerializedOperation<T>(operation: () => Promise<T>): Promise<T> {
     const previous = this.commandQueue
     let release!: () => void
     this.commandQueue = new Promise<void>((resolve) => {
@@ -1971,20 +2081,6 @@ function transitionRecordForDraftLifecycle(record: SessionRecord, payload: Draft
           record: {
             ...record,
             phase: canOpenSwapWindowForState(payload.state) ? 'swap' : 'active',
-            version: record.version + 1,
-            updatedAt: at,
-            lastActivityAt: at,
-            closedAt: null,
-            draftStartSync: null,
-          },
-        }
-      case 'SwapAccepted':
-        if (record.phase === 'active') return { record }
-        if (record.phase !== 'swap' && record.phase !== 'draft') return { record, ignored: true }
-        return {
-          record: {
-            ...record,
-            phase: 'swap',
             version: record.version + 1,
             updatedAt: at,
             lastActivityAt: at,
@@ -2101,7 +2197,7 @@ function validateDraftLifecyclePayload(payload: DraftLifecyclePayload): string |
   if (typeof payload.matchId !== 'string' || payload.matchId.length === 0) return 'matchId is required'
   if (!payload.state || typeof payload.state !== 'object') return 'state is required'
   if (payload.outcome === 'complete') {
-    if (payload.eventKind !== 'DraftCompleted' && payload.eventKind !== 'SwapAccepted' && payload.eventKind !== 'DraftFinalized') return 'invalid complete eventKind'
+    if (payload.eventKind !== 'DraftCompleted' && payload.eventKind !== 'DraftFinalized') return 'invalid complete eventKind'
     if (typeof payload.completedAt !== 'number' || !Number.isFinite(payload.completedAt)) return 'completedAt is required'
     if (payload.state.status !== 'complete') return 'complete lifecycle state must be complete'
     return null
@@ -2200,6 +2296,11 @@ async function readErrorResponse(response: Response): Promise<string> {
 function isIgnorableDraftCompleteError(error: string): boolean {
   return error.includes('cannot be activated (status: cancelled)')
     || error.includes('cannot be activated (status: completed)')
+}
+
+function isRetriableDraftCompleteError(error: string): boolean {
+  return error.includes('not found')
+    || error.includes('has no participants')
 }
 
 function isIgnorableDraftCancelError(error: string): boolean {

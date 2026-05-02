@@ -339,6 +339,7 @@ export function buildLobbyDraftConfigFromSessionConfig(config: SessionConfig): L
     redDeath: config.redDeath,
     dealOptionsSize: config.dealOptionsSize,
     randomDraft: config.randomDraft,
+    hiddenDraft: config.hiddenDraft,
     duplicateFactions: config.duplicateFactions,
   }
 }

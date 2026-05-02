@@ -1,7 +1,10 @@
-import type { DraftState, LeaderSwapState } from '@civup/game'
+import type { DraftState } from '@civup/game'
 
 export function canOpenSwapWindowForState(state: DraftState): boolean {
-  return state.status === 'complete' && state.seats.some(seat => seat.team != null)
+  if (state.status !== 'complete') return false
+  if (!state.seats.some(seat => seat.team != null)) return false
+  const pickedSeats = new Set(state.picks.map(pick => pick.seatIndex))
+  return state.seats.every((_, seatIndex) => pickedSeats.has(seatIndex))
 }
 
 export function countConnectedDraftParticipants<TConnection>(
@@ -33,11 +36,10 @@ export function getSwapDisconnectFinalizeAtAfterDisconnect(input: {
 }
 
 export function getNextSwapLifecycleAlarmAt(input: {
-  swapState: LeaderSwapState
   disconnectFinalizeAt: number | null
   safetyEndsAt: number | null
 }): number | null {
-  return [getNextSwapPendingExpiry(input.swapState), input.disconnectFinalizeAt, input.safetyEndsAt]
+  return [input.disconnectFinalizeAt, input.safetyEndsAt]
     .filter((timestamp): timestamp is number => typeof timestamp === 'number' && Number.isFinite(timestamp))
     .sort((left, right) => left - right)[0] ?? null
 }
@@ -55,11 +57,4 @@ export function getSwapWindowAlarmAction(input: {
 
   if (input.safetyEndsAt != null && input.safetyEndsAt <= input.now) return 'finalize'
   return 'keep-open'
-}
-
-function getNextSwapPendingExpiry(swapState: LeaderSwapState): number | null {
-  return swapState.pendingSwaps
-    .map(swap => swap.expiresAt)
-    .filter(timestamp => Number.isFinite(timestamp))
-    .sort((left, right) => left - right)[0] ?? null
 }

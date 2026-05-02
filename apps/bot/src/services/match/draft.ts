@@ -148,6 +148,7 @@ export async function activateDraftMatch(
     hostId: input.hostId,
     mapVoteResult: input.mapVoteResult ?? null,
     redDeath: isRedDeathFormatId(input.state.formatId),
+    hiddenDraft: input.hiddenDraft === true,
     state: input.state,
   })
 
@@ -298,6 +299,7 @@ export async function cancelDraftMatch(
         hostId: input.hostId,
         mapVoteResult: input.mapVoteResult ?? null,
         redDeath: isRedDeathFormatId(input.state.formatId),
+        hiddenDraft: input.hiddenDraft === true,
         state: input.state,
       }),
     })

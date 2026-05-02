@@ -6,7 +6,7 @@ import { createSignal, untrack } from 'solid-js'
 import { buildActivitySessionHeaders, clearActivitySessionToken, getActivitySessionToken } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
 import { shouldForceReconnectForStaleDraft } from '../lib/stale-draft'
-import { applySwapUpdate, draftNow, draftStore, initDraft, setOptimisticSeatPick, syncDraftServerTime, updateDraft, updateDraftPreviews, updateDraftSteamLobbyLink } from './draft-store'
+import { draftNow, draftStore, initDraft, setOptimisticSeatPick, syncDraftServerTime, updateDraft, updateDraftPreviews, updateDraftSteamLobbyLink } from './draft-store'
 import { clearSelections } from './ui-store'
 
 // ── Types ──────────────────────────────────────────────────
@@ -67,6 +67,7 @@ export interface LobbySnapshot {
     redDeath: boolean
     dealOptionsSize: number | null
     randomDraft: boolean
+    hiddenDraft: boolean
     duplicateFactions: boolean
   }
   serverDefaults: {
@@ -543,16 +544,8 @@ export function sendRevert() {
   return sendCancel('revert')
 }
 
-export function sendSwapRequest(toSeat: number) {
-  return sendMessage({ type: 'swap-request', toSeat })
-}
-
-export function sendSwapAccept() {
-  return sendMessage({ type: 'swap-accept' })
-}
-
-export function sendSwapCancel() {
-  return sendMessage({ type: 'swap-cancel' })
+export function sendLeaderSwap(toSeat: number) {
+  return sendMessage({ type: 'leader-swap', toSeat })
 }
 
 export function sendConfig(banTimerSeconds: number | null, pickTimerSeconds: number | null): Promise<void> {
@@ -657,6 +650,7 @@ export async function updateLobbyConfig(
     redDeath?: boolean
     dealOptionsSize?: number | null
     randomDraft?: boolean
+    hiddenDraft?: boolean
     duplicateFactions?: boolean
     targetSize?: number
     steamLobbyLink?: string | null
@@ -678,6 +672,7 @@ export async function updateLobbyConfig(
       redDeath: draftConfig.redDeath,
       dealOptionsSize: draftConfig.dealOptionsSize,
       randomDraft: draftConfig.randomDraft,
+      hiddenDraft: draftConfig.hiddenDraft,
       duplicateFactions: draftConfig.duplicateFactions,
       targetSize: draftConfig.targetSize,
       steamLobbyLink: draftConfig.steamLobbyLink,
@@ -888,9 +883,10 @@ export async function reportMatchResult(
   matchId: string,
   reporterId: string,
   placements: string,
+  leaderAssignments?: Record<string, string>,
 ): Promise<{ ok: true } | { ok: false, error: string }> {
   try {
-    await activityApiPost(`/api/match/${matchId}/report`, { reporterId, placements })
+    await activityApiPost(`/api/match/${matchId}/report`, { reporterId, placements, leaderAssignments })
     return { ok: true }
   }
   catch (err) {
@@ -1005,9 +1001,6 @@ function handleServerMessage(msg: SessionServerMessage) {
     case 'preview':
       syncPreviewCache(msg.previews)
       updateDraftPreviews(msg.previews)
-      break
-    case 'swap-update':
-      applySwapUpdate(msg.swapState, msg.picks)
       break
     case 'projection-update':
       updateDraftSteamLobbyLink(msg.steamLobbyLink)

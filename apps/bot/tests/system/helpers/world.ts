@@ -122,6 +122,7 @@ export interface SystemWorld {
   }
   match: {
     report: (matchId: string, input: { reporterId: string, placements: string }) => Promise<{ ok: boolean }>
+    scrub: (matchId: string, input: { userId: string, displayName?: string | null, avatarUrl?: string | null }) => Promise<RouteResult<{ ok?: boolean, error?: string }>>
     get: (matchId: string) => Promise<(typeof matches.$inferSelect) | null>
     getParticipants: (matchId: string) => Promise<(typeof matchParticipants.$inferSelect)[]>
     getBans: (matchId: string) => Promise<(typeof matchBans.$inferSelect)[]>
@@ -509,6 +510,16 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         if (!response.ok) throw new Error(body.error ?? `Failed to report match ${matchId}`)
         return { ok: body.ok === true }
       },
+      scrub(matchId, input) {
+        return requestJsonAs(`/api/match/${matchId}/scrub`, {
+          method: 'POST',
+          body: JSON.stringify({ reporterId: input.userId }),
+        }, {
+          userId: input.userId,
+          displayName: input.displayName ?? input.userId,
+          avatarUrl: input.avatarUrl ?? null,
+        })
+      },
       async get(matchId) {
         const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
         return match ?? null
@@ -749,9 +760,7 @@ function buildCompletedPayload(room: CapturedDraftRuntimeRecord, options: Comple
   const eventSequence = nextTestLifecycleSequence(room)
   const eventKind = options.finalized === true
     ? 'DraftFinalized'
-    : options.transformState
-      ? 'SwapAccepted'
-      : 'DraftCompleted'
+    : 'DraftCompleted'
 
   return {
     eventId: `${config.matchId}:test:${eventSequence}`,

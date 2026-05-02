@@ -2,7 +2,7 @@ import type { DraftState } from '@civup/game'
 import { allFactionIds, createDraft, default2v2, default4v4, getDraftFormat, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import {
-  canRequestSwapWith,
+  canSwapLeadersWith,
   canSendPickPreview,
   currentStep,
   currentStepDuration,
@@ -14,7 +14,7 @@ import {
   isSwapWindowOpen,
   phaseLabel,
   resetDraft,
-  seatHasIncomingSwap,
+  seatJustSwapped,
   syncDraftServerTime,
   updateDraft,
 } from '../src/client/stores/draft-store'
@@ -218,72 +218,96 @@ describe('draft-store helpers', () => {
   test('opens the swap window only for completed team drafts with swap state', () => {
     const complete = createCompleteTeamState()
     initDraft(complete, 'live', 'a1', 0, null, Date.now(), { bans: {}, picks: {} }, {
-      pendingSwaps: [],
       completedSwaps: [],
     })
 
     expect(isSwapWindowOpen()).toBe(true)
-    expect(canRequestSwapWith(2)).toBe(true)
-    expect(canRequestSwapWith(1)).toBe(false)
+    expect(canSwapLeadersWith(2)).toBe(true)
+    expect(canSwapLeadersWith(1)).toBe(false)
   })
 
   test('opens the swap window for completed red death team drafts with swap state', () => {
     const complete = createCompleteRedDeathTeamState()
     initDraft(complete, 'live', 'a1', 0, null, Date.now(), { bans: {}, picks: {} }, {
-      pendingSwaps: [],
       completedSwaps: [],
     })
 
     expect(isSwapWindowOpen()).toBe(true)
-    expect(canRequestSwapWith(2)).toBe(true)
-    expect(canRequestSwapWith(1)).toBe(false)
+    expect(canSwapLeadersWith(2)).toBe(true)
+    expect(canSwapLeadersWith(1)).toBe(false)
   })
 
-  test('tracks incoming swap requests on the requested seat', () => {
+  test('does not allow swapping with yourself or across teams', () => {
     const complete = createCompleteTeamState()
     initDraft(complete, 'live', 'a1', 2, null, Date.now(), { bans: {}, picks: {} }, {
-      pendingSwaps: [{ fromSeat: 0, toSeat: 2, expiresAt: Date.now() + 30_000 }],
       completedSwaps: [],
     })
 
-    expect(seatHasIncomingSwap(2)).toBe(true)
-    expect(canRequestSwapWith(0)).toBe(false)
+    expect(canSwapLeadersWith(2)).toBe(false)
+    expect(canSwapLeadersWith(1)).toBe(false)
+    expect(canSwapLeadersWith(0)).toBe(true)
   })
 
-  test('allows independent swaps while limiting one incoming and one outgoing per seat', () => {
+  test('allows teammate leader swaps after previous swaps completed', () => {
     const complete = createComplete4v4State()
     const now = Date.now()
 
     initDraft(complete, 'live', 'a2', 2, null, now, { bans: {}, picks: {} }, {
-      pendingSwaps: [
-        { fromSeat: 0, toSeat: 2, expiresAt: now + 30_000 },
-        { fromSeat: 1, toSeat: 3, expiresAt: now + 30_000 },
-      ],
-      completedSwaps: [],
+      completedSwaps: [{ fromSeat: 0, toSeat: 2 }],
     })
 
-    expect(seatHasIncomingSwap(2)).toBe(true)
-    expect(canRequestSwapWith(4)).toBe(true)
-    expect(canRequestSwapWith(0)).toBe(false)
+    expect(canSwapLeadersWith(4)).toBe(true)
+    expect(canSwapLeadersWith(6)).toBe(true)
+  })
 
-    initDraft(complete, 'live', 'a1', 0, null, now, { bans: {}, picks: {} }, {
-      pendingSwaps: [
-        { fromSeat: 0, toSeat: 2, expiresAt: now + 30_000 },
-        { fromSeat: 1, toSeat: 3, expiresAt: now + 30_000 },
-      ],
-      completedSwaps: [],
-    })
+  test('full draft updates during the swap window update picks and flash changed seats', () => {
+    const complete = createCompleteTeamState()
+    const swapped: DraftState = {
+      ...complete,
+      picks: complete.picks.map((pick) => {
+        if (pick.seatIndex === 0) return { ...pick, civId: complete.picks.find(current => current.seatIndex === 2)!.civId }
+        if (pick.seatIndex === 2) return { ...pick, civId: complete.picks.find(current => current.seatIndex === 0)!.civId }
+        return pick
+      }),
+    }
 
-    expect(canRequestSwapWith(4)).toBe(false)
+    try {
+      initDraft(complete, 'live', 'a1', 0, null, Date.now(), { bans: {}, picks: {} }, {
+        completedSwaps: [],
+      })
 
-    initDraft(complete, 'live', 'a3', 4, null, now, { bans: {}, picks: {} }, {
-      pendingSwaps: [
-        { fromSeat: 0, toSeat: 2, expiresAt: now + 30_000 },
-        { fromSeat: 1, toSeat: 3, expiresAt: now + 30_000 },
-      ],
-      completedSwaps: [],
-    })
+      updateDraft(swapped, 'live', 'a1', [], null, Date.now(), { bans: {}, picks: {} }, {
+        completedSwaps: [{ fromSeat: 0, toSeat: 2 }],
+      })
 
-    expect(canRequestSwapWith(6)).toBe(true)
+      expect(seatJustSwapped(0)).toBe(true)
+      expect(seatJustSwapped(2)).toBe(true)
+      expect(canSwapLeadersWith(2)).toBe(true)
+    }
+    finally {
+      resetDraft()
+    }
+  })
+
+  test('full draft updates after swap window finalization hide swap actions', () => {
+    const complete = createCompleteTeamState()
+
+    try {
+      initDraft(complete, 'live', 'a1', 0, null, Date.now(), { bans: {}, picks: {} }, {
+        completedSwaps: [],
+      })
+      expect(isSwapWindowOpen()).toBe(true)
+      expect(canSwapLeadersWith(2)).toBe(true)
+
+      updateDraft(complete, 'live', 'a1', [], null, Date.now(), { bans: {}, picks: {} }, null)
+
+      expect(isSwapWindowOpen()).toBe(false)
+      expect(canSwapLeadersWith(2)).toBe(false)
+      expect(seatJustSwapped(0)).toBe(false)
+      expect(seatJustSwapped(2)).toBe(false)
+    }
+    finally {
+      resetDraft()
+    }
   })
 })

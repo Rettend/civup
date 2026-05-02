@@ -3,13 +3,13 @@ import type { LeaderboardMode } from '@civup/game'
 import type { FfaEntry, TeamInput } from '@civup/rating'
 import type { ParticipantRow, ReportInput, ReportResult } from './types.ts'
 import { matchBans, matches, matchParticipants, playerRatings, playerRatingSeeds, players } from '@civup/db'
-import { isTeamMode } from '@civup/game'
+import { allFactionIds, allLeaderIds, isTeamMode } from '@civup/game'
 import { calculateRatings, createRating } from '@civup/rating'
 import { and, eq, gt } from 'drizzle-orm'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { buildLeaderboardModeSnapshotFromD1, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
-import { getCompletedAtFromDraftData, getStoredGameModeContext } from './draft-data.ts'
+import { getCompletedAtFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
 import { buildRankByPlayer, recalculateLeaderboardMode } from './ratings.ts'
 
@@ -80,6 +80,11 @@ export async function reportMatch(
     const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
     return { match: updatedMatch ?? match, participants: updatedParticipants, idempotent: true }
   }
+
+  const hiddenLeaderAssignments = getHiddenDraftFromDraftData(match.draftData)
+    ? validateHiddenDraftLeaderAssignments(match.draftData, participantRows, input.leaderAssignments)
+    : null
+  if (hiddenLeaderAssignments && 'error' in hiddenLeaderAssignments) return hiddenLeaderAssignments
 
   if (isTeamMode(gameMode) || gameMode === '1v1') {
     const uniqueTeams = new Set(participantRows.flatMap(participant => participant.team == null ? [] : [participant.team]))
@@ -169,6 +174,10 @@ export async function reportMatch(
     }
   }
 
+  if (hiddenLeaderAssignments) {
+    await applyHiddenDraftLeaderAssignments(db, input.matchId, hiddenLeaderAssignments.assignments)
+  }
+
   const updatedParticipants = await db
     .select()
     .from(matchParticipants)
@@ -184,6 +193,67 @@ export async function reportMatch(
   }
 
   return finalized
+}
+
+function validateHiddenDraftLeaderAssignments(
+  draftData: string | null,
+  participantRows: ParticipantRow[],
+  input: Record<string, string> | undefined,
+): { assignments: Map<string, string> } | { error: string } {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { error: 'Hidden draft reports require leader assignments for every participant.' }
+  }
+
+  const participantIds = new Set(participantRows.map(participant => participant.playerId))
+  const assignments = new Map<string, string>()
+  for (const [playerId, civId] of Object.entries(input)) {
+    if (!participantIds.has(playerId)) {
+      return { error: `Leader assignment references an unknown participant: **${playerId}**.` }
+    }
+    if (typeof civId !== 'string' || civId.trim().length === 0) {
+      return { error: `Leader assignment for **${playerId}** is missing a leader.` }
+    }
+    assignments.set(playerId, civId.trim())
+  }
+
+  for (const participant of participantRows) {
+    if (!assignments.has(participant.playerId)) {
+      return { error: 'Hidden draft reports require leader assignments for every participant.' }
+    }
+  }
+
+  const draftState = getDraftStateFromDraftData(draftData)
+  const validCivIds = new Set(getRedDeathFromDraftData(draftData) ? allFactionIds : allLeaderIds)
+  for (const civId of draftState?.availableCivIds ?? []) validCivIds.add(civId)
+  for (const ban of draftState?.bans ?? []) validCivIds.add(ban.civId)
+  for (const pick of draftState?.picks ?? []) validCivIds.add(pick.civId)
+
+  const assignedCivIds = [...assignments.values()]
+  for (const civId of assignedCivIds) {
+    if (!validCivIds.has(civId)) return { error: `Unknown leader assignment: **${civId}**.` }
+  }
+
+  if (draftState?.duplicateFactions !== true && new Set(assignedCivIds).size !== assignedCivIds.length) {
+    return { error: 'Leader assignments must be unique for this match.' }
+  }
+
+  return { assignments }
+}
+
+async function applyHiddenDraftLeaderAssignments(
+  db: Database,
+  matchId: string,
+  assignments: Map<string, string>,
+): Promise<void> {
+  for (const [playerId, civId] of assignments) {
+    await db
+      .update(matchParticipants)
+      .set({ civId })
+      .where(and(
+        eq(matchParticipants.matchId, matchId),
+        eq(matchParticipants.playerId, playerId),
+      ))
+  }
 }
 
 async function finalizeReportedMatch(
@@ -248,6 +318,7 @@ async function finalizeReportedMatch(
         const rollbackError = await rollbackReportedRatedMatch(db, kv, {
           match,
           leaderboardMode,
+          participantRows: originalParticipantRows,
         })
         if (rollbackError) return { error: `${recalculated.error} Automatic rollback also failed: ${rollbackError}` }
         return recalculated
@@ -257,6 +328,7 @@ async function finalizeReportedMatch(
       const rollbackError = await rollbackReportedRatedMatch(db, kv, {
         match,
         leaderboardMode,
+        participantRows: originalParticipantRows,
       })
       if (rollbackError) {
         console.error(`Failed to roll back reported match ${matchId}:`, rollbackError)
@@ -266,7 +338,7 @@ async function finalizeReportedMatch(
 
     const cleanupError = await ensureReportedMatchCleanup(db, options, matchId, now, reporterId, true)
     if (cleanupError) {
-      const rollbackError = await rollbackPreparedReportAfterLifecycleFailure(db, kv, options, match, leaderboardMode)
+      const rollbackError = await rollbackPreparedReportAfterLifecycleFailure(db, kv, options, match, leaderboardMode, originalParticipantRows)
       if (rollbackError) return { error: `${cleanupError} Automatic rollback also failed: ${rollbackError}` }
       return { error: cleanupError }
     }
@@ -274,7 +346,7 @@ async function finalizeReportedMatch(
   else {
     const cleanupError = await ensureReportedMatchCleanup(db, options, matchId, now, reporterId, true)
     if (cleanupError) {
-      const rollbackError = await rollbackPreparedReportAfterLifecycleFailure(db, kv, options, match, leaderboardMode)
+      const rollbackError = await rollbackPreparedReportAfterLifecycleFailure(db, kv, options, match, leaderboardMode, originalParticipantRows)
       if (rollbackError) return { error: `${cleanupError} Automatic rollback also failed: ${rollbackError}` }
       return { error: cleanupError }
     }
@@ -544,19 +616,40 @@ async function rollbackReportedRatedMatch(
   options: {
     match: { id: string, draftData: string | null }
     leaderboardMode: LeaderboardMode
+    participantRows?: ParticipantRow[]
   },
 ): Promise<string | null> {
   try {
-    await db
-      .update(matchParticipants)
-      .set({
-        placement: null,
-        ratingBeforeMu: null,
-        ratingBeforeSigma: null,
-        ratingAfterMu: null,
-        ratingAfterSigma: null,
-      })
-      .where(eq(matchParticipants.matchId, options.match.id))
+    if (options.participantRows) {
+      for (const participant of options.participantRows) {
+        await db
+          .update(matchParticipants)
+          .set({
+            civId: participant.civId,
+            placement: participant.placement,
+            ratingBeforeMu: participant.ratingBeforeMu,
+            ratingBeforeSigma: participant.ratingBeforeSigma,
+            ratingAfterMu: participant.ratingAfterMu,
+            ratingAfterSigma: participant.ratingAfterSigma,
+          })
+          .where(and(
+            eq(matchParticipants.matchId, options.match.id),
+            eq(matchParticipants.playerId, participant.playerId),
+          ))
+      }
+    }
+    else {
+      await db
+        .update(matchParticipants)
+        .set({
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        })
+        .where(eq(matchParticipants.matchId, options.match.id))
+    }
 
     await db
       .update(matches)
@@ -590,9 +683,10 @@ async function rollbackPreparedReportAfterLifecycleFailure(
   options: ReportMatchOptions,
   match: { id: string, draftData: string | null },
   leaderboardMode: LeaderboardMode,
+  participantRows?: ParticipantRow[],
 ): Promise<string | null> {
   if (!await shouldRollbackPreparedReportedMatch(options, match.id)) return null
-  return await rollbackReportedRatedMatch(db, kv, { match, leaderboardMode })
+  return await rollbackReportedRatedMatch(db, kv, { match, leaderboardMode, participantRows })
 }
 
 async function rollbackParticipantRowsAfterLifecycleFailure(
@@ -607,6 +701,7 @@ async function rollbackParticipantRowsAfterLifecycleFailure(
       await db
         .update(matchParticipants)
         .set({
+          civId: participant.civId,
           placement: participant.placement,
           ratingBeforeMu: participant.ratingBeforeMu,
           ratingBeforeSigma: participant.ratingBeforeSigma,

@@ -325,6 +325,8 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         })
         setLiveTargetState({ kind: 'lobby', id: snapshot.id, pendingJoin: false })
         setState({ status: 'lobby-waiting', lobby: snapshot, joinPending: false, joinEligibility })
+        disconnect()
+        connectToSession(SESSION_SOCKET_TARGET, snapshot.id, null, { onStateChanged: handleSelectedSessionStateChange })
         return
       }
 
@@ -357,6 +359,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       appStatus: current.status,
       connectionStatus: connectionStatus(),
       draftStatus: draftStore.state?.status ?? null,
+      hasOpenSwapWindow: draftStore.swapState != null,
     })) { return }
 
     if (current.status === 'authenticated') {

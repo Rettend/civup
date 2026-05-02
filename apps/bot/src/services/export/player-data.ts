@@ -167,8 +167,8 @@ function overviewWorksheet(input: {
   rows.push([], ['Top Picked Leaders'], ['Leader', 'Civilization', 'Picks', 'Wins', 'Win rate'])
   for (const row of leaderRows.mostPicked) rows.push([row.leaderName || row.civId, row.civilizationName || null, row.picks, row.wins, formatPercent(row.winRatePct)])
 
-  rows.push([], ['Top Banned Leaders'], ['Leader', 'Civilization', 'Bans', 'Picks'])
-  for (const row of leaderRows.mostBanned) rows.push([row.leaderName || row.civId, row.civilizationName || null, row.bans, row.picks])
+  rows.push([], ['Top Banned Leaders'], ['Leader', 'Civilization', 'Bans', 'Picks', 'Wins', 'Win rate'])
+  for (const row of leaderRows.mostBanned) rows.push([row.leaderName || row.civId, row.civilizationName || null, row.bans, row.picks, row.wins, formatPercent(row.winRatePct)])
 
   rows.push([], ['Best Win Rates (min 10 picks)'], ['Leader', 'Civilization', 'Picks', 'Wins', 'Win rate', 'Average placement'])
   for (const row of leaderRows.bestWinRatesMin10) rows.push([row.leaderName || row.civId, row.civilizationName || null, row.picks, row.wins, formatPercent(row.winRatePct), row.averagePlacement])

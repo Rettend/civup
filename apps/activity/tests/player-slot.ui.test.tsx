@@ -36,32 +36,28 @@ describe('PlayerSlot UI', () => {
     expect(uiMockState.selectedWinningTeam).toBe(0)
   })
 
-  test('shows a swap request affordance for eligible teammate slots', () => {
+  test('swaps leaders immediately for eligible teammate slots', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftSeatIndex = 0
-    uiMockState.canRequestSwapSeatIndices = [1]
+    uiMockState.canSwapLeaderSeatIndices = [1]
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2', currentStepIndex: 1 })
 
     render(() => <PlayerSlot seatIndex={1} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Request swap' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Swap leaders' }))
 
-    expect(storeSpies.sendSwapRequest).toHaveBeenCalledWith(1)
+    expect(storeSpies.sendLeaderSwap).toHaveBeenCalledWith(1)
   })
 
-  test('shows an incoming swap acceptance affordance on the focused seat', () => {
-    uiMockState.userId = 'host-1'
-    uiMockState.draftSeatIndex = 0
-    uiMockState.swapWindowOpen = true
-    uiMockState.incomingSwapSeatIndices = [0]
-    uiMockState.previewPicks = { 0: 'america' }
-    uiMockState.draftState = createActiveDraftState({ formatId: '2v2', currentStepIndex: 1 })
+  test('only animates completed portraits for seats that just swapped', () => {
+    uiMockState.draftState = createCompleteDraftState({ formatId: '2v2' })
+    uiMockState.swapFlashSeatIndices = [2]
 
-    render(() => <PlayerSlot seatIndex={0} />)
+    const firstRender = render(() => <PlayerSlot seatIndex={0} />)
+    const secondRender = render(() => <PlayerSlot seatIndex={2} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Accept swap' }))
-
-    expect(storeSpies.sendSwapAccept).toHaveBeenCalledTimes(1)
+    expect(firstRender.container.querySelector('img[alt="Abraham Lincoln"]')?.className).not.toContain('anim-portrait-in')
+    expect(secondRender.container.querySelector('img[alt="John Curtin"]')?.className).toContain('anim-portrait-in')
   })
 
   test('keeps the map-vote breathing nodes mounted and grays out a confirmed seat during voting', () => {

@@ -2,13 +2,17 @@ import { formatMapVoteResultLabel, formatMapVoteResultTitle, MAP_SCRIPT_BY_ID, M
 import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
 import { preloadLobbyOverviewRoute } from '~/client/activity/route-preloads'
 import { cn } from '~/client/lib/css'
+import { getVisualSeatOrder } from '~/client/lib/seat-order'
 import {
   clearFfaPlacements,
+  clearHiddenDraftLeaderSelections,
   clearResultSelections,
   currentStepDuration,
   draftNow,
   draftStore,
   ffaPlacementOrder,
+  hiddenDraftLeaderSelections,
+  isHiddenDraftComplete,
   isMapVotePhase,
   isMobileLayout,
   MAP_VOTE_REVEAL_DURATION_SECONDS,
@@ -195,6 +199,7 @@ export function DraftHeader(props: DraftHeaderProps) {
     setResultStatus('idle')
     setPendingHostAction(null)
     clearResultSelections()
+    clearHiddenDraftLeaderSelections()
     disarmHostAction()
   })
 
@@ -209,6 +214,7 @@ export function DraftHeader(props: DraftHeaderProps) {
     setResultStatus('idle')
     setPendingHostAction(null)
     clearResultSelections()
+    clearHiddenDraftLeaderSelections()
   })
 
   createEffect(on(
@@ -224,7 +230,7 @@ export function DraftHeader(props: DraftHeaderProps) {
 
     setResultStatus('submitting:result')
     const teamToken = teamIndexToken(team)
-    const res = await reportMatchResult(draftStore.state!.matchId, uid, teamToken)
+    const res = await reportMatchResult(draftStore.state!.matchId, uid, teamToken, hiddenDraftLeaderAssignmentPayload())
     setResultStatus(res.ok ? 'done' : 'idle')
   }
 
@@ -236,7 +242,7 @@ export function DraftHeader(props: DraftHeaderProps) {
 
     setResultStatus('submitting:result')
     const placements = order.map(teamIndexToken).join('\n')
-    const res = await reportMatchResult(draftStore.state!.matchId, uid, placements)
+    const res = await reportMatchResult(draftStore.state!.matchId, uid, placements, hiddenDraftLeaderAssignmentPayload())
     if (res.ok) {
       setResultStatus('done')
       return
@@ -254,7 +260,7 @@ export function DraftHeader(props: DraftHeaderProps) {
     if (!s || order.length !== seatCount()) return
     setResultStatus('submitting:result')
     const placements = order.map(idx => `<@${s.seats[idx]!.playerId}>`).join('\n')
-    const res = await reportMatchResult(s.matchId, uid, placements)
+    const res = await reportMatchResult(s.matchId, uid, placements, hiddenDraftLeaderAssignmentPayload())
     if (res.ok) {
       setResultStatus('done')
     }
@@ -262,6 +268,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   }
 
   const confirmResult = async () => {
+    disarmHostAction()
     if (isTeamMode()) {
       if (teamCount() > 2) {
         await reportOrderedTeams()
@@ -287,6 +294,17 @@ export function DraftHeader(props: DraftHeaderProps) {
 
     setPendingHostAction('scrub')
     if (sendScrub() === false) setPendingHostAction(null)
+  }
+
+  const confirmCompleteScrub = () => {
+    if (!amHost() || !isComplete() || pendingHostAction() != null || resultStatus().startsWith('submitting')) return
+    if (armedHostAction() !== 'scrub') {
+      armHostAction('scrub')
+      return
+    }
+
+    disarmHostAction()
+    void scrubMatch()
   }
 
   const revertDraft = () => {
@@ -315,7 +333,22 @@ export function DraftHeader(props: DraftHeaderProps) {
   const canManageDraft = () => amHost() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
   const canManageDraftPhase = () => showHostActions() && pendingHostAction() == null && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
   const canSubmitResult = () => isParticipant() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
+  const hiddenDraftLeaderSelectionReady = () => {
+    const s = state()
+    if (!isHiddenDraftComplete() || !s) return true
+    return hiddenDraftLeaderSelections().length >= s.seats.length
+  }
+  const hiddenDraftLeaderAssignmentPayload = (): Record<string, string> | undefined => {
+    const s = state()
+    if (!isHiddenDraftComplete() || !s) return undefined
+    const selections = hiddenDraftLeaderSelections()
+    return Object.fromEntries(getVisualSeatOrder(s.seats).map((seatIndex, selectionIndex) => [
+      s.seats[seatIndex]!.playerId,
+      selections[selectionIndex]!,
+    ]))
+  }
   const resultSelectionReady = () => {
+    if (!hiddenDraftLeaderSelectionReady()) return false
     if (!isTeamMode()) return ffaPlacementOrder().length === seatCount()
     if (teamCount() > 2) return teamPlacementOrder().length === teamCount()
     return selectedWinningTeam() != null
@@ -351,7 +384,6 @@ export function DraftHeader(props: DraftHeaderProps) {
   const renderSteamLobbyButton = (sizeClass: string) => (
     <SteamLobbyButton
       steamLobbyLink={props.steamLobbyLink ?? null}
-      isHost={amHost()}
       onSaveSteamLink={props.onSaveSteamLink}
       savePending={props.savePending}
       class={sizeClass}
@@ -437,9 +469,9 @@ export function DraftHeader(props: DraftHeaderProps) {
             size="sm"
             variant="redOutline"
             disabled={!canManageDraft()}
-            onClick={scrubMatch}
+            onClick={confirmCompleteScrub}
           >
-            {resultStatus() === 'submitting:scrub' ? 'Submitting' : 'Scrub'}
+            {resultStatus() === 'submitting:scrub' ? 'Submitting' : armedHostAction() === 'scrub' ? 'Confirm Scrub' : 'Scrub'}
           </Button>
         </Show>
       </div>

@@ -724,6 +724,69 @@ describe('lobby routes', () => {
     expect(updatedLobby?.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
   })
 
+  test('config route lets slotted non-host players update only the Steam lobby link', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'pleb'], lobby)
+    await setLobbySlots(kv, lobby.id, ['host', 'pleb', null, null], withMembers ?? lobby)
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('pleb', 'Pleb'),
+      body: JSON.stringify({
+        userId: 'pleb',
+        lobbyId: lobby.id,
+        steamLobbyLink: 'steam://joinlobby/289070/22222222222222222/76561198000000000',
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.steamLobbyLink).toBe('steam://joinlobby/289070/22222222222222222/76561198000000000')
+  })
+
+  test('config route rejects spectator Steam lobby link updates', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'pleb'], lobby)
+    await setLobbySlots(kv, lobby.id, ['host', 'pleb', null, null], withMembers ?? lobby)
+
+    const response = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('spectator', 'Spectator'),
+      body: JSON.stringify({
+        userId: 'spectator',
+        lobbyId: lobby.id,
+        steamLobbyLink: 'steam://joinlobby/289070/33333333333333333/76561198000000000',
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(403)
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.steamLobbyLink).toBeNull()
+  })
+
   test('config route preserves existing timers when only the Steam lobby link changes', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
@@ -784,6 +847,7 @@ describe('lobby routes', () => {
       redDeath: false,
       dealOptionsSize: null,
       randomDraft: false,
+      hiddenDraft: false,
       duplicateFactions: false,
     })
     expect(updatedLobby?.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
