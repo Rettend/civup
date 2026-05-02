@@ -83,6 +83,7 @@ type ActivityDirectoryRow = typeof sessionDirectory.$inferSelect
 
 const ACTIVITY_DIRECTORY_PHASES = ['open', 'draft', 'swap', 'active'] as const
 const ACTIVITY_TARGET_PHASES = ['open', 'draft', 'swap', 'active', 'reported'] as const
+const LIVE_ACTIVITY_OVERVIEW_STATUSES = new Set<ActivityOverviewOptionSnapshot['status']>(['open', 'drafting', 'active'])
 
 export async function buildActivityOverviewSnapshotFromDirectory(
   db: Database,
@@ -97,18 +98,43 @@ export async function buildActivityOverviewSnapshotFromDirectory(
   return { channelId, options }
 }
 
+export function mergeActivityOverviewSnapshotForSessionUpdate(
+  current: ActivityOverviewSnapshot | null,
+  record: SessionRecord,
+): ActivityOverviewSnapshot | null {
+  const channelId = record.projectionState.channelId
+  const options = [
+    ...((current?.channelId === channelId ? current.options : [])
+      .filter(option => option.lobbyId !== record.id && LIVE_ACTIVITY_OVERVIEW_STATUSES.has(option.status))),
+    ...(isLiveActivityOverviewPhase(record.phase) ? buildActivityOverviewOptionsFromSessionRecord(record) : []),
+  ].sort(compareActivityOverviewOptions)
+
+  return options.length > 0 ? { channelId, options } : null
+}
+
 export async function getActivitySessionsByChannel(
   db: Database,
   channelId: string,
 ): Promise<ActivitySessionDirectoryEntry[]> {
-  const rows = await db.select().from(sessionDirectory)
+  const rowsByPhase = await Promise.all(ACTIVITY_DIRECTORY_PHASES.map(phase => db.select().from(sessionDirectory)
     .where(and(
       eq(sessionDirectory.channelId, channelId),
-      inArray(sessionDirectory.phase, [...ACTIVITY_DIRECTORY_PHASES]),
+      eq(sessionDirectory.phase, phase),
     ))
-    .orderBy(desc(sessionDirectory.updatedAt))
+    .orderBy(desc(sessionDirectory.updatedAt))))
+
+  const rows = rowsByPhase.flat().sort(compareActivityDirectoryRowsByUpdatedAtDesc)
 
   return rows.flatMap(parseActivitySessionDirectoryEntry)
+}
+
+function compareActivityDirectoryRowsByUpdatedAtDesc(left: ActivityDirectoryRow, right: ActivityDirectoryRow): number {
+  if (left.updatedAt !== right.updatedAt) return right.updatedAt - left.updatedAt
+  return left.sessionId.localeCompare(right.sessionId)
+}
+
+function isLiveActivityOverviewPhase(phase: SessionRecord['phase']): boolean {
+  return phase === 'open' || phase === 'draft' || phase === 'swap' || phase === 'active'
 }
 
 export async function getActivitySessionById(

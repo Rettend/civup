@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { CIVUP_INTERNAL_SECRET_HEADER, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
+import type { ActivityOverviewOptionSnapshot } from '../../src/services/activity/session-state.ts'
+import { mergeActivityOverviewSnapshotForSessionUpdate } from '../../src/services/activity/session-state.ts'
 import { publishActivitySessionUpdate } from '../../src/session-runtime/activity-feed-client.ts'
 import type { SessionRecord } from '../../src/session-runtime/session-record.ts'
 
@@ -26,7 +28,47 @@ describe('activity feed client', () => {
     expect(capturedRequest?.headers.get(PARTYSERVER_NAMESPACE_HEADER)).toBe('activity')
     expect(capturedRequest?.headers.get(CIVUP_INTERNAL_SECRET_HEADER)).toBe('secret')
   })
+
+  test('removes terminal sessions and stale completed options from overview updates', () => {
+    const current = {
+      channelId: 'channel-1',
+      options: [
+        buildOverviewOption({ id: 'session-1', lobbyId: 'session-1', kind: 'lobby', status: 'open' }),
+        buildOverviewOption({ id: 'old-match-1', lobbyId: 'old-session-1', kind: 'match', status: 'completed', matchId: 'old-match-1' }),
+        buildOverviewOption({ id: 'session-2', lobbyId: 'session-2', kind: 'lobby', status: 'open' }),
+      ],
+    }
+
+    const overview = mergeActivityOverviewSnapshotForSessionUpdate(current, {
+      ...buildSessionRecord(),
+      phase: 'reported',
+      matchId: 'match-1',
+      updatedAt: 10,
+      closedAt: 10,
+    })
+
+    expect(overview?.options.map(option => option.id)).toEqual(['session-2'])
+  })
 })
+
+function buildOverviewOption(overrides: Partial<ActivityOverviewOptionSnapshot> = {}): ActivityOverviewOptionSnapshot {
+  return {
+    kind: 'lobby',
+    id: 'session-1',
+    lobbyId: 'session-1',
+    matchId: null,
+    channelId: 'channel-1',
+    mode: '1v1',
+    status: 'open',
+    participantCount: 1,
+    targetSize: 2,
+    redDeath: false,
+    hostId: 'host-1',
+    memberPlayerIds: ['host-1'],
+    updatedAt: 1,
+    ...overrides,
+  }
+}
 
 function buildSessionRecord(): SessionRecord {
   return {
