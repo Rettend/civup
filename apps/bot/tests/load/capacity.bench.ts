@@ -105,14 +105,14 @@ const CAPACITY_SCENARIOS: CapacityScenario[] = [
   },
 ]
 
-// SessionSocketServer keeps connections in memory, so model every incoming websocket message as billed.
+// SessionDO uses Durable Object WebSocket hibernation; duration is event-time, not socket wall-clock time.
 const DO_WEBSOCKET_BILLING_RATIO = 1
 const DO_CREATE_ROOM_REQUESTS_PER_DRAFT = 1
 const LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION = 4
 const ESTIMATED_DO_GB_SECONDS_PER_REQUEST = 0.0025
 const AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT = 0.5
 const ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES = 2
-const TARGET_ARCHITECTURE_MODEL = 'target-session-do-v3-low-kv-do-sqlite-overview'
+const TARGET_ARCHITECTURE_MODEL = 'target-session-do-v4-hibernating-selected-sockets'
 const TARGET_SESSION_SOCKET_CONNECTIONS_PER_VIEWER = 1
 const TARGET_SESSION_DO_SQL_READS_PER_COMMAND = 1
 const TARGET_SESSION_DO_SQL_WRITES_PER_COMMAND = 1

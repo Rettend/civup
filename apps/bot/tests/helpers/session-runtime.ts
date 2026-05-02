@@ -26,15 +26,18 @@ export function createTestSessionNamespace(env: Partial<Cloudflare.Env> = {}): D
 
 export function createFakeDurableObjectState(): DurableObjectState {
   const storage = new Map<string, unknown>()
+  const webSockets: WebSocket[] = []
   let alarmAt: number | null = null
   return {
     async blockConcurrencyWhile(callback: () => Promise<void> | void) {
       await callback()
     },
     getWebSockets() {
-      return []
+      return webSockets
     },
-    acceptWebSocket() {},
+    acceptWebSocket(socket: WebSocket) {
+      webSockets.push(socket)
+    },
     storage: {
       async get(key: string) {
         return storage.get(key)
