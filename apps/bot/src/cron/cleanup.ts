@@ -6,7 +6,8 @@ import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleCon
 import { getKvStore } from '../services/kv/batch.ts'
 import { factory } from '../setup.ts'
 
-const LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS = 5 * 60 * 1000
+const LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS = 30 * 60 * 1000
+const LEADERBOARD_HEAVY_REFRESH_COOLDOWN_MS = 60 * 60 * 1000
 
 export const cron_cleanup = factory.cron(
   '0 * * * *', // every hour
@@ -48,6 +49,7 @@ export const cron_leaderboards = factory.cron(
     try {
       const refreshed = await refreshDirtyLeaderboards(db, kv, c.env.DISCORD_TOKEN, {
         minDirtyAgeMs: LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS,
+        heavyRefreshCooldownMs: LEADERBOARD_HEAVY_REFRESH_COOLDOWN_MS,
       })
       if (refreshed) {
         // eslint-disable-next-line no-console

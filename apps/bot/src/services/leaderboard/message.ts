@@ -10,14 +10,15 @@ import { createChannelMessage, deleteChannelMessage, editChannelMessage, isDisco
 import {
   getSystemChannel,
 } from '../system/channels.ts'
-import { ensureCivLeaderboardSnapshot, rebuildCivLeaderboardSnapshot } from './civ-snapshot.ts'
-import { clearAllTeamLeaderboardSnapshots } from './team-snapshot.ts'
-import { ensureLeaderboardModeSnapshots, rebuildLeaderboardModeSnapshot } from './snapshot.ts'
+import { ensureCivLeaderboardSnapshot, getStoredCivLeaderboardSnapshot, rebuildCivLeaderboardSnapshot } from './civ-snapshot.ts'
+import { ensureLeaderboardModeSnapshots, getStoredLeaderboardModeSnapshots, rebuildLeaderboardModeSnapshot } from './snapshot.ts'
 
 const PLAYER_LEADERBOARD_SCOPE = 'global'
 const CIV_LEADERBOARD_SCOPE = 'civ'
 const CIV_LEADERBOARD_MESSAGE_SCOPES = [CIV_LEADERBOARD_SCOPE, 'civ:2', 'civ:3'] as const
 const LEADERBOARD_DIRTY_SCOPE = 'global'
+const LEADERBOARD_HEAVY_REFRESH_KEY = 'leaderboard:last-heavy-refresh-at'
+const DEFAULT_HEAVY_REFRESH_COOLDOWN_MS = 60 * 60 * 1000
 
 export async function markLeaderboardsDirty(db: Database, reason: string): Promise<LeaderboardDirtyState> {
   const existing = await getLeaderboardDirtyState(db)
@@ -116,27 +117,35 @@ export async function refreshDirtyLeaderboards(
   options: {
     modes?: readonly LeaderboardMode[]
     minDirtyAgeMs?: number
+    heavyRefreshCooldownMs?: number
     now?: number
   } = {},
 ): Promise<boolean> {
   const dirtyState = await getLeaderboardDirtyState(db)
   if (!dirtyState) return false
-  if (options.minDirtyAgeMs != null && (options.now ?? Date.now()) - dirtyState.dirtyAt < options.minDirtyAgeMs) return false
+  const now = options.now ?? Date.now()
+  if (options.minDirtyAgeMs != null && now - dirtyState.dirtyAt < options.minDirtyAgeMs) return false
 
   const modes = [...new Set(options.modes ?? LEADERBOARD_MODES)]
   const [leaderboardChannelId, civLeaderboardChannelId] = await Promise.all([
     getSystemChannel(kv, 'leaderboard'),
     getSystemChannel(kv, 'civ-leaderboard'),
   ])
+  const heavyRefreshDue = leaderboardChannelId
+    ? await isHeavyRefreshDue(kv, now, options.heavyRefreshCooldownMs ?? DEFAULT_HEAVY_REFRESH_COOLDOWN_MS)
+    : false
 
-  await Promise.all([
-    rebuildLeaderboardSnapshots(db, kv, modes),
-    civLeaderboardChannelId ? rebuildCivLeaderboardSnapshot(db, kv) : Promise.resolve(),
-  ])
+  if (heavyRefreshDue) {
+    await rebuildLeaderboardSnapshots(db, kv, modes)
+    await setLastHeavyRefreshAt(kv, now)
+  }
+  if (civLeaderboardChannelId) await rebuildCivLeaderboardSnapshot(db, kv, now)
+
+  const canPublishLeaderboard = leaderboardChannelId && (heavyRefreshDue || await hasAnyCachedLeaderboardModeSnapshot(kv, modes))
 
   const [leaderboardState, civLeaderboardState] = await Promise.all([
-    leaderboardChannelId
-      ? upsertLeaderboardMessagesForChannel(db, kv, token, leaderboardChannelId, { modes })
+    canPublishLeaderboard
+      ? upsertLeaderboardMessagesForChannel(db, kv, token, leaderboardChannelId, { modes, useCachedSnapshots: !heavyRefreshDue })
       : Promise.resolve(null),
     civLeaderboardChannelId
       ? upsertCivLeaderboardMessageForChannel(db, kv, token, civLeaderboardChannelId)
@@ -154,11 +163,12 @@ export async function upsertLeaderboardMessagesForChannel(
   options: {
     forceCreate?: boolean
     modes?: readonly LeaderboardMode[]
+    useCachedSnapshots?: boolean
   } = {},
 ): Promise<LeaderboardMessageState> {
   const existing = await getLeaderboardMessageState(db, PLAYER_LEADERBOARD_SCOPE)
   const previousMessageId = !options.forceCreate && existing?.channelId === channelId ? existing.messageId : null
-  const embeds = await buildLeaderboardEmbeds(db, kv, { modes: options.modes })
+  const embeds = await buildLeaderboardEmbeds(db, kv, { modes: options.modes, useCachedSnapshots: options.useCachedSnapshots })
 
   if (previousMessageId) {
     try {
@@ -227,10 +237,13 @@ async function buildLeaderboardEmbeds(
   options: {
     titlePrefix?: string
     modes?: readonly LeaderboardMode[]
+    useCachedSnapshots?: boolean
   } = {},
 ) {
   const modes = options.modes ?? LEADERBOARD_MODES
-  const snapshots = await ensureLeaderboardModeSnapshots(db, kv, modes)
+  const snapshots = options.useCachedSnapshots
+    ? await getStoredLeaderboardModeSnapshots(kv, modes)
+    : await ensureLeaderboardModeSnapshots(db, kv, modes)
   return modes.map((mode) => {
     const snapshot = snapshots.get(mode)
     return leaderboardEmbed(mode, snapshot?.rows ?? [], options)
@@ -241,7 +254,7 @@ async function buildCivLeaderboardEmbedGroups(
   db: Database,
   kv: KVNamespace,
 ) {
-  const snapshot = await ensureCivLeaderboardSnapshot(db, kv)
+  const snapshot = (await getStoredCivLeaderboardSnapshot(kv)) ?? await ensureCivLeaderboardSnapshot(db, kv)
   return civLeaderboardEmbedGroups(snapshot)
 }
 
@@ -314,9 +327,25 @@ async function rebuildLeaderboardSnapshots(
   modes: readonly LeaderboardMode[],
 ): Promise<void> {
   await Promise.all(modes.map(mode => rebuildLeaderboardModeSnapshot(db, kv, mode)))
-  if (modes.some(mode => mode === 'duo' || mode === 'squad')) {
-    await clearAllTeamLeaderboardSnapshots(kv)
-  }
+}
+
+async function isHeavyRefreshDue(kv: KVNamespace, now: number, cooldownMs: number): Promise<boolean> {
+  const lastRefreshAt = await getLastHeavyRefreshAt(kv)
+  return lastRefreshAt === 0 || now - lastRefreshAt >= cooldownMs
+}
+
+async function getLastHeavyRefreshAt(kv: KVNamespace): Promise<number> {
+  const raw = await kv.get(LEADERBOARD_HEAVY_REFRESH_KEY)
+  const value = typeof raw === 'string' ? Number.parseInt(raw, 10) : 0
+  return Number.isFinite(value) && value > 0 ? value : 0
+}
+
+async function setLastHeavyRefreshAt(kv: KVNamespace, updatedAt: number): Promise<void> {
+  await kv.put(LEADERBOARD_HEAVY_REFRESH_KEY, String(Math.max(0, Math.round(updatedAt))))
+}
+
+async function hasAnyCachedLeaderboardModeSnapshot(kv: KVNamespace, modes: readonly LeaderboardMode[]): Promise<boolean> {
+  return (await getStoredLeaderboardModeSnapshots(kv, modes)).size > 0
 }
 
 async function getLeaderboardMessageState(db: Database, scope: string): Promise<LeaderboardMessageState | null> {
