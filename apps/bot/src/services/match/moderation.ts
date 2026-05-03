@@ -5,6 +5,7 @@ import { matchBans, matches, matchParticipants } from '@civup/db'
 import { allLeaderIds, isTeamMode, parseGameMode } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
+import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
@@ -154,6 +155,8 @@ export async function resolveMatchByModerator(
     }
   }
 
+  await reconcileCivLeaderboardMatchContribution(db, input.matchId)
+
   const [updatedMatch] = await db
     .select()
     .from(matches)
@@ -244,6 +247,7 @@ export async function correctMatchLeadersByModerator(
   }
 
   await runBatch(db, applyQueries)
+  await reconcileCivLeaderboardMatchContribution(db, input.matchId)
 
   const [updatedMatch] = await db
     .select()
@@ -308,6 +312,7 @@ async function rollbackResolvedMatchModeration(
     if (options.bans.length > 0) rollbackQueries.push(db.insert(matchBans).values(options.bans))
 
     await runBatch(db, rollbackQueries)
+    await reconcileCivLeaderboardMatchContribution(db, options.input.matchId)
 
     const recalculated = await recalculateLeaderboardMode(db, options.leaderboardMode, {
       fromMatchId: options.input.matchId,
@@ -553,6 +558,9 @@ export async function cancelMatchByModerator(
     .where(eq(matchParticipants.matchId, input.matchId))
 
   let recalculatedMatchIds: string[] = []
+  if (previousStatus === 'completed') {
+    await removeCivLeaderboardMatchContribution(db, input.matchId)
+  }
   if (completedLeaderboardMode != null) {
     const recalculated = await recalculateLeaderboardMode(db, completedLeaderboardMode, {
       fromMatchId: input.matchId,

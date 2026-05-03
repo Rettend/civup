@@ -179,7 +179,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
           const isRankedMatch = matchContext.ranked
           try {
-            if (isRankedMatch) {
+            if (!matchContext.redDeath) {
               await markLeaderboardsDirty(db, `mod-cancel:${result.match.id}`)
             }
           }
@@ -267,7 +267,7 @@ export const command_mod = factory.autocomplete<ModVar>(
             const isRankedMatch = matchContext.ranked
 
             try {
-              if (isRankedMatch) {
+              if (!matchContext.redDeath) {
                 await markLeaderboardsDirty(db, `mod-resolve:${result.match.id}`)
               }
             }
@@ -422,6 +422,15 @@ export const command_mod = factory.autocomplete<ModVar>(
             if (!matchContext) {
               await sendTransientEphemeralResponse(c, `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.`, 'error')
               return
+            }
+
+            try {
+              if (!matchContext.redDeath && result.corrections.some(correction => correction.previousCivId !== correction.nextCivId)) {
+                await markLeaderboardsDirty(db, `mod-leader:${result.match.id}`)
+              }
+            }
+            catch (error) {
+              console.error(`Failed to mark leaderboards dirty after correcting leaders for match ${result.match.id}:`, error)
             }
 
             await sendEphemeralResponse(
