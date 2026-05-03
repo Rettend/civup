@@ -166,14 +166,16 @@ export function registerMatchRoutes(app: Hono<Env>) {
       archivePolicy: 'always',
     })
     queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
-    if (isRankedResult) {
-      try {
+    try {
+      if (!reportedContext.redDeath) {
         await markLeaderboardsDirty(db, `activity-report:${result.match.id}`)
       }
-      catch (error) {
-        console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
-      }
+    }
+    catch (error) {
+      console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
+    }
 
+    if (isRankedResult) {
       try {
         await markRankedRolesDirty(kv, `activity-report:${result.match.id}`)
       }
@@ -273,14 +275,16 @@ export function registerMatchRoutes(app: Hono<Env>) {
 
     if (result.previousStatus === 'completed') {
       const scrubContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
-      if (scrubContext?.ranked) {
+      if (scrubContext && !scrubContext.redDeath) {
         try {
           await markLeaderboardsDirty(db, `activity-scrub:${result.match.id}`)
         }
         catch (error) {
           console.error(`Failed to mark leaderboards dirty after scrub ${result.match.id}:`, error)
         }
+      }
 
+      if (scrubContext?.ranked) {
         try {
           await markRankedRolesDirty(kv, `activity-scrub:${result.match.id}`)
         }

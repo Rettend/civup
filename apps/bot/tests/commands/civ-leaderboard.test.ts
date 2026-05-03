@@ -1,8 +1,9 @@
-import { matches, matchParticipants, players } from '@civup/db'
+import { civStatTotals, matches, matchCivStatContributions, matchParticipants, players } from '@civup/db'
 import { allLeaderIds, getLeader } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { buildCivLeaderboardCommandPayload } from '../../src/commands/civ-leaderboard.ts'
 import { CIV_LEADERBOARD_DESCRIPTION_CHAR_LIMIT, CIV_LEADERBOARD_TOP_LIMIT, civLeaderboardEmbedGroups } from '../../src/embeds/civ-leaderboard.ts'
+import { rebuildCivLeaderboardSnapshot, reconcileCivLeaderboardMatchContribution } from '../../src/services/leaderboard/civ-snapshot.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('civ leaderboard command payload', () => {
@@ -137,6 +138,107 @@ describe('civ leaderboard command payload', () => {
         expect(stringLength(description)).toBeLessThanOrEqual(CIV_LEADERBOARD_DESCRIPTION_CHAR_LIMIT)
         expect(lineCount(description)).toBeLessThan(CIV_LEADERBOARD_TOP_LIMIT)
       }
+    }
+  })
+
+  test('reconciles aggregate contributions when completed match leaders change or cancel', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await db.insert(players).values({ id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 })
+      await db.insert(matches).values({
+        id: 'match-1',
+        gameMode: 'ffa',
+        status: 'completed',
+        isOld: false,
+        seasonId: null,
+        draftData: JSON.stringify({ state: { bans: [{ civId: 'rome-trajan' }] } }),
+        createdAt: 1,
+        completedAt: 2,
+      })
+      await db.insert(matchParticipants).values({
+        matchId: 'match-1',
+        playerId: 'p1',
+        team: null,
+        civId: 'rome-trajan',
+        placement: 1,
+        ratingBeforeMu: null,
+        ratingBeforeSigma: null,
+        ratingAfterMu: null,
+        ratingAfterSigma: null,
+      })
+
+      await reconcileCivLeaderboardMatchContribution(db, 'match-1', 10)
+      let snapshot = await rebuildCivLeaderboardSnapshot(db, kv, 20)
+      expect(snapshot.completedMatchCount).toBe(1)
+      expect(snapshot.rows.find(row => row.civId === 'rome-trajan')).toMatchObject({ picks: 1, wins: 1, bans: 1 })
+
+      await db.update(matchParticipants).set({ civId: 'russia-peter', placement: 2 })
+      await db.update(matches).set({ draftData: JSON.stringify({ state: { bans: [{ civId: 'russia-peter' }] } }) })
+      await reconcileCivLeaderboardMatchContribution(db, 'match-1', 30)
+      snapshot = await rebuildCivLeaderboardSnapshot(db, kv, 40)
+      expect(snapshot.completedMatchCount).toBe(1)
+      expect(snapshot.rows.find(row => row.civId === 'rome-trajan')).toBeUndefined()
+      expect(snapshot.rows.find(row => row.civId === 'russia-peter')).toMatchObject({ picks: 1, wins: 0, bans: 1 })
+
+      await db.update(matches).set({ status: 'cancelled' })
+      await reconcileCivLeaderboardMatchContribution(db, 'match-1', 50)
+      snapshot = await rebuildCivLeaderboardSnapshot(db, kv, 60)
+      expect(snapshot.completedMatchCount).toBe(0)
+      expect(snapshot.rows).toEqual([])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('reconciles one match contribution without historical backfill', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await db.insert(players).values({ id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 })
+      await seedCompletedMatch('historical-match', 'rome-trajan', 1)
+      await seedCompletedMatch('target-match', 'russia-peter', 2)
+
+      await reconcileCivLeaderboardMatchContribution(db, 'target-match', 10)
+
+      const contributionRows = await db
+        .select({ matchId: matchCivStatContributions.matchId })
+        .from(matchCivStatContributions)
+      expect(contributionRows).toEqual([{ matchId: 'target-match' }])
+
+      const totalRows = await db
+        .select({ scope: civStatTotals.scope })
+        .from(civStatTotals)
+      expect(totalRows).toEqual([])
+    }
+    finally {
+      sqlite.close()
+    }
+
+    async function seedCompletedMatch(matchId: string, civId: string, createdAt: number): Promise<void> {
+      await db.insert(matches).values({
+        id: matchId,
+        gameMode: 'ffa',
+        status: 'completed',
+        isOld: false,
+        seasonId: null,
+        draftData: JSON.stringify({ state: { bans: [{ civId }] } }),
+        createdAt,
+        completedAt: createdAt,
+      })
+      await db.insert(matchParticipants).values({
+        matchId,
+        playerId: 'p1',
+        team: null,
+        civId,
+        placement: 1,
+        ratingBeforeMu: null,
+        ratingBeforeSigma: null,
+        ratingAfterMu: null,
+        ratingAfterSigma: null,
+      })
     }
   })
 })
