@@ -68,7 +68,10 @@ export function estimateDailyUsage(
   playersPerDraft: number,
 ): DailyUsage {
   const draftsPerDay = playsPerDay / playersPerDraft
-  const d1RowsReadPerDraft = model.perDraft.d1RowsReadBase + model.perDraft.d1RowsReadPerLeaderboardPlayer * playsPerDay
+  const d1RowsRead = Math.ceil(
+    draftsPerDay * model.perDraft.d1RowsReadBase
+    + model.perDraft.d1RowsReadPerLeaderboardPlayer * playsPerDay,
+  )
   const botWorkerRequests = Math.ceil(draftsPerDay * model.perDraft.botWorkerRequests)
   const activityWorkerRequests = Math.ceil(draftsPerDay * model.perDraft.activityWorkerRequests)
 
@@ -76,7 +79,7 @@ export function estimateDailyUsage(
     workersRequests: botWorkerRequests + activityWorkerRequests,
     botWorkerRequests,
     activityWorkerRequests,
-    d1RowsRead: Math.ceil(draftsPerDay * d1RowsReadPerDraft),
+    d1RowsRead,
     d1RowsWritten: Math.ceil(draftsPerDay * model.perDraft.d1RowsWritten),
     doSqliteRowsRead: Math.ceil(draftsPerDay * model.perDraft.doSqliteRowsRead),
     doSqliteRowsWritten: Math.ceil(draftsPerDay * model.perDraft.doSqliteRowsWritten),

@@ -7,7 +7,6 @@ import { and, eq } from 'drizzle-orm'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
-import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
 import { parseModerationPlacements } from './placements.ts'
 import { recalculateLeaderboardMode } from './ratings.ts'
@@ -155,7 +154,7 @@ export async function resolveMatchByModerator(
     }
   }
 
-  await reconcileCivLeaderboardMatchContribution(db, input.matchId)
+  await reconcileLeaderboardAggregatesForMatch(db, input.matchId)
 
   const [updatedMatch] = await db
     .select()
@@ -270,6 +269,20 @@ export async function correctMatchLeadersByModerator(
   }
 }
 
+async function reconcileLeaderboardAggregatesForMatch(
+  db: Database,
+  matchId: string,
+): Promise<void> {
+  await reconcileCivLeaderboardMatchContribution(db, matchId)
+}
+
+async function removeLeaderboardAggregatesForMatch(
+  db: Database,
+  matchId: string,
+): Promise<void> {
+  await removeCivLeaderboardMatchContribution(db, matchId)
+}
+
 async function rollbackResolvedMatchModeration(
   db: Database,
   kv: KVNamespace,
@@ -312,7 +325,7 @@ async function rollbackResolvedMatchModeration(
     if (options.bans.length > 0) rollbackQueries.push(db.insert(matchBans).values(options.bans))
 
     await runBatch(db, rollbackQueries)
-    await reconcileCivLeaderboardMatchContribution(db, options.input.matchId)
+    await reconcileLeaderboardAggregatesForMatch(db, options.input.matchId)
 
     const recalculated = await recalculateLeaderboardMode(db, options.leaderboardMode, {
       fromMatchId: options.input.matchId,
@@ -321,9 +334,6 @@ async function rollbackResolvedMatchModeration(
     if ('error' in recalculated) return recalculated.error
 
     await rebuildLeaderboardModeSnapshot(db, kv, options.leaderboardMode)
-    if (options.leaderboardMode === 'duo' || options.leaderboardMode === 'squad') {
-      await clearTeamLeaderboardModeSnapshots(kv, options.leaderboardMode)
-    }
     return null
   }
   catch (error) {
@@ -559,7 +569,7 @@ export async function cancelMatchByModerator(
 
   let recalculatedMatchIds: string[] = []
   if (previousStatus === 'completed') {
-    await removeCivLeaderboardMatchContribution(db, input.matchId)
+    await removeLeaderboardAggregatesForMatch(db, input.matchId)
   }
   if (completedLeaderboardMode != null) {
     const recalculated = await recalculateLeaderboardMode(db, completedLeaderboardMode, {
@@ -568,9 +578,6 @@ export async function cancelMatchByModerator(
     })
     if ('error' in recalculated) return recalculated
     await rebuildLeaderboardModeSnapshot(db, kv, completedLeaderboardMode)
-    if (completedLeaderboardMode === 'duo' || completedLeaderboardMode === 'squad') {
-      await clearTeamLeaderboardModeSnapshots(kv, completedLeaderboardMode)
-    }
     recalculatedMatchIds = recalculated.matchIds
   }
 

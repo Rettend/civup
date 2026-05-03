@@ -41,13 +41,19 @@ export interface ScenarioReport {
 }
 
 export interface CapacitySnapshot {
-  version: 4
+  version: 5
   globals: {
     stabilitySamples: number
     leaderboardCronRunsPerDay: number
     inactiveLobbyCleanupCronRunsPerDay: number
     rankedRoleCronRunsPerDay: number
     architectureModel: string
+    currentArchitectureModel: string
+    targetArchitectureModel: string
+    modeledProductionRatedPlayers: number
+    modeledProductionCompletedMatches: number
+    modeledProductionMatchParticipants: number
+    estimatedSelectedSessionConnectedSeconds: number
     lobbyWatchMsgsPerConnection: number
     doWebsocketBillingRatio: number
     estimatedDoGbSecondsPerRequest: number
@@ -82,6 +88,9 @@ export interface CapacitySnapshotScenario {
   draftMessages: number
   previewMessages: number
   teamPreviewMessages: number
+  selectedSessionObjectSeconds: number
+  selectedSessionObjectHours: number
+  sessionDoDurationGbSeconds: number
   corePerDraft: UsageSample
   openLobbyChurnPerDraft: UsageSample
   perDraft: CapacityModel['perDraft']
