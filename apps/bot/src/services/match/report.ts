@@ -7,6 +7,7 @@ import { allFactionIds, allLeaderIds, isTeamMode } from '@civup/game'
 import { calculateRatings, createRating } from '@civup/rating'
 import { and, eq, gt, inArray } from 'drizzle-orm'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
+import { reconcileCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
 import { getStoredLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot, type LeaderboardModeSnapshot, type LeaderboardSnapshotRow } from '../leaderboard/snapshot.ts'
 import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
 import { getCompletedAtFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
@@ -57,6 +58,7 @@ export async function reportMatch(
 
     const cleanupError = await ensureReportedMatchCleanup(db, options, input.matchId, Date.now(), null, false)
     if (cleanupError) return { error: cleanupError }
+    await reconcileCivLeaderboardMatchContribution(db, input.matchId)
     return { match, participants: participantRows, idempotent: true }
   }
 
@@ -78,6 +80,7 @@ export async function reportMatch(
 
     const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
     const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
+    await reconcileCivLeaderboardMatchContribution(db, input.matchId)
     return { match: updatedMatch ?? match, participants: updatedParticipants, idempotent: true }
   }
 
@@ -357,6 +360,8 @@ async function finalizeReportedMatch(
     }
   }
 
+  await reconcileCivLeaderboardMatchContribution(db, matchId)
+
   const [updatedMatch] = await db
     .select()
     .from(matches)
@@ -587,6 +592,7 @@ async function repairCompletedReportedMatch(
 
   const cleanupError = await ensureReportedMatchCleanup(db, options, match.id, Date.now(), null, false)
   if (cleanupError) return { error: cleanupError }
+  await reconcileCivLeaderboardMatchContribution(db, match.id)
   return { match: updatedMatch, participants: updatedParticipants, idempotent: true }
 }
 
@@ -836,6 +842,7 @@ async function finalizeReportedUnrankedMatch(
     if (rollbackError) return { error: `${cleanupError} Automatic rollback also failed: ${rollbackError}` }
     return { error: cleanupError }
   }
+  await reconcileCivLeaderboardMatchContribution(db, matchId)
 
   const [updatedMatch] = await db
     .select()

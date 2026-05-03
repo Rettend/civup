@@ -428,6 +428,27 @@ export const command_match = factory.command<MatchVar>(
               console.error(`Failed to update cancelled lobby embed for match ${matchId}:`, error)
             }
 
+            if (result.previousStatus === 'completed') {
+              const cancelContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
+              try {
+                if (cancelContext && !cancelContext.redDeath) {
+                  await markLeaderboardsDirty(db, `match-cancel:${result.match.id}`)
+                }
+              }
+              catch (error) {
+                console.error(`Failed to mark leaderboards dirty after cancelling match ${result.match.id}:`, error)
+              }
+
+              try {
+                if (cancelContext?.ranked) {
+                  await markRankedRolesDirty(kv, `match-cancel:${result.match.id}`)
+                }
+              }
+              catch (error) {
+                console.error(`Failed to mark ranked roles dirty after cancelling match ${result.match.id}:`, error)
+              }
+            }
+
             await sendTransientEphemeralResponse(c, `Cancelled hosted match **${matchId}**.`, 'success')
             return
           }
@@ -903,14 +924,16 @@ export const command_match = factory.command<MatchVar>(
             archivePolicy: 'always',
           })
           queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
-          if (isRankedResult) {
-            try {
+          try {
+            if (!reportedContext.redDeath) {
               await markLeaderboardsDirty(db, `match-report:${result.match.id}`)
             }
-            catch (error) {
-              console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
-            }
+          }
+          catch (error) {
+            console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
+          }
 
+          if (isRankedResult) {
             try {
               await markRankedRolesDirty(kv, `match-report:${result.match.id}`)
             }
