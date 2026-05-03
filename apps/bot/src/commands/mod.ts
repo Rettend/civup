@@ -8,7 +8,6 @@ import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
 import { createChannelMessage } from '../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { rebuildLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
-import { clearTeamLeaderboardModeSnapshots } from '../services/leaderboard/team-snapshot.ts'
 import { filterQueueEntriesForLobby, getLobbyById, setLobbyStatus } from '../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { cancelMatchByModerator, correctMatchLeadersByModerator, getStoredGameModeContext, resolveMatchByModerator } from '../services/match/index.ts'
@@ -295,9 +294,6 @@ export const command_mod = factory.autocomplete<ModVar>(
               if (matchContext.leaderboardMode != null) {
                 try {
                   await rebuildLeaderboardModeSnapshot(db, kv, matchContext.leaderboardMode)
-                  if (matchContext.leaderboardMode === 'duo' || matchContext.leaderboardMode === 'squad') {
-                    await clearTeamLeaderboardModeSnapshots(kv, matchContext.leaderboardMode)
-                  }
                 }
                 catch (error) {
                   console.error(`Failed to rebuild leaderboard snapshot after resolving match ${result.match.id}:`, error)

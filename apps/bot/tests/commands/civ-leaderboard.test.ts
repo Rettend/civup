@@ -1,4 +1,4 @@
-import { civStatTotals, matches, matchCivStatContributions, matchParticipants, players } from '@civup/db'
+import { civStats, civStatTotals, matches, matchCivStatContributions, matchParticipants, players } from '@civup/db'
 import { allLeaderIds, getLeader } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { buildCivLeaderboardCommandPayload } from '../../src/commands/civ-leaderboard.ts'
@@ -99,6 +99,7 @@ describe('civ leaderboard command payload', () => {
           ratingAfterMu: null,
           ratingAfterSigma: null,
         })
+        await reconcileCivLeaderboardMatchContribution(db, matchId)
       }
     }
   })
@@ -209,9 +210,14 @@ describe('civ leaderboard command payload', () => {
       expect(contributionRows).toEqual([{ matchId: 'target-match' }])
 
       const totalRows = await db
-        .select({ scope: civStatTotals.scope })
+        .select({ scope: civStatTotals.scope, completedMatchCount: civStatTotals.completedMatchCount })
         .from(civStatTotals)
-      expect(totalRows).toEqual([])
+      expect(totalRows).toEqual([{ scope: 'global', completedMatchCount: 1 }])
+
+      const statRows = await db
+        .select({ civId: civStats.civId, picks: civStats.picks, wins: civStats.wins, bans: civStats.bans })
+        .from(civStats)
+      expect(statRows).toEqual([{ civId: 'russia-peter', picks: 1, wins: 1, bans: 1 }])
     }
     finally {
       sqlite.close()

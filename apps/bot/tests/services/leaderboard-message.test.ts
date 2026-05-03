@@ -3,7 +3,7 @@ import { leaderboardDirtyStates, leaderboardMessageStates, matches, matchPartici
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { archiveSeasonLeaderboards, markLeaderboardsDirty, refreshDirtyLeaderboards, upsertLeaderboardMessagesForChannel } from '../../src/services/leaderboard/message.ts'
-import { ensureCivLeaderboardSnapshot } from '../../src/services/leaderboard/civ-snapshot.ts'
+import { ensureCivLeaderboardSnapshot, reconcileCivLeaderboardMatchContribution } from '../../src/services/leaderboard/civ-snapshot.ts'
 import { ensureLeaderboardModeSnapshot, leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
@@ -108,13 +108,27 @@ describe('leaderboard message service', () => {
     }
   })
 
-  test('dirty refresh rebuilds existing leaderboard snapshots before clearing dirtiness', async () => {
+  test('dirty refresh publishes cached player snapshots inside the heavy rebuild cooldown', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
+    await kv.put('system:channel:leaderboard', 'channel-leaderboard')
+
+    const postPayloads: any[] = []
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input)
+      if (init?.method === 'POST' && url.includes('/channels/channel-leaderboard/messages')) {
+        const payload = JSON.parse(String(init.body))
+        postPayloads.push(payload)
+        return new Response(JSON.stringify({ id: 'leaderboard-message-1' }), { status: 200 })
+      }
+
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
 
     try {
       await seedDuelRating(db, '100010000000000003', 9)
       await ensureLeaderboardModeSnapshot(db, kv, 'duel')
+      await kv.put('leaderboard:last-heavy-refresh-at', String(NOW))
 
       await db
         .update(playerRatings)
@@ -122,12 +136,17 @@ describe('leaderboard message service', () => {
         .where(eq(playerRatings.playerId, '100010000000000003'))
       await markLeaderboardsDirty(db, 'test-report')
 
-      const refreshed = await refreshDirtyLeaderboards(db, kv, 'token')
+      const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', {
+        modes: ['duel'],
+        now: NOW + 1_000,
+        heavyRefreshCooldownMs: 60 * 60 * 1000,
+      })
       const snapshot = await ensureLeaderboardModeSnapshot(db, kv, 'duel')
       const dirtyRows = await db.select().from(leaderboardDirtyStates)
 
-      expect(refreshed).toBe(false)
-      expect(snapshot.rows.find(row => row.playerId === '100010000000000003')?.gamesPlayed).toBe(10)
+      expect(refreshed).toBe(true)
+      expect(snapshot.rows.find(row => row.playerId === '100010000000000003')?.gamesPlayed).toBe(9)
+      expect(postPayloads).toHaveLength(1)
       expect(dirtyRows).toHaveLength(0)
     }
     finally {
@@ -229,4 +248,5 @@ async function seedCompletedLeaderMatch(
     ratingAfterMu: null,
     ratingAfterSigma: null,
   })
+  await reconcileCivLeaderboardMatchContribution(db, matchId)
 }

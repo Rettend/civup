@@ -9,7 +9,6 @@ import { and, eq, gt, inArray } from 'drizzle-orm'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { reconcileCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
 import { getStoredLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot, type LeaderboardModeSnapshot, type LeaderboardSnapshotRow } from '../leaderboard/snapshot.ts'
-import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
 import { getCompletedAtFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
 import { buildRankByPlayer, recalculateLeaderboardMode } from './ratings.ts'
@@ -58,7 +57,7 @@ export async function reportMatch(
 
     const cleanupError = await ensureReportedMatchCleanup(db, options, input.matchId, Date.now(), null, false)
     if (cleanupError) return { error: cleanupError }
-    await reconcileCivLeaderboardMatchContribution(db, input.matchId)
+    await reconcileLeaderboardAggregatesForMatch(db, input.matchId)
     return { match, participants: participantRows, idempotent: true }
   }
 
@@ -80,7 +79,7 @@ export async function reportMatch(
 
     const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
     const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
-    await reconcileCivLeaderboardMatchContribution(db, input.matchId)
+    await reconcileLeaderboardAggregatesForMatch(db, input.matchId)
     return { match: updatedMatch ?? match, participants: updatedParticipants, idempotent: true }
   }
 
@@ -360,7 +359,7 @@ async function finalizeReportedMatch(
     }
   }
 
-  await reconcileCivLeaderboardMatchContribution(db, matchId)
+  await reconcileLeaderboardAggregatesForMatch(db, matchId)
 
   const [updatedMatch] = await db
     .select()
@@ -407,6 +406,13 @@ function buildCachedRankContext(
 
   const rankByPlayer = buildRankByPlayer([...rowsByPlayerId.values()], leaderboardMode)
   return { rankByPlayer, eligibleCount: rankByPlayer.size }
+}
+
+async function reconcileLeaderboardAggregatesForMatch(
+  db: Database,
+  matchId: string,
+): Promise<void> {
+  await reconcileCivLeaderboardMatchContribution(db, matchId)
 }
 
 async function listPlayerRatingsForPlayers(
@@ -574,9 +580,6 @@ async function repairCompletedReportedMatch(
   if ('error' in recalculated) return recalculated
 
   await rebuildLeaderboardModeSnapshot(db, kv, gameContext.leaderboardMode)
-  if (gameContext.leaderboardMode === 'duo' || gameContext.leaderboardMode === 'squad') {
-    await clearTeamLeaderboardModeSnapshots(kv, gameContext.leaderboardMode)
-  }
 
   const [updatedMatch] = await db
     .select()
@@ -592,7 +595,7 @@ async function repairCompletedReportedMatch(
 
   const cleanupError = await ensureReportedMatchCleanup(db, options, match.id, Date.now(), null, false)
   if (cleanupError) return { error: cleanupError }
-  await reconcileCivLeaderboardMatchContribution(db, match.id)
+  await reconcileLeaderboardAggregatesForMatch(db, match.id)
   return { match: updatedMatch, participants: updatedParticipants, idempotent: true }
 }
 
@@ -735,9 +738,6 @@ async function rollbackReportedRatedMatch(
     if ('error' in recalculated) return recalculated.error
 
     await rebuildLeaderboardModeSnapshot(db, kv, options.leaderboardMode)
-    if (options.leaderboardMode === 'duo' || options.leaderboardMode === 'squad') {
-      await clearTeamLeaderboardModeSnapshots(kv, options.leaderboardMode)
-    }
     return null
   }
   catch (error) {
