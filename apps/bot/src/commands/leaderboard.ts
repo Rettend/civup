@@ -1,12 +1,10 @@
-import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import type { Embed } from 'discord-hono'
-import { createDb } from '@civup/db'
 import { LEADERBOARD_MODE_CHOICES, LEADERBOARD_MODES, parseLeaderboardMode } from '@civup/game'
 import { getLeaderboardMinGames } from '@civup/rating'
 import { Command, Option } from 'discord-hono'
 import { leaderboardEmbed } from '../embeds/leaderboard.ts'
-import { ensureLeaderboardModeSnapshot, ensureLeaderboardModeSnapshots } from '../services/leaderboard/snapshot.ts'
+import { getStoredLeaderboardModeSnapshot, getStoredLeaderboardModeSnapshots } from '../services/leaderboard/snapshot.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { factory } from '../setup.ts'
@@ -24,24 +22,27 @@ export const command_leaderboard = factory.command<Var>(
     const requestedMode = c.var.mode ? parseLeaderboardMode(c.var.mode) : null
 
     return resDeferGeneralCommandResponse(c, async (c) => {
-      const db = createDb(c.env.DB)
       const kv = getKvStore(c.env)
-      return await buildLeaderboardCommandPayload(db, kv, requestedMode)
+      return await buildLeaderboardCommandPayload(kv, requestedMode)
     })
   },
 )
 
 export async function buildLeaderboardCommandPayload(
-  db: Database,
   kv: KVNamespace,
   requestedMode: LeaderboardMode | null,
 ): Promise<{ embeds?: Embed[], content?: string }> {
   if (requestedMode) {
-    const snapshot = await ensureLeaderboardModeSnapshot(db, kv, requestedMode)
+    const snapshot = await getStoredLeaderboardModeSnapshot(kv, requestedMode)
+    if (!snapshot) return { content: 'Leaderboard snapshot is not available yet. Ask a moderator to run a leaderboard refresh.' }
     return { embeds: [leaderboardEmbed(requestedMode, snapshot.rows)] }
   }
 
-  const snapshots = await ensureLeaderboardModeSnapshots(db, kv, LEADERBOARD_MODES)
+  const snapshots = await getStoredLeaderboardModeSnapshots(kv, LEADERBOARD_MODES)
+  if (snapshots.size === 0) {
+    return { content: 'Leaderboard snapshot is not available yet. Ask a moderator to run a leaderboard refresh.' }
+  }
+
   const embeds = LEADERBOARD_MODES.flatMap((mode) => {
     const snapshot = snapshots.get(mode)
     if (!snapshot || !snapshot.rows.some(row => row.gamesPlayed >= getLeaderboardMinGames(mode))) return []

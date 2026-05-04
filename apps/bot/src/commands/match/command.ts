@@ -432,7 +432,10 @@ export const command_match = factory.command<MatchVar>(
               const cancelContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
               try {
                 if (cancelContext && !cancelContext.redDeath) {
-                  await markLeaderboardsDirty(db, `match-cancel:${result.match.id}`)
+                  await markLeaderboardsDirty(db, `match-cancel:${result.match.id}`, {
+                    civ: true,
+                    modes: cancelContext.leaderboardMode ? [cancelContext.leaderboardMode] : [],
+                  })
                 }
               }
               catch (error) {
@@ -926,7 +929,10 @@ export const command_match = factory.command<MatchVar>(
           queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
           try {
             if (!reportedContext.redDeath) {
-              await markLeaderboardsDirty(db, `match-report:${result.match.id}`)
+              await markLeaderboardsDirty(db, `match-report:${result.match.id}`, {
+                civ: true,
+                modes: reportedContext.leaderboardMode ? [reportedContext.leaderboardMode] : [],
+              })
             }
           }
           catch (error) {

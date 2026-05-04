@@ -7,7 +7,6 @@ import { getKvStore } from '../services/kv/batch.ts'
 import { factory } from '../setup.ts'
 
 const LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS = 30 * 60 * 1000
-const LEADERBOARD_HEAVY_REFRESH_COOLDOWN_MS = 60 * 60 * 1000
 
 export const cron_cleanup = factory.cron(
   '0 * * * *', // every hour
@@ -42,14 +41,13 @@ export const cron_cleanup = factory.cron(
 )
 
 export const cron_leaderboards = factory.cron(
-  '*/2 * * * *', // every 2 minutes
+  '*/30 * * * *', // every 30 minutes
   async (c) => {
     const db = createDb(c.env.DB)
     const kv = getKvStore(c.env)
     try {
       const refreshed = await refreshDirtyLeaderboards(db, kv, c.env.DISCORD_TOKEN, {
         minDirtyAgeMs: LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS,
-        heavyRefreshCooldownMs: LEADERBOARD_HEAVY_REFRESH_COOLDOWN_MS,
       })
       if (refreshed) {
         // eslint-disable-next-line no-console

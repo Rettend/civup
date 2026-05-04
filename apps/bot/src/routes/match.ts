@@ -168,7 +168,10 @@ export function registerMatchRoutes(app: Hono<Env>) {
     queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
     try {
       if (!reportedContext.redDeath) {
-        await markLeaderboardsDirty(db, `activity-report:${result.match.id}`)
+        await markLeaderboardsDirty(db, `activity-report:${result.match.id}`, {
+          civ: true,
+          modes: reportedContext.leaderboardMode ? [reportedContext.leaderboardMode] : [],
+        })
       }
     }
     catch (error) {
@@ -277,7 +280,10 @@ export function registerMatchRoutes(app: Hono<Env>) {
       const scrubContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
       if (scrubContext && !scrubContext.redDeath) {
         try {
-          await markLeaderboardsDirty(db, `activity-scrub:${result.match.id}`)
+          await markLeaderboardsDirty(db, `activity-scrub:${result.match.id}`, {
+            civ: true,
+            modes: scrubContext.leaderboardMode ? [scrubContext.leaderboardMode] : [],
+          })
         }
         catch (error) {
           console.error(`Failed to mark leaderboards dirty after scrub ${result.match.id}:`, error)

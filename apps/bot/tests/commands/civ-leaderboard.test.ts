@@ -39,7 +39,9 @@ describe('civ leaderboard command payload', () => {
         redDeath: true,
       })
 
-      const payload = await buildCivLeaderboardCommandPayload(db, kv)
+      await rebuildCivLeaderboardSnapshot(db, kv)
+
+      const payload = await buildCivLeaderboardCommandPayload(kv)
       const embeds = payload.embeds?.map(embed => embed.toJSON()) ?? []
 
       expect(payload.content).toBeUndefined()
@@ -102,6 +104,15 @@ describe('civ leaderboard command payload', () => {
         await reconcileCivLeaderboardMatchContribution(db, matchId)
       }
     }
+  })
+
+  test('does not rebuild when no cached civ snapshot exists', async () => {
+    const kv = createTestKv()
+
+    const payload = await buildCivLeaderboardCommandPayload(kv)
+
+    expect(payload.embeds).toBeUndefined()
+    expect(payload.content).toBe('Civ leaderboard snapshot is not available yet. Ask a moderator to run the civ leaderboard backfill or refresh.')
   })
 
   test('keeps full leaderboards below Discord embed character limits', () => {

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { archiveSeasonLeaderboards, markLeaderboardsDirty, refreshDirtyLeaderboards, upsertLeaderboardMessagesForChannel } from '../../src/services/leaderboard/message.ts'
 import { ensureCivLeaderboardSnapshot, reconcileCivLeaderboardMatchContribution } from '../../src/services/leaderboard/civ-snapshot.ts'
-import { ensureLeaderboardModeSnapshot, leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
+import { ensureLeaderboardModeSnapshot, getStoredLeaderboardModeSnapshot, leaderboardModeSnapshotKey, rebuildLeaderboardModeSnapshot } from '../../src/services/leaderboard/snapshot.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
@@ -108,7 +108,7 @@ describe('leaderboard message service', () => {
     }
   })
 
-  test('dirty refresh publishes cached player snapshots inside the heavy rebuild cooldown', async () => {
+  test('dirty refresh rebuilds stale player snapshot from ratings and clears dirty state', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await kv.put('system:channel:leaderboard', 'channel-leaderboard')
@@ -127,25 +127,23 @@ describe('leaderboard message service', () => {
 
     try {
       await seedDuelRating(db, '100010000000000003', 9)
-      await ensureLeaderboardModeSnapshot(db, kv, 'duel')
-      await kv.put('leaderboard:last-heavy-refresh-at', String(NOW))
+      await rebuildLeaderboardModeSnapshot(db, kv, 'duel', NOW)
 
       await db
         .update(playerRatings)
         .set({ gamesPlayed: 10, wins: 10, lastPlayedAt: NOW + 1 })
         .where(eq(playerRatings.playerId, '100010000000000003'))
-      await markLeaderboardsDirty(db, 'test-report')
+      await markLeaderboardsDirty(db, 'test-report', { modes: ['duel'], now: NOW + 10 * 60 * 1000 })
 
       const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', {
         modes: ['duel'],
-        now: NOW + 1_000,
-        heavyRefreshCooldownMs: 60 * 60 * 1000,
+        now: NOW + 10 * 60 * 1000,
       })
-      const snapshot = await ensureLeaderboardModeSnapshot(db, kv, 'duel')
+      const snapshot = await getStoredLeaderboardModeSnapshot(kv, 'duel')
       const dirtyRows = await db.select().from(leaderboardDirtyStates)
 
       expect(refreshed).toBe(true)
-      expect(snapshot.rows.find(row => row.playerId === '100010000000000003')?.gamesPlayed).toBe(9)
+      expect(snapshot?.rows.find(row => row.playerId === '100010000000000003')?.gamesPlayed).toBe(10)
       expect(postPayloads).toHaveLength(1)
       expect(dirtyRows).toHaveLength(0)
     }
@@ -181,7 +179,7 @@ describe('leaderboard message service', () => {
       await seedCompletedLeaderMatch(db, 'civ-match-1', '100010000000000004', 'rome-trajan', 1)
       await ensureCivLeaderboardSnapshot(db, kv)
       await seedCompletedLeaderMatch(db, 'civ-match-2', '100010000000000004', 'rome-trajan', 2)
-      await markLeaderboardsDirty(db, 'test-report')
+      await markLeaderboardsDirty(db, 'test-report', { civ: true, now: NOW })
 
       const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', { modes: ['duel'] })
       const snapshot = await ensureCivLeaderboardSnapshot(db, kv)
