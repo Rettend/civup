@@ -78,9 +78,13 @@ export function handleSetup(c: AdminCommandContext) {
     if (target === 'civ-leaderboard') {
       try {
         const db = createDb(c.env.DB)
-        await upsertCivLeaderboardMessageForChannel(db, kv, c.env.DISCORD_TOKEN, channelId)
+        const initialized = await upsertCivLeaderboardMessageForChannel(db, kv, c.env.DISCORD_TOKEN, channelId)
         await clearLeaderboardDirtyState(kv)
         const movedFrom = previousChannelId && previousChannelId !== channelId ? ` (moved from <#${previousChannelId}>)` : ''
+        if (!initialized) {
+          await sendTransientEphemeralResponse(c, `Civ Leaderboard channel set to <#${channelId}>${movedFrom}, but no initialized civ leaderboard snapshot exists yet. Run the PPL civ leaderboard backfill script first.`, 'info')
+          return
+        }
         await sendTransientEphemeralResponse(c, `Civ Leaderboard channel set to <#${channelId}>${movedFrom}.`, 'success')
       }
       catch (error) {

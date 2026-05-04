@@ -10,7 +10,7 @@ import { createChannelMessage, deleteChannelMessage, editChannelMessage, isDisco
 import {
   getSystemChannel,
 } from '../system/channels.ts'
-import { ensureCivLeaderboardSnapshot, getStoredCivLeaderboardSnapshot, rebuildCivLeaderboardSnapshot } from './civ-snapshot.ts'
+import { getStoredCivLeaderboardSnapshot, isCivLeaderboardStatsInitialized, rebuildCivLeaderboardSnapshot } from './civ-snapshot.ts'
 import { ensureLeaderboardModeSnapshots, getStoredLeaderboardModeSnapshots, rebuildLeaderboardModeSnapshot } from './snapshot.ts'
 
 const PLAYER_LEADERBOARD_SCOPE = 'global'
@@ -75,8 +75,7 @@ export async function refreshConfiguredCivLeaderboards(
   const leaderboardChannelId = await getSystemChannel(kv, 'civ-leaderboard')
   if (!leaderboardChannelId) return false
 
-  await upsertCivLeaderboardMessageForChannel(db, kv, token, leaderboardChannelId)
-  return true
+  return Boolean(await upsertCivLeaderboardMessageForChannel(db, kv, token, leaderboardChannelId))
 }
 
 export async function archiveSeasonLeaderboards(
@@ -148,7 +147,8 @@ export async function refreshDirtyLeaderboards(
   let leaderboardState: LeaderboardMessageState | null = null
   let civLeaderboardState: LeaderboardMessageState | null = null
   let civSnapshotUpdated = false
-  let playerSnapshotsUpdated = dirtyPlayerModes.length === 0
+  let civSnapshotReady = false
+  let playerSnapshotsUpdated = false
 
   if (dirtyPlayerModes.length > 0) {
     await Promise.all(dirtyPlayerModes.map(mode => rebuildLeaderboardModeSnapshot(db, kv, mode, now)))
@@ -159,7 +159,9 @@ export async function refreshDirtyLeaderboards(
     }
   }
 
-  if (civDirtyState) {
+  if (civDirtyState) civSnapshotReady = await isCivLeaderboardStatsInitialized(db)
+
+  if (civDirtyState && civSnapshotReady) {
     await rebuildCivLeaderboardSnapshot(db, kv, now)
     civSnapshotUpdated = true
     if (civLeaderboardChannelId) {
@@ -171,7 +173,13 @@ export async function refreshDirtyLeaderboards(
     for (const mode of dirtyPlayerModes) scopesToClear.add(playerDirtyScope(mode))
   }
   if (civSnapshotUpdated) scopesToClear.add(CIV_LEADERBOARD_DIRTY_SCOPE)
-  if (legacyDirtyState && playerSnapshotsUpdated && (!civDirtyState || civSnapshotUpdated)) scopesToClear.add(LEGACY_LEADERBOARD_DIRTY_SCOPE)
+  if (legacyDirtyState && playerSnapshotsUpdated && civDirtyState && !civSnapshotUpdated) {
+    await markLeaderboardsDirty(db, legacyDirtyState.reason ?? 'legacy-civ-dirty', {
+      civ: true,
+      now: legacyDirtyState.dirtyAt,
+    })
+  }
+  if (legacyDirtyState && playerSnapshotsUpdated && (!civDirtyState || civSnapshotUpdated || !civSnapshotReady)) scopesToClear.add(LEGACY_LEADERBOARD_DIRTY_SCOPE)
 
   await clearLeaderboardDirtyStates(db, [...scopesToClear])
   return Boolean(leaderboardState || civLeaderboardState || civSnapshotUpdated || playerSnapshotsUpdated)
@@ -233,8 +241,10 @@ export async function upsertCivLeaderboardMessageForChannel(
   options: {
     forceCreate?: boolean
   } = {},
-): Promise<LeaderboardMessageState> {
-  const embedGroups = await buildCivLeaderboardEmbedGroups(db, kv)
+): Promise<LeaderboardMessageState | null> {
+  const embedGroups = await buildCivLeaderboardEmbedGroups(kv)
+  if (!embedGroups) return null
+
   const states: LeaderboardMessageState[] = []
 
   for (const [index, embeds] of embedGroups.entries()) {
@@ -274,10 +284,10 @@ async function buildLeaderboardEmbeds(
 }
 
 async function buildCivLeaderboardEmbedGroups(
-  db: Database,
   kv: KVNamespace,
 ) {
-  const snapshot = (await getStoredCivLeaderboardSnapshot(kv)) ?? await ensureCivLeaderboardSnapshot(db, kv)
+  const snapshot = await getStoredCivLeaderboardSnapshot(kv)
+  if (!snapshot?.historyInitialized) return null
   return civLeaderboardEmbedGroups(snapshot)
 }
 
