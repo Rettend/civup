@@ -541,9 +541,12 @@ async function replayCompletedMatch(
     let ratingAfterMu = update.after.mu
 
     if (seedFadeState && shouldCountAsNewBotGame) {
-      const previousBonusMu = currentSeedBonusMu(seedFadeState)
+      const seedFadeDeltaMu = calculateSeedFadeStepMu(
+        seedFadeState.initialBonusMu,
+        seedFadeState.fadeGamesRemaining,
+        seedFadeState.newBotGamesPlayed,
+      )
       seedFadeState.newBotGamesPlayed += 1
-      const seedFadeDeltaMu = previousBonusMu - currentSeedBonusMu(seedFadeState)
       ratingBeforeMu -= seedFadeDeltaMu
       ratingAfterMu -= seedFadeDeltaMu
       seedFadeStateByPlayer.set(participant.playerId, seedFadeState)
@@ -677,6 +680,16 @@ function createDefaultRatingState(playerId: string): RatingState {
 
 function hasLiveSeedFade(seedRows: StoredSeedRow[]): boolean {
   return seedRows.some(row => (row.fadeGamesRemaining ?? 0) > 0)
+}
+
+export function calculateSeedFadeStepMu(
+  initialBonusMu: number,
+  fadeGamesRemaining: number,
+  newBotGamesPlayed: number,
+): number {
+  const previousBonusMu = currentSeedBonusMu({ initialBonusMu, fadeGamesRemaining, newBotGamesPlayed })
+  const nextBonusMu = currentSeedBonusMu({ initialBonusMu, fadeGamesRemaining, newBotGamesPlayed: newBotGamesPlayed + 1 })
+  return previousBonusMu - nextBonusMu
 }
 
 function currentSeedBonusMu(state: SeedFadeState): number {
