@@ -131,6 +131,63 @@ describe('match seed fade', () => {
     }
   })
 
+  test('incremental live seed fade report matches boundary recalculation after prior games', async () => {
+    const { db: incrementalDb, sqlite: incrementalSqlite } = await createTestDatabase()
+    const { db: replayDb, sqlite: replaySqlite } = await createTestDatabase()
+    const incrementalKv = createTestKv()
+
+    try {
+      await seedDuelPlayers(incrementalDb)
+      await seedDuelPlayers(replayDb)
+      await seedSeedRow(incrementalDb, 10)
+      await seedSeedRow(replayDb, 10)
+
+      await seedCompletedDuel(incrementalDb, { matchId: 'm1', completedAt: NOW - 10_000, isOld: false })
+      await seedCompletedDuel(replayDb, { matchId: 'm1', completedAt: NOW - 10_000, isOld: false })
+
+      const incrementalInit = await recalculateLeaderboardMode(incrementalDb, 'duel')
+      const replayInit = await recalculateLeaderboardMode(replayDb, 'duel')
+      expect('error' in incrementalInit).toBe(false)
+      expect('error' in replayInit).toBe(false)
+      if ('error' in incrementalInit || 'error' in replayInit) return
+
+      await seedActiveDuel(incrementalDb, 'm2', NOW)
+      await seedCompletedDuel(replayDb, { matchId: 'm2', completedAt: NOW, isOld: false })
+
+      const incrementalResult = await reportMatch(incrementalDb, incrementalKv, {
+        matchId: 'm2',
+        reporterId: HERO_ID,
+        placements: `<@${HERO_ID}>`,
+      }, directTerminalOptions)
+      const replayResult = await recalculateLeaderboardMode(replayDb, 'duel', {
+        fromMatchId: 'm2',
+        includeFromMatch: true,
+      })
+
+      expect('error' in incrementalResult).toBe(false)
+      expect('error' in replayResult).toBe(false)
+      if ('error' in incrementalResult || 'error' in replayResult) return
+
+      const incrementalHero = await loadParticipant(incrementalDb, 'm2', HERO_ID)
+      const replayHero = await loadParticipant(replayDb, 'm2', HERO_ID)
+      const incrementalVillain = await loadParticipant(incrementalDb, 'm2', VILLAIN_ID)
+      const replayVillain = await loadParticipant(replayDb, 'm2', VILLAIN_ID)
+      expectParticipantRatingSnapshotsToMatch(incrementalHero, replayHero)
+      expectParticipantRatingSnapshotsToMatch(incrementalVillain, replayVillain)
+
+      const incrementalHeroRating = await loadPlayerRating(incrementalDb, HERO_ID)
+      const replayHeroRating = await loadPlayerRating(replayDb, HERO_ID)
+      const incrementalVillainRating = await loadPlayerRating(incrementalDb, VILLAIN_ID)
+      const replayVillainRating = await loadPlayerRating(replayDb, VILLAIN_ID)
+      expectPlayerRatingsToMatch(incrementalHeroRating, replayHeroRating)
+      expectPlayerRatingsToMatch(incrementalVillainRating, replayVillainRating)
+    }
+    finally {
+      incrementalSqlite.close()
+      replaySqlite.close()
+    }
+  })
+
   test('reportMatch populates 2v2 rating snapshots when duo uses live seed fade', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -605,4 +662,24 @@ async function loadPlayerRating(
     ))
     .limit(1)
   return row ?? null
+}
+
+function expectParticipantRatingSnapshotsToMatch(
+  actual: Awaited<ReturnType<typeof loadParticipant>>,
+  expected: Awaited<ReturnType<typeof loadParticipant>>,
+): void {
+  expect(actual?.ratingBeforeMu).toBeCloseTo(expected?.ratingBeforeMu ?? 0, 6)
+  expect(actual?.ratingBeforeSigma).toBeCloseTo(expected?.ratingBeforeSigma ?? 0, 6)
+  expect(actual?.ratingAfterMu).toBeCloseTo(expected?.ratingAfterMu ?? 0, 6)
+  expect(actual?.ratingAfterSigma).toBeCloseTo(expected?.ratingAfterSigma ?? 0, 6)
+}
+
+function expectPlayerRatingsToMatch(
+  actual: Awaited<ReturnType<typeof loadPlayerRating>>,
+  expected: Awaited<ReturnType<typeof loadPlayerRating>>,
+): void {
+  expect(actual?.mu).toBeCloseTo(expected?.mu ?? 0, 6)
+  expect(actual?.sigma).toBeCloseTo(expected?.sigma ?? 0, 6)
+  expect(actual?.gamesPlayed).toBe(expected?.gamesPlayed)
+  expect(actual?.wins).toBe(expected?.wins)
 }
