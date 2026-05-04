@@ -90,6 +90,7 @@ export interface DraftRuntimeEnv extends Cloudflare.Env {
   KV?: KVNamespace
   DISCORD_TOKEN?: string
   SessionDO?: DurableObjectNamespace
+  DEBUG_ACTIVE_BOTS?: string
 }
 
 // ── Connection State ─────────────────────────────────────────
@@ -833,6 +834,8 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
   }
 
   private scheduleDebugActiveBotActions(state: DraftState, blindBans: boolean) {
+    if (!this.debugActiveBotActionsEnabled()) return
+
     const step = getCurrentStep(state)
     if (!step) return
 
@@ -861,6 +864,8 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
   }
 
   private scheduleDebugMapVoteBotActions(state: DraftState, config: DraftRuntimeConfig) {
+    if (!this.debugActiveBotActionsEnabled()) return
+
     let delayMs = DEBUG_ACTIVE_BOT_DELAY_MS
     for (let seatIndex = 0; seatIndex < state.seats.length; seatIndex++) {
       const playerId = state.seats[seatIndex]?.playerId
@@ -1312,6 +1317,10 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     for (const conn of this.getConnections()) {
       conn.close(1000, reason)
     }
+  }
+
+  private debugActiveBotActionsEnabled(): boolean {
+    return this.env.DEBUG_ACTIVE_BOTS === 'true'
   }
 
 }
