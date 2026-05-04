@@ -33,6 +33,10 @@ interface DraftViewProps {
   lobbyId?: string | null
   lobbyMode?: string | null
   onSwitchTarget?: () => void
+  reportResultStatus?: 'idle' | 'submitting' | 'done'
+  onReportStarted?: (matchId: string) => void
+  onReportComplete?: (matchId: string) => void
+  onReportFailed?: (matchId: string) => void
 }
 
 /** Main draft layout */
@@ -199,6 +203,10 @@ export function DraftView(props: DraftViewProps) {
                 onSaveSteamLink={canSaveSteamLobbyLink() ? handleSaveSteamLink : undefined}
                 savePending={steamLobbySavePending()}
                 onSwitchTarget={props.onSwitchTarget}
+                reportResultStatus={props.reportResultStatus}
+                onReportStarted={props.onReportStarted}
+                onReportComplete={props.onReportComplete}
+                onReportFailed={props.onReportFailed}
               />
               <DraftTimeline />
 

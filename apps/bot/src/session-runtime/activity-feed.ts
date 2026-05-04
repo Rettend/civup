@@ -146,9 +146,10 @@ export class Activity extends Server<ActivityFeedEnv> {
     if (connections.length === 0) return
 
     const channelId = record.projectionState.channelId
-    const overview = this.env.DB
+    const baseOverview = this.env.DB
       ? await this.loadOverviewSnapshot(channelId)
-      : mergeActivityOverviewSnapshotForSessionUpdate(await this.getOverviewSnapshot(channelId), record)
+      : await this.getOverviewSnapshot(channelId)
+    const overview = mergeActivityOverviewSnapshotForSessionUpdate(baseOverview, record)
     await this.ctx.storage.put(ACTIVITY_OVERVIEW_STORAGE_KEY, overview)
     this.broadcastFeedMessage(connections, { type: 'overview', snapshot: overview })
     this.broadcastFeedMessage(connections, await this.buildLobbyFeedMessage(record))

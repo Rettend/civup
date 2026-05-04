@@ -7,7 +7,6 @@ export type ActivityState
     | { status: 'error', message: string }
     | { status: 'overview' }
     | { status: 'lobby-waiting', lobby: LobbySnapshot, joinPending: boolean, joinEligibility: LobbyJoinEligibilitySnapshot }
-    | { status: 'reported', matchId: string, lobbyMode: string | null }
     | {
       status: 'authenticated'
       matchId: string
@@ -16,6 +15,7 @@ export type ActivityState
       sessionAccessToken: string | null
       lobbyId: string | null
       lobbyMode: string | null
+      reported: boolean
     }
 
 export interface ActivityControllerContextValue {

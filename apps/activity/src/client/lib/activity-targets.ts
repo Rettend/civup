@@ -84,7 +84,7 @@ export function shouldApplyResolvedActivitySelection(input: {
 }
 
 export function shouldReconnectVisibleActivityTarget(input: {
-  appStatus: 'loading' | 'error' | 'overview' | 'lobby-waiting' | 'authenticated' | 'reported'
+  appStatus: 'loading' | 'error' | 'overview' | 'lobby-waiting' | 'authenticated'
   connectionStatus: string
   draftStatus?: string | null
   hasOpenSwapWindow?: boolean
@@ -152,7 +152,7 @@ export function shouldApplyActivityLaunchSnapshotRefresh(input: {
 }
 
 export function getBrokenMatchRefreshKey(input: {
-  appStatus: 'loading' | 'error' | 'overview' | 'lobby-waiting' | 'authenticated' | 'reported'
+  appStatus: 'loading' | 'error' | 'overview' | 'lobby-waiting' | 'authenticated'
   currentMatchId: string | null
   connectionStatus: string
   draftState: { matchId?: string, status?: string, cancelReason?: string | null } | null | undefined

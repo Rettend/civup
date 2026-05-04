@@ -44,6 +44,10 @@ interface DraftHeaderProps {
   onSaveSteamLink?: (link: string | null) => void
   savePending?: boolean
   onSwitchTarget?: () => void
+  reportResultStatus?: 'idle' | 'submitting' | 'done'
+  onReportStarted?: (matchId: string) => void
+  onReportComplete?: (matchId: string) => void
+  onReportFailed?: (matchId: string) => void
 }
 
 /** Header bar: bans on left/right, phase label centered, timer with shrinking line */
@@ -186,9 +190,14 @@ export function DraftHeader(props: DraftHeaderProps) {
 
   // ── Result Reporting ────────────────────────
   const [resultStatus, setResultStatus] = createSignal<'idle' | 'submitting:result' | 'submitting:scrub' | 'submitting:revert' | 'done'>('idle')
+  const visibleResultStatus = () => {
+    if (props.reportResultStatus === 'done') return 'done'
+    if (props.reportResultStatus === 'submitting' && resultStatus() !== 'submitting:scrub' && resultStatus() !== 'submitting:revert') return 'submitting:result'
+    return resultStatus()
+  }
 
   createEffect(() => {
-    setResultSelectionsLocked(resultStatus() !== 'idle')
+    setResultSelectionsLocked(visibleResultStatus() !== 'idle')
   })
 
   let lastResultMatchId = state()?.matchId ?? null
@@ -229,9 +238,17 @@ export function DraftHeader(props: DraftHeaderProps) {
     if (!uid || team == null) return
 
     setResultStatus('submitting:result')
+    const matchId = draftStore.state!.matchId
+    props.onReportStarted?.(matchId)
     const teamToken = teamIndexToken(team)
-    const res = await reportMatchResult(draftStore.state!.matchId, uid, teamToken, hiddenDraftLeaderAssignmentPayload())
-    setResultStatus(res.ok ? 'done' : 'idle')
+    const res = await reportMatchResult(matchId, uid, teamToken, hiddenDraftLeaderAssignmentPayload())
+    if (res.ok) {
+      setResultStatus('done')
+      props.onReportComplete?.(matchId)
+      return
+    }
+    props.onReportFailed?.(matchId)
+    setResultStatus('idle')
   }
 
   const reportOrderedTeams = async () => {
@@ -241,13 +258,17 @@ export function DraftHeader(props: DraftHeaderProps) {
     if (!uid || order.length !== totalTeams) return
 
     setResultStatus('submitting:result')
+    const matchId = draftStore.state!.matchId
+    props.onReportStarted?.(matchId)
     const placements = order.map(teamIndexToken).join('\n')
-    const res = await reportMatchResult(draftStore.state!.matchId, uid, placements, hiddenDraftLeaderAssignmentPayload())
+    const res = await reportMatchResult(matchId, uid, placements, hiddenDraftLeaderAssignmentPayload())
     if (res.ok) {
       setResultStatus('done')
+      props.onReportComplete?.(matchId)
       return
     }
 
+    props.onReportFailed?.(matchId)
     setResultStatus('idle')
     clearResultSelections()
   }
@@ -258,13 +279,16 @@ export function DraftHeader(props: DraftHeaderProps) {
     const order = ffaPlacementOrder()
     const s = state()
     if (!s || order.length !== seatCount()) return
+    const matchId = s.matchId
     setResultStatus('submitting:result')
+    props.onReportStarted?.(matchId)
     const placements = order.map(idx => `<@${s.seats[idx]!.playerId}>`).join('\n')
-    const res = await reportMatchResult(s.matchId, uid, placements, hiddenDraftLeaderAssignmentPayload())
+    const res = await reportMatchResult(matchId, uid, placements, hiddenDraftLeaderAssignmentPayload())
     if (res.ok) {
       setResultStatus('done')
+      props.onReportComplete?.(matchId)
     }
-    else { setResultStatus('idle'); clearFfaPlacements() }
+    else { props.onReportFailed?.(matchId); setResultStatus('idle'); clearFfaPlacements() }
   }
 
   const confirmResult = async () => {
@@ -283,7 +307,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   const scrubMatch = async () => {
     const uid = userId()
     const s = state()
-    if (!amHost() || !uid || !s || pendingHostAction() != null || resultStatus().startsWith('submitting')) return
+    if (!amHost() || !uid || !s || pendingHostAction() != null || visibleResultStatus().startsWith('submitting')) return
 
     if (s.status === 'complete') {
       setResultStatus('submitting:scrub')
@@ -297,7 +321,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   }
 
   const confirmCompleteScrub = () => {
-    if (!amHost() || !isComplete() || pendingHostAction() != null || resultStatus().startsWith('submitting')) return
+    if (!amHost() || !isComplete() || pendingHostAction() != null || visibleResultStatus().startsWith('submitting')) return
     if (armedHostAction() !== 'scrub') {
       armHostAction('scrub')
       return
@@ -309,7 +333,7 @@ export function DraftHeader(props: DraftHeaderProps) {
 
   const revertDraft = () => {
     const s = state()
-    if (!amHost() || !s || pendingHostAction() != null || resultStatus().startsWith('submitting') || (s.status !== 'active' && !isMapVotePhase())) return
+    if (!amHost() || !s || pendingHostAction() != null || visibleResultStatus().startsWith('submitting') || (s.status !== 'active' && !isMapVotePhase())) return
 
     setPendingHostAction('revert')
     if (sendRevert() === false) setPendingHostAction(null)
@@ -330,9 +354,9 @@ export function DraftHeader(props: DraftHeaderProps) {
     void scrubMatch()
   }
 
-  const canManageDraft = () => amHost() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
-  const canManageDraftPhase = () => showHostActions() && pendingHostAction() == null && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
-  const canSubmitResult = () => isParticipant() && !resultStatus().startsWith('submitting') && resultStatus() !== 'done'
+  const canManageDraft = () => amHost() && !visibleResultStatus().startsWith('submitting') && visibleResultStatus() !== 'done'
+  const canManageDraftPhase = () => showHostActions() && pendingHostAction() == null && !visibleResultStatus().startsWith('submitting') && visibleResultStatus() !== 'done'
+  const canSubmitResult = () => isParticipant() && !visibleResultStatus().startsWith('submitting') && visibleResultStatus() !== 'done'
   const hiddenDraftLeaderSelectionReady = () => {
     const s = state()
     if (!isHiddenDraftComplete() || !s) return true
@@ -451,7 +475,7 @@ export function DraftHeader(props: DraftHeaderProps) {
 
   const renderResultActions = () => (
     <Show
-      when={resultStatus() !== 'done'}
+      when={visibleResultStatus() !== 'done'}
       fallback={(
         <span class="text-sm text-accent tracking-widest font-bold uppercase sm:text-lg">Result reported</span>
       )}
@@ -462,7 +486,7 @@ export function DraftHeader(props: DraftHeaderProps) {
           disabled={!canSubmitResult() || !resultSelectionReady()}
           onClick={confirmResult}
         >
-          {resultStatus() === 'submitting:result' ? 'Submitting' : 'Confirm Result'}
+          {visibleResultStatus() === 'submitting:result' ? 'Submitting' : 'Confirm Result'}
         </Button>
         <Show when={amHost()}>
           <Button
@@ -471,7 +495,7 @@ export function DraftHeader(props: DraftHeaderProps) {
             disabled={!canManageDraft()}
             onClick={confirmCompleteScrub}
           >
-            {resultStatus() === 'submitting:scrub' ? 'Submitting' : armedHostAction() === 'scrub' ? 'Confirm Scrub' : 'Scrub'}
+            {visibleResultStatus() === 'submitting:scrub' ? 'Submitting' : armedHostAction() === 'scrub' ? 'Confirm Scrub' : 'Scrub'}
           </Button>
         </Show>
       </div>
