@@ -7,7 +7,6 @@ import { leaderEmojiMention } from '../constants/leader-emojis.ts'
 import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
 import { createChannelMessage } from '../services/discord/index.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
-import { rebuildLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { filterQueueEntriesForLobby, getLobbyById, setLobbyStatus } from '../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { cancelMatchByModerator, correctMatchLeadersByModerator, getStoredGameModeContext, resolveMatchByModerator } from '../services/match/index.ts'
@@ -179,7 +178,10 @@ export const command_mod = factory.autocomplete<ModVar>(
           const isRankedMatch = matchContext.ranked
           try {
             if (!matchContext.redDeath) {
-              await markLeaderboardsDirty(db, `mod-cancel:${result.match.id}`)
+              await markLeaderboardsDirty(db, `mod-cancel:${result.match.id}`, {
+                civ: true,
+                modes: matchContext.leaderboardMode ? [matchContext.leaderboardMode] : [],
+              })
             }
           }
           catch (error) {
@@ -267,7 +269,10 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             try {
               if (!matchContext.redDeath) {
-                await markLeaderboardsDirty(db, `mod-resolve:${result.match.id}`)
+                await markLeaderboardsDirty(db, `mod-resolve:${result.match.id}`, {
+                  civ: true,
+                  modes: matchContext.leaderboardMode ? [matchContext.leaderboardMode] : [],
+                })
               }
             }
             catch (error) {
@@ -291,15 +296,6 @@ export const command_mod = factory.autocomplete<ModVar>(
             )
 
             c.executionCtx.waitUntil((async () => {
-              if (matchContext.leaderboardMode != null) {
-                try {
-                  await rebuildLeaderboardModeSnapshot(db, kv, matchContext.leaderboardMode)
-                }
-                catch (error) {
-                  console.error(`Failed to rebuild leaderboard snapshot after resolving match ${result.match.id}:`, error)
-                }
-              }
-
               let rankedRoleLines: string[] = []
               if (isRankedMatch && guildId) {
                 try {
@@ -422,7 +418,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             try {
               if (!matchContext.redDeath && result.corrections.some(correction => correction.previousCivId !== correction.nextCivId)) {
-                await markLeaderboardsDirty(db, `mod-leader:${result.match.id}`)
+                await markLeaderboardsDirty(db, `mod-leader:${result.match.id}`, { civ: true })
               }
             }
             catch (error) {

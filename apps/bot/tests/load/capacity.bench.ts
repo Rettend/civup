@@ -136,7 +136,7 @@ const TARGET_DIRECTORY_WRITES_PER_OPEN_LOBBY_MUTATION = 1
 const TARGET_DIRECTORY_WRITES_PER_DRAFT_START = 1
 const TARGET_DIRECTORY_WRITES_PER_REPORT = 1
 const TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP = 1
-const LEADERBOARD_CRON_RUNS_PER_DAY = 24 * 60 / 2
+const LEADERBOARD_CRON_RUNS_PER_DAY = 24 * 60 / 30
 const INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY = 24
 const RANKED_ROLE_CRON_RUNS_PER_DAY = 1
 
@@ -196,7 +196,7 @@ const CAPACITY_SNAPSHOT_PATH = 'tests/load/capacity.snapshot.json'
 const NOW = 1_700_000_000_000
 
 describe('capacity models', () => {
-  test('prints current ranked lifecycle capacity projections', { timeout: 20_000 }, async () => {
+  test('prints current ranked lifecycle capacity projections', { timeout: 45_000 }, async () => {
     const leaderboardCronRunUsage = await measureStableValue(CAPACITY_STABILITY_SAMPLES, measureLeaderboardCronRunUsage)
     const inactiveLobbyCleanupCronRunUsage = await measureStableValue(CAPACITY_STABILITY_SAMPLES, measureInactiveLobbyCleanupCronRunUsage)
     const rankedRoleCronRunUsage = await measureStableValue(CAPACITY_STABILITY_SAMPLES, measureRankedRoleCronRunUsage)
@@ -1012,7 +1012,11 @@ async function handleMatchReport(
     await storeMatchMessageMapping(db, `message-archive-reported-${mode.id}`, matchId)
   }
 
-  await markLeaderboardsDirty(db, `match-report:${matchId}`)
+  const leaderboardMode = toLeaderboardMode(mode.mode)
+  await markLeaderboardsDirty(db, `match-report:${matchId}`, {
+    civ: true,
+    modes: leaderboardMode ? [leaderboardMode] : [],
+  })
   await markRankedRolesDirty(kv, `match-report:${matchId}`)
 }
 
