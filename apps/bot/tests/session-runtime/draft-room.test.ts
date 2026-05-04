@@ -6,6 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import { SessionDraftRuntime } from '../../src/session-runtime/draft-room.ts'
 import { createRoomRecord, ROOM_RECORD_KEY } from '../../src/session-runtime/draft-room-domain.ts'
 import { EMPTY_STORED_MAP_VOTE_STATE } from '../../src/session-runtime/map-vote-room-state.ts'
+import { createFakeSessionWebSocket } from '../helpers/session-runtime.ts'
 
 class TestStorage {
   alarm: number | null = null
@@ -30,11 +31,19 @@ class TestStorage {
 }
 
 class TestSessionDraftRuntime extends SessionDraftRuntime<DraftRuntimeEnv> {
-  constructor(storage: TestStorage) {
+  readonly waitUntilPromises: Promise<unknown>[]
+
+  constructor(storage: TestStorage, env: DraftRuntimeEnv = {}) {
+    const waitUntilPromises: Promise<unknown>[] = []
     super({
       storage,
-      waitUntil: (promise: Promise<unknown>) => { void promise },
-    } as unknown as DurableObjectState, {} as DraftRuntimeEnv)
+      waitUntil: (promise: Promise<unknown>) => {
+        waitUntilPromises.push(promise)
+        void promise.catch(() => {})
+      },
+      getWebSockets: () => [],
+    } as unknown as DurableObjectState, env)
+    this.waitUntilPromises = waitUntilPromises
   }
 
   async runAlarm(now: number): Promise<boolean> {
@@ -51,6 +60,32 @@ class TestSessionDraftRuntime extends SessionDraftRuntime<DraftRuntimeEnv> {
 }
 
 describe('draft runtime alarm recovery', () => {
+  test('debug active bot timers require an explicit debug flag', async () => {
+    const format = draftFormatMap.get('default-1v1')
+    expect(format).toBeDefined()
+    if (!format) return
+
+    const seats = [
+      { playerId: 'p1', displayName: 'Player One' },
+      { playerId: 'bot:p2', displayName: 'Debug Bot' },
+    ]
+    const state = createDraft('debug-bot-match', format, seats, ['civ-1', 'civ-2', 'civ-3', 'civ-4'])
+    const room = createRoomRecord({
+      matchId: 'debug-bot-match',
+      hostId: 'p1',
+      formatId: format.id,
+      seats,
+      civPool: ['civ-1', 'civ-2', 'civ-3', 'civ-4'],
+    }, state, EMPTY_STORED_MAP_VOTE_STATE)
+    const runtime = new TestSessionDraftRuntime(new TestStorage(room))
+
+    const socket = createFakeSessionWebSocket({ id: 'conn-p1', sessionId: 'debug-bot-match', playerId: 'p1', kind: 'draft', connectedAt: 1 })
+
+    await runtime.webSocketMessage(socket.connection, JSON.stringify({ type: 'start' }))
+
+    expect(runtime.waitUntilPromises).toHaveLength(0)
+  })
+
   test('timeout-cancels active drafts when timeout resolution cannot recover the step', async () => {
     const seats = [
       { playerId: 'p1', displayName: 'Player One' },
