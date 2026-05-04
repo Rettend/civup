@@ -1,9 +1,10 @@
+import type { Database } from '@civup/db'
 import { civStats, civStatTotals, matches, matchCivStatContributions, matchParticipants, players } from '@civup/db'
 import { allLeaderIds, getLeader } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { buildCivLeaderboardCommandPayload } from '../../src/commands/civ-leaderboard.ts'
 import { CIV_LEADERBOARD_DESCRIPTION_CHAR_LIMIT, CIV_LEADERBOARD_TOP_LIMIT, civLeaderboardEmbedGroups } from '../../src/embeds/civ-leaderboard.ts'
-import { rebuildCivLeaderboardSnapshot, reconcileCivLeaderboardMatchContribution } from '../../src/services/leaderboard/civ-snapshot.ts'
+import { backfillCivLeaderboardStatsFromHistory, buildCivLeaderboardSnapshotFromD1, rebuildCivLeaderboardSnapshot, reconcileCivLeaderboardMatchContribution } from '../../src/services/leaderboard/civ-snapshot.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('civ leaderboard command payload', () => {
@@ -39,6 +40,7 @@ describe('civ leaderboard command payload', () => {
         redDeath: true,
       })
 
+      await backfillCivLeaderboardStatsFromHistory(db)
       await rebuildCivLeaderboardSnapshot(db, kv)
 
       const payload = await buildCivLeaderboardCommandPayload(kv)
@@ -112,7 +114,27 @@ describe('civ leaderboard command payload', () => {
     const payload = await buildCivLeaderboardCommandPayload(kv)
 
     expect(payload.embeds).toBeUndefined()
-    expect(payload.content).toBe('Civ leaderboard snapshot is not available yet. Ask a moderator to run the civ leaderboard backfill or refresh.')
+    expect(payload.content).toBe('Civ leaderboard snapshot is not available yet. Run the PPL civ leaderboard backfill script first.')
+  })
+
+  test('does not show partial aggregate snapshot before historical backfill', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await db.insert(players).values({ id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 })
+      await seedCompletedMatch(db, 'partial-match', 'rome-trajan', 'p1', 1)
+      await reconcileCivLeaderboardMatchContribution(db, 'partial-match', 10)
+      await rebuildCivLeaderboardSnapshot(db, kv, 20)
+
+      const payload = await buildCivLeaderboardCommandPayload(kv)
+
+      expect(payload.embeds).toBeUndefined()
+      expect(payload.content).toBe('Civ leaderboard snapshot is not available yet. Run the PPL civ leaderboard backfill script first.')
+    }
+    finally {
+      sqlite.close()
+    }
   })
 
   test('keeps full leaderboards below Discord embed character limits', () => {
@@ -133,6 +155,7 @@ describe('civ leaderboard command payload', () => {
 
     const groups = civLeaderboardEmbedGroups({
       updatedAt: 1,
+      historyInitialized: true,
       completedMatchCount: 100,
       rows,
     })
@@ -258,7 +281,74 @@ describe('civ leaderboard command payload', () => {
       })
     }
   })
+
+  test('historical backfill is idempotent and matches historical snapshot builder', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await db.insert(players).values({ id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 })
+      await seedCompletedMatch(db, 'rome-match', 'rome-trajan', 'p1', 1)
+      await seedCompletedMatch(db, 'russia-match', 'russia-peter', 'p1', 2)
+      await seedCompletedMatch(db, 'red-death-match', 'rd-aliens', 'p1', 3, { redDeath: true })
+
+      const historical = await buildCivLeaderboardSnapshotFromD1(db, 10)
+      const first = await backfillCivLeaderboardStatsFromHistory(db, 20)
+      const second = await backfillCivLeaderboardStatsFromHistory(db, 30)
+      const snapshot = await rebuildCivLeaderboardSnapshot(db, kv, 40)
+
+      expect(first.status.historyInitialized).toBe(true)
+      expect(second.status.historyInitialized).toBe(true)
+      expect(first.contributionRowCount).toBe(2)
+      expect(second.contributionRowCount).toBe(2)
+      expect(snapshot.historyInitialized).toBe(true)
+      expect(snapshot.completedMatchCount).toBe(historical.completedMatchCount)
+      expect(snapshot.rows.map(row => ({ civId: row.civId, picks: row.picks, wins: row.wins, bans: row.bans }))).toEqual(
+        historical.rows.map(row => ({ civId: row.civId, picks: row.picks, wins: row.wins, bans: row.bans })),
+      )
+
+      const contributionRows = await db.select({ matchId: matchCivStatContributions.matchId }).from(matchCivStatContributions)
+      expect(contributionRows.map(row => row.matchId).sort()).toEqual(['rome-match', 'russia-match'])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
 })
+
+async function seedCompletedMatch(
+  db: Database,
+  matchId: string,
+  civId: string,
+  playerId: string,
+  createdAt: number,
+  options: { redDeath?: boolean } = {},
+): Promise<void> {
+  await db.insert(matches).values({
+    id: matchId,
+    gameMode: 'ffa',
+    status: 'completed',
+    isOld: false,
+    seasonId: null,
+    draftData: JSON.stringify({
+      ...(options.redDeath ? { redDeath: true } : {}),
+      state: { bans: [{ civId }] },
+    }),
+    createdAt,
+    completedAt: createdAt,
+  })
+  await db.insert(matchParticipants).values({
+    matchId,
+    playerId,
+    team: null,
+    civId,
+    placement: 1,
+    ratingBeforeMu: null,
+    ratingBeforeSigma: null,
+    ratingAfterMu: null,
+    ratingAfterSigma: null,
+  })
+}
 
 function embedGroupTextLength(embeds: Array<{ toJSON: () => { title?: unknown, description?: unknown } }>): number {
   return embeds.reduce((total, embed) => {

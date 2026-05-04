@@ -7,6 +7,8 @@ import { getStoredCivLeaderboardSnapshot } from '../services/leaderboard/civ-sna
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { factory } from '../setup.ts'
 
+const CIV_LEADERBOARD_UNAVAILABLE_MESSAGE = 'Civ leaderboard snapshot is not available yet. Run the PPL civ leaderboard backfill script first.'
+
 export const command_civleaderboard = factory.command(
   new Command('civleaderboard', 'Show the top leaders'),
   (c) => {
@@ -21,7 +23,7 @@ export async function buildCivLeaderboardCommandPayloads(
   kv: KVNamespace,
 ): Promise<DiscordMessagePayload[]> {
   const snapshot = await getStoredCivLeaderboardSnapshot(kv)
-  if (!snapshot) return [{ content: 'Civ leaderboard snapshot is not available yet. Ask a moderator to run the civ leaderboard backfill or refresh.' }]
+  if (!snapshot?.historyInitialized) return [{ content: CIV_LEADERBOARD_UNAVAILABLE_MESSAGE }]
   return civLeaderboardEmbedGroups(snapshot).map(embeds => ({ embeds }))
 }
 
@@ -29,6 +31,6 @@ export async function buildCivLeaderboardCommandPayload(
   kv: KVNamespace,
 ): Promise<{ embeds?: Embed[], content?: string }> {
   const snapshot = await getStoredCivLeaderboardSnapshot(kv)
-  if (!snapshot) return { content: 'Civ leaderboard snapshot is not available yet. Ask a moderator to run the civ leaderboard backfill or refresh.' }
+  if (!snapshot?.historyInitialized) return { content: CIV_LEADERBOARD_UNAVAILABLE_MESSAGE }
   return { embeds: civLeaderboardEmbeds(snapshot) }
 }

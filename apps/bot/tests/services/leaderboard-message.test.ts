@@ -3,7 +3,7 @@ import { leaderboardDirtyStates, leaderboardMessageStates, matches, matchPartici
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { archiveSeasonLeaderboards, markLeaderboardsDirty, refreshDirtyLeaderboards, upsertLeaderboardMessagesForChannel } from '../../src/services/leaderboard/message.ts'
-import { ensureCivLeaderboardSnapshot, reconcileCivLeaderboardMatchContribution } from '../../src/services/leaderboard/civ-snapshot.ts'
+import { backfillCivLeaderboardStatsFromHistory, getStoredCivLeaderboardSnapshot, rebuildCivLeaderboardSnapshot, reconcileCivLeaderboardMatchContribution } from '../../src/services/leaderboard/civ-snapshot.ts'
 import { ensureLeaderboardModeSnapshot, getStoredLeaderboardModeSnapshot, leaderboardModeSnapshotKey, rebuildLeaderboardModeSnapshot } from '../../src/services/leaderboard/snapshot.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
@@ -177,22 +177,63 @@ describe('leaderboard message service', () => {
         createdAt: NOW,
       })
       await seedCompletedLeaderMatch(db, 'civ-match-1', '100010000000000004', 'rome-trajan', 1)
-      await ensureCivLeaderboardSnapshot(db, kv)
+      await backfillCivLeaderboardStatsFromHistory(db, NOW)
+      await rebuildCivLeaderboardSnapshot(db, kv, NOW)
       await seedCompletedLeaderMatch(db, 'civ-match-2', '100010000000000004', 'rome-trajan', 2)
       await markLeaderboardsDirty(db, 'test-report', { civ: true, now: NOW })
 
       const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', { modes: ['duel'] })
-      const snapshot = await ensureCivLeaderboardSnapshot(db, kv)
+      const snapshot = await getStoredCivLeaderboardSnapshot(kv)
       const dirtyRows = await db.select().from(leaderboardDirtyStates)
       const civState = await db.select().from(leaderboardMessageStates).where(eq(leaderboardMessageStates.scope, 'civ')).limit(1)
 
       expect(refreshed).toBe(true)
-      expect(snapshot.rows.find(row => row.civId === 'rome-trajan')?.picks).toBe(2)
+      expect(snapshot?.rows.find(row => row.civId === 'rome-trajan')?.picks).toBe(2)
       expect(postPayloads).toHaveLength(1)
       expect(postPayloads[0].embeds).toHaveLength(3)
       expect(JSON.stringify(postPayloads[0].embeds)).toContain('Top Banned Leaders')
       expect(civState[0]?.messageId).toBe('civ-message-1')
       expect(dirtyRows).toHaveLength(0)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('dirty civ refresh waits for historical backfill and keeps dirty state', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await kv.put('system:channel:civ-leaderboard', 'channel-civ')
+
+    const postPayloads: any[] = []
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input)
+      if (init?.method === 'POST' && url.includes('/channels/channel-civ/messages')) {
+        postPayloads.push(JSON.parse(String(init.body)))
+        return new Response(JSON.stringify({ id: 'civ-message-1' }), { status: 200 })
+      }
+
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+
+    try {
+      await db.insert(players).values({
+        id: '100010000000000005',
+        displayName: 'Civ Player 2',
+        avatarUrl: null,
+        createdAt: NOW,
+      })
+      await seedCompletedLeaderMatch(db, 'civ-match-uninitialized', '100010000000000005', 'rome-trajan', 1)
+      await markLeaderboardsDirty(db, 'test-report', { civ: true, now: NOW })
+
+      const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', { modes: ['duel'] })
+      const snapshot = await getStoredCivLeaderboardSnapshot(kv)
+      const dirtyRows = await db.select().from(leaderboardDirtyStates)
+
+      expect(refreshed).toBe(false)
+      expect(snapshot).toBeNull()
+      expect(postPayloads).toHaveLength(0)
+      expect(dirtyRows.map(row => row.scope)).toEqual(['civ'])
     }
     finally {
       sqlite.close()
