@@ -6,6 +6,7 @@ import { verifySessionAccessToken } from '@civup/utils'
 import { eq } from 'drizzle-orm'
 import { countDiscordChannelRequests as countDiscordMessageUpdates, expectDraftAndLobbyState, expectQueuePlayers } from './helpers/assertions.ts'
 import { createSystemWorld } from './helpers/world.ts'
+import { createFakeSessionWebSocket, type TestSessionNamespace } from '../helpers/session-runtime.ts'
 import { runSessionTerminalLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
 
 const worlds: Array<Awaited<ReturnType<typeof createSystemWorld>>> = []
@@ -135,6 +136,45 @@ describe('system scenarios', () => {
     expect(persistedMatches).toHaveLength(1)
     expect(persistedMatches[0]).toMatchObject({ id: started.matchId, status: 'drafting', gameMode: '1v1' })
     expect((await world.lobby.getById(lobby.id))?.matchId).toBe(started.matchId)
+  })
+
+  test('hibernated selected draft sockets resume from attachments after DO wakeup', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: createPlayers(2),
+    })
+    const configured = await world.lobby.config('1v1', {
+      hostId: 'p1',
+      lobbyId: lobby.id,
+      redDeath: true,
+      dealOptionsSize: 2,
+    })
+    expect(configured.status).toBe(200)
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+
+    const namespace = getTestSessionNamespace(world)
+    const hostSocket = createFakeSessionWebSocket(draftSocketAttachment('conn-p1', started.matchId, 'p1'))
+    const opponentSocket = createFakeSessionWebSocket(draftSocketAttachment('conn-p2', started.matchId, 'p2'))
+
+    namespace.__replaceWebSockets(started.matchId, [hostSocket.connection, opponentSocket.connection])
+    const wokenRoom = namespace.__evictRoom(started.matchId)
+    await wokenRoom.webSocketMessage(hostSocket.connection, JSON.stringify({ type: 'start' }))
+
+    const hostUpdate = lastMessageOfType(hostSocket.messages, 'update')
+    const opponentUpdate = lastMessageOfType(opponentSocket.messages, 'update')
+    const match = await world.match.get(started.matchId)
+
+    expect(match?.status).toBe('drafting')
+    expect(hostUpdate).toMatchObject({ type: 'update', state: { status: 'active' } })
+    expect(opponentUpdate).toMatchObject({ type: 'update', state: { status: 'active' } })
+    expect(hostUpdate?.state.dealtCivIds).toHaveLength(2)
+    expect(opponentUpdate?.state.dealtCivIds).toBeNull()
+    expect(opponentUpdate?.state.availableCivIds).toEqual([])
+    expect(hostSocket.closed).toBeNull()
+    expect(opponentSocket.closed).toBeNull()
   })
 
   test('starting a valid 2v2 lobby keeps the expected seat and team order', async () => {
@@ -2604,6 +2644,22 @@ async function createTrackedWorld() {
 
 function createPlayers(count: number, prefix = 'p') {
   return Array.from({ length: count }, (_, index) => ({ id: `${prefix}${index + 1}` }))
+}
+
+function getTestSessionNamespace(world: Awaited<ReturnType<typeof createSystemWorld>>): TestSessionNamespace {
+  return world.env.SessionDO as unknown as TestSessionNamespace
+}
+
+function draftSocketAttachment(id: string, sessionId: string, playerId: string) {
+  return { id, sessionId, playerId, kind: 'draft', connectedAt: Date.now() }
+}
+
+function lastMessageOfType(messages: readonly unknown[], type: string): any | null {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (message && typeof message === 'object' && (message as { type?: unknown }).type === type) return message as any
+  }
+  return null
 }
 
 async function runSeededArrangeScenario(seed: string, channelId: string) {
