@@ -18,6 +18,7 @@ interface PlayerSlotProps {
 }
 
 const SLOT_BREATHE_CYCLE_MS = 3000
+const PORTRAIT_ENTER_ANIMATION_MS = 700
 
 /** Individual player slot */
 export function PlayerSlot(props: PlayerSlotProps) {
@@ -48,7 +49,6 @@ export function PlayerSlot(props: PlayerSlotProps) {
   }
 
   const filled = () => !!pick()
-  const shouldAnimatePortrait = () => state()?.status !== 'complete' || seatJustSwapped(props.seatIndex)
   const previewLeader = (): Leader | null => {
     if (filled()) return null
     const civId = getPreviewPickForSeat(props.seatIndex)
@@ -59,31 +59,62 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
   const hasPreview = (): boolean => previewLeader() != null
   const displayLeader = (): Leader | null => leader() ?? previewLeader()
+  const leaderKey = () => {
+    const l = leader()
+    return l ? `${draftStore.leaderDataVersion}:${l.id}` : null
+  }
+  const previewLeaderKey = () => {
+    const l = previewLeader()
+    return l ? `${draftStore.leaderDataVersion}:${l.id}` : null
+  }
+  const displayLeaderKey = () => {
+    const l = displayLeader()
+    return l ? `${draftStore.leaderDataVersion}:${l.id}` : null
+  }
   const leaderFullPortraitUrl = (currentLeader: { id: string, fullPortraitUrl?: string }) => resolveAssetUrl(currentLeader.fullPortraitUrl ?? `/assets/leaders-full/${currentLeader.id}.webp`) ?? (currentLeader.fullPortraitUrl ?? `/assets/leaders-full/${currentLeader.id}.webp`)
 
-  const isActive = (): boolean => {
-    if (isHiddenDraftNextPickSeat()) return true
+  const [animatedLeaderKey, setAnimatedLeaderKey] = createSignal<string | null>(null)
+  let trackedLeaderKey: string | null = null
+  let hasTrackedLeaderKey = false
+  let portraitAnimationTimeout: ReturnType<typeof setTimeout> | null = null
 
-    const s = state()
-    if (!s || s.status !== 'active') return false
-    const step = s.steps[s.currentStepIndex]
-    if (!step) return false
-    const seatIsInStep = step.seats === 'all'
-      ? props.seatIndex >= 0 && props.seatIndex < s.seats.length
-      : step.seats.includes(props.seatIndex)
-    if (!seatIsInStep) return false
-
-    const submittedCount = s.submissions[props.seatIndex]?.length ?? 0
-    return submittedCount < step.count
+  const clearPortraitAnimationTimeout = () => {
+    if (portraitAnimationTimeout == null) return
+    clearTimeout(portraitAnimationTimeout)
+    portraitAnimationTimeout = null
   }
+
+  createEffect(() => {
+    const key = leaderKey()
+    if (!hasTrackedLeaderKey) {
+      hasTrackedLeaderKey = true
+      trackedLeaderKey = key
+      return
+    }
+
+    if (key && key !== trackedLeaderKey && state()?.status !== 'complete') {
+      clearPortraitAnimationTimeout()
+      setAnimatedLeaderKey(key)
+      portraitAnimationTimeout = setTimeout(() => {
+        setAnimatedLeaderKey(null)
+        portraitAnimationTimeout = null
+      }, PORTRAIT_ENTER_ANIMATION_MS)
+    }
+    else if (!key) {
+      clearPortraitAnimationTimeout()
+      setAnimatedLeaderKey(null)
+    }
+
+    trackedLeaderKey = key
+  })
+
+  onCleanup(() => clearPortraitAnimationTimeout())
+
+  const shouldAnimatePortrait = (key: string | null) => key != null && (animatedLeaderKey() === key || seatJustSwapped(props.seatIndex))
 
   const accent = () => phaseAccent()
   const seatAvatarUrl = () => seat()?.avatarUrl ?? null
-
-  const [wasEverActive, setWasEverActive] = createSignal(false)
-  createEffect(() => { if (isActive()) setWasEverActive(true) })
-
-  // ── FFA Placement ────────────────────────────────────────
+  const seatPlayerId = () => seat()?.playerId ?? null
   const isComplete = () => state()?.status === 'complete'
   const isFfa = () => !(state()?.seats.some(s => s.team != null) ?? false)
   const teamCount = () => new Set((state()?.seats ?? []).flatMap(seat => seat.team == null ? [] : [seat.team])).size
@@ -104,7 +135,42 @@ export function PlayerSlot(props: PlayerSlotProps) {
     const nextSeatIndex = getVisualSeatOrder(state()?.seats)[hiddenDraftLeaderSelections().length]
     return nextSeatIndex === props.seatIndex
   }
+  const isActive = (): boolean => {
+    if (isHiddenDraftNextPickSeat()) return true
 
+    const s = state()
+    if (!s || s.status !== 'active') return false
+    const step = s.steps[s.currentStepIndex]
+    if (!step) return false
+    const seatIsInStep = step.seats === 'all'
+      ? props.seatIndex >= 0 && props.seatIndex < s.seats.length
+      : step.seats.includes(props.seatIndex)
+    if (!seatIsInStep) return false
+
+    const submittedCount = s.submissions[props.seatIndex]?.length ?? 0
+    return submittedCount < step.count
+  }
+  const activeStepDurationSeconds = () => {
+    const s = state()
+    if (!s || s.status !== 'active') return 0
+    const step = s.steps[s.currentStepIndex]
+    return typeof step?.timer === 'number' ? step.timer : 0
+  }
+  const activeBreatheAnimationStyle = createMemo<StableBreatheAnimationStyle>(
+    () => createStableBreatheAnimationStyle({
+      active: isActive(),
+      endsAt: draftStore.timerEndsAt,
+      durationSeconds: activeStepDurationSeconds(),
+      nowMs: draftNow(),
+    }),
+    { key: 'initial', style: {} },
+    { equals: (previous, next) => previous.key === next.key },
+  )
+
+  const [wasEverActive, setWasEverActive] = createSignal(false)
+  createEffect(() => { if (isActive()) setWasEverActive(true) })
+
+  // ── FFA Placement ────────────────────────────────────────
   const placementRank = () => {
     if (!isFfaPlacementMode()) return -1
     return ffaPlacementOrder().indexOf(props.seatIndex)
@@ -229,6 +295,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
           'opacity-0': !wasEverActive(),
         }}
         style={{
+          ...activeBreatheAnimationStyle().style,
           '-webkit-mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
           'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
         }}
@@ -241,6 +308,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
           'opacity-0': !wasEverActive(),
         }}
         style={{
+          ...activeBreatheAnimationStyle().style,
           '-webkit-mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
           'mask-image': 'linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)',
         }}
@@ -254,6 +322,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
           'anim-bar-fade-out': wasEverActive() && !isActive(),
           'opacity-0 w-0': !wasEverActive(),
         }}
+        style={activeBreatheAnimationStyle().style}
       />
 
       {/* FFA placement overlay */}
@@ -315,34 +384,44 @@ export function PlayerSlot(props: PlayerSlotProps) {
       </Show>
 
       {/* Portrait */}
-      <Show when={leader()} keyed>
-        {l => (
-          <img
-            src={leaderFullPortraitUrl(l)}
-            alt={l.name}
-            class={cn(
-              'absolute inset-0 h-full w-full object-cover',
-              props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
-              shouldAnimatePortrait() && 'anim-portrait-in',
-            )}
-          />
-        )}
+      <Show when={leaderKey()} keyed>
+        {key => {
+          const l = leader()
+          return l
+            ? (
+                <img
+                  src={leaderFullPortraitUrl(l)}
+                  alt={l.name}
+                  class={cn(
+                    'absolute inset-0 h-full w-full object-cover',
+                    props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
+                    shouldAnimatePortrait(key) && 'anim-portrait-in',
+                  )}
+                />
+              )
+            : null
+        }}
       </Show>
 
-      <Show when={!filled() && previewLeader()} keyed>
-        {l => (
-          <div class="opacity-50 inset-0 absolute saturate-85">
-            <img
-              src={leaderFullPortraitUrl(l)}
-              alt={l.name}
-              class={cn(
-                'absolute inset-0 h-full w-full object-cover',
-                props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
-                shouldAnimatePortrait() && 'anim-portrait-in',
-              )}
-            />
-          </div>
-        )}
+      <Show when={!filled() && previewLeaderKey()} keyed>
+        {_key => {
+          const l = previewLeader()
+          return l
+            ? (
+                <div class="opacity-50 inset-0 absolute saturate-85">
+                  <img
+                    src={leaderFullPortraitUrl(l)}
+                    alt={l.name}
+                    class={cn(
+                      'absolute inset-0 h-full w-full object-cover',
+                      props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
+                    shouldAnimatePortrait(previewLeaderKey()) && 'anim-portrait-in',
+                  )}
+                  />
+                </div>
+              )
+            : null
+        }}
       </Show>
 
       {/* Empty state icon */}
@@ -363,40 +442,50 @@ export function PlayerSlot(props: PlayerSlotProps) {
       )}
       >
         {/* Leader name (when picked) */}
-        <Show when={displayLeader()} keyed>
-          {l => (
-            <div class="mb-1">
-              <div class={cn('text-base leading-tight font-semibold truncate', filled() ? 'text-fg' : 'text-fg/72')}>
-                {l.name}
-              </div>
-              <div class={cn('text-sm leading-tight truncate', filled() ? 'text-fg-muted/80' : 'text-fg-muted/65')}>
-                {l.civilization}
-              </div>
-            </div>
-          )}
+        <Show when={displayLeaderKey()} keyed>
+          {_key => {
+            const l = displayLeader()
+            return l
+              ? (
+                  <div class="mb-1">
+                    <div class={cn('text-base leading-tight font-semibold truncate', filled() ? 'text-fg' : 'text-fg/72')}>
+                      {l.name}
+                    </div>
+                    <div class={cn('text-sm leading-tight truncate', filled() ? 'text-fg-muted/80' : 'text-fg-muted/65')}>
+                      {l.civilization}
+                    </div>
+                  </div>
+                )
+              : null
+          }}
         </Show>
 
         {/* Discord name and avatar */}
-        <Show when={seat()} keyed>
-          {s => (
-            <div class={cn(
-              'flex items-center gap-2',
-              isActive() ? (accent() === 'red' ? 'text-danger' : 'text-accent') : 'text-fg-muted',
-              filled() && !isActive() && 'text-fg-muted/60',
-            )}
-            >
-              <Show when={seatAvatarUrl()} keyed>
-                {url => (
-                  <img
-                    src={url}
-                    alt=""
-                    class="rounded-full shrink-0 h-5 w-5 object-cover"
-                  />
-                )}
-              </Show>
-              <span class="text-sm leading-tight truncate">{s.displayName}</span>
-            </div>
-          )}
+        <Show when={seatPlayerId()} keyed>
+          {_playerId => {
+            const s = seat()
+            return s
+              ? (
+                  <div class={cn(
+                    'flex items-center gap-2',
+                    isActive() ? (accent() === 'red' ? 'text-danger' : 'text-accent') : 'text-fg-muted',
+                    filled() && !isActive() && 'text-fg-muted/60',
+                  )}
+                  >
+                    <Show when={seatAvatarUrl()} keyed>
+                      {url => (
+                        <img
+                          src={url}
+                          alt=""
+                          class="rounded-full shrink-0 h-5 w-5 object-cover"
+                        />
+                      )}
+                    </Show>
+                    <span class="text-sm leading-tight truncate">{s.displayName}</span>
+                  </div>
+                )
+              : null
+          }}
         </Show>
       </div>
 
@@ -423,6 +512,7 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
   const state = () => draftStore.state
   const seat = () => state()?.seats[props.seatIndex]
   const seatAvatarUrl = () => seat()?.avatarUrl ?? null
+  const seatPlayerId = () => seat()?.playerId ?? null
   const [showWinnerFlash, setShowWinnerFlash] = createSignal(false)
   let lastWinnerFlashRevealEndsAt: number | null = null
   let winnerFlashTimeout: ReturnType<typeof setTimeout> | null = null
@@ -683,27 +773,32 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
       </div>
 
       {/* Name row at the bottom */}
-      <Show when={seat()} keyed>
-        {s => (
-          <div class={cn(
-            'relative z-20 flex items-center gap-2 px-2 pb-2 pt-6',
-            'bg-gradient-to-t from-black/70 to-transparent',
-          )}
-          >
-            <Show when={seatAvatarUrl()} keyed>
-              {url => (
-                <img
-                  src={url}
-                  alt=""
-                  class="rounded-full shrink-0 h-5 w-5 object-cover"
-                />
-              )}
-            </Show>
-            <span class="text-sm text-fg-muted leading-tight truncate">
-              {s.displayName}
-            </span>
-          </div>
-        )}
+      <Show when={seatPlayerId()} keyed>
+        {_playerId => {
+          const s = seat()
+          return s
+            ? (
+                <div class={cn(
+                  'relative z-20 flex items-center gap-2 px-2 pb-2 pt-6',
+                  'bg-gradient-to-t from-black/70 to-transparent',
+                )}
+                >
+                  <Show when={seatAvatarUrl()} keyed>
+                    {url => (
+                      <img
+                        src={url}
+                        alt=""
+                        class="rounded-full shrink-0 h-5 w-5 object-cover"
+                      />
+                    )}
+                  </Show>
+                  <span class="text-sm text-fg-muted leading-tight truncate">
+                    {s.displayName}
+                  </span>
+                </div>
+              )
+            : null
+        }}
       </Show>
     </div>
   )

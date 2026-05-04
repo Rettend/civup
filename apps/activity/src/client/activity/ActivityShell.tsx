@@ -65,7 +65,6 @@ type LiveRoute
     | { kind: 'overview' }
     | { kind: 'lobby', id: string }
     | { kind: 'draft', id: string }
-    | { kind: 'reported', id: string }
 
 export default function ActivityShell(props: { children?: JSX.Element }) {
   const navigate = useNavigate()
@@ -171,7 +170,6 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   const currentTargetKey = () => {
     const current = state()
     if (current.status === 'lobby-waiting') return activityTargetOptionKey({ kind: 'lobby', id: current.lobby.id })
-    if (current.status === 'reported') return activityTargetOptionKey({ kind: 'match', id: current.matchId })
     if (current.status === 'authenticated') return activityTargetOptionKey({ kind: 'match', id: current.matchId })
     const lastSelection = lastResolvedSelection()
     if (!lastSelection) return null
@@ -236,6 +234,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     lobbyContext?: {
       lobbyId: string | null
       lobbyMode: string | null
+      reported?: boolean
     },
   ) => {
     setPickerError(null)
@@ -258,6 +257,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         : current.status === 'authenticated'
           ? current.lobbyMode
           : null)
+    const nextReported = lobbyContext?.reported === true
 
     const previousSelection = lastResolvedSelection()
     if (previousSelection?.kind !== 'match' || previousSelection.matchId !== matchId) {
@@ -272,21 +272,11 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       })
     }
 
-    setState({ status: 'authenticated', matchId, autoStart: nextAutoStart, steamLobbyLink, sessionAccessToken, lobbyId: nextLobbyId, lobbyMode: nextLobbyMode })
+    setState({ status: 'authenticated', matchId, autoStart: nextAutoStart, steamLobbyLink, sessionAccessToken, lobbyId: nextLobbyId, lobbyMode: nextLobbyMode, reported: nextReported })
     if (isSameMatch && (isDraftConnectionInFlight() || hasTerminalDraft)) return
 
     resetDraft()
     connectToSession(SESSION_SOCKET_TARGET, matchId, sessionAccessToken, { onStateChanged: handleSelectedSessionStateChange })
-  }
-
-  const transitionToReportedMatch = (selection: Extract<ActivityLaunchSelection, { kind: 'match' }>) => {
-    setPickerError(null)
-    clearDraftConnection()
-    setState({
-      status: 'reported',
-      matchId: selection.matchId,
-      lobbyMode: selection.mode ?? selection.option.mode,
-    })
   }
 
   const handleSelectedSessionStateChange = (change: SelectedSessionStateChange) => {
@@ -381,8 +371,6 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       options: visibleTargetOptions(snapshot.options),
     }
     const current = state()
-    if (!filteredSnapshot.selection && current.status === 'reported') return
-
     updateAvailableTargets(filteredSnapshot.options)
 
     if (!filteredSnapshot.selection) {
@@ -440,7 +428,16 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     }
 
     if (filteredSnapshot.selection.option.status === 'completed') {
-      transitionToReportedMatch(filteredSnapshot.selection)
+      const current = state()
+      if (current.status === 'authenticated' && current.matchId === filteredSnapshot.selection.matchId && draftStore.state?.status === 'complete') {
+        if (!current.reported) setState({ ...current, reported: true })
+        return
+      }
+      transitionToDraft(filteredSnapshot.selection.matchId, autoStart, filteredSnapshot.selection.steamLobbyLink, filteredSnapshot.selection.sessionAccessToken, {
+        lobbyId: filteredSnapshot.selection.lobbyId ?? filteredSnapshot.selection.option.lobbyId,
+        lobbyMode: filteredSnapshot.selection.mode ?? filteredSnapshot.selection.option.mode,
+        reported: true,
+      })
       return
     }
 
@@ -969,13 +966,12 @@ function parseLiveRoute(pathname: string): LiveRoute | null {
   if (normalized === '/') return { kind: 'root' }
   if (normalized === '/overview') return { kind: 'overview' }
 
-  const match = normalized.match(/^\/(lobby|draft|reported)\/([^/]+)$/)
+  const match = normalized.match(/^\/(lobby|draft)\/([^/]+)$/)
   if (!match?.[1] || !match[2]) return null
 
   const id = decodeURIComponent(match[2])
   if (match[1] === 'lobby') return { kind: 'lobby', id }
-  if (match[1] === 'draft') return { kind: 'draft', id }
-  return { kind: 'reported', id }
+  return { kind: 'draft', id }
 }
 
 function liveRouteKey(route: LiveRoute): string {
@@ -986,14 +982,12 @@ function liveRouteKey(route: LiveRoute): string {
 function liveRouteMatchesSelection(route: LiveRoute, selection: ActivityLaunchSelection | null): boolean {
   if (!selection) return false
   if (route.kind === 'lobby') return selection.kind === 'lobby' && selection.lobby.id === route.id
-  if (route.kind === 'draft') return selection.kind === 'match' && selection.matchId === route.id && selection.option.status !== 'completed'
-  if (route.kind === 'reported') return selection.kind === 'match' && selection.matchId === route.id && selection.option.status === 'completed'
+  if (route.kind === 'draft') return selection.kind === 'match' && selection.matchId === route.id
   return false
 }
 
 function getCanonicalSelectionPath(selection: ActivityLaunchSelection): string {
   if (selection.kind === 'lobby') return `/lobby/${encodeURIComponent(selection.lobby.id)}`
-  if (selection.option.status === 'completed') return `/reported/${encodeURIComponent(selection.matchId)}`
   return `/draft/${encodeURIComponent(selection.matchId)}`
 }
 
@@ -1002,7 +996,7 @@ function getCanonicalLivePath(state: ActivityState): string | null {
   if (state.status === 'overview') return '/overview'
   if (state.status === 'lobby-waiting') return `/lobby/${encodeURIComponent(state.lobby.id)}`
   if (state.status === 'authenticated') return `/draft/${encodeURIComponent(state.matchId)}`
-  return `/reported/${encodeURIComponent(state.matchId)}`
+  return null
 }
 
 function resolveSessionSocketTarget(): SessionSocketTarget {

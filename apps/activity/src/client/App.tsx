@@ -8,7 +8,6 @@ import {
   preloadLobbyOverviewRoute,
   preloadLobbyWaitingRoute,
   preloadPracticePage,
-  preloadReportedActivityRoute,
 } from './activity/route-preloads'
 
 const ActivityShell = lazy(preloadActivityShell)
@@ -18,7 +17,6 @@ const DraftActivityRoute = lazy(preloadDraftActivityRoute)
 const LobbyOverviewRoute = lazy(preloadLobbyOverviewRoute)
 const LobbyWaitingRoute = lazy(preloadLobbyWaitingRoute)
 const PracticePage = lazy(preloadPracticePage)
-const ReportedActivityRoute = lazy(preloadReportedActivityRoute)
 
 export default function App() {
   return (
@@ -30,7 +28,6 @@ export default function App() {
           <Route path="/overview" component={LobbyOverviewRoute} />
           <Route path="/lobby/:lobbyId" component={LobbyWaitingRoute} />
           <Route path="/draft/:matchId" component={DraftActivityRoute} />
-          <Route path="/reported/:matchId" component={ReportedActivityRoute} />
         </Route>
         <Route path="*all" component={ActivityRedirectRoute} />
       </Router>
