@@ -713,7 +713,7 @@ describe('activity target selection', () => {
     if (snapshot.selection?.kind !== 'match') return
     expect(snapshot.selection.matchId).toBe(lobby.id)
     expect(snapshot.selection.option.status).toBe('completed')
-    expect(snapshot.selection.sessionAccessToken).toBeNull()
+    expect(snapshot.selection.sessionAccessToken).toEqual(expect.any(String))
     expect(snapshot.options).toEqual([expect.objectContaining({ kind: 'match', id: lobby.id, status: 'completed' })])
   })
 

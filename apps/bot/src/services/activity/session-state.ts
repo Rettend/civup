@@ -134,7 +134,7 @@ function compareActivityDirectoryRowsByUpdatedAtDesc(left: ActivityDirectoryRow,
 }
 
 function isLiveActivityOverviewPhase(phase: SessionRecord['phase']): boolean {
-  return phase === 'open' || phase === 'draft' || phase === 'swap' || phase === 'active'
+  return phase === 'open' || phase === 'draft' || phase === 'swap' || phase === 'active' || phase === 'reported'
 }
 
 export async function getActivitySessionById(

@@ -24,6 +24,7 @@ export default function DraftActivityRoute() {
           steamLobbyLink={(activity.state() as Extract<ReturnType<typeof activity.state>, { status: 'authenticated' }>).steamLobbyLink}
           lobbyId={(activity.state() as Extract<ReturnType<typeof activity.state>, { status: 'authenticated' }>).lobbyId}
           lobbyMode={(activity.state() as Extract<ReturnType<typeof activity.state>, { status: 'authenticated' }>).lobbyMode}
+          reported={(activity.state() as Extract<ReturnType<typeof activity.state>, { status: 'authenticated' }>).reported}
           onSwitchTarget={activity.openOverview}
         />
       </Match>

@@ -386,9 +386,7 @@ async function serializeActivityLaunchSelection(
     option: selection.target.option,
     matchId: selection.target.option.id,
     steamLobbyLink: selection.target.session.steamLobbyLink,
-    sessionAccessToken: selection.target.option.status === 'completed'
-      ? null
-      : await issueSessionAccessToken(activitySecret, userId, selection.target.option.id, selection.target.option.channelId),
+    sessionAccessToken: await issueSessionAccessToken(activitySecret, userId, selection.target.option.id, selection.target.option.channelId),
     lobbyId: selection.target.session.sessionId,
     mode: selection.target.session.mode,
   }

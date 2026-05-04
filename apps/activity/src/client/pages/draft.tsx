@@ -2,17 +2,22 @@ import { createEffect, createSignal, Match, Show, Switch } from 'solid-js'
 import { DraftView } from '~/client/components/draft'
 import { connectionError, connectionStatus, draftStore, isMapVotePhase, isMiniView, sendStart, userId } from '~/client/stores'
 
+type ReportResultStatus = 'idle' | 'submitting' | 'done'
+
 export interface DraftPageProps {
   matchId: string
   autoStart: boolean
   steamLobbyLink: string | null
   lobbyId: string | null
   lobbyMode: string | null
+  reported?: boolean
   onSwitchTarget?: () => void
 }
 
 export function DraftPage(props: DraftPageProps) {
   const [autoStartSent, setAutoStartSent] = createSignal(false)
+  const [submittingReportMatchId, setSubmittingReportMatchId] = createSignal<string | null>(null)
+  const [reportedMatchId, setReportedMatchId] = createSignal<string | null>(null)
 
   const hasDraftState = () => draftStore.state != null
   const hasTerminalState = () => {
@@ -26,10 +31,34 @@ export function DraftPage(props: DraftPageProps) {
   }
   const shouldRenderDraftView = () => {
     const status = connectionStatus()
-    return status === 'connected' || (status === 'reconnecting' && hasDraftState())
+    return status === 'connected'
+      || (status === 'reconnecting' && hasDraftState())
+      || (hasTerminalState() && (status === 'error' || status === 'disconnected'))
   }
   const isWaitingForDraftStart = () => draftStore.state?.status === 'waiting' && !isMapVotePhase()
   const shouldShowDraftView = () => draftStore.state != null && (isMiniView() || !isWaitingForDraftStart())
+  const reportResultStatus = (): ReportResultStatus => {
+    if (props.reported) return 'done'
+    if (reportedMatchId() === props.matchId) return 'done'
+    if (submittingReportMatchId() === props.matchId) return 'submitting'
+    return 'idle'
+  }
+
+  const handleReportStarted = (matchId: string) => {
+    if (matchId !== props.matchId) return
+    setSubmittingReportMatchId(matchId)
+  }
+
+  const handleReportComplete = (matchId: string) => {
+    if (matchId !== props.matchId) return
+    setSubmittingReportMatchId(null)
+    setReportedMatchId(matchId)
+  }
+
+  const handleReportFailed = (matchId: string) => {
+    if (matchId !== props.matchId) return
+    setSubmittingReportMatchId(null)
+  }
 
   createEffect(() => {
     if (!props.autoStart || autoStartSent()) return
@@ -79,6 +108,10 @@ export function DraftPage(props: DraftPageProps) {
               lobbyId={props.lobbyId}
               lobbyMode={props.lobbyMode}
               onSwitchTarget={props.onSwitchTarget}
+              reportResultStatus={reportResultStatus()}
+              onReportStarted={handleReportStarted}
+              onReportComplete={handleReportComplete}
+              onReportFailed={handleReportFailed}
             />
           </Show>
           <Show when={connectionStatus() === 'reconnecting'}>
@@ -98,16 +131,6 @@ export function DraftPage(props: DraftPageProps) {
             <div class="text-sm text-fg-muted">Reconnecting to draft room...</div>
           </div>
         </main>
-      </Match>
-
-      <Match when={hasTerminalState() && (connectionStatus() === 'error' || connectionStatus() === 'disconnected')}>
-        <DraftView
-          matchId={props.matchId}
-          steamLobbyLink={props.steamLobbyLink}
-          lobbyId={props.lobbyId}
-          lobbyMode={props.lobbyMode}
-          onSwitchTarget={props.onSwitchTarget}
-        />
       </Match>
 
       <Match when={connectionStatus() === 'error'}>

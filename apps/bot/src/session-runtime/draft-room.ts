@@ -99,6 +99,8 @@ interface ConnectionState {
 }
 
 const DEBUG_ACTIVE_BOT_PLAYER_ID_PREFIX = 'bot:'
+const DEBUG_ACTIVE_BOT_DELAY_MS = 5_000
+const DEBUG_ACTIVE_BOT_STAGGER_MS = 150
 const SWAP_DISCONNECT_GRACE_MS = 5_000
 
 // ── Draft Room Server ────────────────────────────────────────
@@ -838,7 +840,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       ? Array.from({ length: state.seats.length }, (_, i) => i)
       : step.seats
 
-    const scheduledSeatIndices: number[] = []
+    let delayMs = DEBUG_ACTIVE_BOT_DELAY_MS
     for (const seatIndex of activeSeats) {
       const playerId = state.seats[seatIndex]?.playerId
       if (!isDebugActiveBotPlayerId(playerId)) continue
@@ -846,42 +848,32 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       const submittedCount = state.submissions[seatIndex]?.length ?? 0
       if (submittedCount >= step.count) continue
 
-      scheduledSeatIndices.push(seatIndex)
-    }
+      const scheduledStepIndex = state.currentStepIndex
+      const scheduledDelayMs = delayMs
+      delayMs += DEBUG_ACTIVE_BOT_STAGGER_MS
 
-    if (scheduledSeatIndices.length === 0) return
-    const scheduledStepIndex = state.currentStepIndex
-    this.ctx.waitUntil(this.runBackgroundRoomOperation(() => this.runDebugActiveBotActions(scheduledStepIndex, scheduledSeatIndices, blindBans))
-      .catch((error) => {
-        console.error(`Debug active bot actions failed in match ${state.matchId}:`, error)
-      }))
+      this.ctx.waitUntil(wait(scheduledDelayMs)
+        .then(() => this.runBackgroundRoomOperation(() => this.runDebugActiveBotAction(scheduledStepIndex, seatIndex, blindBans)))
+        .catch((error) => {
+          console.error(`Debug active bot action failed for seat ${seatIndex} in match ${state.matchId}:`, error)
+        }))
+    }
   }
 
   private scheduleDebugMapVoteBotActions(state: DraftState, config: DraftRuntimeConfig) {
-    const scheduledSeatIndices: number[] = []
+    let delayMs = DEBUG_ACTIVE_BOT_DELAY_MS
     for (let seatIndex = 0; seatIndex < state.seats.length; seatIndex++) {
       const playerId = state.seats[seatIndex]?.playerId
       if (!isDebugActiveBotPlayerId(playerId)) continue
 
-      scheduledSeatIndices.push(seatIndex)
-    }
+      const scheduledDelayMs = delayMs
+      delayMs += DEBUG_ACTIVE_BOT_STAGGER_MS
 
-    if (scheduledSeatIndices.length === 0) return
-    this.ctx.waitUntil(this.runBackgroundRoomOperation(() => this.runDebugMapVoteBotActions(scheduledSeatIndices, config))
-      .catch((error) => {
-        console.error(`Debug map vote bot actions failed in match ${state.matchId}:`, error)
-      }))
-  }
-
-  private async runDebugActiveBotActions(stepIndex: number, seatIndices: readonly number[], blindBans: boolean): Promise<void> {
-    for (const seatIndex of seatIndices) {
-      await this.runDebugActiveBotAction(stepIndex, seatIndex, blindBans)
-    }
-  }
-
-  private async runDebugMapVoteBotActions(seatIndices: readonly number[], config: DraftRuntimeConfig): Promise<void> {
-    for (const seatIndex of seatIndices) {
-      await this.runDebugMapVoteBotAction(seatIndex, config)
+      this.ctx.waitUntil(wait(scheduledDelayMs)
+        .then(() => this.runBackgroundRoomOperation(() => this.runDebugMapVoteBotAction(seatIndex, config)))
+        .catch((error) => {
+          console.error(`Debug map vote bot action failed for seat ${seatIndex} in match ${state.matchId}:`, error)
+        }))
     }
   }
 
@@ -941,7 +933,11 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       && nextSubmittedCount < nextStep.count
 
     if (needsFollowUpOnSameStep) {
-      await this.runDebugActiveBotAction(stepIndex, seatIndex, blindBans)
+      this.ctx.waitUntil(wait(DEBUG_ACTIVE_BOT_DELAY_MS)
+        .then(() => this.runBackgroundRoomOperation(() => this.runDebugActiveBotAction(stepIndex, seatIndex, blindBans)))
+        .catch((error) => {
+          console.error(`Debug active bot follow-up action failed for seat ${seatIndex} in match ${nextState.matchId}:`, error)
+        }))
     }
   }
 
@@ -1462,6 +1458,10 @@ function parseConfigTimer(value: unknown): number | null | undefined {
   const rounded = Math.round(value)
   if (rounded < 0 || rounded > MAX_TIMER_SECONDS) return undefined
   return rounded
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 function isAuthorizedRequest(request: Request, expectedSecret: string | undefined): boolean {
