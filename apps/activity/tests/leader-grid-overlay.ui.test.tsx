@@ -104,7 +104,7 @@ describe('LeaderGridOverlay UI', () => {
     expect(uiMockState.pickSelections).toEqual([])
   })
 
-  test('does not replace mouse tooltip coordinates with focus coordinates on click', () => {
+  test('keeps pointer tooltip stable through click focus churn', () => {
     const hoverPoints: Array<{ x: number, y: number }> = []
     let hoverLeaveCount = 0
 
@@ -119,17 +119,17 @@ describe('LeaderGridOverlay UI', () => {
     const card = screen.getByAltText('Abraham Lincoln').closest('button')!
     fireEvent.mouseMove(card, { clientX: 120, clientY: 140 })
 
-    Object.defineProperty(card, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => ({ left: 700, top: 400, width: 72, height: 72, right: 772, bottom: 472, x: 700, y: 400, toJSON: () => {} }),
-    })
-
-    fireEvent.pointerDown(card)
     fireEvent.focus(card)
     fireEvent.click(card)
+    fireEvent.blur(card)
+    fireEvent.mouseLeave(card)
 
     expect(hoverPoints).toEqual([{ x: 120, y: 140 }])
     expect(hoverLeaveCount).toBe(0)
+
+    fireEvent.mouseLeave(card, { relatedTarget: document.body })
+
+    expect(hoverLeaveCount).toBe(1)
   })
 
   test('confirms a random pick from the stable available pool', () => {
