@@ -4,8 +4,8 @@ import { createEffect, createMemo, createSignal, onCleanup, Show } from 'solid-j
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { placementIconClass } from '~/client/lib/placement-icons'
-import { getVisualSeatOrder } from '~/client/lib/seat-order'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
+import { getVisualSeatOrder } from '~/client/lib/seat-order'
 import { canSwapLeadersWith, draftNow, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, gridOpen, hiddenDraftLeaderSelections, isHiddenDraftComplete, isMapVotePhase, isMobileLayout, isSeatMapVoteConfirmed, MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatJustSwapped, selectWinningTeam, sendLeaderSwap, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
@@ -385,7 +385,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
       {/* Portrait */}
       <Show when={leaderKey()} keyed>
-        {key => {
+        {(key) => {
           const l = leader()
           return l
             ? (
@@ -404,7 +404,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
       </Show>
 
       <Show when={!filled() && previewLeaderKey()} keyed>
-        {_key => {
+        {(_key) => {
           const l = previewLeader()
           return l
             ? (
@@ -415,8 +415,8 @@ export function PlayerSlot(props: PlayerSlotProps) {
                     class={cn(
                       'absolute inset-0 h-full w-full object-cover',
                       props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
-                    shouldAnimatePortrait(previewLeaderKey()) && 'anim-portrait-in',
-                  )}
+                      shouldAnimatePortrait(previewLeaderKey()) && 'anim-portrait-in',
+                    )}
                   />
                 </div>
               )
@@ -443,7 +443,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
       >
         {/* Leader name (when picked) */}
         <Show when={displayLeaderKey()} keyed>
-          {_key => {
+          {(_key) => {
             const l = displayLeader()
             return l
               ? (
@@ -462,7 +462,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
         {/* Discord name and avatar */}
         <Show when={seatPlayerId()} keyed>
-          {_playerId => {
+          {(_playerId) => {
             const s = seat()
             return s
               ? (
@@ -717,7 +717,7 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
                       <Show
                         when={map().imageSrc}
                         fallback={(
-                          <div class="inset-0 absolute flex items-center justify-center">
+                          <div class="flex items-center inset-0 justify-center absolute">
                             <span
                               class={cn(
                                 map().isRandom ? 'i-ph-dice-five-bold' : 'i-ph-map-trifold-fill',
@@ -774,7 +774,7 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
 
       {/* Name row at the bottom */}
       <Show when={seatPlayerId()} keyed>
-        {_playerId => {
+        {(_playerId) => {
           const s = seat()
           return s
             ? (

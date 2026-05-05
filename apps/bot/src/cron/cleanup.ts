@@ -1,9 +1,9 @@
 import { createDb } from '@civup/db'
+import { getKvStore } from '../services/kv/batch.ts'
 import { refreshDirtyLeaderboards } from '../services/leaderboard/message.ts'
 import { pruneInactiveOpenLobbies } from '../services/lobby/index.ts'
 import { pruneAbandonedMatches, sendOverdueHostReportReminders } from '../services/match/index.ts'
 import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, syncRankedRoles } from '../services/ranked/role-sync.ts'
-import { getKvStore } from '../services/kv/batch.ts'
 import { factory } from '../setup.ts'
 
 const LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS = 30 * 60 * 1000

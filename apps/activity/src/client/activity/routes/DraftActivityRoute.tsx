@@ -1,8 +1,8 @@
 import { useParams } from '@solidjs/router'
 import { Match, onMount, Switch } from 'solid-js'
+import { DraftPage } from '../../pages/draft'
 import { ActivityErrorPage, ActivityLoadingPage, ActivityRedirectingPage, useActivityController } from '../activity-context'
 import { preloadLobbyOverviewRoute } from '../route-preloads'
-import { DraftPage } from '../../pages/draft'
 
 export default function DraftActivityRoute() {
   const activity = useActivityController()

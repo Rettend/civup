@@ -40,10 +40,10 @@ describe('activity party proxy', () => {
       `https://activity-2.example.invalid/api/parties/main/example-session?_pk=socket-1&accessToken=draft-room.v1.test&activitySession=${encodeURIComponent(token)}`,
       {
         headers: {
-          connection: 'Upgrade',
+          'connection': 'Upgrade',
           'sec-websocket-key': 'test-key',
           'sec-websocket-version': '13',
-          upgrade: 'websocket',
+          'upgrade': 'websocket',
         },
       },
     ), createEnv(forwardedRequests))

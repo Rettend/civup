@@ -1,6 +1,6 @@
 import type { QueueEntry } from '@civup/game'
-import { afterEach, describe, expect, test } from 'bun:test'
 import { sessionDirectory } from '@civup/db'
+import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
 import { SESSION_DIRECTORY_OPEN_STALE_MS } from '../../src/services/session/directory.ts'
@@ -117,7 +117,6 @@ describe('inactive lobby cleanup', () => {
     expect((await getLobbyById(kv, lobby.id))?.status).toBe('cancelled')
     expect(await getLobbyForUser(runtime.db, 'host')).toBeNull()
   })
-
 })
 
 function entry(playerId: string, joinedAt: number): QueueEntry {

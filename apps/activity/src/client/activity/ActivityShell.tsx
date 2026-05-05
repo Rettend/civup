@@ -1,3 +1,4 @@
+import type { JSX } from 'solid-js'
 import type { ActivityTargetDescriptor } from '../lib/activity-targets'
 import type {
   ActivityLaunchSelection,
@@ -11,7 +12,7 @@ import type {
   SelectedSessionStateChange,
   SessionSocketTarget,
 } from '../stores'
-import type { JSX } from 'solid-js'
+import type { ActivityState } from './activity-context'
 import { useLocation, useNavigate } from '@solidjs/router'
 import { batch, createEffect, createSignal, onCleanup, onMount, startTransition, untrack } from 'solid-js'
 import { discordSdk, setupDiscordSdk } from '../discord'
@@ -30,7 +31,7 @@ import {
   setIsMobileLayout,
   watchLobbyState,
 } from '../stores'
-import { ActivityControllerContext, type ActivityState } from './activity-context'
+import { ActivityControllerContext } from './activity-context'
 import { preloadLobbyOverviewRoute, preloadPracticePage } from './route-preloads'
 
 const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
@@ -480,9 +481,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       hydratedLiveState: hasHydratedLiveActivityState(),
       liveStateRevisionAtStart,
       liveStateRevision,
-    })) {
-      return
-    }
+    })) { return }
 
     hydrateActivityLaunchSnapshot(snapshot)
   }
