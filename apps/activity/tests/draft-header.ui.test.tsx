@@ -169,7 +169,8 @@ describe('DraftHeader UI', () => {
 
     await user.click(confirmResultButton)
 
-    await waitFor(() => expect(storeSpies.reportMatchResult).toHaveBeenCalledWith('match-1', 'player-2', 'B'))
+    await waitFor(() => expect(storeSpies.reportMatchResult).toHaveBeenCalledTimes(1))
+    expect(storeSpies.reportMatchResult.mock.calls[0]?.slice(0, 3)).toEqual(['match-1', 'player-2', 'B'])
   })
 
   test('shows mobile complete controls for the host and scrubs the reported match result', async () => {
@@ -181,6 +182,9 @@ describe('DraftHeader UI', () => {
     uiMockState.draftState = createCompleteDraftState({ formatId: '2v2' })
 
     render(() => <DraftHeader steamLobbyLink="steam://joinlobby/289070/example" />)
+
+    await user.click(screen.getByRole('button', { name: 'Scrub' }))
+    expect(storeSpies.scrubMatchResult).toHaveBeenCalledTimes(0)
 
     await user.click(screen.getByRole('button', { name: 'Scrub' }))
 
