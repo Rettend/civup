@@ -3,6 +3,7 @@ import { getLeader, MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '@civup/game'
 import { createEffect, createMemo, createSignal, onCleanup, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
+import { getLeaderFullPortraitUrl } from '~/client/lib/leader-full-portrait'
 import { placementIconClass } from '~/client/lib/placement-icons'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
 import { getVisualSeatOrder } from '~/client/lib/seat-order'
@@ -18,7 +19,39 @@ interface PlayerSlotProps {
 }
 
 const SLOT_BREATHE_CYCLE_MS = 3000
-const PORTRAIT_ENTER_ANIMATION_MS = 700
+
+function SlotPortraitImage(props: {
+  src: string
+  alt: string
+  class?: string
+  animate?: boolean
+  waitForDecode?: boolean
+}) {
+  const [ready, setReady] = createSignal(!props.waitForDecode)
+
+  const markReady = (image: HTMLImageElement) => {
+    if (!props.waitForDecode) return
+    const decode = typeof image.decode === 'function' ? image.decode() : Promise.resolve()
+    void decode.catch(() => undefined).finally(() => setReady(true))
+  }
+
+  return (
+    <img
+      ref={(image) => {
+        if (props.waitForDecode && image.complete && image.naturalWidth > 0) markReady(image)
+      }}
+      src={props.src}
+      alt={props.alt}
+      class={cn(
+        props.class,
+        props.animate && props.waitForDecode && !ready() && 'opacity-0',
+        props.animate && (!props.waitForDecode || ready()) && 'anim-portrait-in',
+      )}
+      onLoad={event => markReady(event.currentTarget)}
+      onError={() => setReady(true)}
+    />
+  )
+}
 
 /** Individual player slot */
 export function PlayerSlot(props: PlayerSlotProps) {
@@ -71,46 +104,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
     const l = displayLeader()
     return l ? `${draftStore.leaderDataVersion}:${l.id}` : null
   }
-  const leaderFullPortraitUrl = (currentLeader: { id: string, fullPortraitUrl?: string }) => resolveAssetUrl(currentLeader.fullPortraitUrl ?? `/assets/leaders-full/${currentLeader.id}.webp`) ?? (currentLeader.fullPortraitUrl ?? `/assets/leaders-full/${currentLeader.id}.webp`)
-
-  const [animatedLeaderKey, setAnimatedLeaderKey] = createSignal<string | null>(null)
-  let trackedLeaderKey: string | null = null
-  let hasTrackedLeaderKey = false
-  let portraitAnimationTimeout: ReturnType<typeof setTimeout> | null = null
-
-  const clearPortraitAnimationTimeout = () => {
-    if (portraitAnimationTimeout == null) return
-    clearTimeout(portraitAnimationTimeout)
-    portraitAnimationTimeout = null
-  }
-
-  createEffect(() => {
-    const key = leaderKey()
-    if (!hasTrackedLeaderKey) {
-      hasTrackedLeaderKey = true
-      trackedLeaderKey = key
-      return
-    }
-
-    if (key && key !== trackedLeaderKey && state()?.status !== 'complete') {
-      clearPortraitAnimationTimeout()
-      setAnimatedLeaderKey(key)
-      portraitAnimationTimeout = setTimeout(() => {
-        setAnimatedLeaderKey(null)
-        portraitAnimationTimeout = null
-      }, PORTRAIT_ENTER_ANIMATION_MS)
-    }
-    else if (!key) {
-      clearPortraitAnimationTimeout()
-      setAnimatedLeaderKey(null)
-    }
-
-    trackedLeaderKey = key
-  })
-
-  onCleanup(() => clearPortraitAnimationTimeout())
-
-  const shouldAnimatePortrait = (key: string | null) => key != null && (animatedLeaderKey() === key || seatJustSwapped(props.seatIndex))
+  const shouldAnimatePickedPortrait = () => state()?.status !== 'complete' || seatJustSwapped(props.seatIndex)
 
   const accent = () => phaseAccent()
   const seatAvatarUrl = () => seat()?.avatarUrl ?? null
@@ -385,18 +379,19 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
       {/* Portrait */}
       <Show when={leaderKey()} keyed>
-        {(key) => {
+        {(_key) => {
           const l = leader()
           return l
             ? (
-                <img
-                  src={leaderFullPortraitUrl(l)}
+                <SlotPortraitImage
+                  src={getLeaderFullPortraitUrl(l)}
                   alt={l.name}
                   class={cn(
                     'absolute inset-0 h-full w-full object-cover',
                     props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
-                    shouldAnimatePortrait(key) && 'anim-portrait-in',
                   )}
+                  animate={shouldAnimatePickedPortrait()}
+                  waitForDecode={state()?.status !== 'complete'}
                 />
               )
             : null
@@ -409,14 +404,14 @@ export function PlayerSlot(props: PlayerSlotProps) {
           return l
             ? (
                 <div class="opacity-50 inset-0 absolute saturate-85">
-                  <img
-                    src={leaderFullPortraitUrl(l)}
+                  <SlotPortraitImage
+                    src={getLeaderFullPortraitUrl(l)}
                     alt={l.name}
                     class={cn(
                       'absolute inset-0 h-full w-full object-cover',
                       props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
-                      shouldAnimatePortrait(previewLeaderKey()) && 'anim-portrait-in',
                     )}
+                    animate
                   />
                 </div>
               )

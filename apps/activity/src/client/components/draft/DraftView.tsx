@@ -1,6 +1,7 @@
 import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 import { preloadLobbyOverviewRoute } from '~/client/activity/route-preloads'
 import { cn } from '~/client/lib/css'
+import { preloadLeaderFullPortraitIds } from '~/client/lib/leader-full-portrait'
 import {
   canOpenLeaderGrid,
   currentStep,
@@ -54,6 +55,23 @@ export function DraftView(props: DraftViewProps) {
   }
 
   const steamLobbyLink = () => state() ? draftStore.steamLobbyLink : props.steamLobbyLink ?? null
+
+  createEffect(() => {
+    const current = state()
+    if (!current || current.status === 'cancelled') return
+
+    const leaderIds = new Set(current.availableCivIds)
+    for (const selection of current.bans) leaderIds.add(selection.civId)
+    for (const selection of current.picks) leaderIds.add(selection.civId)
+    for (const selections of Object.values(draftStore.previews.bans)) {
+      for (const civId of selections) leaderIds.add(civId)
+    }
+    for (const selections of Object.values(draftStore.previews.picks)) {
+      for (const civId of selections) leaderIds.add(civId)
+    }
+
+    preloadLeaderFullPortraitIds(leaderIds, draftStore.leaderDataVersion)
+  })
 
   createEffect(() => {
     const current = state()
