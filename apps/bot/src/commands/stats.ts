@@ -4,10 +4,10 @@ import { GAME_MODE_CHOICES, LEADERBOARD_MODES, parseGameMode, toLeaderboardMode 
 import { Command, Option } from 'discord-hono'
 import { playerCardEmbed } from '../embeds/player-card.ts'
 import { teamCardEmbed } from '../embeds/team-card.ts'
+import { getKvStore } from '../services/kv/batch.ts'
 import { syncPlayerProfileFromDiscord } from '../services/player/profile.ts'
 import { getPlayerStatsRankProfile } from '../services/player/rank.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
-import { getKvStore } from '../services/kv/batch.ts'
 import { factory } from '../setup.ts'
 
 const MODE_CHOICES = [

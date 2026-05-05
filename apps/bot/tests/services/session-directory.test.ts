@@ -1,10 +1,10 @@
-import { describe, expect, test } from 'bun:test'
-import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
-import { and, eq, isNull } from 'drizzle-orm'
 import type { SessionRecord } from '../../src/session-runtime/session-record.ts'
-import { createLobby, setLobbyStatus } from '../helpers/lobby-runtime.ts'
-import { isSessionAdmissionError } from '../../src/services/session/index.ts'
+import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
+import { describe, expect, test } from 'bun:test'
+import { and, eq, isNull } from 'drizzle-orm'
 import { projectSessionRecord } from '../../src/services/session/directory.ts'
+import { isSessionAdmissionError } from '../../src/services/session/index.ts'
+import { createLobby, setLobbyStatus } from '../helpers/lobby-runtime.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('session directory admission', () => {
@@ -222,7 +222,6 @@ describe('session directory admission', () => {
       sqlite.close()
     }
   })
-
 })
 
 function buildSessionRecord(options: {

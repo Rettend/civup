@@ -5,9 +5,9 @@ export interface DraftLifecycleEnv {
   SessionDO?: DurableObjectNamespace | null
 }
 
-export type DraftLifecycleResult =
-  | { ok: true, ignored?: boolean, synced?: boolean }
-  | { ok: false, status: number, error: string }
+export type DraftLifecycleResult
+  = | { ok: true, ignored?: boolean, synced?: boolean }
+    | { ok: false, status: number, error: string }
 
 export async function handleDraftLifecyclePayload(
   env: DraftLifecycleEnv,

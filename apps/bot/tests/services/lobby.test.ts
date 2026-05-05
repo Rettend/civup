@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import { buildActivityOverviewSnapshotFromDirectory } from '../../src/services/activity/session-state.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
-import { clearLobbyById, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getExistingTestLobbyRuntime, getLobbiesByMode, getLobbyByChannel, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { channelIndexKey, hostKey, idKey, LOBBY_TTL, modeIndexKey } from '../../src/services/lobby/keys.ts'
 import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../../src/services/match/retention.ts'
 import { getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
-import { getSeededRosterEntries, seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
+import { clearLobbyById, createLobby, getCurrentLobbyHostedBy, getExistingTestLobbyRuntime, getLobbiesByMode, getLobbyByChannel, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
+import { seedRosterEntry as addToQueue, getSeededRosterEntries } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 test('normalizes unsupported map vote config off for ffa lobbies', async () => {
@@ -571,5 +571,4 @@ describe('lobby service D1-backed projection behavior', () => {
     await expect(getLobbyByChannel(kv, 'channel-1')).resolves.toEqual(expect.objectContaining({ id: lobby.id }))
     await expect(kv.get(channelIndexKey('channel-1', lobby.id))).resolves.toBeNull()
   })
-
 })

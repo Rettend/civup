@@ -1,8 +1,8 @@
 import type { DraftSeat, DraftState } from '@civup/game'
-import { afterEach, describe, expect, test } from 'bun:test'
-import { matchBans, matchParticipants, matches, players, sessionDirectory } from '@civup/db'
+import { matchBans, matches, matchParticipants, players, sessionDirectory } from '@civup/db'
 import { allLeaderIds } from '@civup/game'
 import { createSessionAccessToken, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
+import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { DEFAULT_DRAFT_CONFIG } from '../../src/services/lobby/normalize.ts'
 import { createDraftMatch } from '../../src/services/match/draft.ts'
@@ -170,7 +170,7 @@ describe('SessionDO open session commands', () => {
 
       const reported = await sessionLifecycleCommand(room, { type: 'mark-reported', matchId: openLobby.id, at: 40 })
       expect(reported.record).toMatchObject({ phase: 'reported', version: 4, closedAt: 40 })
-      let [directoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
+      const [directoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
       expect(directoryRow).toMatchObject({ phase: 'reported', closedAt: 40 })
 
       const repeated = await sessionLifecycleCommand(room, { type: 'mark-reported', matchId: openLobby.id, at: 41 })

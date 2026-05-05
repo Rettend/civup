@@ -8,6 +8,7 @@ import type {
 } from '@civup/game'
 import type { DraftRuntimeConfig, SessionClientMessage, SessionServerMessage } from '@civup/session'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
+import type { RoomEffect, RoomRecord } from './draft-room-domain.ts'
 import type { StoredMapVoteState } from './map-vote-room-state.ts'
 import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import {
@@ -43,8 +44,8 @@ import {
   sanitizeDraftPreviews,
 } from './draft-previews.ts'
 import {
-  applyLeaderSwapCommand,
   applyDraftResultCommand,
+  applyLeaderSwapCommand,
   clearSwapDisconnectFinalizeAtCommand,
   confirmMapVoteCommand,
   createEmptySwapState,
@@ -55,8 +56,7 @@ import {
   normalizeRoomSwapState,
   normalizeStoredRoomRecord,
   ROOM_RECORD_KEY,
-  type RoomEffect,
-  type RoomRecord,
+
   setSwapDisconnectFinalizeAtCommand,
   startMapVoteCommand,
   updateConfigCommand,
@@ -722,7 +722,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
   }
 
   protected async handleDraftRuntimeAlarmIfDue(now = this.now()): Promise<boolean> {
-    let room = await this.getRoomRecord()
+    const room = await this.getRoomRecord()
     if (!room) return false
 
     const dueAt = getNextRoomAlarmAt(room)
@@ -1322,7 +1322,6 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
   private debugActiveBotActionsEnabled(): boolean {
     return this.env.DEBUG_ACTIVE_BOTS === 'true'
   }
-
 }
 
 // ── Utility ──────────────────────────────────────────────────

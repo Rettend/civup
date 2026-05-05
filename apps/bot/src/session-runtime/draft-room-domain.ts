@@ -53,29 +53,29 @@ export interface RoomRecord {
   lifecycleEventSequence: number
 }
 
-export type RoomEffect =
-  | { type: 'set-alarm', at: number }
-  | { type: 'delete-alarm' }
-  | { type: 'schedule-swap-alarm' }
-  | { type: 'broadcast-update', events: DraftEvent[] }
-  | { type: 'sync-draft-lifecycle', payload: DraftLifecyclePayload, delivery: 'await' | 'background' }
-  | { type: 'schedule-debug-active-bots', blindBans: boolean }
-  | { type: 'schedule-debug-map-vote-bots' }
-  | { type: 'close-connections', reason: string }
+export type RoomEffect
+  = | { type: 'set-alarm', at: number }
+    | { type: 'delete-alarm' }
+    | { type: 'schedule-swap-alarm' }
+    | { type: 'broadcast-update', events: DraftEvent[] }
+    | { type: 'sync-draft-lifecycle', payload: DraftLifecyclePayload, delivery: 'await' | 'background' }
+    | { type: 'schedule-debug-active-bots', blindBans: boolean }
+    | { type: 'schedule-debug-map-vote-bots' }
+    | { type: 'close-connections', reason: string }
 
-export type RoomCommand =
-  | ApplyDraftResultCommand
-  | UpdatePreviewsCommand
-  | UpdateConfigCommand
-  | ApplyLeaderSwapCommand
-  | SetSwapDisconnectFinalizeAtCommand
-  | ClearSwapDisconnectFinalizeAtCommand
-  | FinalizeCompletedDraftCommand
-  | StartMapVoteCommand
-  | UpdateMapVoteSelectionCommand
-  | ConfirmMapVoteCommand
-  | FinishMapVoteVotingCommand
-  | FinishMapVoteRevealCommand
+export type RoomCommand
+  = | ApplyDraftResultCommand
+    | UpdatePreviewsCommand
+    | UpdateConfigCommand
+    | ApplyLeaderSwapCommand
+    | SetSwapDisconnectFinalizeAtCommand
+    | ClearSwapDisconnectFinalizeAtCommand
+    | FinalizeCompletedDraftCommand
+    | StartMapVoteCommand
+    | UpdateMapVoteSelectionCommand
+    | ConfirmMapVoteCommand
+    | FinishMapVoteVotingCommand
+    | FinishMapVoteRevealCommand
 
 export interface RoomTransition<TResponse = void> {
   room: RoomRecord

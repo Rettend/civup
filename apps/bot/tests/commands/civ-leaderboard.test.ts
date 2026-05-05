@@ -1,5 +1,5 @@
 import type { Database } from '@civup/db'
-import { civStats, civStatTotals, matches, matchCivStatContributions, matchParticipants, players } from '@civup/db'
+import { civStats, civStatTotals, matchCivStatContributions, matches, matchParticipants, players } from '@civup/db'
 import { allLeaderIds, getLeader } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { buildCivLeaderboardCommandPayload } from '../../src/commands/civ-leaderboard.ts'

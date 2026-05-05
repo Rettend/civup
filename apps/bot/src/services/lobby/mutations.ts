@@ -1,9 +1,10 @@
-import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
 import type { Database } from '@civup/db'
-import type { LobbyArrangeStrategy, LobbyDraftConfig, LobbyState, LobbyStatus } from './types.ts'
+import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
+import type { SessionOpenLobbyCommand } from '../../session-runtime/session-do-client.ts'
 import type { SessionRecord } from '../../session-runtime/session-record.ts'
+import type { LobbyArrangeStrategy, LobbyDraftConfig, LobbyState, LobbyStatus } from './types.ts'
 import { nanoid } from 'nanoid'
-import { createSessionAggregateFromLobby, getSessionRecord, runSessionOpenLobbyCommand, runSessionProjectionCommand, type SessionOpenLobbyCommand } from '../../session-runtime/session-do-client.ts'
+import { createSessionAggregateFromLobby, getSessionRecord, runSessionOpenLobbyCommand, runSessionProjectionCommand } from '../../session-runtime/session-do-client.ts'
 import { buildLobbyProjectionFromSessionRecord, buildLobbyStateFromSessionRecord } from '../../session-runtime/session-record.ts'
 import { kvMdelete } from '../kv/batch.ts'
 import { channelIndexKey, modeIndexKey } from './keys.ts'
@@ -492,8 +493,8 @@ async function commitLobbyMutation(
   const commandRecord = typeof command === 'function'
     ? await command()
     : command
-    ? await runSessionOpenLobbyCommand(options?.sessionNamespace, updated.id, command)
-    : null
+      ? await runSessionOpenLobbyCommand(options?.sessionNamespace, updated.id, command)
+      : null
   if (commandRecord) {
     const authoritative = buildLobbyStateFromSessionRecord(commandRecord, updated)
     if (shouldWriteLegacyLobbyProjection(options)) await write(kv, authoritative)

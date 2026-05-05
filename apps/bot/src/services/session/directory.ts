@@ -1,7 +1,7 @@
 import type { Database } from '@civup/db'
+import type { SessionPhase, SessionRecord } from '../../session-runtime/session-record.ts'
 import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
-import { type SessionPhase, type SessionRecord } from '../../session-runtime/session-record.ts'
 
 type SessionDirectoryRow = typeof sessionDirectory.$inferSelect
 type SessionDirectoryMemberRow = typeof sessionDirectoryMembers.$inferSelect
@@ -307,7 +307,7 @@ function isLiveMembershipUniquenessError(error: unknown): boolean {
   if (message.includes('session_directory_members_live_player_idx')
     || message.includes('session_directory_members.player_id')
     || message.includes('UNIQUE constraint failed')
-    || message.includes('constraint failed')) return true
+    || message.includes('constraint failed')) { return true }
 
   const cause = error && typeof error === 'object' && 'cause' in error ? (error as { cause?: unknown }).cause : null
   return cause != null && cause !== error && isLiveMembershipUniquenessError(cause)

@@ -24,6 +24,15 @@ import { getLobbyForUser, getMatchForUser } from '../../src/services/activity/in
 import { resolveDraftTimerConfig } from '../../src/services/config/index.ts'
 import { markLeaderboardsDirty, refreshDirtyLeaderboards } from '../../src/services/leaderboard/message.ts'
 import { ensureLeaderboardModeSnapshots } from '../../src/services/leaderboard/snapshot.ts'
+import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
+import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
+import { activateDraftMatch, reportMatch } from '../../src/services/match/index.ts'
+import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
+import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
+import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
+import { getOpenSessionLobbyProjectionHostedBy, getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
+import { getSystemChannel, setSystemChannel } from '../../src/services/system/channels.ts'
 import {
   createLobby,
   filterQueueEntriesForLobby,
@@ -38,15 +47,6 @@ import {
   setLobbyStatus,
   startTestSessionDraft,
 } from '../helpers/lobby-runtime.ts'
-import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
-import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
-import { activateDraftMatch, reportMatch } from '../../src/services/match/index.ts'
-import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
-import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
-import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
-import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
-import { getOpenSessionLobbyProjectionHostedBy, getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
-import { getSystemChannel, setSystemChannel } from '../../src/services/system/channels.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
@@ -745,7 +745,6 @@ async function simulateMatchJoin(
     { liveMatchPlayerIds: new Set(liveMatchIdByPlayer.keys()) },
   )
   if ('error' in outcome) throw new Error(outcome.error)
-
 }
 
 async function simulateActivityLaunchSnapshot(

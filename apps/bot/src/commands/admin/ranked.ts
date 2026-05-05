@@ -2,6 +2,7 @@ import type { CompetitiveTier } from '@civup/game'
 import type { AdminCommandContext, AdminVar } from './types.ts'
 import { createDb } from '@civup/db'
 import { formatLeaderboardModeLabel, parseLeaderboardMode } from '@civup/game'
+import { getKvStore } from '../../services/kv/batch.ts'
 import { clearRankedRolesDirtyState, syncRankedRoles } from '../../services/ranked/role-sync.ts'
 import {
   createRankedRoleTierId,
@@ -12,7 +13,6 @@ import {
   getRankedRoleConfig,
   updateRankedRoleConfig,
 } from '../../services/ranked/roles.ts'
-import { getKvStore } from '../../services/kv/batch.ts'
 import { buildResolvedRoleDisplayById, sendEphemeralResponse, sendTransientEphemeralResponse } from './shared.ts'
 
 export function handleRankedRoles(c: AdminCommandContext) {

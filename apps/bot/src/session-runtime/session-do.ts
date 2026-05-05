@@ -3,29 +3,30 @@ import type { SessionServerMessage } from '@civup/session'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
 import type { ParticipantRow } from '../services/match/types.ts'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
+import type { DraftRuntimeEnv } from './draft-room.ts'
 import type { DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionDraftStartSyncState, SessionLifecycleSyncState, SessionProjectionState, SessionProjectionSyncPayload, SessionProjectionSyncState, SessionRecord, SessionRoster, SessionTerminalSyncCommand, SessionTerminalSyncState } from './session-record.ts'
+import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import { createDb, matchBans, matches, matchParticipants } from '@civup/db'
 import { allFactionIds, allLeaderIds, canStartWithPlayerCount, EMPTY_MAP_VOTE_SNAPSHOT, formatModeLabel, GAME_MODES, getDraftFormat, getMinimumLeaderPoolSize, slotToTeamIndex } from '@civup/game'
 import { CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest, verifySessionAccessToken } from '@civup/utils'
 import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyResultEmbed } from '../embeds/match.ts'
-import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../services/discord/index.ts'
 import { buildDraftRuntimeConfig } from '../services/activity/index.ts'
 import { buildLobbySnapshotFromSessionRecord } from '../services/activity/session-state.ts'
 import { resolveDraftTimerConfig } from '../services/config/index.ts'
-import { normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from '../services/lobby/normalize.ts'
+import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../services/discord/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
+import { normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from '../services/lobby/normalize.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
 import { mapLobbySlotsToEntries } from '../services/lobby/slots.ts'
-import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../services/match/index.ts'
 import { getMapVoteResultFromDraftData, getReporterIdentityFromDraftData, getStoredGameModeContext } from '../services/match/draft-data.ts'
+import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../services/match/index.ts'
 import { clearMatchMessageMapping, listMatchMessageIds, storeMatchMessageMapping } from '../services/match/message.ts'
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 import { publishActivitySessionUpdate } from './activity-feed-client.ts'
-import { SessionDraftRuntime, type DraftRuntimeEnv } from './draft-room.ts'
+import { SessionDraftRuntime } from './draft-room.ts'
 import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from './session-record.ts'
-import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import { canOpenSwapWindowForState } from './swap-window.ts'
 
 interface SessionDOEnv extends DraftRuntimeEnv {
@@ -1883,10 +1884,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const playerId = state?.playerId ?? null
     const sessionAccessToken = playerId && this.env.CIVUP_SECRET
       ? await createSessionAccessToken(this.env.CIVUP_SECRET, {
-        userId: playerId,
-        sessionId: record.matchId,
-        channelId: record.projectionState.channelId,
-      })
+          userId: playerId,
+          sessionId: record.matchId,
+          channelId: record.projectionState.channelId,
+        })
       : null
 
     this.sendSessionMessage(connection, {
@@ -1979,7 +1980,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       if (!civId) return []
       return [{ civId, seatIndex: index, stepIndex: resolvePickStepIndex(steps, index) }]
     })
-    const bans: DraftSelection[] = runtimeData.bans.map((ban) => ({
+    const bans: DraftSelection[] = runtimeData.bans.map(ban => ({
       civId: ban.civId,
       seatIndex: seatIndexByPlayerId.get(ban.bannedBy) ?? 0,
       stepIndex: ban.phase,
@@ -2069,9 +2070,9 @@ const PROJECTION_SYNC_RETRY_BASE_MS = 2_000
 const PROJECTION_SYNC_RETRY_MAX_MS = 60_000
 const PROJECTION_SYNC_MAX_ATTEMPTS = 5
 
-type LifecycleTransitionResult =
-  | { record: SessionRecord, ignored?: boolean }
-  | { ok: false, status: number, error: string }
+type LifecycleTransitionResult
+  = | { record: SessionRecord, ignored?: boolean }
+    | { ok: false, status: number, error: string }
 
 function transitionRecordForDraftLifecycle(record: SessionRecord, payload: DraftLifecyclePayload): LifecycleTransitionResult {
   const at = payload.outcome === 'complete' ? payload.completedAt : payload.cancelledAt
@@ -2124,13 +2125,13 @@ function transitionRecordForDraftLifecycle(record: SessionRecord, payload: Draft
       ...record,
       phase: 'cancelled',
       version: record.version + 1,
-        updatedAt: at,
-        lastActivityAt: at,
-        closedAt: at,
-        draftStartSync: null,
-      },
-    }
+      updatedAt: at,
+      lastActivityAt: at,
+      closedAt: at,
+      draftStartSync: null,
+    },
   }
+}
 
 function withDraftStartSync(record: DraftSessionRecord, draftStartSync: SessionDraftStartSyncState | null): DraftSessionRecord {
   return {

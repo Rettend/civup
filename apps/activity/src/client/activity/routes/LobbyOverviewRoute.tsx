@@ -1,6 +1,6 @@
 import { Match, Switch } from 'solid-js'
-import { ActivityErrorPage, ActivityLoadingPage, ActivityRedirectingPage, useActivityController } from '../activity-context'
 import { LobbyOverviewPage } from '../../pages/lobby-overview'
+import { ActivityErrorPage, ActivityLoadingPage, ActivityRedirectingPage, useActivityController } from '../activity-context'
 
 export default function LobbyOverviewRoute() {
   const activity = useActivityController()

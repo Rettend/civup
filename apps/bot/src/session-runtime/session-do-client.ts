@@ -141,9 +141,9 @@ export interface SessionReportedDiscordSyncCommand {
   at?: number
 }
 
-export type SessionDraftLifecycleSyncResult =
-  | { ok: true, ignored?: boolean, synced?: boolean }
-  | { ok: false, status: number, error: string }
+export type SessionDraftLifecycleSyncResult
+  = | { ok: true, ignored?: boolean, synced?: boolean }
+    | { ok: false, status: number, error: string }
 
 export async function createSessionAggregateFromLobby(
   namespace: DurableObjectNamespace | null | undefined,

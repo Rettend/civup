@@ -3,6 +3,7 @@ import type { Env } from '../env.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed } from '../embeds/match.ts'
+import { getKvStore } from '../services/kv/batch.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { upsertLobbyMessage } from '../services/lobby/index.ts'
 import { cancelMatchByModerator, getHostIdFromDraftData, getStoredGameModeContext, reportMatch } from '../services/match/index.ts'
@@ -12,7 +13,6 @@ import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRole
 import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
 import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
 import { queueSessionReportedDiscordSync } from '../session-runtime/session-do-client.ts'
-import { getKvStore } from '../services/kv/batch.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from './auth.ts'
 
 export function registerMatchRoutes(app: Hono<Env>) {

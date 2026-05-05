@@ -126,7 +126,7 @@ function columnName(index: number): string {
 }
 
 function sanitizeSheetName(name: string, index: number): string {
-  const safeName = name.replace(/[\\/?:*\[\]]/g, ' ').trim()
+  const safeName = name.replace(/[\\/?:*[\]]/g, ' ').trim()
   return (safeName.length > 0 ? safeName : `Sheet ${index + 1}`).slice(0, 31)
 }
 
@@ -140,7 +140,7 @@ function escapeXmlAttribute(value: string): string {
 
 function escapeXmlText(value: string): string {
   return value
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+    .replace(/[\u0000-\u0008\v\f\u000E-\u001F]/g, '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

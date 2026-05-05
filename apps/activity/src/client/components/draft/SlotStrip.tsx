@@ -1,8 +1,8 @@
 import { For, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import { placementIconClass } from '~/client/lib/placement-icons'
-import { getVisualSeatOrder } from '~/client/lib/seat-order'
 import { createCellGridLayout, createSeatGridLayout } from '~/client/lib/seat-grid'
+import { getVisualSeatOrder } from '~/client/lib/seat-order'
 import { draftStore, isMobileLayout, teamPlacementOrder, userId } from '~/client/stores'
 import { PlayerSlot } from './PlayerSlot'
 
@@ -117,68 +117,68 @@ export function SlotStrip() {
 
     return (
       <div class={cn('flex flex-1 h-full items-stretch', props.align === 'end' ? 'justify-end' : 'justify-start')}>
-      <div class="flex flex-col gap-2 h-full w-full">
-        <Show when={props.showLabel}>
-          <div class="text-xs text-accent tracking-wider font-bold uppercase">{teamLabel(props.team)}</div>
-        </Show>
-        <div class={teamSeatWrapperClass(props.align, seatIndices())} style={teamSeatWrapperStyle(seatIndices())}>
-          <Show when={isTeamResultMode()}>
-            <div
-              class={cn(
-                teamOverlayClass(props.align, seatIndices(), 'z-30'),
-                teamWrapperOverlayClass(props.team),
-              )}
-              style={teamOverlayStyle(seatIndices())}
-            />
+        <div class="flex flex-col gap-2 h-full w-full">
+          <Show when={props.showLabel}>
+            <div class="text-xs text-accent tracking-wider font-bold uppercase">{teamLabel(props.team)}</div>
           </Show>
-          <Show when={isTeamResultMode() && isPlacedTeam(props.team)}>
-            <div
-              class={cn(
-                'anim-fade-in',
-                teamOverlayClass(props.align, seatIndices(), 'z-20'),
-              )}
-              style={{ ...winnerGlowStyle, ...(teamOverlayStyle(seatIndices()) ?? {}) }}
-            />
-          </Show>
-          <Show when={isTeamResultMode() && isPlacedTeam(props.team)}>
-            <div
-              class={cn(
-                'flex items-center justify-center',
-                teamOverlayClass(props.align, seatIndices(), 'z-40'),
-              )}
-              style={teamOverlayStyle(seatIndices())}
-            >
+          <div class={teamSeatWrapperClass(props.align, seatIndices())} style={teamSeatWrapperStyle(seatIndices())}>
+            <Show when={isTeamResultMode()}>
               <div
                 class={cn(
-                  'anim-fade-in flex items-center justify-center rounded-full border shadow-[0_4px_12px_rgba(0,0,0,0.5),0_8px_28px_rgba(0,0,0,0.4),0_16px_48px_rgba(0,0,0,0.25)]',
-                  'h-14 w-14 bg-accent text-2xl font-black leading-none',
+                  teamOverlayClass(props.align, seatIndices(), 'z-30'),
+                  teamWrapperOverlayClass(props.team),
                 )}
-                style={{ 'color': 'var(--badge-gold-text)', 'border-color': 'var(--badge-gold-border)', 'font-weight': 900 }}
+                style={teamOverlayStyle(seatIndices())}
+              />
+            </Show>
+            <Show when={isTeamResultMode() && isPlacedTeam(props.team)}>
+              <div
+                class={cn(
+                  'anim-fade-in',
+                  teamOverlayClass(props.align, seatIndices(), 'z-20'),
+                )}
+                style={{ ...winnerGlowStyle, ...(teamOverlayStyle(seatIndices()) ?? {}) }}
+              />
+            </Show>
+            <Show when={isTeamResultMode() && isPlacedTeam(props.team)}>
+              <div
+                class={cn(
+                  'flex items-center justify-center',
+                  teamOverlayClass(props.align, seatIndices(), 'z-40'),
+                )}
+                style={teamOverlayStyle(seatIndices())}
               >
-                <span
+                <div
                   class={cn(
-                    isTwoTeamResultMode() ? 'i-ph-trophy-fill' : placementIconClass(teamPlacementRank(props.team) + 1),
-                    'text-[32px]',
+                    'anim-fade-in flex items-center justify-center rounded-full border shadow-[0_4px_12px_rgba(0,0,0,0.5),0_8px_28px_rgba(0,0,0,0.4),0_16px_48px_rgba(0,0,0,0.25)]',
+                    'h-14 w-14 bg-accent text-2xl font-black leading-none',
                   )}
-                />
-              </div>
-            </div>
-          </Show>
-          <For each={cells()}>
-            {seatIdx => (
-              <Show
-                when={seatIdx != null}
-                fallback={<div class="h-full min-h-0 w-full" />}
-              >
-                <div class={cellClass()}>
-                  <PlayerSlot seatIndex={seatIdx!} displayNumber={displayNumberBySeat().get(seatIdx!) ?? seatIdx! + 1} />
+                  style={{ 'color': 'var(--badge-gold-text)', 'border-color': 'var(--badge-gold-border)', 'font-weight': 900 }}
+                >
+                  <span
+                    class={cn(
+                      isTwoTeamResultMode() ? 'i-ph-trophy-fill' : placementIconClass(teamPlacementRank(props.team) + 1),
+                      'text-[32px]',
+                    )}
+                  />
                 </div>
-              </Show>
-            )}
-          </For>
+              </div>
+            </Show>
+            <For each={cells()}>
+              {seatIdx => (
+                <Show
+                  when={seatIdx != null}
+                  fallback={<div class="h-full min-h-0 w-full" />}
+                >
+                  <div class={cellClass()}>
+                    <PlayerSlot seatIndex={seatIdx!} displayNumber={displayNumberBySeat().get(seatIdx!) ?? seatIdx! + 1} />
+                  </div>
+                </Show>
+              )}
+            </For>
+          </div>
         </div>
       </div>
-    </div>
     )
   }
 

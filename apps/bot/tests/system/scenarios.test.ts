@@ -1,13 +1,14 @@
 import type { GameMode, ResolvedMapVoteResult } from '@civup/game'
-import { afterEach, describe, expect, test } from 'bun:test'
+import type { TestSessionNamespace } from '../helpers/session-runtime.ts'
 import { matches } from '@civup/db'
 import { formatMapVoteResultLabel, swapSeatPicks } from '@civup/game'
 import { verifySessionAccessToken } from '@civup/utils'
+import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
+import { runSessionTerminalLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
+import { createFakeSessionWebSocket } from '../helpers/session-runtime.ts'
 import { countDiscordChannelRequests as countDiscordMessageUpdates, expectDraftAndLobbyState, expectQueuePlayers } from './helpers/assertions.ts'
 import { createSystemWorld } from './helpers/world.ts'
-import { createFakeSessionWebSocket, type TestSessionNamespace } from '../helpers/session-runtime.ts'
-import { runSessionTerminalLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
 
 const worlds: Array<Awaited<ReturnType<typeof createSystemWorld>>> = []
 
@@ -292,7 +293,7 @@ describe('system scenarios', () => {
       mode: '2v2',
       players: createPlayers(8, 'team'),
       config: { targetSize: 8 },
-      placements: participants => {
+      placements: (participants) => {
         const teams = groupParticipantsByTeam(participants)
         const thirdTeamPlayer = teams.get(2)?.[0]?.playerId
         const firstTeamPlayer = teams.get(0)?.[0]?.playerId

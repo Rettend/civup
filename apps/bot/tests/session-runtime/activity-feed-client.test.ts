@@ -1,9 +1,9 @@
-import { describe, expect, test } from 'bun:test'
-import { CIVUP_INTERNAL_SECRET_HEADER, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
 import type { ActivityOverviewOptionSnapshot } from '../../src/services/activity/session-state.ts'
+import type { SessionRecord } from '../../src/session-runtime/session-record.ts'
+import { CIVUP_INTERNAL_SECRET_HEADER, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
+import { describe, expect, test } from 'bun:test'
 import { mergeActivityOverviewSnapshotForSessionUpdate } from '../../src/services/activity/session-state.ts'
 import { publishActivitySessionUpdate } from '../../src/session-runtime/activity-feed-client.ts'
-import type { SessionRecord } from '../../src/session-runtime/session-record.ts'
 
 describe('activity feed client', () => {
   test('publishes through PartyServer room routing headers', async () => {

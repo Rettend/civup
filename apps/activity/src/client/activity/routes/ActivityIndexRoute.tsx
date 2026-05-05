@@ -1,5 +1,5 @@
-import { ActivityErrorPage, ActivityLoadingPage, ActivityRedirectingPage, useActivityController } from '../activity-context'
 import { Match, Switch } from 'solid-js'
+import { ActivityErrorPage, ActivityLoadingPage, ActivityRedirectingPage, useActivityController } from '../activity-context'
 
 export default function ActivityIndexRoute() {
   const activity = useActivityController()

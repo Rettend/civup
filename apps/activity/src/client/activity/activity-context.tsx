@@ -1,5 +1,5 @@
-import type { ActivityLaunchSelection, ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot } from '../stores'
 import type { Accessor, JSX } from 'solid-js'
+import type { ActivityLaunchSelection, ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot } from '../stores'
 import { createContext, useContext } from 'solid-js'
 
 export type ActivityState

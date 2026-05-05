@@ -8,6 +8,7 @@ import { createSessionAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
+import { getKvStore } from '../../services/kv/batch.ts'
 import {
   arrangeLobbySlots,
   buildOpenLobbyRenderPayload,
@@ -37,11 +38,10 @@ import { normalizeDraftConfigForMode } from '../../services/lobby/normalize.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../../services/match/live.ts'
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
-import { getKvStore } from '../../services/kv/batch.ts'
 import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayer, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
+import { parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSessionRecord, startSessionDraft } from '../../session-runtime/session-do-client.ts'
 import { buildLobbyStateFromSessionRecord, buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
-import { parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from '../auth.ts'
 import {
   buildLobbyQueueEntries,
@@ -829,11 +829,11 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const addedRosterEntry = !movingEntry
       ? {
-        playerId: movingPlayerId,
-        displayName: resolvedDisplayName ?? '',
-        avatarUrl: auth.identity.avatarUrl,
-        joinedAt: actionAt,
-      }
+          playerId: movingPlayerId,
+          displayName: resolvedDisplayName ?? '',
+          avatarUrl: auth.identity.avatarUrl,
+          joinedAt: actionAt,
+        }
       : null
 
     const nextMemberIds = lobby.memberPlayerIds.includes(movingPlayerId)
