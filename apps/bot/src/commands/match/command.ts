@@ -1,14 +1,18 @@
 import type { DraftSeat, GameMode, QueueEntry, ResolvedMapVoteResult } from '@civup/game'
+import type { Env } from '../../env.ts'
+import type { EphemeralResponseTone } from '../../embeds/response.ts'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { MatchJoinEntry, MatchVar } from './shared.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, isTeamMode, minPlayerCount, parseGameMode, slotToTeamIndex, startPlayerCountOptions } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
+import { ephemeralResponseEmbed } from '../../embeds/response.ts'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/match.ts'
 import { getMatchForUser } from '../../services/activity/index.ts'
 import { storeActivityLaunchTargetSelection } from '../../services/activity/launch-target.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
+import { getKvStore } from '../../services/kv/batch.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
 import { createLobby, filterQueueEntriesForLobby, getLobbyBumpCooldownRemainingMs, getLobbyById, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, setLobbyLastActivityAt, setLobbyRoster, setLobbyStatus, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
@@ -21,7 +25,6 @@ import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRole
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { syncSeasonPeaksForPlayers } from '../../services/season/index.ts'
 import { formatSessionAdmissionError, getLiveSessionLobbyProjections, getLiveSessionLobbyProjectionsForUser, getLiveSessionLobbyProjectionsHostedBy, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionHostedBy, getOpenSessionLobbyProjectionsByMode, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
-import { getKvStore } from '../../services/kv/batch.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
 import { getSessionRecord, queueSessionReportedDiscordSync } from '../../session-runtime/session-do-client.ts'
@@ -31,6 +34,31 @@ import { buildFfaPlacementOptions, collectFfaPlacementUserIds, findBlockingDraft
 
 const MATCH_MODE_CHOICES = GAME_MODE_CHOICES
 const MATCH_BUMP_RESPONSE_DELETE_MS = 5_000
+
+type MatchCreateOutcome
+  = | { kind: 'activity' }
+    | { kind: 'clear' }
+    | { kind: 'message', message: string, tone: EphemeralResponseTone }
+
+interface CreateMatchLobbyInput {
+  env: Env['Bindings']
+  kv: KVNamespace
+  mode: GameMode
+  steamLobbyLink: string | null
+  interactionChannelId: string | null
+  draftChannelId: string
+  guildId: string | null
+  identity: { userId: string, displayName: string, avatarUrl: string }
+}
+
+interface DeferredMatchCreateContext {
+  executionCtx: { waitUntil: (promise: Promise<unknown>) => void }
+  followup: (data?: any) => Promise<unknown>
+}
+
+interface ImmediateEphemeralContext {
+  flags: (...flag: any[]) => { res: (data?: any) => Response }
+}
 
 function buildMatchCreateSubCommand() {
   return new SubCommand('create', 'Create a lobby and auto-join as host').options(
@@ -79,7 +107,7 @@ export const command_match = factory.command<MatchVar>(
       case 'create': {
         const mode = parseGameMode(c.var.mode)
         const steamLobbyLink = parseSteamLobbyLink(c.var.steam_link)
-        const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id
+        const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
         const identity = getIdentity(c)
         if (!mode) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
@@ -97,177 +125,74 @@ export const command_match = factory.command<MatchVar>(
           })
         }
 
-        return c.flags('EPHEMERAL').resDefer(async (c) => {
-          try {
-            const kv = getKvStore(c.env)
-            const draftChannelId = await getSystemChannel(kv, 'draft')
-            if (!draftChannelId) {
-              await sendTransientEphemeralResponse(
-                c,
-                'Draft channel is not configured. Run `/admin setup target:Draft` to set up this channel.',
-                'error',
-              )
-              return
-            }
+        const kv = getKvStore(c.env)
+        const draftChannelId = await getSystemChannel(kv, 'draft')
+        if (!draftChannelId) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(
+              c,
+              'Draft channel is not configured. Run `/admin setup target:Draft` to set up this channel.',
+              'error',
+            )
+          })
+        }
 
-            const db = createDb(c.env.DB)
-            const currentHostedLobby = await getOpenSessionLobbyProjectionHostedBy(db, identity.userId)
-            if (currentHostedLobby?.status === 'open') {
-              const updatedLobby = steamLobbyLink !== null
-                ? (await setLobbySteamLobbyLink(kv, currentHostedLobby.id, steamLobbyLink, currentHostedLobby, { db, sessionNamespace: c.env.SessionDO }) ?? currentHostedLobby)
-                : currentHostedLobby
+        const autoOpenActivity = interactionChannelId === draftChannelId
+        const createInput = {
+          env: c.env,
+          kv,
+          mode,
+          steamLobbyLink,
+          interactionChannelId,
+          draftChannelId,
+          guildId: c.interaction.guild_id ?? null,
+          identity,
+        }
 
-              await sendTransientEphemeralResponse(
-                c,
-                steamLobbyLink !== null
-                  ? `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>. Updated its Steam lobby link.`
-                  : `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>.`,
-                'info',
-              )
-              return
-            }
-
-            const createPreflight = await preflightMatchCreateSessionState(db, identity.userId)
-            if (createPreflight.kind === 'reuse-hosted-open-lobby') {
-              const updatedLobby = steamLobbyLink !== null
-                ? (await setLobbySteamLobbyLink(kv, createPreflight.lobby.id, steamLobbyLink, createPreflight.lobby, { db, sessionNamespace: c.env.SessionDO }) ?? createPreflight.lobby)
-                : createPreflight.lobby
-
-              await sendTransientEphemeralResponse(
-                c,
-                steamLobbyLink !== null
-                  ? `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>. Updated its Steam lobby link.`
-                  : `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>.`,
-                'info',
-              )
-              return
-            }
-
-            if (createPreflight.kind === 'block-open-lobby') {
-              await sendTransientEphemeralResponse(
-                c,
-                `You are already in an open ${formatModeLabel(createPreflight.lobby.mode)} lobby. Leave it first with \`/match leave\`.`,
-                'error',
-              )
-              return
-            }
-
-            const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, [identity.userId])
-            if (blockingDraftMatchIdByPlayer.has(identity.userId)) {
-              await sendTransientEphemeralResponse(
-                c,
-                'You are already in a live match. Finish or cancel it before creating a new lobby.',
-                'error',
-              )
-              return
-            }
-
-            const hostEntry: QueueEntry = {
-              playerId: identity.userId,
-              displayName: identity.displayName,
-              avatarUrl: identity.avatarUrl,
-              joinedAt: Date.now(),
-            }
-
-            const previewSlots = Array.from({ length: defaultPlayerCount(mode) }, (_, index) => index === 0 ? identity.userId : null)
-            const previewEntries = mapLobbySlotsToEntries(previewSlots, [hostEntry])
-            const embed = lobbyOpenEmbed(mode, previewEntries, previewSlots.length, undefined, undefined, 'live')
-
-            let createdMessage: Awaited<ReturnType<typeof createChannelMessage>> | null = null
+        if (!autoOpenActivity) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
             try {
-              createdMessage = await createChannelMessage(c.env.DISCORD_TOKEN, draftChannelId, {
-                embeds: [embed],
-                components: [],
-                allowed_mentions: { parse: [] },
-              })
-              const createdLobby = await createLobby(kv, {
-                mode,
-                guildId: c.interaction.guild_id ?? null,
-                hostId: identity.userId,
-                channelId: draftChannelId,
-                messageId: createdMessage.id,
-                steamLobbyLink,
-                queueEntries: [hostEntry],
-                db,
-                sessionNamespace: c.env.SessionDO,
-              })
-              const { lobby: reconciledLobby, reusedExisting } = await reconcileHostedOpenLobbyCreation(
-                c.env.DISCORD_TOKEN,
-                db,
-                kv,
-                identity.userId,
-                createdLobby,
-              )
-              const lobby = steamLobbyLink !== null
-                ? (await setLobbySteamLobbyLink(kv, reconciledLobby.id, steamLobbyLink, reconciledLobby, { db, sessionNamespace: c.env.SessionDO }) ?? reconciledLobby)
-                : reconciledLobby
-              if ((lobby.id === createdLobby.id && lobby.revision !== createdLobby.revision)
-                || (lobby.id === reconciledLobby.id && lobby.revision !== reconciledLobby.revision)) { await syncLobbyDerivedState(kv, lobby, { queueEntries: await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby, [hostEntry]) }) }
-
-              if (!reusedExisting) {
-                const renderPayload = await buildOpenLobbyRenderPayload(
-                  kv,
-                  lobby,
-                  mapLobbySlotsToEntries(lobby.slots, await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby, [hostEntry])),
-                )
-                await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-                  embeds: renderPayload.embeds,
-                  components: renderPayload.components,
-                }, { db, sessionNamespace: c.env.SessionDO })
-              }
-              if (reusedExisting) {
-                await sendTransientEphemeralResponse(
-                  c,
-                  steamLobbyLink !== null
-                    ? `You already had an open ${formatModeLabel(lobby.mode)} lobby in <#${lobby.channelId}>. Updated its Steam lobby link.`
-                    : `You already had an open ${formatModeLabel(lobby.mode)} lobby in <#${lobby.channelId}>.`,
-                  'info',
-                )
-              }
-              else if (interactionChannelId === draftChannelId) {
-                await clearDeferredEphemeralResponse(c)
-              }
-              else {
-                await sendTransientEphemeralResponse(
-                  c,
-                  steamLobbyLink !== null
-                    ? `Created ${formatModeLabel(mode)} lobby in <#${draftChannelId}> with the Steam lobby link set.`
-                    : `Created ${formatModeLabel(mode)} lobby in <#${draftChannelId}>.`,
-                  'info',
-                )
-              }
+              const outcome = await createMatchLobby(createInput)
+              await sendDeferredMatchCreateOutcome(c, outcome)
             }
             catch (error) {
-              console.error('Failed to create lobby message:', error)
-              if (createdMessage) {
-                try {
-                  await deleteChannelMessage(c.env.DISCORD_TOKEN, draftChannelId, createdMessage.id)
-                }
-                catch (deleteError) {
-                  console.error(`Failed to delete abandoned lobby message ${createdMessage.id}:`, deleteError)
-                }
+              console.error('[match:create] unexpected failure', {
+                mode,
+                interactionChannelId,
+                userId: identity.userId,
+              }, error)
+              try {
+                await sendTransientEphemeralResponse(c, 'Failed to create lobby. Check bot logs for details.', 'error')
               }
-              if (isSessionAdmissionError(error)) {
-                await sendTransientEphemeralResponse(c, formatSessionAdmissionError(error), 'error')
-                return
+              catch (followupError) {
+                console.error('[match:create] failed to send error followup', followupError)
               }
-              await sendTransientEphemeralResponse(c, 'Failed to create lobby message. Please try again.', 'error')
             }
+          })
+        }
+
+        try {
+          const outcome = await createMatchLobby(createInput)
+          if (outcome.kind === 'activity') return c.resActivity()
+          if (outcome.kind === 'clear') {
+            return sendImmediateEphemeralResponse(
+              c,
+              steamLobbyLink !== null
+                ? `Created ${formatModeLabel(mode)} lobby in <#${draftChannelId}> with the Steam lobby link set.`
+                : `Created ${formatModeLabel(mode)} lobby in <#${draftChannelId}>.`,
+              'success',
+            )
           }
-          catch (error) {
-            console.error('[match:create] unexpected failure', {
-              mode,
-              interactionChannelId,
-              userId: identity.userId,
-            }, error)
-            try {
-              await sendTransientEphemeralResponse(c, 'Failed to create lobby. Check bot logs for details.', 'error')
-            }
-            catch (followupError) {
-              console.error('[match:create] failed to send error followup', followupError)
-            }
-          }
-        })
+          return sendImmediateEphemeralResponse(c, outcome.message, outcome.tone)
+        }
+        catch (error) {
+          console.error('[match:create] unexpected failure', {
+            mode,
+            interactionChannelId,
+            userId: identity.userId,
+          }, error)
+          return sendImmediateEphemeralResponse(c, 'Failed to create lobby. Check bot logs for details.', 'error')
+        }
       }
 
       // ── join ────────────────────────────────────────────
@@ -426,6 +351,30 @@ export const command_match = factory.command<MatchVar>(
             }
             catch (error) {
               console.error(`Failed to update cancelled lobby embed for match ${matchId}:`, error)
+            }
+
+            if (result.previousStatus === 'completed') {
+              const cancelContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
+              try {
+                if (cancelContext && !cancelContext.redDeath) {
+                  await markLeaderboardsDirty(db, `match-cancel:${result.match.id}`, {
+                    civ: true,
+                    modes: cancelContext.leaderboardMode ? [cancelContext.leaderboardMode] : [],
+                  })
+                }
+              }
+              catch (error) {
+                console.error(`Failed to mark leaderboards dirty after cancelling match ${result.match.id}:`, error)
+              }
+
+              try {
+                if (cancelContext?.ranked) {
+                  await markRankedRolesDirty(kv, `match-cancel:${result.match.id}`)
+                }
+              }
+              catch (error) {
+                console.error(`Failed to mark ranked roles dirty after cancelling match ${result.match.id}:`, error)
+              }
             }
 
             await sendTransientEphemeralResponse(c, `Cancelled hosted match **${matchId}**.`, 'success')
@@ -903,14 +852,19 @@ export const command_match = factory.command<MatchVar>(
             archivePolicy: 'always',
           })
           queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
-          if (isRankedResult) {
-            try {
-              await markLeaderboardsDirty(db, `match-report:${result.match.id}`)
+          try {
+            if (!reportedContext.redDeath) {
+              await markLeaderboardsDirty(db, `match-report:${result.match.id}`, {
+                civ: true,
+                modes: reportedContext.leaderboardMode ? [reportedContext.leaderboardMode] : [],
+              })
             }
-            catch (error) {
-              console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
-            }
+          }
+          catch (error) {
+            console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
+          }
 
+          if (isRankedResult) {
             try {
               await markRankedRolesDirty(kv, `match-report:${result.match.id}`)
             }
@@ -947,6 +901,185 @@ async function sendMatchBumpResponse(
   tone: Parameters<typeof sendEphemeralResponse>[2],
 ): Promise<void> {
   await sendEphemeralResponse(c, message, tone, { autoDeleteMs: MATCH_BUMP_RESPONSE_DELETE_MS })
+}
+
+async function createMatchLobby(input: CreateMatchLobbyInput): Promise<MatchCreateOutcome> {
+  const { env, kv, mode, steamLobbyLink, identity, interactionChannelId, draftChannelId } = input
+  const db = createDb(env.DB)
+  const currentHostedLobby = await getOpenSessionLobbyProjectionHostedBy(db, identity.userId)
+  if (currentHostedLobby?.status === 'open') {
+    const updatedLobby = steamLobbyLink !== null
+      ? (await setLobbySteamLobbyLink(kv, currentHostedLobby.id, steamLobbyLink, currentHostedLobby, { db, sessionNamespace: env.SessionDO }) ?? currentHostedLobby)
+      : currentHostedLobby
+    const activityOutcome = await createMatchActivityOutcome(input, updatedLobby)
+    if (activityOutcome) return activityOutcome
+
+    return {
+      kind: 'message',
+      message: steamLobbyLink !== null
+        ? `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>. Updated its Steam lobby link.`
+        : `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>.`,
+      tone: 'info',
+    }
+  }
+
+  const createPreflight = await preflightMatchCreateSessionState(db, identity.userId)
+  if (createPreflight.kind === 'reuse-hosted-open-lobby') {
+    const updatedLobby = steamLobbyLink !== null
+      ? (await setLobbySteamLobbyLink(kv, createPreflight.lobby.id, steamLobbyLink, createPreflight.lobby, { db, sessionNamespace: env.SessionDO }) ?? createPreflight.lobby)
+      : createPreflight.lobby
+    const activityOutcome = await createMatchActivityOutcome(input, updatedLobby)
+    if (activityOutcome) return activityOutcome
+
+    return {
+      kind: 'message',
+      message: steamLobbyLink !== null
+        ? `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>. Updated its Steam lobby link.`
+        : `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>.`,
+      tone: 'info',
+    }
+  }
+
+  if (createPreflight.kind === 'block-open-lobby') {
+    return {
+      kind: 'message',
+      message: `You are already in an open ${formatModeLabel(createPreflight.lobby.mode)} lobby. Leave it first with \`/match leave\`.`,
+      tone: 'error',
+    }
+  }
+
+  const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, [identity.userId])
+  if (blockingDraftMatchIdByPlayer.has(identity.userId)) {
+    return {
+      kind: 'message',
+      message: 'You are already in a live match. Finish or cancel it before creating a new lobby.',
+      tone: 'error',
+    }
+  }
+
+  const hostEntry: QueueEntry = {
+    playerId: identity.userId,
+    displayName: identity.displayName,
+    avatarUrl: identity.avatarUrl,
+    joinedAt: Date.now(),
+  }
+
+  const previewSlots = Array.from({ length: defaultPlayerCount(mode) }, (_, index) => index === 0 ? identity.userId : null)
+  const previewEntries = mapLobbySlotsToEntries(previewSlots, [hostEntry])
+  const embed = lobbyOpenEmbed(mode, previewEntries, previewSlots.length, undefined, undefined, 'live')
+
+  let createdMessage: Awaited<ReturnType<typeof createChannelMessage>> | null = null
+  try {
+    createdMessage = await createChannelMessage(env.DISCORD_TOKEN, draftChannelId, {
+      embeds: [embed],
+      components: [],
+      allowed_mentions: { parse: [] },
+    })
+    const createdLobby = await createLobby(kv, {
+      mode,
+      guildId: input.guildId,
+      hostId: identity.userId,
+      channelId: draftChannelId,
+      messageId: createdMessage.id,
+      steamLobbyLink,
+      queueEntries: [hostEntry],
+      db,
+      sessionNamespace: env.SessionDO,
+    })
+    const { lobby: reconciledLobby, reusedExisting } = await reconcileHostedOpenLobbyCreation(
+      env.DISCORD_TOKEN,
+      db,
+      kv,
+      identity.userId,
+      createdLobby,
+    )
+    const lobby = steamLobbyLink !== null
+      ? (await setLobbySteamLobbyLink(kv, reconciledLobby.id, steamLobbyLink, reconciledLobby, { db, sessionNamespace: env.SessionDO }) ?? reconciledLobby)
+      : reconciledLobby
+    if ((lobby.id === createdLobby.id && lobby.revision !== createdLobby.revision)
+      || (lobby.id === reconciledLobby.id && lobby.revision !== reconciledLobby.revision)) { await syncLobbyDerivedState(kv, lobby, { queueEntries: await getLobbyRosterEntriesForRender(env.SessionDO, lobby, [hostEntry]) }) }
+
+    if (!reusedExisting) {
+      const renderPayload = await buildOpenLobbyRenderPayload(
+        kv,
+        lobby,
+        mapLobbySlotsToEntries(lobby.slots, await getLobbyRosterEntriesForRender(env.SessionDO, lobby, [hostEntry])),
+      )
+      await upsertLobbyMessage(kv, env.DISCORD_TOKEN, lobby, {
+        embeds: renderPayload.embeds,
+        components: renderPayload.components,
+      }, { db, sessionNamespace: env.SessionDO })
+    }
+
+    const activityOutcome = await createMatchActivityOutcome(input, lobby)
+    if (activityOutcome) return activityOutcome
+
+    if (reusedExisting) {
+      return {
+        kind: 'message',
+        message: steamLobbyLink !== null
+          ? `You already had an open ${formatModeLabel(lobby.mode)} lobby in <#${lobby.channelId}>. Updated its Steam lobby link.`
+          : `You already had an open ${formatModeLabel(lobby.mode)} lobby in <#${lobby.channelId}>.`,
+        tone: 'info',
+      }
+    }
+
+    if (interactionChannelId === draftChannelId) return { kind: 'clear' }
+
+    return {
+      kind: 'message',
+      message: steamLobbyLink !== null
+        ? `Created ${formatModeLabel(mode)} lobby in <#${draftChannelId}> with the Steam lobby link set.`
+        : `Created ${formatModeLabel(mode)} lobby in <#${draftChannelId}>.`,
+      tone: 'info',
+    }
+  }
+  catch (error) {
+    console.error('Failed to create lobby message:', error)
+    if (createdMessage) {
+      try {
+        await deleteChannelMessage(env.DISCORD_TOKEN, draftChannelId, createdMessage.id)
+      }
+      catch (deleteError) {
+        console.error(`Failed to delete abandoned lobby message ${createdMessage.id}:`, deleteError)
+      }
+    }
+    if (isSessionAdmissionError(error)) {
+      return { kind: 'message', message: formatSessionAdmissionError(error), tone: 'error' }
+    }
+    return { kind: 'message', message: 'Failed to create lobby message. Please try again.', tone: 'error' }
+  }
+}
+
+async function createMatchActivityOutcome(input: CreateMatchLobbyInput, lobby: LobbyState): Promise<MatchCreateOutcome | null> {
+  if (!shouldAutoOpenMatchCreateActivity(input.interactionChannelId, input.draftChannelId, lobby)) return null
+
+  await storeActivityLaunchTargetSelection(input.env.Activity, input.env.CIVUP_SECRET, input.interactionChannelId, input.identity.userId, {
+    kind: 'lobby',
+    id: lobby.id,
+  })
+  return { kind: 'activity' }
+}
+
+export function shouldAutoOpenMatchCreateActivity(
+  interactionChannelId: string | null,
+  draftChannelId: string,
+  lobby: Pick<LobbyState, 'channelId'>,
+): boolean {
+  return interactionChannelId === draftChannelId && lobby.channelId === draftChannelId
+}
+
+async function sendDeferredMatchCreateOutcome(c: DeferredMatchCreateContext, outcome: MatchCreateOutcome): Promise<void> {
+  if (outcome.kind === 'clear' || outcome.kind === 'activity') {
+    await clearDeferredEphemeralResponse(c)
+    return
+  }
+
+  await sendTransientEphemeralResponse(c, outcome.message, outcome.tone)
+}
+
+function sendImmediateEphemeralResponse(c: ImmediateEphemeralContext, message: string, tone: EphemeralResponseTone): Response {
+  return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed(message, tone)] })
 }
 
 async function getLobbyRosterEntriesForRender(
@@ -1088,7 +1221,7 @@ function buildMatchJoinRequest(
 }
 
 async function findHostedOpenLobby(db: ReturnType<typeof createDb>, hostId: string) {
-  return await getOpenSessionLobbyProjectionHostedBy(db, hostId)
+  return getOpenSessionLobbyProjectionHostedBy(db, hostId)
 }
 
 async function findHostedEditableLobbies(db: ReturnType<typeof createDb>, hostId: string): Promise<LobbyState[]> {
@@ -1215,7 +1348,6 @@ async function cancelHostedOpenLobby(
   catch (error) {
     console.error(`Failed to update cancelled open lobby embed for lobby ${lobby.id}:`, error)
   }
-
 }
 
 function buildCancelledLobbyParticipants(lobby: { mode: GameMode, slots: (string | null)[] }, entries: QueueEntry[]) {

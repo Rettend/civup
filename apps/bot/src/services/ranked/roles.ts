@@ -274,7 +274,7 @@ export async function fetchGuildMemberRoleIds(token: string, guildId: string, us
     throw new DiscordApiError('fetch guild member', response.status, detail)
   }
 
-  const payload = await response.json() as { roles?: unknown }
+  const payload = await response.json<{ roles?: unknown }>()
   if (!Array.isArray(payload.roles)) return []
 
   return payload.roles.filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)
@@ -292,7 +292,7 @@ export async function fetchGuildRoles(token: string, guildId: string): Promise<A
     throw new DiscordApiError('fetch guild roles', response.status, detail)
   }
 
-  const payload = await response.json() as unknown
+  const payload = await response.json<unknown>()
   if (!Array.isArray(payload)) return []
 
   const roles: Array<{ id: string, name: string, color: string | null }> = []

@@ -1,5 +1,5 @@
 import type { Database } from '@civup/db'
-import { matches, matchParticipants } from '@civup/db'
+import { civStats, civStatTotals, matchCivStatContributions, matches, matchParticipants } from '@civup/db'
 import { getLeader, redDeathLeaderMap } from '@civup/game'
 import { and, eq, sql } from 'drizzle-orm'
 import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
@@ -16,12 +16,33 @@ export interface CivLeaderboardSnapshotRow {
 
 export interface CivLeaderboardSnapshot {
   updatedAt: number
+  historyInitialized: boolean
   completedMatchCount: number
   rows: CivLeaderboardSnapshotRow[]
 }
 
+export interface CivLeaderboardStatsStatus {
+  historyInitialized: boolean
+  historyInitializedAt: number | null
+  completedMatchCount: number
+  contributionRowCount: number
+  civRowCount: number
+  snapshotUpdatedAt: number | null
+  snapshotRowCount: number
+}
+
+export interface CivLeaderboardStatsRebuildResult {
+  snapshot: CivLeaderboardSnapshot
+  status: CivLeaderboardStatsStatus
+  scannedCompletedMatchCount: number
+  scannedParticipantRowCount: number
+  contributionRowCount: number
+  civRowCount: number
+}
+
 interface StoredCivLeaderboardSnapshot {
   updatedAt?: unknown
+  historyInitialized?: unknown
   completedMatchCount?: unknown
   rows?: unknown
 }
@@ -43,7 +64,22 @@ interface ParsedDraftData {
   }
 }
 
+interface CivStatContributionEntry {
+  civId: string
+  picks: number
+  wins: number
+  bans: number
+}
+
+interface MatchCivStatContribution {
+  completedMatchCount: number
+  entries: CivStatContributionEntry[]
+}
+
 const CIV_LEADERBOARD_SNAPSHOT_KEY = 'leaderboard:civ:snapshot'
+const CIV_STAT_TOTAL_SCOPE = 'global'
+const CIV_STAT_INITIALIZED_SCOPE = 'history-initialized'
+const INSERT_CHUNK_SIZE = 100
 
 export function civLeaderboardSnapshotKey(): string {
   return CIV_LEADERBOARD_SNAPSHOT_KEY
@@ -55,7 +91,7 @@ export async function ensureCivLeaderboardSnapshot(
 ): Promise<CivLeaderboardSnapshot> {
   const snapshot = await getStoredCivLeaderboardSnapshot(kv)
   if (snapshot) return snapshot
-  return await rebuildCivLeaderboardSnapshot(db, kv)
+  return rebuildCivLeaderboardSnapshot(db, kv)
 }
 
 export async function getStoredCivLeaderboardSnapshot(kv: KVNamespace): Promise<CivLeaderboardSnapshot | null> {
@@ -68,9 +104,250 @@ export async function rebuildCivLeaderboardSnapshot(
   kv: KVNamespace,
   updatedAt = Date.now(),
 ): Promise<CivLeaderboardSnapshot> {
-  const snapshot = await buildCivLeaderboardSnapshotFromD1(db, updatedAt)
+  const snapshot = await buildCivLeaderboardSnapshotFromStats(db, updatedAt)
   await setCivLeaderboardSnapshot(kv, snapshot)
   return snapshot
+}
+
+export async function buildCivLeaderboardSnapshotFromStats(
+  db: Database,
+  updatedAt = Date.now(),
+): Promise<CivLeaderboardSnapshot> {
+  const [totalRows, initializedRows, statRows] = await Promise.all([
+    db
+      .select({ completedMatchCount: civStatTotals.completedMatchCount })
+      .from(civStatTotals)
+      .where(eq(civStatTotals.scope, CIV_STAT_TOTAL_SCOPE))
+      .limit(1),
+    db
+      .select({ updatedAt: civStatTotals.updatedAt })
+      .from(civStatTotals)
+      .where(eq(civStatTotals.scope, CIV_STAT_INITIALIZED_SCOPE))
+      .limit(1),
+    db
+      .select({
+        civId: civStats.civId,
+        picks: civStats.picks,
+        wins: civStats.wins,
+        bans: civStats.bans,
+      })
+      .from(civStats),
+  ])
+
+  const completedMatchCount = normalizeCount(totalRows[0]?.completedMatchCount)
+  return {
+    updatedAt,
+    historyInitialized: initializedRows.length > 0,
+    completedMatchCount,
+    rows: statRows
+      .filter(row => row.picks > 0 || row.wins > 0 || row.bans > 0)
+      .filter(row => !isRedDeathFaction(row.civId))
+      .map(row => toSnapshotRow({
+        civId: row.civId,
+        leaderName: resolveLeaderName(row.civId),
+        picks: row.picks,
+        wins: row.wins,
+        bans: row.bans,
+      }, completedMatchCount))
+      .sort((left, right) => right.picks - left.picks || right.bans - left.bans || left.civId.localeCompare(right.civId)),
+  }
+}
+
+export async function rebuildCivLeaderboardStatsFromContributions(
+  db: Database,
+  updatedAt = Date.now(),
+): Promise<CivLeaderboardSnapshot> {
+  return (await repairCivLeaderboardStatsFromContributions(db, updatedAt)).snapshot
+}
+
+export async function repairCivLeaderboardStatsFromContributions(
+  db: Database,
+  updatedAt = Date.now(),
+): Promise<CivLeaderboardStatsRebuildResult> {
+  const contributionRows = await db
+    .select({
+      completedMatchCount: matchCivStatContributions.completedMatchCount,
+      contributionsJson: matchCivStatContributions.contributionsJson,
+    })
+    .from(matchCivStatContributions)
+
+  const aggregateByCivId = new Map<string, CivAggregate>()
+  let completedMatchCount = 0
+  for (const row of contributionRows) {
+    completedMatchCount += normalizeCount(row.completedMatchCount)
+    addContributionToAggregates(aggregateByCivId, parseContributionEntries(row.contributionsJson))
+  }
+
+  await replaceCivStatsFromAggregates(db, aggregateByCivId, completedMatchCount, updatedAt)
+  const snapshot = snapshotFromAggregates(aggregateByCivId, completedMatchCount, updatedAt, await isCivLeaderboardStatsInitialized(db))
+  return {
+    snapshot,
+    status: await getCivLeaderboardStatsStatus(db),
+    scannedCompletedMatchCount: completedMatchCount,
+    scannedParticipantRowCount: 0,
+    contributionRowCount: contributionRows.length,
+    civRowCount: aggregateByCivId.size,
+  }
+}
+
+export async function rebuildCivLeaderboardStatsFromD1(
+  db: Database,
+  updatedAt = Date.now(),
+): Promise<CivLeaderboardSnapshot> {
+  return (await backfillCivLeaderboardStatsFromHistory(db, updatedAt)).snapshot
+}
+
+export async function backfillCivLeaderboardStatsFromHistory(
+  db: Database,
+  updatedAt = Date.now(),
+): Promise<CivLeaderboardStatsRebuildResult> {
+  const [matchRows, participantRows] = await Promise.all([
+    db
+      .select({
+        id: matches.id,
+        draftData: matches.draftData,
+      })
+      .from(matches)
+      .where(eq(matches.status, 'completed')),
+    db
+      .select({
+        matchId: matchParticipants.matchId,
+        civId: matchParticipants.civId,
+        placement: matchParticipants.placement,
+      })
+      .from(matchParticipants)
+      .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+      .where(eq(matches.status, 'completed')),
+  ])
+
+  const participantsByMatchId = new Map<string, Array<{ civId: string | null, placement: number | null }>>()
+  for (const row of participantRows) {
+    const rows = participantsByMatchId.get(row.matchId) ?? []
+    rows.push({ civId: row.civId, placement: row.placement })
+    participantsByMatchId.set(row.matchId, rows)
+  }
+
+  const aggregateByCivId = new Map<string, CivAggregate>()
+  const contributionRows: Array<typeof matchCivStatContributions.$inferInsert> = []
+  let completedMatchCount = 0
+
+  for (const match of matchRows) {
+    const contribution = buildMatchCivStatContribution(match, participantsByMatchId.get(match.id) ?? [])
+    completedMatchCount += contribution.completedMatchCount
+    addContributionToAggregates(aggregateByCivId, contribution.entries)
+
+    if (contribution.completedMatchCount > 0 || contribution.entries.length > 0) {
+      contributionRows.push({
+        matchId: match.id,
+        completedMatchCount: contribution.completedMatchCount,
+        contributionsJson: serializeContributionEntries(contribution.entries),
+        updatedAt,
+      })
+    }
+  }
+
+  await db.delete(civStatTotals).where(eq(civStatTotals.scope, CIV_STAT_INITIALIZED_SCOPE))
+  await db.delete(matchCivStatContributions)
+  await replaceCivStatsFromAggregates(db, aggregateByCivId, completedMatchCount, updatedAt)
+
+  for (let index = 0; index < contributionRows.length; index += INSERT_CHUNK_SIZE) {
+    const chunk = contributionRows.slice(index, index + INSERT_CHUNK_SIZE)
+    if (chunk.length > 0) await db.insert(matchCivStatContributions).values(chunk)
+  }
+
+  await markCivLeaderboardStatsInitialized(db, updatedAt)
+
+  const snapshot = snapshotFromAggregates(aggregateByCivId, completedMatchCount, updatedAt, true)
+  return {
+    snapshot,
+    status: await getCivLeaderboardStatsStatus(db),
+    scannedCompletedMatchCount: matchRows.length,
+    scannedParticipantRowCount: participantRows.length,
+    contributionRowCount: contributionRows.length,
+    civRowCount: aggregateByCivId.size,
+  }
+}
+
+export async function isCivLeaderboardStatsInitialized(db: Database): Promise<boolean> {
+  const [row] = await db
+    .select({ scope: civStatTotals.scope })
+    .from(civStatTotals)
+    .where(eq(civStatTotals.scope, CIV_STAT_INITIALIZED_SCOPE))
+    .limit(1)
+  return Boolean(row)
+}
+
+export async function getCivLeaderboardStatsStatus(
+  db: Database,
+  kv?: KVNamespace,
+): Promise<CivLeaderboardStatsStatus> {
+  const [initializedRows, totalRows, contributionCounts, civCounts, snapshot] = await Promise.all([
+    db
+      .select({ updatedAt: civStatTotals.updatedAt })
+      .from(civStatTotals)
+      .where(eq(civStatTotals.scope, CIV_STAT_INITIALIZED_SCOPE))
+      .limit(1),
+    db
+      .select({ completedMatchCount: civStatTotals.completedMatchCount })
+      .from(civStatTotals)
+      .where(eq(civStatTotals.scope, CIV_STAT_TOTAL_SCOPE))
+      .limit(1),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(matchCivStatContributions),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(civStats),
+    kv ? getStoredCivLeaderboardSnapshot(kv) : Promise.resolve(null),
+  ])
+
+  const initializedAt = normalizeNonNegativeInteger(initializedRows[0]?.updatedAt) ?? null
+  return {
+    historyInitialized: initializedAt != null,
+    historyInitializedAt: initializedAt,
+    completedMatchCount: normalizeCount(totalRows[0]?.completedMatchCount),
+    contributionRowCount: normalizeCount(contributionCounts[0]?.count),
+    civRowCount: normalizeCount(civCounts[0]?.count),
+    snapshotUpdatedAt: snapshot?.updatedAt ?? null,
+    snapshotRowCount: snapshot?.rows.length ?? 0,
+  }
+}
+
+export async function reconcileCivLeaderboardMatchContribution(
+  db: Database,
+  matchId: string,
+  updatedAt = Date.now(),
+): Promise<void> {
+  const [match] = await db
+    .select({ id: matches.id, status: matches.status, draftData: matches.draftData })
+    .from(matches)
+    .where(eq(matches.id, matchId))
+    .limit(1)
+
+  if (!match || match.status !== 'completed') {
+    await replaceCivLeaderboardMatchContribution(db, matchId, { completedMatchCount: 0, entries: [] }, updatedAt)
+    return
+  }
+
+  const participants = await db
+    .select({ civId: matchParticipants.civId, placement: matchParticipants.placement })
+    .from(matchParticipants)
+    .where(eq(matchParticipants.matchId, matchId))
+
+  await replaceCivLeaderboardMatchContribution(
+    db,
+    matchId,
+    buildMatchCivStatContribution(match, participants),
+    updatedAt,
+  )
+}
+
+export async function removeCivLeaderboardMatchContribution(
+  db: Database,
+  matchId: string,
+  updatedAt = Date.now(),
+): Promise<void> {
+  await replaceCivLeaderboardMatchContribution(db, matchId, { completedMatchCount: 0, entries: [] }, updatedAt)
 }
 
 export async function buildCivLeaderboardSnapshotFromD1(
@@ -121,10 +398,292 @@ export async function buildCivLeaderboardSnapshotFromD1(
 
   return {
     updatedAt,
+    historyInitialized: true,
     completedMatchCount: completedCivMatchCount,
     rows: Array.from(aggregates.values())
       .map(row => toSnapshotRow(row, completedCivMatchCount))
       .sort((left, right) => right.picks - left.picks || right.bans - left.bans || left.civId.localeCompare(right.civId)),
+  }
+}
+
+async function replaceCivLeaderboardMatchContribution(
+  db: Database,
+  matchId: string,
+  next: MatchCivStatContribution,
+  updatedAt: number,
+): Promise<void> {
+  const previous = await getCivLeaderboardMatchContribution(db, matchId)
+
+  if (next.completedMatchCount > 0 || next.entries.length > 0) {
+    await db
+      .insert(matchCivStatContributions)
+      .values({
+        matchId,
+        completedMatchCount: next.completedMatchCount,
+        contributionsJson: serializeContributionEntries(next.entries),
+        updatedAt,
+      })
+      .onConflictDoUpdate({
+        target: matchCivStatContributions.matchId,
+        set: {
+          completedMatchCount: next.completedMatchCount,
+          contributionsJson: serializeContributionEntries(next.entries),
+          updatedAt,
+        },
+      })
+    await applyCivLeaderboardAggregateDelta(db, previous, next, updatedAt)
+    return
+  }
+
+  await db.delete(matchCivStatContributions).where(eq(matchCivStatContributions.matchId, matchId))
+  await applyCivLeaderboardAggregateDelta(db, previous, next, updatedAt)
+}
+
+async function getCivLeaderboardMatchContribution(
+  db: Database,
+  matchId: string,
+): Promise<MatchCivStatContribution> {
+  const [row] = await db
+    .select({
+      completedMatchCount: matchCivStatContributions.completedMatchCount,
+      contributionsJson: matchCivStatContributions.contributionsJson,
+    })
+    .from(matchCivStatContributions)
+    .where(eq(matchCivStatContributions.matchId, matchId))
+    .limit(1)
+
+  return row
+    ? {
+        completedMatchCount: normalizeCount(row.completedMatchCount),
+        entries: parseContributionEntries(row.contributionsJson),
+      }
+    : { completedMatchCount: 0, entries: [] }
+}
+
+async function applyCivLeaderboardAggregateDelta(
+  db: Database,
+  previous: MatchCivStatContribution,
+  next: MatchCivStatContribution,
+  updatedAt: number,
+): Promise<void> {
+  const completedMatchCountDelta = normalizeCount(next.completedMatchCount) - normalizeCount(previous.completedMatchCount)
+  if (completedMatchCountDelta !== 0) {
+    await db
+      .insert(civStatTotals)
+      .values({
+        scope: CIV_STAT_TOTAL_SCOPE,
+        completedMatchCount: Math.max(0, completedMatchCountDelta),
+        updatedAt,
+      })
+      .onConflictDoUpdate({
+        target: civStatTotals.scope,
+        set: {
+          completedMatchCount: sql<number>`max(0, ${civStatTotals.completedMatchCount} + ${completedMatchCountDelta})`,
+          updatedAt,
+        },
+      })
+  }
+
+  for (const delta of diffCivContributionEntries(previous.entries, next.entries)) {
+    await db
+      .insert(civStats)
+      .values({
+        civId: delta.civId,
+        picks: Math.max(0, delta.picks),
+        wins: Math.max(0, delta.wins),
+        bans: Math.max(0, delta.bans),
+        updatedAt,
+      })
+      .onConflictDoUpdate({
+        target: civStats.civId,
+        set: {
+          picks: sql<number>`max(0, ${civStats.picks} + ${delta.picks})`,
+          wins: sql<number>`max(0, ${civStats.wins} + ${delta.wins})`,
+          bans: sql<number>`max(0, ${civStats.bans} + ${delta.bans})`,
+          updatedAt,
+        },
+      })
+
+    await db
+      .delete(civStats)
+      .where(and(
+        eq(civStats.civId, delta.civId),
+        sql`${civStats.picks} <= 0 and ${civStats.wins} <= 0 and ${civStats.bans} <= 0`,
+      ))
+  }
+}
+
+async function replaceCivStatsFromAggregates(
+  db: Database,
+  aggregateByCivId: Map<string, CivAggregate>,
+  completedMatchCount: number,
+  updatedAt: number,
+): Promise<void> {
+  await db.delete(civStats)
+  await db.delete(civStatTotals).where(eq(civStatTotals.scope, CIV_STAT_TOTAL_SCOPE))
+
+  await db.insert(civStatTotals).values({
+    scope: CIV_STAT_TOTAL_SCOPE,
+    completedMatchCount,
+    updatedAt,
+  })
+
+  const aggregateRows = [...aggregateByCivId.values()]
+    .filter(row => row.picks > 0 || row.wins > 0 || row.bans > 0)
+  if (aggregateRows.length === 0) return
+
+  await db.insert(civStats).values(aggregateRows.map(row => ({
+    civId: row.civId,
+    picks: row.picks,
+    wins: row.wins,
+    bans: row.bans,
+    updatedAt,
+  })))
+}
+
+async function markCivLeaderboardStatsInitialized(db: Database, updatedAt: number): Promise<void> {
+  await db
+    .insert(civStatTotals)
+    .values({
+      scope: CIV_STAT_INITIALIZED_SCOPE,
+      completedMatchCount: 1,
+      updatedAt,
+    })
+    .onConflictDoUpdate({
+      target: civStatTotals.scope,
+      set: {
+        completedMatchCount: 1,
+        updatedAt,
+      },
+    })
+}
+
+function snapshotFromAggregates(
+  aggregateByCivId: Map<string, CivAggregate>,
+  completedMatchCount: number,
+  updatedAt: number,
+  historyInitialized: boolean,
+): CivLeaderboardSnapshot {
+  return {
+    updatedAt,
+    historyInitialized,
+    completedMatchCount,
+    rows: [...aggregateByCivId.values()]
+      .filter(row => row.picks > 0 || row.wins > 0 || row.bans > 0)
+      .filter(row => !isRedDeathFaction(row.civId))
+      .map(row => toSnapshotRow(row, completedMatchCount))
+      .sort((left, right) => right.picks - left.picks || right.bans - left.bans || left.civId.localeCompare(right.civId)),
+  }
+}
+
+function buildMatchCivStatContribution(
+  match: { draftData: string | null },
+  participants: readonly { civId: string | null, placement: number | null }[],
+): MatchCivStatContribution {
+  if (isRedDeathMatch(match.draftData)) return { completedMatchCount: 0, entries: [] }
+
+  const aggregateByCivId = new Map<string, CivAggregate>()
+  for (const participant of participants) {
+    if (!participant.civId || isRedDeathFaction(participant.civId)) continue
+    const aggregate = getCivAggregate(aggregateByCivId, participant.civId)
+    aggregate.picks += 1
+    if (participant.placement === 1) aggregate.wins += 1
+  }
+
+  for (const civId of extractDraftDataBanCivIds(match.draftData)) {
+    if (isRedDeathFaction(civId)) continue
+    getCivAggregate(aggregateByCivId, civId).bans += 1
+  }
+
+  return {
+    completedMatchCount: 1,
+    entries: [...aggregateByCivId.values()]
+      .filter(entry => entry.picks > 0 || entry.wins > 0 || entry.bans > 0)
+      .map(entry => ({
+        civId: entry.civId,
+        picks: entry.picks,
+        wins: entry.wins,
+        bans: entry.bans,
+      }))
+      .sort((left, right) => left.civId.localeCompare(right.civId)),
+  }
+}
+
+function addContributionToAggregates(
+  aggregateByCivId: Map<string, CivAggregate>,
+  entries: readonly CivStatContributionEntry[],
+): void {
+  for (const entry of entries) {
+    const aggregate = getCivAggregate(aggregateByCivId, entry.civId)
+    aggregate.picks += entry.picks
+    aggregate.wins += entry.wins
+    aggregate.bans += entry.bans
+  }
+}
+
+function diffCivContributionEntries(
+  previous: readonly CivStatContributionEntry[],
+  next: readonly CivStatContributionEntry[],
+): CivStatContributionEntry[] {
+  const deltas = new Map<string, CivStatContributionEntry>()
+  for (const entry of previous) {
+    deltas.set(entry.civId, {
+      civId: entry.civId,
+      picks: -normalizeCount(entry.picks),
+      wins: -normalizeCount(entry.wins),
+      bans: -normalizeCount(entry.bans),
+    })
+  }
+
+  for (const entry of next) {
+    const delta = deltas.get(entry.civId) ?? {
+      civId: entry.civId,
+      picks: 0,
+      wins: 0,
+      bans: 0,
+    }
+    delta.picks += normalizeCount(entry.picks)
+    delta.wins += normalizeCount(entry.wins)
+    delta.bans += normalizeCount(entry.bans)
+    deltas.set(entry.civId, delta)
+  }
+
+  return [...deltas.values()]
+    .filter(entry => entry.picks !== 0 || entry.wins !== 0 || entry.bans !== 0)
+    .sort((left, right) => left.civId.localeCompare(right.civId))
+}
+
+function serializeContributionEntries(entries: readonly CivStatContributionEntry[]): string {
+  return JSON.stringify(entries
+    .filter(entry => entry.picks > 0 || entry.wins > 0 || entry.bans > 0)
+    .map(entry => ({
+      civId: entry.civId,
+      picks: normalizeCount(entry.picks),
+      wins: normalizeCount(entry.wins),
+      bans: normalizeCount(entry.bans),
+    }))
+    .sort((left, right) => left.civId.localeCompare(right.civId)))
+}
+
+function parseContributionEntries(raw: string): CivStatContributionEntry[] {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.flatMap((entry) => {
+      if (!entry || typeof entry !== 'object') return []
+      const candidate = entry as Partial<CivStatContributionEntry>
+      if (typeof candidate.civId !== 'string' || candidate.civId.length === 0) return []
+      const normalized = {
+        civId: candidate.civId,
+        picks: normalizeCount(candidate.picks),
+        wins: normalizeCount(candidate.wins),
+        bans: normalizeCount(candidate.bans),
+      }
+      return normalized.picks === 0 && normalized.wins === 0 && normalized.bans === 0 ? [] : [normalized]
+    })
+  }
+  catch {
+    return []
   }
 }
 
@@ -176,6 +735,7 @@ async function setCivLeaderboardSnapshot(
     key: CIV_LEADERBOARD_SNAPSHOT_KEY,
     value: JSON.stringify({
       updatedAt: snapshot.updatedAt,
+      historyInitialized: snapshot.historyInitialized,
       completedMatchCount: snapshot.completedMatchCount,
       rows: snapshot.rows,
     } satisfies StoredCivLeaderboardSnapshot),
@@ -190,6 +750,7 @@ export function normalizeCivLeaderboardSnapshot(value: unknown): CivLeaderboardS
 
   return {
     updatedAt: normalizeNonNegativeInteger(raw.updatedAt) ?? 0,
+    historyInitialized: raw.historyInitialized === true,
     completedMatchCount: normalizeNonNegativeInteger(raw.completedMatchCount) ?? 0,
     rows: raw.rows
       .map(normalizeCivLeaderboardSnapshotRow)
@@ -240,7 +801,7 @@ function extractDraftDataBanCivIds(draftData: string | null): string[] {
 function parseDraftData(draftData: string | null): ParsedDraftData | null {
   if (!draftData) return null
   try {
-    const parsed = JSON.parse(draftData) as unknown
+    const parsed: unknown = JSON.parse(draftData)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
     return parsed as ParsedDraftData
   }

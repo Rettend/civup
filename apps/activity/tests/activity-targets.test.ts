@@ -1,6 +1,6 @@
 import type { ActivityTargetOption } from '../src/client/stores'
 import { describe, expect, test } from 'bun:test'
-import { activityTargetOptionKey, activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldReconnectVisibleActivityTarget, shouldRequestActivityTargetSelection } from '../src/client/lib/activity-targets'
+import { activityTargetOptionKey, activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, resolveMissingLiveTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldReconnectVisibleActivityTarget, shouldRequestActivityTargetSelection } from '../src/client/lib/activity-targets'
 
 const joinedMatch: ActivityTargetOption = {
   kind: 'match',
@@ -136,6 +136,42 @@ describe('activity target helpers', () => {
     })
 
     expect(selected).toBeNull()
+  })
+
+  test('promotes a selected lobby to its started draft before holding the lobby view', () => {
+    const resolution = resolveMissingLiveTarget({
+      options: [joinedMatch],
+      target: { kind: 'lobby', id: 'lobby-1' },
+      currentLobbyId: 'lobby-1',
+      hasCurrentLobbySnapshot: true,
+      failedAutoSelectionKeys: new Set(),
+    })
+
+    expect(resolution).toEqual({ kind: 'promote', option: joinedMatch })
+  })
+
+  test('holds a visible selected lobby when it is briefly missing without a promoted match', () => {
+    const resolution = resolveMissingLiveTarget({
+      options: [],
+      target: { kind: 'lobby', id: 'lobby-joined' },
+      currentLobbyId: 'lobby-joined',
+      hasCurrentLobbySnapshot: true,
+      failedAutoSelectionKeys: new Set(),
+    })
+
+    expect(resolution).toEqual({ kind: 'hold' })
+  })
+
+  test('clears a visible selected lobby after its live snapshot is removed', () => {
+    const resolution = resolveMissingLiveTarget({
+      options: [],
+      target: { kind: 'lobby', id: 'lobby-joined' },
+      currentLobbyId: 'lobby-joined',
+      hasCurrentLobbySnapshot: false,
+      failedAutoSelectionKeys: new Set(),
+    })
+
+    expect(resolution).toEqual({ kind: 'clear' })
   })
 
   test('re-confirms an already selected lobby so the full lobby snapshot can hydrate', () => {

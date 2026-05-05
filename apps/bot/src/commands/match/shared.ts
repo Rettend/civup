@@ -8,12 +8,12 @@ import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLab
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
+import { getKvStore } from '../../services/kv/batch.ts'
 import { filterQueueEntriesForLobby, finalizeDeferredOpenLobbyTransferSource, getLobbyById, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, restoreDeferredOpenLobbyTransferSourceAdmission, rollbackDeferredOpenLobbyTransferTarget, sameLobbySlots, setLobbyRoster } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds } from '../../services/ranked/roles.ts'
 import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayers, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionsByMode, isSessionAdmissionError } from '../../services/session/index.ts'
-import { getKvStore } from '../../services/kv/batch.ts'
 import { getSessionRecord } from '../../session-runtime/session-do-client.ts'
 import { buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 
@@ -181,6 +181,7 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   const kv = getKvStore(c.env)
+  if (!c.env.DB) return { error: 'D1 binding is not configured.' }
   const db = createCivupDb(c.env.DB)
   const openLobbies = (await getOpenSessionLobbyProjectionsByMode(db, mode))
     .filter(lobby => lobby.memberPlayerIds.length > 0)
@@ -203,11 +204,11 @@ export async function joinLobbyAndMaybeStartMatch(
 
   const now = Date.now()
   const requestedRosterEntries: QueueEntry[] = requestedEntries.map((entry, index) => ({
-      playerId: entry.playerId,
-      displayName: entry.displayName,
-      avatarUrl: entry.avatarUrl,
-      joinedAt: now + index,
-    }))
+    playerId: entry.playerId,
+    displayName: entry.displayName,
+    avatarUrl: entry.avatarUrl,
+    joinedAt: now + index,
+  }))
 
   if (openLobbies.length === 0) {
     return { error: `No open ${formatModeLabel(mode)} lobby. Use \`/match create\` first.` }

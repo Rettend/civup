@@ -8,6 +8,7 @@ import type {
 } from '@civup/game'
 import type { DraftRuntimeConfig, SessionClientMessage, SessionServerMessage } from '@civup/session'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
+import type { RoomEffect, RoomRecord } from './draft-room-domain.ts'
 import type { StoredMapVoteState } from './map-vote-room-state.ts'
 import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import {
@@ -43,8 +44,8 @@ import {
   sanitizeDraftPreviews,
 } from './draft-previews.ts'
 import {
-  applyLeaderSwapCommand,
   applyDraftResultCommand,
+  applyLeaderSwapCommand,
   clearSwapDisconnectFinalizeAtCommand,
   confirmMapVoteCommand,
   createEmptySwapState,
@@ -55,8 +56,7 @@ import {
   normalizeRoomSwapState,
   normalizeStoredRoomRecord,
   ROOM_RECORD_KEY,
-  type RoomEffect,
-  type RoomRecord,
+
   setSwapDisconnectFinalizeAtCommand,
   startMapVoteCommand,
   updateConfigCommand,
@@ -90,6 +90,7 @@ export interface DraftRuntimeEnv extends Cloudflare.Env {
   KV?: KVNamespace
   DISCORD_TOKEN?: string
   SessionDO?: DurableObjectNamespace
+  ENABLE_DEBUG_LOBBY_FILL?: string
 }
 
 // ── Connection State ─────────────────────────────────────────
@@ -99,7 +100,7 @@ interface ConnectionState {
 }
 
 const DEBUG_ACTIVE_BOT_PLAYER_ID_PREFIX = 'bot:'
-const DEBUG_ACTIVE_BOT_DELAY_MS = 5000
+const DEBUG_ACTIVE_BOT_DELAY_MS = 5_000
 const DEBUG_ACTIVE_BOT_STAGGER_MS = 150
 const SWAP_DISCONNECT_GRACE_MS = 5_000
 
@@ -112,6 +113,10 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
   protected random(): number {
     return Math.random()
+  }
+
+  protected async runBackgroundRoomOperation<T>(operation: () => Promise<T>): Promise<T> {
+    return operation()
   }
 
   // ── HTTP: Draft runtime initialization & status ─────────────
@@ -247,7 +252,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
   }
 
   protected async updateRoomRecord(updater: (room: RoomRecord) => RoomRecord): Promise<RoomRecord> {
-    return await this.setRoomRecord(updater(await this.requireRoomRecord()))
+    return this.setRoomRecord(updater(await this.requireRoomRecord()))
   }
 
   protected getNormalizedSwapState(room: Pick<RoomRecord, 'swapState'>): LeaderSwapState {
@@ -717,7 +722,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
   }
 
   protected async handleDraftRuntimeAlarmIfDue(now = this.now()): Promise<boolean> {
-    let room = await this.getRoomRecord()
+    const room = await this.getRoomRecord()
     if (!room) return false
 
     const dueAt = getNextRoomAlarmAt(room)
@@ -770,7 +775,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     const previews = sanitizeDraftPreviews(state, room.previews)
     const result = resolveTimeoutWithPreviews(state, format.blindBans, previews, () => this.random())
     if (isDraftError(result)) {
-      return await this.recoverFailedDraftTimeout(room, result.error, format.blindBans)
+      return this.recoverFailedDraftTimeout(room, result.error, format.blindBans)
     }
 
     await this.applyResult(result.state, result.events)
@@ -829,6 +834,8 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
   }
 
   private scheduleDebugActiveBotActions(state: DraftState, blindBans: boolean) {
+    if (!this.debugActiveBotActionsEnabled()) return
+
     const step = getCurrentStep(state)
     if (!step) return
 
@@ -849,7 +856,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       delayMs += DEBUG_ACTIVE_BOT_STAGGER_MS
 
       this.ctx.waitUntil(wait(scheduledDelayMs)
-        .then(() => this.runDebugActiveBotAction(scheduledStepIndex, seatIndex, blindBans))
+        .then(() => this.runBackgroundRoomOperation(() => this.runDebugActiveBotAction(scheduledStepIndex, seatIndex, blindBans)))
         .catch((error) => {
           console.error(`Debug active bot action failed for seat ${seatIndex} in match ${state.matchId}:`, error)
         }))
@@ -857,6 +864,8 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
   }
 
   private scheduleDebugMapVoteBotActions(state: DraftState, config: DraftRuntimeConfig) {
+    if (!this.debugActiveBotActionsEnabled()) return
+
     let delayMs = DEBUG_ACTIVE_BOT_DELAY_MS
     for (let seatIndex = 0; seatIndex < state.seats.length; seatIndex++) {
       const playerId = state.seats[seatIndex]?.playerId
@@ -866,7 +875,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       delayMs += DEBUG_ACTIVE_BOT_STAGGER_MS
 
       this.ctx.waitUntil(wait(scheduledDelayMs)
-        .then(() => this.runDebugMapVoteBotAction(seatIndex, config))
+        .then(() => this.runBackgroundRoomOperation(() => this.runDebugMapVoteBotAction(seatIndex, config)))
         .catch((error) => {
           console.error(`Debug map vote bot action failed for seat ${seatIndex} in match ${state.matchId}:`, error)
         }))
@@ -930,7 +939,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
     if (needsFollowUpOnSameStep) {
       this.ctx.waitUntil(wait(DEBUG_ACTIVE_BOT_DELAY_MS)
-        .then(() => this.runDebugActiveBotAction(stepIndex, seatIndex, blindBans))
+        .then(() => this.runBackgroundRoomOperation(() => this.runDebugActiveBotAction(stepIndex, seatIndex, blindBans)))
         .catch((error) => {
           console.error(`Debug active bot follow-up action failed for seat ${seatIndex} in match ${nextState.matchId}:`, error)
         }))
@@ -1044,7 +1053,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       return 'Map voting is already in progress'
     }
 
-    return await this.startActualDraft(state, config, format)
+    return this.startActualDraft(state, config, format)
   }
 
   private async handleMapVoteAlarm(state: DraftState, _config: DraftRuntimeConfig): Promise<boolean> {
@@ -1310,12 +1319,20 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     }
   }
 
+  protected debugActiveBotActionsEnabled(): boolean {
+    return isTruthyEnvFlag(this.env.ENABLE_DEBUG_LOBBY_FILL)
+  }
 }
 
 // ── Utility ──────────────────────────────────────────────────
 
 function isDebugActiveBotPlayerId(playerId: string | null | undefined): boolean {
   return typeof playerId === 'string' && playerId.startsWith(DEBUG_ACTIVE_BOT_PLAYER_ID_PREFIX)
+}
+
+function isTruthyEnvFlag(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
 }
 
 function buildDraftRoomLogContext(

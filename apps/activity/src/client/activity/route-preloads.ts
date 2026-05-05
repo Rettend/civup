@@ -7,7 +7,6 @@ export const preloadDraftActivityRoute = () => import('./routes/DraftActivityRou
 export const preloadLobbyOverviewRoute = () => import('./routes/LobbyOverviewRoute')
 export const preloadLobbyWaitingRoute = () => import('./routes/LobbyWaitingRoute')
 export const preloadPracticePage = () => import('../pages/practice/PracticePage')
-export const preloadReportedActivityRoute = () => import('./routes/ReportedActivityRoute')
 
 export function preloadActivityOverviewEntry() {
   void preloadActivityShell()
@@ -17,11 +16,6 @@ export function preloadActivityOverviewEntry() {
 export function preloadActivityTargetRoute(option: ActivityTargetOption) {
   if (option.kind === 'lobby') {
     void preloadLobbyWaitingRoute()
-    return
-  }
-
-  if (option.status === 'completed') {
-    void preloadReportedActivityRoute()
     return
   }
 

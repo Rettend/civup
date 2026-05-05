@@ -552,7 +552,6 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     teamRows,
     teamBalance,
     ffaColumns: ffaColumnsPair,
-    lowConfidence: () => Boolean(lobbyBalance()?.lowConfidence),
     dragOverSlot,
     pending,
     arrangeEvent: () => currentLobby()?.lastArrange ?? null,

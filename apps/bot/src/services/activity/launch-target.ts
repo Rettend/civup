@@ -175,7 +175,7 @@ export function parseStoredActivityFollowTargetSelection(value: unknown): Stored
 }
 
 async function fetchActivityLaunchTarget(namespace: DurableObjectNamespace, userId: string, init: RequestInit): Promise<Response> {
-  return await fetchPartyServerDurableObject(namespace, {
+  return fetchPartyServerDurableObject(namespace, {
     party: ACTIVITY_PARTYSERVER_NAMESPACE,
     room: activityLaunchTargetRoom(userId),
     input: ACTIVITY_LAUNCH_TARGET_DO_PATH,
@@ -184,7 +184,7 @@ async function fetchActivityLaunchTarget(namespace: DurableObjectNamespace, user
 }
 
 async function fetchActivityFollowTarget(namespace: DurableObjectNamespace, channelId: string, userId: string, init: RequestInit): Promise<Response> {
-  return await fetchPartyServerDurableObject(namespace, {
+  return fetchPartyServerDurableObject(namespace, {
     party: ACTIVITY_PARTYSERVER_NAMESPACE,
     room: activityFollowTargetRoom(channelId, userId),
     input: ACTIVITY_FOLLOW_TARGET_DO_PATH,

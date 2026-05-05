@@ -1,6 +1,6 @@
+import type { LobbySessionProjectionOptions } from './mutations.ts'
 import type { LobbyState } from './types.ts'
 import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
-import type { LobbySessionProjectionOptions } from './mutations.ts'
 import { setLobbyMessage } from './mutations.ts'
 import { getLobbyById } from './store.ts'
 

@@ -1,4 +1,4 @@
-import { matchBans, matches, matchParticipants, playerRatingSeeds, playerRatings, players } from '@civup/db'
+import { matchBans, matches, matchParticipants, playerRatings, playerRatingSeeds, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { buildPlayerDataExport, buildPlayerDataExportSheets } from '../../src/services/export/player-data.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'

@@ -2,8 +2,8 @@ import type { DraftState } from '@civup/game'
 import { allFactionIds, createDraft, default2v2, default4v4, getDraftFormat, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import {
-  canSwapLeadersWith,
   canSendPickPreview,
+  canSwapLeadersWith,
   currentStep,
   currentStepDuration,
   draftNow,

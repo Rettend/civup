@@ -3,12 +3,12 @@ import type { LobbySessionProjectionOptions } from './mutations.ts'
 import type { LobbyState } from './types.ts'
 import { slotToTeamIndex } from '@civup/game'
 import { lobbyCancelledEmbed } from '../../embeds/match.ts'
+import { restoreSessionDirectoryMembers } from '../session/directory.ts'
+import { getSessionLobbyProjectionByMatch } from '../session/lobby-projection.ts'
 import { syncLobbyDerivedState } from './live-snapshot.ts'
 import { upsertLobbyMessage } from './message.ts'
 import { setLobbyRoster, setLobbyStatus } from './mutations.ts'
 import { buildOpenLobbyRenderPayload } from './render.ts'
-import { restoreSessionDirectoryMembers } from '../session/directory.ts'
-import { getSessionLobbyProjectionByMatch } from '../session/lobby-projection.ts'
 import { filterQueueEntriesForLobby, mapLobbySlotsToEntries, normalizeLobbySlots, sameLobbySlots } from './slots.ts'
 
 export interface DeferredOpenLobbyTransferSource {
@@ -17,8 +17,8 @@ export interface DeferredOpenLobbyTransferSource {
   releasedPlayerIds: string[]
 }
 
-type LeaveOpenLobbyForJoinResult =
-  | {
+type LeaveOpenLobbyForJoinResult
+  = | {
     ok: true
     transferredFrom: { lobbyId: string, mode: GameMode }
     deferredSource?: DeferredOpenLobbyTransferSource
