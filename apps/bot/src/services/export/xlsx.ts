@@ -37,7 +37,7 @@ export async function createXlsxWorkbook(worksheets: XlsxWorksheet[]): Promise<U
     name: sanitizeSheetName(worksheet.name, index),
   }))
 
-  return await createZip([
+  return createZip([
     { name: '[Content_Types].xml', data: encodeXml(contentTypesXml(safeWorksheets.length)) },
     { name: '_rels/.rels', data: encodeXml(rootRelationshipsXml()) },
     { name: 'xl/workbook.xml', data: encodeXml(workbookXml(safeWorksheets)) },

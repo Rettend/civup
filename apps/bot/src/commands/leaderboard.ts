@@ -23,7 +23,7 @@ export const command_leaderboard = factory.command<Var>(
 
     return resDeferGeneralCommandResponse(c, async (c) => {
       const kv = getKvStore(c.env)
-      return await buildLeaderboardCommandPayload(kv, requestedMode)
+      return buildLeaderboardCommandPayload(kv, requestedMode)
     })
   },
 )

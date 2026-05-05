@@ -1,17 +1,13 @@
-import { Match, Switch } from 'solid-js'
 import { ActivityErrorPage, ActivityLoadingPage, ActivityRedirectingPage, useActivityController } from '../activity-context'
 
 export default function ActivityIndexRoute() {
   const activity = useActivityController()
+  const renderRoute = () => {
+    const state = activity.state()
+    if (state.status === 'loading') return <ActivityLoadingPage />
+    if (state.status === 'error') return <ActivityErrorPage message={state.message} />
+    return <ActivityRedirectingPage />
+  }
 
-  return (
-    <Switch fallback={<ActivityRedirectingPage />}>
-      <Match when={activity.state().status === 'loading'}>
-        <ActivityLoadingPage />
-      </Match>
-      <Match when={activity.state().status === 'error'}>
-        <ActivityErrorPage message={(activity.state() as Extract<ReturnType<typeof activity.state>, { status: 'error' }>).message} />
-      </Match>
-    </Switch>
-  )
+  return <>{renderRoute()}</>
 }

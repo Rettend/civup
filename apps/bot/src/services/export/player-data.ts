@@ -572,7 +572,7 @@ function extractDraftDataBanRows(match: MatchRow): ExportMatchBanRow[] {
 function parseDraftData(draftData: string | null): ParsedDraftData | null {
   if (!draftData) return null
   try {
-    const parsed = JSON.parse(draftData) as unknown
+    const parsed: unknown = JSON.parse(draftData)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
     return parsed as ParsedDraftData
   }
