@@ -22,7 +22,7 @@ export function DraftSetupPage(props: DraftSetupPageProps) {
           <div class={cn('mx-auto px-6 py-4 flex w-full max-w-5xl flex-1 min-h-0 flex-col gap-6', state.layout.isMobileLayout() && 'pt-12')}>
             <div class={cn('gap-4 grid grid-cols-1 lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)]', state.layout.desktopSetupPanelMaxHeightClass())}>
               <div class="p-4 rounded-lg bg-bg-subtle flex flex-col min-h-0 overflow-hidden lg:h-full">
-                <div class="text-xs text-fg-subtle tracking-widest font-bold mb-3 flex gap-3 uppercase items-center justify-between">
+                <div class="text-xs text-fg-subtle tracking-widest font-bold mb-3 flex gap-3 uppercase items-center justify-between relative">
                   <span>Players</span>
                   <Show when={state.players.arrangeEvent()}>
                     {event => <LastArrangeIndicator strategy={event().strategy} isTeamMode={state.players.isTeamMode()} />}
@@ -76,7 +76,7 @@ function LastArrangeIndicator(props: { strategy: LobbyArrangeStrategy, isTeamMod
 
   return (
     <span
-      class="rounded-full border border-border-subtle bg-bg-muted/25 px-2 py-1 text-[11px] text-fg-subtle tracking-normal font-medium inline-flex gap-1.5 normal-case items-center"
+      class="rounded-full border border-border-subtle bg-bg-muted/25 px-2 py-1 text-[11px] text-fg-subtle tracking-normal leading-none font-medium inline-flex gap-1.5 normal-case items-center absolute right-0 top-1/2 -translate-y-1/2"
       title={label()}
       aria-label={`Last used: ${label()}`}
     >
