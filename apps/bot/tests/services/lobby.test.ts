@@ -9,7 +9,7 @@ import { clearLobbyById, createLobby, getCurrentLobbyHostedBy, getExistingTestLo
 import { seedRosterEntry as addToQueue, getSeededRosterEntries } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
-test('normalizes unsupported map vote config off for ffa lobbies', async () => {
+test('keeps supported map vote config for ffa lobbies', async () => {
   const { kv } = createTrackedKv()
   const lobby = await createLobby(kv, {
     mode: 'ffa',
@@ -23,7 +23,7 @@ test('normalizes unsupported map vote config off for ffa lobbies', async () => {
     mapVoteEnabled: true,
   }, lobby)
 
-  expect(updated?.draftConfig.mapVoteEnabled).toBe(false)
+  expect(updated?.draftConfig.mapVoteEnabled).toBe(true)
 })
 
 test('keeps supported map vote config for team lobbies', async () => {
