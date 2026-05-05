@@ -1,13 +1,13 @@
 import { matches } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { Hono } from 'hono'
 import { eq } from 'drizzle-orm'
+import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
 import { registerLobbyRoutes } from '../../src/routes/lobby/index.ts'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
+import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
-import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
@@ -236,9 +236,7 @@ describe('lobby routes', () => {
     })
     const draftingLobby = await startTestSessionDraft(kv, liveLobby.id, liveLobby)
     await setLobbyStatus(kv, liveLobby.id, 'active', draftingLobby ?? liveLobby)
-    await getExistingTestLobbyRuntime(kv).db.update(matches)
-      .set({ status: 'active', draftData: JSON.stringify({ completedAt: Date.now() }) })
-      .where(eq(matches.id, liveLobby.id))
+    await getExistingTestLobbyRuntime(kv).db.update(matches).set({ status: 'active', draftData: JSON.stringify({ completedAt: Date.now() }) }).where(eq(matches.id, liveLobby.id))
 
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
       status: 200,

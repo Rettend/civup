@@ -15,8 +15,8 @@ import {
   isSpectator,
   mapVotePhase,
   setGridOpen,
-  updateLobbyConfig,
   updateDraftSteamLobbyLink,
+  updateLobbyConfig,
   userId,
 } from '~/client/stores'
 import { DraftHeader } from './DraftHeader'
@@ -256,8 +256,8 @@ export function DraftView(props: DraftViewProps) {
 
                 {/* Post-draft message */}
                 <Show when={state()?.status === 'complete'}>
-                  <div class="pointer-events-none flex inset-x-0 top-16 justify-center absolute z-50">
-                    <div class="pointer-events-auto px-4 py-2 border border-border-subtle rounded-lg bg-bg-subtle/80 flex flex-col gap-1 shadow-2xl shadow-black/50 items-center backdrop-blur-sm">
+                  <div class="flex pointer-events-none inset-x-0 top-16 justify-center absolute z-50">
+                    <div class="px-4 py-2 border border-border-subtle rounded-lg bg-bg-subtle/80 flex flex-col gap-1 pointer-events-auto shadow-2xl shadow-black/50 items-center backdrop-blur-sm">
                       <span class="text-base text-accent font-bold">You can close the activity!</span>
                       <span class="text-sm text-fg/80">Don't forget to report the result</span>
                     </div>

@@ -1,8 +1,9 @@
 import type { GameMode, QueueEntry } from '@civup/game'
+import type { LobbySnapshot } from '../activity/session-state.ts'
 import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import type { LobbyState } from './types.ts'
 import { buildOpenSessionRecordFromLobby } from '../../session-runtime/session-record.ts'
-import { attachLobbyBalanceRatingsToSnapshot, buildLobbySnapshotFromSessionRecord, type LobbySnapshot } from '../activity/session-state.ts'
+import { attachLobbyBalanceRatingsToSnapshot, buildLobbySnapshotFromSessionRecord } from '../activity/session-state.ts'
 import { filterQueueEntriesForLobby, normalizeLobbySlots } from './slots.ts'
 
 export type { LobbySnapshot }

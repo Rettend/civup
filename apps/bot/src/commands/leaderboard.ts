@@ -4,9 +4,9 @@ import { LEADERBOARD_MODE_CHOICES, LEADERBOARD_MODES, parseLeaderboardMode } fro
 import { getLeaderboardMinGames } from '@civup/rating'
 import { Command, Option } from 'discord-hono'
 import { leaderboardEmbed } from '../embeds/leaderboard.ts'
+import { getKvStore } from '../services/kv/batch.ts'
 import { getStoredLeaderboardModeSnapshot, getStoredLeaderboardModeSnapshots } from '../services/leaderboard/snapshot.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
-import { getKvStore } from '../services/kv/batch.ts'
 import { factory } from '../setup.ts'
 
 interface Var {

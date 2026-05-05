@@ -1,6 +1,6 @@
 import type { DraftSeat } from '@civup/game'
-import { describe, expect, test } from 'bun:test'
 import { allLeaderIds, createDraft, draftFormatMap, isDraftError, processDraftInput } from '@civup/game'
+import { describe, expect, test } from 'bun:test'
 import { applyDraftResultCommand, applyLeaderSwapCommand, createRoomRecord, finalizeCompletedDraftCommand } from '../../src/session-runtime/draft-room-domain.ts'
 import { EMPTY_STORED_MAP_VOTE_STATE } from '../../src/session-runtime/map-vote-room-state.ts'
 
@@ -26,7 +26,7 @@ describe('draft room domain', () => {
         stepIndex: seatIndex,
       })),
     }
-    const swappedPicks = state.picks.map(pick => {
+    const swappedPicks = state.picks.map((pick) => {
       if (pick.seatIndex === 0) return { ...pick, civId: state.picks[2]!.civId }
       if (pick.seatIndex === 2) return { ...pick, civId: state.picks[0]!.civId }
       return pick

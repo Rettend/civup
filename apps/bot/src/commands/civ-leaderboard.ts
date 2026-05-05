@@ -1,7 +1,7 @@
 import type { Embed } from 'discord-hono'
+import type { DiscordMessagePayload } from '../services/discord/index.ts'
 import { Command } from 'discord-hono'
 import { civLeaderboardEmbedGroups, civLeaderboardEmbeds } from '../embeds/civ-leaderboard.ts'
-import type { DiscordMessagePayload } from '../services/discord/index.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { getStoredCivLeaderboardSnapshot } from '../services/leaderboard/civ-snapshot.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'

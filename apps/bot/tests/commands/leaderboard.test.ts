@@ -100,5 +100,4 @@ describe('leaderboard command payload', () => {
     expect(payload.embeds).toBeUndefined()
     expect(payload.content).toBe('Leaderboard snapshot is not available yet. Ask a moderator to run a leaderboard refresh.')
   })
-
 })

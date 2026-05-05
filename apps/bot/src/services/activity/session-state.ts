@@ -1,8 +1,8 @@
 import type { Database } from '@civup/db'
 import type { GameMode } from '@civup/game'
+import type { SessionConfig, SessionPhase, SessionRecord, SessionRoster } from '../../session-runtime/session-record.ts'
 import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import type { LobbyArrangeMarker } from '../lobby/types.ts'
-import type { SessionConfig, SessionPhase, SessionRecord, SessionRoster } from '../../session-runtime/session-record.ts'
 import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { GAME_MODES, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
@@ -116,12 +116,10 @@ export async function getActivitySessionsByChannel(
   db: Database,
   channelId: string,
 ): Promise<ActivitySessionDirectoryEntry[]> {
-  const rowsByPhase = await Promise.all(ACTIVITY_DIRECTORY_PHASES.map(phase => db.select().from(sessionDirectory)
-    .where(and(
-      eq(sessionDirectory.channelId, channelId),
-      eq(sessionDirectory.phase, phase),
-    ))
-    .orderBy(desc(sessionDirectory.updatedAt))))
+  const rowsByPhase = await Promise.all(ACTIVITY_DIRECTORY_PHASES.map(phase => db.select().from(sessionDirectory).where(and(
+    eq(sessionDirectory.channelId, channelId),
+    eq(sessionDirectory.phase, phase),
+  )).orderBy(desc(sessionDirectory.updatedAt))))
 
   const rows = rowsByPhase.flat().sort(compareActivityDirectoryRowsByUpdatedAtDesc)
 
@@ -141,12 +139,10 @@ export async function getActivitySessionById(
   db: Database,
   sessionId: string,
 ): Promise<ActivitySessionDirectoryEntry | null> {
-  const [row] = await db.select().from(sessionDirectory)
-    .where(and(
-      eq(sessionDirectory.sessionId, sessionId),
-      inArray(sessionDirectory.phase, [...ACTIVITY_TARGET_PHASES]),
-    ))
-    .limit(1)
+  const [row] = await db.select().from(sessionDirectory).where(and(
+    eq(sessionDirectory.sessionId, sessionId),
+    inArray(sessionDirectory.phase, [...ACTIVITY_TARGET_PHASES]),
+  )).limit(1)
 
   return row ? parseActivitySessionDirectoryEntry(row)[0] ?? null : null
 }

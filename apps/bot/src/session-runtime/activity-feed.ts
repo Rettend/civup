@@ -1,10 +1,11 @@
 import type { Connection, ConnectionContext } from 'partyserver'
+import type { StoredActivityFollowTargetSelection, StoredActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
 import type { ActivityOverviewSnapshot, LobbySnapshot } from '../services/activity/session-state.ts'
 import type { SessionRecord } from './session-record.ts'
 import { createDb } from '@civup/db'
 import { CIVUP_ACTIVITY_USER_ID_HEADER, isAuthorizedInternalRequest } from '@civup/utils'
 import { Server } from 'partyserver'
-import { parseStoredActivityFollowTargetSelection, parseStoredActivityLaunchTargetSelection, type StoredActivityFollowTargetSelection, type StoredActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
+import { parseStoredActivityFollowTargetSelection, parseStoredActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
 import { buildActivityOverviewSnapshotFromDirectory, buildLobbySnapshotFromSessionRecord, mergeActivityOverviewSnapshotForSessionUpdate } from '../services/activity/session-state.ts'
 
 interface ActivityFeedEnv extends Cloudflare.Env {

@@ -4,11 +4,12 @@ import type { MatchJoinEntry, MatchVar } from './shared.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, isTeamMode, minPlayerCount, parseGameMode, slotToTeamIndex, startPlayerCountOptions } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/match.ts'
 import { getMatchForUser } from '../../services/activity/index.ts'
 import { storeActivityLaunchTargetSelection } from '../../services/activity/launch-target.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
+import { getKvStore } from '../../services/kv/batch.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
 import { createLobby, filterQueueEntriesForLobby, getLobbyBumpCooldownRemainingMs, getLobbyById, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, setLobbyLastActivityAt, setLobbyRoster, setLobbyStatus, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
@@ -21,7 +22,6 @@ import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRole
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { syncSeasonPeaksForPlayers } from '../../services/season/index.ts'
 import { formatSessionAdmissionError, getLiveSessionLobbyProjections, getLiveSessionLobbyProjectionsForUser, getLiveSessionLobbyProjectionsHostedBy, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionHostedBy, getOpenSessionLobbyProjectionsByMode, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
-import { getKvStore } from '../../services/kv/batch.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
 import { getSessionRecord, queueSessionReportedDiscordSync } from '../../session-runtime/session-do-client.ts'
@@ -1244,7 +1244,6 @@ async function cancelHostedOpenLobby(
   catch (error) {
     console.error(`Failed to update cancelled open lobby embed for lobby ${lobby.id}:`, error)
   }
-
 }
 
 function buildCancelledLobbyParticipants(lobby: { mode: GameMode, slots: (string | null)[] }, entries: QueueEntry[]) {
