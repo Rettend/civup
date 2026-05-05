@@ -32,7 +32,7 @@ export class SessionSocketServer<Env extends Cloudflare.Env = Cloudflare.Env> {
     const url = new URL(request.url)
     // PartySocket probes this endpoint; selected-session routing itself is bot-owned.
     if (url.pathname === '/cdn-cgi/partyserver/set-name/') return Response.json({ ok: true })
-    if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return await this.onRequest(request)
+    if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return this.onRequest(request)
 
     const pair = new WebSocketPair()
     const connection = this.acceptConnection(pair[1], {

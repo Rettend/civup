@@ -150,7 +150,7 @@ export async function createSessionAggregateFromLobby(
   lobby: LobbyState,
   queueEntries: readonly QueueEntry[] = [],
 ): Promise<SessionRecord> {
-  return await postSessionLobbyCommand(namespace, lobby, queueEntries)
+  return postSessionLobbyCommand(namespace, lobby, queueEntries)
 }
 
 export async function getSessionRecord(

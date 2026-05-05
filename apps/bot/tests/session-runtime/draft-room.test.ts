@@ -54,13 +54,23 @@ class TestSessionDraftRuntime extends SessionDraftRuntime<DraftRuntimeEnv> {
     return await this.getRoomRecord()
   }
 
+  debugActionsEnabledForTest(): boolean {
+    return this.debugActiveBotActionsEnabled()
+  }
+
   protected override random(): number {
     return 0
   }
 }
 
 describe('draft runtime alarm recovery', () => {
-  test('debug active bot timers require an explicit debug flag', async () => {
+  test('debug active bot timers can use the lobby fill debug flag', () => {
+    const runtime = new TestSessionDraftRuntime(new TestStorage(null), { ENABLE_DEBUG_LOBBY_FILL: '1' })
+
+    expect(runtime.debugActionsEnabledForTest()).toBe(true)
+  })
+
+  test('debug active bot timers require the lobby fill debug flag', async () => {
     const format = draftFormatMap.get('default-1v1')
     expect(format).toBeDefined()
     if (!format) return
@@ -78,6 +88,7 @@ describe('draft runtime alarm recovery', () => {
       civPool: ['civ-1', 'civ-2', 'civ-3', 'civ-4'],
     }, state, EMPTY_STORED_MAP_VOTE_STATE)
     const runtime = new TestSessionDraftRuntime(new TestStorage(room))
+    expect(runtime.debugActionsEnabledForTest()).toBe(false)
 
     const socket = createFakeSessionWebSocket({ id: 'conn-p1', sessionId: 'debug-bot-match', playerId: 'p1', kind: 'draft', connectedAt: 1 })
 

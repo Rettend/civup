@@ -27,10 +27,10 @@ export function buildPartyServerRequest(input: RequestInfo | URL, init: RequestI
   return request
 }
 
-export async function fetchPartyServerDurableObject(
-  namespace: PartyServerDurableObjectNamespace,
+export async function fetchPartyServerDurableObject<TId>(
+  namespace: PartyServerDurableObjectNamespace<TId>,
   options: PartyServerDurableObjectFetchOptions,
 ): Promise<Response> {
   const stub = namespace.get(namespace.idFromName(options.room))
-  return await stub.fetch(buildPartyServerRequest(options.input, options.init, options))
+  return stub.fetch(buildPartyServerRequest(options.input, options.init, options))
 }

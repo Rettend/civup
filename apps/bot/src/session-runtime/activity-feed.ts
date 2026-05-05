@@ -36,8 +36,8 @@ export class Activity extends Server<ActivityFeedEnv> {
     if (!isAuthorizedInternalRequest(req.headers, this.env.CIVUP_SECRET)) return json({ error: 'Unauthorized' }, 401)
 
     const pathname = new URL(req.url).pathname
-    if (pathname === '/activity-launch-target') return await this.handleActivityLaunchTargetRequest(req)
-    if (pathname === '/activity-follow-target') return await this.handleActivityFollowTargetRequest(req)
+    if (pathname === '/activity-launch-target') return this.handleActivityLaunchTargetRequest(req)
+    if (pathname === '/activity-follow-target') return this.handleActivityFollowTargetRequest(req)
 
     if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 })
 
@@ -169,7 +169,7 @@ export class Activity extends Server<ActivityFeedEnv> {
   private async getOverviewSnapshot(channelId: string): Promise<ActivityOverviewSnapshot | null> {
     const cached = await this.ctx.storage.get<ActivityOverviewSnapshot | null>(ACTIVITY_OVERVIEW_STORAGE_KEY)
     if (cached === null || cached?.channelId === channelId) return cached ?? null
-    return await this.rebuildOverviewSnapshot(channelId)
+    return this.rebuildOverviewSnapshot(channelId)
   }
 
   private async rebuildOverviewSnapshot(channelId: string): Promise<ActivityOverviewSnapshot | null> {
@@ -180,7 +180,7 @@ export class Activity extends Server<ActivityFeedEnv> {
 
   private async loadOverviewSnapshot(channelId: string): Promise<ActivityOverviewSnapshot | null> {
     if (!this.env.DB) return null
-    return await buildActivityOverviewSnapshotFromDirectory(createDb(this.env.DB), channelId)
+    return buildActivityOverviewSnapshotFromDirectory(createDb(this.env.DB), channelId)
   }
 
   private send(connection: Connection, message: ActivityFeedMessage): void {

@@ -64,7 +64,7 @@ export async function getLatestSeason(db: Database) {
 export async function getDisplaySeason(db: Database) {
   const activeSeason = await getActiveSeason(db)
   if (activeSeason) return activeSeason
-  return await getLatestSeason(db)
+  return getLatestSeason(db)
 }
 
 export async function getNextSeasonNumber(db: Database): Promise<number> {

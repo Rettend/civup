@@ -14,7 +14,7 @@ export const command_civleaderboard = factory.command(
   (c) => {
     return resDeferGeneralCommandResponse(c, async (c) => {
       const kv = getKvStore(c.env)
-      return await buildCivLeaderboardCommandPayloads(kv)
+      return buildCivLeaderboardCommandPayloads(kv)
     })
   },
 )
