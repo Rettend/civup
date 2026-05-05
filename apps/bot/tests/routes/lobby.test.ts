@@ -903,7 +903,7 @@ describe('lobby routes', () => {
     expect(updatedLobby?.draftConfig.dealOptionsSize).toBeNull()
   })
 
-  test('config route updates the FFA simultaneous pick toggle', async () => {
+  test('config route updates FFA map vote and simultaneous pick toggles', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
@@ -933,12 +933,14 @@ describe('lobby routes', () => {
       body: JSON.stringify({
         userId: 'host',
         lobbyId: lobby.id,
+        mapVoteEnabled: true,
         simultaneousPick: true,
       }),
     }, buildEnv(kv))
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.draftConfig.mapVoteEnabled).toBe(true)
     expect(updatedLobby?.draftConfig.simultaneousPick).toBe(true)
   })
 

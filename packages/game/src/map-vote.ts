@@ -162,7 +162,7 @@ export function isMapScriptId(value: string | null | undefined): value is MapScr
 
 export function isMapVoteSupportedForMode(mode: GameMode, options: { redDeath?: boolean } = {}): boolean {
   if (options.redDeath) return false
-  return isTeamMode(mode)
+  return mode === 'ffa' || isTeamMode(mode)
 }
 
 export function normalizeMapVoteEnabled(mode: GameMode, enabled: boolean, options: { redDeath?: boolean } = {}): boolean {
