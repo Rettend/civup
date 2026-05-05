@@ -1,4 +1,5 @@
 import type { DraftSetupPageProps } from './types'
+import type { LobbyArrangeStrategy } from '~/client/stores'
 import { Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import { DraftSetupActions } from './DraftSetupActions'
@@ -23,12 +24,17 @@ export function DraftSetupPage(props: DraftSetupPageProps) {
               <div class="p-4 rounded-lg bg-bg-subtle flex flex-col min-h-0 overflow-hidden lg:h-full">
                 <div class="text-xs text-fg-subtle tracking-widest font-bold mb-3 flex gap-3 uppercase items-center justify-between">
                   <span>Players</span>
-                  <Show when={state.players.lowConfidence()}>
-                    <span class="text-[11px] text-fg-subtle/70 tracking-normal font-medium inline-flex gap-1 normal-case items-center">
-                      <span class="i-ph-warning-circle text-xs" />
-                      low confidence
-                    </span>
-                  </Show>
+                  <div class="flex flex-wrap gap-2 justify-end items-center">
+                    <Show when={state.players.arrangeEvent()}>
+                      {event => <LastArrangeIndicator strategy={event().strategy} isTeamMode={state.players.isTeamMode()} />}
+                    </Show>
+                    <Show when={state.players.lowConfidence()}>
+                      <span class="text-[11px] text-fg-subtle/70 tracking-normal font-medium inline-flex gap-1 normal-case items-center">
+                        <span class="i-ph-warning-circle text-xs" />
+                        low confidence
+                      </span>
+                    </Show>
+                  </div>
                 </div>
 
                 <div class="pr-1 flex-1 min-h-0 overflow-y-auto">
@@ -71,4 +77,41 @@ export function DraftSetupPage(props: DraftSetupPageProps) {
       <DraftSetupMiniView mini={state.mini} />
     </Show>
   )
+}
+
+function LastArrangeIndicator(props: { strategy: LobbyArrangeStrategy, isTeamMode: boolean }) {
+  const label = () => getLastArrangeLabel(props.strategy, props.isTeamMode)
+
+  return (
+    <span
+      class="rounded-full border border-border-subtle bg-bg-muted/25 px-2 py-1 text-[11px] text-fg-subtle tracking-normal font-medium inline-flex gap-1.5 normal-case items-center"
+      title={label()}
+      aria-label={`Last used: ${label()}`}
+    >
+      <span>Last used:</span>
+      <span class={cn(getLastArrangeIconClass(props.strategy), 'text-xs text-accent')} aria-hidden />
+    </span>
+  )
+}
+
+function getLastArrangeLabel(strategy: LobbyArrangeStrategy, isTeamMode: boolean) {
+  switch (strategy) {
+    case 'balance':
+      return isTeamMode ? 'Teams balanced' : 'Seat order balanced'
+    case 'shuffle-teams':
+      return 'Teams shuffled'
+    default:
+      return isTeamMode ? 'Players shuffled' : 'Seat order randomized'
+  }
+}
+
+function getLastArrangeIconClass(strategy: LobbyArrangeStrategy) {
+  switch (strategy) {
+    case 'balance':
+      return 'i-ph:scales-bold'
+    case 'shuffle-teams':
+      return 'i-ph:arrows-clockwise-bold'
+    default:
+      return 'i-ph:shuffle-simple-bold'
+  }
 }

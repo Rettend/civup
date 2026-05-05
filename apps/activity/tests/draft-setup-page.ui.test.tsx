@@ -29,6 +29,10 @@ function expectTextInOrder(container: HTMLElement, labels: string[]) {
   }
 }
 
+function hasIconClass(container: HTMLElement, iconClass: string) {
+  return Array.from(container.querySelectorAll('span')).some(element => element.className.includes(iconClass))
+}
+
 describe('DraftSetupPage UI', () => {
   beforeEach(() => {
     resetUiMocks()
@@ -97,6 +101,37 @@ describe('DraftSetupPage UI', () => {
     expect(screen.getByText('Team A')).toBeTruthy()
     expect(screen.getByText('Team B')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Start Draft' }).hasAttribute('disabled')).toBe(true)
+  })
+
+  test('shows the last used arrange action with the matching icon', () => {
+    render(() => (
+      <DraftSetupPage lobby={createLobbySnapshot({
+        mode: '2v2',
+        lastArrange: { strategy: 'shuffle-teams', at: 123 },
+      })}
+      />
+    ))
+
+    const shuffleIndicator = screen.getByTitle('Teams shuffled') as HTMLElement
+    expect(shuffleIndicator).toBeTruthy()
+    expect(shuffleIndicator.getAttribute('aria-label')).toBe('Last used: Teams shuffled')
+    expect(shuffleIndicator.textContent).toBe('Last used:')
+    expect(hasIconClass(shuffleIndicator, 'i-ph:arrows-clockwise-bold')).toBe(true)
+
+    cleanup()
+    render(() => (
+      <DraftSetupPage lobby={createLobbySnapshot({
+        mode: '2v2',
+        lastArrange: { strategy: 'balance', at: 124 },
+      })}
+      />
+    ))
+
+    const balanceIndicator = screen.getByTitle('Teams balanced') as HTMLElement
+    expect(balanceIndicator).toBeTruthy()
+    expect(balanceIndicator.getAttribute('aria-label')).toBe('Last used: Teams balanced')
+    expect(balanceIndicator.textContent).toBe('Last used:')
+    expect(hasIconClass(balanceIndicator, 'i-ph:scales-bold')).toBe(true)
   })
 
   test('shows a joined player waiting for the host and able to leave the lobby', () => {
