@@ -24,17 +24,9 @@ export function DraftSetupPage(props: DraftSetupPageProps) {
               <div class="p-4 rounded-lg bg-bg-subtle flex flex-col min-h-0 overflow-hidden lg:h-full">
                 <div class="text-xs text-fg-subtle tracking-widest font-bold mb-3 flex gap-3 uppercase items-center justify-between">
                   <span>Players</span>
-                  <div class="flex flex-wrap gap-2 justify-end items-center">
-                    <Show when={state.players.arrangeEvent()}>
-                      {event => <LastArrangeIndicator strategy={event().strategy} isTeamMode={state.players.isTeamMode()} />}
-                    </Show>
-                    <Show when={state.players.lowConfidence()}>
-                      <span class="text-[11px] text-fg-subtle/70 tracking-normal font-medium inline-flex gap-1 normal-case items-center">
-                        <span class="i-ph-warning-circle text-xs" />
-                        low confidence
-                      </span>
-                    </Show>
-                  </div>
+                  <Show when={state.players.arrangeEvent()}>
+                    {event => <LastArrangeIndicator strategy={event().strategy} isTeamMode={state.players.isTeamMode()} />}
+                  </Show>
                 </div>
 
                 <div class="pr-1 flex-1 min-h-0 overflow-y-auto">
