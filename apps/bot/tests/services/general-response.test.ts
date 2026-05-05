@@ -17,7 +17,7 @@ describe('general command response routing', () => {
 
     expect(harness.mode).toBe('normal')
     expect(harness.createMessageCalls).toEqual([])
-    expect(harness.followups).toEqual([{ content: 'hello world' }])
+    expect(harness.followups).toEqual([{ content: 'hello world', allowed_mentions: { parse: [] } }])
   })
 
   test('redirects output through an ephemeral deferred response', async () => {
@@ -59,7 +59,7 @@ describe('general command response routing', () => {
 
     expect(harness.mode).toBe('normal')
     expect(harness.createMessageCalls).toEqual([])
-    expect(harness.followups).toEqual([{ content: 'hello world' }])
+    expect(harness.followups).toEqual([{ content: 'hello world', allowed_mentions: { parse: [] } }])
   })
 
   test('shows an ephemeral error when redirected posting fails', async () => {
