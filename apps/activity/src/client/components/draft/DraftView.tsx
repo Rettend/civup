@@ -1,6 +1,7 @@
 import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 import { preloadLobbyOverviewRoute } from '~/client/activity/route-preloads'
 import { cn } from '~/client/lib/css'
+import { preloadLeaderFullPortraitIds } from '~/client/lib/leader-full-portrait'
 import {
   canOpenLeaderGrid,
   currentStep,
@@ -15,8 +16,8 @@ import {
   isSpectator,
   mapVotePhase,
   setGridOpen,
-  updateLobbyConfig,
   updateDraftSteamLobbyLink,
+  updateLobbyConfig,
   userId,
 } from '~/client/stores'
 import { DraftHeader } from './DraftHeader'
@@ -33,6 +34,10 @@ interface DraftViewProps {
   lobbyId?: string | null
   lobbyMode?: string | null
   onSwitchTarget?: () => void
+  reportResultStatus?: 'idle' | 'submitting' | 'done'
+  onReportStarted?: (matchId: string) => void
+  onReportComplete?: (matchId: string) => void
+  onReportFailed?: (matchId: string) => void
 }
 
 /** Main draft layout */
@@ -50,6 +55,23 @@ export function DraftView(props: DraftViewProps) {
   }
 
   const steamLobbyLink = () => state() ? draftStore.steamLobbyLink : props.steamLobbyLink ?? null
+
+  createEffect(() => {
+    const current = state()
+    if (!current || current.status === 'cancelled') return
+
+    const leaderIds = new Set(current.availableCivIds)
+    for (const selection of current.bans) leaderIds.add(selection.civId)
+    for (const selection of current.picks) leaderIds.add(selection.civId)
+    for (const selections of Object.values(draftStore.previews.bans)) {
+      for (const civId of selections) leaderIds.add(civId)
+    }
+    for (const selections of Object.values(draftStore.previews.picks)) {
+      for (const civId of selections) leaderIds.add(civId)
+    }
+
+    preloadLeaderFullPortraitIds(leaderIds, draftStore.leaderDataVersion)
+  })
 
   createEffect(() => {
     const current = state()
@@ -199,6 +221,10 @@ export function DraftView(props: DraftViewProps) {
                 onSaveSteamLink={canSaveSteamLobbyLink() ? handleSaveSteamLink : undefined}
                 savePending={steamLobbySavePending()}
                 onSwitchTarget={props.onSwitchTarget}
+                reportResultStatus={props.reportResultStatus}
+                onReportStarted={props.onReportStarted}
+                onReportComplete={props.onReportComplete}
+                onReportFailed={props.onReportFailed}
               />
               <DraftTimeline />
 
@@ -248,8 +274,8 @@ export function DraftView(props: DraftViewProps) {
 
                 {/* Post-draft message */}
                 <Show when={state()?.status === 'complete'}>
-                  <div class="pointer-events-none flex inset-x-0 top-16 justify-center absolute z-50">
-                    <div class="pointer-events-auto px-4 py-2 border border-border-subtle rounded-lg bg-bg-subtle/80 flex flex-col gap-1 shadow-2xl shadow-black/50 items-center backdrop-blur-sm">
+                  <div class="flex pointer-events-none inset-x-0 top-16 justify-center absolute z-50">
+                    <div class="px-4 py-2 border border-border-subtle rounded-lg bg-bg-subtle/80 flex flex-col gap-1 pointer-events-auto shadow-2xl shadow-black/50 items-center backdrop-blur-sm">
                       <span class="text-base text-accent font-bold">You can close the activity!</span>
                       <span class="text-sm text-fg/80">Don't forget to report the result</span>
                     </div>

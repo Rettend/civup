@@ -1,3 +1,4 @@
+import type { RandomSource } from './random.ts'
 import type {
   DraftCancelReason,
   DraftError,
@@ -10,7 +11,6 @@ import type {
   DraftState,
   DraftStep,
 } from './types.ts'
-import type { RandomSource } from './random.ts'
 
 export interface DraftProcessOptions {
   blindBans?: boolean

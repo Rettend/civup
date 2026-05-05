@@ -1,7 +1,7 @@
 import type { LobbyState } from '../lobby/types.ts'
 
-const BLOCKING_DRAFT_MATCH_SQL = "(matches.status = 'drafting' OR (matches.status = 'active' AND json_extract(matches.draft_data, '$.completedAt') IS NULL))"
-const REPORTABLE_MATCH_SQL = "(matches.status = 'active' AND json_extract(matches.draft_data, '$.completedAt') IS NOT NULL)"
+const BLOCKING_DRAFT_MATCH_SQL = '(matches.status = \'drafting\' OR (matches.status = \'active\' AND json_extract(matches.draft_data, \'$.completedAt\') IS NULL))'
+const REPORTABLE_MATCH_SQL = '(matches.status = \'active\' AND json_extract(matches.draft_data, \'$.completedAt\') IS NOT NULL)'
 
 function canQueryLiveMatches(db: D1Database | null | undefined): boolean {
   return db != null && typeof (db as { prepare?: unknown }).prepare === 'function'

@@ -1,3 +1,4 @@
+export { civStats, civStatTotals, matchCivStatContributions } from './leaderboard-stats.ts'
 export { matchBans, matches, matchParticipants } from './matches.ts'
 export { players } from './players.ts'
 export { playerRatingSeeds } from './rating-seeds.ts'

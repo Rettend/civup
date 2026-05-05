@@ -1,8 +1,8 @@
 import type { DraftSeat, DraftState } from '@civup/game'
-import { afterEach, describe, expect, test } from 'bun:test'
-import { matchBans, matchParticipants, matches, players, sessionDirectory } from '@civup/db'
+import { matchBans, matches, matchParticipants, players, sessionDirectory } from '@civup/db'
 import { allLeaderIds } from '@civup/game'
 import { createSessionAccessToken, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
+import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { DEFAULT_DRAFT_CONFIG } from '../../src/services/lobby/normalize.ts'
 import { createDraftMatch } from '../../src/services/match/draft.ts'
@@ -58,7 +58,8 @@ describe('SessionDO open session commands', () => {
   test('starts draft lifecycle and freezes roster and config after draft start', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
-    const room = new SessionDO(createFakeDurableObjectState(), {
+    const state = createFakeDurableObjectState()
+    const room = new SessionDO(state, {
       DB: createSqliteD1Database(sqlite),
       KV: kv,
     } as any)
@@ -169,7 +170,7 @@ describe('SessionDO open session commands', () => {
 
       const reported = await sessionLifecycleCommand(room, { type: 'mark-reported', matchId: openLobby.id, at: 40 })
       expect(reported.record).toMatchObject({ phase: 'reported', version: 4, closedAt: 40 })
-      let [directoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
+      const [directoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
       expect(directoryRow).toMatchObject({ phase: 'reported', closedAt: 40 })
 
       const repeated = await sessionLifecycleCommand(room, { type: 'mark-reported', matchId: openLobby.id, at: 41 })
@@ -214,7 +215,8 @@ describe('SessionDO open session commands', () => {
   test('terminal cancellation closes stale draft runtime access', async () => {
     const { sqlite } = await createTestDatabase()
     const kv = createTestKv()
-    const room = new SessionDO(createFakeDurableObjectState(), {
+    const state = createFakeDurableObjectState()
+    const room = new SessionDO(state, {
       CIVUP_SECRET: 'secret',
       DB: createSqliteD1Database(sqlite),
       KV: kv,
@@ -237,9 +239,8 @@ describe('SessionDO open session commands', () => {
       await startDraft(room, { hostId: 'p1', now: 20 })
 
       const draftConnection = createFakeConnection()
-      draftConnection.connection.setState({ playerId: 'p1' })
-      const connections = (room as any).connections as Set<unknown>
-      connections.add(draftConnection.connection)
+      draftConnection.connection.serializeAttachment({ id: 'conn-p1', sessionId: openLobby.id, playerId: 'p1', kind: 'draft', connectedAt: 20 })
+      addFakeAcceptedConnection(state, draftConnection.connection)
 
       await sessionLifecycleCommand(room, { type: 'cancel-session', matchId: openLobby.id, at: 30 })
 
@@ -335,7 +336,8 @@ describe('SessionDO open session commands', () => {
   test('start draft retries reuse the existing draft runtime seats', async () => {
     const { sqlite } = await createTestDatabase()
     const kv = createTestKv()
-    const room = new SessionDO(createFakeDurableObjectState(), {
+    const state = createFakeDurableObjectState()
+    const room = new SessionDO(state, {
       DB: createSqliteD1Database(sqlite),
       KV: kv,
     } as any)
@@ -466,7 +468,8 @@ describe('SessionDO open session commands', () => {
   test('revert lifecycle sync pushes the reopened lobby to selected draft sockets', async () => {
     const { sqlite } = await createTestDatabase()
     const kv = createTestKv()
-    const room = new SessionDO(createFakeDurableObjectState(), {
+    const state = createFakeDurableObjectState()
+    const room = new SessionDO(state, {
       DB: createSqliteD1Database(sqlite),
       KV: kv,
     } as any)
@@ -482,9 +485,8 @@ describe('SessionDO open session commands', () => {
       ])
       const started = await startDraft(room, { hostId: 'p1', now: 20 })
       const draftConnection = createFakeConnection()
-      draftConnection.connection.setState({ playerId: 'p2' })
-      const connections = (room as any).connections as Set<unknown>
-      connections.add(draftConnection.connection)
+      draftConnection.connection.serializeAttachment({ id: 'conn-p2', sessionId: openLobby.id, playerId: 'p2', kind: 'draft', connectedAt: 20 })
+      addFakeAcceptedConnection(state, draftConnection.connection)
 
       await (room as any).syncDraftRuntimeLifecyclePayload(buildCancelledPayload(openLobby.id, started.seats, 'revert'), 'test-revert')
 
@@ -1489,14 +1491,18 @@ function draftStatusRequest(accessToken: string): Request {
   })
 }
 
-function createFakeDurableObjectState(): DurableObjectState {
+type FakeDurableObjectState = DurableObjectState & { __webSockets: WebSocket[] }
+
+function createFakeDurableObjectState(): FakeDurableObjectState {
   return createFakeDurableObjectStateWithStorage().state
 }
 
-function createFakeDurableObjectStateWithStorage(): { state: DurableObjectState, storage: Map<string, unknown> } {
+function createFakeDurableObjectStateWithStorage(): { state: FakeDurableObjectState, storage: Map<string, unknown> } {
   const storage = new Map<string, unknown>()
+  const webSockets: WebSocket[] = []
   let alarmAt: number | null = null
   const state = {
+    __webSockets: webSockets,
     async blockConcurrencyWhile(callback: () => Promise<void> | void) {
       await callback()
     },
@@ -1504,9 +1510,11 @@ function createFakeDurableObjectStateWithStorage(): { state: DurableObjectState,
       void promise.catch(() => {})
     },
     getWebSockets() {
-      return []
+      return webSockets
     },
-    acceptWebSocket() {},
+    acceptWebSocket(socket: WebSocket) {
+      webSockets.push(socket)
+    },
     storage: {
       async get(key: string) {
         return storage.get(key)
@@ -1527,12 +1535,19 @@ function createFakeDurableObjectStateWithStorage(): { state: DurableObjectState,
         return alarmAt
       },
     },
-  } as unknown as DurableObjectState
+  } as unknown as FakeDurableObjectState
   return { state, storage }
+}
+
+function addFakeAcceptedConnection(state: DurableObjectState, connection: WebSocket) {
+  const webSockets = (state as Partial<FakeDurableObjectState>).__webSockets
+  if (!webSockets) throw new Error('Fake DurableObjectState is missing web socket storage')
+  webSockets.push(connection)
 }
 
 function createFakeConnection() {
   const messages: any[] = []
+  let attachment: unknown = null
   let connectionState: unknown = null
   let closed: { code: number, reason: string } | null = null
   let readyState = 1
@@ -1551,6 +1566,12 @@ function createFakeConnection() {
       },
       setState(state: unknown) {
         connectionState = state
+      },
+      serializeAttachment(value: unknown) {
+        attachment = value
+      },
+      deserializeAttachment() {
+        return attachment
       },
       get state() {
         return connectionState

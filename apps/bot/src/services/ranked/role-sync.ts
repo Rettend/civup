@@ -332,7 +332,7 @@ function interpolatePositiveAnchors(values: readonly number[], progress: number)
 }
 
 export async function previewRankedRoles(options: RankedRoleSyncOptions): Promise<RankedRolePreview> {
-  return await buildRankedRolePreview(options)
+  return buildRankedRolePreview(options)
 }
 
 export async function summarizeRankedPreview(options: RankedRoleSyncOptions & {

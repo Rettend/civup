@@ -603,7 +603,7 @@ export async function fetchMatchForChannel(
   }
   catch (err) {
     console.error('Failed to fetch match for channel:', err)
-    if (err instanceof ApiError && err.status === 404) return null // TODO: remove?
+    if (err instanceof ApiError && err.status === 404) return null
     return null
   }
 }
@@ -940,7 +940,7 @@ export async function fillLobbyWithTestPlayers(
       body: JSON.stringify({ lobbyId, userId }),
     })
 
-    const data = await res.json() as LobbySnapshot & { error?: string, addedCount?: unknown }
+    const data = await res.json<LobbySnapshot & { error?: string, addedCount?: unknown }>()
     if (!res.ok) return { ok: false, error: data.error ?? 'Failed to fill lobby slots' }
     return {
       ok: true,

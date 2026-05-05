@@ -1,8 +1,8 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { getChannelForMatch } from '../../src/services/activity/index.ts'
-import { createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyMemberPlayerIds, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
+import { createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyMemberPlayerIds, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('match cleanup reconciliation', () => {

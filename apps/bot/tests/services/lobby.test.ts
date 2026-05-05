@@ -1,15 +1,15 @@
 import { describe, expect, test } from 'bun:test'
 import { buildActivityOverviewSnapshotFromDirectory } from '../../src/services/activity/session-state.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
-import { clearLobbyById, createLobby, getCurrentLobbiesForPlayer, getCurrentLobbyHostedBy, getExistingTestLobbyRuntime, getLobbiesByMode, getLobbyByChannel, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { channelIndexKey, hostKey, idKey, LOBBY_TTL, modeIndexKey } from '../../src/services/lobby/keys.ts'
 import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../../src/services/match/retention.ts'
 import { getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
-import { getSeededRosterEntries, seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
+import { clearLobbyById, createLobby, getCurrentLobbyHostedBy, getExistingTestLobbyRuntime, getLobbiesByMode, getLobbyByChannel, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
+import { seedRosterEntry as addToQueue, getSeededRosterEntries } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
-test('normalizes unsupported map vote config off for ffa lobbies', async () => {
+test('keeps supported map vote config for ffa lobbies', async () => {
   const { kv } = createTrackedKv()
   const lobby = await createLobby(kv, {
     mode: 'ffa',
@@ -23,7 +23,7 @@ test('normalizes unsupported map vote config off for ffa lobbies', async () => {
     mapVoteEnabled: true,
   }, lobby)
 
-  expect(updated?.draftConfig.mapVoteEnabled).toBe(false)
+  expect(updated?.draftConfig.mapVoteEnabled).toBe(true)
 })
 
 test('keeps supported map vote config for team lobbies', async () => {
@@ -332,6 +332,7 @@ describe('lobby service D1-backed projection behavior', () => {
     })
 
     await kv.put(leaderboardModeSnapshotKey('duo'), JSON.stringify({
+      version: 2,
       updatedAt: Date.now(),
       rows: [
         { playerId: 'host-1', mu: 31, sigma: 3, gamesPlayed: 12, wins: 7, lastPlayedAt: null },
@@ -571,5 +572,4 @@ describe('lobby service D1-backed projection behavior', () => {
     await expect(getLobbyByChannel(kv, 'channel-1')).resolves.toEqual(expect.objectContaining({ id: lobby.id }))
     await expect(kv.get(channelIndexKey('channel-1', lobby.id))).resolves.toBeNull()
   })
-
 })

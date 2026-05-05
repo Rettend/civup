@@ -440,7 +440,7 @@ async function loadDiscordUser(accessToken: string, allowedGuildId: string | nul
   }
 
   if (!allowedGuildId) {
-    return await response.json<DiscordUserResponse>()
+    return response.json<DiscordUserResponse>()
   }
 
   const member = await response.json<DiscordGuildMemberResponse>()

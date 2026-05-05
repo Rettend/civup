@@ -175,7 +175,6 @@ function useLeaderCardState(props: LeaderCardProps) {
   }
 
   const handleClick = () => {
-    props.onHoverLeave?.()
     handleSingleClick()
   }
 
@@ -189,12 +188,8 @@ function useLeaderCardState(props: LeaderCardProps) {
     props.onHoverMove?.(props.leader, event.clientX, event.clientY)
   }
 
-  const handleHoverFocus = (event: FocusEvent & { currentTarget: HTMLButtonElement }) => {
-    const rect = event.currentTarget.getBoundingClientRect()
-    props.onHoverMove?.(props.leader, rect.left + (rect.width / 2), rect.top + (rect.height / 2))
-  }
-
-  const handleHoverLeave = () => {
+  const handleHoverLeave = (event: MouseEvent) => {
+    if (event.relatedTarget == null) return
     props.onHoverLeave?.()
   }
 
@@ -212,7 +207,6 @@ function useLeaderCardState(props: LeaderCardProps) {
     handleClick,
     handleContextMenu,
     handleHoverMove,
-    handleHoverFocus,
     handleHoverLeave,
   }
 }
@@ -238,7 +232,6 @@ export function LeaderCard(props: LeaderCardProps) {
     handleClick,
     handleContextMenu,
     handleHoverMove,
-    handleHoverFocus,
     handleHoverLeave,
   } = useLeaderCardState(props)
 
@@ -253,11 +246,9 @@ export function LeaderCard(props: LeaderCardProps) {
       )}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
-      onFocus={handleHoverFocus}
       onMouseEnter={handleHoverMove}
       onMouseMove={handleHoverMove}
       onMouseLeave={handleHoverLeave}
-      onBlur={handleHoverLeave}
       disabled={isBanned()}
     >
       <Show when={isFavorited()}>
@@ -341,7 +332,6 @@ export function LeaderListItem(props: LeaderCardProps & { neighborState?: Leader
     handleClick,
     handleContextMenu,
     handleHoverMove,
-    handleHoverFocus,
     handleHoverLeave,
   } = useLeaderCardState(props)
 
@@ -365,11 +355,9 @@ export function LeaderListItem(props: LeaderCardProps & { neighborState?: Leader
       }}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
-      onFocus={handleHoverFocus}
       onMouseEnter={handleHoverMove}
       onMouseMove={handleHoverMove}
       onMouseLeave={handleHoverLeave}
-      onBlur={handleHoverLeave}
       disabled={isBanned()}
     >
       <div class="shrink-0 h-7 w-7 relative">

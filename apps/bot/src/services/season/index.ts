@@ -5,7 +5,6 @@ import { competitiveTierRank, parseLeaderboardMode } from '@civup/game'
 import { DEFAULT_SEASON_RESET_FACTOR, DEFAULT_SIGMA, displayRating } from '@civup/rating'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { clearAllLeaderboardModeSnapshots } from '../leaderboard/snapshot.ts'
-import { clearAllTeamLeaderboardSnapshots } from '../leaderboard/team-snapshot.ts'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 
 export interface SeasonPeakCandidate {
@@ -65,7 +64,7 @@ export async function getLatestSeason(db: Database) {
 export async function getDisplaySeason(db: Database) {
   const activeSeason = await getActiveSeason(db)
   if (activeSeason) return activeSeason
-  return await getLatestSeason(db)
+  return getLatestSeason(db)
 }
 
 export async function getNextSeasonNumber(db: Database): Promise<number> {
@@ -114,10 +113,7 @@ export async function startSeason(db: Database, input: { now?: number, kv?: KVNa
     })
   }
   if (input.kv) {
-    await Promise.all([
-      clearAllLeaderboardModeSnapshots(input.kv),
-      clearAllTeamLeaderboardSnapshots(input.kv),
-    ])
+    await clearAllLeaderboardModeSnapshots(input.kv)
   }
   return {
     ...season,

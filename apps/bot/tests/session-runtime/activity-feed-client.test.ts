@@ -1,7 +1,9 @@
-import { describe, expect, test } from 'bun:test'
-import { CIVUP_INTERNAL_SECRET_HEADER, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
-import { publishActivitySessionUpdate } from '../../src/session-runtime/activity-feed-client.ts'
+import type { ActivityOverviewOptionSnapshot } from '../../src/services/activity/session-state.ts'
 import type { SessionRecord } from '../../src/session-runtime/session-record.ts'
+import { CIVUP_INTERNAL_SECRET_HEADER, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
+import { describe, expect, test } from 'bun:test'
+import { mergeActivityOverviewSnapshotForSessionUpdate } from '../../src/services/activity/session-state.ts'
+import { publishActivitySessionUpdate } from '../../src/session-runtime/activity-feed-client.ts'
 
 describe('activity feed client', () => {
   test('publishes through PartyServer room routing headers', async () => {
@@ -26,7 +28,48 @@ describe('activity feed client', () => {
     expect(capturedRequest?.headers.get(PARTYSERVER_NAMESPACE_HEADER)).toBe('activity')
     expect(capturedRequest?.headers.get(CIVUP_INTERNAL_SECRET_HEADER)).toBe('secret')
   })
+
+  test('publishes newly reported session while removing stale completed options', () => {
+    const current = {
+      channelId: 'channel-1',
+      options: [
+        buildOverviewOption({ id: 'session-1', lobbyId: 'session-1', kind: 'lobby', status: 'open' }),
+        buildOverviewOption({ id: 'old-match-1', lobbyId: 'old-session-1', kind: 'match', status: 'completed', matchId: 'old-match-1' }),
+        buildOverviewOption({ id: 'session-2', lobbyId: 'session-2', kind: 'lobby', status: 'open' }),
+      ],
+    }
+
+    const overview = mergeActivityOverviewSnapshotForSessionUpdate(current, {
+      ...buildSessionRecord(),
+      phase: 'reported',
+      matchId: 'match-1',
+      updatedAt: 10,
+      closedAt: 10,
+    })
+
+    expect(overview?.options.map(option => option.id)).toEqual(['match-1', 'session-2'])
+    expect(overview?.options[0]).toMatchObject({ kind: 'match', id: 'match-1', status: 'completed' })
+  })
 })
+
+function buildOverviewOption(overrides: Partial<ActivityOverviewOptionSnapshot> = {}): ActivityOverviewOptionSnapshot {
+  return {
+    kind: 'lobby',
+    id: 'session-1',
+    lobbyId: 'session-1',
+    matchId: null,
+    channelId: 'channel-1',
+    mode: '1v1',
+    status: 'open',
+    participantCount: 1,
+    targetSize: 2,
+    redDeath: false,
+    hostId: 'host-1',
+    memberPlayerIds: ['host-1'],
+    updatedAt: 1,
+    ...overrides,
+  }
+}
 
 function buildSessionRecord(): SessionRecord {
   return {

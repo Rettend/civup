@@ -3,6 +3,7 @@ import {
   createMapVoteRng,
   DEFAULT_MAP_VOTE_SELECTION,
   formatMapVoteResultLabel,
+  formatMapVoteResultTitle,
   isMapVoteSelectionConfirmable,
   isMapVoteSupportedForMode,
   normalizeMapVoteEnabled,
@@ -11,17 +12,18 @@ import {
 } from '../src/map-vote.ts'
 
 describe('map vote helpers', () => {
-  test('supports only non-red-death team modes', () => {
+  test('supports non-red-death team and FFA modes', () => {
     expect(isMapVoteSupportedForMode('2v2')).toBe(true)
     expect(isMapVoteSupportedForMode('6v6')).toBe(true)
     expect(isMapVoteSupportedForMode('1v1')).toBe(false)
-    expect(isMapVoteSupportedForMode('ffa')).toBe(false)
+    expect(isMapVoteSupportedForMode('ffa')).toBe(true)
+    expect(isMapVoteSupportedForMode('ffa', { redDeath: true })).toBe(false)
     expect(isMapVoteSupportedForMode('4v4', { redDeath: true })).toBe(false)
   })
 
   test('normalizes unsupported toggles off', () => {
     expect(normalizeMapVoteEnabled('2v2', true)).toBe(true)
-    expect(normalizeMapVoteEnabled('ffa', true)).toBe(false)
+    expect(normalizeMapVoteEnabled('ffa', true)).toBe(true)
     expect(normalizeMapVoteEnabled('3v3', true, { redDeath: true })).toBe(false)
   })
 

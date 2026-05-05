@@ -31,7 +31,7 @@ function systemChannelKey(type: SystemChannelType): string {
 }
 
 export async function getSystemChannel(kv: KVNamespace, type: SystemChannelType): Promise<string | null> {
-  return await kv.get(systemChannelKey(type))
+  return kv.get(systemChannelKey(type))
 }
 
 export async function setSystemChannel(kv: KVNamespace, type: SystemChannelType, channelId: string): Promise<void> {

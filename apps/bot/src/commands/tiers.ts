@@ -2,9 +2,9 @@ import { createDb } from '@civup/db'
 import { LEADERBOARD_MODE_CHOICES, parseLeaderboardMode } from '@civup/game'
 import { Command, Option } from 'discord-hono'
 import { rankedPreviewEmbeds } from '../embeds/ranked-preview.ts'
+import { getKvStore } from '../services/kv/batch.ts'
 import { summarizeRankedPreview } from '../services/ranked/role-sync.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
-import { getKvStore } from '../services/kv/batch.ts'
 import { factory } from '../setup.ts'
 
 const MODE_CHOICES = [

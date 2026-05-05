@@ -40,7 +40,7 @@ export async function sendTransientEphemeralResponse(
 }
 
 export async function updateSeasonActionPrompt(
-  c: { followup: (data?: any) => Promise<unknown> },
+  c: { followup: Parameters<typeof sendRawTransientEphemeralResponse>[0]['followup'] },
   message: string,
   tone: EphemeralResponseTone,
 ): Promise<void> {

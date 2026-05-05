@@ -98,7 +98,6 @@ export async function createDraftMatch(
       await db.insert(matchParticipants).values(chunk)
     }
   }
-
 }
 
 export function splitValuesForD1InsertLimit<T>(values: T[], columnCount: number, maxVariables: number = D1_MAX_SQL_VARIABLES): T[][] {

@@ -1,12 +1,12 @@
 import { createDb } from '@civup/db'
 import { Command, Option } from 'discord-hono'
 import { rankEmbed } from '../embeds/rank.ts'
+import { getKvStore } from '../services/kv/batch.ts'
 import { syncPlayerProfileFromDiscord } from '../services/player/profile.ts'
 import { getPlayerRankProfile } from '../services/player/rank.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { getActiveSeason } from '../services/season/index.ts'
 import { listPlayerSeasonSnapshotHistory } from '../services/season/snapshot-roles.ts'
-import { getKvStore } from '../services/kv/batch.ts'
 import { factory } from '../setup.ts'
 
 interface Var {

@@ -56,6 +56,26 @@ export function resolveAutoSelectedActivityTarget(input: {
     ?? null
 }
 
+export function resolveMissingLiveTarget(input: {
+  options: readonly ActivityTargetOption[]
+  target: ActivityTargetDescriptor
+  currentLobbyId: string | null
+  hasCurrentLobbySnapshot: boolean
+  failedAutoSelectionKeys: ReadonlySet<string>
+}): { kind: 'promote', option: ActivityTargetOption } | { kind: 'hold' } | { kind: 'clear' } {
+  if (input.target?.kind !== 'lobby') return { kind: 'clear' }
+
+  const promotedMatch = input.options.find(option => option.kind === 'match' && option.lobbyId === input.target?.id) ?? null
+  if (promotedMatch && !input.failedAutoSelectionKeys.has(activityTargetOptionKey(promotedMatch))) {
+    return { kind: 'promote', option: promotedMatch }
+  }
+
+  // A reverted draft can briefly remove the selected lobby from the overview before it reappears.
+  if (input.currentLobbyId === input.target.id && input.hasCurrentLobbySnapshot) return { kind: 'hold' }
+
+  return { kind: 'clear' }
+}
+
 export function shouldApplyResolvedActivitySelection(input: {
   isOverviewVisible: boolean
   allowSelectionWhileOverview: boolean
@@ -64,7 +84,7 @@ export function shouldApplyResolvedActivitySelection(input: {
 }
 
 export function shouldReconnectVisibleActivityTarget(input: {
-  appStatus: 'loading' | 'error' | 'overview' | 'lobby-waiting' | 'authenticated' | 'reported'
+  appStatus: 'loading' | 'error' | 'overview' | 'lobby-waiting' | 'authenticated'
   connectionStatus: string
   draftStatus?: string | null
   hasOpenSwapWindow?: boolean
@@ -132,7 +152,7 @@ export function shouldApplyActivityLaunchSnapshotRefresh(input: {
 }
 
 export function getBrokenMatchRefreshKey(input: {
-  appStatus: 'loading' | 'error' | 'overview' | 'lobby-waiting' | 'authenticated' | 'reported'
+  appStatus: 'loading' | 'error' | 'overview' | 'lobby-waiting' | 'authenticated'
   currentMatchId: string | null
   connectionStatus: string
   draftState: { matchId?: string, status?: string, cancelReason?: string | null } | null | undefined

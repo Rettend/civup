@@ -3,6 +3,7 @@ import type { Env } from '../env.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed } from '../embeds/match.ts'
+import { getKvStore } from '../services/kv/batch.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { upsertLobbyMessage } from '../services/lobby/index.ts'
 import { cancelMatchByModerator, getHostIdFromDraftData, getStoredGameModeContext, reportMatch } from '../services/match/index.ts'
@@ -12,7 +13,6 @@ import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRole
 import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
 import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
 import { queueSessionReportedDiscordSync } from '../session-runtime/session-do-client.ts'
-import { getKvStore } from '../services/kv/batch.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from './auth.ts'
 
 export function registerMatchRoutes(app: Hono<Env>) {
@@ -166,14 +166,19 @@ export function registerMatchRoutes(app: Hono<Env>) {
       archivePolicy: 'always',
     })
     queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
-    if (isRankedResult) {
-      try {
-        await markLeaderboardsDirty(db, `activity-report:${result.match.id}`)
+    try {
+      if (!reportedContext.redDeath) {
+        await markLeaderboardsDirty(db, `activity-report:${result.match.id}`, {
+          civ: true,
+          modes: reportedContext.leaderboardMode ? [reportedContext.leaderboardMode] : [],
+        })
       }
-      catch (error) {
-        console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
-      }
+    }
+    catch (error) {
+      console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
+    }
 
+    if (isRankedResult) {
       try {
         await markRankedRolesDirty(kv, `activity-report:${result.match.id}`)
       }
@@ -273,14 +278,19 @@ export function registerMatchRoutes(app: Hono<Env>) {
 
     if (result.previousStatus === 'completed') {
       const scrubContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
-      if (scrubContext?.ranked) {
+      if (scrubContext && !scrubContext.redDeath) {
         try {
-          await markLeaderboardsDirty(db, `activity-scrub:${result.match.id}`)
+          await markLeaderboardsDirty(db, `activity-scrub:${result.match.id}`, {
+            civ: true,
+            modes: scrubContext.leaderboardMode ? [scrubContext.leaderboardMode] : [],
+          })
         }
         catch (error) {
           console.error(`Failed to mark leaderboards dirty after scrub ${result.match.id}:`, error)
         }
+      }
 
+      if (scrubContext?.ranked) {
         try {
           await markRankedRolesDirty(kv, `activity-scrub:${result.match.id}`)
         }

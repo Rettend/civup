@@ -41,7 +41,7 @@ export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
           <Show when={props.onPractice}>
             <button
               type="button"
-              class="absolute bottom-6 left-1/2 z-20 inline-flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full border border-accent/30 bg-accent/12 px-4 py-2 text-sm font-bold text-accent shadow-[0_0_28px_rgba(250,204,21,0.16)] transition hover:border-accent/60 hover:bg-accent/18 hover:text-accent"
+              class="text-sm text-accent font-bold px-4 py-2 border border-accent/30 rounded-full bg-accent/12 inline-flex gap-2 whitespace-nowrap shadow-[0_0_28px_rgba(250,204,21,0.16)] transition items-center bottom-6 left-1/2 absolute z-20 hover:text-accent hover:border-accent/60 hover:bg-accent/18 -translate-x-1/2"
               onPointerEnter={() => { void preloadPracticePage() }}
               onFocus={() => { void preloadPracticePage() }}
               onClick={() => props.onPractice?.()}

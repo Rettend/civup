@@ -587,7 +587,6 @@ export function LeaderGridOverlay() {
 
   const handleReportLeaderSelect = (leader: Leader) => {
     toggleHiddenDraftLeaderSelection(leader.id, reportSeatCount())
-    clearHoverTooltip()
   }
 
   const handleBackdropClick = () => {

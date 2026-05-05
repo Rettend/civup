@@ -1,7 +1,7 @@
 import type { Database } from '@civup/db'
 import type { GameMode } from '@civup/game'
-import type { LobbyState } from '../lobby/types.ts'
 import type { SessionConfig, SessionPhase, SessionRoster } from '../../session-runtime/session-record.ts'
+import type { LobbyState } from '../lobby/types.ts'
 import { matches, matchParticipants, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { GAME_MODES } from '@civup/game'
 import { and, asc, desc, eq, inArray, isNull, or } from 'drizzle-orm'
@@ -20,9 +20,7 @@ export async function getLiveSessionLobbyProjections(
   const conditions = [inArray(sessionDirectory.phase, [...LIVE_PROJECTION_PHASES])]
   if (options.mode) conditions.push(eq(sessionDirectory.mode, options.mode))
 
-  const rows = await db.select().from(sessionDirectory)
-    .where(and(...conditions))
-    .orderBy(desc(sessionDirectory.updatedAt))
+  const rows = await db.select().from(sessionDirectory).where(and(...conditions)).orderBy(desc(sessionDirectory.updatedAt))
 
   return filterStaleOpenDirectoryRows(rows).flatMap(row => parseSessionLobbyProjection(row) ?? [])
 }
@@ -32,12 +30,10 @@ export async function getOpenSessionLobbyProjectionsByMode(
   mode: GameMode,
   options: { includeStale?: boolean } = {},
 ): Promise<LobbyState[]> {
-  const rows = await db.select().from(sessionDirectory)
-    .where(and(
-      eq(sessionDirectory.mode, mode),
-      eq(sessionDirectory.phase, 'open'),
-    ))
-    .orderBy(asc(sessionDirectory.createdAt))
+  const rows = await db.select().from(sessionDirectory).where(and(
+    eq(sessionDirectory.mode, mode),
+    eq(sessionDirectory.phase, 'open'),
+  )).orderBy(asc(sessionDirectory.createdAt))
 
   const visibleRows = options.includeStale ? rows : filterStaleOpenDirectoryRows(rows)
   return visibleRows.flatMap(row => parseSessionLobbyProjection(row) ?? [])
@@ -47,12 +43,10 @@ export async function getOpenSessionLobbyProjectionsByChannel(
   db: Database,
   channelId: string,
 ): Promise<LobbyState[]> {
-  const rows = await db.select().from(sessionDirectory)
-    .where(and(
-      eq(sessionDirectory.channelId, channelId),
-      eq(sessionDirectory.phase, 'open'),
-    ))
-    .orderBy(desc(sessionDirectory.updatedAt))
+  const rows = await db.select().from(sessionDirectory).where(and(
+    eq(sessionDirectory.channelId, channelId),
+    eq(sessionDirectory.phase, 'open'),
+  )).orderBy(desc(sessionDirectory.updatedAt))
 
   return filterStaleOpenDirectoryRows(rows).flatMap(row => parseSessionLobbyProjection(row) ?? [])
 }
@@ -147,12 +141,10 @@ export async function getOpenSessionLobbyProjectionHostedBy(
   db: Database,
   hostId: string,
 ): Promise<LobbyState | null> {
-  const rows = await db.select().from(sessionDirectory)
-    .where(and(
-      eq(sessionDirectory.hostId, hostId),
-      eq(sessionDirectory.phase, 'open'),
-    ))
-    .orderBy(asc(sessionDirectory.createdAt))
+  const rows = await db.select().from(sessionDirectory).where(and(
+    eq(sessionDirectory.hostId, hostId),
+    eq(sessionDirectory.phase, 'open'),
+  )).orderBy(asc(sessionDirectory.createdAt))
 
   return filterStaleOpenDirectoryRows(rows).flatMap(row => parseSessionLobbyProjection(row) ?? [])[0] ?? null
 }
@@ -161,12 +153,10 @@ export async function getLiveSessionLobbyProjectionsHostedBy(
   db: Database,
   hostId: string,
 ): Promise<LobbyState[]> {
-  const rows = await db.select().from(sessionDirectory)
-    .where(and(
-      eq(sessionDirectory.hostId, hostId),
-      inArray(sessionDirectory.phase, [...LIVE_PROJECTION_PHASES]),
-    ))
-    .orderBy(desc(sessionDirectory.updatedAt))
+  const rows = await db.select().from(sessionDirectory).where(and(
+    eq(sessionDirectory.hostId, hostId),
+    inArray(sessionDirectory.phase, [...LIVE_PROJECTION_PHASES]),
+  )).orderBy(desc(sessionDirectory.updatedAt))
 
   return filterStaleOpenDirectoryRows(rows).flatMap(row => parseSessionLobbyProjection(row) ?? [])
 }
@@ -184,13 +174,10 @@ export async function getSessionLobbyProjectionByMatch(
   db: Database,
   matchId: string,
 ): Promise<LobbyState | null> {
-  const [row] = await db.select().from(sessionDirectory)
-    .where(or(
-      eq(sessionDirectory.matchId, matchId),
-      eq(sessionDirectory.sessionId, matchId),
-    ))
-    .orderBy(desc(sessionDirectory.updatedAt))
-    .limit(1)
+  const [row] = await db.select().from(sessionDirectory).where(or(
+    eq(sessionDirectory.matchId, matchId),
+    eq(sessionDirectory.sessionId, matchId),
+  )).orderBy(desc(sessionDirectory.updatedAt)).limit(1)
 
   return row ? parseSessionLobbyProjection(row) : null
 }

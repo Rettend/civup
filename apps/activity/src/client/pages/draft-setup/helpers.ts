@@ -2,7 +2,7 @@ import type { CompetitiveTier, DraftState, GameMode } from '@civup/game'
 import type { PlayerRating } from '@civup/rating'
 import type { LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
 import { getDefaultLeaderPoolSize, getMinimumLeaderPoolSize, inferGameMode, MAX_LEADER_POOL_SIZE, slotToTeamIndex, toBalanceLeaderboardMode } from '@civup/game'
-import { createRating, predictWinProbabilities, RANKED_ROLE_MIN_GAMES } from '@civup/rating'
+import { createRating, predictWinProbabilities } from '@civup/rating'
 
 export const MAX_TIMER_MINUTES = 30
 export const MAX_LEADER_POOL_INPUT = MAX_LEADER_POOL_SIZE
@@ -53,9 +53,6 @@ export interface LobbyBalanceTeamSummary {
 
 export interface LobbyBalanceSummary {
   teams: LobbyBalanceTeamSummary[]
-  lowConfidence: boolean
-  lowConfidencePlayerCount: number
-  averageSigma: number
 }
 
 export type OptimisticLobbyAction
@@ -146,9 +143,7 @@ export function buildLobbyBalanceSummary(lobby: LobbySnapshot | null): LobbyBala
   const probabilities = predictTeamProbabilities(teamRatings)
   if (!probabilities) return null
 
-  const allPlayers = activeTeams.flatMap(([, players]) => players)
-  const lowConfidencePlayerCount = allPlayers.filter(player => player.gamesPlayed < RANKED_ROLE_MIN_GAMES).length
-  const averageSigma = allPlayers.reduce((total, player) => total + player.sigma, 0) / allPlayers.length
+  const teams = activeTeams.map(([, players]) => players)
 
   return {
     teams: activeTeams.map(([team, players], index) => {
@@ -157,12 +152,9 @@ export function buildLobbyBalanceSummary(lobby: LobbySnapshot | null): LobbyBala
         team,
         playerCount: players.length,
         probability,
-        uncertainty: estimateProbabilityUncertainty(teamRatings, index, probability),
+        uncertainty: estimateProbabilityUncertainty(teams, index, probability),
       }
     }),
-    lowConfidence: lowConfidencePlayerCount > 0,
-    lowConfidencePlayerCount,
-    averageSigma,
   }
 }
 
@@ -178,9 +170,17 @@ function predictTeamProbabilities(teams: PlayerRating[][]): number[] | null {
   }
 }
 
-function estimateProbabilityUncertainty(teams: PlayerRating[][], focusTeam: number, baseProbability: number): number {
-  const optimistic = predictTeamProbabilities(adjustTeamRatings(teams, focusTeam, 1))
-  const pessimistic = predictTeamProbabilities(adjustTeamRatings(teams, focusTeam, -1))
+function estimateProbabilityUncertainty(teams: LobbyBalancePlayer[][], focusTeam: number, baseProbability: number): number {
+  // Use a one-sigma matchup shift instead of moving every player by full sigma.
+  const playerUncertainties = teams.map(team => team.map(getPlayerPredictionUncertainty))
+  const combinedUncertainty = Math.sqrt(playerUncertainties.reduce(
+    (total, team) => total + team.reduce((teamTotal, uncertainty) => teamTotal + (uncertainty * uncertainty), 0),
+    0,
+  ))
+  if (combinedUncertainty <= 0) return 0
+
+  const optimistic = predictTeamProbabilities(adjustTeamRatings(teams, playerUncertainties, combinedUncertainty, focusTeam, 1))
+  const pessimistic = predictTeamProbabilities(adjustTeamRatings(teams, playerUncertainties, combinedUncertainty, focusTeam, -1))
   if (!optimistic || !pessimistic) return 0
 
   const optimisticProbability = optimistic[focusTeam] ?? baseProbability
@@ -191,12 +191,26 @@ function estimateProbabilityUncertainty(teams: PlayerRating[][], focusTeam: numb
   )
 }
 
-function adjustTeamRatings(teams: PlayerRating[][], focusTeam: number, direction: 1 | -1): PlayerRating[][] {
-  return teams.map((team, teamIndex) => team.map(player => ({
-    playerId: player.playerId,
-    mu: player.mu + ((teamIndex === focusTeam ? direction : -direction) * player.sigma),
-    sigma: player.sigma,
-  })))
+function getPlayerPredictionUncertainty(player: LobbyBalancePlayer): number {
+  return player.sigma / Math.sqrt(Math.max(0, player.gamesPlayed) + 1)
+}
+
+function adjustTeamRatings(
+  teams: LobbyBalancePlayer[][],
+  playerUncertainties: number[][],
+  combinedUncertainty: number,
+  focusTeam: number,
+  direction: 1 | -1,
+): PlayerRating[][] {
+  return teams.map((team, teamIndex) => team.map((player, playerIndex) => {
+    const playerUncertainty = playerUncertainties[teamIndex]?.[playerIndex] ?? 0
+    const shift = (playerUncertainty * playerUncertainty) / combinedUncertainty
+    return {
+      playerId: player.playerId,
+      mu: player.mu + ((teamIndex === focusTeam ? direction : -direction) * shift),
+      sigma: player.sigma,
+    }
+  }))
 }
 
 export function resolveOptimisticLobbyPlacementAction(

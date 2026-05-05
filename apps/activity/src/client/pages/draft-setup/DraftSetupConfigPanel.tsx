@@ -1,7 +1,7 @@
+import type { JSX } from 'solid-js'
 import type { RankRoleSetDetail } from './helpers'
 import type { useDraftSetupState } from './useDraftSetupState'
 import type { RankedRoleOptionSnapshot } from '~/client/stores'
-import type { JSX } from 'solid-js'
 import { hasBetaLeaderData, inferGameMode, normalizeAvailableLeaderDataVersion } from '@civup/game'
 import { For, Show } from 'solid-js'
 import { Dropdown, Switch, TextInput } from '~/client/components/ui'
@@ -10,16 +10,16 @@ import { buildRankDotStyle, buildRolePillStyle, MAX_LEADER_POOL_INPUT, MAX_TIMER
 
 type DraftSetupConfigState = ReturnType<typeof useDraftSetupState>['config']
 type ConfigRowMode = 'editable' | 'readonly'
-type RoleDropdownOption = {
+interface RoleDropdownOption {
   value: string
   label: string
   disabled?: boolean
   render?: () => JSX.Element
 }
-type ConfigRowHelpers = {
+interface ConfigRowHelpers {
   buildRoleDropdownOptions: (clearLabel: string) => RoleDropdownOption[]
 }
-type ConfigRowDefinition = {
+interface ConfigRowDefinition {
   key: string
   when: (state: DraftSetupConfigState) => boolean
   renderEditable?: (state: DraftSetupConfigState, helpers: ConfigRowHelpers) => JSX.Element

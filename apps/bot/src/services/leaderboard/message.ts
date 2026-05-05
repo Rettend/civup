@@ -3,39 +3,50 @@ import type { LeaderboardMode } from '@civup/game'
 import type { LeaderboardDirtyState, LeaderboardMessageState } from '../system/channels.ts'
 import { leaderboardDirtyStates, leaderboardMessageStates } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { civLeaderboardEmbedGroups } from '../../embeds/civ-leaderboard.ts'
 import { leaderboardEmbed } from '../../embeds/leaderboard.ts'
 import { createChannelMessage, deleteChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
 import {
   getSystemChannel,
 } from '../system/channels.ts'
-import { ensureCivLeaderboardSnapshot, rebuildCivLeaderboardSnapshot } from './civ-snapshot.ts'
-import { clearAllTeamLeaderboardSnapshots } from './team-snapshot.ts'
-import { ensureLeaderboardModeSnapshots, rebuildLeaderboardModeSnapshot } from './snapshot.ts'
+import { getStoredCivLeaderboardSnapshot, isCivLeaderboardStatsInitialized, rebuildCivLeaderboardSnapshot } from './civ-snapshot.ts'
+import { ensureLeaderboardModeSnapshots, getStoredLeaderboardModeSnapshots, rebuildLeaderboardModeSnapshot } from './snapshot.ts'
 
 const PLAYER_LEADERBOARD_SCOPE = 'global'
 const CIV_LEADERBOARD_SCOPE = 'civ'
 const CIV_LEADERBOARD_MESSAGE_SCOPES = [CIV_LEADERBOARD_SCOPE, 'civ:2', 'civ:3'] as const
-const LEADERBOARD_DIRTY_SCOPE = 'global'
+const LEGACY_LEADERBOARD_DIRTY_SCOPE = 'global'
+const CIV_LEADERBOARD_DIRTY_SCOPE = 'civ'
+const PLAYER_LEADERBOARD_DIRTY_SCOPE_PREFIX = 'player:'
 
-export async function markLeaderboardsDirty(db: Database, reason: string): Promise<LeaderboardDirtyState> {
-  const existing = await getLeaderboardDirtyState(db)
-  if (existing) return existing
+interface ScopedLeaderboardDirtyState extends LeaderboardDirtyState {
+  scope: string
+}
 
+interface MarkLeaderboardsDirtyOptions {
+  civ?: boolean
+  modes?: readonly LeaderboardMode[]
+  now?: number
+}
+
+export async function markLeaderboardsDirty(db: Database, reason: string, options?: MarkLeaderboardsDirtyOptions): Promise<LeaderboardDirtyState> {
   const normalizedReason = reason.trim().length > 0 ? reason.trim() : null
-  const dirtyAt = Date.now()
+  const dirtyAt = options?.now ?? Date.now()
+  const scopes = getDirtyScopes(options)
+  if (scopes.length === 0) return { dirtyAt, reason: normalizedReason }
 
   await db
     .insert(leaderboardDirtyStates)
-    .values({
-      scope: LEADERBOARD_DIRTY_SCOPE,
+    .values(scopes.map(scope => ({
+      scope,
       dirtyAt,
       reason: normalizedReason,
-    })
+    })))
     .onConflictDoNothing()
 
-  return (await getLeaderboardDirtyState(db)) ?? {
+  const [state] = await listLeaderboardDirtyStates(db, scopes)
+  return state ?? {
     dirtyAt,
     reason: normalizedReason,
   }
@@ -64,8 +75,7 @@ export async function refreshConfiguredCivLeaderboards(
   const leaderboardChannelId = await getSystemChannel(kv, 'civ-leaderboard')
   if (!leaderboardChannelId) return false
 
-  await upsertCivLeaderboardMessageForChannel(db, kv, token, leaderboardChannelId)
-  return true
+  return Boolean(await upsertCivLeaderboardMessageForChannel(db, kv, token, leaderboardChannelId))
 }
 
 export async function archiveSeasonLeaderboards(
@@ -115,32 +125,64 @@ export async function refreshDirtyLeaderboards(
   token: string,
   options: {
     modes?: readonly LeaderboardMode[]
+    minDirtyAgeMs?: number
+    now?: number
   } = {},
 ): Promise<boolean> {
-  const dirtyState = await getLeaderboardDirtyState(db)
-  if (!dirtyState) return false
+  const now = options.now ?? Date.now()
+  const dirtyStates = await listLeaderboardDirtyStates(db)
+  const dueDirtyStates = dirtyStates.filter(state => options.minDirtyAgeMs == null || now - state.dirtyAt >= options.minDirtyAgeMs)
+  if (dueDirtyStates.length === 0) return false
 
   const modes = [...new Set(options.modes ?? LEADERBOARD_MODES)]
+  const legacyDirtyState = dueDirtyStates.find(state => state.scope === LEGACY_LEADERBOARD_DIRTY_SCOPE) ?? null
+  const dirtyPlayerModes = getDirtyPlayerModes(dueDirtyStates, modes, legacyDirtyState)
+  const civDirtyState = legacyDirtyState ?? dueDirtyStates.find(state => state.scope === CIV_LEADERBOARD_DIRTY_SCOPE) ?? null
   const [leaderboardChannelId, civLeaderboardChannelId] = await Promise.all([
     getSystemChannel(kv, 'leaderboard'),
     getSystemChannel(kv, 'civ-leaderboard'),
   ])
 
-  await Promise.all([
-    rebuildLeaderboardSnapshots(db, kv, modes),
-    civLeaderboardChannelId ? rebuildCivLeaderboardSnapshot(db, kv) : Promise.resolve(),
-  ])
+  const scopesToClear = new Set<string>()
+  let leaderboardState: LeaderboardMessageState | null = null
+  let civLeaderboardState: LeaderboardMessageState | null = null
+  let civSnapshotUpdated = false
+  let civSnapshotReady = false
+  let playerSnapshotsUpdated = false
 
-  const [leaderboardState, civLeaderboardState] = await Promise.all([
-    leaderboardChannelId
-      ? upsertLeaderboardMessagesForChannel(db, kv, token, leaderboardChannelId, { modes })
-      : Promise.resolve(null),
-    civLeaderboardChannelId
-      ? upsertCivLeaderboardMessageForChannel(db, kv, token, civLeaderboardChannelId)
-      : Promise.resolve(null),
-  ])
-  await clearLeaderboardDirtyState(db)
-  return Boolean(leaderboardState || civLeaderboardState)
+  if (dirtyPlayerModes.length > 0) {
+    await Promise.all(dirtyPlayerModes.map(mode => rebuildLeaderboardModeSnapshot(db, kv, mode, now)))
+    playerSnapshotsUpdated = true
+
+    if (leaderboardChannelId) {
+      leaderboardState = await upsertLeaderboardMessagesForChannel(db, kv, token, leaderboardChannelId, { modes, useCachedSnapshots: true })
+    }
+  }
+
+  if (civDirtyState) civSnapshotReady = await isCivLeaderboardStatsInitialized(db)
+
+  if (civDirtyState && civSnapshotReady) {
+    await rebuildCivLeaderboardSnapshot(db, kv, now)
+    civSnapshotUpdated = true
+    if (civLeaderboardChannelId) {
+      civLeaderboardState = await upsertCivLeaderboardMessageForChannel(db, kv, token, civLeaderboardChannelId)
+    }
+  }
+
+  if (playerSnapshotsUpdated) {
+    for (const mode of dirtyPlayerModes) scopesToClear.add(playerDirtyScope(mode))
+  }
+  if (civSnapshotUpdated) scopesToClear.add(CIV_LEADERBOARD_DIRTY_SCOPE)
+  if (legacyDirtyState && playerSnapshotsUpdated && civDirtyState && !civSnapshotUpdated) {
+    await markLeaderboardsDirty(db, legacyDirtyState.reason ?? 'legacy-civ-dirty', {
+      civ: true,
+      now: legacyDirtyState.dirtyAt,
+    })
+  }
+  if (legacyDirtyState && playerSnapshotsUpdated && (!civDirtyState || civSnapshotUpdated || !civSnapshotReady)) scopesToClear.add(LEGACY_LEADERBOARD_DIRTY_SCOPE)
+
+  await clearLeaderboardDirtyStates(db, [...scopesToClear])
+  return Boolean(leaderboardState || civLeaderboardState || civSnapshotUpdated || playerSnapshotsUpdated)
 }
 
 export async function upsertLeaderboardMessagesForChannel(
@@ -151,11 +193,12 @@ export async function upsertLeaderboardMessagesForChannel(
   options: {
     forceCreate?: boolean
     modes?: readonly LeaderboardMode[]
+    useCachedSnapshots?: boolean
   } = {},
 ): Promise<LeaderboardMessageState> {
   const existing = await getLeaderboardMessageState(db, PLAYER_LEADERBOARD_SCOPE)
   const previousMessageId = !options.forceCreate && existing?.channelId === channelId ? existing.messageId : null
-  const embeds = await buildLeaderboardEmbeds(db, kv, { modes: options.modes })
+  const embeds = await buildLeaderboardEmbeds(db, kv, { modes: options.modes, useCachedSnapshots: options.useCachedSnapshots })
 
   if (previousMessageId) {
     try {
@@ -198,8 +241,10 @@ export async function upsertCivLeaderboardMessageForChannel(
   options: {
     forceCreate?: boolean
   } = {},
-): Promise<LeaderboardMessageState> {
-  const embedGroups = await buildCivLeaderboardEmbedGroups(db, kv)
+): Promise<LeaderboardMessageState | null> {
+  const embedGroups = await buildCivLeaderboardEmbedGroups(kv)
+  if (!embedGroups) return null
+
   const states: LeaderboardMessageState[] = []
 
   for (const [index, embeds] of embedGroups.entries()) {
@@ -224,21 +269,25 @@ async function buildLeaderboardEmbeds(
   options: {
     titlePrefix?: string
     modes?: readonly LeaderboardMode[]
+    useCachedSnapshots?: boolean
   } = {},
 ) {
   const modes = options.modes ?? LEADERBOARD_MODES
-  const snapshots = await ensureLeaderboardModeSnapshots(db, kv, modes)
-  return modes.map((mode) => {
+  const snapshots = options.useCachedSnapshots
+    ? await getStoredLeaderboardModeSnapshots(kv, modes)
+    : await ensureLeaderboardModeSnapshots(db, kv, modes)
+  return modes.flatMap((mode) => {
     const snapshot = snapshots.get(mode)
+    if (!snapshot && options.useCachedSnapshots) return []
     return leaderboardEmbed(mode, snapshot?.rows ?? [], options)
   })
 }
 
 async function buildCivLeaderboardEmbedGroups(
-  db: Database,
   kv: KVNamespace,
 ) {
-  const snapshot = await ensureCivLeaderboardSnapshot(db, kv)
+  const snapshot = await getStoredCivLeaderboardSnapshot(kv)
+  if (!snapshot?.historyInitialized) return null
   return civLeaderboardEmbedGroups(snapshot)
 }
 
@@ -305,15 +354,39 @@ async function deleteUnusedCivLeaderboardMessages(
   }
 }
 
-async function rebuildLeaderboardSnapshots(
-  db: Database,
-  kv: KVNamespace,
-  modes: readonly LeaderboardMode[],
-): Promise<void> {
-  await Promise.all(modes.map(mode => rebuildLeaderboardModeSnapshot(db, kv, mode)))
-  if (modes.some(mode => mode === 'duo' || mode === 'squad')) {
-    await clearAllTeamLeaderboardSnapshots(kv)
+function getDirtyScopes(options: MarkLeaderboardsDirtyOptions | undefined): string[] {
+  if (!options) return [LEGACY_LEADERBOARD_DIRTY_SCOPE]
+
+  const scopes = new Set<string>()
+  for (const mode of options.modes ?? []) {
+    if (LEADERBOARD_MODES.includes(mode)) scopes.add(playerDirtyScope(mode))
   }
+  if (options.civ) scopes.add(CIV_LEADERBOARD_DIRTY_SCOPE)
+  return [...scopes]
+}
+
+function getDirtyPlayerModes(
+  dirtyStates: readonly ScopedLeaderboardDirtyState[],
+  modes: readonly LeaderboardMode[],
+  legacyDirtyState: ScopedLeaderboardDirtyState | null,
+): LeaderboardMode[] {
+  const requestedModes = new Set(modes)
+  if (legacyDirtyState) return [...requestedModes]
+
+  return dirtyStates.flatMap((state) => {
+    const mode = parsePlayerDirtyScope(state.scope)
+    return mode && requestedModes.has(mode) ? [mode] : []
+  })
+}
+
+function playerDirtyScope(mode: LeaderboardMode): string {
+  return `${PLAYER_LEADERBOARD_DIRTY_SCOPE_PREFIX}${mode}`
+}
+
+function parsePlayerDirtyScope(scope: string): LeaderboardMode | null {
+  if (!scope.startsWith(PLAYER_LEADERBOARD_DIRTY_SCOPE_PREFIX)) return null
+  const mode = scope.slice(PLAYER_LEADERBOARD_DIRTY_SCOPE_PREFIX.length)
+  return LEADERBOARD_MODES.includes(mode as LeaderboardMode) ? mode as LeaderboardMode : null
 }
 
 async function getLeaderboardMessageState(db: Database, scope: string): Promise<LeaderboardMessageState | null> {
@@ -358,23 +431,26 @@ async function deleteLeaderboardMessageState(db: Database, scope: string): Promi
   await db.delete(leaderboardMessageStates).where(eq(leaderboardMessageStates.scope, scope))
 }
 
-async function getLeaderboardDirtyState(db: Database): Promise<LeaderboardDirtyState | null> {
-  const [row] = await db
+async function listLeaderboardDirtyStates(db: Database, scopes?: readonly string[]): Promise<ScopedLeaderboardDirtyState[]> {
+  const query = db
     .select({
+      scope: leaderboardDirtyStates.scope,
       dirtyAt: leaderboardDirtyStates.dirtyAt,
       reason: leaderboardDirtyStates.reason,
     })
     .from(leaderboardDirtyStates)
-    .where(eq(leaderboardDirtyStates.scope, LEADERBOARD_DIRTY_SCOPE))
-    .limit(1)
+  const rows = scopes && scopes.length > 0
+    ? await query.where(inArray(leaderboardDirtyStates.scope, [...scopes]))
+    : await query
 
-  if (!row) return null
-  return {
+  return rows.map(row => ({
+    scope: row.scope,
     dirtyAt: row.dirtyAt,
     reason: typeof row.reason === 'string' && row.reason.length > 0 ? row.reason : null,
-  }
+  }))
 }
 
-async function clearLeaderboardDirtyState(db: Database): Promise<void> {
-  await db.delete(leaderboardDirtyStates).where(eq(leaderboardDirtyStates.scope, LEADERBOARD_DIRTY_SCOPE))
+async function clearLeaderboardDirtyStates(db: Database, scopes: readonly string[]): Promise<void> {
+  if (scopes.length === 0) return
+  await db.delete(leaderboardDirtyStates).where(inArray(leaderboardDirtyStates.scope, [...new Set(scopes)]))
 }

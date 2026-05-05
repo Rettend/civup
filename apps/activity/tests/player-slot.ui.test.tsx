@@ -2,7 +2,7 @@
 
 import { fireEvent, render, screen } from '@solidjs/testing-library'
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { createActiveDraftState, createCompleteDraftState } from './ui-fixtures'
+import { createActiveDraftState, createCompleteDraftState, TEST_LEADER_IDS } from './ui-fixtures'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const { PlayerSlot } = await import('../src/client/components/draft/PlayerSlot')
@@ -58,6 +58,16 @@ describe('PlayerSlot UI', () => {
 
     expect(firstRender.container.querySelector('img[alt="Abraham Lincoln"]')?.className).not.toContain('anim-portrait-in')
     expect(secondRender.container.querySelector('img[alt="John Curtin"]')?.className).toContain('anim-portrait-in')
+  })
+
+  test('animates preview portraits when shown', async () => {
+    uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
+    uiMockState.previewPicks[1] = TEST_LEADER_IDS.johnCurtin
+
+    render(() => <PlayerSlot seatIndex={1} />)
+    const image = await screen.findByAltText('John Curtin')
+
+    expect(image.className).toContain('anim-portrait-in')
   })
 
   test('keeps the map-vote breathing nodes mounted and grays out a confirmed seat during voting', () => {

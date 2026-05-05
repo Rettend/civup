@@ -74,6 +74,30 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
   })
 
   createEffect(() => {
+    const arrangeEvent = state().arrangeEvent()
+    const arrangeKey = arrangeEvent ? `${arrangeEvent.strategy}:${arrangeEvent.at}` : null
+
+    if (!hasInitializedArrangeKey) {
+      hasInitializedArrangeKey = true
+      lastSeenArrangeKey = arrangeKey
+      return
+    }
+
+    if (!arrangeEvent || arrangeKey == null || arrangeKey === lastSeenArrangeKey) return
+    lastSeenArrangeKey = arrangeKey
+    armedArrangeKey = arrangeKey
+
+    if (arrangeOverlayTimeout) clearTimeout(arrangeOverlayTimeout)
+    state().clearPendingArrangeStrategy?.()
+    setArrangeOverlayStrategy(arrangeEvent.strategy)
+    setArrangeOverlayActive(true)
+    arrangeOverlayTimeout = setTimeout(() => {
+      arrangeOverlayTimeout = null
+      setArrangeOverlayActive(false)
+    }, ARRANGE_OVERLAY_VISIBLE_MS)
+  })
+
+  createEffect(() => {
     const signature = renderSignature()
     const map = playerSlotMap()
     queueMicrotask(() => {
@@ -119,30 +143,6 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
       lastRenderSignature = signature
       if (shouldAnimate) armedArrangeKey = null
     })
-  })
-
-  createEffect(() => {
-    const arrangeEvent = state().arrangeEvent()
-    const arrangeKey = arrangeEvent ? `${arrangeEvent.strategy}:${arrangeEvent.at}` : null
-
-    if (!hasInitializedArrangeKey) {
-      hasInitializedArrangeKey = true
-      lastSeenArrangeKey = arrangeKey
-      return
-    }
-
-    if (!arrangeEvent || arrangeKey == null || arrangeKey === lastSeenArrangeKey) return
-    lastSeenArrangeKey = arrangeKey
-    armedArrangeKey = arrangeKey
-
-    if (arrangeOverlayTimeout) clearTimeout(arrangeOverlayTimeout)
-    state().clearPendingArrangeStrategy?.()
-    setArrangeOverlayStrategy(arrangeEvent.strategy)
-    setArrangeOverlayActive(true)
-    arrangeOverlayTimeout = setTimeout(() => {
-      arrangeOverlayTimeout = null
-      setArrangeOverlayActive(false)
-    }, ARRANGE_OVERLAY_VISIBLE_MS)
   })
 
   onCleanup(() => {

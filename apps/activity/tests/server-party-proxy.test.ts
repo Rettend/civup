@@ -40,10 +40,10 @@ describe('activity party proxy', () => {
       `https://civup-activity.thepeace.workers.dev/api/parties/main/Fqo0_8B9f4Xz?_pk=socket-1&accessToken=draft-room.v1.test&activitySession=${encodeURIComponent(token)}`,
       {
         headers: {
-          connection: 'Upgrade',
+          'connection': 'Upgrade',
           'sec-websocket-key': 'test-key',
           'sec-websocket-version': '13',
-          upgrade: 'websocket',
+          'upgrade': 'websocket',
         },
       },
     ), createEnv(forwardedRequests))

@@ -84,7 +84,7 @@ export async function createChannelMessage(
     },
   )
 
-  return await response.json() as DiscordMessageResponse
+  return response.json<DiscordMessageResponse>()
 }
 
 export async function editOriginalInteractionResponseWithFile(payload: DiscordInteractionFilePayload): Promise<void> {
@@ -121,7 +121,7 @@ export async function createInteractionFollowupMessage(payload: DiscordInteracti
     },
   )
 
-  return await response.json() as DiscordMessageResponse
+  return response.json<DiscordMessageResponse>()
 }
 
 export async function createDmChannel(
@@ -141,7 +141,7 @@ export async function createDmChannel(
     },
   )
 
-  return await response.json() as DiscordDmChannelResponse
+  return response.json<DiscordDmChannelResponse>()
 }
 
 export async function editChannelMessage(
@@ -255,7 +255,7 @@ export async function createGuildRole(
     },
   )
 
-  return await response.json() as DiscordGuildRoleResponse
+  return response.json<DiscordGuildRoleResponse>()
 }
 
 export async function deleteGuildRole(
@@ -317,7 +317,7 @@ function calculateRetryDelayMs(response: Response, detail: string, attempt: numb
 
 function parseDiscordErrorPayload(detail: string): DiscordErrorPayload | null {
   try {
-    const parsed = JSON.parse(detail) as unknown
+    const parsed: unknown = JSON.parse(detail)
     if (!parsed || typeof parsed !== 'object') return null
     return parsed as DiscordErrorPayload
   }

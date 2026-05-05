@@ -155,13 +155,13 @@ export interface CancelledSessionRecord extends BaseSessionRecord {
   closedAt: number
 }
 
-export type SessionRecord =
-  | OpenSessionRecord
-  | DraftSessionRecord
-  | SwapSessionRecord
-  | ActiveSessionRecord
-  | ReportedSessionRecord
-  | CancelledSessionRecord
+export type SessionRecord
+  = | OpenSessionRecord
+    | DraftSessionRecord
+    | SwapSessionRecord
+    | ActiveSessionRecord
+    | ReportedSessionRecord
+    | CancelledSessionRecord
 
 export function buildOpenSessionRecordFromLobby(
   lobby: LobbyState,

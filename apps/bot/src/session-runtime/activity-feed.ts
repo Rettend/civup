@@ -1,11 +1,12 @@
 import type { Connection, ConnectionContext } from 'partyserver'
-import type { ActivityOverviewSnapshot } from '../services/activity/session-state.ts'
+import type { StoredActivityFollowTargetSelection, StoredActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
+import type { ActivityOverviewSnapshot, LobbySnapshot } from '../services/activity/session-state.ts'
 import type { SessionRecord } from './session-record.ts'
 import { createDb } from '@civup/db'
 import { CIVUP_ACTIVITY_USER_ID_HEADER, isAuthorizedInternalRequest } from '@civup/utils'
 import { Server } from 'partyserver'
-import { parseStoredActivityFollowTargetSelection, parseStoredActivityLaunchTargetSelection, type StoredActivityFollowTargetSelection, type StoredActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
-import { buildActivityOverviewOptionsFromSessionRecord, buildActivityOverviewSnapshotFromDirectory, compareActivityOverviewOptions } from '../services/activity/session-state.ts'
+import { parseStoredActivityFollowTargetSelection, parseStoredActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
+import { buildActivityOverviewSnapshotFromDirectory, buildLobbySnapshotFromSessionRecord, mergeActivityOverviewSnapshotForSessionUpdate } from '../services/activity/session-state.ts'
 
 interface ActivityFeedEnv extends Cloudflare.Env {
   DB?: D1Database
@@ -15,6 +16,7 @@ interface ActivityFeedEnv extends Cloudflare.Env {
 
 export type ActivityFeedMessage
   = | { type: 'overview', snapshot: ActivityOverviewSnapshot | null }
+    | { type: 'lobby', lobbyId: string, snapshot: LobbySnapshot | null }
     | { type: 'error', message: string }
 
 interface PublishSessionUpdateRequest {
@@ -34,8 +36,8 @@ export class Activity extends Server<ActivityFeedEnv> {
     if (!isAuthorizedInternalRequest(req.headers, this.env.CIVUP_SECRET)) return json({ error: 'Unauthorized' }, 401)
 
     const pathname = new URL(req.url).pathname
-    if (pathname === '/activity-launch-target') return await this.handleActivityLaunchTargetRequest(req)
-    if (pathname === '/activity-follow-target') return await this.handleActivityFollowTargetRequest(req)
+    if (pathname === '/activity-launch-target') return this.handleActivityLaunchTargetRequest(req)
+    if (pathname === '/activity-follow-target') return this.handleActivityFollowTargetRequest(req)
 
     if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 })
 
@@ -145,20 +147,29 @@ export class Activity extends Server<ActivityFeedEnv> {
     if (connections.length === 0) return
 
     const channelId = record.projectionState.channelId
-    const current = await this.getOverviewSnapshot(channelId)
-    const options = [
-      ...(current?.options ?? []).filter(option => option.lobbyId !== record.id),
-      ...buildActivityOverviewOptionsFromSessionRecord(record),
-    ].sort(compareActivityOverviewOptions)
-    const overview = options.length > 0 ? { channelId, options } satisfies ActivityOverviewSnapshot : null
+    const baseOverview = this.env.DB
+      ? await this.loadOverviewSnapshot(channelId)
+      : await this.getOverviewSnapshot(channelId)
+    const overview = mergeActivityOverviewSnapshotForSessionUpdate(baseOverview, record)
     await this.ctx.storage.put(ACTIVITY_OVERVIEW_STORAGE_KEY, overview)
     this.broadcastFeedMessage(connections, { type: 'overview', snapshot: overview })
+    this.broadcastFeedMessage(connections, await this.buildLobbyFeedMessage(record))
+  }
+
+  private async buildLobbyFeedMessage(record: SessionRecord): Promise<ActivityFeedMessage> {
+    if (record.phase !== 'open') return { type: 'lobby', lobbyId: record.id, snapshot: null }
+    if (!this.env.KV) return { type: 'error', message: 'Activity lobby snapshots are not configured' }
+    return {
+      type: 'lobby',
+      lobbyId: record.id,
+      snapshot: await buildLobbySnapshotFromSessionRecord(this.env.KV, record),
+    }
   }
 
   private async getOverviewSnapshot(channelId: string): Promise<ActivityOverviewSnapshot | null> {
     const cached = await this.ctx.storage.get<ActivityOverviewSnapshot | null>(ACTIVITY_OVERVIEW_STORAGE_KEY)
     if (cached === null || cached?.channelId === channelId) return cached ?? null
-    return await this.rebuildOverviewSnapshot(channelId)
+    return this.rebuildOverviewSnapshot(channelId)
   }
 
   private async rebuildOverviewSnapshot(channelId: string): Promise<ActivityOverviewSnapshot | null> {
@@ -169,7 +180,7 @@ export class Activity extends Server<ActivityFeedEnv> {
 
   private async loadOverviewSnapshot(channelId: string): Promise<ActivityOverviewSnapshot | null> {
     if (!this.env.DB) return null
-    return await buildActivityOverviewSnapshotFromDirectory(createDb(this.env.DB), channelId)
+    return buildActivityOverviewSnapshotFromDirectory(createDb(this.env.DB), channelId)
   }
 
   private send(connection: Connection, message: ActivityFeedMessage): void {

@@ -3,8 +3,8 @@ import type { LeaderboardMode } from '@civup/game'
 import { playerRatings } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
 import { inArray } from 'drizzle-orm'
-import { recalculateLeaderboardMode } from '../match/ratings.ts'
 import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
+import { recalculateLeaderboardMode } from '../match/ratings.ts'
 
 export interface LeaderboardSnapshotRow {
   playerId: string

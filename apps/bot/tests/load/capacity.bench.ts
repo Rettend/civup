@@ -24,6 +24,15 @@ import { getLobbyForUser, getMatchForUser } from '../../src/services/activity/in
 import { resolveDraftTimerConfig } from '../../src/services/config/index.ts'
 import { markLeaderboardsDirty, refreshDirtyLeaderboards } from '../../src/services/leaderboard/message.ts'
 import { ensureLeaderboardModeSnapshots } from '../../src/services/leaderboard/snapshot.ts'
+import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
+import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
+import { activateDraftMatch, reportMatch } from '../../src/services/match/index.ts'
+import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
+import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
+import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
+import { getOpenSessionLobbyProjectionHostedBy, getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
+import { getSystemChannel, setSystemChannel } from '../../src/services/system/channels.ts'
 import {
   createLobby,
   filterQueueEntriesForLobby,
@@ -38,15 +47,6 @@ import {
   setLobbyStatus,
   startTestSessionDraft,
 } from '../helpers/lobby-runtime.ts'
-import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
-import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
-import { activateDraftMatch, reportMatch } from '../../src/services/match/index.ts'
-import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
-import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
-import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
-import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
-import { getOpenSessionLobbyProjectionHostedBy, getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
-import { getSystemChannel, setSystemChannel } from '../../src/services/system/channels.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
@@ -105,14 +105,19 @@ const CAPACITY_SCENARIOS: CapacityScenario[] = [
   },
 ]
 
-// SessionSocketServer keeps connections in memory, so model every incoming websocket message as billed.
+// SessionDO uses Durable Object WebSocket hibernation; duration is event-time, not socket wall-clock time.
 const DO_WEBSOCKET_BILLING_RATIO = 1
 const DO_CREATE_ROOM_REQUESTS_PER_DRAFT = 1
 const LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION = 4
 const ESTIMATED_DO_GB_SECONDS_PER_REQUEST = 0.0025
 const AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT = 0.5
 const ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES = 2
-const TARGET_ARCHITECTURE_MODEL = 'target-session-do-v3-low-kv-do-sqlite-overview'
+const CURRENT_ARCHITECTURE_MODEL = 'current-non-hibernating-selected-session-sockets'
+const TARGET_ARCHITECTURE_MODEL = 'target-session-do-v4-hibernating-selected-sockets'
+const MODELED_PRODUCTION_RATED_PLAYERS = 1_000
+const MODELED_PRODUCTION_COMPLETED_MATCHES = 10_000
+const MODELED_PRODUCTION_MATCH_PARTICIPANTS = 60_000
+const ESTIMATED_SELECTED_SESSION_CONNECTED_SECONDS = 20 * 60
 const TARGET_SESSION_SOCKET_CONNECTIONS_PER_VIEWER = 1
 const TARGET_SESSION_DO_SQL_READS_PER_COMMAND = 1
 const TARGET_SESSION_DO_SQL_WRITES_PER_COMMAND = 1
@@ -131,7 +136,7 @@ const TARGET_DIRECTORY_WRITES_PER_OPEN_LOBBY_MUTATION = 1
 const TARGET_DIRECTORY_WRITES_PER_DRAFT_START = 1
 const TARGET_DIRECTORY_WRITES_PER_REPORT = 1
 const TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP = 1
-const LEADERBOARD_CRON_RUNS_PER_DAY = 24 * 60 / 2
+const LEADERBOARD_CRON_RUNS_PER_DAY = 24 * 60 / 30
 const INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY = 24
 const RANKED_ROLE_CRON_RUNS_PER_DAY = 1
 
@@ -191,7 +196,7 @@ const CAPACITY_SNAPSHOT_PATH = 'tests/load/capacity.snapshot.json'
 const NOW = 1_700_000_000_000
 
 describe('capacity models', () => {
-  test('prints current ranked lifecycle capacity projections', { timeout: 20_000 }, async () => {
+  test('prints current ranked lifecycle capacity projections', { timeout: 45_000 }, async () => {
     const leaderboardCronRunUsage = await measureStableValue(CAPACITY_STABILITY_SAMPLES, measureLeaderboardCronRunUsage)
     const inactiveLobbyCleanupCronRunUsage = await measureStableValue(CAPACITY_STABILITY_SAMPLES, measureInactiveLobbyCleanupCronRunUsage)
     const rankedRoleCronRunUsage = await measureStableValue(CAPACITY_STABILITY_SAMPLES, measureRankedRoleCronRunUsage)
@@ -740,7 +745,6 @@ async function simulateMatchJoin(
     { liveMatchPlayerIds: new Set(liveMatchIdByPlayer.keys()) },
   )
   if ('error' in outcome) throw new Error(outcome.error)
-
 }
 
 async function simulateActivityLaunchSnapshot(
@@ -1007,7 +1011,11 @@ async function handleMatchReport(
     await storeMatchMessageMapping(db, `message-archive-reported-${mode.id}`, matchId)
   }
 
-  await markLeaderboardsDirty(db, `match-report:${matchId}`)
+  const leaderboardMode = toLeaderboardMode(mode.mode)
+  await markLeaderboardsDirty(db, `match-report:${matchId}`, {
+    civ: true,
+    modes: leaderboardMode ? [leaderboardMode] : [],
+  })
   await markRankedRolesDirty(kv, `match-report:${matchId}`)
 }
 
@@ -1424,13 +1432,19 @@ function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
   const backgroundDailyUsage = reports[0]?.model.backgroundDaily
 
   return {
-    version: 4,
+    version: 5,
     globals: {
       stabilitySamples: CAPACITY_STABILITY_SAMPLES,
       leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
       inactiveLobbyCleanupCronRunsPerDay: INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY,
       rankedRoleCronRunsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY,
       architectureModel: TARGET_ARCHITECTURE_MODEL,
+      currentArchitectureModel: CURRENT_ARCHITECTURE_MODEL,
+      targetArchitectureModel: TARGET_ARCHITECTURE_MODEL,
+      modeledProductionRatedPlayers: MODELED_PRODUCTION_RATED_PLAYERS,
+      modeledProductionCompletedMatches: MODELED_PRODUCTION_COMPLETED_MATCHES,
+      modeledProductionMatchParticipants: MODELED_PRODUCTION_MATCH_PARTICIPANTS,
+      estimatedSelectedSessionConnectedSeconds: ESTIMATED_SELECTED_SESSION_CONNECTED_SECONDS,
       lobbyWatchMsgsPerConnection: LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION,
       doWebsocketBillingRatio: DO_WEBSOCKET_BILLING_RATIO,
       estimatedDoGbSecondsPerRequest: ESTIMATED_DO_GB_SECONDS_PER_REQUEST,
@@ -1465,6 +1479,9 @@ function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
         draftMessages: report.draftRoomIncomingMessages,
         previewMessages: report.draftRoomIncomingMessagesWithSelectionPreviews,
         teamPreviewMessages: report.draftRoomIncomingMessagesWithTeamPickPreviews,
+        selectedSessionObjectSeconds: estimateSelectedSessionObjectSeconds(report.mode),
+        selectedSessionObjectHours: roundSnapshotNumber(estimateSelectedSessionObjectSeconds(report.mode) / 3600),
+        sessionDoDurationGbSeconds: roundSnapshotNumber(report.model.perDraft.doDurationGbSeconds),
         corePerDraft: roundNumericRecord(report.corePerDraft),
         openLobbyChurnPerDraft: roundNumericRecord(report.openLobbyChurnPerDraft),
         perDraft: roundNumericRecord(report.model.perDraft),
@@ -1550,6 +1567,12 @@ function printReports(reports: ScenarioReport[]): void {
     inactiveLobbyCleanupCronRunsPerDay: INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY,
     rankedRoleCronRunsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY,
     architectureModel: TARGET_ARCHITECTURE_MODEL,
+    currentArchitectureModel: CURRENT_ARCHITECTURE_MODEL,
+    targetArchitectureModel: TARGET_ARCHITECTURE_MODEL,
+    modeledProductionRatedPlayers: MODELED_PRODUCTION_RATED_PLAYERS,
+    modeledProductionCompletedMatches: MODELED_PRODUCTION_COMPLETED_MATCHES,
+    modeledProductionMatchParticipants: MODELED_PRODUCTION_MATCH_PARTICIPANTS,
+    estimatedSelectedSessionConnectedSeconds: ESTIMATED_SELECTED_SESSION_CONNECTED_SECONDS,
     lobbyWatchMsgsPerConnection: LOBBY_WATCH_INCOMING_MESSAGES_PER_CONNECTION,
     doWebsocketBillingRatio: DO_WEBSOCKET_BILLING_RATIO,
     estimatedDoGbSecondsPerRequest: ESTIMATED_DO_GB_SECONDS_PER_REQUEST,
@@ -1808,6 +1831,10 @@ function estimateDoBilledRequestUnits(input: {
 
 function estimateDoDurationGbSeconds(doRequestsRaw: number): number {
   return Number((doRequestsRaw * ESTIMATED_DO_GB_SECONDS_PER_REQUEST).toFixed(4))
+}
+
+function estimateSelectedSessionObjectSeconds(mode: CapacityScenario): number {
+  return scenarioViewerIds(mode).length * ESTIMATED_SELECTED_SESSION_CONNECTED_SECONDS
 }
 
 function projectUsageAtCapacity(

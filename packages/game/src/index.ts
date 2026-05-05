@@ -6,8 +6,6 @@ export { allFactionIds, factionMap, factions, getFaction, searchFactions } from 
 export { betaLeaderDataVersionLabel, hasBetaLeaderData, liveLeaderDataVersionLabel, normalizeAvailableLeaderDataVersion } from './leader-data-meta.ts'
 export { getDefaultLeaderPoolSize, getMinimumLeaderPoolSize, MAX_LEADER_POOL_SIZE, resolveLeaderPoolSize, sampleLeaderPool } from './leader-pool.ts'
 export { allLeaderIds, getLeader, getLeaderMap, getLeaders, leaderBetaMap, leaderMap, leaders, leadersBeta, redDeathLeaderMap, redDeathLeaders, searchLeaders } from './leader-registry.ts'
-export { createSeededRandom } from './random.ts'
-export type { RandomSource } from './random.ts'
 export {
   createMapVoteRng,
   DEFAULT_MAP_VOTE_SELECTION,
@@ -79,6 +77,8 @@ export {
   toBalanceLeaderboardMode,
   toLeaderboardMode,
 } from './mode.ts'
+export { createSeededRandom } from './random.ts'
+export type { RandomSource } from './random.ts'
 export type {
   CompetitiveTier,
   DraftAction,

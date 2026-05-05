@@ -1,10 +1,10 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { findBlockingDraftMatchIdsForPlayers, findReportableMatchIdsForPlayers, joinLobbyAndMaybeStartMatch, preflightMatchCreateSessionState, resolveReportableMatchIdForPlayer } from '../../src/commands/match/shared.ts'
-import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../helpers/lobby-runtime.ts'
 import { hostKey } from '../../src/services/lobby/keys.ts'
-import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../helpers/lobby-runtime.ts'
+import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
@@ -478,7 +478,6 @@ describe('preflightMatchCreateSessionState', () => {
     if (result.kind !== 'reuse-hosted-open-lobby') return
     expect(result.lobby.id).toBe(lobby.id)
   })
-
 })
 
 describe('match blocker/reportable discovery', () => {

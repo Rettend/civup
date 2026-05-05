@@ -1,15 +1,15 @@
+import { sessionDirectory } from '@civup/db'
 import { PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER, verifySessionAccessToken } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { sessionDirectory } from '@civup/db'
-import { Hono } from 'hono'
 import { eq } from 'drizzle-orm'
+import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility, selectActivityTargetForUser } from '../../src/routes/activity.ts'
-import { storeActivityFollowTargetSelection, storeActivityLaunchTargetSelection } from '../../src/services/activity/launch-target.ts'
 import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, resolveOpenLobbyFromBody } from '../../src/routes/lobby/snapshot.ts'
+import { storeActivityFollowTargetSelection, storeActivityLaunchTargetSelection } from '../../src/services/activity/launch-target.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
+import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
-import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
@@ -713,7 +713,7 @@ describe('activity target selection', () => {
     if (snapshot.selection?.kind !== 'match') return
     expect(snapshot.selection.matchId).toBe(lobby.id)
     expect(snapshot.selection.option.status).toBe('completed')
-    expect(snapshot.selection.sessionAccessToken).toBeNull()
+    expect(snapshot.selection.sessionAccessToken).toEqual(expect.any(String))
     expect(snapshot.options).toEqual([expect.objectContaining({ kind: 'match', id: lobby.id, status: 'completed' })])
   })
 
