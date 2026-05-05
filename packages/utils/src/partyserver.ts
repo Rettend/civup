@@ -12,12 +12,12 @@ export interface PartyServerDurableObjectFetchOptions extends PartyServerRoomRou
 }
 
 export interface PartyServerDurableObjectStub {
-  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>
+  fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 }
 
 export interface PartyServerDurableObjectNamespace<TId = unknown> {
-  idFromName(name: string): TId
-  get(id: TId): PartyServerDurableObjectStub
+  idFromName: (name: string) => TId
+  get: (id: TId) => PartyServerDurableObjectStub
 }
 
 export function buildPartyServerRequest(input: RequestInfo | URL, init: RequestInit | undefined, routing: PartyServerRoomRouting): Request {
@@ -27,10 +27,10 @@ export function buildPartyServerRequest(input: RequestInfo | URL, init: RequestI
   return request
 }
 
-export async function fetchPartyServerDurableObject(
-  namespace: PartyServerDurableObjectNamespace,
+export async function fetchPartyServerDurableObject<TId>(
+  namespace: PartyServerDurableObjectNamespace<TId>,
   options: PartyServerDurableObjectFetchOptions,
 ): Promise<Response> {
   const stub = namespace.get(namespace.idFromName(options.room))
-  return await stub.fetch(buildPartyServerRequest(options.input, options.init, options))
+  return stub.fetch(buildPartyServerRequest(options.input, options.init, options))
 }

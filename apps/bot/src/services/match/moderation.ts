@@ -5,8 +5,9 @@ import { matchBans, matches, matchParticipants } from '@civup/db'
 import { allLeaderIds, isTeamMode, parseGameMode } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
+import { type DbBatchItem, runDbBatch } from '../db/batch.ts'
+import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
-import { clearTeamLeaderboardModeSnapshots } from '../leaderboard/team-snapshot.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
 import { parseModerationPlacements } from './placements.ts'
 import { recalculateLeaderboardMode } from './ratings.ts'
@@ -16,7 +17,6 @@ interface MatchSessionLifecycleOptions {
   allowDirectTerminalWriteForTests?: boolean
 }
 
-type BatchItem = Parameters<Database['batch']>[0][number]
 const LIVE_LEADER_IDS = new Set<string>(allLeaderIds)
 
 interface MatchBanRow {
@@ -24,10 +24,6 @@ interface MatchBanRow {
   civId: string
   bannedBy: string
   phase: number
-}
-
-interface BatchRunner {
-  batch?: (queries: [BatchItem, ...BatchItem[]]) => Promise<unknown>
 }
 
 export async function resolveMatchByModerator(
@@ -71,7 +67,7 @@ export async function resolveMatchByModerator(
     .from(matchBans)
     .where(eq(matchBans.matchId, input.matchId))
 
-  const applyQueries: BatchItem[] = []
+  const applyQueries: DbBatchItem[] = []
   for (const participant of participants) {
     const placement = parsedPlacements.placementsByPlayer.get(participant.playerId)
     if (placement == null) return { error: `Failed to resolve placement for <@${participant.playerId}>.` }
@@ -91,7 +87,7 @@ export async function resolveMatchByModerator(
 
   let recalculatedMatchIds: string[] = []
   if (leaderboardMode == null) {
-    await runBatch(db, applyQueries)
+    await runDbBatch(db, applyQueries)
     const lifecycleError = await runTerminalSessionCommand(db, options, input.matchId, { type: 'mark-reported', at: input.resolvedAt })
     if (lifecycleError) {
       const rollbackError = await rollbackParticipantRowsAfterLifecycleFailure(db, options, input.matchId, participants)
@@ -101,7 +97,7 @@ export async function resolveMatchByModerator(
   }
   else {
     try {
-      await runBatch(db, applyQueries)
+      await runDbBatch(db, applyQueries)
       if (previousStatus === 'completed') {
         const prepareError = await prepareReportedMatchForRecalculation(db, input.matchId, input.resolvedAt)
         if (prepareError) return { error: prepareError }
@@ -153,6 +149,8 @@ export async function resolveMatchByModerator(
       throw error
     }
   }
+
+  await reconcileCivLeaderboardMatchContribution(db, input.matchId)
 
   const [updatedMatch] = await db
     .select()
@@ -223,7 +221,7 @@ export async function correctMatchLeadersByModerator(
     )
   }
 
-  const applyQueries: BatchItem[] = []
+  const applyQueries: DbBatchItem[] = []
   for (const correction of corrections) {
     if (correction.previousCivId === correction.nextCivId) continue
     applyQueries.push(db
@@ -243,7 +241,8 @@ export async function correctMatchLeadersByModerator(
       .where(eq(matches.id, input.matchId)))
   }
 
-  await runBatch(db, applyQueries)
+  await runDbBatch(db, applyQueries)
+  await reconcileCivLeaderboardMatchContribution(db, input.matchId)
 
   const [updatedMatch] = await db
     .select()
@@ -278,7 +277,7 @@ async function rollbackResolvedMatchModeration(
   },
 ): Promise<string | null> {
   try {
-    const rollbackQueries: BatchItem[] = options.participants.map(participant => db
+    const rollbackQueries: DbBatchItem[] = options.participants.map(participant => db
       .update(matchParticipants)
       .set({
         placement: participant.placement,
@@ -307,7 +306,8 @@ async function rollbackResolvedMatchModeration(
 
     if (options.bans.length > 0) rollbackQueries.push(db.insert(matchBans).values(options.bans))
 
-    await runBatch(db, rollbackQueries)
+    await runDbBatch(db, rollbackQueries)
+    await reconcileCivLeaderboardMatchContribution(db, options.input.matchId)
 
     const recalculated = await recalculateLeaderboardMode(db, options.leaderboardMode, {
       fromMatchId: options.input.matchId,
@@ -316,9 +316,6 @@ async function rollbackResolvedMatchModeration(
     if ('error' in recalculated) return recalculated.error
 
     await rebuildLeaderboardModeSnapshot(db, kv, options.leaderboardMode)
-    if (options.leaderboardMode === 'duo' || options.leaderboardMode === 'squad') {
-      await clearTeamLeaderboardModeSnapshots(kv, options.leaderboardMode)
-    }
     return null
   }
   catch (error) {
@@ -333,7 +330,7 @@ async function rollbackResolvedMatchAfterLifecycleFailure(
   rollbackOptions: Parameters<typeof rollbackResolvedMatchModeration>[2],
 ): Promise<string | null> {
   if (!await shouldRollbackPreparedReportedMatch(options, rollbackOptions.input.matchId)) return null
-  return await rollbackResolvedMatchModeration(db, kv, rollbackOptions)
+  return rollbackResolvedMatchModeration(db, kv, rollbackOptions)
 }
 
 async function rollbackParticipantRowsAfterLifecycleFailure(
@@ -344,7 +341,7 @@ async function rollbackParticipantRowsAfterLifecycleFailure(
 ): Promise<string | null> {
   if (!await shouldRollbackPreparedReportedMatch(options, matchId)) return null
   try {
-    await runBatch(db, participants.map(participant => db
+    await runDbBatch(db, participants.map(participant => db
       .update(matchParticipants)
       .set({
         placement: participant.placement,
@@ -373,20 +370,6 @@ async function shouldRollbackPreparedReportedMatch(options: MatchSessionLifecycl
   }
   catch {
     return false
-  }
-}
-
-async function runBatch(db: Database, queries: BatchItem[]): Promise<void> {
-  if (queries.length === 0) return
-
-  const batchDb = db as unknown as BatchRunner
-  if (typeof batchDb.batch === 'function') {
-    await batchDb.batch(queries as [BatchItem, ...BatchItem[]])
-    return
-  }
-
-  for (const query of queries) {
-    await query
   }
 }
 
@@ -553,6 +536,9 @@ export async function cancelMatchByModerator(
     .where(eq(matchParticipants.matchId, input.matchId))
 
   let recalculatedMatchIds: string[] = []
+  if (previousStatus === 'completed') {
+    await removeCivLeaderboardMatchContribution(db, input.matchId)
+  }
   if (completedLeaderboardMode != null) {
     const recalculated = await recalculateLeaderboardMode(db, completedLeaderboardMode, {
       fromMatchId: input.matchId,
@@ -560,9 +546,6 @@ export async function cancelMatchByModerator(
     })
     if ('error' in recalculated) return recalculated
     await rebuildLeaderboardModeSnapshot(db, kv, completedLeaderboardMode)
-    if (completedLeaderboardMode === 'duo' || completedLeaderboardMode === 'squad') {
-      await clearTeamLeaderboardModeSnapshots(kv, completedLeaderboardMode)
-    }
     recalculatedMatchIds = recalculated.matchIds
   }
 

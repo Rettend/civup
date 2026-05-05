@@ -1,8 +1,8 @@
-import { api } from '@civup/utils'
+import { api, ApiError } from '@civup/utils'
 import { Command, Embed } from 'discord-hono'
 import { canUseModCommands, hasAdminPermission, parseRoleIds } from '../services/permissions/index.ts'
-import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
+import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { factory } from '../setup'
 
 const MAX_HELP_DESCRIPTION_LENGTH = 3_800
@@ -209,8 +209,8 @@ async function fetchRegisteredCommands(
         commandsByKey.set(key, command)
       }
     }
-    catch (err: any) {
-      lastError = `HTTP ${err.status || 'Unknown'}`
+    catch (err: unknown) {
+      lastError = `HTTP ${err instanceof ApiError ? err.status : 'Unknown'}`
       continue
     }
   }

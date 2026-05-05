@@ -141,16 +141,16 @@ export interface SessionReportedDiscordSyncCommand {
   at?: number
 }
 
-export type SessionDraftLifecycleSyncResult =
-  | { ok: true, ignored?: boolean, synced?: boolean }
-  | { ok: false, status: number, error: string }
+export type SessionDraftLifecycleSyncResult
+  = | { ok: true, ignored?: boolean, synced?: boolean }
+    | { ok: false, status: number, error: string }
 
 export async function createSessionAggregateFromLobby(
   namespace: DurableObjectNamespace | null | undefined,
   lobby: LobbyState,
   queueEntries: readonly QueueEntry[] = [],
 ): Promise<SessionRecord> {
-  return await postSessionLobbyCommand(namespace, lobby, queueEntries)
+  return postSessionLobbyCommand(namespace, lobby, queueEntries)
 }
 
 export async function getSessionRecord(

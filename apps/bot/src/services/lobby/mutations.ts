@@ -1,9 +1,10 @@
-import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
 import type { Database } from '@civup/db'
-import type { LobbyArrangeStrategy, LobbyDraftConfig, LobbyState, LobbyStatus } from './types.ts'
+import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
+import type { SessionOpenLobbyCommand } from '../../session-runtime/session-do-client.ts'
 import type { SessionRecord } from '../../session-runtime/session-record.ts'
+import type { LobbyArrangeStrategy, LobbyDraftConfig, LobbyState, LobbyStatus } from './types.ts'
 import { nanoid } from 'nanoid'
-import { createSessionAggregateFromLobby, getSessionRecord, runSessionOpenLobbyCommand, runSessionProjectionCommand, type SessionOpenLobbyCommand } from '../../session-runtime/session-do-client.ts'
+import { createSessionAggregateFromLobby, getSessionRecord, runSessionOpenLobbyCommand, runSessionProjectionCommand } from '../../session-runtime/session-do-client.ts'
 import { buildLobbyProjectionFromSessionRecord, buildLobbyStateFromSessionRecord } from '../../session-runtime/session-record.ts'
 import { kvMdelete } from '../kv/batch.ts'
 import { channelIndexKey, modeIndexKey } from './keys.ts'
@@ -91,7 +92,7 @@ export async function commitLobbyState(
   options?: LobbySessionProjectionOptions,
 ): Promise<LobbyState> {
   if (lobby.status === 'open') throw new Error(`Open lobby mutation for ${lobby.id} must use an explicit SessionDO command`)
-  return await commitLobbyMutation(kv, lobby, options, putLobby)
+  return commitLobbyMutation(kv, lobby, options, putLobby)
 }
 
 export async function setLobbyStatus(
@@ -123,7 +124,7 @@ export async function setLobbyStatus(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open' && status === 'cancelled'
+  return commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open' && status === 'cancelled'
     ? {
         type: 'cancel-open-session',
         expectedVersion: lobby.revision,
@@ -154,7 +155,7 @@ export async function setLobbyMessage(
   if (lobby.channelId !== channelId && shouldWriteLegacyLobbyProjection(options)) {
     await kvMdelete(kv, [channelIndexKey(lobby.channelId, lobby.id)])
   }
-  return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
+  return commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
     ? { type: 'set-message', expectedVersion: lobby.revision, channelId, messageId, now: updated.updatedAt }
     : options?.sessionNamespace
       ? () => runSessionProjectionCommand(options.sessionNamespace, updated.id, { type: 'set-message', expectedVersion: lobby.revision, channelId, messageId, now: updated.updatedAt })
@@ -180,7 +181,7 @@ export async function setLobbyDraftConfig(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
+  return commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
     ? { type: 'set-draft-config', expectedVersion: lobby.revision, draftConfig: normalizedDraftConfig, now: updated.updatedAt }
     : undefined)
 }
@@ -204,7 +205,7 @@ export async function setLobbyMinRole(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
+  return commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
     ? { type: 'set-min-role', expectedVersion: lobby.revision, minRole: normalizedMinRole, now: updated.updatedAt }
     : undefined)
 }
@@ -228,7 +229,7 @@ export async function setLobbyMaxRole(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
+  return commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
     ? { type: 'set-max-role', expectedVersion: lobby.revision, maxRole: normalizedMaxRole, now: updated.updatedAt }
     : undefined)
 }
@@ -251,7 +252,7 @@ export async function setLobbySteamLobbyLink(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
+  return commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
     ? { type: 'set-steam-lobby-link', expectedVersion: lobby.revision, steamLobbyLink, now: updated.updatedAt }
     : () => runSessionProjectionCommand(options?.sessionNamespace, updated.id, { type: 'set-steam-lobby-link', expectedVersion: lobby.revision, steamLobbyLink, now: updated.updatedAt }))
 }
@@ -275,7 +276,7 @@ export async function setLobbySlots(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
+  return commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
     ? { type: 'set-slots', expectedVersion: lobby.revision, slots: normalizedSlots, queueEntries: options?.queueEntries ? [...options.queueEntries] : undefined, now: updated.updatedAt }
     : undefined)
 }
@@ -304,7 +305,7 @@ export async function setLobbyArranged(
     updatedAt: now,
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
+  return commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
     ? { type: 'arrange-roster', expectedVersion: lobby.revision, slots: normalizedSlots, strategy: input.strategy, at: now, queueEntries: options?.queueEntries ? [...options.queueEntries] : undefined }
     : undefined)
 }
@@ -338,7 +339,7 @@ export async function setLobbyRoster(
     updatedAt,
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options, putLobbyEntries, lobby.status === 'open'
+  return commitLobbyMutation(kv, updated, options, putLobbyEntries, lobby.status === 'open'
     ? {
         type: 'set-roster',
         expectedVersion: lobby.revision,
@@ -396,7 +397,7 @@ export async function setLobbyModeAndLayout(
     if (lobby.mode !== authoritative.mode) await kvMdelete(targetKv, [modeIndexKey(lobby.mode, lobby.id)])
     await putLobby(targetKv, authoritative)
   }
-  return await commitLobbyMutation(kv, updated, options, writeWithModeIndexCleanup, lobby.status === 'open'
+  return commitLobbyMutation(kv, updated, options, writeWithModeIndexCleanup, lobby.status === 'open'
     ? {
         type: 'change-mode',
         expectedVersion: lobby.revision,
@@ -431,7 +432,7 @@ export async function setLobbyMemberPlayerIds(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options, putLobbyEntries, lobby.status === 'open'
+  return commitLobbyMutation(kv, updated, options, putLobbyEntries, lobby.status === 'open'
     ? { type: 'set-member-player-ids', expectedVersion: lobby.revision, memberPlayerIds: normalizedMemberIds, queueEntries: options?.queueEntries ? [...options.queueEntries] : undefined, now: updated.updatedAt }
     : undefined)
 }
@@ -455,7 +456,7 @@ export async function setLobbyLastActivityAt(
     updatedAt: Date.now(),
     revision: lobby.revision + 1,
   }
-  return await commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
+  return commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
     ? { type: 'set-last-activity-at', expectedVersion: lobby.revision, lastActivityAt: normalizedLastActivityAt, now: updated.updatedAt }
     : undefined)
 }
@@ -492,8 +493,8 @@ async function commitLobbyMutation(
   const commandRecord = typeof command === 'function'
     ? await command()
     : command
-    ? await runSessionOpenLobbyCommand(options?.sessionNamespace, updated.id, command)
-    : null
+      ? await runSessionOpenLobbyCommand(options?.sessionNamespace, updated.id, command)
+      : null
   if (commandRecord) {
     const authoritative = buildLobbyStateFromSessionRecord(commandRecord, updated)
     if (shouldWriteLegacyLobbyProjection(options)) await write(kv, authoritative)

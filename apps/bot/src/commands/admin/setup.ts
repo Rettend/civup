@@ -1,7 +1,7 @@
 import type { AdminCommandContext } from './types.ts'
 import { createDb } from '@civup/db'
-import { upsertCivLeaderboardMessageForChannel, upsertLeaderboardMessagesForChannel } from '../../services/leaderboard/message.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
+import { upsertCivLeaderboardMessageForChannel, upsertLeaderboardMessagesForChannel } from '../../services/leaderboard/message.ts'
 import { clearLeaderboardDirtyState, clearLeaderboardMessageState, clearSystemChannel, getSystemChannel, setSystemChannel } from '../../services/system/channels.ts'
 import { formatChannelMention, parseSetupTarget, sendEphemeralResponse, sendTransientEphemeralResponse, setupTargetLabel } from './shared.ts'
 
@@ -78,9 +78,13 @@ export function handleSetup(c: AdminCommandContext) {
     if (target === 'civ-leaderboard') {
       try {
         const db = createDb(c.env.DB)
-        await upsertCivLeaderboardMessageForChannel(db, kv, c.env.DISCORD_TOKEN, channelId)
+        const initialized = await upsertCivLeaderboardMessageForChannel(db, kv, c.env.DISCORD_TOKEN, channelId)
         await clearLeaderboardDirtyState(kv)
         const movedFrom = previousChannelId && previousChannelId !== channelId ? ` (moved from <#${previousChannelId}>)` : ''
+        if (!initialized) {
+          await sendTransientEphemeralResponse(c, `Civ Leaderboard channel set to <#${channelId}>${movedFrom}, but no initialized civ leaderboard snapshot exists yet. Run the PPL civ leaderboard backfill script first.`, 'info')
+          return
+        }
         await sendTransientEphemeralResponse(c, `Civ Leaderboard channel set to <#${channelId}>${movedFrom}.`, 'success')
       }
       catch (error) {

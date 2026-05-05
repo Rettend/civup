@@ -1,4 +1,5 @@
 import type { DraftSetupPageProps } from './types'
+import type { LobbyArrangeStrategy } from '~/client/stores'
 import { Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import { DraftSetupActions } from './DraftSetupActions'
@@ -21,13 +22,10 @@ export function DraftSetupPage(props: DraftSetupPageProps) {
           <div class={cn('mx-auto px-6 py-4 flex w-full max-w-5xl flex-1 min-h-0 flex-col gap-6', state.layout.isMobileLayout() && 'pt-12')}>
             <div class={cn('gap-4 grid grid-cols-1 lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)]', state.layout.desktopSetupPanelMaxHeightClass())}>
               <div class="p-4 rounded-lg bg-bg-subtle flex flex-col min-h-0 overflow-hidden lg:h-full">
-                <div class="text-xs text-fg-subtle tracking-widest font-bold mb-3 flex gap-3 uppercase items-center justify-between">
+                <div class="text-xs text-fg-subtle tracking-widest font-bold mb-3 flex gap-3 uppercase items-center justify-between relative">
                   <span>Players</span>
-                  <Show when={state.players.lowConfidence()}>
-                    <span class="text-[11px] text-fg-subtle/70 tracking-normal font-medium inline-flex gap-1 normal-case items-center">
-                      <span class="i-ph-warning-circle text-xs" />
-                      low confidence
-                    </span>
+                  <Show when={state.players.arrangeEvent()}>
+                    {event => <LastArrangeIndicator strategy={event().strategy} isTeamMode={state.players.isTeamMode()} />}
                   </Show>
                 </div>
 
@@ -71,4 +69,41 @@ export function DraftSetupPage(props: DraftSetupPageProps) {
       <DraftSetupMiniView mini={state.mini} />
     </Show>
   )
+}
+
+function LastArrangeIndicator(props: { strategy: LobbyArrangeStrategy, isTeamMode: boolean }) {
+  const label = () => getLastArrangeLabel(props.strategy, props.isTeamMode)
+
+  return (
+    <span
+      class="rounded-full border border-border-subtle bg-bg-muted/25 px-2 py-1 text-[11px] text-fg-subtle tracking-normal leading-none font-medium inline-flex gap-1.5 normal-case items-center absolute right-0 top-1/2 -translate-y-1/2"
+      title={label()}
+      aria-label={`Last used: ${label()}`}
+    >
+      <span>Last used:</span>
+      <span class={cn(getLastArrangeIconClass(props.strategy), 'text-xs text-accent')} aria-hidden />
+    </span>
+  )
+}
+
+function getLastArrangeLabel(strategy: LobbyArrangeStrategy, isTeamMode: boolean) {
+  switch (strategy) {
+    case 'balance':
+      return isTeamMode ? 'Teams balanced' : 'Seat order balanced'
+    case 'shuffle-teams':
+      return 'Teams shuffled'
+    default:
+      return isTeamMode ? 'Players shuffled' : 'Seat order randomized'
+  }
+}
+
+function getLastArrangeIconClass(strategy: LobbyArrangeStrategy) {
+  switch (strategy) {
+    case 'balance':
+      return 'i-ph:scales-bold'
+    case 'shuffle-teams':
+      return 'i-ph:arrows-clockwise-bold'
+    default:
+      return 'i-ph:shuffle-simple-bold'
+  }
 }

@@ -5,13 +5,8 @@ import { matches, matchParticipants, playerRatings, playerRatingSeeds, seasons }
 import { isTeamMode, leaderboardModesToGameModes } from '@civup/game'
 import { calculateRatings, createRating, displayRating, getLeaderboardMinGames, seasonReset } from '@civup/rating'
 import { and, asc, eq, gt, gte, inArray, lt, or } from 'drizzle-orm'
+import { type DbBatchItem, runDbBatch } from '../db/batch.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
-
-type BatchItem = Parameters<Database['batch']>[0][number]
-
-interface BatchRunner {
-  batch?: (queries: [BatchItem, ...BatchItem[]]) => Promise<unknown>
-}
 
 interface LeaderboardSnapshotRow {
   playerId: string
@@ -130,7 +125,7 @@ export async function recalculateLeaderboardMode(
   ])
 
   if (options.fromMatchId) {
-    return await recalculateLeaderboardModeFromBoundary(
+    return recalculateLeaderboardModeFromBoundary(
       db,
       leaderboardMode,
       gameModes,
@@ -142,7 +137,7 @@ export async function recalculateLeaderboardMode(
     )
   }
 
-  return await recalculateLeaderboardModeFromScratch(db, leaderboardMode, gameModes, seasonRows, seedRows)
+  return recalculateLeaderboardModeFromScratch(db, leaderboardMode, gameModes, seasonRows, seedRows)
 }
 
 async function recalculateLeaderboardModeFromScratch(
@@ -336,7 +331,7 @@ async function recalculateLeaderboardModeFromBoundary(
   if (typeof hydrateResult === 'string' && isMissingRatingSnapshotsError(hydrateResult)) {
     const missingSnapshotMatchId = parseMissingRatingSnapshotMatchId(hydrateResult)
     if (!missingSnapshotMatchId) return { error: hydrateResult }
-    return await recalculateLeaderboardModeFromBoundary(
+    return recalculateLeaderboardModeFromBoundary(
       db,
       leaderboardMode,
       gameModes,
@@ -528,7 +523,7 @@ async function replayCompletedMatch(
   })
 
   const updateByPlayer = new Map(ratingUpdates.map(update => [update.playerId, update]))
-  const participantUpdateQueries: BatchItem[] = []
+  const participantUpdateQueries: DbBatchItem[] = []
   const shouldCountAsNewBotGame = !match.isOld
 
   for (const participant of participantRows) {
@@ -541,9 +536,12 @@ async function replayCompletedMatch(
     let ratingAfterMu = update.after.mu
 
     if (seedFadeState && shouldCountAsNewBotGame) {
-      const previousBonusMu = currentSeedBonusMu(seedFadeState)
+      const seedFadeDeltaMu = calculateSeedFadeStepMu(
+        seedFadeState.initialBonusMu,
+        seedFadeState.fadeGamesRemaining,
+        seedFadeState.newBotGamesPlayed,
+      )
       seedFadeState.newBotGamesPlayed += 1
-      const seedFadeDeltaMu = previousBonusMu - currentSeedBonusMu(seedFadeState)
       ratingBeforeMu -= seedFadeDeltaMu
       ratingAfterMu -= seedFadeDeltaMu
       seedFadeStateByPlayer.set(participant.playerId, seedFadeState)
@@ -575,7 +573,7 @@ async function replayCompletedMatch(
     })
   }
 
-  await runBatch(db, participantUpdateQueries)
+  await runDbBatch(db, participantUpdateQueries)
   return null
 }
 
@@ -629,7 +627,7 @@ async function replacePlayerRatings(
   ratingStateByPlayer: Map<string, RatingState>,
   playerIds?: string[],
 ): Promise<void> {
-  const ratingQueries: BatchItem[] = []
+  const ratingQueries: DbBatchItem[] = []
 
   if (playerIds) {
     if (playerIds.length === 0) return
@@ -661,7 +659,7 @@ async function replacePlayerRatings(
     )
   }
 
-  await runBatch(db, ratingQueries)
+  await runDbBatch(db, ratingQueries)
 }
 
 function createDefaultRatingState(playerId: string): RatingState {
@@ -677,6 +675,16 @@ function createDefaultRatingState(playerId: string): RatingState {
 
 function hasLiveSeedFade(seedRows: StoredSeedRow[]): boolean {
   return seedRows.some(row => (row.fadeGamesRemaining ?? 0) > 0)
+}
+
+export function calculateSeedFadeStepMu(
+  initialBonusMu: number,
+  fadeGamesRemaining: number,
+  newBotGamesPlayed: number,
+): number {
+  const previousBonusMu = currentSeedBonusMu({ initialBonusMu, fadeGamesRemaining, newBotGamesPlayed })
+  const nextBonusMu = currentSeedBonusMu({ initialBonusMu, fadeGamesRemaining, newBotGamesPlayed: newBotGamesPlayed + 1 })
+  return previousBonusMu - nextBonusMu
 }
 
 function currentSeedBonusMu(state: SeedFadeState): number {
@@ -712,18 +720,4 @@ function buildBoundaryCondition(
       includeBoundary ? gte(matches.id, boundaryMatch.id) : gt(matches.id, boundaryMatch.id),
     ),
   )
-}
-
-async function runBatch(db: Database, queries: BatchItem[]): Promise<void> {
-  if (queries.length === 0) return
-
-  const batchDb = db as unknown as BatchRunner
-  if (typeof batchDb.batch === 'function') {
-    await batchDb.batch(queries as [BatchItem, ...BatchItem[]])
-    return
-  }
-
-  for (const query of queries) {
-    await query
-  }
 }
