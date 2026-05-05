@@ -107,6 +107,7 @@ export function computeListItemBoxShadow(
 function useLeaderCardState(props: LeaderCardProps) {
   const state = () => draftStore.state
   const step = currentStep
+  let suppressNextFocusTooltip = false
 
   const isBanned = (): boolean => state()?.bans.some(b => b.civId === props.leader.id) ?? false
   const isPicked = (): boolean => state()?.picks.some(p => p.civId === props.leader.id) ?? false
@@ -175,8 +176,11 @@ function useLeaderCardState(props: LeaderCardProps) {
   }
 
   const handleClick = () => {
-    props.onHoverLeave?.()
     handleSingleClick()
+  }
+
+  const handlePointerDown = () => {
+    suppressNextFocusTooltip = true
   }
 
   const handleContextMenu = (event: MouseEvent) => {
@@ -190,6 +194,11 @@ function useLeaderCardState(props: LeaderCardProps) {
   }
 
   const handleHoverFocus = (event: FocusEvent & { currentTarget: HTMLButtonElement }) => {
+    if (suppressNextFocusTooltip) {
+      suppressNextFocusTooltip = false
+      return
+    }
+
     const rect = event.currentTarget.getBoundingClientRect()
     props.onHoverMove?.(props.leader, rect.left + (rect.width / 2), rect.top + (rect.height / 2))
   }
@@ -210,6 +219,7 @@ function useLeaderCardState(props: LeaderCardProps) {
     isFavorited,
     isInteractive,
     handleClick,
+    handlePointerDown,
     handleContextMenu,
     handleHoverMove,
     handleHoverFocus,
@@ -236,6 +246,7 @@ export function LeaderCard(props: LeaderCardProps) {
     isFavorited,
     isInteractive,
     handleClick,
+    handlePointerDown,
     handleContextMenu,
     handleHoverMove,
     handleHoverFocus,
@@ -252,6 +263,7 @@ export function LeaderCard(props: LeaderCardProps) {
         !isInteractive() && !isUnavailable() && 'cursor-pointer',
       )}
       onClick={handleClick}
+      onPointerDown={handlePointerDown}
       onContextMenu={handleContextMenu}
       onFocus={handleHoverFocus}
       onMouseEnter={handleHoverMove}
@@ -339,6 +351,7 @@ export function LeaderListItem(props: LeaderCardProps & { neighborState?: Leader
     isFavorited,
     isInteractive,
     handleClick,
+    handlePointerDown,
     handleContextMenu,
     handleHoverMove,
     handleHoverFocus,
@@ -364,6 +377,7 @@ export function LeaderListItem(props: LeaderCardProps & { neighborState?: Leader
         'box-shadow': computeListItemBoxShadow(hasSelectionVisual(), isSelected() ? 'accent' : 'danger', props.neighborState),
       }}
       onClick={handleClick}
+      onPointerDown={handlePointerDown}
       onContextMenu={handleContextMenu}
       onFocus={handleHoverFocus}
       onMouseEnter={handleHoverMove}

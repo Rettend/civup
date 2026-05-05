@@ -1,12 +1,14 @@
 /** @jsxImportSource solid-js */
 
 import type { DraftStep } from '@civup/game'
+import { getLeader } from '@civup/game'
 import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library'
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { createActiveDraftState, TEST_LEADER_IDS } from './ui-fixtures'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const { LeaderGridOverlay } = await import('../src/client/components/draft/LeaderGridOverlay')
+const { LeaderCard } = await import('../src/client/components/draft/LeaderCard')
 
 function setViewportWidth(width: number) {
   Object.defineProperty(window, 'innerWidth', {
@@ -100,6 +102,34 @@ describe('LeaderGridOverlay UI', () => {
     expect(uiMockState.gridOpen).toBe(false)
     expect(uiMockState.selectedLeaderId).toBeNull()
     expect(uiMockState.pickSelections).toEqual([])
+  })
+
+  test('does not replace mouse tooltip coordinates with focus coordinates on click', () => {
+    const hoverPoints: Array<{ x: number, y: number }> = []
+    let hoverLeaveCount = 0
+
+    render(() => (
+      <LeaderCard
+        leader={getLeader(TEST_LEADER_IDS.abrahamLincoln)}
+        onHoverMove={(_leader, x, y) => hoverPoints.push({ x, y })}
+        onHoverLeave={() => { hoverLeaveCount += 1 }}
+      />
+    ))
+
+    const card = screen.getByAltText('Abraham Lincoln').closest('button')!
+    fireEvent.mouseMove(card, { clientX: 120, clientY: 140 })
+
+    Object.defineProperty(card, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 700, top: 400, width: 72, height: 72, right: 772, bottom: 472, x: 700, y: 400, toJSON: () => {} }),
+    })
+
+    fireEvent.pointerDown(card)
+    fireEvent.focus(card)
+    fireEvent.click(card)
+
+    expect(hoverPoints).toEqual([{ x: 120, y: 140 }])
+    expect(hoverLeaveCount).toBe(0)
   })
 
   test('confirms a random pick from the stable available pool', () => {
