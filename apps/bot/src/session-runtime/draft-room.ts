@@ -90,7 +90,7 @@ export interface DraftRuntimeEnv extends Cloudflare.Env {
   KV?: KVNamespace
   DISCORD_TOKEN?: string
   SessionDO?: DurableObjectNamespace
-  DEBUG_ACTIVE_BOTS?: string
+  ENABLE_DEBUG_LOBBY_FILL?: string
 }
 
 // ── Connection State ─────────────────────────────────────────
@@ -116,7 +116,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
   }
 
   protected async runBackgroundRoomOperation<T>(operation: () => Promise<T>): Promise<T> {
-    return await operation()
+    return operation()
   }
 
   // ── HTTP: Draft runtime initialization & status ─────────────
@@ -252,7 +252,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
   }
 
   protected async updateRoomRecord(updater: (room: RoomRecord) => RoomRecord): Promise<RoomRecord> {
-    return await this.setRoomRecord(updater(await this.requireRoomRecord()))
+    return this.setRoomRecord(updater(await this.requireRoomRecord()))
   }
 
   protected getNormalizedSwapState(room: Pick<RoomRecord, 'swapState'>): LeaderSwapState {
@@ -775,7 +775,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     const previews = sanitizeDraftPreviews(state, room.previews)
     const result = resolveTimeoutWithPreviews(state, format.blindBans, previews, () => this.random())
     if (isDraftError(result)) {
-      return await this.recoverFailedDraftTimeout(room, result.error, format.blindBans)
+      return this.recoverFailedDraftTimeout(room, result.error, format.blindBans)
     }
 
     await this.applyResult(result.state, result.events)
@@ -1053,7 +1053,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       return 'Map voting is already in progress'
     }
 
-    return await this.startActualDraft(state, config, format)
+    return this.startActualDraft(state, config, format)
   }
 
   private async handleMapVoteAlarm(state: DraftState, _config: DraftRuntimeConfig): Promise<boolean> {
@@ -1319,8 +1319,8 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     }
   }
 
-  private debugActiveBotActionsEnabled(): boolean {
-    return this.env.DEBUG_ACTIVE_BOTS === 'true'
+  protected debugActiveBotActionsEnabled(): boolean {
+    return isTruthyEnvFlag(this.env.ENABLE_DEBUG_LOBBY_FILL)
   }
 }
 
@@ -1328,6 +1328,11 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
 function isDebugActiveBotPlayerId(playerId: string | null | undefined): boolean {
   return typeof playerId === 'string' && playerId.startsWith(DEBUG_ACTIVE_BOT_PLAYER_ID_PREFIX)
+}
+
+function isTruthyEnvFlag(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
 }
 
 function buildDraftRoomLogContext(

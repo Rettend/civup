@@ -22,7 +22,7 @@ export const storeSpies = {
   updateDraftSteamLobbyLink: mock((steamLobbyLink: string | null) => {
     uiMockState.steamLobbyLink = steamLobbyLink
   }),
-  reportMatchResult: mock(async () => ({ ok: true })),
+  reportMatchResult: mock(async (_matchId: string, _reporterId: string, _placements: string, _leaderAssignments?: Record<string, string>) => ({ ok: true })),
   scrubMatchResult: mock(async () => ({ ok: true })),
   toggleFfaPlacement: mock((seatIndex: number) => {
     const existingIndex = uiMockState.ffaPlacementOrder.indexOf(seatIndex)

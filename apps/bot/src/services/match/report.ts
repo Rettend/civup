@@ -80,7 +80,7 @@ export async function reportMatch(
 
     const cleanupError = await ensureReportedMatchCleanup(db, options, input.matchId, Date.now(), null, false)
     if (cleanupError) return { error: cleanupError }
-    await reconcileLeaderboardAggregatesForMatch(db, input.matchId)
+    await reconcileCivLeaderboardMatchContribution(db, input.matchId)
     return { match, participants: participantRows, idempotent: true }
   }
 
@@ -102,7 +102,7 @@ export async function reportMatch(
 
     const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
     const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
-    await reconcileLeaderboardAggregatesForMatch(db, input.matchId)
+    await reconcileCivLeaderboardMatchContribution(db, input.matchId)
     return { match: updatedMatch ?? match, participants: updatedParticipants, idempotent: true }
   }
 
@@ -296,7 +296,7 @@ async function finalizeReportedMatch(
 
   const leaderboardMode = gameContext.leaderboardMode
   if (leaderboardMode == null) {
-    return await finalizeReportedUnrankedMatch(db, match, originalParticipantRows, reporterId, options)
+    return finalizeReportedUnrankedMatch(db, match, originalParticipantRows, reporterId, options)
   }
 
   const sessionValidationError = await validateReportableSession(options, matchId)
@@ -377,7 +377,7 @@ async function finalizeReportedMatch(
     return { error: cleanupError }
   }
 
-  await reconcileLeaderboardAggregatesForMatch(db, matchId)
+  await reconcileCivLeaderboardMatchContribution(db, matchId)
 
   const [updatedMatch] = await db
     .select()
@@ -424,13 +424,6 @@ function buildCachedRankContext(
 
   const rankByPlayer = buildRankByPlayer([...rowsByPlayerId.values()], leaderboardMode)
   return { rankByPlayer, eligibleCount: rankByPlayer.size }
-}
-
-async function reconcileLeaderboardAggregatesForMatch(
-  db: Database,
-  matchId: string,
-): Promise<void> {
-  await reconcileCivLeaderboardMatchContribution(db, matchId)
 }
 
 async function listPlayerRatingsForPlayers(
@@ -725,7 +718,7 @@ async function repairCompletedReportedMatch(
 
   const cleanupError = await ensureReportedMatchCleanup(db, options, match.id, Date.now(), null, false)
   if (cleanupError) return { error: cleanupError }
-  await reconcileLeaderboardAggregatesForMatch(db, match.id)
+  await reconcileCivLeaderboardMatchContribution(db, match.id)
   return { match: updatedMatch, participants: updatedParticipants, idempotent: true }
 }
 
@@ -884,7 +877,7 @@ async function rollbackPreparedReportAfterLifecycleFailure(
   participantRows?: ParticipantRow[],
 ): Promise<string | null> {
   if (!await shouldRollbackPreparedReportedMatch(options, match.id)) return null
-  return await rollbackReportedRatedMatch(db, kv, { match, leaderboardMode, participantRows })
+  return rollbackReportedRatedMatch(db, kv, { match, leaderboardMode, participantRows })
 }
 
 async function rollbackParticipantRowsAfterLifecycleFailure(

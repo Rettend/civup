@@ -14,7 +14,7 @@ export async function handleDraftLifecyclePayload(
   payload: DraftLifecyclePayload,
 ): Promise<DraftLifecycleResult> {
   console.log('[draft-lifecycle] received', buildDraftLifecycleContext(payload))
-  return await syncSessionDraftLifecyclePayload(env.SessionDO, payload.matchId, payload)
+  return syncSessionDraftLifecyclePayload(env.SessionDO, payload.matchId, payload)
 }
 
 function buildDraftLifecycleContext(payload: DraftLifecyclePayload): Record<string, unknown> {

@@ -1,6 +1,6 @@
 import type { Database } from '@civup/db'
 import { players } from '@civup/db'
-import { api, buildDiscordAvatarUrl } from '@civup/utils'
+import { api, ApiError, buildDiscordAvatarUrl } from '@civup/utils'
 
 interface DiscordUserResponse {
   id: string
@@ -35,8 +35,8 @@ export async function fetchDiscordPlayerProfile(token: string, playerId: string)
       avatarUrl: buildDiscordAvatarUrl(data.id, data.avatar ?? null),
     }
   }
-  catch (err: any) {
-    console.error(`Failed to fetch Discord user ${playerId}: ${err.status ?? err}`)
+  catch (err: unknown) {
+    console.error(`Failed to fetch Discord user ${playerId}: ${err instanceof ApiError ? err.status : err}`)
     return null
   }
 }

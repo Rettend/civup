@@ -1117,7 +1117,7 @@ function buildMatchJoinRequest(
 }
 
 async function findHostedOpenLobby(db: ReturnType<typeof createDb>, hostId: string) {
-  return await getOpenSessionLobbyProjectionHostedBy(db, hostId)
+  return getOpenSessionLobbyProjectionHostedBy(db, hostId)
 }
 
 async function findHostedEditableLobbies(db: ReturnType<typeof createDb>, hostId: string): Promise<LobbyState[]> {

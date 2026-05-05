@@ -58,10 +58,10 @@ export default worker
 async function handleBotPartyRequest(request: Request, env: Env['Bindings']): Promise<Response | null> {
   const partyNamespace = getBotPartyNamespace(request)
   if (!partyNamespace) return null
-  if (partyNamespace === 'session') return await routeSessionPartyRequest(request, env)
+  if (partyNamespace === 'session') return routeSessionPartyRequest(request, env)
   if (partyNamespace === 'activity' && !env.Activity) return new Response('Activity feed is not configured', { status: 503 })
 
-  return await routePartykitRequest(request, env, { prefix: 'parties' })
+  return routePartykitRequest(request, env, { prefix: 'parties' })
 }
 
 async function routeSessionPartyRequest(request: Request, env: Env['Bindings']): Promise<Response> {
@@ -71,7 +71,7 @@ async function routeSessionPartyRequest(request: Request, env: Env['Bindings']):
   if (!sessionId) return new Response('Missing session id', { status: 400 })
 
   const stub = env.SessionDO.get(env.SessionDO.idFromName(sessionId))
-  return await stub.fetch(request)
+  return stub.fetch(request)
 }
 
 async function rejectDisallowedDiscordGuildInteraction(request: Request, env: Env['Bindings']): Promise<Response | null> {

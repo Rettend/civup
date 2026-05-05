@@ -91,7 +91,7 @@ export async function ensureCivLeaderboardSnapshot(
 ): Promise<CivLeaderboardSnapshot> {
   const snapshot = await getStoredCivLeaderboardSnapshot(kv)
   if (snapshot) return snapshot
-  return await rebuildCivLeaderboardSnapshot(db, kv)
+  return rebuildCivLeaderboardSnapshot(db, kv)
 }
 
 export async function getStoredCivLeaderboardSnapshot(kv: KVNamespace): Promise<CivLeaderboardSnapshot | null> {
@@ -667,7 +667,7 @@ function serializeContributionEntries(entries: readonly CivStatContributionEntry
 
 function parseContributionEntries(raw: string): CivStatContributionEntry[] {
   try {
-    const parsed = JSON.parse(raw) as unknown
+    const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
     return parsed.flatMap((entry) => {
       if (!entry || typeof entry !== 'object') return []
@@ -801,7 +801,7 @@ function extractDraftDataBanCivIds(draftData: string | null): string[] {
 function parseDraftData(draftData: string | null): ParsedDraftData | null {
   if (!draftData) return null
   try {
-    const parsed = JSON.parse(draftData) as unknown
+    const parsed: unknown = JSON.parse(draftData)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
     return parsed as ParsedDraftData
   }

@@ -1,3 +1,4 @@
+import type { AnyD1Database } from 'drizzle-orm/d1'
 import { drizzle } from 'drizzle-orm/d1'
 import * as schema from './schema/index.ts'
 
@@ -8,7 +9,7 @@ export * from './schema/index.ts'
  * Create a Drizzle client from a D1 binding.
  * Use this in Workers: `const db = createDb(env.DB)`
  */
-export function createDb(d1: any) {
+export function createDb(d1: AnyD1Database) {
   return drizzle(d1, { schema })
 }
 

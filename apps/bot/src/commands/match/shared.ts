@@ -181,6 +181,7 @@ export async function joinLobbyAndMaybeStartMatch(
   }
 
   const kv = getKvStore(c.env)
+  if (!c.env.DB) return { error: 'D1 binding is not configured.' }
   const db = createCivupDb(c.env.DB)
   const openLobbies = (await getOpenSessionLobbyProjectionsByMode(db, mode))
     .filter(lobby => lobby.memberPlayerIds.length > 0)

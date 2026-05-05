@@ -231,7 +231,7 @@ async function runDirectoryProjectionTransaction<T>(db: Database, operation: (tx
       throw error
     }
   }
-  return await operation(db, false)
+  return operation(db, false)
 }
 
 function isLiveMembershipPhase(phase: SessionPhase): boolean {

@@ -201,7 +201,7 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
       redirectUri,
     })
   }
-  catch (err: any) {
+  catch (err: unknown) {
     if (!(err instanceof ApiError)) throw err
 
     const errPayload = err.data as TokenExchangeResponse | undefined

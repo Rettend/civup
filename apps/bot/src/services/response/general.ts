@@ -1,4 +1,5 @@
 import type { DiscordMessagePayload } from '../discord/index.ts'
+import type { Env } from '../../env.ts'
 import { createChannelMessage, createInteractionFollowupMessage } from '../discord/index.ts'
 import { getSystemChannel } from '../system/channels.ts'
 import { sendTransientEphemeralResponse } from './ephemeral.ts'
@@ -9,12 +10,7 @@ interface GeneralCommandDeferredContext {
   executionCtx: {
     waitUntil: (promise: Promise<unknown>) => void
   }
-  env: {
-    KV: KVNamespace
-    DISCORD_TOKEN: string
-    DISCORD_APPLICATION_ID: string
-    [key: string]: any
-  }
+  env: Env['Bindings']
   interaction: {
     token: string
     guild_id?: string
@@ -48,7 +44,7 @@ export async function resDeferGeneralCommandResponse(
     && interactionChannelId !== commandsChannelId
 
   const responder = shouldRedirect ? c.flags('EPHEMERAL') : c
-  return await responder.resDefer(async (deferred) => {
+  return responder.resDefer(async (deferred) => {
     const payload = await buildPayload(deferred)
     const payloads = normalizeGeneralCommandPayloads(payload)
     if (payloads.length === 0) return
