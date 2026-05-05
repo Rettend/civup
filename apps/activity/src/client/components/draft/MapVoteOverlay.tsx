@@ -146,7 +146,7 @@ function MapOptionSection(props: { title: string, gridClass: string, children: J
 function MapTypeColumn(props: { disabled: boolean }) {
   return (
     <MapOptionSection
-      title="Teamers Start Position"
+      title="Start Position"
       gridClass="flex flex-wrap content-start justify-start gap-2"
     >
       <For each={MAP_TYPES_WITH_RANDOM_FIRST}>
