@@ -70,22 +70,27 @@ describe('lobby balance summary', () => {
     expect(summary?.teams).toHaveLength(2)
     expect(summary?.teams[0]?.probability ?? 0).toBeGreaterThan(summary?.teams[1]?.probability ?? 1)
     expect(summary?.teams[0]?.uncertainty ?? 0).toBeGreaterThan(0)
-    expect(summary?.lowConfidence).toBe(false)
-    expect(summary?.lowConfidencePlayerCount).toBe(0)
+    expect(summary?.teams[0]?.uncertainty ?? 1).toBeLessThan(0.1)
   })
 
-  test('flags low confidence when a slotted player has fewer than 10 games', () => {
-    const summary = buildLobbyBalanceSummary(createLobbySnapshot([
-      { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 30, sigma: 3, gamesPlayed: 9 } },
-      { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 29, sigma: 3, gamesPlayed: 12 } },
-      { playerId: 'a2', displayName: 'A2', avatarUrl: null, balanceRating: { mu: 28, sigma: 3, gamesPlayed: 15 } },
-      { playerId: 'b2', displayName: 'B2', avatarUrl: null, balanceRating: { mu: 27, sigma: 3, gamesPlayed: 13 } },
+  test('widens uncertainty when players have little rating history', () => {
+    const veteranSummary = buildLobbyBalanceSummary(createLobbySnapshot([
+      { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 30, sigma: 3, gamesPlayed: 20 } },
+      { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 29, sigma: 3, gamesPlayed: 20 } },
+      { playerId: 'a2', displayName: 'A2', avatarUrl: null, balanceRating: { mu: 28, sigma: 3, gamesPlayed: 20 } },
+      { playerId: 'b2', displayName: 'B2', avatarUrl: null, balanceRating: { mu: 27, sigma: 3, gamesPlayed: 20 } },
+    ]))
+    const newPlayerSummary = buildLobbyBalanceSummary(createLobbySnapshot([
+      { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 30, sigma: 3, gamesPlayed: 0 } },
+      { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 29, sigma: 3, gamesPlayed: 0 } },
+      { playerId: 'a2', displayName: 'A2', avatarUrl: null, balanceRating: { mu: 28, sigma: 3, gamesPlayed: 0 } },
+      { playerId: 'b2', displayName: 'B2', avatarUrl: null, balanceRating: { mu: 27, sigma: 3, gamesPlayed: 0 } },
     ]))
 
-    expect(summary).not.toBeNull()
-    expect(summary?.lowConfidence).toBe(true)
-    expect(summary?.lowConfidencePlayerCount).toBe(1)
-    expect(summary?.averageSigma).toBeCloseTo(3, 5)
+    expect(veteranSummary).not.toBeNull()
+    expect(newPlayerSummary).not.toBeNull()
+    expect(veteranSummary?.teams[0]?.uncertainty ?? 1).toBeLessThan(0.1)
+    expect(newPlayerSummary?.teams[0]?.uncertainty ?? 0).toBeGreaterThan((veteranSummary?.teams[0]?.uncertainty ?? 0) * 2)
   })
 
   test('falls back to default ratings when balance data is missing', () => {
@@ -99,8 +104,7 @@ describe('lobby balance summary', () => {
 
     expect(summary).not.toBeNull()
     expect(summary?.teams).toHaveLength(2)
-    expect(summary?.lowConfidence).toBe(true)
-    expect(summary?.lowConfidencePlayerCount).toBe(1)
+    expect(summary?.teams.some(team => team.uncertainty >= 0.1)).toBe(true)
   })
 })
 
