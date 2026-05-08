@@ -1,18 +1,18 @@
 import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import type { FfaEntry, TeamInput } from '@civup/rating'
-import type { LeaderboardModeSnapshot, LeaderboardSnapshotRow } from '../leaderboard/snapshot.ts'
+import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import type { ParticipantRow, ReportInput, ReportResult } from './types.ts'
-import { matchBans, matches, matchParticipants, playerRatings, playerRatingSeeds, players } from '@civup/db'
-import { allFactionIds, allLeaderIds, isTeamMode, leaderboardModesToGameModes } from '@civup/game'
-import { calculateRatings, createRating } from '@civup/rating'
-import { and, eq, gt, inArray, lt, or, sql } from 'drizzle-orm'
+import { matchBans, matches, matchParticipants, playerRatings, players } from '@civup/db'
+import { allFactionIds, allLeaderIds, isTeamMode } from '@civup/game'
+import { calculateRatings, createRating, IMPORTED_GAME_EFFECTIVE_WEIGHT } from '@civup/rating'
+import { and, eq, inArray } from 'drizzle-orm'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { reconcileCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
 import { getStoredLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { getCompletedAtFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
-import { buildRankByPlayer, calculateSeedFadeStepMu, recalculateLeaderboardMode } from './ratings.ts'
+import { buildRankByPlayer, recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
 
 interface ReportMatchOptions {
   sessionNamespace?: DurableObjectNamespace | null
@@ -27,18 +27,44 @@ interface RatedReportMatchContext {
   createdAt: number
 }
 
-interface IncrementalSeedFadeContext {
-  seedRowsByPlayerId: Map<string, SeedRatingRow>
-  priorNewBotGamesByPlayerId: Map<string, number>
-  currentMatchCountsAsNewBotGame: boolean
-  requiresRecalculation: boolean
-}
+type RatingScope = LeaderboardMode | typeof GLOBAL_RATING_SCOPE
 
-interface SeedRatingRow {
+interface StoredRatingSummaryRow {
   playerId: string
+  mode: RatingScope
   mu: number
   sigma: number
-  fadeGamesRemaining: number | null
+  gamesPlayed: number
+  wins: number
+  lastPlayedAt: number | null
+  importedGames: number
+  effectiveGames: number
+  uniqueOpponents: number
+  updatedAt: number | null
+}
+
+interface MatchEvidenceDelta {
+  importedGames: number
+  effectiveGames: number
+  uniqueOpponents: number
+}
+
+interface RatingScopeUpdateInput {
+  scope: RatingScope
+  match: RatedReportMatchContext
+  gameMode: string
+  participantRows: ParticipantRow[]
+  existingRatingsByPlayerId: Map<string, StoredRatingSummaryRow>
+  evidenceByPlayerId: Map<string, MatchEvidenceDelta>
+  now: number
+  writeParticipantSnapshots: boolean
+}
+
+const GLOBAL_RATING_SCOPE = 'global'
+
+interface RatingState {
+  mu: number
+  sigma: number
 }
 
 export async function reportMatch(
@@ -304,15 +330,11 @@ async function finalizeReportedMatch(
 
   const cachedLeaderboardSnapshot = await getStoredLeaderboardModeSnapshot(kv, leaderboardMode)
   const beforeRankByPlayer = buildCachedRankByPlayer(cachedLeaderboardSnapshot, leaderboardMode)
-  const existingRatingsByPlayerId = await listPlayerRatingsForPlayers(
+  const existingRatingsByScope = await listPlayerRatingsForPlayers(
     db,
-    leaderboardMode,
+    [leaderboardMode, GLOBAL_RATING_SCOPE],
     participantRows.map(participant => participant.playerId),
   )
-  const usesLiveSeedFade = await modeUsesLiveSeedFade(db, leaderboardMode)
-  const seedFadeContext = usesLiveSeedFade
-    ? await buildIncrementalSeedFadeContext(db, leaderboardMode, match, participantRows.map(participant => participant.playerId), existingRatingsByPlayerId)
-    : null
 
   const now = Date.now()
 
@@ -327,48 +349,16 @@ async function finalizeReportedMatch(
       .onConflictDoNothing()
   }
 
-  if (seedFadeContext?.requiresRecalculation) {
-    try {
-      const recalculated = await recalculateLeaderboardMode(db, leaderboardMode, {
-        fromMatchId: matchId,
-        includeFromMatch: true,
-        includeActiveBoundary: true,
-      })
-      if ('error' in recalculated) {
-        const rollbackError = await rollbackReportedRatedMatch(db, kv, {
-          match,
-          leaderboardMode,
-          participantRows: originalParticipantRows,
-        })
-        if (rollbackError) return { error: `${recalculated.error} Automatic rollback also failed: ${rollbackError}` }
-        return recalculated
-      }
-    }
-    catch (error) {
-      const rollbackError = await rollbackReportedRatedMatch(db, kv, {
-        match,
-        leaderboardMode,
-        participantRows: originalParticipantRows,
-      })
-      if (rollbackError) {
-        console.error(`Failed to roll back reported match ${matchId}:`, rollbackError)
-      }
-      throw error
-    }
-  }
-  else {
-    const applied = await applyIncrementalRatedReport(
-      db,
-      matchId,
-      gameContext.mode,
-      leaderboardMode,
-      participantRows,
-      existingRatingsByPlayerId,
-      now,
-      seedFadeContext,
-    )
-    if (applied) return { error: applied }
-  }
+  const applied = await applyIncrementalRatedReport(
+    db,
+    match,
+    gameContext.mode,
+    leaderboardMode,
+    participantRows,
+    existingRatingsByScope,
+    now,
+  )
+  if (applied) return { error: applied }
 
   const cleanupError = await ensureReportedMatchCleanup(db, options, matchId, now, reporterId, true)
   if (cleanupError) {
@@ -392,8 +382,8 @@ async function finalizeReportedMatch(
 
   const updatedRatingsByPlayerId = cachedLeaderboardSnapshot
     ? await listPlayerRatingsForPlayers(db, leaderboardMode, updatedParticipants.map(participant => participant.playerId))
-    : new Map<string, LeaderboardSnapshotRow>()
-  const afterRankContext = buildCachedRankContext(cachedLeaderboardSnapshot, leaderboardMode, updatedRatingsByPlayerId)
+    : new Map<RatingScope, Map<string, StoredRatingSummaryRow>>()
+  const afterRankContext = buildCachedRankContext(cachedLeaderboardSnapshot, leaderboardMode, updatedRatingsByPlayerId.get(leaderboardMode) ?? new Map())
 
   const participantsWithLeaderboardRanks: ParticipantRow[] = updatedParticipants.map(participant => ({
     ...participant,
@@ -415,12 +405,22 @@ function buildCachedRankByPlayer(
 function buildCachedRankContext(
   snapshot: LeaderboardModeSnapshot | null,
   leaderboardMode: LeaderboardMode,
-  updatedRatingsByPlayerId: Map<string, LeaderboardSnapshotRow>,
+  updatedRatingsByPlayerId: Map<string, StoredRatingSummaryRow>,
 ): { rankByPlayer: Map<string, number>, eligibleCount: number } | null {
   if (!snapshot) return null
 
   const rowsByPlayerId = new Map(snapshot.rows.map(row => [row.playerId, row]))
-  for (const [playerId, rating] of updatedRatingsByPlayerId) rowsByPlayerId.set(playerId, rating)
+  for (const [playerId, rating] of updatedRatingsByPlayerId) {
+    rowsByPlayerId.set(playerId, {
+      playerId,
+      mode: leaderboardMode,
+      mu: rating.mu,
+      sigma: rating.sigma,
+      gamesPlayed: rating.gamesPlayed,
+      wins: rating.wins,
+      lastPlayedAt: rating.lastPlayedAt,
+    })
+  }
 
   const rankByPlayer = buildRankByPlayer([...rowsByPlayerId.values()], leaderboardMode)
   return { rankByPlayer, eligibleCount: rankByPlayer.size }
@@ -428,11 +428,12 @@ function buildCachedRankContext(
 
 async function listPlayerRatingsForPlayers(
   db: Database,
-  leaderboardMode: LeaderboardMode,
+  scopes: RatingScope | readonly RatingScope[],
   playerIds: readonly string[],
-): Promise<Map<string, LeaderboardSnapshotRow>> {
+): Promise<Map<RatingScope, Map<string, StoredRatingSummaryRow>>> {
   const uniquePlayerIds = [...new Set(playerIds.filter(playerId => playerId.length > 0))]
-  if (uniquePlayerIds.length === 0) return new Map()
+  const requestedScopes = [...new Set((Array.isArray(scopes) ? scopes : [scopes]).filter(scope => scope.length > 0))]
+  if (uniquePlayerIds.length === 0 || requestedScopes.length === 0) return new Map()
 
   const rows = await db
     .select({
@@ -442,136 +443,85 @@ async function listPlayerRatingsForPlayers(
       sigma: playerRatings.sigma,
       gamesPlayed: playerRatings.gamesPlayed,
       wins: playerRatings.wins,
+      importedGames: playerRatings.importedGames,
+      effectiveGames: playerRatings.effectiveGames,
+      uniqueOpponents: playerRatings.uniqueOpponents,
       lastPlayedAt: playerRatings.lastPlayedAt,
+      updatedAt: playerRatings.updatedAt,
     })
     .from(playerRatings)
     .where(and(
-      eq(playerRatings.mode, leaderboardMode),
+      inArray(playerRatings.mode, requestedScopes),
       inArray(playerRatings.playerId, uniquePlayerIds),
     ))
 
-  return new Map(rows.map(row => [row.playerId, {
-    mode: leaderboardMode,
-    playerId: row.playerId,
-    mu: row.mu,
-    sigma: row.sigma,
-    gamesPlayed: row.gamesPlayed,
-    wins: row.wins,
-    lastPlayedAt: row.lastPlayedAt ?? null,
-  }]))
-}
-
-async function buildIncrementalSeedFadeContext(
-  db: Database,
-  leaderboardMode: LeaderboardMode,
-  match: RatedReportMatchContext,
-  playerIds: readonly string[],
-  existingRatingsByPlayerId: Map<string, LeaderboardSnapshotRow>,
-): Promise<IncrementalSeedFadeContext> {
-  const uniquePlayerIds = [...new Set(playerIds.filter(playerId => playerId.length > 0))]
-  if (uniquePlayerIds.length === 0) {
-    return {
-      seedRowsByPlayerId: new Map(),
-      priorNewBotGamesByPlayerId: new Map(),
-      currentMatchCountsAsNewBotGame: !match.isOld,
-      requiresRecalculation: false,
-    }
+  const byScope = new Map<RatingScope, Map<string, StoredRatingSummaryRow>>(requestedScopes.map(scope => [scope, new Map()]))
+  for (const row of rows) {
+    if (!requestedScopes.includes(row.mode as RatingScope)) continue
+    const scope = row.mode as RatingScope
+    byScope.get(scope)?.set(row.playerId, {
+      mode: scope,
+      playerId: row.playerId,
+      mu: row.mu,
+      sigma: row.sigma,
+      gamesPlayed: row.gamesPlayed,
+      wins: row.wins,
+      importedGames: row.importedGames,
+      effectiveGames: row.effectiveGames,
+      uniqueOpponents: row.uniqueOpponents,
+      lastPlayedAt: row.lastPlayedAt ?? null,
+      updatedAt: row.updatedAt ?? null,
+    })
   }
 
-  const gameModes = leaderboardModesToGameModes(leaderboardMode)
-  const [seedRows, priorRows, laterModeRows] = await Promise.all([
-    db
-      .select({
-        playerId: playerRatingSeeds.playerId,
-        mu: playerRatingSeeds.mu,
-        sigma: playerRatingSeeds.sigma,
-        fadeGamesRemaining: playerRatingSeeds.fadeGamesRemaining,
-      })
-      .from(playerRatingSeeds)
-      .where(and(
-        eq(playerRatingSeeds.mode, leaderboardMode),
-        inArray(playerRatingSeeds.playerId, uniquePlayerIds),
-      )),
-    db
-      .select({
-        playerId: matchParticipants.playerId,
-        completedGames: sql<number>`count(*)`,
-        newBotGames: sql<number>`sum(case when ${matches.isOld} = 0 then 1 else 0 end)`,
-      })
-      .from(matchParticipants)
-      .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-      .where(and(
-        inArray(matchParticipants.playerId, uniquePlayerIds),
-        eq(matches.status, 'completed'),
-        inArray(matches.gameMode, gameModes),
-        buildBeforeMatchCondition(match),
-      ))
-      .groupBy(matchParticipants.playerId),
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(matches)
-      .where(and(
-        eq(matches.status, 'completed'),
-        inArray(matches.gameMode, gameModes),
-        buildAfterMatchCondition(match),
-      )),
-  ])
-
-  const seedRowsByPlayerId = new Map(seedRows
-    .filter(row => row.fadeGamesRemaining == null || row.fadeGamesRemaining > 0)
-    .map(row => [row.playerId, row]))
-  const priorCompletedGamesByPlayerId = new Map(priorRows.map(row => [row.playerId, Number(row.completedGames ?? 0)]))
-  const priorNewBotGamesByPlayerId = new Map(priorRows.map(row => [row.playerId, Number(row.newBotGames ?? 0)]))
-  const laterCompletedModeMatches = Number(laterModeRows[0]?.count ?? 0)
-  const requiresRecalculation = laterCompletedModeMatches > 0
-    || uniquePlayerIds.some(playerId => (
-      !existingRatingsByPlayerId.has(playerId)
-      && (priorCompletedGamesByPlayerId.get(playerId) ?? 0) > 0
-    ))
-
-  return {
-    seedRowsByPlayerId,
-    priorNewBotGamesByPlayerId,
-    currentMatchCountsAsNewBotGame: !match.isOld,
-    requiresRecalculation,
-  }
-}
-
-function buildBeforeMatchCondition(match: Pick<RatedReportMatchContext, 'id' | 'createdAt'>) {
-  return or(
-    lt(matches.createdAt, match.createdAt),
-    and(eq(matches.createdAt, match.createdAt), lt(matches.id, match.id)),
-  )
-}
-
-function buildAfterMatchCondition(match: Pick<RatedReportMatchContext, 'id' | 'createdAt'>) {
-  return or(
-    gt(matches.createdAt, match.createdAt),
-    and(eq(matches.createdAt, match.createdAt), gt(matches.id, match.id)),
-  )
+  return byScope
 }
 
 async function applyIncrementalRatedReport(
   db: Database,
-  matchId: string,
+  match: RatedReportMatchContext,
   gameMode: string,
   leaderboardMode: LeaderboardMode,
   participantRows: ParticipantRow[],
-  existingRatingsByPlayerId: Map<string, LeaderboardSnapshotRow>,
+  existingRatingsByScope: Map<RatingScope, Map<string, StoredRatingSummaryRow>>,
   now: number,
-  seedFadeContext: IncrementalSeedFadeContext | null = null,
 ): Promise<string | null> {
-  const placementByPlayerId = new Map(participantRows.map(participant => [participant.playerId, participant.placement]))
+  const evidenceByPlayerId = buildMatchEvidenceByPlayerId(participantRows, match.isOld)
+  const modeResult = await applyRatingScopeUpdate(db, {
+    scope: leaderboardMode,
+    match,
+    gameMode,
+    participantRows,
+    existingRatingsByPlayerId: existingRatingsByScope.get(leaderboardMode) ?? new Map(),
+    evidenceByPlayerId,
+    now,
+    writeParticipantSnapshots: true,
+  })
+  if (modeResult) return modeResult
+
+  return applyRatingScopeUpdate(db, {
+    scope: GLOBAL_RATING_SCOPE,
+    match,
+    gameMode,
+    participantRows,
+    existingRatingsByPlayerId: existingRatingsByScope.get(GLOBAL_RATING_SCOPE) ?? new Map(),
+    evidenceByPlayerId,
+    now,
+    writeParticipantSnapshots: false,
+  })
+}
+
+async function applyRatingScopeUpdate(
+  db: Database,
+  input: RatingScopeUpdateInput,
+): Promise<string | null> {
+  const placementByPlayerId = new Map(input.participantRows.map(participant => [participant.playerId, participant.placement]))
   const playerRatingMap = new Map<string, { mu: number, sigma: number }>()
 
-  for (const participant of participantRows) {
-    const existing = existingRatingsByPlayerId.get(participant.playerId)
-    const seed = seedFadeContext?.seedRowsByPlayerId.get(participant.playerId)
+  for (const participant of input.participantRows) {
+    const existing = input.existingRatingsByPlayerId.get(participant.playerId)
     if (existing) {
       playerRatingMap.set(participant.playerId, { mu: existing.mu, sigma: existing.sigma })
-    }
-    else if (seed) {
-      playerRatingMap.set(participant.playerId, { mu: seed.mu, sigma: seed.sigma })
     }
     else {
       const fresh = createRating(participant.playerId)
@@ -581,9 +531,9 @@ async function applyIncrementalRatedReport(
 
   let ratingUpdates
 
-  if (isTeamMode(gameMode as Parameters<typeof isTeamMode>[0]) || gameMode === '1v1') {
+  if (isTeamMode(input.gameMode as Parameters<typeof isTeamMode>[0]) || input.gameMode === '1v1') {
     const teams = new Map<number, { playerId: string, mu: number, sigma: number }[]>()
-    for (const participant of participantRows) {
+    for (const participant of input.participantRows) {
       const team = participant.team ?? 0
       if (!teams.has(team)) teams.set(team, [])
       const rating = playerRatingMap.get(participant.playerId)
@@ -592,8 +542,8 @@ async function applyIncrementalRatedReport(
     }
 
     const teamEntries = [...teams.entries()].sort((a, b) => {
-      const aPlacement = participantRows.find(participant => participant.team === a[0])?.placement ?? 99
-      const bPlacement = participantRows.find(participant => participant.team === b[0])?.placement ?? 99
+      const aPlacement = input.participantRows.find(participant => participant.team === a[0])?.placement ?? 99
+      const bPlacement = input.participantRows.find(participant => participant.team === b[0])?.placement ?? 99
       return aPlacement - bPlacement
     })
 
@@ -604,7 +554,7 @@ async function applyIncrementalRatedReport(
     ratingUpdates = calculateRatings({ type: 'team', teams: teamInputs })
   }
   else {
-    const ffaEntries: FfaEntry[] = participantRows.map((participant) => {
+    const ffaEntries: FfaEntry[] = input.participantRows.map((participant) => {
       const rating = playerRatingMap.get(participant.playerId)
       if (!rating) throw new Error(`Missing rating state for ${participant.playerId}`)
       return {
@@ -617,68 +567,62 @@ async function applyIncrementalRatedReport(
   }
 
   for (const update of ratingUpdates) {
-    const seedFadeStepMu = getSeedFadeStepMu(seedFadeContext, update.playerId)
-    const ratingBeforeMu = update.before.mu - seedFadeStepMu
-    const ratingAfterMu = update.after.mu - seedFadeStepMu
+    const ratingBeforeMu = update.before.mu
+    const ratingAfterMu = update.after.mu
 
-    await db
-      .update(matchParticipants)
-      .set({
-        ratingBeforeMu,
-        ratingBeforeSigma: update.before.sigma,
-        ratingAfterMu,
-        ratingAfterSigma: update.after.sigma,
-      })
-      .where(and(
-        eq(matchParticipants.matchId, matchId),
-        eq(matchParticipants.playerId, update.playerId),
-      ))
-
-    const existing = existingRatingsByPlayerId.get(update.playerId)
-    const isWin = placementByPlayerId.get(update.playerId) === 1
-
-    if (existing) {
+    if (input.writeParticipantSnapshots) {
       await db
-        .update(playerRatings)
+        .update(matchParticipants)
         .set({
-          mu: ratingAfterMu,
-          sigma: update.after.sigma,
-          gamesPlayed: existing.gamesPlayed + 1,
-          wins: (existing.wins ?? 0) + (isWin ? 1 : 0),
-          lastPlayedAt: now,
+          ratingBeforeMu,
+          ratingBeforeSigma: update.before.sigma,
+          ratingAfterMu,
+          ratingAfterSigma: update.after.sigma,
         })
         .where(and(
-          eq(playerRatings.playerId, update.playerId),
-          eq(playerRatings.mode, leaderboardMode),
+          eq(matchParticipants.matchId, input.match.id),
+          eq(matchParticipants.playerId, update.playerId),
         ))
     }
-    else {
-      await db.insert(playerRatings).values({
-        playerId: update.playerId,
-        mode: leaderboardMode,
-        mu: ratingAfterMu,
-        sigma: update.after.sigma,
-        gamesPlayed: 1,
-        wins: isWin ? 1 : 0,
-        lastPlayedAt: now,
-      })
+
+    const existing = input.existingRatingsByPlayerId.get(update.playerId)
+    const isWin = placementByPlayerId.get(update.playerId) === 1
+    const evidence = input.evidenceByPlayerId.get(update.playerId) ?? { importedGames: 0, effectiveGames: 0, uniqueOpponents: 0 }
+    const row = {
+      playerId: update.playerId,
+      mode: input.scope,
+      mu: ratingAfterMu,
+      sigma: update.after.sigma,
+      gamesPlayed: (existing?.gamesPlayed ?? 0) + 1,
+      wins: (existing?.wins ?? 0) + (isWin ? 1 : 0),
+      importedGames: (existing?.importedGames ?? 0) + evidence.importedGames,
+      effectiveGames: (existing?.effectiveGames ?? 0) + evidence.effectiveGames,
+      uniqueOpponents: (existing?.uniqueOpponents ?? 0) + evidence.uniqueOpponents,
+      lastPlayedAt: input.match.isOld ? (existing?.lastPlayedAt ?? null) : input.now,
+      updatedAt: input.now,
     }
+
+    await db.insert(playerRatings).values(row).onConflictDoUpdate({
+      target: [playerRatings.playerId, playerRatings.mode],
+      set: row,
+    })
   }
 
   return null
 }
 
-function getSeedFadeStepMu(seedFadeContext: IncrementalSeedFadeContext | null, playerId: string): number {
-  if (!seedFadeContext?.currentMatchCountsAsNewBotGame) return 0
-  const seed = seedFadeContext.seedRowsByPlayerId.get(playerId)
-  if (!seed || seed.fadeGamesRemaining == null || seed.fadeGamesRemaining <= 0) return 0
+function buildMatchEvidenceByPlayerId(participantRows: ParticipantRow[], isOld: boolean): Map<string, MatchEvidenceDelta> {
+  const sourceWeight = isOld ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1
+  return new Map(participantRows.map(participant => [participant.playerId, {
+    importedGames: isOld ? 1 : 0,
+    effectiveGames: sourceWeight,
+    uniqueOpponents: countOpponentsForParticipant(participant, participantRows),
+  }]))
+}
 
-  const defaultRating = createRating(playerId)
-  return calculateSeedFadeStepMu(
-    seed.mu - defaultRating.mu,
-    seed.fadeGamesRemaining,
-    seedFadeContext.priorNewBotGamesByPlayerId.get(playerId) ?? 0,
-  )
+function countOpponentsForParticipant(participant: ParticipantRow, participantRows: ParticipantRow[]): number {
+  if (participant.team == null) return participantRows.filter(row => row.playerId !== participant.playerId).length
+  return participantRows.filter(row => row.playerId !== participant.playerId && row.team !== participant.team).length
 }
 
 async function repairCompletedReportedMatch(
@@ -701,6 +645,8 @@ async function repairCompletedReportedMatch(
     includeFromMatch: true,
   })
   if ('error' in recalculated) return recalculated
+  const recalculatedGlobal = await recalculateGlobalRatings(db)
+  if ('error' in recalculatedGlobal) return recalculatedGlobal
 
   await rebuildLeaderboardModeSnapshot(db, kv, gameContext.leaderboardMode)
 
@@ -859,6 +805,8 @@ async function rollbackReportedRatedMatch(
       includeFromMatch: false,
     })
     if ('error' in recalculated) return recalculated.error
+    const recalculatedGlobal = await recalculateGlobalRatings(db)
+    if ('error' in recalculatedGlobal) return recalculatedGlobal.error
 
     await rebuildLeaderboardModeSnapshot(db, kv, options.leaderboardMode)
     return null
@@ -921,19 +869,6 @@ async function shouldRollbackPreparedReportedMatch(options: ReportMatchOptions, 
   catch {
     return false
   }
-}
-
-async function modeUsesLiveSeedFade(db: Database, leaderboardMode: string): Promise<boolean> {
-  const [row] = await db
-    .select({ playerId: playerRatingSeeds.playerId })
-    .from(playerRatingSeeds)
-    .where(and(
-      eq(playerRatingSeeds.mode, leaderboardMode),
-      gt(playerRatingSeeds.fadeGamesRemaining, 0),
-    ))
-    .limit(1)
-
-  return row != null
 }
 
 async function finalizeReportedUnrankedMatch(

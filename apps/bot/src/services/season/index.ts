@@ -29,6 +29,7 @@ export interface SeasonModePeakCandidate {
 
 export interface SeasonPeakPreviewPlayer {
   playerId: string
+  managed?: boolean
   liveAssignment: {
     tier: CompetitiveTier
     sourceMode: LeaderboardMode | null
@@ -110,6 +111,9 @@ export async function startSeason(db: Database, input: { now?: number, kv?: KVNa
       sigma: sql<number>`${playerRatings.sigma} + (${DEFAULT_SIGMA} - ${playerRatings.sigma}) * ${DEFAULT_SEASON_RESET_FACTOR}`,
       gamesPlayed: 0,
       wins: 0,
+      importedGames: 0,
+      effectiveGames: 0,
+      uniqueOpponents: 0,
     })
   }
   if (input.kv) {
@@ -355,10 +359,16 @@ export async function syncSeasonPeaksForPlayers(
   const activeModesByPlayerId = new Map<string, Set<LeaderboardMode>>()
 
   for (const row of ratings) {
-    const mode = parseLeaderboardMode(row.mode)
-    if (!mode) continue
     const lastPlayedAt = row.lastPlayedAt ?? null
     if (lastPlayedAt == null || lastPlayedAt < activeSeason.startsAt) continue
+
+    if (row.mode === 'global') {
+      activePlayerIds.add(row.playerId)
+      continue
+    }
+
+    const mode = parseLeaderboardMode(row.mode)
+    if (!mode) continue
 
     activePlayerIds.add(row.playerId)
     const activeModes = activeModesByPlayerId.get(row.playerId) ?? new Set<LeaderboardMode>()
@@ -369,7 +379,7 @@ export async function syncSeasonPeaksForPlayers(
   const overallCandidates = playerIds
     .map((playerId) => {
       const preview = previewByPlayerId.get(playerId)
-      if (!preview) return null
+      if (!preview || preview.managed === false) return null
       return {
         playerId,
         tier: preview.liveAssignment.tier,

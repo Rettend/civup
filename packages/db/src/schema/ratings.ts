@@ -17,8 +17,16 @@ export const playerRatings = sqliteTable('player_ratings', {
   gamesPlayed: integer('games_played').notNull().default(0),
   /** Total wins */
   wins: integer('wins').notNull().default(0),
+  /** Imported legacy games included in this rating scope */
+  importedGames: integer('imported_games').notNull().default(0),
+  /** Qualification evidence after source weighting */
+  effectiveGames: real('effective_games').notNull().default(0),
+  /** Approximate unique opponent evidence for qualification */
+  uniqueOpponents: integer('unique_opponents').notNull().default(0),
   /** Unix timestamp ms of last game */
   lastPlayedAt: integer('last_played_at', { mode: 'number' }),
+  /** Unix timestamp ms of last summary update */
+  updatedAt: integer('updated_at', { mode: 'number' }),
 }, table => [
   primaryKey({ columns: [table.playerId, table.mode] }),
   index('player_ratings_mode_idx').on(table.mode),

@@ -10,7 +10,7 @@ import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchCont
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { getStoredGameModeContext, isManualReportDraftData } from './draft-data.ts'
 import { parseModerationPlacements } from './placements.ts'
-import { recalculateLeaderboardMode } from './ratings.ts'
+import { recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
 
 interface MatchSessionLifecycleOptions {
   sessionNamespace?: DurableObjectNamespace | null
@@ -118,6 +118,18 @@ export async function resolveMatchByModerator(
         })
         if (rollbackError) return { error: `${recalculated.error} Automatic rollback also failed: ${rollbackError}` }
         return recalculated
+      }
+      const recalculatedGlobal = await recalculateGlobalRatings(db)
+      if ('error' in recalculatedGlobal) {
+        const rollbackError = await rollbackResolvedMatchModeration(db, kv, {
+          input,
+          match,
+          participants,
+          bans: originalBans,
+          leaderboardMode,
+        })
+        if (rollbackError) return { error: `${recalculatedGlobal.error} Automatic rollback also failed: ${rollbackError}` }
+        return recalculatedGlobal
       }
 
       recalculatedMatchIds = recalculated.matchIds
@@ -314,6 +326,8 @@ async function rollbackResolvedMatchModeration(
       includeFromMatch: options.match.status === 'completed',
     })
     if ('error' in recalculated) return recalculated.error
+    const recalculatedGlobal = await recalculateGlobalRatings(db)
+    if ('error' in recalculatedGlobal) return recalculatedGlobal.error
 
     await rebuildLeaderboardModeSnapshot(db, kv, options.leaderboardMode)
     return null
@@ -548,6 +562,8 @@ export async function cancelMatchByModerator(
       includeFromMatch: false,
     })
     if ('error' in recalculated) return recalculated
+    const recalculatedGlobal = await recalculateGlobalRatings(db)
+    if ('error' in recalculatedGlobal) return recalculatedGlobal
     await rebuildLeaderboardModeSnapshot(db, kv, completedLeaderboardMode)
     recalculatedMatchIds = recalculated.matchIds
   }

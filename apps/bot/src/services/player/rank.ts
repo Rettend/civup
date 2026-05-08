@@ -15,6 +15,9 @@ export interface PlayerRatingSummary {
   sigma: number
   gamesPlayed: number
   wins: number
+  importedGames: number
+  effectiveGames: number
+  uniqueOpponents: number
   lastPlayedAt: number | null
 }
 
@@ -100,7 +103,7 @@ function buildPlayerRankProfile(
   })) as Record<LeaderboardMode, PlayerRankModeSummary>
 
   const fallbackTier = getLowestRankedRoleTier(config)
-  const overall = normalizeOverallAssignment(previewPlayer?.assignment ?? null, fallbackTier)
+  const overall = normalizeOverallAssignment(previewPlayer?.managed ? previewPlayer.assignment : null, previewPlayer?.managed ? fallbackTier : null)
 
   return {
     overallTier: overall?.tier ?? null,

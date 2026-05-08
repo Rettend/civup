@@ -5,7 +5,7 @@ export { activateDraftMatch, cancelDraftMatch, createDraftMatch } from './draft.
 export { cancelMatchByModerator, correctMatchLeadersByModerator, resolveMatchByModerator } from './moderation.ts'
 export { createManualReportedMatch } from './manual.ts'
 export { parseModerationPlacements, parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
-export { buildRankByPlayer, recalculateLeaderboardMode } from './ratings.ts'
+export { buildRankByPlayer, recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
 export { sendOverdueHostReportReminders } from './reminders.ts'
 export { reportMatch } from './report.ts'
 export type {
