@@ -8,6 +8,7 @@ import { eq, inArray } from 'drizzle-orm'
 import { addGuildMemberRole, DiscordApiError, removeGuildMemberRole } from '../discord/index.ts'
 import { getLeaderboardModeSnapshotsForPreview } from '../leaderboard/snapshot.ts'
 import { getActiveSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks } from '../season/index.ts'
+import { getRankedMigrationLockError } from './migration-lock.ts'
 import {
   createRankedRoleTierId,
   formatRankedRoleSlotLabel,
@@ -402,6 +403,9 @@ export async function projectRankedTierForScore(options: RankedRoleSyncOptions &
 }
 
 export async function syncRankedRoles(options: RankedRoleSyncOptions): Promise<RankedRoleSyncResult> {
+  const lockError = await getRankedMigrationLockError(options.kv)
+  if (lockError) throw new Error(lockError)
+
   const state = await buildRankedRolePreviewState({
     ...options,
     includePlayerIdentities: false,
@@ -480,6 +484,9 @@ export async function resetCurrentRankedRoleState(options: {
   guildId: string
   token?: string
 }): Promise<{ clearedAssignments: number, appliedDiscordChanges: number }> {
+  const lockError = await getRankedMigrationLockError(options.kv)
+  if (lockError) throw new Error(lockError)
+
   const previousAssignments = await getCurrentRankAssignments(options.kv, options.guildId)
   const trackedAssignments = Object.entries(previousAssignments.byPlayerId)
     .filter(([playerId]) => isDiscordSnowflake(playerId))
@@ -1502,17 +1509,21 @@ function buildRankMatchUpdateLine(
   const fallbackTier = getLowestRankedRoleTier(config)
   if (!previous) {
     if (fallbackTier && competitiveTierRank(next.tier) <= competitiveTierRank(fallbackTier)) return null
-    return `🆕 <@${player.playerId}> qualified for ${formatRankAnnouncementRole(config, next.tier)}`
+    return `🆕 <@${player.playerId}> qualified for ${formatRankAnnouncementRole(config, next.tier)} after reaching ranked evidence`
+  }
+
+  if (player.pendingDemotion) {
+    return `🛡️ <@${player.playerId}> stays ${formatRankAnnouncementRole(config, player.pendingDemotion.currentTier)} under demotion protection; recalibration target is ${formatRankAnnouncementRole(config, player.pendingDemotion.targetTier)}`
   }
 
   const previousRank = competitiveTierRank(previous.tier)
   const nextRank = competitiveTierRank(next.tier)
   if (nextRank > previousRank) {
-    return `⬆️ <@${player.playerId}> ${formatRankAnnouncementRole(config, previous.tier)} -> ${formatRankAnnouncementRole(config, next.tier)}`
+    return `⬆️ <@${player.playerId}> recalibrated ${formatRankAnnouncementRole(config, previous.tier)} -> ${formatRankAnnouncementRole(config, next.tier)}`
   }
 
   if (nextRank < previousRank) {
-    return `⬇️ <@${player.playerId}> ${formatRankAnnouncementRole(config, previous.tier)} -> ${formatRankAnnouncementRole(config, next.tier)}`
+    return `⬇️ <@${player.playerId}> recalibrated ${formatRankAnnouncementRole(config, previous.tier)} -> ${formatRankAnnouncementRole(config, next.tier)} after demotion protection cleared`
   }
 
   return null
