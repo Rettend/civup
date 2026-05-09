@@ -1,8 +1,9 @@
 export { pruneAbandonedMatches } from './cleanup.ts'
-export { getCompletedAtFromDraftData, getHiddenDraftFromDraftData, getHostIdFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
+export { getCompletedAtFromDraftData, getHiddenDraftFromDraftData, getHostIdFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext, isManualReportDraftData } from './draft-data.ts'
 export { handleDraftLifecyclePayload } from './draft-lifecycle.ts'
 export { activateDraftMatch, cancelDraftMatch, createDraftMatch } from './draft.ts'
 export { cancelMatchByModerator, correctMatchLeadersByModerator, resolveMatchByModerator } from './moderation.ts'
+export { createManualReportedMatch } from './manual.ts'
 export { parseModerationPlacements, parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
 export { buildRankByPlayer, recalculateLeaderboardMode } from './ratings.ts'
 export { sendOverdueHostReportReminders } from './reminders.ts'
@@ -17,6 +18,9 @@ export type {
   CorrectMatchLeadersInput,
   CorrectMatchLeadersResult,
   CreateDraftMatchInput,
+  CreateManualReportedMatchInput,
+  CreateManualReportedMatchResult,
+  ManualReportedMatchPlayerInput,
   MatchLeaderCorrection,
   MatchLeaderCorrectionResult,
   MatchRow,
