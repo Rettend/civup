@@ -1,16 +1,16 @@
 import type { GameMode, Leader, QueueEntry } from '@civup/game'
+import type { ManualReportedMatchPlayerInput } from '../services/match/index.ts'
 import type { MatchVar } from './match/shared'
 import { createDb } from '@civup/db'
-import { formatModeLabel, getLeader, getLeaders, searchLeaders, slotToTeamIndex } from '@civup/game'
+import { formatModeLabel, GAME_MODE_CHOICES, getLeader, getLeaders, parseGameMode, playerCountOptions, searchLeaders, slotToTeamIndex } from '@civup/game'
 import { Autocomplete, Command, Option, SubCommand, SubGroup } from 'discord-hono'
-import { leaderEmojiMention } from '../constants/leader-emojis.ts'
 import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
 import { createChannelMessage } from '../services/discord/index.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { filterQueueEntriesForLobby, getLobbyById, setLobbyStatus } from '../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
-import { cancelMatchByModerator, correctMatchLeadersByModerator, getStoredGameModeContext, resolveMatchByModerator } from '../services/match/index.ts'
+import { cancelMatchByModerator, correctMatchLeadersByModerator, createManualReportedMatch, getStoredGameModeContext, resolveMatchByModerator } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
 import { canUseModCommands, parseRoleIds } from '../services/permissions/index.ts'
@@ -20,15 +20,19 @@ import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
 import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 import { factory } from '../setup'
-import { buildFfaPlacementOptions, collectFfaPlacementUserIds } from './match/shared'
+import { buildFfaPlacementOptions, collectFfaPlacementUserIds, getIdentity, getIdentityByUserId } from './match/shared'
 
 interface ModVar extends MatchVar {
   leader?: string
   reason?: string
   swap_with?: string
+  [key: `player_${number}`]: string | undefined
+  [key: `leader_${number}`]: string | undefined
 }
 
 const LIVE_LEADER_ID_SET = new Set(getLeaders('live').map(leader => leader.id))
+const MANUAL_MATCH_MAX_PLAYERS = 12
+const MANUAL_MATCH_SLOT_NUMBERS = Array.from({ length: MANUAL_MATCH_MAX_PLAYERS }, (_, index) => index + 1)
 
 export const command_mod = factory.autocomplete<ModVar>(
   new Command('mod', 'Moderation commands for match and lobby operations').options(
@@ -42,6 +46,10 @@ export const command_mod = factory.autocomplete<ModVar>(
         new Option('winner', 'Winner (1v1/team) or 1st place (FFA)', 'User'),
         ...buildFfaPlacementOptions(),
         new Option('reason', 'Optional short reason for correction').max_length(140),
+      ),
+      new SubCommand('manual', 'Create a completed match report from players and leaders').options(
+        new Option('mode', 'Game mode for the manual report').required().choices(...GAME_MODE_CHOICES),
+        ...buildManualReportOptions(),
       ),
       new SubCommand('swap', 'Set or swap reported match leaders').options(
         new Option('match_id', 'Match ID').required(),
@@ -365,6 +373,128 @@ export const command_mod = factory.autocomplete<ModVar>(
         })
       }
 
+      // ── match manual ────────────────────────────────────
+      case 'match manual': {
+        const parsedInput = parseManualReportInput(c)
+        if ('error' in parsedInput) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, parsedInput.error, 'error')
+          })
+        }
+
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          try {
+            const db = createDb(c.env.DB)
+            const actor = getIdentity(c)
+            if (!actor) {
+              await sendTransientEphemeralResponse(c, 'Could not identify moderator user.', 'error')
+              return
+            }
+
+            const result = await createManualReportedMatch(db, kv, {
+              mode: parsedInput.mode,
+              players: parsedInput.players,
+              reporterId: actor.userId,
+              reportedAt: Date.now(),
+            })
+
+            if ('error' in result) {
+              await sendTransientEphemeralResponse(c, result.error, 'error')
+              return
+            }
+
+            const matchContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
+            if (!matchContext) {
+              await sendTransientEphemeralResponse(c, `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.`, 'error')
+              return
+            }
+
+            const guildId = c.interaction.guild_id ?? null
+            const participantIds = result.participants.map(participant => participant.playerId)
+            try {
+              if (!matchContext.redDeath) {
+                await markLeaderboardsDirty(db, `mod-manual:${result.match.id}`, {
+                  civ: true,
+                  modes: matchContext.leaderboardMode ? [matchContext.leaderboardMode] : [],
+                })
+              }
+            }
+            catch (error) {
+              console.error(`Failed to mark leaderboards dirty after creating manual match ${result.match.id}:`, error)
+            }
+
+            try {
+              if (matchContext.ranked) {
+                await markRankedRolesDirty(kv, `mod-manual:${result.match.id}`)
+              }
+            }
+            catch (error) {
+              console.error(`Failed to mark ranked roles dirty after creating manual match ${result.match.id}:`, error)
+            }
+
+            await sendEphemeralResponse(
+              c,
+              `Created manual ${formatModeLabel(parsedInput.mode, parsedInput.mode, { targetSize: parsedInput.players.length })} match **${result.match.id}**. Recalculated ${result.recalculatedMatchIds.length} completed matches.`,
+              'success',
+            )
+
+            c.executionCtx.waitUntil((async () => {
+              let rankedRoleLines: string[] = []
+              if (matchContext.ranked && guildId) {
+                try {
+                  const rankedPreview = await previewRankedRoles({
+                    db,
+                    kv,
+                    guildId,
+                    playerIds: participantIds,
+                    includePlayerIdentities: false,
+                  })
+                  rankedRoleLines = await listRankedRoleMatchUpdateLines({
+                    kv,
+                    guildId,
+                    preview: rankedPreview,
+                    playerIds: participantIds,
+                  })
+                  await syncSeasonPeaksForPlayers(db, {
+                    playerIds: participantIds,
+                    playerPreviews: rankedPreview.playerPreviews,
+                  })
+                }
+                catch (error) {
+                  console.error(`Failed to preview ranked role changes after creating manual match ${result.match.id}:`, error)
+                }
+              }
+
+              const syncResult = await syncReportedMatchDiscordMessages({
+                db,
+                kv,
+                token: c.env.DISCORD_TOKEN,
+                matchId: result.match.id,
+                reportedMode: matchContext.mode,
+                reportedRedDeath: matchContext.redDeath,
+                participants: result.participants,
+                rankedRoleLines,
+                matchDraftData: result.match.draftData,
+                reporter: actor,
+                archivePolicy: 'always',
+              })
+              if (syncResult.errors.length > 0) {
+                console.error(`Failed to sync manual match ${result.match.id} embeds:`, syncResult.errors)
+              }
+            })())
+          }
+          catch (error) {
+            console.error('Failed to create manual match report:', error)
+            try {
+              await sendTransientEphemeralResponse(c, 'Failed to create manual match report. Check bot logs for details.', 'error')
+            }
+            catch (responseError) {
+              console.error('Failed to send manual match error response:', responseError)
+            }
+          }
+        })
+      }
+
       // ── match swap ──────────────────────────────────────
       case 'match swap': {
         const matchId = c.var.match_id
@@ -492,6 +622,74 @@ function buildCancelledLobbyParticipants(lobby: { mode: GameMode, slots: (string
     .filter((participant): participant is NonNullable<typeof participant> => participant != null)
 }
 
+function buildManualReportOptions() {
+  return MANUAL_MATCH_SLOT_NUMBERS.flatMap(slot => [
+    new Option(`player_${slot}`, `Slot ${slot} player`, 'User'),
+    new Option(`leader_${slot}`, `Slot ${slot} leader`).autocomplete(),
+  ])
+}
+
+type ManualReportParseResult = {
+  mode: GameMode
+  players: ManualReportedMatchPlayerInput[]
+} | { error: string }
+
+function parseManualReportInput(c: Parameters<typeof getIdentityByUserId>[0] & { var: ModVar }): ManualReportParseResult {
+  const mode = parseGameMode(c.var.mode)
+  if (!mode) return { error: 'Please provide a valid game mode.' }
+
+  const highestSlot = findHighestManualReportSlot(c.var)
+  if (highestSlot === 0) return { error: 'Provide player and leader slots for the completed match.' }
+
+  const allowedCounts = playerCountOptions(mode)
+  if (!allowedCounts.includes(highestSlot)) {
+    return { error: `${formatModeLabel(mode, mode)} manual reports require ${formatAllowedCounts(allowedCounts)} players. Fill slots 1-${allowedCounts[allowedCounts.length - 1]}.` }
+  }
+
+  const playerIds = new Set<string>()
+  const leaderIds = new Set<string>()
+  const players: ManualReportedMatchPlayerInput[] = []
+
+  for (let slot = 1; slot <= highestSlot; slot++) {
+    const playerId = c.var[`player_${slot}`]?.trim() ?? ''
+    const leaderInput = c.var[`leader_${slot}`]?.trim() ?? ''
+    if (!playerId || !leaderInput) return { error: `Slot ${slot} needs both a player and a leader.` }
+
+    if (playerIds.has(playerId)) return { error: `<@${playerId}> is listed more than once.` }
+    playerIds.add(playerId)
+
+    const leaderId = resolveLeaderInput(leaderInput)
+    if (!leaderId) return { error: `Choose slot ${slot}'s leader from the autocomplete suggestions.` }
+    if (leaderIds.has(leaderId)) return { error: `${formatLeaderLabel(leaderId)} is listed more than once.` }
+    leaderIds.add(leaderId)
+
+    const identity = getIdentityByUserId(c, playerId)
+    players.push({
+      playerId,
+      displayName: identity?.displayName ?? playerId,
+      avatarUrl: identity?.avatarUrl ?? null,
+      civId: leaderId,
+    })
+  }
+
+  return { mode, players }
+}
+
+function findHighestManualReportSlot(vars: ModVar): number {
+  let highestSlot = 0
+  for (const slot of MANUAL_MATCH_SLOT_NUMBERS) {
+    const hasPlayer = Boolean(vars[`player_${slot}`]?.trim())
+    const hasLeader = Boolean(vars[`leader_${slot}`]?.trim())
+    if (hasPlayer || hasLeader) highestSlot = slot
+  }
+  return highestSlot
+}
+
+function formatAllowedCounts(counts: readonly number[]): string {
+  if (counts.length === 1) return String(counts[0])
+  return `${counts.slice(0, -1).join(', ')} or ${counts[counts.length - 1]}`
+}
+
 function buildLeaderAutocompleteChoices(query: string): Array<{ name: string, value: string }> {
   const leaders = query.trim().length > 0 ? searchLeaders(query, 'live') : getLeaders('live')
   const seen = new Set<string>()
@@ -540,9 +738,7 @@ function formatLeaderLabel(leaderId: string | null): string {
 }
 
 function formatLeaderAutocompleteName(leader: Leader): string {
-  const label = `${leader.name} - ${leader.civilization}`
-  const emoji = leaderEmojiMention(leader.id)
-  return emoji ? `${emoji} ${label}` : label
+  return `${leader.name} - ${leader.civilization}`
 }
 
 function truncateAutocompleteName(name: string): string {
