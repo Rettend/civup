@@ -42,16 +42,20 @@ interface StoredRatingSummaryRow {
   lastPlayedAt: number | null
   importedGames: number
   effectiveGames: number
-  winsVsElite: number
-  winsVsLegionPlus: number
+  winsVsTier1: number
+  winsVsTier2Plus: number
+  effectiveWinsVsTier1: number
+  effectiveWinsVsTier2Plus: number
   updatedAt: number | null
 }
 
 interface MatchEvidenceDelta {
   importedGames: number
   effectiveGames: number
-  winsVsElite: number
-  winsVsLegionPlus: number
+  winsVsTier1: number
+  winsVsTier2Plus: number
+  effectiveWinsVsTier1: number
+  effectiveWinsVsTier2Plus: number
 }
 
 interface RatingScopeUpdateInput {
@@ -471,8 +475,10 @@ async function listPlayerRatingsForPlayers(
       wins: playerRatings.wins,
       importedGames: playerRatings.importedGames,
       effectiveGames: playerRatings.effectiveGames,
-      winsVsElite: playerRatings.winsVsElite,
-      winsVsLegionPlus: playerRatings.winsVsLegionPlus,
+      winsVsTier1: playerRatings.winsVsTier1,
+      winsVsTier2Plus: playerRatings.winsVsTier2Plus,
+      effectiveWinsVsTier1: playerRatings.effectiveWinsVsTier1,
+      effectiveWinsVsTier2Plus: playerRatings.effectiveWinsVsTier2Plus,
       lastPlayedAt: playerRatings.lastPlayedAt,
       updatedAt: playerRatings.updatedAt,
     })
@@ -495,8 +501,10 @@ async function listPlayerRatingsForPlayers(
       wins: row.wins,
       importedGames: row.importedGames,
       effectiveGames: row.effectiveGames,
-      winsVsElite: row.winsVsElite,
-      winsVsLegionPlus: row.winsVsLegionPlus,
+      winsVsTier1: row.winsVsTier1,
+      winsVsTier2Plus: row.winsVsTier2Plus,
+      effectiveWinsVsTier1: row.effectiveWinsVsTier1,
+      effectiveWinsVsTier2Plus: row.effectiveWinsVsTier2Plus,
       lastPlayedAt: row.lastPlayedAt ?? null,
       updatedAt: row.updatedAt ?? null,
     })
@@ -633,8 +641,10 @@ async function applyRatingScopeUpdate(
       wins: (existing?.wins ?? 0) + (isWin ? 1 : 0),
       importedGames: (existing?.importedGames ?? 0) + evidence.importedGames,
       effectiveGames: (existing?.effectiveGames ?? 0) + evidence.effectiveGames,
-      winsVsElite: (existing?.winsVsElite ?? 0) + qualityWins.winsVsElite,
-      winsVsLegionPlus: (existing?.winsVsLegionPlus ?? 0) + qualityWins.winsVsLegionPlus,
+      winsVsTier1: (existing?.winsVsTier1 ?? 0) + qualityWins.winsVsTier1,
+      winsVsTier2Plus: (existing?.winsVsTier2Plus ?? 0) + qualityWins.winsVsTier2Plus,
+      effectiveWinsVsTier1: (existing?.effectiveWinsVsTier1 ?? 0) + qualityWins.effectiveWinsVsTier1,
+      effectiveWinsVsTier2Plus: (existing?.effectiveWinsVsTier2Plus ?? 0) + qualityWins.effectiveWinsVsTier2Plus,
       lastPlayedAt: input.match.isOld ? (existing?.lastPlayedAt ?? null) : input.now,
       updatedAt: input.now,
     }
@@ -651,8 +661,10 @@ async function applyRatingScopeUpdate(
       winsDelta: isWin ? 1 : 0,
       importedGamesDelta: evidence.importedGames,
       effectiveGamesDelta: evidence.effectiveGames,
-      winsVsEliteDelta: qualityWins.winsVsElite,
-      winsVsLegionPlusDelta: qualityWins.winsVsLegionPlus,
+      winsVsTier1Delta: qualityWins.winsVsTier1,
+      winsVsTier2PlusDelta: qualityWins.winsVsTier2Plus,
+      effectiveWinsVsTier1Delta: qualityWins.effectiveWinsVsTier1,
+      effectiveWinsVsTier2PlusDelta: qualityWins.effectiveWinsVsTier2Plus,
       matchCreatedAt: input.match.createdAt,
       matchCompletedAt: input.match.isOld ? input.match.createdAt : input.now,
       updatedAt: input.now,
@@ -686,12 +698,14 @@ function buildMatchEvidenceByPlayerId(
 ): Map<string, MatchEvidenceDelta> {
   const sourceWeight = isOld ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1
   return new Map(participantRows.map((participant) => {
-    const qualityWins = countQualityWinsForParticipant(participant, participantRows, opponentTierByPlayerId)
+    const qualityWins = countQualityWinsForParticipant(participant, participantRows, opponentTierByPlayerId, sourceWeight)
     return [participant.playerId, {
       importedGames: isOld ? 1 : 0,
       effectiveGames: sourceWeight,
-      winsVsElite: qualityWins.winsVsElite,
-      winsVsLegionPlus: qualityWins.winsVsLegionPlus,
+      winsVsTier1: qualityWins.winsVsTier1,
+      winsVsTier2Plus: qualityWins.winsVsTier2Plus,
+      effectiveWinsVsTier1: qualityWins.effectiveWinsVsTier1,
+      effectiveWinsVsTier2Plus: qualityWins.effectiveWinsVsTier2Plus,
     }]
   }))
 }
@@ -700,8 +714,10 @@ function createEmptyMatchEvidenceDelta(): MatchEvidenceDelta {
   return {
     importedGames: 0,
     effectiveGames: 0,
-    winsVsElite: 0,
-    winsVsLegionPlus: 0,
+    winsVsTier1: 0,
+    winsVsTier2Plus: 0,
+    effectiveWinsVsTier1: 0,
+    effectiveWinsVsTier2Plus: 0,
   }
 }
 
@@ -709,19 +725,37 @@ function countQualityWinsForParticipant(
   participant: Pick<ParticipantRow, 'playerId' | 'team' | 'placement'>,
   participantRows: Array<Pick<ParticipantRow, 'playerId' | 'team' | 'placement'>>,
   opponentTierByPlayerId: ReadonlyMap<string, string>,
-): { winsVsElite: number, winsVsLegionPlus: number } {
-  let winsVsElite = 0
-  let winsVsLegionPlus = 0
+  sourceWeight = 1,
+): { winsVsTier1: number, winsVsTier2Plus: number, effectiveWinsVsTier1: number, effectiveWinsVsTier2Plus: number } {
+  let winsVsTier1 = 0
+  let winsVsTier2Plus = 0
+  let effectiveWinsVsTier1 = 0
+  let effectiveWinsVsTier2Plus = 0
+  const effectiveWinCredit = sourceWeight / participantTeamSize(participant, participantRows)
 
   for (const opponent of participantRows) {
     if (!didDefeatOpponent(participant, opponent)) continue
     const opponentTierNumber = rankedRoleTierNumber(opponentTierByPlayerId.get(opponent.playerId) ?? null)
     if (opponentTierNumber == null) continue
-    if (opponentTierNumber <= 1) winsVsElite += 1
-    if (opponentTierNumber <= 2) winsVsLegionPlus += 1
+    if (opponentTierNumber <= 1) {
+      winsVsTier1 += 1
+      effectiveWinsVsTier1 += effectiveWinCredit
+    }
+    if (opponentTierNumber <= 2) {
+      winsVsTier2Plus += 1
+      effectiveWinsVsTier2Plus += effectiveWinCredit
+    }
   }
 
-  return { winsVsElite, winsVsLegionPlus }
+  return { winsVsTier1, winsVsTier2Plus, effectiveWinsVsTier1, effectiveWinsVsTier2Plus }
+}
+
+function participantTeamSize(
+  participant: Pick<ParticipantRow, 'playerId' | 'team'>,
+  participantRows: Array<Pick<ParticipantRow, 'playerId' | 'team'>>,
+): number {
+  if (participant.team == null) return 1
+  return Math.max(1, participantRows.filter(row => row.team === participant.team).length)
 }
 
 function didDefeatOpponent(

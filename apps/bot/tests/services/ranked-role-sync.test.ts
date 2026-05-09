@@ -165,20 +165,21 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
-  test('quality wins can floor an effective-qualified player to Gladiator', async () => {
+  test('repeated effective quality wins can floor a tier-4 candidate to tier 3', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
-    const targetId = playerIdFor('ffa', 8)
+    const targetId = playerIdFor('ffa', 6)
 
     await seedRating(db, {
       playerId: targetId,
       mode: 'global',
-      mu: 20,
+      mu: 34,
       sigma: 6,
       gamesPlayed: 9,
       lastPlayedAt: NOW,
-      winsVsLegionPlus: 3,
+      winsVsTier2Plus: 2,
+      effectiveWinsVsTier2Plus: 0.5,
     })
 
     const preview = await previewRankedRoles({
@@ -195,7 +196,38 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
-  test('quality floors cannot create Legion without Legion evidence', async () => {
+  test('a single tier-2 quality win does not floor a tier-4 candidate to tier 3', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
+    const targetId = playerIdFor('ffa', 6)
+
+    await seedRating(db, {
+      playerId: targetId,
+      mode: 'global',
+      mu: 34,
+      sigma: 6,
+      gamesPlayed: 9,
+      lastPlayedAt: NOW,
+      winsVsTier2Plus: 1,
+      effectiveWinsVsTier2Plus: 1,
+    })
+
+    const preview = await previewRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      now: NOW,
+      playerIds: [targetId],
+      includePlayerIdentities: false,
+    })
+
+    expect(preview.playerPreviews[0]?.assignment.tier).toBe(TIER_4)
+
+    sqlite.close()
+  })
+
+  test('quality floors cannot create tier 2 without tier-2 evidence', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
@@ -209,8 +241,8 @@ describe('ranked role sync service', () => {
       gamesPlayed: 15,
       effectiveGames: 13,
       lastPlayedAt: NOW,
-      winsVsElite: 3,
-      winsVsLegionPlus: 15,
+      winsVsTier1: 3,
+      winsVsTier2Plus: 15,
     })
 
     const preview = await previewRankedRoles({
@@ -227,7 +259,7 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
-  test('quality wins can floor Gladiator global evidence to Legion after the Legion gate', async () => {
+  test('quality wins can floor tier-3 global evidence to tier 2 after the tier-2 gate', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
@@ -239,10 +271,12 @@ describe('ranked role sync service', () => {
       mu: 37,
       sigma: 6,
       gamesPlayed: 12,
-      effectiveGames: 14,
+      effectiveGames: 16,
       lastPlayedAt: NOW,
-      winsVsElite: 3,
-      winsVsLegionPlus: 15,
+      winsVsTier1: 3,
+      winsVsTier2Plus: 15,
+      effectiveWinsVsTier1: 3,
+      effectiveWinsVsTier2Plus: 15,
     })
 
     const preview = await previewRankedRoles({
@@ -259,7 +293,7 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
-  test('thin current Elite stays protected until Elite evidence gate', async () => {
+  test('thin current tier 1 stays protected until tier-1 evidence gate', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedPlayers(db, 'ffa', 20, { prefix: 'ffa' })
@@ -282,7 +316,7 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
-  test('Legion-or-better best-mode evidence can floor a qualified player to Gladiator', async () => {
+  test('tier-2-or-better best-mode evidence can floor a qualified player to tier 3', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
@@ -717,22 +751,28 @@ async function seedRating(
     gamesPlayed: number
     lastPlayedAt: number
     effectiveGames?: number
-    winsVsElite?: number
-    winsVsLegionPlus?: number
+    winsVsTier1?: number
+    winsVsTier2Plus?: number
+    effectiveWinsVsTier1?: number
+    effectiveWinsVsTier2Plus?: number
   },
 ): Promise<void> {
   await db.insert(playerRatings).values({
     ...row,
     effectiveGames: row.effectiveGames ?? row.gamesPlayed,
-    winsVsElite: row.winsVsElite ?? 0,
-    winsVsLegionPlus: row.winsVsLegionPlus ?? 0,
+    winsVsTier1: row.winsVsTier1 ?? 0,
+    winsVsTier2Plus: row.winsVsTier2Plus ?? 0,
+    effectiveWinsVsTier1: row.effectiveWinsVsTier1 ?? 0,
+    effectiveWinsVsTier2Plus: row.effectiveWinsVsTier2Plus ?? 0,
   }).onConflictDoUpdate({
     target: [playerRatings.playerId, playerRatings.mode],
     set: {
       ...row,
       effectiveGames: row.effectiveGames ?? row.gamesPlayed,
-      winsVsElite: row.winsVsElite ?? 0,
-      winsVsLegionPlus: row.winsVsLegionPlus ?? 0,
+      winsVsTier1: row.winsVsTier1 ?? 0,
+      winsVsTier2Plus: row.winsVsTier2Plus ?? 0,
+      effectiveWinsVsTier1: row.effectiveWinsVsTier1 ?? 0,
+      effectiveWinsVsTier2Plus: row.effectiveWinsVsTier2Plus ?? 0,
     },
   })
 }

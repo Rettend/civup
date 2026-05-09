@@ -8,6 +8,8 @@ import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 const NOW = 1_700_000_000_000
 const HERO_ID = 'p1'
 const VILLAIN_ID = 'p2'
+const ALLY_ID = 'p3'
+const OTHER_ID = 'p4'
 
 describe('match global ratings', () => {
   const directTerminalOptions = { allowDirectTerminalWriteForTests: true }
@@ -106,10 +108,14 @@ describe('match global ratings', () => {
       expect(modeRating?.gamesPlayed).toBe(1)
       expect(globalRating?.gamesPlayed).toBe(1)
       expect(globalRating?.effectiveGames).toBe(1)
-      expect(globalRating?.winsVsElite).toBe(1)
-      expect(globalRating?.winsVsLegionPlus).toBe(1)
-      expect(modeEvent?.winsVsEliteDelta).toBe(0)
-      expect(globalEvent?.winsVsEliteDelta).toBe(1)
+      expect(globalRating?.winsVsTier1).toBe(1)
+      expect(globalRating?.winsVsTier2Plus).toBe(1)
+      expect(globalRating?.effectiveWinsVsTier1).toBe(1)
+      expect(globalRating?.effectiveWinsVsTier2Plus).toBe(1)
+      expect(modeEvent?.winsVsTier1Delta).toBe(0)
+      expect(modeEvent?.effectiveWinsVsTier1Delta).toBe(0)
+      expect(globalEvent?.winsVsTier1Delta).toBe(1)
+      expect(globalEvent?.effectiveWinsVsTier1Delta).toBe(1)
       expect(globalEvent?.effectiveGamesDelta).toBe(1)
       expect(result.participants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
     }
@@ -137,10 +143,37 @@ describe('match global ratings', () => {
       expect(rating?.gamesPlayed).toBe(2)
       expect(rating?.importedGames).toBe(1)
       expect(rating?.effectiveGames).toBe(1.5)
-      expect(rating?.winsVsElite).toBe(0)
-      expect(rating?.winsVsLegionPlus).toBe(2)
+      expect(rating?.winsVsTier1).toBe(0)
+      expect(rating?.winsVsTier2Plus).toBe(2)
+      expect(rating?.effectiveWinsVsTier1).toBe(0)
+      expect(rating?.effectiveWinsVsTier2Plus).toBe(1.5)
       expect(oldEvent?.importedGamesDelta).toBe(1)
       expect(oldEvent?.effectiveGamesDelta).toBe(0.5)
+      expect(oldEvent?.effectiveWinsVsTier2PlusDelta).toBe(0.5)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('effective quality wins are weighted by winner team size', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await seedTeamPlayers(db)
+      await seedCompletedTeamMatch(db, { matchId: 'team-1', completedAt: NOW, isOld: false })
+
+      const result = await recalculateGlobalRatings(db, {
+        opponentTierByPlayerId: new Map([[VILLAIN_ID, 'tier2']]),
+      })
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+
+      const rating = await loadPlayerRating(db, HERO_ID, 'global')
+      const event = await loadPlayerRatingEvent(db, 'team-1', HERO_ID, 'global')
+      expect(rating?.winsVsTier2Plus).toBe(1)
+      expect(rating?.effectiveWinsVsTier2Plus).toBe(0.5)
+      expect(event?.effectiveWinsVsTier2PlusDelta).toBe(0.5)
     }
     finally {
       sqlite.close()
@@ -152,6 +185,15 @@ async function seedDuelPlayers(db: Awaited<ReturnType<typeof createTestDatabase>
   await db.insert(players).values([
     { id: HERO_ID, displayName: HERO_ID, avatarUrl: null, createdAt: NOW },
     { id: VILLAIN_ID, displayName: VILLAIN_ID, avatarUrl: null, createdAt: NOW },
+  ]).onConflictDoNothing()
+}
+
+async function seedTeamPlayers(db: Awaited<ReturnType<typeof createTestDatabase>>['db']): Promise<void> {
+  await db.insert(players).values([
+    { id: HERO_ID, displayName: HERO_ID, avatarUrl: null, createdAt: NOW },
+    { id: VILLAIN_ID, displayName: VILLAIN_ID, avatarUrl: null, createdAt: NOW },
+    { id: ALLY_ID, displayName: ALLY_ID, avatarUrl: null, createdAt: NOW },
+    { id: OTHER_ID, displayName: OTHER_ID, avatarUrl: null, createdAt: NOW },
   ]).onConflictDoNothing()
 }
 
@@ -188,6 +230,28 @@ async function seedCompletedDuel(
     draftData: null,
   })
   await seedDuelParticipants(db, input.matchId, 1)
+}
+
+async function seedCompletedTeamMatch(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  input: { matchId: string, completedAt: number, isOld: boolean },
+): Promise<void> {
+  await db.insert(matches).values({
+    id: input.matchId,
+    gameMode: '2v2',
+    status: 'completed',
+    isOld: input.isOld,
+    createdAt: input.completedAt,
+    completedAt: input.completedAt,
+    seasonId: null,
+    draftData: null,
+  })
+  await db.insert(matchParticipants).values([
+    { matchId: input.matchId, playerId: HERO_ID, team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: input.matchId, playerId: ALLY_ID, team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: input.matchId, playerId: VILLAIN_ID, team: 1, civId: null, placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: input.matchId, playerId: OTHER_ID, team: 1, civId: null, placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+  ])
 }
 
 async function seedDuelParticipants(

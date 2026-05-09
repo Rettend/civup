@@ -324,8 +324,8 @@ describe('player rank views', () => {
       winsDelta: 1,
       importedGamesDelta: 0,
       effectiveGamesDelta: 1,
-      winsVsEliteDelta: 0,
-      winsVsLegionPlusDelta: 0,
+      winsVsTier1Delta: 0,
+      winsVsTier2PlusDelta: 0,
       matchCreatedAt: NOW - 11_000,
       matchCompletedAt: NOW - 1_000,
       updatedAt: NOW,
@@ -597,24 +597,24 @@ async function seedRating(
     gamesPlayed: number
     lastPlayedAt: number
     effectiveGames?: number
-    winsVsElite?: number
-    winsVsLegionPlus?: number
+    winsVsTier1?: number
+    winsVsTier2Plus?: number
   },
 ): Promise<void> {
   await db.insert(playerRatings).values({
     ...row,
     wins: Math.max(0, row.gamesPlayed - 2),
     effectiveGames: row.effectiveGames ?? row.gamesPlayed,
-    winsVsElite: row.winsVsElite ?? 0,
-    winsVsLegionPlus: row.winsVsLegionPlus ?? 0,
+    winsVsTier1: row.winsVsTier1 ?? 0,
+    winsVsTier2Plus: row.winsVsTier2Plus ?? 0,
   }).onConflictDoUpdate({
     target: [playerRatings.playerId, playerRatings.mode],
     set: {
       ...row,
       wins: Math.max(0, row.gamesPlayed - 2),
       effectiveGames: row.effectiveGames ?? row.gamesPlayed,
-      winsVsElite: row.winsVsElite ?? 0,
-      winsVsLegionPlus: row.winsVsLegionPlus ?? 0,
+      winsVsTier1: row.winsVsTier1 ?? 0,
+      winsVsTier2Plus: row.winsVsTier2Plus ?? 0,
     },
   })
 }

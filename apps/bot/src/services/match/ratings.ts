@@ -65,8 +65,10 @@ interface HistoricalRatingEventRow {
   winsDelta: number
   importedGamesDelta: number
   effectiveGamesDelta: number
-  winsVsEliteDelta: number
-  winsVsLegionPlusDelta: number
+  winsVsTier1Delta: number
+  winsVsTier2PlusDelta: number
+  effectiveWinsVsTier1Delta: number
+  effectiveWinsVsTier2PlusDelta: number
 }
 
 interface RatingState {
@@ -76,8 +78,10 @@ interface RatingState {
   wins: number
   importedGames: number
   effectiveGames: number
-  winsVsElite: number
-  winsVsLegionPlus: number
+  winsVsTier1: number
+  winsVsTier2Plus: number
+  effectiveWinsVsTier1: number
+  effectiveWinsVsTier2Plus: number
   lastPlayedAt: number | null
 }
 
@@ -336,8 +340,10 @@ async function recalculateGlobalRatingsFromBoundary(
           winsDelta: playerRatingEvents.winsDelta,
           importedGamesDelta: playerRatingEvents.importedGamesDelta,
           effectiveGamesDelta: playerRatingEvents.effectiveGamesDelta,
-          winsVsEliteDelta: playerRatingEvents.winsVsEliteDelta,
-          winsVsLegionPlusDelta: playerRatingEvents.winsVsLegionPlusDelta,
+          winsVsTier1Delta: playerRatingEvents.winsVsTier1Delta,
+          winsVsTier2PlusDelta: playerRatingEvents.winsVsTier2PlusDelta,
+          effectiveWinsVsTier1Delta: playerRatingEvents.effectiveWinsVsTier1Delta,
+          effectiveWinsVsTier2PlusDelta: playerRatingEvents.effectiveWinsVsTier2PlusDelta,
         })
         .from(playerRatingEvents)
         .where(and(
@@ -649,8 +655,10 @@ function applySeasonResetsUntil(
           wins: 0,
           importedGames: 0,
           effectiveGames: 0,
-          winsVsElite: 0,
-          winsVsLegionPlus: 0,
+          winsVsTier1: 0,
+          winsVsTier2Plus: 0,
+          effectiveWinsVsTier1: 0,
+          effectiveWinsVsTier2Plus: 0,
         })
       }
     }
@@ -689,16 +697,19 @@ function hydrateRatingStateUntilBoundary(
 
       const currentState = ratingStateByPlayer.get(row.playerId) ?? createDefaultRatingState(row.playerId)
       const isImportedGame = row.isOld
-      const qualityWins = countQualityWinsForParticipant(row, currentMatchRows, options.opponentTierByPlayerId ?? new Map())
+      const sourceWeight = isImportedGame ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1
+      const qualityWins = countQualityWinsForParticipant(row, currentMatchRows, options.opponentTierByPlayerId ?? new Map(), sourceWeight)
       ratingStateByPlayer.set(row.playerId, {
         mu: row.ratingAfterMu,
         sigma: row.ratingAfterSigma,
         gamesPlayed: currentState.gamesPlayed + 1,
         wins: currentState.wins + (row.placement === 1 ? 1 : 0),
         importedGames: currentState.importedGames + (isImportedGame ? 1 : 0),
-        effectiveGames: currentState.effectiveGames + (isImportedGame ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1),
-        winsVsElite: currentState.winsVsElite + qualityWins.winsVsElite,
-        winsVsLegionPlus: currentState.winsVsLegionPlus + qualityWins.winsVsLegionPlus,
+        effectiveGames: currentState.effectiveGames + sourceWeight,
+        winsVsTier1: currentState.winsVsTier1 + qualityWins.winsVsTier1,
+        winsVsTier2Plus: currentState.winsVsTier2Plus + qualityWins.winsVsTier2Plus,
+        effectiveWinsVsTier1: currentState.effectiveWinsVsTier1 + qualityWins.effectiveWinsVsTier1,
+        effectiveWinsVsTier2Plus: currentState.effectiveWinsVsTier2Plus + qualityWins.effectiveWinsVsTier2Plus,
         lastPlayedAt: isImportedGame ? currentState.lastPlayedAt : (currentMatchCompletedAt ?? currentMatchCreatedAt),
       })
     }
@@ -745,8 +756,10 @@ function hydrateRatingStateFromEventsUntilBoundary(
       wins: currentState.wins + row.winsDelta,
       importedGames: currentState.importedGames + row.importedGamesDelta,
       effectiveGames: currentState.effectiveGames + row.effectiveGamesDelta,
-      winsVsElite: currentState.winsVsElite + row.winsVsEliteDelta,
-      winsVsLegionPlus: currentState.winsVsLegionPlus + row.winsVsLegionPlusDelta,
+      winsVsTier1: currentState.winsVsTier1 + row.winsVsTier1Delta,
+      winsVsTier2Plus: currentState.winsVsTier2Plus + row.winsVsTier2PlusDelta,
+      effectiveWinsVsTier1: currentState.effectiveWinsVsTier1 + row.effectiveWinsVsTier1Delta,
+      effectiveWinsVsTier2Plus: currentState.effectiveWinsVsTier2Plus + row.effectiveWinsVsTier2PlusDelta,
       lastPlayedAt: row.importedGamesDelta > 0 ? currentState.lastPlayedAt : (row.matchCompletedAt ?? row.matchCreatedAt),
     })
   }
@@ -792,11 +805,12 @@ async function replayCompletedMatch(
     if (!update) return `Failed to recalculate ratings for match **${match.id}**.`
 
     const currentState = ratingStateByPlayer.get(participant.playerId) ?? createDefaultRatingState(participant.playerId)
+    const sourceWeight = isImportedGame ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1
     const qualityWins = leaderboardMode == null
-      ? countQualityWinsForParticipant(participant, participantRows, options.opponentTierByPlayerId ?? new Map())
-      : { winsVsElite: 0, winsVsLegionPlus: 0 }
+      ? countQualityWinsForParticipant(participant, participantRows, options.opponentTierByPlayerId ?? new Map(), sourceWeight)
+      : { winsVsTier1: 0, winsVsTier2Plus: 0, effectiveWinsVsTier1: 0, effectiveWinsVsTier2Plus: 0 }
     const ratingBeforeMu = update.before.mu
-    const ratingAfter = scaleRatingAfterForSource(update, isImportedGame ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1)
+    const ratingAfter = scaleRatingAfterForSource(update, sourceWeight)
     const ratingAfterMu = ratingAfter.mu
     const ratingAfterSigma = ratingAfter.sigma
 
@@ -825,9 +839,11 @@ async function replayCompletedMatch(
       gamesPlayed: currentState.gamesPlayed + 1,
       wins: currentState.wins + (participant.placement === 1 ? 1 : 0),
       importedGames: currentState.importedGames + (isImportedGame ? 1 : 0),
-      effectiveGames: currentState.effectiveGames + (isImportedGame ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1),
-      winsVsElite: currentState.winsVsElite + qualityWins.winsVsElite,
-      winsVsLegionPlus: currentState.winsVsLegionPlus + qualityWins.winsVsLegionPlus,
+      effectiveGames: currentState.effectiveGames + sourceWeight,
+      winsVsTier1: currentState.winsVsTier1 + qualityWins.winsVsTier1,
+      winsVsTier2Plus: currentState.winsVsTier2Plus + qualityWins.winsVsTier2Plus,
+      effectiveWinsVsTier1: currentState.effectiveWinsVsTier1 + qualityWins.effectiveWinsVsTier1,
+      effectiveWinsVsTier2Plus: currentState.effectiveWinsVsTier2Plus + qualityWins.effectiveWinsVsTier2Plus,
       lastPlayedAt: isImportedGame ? currentState.lastPlayedAt : (match.completedAt ?? match.createdAt),
     })
 
@@ -843,9 +859,11 @@ async function replayCompletedMatch(
       gamesDelta: 1,
       winsDelta: participant.placement === 1 ? 1 : 0,
       importedGamesDelta: isImportedGame ? 1 : 0,
-      effectiveGamesDelta: isImportedGame ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1,
-      winsVsEliteDelta: qualityWins.winsVsElite,
-      winsVsLegionPlusDelta: qualityWins.winsVsLegionPlus,
+      effectiveGamesDelta: sourceWeight,
+      winsVsTier1Delta: qualityWins.winsVsTier1,
+      winsVsTier2PlusDelta: qualityWins.winsVsTier2Plus,
+      effectiveWinsVsTier1Delta: qualityWins.effectiveWinsVsTier1,
+      effectiveWinsVsTier2PlusDelta: qualityWins.effectiveWinsVsTier2Plus,
       matchCreatedAt: match.createdAt,
       matchCompletedAt: match.completedAt,
       updatedAt: Date.now(),
@@ -874,19 +892,37 @@ function countQualityWinsForParticipant(
   participant: Pick<StoredParticipantRow, 'playerId' | 'team' | 'placement'>,
   participantRows: Array<Pick<StoredParticipantRow, 'playerId' | 'team' | 'placement'>>,
   opponentTierByPlayerId: ReadonlyMap<string, string>,
-): { winsVsElite: number, winsVsLegionPlus: number } {
-  let winsVsElite = 0
-  let winsVsLegionPlus = 0
+  sourceWeight = 1,
+): { winsVsTier1: number, winsVsTier2Plus: number, effectiveWinsVsTier1: number, effectiveWinsVsTier2Plus: number } {
+  let winsVsTier1 = 0
+  let winsVsTier2Plus = 0
+  let effectiveWinsVsTier1 = 0
+  let effectiveWinsVsTier2Plus = 0
+  const effectiveWinCredit = sourceWeight / participantTeamSize(participant, participantRows)
 
   for (const opponent of participantRows) {
     if (!didDefeatOpponent(participant, opponent)) continue
     const opponentTierNumber = rankedRoleTierNumber(opponentTierByPlayerId.get(opponent.playerId) ?? null)
     if (opponentTierNumber == null) continue
-    if (opponentTierNumber <= 1) winsVsElite += 1
-    if (opponentTierNumber <= 2) winsVsLegionPlus += 1
+    if (opponentTierNumber <= 1) {
+      winsVsTier1 += 1
+      effectiveWinsVsTier1 += effectiveWinCredit
+    }
+    if (opponentTierNumber <= 2) {
+      winsVsTier2Plus += 1
+      effectiveWinsVsTier2Plus += effectiveWinCredit
+    }
   }
 
-  return { winsVsElite, winsVsLegionPlus }
+  return { winsVsTier1, winsVsTier2Plus, effectiveWinsVsTier1, effectiveWinsVsTier2Plus }
+}
+
+function participantTeamSize(
+  participant: Pick<StoredParticipantRow, 'playerId' | 'team'>,
+  participantRows: Array<Pick<StoredParticipantRow, 'playerId' | 'team'>>,
+): number {
+  if (participant.team == null) return 1
+  return Math.max(1, participantRows.filter(row => row.team === participant.team).length)
 }
 
 function didDefeatOpponent(
@@ -986,8 +1022,10 @@ async function replacePlayerRatings(
         wins: state.wins,
         importedGames: state.importedGames,
         effectiveGames: state.effectiveGames,
-        winsVsElite: state.winsVsElite,
-        winsVsLegionPlus: state.winsVsLegionPlus,
+        winsVsTier1: state.winsVsTier1,
+        winsVsTier2Plus: state.winsVsTier2Plus,
+        effectiveWinsVsTier1: state.effectiveWinsVsTier1,
+        effectiveWinsVsTier2Plus: state.effectiveWinsVsTier2Plus,
         lastPlayedAt: state.lastPlayedAt,
         updatedAt: Date.now(),
       }),
@@ -1028,8 +1066,10 @@ function createDefaultRatingState(playerId: string): RatingState {
     wins: 0,
     importedGames: 0,
     effectiveGames: 0,
-    winsVsElite: 0,
-    winsVsLegionPlus: 0,
+    winsVsTier1: 0,
+    winsVsTier2Plus: 0,
+    effectiveWinsVsTier1: 0,
+    effectiveWinsVsTier2Plus: 0,
     lastPlayedAt: null,
   }
 }

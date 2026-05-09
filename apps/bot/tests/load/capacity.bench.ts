@@ -114,15 +114,15 @@ const AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT = 0.5
 const ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES = 2
 const CURRENT_ARCHITECTURE_MODEL = 'current-non-hibernating-selected-session-sockets'
 const TARGET_ARCHITECTURE_MODEL = 'target-session-do-v4-hibernating-selected-sockets'
-const RANKED_FINISH_MODEL = 'ranked-replacement-global-mode-summary-batched-context-async-role-sync-effective-only-gates'
+const RANKED_FINISH_MODEL = 'ranked-replacement-global-mode-summary-batched-context-async-role-sync-effective-quality-gates'
 const RANKED_QUALIFICATION_MIN_RAW_GAMES = 0
 const RANKED_QUALIFICATION_MIN_EFFECTIVE_GAMES = 8
-const RANKED_GLADIATOR_MIN_RAW_GAMES = 0
-const RANKED_GLADIATOR_MIN_EFFECTIVE_GAMES = 8
-const RANKED_LEGION_MIN_RAW_GAMES = 0
-const RANKED_LEGION_MIN_EFFECTIVE_GAMES = 14
-const RANKED_ELITE_MIN_RAW_GAMES = 0
-const RANKED_ELITE_MIN_EFFECTIVE_GAMES = 18
+const RANKED_TIER_3_MIN_RAW_GAMES = 0
+const RANKED_TIER_3_MIN_EFFECTIVE_GAMES = 8
+const RANKED_TIER_2_MIN_RAW_GAMES = 0
+const RANKED_TIER_2_MIN_EFFECTIVE_GAMES = 16
+const RANKED_TIER_1_MIN_RAW_GAMES = 0
+const RANKED_TIER_1_MIN_EFFECTIVE_GAMES = 18
 const MODELED_PRODUCTION_RATED_PLAYERS = 1_000
 const MODELED_PRODUCTION_COMPLETED_MATCHES = 10_000
 const MODELED_PRODUCTION_MATCH_PARTICIPANTS = 60_000
@@ -1541,12 +1541,12 @@ function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
       rankedFinishModel: RANKED_FINISH_MODEL,
       rankedQualificationMinRawGames: RANKED_QUALIFICATION_MIN_RAW_GAMES,
       rankedQualificationMinEffectiveGames: RANKED_QUALIFICATION_MIN_EFFECTIVE_GAMES,
-      rankedGladiatorMinRawGames: RANKED_GLADIATOR_MIN_RAW_GAMES,
-      rankedGladiatorMinEffectiveGames: RANKED_GLADIATOR_MIN_EFFECTIVE_GAMES,
-      rankedLegionMinRawGames: RANKED_LEGION_MIN_RAW_GAMES,
-      rankedLegionMinEffectiveGames: RANKED_LEGION_MIN_EFFECTIVE_GAMES,
-      rankedEliteMinRawGames: RANKED_ELITE_MIN_RAW_GAMES,
-      rankedEliteMinEffectiveGames: RANKED_ELITE_MIN_EFFECTIVE_GAMES,
+      rankedTier3MinRawGames: RANKED_TIER_3_MIN_RAW_GAMES,
+      rankedTier3MinEffectiveGames: RANKED_TIER_3_MIN_EFFECTIVE_GAMES,
+      rankedTier2MinRawGames: RANKED_TIER_2_MIN_RAW_GAMES,
+      rankedTier2MinEffectiveGames: RANKED_TIER_2_MIN_EFFECTIVE_GAMES,
+      rankedTier1MinRawGames: RANKED_TIER_1_MIN_RAW_GAMES,
+      rankedTier1MinEffectiveGames: RANKED_TIER_1_MIN_EFFECTIVE_GAMES,
       rankedFinishExtraRatingReadsPerPlayer: RANKED_FINISH_EXTRA_RATING_READS_PER_PLAYER,
       rankedFinishExtraRatingWritesPerPlayer: RANKED_FINISH_EXTRA_RATING_WRITES_PER_PLAYER,
       rankedFinishEventWritesPerPlayer: RANKED_FINISH_EVENT_WRITES_PER_PLAYER,
@@ -1690,12 +1690,12 @@ function printReports(reports: ScenarioReport[]): void {
     rankedFinishModel: RANKED_FINISH_MODEL,
     rankedQualificationMinRawGames: RANKED_QUALIFICATION_MIN_RAW_GAMES,
     rankedQualificationMinEffectiveGames: RANKED_QUALIFICATION_MIN_EFFECTIVE_GAMES,
-    rankedGladiatorMinRawGames: RANKED_GLADIATOR_MIN_RAW_GAMES,
-    rankedGladiatorMinEffectiveGames: RANKED_GLADIATOR_MIN_EFFECTIVE_GAMES,
-    rankedLegionMinRawGames: RANKED_LEGION_MIN_RAW_GAMES,
-    rankedLegionMinEffectiveGames: RANKED_LEGION_MIN_EFFECTIVE_GAMES,
-    rankedEliteMinRawGames: RANKED_ELITE_MIN_RAW_GAMES,
-    rankedEliteMinEffectiveGames: RANKED_ELITE_MIN_EFFECTIVE_GAMES,
+    rankedTier3MinRawGames: RANKED_TIER_3_MIN_RAW_GAMES,
+    rankedTier3MinEffectiveGames: RANKED_TIER_3_MIN_EFFECTIVE_GAMES,
+    rankedTier2MinRawGames: RANKED_TIER_2_MIN_RAW_GAMES,
+    rankedTier2MinEffectiveGames: RANKED_TIER_2_MIN_EFFECTIVE_GAMES,
+    rankedTier1MinRawGames: RANKED_TIER_1_MIN_RAW_GAMES,
+    rankedTier1MinEffectiveGames: RANKED_TIER_1_MIN_EFFECTIVE_GAMES,
     rankedFinishExtraRatingReadsPerPlayer: RANKED_FINISH_EXTRA_RATING_READS_PER_PLAYER,
     rankedFinishExtraRatingWritesPerPlayer: RANKED_FINISH_EXTRA_RATING_WRITES_PER_PLAYER,
     rankedFinishEventWritesPerPlayer: RANKED_FINISH_EVENT_WRITES_PER_PLAYER,

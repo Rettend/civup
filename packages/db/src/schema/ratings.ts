@@ -22,10 +22,14 @@ export const playerRatings = sqliteTable('player_ratings', {
   importedGames: integer('imported_games').notNull().default(0),
   /** Qualification evidence after source weighting */
   effectiveGames: real('effective_games').notNull().default(0),
-  /** Wins over managed Elite-ranked opponents */
-  winsVsElite: integer('wins_vs_elite').notNull().default(0),
-  /** Wins over managed Legion-or-better opponents */
-  winsVsLegionPlus: integer('wins_vs_legion_plus').notNull().default(0),
+  /** Wins over managed tier-1 opponents */
+  winsVsTier1: integer('wins_vs_tier_1').notNull().default(0),
+  /** Wins over managed tier-2-or-better opponents */
+  winsVsTier2Plus: integer('wins_vs_tier_2_plus').notNull().default(0),
+  /** Source/team-size weighted wins over managed tier-1 opponents */
+  effectiveWinsVsTier1: real('effective_wins_vs_tier_1').notNull().default(0),
+  /** Source/team-size weighted wins over managed tier-2-or-better opponents */
+  effectiveWinsVsTier2Plus: real('effective_wins_vs_tier_2_plus').notNull().default(0),
   /** Unix timestamp ms of last game */
   lastPlayedAt: integer('last_played_at', { mode: 'number' }),
   /** Unix timestamp ms of last summary update */
@@ -51,8 +55,10 @@ export const playerRatingEvents = sqliteTable('player_rating_events', {
   winsDelta: integer('wins_delta').notNull().default(0),
   importedGamesDelta: integer('imported_games_delta').notNull().default(0),
   effectiveGamesDelta: real('effective_games_delta').notNull().default(1),
-  winsVsEliteDelta: integer('wins_vs_elite_delta').notNull().default(0),
-  winsVsLegionPlusDelta: integer('wins_vs_legion_plus_delta').notNull().default(0),
+  winsVsTier1Delta: integer('wins_vs_tier_1_delta').notNull().default(0),
+  winsVsTier2PlusDelta: integer('wins_vs_tier_2_plus_delta').notNull().default(0),
+  effectiveWinsVsTier1Delta: real('effective_wins_vs_tier_1_delta').notNull().default(0),
+  effectiveWinsVsTier2PlusDelta: real('effective_wins_vs_tier_2_plus_delta').notNull().default(0),
   matchCreatedAt: integer('match_created_at').notNull(),
   matchCompletedAt: integer('match_completed_at', { mode: 'number' }),
   updatedAt: integer('updated_at', { mode: 'number' }),

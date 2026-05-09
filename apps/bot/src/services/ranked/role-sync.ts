@@ -158,8 +158,10 @@ interface GlobalRatingSnapshotRow {
   wins: number
   importedGames: number
   effectiveGames: number
-  winsVsElite: number
-  winsVsLegionPlus: number
+  winsVsTier1: number
+  winsVsTier2Plus: number
+  effectiveWinsVsTier1: number
+  effectiveWinsVsTier2Plus: number
   lastPlayedAt: number | null
 }
 
@@ -219,10 +221,14 @@ const DEMOTION_DELAY_SYNCS = 7
 const MAX_DISCORD_ROLE_CHANGES_PER_SYNC = 12
 const GLOBAL_RATING_SCOPE = 'global'
 const MODE_LADDER_MIN_GAMES = 10
-const ELITE_EVIDENCE_GATE = { effectiveGames: 18 }
-const LEGION_EVIDENCE_GATE = { effectiveGames: 14 }
-const GLADIATOR_EVIDENCE_GATE = { effectiveGames: 8 }
+const TIER_1_EVIDENCE_GATE = { effectiveGames: 18 }
+const TIER_2_EVIDENCE_GATE = { effectiveGames: 16 }
+const TIER_3_EVIDENCE_GATE = { effectiveGames: 8 }
 const BEST_MODE_QUALITY_FLOOR_MIN_GAMES = 20
+const TIER_3_EFFECTIVE_TIER_1_WIN_FLOOR = 0.5
+const TIER_3_EFFECTIVE_TIER_2_PLUS_WIN_FLOOR = 1 / 3
+const TIER_3_RAW_TIER_2_PLUS_WIN_FLOOR = 2
+const QUALITY_FLOOR_EPSILON = 1e-9
 
 function buildRankedTierThresholds(config: RankedRoleConfig): RankedTierThreshold[] {
   const prestigeTierCount = Math.max(0, getRankedRoleTierCount(config) - 1)
@@ -628,8 +634,10 @@ async function buildRankedRolePreviewState({
         wins: playerRatings.wins,
         importedGames: playerRatings.importedGames,
         effectiveGames: playerRatings.effectiveGames,
-        winsVsElite: playerRatings.winsVsElite,
-        winsVsLegionPlus: playerRatings.winsVsLegionPlus,
+        winsVsTier1: playerRatings.winsVsTier1,
+        winsVsTier2Plus: playerRatings.winsVsTier2Plus,
+        effectiveWinsVsTier1: playerRatings.effectiveWinsVsTier1,
+        effectiveWinsVsTier2Plus: playerRatings.effectiveWinsVsTier2Plus,
         lastPlayedAt: playerRatings.lastPlayedAt,
       })
       .from(playerRatings)
@@ -656,8 +664,10 @@ async function buildRankedRolePreviewState({
       wins: row.wins,
       importedGames: row.importedGames,
       effectiveGames: row.effectiveGames,
-      winsVsElite: row.winsVsElite,
-      winsVsLegionPlus: row.winsVsLegionPlus,
+      winsVsTier1: row.winsVsTier1,
+      winsVsTier2Plus: row.winsVsTier2Plus,
+      effectiveWinsVsTier1: row.effectiveWinsVsTier1,
+      effectiveWinsVsTier2Plus: row.effectiveWinsVsTier2Plus,
       lastPlayedAt: row.lastPlayedAt ?? null,
     }))
     .filter(row => isDiscordSnowflake(row.playerId))
@@ -735,7 +745,6 @@ async function buildRankedRolePreviewState({
           liveAssignment,
           globalRating,
           globalEarnTier: earnAssignment?.tier ?? fallbackTier,
-          previousAssignment,
           modeRatings: modeRatingsByPlayerId.get(playerId) ?? new Map(),
           laddersByMode,
           config,
@@ -750,7 +759,7 @@ async function buildRankedRolePreviewState({
         }), globalRating, config)
       : liveAssignment
     const finalAssignment = qualified && globalRating
-      ? applyThinEliteProtection(evidenceCappedAssignment, previousAssignment, globalRating)
+      ? applyThinTier1Protection(evidenceCappedAssignment, previousAssignment, globalRating)
       : evidenceCappedAssignment
 
     if (!qualified && previousAssignment == null) {
@@ -936,13 +945,13 @@ function capTierByEvidence(tier: CompetitiveTier, row: GlobalRatingSnapshotRow, 
   const tierNumber = rankedRoleTierNumber(tier)
   if (tierNumber == null) return tier
 
-  if (tierNumber <= 1 && !meetsEvidenceGate(row, ELITE_EVIDENCE_GATE)) {
+  if (tierNumber <= 1 && !meetsEvidenceGate(row, TIER_1_EVIDENCE_GATE)) {
     return capTierByEvidence(createRankedRoleTierId(2), row, config)
   }
-  if (tierNumber <= 2 && !meetsEvidenceGate(row, LEGION_EVIDENCE_GATE)) {
+  if (tierNumber <= 2 && !meetsEvidenceGate(row, TIER_2_EVIDENCE_GATE)) {
     return capTierByEvidence(createRankedRoleTierId(3), row, config)
   }
-  if (tierNumber <= 3 && !meetsEvidenceGate(row, GLADIATOR_EVIDENCE_GATE)) {
+  if (tierNumber <= 3 && !meetsEvidenceGate(row, TIER_3_EVIDENCE_GATE)) {
     return getLowestRankedRoleTier(config) ?? createRankedRoleTierId(getRankedRoleTierCount(config))
   }
 
@@ -968,13 +977,13 @@ function capAssignmentResultByEvidence(
   }
 }
 
-function applyThinEliteProtection(
+function applyThinTier1Protection(
   result: { assignment: CurrentRankAssignment, pendingDemotion: RankedRoleDemotionCandidate | null },
   previousAssignment: CurrentRankAssignment | null,
   row: GlobalRatingSnapshotRow,
 ): { assignment: CurrentRankAssignment, pendingDemotion: RankedRoleDemotionCandidate | null } {
   if (!previousAssignment || rankedRoleTierNumber(previousAssignment.tier) !== 1) return result
-  if (row.effectiveGames >= ELITE_EVIDENCE_GATE.effectiveGames) return result
+  if (row.effectiveGames >= TIER_1_EVIDENCE_GATE.effectiveGames) return result
   if (competitiveTierRank(result.assignment.tier) >= competitiveTierRank(previousAssignment.tier)) return result
   return {
     assignment: { tier: previousAssignment.tier, sourceMode: null },
@@ -986,12 +995,11 @@ function applyQualityFloor(input: {
   liveAssignment: { assignment: CurrentRankAssignment, pendingDemotion: RankedRoleDemotionCandidate | null }
   globalRating: GlobalRatingSnapshotRow
   globalEarnTier: CompetitiveTier
-  previousAssignment: CurrentRankAssignment | null
   modeRatings: Map<LeaderboardMode, RatingSnapshotRow>
   laddersByMode: Map<LeaderboardMode, LadderSnapshots>
   config: RankedRoleConfig
 }): { assignment: CurrentRankAssignment, pendingDemotion: RankedRoleDemotionCandidate | null } {
-  const floorTier = resolveQualityFloorTier(input)
+  const floorTier = resolveQualityFloorTier({ ...input, currentTier: input.liveAssignment.assignment.tier })
   if (!floorTier || competitiveTierRank(input.liveAssignment.assignment.tier) >= competitiveTierRank(floorTier)) {
     return input.liveAssignment
   }
@@ -1004,40 +1012,45 @@ function applyQualityFloor(input: {
 
 function resolveQualityFloorTier(input: {
   globalRating: GlobalRatingSnapshotRow
+  currentTier: CompetitiveTier
   globalEarnTier: CompetitiveTier
-  previousAssignment: CurrentRankAssignment | null
   modeRatings: Map<LeaderboardMode, RatingSnapshotRow>
   laddersByMode: Map<LeaderboardMode, LadderSnapshots>
   config: RankedRoleConfig
 }): CompetitiveTier | null {
-  if (!meetsEvidenceGate(input.globalRating, GLADIATOR_EVIDENCE_GATE)) return null
+  if (!meetsEvidenceGate(input.globalRating, TIER_3_EVIDENCE_GATE)) return null
 
-  const gladiatorTier = qualityFloorTier(3, input.config)
-  const legionTier = qualityFloorTier(2, input.config)
-  const hasLegionBestModeEvidence = playerHasLegionBestModeEvidence(input.globalRating.playerId, input.modeRatings, input.laddersByMode)
+  const tier3 = qualityFloorTier(3, input.config)
+  const tier2 = qualityFloorTier(2, input.config)
+  const hasTier2BestModeEvidence = playerHasTier2BestModeEvidence(input.globalRating.playerId, input.modeRatings, input.laddersByMode)
   let floorTier: CompetitiveTier | null = null
 
-  if (gladiatorTier && hasLegionBestModeEvidence) floorTier = morePrestigiousFloor(floorTier, gladiatorTier)
-  if (gladiatorTier && input.globalRating.winsVsLegionPlus >= 3) floorTier = morePrestigiousFloor(floorTier, gladiatorTier)
-  if (gladiatorTier && isAtLeastTier(input.previousAssignment?.tier ?? null, 3)) {
-    if (input.globalRating.winsVsElite >= 1 || input.globalRating.winsVsLegionPlus >= 2) {
-      floorTier = morePrestigiousFloor(floorTier, gladiatorTier)
-    }
+  if (tier3 && hasTier2BestModeEvidence) floorTier = morePrestigiousFloor(floorTier, tier3)
+  if (tier3 && rankedRoleTierNumber(input.currentTier) === 4 && hasTier3QualityWinFloor(input.globalRating)) {
+    floorTier = morePrestigiousFloor(floorTier, tier3)
   }
 
-  if (legionTier && meetsEvidenceGate(input.globalRating, LEGION_EVIDENCE_GATE)) {
-    if (isAtLeastTier(input.globalEarnTier, 3) && input.globalRating.winsVsElite >= 3 && input.globalRating.winsVsLegionPlus >= 15) {
-      floorTier = morePrestigiousFloor(floorTier, legionTier)
+  if (tier2 && meetsEvidenceGate(input.globalRating, TIER_2_EVIDENCE_GATE)) {
+    if (isAtLeastTier(input.globalEarnTier, 3) && input.globalRating.winsVsTier1 >= 3 && input.globalRating.winsVsTier2Plus >= 15) {
+      floorTier = morePrestigiousFloor(floorTier, tier2)
     }
-    if (hasLegionBestModeEvidence && input.globalRating.winsVsElite >= 3) {
-      floorTier = morePrestigiousFloor(floorTier, legionTier)
+    if (hasTier2BestModeEvidence && input.globalRating.winsVsTier1 >= 3) {
+      floorTier = morePrestigiousFloor(floorTier, tier2)
     }
   }
 
   return floorTier
 }
 
-function playerHasLegionBestModeEvidence(
+function hasTier3QualityWinFloor(row: GlobalRatingSnapshotRow): boolean {
+  return row.effectiveWinsVsTier1 + QUALITY_FLOOR_EPSILON >= TIER_3_EFFECTIVE_TIER_1_WIN_FLOOR
+    || (
+      row.winsVsTier2Plus >= TIER_3_RAW_TIER_2_PLUS_WIN_FLOOR
+      && row.effectiveWinsVsTier2Plus + QUALITY_FLOOR_EPSILON >= TIER_3_EFFECTIVE_TIER_2_PLUS_WIN_FLOOR
+    )
+}
+
+function playerHasTier2BestModeEvidence(
   playerId: string,
   modeRatings: Map<LeaderboardMode, RatingSnapshotRow>,
   laddersByMode: Map<LeaderboardMode, LadderSnapshots>,

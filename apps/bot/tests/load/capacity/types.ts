@@ -76,12 +76,12 @@ export interface CapacitySnapshot {
     rankedFinishModel: string
     rankedQualificationMinRawGames: number
     rankedQualificationMinEffectiveGames: number
-    rankedGladiatorMinRawGames: number
-    rankedGladiatorMinEffectiveGames: number
-    rankedLegionMinRawGames: number
-    rankedLegionMinEffectiveGames: number
-    rankedEliteMinRawGames: number
-    rankedEliteMinEffectiveGames: number
+    rankedTier3MinRawGames: number
+    rankedTier3MinEffectiveGames: number
+    rankedTier2MinRawGames: number
+    rankedTier2MinEffectiveGames: number
+    rankedTier1MinRawGames: number
+    rankedTier1MinEffectiveGames: number
     rankedFinishExtraRatingReadsPerPlayer: number
     rankedFinishExtraRatingWritesPerPlayer: number
     rankedFinishEventWritesPerPlayer: number
