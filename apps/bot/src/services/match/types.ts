@@ -81,6 +81,23 @@ export type ResolveMatchResult = ModeratedMatchResult | { error: string }
 export type CancelMatchResult = ModeratedMatchResult | { error: string }
 export type CorrectMatchLeadersResult = MatchLeaderCorrectionResult | { error: string }
 
+export interface ManualReportedMatchPlayerInput {
+  playerId: string
+  displayName: string
+  avatarUrl?: string | null
+  civId: string
+}
+
+export interface CreateManualReportedMatchInput {
+  matchId?: string
+  mode: GameMode
+  players: ManualReportedMatchPlayerInput[]
+  reporterId: string
+  reportedAt: number
+}
+
+export type CreateManualReportedMatchResult = ModeratedMatchResult | { error: string }
+
 export interface CreateDraftMatchInput {
   matchId: string
   mode: GameMode

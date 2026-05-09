@@ -8,7 +8,7 @@ import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../sess
 import { type DbBatchItem, runDbBatch } from '../db/batch.ts'
 import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
-import { getStoredGameModeContext } from './draft-data.ts'
+import { getStoredGameModeContext, isManualReportDraftData } from './draft-data.ts'
 import { parseModerationPlacements } from './placements.ts'
 import { recalculateLeaderboardMode } from './ratings.ts'
 
@@ -55,7 +55,7 @@ export async function resolveMatchByModerator(
 
   const previousStatus = match.status
 
-  const sessionValidationError = await validateReportableSession(options, input.matchId)
+  const sessionValidationError = await validateReportableSession(db, options, input.matchId)
   if (sessionValidationError) return { error: sessionValidationError }
 
   const parsedPlacements = parseModerationPlacements(gameContext.mode, input.placements, participants)
@@ -473,9 +473,12 @@ async function prepareReportedMatchForRecalculation(
 }
 
 async function validateReportableSession(
+  db: Database,
   options: MatchSessionLifecycleOptions,
   matchId: string,
 ): Promise<string | null> {
+  if (await isManualReportedMatch(db, matchId)) return null
+
   const { sessionNamespace } = options
   if (!sessionNamespace) {
     return options.allowDirectTerminalWriteForTests ? null : 'SessionDO binding is required to validate match lifecycle.'
@@ -574,6 +577,11 @@ async function runTerminalSessionCommand(
   matchId: string,
   command: { type: 'mark-reported' | 'cancel-session', at: number },
 ): Promise<string | null> {
+  if (await isManualReportedMatch(db, matchId)) {
+    await applyDirectTerminalCommand(db, matchId, command)
+    return null
+  }
+
   const { sessionNamespace } = options
   if (sessionNamespace) {
     try {
@@ -589,26 +597,34 @@ async function runTerminalSessionCommand(
     return 'SessionDO binding is required to update terminal match state.'
   }
 
-  if (command.type === 'mark-reported') {
-    const [match] = await db
-      .select({ completedAt: matches.completedAt })
-      .from(matches)
-      .where(eq(matches.id, matchId))
-      .limit(1)
-    await db.update(matches)
-      .set({ status: 'completed', completedAt: match?.completedAt ?? command.at })
-      .where(eq(matches.id, matchId))
-  }
-  else {
-    const [match] = await db
-      .select({ completedAt: matches.completedAt })
-      .from(matches)
-      .where(eq(matches.id, matchId))
-      .limit(1)
-    await db.update(matches)
-      .set({ status: 'cancelled', completedAt: match?.completedAt ?? command.at })
-      .where(eq(matches.id, matchId))
-  }
-  await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
+  await applyDirectTerminalCommand(db, matchId, command)
   return null
+}
+
+async function isManualReportedMatch(db: Database, matchId: string): Promise<boolean> {
+  const [match] = await db
+    .select({ draftData: matches.draftData })
+    .from(matches)
+    .where(eq(matches.id, matchId))
+    .limit(1)
+  return isManualReportDraftData(match?.draftData ?? null)
+}
+
+async function applyDirectTerminalCommand(
+  db: Database,
+  matchId: string,
+  command: { type: 'mark-reported' | 'cancel-session', at: number },
+): Promise<void> {
+  const [match] = await db
+    .select({ completedAt: matches.completedAt })
+    .from(matches)
+    .where(eq(matches.id, matchId))
+    .limit(1)
+
+  await db.update(matches)
+    .set(command.type === 'mark-reported'
+      ? { status: 'completed', completedAt: match?.completedAt ?? command.at }
+      : { status: 'cancelled', completedAt: match?.completedAt ?? command.at })
+    .where(eq(matches.id, matchId))
+  await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
 }

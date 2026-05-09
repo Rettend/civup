@@ -3,6 +3,7 @@ import type { MatchReporterIdentity } from './types.ts'
 import { formatModeLabel, parseGameMode, toLeaderboardMode } from '@civup/game'
 
 interface ParsedDraftData {
+  manualReport?: unknown
   completedAt?: unknown
   hostId?: unknown
   reportedById?: unknown
@@ -82,6 +83,11 @@ export function getRedDeathFromDraftData(draftData: string | null): boolean {
 export function getHiddenDraftFromDraftData(draftData: string | null): boolean {
   const parsed = parseDraftData(draftData)
   return parsed?.hiddenDraft === true
+}
+
+export function isManualReportDraftData(draftData: string | null): boolean {
+  const parsed = parseDraftData(draftData)
+  return parsed?.manualReport === true
 }
 
 export function getDraftStateFromDraftData(draftData: string | null): DraftState | null {
