@@ -1,16 +1,88 @@
 import { matches, matchParticipants, playerRatings, players } from '@civup/db'
-import { allLeaderIds } from '@civup/game'
+import { allLeaderIds, getLeaders } from '@civup/game'
 import { buildLeaderboard } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
-import { cancelMatchByModerator, correctMatchLeadersByModerator, recalculateLeaderboardMode, reportMatch, resolveMatchByModerator } from '../../src/services/match/index.ts'
+import { cancelMatchByModerator, correctMatchLeadersByModerator, createManualReportedMatch, recalculateLeaderboardMode, reportMatch, resolveMatchByModerator } from '../../src/services/match/index.ts'
 import { getSessionRecord, runSessionDraftLifecycleCommand, runSessionTerminalLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
 import { createLobby, getTestLobbyRuntime, setLobbyMemberPlayerIds, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('match moderation recalculation', () => {
   const directTerminalOptions = { allowDirectTerminalWriteForTests: true }
+
+  test('creates a manual completed team match with leaders and ratings', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      const result = await createManualReportedMatch(db, kv, {
+        matchId: 'manual-2v2',
+        mode: '2v2',
+        reporterId: 'mod',
+        reportedAt: 10_000,
+        players: buildManualPlayers(getLeaders('live').slice(0, 4).map(leader => leader.id)),
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+
+      expect(result.match.status).toBe('completed')
+      expect(JSON.parse(result.match.draftData ?? '{}').manualReport).toBe(true)
+      expect(result.recalculatedMatchIds).toEqual(['manual-2v2'])
+
+      const firstTeam = result.participants.filter(participant => participant.team === 0)
+      const secondTeam = result.participants.filter(participant => participant.team === 1)
+      expect(firstTeam).toHaveLength(2)
+      expect(secondTeam).toHaveLength(2)
+      expect(firstTeam.every(participant => participant.placement === 1)).toBe(true)
+      expect(secondTeam.every(participant => participant.placement === 2)).toBe(true)
+      expect(result.participants.every(participant => participant.civId && participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
+
+      const ratingRows = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duo'))
+      expect(ratingRows).toHaveLength(4)
+      expect(ratingRows.every(row => row.gamesPlayed === 1)).toBe(true)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('resolves a manual match without a session aggregate', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      const created = await createManualReportedMatch(db, kv, {
+        matchId: 'manual-resolve',
+        mode: '2v2',
+        reporterId: 'mod',
+        reportedAt: 10_000,
+        players: buildManualPlayers(getLeaders('live').slice(0, 4).map(leader => leader.id)),
+      })
+      expect('error' in created).toBe(false)
+      if ('error' in created) return
+
+      const resolved = await resolveMatchByModerator(db, kv, {
+        matchId: 'manual-resolve',
+        placements: '<@p3>',
+        resolvedAt: 11_000,
+      })
+
+      expect('error' in resolved).toBe(false)
+      if ('error' in resolved) return
+      expect(resolved.recalculatedMatchIds).toEqual(['manual-resolve'])
+
+      const p1 = resolved.participants.find(participant => participant.playerId === 'p1')
+      const p3 = resolved.participants.find(participant => participant.playerId === 'p3')
+      expect(p1?.placement).toBe(2)
+      expect(p3?.placement).toBe(1)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
 
   test('mod leader correction sets a reported participant to a live leader outside the original draft', async () => {
     const { db, sqlite } = await createTestDatabase()
@@ -941,6 +1013,15 @@ async function seedThreeCompletedDuels(db: any): Promise<void> {
     { playerId: 'p1', mode: 'duel', mu: 26, sigma: 7.2, gamesPlayed: 3, wins: 2, lastPlayedAt: 6000 },
     { playerId: 'p2', mode: 'duel', mu: 24, sigma: 7.2, gamesPlayed: 3, wins: 1, lastPlayedAt: 6000 },
   ])
+}
+
+function buildManualPlayers(leaderIds: string[]) {
+  return leaderIds.map((civId, index) => ({
+    playerId: `p${index + 1}`,
+    displayName: `P${index + 1}`,
+    avatarUrl: null,
+    civId,
+  }))
 }
 
 async function seedActiveFfaMatch(db: any): Promise<void> {
